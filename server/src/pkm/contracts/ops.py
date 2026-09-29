@@ -102,7 +102,7 @@ BlockOp = Annotated[Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
 
 class OpBatch(BaseModel):
     client_id: str = Field(min_length=1, max_length=64)
-    # Required since 2026-07-22 (bean pkm-ri5b): id-less batches cannot be
+    # Required: id-less batches cannot be
     # deduplicated, so any retry or replay re-applies. Pre-offline clients
     # now fail loudly (422) instead of corrupting silently.
     batch_id: str = Field(min_length=8, max_length=64)

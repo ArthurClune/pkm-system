@@ -34,7 +34,7 @@ def _ensure_schema_migrations(con: sqlite3.Connection) -> None:
 
 
 def _backfill_created_at(con: sqlite3.Connection) -> None:
-    """pkm-r7k8: fill NULL blocks.created_at from the block's page, for
+    """Fill NULL blocks.created_at from the block's page, for
     blocks that predate created_at existing (old Roam imports lacking
     :create/time). MIN() of the page's created_at and the block's own
     updated_at, because a merged/moved block can sit on a page created
@@ -55,7 +55,7 @@ def _backfill_created_at(con: sqlite3.Connection) -> None:
 
 
 def _backfill_block_refs(con: sqlite3.Connection) -> None:
-    """pkm-d31f: one-time historical catch-up. Blocks written before
+    """One-time historical catch-up. Blocks written before
     ops_apply maintained block_refs are indexed exactly once, guarded by a
     sync_meta marker rather than "table is empty" -- an empty table is a
     legitimate state for a graph with no ((refs)). Runs inside init_db's
@@ -83,21 +83,21 @@ def init_db(path: Path) -> None:
     entrypoints) or from test fixtures, before any connection-per-request
     is opened — never from open_db() itself. Both operations here take
     locks that are incompatible with any other connection's open write
-    transaction, so running them per-request (the pre-pkm-lhzd behavior)
+    transaction, so running them per-request (the previous behavior)
     could raise 'database is locked' on an ordinary concurrent request.
 
-    schema.DDL is entirely IF-NOT-EXISTS (pkm-cqu2), and guarded column
+    schema.DDL is entirely IF-NOT-EXISTS, and guarded column
     migrations run immediately afterwards, so setup is safe for every
     database this can be pointed at: a brand-new, empty
     data dir (no Roam import ever run -- previously left with zero
     tables, so every page route 500'd with 'no such table: pages'), a
     database the importer already built (same DDL, so this is a no-op),
-    and a pre-pkm-lhzd already-populated database missing a table added
+    and an already-populated database missing a table added
     since (e.g. sidebar_entries or blocks.view_type), which picks it up
     with no manual migration step. Then _backfill_created_at() fills any
-    NULL blocks.created_at left by old Roam imports (pkm-r7k8); like the
+    NULL blocks.created_at left by old Roam imports; like the
     migrations above it is guarded to be a no-op past the first run.
-    _backfill_block_refs() catches up the `((uid))` index once (pkm-d31f),
+    _backfill_block_refs() catches up the `((uid))` index once,
     guarded by a sync_meta marker."""
     con = sqlite3.connect(path)
     try:

@@ -1,5 +1,5 @@
 # pattern: Imperative Shell
-"""Serve files from Config.local_docs_root read-only (pkm-g1ep). This is
+"""Serve files from Config.local_docs_root read-only. This is
 the one route that reads outside the data dir, so the containment
 check in local_docs.py is the only guard: anything it rejects is a 404,
 and a resolved path that is not under the resolved root (a symlink out,

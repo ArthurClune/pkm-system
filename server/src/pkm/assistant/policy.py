@@ -26,7 +26,7 @@ ZAI_MODELS: tuple[str, ...] = ("glm",)
 
 _MAX_VALUE_CHARS = 120
 
-# ops_preview (pkm-c98s item 6) is what the user reads before approving a
+# ops_preview is what the user reads before approving a
 # write, not the transient "tool is running" indicator -- it must show
 # (almost) everything, clipping only pathologically long values (e.g. a
 # save_note with megabytes of pasted text) so the approval UI stays
@@ -76,7 +76,7 @@ def available_models(*, zai_configured: bool) -> list[str]:
 
 
 def default_model(available: Sequence[str]) -> str:
-    """glm when it is servable, else sonnet (pkm-452i). The default depends
+    """glm when it is servable, else sonnet. The default depends
     on availability because glm rides a z.ai key: a keyless deployment must
     fall back rather than reject every default-model create."""
     return "glm" if "glm" in available else "sonnet"
@@ -141,7 +141,7 @@ def _batch_lines(commands: list) -> list[str]:
 def ops_preview(short: str, tool_input: dict) -> str:
     # `batch` gets a per-operation listing; everything else falls through to
     # the generic dump of every argument. A batch payload we can't read as a
-    # list of commands falls through too (pkm-y3rr): this branch once looked
+    # list of commands falls through too: this branch once looked
     # for an `ops` key the tool never emitted -- its signature is
     # batch(commands) -- and rendered "batch: 0 operation(s)" for every real
     # write, so users were approving blind. Degrading to the verbose generic

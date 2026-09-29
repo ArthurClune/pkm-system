@@ -1,5 +1,5 @@
 # pattern: Imperative Shell
-"""Background queue + worker that fills assets.description (pkm-zc0c).
+"""Background queue + worker that fills assets.description.
 
 One sequential worker per process (rate-limit friendly); the queue is
 in-memory only — a restart drops it, and POST /api/assets/scan re-enqueues
@@ -45,7 +45,7 @@ class DescribeService:
         self._shutdown_task: asyncio.Task[None] | None = None
         self._closed = False
         # SHAs currently queued or mid-attempt; guards at most one ordinary
-        # in-flight describe per asset (pkm-1wv1). Cleared in the worker's
+        # in-flight describe per asset. Cleared in the worker's
         # `finally` so a crash never permanently blocks a sha -- it's a
         # concurrency guard, not a history of past failures, so an
         # explicit force-retry (scan(force=True)) still reaches a sha once
@@ -135,7 +135,7 @@ class DescribeService:
 
     def scan(self, db: sqlite3.Connection, force: bool = False) -> int:
         """Enqueue every undescribed eligible asset; force retries failures.
-        Skips any sha already queued/in-flight (pkm-1wv1) -- a repeat scan
+        Skips any sha already queued/in-flight -- a repeat scan
         before the worker drains must not double up an attempt."""
         if not self.enabled:
             return 0
@@ -151,7 +151,7 @@ class DescribeService:
     def _enqueue_if_eligible(self, sha256: str, mime: str, size: int) -> bool:
         """Shared enqueue ritual for `maybe_enqueue` and `scan`: skip a mime
         that can never be described, and skip a sha already queued or
-        mid-attempt (pkm-1wv1) so a repeat call never double-queues it.
+        mid-attempt so a repeat call never double-queues it.
         Returns whether it actually queued the sha."""
         if describe_action(mime, size) == "skip" or sha256 in self._active:
             return False

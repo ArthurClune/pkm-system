@@ -388,7 +388,7 @@ def _login_http(url: str) -> httpx2.Client:
 
 
 def _emit(data: BaseModel, rendered: str, as_json: bool) -> None:
-    # minified: agent loops resend tool output every turn (pkm-roph).
+    # minified: agent loops resend tool output every turn.
     # Dumping the contract model, not the raw body, is what makes --json
     # and the rendered output two views of the same validated payload.
     print(data.model_dump_json() if as_json else rendered, end="")

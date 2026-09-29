@@ -1,6 +1,6 @@
 # pattern: Functional Core
 """Parse a since/until change window and classify blocks as new or edited
-within it, for `GET /api/changed` (pkm-6eea, `pkm changed`). Pure: the
+within it, for `GET /api/changed` (`pkm changed`). Pure: the
 clock ("now") and the local timezone are passed in by the caller, never
 read here, so the window math is exercised without mocking the system
 clock."""

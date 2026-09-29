@@ -100,7 +100,7 @@ def _with_parent_closure(db: sqlite3.Connection,
                          ) -> dict[str, sqlite3.Row]:
     """Extend block_rows with every ancestor block (parent, grandparent,
     ...) not already present, walking the parent_uid chain to a fixpoint
-    via chunked queries (pkm-qvlx): a window whose journal rows predate a
+    via chunked queries: a window whose journal rows predate a
     parent-child move can hydrate a block whose parent_uid points at a
     block none of this window's rows created, and a replica applying
     windows under deferred FKs needs that ancestor shipped in the same or
@@ -124,12 +124,12 @@ def _with_parent_closure(db: sqlite3.Connection,
 def _block_payloads(db: sqlite3.Connection,
                     uids: list[str]) -> tuple[list[SyncBlock], set[int]]:
     """Hydrate blocks + their refs, plus their transitive parent-block
-    closure (pkm-qvlx). Also return every page id a shipped block depends
+    closure. Also return every page id a shipped block depends
     on: ref target pages (spec section 1 -- a window boundary can split a
     block+refs from the implicitly-created page it points at) and each
     shipped block's OWN page (a block moved to a brand-new page has the
     same hazard). Fetched via chunked `WHERE uid IN (...)` set queries
-    rather than one query per uid (pkm-ldqx) -- a legal window/snapshot
+    rather than one query per uid -- a legal window/snapshot
     can carry thousands of uids."""
     if not uids:
         return [], set()

@@ -42,7 +42,7 @@ hashes are copied from the live store, and vanished hashes are simply left
 out of the new tree (pruned).
 
 An asset already present is only hardlinked after it passes verification
-against the assets row's known sha256/size (pkm-x3l7), via the shared
+against the assets row's known sha256/size, via the shared
 `assets_disk.asset_on_disk_needs_repair` boundary the importer's asset
 copy also runs: a cheap stat-based size check first, and only once that
 matches, a full sha256 of its bytes. A file that fails either check is

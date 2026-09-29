@@ -106,7 +106,7 @@ def scenarios(lm: Landmarks, max_seq: int) -> list[Scenario]:
         g("sync/changes-mid", "/api/sync/changes", since=max_seq // 2),
         Scenario("ops/edit-1", "POST", "/api/ops", body=batch(
             [{"op": "update_text", "uid": lm.edit_uid, "text": "edited by the perf check"}]), writes=True),
-        # Hashed update_text paths (pkm-wy1v): edit-1 above sends no
+        # Hashed update_text paths: edit-1 above sends no
         # base_text_hash at all, so it only ever exercises the legacy
         # hashless branch (ops_core.classify_text_edit is never called).
         # These four all target lm.hashed_edit_uid / lm.rename_ref_uid,
@@ -135,7 +135,7 @@ def scenarios(lm: Landmarks, max_seq: int) -> list[Scenario]:
             [{"op": "update_text", "uid": lm.rename_ref_uid,
               "text": RENAME_REF_TEXT + " (offline edit predating the rename)",
               "base_text_hash": text_hash(RENAME_REF_TEXT)}]), writes=True),
-        # Missing-target landings (pkm-foap): op.uid / op.parent_uid name
+        # Missing-target landings: op.uid / op.parent_uid name
         # nothing the server has, so classify_skip diverts the
         # op instead of failing the whole batch.
         Scenario("ops/edit-missing-block", "POST", "/api/ops", body=batch(

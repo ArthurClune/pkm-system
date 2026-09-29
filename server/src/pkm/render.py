@@ -4,7 +4,7 @@
 and whether to include uids. Transport-neutral on purpose: `pkm` and
 `pkm-mcp` both render through here, so this module imports neither.
 
-Takes the contract models rather than dicts (pkm-0wr8): a renderer
+Takes the contract models rather than dicts: a renderer
 reading a field the server no longer sends is now a type error here, not
 a KeyError in front of the user mid-command."""
 from __future__ import annotations

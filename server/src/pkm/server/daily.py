@@ -22,7 +22,7 @@ def is_page_empty(texts: Sequence[str]) -> bool:
 
 def select_journal_days(nonempty: Iterable[date], today: date,
                         before: date | None, limit: int) -> list[date]:
-    """The dates a journal batch shows, newest first (pkm-03x6). With no
+    """The dates a journal batch shows, newest first. With no
     cursor: today leads — always, even when empty, so there is a page to
     compose into — followed by the most recent non-empty days before it.
     With a `before` cursor: the most recent non-empty days strictly before

@@ -55,15 +55,15 @@ MAX_TURNS = 40
 
 # A harness parked inside can_use_tool cannot acknowledge an interrupt until
 # the permission decision arrives, and it may be wedged for other reasons
-# too. Cleanup after a dropped consumer must never hang on it (pkm-mbcc).
+# too. Cleanup after a dropped consumer must never hang on it.
 INTERRUPT_TIMEOUT_S = 5.0
 
 # The SDK's model request has no first-token timeout: on a dead network the
 # turn waits forever and only the user's patience ends it (2026-07-31 outage:
 # 7.5 minutes of "thinking..." dead air). Total SDK-message silence this long
 # is unambiguously a stall -- during honest reasoning both harnesses emit a
-# steady flow of thinking_delta stream events (verified live 2026-08-19,
-# pkm-e9ok) -- EXCEPT while a confirm is parked on the user, whose silence is
+# steady flow of thinking_delta stream events (verified live 2026-08-19)
+# -- EXCEPT while a confirm is parked on the user, whose silence is
 # never a stall (see _pump).
 STALL_TIMEOUT_S = 300.0
 
@@ -96,7 +96,7 @@ class TurnMapper:
                 # The block's start arrives tens of seconds before the SDK
                 # assembles the whole block into an AssistantMessage -- for a
                 # tool_use block that gap is the longest silent stretch of the
-                # turn, so the phase label must come from here (pkm-e9ok).
+                # turn, so the phase label must come from here.
                 block = event.get("content_block") or {}
                 block_type = block.get("type")
                 if block_type == "thinking":
@@ -144,8 +144,7 @@ class ClaudeConversation:
         # Flips to False the moment an interrupt on this harness goes
         # unacknowledged (timed out or raised) -- see send()'s cleanup
         # below. The owner (AssistantService) checks this after the turn
-        # ends and retires rather than reuses a handle gone unhealthy
-        # (pkm-rwwc).
+        # ends and retires rather than reuses a handle gone unhealthy.
         self.healthy = True
 
     def attach(self, client: Any) -> None:
@@ -231,7 +230,7 @@ class ClaudeConversation:
         Decline FIRST. The harness cannot answer an interrupt while it sits in
         `can_use_tool` awaiting the very decision this supplies, so doing it
         after `interrupt()` left the decline unreachable in exactly the case
-        it exists for (pkm-mbcc defect 2: a wedged harness, no tool_result,
+        it exists for (a wedged harness, no tool_result,
         and a panel showing nothing at all, until the process restarted).
         """
         self._decline_pending()
@@ -251,7 +250,7 @@ class ClaudeConversation:
             # The subprocess may still be executing the abandoned turn: an
             # interrupt it never acknowledged is not proof it stopped. Mark
             # this handle unhealthy so the caller (AssistantService) tears it
-            # down instead of handing it a later turn (pkm-rwwc).
+            # down instead of handing it a later turn.
             self.healthy = False
         except asyncio.CancelledError:
             # An abandoned wait says as little about the harness as a
@@ -308,7 +307,7 @@ class ClaudeConversation:
                     await pending
 
     async def _stall(self) -> None:
-        """Kill a turn the model has gone totally silent on (pkm-e9ok D).
+        """Kill a turn the model has gone totally silent on.
 
         Interrupt FIRST, then report: the ErrorEvent ends the consumer's
         loop (send() treats it as the turn's end and cancels this pump), so
@@ -356,8 +355,7 @@ class ClaudeConversation:
             # Exception` guard on disconnect() does not catch it. The 0600
             # session-token file must still be removed even then, so the
             # unlink lives in this `finally` rather than as a trailing
-            # statement a second cancellation could skip (pkm-4zq4 fix
-            # round 1).
+            # statement a second cancellation could skip.
             self._config_path.unlink(missing_ok=True)
 
 
@@ -417,13 +415,13 @@ class ClaudeEngine:
         except BaseException:
             # A factory failure, a failed connect handshake, or cancellation
             # while awaiting connect (service.create()'s admission-lock
-            # wait_for(create_timeout) times out on a wedged harness,
-            # pkm-rovq) must not leave the 0600 credential file or a
+            # wait_for(create_timeout) times out on a wedged harness)
+            # must not leave the 0600 credential file or a
             # half-started client behind for the next create() to trip over.
             # ClaudeConversation.close() already tolerates a client that
             # never connected (or was never attached) and a disconnect()
             # that itself raises, so reuse it instead of duplicating that
-            # handling here (pkm-4zq4).
+            # handling here.
             await conversation.close()
             raise
         # the requested name, not the SDK alias: a glm harness must not log

@@ -98,7 +98,7 @@ def create_app(
     # WAL mode + a working schema un-forgettable for any entrypoint or
     # direct create_app(config) call that serves DB routes -- including a
     # brand-new data dir that never had an import run against it
-    # (pkm-cqu2) -- rather than relying on every caller remembering to run
+    # -- rather than relying on every caller remembering to run
     # it first (run.py used to be the only such call).
     init_db(config.db_path)
     app = FastAPI(

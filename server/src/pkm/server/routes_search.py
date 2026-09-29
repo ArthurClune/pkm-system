@@ -89,8 +89,8 @@ def titles(q: str = "", limit: int = 10,
 @router.get("/api/todos", response_model=GroupsPayload)
 def todos(page: str | None = None,
           db: sqlite3.Connection = Depends(get_db)) -> dict:
-    """Blocks whose text starts with a {{TODO}} marker, grouped by page
-    (pkm-w05j). SQL narrows to TODO-containing candidates; the shared
+    """Blocks whose text starts with a {{TODO}} marker, grouped by page.
+    SQL narrows to TODO-containing candidates; the shared
     pkm.todo matcher (the grammar's block-start rule, both bracket
     variants, '> ' quote prefix) decides. Marker-based rather than
     refs-based: the editor emits the bracket-less {{TODO}}, which
@@ -113,7 +113,7 @@ def changed(since: str, until: str | None = None, page: str | None = None,
            limit: int = 500,
            db: sqlite3.Connection = Depends(get_db)) -> dict:
     """Blocks touched in [since, until), grouped by page in the order
-    each page was first touched (pkm-6eea). `since`/`until` are each
+    each page was first touched. `since`/`until` are each
     either a 'YYYY-MM-DD' date (local midnight) or a full ISO datetime
     (naive = local time, aware = honoured as given); `until` defaults to
     now and is exclusive. A block is 'new' when its created_at falls in

@@ -2,7 +2,7 @@
 """Log formatting: request lines and the uvicorn logging config.
 
 Both exist because the stock uvicorn output proved undiagnosable after
-the fact (pkm-0fx3): no timestamps anywhere and no request durations, so
+the fact: no timestamps anywhere and no request durations, so
 a "the app hung yesterday" report can't be correlated with anything.
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ def uvicorn_log_config() -> dict:
     vanish via root-logger propagation (nothing configures the root
     logger); this bit `pkm.assets`
     and `pkm.assistant` before this parent policy existed, repeating the
-    drift once fixed one logger at a time for `pkm.describe` (pkm-4z9r).
+    drift once fixed one logger at a time for `pkm.describe`.
 
     `pkm.access` (the request-duration middleware, replacing uvicorn's own
     duration-less access log disabled in run.py) keeps its own explicit

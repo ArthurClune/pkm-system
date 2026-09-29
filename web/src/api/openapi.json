@@ -125,7 +125,7 @@
     "/api/block-refs": {
       "get": {
         "summary": "Get Block Refs",
-        "description": "On-demand ((uid)) resolution for refs pasted after the page payload\nloaded (pkm-y6af). `uids` is comma-separated; unknown uids are omitted\n(the client renders them unresolved, same as the payload path).",
+        "description": "On-demand ((uid)) resolution for refs pasted after the page payload\nloaded. `uids` is comma-separated; unknown uids are omitted\n(the client renders them unresolved, same as the payload path).",
         "operationId": "get_block_refs_api_block_refs_get",
         "parameters": [
           {
@@ -165,7 +165,7 @@
     "/api/block/{uid}/backlinks": {
       "get": {
         "summary": "Get Block Backlinks",
-        "description": "The ((uid)) badge's popover read (pkm-d31f): who references this\nblock. Same group shape and ordering as page backlinks; the count badge\nitself rides the page/journal payloads (block_ref_counts).",
+        "description": "The ((uid)) badge's popover read: who references this\nblock. Same group shape and ordering as page backlinks; the count badge\nitself rides the page/journal payloads (block_ref_counts).",
         "operationId": "get_block_backlinks_api_block__uid__backlinks_get",
         "parameters": [
           {
@@ -205,7 +205,7 @@
     "/api/block/{uid}": {
       "get": {
         "summary": "Get Block",
-        "description": "One block's subtree plus its page and ancestor texts (pkm-w05j:\nthe CLI/MCP `get <uid>` read; pages remain the only other read unit).",
+        "description": "One block's subtree plus its page and ancestor texts (the CLI/MCP\n`get <uid>` read; pages remain the only other read unit).",
         "operationId": "get_block_api_block__uid__get",
         "parameters": [
           {
@@ -538,7 +538,7 @@
     "/api/journal": {
       "get": {
         "summary": "Get Journal",
-        "description": "Newest-first batch of non-empty daily pages (pkm-03x6). The head\nbatch (no `before`) starts with today \u2014 auto-created so there is a\npage to compose into, even when empty \u2014 followed by the most recent\nnon-empty days; `before` pages strictly backwards from that date. A\nday with no blocks but an inbound [[link]] from elsewhere counts as\nnon-empty too, so a reminder written on another page surfaces under\nthe day it points at (pkm-vvta) once that day would otherwise show.\nEmpty, unreferenced days are omitted, and a batch shorter than `days`\ntells the client the journal is exhausted.\n\nEach day carries its own linked-references preview\n(JOURNAL_BACKLINK_PREVIEW pages of them), so a scroll of N days is N/batch\nrequests rather than one page read per day (pkm-5fak).",
+        "description": "Newest-first batch of non-empty daily pages. The head\nbatch (no `before`) starts with today \u2014 auto-created so there is a\npage to compose into, even when empty \u2014 followed by the most recent\nnon-empty days; `before` pages strictly backwards from that date. A\nday with no blocks but an inbound [[link]] from elsewhere counts as\nnon-empty too, so a reminder written on another page surfaces under\nthe day it points at once that day would otherwise show.\nEmpty, unreferenced days are omitted, and a batch shorter than `days`\ntells the client the journal is exhausted.\n\nEach day carries its own linked-references preview\n(JOURNAL_BACKLINK_PREVIEW pages of them), so a scroll of N days is N/batch\nrequests rather than one page read per day.",
         "operationId": "get_journal_api_journal_get",
         "parameters": [
           {
@@ -776,7 +776,7 @@
     "/api/todos": {
       "get": {
         "summary": "Todos",
-        "description": "Blocks whose text starts with a {{TODO}} marker, grouped by page\n(pkm-w05j). SQL narrows to TODO-containing candidates; the shared\npkm.todo matcher (the grammar's block-start rule, both bracket\nvariants, '> ' quote prefix) decides. Marker-based rather than\nrefs-based: the editor emits the bracket-less {{TODO}}, which\ncreates no ref row to query.",
+        "description": "Blocks whose text starts with a {{TODO}} marker, grouped by page.\nSQL narrows to TODO-containing candidates; the shared\npkm.todo matcher (the grammar's block-start rule, both bracket\nvariants, '> ' quote prefix) decides. Marker-based rather than\nrefs-based: the editor emits the bracket-less {{TODO}}, which\ncreates no ref row to query.",
         "operationId": "todos_api_todos_get",
         "parameters": [
           {
@@ -823,7 +823,7 @@
     "/api/changed": {
       "get": {
         "summary": "Changed",
-        "description": "Blocks touched in [since, until), grouped by page in the order\neach page was first touched (pkm-6eea). `since`/`until` are each\neither a 'YYYY-MM-DD' date (local midnight) or a full ISO datetime\n(naive = local time, aware = honoured as given); `until` defaults to\nnow and is exclusive. A block is 'new' when its created_at falls in\nthe window, else 'edited' -- `updated_at` is used as recorded, so a\nmove, indent, or rename also counts as an edit, and a block edited\nmore than once in the window shows only its latest edit time.",
+        "description": "Blocks touched in [since, until), grouped by page in the order\neach page was first touched. `since`/`until` are each\neither a 'YYYY-MM-DD' date (local midnight) or a full ISO datetime\n(naive = local time, aware = honoured as given); `until` defaults to\nnow and is exclusive. A block is 'new' when its created_at falls in\nthe window, else 'edited' -- `updated_at` is used as recorded, so a\nmove, indent, or rename also counts as an edit, and a block edited\nmore than once in the window shows only its latest edit time.",
         "operationId": "changed_api_changed_get",
         "parameters": [
           {
@@ -1149,7 +1149,7 @@
     "/api/assets/search": {
       "get": {
         "summary": "Search Assets",
-        "description": "LIKE search over description + filename (pkm-zc0c). Empty q lists\nmost-recent uploads. LIKE, not FTS: personal-scale table, and no\noffline-parity burden. pkm-jdu3 adds type/date/linked filters,\noffset pagination, and a total count. linked/orphan filtering needs\nrefs for every candidate, so that path scans the filtered set\n(personal scale keeps it cheap); linked=all computes refs only for\nthe returned page.",
+        "description": "LIKE search over description + filename. Empty q lists\nmost-recent uploads. LIKE, not FTS: personal-scale table, and no\noffline-parity burden. Adds type/date/linked filters,\noffset pagination, and a total count. linked/orphan filtering needs\nrefs for every candidate, so that path scans the filtered set\n(personal scale keeps it cheap); linked=all computes refs only for\nthe returned page.",
         "operationId": "search_assets_api_assets_search_get",
         "parameters": [
           {
@@ -1316,7 +1316,7 @@
     "/api/assets/export.zip": {
       "post": {
         "summary": "Export Assets",
-        "description": "Zip the selected assets under their original filenames (name\ncollisions get a short sha prefix via zip_arcnames). Form-encoded so\nthe web app can drive it with a plain <form method=\"post\"> and let\nthe browser own the download. Unknown, malformed, duplicate, and\nmissing-on-disk shas are skipped, not errors: the zip honestly\ncontains what could be exported.\n\npkm-13ty: the selection's count and total bytes (summed from the\n`assets` table -- no file is opened just to measure it) are checked\nagainst MAX_EXPORT_ASSET_COUNT/MAX_EXPORT_TOTAL_BYTES before any zip\nis built; over either limit the request is refused with 413, never\nsilently truncated. The archive itself is built in a temp directory\nand streamed back via FileResponse (not buffered whole in memory),\nwith the directory removed once the response finishes, errors, or is\ninterrupted (CleanupFileResponse).",
+        "description": "Zip the selected assets under their original filenames (name\ncollisions get a short sha prefix via zip_arcnames). Form-encoded so\nthe web app can drive it with a plain <form method=\"post\"> and let\nthe browser own the download. Unknown, malformed, duplicate, and\nmissing-on-disk shas are skipped, not errors: the zip honestly\ncontains what could be exported.\n\nThe selection's count and total bytes (summed from the\n`assets` table -- no file is opened just to measure it) are checked\nagainst MAX_EXPORT_ASSET_COUNT/MAX_EXPORT_TOTAL_BYTES before any zip\nis built; over either limit the request is refused with 413, never\nsilently truncated. The archive itself is built in a temp directory\nand streamed back via FileResponse (not buffered whole in memory),\nwith the directory removed once the response finishes, errors, or is\ninterrupted (CleanupFileResponse).",
         "operationId": "export_assets_api_assets_export_zip_post",
         "requestBody": {
           "content": {
@@ -1681,7 +1681,7 @@
     "/api/export.zip": {
       "get": {
         "summary": "Export All Markdown",
-        "description": "Whole-graph export, zipped. pkm-13ty: built in a temp directory and\nstreamed back via FileResponse rather than buffered whole in an\nin-memory BytesIO -- the graph has no size cap, so an unbounded\nnumber of pages/assets must not translate into an unbounded process\nallocation. The temp directory is removed once the response finishes,\nerrors, or is interrupted (CleanupFileResponse); a failure before\nthat point is cleaned up here directly and re-raised.",
+        "description": "Whole-graph export, zipped. Built in a temp directory and\nstreamed back via FileResponse rather than buffered whole in an\nin-memory BytesIO -- the graph has no size cap, so an unbounded\nnumber of pages/assets must not translate into an unbounded process\nallocation. The temp directory is removed once the response finishes,\nerrors, or is interrupted (CleanupFileResponse); a failure before\nthat point is cleaned up here directly and re-raised.",
         "operationId": "export_all_markdown_api_export_zip_get",
         "responses": {
           "200": {
@@ -2327,7 +2327,7 @@
           "groups"
         ],
         "title": "BlockBacklinksPayload",
-        "description": "GET /api/block/{uid}/backlinks: every block referencing ((uid)),\ngrouped like page backlinks. Unpaginated by design -- counts are small\nand nothing user-visible truncates silently (pkm-d31f)."
+        "description": "GET /api/block/{uid}/backlinks: every block referencing ((uid)),\ngrouped like page backlinks. Unpaginated by design -- counts are small\nand nothing user-visible truncates silently."
       },
       "BlockGroup": {
         "properties": {
@@ -3237,7 +3237,7 @@
           "backlinks"
         ],
         "title": "JournalDay",
-        "description": "One day of the journal scroll, complete: the day renders from this\nalone. `backlinks` is a preview page of the day's linked references\n(pkm-vvta) -- carried here because fetching them per day turned a scroll\nof N days into N page reads (pkm-5fak)."
+        "description": "One day of the journal scroll, complete: the day renders from this\nalone. `backlinks` is a preview page of the day's linked references\n-- carried here because fetching them per day turned a scroll\nof N days into N page reads."
       },
       "JournalPayload": {
         "properties": {

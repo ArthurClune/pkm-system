@@ -54,7 +54,7 @@ class ResponseSchemaError(ApiError):
     models this client was compiled against. Raised at the point of the
     HTTP call, naming the endpoint and the offending field, so contract
     drift surfaces there rather than as a KeyError several frames deep in
-    a renderer or planner (pkm-0wr8).
+    a renderer or planner.
 
     An ApiError subclass on purpose: the CLI's top-level handler already
     turns ApiError into a one-line stderr message and exit 1, and this is

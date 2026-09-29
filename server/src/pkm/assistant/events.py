@@ -2,7 +2,7 @@
 """Assistant event union and SSE encoding.
 
 Routes and the web UI speak only these events; nothing engine-specific
-leaks upward (see the pkm-wn2s design spec).
+leaks upward.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ class ConfirmRequest:
 
 @dataclass(frozen=True)
 class Phase:
-    """What the model is doing during an otherwise silent stretch (pkm-e9ok).
+    """What the model is doing during an otherwise silent stretch.
 
     The label is display text built server-side (precedent: ToolStarted's
     summary): "reasoning", "preparing <tool>", "replying".

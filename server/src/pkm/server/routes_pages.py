@@ -56,7 +56,7 @@ def _block_ref_texts(db: sqlite3.Connection, texts: list[str]) -> dict:
 
 def _block_ref_counts(db: sqlite3.Connection,
                       uids: list[str]) -> dict[str, int]:
-    """Incoming ((ref)) count per uid, nonzero entries only (pkm-d31f).
+    """Incoming ((ref)) count per uid, nonzero entries only.
     One GROUP BY against idx_block_refs_target; src rows CASCADE with their
     block, so every counted row has a live source."""
     if not uids:
@@ -115,8 +115,8 @@ def _fetch_ancestors(db: sqlite3.Connection, uids: list[str]) -> dict[str, list[
 def _backlinks(db: sqlite3.Connection, page_id: int,
                offset: int, limit: int) -> tuple[list[dict], int, list[str]]:
     """A page's own blocks are never its linked references, even when they
-    reference it (Roam-style `{{[[TODO]]}}` markers on the TODO page do,
-    pkm-r747) -- the same `b.page_id != ?` rule unlinked references apply.
+    reference it (Roam-style `{{[[TODO]]}}` markers on the TODO page do)
+    -- the same `b.page_id != ?` rule unlinked references apply.
     The shim's `backlinks()` mirrors these three queries."""
     total = db.execute(
         """SELECT count(DISTINCT b.page_id) FROM refs r
@@ -150,7 +150,7 @@ def _backlinks(db: sqlite3.Connection, page_id: int,
 def get_block_refs(uids: str,
                    db: sqlite3.Connection = Depends(get_db)) -> dict:
     """On-demand ((uid)) resolution for refs pasted after the page payload
-    loaded (pkm-y6af). `uids` is comma-separated; unknown uids are omitted
+    loaded. `uids` is comma-separated; unknown uids are omitted
     (the client renders them unresolved, same as the payload path)."""
     wanted = [u for u in uids.split(",") if u]
     if len(wanted) > 50:
@@ -165,7 +165,7 @@ def get_block_refs(uids: str,
 @router.get("/api/block/{uid}/backlinks", response_model=BlockBacklinksPayload)
 def get_block_backlinks(uid: str,
                         db: sqlite3.Connection = Depends(get_db)) -> dict:
-    """The ((uid)) badge's popover read (pkm-d31f): who references this
+    """The ((uid)) badge's popover read: who references this
     block. Same group shape and ordering as page backlinks; the count badge
     itself rides the page/journal payloads (block_ref_counts)."""
     if not _UID_RE.fullmatch(uid):
@@ -187,8 +187,8 @@ def get_block_backlinks(uid: str,
 
 @router.get("/api/block/{uid}", response_model=BlockPayload)
 def get_block(uid: str, db: sqlite3.Connection = Depends(get_db)) -> dict:
-    """One block's subtree plus its page and ancestor texts (pkm-w05j:
-    the CLI/MCP `get <uid>` read; pages remain the only other read unit)."""
+    """One block's subtree plus its page and ancestor texts (the CLI/MCP
+    `get <uid>` read; pages remain the only other read unit)."""
     if not _UID_RE.fullmatch(uid):
         raise HTTPException(status_code=422, detail=f"malformed uid: {uid!r}")
     row = db.execute(
@@ -222,7 +222,7 @@ def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 2
     if page is None:
         # Only TODAY auto-creates on read (journal semantics). Auto-creating
         # any daily title resurrected deleted dailies as zombies and let
-        # plain reads mint pages (bean pkm-fy52).
+        # plain reads mint pages.
         if date_for_title(title) != date.today():
             raise HTTPException(status_code=404, detail="page not found")
         page = get_or_create_page(db, title, int(time.time() * 1000))
@@ -404,7 +404,7 @@ _NONEMPTY_DAILY_SQL = (
     " AND trim(b.text, char(9)||char(10)||char(13)||char(32)) <> '')")
 
 # A daily page with zero blocks still has something worth surfacing on the
-# scroll if another page [[links]] to it (pkm-vvta: "Remind me on [[July
+# scroll if another page [[links]] to it ("Remind me on [[July
 # 28th, 2026]]" should show under that day even before anyone writes to it
 # directly) -- so a daily title with an inbound ref counts as non-empty too.
 # Same SQL in the offline shim (spec section 7).
@@ -422,19 +422,19 @@ JOURNAL_BACKLINK_PREVIEW = 5
 @router.get("/api/journal", response_model=JournalPayload)
 def get_journal(request: Request, before: str | None = None, days: int = 7,
                 db: sqlite3.Connection = Depends(get_db)) -> dict:
-    """Newest-first batch of non-empty daily pages (pkm-03x6). The head
+    """Newest-first batch of non-empty daily pages. The head
     batch (no `before`) starts with today — auto-created so there is a
     page to compose into, even when empty — followed by the most recent
     non-empty days; `before` pages strictly backwards from that date. A
     day with no blocks but an inbound [[link]] from elsewhere counts as
     non-empty too, so a reminder written on another page surfaces under
-    the day it points at (pkm-vvta) once that day would otherwise show.
+    the day it points at once that day would otherwise show.
     Empty, unreferenced days are omitted, and a batch shorter than `days`
     tells the client the journal is exhausted.
 
     Each day carries its own linked-references preview
     (JOURNAL_BACKLINK_PREVIEW pages of them), so a scroll of N days is N/batch
-    requests rather than one page read per day (pkm-5fak)."""
+    requests rather than one page read per day."""
     days = max(1, min(days, 31))
     cursor: date | None = None
     if before:

@@ -59,7 +59,7 @@ def save_blocks(client: PkmClient, text: str, page: str | None = None,
 
     A missing page is created by an op *inside* the same batch rather than
     by a separate request, so a plan that fails validation later leaves no
-    empty page behind (pkm-w80k)."""
+    empty page behind."""
     title = default_page_title(page)
     blocks, missing = client.get_page_blocks(title)
     save_ops = plan_save(blocks, title, parent, text, todo, uids=_uids())
@@ -110,7 +110,7 @@ def apply_batch(client: PkmClient, commands: object) -> OpsAck:
     so the shells must report it.
 
     Validation runs before any page is fetched or created, so a malformed
-    batch triggers no I/O at all (pkm-4w23), and every page the batch
+    batch triggers no I/O at all, and every page the batch
     names is fetched once up front -- planning needs each page's existing
     blocks to compute append positions."""
     parsed = validate_batch(commands)
@@ -133,7 +133,7 @@ def upload_and_link(client: PkmClient, path: Path, page: str | None = None,
     can't leave an unreferenced asset on the server; and if the linking
     batch fails afterwards, the asset is deleted again -- but only when
     this call is what created it, since the same bytes may already be
-    referenced by an older block (pkm-c17m)."""
+    referenced by an older block."""
     title = default_page_title(page)
     blocks, missing = client.get_page_blocks(title)
     resolve_parent(blocks, parent)

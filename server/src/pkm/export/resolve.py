@@ -1,6 +1,6 @@
 # pattern: Functional Core
 """Resolve {{query: ...}} macros and ((block refs)) to plain readable text
-for the end-user single-page export (pkm-kplp) -- unlike
+for the end-user single-page export -- unlike
 `pkm.export.markdown.render_page` (the nightly-backup / whole-db-zip
 renderer, `export_graph`'s Core), which intentionally keeps the raw query
 command and does one-level ((ref)) substitution wrapped in parens. That

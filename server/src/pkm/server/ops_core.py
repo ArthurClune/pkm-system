@@ -80,7 +80,7 @@ class BlockRewrite:
     """One title a rename, merge or the title migration rewrote in one
     block, with the sha256 of that block's text either side of the whole
     rewrite. Rows of the server-only `block_rewrites` table, handed to the
-    planner as data (pkm-x5w0)."""
+    planner as data."""
     base_hash: str
     after_hash: str
     old_title: str

@@ -1,5 +1,5 @@
 # pattern: Imperative Shell
-"""OpenAI-backed ImageDescriber: one HTTPS POST per image (pkm-zc0c).
+"""OpenAI-backed ImageDescriber: one HTTPS POST per image.
 Plain httpx2 against the chat-completions endpoint — no OpenAI SDK."""
 from __future__ import annotations
 

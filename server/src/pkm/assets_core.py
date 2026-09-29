@@ -1,7 +1,7 @@
 # pattern: Functional Core
-"""Pure helpers for the asset file browser (pkm-jdu3): reference-token
+"""Pure helpers for the asset file browser: reference-token
 stripping, mime categorisation (and its SQL twin), and zip arcname
-de-duplication. Also (pkm-x3l7) the sha256 hashing and repair decision
+de-duplication. Also the sha256 hashing and repair decision
 used to verify a content-addressed asset file's bytes actually match the
 digest encoded in its own storage path, instead of trusting that a file
 at that path is correct just because it exists."""

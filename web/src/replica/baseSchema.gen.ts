@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS refs(
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_refs_target ON refs(target_page_id);
 
--- pkm-d31f: incoming ((uid)) index, the block-level analogue of refs.
+-- Incoming ((uid)) index, the block-level analogue of refs.
 -- No FK on target_block_uid: an unresolved ((uid)) is a legal state (it
 -- renders unresolved), so dangling rows are permitted and simply never
 -- match a count query. Rows are derived from block text at every write
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS assets(
   mime        TEXT NOT NULL,
   size        INTEGER NOT NULL,
   created_at  INTEGER,
-  -- pkm-zc0c: LLM-generated searchable description; all nullable.
+  -- LLM-generated searchable description; all nullable.
   -- status is derived: described (description set) / failed
   -- (describe_error set) / pending (neither).
   description    TEXT,

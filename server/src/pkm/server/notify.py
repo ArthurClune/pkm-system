@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 class SeqFrame(BaseModel):
     """The WS nudge frame. WS messages sit outside OpenAPI, so this model
-    is their schema (spec contract-hardening, pkm-x7a5).
+    is their schema.
 
     ``force`` is reserved for committed metadata/generation changes that do
     not necessarily advance ``changes.seq``. Its seq is always the real
@@ -68,10 +68,9 @@ def nudge_threadpool(
 def commit_and_nudge_threadpool(request: Request, db: sqlite3.Connection) -> None:
     """Pairs commit + nudge for sync-def routes, whose writes touch a
     changes-journaled table (blocks/pages/sidebar_entries, schema.py
-    SERVER_DDL) -- a bare `db.commit()` is exactly the shape that let
-    pkm-getl's journal cleanup slip through with no nudge. Async routes
-    have no equivalent helper (YAGNI -- delete on pkm-nn57 final review,
-    no call sites): call `db.commit()` then `await nudge(request, db)`
+    SERVER_DDL) -- a bare `db.commit()` silently drops the nudge that
+    should follow it. Async routes have no equivalent helper (no call
+    sites need one): call `db.commit()` then `await nudge(request, db)`
     directly."""
     db.commit()
     nudge_threadpool(request, db)

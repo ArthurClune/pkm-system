@@ -1,7 +1,6 @@
 # pattern: Imperative Shell
 """The one place that reads a content-addressed asset file off disk to
-decide whether its bytes still match the digest its own path claims
-(pkm-x3l7).
+decide whether its bytes still match the digest its own path claims.
 
 The importer's asset copy and the export writer's asset staging both have
 to distrust a file that merely exists at the right path -- a truncated or
@@ -10,7 +9,7 @@ to hand-roll the same stat -> hash-only-if-the-size-matches ->
 `assets_core.asset_needs_repair` dance, so a drift in one of them (hashing
 before statting, or dropping the size short circuit) would not have failed
 any shared test. This module owns the ritual; `assets_core` still owns the
-pure decision it feeds (pkm-6g0l)."""
+pure decision it feeds."""
 from __future__ import annotations
 
 from pathlib import Path

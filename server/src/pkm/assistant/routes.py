@@ -28,7 +28,7 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
-# pkm-mbcc defect 1: a turn is genuinely silent for long stretches -- the model
+# A turn is genuinely silent for long stretches -- the model
 # reasoning about a large block, serialising a big tool call, or a confirm
 # parked on the user's decision -- and an idle connection is exactly what
 # mobile backgrounding and NAT/proxy idle timeouts drop. The frames below both
@@ -93,7 +93,7 @@ async def _abandon_stream(
     interrupt, retire the harness -- `ClaudeConversation._abandon_turn`) lives
     in that generator's `finally`, and an orphaned async generator runs its
     `finally` when CPython's finalizer hook gets to it, which is prompt in
-    practice but not a schedule. pkm-f3mo.
+    practice but not a schedule.
 
     Three things carry weight here:
 

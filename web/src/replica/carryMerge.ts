@@ -7,10 +7,13 @@
 import type { DurablePendingRow } from "./queue";
 
 /** Every row in `carried` or `held`, by id, oldest first. On an id both hold,
- * the carry's row wins. Both copies were written from the same rows, since
- * no handler can change the queue while a carry exists, so they differ only
- * where one file is torn, and nothing says which. The carry is the copy
- * written to outlive a replacement, so it is the one kept. */
+ * the carry's row wins. No handler can change the queue while a carry
+ * exists, so the carry holds the replica's rows minus those a rebase's acks
+ * settled (the server already has them), and otherwise the copies differ
+ * only where one file is torn, and nothing says which. The carry is the copy
+ * written to outlive a replacement, so it is the one kept. A merge can bring
+ * an acked row back; it is re-posted, the server replays its stored ack, and
+ * it is deleted, so nothing is lost. */
 export function mergeCarriedRows(
   carried: readonly DurablePendingRow[], held: readonly DurablePendingRow[],
 ): DurablePendingRow[] {

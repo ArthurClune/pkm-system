@@ -30,8 +30,8 @@ export function memReplica(over: Partial<Replica> = {}): Replica & {
     nextBatch: async () => rows.find((r) => !r.poisoned) ?? null,
     pendingBatches: async () => [...rows],
     poisonedBatches: async () => [],
-    deleteBatch: async (id) => {
-      const index = rows.findIndex((r) => r.id === id);
+    deleteBatch: async (id, batchId) => {
+      const index = rows.findIndex((r) => r.id === id && r.batch_id === batchId);
       if (index !== -1) rows.splice(index, 1);
       return { pending: pending() };
     },

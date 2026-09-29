@@ -84,17 +84,20 @@ test("an acknowledged batch is deleted with the journal seq its ack named", asyn
   ]);
   const replica = memReplica();
   const base = replica.deleteBatch;
-  const deletes: Array<[number, number | undefined]> = [];
-  replica.deleteBatch = async (id, ackedSeq) => {
-    deletes.push([id, ackedSeq]);
-    return base(id);
+  const deletes: Array<[number, string, number | undefined]> = [];
+  replica.deleteBatch = async (id, batchId, ackedSeq) => {
+    deletes.push([id, batchId, ackedSeq]);
+    return base(id, batchId);
   };
   const q = createOpQueue(replica, () => undefined);
   q.enqueue([op("u1")]);
   q.enqueue([op("u2")]);
   await q.settled();
   await q.drain();
-  expect(deletes).toEqual([[1, 42], [2, undefined]]);
+  // the batch id too, so a delete can never hit a row that reuses the id
+  expect(deletes).toEqual([
+    [1, replica.enqueued[0], 42], [2, replica.enqueued[1], undefined],
+  ]);
 });
 
 test("offline: batches persist without posting; reconnect drains in order", async () => {

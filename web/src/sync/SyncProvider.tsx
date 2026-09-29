@@ -405,7 +405,7 @@ export function SyncProvider({ children, replica }: {
       try {
         await replicaSync!.rebaseAuthoritative("poison");
         for (const poisonEvent of repairTargetsRef.current) {
-          await replicaRef.current!.deleteBatch(poisonEvent.rowId);
+          await replicaRef.current!.deleteBatch(poisonEvent.rowId, poisonEvent.batchId);
         }
         if (mountedRef.current) {
           // setPending has exactly one caller (queue.onPending, above);

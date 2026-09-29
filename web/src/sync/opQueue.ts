@@ -9,6 +9,7 @@ import type { PendingBatch, PoisonedBatch, Replica } from "../replica/client";
 import { availabilityOf, isSessionFatal, ReplicaError,
          type ReplicaAvailability } from "../replica/errors";
 import { newUid } from "../uid";
+import { ackSeq } from "./opsAck";
 import { createQueueState, terminalReason, transitionQueue,
          type QueueEffect, type QueueEvent } from "./queueState";
 import { isTerminalRejection } from "./rejection";
@@ -170,16 +171,6 @@ function postOps(ops: BlockOp[], batchId: string): Promise<unknown> {
   return apiPost("/api/ops", {
     body: { client_id: clientId, batch_id: batchId, ops },
   });
-}
-
-/** The journal seq an /api/ops ack names for its batch's commit, or
- * undefined when it names none (an ack stored before the field existed is
- * replayed verbatim without it). The OpenAPI schema types the ack as a bare
- * object, so the field is read by hand. */
-function ackSeq(ack: unknown): number | undefined {
-  if (typeof ack !== "object" || ack === null) return undefined;
-  const seq = (ack as { seq?: unknown }).seq;
-  return typeof seq === "number" && Number.isFinite(seq) ? seq : undefined;
 }
 
 /** Whether an /api/ops ack named any op the server skipped -- a block, or
@@ -638,7 +629,7 @@ function createReplicaQueue(replica: Replica,
         // The ack's seq lets a pull that snapshotted this batch as pending
         // accept a window that already carries it, instead of refetching
         // (pkm-ur2n: the save's WS nudge and this ack race).
-        result = await replica.deleteBatch(batch.id, ackSeq(ack));
+        result = await replica.deleteBatch(batch.id, batch.batch_id, ackSeq(ack));
       } catch (error: unknown) {
         noteReplicaFailure(error);
         return failed(error);

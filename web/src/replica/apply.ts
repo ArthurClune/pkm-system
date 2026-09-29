@@ -106,7 +106,10 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
  * Rejected batches remain durable only while repair is pending: they are
  * skipped here so the authoritative snapshot removes their optimistic effect,
  * then the provider deletes their rows before delivery resumes.
- * Re-applying is safe: batches flush to the server unchanged. An op whose
+ * A replayed batch is one the server has not acknowledged: a rebase commit
+ * deletes the batches its flush got acks for before the snapshot applies,
+ * since what the server saved for them can differ from their wire text. The
+ * batches replayed here still flush to the server unchanged. An op whose
  * block or parent the feed removed is skipped inside applyLocalOps, as the
  * server skips it, so the rest of its batch still lands (pkm-7788). A window
  * does not wipe first, so its replay runs over the batch's own effects:

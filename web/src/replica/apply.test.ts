@@ -5,6 +5,13 @@ import { applyChanges, applySnapshot } from "./apply";
 import { getMeta } from "./meta";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
+import type { ReplicaDb } from "./db";
+
+/** The drain's delete of the batch at the head of the queue, on its ack. */
+const ackNext = (db: ReplicaDb): void => {
+  const b = nextBatch(db)!;
+  deleteBatch(db, b.id, b.batch_id);
+};
 
 const block = (uid: string, pageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
   uid, page_id: pageId, parent_uid: null, order_idx: 0, text: `text of ${uid}`,
@@ -160,7 +167,7 @@ describe("applySnapshot", () => {
 
     // Successful repair deletes the poison audit row. A later valid edit of
     // the same block remains optimistic across both feeds and snapshots.
-    deleteBatch(t.db, rejected.id);
+    deleteBatch(t.db, rejected.id, rejected.batch_id);
     enqueueBatch(t.db, [
       { op: "update_text", uid: "uid_b1", text: "later valid text" },
     ], 7, "batch-later-valid");
@@ -769,7 +776,7 @@ describe("pkm-fe9b: concurrent structure edits converge without a snapshot repai
   test("an acked cycle move is undone by the rows the server journals for it", () => {
     enqueueCycleMove();
     expect(tree()[0]).toMatchObject({ uid: "uid_b1", parent_uid: "uid_b3" });
-    deleteBatch(t.db, nextBatch(t.db)!.id); // the ack, skipped: cycle
+    ackNext(t.db); // the ack, skipped: cycle
 
     const result = applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11, blocks: serverBlocks(),
@@ -797,7 +804,7 @@ describe("pkm-fe9b: concurrent structure edits converge without a snapshot repai
     expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b3'"))
       .toEqual([{ text: "mine" }]);
     expect(allBatches(t.db)).toHaveLength(1);
-    deleteBatch(t.db, nextBatch(t.db)!.id);
+    ackNext(t.db);
 
     applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12, blocks: serverBlocks(),
@@ -843,7 +850,7 @@ describe("pkm-fe9b: concurrent structure edits converge without a snapshot repai
       { uid: "uid_new1", page_id: 2, parent_uid: "uid_b2", order_idx: 1 });
 
     // the ack, then the server's own row for the create
-    deleteBatch(t.db, nextBatch(t.db)!.id);
+    ackNext(t.db);
     applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12,
       blocks: [block("uid_new1", 2, { parent_uid: "uid_b2", order_idx: 1,

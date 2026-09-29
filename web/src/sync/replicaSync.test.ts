@@ -1826,7 +1826,7 @@ test("a window that fails identically WINDOW_STRIKES times rebases before the st
     // a rebase, not a reset: nothing says the schema or the FTS index is bad,
     // and a rebase keeps the pending queue rows
     expect(commitRecovery)
-      .toHaveBeenCalledWith("lease-1", { kind: "rebase", snapshot: SNAP });
+      .toHaveBeenCalledWith("lease-1", { kind: "rebase", snapshot: SNAP, acked: [] });
     expect(commitRecovery).toHaveBeenCalledTimes(1);
     expect(posted).toEqual([expect.objectContaining({
       kind: "window-unappliable",
@@ -1988,4 +1988,142 @@ test("a strikes-rebase whose snapshot fetch fails is still available to the retr
   } finally {
     vi.useRealTimers();
   }
+});
+
+const leased = (id: number, poisoned = false): PendingBatch => ({
+  id, batch_id: `b-${id}`, ops: [{ op: "delete", uid: `uid_${id}` }], poisoned,
+});
+const batchIdOf = (init?: RequestInit): string =>
+  (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
+
+test("the recovery flush hands each ack to the rebase commit, a stored ack without seq as null", async () => {
+  const commitRecovery = vi.fn(async () => undefined);
+  const replica = fakeReplica({
+    applyChanges: vi.fn().mockResolvedValueOnce({ status: "needs-bootstrap" }),
+    prepareRecovery: async () => ({
+      token: "lease-1", batches: [leased(1), leased(2, true), leased(3)],
+    }),
+    commitRecovery,
+  });
+  const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/ops") {
+      return batchIdOf(init) === "b-1"
+        ? { ok: true, ts: 1, applied: 1, seq: 11 }
+        : { ok: true, ts: 1, applied: 1 };
+    }
+    if (path === "/api/sync/snapshot") return SNAP;
+    return feed();
+  });
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState: collector().onState,
+  });
+
+  await sync.start();
+
+  expect(commitRecovery).toHaveBeenCalledWith("lease-1", {
+    kind: "rebase", snapshot: SNAP,
+    acked: [{ id: 1, batch_id: "b-1", seq: 11 }, { id: 3, batch_id: "b-3", seq: null }],
+  });
+});
+
+test("a flush preempted by a poison repair hands the acks it got to the poison rebase's commit", async () => {
+  const commitRecovery = vi.fn(async () => undefined);
+  const abortRecovery = vi.fn(async () => undefined);
+  const batches = [leased(1), leased(2)];
+  const replica = fakeReplica({
+    applyChanges: vi.fn().mockResolvedValueOnce({ status: "needs-bootstrap" }),
+    prepareRecovery: vi.fn()
+      .mockResolvedValueOnce({ token: "normal-lease", batches })
+      .mockResolvedValueOnce({ token: "poison-lease", batches }),
+    commitRecovery,
+    abortRecovery,
+  });
+  let signalPoisonPending: () => void = () => undefined;
+  const queue = {
+    pause: vi.fn(),
+    resume: vi.fn(),
+    onPoisonPending: (listener: () => void) => {
+      signalPoisonPending = listener;
+      return () => undefined;
+    },
+  };
+  const posted: string[] = [];
+  const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/ops") {
+      posted.push(batchIdOf(init));
+      // a later batch's rejection lands while this one is in flight
+      signalPoisonPending();
+      return { ok: true, ts: 1, applied: 1, seq: 8 };
+    }
+    if (path === "/api/sync/snapshot") return SNAP;
+    return feed();
+  });
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState: collector().onState, queue,
+  });
+
+  await sync.start();
+  await sync.rebaseAuthoritative("poison");
+
+  expect(posted).toEqual(["b-1"]);
+  expect(abortRecovery).toHaveBeenCalledWith("normal-lease");
+  expect(commitRecovery).toHaveBeenCalledOnce();
+  expect(commitRecovery).toHaveBeenCalledWith("poison-lease", {
+    kind: "rebase", snapshot: SNAP, acked: [{ id: 1, batch_id: "b-1", seq: 8 }],
+  });
+});
+
+test("a commit takes the held acks, so a later rebase passes none of them", async () => {
+  const commitRecovery = vi.fn(async () => undefined);
+  const replica = fakeReplica({
+    applyChanges: vi.fn().mockResolvedValueOnce({ status: "needs-bootstrap" }),
+    prepareRecovery: vi.fn()
+      .mockResolvedValueOnce({ token: "lease-1", batches: [leased(1)] })
+      .mockResolvedValueOnce({ token: "lease-2", batches: [] }),
+    commitRecovery,
+  });
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/ops") return { ok: true, ts: 1, applied: 1, seq: 8 };
+    if (path === "/api/sync/snapshot") return SNAP;
+    return feed();
+  });
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState: collector().onState,
+  });
+
+  await sync.start();
+  await sync.rebaseAuthoritative("poison");
+
+  expect(commitRecovery.mock.calls.map(
+    (call) => (call as unknown[])[1] as { acked?: unknown }).map((input) => input.acked))
+    .toEqual([[{ id: 1, batch_id: "b-1", seq: 8 }], []]);
+});
+
+test("a commit that fails hands its acks to the next commit", async () => {
+  const commitRecovery = vi.fn()
+    .mockRejectedValueOnce(new Error("snapshot apply failed"))
+    .mockResolvedValue(undefined);
+  const replica = fakeReplica({
+    applyChanges: vi.fn().mockResolvedValueOnce({ status: "needs-bootstrap" }),
+    prepareRecovery: vi.fn()
+      .mockResolvedValueOnce({ token: "lease-1", batches: [leased(1)] })
+      .mockResolvedValueOnce({ token: "lease-2", batches: [leased(1)] }),
+    commitRecovery,
+  });
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/ops") return { ok: true, ts: 1, applied: 1, seq: 8 };
+    if (path === "/api/sync/snapshot") return SNAP;
+    return feed();
+  });
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState: collector().onState,
+  });
+
+  await sync.start();
+  await sync.rebaseAuthoritative("poison");
+
+  expect(commitRecovery).toHaveBeenLastCalledWith("lease-2", {
+    kind: "rebase", snapshot: SNAP, acked: [{ id: 1, batch_id: "b-1", seq: 8 }],
+  });
+  sync.stop(); // the failed pull armed a retry
 });

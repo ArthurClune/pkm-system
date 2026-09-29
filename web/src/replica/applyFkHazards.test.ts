@@ -14,6 +14,12 @@ import { getMeta } from "./meta";
 import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
 
+/** The drain's delete of the batch at the head of the queue, on its ack. */
+const ackNext = (db: ReplicaDb): void => {
+  const b = nextBatch(db)!;
+  deleteBatch(db, b.id, b.batch_id);
+};
+
 const block = (uid: string, pageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
   uid, page_id: pageId, parent_uid: null, order_idx: 0, text: `text of ${uid}`,
   heading: null, view_type: null, collapsed: 0, created_at: 1, updated_at: 1,
@@ -116,7 +122,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
       { op: "create", uid: "uid_ghost", page_title: "Machine Learning",
         parent_uid: null, order_idx: 5, text: "diverted server-side" },
     ], 5, "batch-ghost");
-    deleteBatch(t.db, nextBatch(t.db)!.id); // the ack
+    ackNext(t.db); // the ack
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_ghost_child", page_title: "Machine Learning",
         parent_uid: "uid_ghost", order_idx: 0, text: "typed under it" },
@@ -145,11 +151,11 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
       { op: "create", uid: "uid_ghost_p", page_title: "Machine Learning",
         parent_uid: null, order_idx: 5, text: "ghost parent" },
     ], 5, "batch-ghost-p");
-    deleteBatch(t.db, nextBatch(t.db)!.id);
+    ackNext(t.db);
     enqueueBatch(t.db, [
       { op: "move", uid: "uid_b2", parent_uid: "uid_ghost_p", order_idx: 0 },
     ], 6, "batch-move");
-    deleteBatch(t.db, nextBatch(t.db)!.id);
+    ackNext(t.db);
     const res = applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
       tombstones: [{ kind: "block", entity_id: "uid_ghost_p" }],

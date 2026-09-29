@@ -24,10 +24,10 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
   const onPageRoute = pathname.startsWith(PAGE_ROUTE_PREFIX);
   const title = onPageRoute ? titleFromPathname(pathname) : null;
   // Context label so the bar reads as one surface, not two orphaned
-  // controls (pkm-absu). Doubles as the flex spacer between the left
+  // controls. Doubles as the flex spacer between the left
   // and right button groups. Static routes' labels come from the same
   // table App.tsx's routing and the browser-title effect consume
-  // (routeMeta.ts, pkm-77w2), so a newly declared route can't end up
+  // (routeMeta.ts), so a newly declared route can't end up
   // labelled here but not there, or vice versa.
   const barLabel = title ?? routeMetaFor(pathname)?.label ?? null;
   const { openInSidebar } = useContext(SidebarContext);

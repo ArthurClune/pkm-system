@@ -1,7 +1,7 @@
 // pattern: Functional Core
 import type { ReactNode } from "react";
 
-/** Tiny inline-SVG icon set for the app chrome (pkm-mijo). All icons are
+/** Tiny inline-SVG icon set for the app chrome. All icons are
  * 16px, stroke-based, and inherit `currentColor`, so they follow the theme
  * for free. Decorative only: every icon is aria-hidden, meaning the owning
  * control must carry its own accessible label. */

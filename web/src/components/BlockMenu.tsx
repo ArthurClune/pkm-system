@@ -46,7 +46,7 @@ export function BlockMenu({ x, y, items, onClose }: {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
-  // Portalled to document.body (pkm-muka), for the same reason as Popover:
+  // Portalled to document.body, for the same reason as Popover:
   // `x`/`y` are the pointer's viewport coordinates, so any ancestor that
   // imposes layout containment (`content-visibility`, `contain: layout`)
   // would become the containing block for this fixed element and displace

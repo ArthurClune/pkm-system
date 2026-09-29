@@ -22,7 +22,7 @@ import { QueryBlock } from "./QueryBlock";
 import { TodoCheckbox } from "./TodoCheckbox";
 
 /** PDFs the in-app viewer can fetch same-origin: content-addressed assets
- * and files served from the configured local document root (pkm-g1ep).
+ * and files served from the configured local document root.
  * Path only: a query string means a download intent, not an embed. */
 function isPdfHref(href: string): boolean {
   if (!href.startsWith("/assets/") && !href.startsWith("/api/local/")) return false;
@@ -30,7 +30,7 @@ function isPdfHref(href: string): boolean {
 }
 
 /** Local-copy PDFs load on click, not on render: a page listing many papers
- * must not fetch them all at once (pkm-pv7w). Uploaded assets keep the
+ * must not fetch them all at once. Uploaded assets keep the
  * inline auto-load. */
 function isDeferredPdfHref(href: string): boolean {
   return href.startsWith("/api/local/");

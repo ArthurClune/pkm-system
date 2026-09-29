@@ -1,5 +1,5 @@
 // pattern: Functional Core
-// Linked-references filtering (pkm-m4an): pure functions from loaded
+// Linked-references filtering: pure functions from loaded
 // backlink groups + filter state to visible groups and candidate chips.
 // Ref extraction reuses grammar/refs.ts, the fixture-pinned mirror of the
 // server's refs.py, so chips agree with what the server indexes.

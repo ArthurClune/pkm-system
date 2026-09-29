@@ -1,5 +1,5 @@
 // pattern: Functional Core
-// Derive a page's table of contents from its block tree (pkm-mzks). Nothing
+// Derive a page's table of contents from its block tree. Nothing
 // is stored: the {{toc}} block holds only the macro text, and this walk runs
 // on every render of an unfocused toc block, so a heading edit shows up in
 // the list immediately.
@@ -9,8 +9,7 @@ import { tokenizeBlock, type BlockSegment } from "../grammar/tokenize";
 export interface TocEntry {
   uid: string;
   /** The heading as plain text: refs reduced to their titles, emphasis
-   * unwrapped, so a `## [[Mathematics]]` heading lists as "Mathematics"
-   * (pkm-2rdp). */
+   * unwrapped, so a `## [[Mathematics]]` heading lists as "Mathematics". */
   text: string;
   level: 1 | 2 | 3;
   children: TocEntry[];

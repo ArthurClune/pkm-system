@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// Replaces the read-only reconnect banner (pkm-y8p0): offline editing
+// Replaces the read-only reconnect banner: offline editing
 // stays enabled, so the indicator just reports state — "offline, N changes
 // pending" while disconnected, a brief syncing note while the queue
 // drains after reconnect, nothing when clean.
@@ -51,15 +51,15 @@ function memoryOnlySentence(unsentInMemory: number): string | null {
     + `Reloading or closing this tab discards ${unsentInMemory === 1 ? "it" : "them"}.`;
 }
 
-/** The second sentence turns on connectivity, because the truth does
- * (pkm-s1m8). This problem is a ReplicaUnavailableError (SyncProvider only
+/** The second sentence turns on connectivity, because the truth does.
+ * This problem is a ReplicaUnavailableError (SyncProvider only
  * raises replica-unavailable for availabilityOf(error) === "unusable"), which
  * is never `rejected`, so opQueue always retains here — but retained ops live
  * in the in-memory fallback lane. So "still being saved" is true while the
  * socket is up and delivering, and false the moment it is not: a refresh or a
  * closed tab then takes them. The copy stays conditional even with
- * useUnloadGuard installed, because the guard does not hold on iPad
- * (pkm-0htf), so the unconditional reassurance would be a promise we cannot
+ * useUnloadGuard installed, because the guard does not hold on iPad,
+ * so the unconditional reassurance would be a promise we cannot
  * keep there. Offline with nothing pending is neither a promise to make nor a
  * loss to warn about, so the first sentence stands alone. */
 function onlineOnlySafetyCopy(status: SyncStatus, pending: number): string | null {
@@ -75,8 +75,8 @@ function ReplicaUnavailableBanner({ status, pending, actions }: {
   pending: number;
   actions: BannerActions;
 }) {
-  // Reload, not Retry: the worker latches a failed open for the session
-  // (pkm-bjae), and by now the queue has already delivered online, so
+  // Reload, not Retry: the worker latches a failed open for the session,
+  // and by now the queue has already delivered online, so
   // reopening mid-session could flush a previous session's stale durable
   // queue on top of those writes. A fresh page load gets a fresh worker
   // and runs startup's poison discovery in the right order.
@@ -137,7 +137,7 @@ function RejectedBatchMessage({ problem, actions }: {
     case "running":
       // The repair rebuilds the whole replica from a snapshot, and iOS
       // freezes a backgrounded PWA mid-rebuild; each relaunch then starts
-      // over, which reads as sync being stuck forever (pkm-a1gh).
+      // over, which reads as sync being stuck forever.
       return (
         <>Server rejected a change (HTTP {problem.event.status}).
           {" "}Repairing local state… Keep the app open until this finishes.</>
@@ -145,7 +145,7 @@ function RejectedBatchMessage({ problem, actions }: {
     case "mark-failed":
       // Retry cannot succeed while the replica stays unopenable, and the
       // retained intent it retries wedges every future session with it.
-      // Discard is the escape (pkm-tu5k): the rejected change is already
+      // Discard is the escape: the rejected change is already
       // lost server-side, so giving up on marking it loses nothing more.
       return (
         <>Server rejected a change (HTTP {problem.event.status}): {problem.event.message}.{" "}
@@ -292,10 +292,9 @@ export function OfflineIndicator() {
 
   // A reload destroys the in-memory fallback lane, which in an online-only
   // session is the only place undelivered ops live. Ask first, the way
-  // resetReplica does (pkm-bjae review). useUnloadGuard now covers this button
+  // resetReplica does. useUnloadGuard now covers this button
   // too, but it does not replace this confirm: beforeunload is unreliable in an
-  // iOS standalone PWA, and this wording says what is actually at stake
-  // (pkm-0htf).
+  // iOS standalone PWA, and this wording says what is actually at stake.
   const reloadForOnlineOnly = async (): Promise<void> => {
     if (pending > 0) {
       const ok = await confirm(

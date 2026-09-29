@@ -13,7 +13,7 @@ export function Composer({ onSend, readOnly }: {
   readOnly: boolean;
 }) {
   const [draft, setDraft] = useState("");
-  // Shared with the outline editor's BlockInput (pkm-noow): the caret a pick
+  // Shared with the outline editor's BlockInput: the caret a pick
   // splices at is read live off the textarea, never remembered from the last
   // keystroke, so a click or selection-only move can't leave a completion
   // pointing at where the caret used to be.
@@ -51,7 +51,7 @@ export function Composer({ onSend, readOnly }: {
   };
 
   // Place a pick's caret once the new value has committed. A layout effect,
-  // not a requestAnimationFrame (pkm-j7ez, as in useBlockDraft): typing that
+  // not a requestAnimationFrame (as in useBlockDraft): typing that
   // lands before a late frame would otherwise be yanked back to this offset.
   useLayoutEffect(() => {
     const at = pendingCaretRef.current;
@@ -67,9 +67,9 @@ export function Composer({ onSend, readOnly }: {
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // A stale popup must not claim the key — an Enter here is a newline, not
-    // a pick at a caret the user has left (pkm-noow).
+    // a pick at a caret the user has left.
     if (!ac.resolve(e.currentTarget) || acRows.length === 0) return;
-    // Shared with the outline editor (pkm-clt1): only unmodified Arrow/
+    // Shared with the outline editor: only unmodified Arrow/
     // Enter/Tab/Escape are consumed here, so Cmd/Ctrl/Shift/Alt variants
     // reach native textarea behaviour instead of navigating the popup.
     const action = autocompleteKeyAction(e);

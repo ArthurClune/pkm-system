@@ -12,8 +12,8 @@ import { pagePath } from "../paths";
  * react-router deliberately ignores modified clicks (shouldProcessLinkClick
  * bails on shiftKey), so without a handler that preventDefaults, the
  * browser's own shift-click wins and opens the whole app in a second window
- * -- which then warns about two copies of the same page being open
- * (pkm-10ah). Nav destinations that aren't pages (Daily Notes, Current Work,
+ * -- which then warns about two copies of the same page being open.
+ * Nav destinations that aren't pages (Daily Notes, Current Work,
  * Files, Settings) deliberately keep the native behaviour: a SidebarPanel
  * renders a page by title, and there is no page behind those routes. */
 export function NavPageLink({ title, className, onNavigate, children }: {

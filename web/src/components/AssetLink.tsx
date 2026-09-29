@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 // Bare /assets/<sha256>/<filename> URLs autolinked by tokenize.ts's
-// asset-link rule (pkm-gdi5). The assistant panel mentions assets this way
+// asset-link rule. The assistant panel mentions assets this way
 // ("here's the chart at /assets/<sha>/name.jpeg"); clicking should open the
 // block that actually references the asset, not the raw file. Resolution
 // goes through GET /api/search?exact=true: the FTS5 unicode61 tokenizer keeps

@@ -95,3 +95,21 @@ pool.
   Reset, rebase and file replacement, `frontend.md` build notes and spec
   count, two troubleshooting rows) now say commits are atomic across a
   worker's death.
+
+## Upstream report
+
+The bug was reported upstream independently on 2026-09-29, the day this
+bean shipped: https://sqlite.org/forum/forumpost/ccf76ca422 (Daniel
+Steigerwald). Same VFS (opfs-sahpool), same method (`xCheckReservedLock`
+answering a constant 1), same symptom (a half-applied transaction after
+`worker.terminate()`, a tab close or a reload, with `integrity_check`
+still "ok"), and the same fix (report RESERVED only when the pool really
+holds it). It confirms the bug on npm 3.53.4 and trunk `1f7010d4` in
+Chromium 153, Firefox 155, WebKit 26.6 and Safari 26.6.2, and cites the
+older "opfs" VFS precedent (forum a2f573b00cda1372, check-in `c298b8ba`,
+June 2024). No SQLite developer had replied as of 2026-09-29.
+
+Our drafted report (plan Appendix A) is not filed: it would duplicate that
+thread. Watch the thread and the sqlite-wasm release notes; when a release
+fixes opfs-sahpool, drop the patch per
+`docs/architecture/sqlite-wasm-patch.md` § Upgrading sqlite-wasm.

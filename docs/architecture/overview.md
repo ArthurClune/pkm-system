@@ -26,6 +26,7 @@ in [`docs/design.md`](../design.md) and the specs under
 | [styling.md](styling.md) | Design tokens and theming, control families, confirmations, focus invariants |
 | [sync-and-offline.md](sync-and-offline.md) | The sync protocol and offline architecture, end to end |
 | [sync-recovery.md](sync-recovery.md) | Sync failure modes and recovery: each guard, what detects it, what it does |
+| [sqlite-wasm-patch.md](sqlite-wasm-patch.md) | The temporary sqlite-wasm patch for hot-journal rollback: what it changes, how it is applied, upgrading, upstream status |
 | [performance-checks.md](performance-checks.md) | The `perf/check.sh` regression gate: fixture, scenarios, metric classes, confirmation, shared state |
 | [troubleshooting.md](../troubleshooting.md) | Known failures indexed by symptom, each with its cause and the section that owns it |
 

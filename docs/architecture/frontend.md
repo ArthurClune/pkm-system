@@ -502,11 +502,8 @@ The dev server proxies `/api` (with WebSocket), `/assets` and `/login` to the
 backend (`PKM_API_PORT`, default 8974), so run the server alongside
 `pnpm dev`. `@sqlite.org/sqlite-wasm` must stay in `optimizeDeps.exclude`,
 because its wasm URL resolution breaks under dep-optimization. It also carries
-a pnpm patch keyed to its exact version (`patchedDependencies` in
-`web/pnpm-workspace.yaml`; see
-[sync-and-offline.md § The replica](sync-and-offline.md#the-replica)). An
-upgrade must carry the patch forward, or drop it once upstream fixes the VFS;
-`pnpm install` refuses a patch whose version no longer matches. Hashed bundles
+a pnpm patch keyed to its exact version; upgrading it follows
+[sqlite-wasm-patch.md § Upgrading](sqlite-wasm-patch.md#upgrading-sqlite-wasm). Hashed bundles
 are emitted under `app-assets/`. The PWA plugin uses `autoUpdate` with
 `clientsClaim`/`skipWaiting` and a navigate-fallback denylist for
 `/api|/assets|/login`.

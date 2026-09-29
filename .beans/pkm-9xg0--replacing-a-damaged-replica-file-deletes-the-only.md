@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: high
 created_at: 2026-09-29T13:20:25Z
-updated_at: 2026-09-29T14:02:33Z
+updated_at: 2026-09-29T14:27:58Z
 parent: pkm-a4t2
 ---
 
@@ -34,6 +34,13 @@ dependency beside `discardDbFile`.
 - [x] Confirm `MIN_POOL_CAPACITY` covers replica + journal + carry + journal
 - [x] Docs D2: `sync-recovery.md` § Recovery never erases intent and its failure rows, § Reset, rebase and file replacement; rewrite the handler comment to state the durable boundary; troubleshooting row
 - [x] verify (typecheck, lint, check:fcis, test:coverage, build; full Playwright and perf are run by the orchestrator after merge)
+- [x] Review fix I-1a: adoption whose schema install or import fails replaces the replica file; a failed replacement is loud and keeps the carry
+- [x] Review fix I-1b: an unreadable (corrupt / not-a-database) carry is discarded with a warning; any other read error stays loud and keeps the carry
+- [x] Review fix m-1: adoption pinned for deleteBatch and localApi on a restarted worker
+- [x] Review fix m-3: comment corrections in worker.ts and poolCapacity.ts
+- [x] Review fix m-4: sync-recovery.md step table, sync-and-offline.md carry sentence, spec § F1 pointer
+- [x] Review fix m-5: diagnostics does not adopt
+- [x] Review fix I-2: bean filed for the SAH pool's hot-journal behaviour
 - [ ] perf, merge (orchestrator)
 
 ## Summary of Changes
@@ -67,3 +74,33 @@ dependency beside `discardDbFile`.
 - Docs: `sync-recovery.md` (carry step table, adopt-on-entry, guard row,
   failure-table must-hold, pool note), `sync-and-offline.md` (carry file),
   `frontend.md` (module map), `troubleshooting.md` (one row).
+
+### Review fixes
+
+- Adoption (`adoptLeftoverCarry`, `workerHandlers.ts`) no longer wedges the
+  queue on a torn file. A replica whose `installSchema` or import of the
+  carried rows throws is replaced (`discardDbFile`, reopen, import, discard
+  the carry). A carry that reads as `SQLITE_CORRUPT*` or `SQLITE_NOTADB`
+  (`isUnreadableFileMessage`, new in `errors.ts`) is discarded with a
+  warning. Any other read error, and a replacement that fails too, stays
+  loud and keeps the carry. Both escapes rest on one invariant: no handler
+  succeeds while a carry exists, so every pending row the replica holds is
+  also in the carry.
+- `diagnostics` reads through `db()`: it never adopts, writes, or fails on a
+  carry.
+- Tests: adoption schema-install and import failures (replaced, rows kept,
+  carry gone); replacement that will not open or cannot take the rows (loud,
+  carry kept); torn carry beside an intact replica (NOTADB, CORRUPT);
+  transient read errors (BUSY, IOERR); adoption pins for `deleteBatch`,
+  `nextBatch` and `localApi` on a restarted worker; diagnostics does not
+  adopt; classifier cases. The reviewer's M5 (discard before import), M8,
+  M16 and M17 mutations now go red.
+- Comments in `worker.ts` and `poolCapacity.ts` corrected: this VFS never
+  treats a journal as hot, so a killed worker's journal stays; temp files
+  claim no slot.
+- Docs: `sync-recovery.md`'s step table no longer assumes commits are atomic
+  across worker death, and gains a table of adoption's outcomes;
+  `sync-and-offline.md`'s carry sentence; the spec's F1 table points at the
+  plan's Deviations.
+- Filed pkm-87cf for the SAH pool VFS never rolling back a hot journal
+  (review I-2).

@@ -86,7 +86,7 @@ it("resolveDrop from another page never returns null (content must move)", () =>
   expect(t).toEqual({ parent_uid: null, order_idx: 3, page_title: "P" });
 });
 
-// --- group drag: a drag that carries a multi-block selection (pkm-q89w) ---
+// --- group drag: a drag that carries a multi-block selection ---
 
 it("dropRows excludes every dragged subtree of a group drag", () => {
   const drag: DragSource = { uid: "a", pageTitle: "P", uids: ["a", "d"] };

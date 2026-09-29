@@ -334,7 +334,7 @@ describe("applyOpsWithChange reports exactly what a serialize-compare would", ()
 
 describe("applyOpsWithChange allocates nothing for a batch that misses this page", () => {
   // The websocket broadcasts every page's ops to every open outline, so the
-  // common case is a batch none of whose ops concern this tree (pkm-a4wf).
+  // common case is a batch none of whose ops concern this tree.
   // Cloning it to throw the clone away costs one fresh node per block per
   // remote batch; these tests fail the moment the clone comes back.
   const elsewhere: BlockOp[] = [

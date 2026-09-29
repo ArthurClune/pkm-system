@@ -1,4 +1,4 @@
-// pkm-tu3a: onPasteOutline is the imperative half of planOutlinePaste — one
+// onPasteOutline is the imperative half of planOutlinePaste — one
 // flushed, optimistic, synced, undoable batch per paste gesture.
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";

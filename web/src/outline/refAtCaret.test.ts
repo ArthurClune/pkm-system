@@ -67,7 +67,7 @@ describe("refTitleAtCaret", () => {
   });
 
   test("a multi-line title resolves to the reachable one-line page", () => {
-    // pkm-hjhy: Ctrl-O must navigate to the page the ref resolves to, not
+    // Ctrl-O must navigate to the page the ref resolves to, not
     // to a title /api/page/<title> cannot match.
     const text = "see [[Levels of AGI:\nthe Path]] now";
     expect(refTitleAtCaret(text, 12)).toBe("Levels of AGI: the Path");

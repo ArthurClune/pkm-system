@@ -119,7 +119,7 @@ describe("AssistantPanel", () => {
     expect(screen.getByText(/cap reached/)).toBeInTheDocument();
   });
 
-  // pkm-e9ok: the busy line answers "is it stuck?" -- phase label plus an
+  // The busy line answers "is it stuck?" -- phase label plus an
   // elapsed clock that visibly ticks.
   test("busy line shows the phase label and a ticking elapsed clock", () => {
     vi.useFakeTimers();
@@ -150,7 +150,7 @@ describe("AssistantPanel", () => {
     expect(screen.getByText("thinking…")).toBeInTheDocument();
   });
 
-  test("Stop button appears while busy and calls stop() (pkm-c98s item 3)", () => {
+  test("Stop button appears while busy and calls stop()", () => {
     state.current.status = "idle";
     const { rerender } = render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
@@ -167,7 +167,7 @@ describe("AssistantPanel", () => {
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
   });
 
-  test("long ops previews collapse with a Show full preview toggle (pkm-c98s item 6)", () => {
+  test("long ops previews collapse with a Show full preview toggle", () => {
     const longPreview = `save_note(text=${"x".repeat(600)})`;
     state.current.status = "confirm";
     state.current.pendingConfirm = { toolUseId: "t1", opsPreview: longPreview };
@@ -187,7 +187,7 @@ describe("AssistantPanel", () => {
     expect(screen.queryByRole("button", { name: /show full preview/i })).toBeNull();
   });
 
-  test("a ((uid)) block ref in an assistant reply resolves and becomes clickable (pkm-gdi5)", async () => {
+  test("a ((uid)) block ref in an assistant reply resolves and becomes clickable", async () => {
     stubFetch([["/api/block-refs", {
       block_ref_texts: { chart1: { text: "the compute chart block", page_title: "Charts" } },
     }]]);
@@ -206,7 +206,7 @@ describe("AssistantPanel", () => {
     expect(screen.getByRole("link", { name: "the compute chart block" })).toBeInTheDocument();
   });
 
-  test("a ((^uid)) citation with a copied caret marker still resolves (pkm-wx86)", async () => {
+  test("a ((^uid)) citation with a copied caret marker still resolves", async () => {
     stubFetch([["/api/block-refs", {
       block_ref_texts: { chart1: { text: "the compute chart block", page_title: "Charts" } },
     }]]);
@@ -224,7 +224,7 @@ describe("AssistantPanel", () => {
     expect(screen.getByRole("link", { name: "the compute chart block" })).toBeInTheDocument();
   });
 
-  test("the model select is styled as a field (pkm-0wg9)", () => {
+  test("the model select is styled as a field", () => {
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByLabelText(/model/i)).toHaveClass("input-control");
   });

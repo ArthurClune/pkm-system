@@ -37,13 +37,13 @@ describe("applySlashCommand: /python /shell /javascript", () => {
   test("shell and javascript use their own fence language", () => {
     expect(applySlashCommand("/shell", 6, { kind: "command", start: 1, query: "shell" }, "shell", NOW))
       .toEqual({ text: "```shell\n\n```", cursor: 9 });
-    // /bash is gone: standardised on /shell (pkm-4nj1)
+    // /bash is gone: standardised on /shell
     expect(matchSlashCommands("bash")).toEqual([]);
     expect(applySlashCommand("/js", 3, { kind: "command", start: 1, query: "js" }, "javascript", NOW))
       .toEqual({ text: "```javascript\n\n```", cursor: 14 });
   });
 
-  test("mermaid is offered and wraps in a mermaid fence (pkm-x2ep)", () => {
+  test("mermaid is offered and wraps in a mermaid fence", () => {
     expect(matchSlashCommands("mer")).toEqual([{ name: "mermaid", label: "mermaid diagram" }]);
     expect(applySlashCommand("/mermaid", 8, { kind: "command", start: 1, query: "mermaid" }, "mermaid", NOW))
       .toEqual({ text: "```mermaid\n\n```", cursor: 11 });
@@ -132,12 +132,12 @@ describe("query", () => {
       .toEqual({ text: "{{query: {and: A {not: B}}}}", cursor: 28 });
   });
 
-  // pkm-nl6h: the placeholder used to spell its operands as real [[A]] /
-  // [[B]] page links, so merely picking the command (no further typing)
-  // got them ref-indexed and their pages auto-created the moment the draft
-  // flushed. The placeholder operands must never themselves be scannable
-  // refs -- the user is expected to replace them with real [[Page]] links.
-  test("query placeholders never contain a real [[...]] page-ref (pkm-nl6h)", () => {
+  // The placeholder operands must never themselves be scannable refs --
+  // spelling them as real [[A]] / [[B]] page links would get them
+  // ref-indexed and their pages auto-created the moment the draft flushed,
+  // merely from picking the command. The user is expected to replace them
+  // with real [[Page]] links.
+  test("query placeholders never contain a real [[...]] page-ref", () => {
     for (const command of ["query-and", "query-or", "query-and-not"]) {
       const { text } = applySlashCommand(`/${command}`, command.length + 1,
         { kind: "command", start: 1, query: command }, command, NOW);
@@ -250,12 +250,12 @@ describe("resolveHeading", () => {
 });
 
 describe("upload", () => {
-  test("upload is offered in the command menu (pkm-coz9)", () => {
+  test("upload is offered in the command menu", () => {
     expect(matchSlashCommands("up")).toEqual([{ name: "upload", label: "upload file…" }]);
   });
 });
 
-describe("today / tomorrow (pkm-rw6w)", () => {
+describe("today / tomorrow", () => {
   test("today is offered and inserts a link to today's daily note", () => {
     expect(matchSlashCommands("toda"))
       .toEqual([{ name: "today", label: "link to today" }]);

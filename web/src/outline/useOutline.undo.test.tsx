@@ -1,4 +1,4 @@
-// pkm-7q14: undo/redo wiring — run() records invertible batches, the
+// Undo/redo wiring — run() records invertible batches, the
 // handlers dispatch through the global undo manager.
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
@@ -119,7 +119,7 @@ it("undo restores a deleted block's text via subtree recreate", () => {
   expect(outline().blocks.map((n) => n.text)).toEqual(["alpha", "beta"]);
 });
 
-it("a flushed draft posts update_text with the pre-edit text's hash (pkm-4ubd)", () => {
+it("a flushed draft posts update_text with the pre-edit text's hash", () => {
   // Conflict protection must not depend on the op reaching the replica: an
   // online-only session's ops never pass through replica/queue.ts, so run()
   // stamps here, against the pre-flush tree the batch grew from.
@@ -134,7 +134,7 @@ it("a flushed draft posts update_text with the pre-edit text's hash (pkm-4ubd)",
   });
 });
 
-it("run() records UNSTAMPED ops, so a redo hashes the current text (pkm-4ubd)", () => {
+it("run() records UNSTAMPED ops, so a redo hashes the current text", () => {
   // The other half of the trap, and the half only this test covers: what run()
   // hands to recordHistory. If it recorded the stamped `wireOps`, the entry
   // would carry the hash of "alpha" forever, and stampBaseTextHashes in
@@ -166,8 +166,8 @@ it("run() records UNSTAMPED ops, so a redo hashes the current text (pkm-4ubd)", 
   });
 });
 
-it("undo stamps page_title on the enqueued op, though the recorded entry carries none (pkm-3g4n)", () => {
-  // Mirrors the pkm-4ubd base_text_hash pattern above: history stores
+it("undo stamps page_title on the enqueued op, though the recorded entry carries none", () => {
+  // Mirrors the base_text_hash pattern above: history stores
   // unstamped ops, and dispatch (undoManager.ts) stamps page_title fresh at
   // replay time against the mounted session's own tree.
   const sync = makeSync();

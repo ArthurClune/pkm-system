@@ -1,4 +1,4 @@
-// pkm-0htf: the guard must only interrupt unload while ops are stranded in
+// The guard must only interrupt unload while ops are stranded in
 // the fallback lane, and must detach the moment that count clears (a
 // permanently-attached beforeunload listener disables bfcache).
 import { render } from "@testing-library/react";

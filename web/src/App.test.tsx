@@ -45,7 +45,7 @@ it("shift-click stacks sidebar panels newest-first; close removes one", async ()
   expect(screen.getByText("paper body")).toBeInTheDocument();
 });
 
-it("shift-clicking the nav's TODO link opens it in the sidebar, not a new window (pkm-10ah)", async () => {
+it("shift-clicking the nav's TODO link opens it in the sidebar, not a new window", async () => {
   stubFetch([
     ["/api/journal", { days: [] }],
     ["/api/sidebar", { entries: [] }],
@@ -59,7 +59,7 @@ it("shift-clicking the nav's TODO link opens it in the sidebar, not a new window
   expect(event.defaultPrevented).toBe(true);
 });
 
-it("traps shift-click as a no-op on nav destinations that aren't pages (pkm-10ah)", async () => {
+it("traps shift-click as a no-op on nav destinations that aren't pages", async () => {
   stubFetch([["/api/current-work", { sections: [
     { id: "last-24-hours", title: "Last 24 hours", pages: [] },
   ] }], ["/api/sidebar", { entries: [] }]]);
@@ -80,7 +80,7 @@ it("traps shift-click as a no-op on nav destinations that aren't pages (pkm-10ah
   }
 });
 
-it("a trapped shift-click leaves the phone drawer open, having done nothing (pkm-10ah)", async () => {
+it("a trapped shift-click leaves the phone drawer open, having done nothing", async () => {
   stubFetch([["/api/journal", { days: [] }], ["/api/sidebar", { entries: [] }]]);
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
@@ -122,7 +122,7 @@ it("links to Current Work under Daily Notes and renders the route", async () => 
   expect(await screen.findByRole("heading", { name: "Current Work" })).toBeInTheDocument();
 });
 
-it("Daily Notes and Current Work are both primary links, whatever the route (pkm-nn7o)", async () => {
+it("Daily Notes and Current Work are both primary links, whatever the route", async () => {
   stubFetch([["/api/current-work", { sections: [
     { id: "last-24-hours", title: "Last 24 hours", pages: [] },
     { id: "24-to-48-hours", title: "24–48 hours", pages: [] },
@@ -136,7 +136,7 @@ it("Daily Notes and Current Work are both primary links, whatever the route (pkm
   expect(screen.getByRole("link", { name: "Current Work" }).className).toContain("primary");
 });
 
-it("links to TODO under Daily Notes and Current Work (pkm-6s7l)", async () => {
+it("links to TODO under Daily Notes and Current Work", async () => {
   stubFetch([["/api/page/TODO", pagePayload("TODO", [block("uid_t1", "todo body")])]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/TODO"]}><App /></MemoryRouter>);
 
@@ -372,7 +372,7 @@ it("search stays reachable via the top bar when the sidebar is collapsed", async
   expect(input).toHaveFocus();
 });
 
-// pkm-57mo: the center pane widens into whatever space a missing/collapsed
+// The center pane widens into whatever space a missing/collapsed
 // sidebar frees up. The pane's own width is a CSS var driven off these
 // classes, so the classes are what's testable in JS; the actual widths are
 // asserted in e2e/page-width.spec.ts.
@@ -460,7 +460,7 @@ it("unknown route renders the not-found view", () => {
   expect(screen.getByRole("link", { name: "Go to Daily Notes" })).toBeInTheDocument();
 });
 
-it("Settings nav link sits below the user-editable favourites but is styled primary (pkm-eztt)", () => {
+it("Settings nav link sits below the user-editable favourites but is styled primary", () => {
   stubFetch([["/api/journal", { days: [] }]]);
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>,
@@ -476,7 +476,7 @@ it("Settings nav link sits below the user-editable favourites but is styled prim
   expect(settingsLink).toHaveClass("primary");
 });
 
-it("Assistant link opens a new section below the pinned pages (pkm-usb6)", () => {
+it("Assistant link opens a new section below the pinned pages", () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
   // The pinned list draws its own upper rule; this class draws the lower one,
@@ -501,11 +501,11 @@ it("renders the Files view at /files", async () => {
   ).toBeInTheDocument();
 });
 
-// pkm-77w2: this exercises useRouteTitle() as actually mounted inside App
+// This exercises useRouteTitle() as actually mounted inside App
 // (App.tsx:59), not via a synthetic probe -- useRouteTitle.test.tsx covers
 // the hook in isolation, but only a real <App/> render proves the wiring
 // itself wasn't dropped.
-it("sets the browser title from the centralized route table as App navigates between static routes (pkm-77w2)", async () => {
+it("sets the browser title from the centralized route table as App navigates between static routes", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
   await screen.findByPlaceholderText("Search…");
@@ -516,7 +516,7 @@ it("sets the browser title from the centralized route table as App navigates bet
   expect(document.title).toBe("Settings — pkm");
 });
 
-it("the hamburger exposes the drawer's expanded state and what it controls (pkm-rwwp)", () => {
+it("the hamburger exposes the drawer's expanded state and what it controls", () => {
   stubFetch([["/api/journal", { days: [] }]]);
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>,
@@ -536,7 +536,7 @@ it("the hamburger exposes the drawer's expanded state and what it controls (pkm-
   expect(nav).not.toHaveClass("open");
 });
 
-it("closing the nav drawer returns focus to the hamburger (pkm-rwwp)", async () => {
+it("closing the nav drawer returns focus to the hamburger", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
   const hamburger = screen.getByRole("button", { name: "menu" });
@@ -556,7 +556,7 @@ it("closing the nav drawer returns focus to the hamburger (pkm-rwwp)", async () 
   expect(hamburger).toHaveFocus();
 });
 
-it("a never-opened drawer does not steal focus on mount or navigation (pkm-rwwp)", async () => {
+it("a never-opened drawer does not steal focus on mount or navigation", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
   const hamburger = screen.getByRole("button", { name: "menu" });

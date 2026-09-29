@@ -1,4 +1,4 @@
-// How often the drop zone measures and commits during a drag (pkm-ikk0).
+// How often the drop zone measures and commits during a drag.
 // The drop *semantics* are covered by outline/dnd.test.ts (pure) and
 // components/EditableBlockTree.dnd.test.tsx (whole-page wiring); this file is
 // only about the throttle, the rect cache, and the two invariants they must
@@ -187,7 +187,7 @@ it("drops where the indicator is drawn, not where an unprocessed pointer got to"
   expect(indicatorTop()).toBeNull();
 });
 
-it("does not commit a new indicator object when the position hasn't moved (pkm-fgjg F7)",
+it("does not commit a new indicator object when the position hasn't moved",
    () => {
   // setIndicator({top, left}) used to allocate a fresh object on every
   // throttled process(), so a memoized consumer of `indicator` re-rendered

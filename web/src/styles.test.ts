@@ -62,7 +62,7 @@ describe("outline line spacing", () => {
   });
 });
 
-describe("link styling (pkm-1eaj)", () => {
+describe("link styling", () => {
   test("page links are medium weight, not bold", () => {
     expect(ruleFor("a.page-link")).toContain("font-weight: 500;");
   });
@@ -86,7 +86,7 @@ describe("link styling (pkm-1eaj)", () => {
   });
 });
 
-describe("metadata chips (pkm-7t7o)", () => {
+describe("metadata chips", () => {
   test("attribute names are small-caps muted labels, not bold text", () => {
     const attr = ruleFor(".attribute a");
     expect(attr).toContain("font-variant-caps: all-small-caps;");
@@ -108,9 +108,9 @@ describe("metadata chips (pkm-7t7o)", () => {
   });
 });
 
-describe("top bar cohesion (pkm-absu)", () => {
-  // the pill moved to the shared .search-field-input class (pkm-0wg9) so the
-  // /files search is the same object, not a lookalike
+describe("top bar cohesion", () => {
+  // the pill moved to the shared .search-field-input class (see "control
+  // polish" below) so the /files search is the same object, not a lookalike
   test("the search input is a rounded pill", () => {
     expect(rulesFor(".search-field-input"))
       .toContain("border-radius: var(--radius-pill);");
@@ -140,14 +140,14 @@ describe("top bar cohesion (pkm-absu)", () => {
   });
 });
 
-describe("ghost icon button focus ring (pkm-cq32)", () => {
+describe("ghost icon button focus ring", () => {
   test("top-bar ghost buttons get the themed keyboard focus ring", () => {
     const focus = ruleFor(
       ".top-bar-menu-button:focus-visible, .sidebar-toggle-button:focus-visible, .help-button:focus-visible",
     );
     expect(focus).toContain("outline: 2px solid var(--color-link);");
-    // the transparent border is pkm-absu's no-shift-on-hover guard; the ring
-    // must not require touching it
+    // the transparent border is the "top bar cohesion" no-shift-on-hover
+    // guard; the ring must not require touching it
     expect(ruleFor(".top-bar-menu-button, .sidebar-toggle-button, .help-button"))
       .toContain("border: 1px solid transparent;");
   });
@@ -165,7 +165,7 @@ describe("ghost icon button focus ring (pkm-cq32)", () => {
       .toContain("outline: 2px solid var(--color-link);");
   });
 
-  // other bare <button> classes found by the pkm-cq32 audit -- same gap,
+  // other bare <button> classes found by the same audit -- same gap,
   // same fix
   test("other bare-button classes audited for the same gap all get the ring", () => {
     for (const selector of [
@@ -189,8 +189,8 @@ describe("ghost icon button focus ring (pkm-cq32)", () => {
   // keeps its tab stop. It needs the themed ring for a second reason beyond
   // the palette clash: .bullet.closed marks collapsed-with-hidden-children by
   // colouring the bullet's own 4px border, and Chrome's default ring is also
-  // drawn tight around the dot, so a focused bullet read as collapsed
-  // (pkm-scgu). --color-link at an offset tells the two apart.
+  // drawn tight around the dot, so a focused bullet read as collapsed.
+  // --color-link at an offset tells the two apart.
   test("the block bullet gets the themed ring, not Chrome's collapsed-lookalike", () => {
     const focus = ruleFor(".bullet:focus-visible");
     expect(focus).toContain("outline: 2px solid var(--color-link);");
@@ -200,7 +200,7 @@ describe("ghost icon button focus ring (pkm-cq32)", () => {
   });
 
   // deliberate exclusion, so a later audit doesn't "fix" it back: the date
-  // picker is mouse-only by design (pkm-rw6w) -- its buttons preventDefault on
+  // picker is mouse-only by design -- its buttons preventDefault on
   // mousedown so they never take focus, and Tab inside a block indents instead
   // of moving focus, so a ring there could never be seen.
   test("the mouse-only date picker is left without a ring", () => {
@@ -209,7 +209,7 @@ describe("ghost icon button focus ring (pkm-cq32)", () => {
   });
 });
 
-describe("backlink card polish (pkm-mqvv)", () => {
+describe("backlink card polish", () => {
   test("cards keep the subtle bg, drop the visible border, and tighten padding", () => {
     const card = ruleFor(".backlink-item, .query-item");
     expect(card).toContain("background: var(--color-bg-subtle);");
@@ -227,7 +227,7 @@ describe("backlink card polish (pkm-mqvv)", () => {
   });
 });
 
-describe("visual consistency (pkm-9kye)", () => {
+describe("visual consistency", () => {
   test("border-radius scale is tokenised and stray 3px radii are gone", () => {
     const root = ruleFor(":root");
     expect(root).toContain("--radius-control: 4px;");
@@ -247,7 +247,7 @@ describe("visual consistency (pkm-9kye)", () => {
   test("secondary buttons share one style definition", () => {
     const btn = ruleFor(".btn-secondary");
     expect(btn).toContain("background: var(--color-bg-subtle);");
-    // border lightened and the radius became a pill in pkm-0wg9
+    // border is lightened and the radius is a pill
     expect(btn).toContain("border: 1px solid var(--color-border);");
     expect(btn).toContain("border-radius: var(--radius-pill);");
     expect(ruleFor(".show-more")).not.toContain("background:");
@@ -261,10 +261,10 @@ describe("visual consistency (pkm-9kye)", () => {
   });
 });
 
-describe("form control tokens (pkm-mrru)", () => {
+describe("form control tokens", () => {
   test("the button tokens carry their own geometry, so bare call sites look right", () => {
     for (const selector of [".btn-secondary", ".btn-danger"]) {
-      // widened for the pill shape in pkm-0wg9
+      // widened for the pill shape
       expect(ruleFor(selector)).toContain("padding: 5px 14px;");
     }
   });
@@ -274,8 +274,8 @@ describe("form control tokens (pkm-mrru)", () => {
   });
 
   test("text inputs and selects share one .input-control style", () => {
-    // colours live in the grouped rule shared with .search-field-input
-    // (pkm-0wg9); this class keeps its own geometry
+    // colours live in the grouped rule shared with .search-field-input;
+    // this class keeps its own geometry
     const shared = ruleFor(".input-control, .search-field-input");
     expect(shared).toContain("font: inherit;");
     expect(shared).toContain("color: var(--color-text);");
@@ -290,7 +290,7 @@ describe("form control tokens (pkm-mrru)", () => {
   });
 
   // Without this, Chrome paints select/date widgets, their popups, and
-  // scrollbars in light mode however the author styles them (pkm-mrru).
+  // scrollbars in light mode however the author styles them.
   test("each theme declares its colour scheme for native widgets", () => {
     expect(ruleFor(":root")).toContain("color-scheme: light;");
     expect(ruleFor(':root:not([data-theme="light"])'))
@@ -300,7 +300,7 @@ describe("form control tokens (pkm-mrru)", () => {
   });
 });
 
-describe("shared Files styling (pkm-6phf findings 16-17)", () => {
+describe("shared Files styling", () => {
   test("settings-note styling is available outside Settings sections", () => {
     expect(styles).toContain("\np.settings-note {");
     expect(styles).not.toContain(".settings-section p.settings-note");
@@ -322,7 +322,7 @@ describe("shared Files styling (pkm-6phf findings 16-17)", () => {
   });
 });
 
-describe("control polish (pkm-0wg9)", () => {
+describe("control polish", () => {
   test("actions and fields have their own radius tokens", () => {
     const root = ruleFor(":root");
     expect(root).toContain("--radius-pill: 999px;");
@@ -393,7 +393,7 @@ describe("control polish (pkm-0wg9)", () => {
     expect(ruleFor(".composer textarea")).not.toContain("border:");
   });
 
-  // the one background exception (pkm-k1ak): .left-nav is itself
+  // the one background exception: .left-nav is itself
   // --color-bg-subtle, so the shared resting fill leaves this field with only
   // its border to distinguish it from the nav
   test("the sidebar Add field lifts off the nav background", () => {
@@ -429,7 +429,7 @@ describe("control polish (pkm-0wg9)", () => {
     expect(topBar).toContain("transition: width 0.15s");
     expect(topBar).not.toContain("border-radius:");
     expect(ruleFor(".top-bar-search-input:focus")).toContain("width: 320px;");
-    // pkm-absu: the hint chip hides via an adjacent-sibling selector, so the
+    // The hint chip hides via an adjacent-sibling selector, so the
     // kbd must stay immediately after the input
     expect(styles).toContain(".top-bar-search-input:focus + .top-bar-search-hint,");
   });
@@ -438,7 +438,7 @@ describe("control polish (pkm-0wg9)", () => {
     const ghost = ruleFor(
       ".top-bar-menu-button, .sidebar-toggle-button, .help-button");
     expect(ghost).toContain("border-radius: var(--radius-pill);");
-    // pkm-absu: transparent border, not none, so hover doesn't shift layout
+    // Transparent border, not none, so hover doesn't shift layout
     expect(ghost).toContain("border: 1px solid transparent;");
   });
 
@@ -452,7 +452,7 @@ describe("control polish (pkm-0wg9)", () => {
   });
 });
 
-describe("typography hierarchy (pkm-b68q, pkm-ofec)", () => {
+describe("typography hierarchy", () => {
   test("displayed and focused headings share the same scale and weight", () => {
     for (const [selector, size] of [
       ["h1.block-text, .block-input.heading-1", "1.4rem"],
@@ -472,7 +472,7 @@ describe("typography hierarchy (pkm-b68q, pkm-ofec)", () => {
   });
 });
 
-describe("Roam tables (pkm-kbv5)", () => {
+describe("Roam tables", () => {
   test("wide tables scroll and cells use themed borders", () => {
     expect(ruleFor(".roam-table-scroll")).toContain("overflow-x: auto;");
     expect(ruleFor(".roam-table th, .roam-table td"))
@@ -481,8 +481,8 @@ describe("Roam tables (pkm-kbv5)", () => {
   });
 });
 
-describe("uploaded image expansion (pkm-aze9)", () => {
-  // The trigger's width cap belongs to pkm-1vq4 below, not here.
+describe("uploaded image expansion", () => {
+  // The trigger's width cap belongs to "embedded image size" below, not here.
   test("the uploaded-image trigger preserves layout and has visible keyboard focus", () => {
     const trigger = ruleFor(".asset-image-trigger");
     expect(trigger).toContain("display: block;");
@@ -502,7 +502,7 @@ describe("uploaded image expansion (pkm-aze9)", () => {
   });
 });
 
-describe("embedded image size (pkm-1vq4)", () => {
+describe("embedded image size", () => {
   test("an embedded image spans at most two-thirds of the text column", () => {
     // Bare <img> (external URLs) and the /assets/ trigger button both need the
     // cap: whichever one is the outermost box decides the rendered width.
@@ -523,7 +523,7 @@ describe("embedded image size (pkm-1vq4)", () => {
   });
 });
 
-describe("top bar page menu (pkm-ciy8)", () => {
+describe("top bar page menu", () => {
   test("menu buttons and the export-as-markdown anchor share the same weight", () => {
     const item = ruleFor(".top-bar-menu button, .top-bar-menu a");
     expect(item).toContain("font-weight: normal;");
@@ -532,14 +532,14 @@ describe("top bar page menu (pkm-ciy8)", () => {
   });
 });
 
-describe("full-width layout margins (pkm-5nif)", () => {
+describe("full-width layout margins", () => {
   test("the no-sidebar case keeps a wider gutter than the other combinations", () => {
     const noSidebar = ruleFor(".app.nav-collapsed.no-sidebar .content-area");
     expect(noSidebar).toContain("min(1240px, calc(100% - 160px))");
   });
 });
 
-describe("left-nav section separator (pkm-usb6)", () => {
+describe("left-nav section separator", () => {
   test("the pinned-page list and the link below it are fenced the same way", () => {
     // The pinned list draws the upper rule; .nav-section-start draws the
     // matching lower one, and must out-pad .nav-link's own 4px so its text
@@ -552,7 +552,7 @@ describe("left-nav section separator (pkm-usb6)", () => {
   });
 });
 
-describe("unlinked reference Link action (pkm-965i)", () => {
+describe("unlinked reference Link action", () => {
   test("keeps text flexible and the compact action visible", () => {
     expect(ruleFor(".unlinked-link-row")).toContain("display: flex;");
     expect(ruleFor(".unlinked-link-row .backlink-text")).toContain("min-width: 0;");
@@ -561,7 +561,7 @@ describe("unlinked reference Link action (pkm-965i)", () => {
   });
 });
 
-describe("phone nav drawer is unreachable while closed (pkm-rwwp)", () => {
+describe("phone nav drawer is unreachable while closed", () => {
   test("the closed drawer is visibility:hidden; .open restores it", () => {
     // translateX alone leaves every nav link tabbable off-screen, and they are
     // the page's first tab stops. visibility:hidden takes the whole subtree
@@ -576,7 +576,7 @@ describe("phone nav drawer is unreachable while closed (pkm-rwwp)", () => {
   });
 });
 
-describe("in-heading trigger buttons inherit their heading (pkm-l4z8)", () => {
+describe("in-heading trigger buttons inherit their heading", () => {
   test("the page-title edit button carries no button chrome", () => {
     const rule = rulesFor(".page-title-edit");
     expect(rule).toContain("font: inherit;");
@@ -607,8 +607,8 @@ describe("in-heading trigger buttons inherit their heading (pkm-l4z8)", () => {
   });
 });
 
-describe("focused search stays inside narrow phone viewports (pkm-vszf)", () => {
-  // Desktop's fixed 220px/320px growth (pkm-0wg9) is untouched -- only the
+describe("focused search stays inside narrow phone viewports", () => {
+  // Desktop's fixed 220px/320px growth is untouched -- only the
   // phone breakpoint gets a shrinkable field. jsdom can't lay out flexbox, so
   // the actual "stays on screen" claim is Playwright's job
   // (e2e/search-viewport.spec.ts); this only pins the declarations down.
@@ -630,14 +630,14 @@ describe("focused search stays inside narrow phone viewports (pkm-vszf)", () => 
   test("the phone breakpoint restores a themed focus ring", () => {
     // Desktop signals focus by growing the field; once growth is capped by
     // available space that cue may be too subtle to read, so the ring the
-    // field family normally carries (and the top bar opts out of, pkm-0wg9)
+    // field family normally carries (and the top bar opts out of)
     // comes back at this breakpoint.
     expect(mediaRulesFor("(max-width: 600px)", ".top-bar-search-input:focus-visible"))
       .toContain("outline: 2px solid var(--color-link);");
   });
 });
 
-describe("block stamps (pkm-4ler)", () => {
+describe("block stamps", () => {
   const BANDS = ["week", "month", "year"] as const;
 
   test("the three tinted age-band tokens exist in all three theme blocks", () => {
@@ -711,7 +711,7 @@ describe("block stamps (pkm-4ler)", () => {
   });
 });
 
-describe("reference-count gutter badge (pkm-d31f)", () => {
+describe("reference-count gutter badge", () => {
   test("is a muted pill styled from the two tokens", () => {
     const rule = rulesFor(".block-ref-badge");
     expect(rule).toContain("color: var(--color-text-muted);");
@@ -739,7 +739,7 @@ describe("reference-count gutter badge (pkm-d31f)", () => {
   });
 });
 
-describe("references popover (pkm-d31f)", () => {
+describe("references popover", () => {
   // layers and shades like .block-menu -- both are fixed-position floating
   // panels that can be open at the same time (a badge inside a block menu's
   // context is unlikely, but nothing rules it out), so they share tokens.
@@ -766,7 +766,7 @@ describe("references popover (pkm-d31f)", () => {
   });
 });
 
-describe("PDF frame contributes no baseline (pkm-vg3y)", () => {
+describe("PDF frame contributes no baseline", () => {
   // .block-row aligns its items by baseline. WebKit (iPadOS Safari) took the
   // block-text's first baseline from the bottom edge of the page-1 canvas
   // INSIDE the overflow:auto frame -- 760px down, past the frame's 480px clip
@@ -786,8 +786,8 @@ describe("PDF frame contributes no baseline (pkm-vg3y)", () => {
 });
 
 // Refs into a few big page trees get their own colour so [[AWS/EC2]] and
-// [[Project/SITS]] read as different kinds of link at a glance (pkm-r71a).
-describe("namespace link colours (pkm-r71a)", () => {
+// [[Project/SITS]] read as different kinds of link at a glance.
+describe("namespace link colours", () => {
   const TOKENS = ["--color-link-cloud", "--color-link-ai",
     "--color-link-work", "--color-link-reading"];
   const GROUPS: Record<string, string[]> = {

@@ -46,7 +46,7 @@ it("dnd.moveTo enqueues one move op with no page_title and reorders optimistical
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(["u2", "u1"]);
 });
 
-it("dnd.moveTo with a group moves every block, order preserved (pkm-q89w)", () => {
+it("dnd.moveTo with a group moves every block, order preserved", () => {
   const sync = makeSync();
   const initial = [
     block("u1", "first", { order_idx: 0 }),

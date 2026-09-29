@@ -14,12 +14,12 @@ describe("mayHaveShrunk", () => {
     expect(mayHaveShrunk("a\nb", "ab")).toBe(true);
   });
 
-  // pkm-youp fix round 1: an equal-length, equal-newline-count replacement
-  // can still re-wrap narrower (character widths vary -- a run of "w"s wraps
-  // sooner than the same count of "i"s), so it must reset like a shrink
-  // would. Skipping the reset here previously left `heightChanged` unable to
-  // notice: a measurement clamped to the old (too tall) box never differs
-  // from what's already applied, so the stale height stuck permanently.
+  // An equal-length, equal-newline-count replacement can still re-wrap
+  // narrower (character widths vary -- a run of "w"s wraps sooner than the
+  // same count of "i"s), so it must reset like a shrink would. Skipping
+  // the reset here leaves `heightChanged` unable to notice: a measurement
+  // clamped to the old (too tall) box never differs from what's already
+  // applied, so the stale height sticks permanently.
   test("same length, same newline count, different characters: true (may re-wrap narrower)", () => {
     expect(mayHaveShrunk("wwww", "iiii")).toBe(true);
   });

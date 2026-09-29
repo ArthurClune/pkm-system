@@ -33,9 +33,9 @@ describe("createSseParser", () => {
     expect(p.push(": comment\n\n")).toEqual([]);
   });
 
-  // pkm-mbcc: the server now interleaves a keepalive comment frame into a
-  // silent turn (events.py SSE_COMMENT). It must stay invisible here, and
-  // must not disturb a real frame arriving in the same chunk.
+  // The server interleaves a keepalive comment frame into a silent turn
+  // (events.py SSE_COMMENT). It must stay invisible here, and must not
+  // disturb a real frame arriving in the same chunk.
   test("ignores the server's keepalive comment frame", () => {
     const p = createSseParser();
     expect(p.push(": keepalive\n\n")).toEqual([]);
@@ -44,8 +44,8 @@ describe("createSseParser", () => {
     ]);
   });
 
-  // pkm-e9ok: a name missing from EVENT_TYPES is silently dropped, so the
-  // phase event needs its own proof of life here.
+  // A name missing from EVENT_TYPES is silently dropped, so the phase
+  // event needs its own proof of life here.
   test("parses phase", () => {
     const p = createSseParser();
     expect(p.push('event: phase\ndata: {"label": "preparing save_note"}\n\n')).toEqual([

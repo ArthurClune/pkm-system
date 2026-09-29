@@ -334,7 +334,7 @@ describe("tokenizeBlock", () => {
     ]);
   });
 
-  // pkm-hjhy: PageLink renders this title AND uses it for the href, so a
+  // PageLink renders this title AND uses it for the href, so a
   // multi-line link must render as a link to the one-line page rather than
   // to a title the API cannot address.
   it("normalizes a multi-line page-ref title", () => {

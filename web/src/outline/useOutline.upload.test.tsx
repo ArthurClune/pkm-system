@@ -1,9 +1,8 @@
-// pkm-gbsb: handlers.onFiles is the imperative half of the /upload, paste,
+// handlers.onFiles is the imperative half of the /upload, paste,
 // and drag-drop paths — it calls uploadAsset per file and splices the
 // resulting markdown into the block. This covers the error-surfacing half:
-// a failed upload used to be swallowed by an empty catch with zero user
-// feedback (verified failing before the fix); now it must set a visible
-// uploadError and leave the block text untouched.
+// a failed upload must set a visible uploadError and leave the block text
+// untouched, never swallow the failure with zero user feedback.
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { expect, it, vi } from "vitest";
@@ -59,8 +58,8 @@ it("onFiles splices the uploaded asset's markdown at the given offset", async ()
     .toBe(`hello![cat.png](${INFO.url})`);
 });
 
-it("a failed upload sets a visible uploadError and leaves the text untouched "
-   + "(pkm-gbsb)", async () => {
+it("a failed upload sets a visible uploadError and leaves the text untouched",
+   async () => {
   const sync = makeSync();
   stubFetch([]); // /api/assets 404s -> ApiError
   const getOutline = setup(sync, "Page", [block("u1", "hello")]);
@@ -94,12 +93,11 @@ it("dismissUploadError clears the message", async () => {
   expect(getOutline().uploadError).toBeNull();
 });
 
-// pkm-s6i6: the /upload pick blurs the block itself (pkm-zrjc) before
-// onFiles ever runs — focus is already null when the upload starts.
-// Re-focusing unconditionally on completion used to swap the block back to
-// a raw-markdown textarea, hiding the just-uploaded image until the user
-// moved the cursor away.
-it("the /upload dialog path leaves focus null after the splice (pkm-s6i6)",
+// The /upload pick blurs the block itself before onFiles ever runs —
+// focus is already null when the upload starts. Re-focusing unconditionally
+// on completion would swap the block back to a raw-markdown textarea,
+// hiding the just-uploaded image until the user moved the cursor away.
+it("the /upload dialog path leaves focus null after the splice",
    async () => {
   const sync = makeSync();
   stubFetch([["/api/assets", INFO]]);
@@ -119,7 +117,7 @@ it("the /upload dialog path leaves focus null after the splice (pkm-s6i6)",
 });
 
 it("the paste/drop path restores focus with the caret past the spliced "
-   + "markdown (pkm-s6i6)", async () => {
+   + "markdown", async () => {
   const sync = makeSync();
   stubFetch([["/api/assets", INFO]]);
   const getOutline = setup(sync, "Page", [block("u1", "hello")]);
@@ -137,8 +135,8 @@ it("the paste/drop path restores focus with the caret past the spliced "
   expect(getOutline().focus).toEqual({ uid: "u1", cursor: spliced.length });
 });
 
-it("moving focus to another block during a slow upload leaves it there "
-   + "(pkm-s6i6)", async () => {
+it("moving focus to another block during a slow upload leaves it there",
+   async () => {
   const sync = makeSync();
   const deferred = defer<Response>();
   vi.stubGlobal("fetch", vi.fn(async () => deferred.promise));

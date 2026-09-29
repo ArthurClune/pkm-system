@@ -21,7 +21,7 @@ describe("ensureMinimumCapacity", () => {
   });
 
   it("tops a starved pool up to the minimum in one call", async () => {
-    // The observed pkm-ndcu failure: installOpfsSAHPoolVfs raced a sibling
+    // The observed failure: installOpfsSAHPoolVfs raced a sibling
     // worker and returned a pool holding a single access handle. The database
     // file claims it, leaving no slot for SQLite's rollback journal, so every
     // write transaction fails with SQLITE_CANTOPEN.

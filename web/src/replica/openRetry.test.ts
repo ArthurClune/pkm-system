@@ -125,7 +125,7 @@ describe("openWithRetry", () => {
       { sleep, delaysMs: [1, 1, 1] },
     )).rejects.toBe(sahError);
     // Every retry replayed the memoised rejection: OPFS was touched once, so
-    // the backoff could never see the contention clear (pkm-wi25).
+    // the backoff could never see the contention clear.
     expect(sqlite.installs()).toBe(1);
   });
 

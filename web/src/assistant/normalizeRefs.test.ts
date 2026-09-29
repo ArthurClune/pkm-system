@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { stripCaretBlockRefs } from "./normalizeRefs";
 
-// pkm-wx86: MCP tool output shows blocks with trailing ^uid markers; GLM
+// MCP tool output shows blocks with trailing ^uid markers; GLM
 // copies the caret verbatim into citations, emitting ((^uid)) which the
 // shared ref grammar rejects. The assistant render path strips the caret
 // so the citation tokenizes as a block ref; the grammar itself is untouched.

@@ -87,8 +87,8 @@ it("navigates on undo when the page's session lingers with no mounted hooks (off
   const clear = setHistoryNavigator((p) => paths.push(p));
   recordHistory(entry());
   performUndo(sync);
-  // The lingering session IS a tree, so the replayed op is stamped against it
-  // (pkm-4ubd); the other undo tests here have no session and go out unstamped.
+  // The lingering session IS a tree, so the replayed op is stamped against
+  // it; the other undo tests here have no session and go out unstamped.
   expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before",
                                base_text_hash: sha256Hex("after"),
                                page_title: PAGE }]]);
@@ -105,7 +105,7 @@ it("performUndo returns false on an empty stack without enqueueing", () => {
   expect(sync.sent).toEqual([]);
 });
 
-it("redo stamps against the current tree, not the recorded one (pkm-4ubd)", () => {
+it("redo stamps against the current tree, not the recorded one", () => {
   // History deliberately records UNSTAMPED ops: a hash taken when the entry was
   // recorded is stale by the time it is replayed, and a stale hash would land a
   // spurious daily-note [[conflict]] header against the user's own later edit.

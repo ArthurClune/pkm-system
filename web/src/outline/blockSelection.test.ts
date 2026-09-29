@@ -76,7 +76,7 @@ describe("extendSelection", () => {
   });
 });
 
-describe("selectionDragUids (pkm-q89w drag)", () => {
+describe("selectionDragUids", () => {
   it("returns the selection's uids when the grabbed block is part of it", () => {
     expect(selectionDragUids(BLOCKS, { anchor: "a", head: "b" }, "a"))
       .toEqual(["a", "b"]);
@@ -97,7 +97,7 @@ describe("selectionDragUids (pkm-q89w drag)", () => {
   });
 });
 
-describe("needsDeleteConfirmation (pkm-q89w)", () => {
+describe("needsDeleteConfirmation", () => {
   it("does not require confirmation for 20 or fewer blocks", () => {
     expect(needsDeleteConfirmation(0)).toBe(false);
     expect(needsDeleteConfirmation(1)).toBe(false);
@@ -120,7 +120,7 @@ describe("selectionText", () => {
     expect(selectionText(BLOCKS, { anchor: "c", head: "a" })).toBe("one\ntwo\nthree");
   });
 
-  it("indents by depth relative to the shallowest selected block (pkm-tu3a)", () => {
+  it("indents by depth relative to the shallowest selected block", () => {
     expect(selectionText(NESTED, { anchor: "r", head: "s" }))
       .toBe("root\n\tchild\n\t\tgrand\nsibling");
     // selection entirely below the top level re-bases at zero tabs

@@ -58,7 +58,7 @@ describe("connectSocket reconnect policy", () => {
     }
   });
 
-  it("keeps backing off when the server accepts then immediately closes (pkm-uue4)", () => {
+  it("keeps backing off when the server accepts then immediately closes", () => {
     // A socket that opens and closes before it can prove itself (auth
     // expiry, load shedding, a middlebox completing the handshake then
     // dropping) must not reset the backoff -- otherwise an unhealthy server
@@ -174,7 +174,7 @@ describe("connectSocket reconnect policy", () => {
     expect(created()).toBe(1);
   });
 
-  describe("frozen-socket resume heuristic (pkm-uue4)", () => {
+  describe("frozen-socket resume heuristic", () => {
     it("closes a nominally-open socket that has been hidden for RESUME_STALE_MS", () => {
       connect();
       const sock = latest();

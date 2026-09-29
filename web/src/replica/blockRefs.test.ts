@@ -1,7 +1,7 @@
 // @vitest-environment node
-// pkm-t3qw: both replica paths that write block_refs go through one
+// Both replica paths that write block_refs go through one
 // composition. apply.ts (remote apply: snapshot bootstrap and change windows)
-// and localOps.ts (optimistic local apply) each used to hand-roll the same
+// and localOps.ts (optimistic local apply) must not hand-roll their own
 // delete + re-derive loop. The delegation tests below fail if either one
 // re-inlines it; the equivalence test fails if the two paths ever derive
 // different rows from the same text, whatever code they run.

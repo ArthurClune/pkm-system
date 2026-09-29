@@ -13,8 +13,8 @@ afterEach(() => { FakeWebSocket.instances = []; });
 // leaves some browser default action unprevented that jsdom can't emulate.
 // Because jsdom schedules some of these on a timer (navigation is one), they
 // can print after the test that triggered them has already finished, landing
-// on whichever test happens to be running next -- see pkm-apr7, where a real
-// anchor's un-prevented click left a "Not implemented: navigation" warning
+// on whichever test happens to be running next -- a real anchor's
+// un-prevented click can leave a "Not implemented: navigation" warning
 // attributed to an unrelated test. Rather than let that keep happening
 // silently, fail whichever test is current when one appears; it may not
 // always be the offending test, but it stops the noise from accumulating

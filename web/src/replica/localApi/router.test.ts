@@ -97,7 +97,7 @@ describe("error statuses", () => {
     const deps = { newBatchId: () => "b1" };
     expectStatus(call("POST", "/api/pages", { title: "   " }, deps), 422);
     expectStatus(call("POST", "/api/pages", {}, deps), 422);
-    // pkm-hjhy: whitespace-only stays a 422 rather than normalizing to ""
+    // whitespace-only stays a 422 rather than normalizing to ""
     expectStatus(call("POST", "/api/pages", { title: "\n\t" }, deps), 422);
   });
 });
@@ -152,7 +152,7 @@ describe("daily auto-creation", () => {
   }
 
   test("journal with before returns only non-empty dailies, newest first "
-    + "(pkm-03x6: empty and whitespace-only days are omitted)", () => {
+    + "(empty and whitespace-only days are omitted)", () => {
     addDaily(11, "July 9th, 2026", ["entry nine"]);
     addDaily(12, "July 8th, 2026", [" ", "\t\n"]);
     addDaily(13, "July 5th, 2026", ["entry five"]);
@@ -185,7 +185,7 @@ describe("daily auto-creation", () => {
     t.db.exec("INSERT INTO refs VALUES (?,?,?)", [srcUid, targetPageId, kind]);
   }
 
-  test("journal surfaces an empty day referenced from elsewhere (pkm-vvta)",
+  test("journal surfaces an empty day referenced from elsewhere",
     () => {
       addDaily(11, "July 9th, 2026", ["entry nine"]);
       // July 8th has no blocks of its own, but a reminder on July 9th's
@@ -379,7 +379,7 @@ describe("create page", () => {
       [{ op: "create_page", page_title: "Active Post" }]);
   });
 
-  test("normalizes a multi-line title, like the server does (pkm-hjhy)", () => {
+  test("normalizes a multi-line title, like the server does", () => {
     // The queued create_page op reaches a server that normalizes in
     // get_or_create_page, so the local row and the op must both already
     // carry the normalized title -- otherwise the two never agree, and the

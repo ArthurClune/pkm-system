@@ -1,5 +1,5 @@
-// Drift probes and behaviour tests for the generated-type API boundary
-// (pkm-60bf). Most of this file is a COMPILE-time test: `pnpm typecheck` is
+// Drift probes and behaviour tests for the generated-type API boundary.
+// Most of this file is a COMPILE-time test: `pnpm typecheck` is
 // what runs it. Every expected-error directive below must stay an error --
 // TypeScript reports an UNUSED suppression as an error of its own, so a probe
 // that stops catching its drift fails the build rather than silently passing.

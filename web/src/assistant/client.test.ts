@@ -50,7 +50,7 @@ describe("streamMessage", () => {
     await expect(streamMessage("c1", "hi", () => {})).rejects.toBeInstanceOf(ApiError);
   });
 
-  test("surfaces the server's detail on non-OK status (pkm-c98s item 5)", async () => {
+  test("surfaces the server's detail on non-OK status", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ detail: "unknown conversation" }), { status: 404 }),
     );
@@ -67,9 +67,9 @@ describe("streamMessage", () => {
     expect(handler).toHaveBeenCalledOnce();
   });
 
-  // pkm-e9ok leg 2: the server writes a keepalive every 15s, so a full
-  // minute with no bytes at all is a dead client<->server link -- which a
-  // stalled fetch stream never surfaces on its own.
+  // The server writes a keepalive every 15s, so a full minute with no
+  // bytes at all is a dead client<->server link -- which a stalled fetch
+  // stream never surfaces on its own.
   test("a minute with no bytes surfaces a lost-connection error instead of hanging", async () => {
     vi.useFakeTimers();
     const silent = new ReadableStream<Uint8Array>({ start() {} }); // never emits
@@ -109,7 +109,7 @@ describe("streamMessage", () => {
     expect(seen).toEqual(["turn_done"]);
   });
 
-  test("passes an AbortSignal through to fetch (pkm-c98s item 3: Stop button)", async () => {
+  test("passes an AbortSignal through to fetch (Stop button)", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(sseResponse(['event: turn_done\ndata: {"usage": null}\n\n']));

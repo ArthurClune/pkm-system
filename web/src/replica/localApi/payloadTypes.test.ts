@@ -1,8 +1,8 @@
-// Compile-time drift probes for the offline gateway (pkm-60bf). The shim's
+// Compile-time drift probes for the offline gateway. The shim's
 // whole promise is that an offline response is the same JSON the server
-// would have sent, but its builders used to return `unknown`, so a field
-// could be renamed, dropped or mistyped on one side only and nothing
-// complained until a user hit it offline. Each probe below asserts a
+// would have sent, so a builder returning `unknown` would let a field
+// be renamed, dropped or mistyped on one side only with nothing
+// complaining until a user hit it offline. Each probe below asserts a
 // builder's return type is EXACTLY the generated payload type; `pnpm
 // typecheck` is what runs them.
 //

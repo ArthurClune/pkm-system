@@ -12,10 +12,11 @@ import type { ApiFetchOptions } from "../api/client";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { ReplicaDiagnostics } from "../replica/client";
 import type {
-  PendingBatch, RecoveryCommit, RecoveryLease, Replica, ReplicaInit,
+  AckedBatch, PendingBatch, RecoveryCommit, RecoveryLease, Replica, ReplicaInit,
 } from "../replica/client";
 import { availabilityOf, isCorruptionError, ReplicaError } from "../replica/errors";
 import type { OpQueue } from "./opQueue";
+import { ackSeq } from "./opsAck";
 
 export type ReplicaState =
   | { mode: "starting" }
@@ -267,6 +268,13 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let pulling: Promise<void> | null = null;
   let again = false;
   let authoritativeRepair: "poison" | null = null;
+  // Acks the server gave for leased batches whose rows are still queued. The
+  // next commit takes them, so a rebase deletes those rows before its replay
+  // instead of replaying their wire text over what the server saved. A run
+  // that ends before its commit (a preempted flush, a failed snapshot fetch)
+  // leaves them for the one that follows, and a commit that fails hands them
+  // back. A held ack whose row has since gone matches nothing in the worker.
+  let heldAcks: AckedBatch[] = [];
   // A per-instance sentinel thrown to abort a normal-recovery flush that a
   // poison repair has preempted. It is caught by identity (=== below), never
   // by message; it is an Error (not a Symbol) only so it is a throwable the
@@ -386,12 +394,13 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // recovery during it.
       await queue.deliverLaneAhead?.(b.batch_id);
       beforePost();
-      await fetchJson("/api/ops", {
+      const ack = await fetchJson("/api/ops", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ client_id: clientId, batch_id: b.batch_id,
                                ops: b.ops }),
       });
+      heldAcks.push({ id: b.id, batch_id: b.batch_id, seq: ackSeq(ack) ?? null });
     }
   };
 
@@ -434,10 +443,20 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       token = lease.token;
       await flushLease(lease, options.flush);
       const snapshot = await fetchSnapshot();
+      // Every commit takes the held acks. A reset drops the queue, so it
+      // passes none; a commit that fails left the rows in place, so the acks
+      // go back for the next one.
+      const acked = heldAcks;
+      heldAcks = [];
       const input: RecoveryCommit = kind === "reset"
         ? { kind: "reset", snapshot }
-        : { kind: "rebase", snapshot, acked: [] };
-      await replica.commitRecovery(token, input);
+        : { kind: "rebase", snapshot, acked };
+      try {
+        await replica.commitRecovery(token, input);
+      } catch (error: unknown) {
+        heldAcks = [...acked, ...heldAcks];
+        throw error;
+      }
       token = null; // commit released the worker gate
       adoptCursor(snapshot.seq, "snapshot");
       if (options.forceReadyOnSuccess) {

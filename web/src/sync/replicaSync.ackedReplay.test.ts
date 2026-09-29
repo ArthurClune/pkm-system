@@ -32,7 +32,7 @@ const FEED: Changes = {
   tombstones: [],
 };
 
-test.fails("a batch the recovery flush got an ack for is not replayed over the snapshot", async () => {
+test("a batch the recovery flush got an ack for is not replayed over the snapshot", async () => {
   const t = await openRawTestDb();
   const ch = new MessageChannel();
   serveRpc(toPortLike(ch.port2), buildHandlers({

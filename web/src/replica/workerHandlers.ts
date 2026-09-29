@@ -179,11 +179,12 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
    * queue the replica is a cache the next snapshot refills. That makes two
    * escapes safe, and both are needed: rethrown, each would fail every
    * handler for good, the recovery that could clear it included.
-   * - The carry cannot be read as a database at all. On this VFS a commit is
-   *   not atomic across a worker's death, so a worker killed while writing
-   *   the carry leaves it torn; that write comes before the replica is
-   *   unlinked, so the replica still holds the rows, and the carry is
-   *   discarded unread.
+   * - The carry cannot be read as a database at all. A carry write cut
+   *   short is rolled back on the next open, to the carry's previous rows or
+   *   to an empty file that reads as none, so this means storage damage (or
+   *   a journal whose header never reached storage). The write comes before
+   *   the replica is unlinked either way, so the replica still holds the
+   *   rows, and the carry is discarded unread.
    * - The replica cannot take the rows (a new file torn while it was being
    *   built, or a transient I/O error): the carry's rows are merged with
    *   every row the old file can still be read for, written back to the

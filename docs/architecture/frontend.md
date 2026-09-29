@@ -459,7 +459,7 @@ Playwright e2e against that build.**
   / branches 91 / functions 89 / lines 95), with workers and generated files
   excluded. The pure cores are the payoff of the FCIS split: they test with no
   React, DOM, fetch, worker or SQLite mocks.
-- **E2E** (Playwright, `web/e2e/`): thirty specs, two of them offline. Any
+- **E2E** (Playwright, `web/e2e/`): thirty-three specs, two of them offline. Any
   HTTP 5xx fails the run (`fixtures.ts`), and a server-side exception fails
   teardown. `e2e/server-state.ts::waitForServerText` polls the server's copy
   of a page, the reliable way to wait for a write before a reload.
@@ -484,7 +484,12 @@ Playwright e2e against that build.**
 The dev server proxies `/api` (with WebSocket), `/assets` and `/login` to the
 backend (`PKM_API_PORT`, default 8974), so run the server alongside
 `pnpm dev`. `@sqlite.org/sqlite-wasm` must stay in `optimizeDeps.exclude`,
-because its wasm URL resolution breaks under dep-optimization. Hashed bundles
+because its wasm URL resolution breaks under dep-optimization. It also carries
+a pnpm patch keyed to its exact version (`patchedDependencies` in
+`web/pnpm-workspace.yaml`; see
+[sync-and-offline.md § The replica](sync-and-offline.md#the-replica)). An
+upgrade must carry the patch forward, or drop it once upstream fixes the VFS;
+`pnpm install` refuses a patch whose version no longer matches. Hashed bundles
 are emitted under `app-assets/`. The PWA plugin uses `autoUpdate` with
 `clientsClaim`/`skipWaiting` and a navigate-fallback denylist for
 `/api|/assets|/login`.

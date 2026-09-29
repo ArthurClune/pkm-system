@@ -801,7 +801,7 @@ const CARRIED: DurablePendingRow[] = [
 ];
 
 /** A committed carry beside a replica file that cannot take its rows, as a
- * new file torn by a worker killed mid-commit cannot. `raw` leaves the
+ * new file damaged in storage cannot. `raw` leaves the
  * replica without a schema, so the adoption's schema install is what runs
  * first; `replacement` opens the file that replaces it. */
 async function carryBesideUnwritableReplica(options: {

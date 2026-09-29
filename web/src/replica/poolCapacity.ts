@@ -44,13 +44,12 @@ export const PEAK_POOL_FILES: readonly string[] = [
 ];
 
 /** The pool size sqlite-wasm itself defaults to. Every persistent file, open
- * or not, claims a slot until it is unlinked. A rollback journal is created
- * by a write transaction and unlinked when it ends, except that one left by
- * a worker killed mid-write stays until something unlinks it, since this VFS
- * never rolls a journal back; PEAK_POOL_FILES counts both journals for that
- * reason. This build keeps temp files in memory (SQLITE_TEMP_STORE=2), so
- * they claim none. Six slots therefore cover PEAK_POOL_FILES with two to
- * spare. */
+ * or not, claims a slot until it is unlinked. A rollback journal lives while
+ * a write transaction is open; one a worker killed mid-write left lives until
+ * the next open of its database plays it back. PEAK_POOL_FILES counts both
+ * journals, so the peak never depends on that timing. This build keeps temp
+ * files in memory (SQLITE_TEMP_STORE=2), so they claim none. Six slots
+ * therefore cover PEAK_POOL_FILES with two to spare. */
 export const MIN_POOL_CAPACITY = 6;
 
 /** The slice of sqlite-wasm's pool-utility object this needs. */

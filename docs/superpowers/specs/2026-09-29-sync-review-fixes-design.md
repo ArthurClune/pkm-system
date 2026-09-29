@@ -1,8 +1,17 @@
 # Sync review follow-ups: preservation and convergence fixes — design
 
-Source: `docs/2026-09-29-sync-subsystem-review-consolidated.md` (findings F1
-to F9, the contract gap, and the policy questions). Structure, mechanisms and
-the three policy decisions approved in conversation 2026-09-29.
+Epic: pkm-a4t2. Source:
+`docs/2026-09-29-sync-subsystem-review-consolidated.md` (findings F1 to F9,
+the contract gap, and the policy questions). Structure, mechanisms and the
+three policy decisions approved in conversation 2026-09-29.
+
+| Section | Bean | | Section | Bean |
+|---|---|---|---|---|
+| F1 | pkm-9xg0 | | F6 | pkm-yvka |
+| F2 | pkm-gwwu | | F7 | pkm-8uc9 |
+| F3 | pkm-impk | | F8 | pkm-i35e |
+| F4 | pkm-jyx1 | | Typed ack | pkm-jk1d |
+| F5 | pkm-6xza | | F9 | pkm-l3cr |
 
 ## Why
 

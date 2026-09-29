@@ -139,24 +139,6 @@ export function useOutline(
     sessionRef.current?.applyOptimistic(next);
   }, []);
 
-  // Parent fetches normally pair their payload with a read token before this
-  // prop changes. Direct consumers/tests still enter through the same session
-  // transition instead of bypassing causality with a naked setState.
-  const receivedInitialRef = useRef(initial);
-  useEffect(() => {
-    if (receivedInitialRef.current === initial) return;
-    receivedInitialRef.current = initial;
-    const handle = sessionRef.current;
-    if (!handle) return;
-    // Token-aware parents publish into the session before passing the exact
-    // accepted shared array down. Do not turn that already-reconciled payload
-    // into a newer, synthetic read that could hide the original causality.
-    if (handle.getSnapshot().blocks === initial) return;
-    const token = handle.beginAuthoritativeRead("parent");
-    handle.receiveAuthoritative(token, initial);
-    pendingRef.current = null;
-  }, [initial]);
-
   const takePendingTextOps = useCallback((): UpdateTextOp[] => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -219,6 +201,27 @@ export function useOutline(
   const flushNow = useCallback(() => {
     run((b) => ({ blocks: b, ops: [], focus: null }));
   }, [run]);
+
+  // Parent fetches normally pair their payload with a read token before this
+  // prop changes. Direct consumers/tests still enter through the same session
+  // transition instead of bypassing causality with a naked setState.
+  const receivedInitialRef = useRef(initial);
+  useEffect(() => {
+    if (receivedInitialRef.current === initial) return;
+    receivedInitialRef.current = initial;
+    const handle = sessionRef.current;
+    if (!handle) return;
+    // Token-aware parents publish into the session before passing the exact
+    // accepted shared array down. Do not turn that already-reconciled payload
+    // into a newer, synthetic read that could hide the original causality.
+    if (handle.getSnapshot().blocks === initial) return;
+    // A parent tree never discards a draft. Flushing first makes the draft a
+    // relevant write, so the session defers the parent tree until that write
+    // settles instead of overwriting the typed text.
+    flushNow();
+    const token = handle.beginAuthoritativeRead("parent");
+    handle.receiveAuthoritative(token, initial);
+  }, [initial, flushNow]);
 
   // The global undo manager needs to flush this outline's draft before
   // undoing, and to place focus after a history batch applies here.

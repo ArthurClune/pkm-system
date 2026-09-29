@@ -40,6 +40,17 @@ changed or the present node already has the text.
 - [x] Invert `outlineState.test.ts` "drops a pending draft whose block a remote batch deleted": flushed, stamped with the base hash
 - [x] Draft becomes `{ uid, text, base }`; `pendingTextOps(pending, blocks, pageTitle)` per the spec; `stampBaseTextHashes` already leaves a stamped op alone
 - [x] Tests: remote update during a debounced draft flushes with the pre-remote hash; remote delete and remote cross-page move during a debounced and a held draft both flush; `text === base` and an identical remote edit both suppress
-- [ ] Trace the `initial`-change effect in `useOutline.ts` that clears a draft without flushing; flush first if a production parent reaches it with a live draft; record the outcome here
+- [x] Trace the `initial`-change effect in `useOutline.ts` that clears a draft without flushing; flush first if a production parent reaches it with a live draft; record the outcome here
 - [ ] Docs: `frontend-editor.md` § Drafts and commit points; `sync-and-offline.md` conflict section (order independence; D7's sentence scoped); troubleshooting row
 - [ ] verify, perf, merge
+
+## Initial-effect trace
+
+The `initial`-change effect in `useOutline.ts` used to null `pendingRef` without flushing whenever a parent passed an `initial` that was not the session snapshot. Every production parent passes the snapshot array itself, so it normally exits early:
+
+- `PageView.tsx:44` and `EditableSidebarPanel.tsx:34` pass `payload.blocks`, set to `handle.getSnapshot().blocks` in `useOutlinePageLoad.ts:110` and `:134`.
+- `Journal.tsx:112` sets `blocks: session.getSnapshot().blocks`, passed at `:217`.
+
+It is still reachable with a live draft: `publish` (`outlineSessions.ts:177`) replaces the snapshot synchronously on every `applyRemote` / `applyLocal`, and a WebSocket batch can land between the parent's `setState` and the passive effect, so the effect sees `initial !== snapshot`. Windows: PageView's resync reload, a parent-read election in `useOutlinePageLoad`, Journal's in-place head reload after `reset`.
+
+Outcome: reachable via a narrow race; now flushes first. `flushNow()` runs before `beginAuthoritativeRead("parent")`, which makes the draft a relevant write, so `transitionOutline` defers the parent tree until that write settles (pinned by `useOutline.reconciliation.test.tsx` "a new parent tree flushes a live draft before adopting it").

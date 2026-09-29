@@ -5,7 +5,9 @@ import type { BlockNode } from "../api/payloads";
 import type { DeliveryOutcome, WriteOutcome,
               WriteTicket } from "../sync/opQueue";
 import { SyncContext } from "../sync/SyncProvider";
-import { READ_INIT, block, jsonResponse, makeSync, pagePayload } from "../test-helpers";
+import { sha256Hex } from "../replica/sha256";
+import { READ_INIT, block, jsonResponse, makeSync, pagePayload,
+         stubFetch } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ title, initial, onReady }: {
@@ -170,4 +172,36 @@ it("delivery replaces a blocked pre-delivery response with exactly one fresh rea
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", READ_INIT);
   expect(outline.blocks[0]).toMatchObject({ text: "authoritative", heading: 1 });
+});
+
+it("a new parent tree flushes a live draft before adopting it", () => {
+  stubFetch([["/api/page/", pagePayload("Page A", [block("a", "server A")])]]);
+  const sync = makeSync("connected", {
+    settled: () => new Promise(() => undefined),
+  });
+  let outline!: Outline;
+  const view = (initial: BlockNode[]) => (
+    <SyncContext.Provider value={sync}>
+      <Harness title="Page A" initial={initial}
+        onReady={(value) => { outline = value; }} />
+    </SyncContext.Provider>
+  );
+  const { rerender } = render(view([block("a", "old A")]));
+  act(() => {
+    outline.handlers.onFocusBlock("a", 0);
+    // Held, so no debounce timer is involved.
+    outline.handlers.onDraftChange("a", "typed", true);
+  });
+
+  rerender(view([block("a", "server A")]));
+
+  expect(sync.sent).toEqual([[{
+    op: "update_text", uid: "a", text: "typed",
+    base_text_hash: sha256Hex("old A"), page_title: "Page A",
+  }]]);
+  // The flushed draft is an unsettled relevant write, so the parent tree waits.
+  expect(outline.blocks[0].text).toBe("typed");
+  act(() => outline.handlers.onBlurBlock("a"));
+  // The draft was consumed by that flush, not duplicated by the blur.
+  expect(sync.sent).toHaveLength(1);
 });

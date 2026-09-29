@@ -11,7 +11,7 @@ import { EditablePage } from "./EditablePage";
 // The end-to-end version of the split: a real SyncProvider, a real outline,
 // and a count of the rows that re-rendered. Journal mounts one of these per
 // loaded day and never unmounts it, so the cost of one stray context identity
-// is multiplied by the number of days on screen (pkm-qfee).
+// is multiplied by the number of days on screen.
 vi.mock("../grammar/tokenize", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../grammar/tokenize")>();
   return { ...actual, tokenizeBlock: vi.fn(actual.tokenizeBlock) };

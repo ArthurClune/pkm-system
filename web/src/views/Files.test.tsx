@@ -100,7 +100,7 @@ describe("Files", () => {
     expect(screen.getByText("2 of 2 files")).toBeInTheDocument();
   });
 
-  it("styles the filter widgets with the shared tokens (pkm-mrru, pkm-0wg9)",
+  it("styles the filter widgets with the shared tokens",
      async () => {
     renderFiles();
     await screen.findByText(/no files match/i);
@@ -143,7 +143,7 @@ describe("Files", () => {
       expect.stringContaining("offset=50"), { method: "GET" });
   });
 
-  it("discards a stale loadMore response when filters change first (pkm-3622)",
+  it("discards a stale loadMore response when filters change first",
      async () => {
     const firstPage = Array.from({ length: 50 }, (_, i) =>
       item({ sha256: String(i).padStart(64, "0"), filename: `f${i}.png` }));
@@ -174,7 +174,7 @@ describe("Files", () => {
     expect(screen.queryByText("f0.png")).not.toBeInTheDocument();
   });
 
-  it("runs only one Load more request for two clicks before rerender (pkm-ow62)",
+  it("runs only one Load more request for two clicks before rerender",
      async () => {
     const first = Array.from({ length: 50 }, (_, i) =>
       item({ sha256: String(i).padStart(64, "0"), filename: `f${i}.png` }));
@@ -201,8 +201,8 @@ describe("Files", () => {
     expect(screen.getAllByText("last.png")).toHaveLength(1);
   });
 
-  it("discards a stale selectAll response when filters change first " +
-     "(pkm-3622)", async () => {
+  it("discards a stale selectAll response when filters change first",
+     async () => {
     const firstPage = Array.from({ length: 50 }, (_, i) =>
       item({ sha256: String(i).padStart(64, "0"), filename: `f${i}.png` }));
     const stale = deferred<AssetSearchPayload>();
@@ -373,7 +373,7 @@ describe("Files", () => {
       .not.toBeInTheDocument();
   });
 
-  it("opens a PDF in the in-app viewer instead of a tab (pkm-5o11)",
+  it("opens a PDF in the in-app viewer instead of a tab",
      async () => {
     const url = `/assets/${"cd".repeat(32)}/notes.pdf`;
     mockFetch.mockResolvedValueOnce(payload([item({

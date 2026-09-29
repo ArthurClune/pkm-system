@@ -291,7 +291,7 @@ test("clicking a TODO checkbox queues the toggled text op", () => {
   ]]);
 });
 
-test("Cmd-Enter shows the cycled TODO marker immediately and survives the next flush (pkm-wquz)", () => {
+test("Cmd-Enter shows the cycled TODO marker immediately and survives the next flush", () => {
   vi.useFakeTimers();
   stubFetch([["/api/titles", { titles: [] }]]);
   const sync = mount(makeSync(), [block("u1", "first", { order_idx: 0 })]);
@@ -633,9 +633,9 @@ test("hiding the tab flushes the pending draft immediately", () => {
   ]);
 });
 
-// pkm-hhbc (data loss): navigating away with Ctrl-O / Ctrl-Shift-O while the
-// caret still sits inside a [[ref]] token used to discard the whole block --
-// the draft is flush-held (pkm-xlah) and navigate() unmounts the tree without
+// Navigating away with Ctrl-O / Ctrl-Shift-O while the
+// caret still sits inside a [[ref]] token must not discard the whole block --
+// the draft is flush-held and navigate() unmounts the tree without
 // React ever delivering a blur, so the held text was simply dropped.
 function heldRefDraft(sync: SyncFake) {
   stubFetch([
@@ -657,7 +657,7 @@ function heldRefDraft(sync: SyncFake) {
 const HELD_TEXT_OP = { op: "update_text", uid: "u1", text: "see [[Fresh Idea]]",
                        base_text_hash: sha256Hex("first"), page_title: "Page" };
 
-test("Ctrl-O over a held [[ref]] flushes the block text before navigating (pkm-hhbc)", () => {
+test("Ctrl-O over a held [[ref]] flushes the block text before navigating", () => {
   vi.useFakeTimers();
   const sync = makeSync();
   const ta = heldRefDraft(sync);
@@ -665,7 +665,7 @@ test("Ctrl-O over a held [[ref]] flushes the block text before navigating (pkm-h
   expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
 });
 
-test("Ctrl-Shift-O over a held [[ref]] flushes the block text too (pkm-hhbc)", () => {
+test("Ctrl-Shift-O over a held [[ref]] flushes the block text too", () => {
   vi.useFakeTimers();
   const sync = makeSync();
   const ta = heldRefDraft(sync);
@@ -673,7 +673,7 @@ test("Ctrl-Shift-O over a held [[ref]] flushes the block text too (pkm-hhbc)", (
   expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
 });
 
-// pkm-mvdx: the other door onto the same loss. Navigation that never touches
+// The other door onto the same loss. Navigation that never touches
 // the textarea -- App's global Ctrl-Shift-D daily-notes chord, browser
 // back/forward -- just unmounts the outline. There is no blur to flush the
 // held draft and (unlike an ordinary draft) no armed debounce either, so the
@@ -684,7 +684,7 @@ function NavAway() {
   return <button onClick={() => navigate("/elsewhere")}>go</button>;
 }
 
-test("navigating away with no blur still flushes a held draft (pkm-mvdx)", () => {
+test("navigating away with no blur still flushes a held draft", () => {
   vi.useFakeTimers();
   stubFetch([["/api/titles", { titles: [] }]]);
   const sync = makeSync();

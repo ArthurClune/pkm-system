@@ -4,7 +4,7 @@ import { parseHelpMarkdown } from "../help/parseHelpMarkdown";
 import { Help, HelpBlocks } from "./Help";
 
 // The browser title is set by the centralized route-title effect
-// (useRouteTitle, pkm-77w2), not by this component -- see
+// (useRouteTitle), not by this component -- see
 // useRouteTitle.test.tsx for that coverage.
 it("renders the real doc as the /help page, with a title and a known shortcut row", () => {
   render(<Help />);
@@ -14,7 +14,7 @@ it("renders the real doc as the /help page, with a title and a known shortcut ro
   expect(shortcutCell.closest("tr")).toHaveTextContent("Ctrl+Shift+D");
 });
 
-it("no longer offers the whole-database export here -- it moved to Settings (pkm-7myl)", () => {
+it("no longer offers the whole-database export here -- it moved to Settings", () => {
   render(<Help />);
 
   expect(screen.queryByRole("link", { name: /export.*markdown/i })).not.toBeInTheDocument();

@@ -100,9 +100,9 @@ def pkm_client(anon_client):
 def seed_backlinks(seeded_config):
     """Factory: insert `count` extra pages, each with one block
     referencing "Machine Learning" (page_id 1) via [[...]]. Lets
-    backlink-pagination tests (pkm-3cyg) exceed the route's
-    single-request group cap (100, routes_pages.py) without hand-rolling
-    the DB inserts in every test file."""
+    backlink-pagination tests exceed the route's single-request group cap
+    (100, routes_pages.py) without hand-rolling the DB inserts in every
+    test file."""
     def _seed(count: int, start_id: int = 100) -> None:
         con = open_db(seeded_config.db_path)
         pages = [(start_id + i, f"BL Source {i:03d}", None, None)

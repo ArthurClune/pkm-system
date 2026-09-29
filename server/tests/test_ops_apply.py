@@ -112,8 +112,8 @@ def test_move_reparents_and_shifts(db):
 
 
 def test_set_collapsed_does_not_bump_block_or_page_updated_at(db):
-    # pkm-r7k8: give the block and page a known "before" so unchanged-ness
-    # is provable, not just "still NULL".
+    # Give the block and page a known "before" so unchanged-ness is
+    # provable, not just "still NULL".
     db.execute("UPDATE blocks SET updated_at = ? WHERE uid = 'uid_b2'", (1_000,))
     db.execute("UPDATE pages SET updated_at = ? WHERE id = 1", (1_000,))
     db.commit()
@@ -369,7 +369,7 @@ def test_set_view_type_updates_metadata_without_changing_block_state(db):
 def test_conflict_uids_retry_until_alphanumeric_first_char(db, monkeypatch):
     # The server mints fresh uids for the conflict header and its child the
     # same way the CLI mints uids for new blocks; a leading '-' or '_' would
-    # make either unaddressable via a bare CLI argument (pkm-y5yv).
+    # make either unaddressable via a bare CLI argument.
     candidates = iter(["-leadingdash1", "goodheader12",
                        "_underscore12", "goodchild123"])
     monkeypatch.setattr(ops_apply.secrets, "token_urlsafe",
@@ -506,7 +506,7 @@ def test_op_error_index_reports_failing_op(db):
                       ).fetchone()[0] == 0  # rollback undid op 0
 
 
-# --- replaying recorded rename/merge rewrites (pkm-x5w0) ------------------
+# --- replaying recorded rename/merge rewrites ------------------------------
 
 
 def _rewrite_chain(steps: int) -> tuple[ops_core.BlockRewrite, ...]:
@@ -542,9 +542,9 @@ def test_replay_leaves_an_unrecorded_base_hash_untouched():
 
 
 def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
-    # pkm-wy1v case (a): a block with recorded rename rewrites still applies
-    # cleanly when the replayed edit matches the live text's hash -- having
-    # block_rewrites at all must not force paying for today's daily page.
+    # A block with recorded rename rewrites still applies cleanly when the
+    # replayed edit matches the live text's hash -- having block_rewrites at
+    # all must not force paying for today's daily page.
     t0, t1 = "see [[Old]] page", "see [[New]] page"
     db.execute(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
@@ -572,9 +572,9 @@ def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
 
 
 def test_stale_hash_identical_text_does_not_create_daily_page(db):
-    # pkm-wy1v case (b): device 2 pushes text device 1 already synced, under
-    # a stale base hash -- check 2 (identical), never a conflict, so no
-    # daily page gets created for it.
+    # Device 2 pushes text device 1 already synced, under a stale base
+    # hash -- check 2 (identical), never a conflict, so no daily page gets
+    # created for it.
     apply_batch(db, _batch(
         {"op": "update_text", "uid": "uid_b1", "text": "Tags:: #AI",
          "base_text_hash": text_hash("something else entirely")},
@@ -593,7 +593,7 @@ def test_second_conflict_same_day_reuses_header_and_mints_no_stray_conflict_uid(
     # A real conflict still lands exactly as before (header + child under
     # today's daily page); a second conflict on the same block the same day
     # must append under the *existing* header rather than minting another
-    # one, and (pkm-wy1v) must not mint a conflict_uid it never uses.
+    # one, and must not mint a conflict_uid it never uses.
     uids = iter(["headerabc123", "childabc1234", "childdef5678",
                 "unusedghij12"])
     monkeypatch.setattr(ops_apply.secrets, "token_urlsafe",
@@ -640,7 +640,7 @@ def test_replay_applies_one_multi_title_rewrite_as_a_single_step():
             "[[A2]] and [[B2]] edited", text_hash(after))
 
 
-# --- ops on missing blocks (pkm-foap) ---------------------------------------
+# --- ops on missing blocks ---------------------------------------------------
 
 
 def _journal_rows_since(db, seq):
@@ -706,7 +706,7 @@ def test_move_to_missing_parent_journals_the_live_block_and_the_parent(db):
     assert (row["parent_uid"], row["order_idx"]) == ("uid_b2", 0)
 
 
-# --- concurrent structure edits (pkm-fe9b) ----------------------------------
+# --- concurrent structure edits ---------------------------------------------
 #
 # Another device reshaped the tree after these ops were queued. A create or
 # move under a live parent follows the parent to its current page; a move

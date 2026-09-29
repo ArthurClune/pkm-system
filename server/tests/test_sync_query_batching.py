@@ -1,4 +1,4 @@
-"""pkm-ldqx: hydration must not run one SQL statement per changed entity.
+"""Hydration must not run one SQL statement per changed entity.
 A legal 5,000-entity window (or an unbounded snapshot) previously ran one
 block query plus one refs query per uid -- 10,000+ statements inside a
 single read transaction. These tests seed a bulk window/snapshot spanning

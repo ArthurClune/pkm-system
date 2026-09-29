@@ -19,8 +19,8 @@ def test_new_uid_matches_server_uid_re():
 
 def test_new_uid_retries_until_first_char_is_alphanumeric(monkeypatch):
     # secrets.token_urlsafe can legally return a leading '-' or '_'; argparse
-    # then treats a bare-uid CLI argument as an option (pkm-y5yv). Drive the
-    # generator through two rejects before a good candidate.
+    # then treats a bare-uid CLI argument as an option. Drive the generator
+    # through two rejects before a good candidate.
     candidates = iter(["-leadingdash1", "_leadingunderscore2", "goodstart123"])
     monkeypatch.setattr(client_api.secrets, "token_urlsafe",
                         lambda n: next(candidates))
@@ -298,7 +298,7 @@ def test_get_page_blocks_missing_page_is_not_created(pkm_client):
     blocks, missing = pkm_client.get_page_blocks("Brand New Page")
     assert missing is True
     assert blocks == []
-    # must not have created the page as a side effect (pkm-w80k)
+    # must not have created the page as a side effect
     with pytest.raises(ApiError) as e:
         pkm_client.get_page("Brand New Page")
     assert e.value.status == 404
@@ -307,11 +307,11 @@ def test_get_page_blocks_missing_page_is_not_created(pkm_client):
 def test_get_page_blocks_finds_a_page_whose_title_holds_control_whitespace(
         pkm_client):
     """store.get_or_create_page normalizes a title's control whitespace at
-    creation (pkm-hjhy) -- a page created as "Ctrl\tTitle" is stored, and
-    only addressable, as "Ctrl Title". A caller that still holds the raw
+    creation -- a page created as "Ctrl\tTitle" is stored, and only
+    addressable, as "Ctrl Title". A caller that still holds the raw
     pre-normalization spelling (e.g. a second `pkm save` to the same page)
     must resolve to that SAME existing page, not a false "missing" that
-    hides its real blocks behind an empty one (pkm-5k8p)."""
+    hides its real blocks behind an empty one."""
     pkm_client.post_ops(
         [CreatePageOp(op="create_page", page_title="Ctrl\tTitle"),
          CreateOp(op="create", uid="ctrlws000001", page_title="Ctrl\tTitle",
@@ -355,7 +355,7 @@ def test_get_backlinks_fetches_every_group_beyond_the_single_page_cap(
     # routes_pages.py caps a single /api/page response to 100 backlink
     # groups; 101 extra sources (plus the seeded "July 7th, 2026") pushes
     # total_pages past that cap, so a single get_page() call alone would
-    # silently drop one group (pkm-3cyg -- no silent truncation).
+    # silently drop one group -- no silent truncation.
     seed_backlinks(101)
     result = pkm_client.get_backlinks("Machine Learning")
     assert result.total_pages == 102
@@ -387,7 +387,7 @@ def test_get_backlinks_restarts_when_source_order_shifts_mid_fetch(
     ranking (as a real concurrent edit would). A naive offset-walking
     loop would then re-fetch a page it already saw (a duplicate) while
     never fetching the one that got bumped out of its old slot (a skip)
-    -- exactly the silent-incompleteness bug pkm-3cyg exists to close."""
+    -- exactly the silent-incompleteness bug this method must not allow."""
     seed_backlinks(5)  # + the seeded "July 7th, 2026" = 6 distinct sources
     orig_request = pkm_client._http.request
     calls = {"n": 0}
@@ -418,7 +418,7 @@ def test_get_backlinks_gives_up_loudly_if_ordering_never_stabilizes(
     """Pathological case: every attempt re-observes the same page_id at a
     later offset, so the fetch can never converge on a stable, complete
     set. Rather than eventually returning a possibly-incomplete result,
-    it must raise (pkm-3cyg: no silent truncation, in either direction)."""
+    it must raise: no silent truncation, in either direction."""
     def flaky_get_page(title, bl_limit=100, bl_offset=0):
         return PagePayload.model_validate(
             {"page": {"id": 1, "title": "X", "created_at": None,

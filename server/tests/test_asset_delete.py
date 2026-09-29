@@ -1,5 +1,5 @@
 """DELETE /api/assets/{sha256}: strips links, deletes emptied leaf
-blocks, removes row + file (pkm-jdu3)."""
+blocks, removes row + file."""
 from pkm.server.db import open_db
 
 
@@ -79,9 +79,9 @@ def test_emptied_block_with_children_is_kept(client, seeded_config):
 
 
 def test_deleted_block_drops_out_of_fts_refs(client):
-    """Pins the FTS delete trigger user-visibly (pkm-t5pu carry-over):
-    after the referencing block is deleted, a SECOND asset embedded in
-    the same block no longer reports it."""
+    """Pins the FTS delete trigger user-visibly: after the referencing
+    block is deleted, a SECOND asset embedded in the same block no longer
+    reports it."""
     a = _upload(client, b"AAA", "a.png")
     b = _upload(client, b"BBB", "b.png")
     _create_block(client, "del004", "AI", f"![]({a['url']}) ![]({b['url']})")

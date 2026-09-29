@@ -1,5 +1,5 @@
 # pattern: Imperative Shell
-"""Describe-feature routes: status + retro-scan (pkm-zc0c). Asset search
+"""Describe-feature routes: status + retro-scan. Asset search
 lives in routes_assets.py with the other asset routes."""
 from __future__ import annotations
 

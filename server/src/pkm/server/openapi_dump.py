@@ -3,7 +3,7 @@
 python -m pkm.server.openapi_dump > ../web/src/api/openapi.json
 Builds a throwaway app from a dummy Config in a scratch temp dir; touches no
 real (production) database. create_app() now runs init_db() on whatever path
-it's given (pkm-2939), so the db_path must point at a writable directory
+it's given, so the db_path must point at a writable directory
 rather than a nonexistent one."""
 from __future__ import annotations
 

@@ -44,7 +44,7 @@ async def post_ops(request: Request,
         "SELECT request_hash, response FROM applied_batches"
         " WHERE batch_id = ?", (batch.batch_id,)).fetchone()
     if row is not None:
-        # request_hash holds one of two kinds (pkm-95ss): the strict hash,
+        # request_hash holds one of two kinds: the strict hash,
         # for a row written before this change (a pre-deploy retry must
         # still replay it), or the replay hash, for one written after
         # (tolerant of base_text_hash/page_title the worker fills into only
@@ -55,7 +55,7 @@ async def post_ops(request: Request,
         if row["request_hash"] not in (rhash, replay_hash):
             db.rollback()
             # same dict shape as the 400 OpError detail below, so
-            # clients parse one error contract (pkm-x7a5)
+            # clients parse one error contract
             raise HTTPException(
                 status_code=409,
                 detail={"index": None,
@@ -74,7 +74,7 @@ async def post_ops(request: Request,
     # Read inside the batch's own write transaction, so this is exactly the
     # journal max including the batch's rows. A replica compares it with a
     # sync window's latest_seq: a window whose latest_seq has reached it
-    # already carries this batch (pkm-ur2n). Acks stored before this field
+    # already carries this batch. Acks stored before this field
     # existed replay without it; clients treat a missing seq as unknown.
     seq = db.execute("SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
     # `applied` counts every op processed, skipped ones included; `skipped`

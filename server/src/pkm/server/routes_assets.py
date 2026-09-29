@@ -63,7 +63,7 @@ INLINE_MIME = frozenset({
     "application/pdf",
 })
 
-# Selected-asset export (pkm-13ty): proportionate limits for a personal,
+# Selected-asset export: proportionate limits for a personal,
 # single-user server -- generous enough that no real selection through
 # the /files browser hits them, but bounded so a request can't force the
 # server to zip an unbounded number of files or an unbounded number of
@@ -78,8 +78,8 @@ def referencing_blocks(db: sqlite3.Connection,
     """All blocks whose text contains the asset's sha, with their page
     titles. FTS5 unicode61 keeps a 64-hex sha as one token, so an
     exact-phrase MATCH on the sha finds every block embedding the
-    /assets/<sha>/<filename> URL (same trick pkm-gdi5 uses client-side).
-    Uncapped: shared with pkm-jdu3's delete-warning/orphan checks, which
+    /assets/<sha>/<filename> URL (same trick the client uses).
+    Uncapped: shared with the delete-warning/orphan checks, which
     need the complete list."""
     rows = db.execute(
         """SELECT b.uid, p.title AS page_title
@@ -99,9 +99,9 @@ def search_assets(q: str = "", limit: int = 50, offset: int = 0,
                   from_ms: int | None = None, to_ms: int | None = None,
                   linked: Literal["all", "linked", "orphan"] = "all",
                   db: sqlite3.Connection = Depends(get_db)) -> dict:
-    """LIKE search over description + filename (pkm-zc0c). Empty q lists
+    """LIKE search over description + filename. Empty q lists
     most-recent uploads. LIKE, not FTS: personal-scale table, and no
-    offline-parity burden. pkm-jdu3 adds type/date/linked filters,
+    offline-parity burden. Adds type/date/linked filters,
     offset pagination, and a total count. linked/orphan filtering needs
     refs for every candidate, so that path scans the filtered set
     (personal scale keeps it cheap); linked=all computes refs only for
@@ -222,7 +222,7 @@ def export_assets(sha256s: list[str] = Form(default=[]),
     missing-on-disk shas are skipped, not errors: the zip honestly
     contains what could be exported.
 
-    pkm-13ty: the selection's count and total bytes (summed from the
+    The selection's count and total bytes (summed from the
     `assets` table -- no file is opened just to measure it) are checked
     against MAX_EXPORT_ASSET_COUNT/MAX_EXPORT_TOTAL_BYTES before any zip
     is built; over either limit the request is refused with 413, never
@@ -350,7 +350,7 @@ async def upload_asset(request: Request, file: UploadFile,
             tmp_path.unlink(missing_ok=True)
     filename = safe_filename(Path(file.filename or "upload").name)
     # Recorded before the INSERT OR IGNORE, which would otherwise erase the
-    # distinction: callers that upload-then-link (CLI/MCP, pkm-c17m) need to
+    # distinction: callers that upload-then-link (CLI/MCP) need to
     # know whether this call is the sole owner of a brand-new row -- and so
     # safe to delete if the link that follows fails -- or whether the sha
     # was already stored (and possibly already referenced by other blocks),

@@ -21,18 +21,17 @@ logger = logging.getLogger("pkm.assistant")
 # Bounds engine.create_conversation() (spawns the harness subprocess and
 # waits for it to connect) while the admission lock is held, so one wedged
 # harness fails one request instead of wedging every future create().
-# pkm-rovq review round 1.
 #
 # The lock-hold story lives here, once, and is cross-referenced from the two
 # places that used to retell it. This is not a ceiling on how long the lock is
 # held: asyncio.wait_for does not return until the task it cancelled has
 # finished unwinding, so a handshake still wedged at CREATE_TIMEOUT_S gets
 # create_conversation's own cancellation-triggered cleanup (disconnecting the
-# partially-connected client, pkm-4zq4) run to completion first, under the
+# partially-connected client) run to completion first, under the
 # lock, before TimeoutError reaches create() below. That cleanup rides the SDK
 # transport's own bounded close (~20s worst case per claude_agent_sdk's
 # SubprocessCLITransport), so the true worst-case hold is CREATE_TIMEOUT_S
-# plus that -- roughly 80s, not 60s. pkm-4zq4 fix round 1.
+# plus that -- roughly 80s, not 60s.
 CREATE_TIMEOUT_S = 60.0
 
 
@@ -149,13 +148,12 @@ class AssistantService:
             # will ever retry closing it. A cancellation landing while
             # parked in one handle's close() must not therefore abort this
             # loop: the remaining handles would leak their subprocess and
-            # 0600 session-token config file (pkm-4zq4) until process exit,
-            # the same class of leak pkm-4zq4 closes one layer down. Keep
+            # 0600 session-token config file until process exit,
+            # the same class of leak closed one layer down. Keep
             # closing every queued handle regardless, and only re-raise the
             # first cancellation once the whole queue has been attempted --
             # each close() is itself SDK-bounded (~20s worst case), so the
-            # cancellation is delayed, not lost (pkm-4zq4 final-review fix
-            # wave).
+            # cancellation is delayed, not lost.
             first_cancel: asyncio.CancelledError | None = None
             for old_cid, old_handle in to_close:
                 try:
@@ -199,7 +197,7 @@ class AssistantService:
             # then run on async-generator finalization, i.e. *after* the
             # health check in the finally below, and an unacknowledged
             # interrupt would leave the conversation in the registry for a
-            # later turn to reuse (pkm-f3mo, reopening pkm-rwwc).
+            # later turn to reuse.
             async with contextlib.aclosing(entry.handle.send(text)) as turn:
                 async for event in turn:
                     yield event
@@ -214,7 +212,7 @@ class AssistantService:
                 # so no concurrent create()/reap/evict can observe this cid
                 # as idle-and-reusable in between -- the next send() for it
                 # raises UnknownConversationError instead of resuming a
-                # possibly-still-running subprocess (pkm-rwwc). Only close if
+                # possibly-still-running subprocess. Only close if
                 # this pop is the one that actually removed the entry: an
                 # explicit delete() (e.g. the pagehide beacon) racing this
                 # same cid may already have popped and closed it, and close()

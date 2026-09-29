@@ -57,7 +57,7 @@ def _copy_assets(assets_dir: Path, sources: dict[str, Path],
     under `assets_dir`, keyed by sha256.
 
     An existing destination is verified rather than trusted just because
-    it's present -- pkm-x3l7: a previously truncated/corrupted file must
+    it's present -- a previously truncated/corrupted file must
     not survive forever. Imports are one-shot manual runs, not a nightly
     job, so re-hashing every already-present asset every run isn't worth
     optimizing away.

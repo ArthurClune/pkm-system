@@ -33,7 +33,7 @@ from pkm.server.sync_meta import plain_space_title_canonicalization_active
 
 # Fallback title for an op's page_title that normalizes to "" (e.g. a
 # whitespace-only string -- pydantic's min_length=1 lets that through). The
-# ops path must never reject a batch over this (pkm-hjhy: an offline client
+# ops path must never reject a batch over this (an offline client
 # replays queued batches, and a rejected one wedges its queue permanently),
 # so instead of raising BlankTitleError up to the caller it resolves to this
 # fixed, always-valid title -- get_or_create semantics, so repeated blank
@@ -44,8 +44,7 @@ UNTITLED_PAGE_TITLE = "Untitled"
 def _new_uid() -> str:
     # 12 chars of [A-Za-z0-9_-]: fits UID_RE. Retry until the first char is
     # alphanumeric so a conflict header/child uid is never unaddressable
-    # via a bare CLI argument the same way a client-minted uid could be
-    # (pkm-y5yv).
+    # via a bare CLI argument the same way a client-minted uid could be.
     while True:
         uid = secrets.token_urlsafe(9)
         if uid[0].isalnum():
@@ -276,7 +275,7 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
         db.executemany("DELETE FROM blocks WHERE uid = ?",
                        [(u,) for u in eff.uids])
     elif isinstance(eff, SetCollapsed):
-        # pkm-r7k8: collapse/expand is UI state, not a real change -- no
+        # collapse/expand is UI state, not a real change -- no
         # updated_at bump (contrast every other branch here).
         db.execute(
             "UPDATE blocks SET collapsed = ? WHERE uid = ?",

@@ -6,7 +6,7 @@ these models are the contract, not a payload redesign.
 
 They are also what `PkmClient` validates every response with, so a payload
 that drifts from this file fails on the client with a named field rather
-than as a KeyError inside a renderer (pkm-0wr8).
+than as a KeyError inside a renderer.
 
 Keep every field required (no defaults): the routes always populate them, and
 optionality here would surface as `?:` in the generated TypeScript."""
@@ -71,7 +71,7 @@ class Backlinks(BaseModel):
 class BlockBacklinksPayload(BaseModel):
     """GET /api/block/{uid}/backlinks: every block referencing ((uid)),
     grouped like page backlinks. Unpaginated by design -- counts are small
-    and nothing user-visible truncates silently (pkm-d31f)."""
+    and nothing user-visible truncates silently."""
     groups: list[BacklinkGroup]
 
 
@@ -152,8 +152,8 @@ class ChangedPayload(BaseModel):
 class JournalDay(BaseModel):
     """One day of the journal scroll, complete: the day renders from this
     alone. `backlinks` is a preview page of the day's linked references
-    (pkm-vvta) -- carried here because fetching them per day turned a scroll
-    of N days into N page reads (pkm-5fak)."""
+    -- carried here because fetching them per day turned a scroll
+    of N days into N page reads."""
 
     date: str
     title: str

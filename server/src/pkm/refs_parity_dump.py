@@ -28,7 +28,7 @@ CASES = [
     "inline `code with [[NotALink]]` stays code",
     "```\nfenced [[NotALink]] #not-a-tag\n```",
     "before ```fence [[X]]``` after [[Real Link]]",
-    # pkm-9qgk: an inner fence's opener (info string) must not close the
+    # An inner fence's opener (info string) must not close the
     # outer fence — the exposed css body used to mint #ffcdd2 as a tag.
     "```markdown\nouter\n```css\n.err { color: #ffcdd2; }\n```\nafter #RealTag",
     "```mermaid\ngraph TD\n  style A fill:#0277bd\n```\n#Diagrams",
@@ -42,7 +42,7 @@ CASES = [
     "a [[Link]] with #tag and Attr:: no — attr only at line start",
     "empty [[]] link",
     "#[[Nested [[Inside]] Tag]]",
-    # pkm-hjhy: a title holding control whitespace is unreachable through
+    # A title holding control whitespace is unreachable through
     # the API, so extraction normalizes it; one that normalizes to empty
     # is not a reference at all.
     "a [[Multi\nLine Title]] link",

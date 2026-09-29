@@ -5,10 +5,10 @@ tests/test_openapi_sync.py).
 
 `GET /api/export.zip` reuses the exact Core renderer the nightly backup job
 drives (pkm.export.writer.export_graph / pkm.export.markdown.render_page):
-raw query command, one-level ((ref)) resolution -- unchanged (pkm-uvqf).
+raw query command, one-level ((ref)) resolution -- unchanged.
 
-`GET /api/export/page/{title}` is the end-user single-page export
-(pkm-kplp): it resolves {{query: ...}} macros to their actual results and
+`GET /api/export/page/{title}` is the end-user single-page export:
+it resolves {{query: ...}} macros to their actual results and
 ((refs)) recursively to plain text, via the separate Core renderer in
 pkm.export.resolve, so the download reads like what a reader of the live
 page would see. This route gathers the (bounded, cycle-safe) transitive
@@ -149,7 +149,7 @@ def export_page_markdown(title: str,
 @router.get("/api/export.zip")
 def export_all_markdown(db: sqlite3.Connection = Depends(get_db),
                         config: Config = Depends(get_config)) -> FileResponse:
-    """Whole-graph export, zipped. pkm-13ty: built in a temp directory and
+    """Whole-graph export, zipped. Built in a temp directory and
     streamed back via FileResponse rather than buffered whole in an
     in-memory BytesIO -- the graph has no size cap, so an unbounded
     number of pages/assets must not translate into an unbounded process

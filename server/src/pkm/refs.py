@@ -13,8 +13,8 @@ from typing import Iterable, Iterator, Literal
 # A ``` run followed by a word character is a fence *opener* with an info
 # string (```css, ```mermaid), never a closer -- without the lookahead, an
 # outer fence pairs with the first inner example's opener, fence parity
-# flips, and hex colours in the exposed code mint pages named "0277bd"
-# (pkm-9qgk). Punctuation and whitespace after ``` still close as before.
+# flips, and hex colours in the exposed code mint pages named "0277bd".
+# Punctuation and whitespace after ``` still close as before.
 _CODE_FENCE = re.compile(r"```.*?```(?!\w)", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
 # No leading `\s*` here (see attribute_title_span() below): `\s` is a
@@ -23,7 +23,7 @@ _INLINE_CODE = re.compile(r"`[^`\n]*`")
 # run of length n (every one of the n split points between the two groups
 # gets its own full lazy re-scan). A block that is one large fenced code
 # block collapses to exactly such a run once strip_code() blanks it out
-# (pkm-7myl: a ~258KB pasted block took ~224s to `.match()` here).
+# (a ~258KB pasted block took ~224s to `.match()` here).
 _ATTRIBUTE = re.compile(r"([^\[\]{}:\n]+?)::")
 # The tag name and the hashtag that carries it are one definition, so a
 # rewriter can ask "would this title read back as a bare #tag?" (see
@@ -33,7 +33,7 @@ _BARE_TAG = re.compile(_TAG_NAME)
 _HASHTAG = re.compile(rf"(?:^|(?<=[\s(]))#({_TAG_NAME})")
 _BLOCK_REF = re.compile(r"\(\(([a-zA-Z0-9_-]{6,})\)\)")
 _EMBED = re.compile(r"\{\{\s*(?:\[\[)?embed(?:\]\])?\s*[:}]")
-# pkm-hjhy: control whitespace in a page title makes the page unreachable.
+# Control whitespace in a page title makes the page unreachable.
 # Both classes are plain character classes with a single quantifier -- no
 # nested/overlapping quantifiers, so neither can backtrack (see the
 # _ATTRIBUTE note above for what that costs when it goes wrong).
@@ -47,7 +47,7 @@ def normalize_title(title: str) -> str:
     A title containing a literal newline cannot be addressed through the
     HTTP API at all: Starlette compiles `{title:path}` to `.*` without
     re.DOTALL, so GET/DELETE/rename/export on /api/page/<title> all 404
-    (pkm-hjhy -- six real pages reached that state via multi-line
+    (six real pages reached that state via multi-line
     [[links]], four of them holding notes). Titles are therefore normalized
     where they are born rather than at the routes that cannot reach them.
 

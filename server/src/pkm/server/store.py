@@ -30,7 +30,7 @@ class BlankTitleError(ValueError):
     blank-titled page itself; every caller must pick an explicit policy:
     reject before mutation (the plain HTTP routes do), or -- on the ops
     path, where a rejection wedges an offline client's replay queue
-    (pkm-hjhy) -- substitute a fixed fallback title (see ops_apply.py)."""
+    -- substitute a fixed fallback title (see ops_apply.py)."""
 
 
 def fetch_page(db: sqlite3.Connection, title: str) -> sqlite3.Row | None:
@@ -95,7 +95,7 @@ def index_ref(db: sqlite3.Connection, src_uid: str, ref_title: str,
 
 def reindex_block_refs(db: sqlite3.Connection, src_uid: str,
                        targets: Iterable[str]) -> None:
-    """Replace one block's outgoing ((uid)) rows (pkm-d31f). Targets may
+    """Replace one block's outgoing ((uid)) rows. Targets may
     dangle -- an unresolved ((uid)) is a legal state -- so no existence
     check. Never commits."""
     db.execute("DELETE FROM block_refs WHERE src_block_uid = ?", (src_uid,))

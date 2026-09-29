@@ -31,7 +31,7 @@ SEED = {
         [3, "July 10th, 2026", 1000, 3000],
         [4, "Paper", 1000, None],
         [5, "Attention Is All You Need", 1000, 8000],
-        # empty daily (pkm-vvta): no blocks of its own, but uid_b9 [[links]]
+        # empty daily: no blocks of its own, but uid_b9 [[links]]
         # to it -- still surfaced on the journal scroll for that day.
         [6, "July 9th, 2026", None, None],
     ],
@@ -52,12 +52,12 @@ SEED = {
          1000, 2000],
         ["uid_b9", 2, None, 1, "Remind me on [[July 9th, 2026]] to check this",
          None, 0, 1000, 2000],
-        # second ((uid_b3)) referrer on a different page (pkm-l6cl): page 5's
+        # second ((uid_b3)) referrer on a different page: page 5's
         # updated_at 8000 beats page 3's 3000, so block_backlinks now pins the
         # group ORDER BY (updated_at DESC NULLS LAST) and multi-group shaping.
         ["uid_b10", 5, None, 1, "Follow-up to ((uid_b3)) findings", None, 0,
          1000, 2000],
-        # self-reference (pkm-r747): a block on Machine Learning that links
+        # self-reference: a block on Machine Learning that links
         # [[Machine Learning]] must not appear in that page's backlinks, on
         # either engine.
         ["uid_b11", 1, None, 2, "{{[[TODO]]}} revisit [[Machine Learning]]",
@@ -75,7 +75,7 @@ SEED = {
     ],
     # Derived from the block texts above (uid_b6 cites uid_b3, uid_b8 cites
     # uid_b6): the write path maintains these on both engines, so the seed
-    # states them rather than either engine re-deriving them (pkm-d31f).
+    # states them rather than either engine re-deriving them.
     "block_refs": [
         ["uid_b6", "uid_b3"],
         ["uid_b8", "uid_b6"],

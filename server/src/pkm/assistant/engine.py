@@ -12,8 +12,8 @@ from pkm.assistant.events import AssistantEvent
 class ConversationHandle(Protocol):
     # False once an interrupt on this handle went unacknowledged (timed out
     # or raised): the underlying harness may still be running the abandoned
-    # turn, so its state is uncertain and it must not be handed a later turn
-    # (pkm-rwwc). The owner is expected to retire (close and discard) a
+    # turn, so its state is uncertain and it must not be handed a later turn.
+    # The owner is expected to retire (close and discard) a
     # handle that goes unhealthy rather than reuse it.
     healthy: bool
 
@@ -23,7 +23,7 @@ class ConversationHandle(Protocol):
         A generator rather than a plain AsyncIterator on purpose: the caller
         closes it explicitly when the consumer disappears mid-turn, so an
         implementation's abandon-turn cleanup runs on a schedule instead of
-        waiting for async-generator finalization (pkm-f3mo).
+        waiting for async-generator finalization.
         """
         ...
 

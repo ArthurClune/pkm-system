@@ -7,7 +7,7 @@ against both a brand-new (empty) file and an already-populated database:
 it is the single source of truth for the base schema, run by the importer
 when it builds a fresh sqlite file from a Roam export, and by
 server/db.py's init_db() at process startup so an empty data dir (no
-import ever run) still gets working tables (pkm-cqu2). Additive tables use
+import ever run) still gets working tables. Additive tables use
 replayable IF-NOT-EXISTS statements here. Columns also need a guarded
 migration in server/db.py because SQLite has no ADD COLUMN IF NOT EXISTS;
 client replicas use the generated schema hash to rebootstrap on change.
@@ -15,7 +15,7 @@ client replicas use the generated schema hash to rebootstrap on change.
 BASE_DDL contains the client-facing schema (replicated to all clients).
 SERVER_DDL contains server-only tables and triggers (change journal, batch
 idempotency, rename/merge rewrite records) that must not be installed on
-clients (pkm-y8p0)."""
+clients."""
 
 BASE_DDL = """
 CREATE TABLE IF NOT EXISTS pages(
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS refs(
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_refs_target ON refs(target_page_id);
 
--- pkm-d31f: incoming ((uid)) index, the block-level analogue of refs.
+-- Incoming ((uid)) index, the block-level analogue of refs.
 -- No FK on target_block_uid: an unresolved ((uid)) is a legal state (it
 -- renders unresolved), so dangling rows are permitted and simply never
 -- match a count query. Rows are derived from block text at every write
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS assets(
   mime        TEXT NOT NULL,
   size        INTEGER NOT NULL,
   created_at  INTEGER,
-  -- pkm-zc0c: LLM-generated searchable description; all nullable.
+  -- LLM-generated searchable description; all nullable.
   -- status is derived: described (description set) / failed
   -- (describe_error set) / pending (neither).
   description    TEXT,
@@ -111,7 +111,7 @@ END;
 # than folded into BASE_DDL's initial CREATE block) as a record of schema
 # history, but it is just as idempotent and is executed as part of BASE_DDL
 # below -- init_db() runs the whole of DDL (BASE_DDL + SERVER_DDL), not this
-# alone, so both a fresh data dir and a pre-pkm-lhzd already-populated
+# alone, so both a fresh data dir and an already-populated
 # database converge on the same schema.
 SIDEBAR_ENTRIES_DDL = """
 CREATE TABLE IF NOT EXISTS sidebar_entries(
@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS sidebar_entries(
 
 BASE_DDL += SIDEBAR_ENTRIES_DDL
 
-# Server-only DDL: the change journal (offline sync, pkm-y8p0) and batch
+# Server-only DDL: the change journal (offline sync) and batch
 # idempotency records. Deliberately NOT part of BASE_DDL: the client
 # replica is built from BASE_DDL alone -- installing these triggers there
 # would grow an unused local journal on every upsert (spec section 3).
@@ -184,8 +184,8 @@ CREATE TABLE IF NOT EXISTS applied_batches(
   applied_at   INTEGER NOT NULL
 );
 
--- What a rename, merge or the title migration did to one block's text
--- (pkm-x5w0): the sha256 of that text before and after, plus the one title
+-- What a rename, merge or the title migration did to one block's text:
+-- the sha256 of that text before and after, plus the one title
 -- that moved. store.rewrite_snapshotted_blocks writes a row per changed
 -- block per title it rewrote there, and ops_core.replay_title_rewrites
 -- replays them over a stale device's update_text so an unsynced edit cannot
@@ -206,7 +206,7 @@ CREATE INDEX IF NOT EXISTS idx_block_rewrites_uid
   ON block_rewrites(uid, base_hash);
 
 -- Today's daily-note conflict header for each block that has had a text
--- conflict today (pkm-3g4n), so later conflicts on the same block append
+-- conflict today, so later conflicts on the same block append
 -- under it rather than minting another header. day is the daily page's
 -- title. Server-only like block_rewrites: conflicts are resolved at push
 -- time, clients only ever see the header and child blocks. Every recorded
@@ -220,7 +220,7 @@ CREATE TABLE IF NOT EXISTS conflict_headers(
   PRIMARY KEY (target_uid, day)
 );
 
--- Generation token (pkm-o9o5): a rebuilt database (importer swap) repopulates
+-- Generation token: a rebuilt database (importer swap) repopulates
 -- the journal, so a stale client cursor usually sits BELOW latest_seq and the
 -- since>latest reset check never fires -- a replica would silently pull from
 -- mid-journal and permanently miss rows. Each database mints a random token

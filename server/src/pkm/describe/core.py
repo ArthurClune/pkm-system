@@ -1,5 +1,5 @@
 # pattern: Functional Core
-"""Pure logic for LLM image descriptions (pkm-zc0c): eligibility, the
+"""Pure logic for LLM image descriptions: eligibility, the
 OpenAI request payload, response parsing, and status derivation. All I/O
 (files, HTTP, env, DB) lives in describe/openai_client.py and
 describe/service.py."""

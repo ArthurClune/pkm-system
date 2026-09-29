@@ -6,14 +6,14 @@ it never waits on a client's network send. A dedicated "drain" task per
 connection is the sole consumer of that client's queue, so frames are
 delivered strictly in the order broadcast() was called for that client,
 even though delivery to different clients proceeds fully concurrently
-(pkm-nn57; the previous implementation awaited each client in turn with a
+(the previous implementation awaited each client in turn with a
 one-second timeout, so N stalled clients added N seconds of latency to
 every write that broadcasts).
 
 A client that fails to keep its queue draining (QUEUE_SIZE behind) or
 whose send doesn't complete within SEND_TIMEOUT is disconnected outright
 rather than buffered or waited on further. Both thresholds are patient:
-tuned for a flaky link, not a LAN (pkm-d6i6). Since sends moved into
+tuned for a flaky link, not a LAN. Since sends moved into
 per-client drain tasks, a slow client costs this single-user server only
 its queued nudges (bytes) and one lingering drain task, while every drop
 costs that client a full reconnect, changes pull and resyncSeq refetch.
@@ -59,7 +59,7 @@ class Hub:
 
     @property
     def _conns(self) -> set[WebSocket]:
-        """Connected sockets. Named to match the pre-pkm-nn57 attribute
+        """Connected sockets. Named to match the previous attribute name
         so existing call sites/tests reading connection membership don't
         need to know about the per-client queue internals."""
         return set(self._clients)
@@ -76,7 +76,7 @@ class Hub:
         (its loop iterates a snapshot of self._clients), which is what
         makes it safe to close the socket afterwards without racing a
         broadcast() that might otherwise try to drop the same client
-        mid-close (pkm-nn57 third-round review)."""
+        mid-close."""
         return self._clients.pop(ws, None)
 
     def disconnect(self, ws: WebSocket) -> None:
@@ -94,7 +94,7 @@ class Hub:
         # No await in this loop -- required so two overlapping
         # broadcast() calls always enqueue in call order for a given
         # client, which is what gives per-client FIFO ordering without a
-        # lock (pkm-nn57).
+        # lock.
         for client in list(self._clients.values()):
             try:
                 client.queue.put_nowait(message)
@@ -102,7 +102,7 @@ class Hub:
                 self.disconnect(client.ws)
                 # Fire-and-forget: a Hub-initiated drop must actually
                 # close the socket, or the client never sees `onclose`
-                # and won't reconnect (pkm-nn57 final review) -- but
+                # and won't reconnect -- but
                 # this loop can't await it without breaking the FIFO
                 # ordering guarantee above. This is always a different
                 # task from client.drain_task (that task, if it's mid
@@ -129,7 +129,7 @@ class Hub:
                     # itself, and a pending self-cancel interrupts
                     # whatever this coroutine awaits next -- landing
                     # inside WebSocket.close()'s own internal await and
-                    # cutting it short (pkm-nn57 second-round review).
+                    # cutting it short.
                     # Forgetting first ALSO closes a second, cross-task
                     # version of the same race: while the close below is
                     # in flight, this client is still technically
@@ -137,10 +137,10 @@ class Hub:
                     # broadcast() could hit QueueFull for it and call
                     # disconnect() -> cancel() on this very task from
                     # the outside, non-deterministically reproducing the
-                    # identical cut-short-close bug (pkm-nn57
-                    # third-round review). Once forgotten, no broadcast()
-                    # can see this client to drop it, so this task's own
-                    # eventual return is the only thing that can end it.
+                    # identical cut-short-close bug. Once forgotten, no
+                    # broadcast() can see this client to drop it, so this
+                    # task's own eventual return is the only thing that can
+                    # end it.
                     self._forget(client.ws)
                     await _safe_close(client.ws)
                     return

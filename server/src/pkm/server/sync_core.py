@@ -6,13 +6,13 @@ fell inside a window that also contained a newer row for something else
 (spec section 1, the A@1/B@2/A@100 case).
 
 Also the chunking/reordering helpers hydration uses to replace a
-per-entity query with bounded `WHERE x IN (...)` set queries (pkm-ldqx):
+per-entity query with bounded `WHERE x IN (...)` set queries:
 chunk_ids splits an id list to stay under SQLite's bound-parameter limit,
 hydrate_in_order puts a dict of fetched rows (keyed by id, in whatever
 order the batched query returned them) back into the caller's original
 order, dropping ids nothing was found for.
 
-missing_parent_uids supports the parent-block closure walk (pkm-qvlx): a
+missing_parent_uids supports the parent-block closure walk: a
 window can ship a block whose parent_uid points at a block only a later
 window would otherwise deliver, so the caller walks the parent_uid chain
 to a fixpoint, ancestor by ancestor, adding every uid it fetches (found or

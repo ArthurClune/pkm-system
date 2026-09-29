@@ -7,8 +7,8 @@ network.
 Every method returns a validated `pkm.contracts` model, never a bare
 dict: the same models the server serializes its responses with, so a
 payload that drifts fails here -- naming the endpoint and the field --
-instead of surfacing as a KeyError inside a renderer or planner
-(pkm-0wr8). Nothing in this package imports `pkm.server`; the contracts
+instead of surfacing as a KeyError inside a renderer or planner.
+Nothing in this package imports `pkm.server`; the contracts
 package is the only thing both halves share."""
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ def save_config(cfg: CliConfig) -> None:
 def new_uid() -> str:
     # 12 urlsafe chars, matches UID_RE. token_urlsafe's alphabet includes
     # '-' and '_', which argparse would treat as an option prefix in a bare
-    # CLI argument (pkm-y5yv); retry until the first char is alphanumeric.
+    # CLI argument; retry until the first char is alphanumeric.
     while True:
         uid = secrets.token_urlsafe(9)
         if uid[0].isalnum():
@@ -155,8 +155,7 @@ class PkmClient:
         pagination (capped server-side at 100 groups per request,
         routes_pages.py) until none remain. The CLI/MCP wording promises
         the complete backlink list, so returning only the first page
-        here would silently truncate it (pkm-3cyg -- no silent
-        truncation).
+        here would silently truncate it.
 
         The route sorts backlink sources by (updated_at DESC, title) --
         an order that's only stable across this method's sequential
@@ -223,7 +222,7 @@ class PkmClient:
         it into the same OpBatch as whatever else the batch does, so
         creation commits atomically with the rest instead of persisting
         from a separate request even when the batch later fails
-        validation (pkm-w80k). This client deliberately exposes no
+        validation. This client deliberately exposes no
         page-creation method at all -- `POST /api/pages` is the web app's
         route -- so that separate-request shape has nowhere to come back
         from.
@@ -234,12 +233,12 @@ class PkmClient:
 
         Looks up `normalize_title(title)`, not `title` verbatim: every page
         creation path (store.get_or_create_page) normalizes a title's
-        control whitespace before storing it (pkm-hjhy), so a page born
+        control whitespace before storing it, so a page born
         from "Foo\\tBar" is only ever addressable as "Foo Bar". A caller
         that still holds the pre-normalization spelling -- e.g. a second
         `pkm save`/`save_note` to the same page -- would otherwise get a
         false "missing" here and plan its next write against an empty
-        page instead of the page's real, already-saved blocks (pkm-5k8p).
+        page instead of the page's real, already-saved blocks.
         The op(s) this caller goes on to build still carry the caller's
         original `title` string for `page_title`: that is fine, since the
         server normalizes it again at the same choke point and lands on

@@ -8,7 +8,7 @@ workflows in `pkm.client.workflows` all plan through here, so this module
 imports none of them. `pkm.batch` builds on it for the multi-command
 `batch` language.
 
-Both ends are contract models rather than dicts (pkm-0wr8): the blocks
+Both ends are contract models rather than dicts: the blocks
 planned against are `BlockNode`s exactly as the server serialized them,
 and each planned op is validated the moment it is built, so a planner
 that emits a wrong-shaped op fails here rather than as a 422 from the
@@ -355,8 +355,8 @@ def asset_block_text(filename: str, mime: str, url: str) -> str:
 def create_page_ops(titles: Iterable[str]) -> list[CreatePageOp]:
     """`create_page` ops for pages that don't exist yet, meant to be
     prepended to a planned batch's ops so a missing page's creation rides
-    inside the same atomic OpBatch as the blocks that reference it
-    (pkm-w80k) -- a batch that fails validation after this point leaves
+    inside the same atomic OpBatch as the blocks that reference it --
+    a batch that fails validation after this point leaves
     neither the page nor its blocks behind, instead of the page having
     already been committed via a separate request."""
     return [CreatePageOp(op="create_page", page_title=t) for t in titles]

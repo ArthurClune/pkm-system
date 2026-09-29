@@ -24,6 +24,7 @@ def test_concurrent_page_delete_cannot_land_inside_the_batch(
         con2.execute("PRAGMA busy_timeout=50")
         with pytest.raises(sqlite3.OperationalError, match="locked"):
             page = fetch_page(con2, "AI")
+            assert page is not None
             delete_page_rows(con2, page["id"], "AI")
         con2.close()
         return ctx
@@ -51,6 +52,7 @@ def test_concurrent_rename_cannot_resurrect_the_old_title(
         con2 = open_db(seeded_config.db_path)
         con2.execute("PRAGMA busy_timeout=50")
         page = fetch_page(con2, "Machine Learning")
+        assert page is not None
         with pytest.raises(sqlite3.OperationalError, match="locked"):
             rename_page_rows(con2, page["id"], "Machine Learning",
                              "ML Renamed", 1_800_000_000_000)

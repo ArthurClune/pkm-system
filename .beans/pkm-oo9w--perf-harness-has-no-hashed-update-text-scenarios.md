@@ -1,11 +1,11 @@
 ---
 # pkm-oo9w
 title: Perf harness has no hashed update_text scenarios
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-09-28T22:40:50Z
-updated_at: 2026-09-29T09:55:13Z
+updated_at: 2026-09-29T10:49:24Z
 ---
 
 Found in pkm-wy1v. perf/check.sh backend's only /api/ops update_text scenario (ops/edit-1) sends no base_text_hash, so it exercises the legacy hashless path. Nothing measures the hashed paths: clean, identical, conflict (daily-page landing), rename replay, or pkm-foap's missing-target landings. pkm-wy1v's query savings are therefore unmeasured. Add hashed scenarios to the harness and bootstrap their baselines.
@@ -31,3 +31,6 @@ Seeding, in `server/tooling/perfcheck/fixture.py` and `build.py`:
 This changes `fixture_hash` (fixture.py changed), so both backend and frontend baselines need `perf/check.sh <side> --rebaseline` before the next check passes (per `AGENTS.md`: a fixture change rebaselines, it doesn't bootstrap). Left for the orchestrator to run on a quiet machine.
 
 Verification: all 4 classifications (clean/identical/conflict/rename-replay-clean) confirmed directly against `ops_core.classify_text_edit`; ran `python -m perfcheck.backend` twice at full scale and diffed every new scenario's non-timing metrics — identical both times. New pytest coverage in `test_perfcheck_fixture.py`, `test_perfcheck_build.py` (block_rewrites row shape) and `test_perfcheck_backend.py` (one test per new scenario, asserting the resulting DB state matches the intended branch, not just that a count came back). Full `uv run pytest -q`, `ruff check`, `pyrefly check` all pass. `docs/architecture/performance-checks.md`'s Writes scenario row and a short mechanism note updated; `check-docs.mjs` clean.
+
+
+Baselines re-recorded with `perf/check.sh backend --rebaseline` and `frontend --rebaseline` on a quiet machine (the fixture change moved fixture_hash for both sides); confirming `perf/check.sh backend` / `frontend` both report no changes.

@@ -1,9 +1,9 @@
 {
-  "commit": "b4d84f1+dirty",
+  "commit": "d564178",
   "env": {
     "chromium": "149.0.7827.55"
   },
-  "fixture_hash": "1787e2b65bd60abb",
+  "fixture_hash": "df9e86e8f395ca70",
   "scenarios": {
     "A/idle-big": {
       "fetches": {
@@ -65,7 +65,7 @@
     "H/cold": {
       "api_bytes": {
         "class": "exact",
-        "value": 15156692
+        "value": 15157758
       },
       "changes_requests": {
         "class": "exact",
@@ -73,7 +73,7 @@
       },
       "replica_ready_ms": {
         "class": "timing",
-        "value": 3508
+        "value": 3414
       },
       "requests": {
         "class": "exact",
@@ -122,7 +122,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 64.5
+        "value": 55.9
       },
       "not_prevented": {
         "class": "exact",
@@ -142,7 +142,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 25.7
+        "value": 16.5
       },
       "not_prevented": {
         "class": "exact",
@@ -191,7 +191,7 @@
       },
       "results_ms": {
         "class": "timing",
-        "value": 165
+        "value": 166
       },
       "search_requests": {
         "class": "exact",
@@ -205,7 +205,7 @@
       },
       "first_outline_ms": {
         "class": "timing",
-        "value": 212
+        "value": 206
       },
       "requests": {
         "class": "exact",

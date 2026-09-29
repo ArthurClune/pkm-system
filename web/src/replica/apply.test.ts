@@ -734,3 +734,157 @@ describe("pkm-b0zf: a replayed move does not re-shift siblings it already made r
       .toEqual(["uid_b1", "uid_b3", "uid_b2", "uid_b4"]);
   });
 });
+
+describe("pkm-fe9b: concurrent structure edits converge without a snapshot repair", () => {
+  // The server no longer 400s these batches (a 400 used to buy a snapshot
+  // repair that also cleaned the optimistic state), so the replica has to
+  // reach the server's rows from the feed alone.
+  const tree = () => t.db.select<{ uid: string; page_id: number;
+                                   parent_uid: string | null;
+                                   order_idx: number }>(
+    "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid");
+  // Another device moved uid_b2 (and its child uid_b3) under uid_b1 before
+  // our move of uid_b1 under uid_b3 reached the server, so ours would
+  // nest uid_b1 under its own descendant: the server skips it.
+  const SERVER_AFTER_CYCLE = [
+    { uid: "uid_b1", page_id: 1, parent_uid: null, order_idx: 0 },
+    { uid: "uid_b2", page_id: 1, parent_uid: "uid_b1", order_idx: 0 },
+    { uid: "uid_b3", page_id: 1, parent_uid: "uid_b2", order_idx: 0 },
+  ];
+  const serverBlocks = () => [
+    // feed order is journal order: the other device's move of uid_b2
+    // first, then the skipped move's re-shipped subtree, root first. The
+    // first row closes a loop over our optimistic uid_b1 -> uid_b3; the
+    // rows after it must open it again.
+    block("uid_b2", 1, { parent_uid: "uid_b1" }),
+    block("uid_b1", 1, { text: "links [[AI]]",
+                         refs: [{ target_page_id: 2, kind: "link" }] }),
+    block("uid_b3", 1, { parent_uid: "uid_b2", text: "mine" }),
+  ];
+  const enqueueCycleMove = () => enqueueBatch(t.db, [
+    { op: "move", uid: "uid_b1", parent_uid: "uid_b3", order_idx: 0 },
+    { op: "update_text", uid: "uid_b3", text: "mine" },
+  ], 5, "batch-cycle");
+
+  test("an acked cycle move is undone by the rows the server journals for it", () => {
+    enqueueCycleMove();
+    expect(tree()[0]).toMatchObject({ uid: "uid_b1", parent_uid: "uid_b3" });
+    deleteBatch(t.db, nextBatch(t.db)!.id); // the ack, skipped: cycle
+
+    const result = applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, blocks: serverBlocks(),
+    }), 6);
+
+    expect(result).toEqual({ status: "applied", cursor: 11 });
+    expect(tree()).toEqual(SERVER_AFTER_CYCLE);
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+  });
+
+  test("a window before the ack, then the ack's journal rows, converge", () => {
+    enqueueCycleMove();
+    // The other device's move arrives while ours is still queued. The
+    // server's parent closure ships uid_b2's ancestors with it, and our
+    // moved uid_b1 is one of them, so its real row lands in the same window.
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      blocks: [block("uid_b2", 1, { parent_uid: "uid_b1" }),
+               block("uid_b1", 1, { text: "links [[AI]]",
+                                    refs: [{ target_page_id: 2, kind: "link" }] })],
+    }), 6);
+    // no loop survives the window: the replay skips the move as a cycle,
+    // and the batch's other op survives it
+    expect(tree()).toEqual(SERVER_AFTER_CYCLE);
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b3'"))
+      .toEqual([{ text: "mine" }]);
+    expect(allBatches(t.db)).toHaveLength(1);
+    deleteBatch(t.db, nextBatch(t.db)!.id);
+
+    applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12, blocks: serverBlocks(),
+    }), 7);
+
+    expect(tree()).toEqual(SERVER_AFTER_CYCLE);
+  });
+
+  test("a snapshot under a pending cycle move keeps the server's tree", () => {
+    // Replaying the move over a fresh snapshot would nest uid_b1 under its
+    // own descendant, a loop no page root reaches: the whole subtree would
+    // vanish from the page until the ack. Local apply skips it instead.
+    enqueueCycleMove();
+
+    applySnapshot(t.db, { ...SNAP, seq: 11, blocks: [
+      block("uid_b1", 1, { text: "links [[AI]]",
+                           refs: [{ target_page_id: 2, kind: "link" }] }),
+      block("uid_b2", 1, { parent_uid: "uid_b1" }),
+      block("uid_b3", 1, { parent_uid: "uid_b2", text: "child block searchable" }),
+    ] }, 6);
+
+    expect(tree()).toEqual(SERVER_AFTER_CYCLE);
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b3'"))
+      .toEqual([{ text: "mine" }]);
+    expect(allBatches(t.db)).toHaveLength(1);
+  });
+
+  test("a pending create follows its parent when a window moves the parent to another page", () => {
+    // Queued under uid_b2 on Machine Learning; another device moves uid_b2
+    // (with uid_b3) to AI. The server will create our block on AI, beside
+    // its parent, so the replay puts it there too.
+    enqueueBatch(t.db, [
+      { op: "create", uid: "uid_new1", page_title: "Machine Learning",
+        parent_uid: "uid_b2", order_idx: 1, text: "typed child" },
+    ], 5, "batch-create");
+
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      blocks: [block("uid_b2", 2), block("uid_b3", 2, { parent_uid: "uid_b2" })],
+    }), 6);
+
+    expect(tree().find((r) => r.uid === "uid_new1")).toEqual(
+      { uid: "uid_new1", page_id: 2, parent_uid: "uid_b2", order_idx: 1 });
+
+    // the ack, then the server's own row for the create
+    deleteBatch(t.db, nextBatch(t.db)!.id);
+    applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      blocks: [block("uid_new1", 2, { parent_uid: "uid_b2", order_idx: 1,
+                                      text: "typed child" })],
+    }), 7);
+    expect(tree().find((r) => r.uid === "uid_new1")).toEqual(
+      { uid: "uid_new1", page_id: 2, parent_uid: "uid_b2", order_idx: 1 });
+  });
+
+  test("a replayed create does not re-page a block a later pending move took elsewhere", () => {
+    // Created under uid_b2, then moved under uid_b1 (same page) by a later
+    // pending batch. A window moves uid_b2 to AI. The create replay must
+    // leave the block where the move put it: re-paging it there would make
+    // the move replay re-shift uid_b1's children on every window.
+    t.db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
+      " heading, collapsed, created_at, updated_at)" +
+      " VALUES ('uid_q1', 1, 'uid_b1', 0, 'under b1', NULL, 0, 1, 1)");
+    enqueueBatch(t.db, [
+      { op: "create", uid: "uid_new1", page_title: "Machine Learning",
+        parent_uid: "uid_b2", order_idx: 1, text: "typed child" },
+    ], 5, "batch-create");
+    enqueueBatch(t.db, [
+      { op: "move", uid: "uid_new1", parent_uid: "uid_b1", order_idx: 0 },
+    ], 5, "batch-move");
+    const settled = [
+      { uid: "uid_new1", page_id: 1, parent_uid: "uid_b1", order_idx: 0 },
+      { uid: "uid_q1", page_id: 1, parent_uid: "uid_b1", order_idx: 1 },
+    ];
+    const underB1 = () => tree().filter((r) => r.parent_uid === "uid_b1");
+    expect(underB1()).toEqual(settled);
+
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      blocks: [block("uid_b2", 2), block("uid_b3", 2, { parent_uid: "uid_b2" })],
+    }), 6);
+    applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      blocks: [block("uid_b3", 2, { parent_uid: "uid_b2", text: "edited" })],
+    }), 7);
+
+    expect(underB1()).toEqual(settled);
+  });
+});

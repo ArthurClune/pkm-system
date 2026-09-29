@@ -23,6 +23,9 @@ ViewType = Literal["numbered", "document"]
 class CreateOp(BaseModel):
     op: Literal["create"]
     uid: str
+    # the page for a top-level create (created if absent). Under a live
+    # parent the block lands on the parent's page and this is ignored:
+    # another device may have moved the parent since the op was queued.
     page_title: str = Field(min_length=1)
     parent_uid: str | None = None
     order_idx: int
@@ -54,8 +57,9 @@ class MoveOp(BaseModel):
     uid: str
     parent_uid: str | None   # required but nullable: null = top level
     order_idx: int
-    # cross-page target when parent_uid is null; must agree with the
-    # parent's page when parent_uid is set. None = stay on current page.
+    # cross-page target when parent_uid is null; ignored when parent_uid
+    # is set, since the block follows its parent to whatever page that is
+    # on now. None = stay on current page.
     page_title: str | None = Field(default=None, min_length=1)
 
 

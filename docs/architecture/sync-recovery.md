@@ -30,6 +30,7 @@ replica is a cache and the queue is the user's intent.
 | `ROLLBACK` fails after SQLite already rolled back | `wrapSqlite`, `rollbackToSavepoint` | The original error is raised | Corruption keeps its own message | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | An op names a block or parent the server no longer has | `ops_core.classify_missing_target`; `skipsOnMissingTarget` in the replica | Skipped with an ack 200, and skipped in local apply; journal rows fix the replica | Tombstones are journalled before live rows; both sides pass `missing_targets.json` | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
 | The same, but the tab has no replica (no feed to tombstone the ghost) | `deliverLaneHead` reads the ack's `skipped` list, only while `unavailable` is latched | Bumps resync; every mounted view's guarded read refetches | Never fires for a replica-backed lane delivery, which gets the tombstone from its feed instead | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
+| Another device moved an op's parent, or made its move a cycle | `_context_for` and `classify_missing_target` on the server; `applyOne` and `skipsOnMissingTarget` in the replica | Create and move follow the parent; a cycle move is skipped on both sides | A stale `page_title` is never resolved; a cycle skip journals the moved subtree | [Ops another device's tree edit overtook](#ops-another-devices-tree-edit-overtook) |
 | The replica opens, then fails every write | Nothing | Known gap | — | [What the UI shows](#what-the-ui-shows) |
 
 ## A local write fails
@@ -382,3 +383,25 @@ ack's `skipped` list, and a non-empty one bumps resync
 resync trigger runs, not the outline repair epoch, so pending edits elsewhere
 on the page survive. A replica-backed lane delivery does not bump, because its
 feed tombstones the ghost.
+
+## Ops another device's tree edit overtook
+
+A create or move under a parent another device moved, and a move that
+another device's move turned into a cycle, never reject their batch either.
+Each side resolves them the same way, and the feed carries the server's rows:
+
+| Op | Server | Replica local apply | How the replica converges |
+|---|---|---|---|
+| `create` under a parent now on another page | Created on the parent's page; the stale `page_title` is never resolved | Same; a replayed create also moves to a parent a window re-paged | The insert trigger journals the block, and the feed ships its row |
+| `move` whose `page_title` no longer names the parent's page | Moved onto the parent's page | Already follows the parent | The triggers journal the re-paged subtree |
+| `move` under the block itself or its descendant | Skipped with a daily-note entry | Skipped: `skipsOnMissingTarget` reads the target's parent chain | The server journals every block of the moved subtree, root first |
+
+The local cycle check matters on a replay over a snapshot or window that
+already holds the other device's move. Replaying the move there would put
+the block under its own descendant, a loop no page root reaches, and the
+subtree would vanish from its page until the ack. A move the replica applied
+before that state arrived leaves no loop either. The window with the other
+device's move also ships the moved block's row, through the parent closure.
+The journalled subtree then restores what else the local move touched:
+descendants it re-paged, and the target's children it shifted.
+`missing_targets.json` pins the cycle rule on both sides.

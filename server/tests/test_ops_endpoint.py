@@ -206,20 +206,13 @@ def test_forbidden_title_in_second_op_refuses_complete_batch_before_mutation(
 def test_batch_is_atomic_and_reports_index(client):
     r = _post(client,
               {"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
-              {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
-               "order_idx": 0})
+              {"op": "create", "uid": "uid_b1", "page_title": "AI",
+               "order_idx": 0, "text": "dup"})
     assert r.status_code == 400
     assert r.json()["detail"]["index"] == 1
-    assert "cycle" in r.json()["detail"]["reason"]
+    assert "already exists" in r.json()["detail"]["reason"]
     page = client.get("/api/page/Machine Learning").json()
     assert page["blocks"][1]["collapsed"] is False  # op 0 rolled back
-
-
-def test_cycle_move_rejected(client):
-    r = _post(client, {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
-                       "order_idx": 0})
-    assert r.status_code == 400
-    assert "cycle" in r.json()["detail"]["reason"]
 
 
 def test_malformed_batch_422(client):
@@ -295,8 +288,8 @@ def test_batch_rollback_undoes_auto_created_page(client, seeded_config):
                                       "ops": [
         {"op": "move", "uid": "uid_b4", "parent_uid": None, "order_idx": 0,
          "page_title": "Brand New Page"},
-        {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
-         "order_idx": 0}]})  # a cycle
+        {"op": "create", "uid": "uid_b1", "page_title": "AI",
+         "order_idx": 0, "text": "dup"}]})  # uid exists
     assert r.status_code == 400
     assert r.json()["detail"]["index"] == 1
     con = sqlite3.connect(seeded_config.db_path)
@@ -307,15 +300,6 @@ def test_batch_rollback_undoes_auto_created_page(client, seeded_config):
         "SELECT page_id, parent_uid FROM blocks WHERE uid='uid_b4'").fetchone()
     assert row["page_id"] == 3 and row["parent_uid"] is None  # move undone
     con.close()
-
-
-def test_cross_page_move_page_title_parent_mismatch_400(client):
-    r = client.post("/api/ops", json={"client_id": "t", "batch_id": "mismatch1",
-                                      "ops": [
-        {"op": "move", "uid": "uid_b4", "parent_uid": "uid_b2",
-         "order_idx": 0, "page_title": "July 7th, 2026"}]})
-    assert r.status_code == 400
-    assert "page_title does not match" in r.json()["detail"]["reason"]
 
 
 def test_create_page_op_creates_and_is_idempotent(client):
@@ -817,6 +801,115 @@ def test_ops_chained_on_a_diverted_create_lose_no_text(client):
         _skipped(3, "move", "uid_b6", "parent_not_found")]
 
 
+# --- concurrent structure edits never reject their batch (pkm-fe9b) --------
+#
+# Another device moved blocks after these ops were queued. A create or move
+# under a live parent follows the parent to its current page; a move that
+# would nest a block under its own descendant is skipped with a note.
+
+def _page_blocks(client, title):
+    return client.get(f"/api/page/{title}").json()["blocks"]
+
+
+def test_create_under_a_parent_moved_to_another_page_follows_it(
+        client, seeded_config):
+    # queued as a child of uid_b2 on Machine Learning; another device has
+    # since moved uid_b2 to the top of AI
+    assert _post(client, {"op": "move", "uid": "uid_b2", "parent_uid": None,
+                          "order_idx": 0, "page_title": "AI"}
+                 ).status_code == 200
+    start = _latest_seq(client)
+    r = _post(client,
+              {"op": "create", "uid": "follow_e1",
+               "page_title": "Machine Learning", "parent_uid": "uid_b2",
+               "order_idx": 1, "text": "typed child"},
+              CLEAN_EDIT)
+    assert r.status_code == 200
+    assert "skipped" not in r.json()
+    assert _ml_texts(client)[0] == "kept edit"
+    [papers] = [b for b in _page_blocks(client, "AI") if b["uid"] == "uid_b2"]
+    assert [c["uid"] for c in papers["children"]] == ["uid_b3", "follow_e1"]
+    # nothing lands on the daily note: the create applied
+    assert _conflicts(client) == []
+    # the replica placed its copy on the stale page; the feed ships the row
+    # the server wrote, on the parent's page
+    blocks, _ = _feed_since(client, start)
+    assert blocks["follow_e1"]["page_id"] == 2
+    assert blocks["follow_e1"]["parent_uid"] == "uid_b2"
+
+
+def test_create_under_a_moved_parent_creates_no_page_for_a_stale_title(
+        client, seeded_config):
+    r = _post(client, {"op": "create", "uid": "follow_e2",
+                       "page_title": "Page Since Deleted",
+                       "parent_uid": "uid_b6", "order_idx": 0,
+                       "text": "typed child"})
+    assert r.status_code == 200
+    assert [c["uid"] for b in _page_blocks(client, "AI")
+            for c in b["children"]] == ["follow_e2"]
+    assert not _page_exists(seeded_config, "Page Since Deleted")
+
+
+def test_move_with_a_stale_page_title_follows_the_parent(
+        client, seeded_config):
+    start = _latest_seq(client)
+    r = _post(client,
+              # uid_b2 is on Machine Learning, not the page the move named
+              {"op": "move", "uid": "uid_b4", "parent_uid": "uid_b2",
+               "order_idx": 0, "page_title": "Page Since Deleted"},
+              CLEAN_EDIT)
+    assert r.status_code == 200
+    assert "skipped" not in r.json()
+    [papers] = [b for b in _page_blocks(client, "Machine%20Learning")
+                if b["uid"] == "uid_b2"]
+    assert [c["uid"] for c in papers["children"]] == ["uid_b4", "uid_b3"]
+    assert not _page_exists(seeded_config, "Page Since Deleted")
+    blocks, _ = _feed_since(client, start)
+    assert blocks["uid_b4"]["page_id"] == 1
+
+
+def test_move_that_would_make_a_cycle_is_skipped_with_a_note(
+        client, seeded_config):
+    # Two devices moved uid_b2 and uid_b3 under each other; the server
+    # already holds uid_b3 under uid_b2, so this move would loop them.
+    start = _latest_seq(client)
+    r = _post(client,
+              {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
+               "order_idx": 0, "page_title": "Page Since Deleted"},
+              CLEAN_EDIT)
+    assert r.status_code == 200
+    assert r.json()["skipped"] == [_skipped(0, "move", "uid_b2", "cycle")]
+    assert r.json()["applied"] == 2
+    assert _ml_texts(client) == ["kept edit", "Papers"]
+    [papers] = [b for b in _page_blocks(client, "Machine%20Learning")
+                if b["uid"] == "uid_b2"]
+    assert [c["uid"] for c in papers["children"]] == ["uid_b3"]
+    assert _conflicts(client) == [
+        ("[[conflict]] [[Machine Learning]] — ((uid_b2))",
+         ["move skipped: would create a cycle"])]
+    assert not _page_exists(seeded_config, "Page Since Deleted")
+    # a replica that applied the move gets the moved subtree's real rows
+    # back, without a snapshot repair
+    blocks, tombstones = _feed_since(client, start)
+    assert blocks["uid_b2"]["parent_uid"] is None
+    assert blocks["uid_b3"]["parent_uid"] == "uid_b2"
+    assert not {"uid_b2", "uid_b3"} & tombstones
+    assert r.json()["seq"] == _latest_seq(client)
+
+
+def test_cycle_note_shares_the_blocks_header_with_another_skip(client):
+    r = _post(client,
+              {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
+               "order_idx": 0},
+              {"op": "move", "uid": "uid_b2", "parent_uid": "ghost_cy1",
+               "order_idx": 0})
+    assert r.status_code == 200
+    assert _conflicts(client) == [
+        ("[[conflict]] [[Machine Learning]] — ((uid_b2))",
+         ["move skipped: would create a cycle",
+          "move skipped: target parent ghost_cy1 not found"])]
+
+
 @pytest.mark.parametrize("op", [
     {"op": "set_collapsed", "uid": "ghost_r1", "collapsed": True},
     {"op": "delete", "uid": "ghost_r1"},
@@ -828,8 +921,10 @@ def test_ops_chained_on_a_diverted_create_lose_no_text(client):
      "parent_uid": "ghost_r1", "order_idx": 0, "text": "diverted"},
     {"op": "move", "uid": "uid_b3", "parent_uid": "ghost_r1",
      "order_idx": 0},
+    {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
+     "order_idx": 0},
 ], ids=["set_collapsed", "delete", "move", "set_heading", "set_view_type",
-        "update_text", "create", "move_parent"])
+        "update_text", "create", "move_parent", "move_cycle"])
 def test_replayed_missing_target_batch_lands_nothing_twice(client, op):
     first = _post(client, op, batch_id="missing_replay1")
     assert first.status_code == 200

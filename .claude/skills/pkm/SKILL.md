@@ -100,8 +100,8 @@ option. Use `--` to end option parsing, flags before it: `pkm get --
   created block so later commands can target it as `"parent": "{{name}}"`
   or, for `update`/`move`/`delete`, as `"uid": "{{name}}"`; repeated
   `"## Heading"` parents on the same page resolve to one heading. An
-  `update`/`move`/`delete` whose uid no longer exists is skipped, not
-  rejected: the rest still applies and is committed, the output starts with
+  `update`/`move`/`delete` whose uid no longer exists, or a `move` under
+  the block's own descendant, is skipped, not rejected: the rest still applies and is committed, the output starts with
   `warning:` and lists each skipped op, and `pkm batch` exits 1. Check that
   warning — it usually means a mistyped or stale uid — and fix those ops on
   their own: re-running the batch repeats everything that applied. A

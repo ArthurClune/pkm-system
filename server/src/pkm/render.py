@@ -215,11 +215,19 @@ def _count_label(n: int, singular: str, plural: str | None = None) -> str:
     return f"{n} {label}"
 
 
+_SKIP_REASON_TEXT = {
+    "block_not_found": "block not found",
+    "parent_not_found": "parent block not found",
+    "cycle": "target is the block itself or one of its descendants",
+}
+
+
 def render_ops_ack(ack: OpsAck) -> str:
     """A batch's result for `pkm batch` / MCP `batch`. The server skips an
-    op whose block (or parent) no longer exists instead of failing the
-    batch, so for a caller that sends uids unchecked the `skipped` list is
-    the only sign one was mistyped; it leads with a warning."""
+    op whose block (or parent) no longer exists, or a move that would make
+    a cycle, instead of failing the batch, so for a caller that sends uids
+    unchecked the `skipped` list is the only sign one was mistyped; it
+    leads with a warning."""
     if not ack.skipped:
         return f"applied {ack.applied} ops"
     done = ack.applied - len(ack.skipped)
@@ -228,8 +236,7 @@ def render_ops_ack(ack: OpsAck) -> str:
     lines = [f"warning: skipped {len(ack.skipped)} of {ack.applied} ops;"
              f" {rest}"]
     for s in ack.skipped:
-        what = ("block not found" if s.reason == "block_not_found"
-                else "parent block not found")
+        what = _SKIP_REASON_TEXT[s.reason]
         where = (f"noted on [[{s.note_page}]]" if s.note_page is not None
                  else "nothing written")
         lines.append(f"  {s.op} ^{s.uid}: {what}; {where}")

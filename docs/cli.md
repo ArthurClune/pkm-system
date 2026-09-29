@@ -122,7 +122,8 @@ transaction:
 block is appended.
 
 An `update`, `move` or `delete` whose uid no longer exists is skipped rather
-than failing the transaction. The other commands still apply and are
+than failing the transaction. So is a `move` under the block itself or one of
+its descendants. The other commands still apply and are
 committed. The output starts with `warning:`, lists each skipped op and the
 daily page its note landed on, and `pkm batch` exits 1. Fix the skipped ops on
 their own: re-running the batch repeats everything that applied. A `((uid))`

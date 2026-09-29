@@ -178,8 +178,8 @@ def test_failed_batch_broadcasts_nothing(client):
         r = client.post("/api/ops", json={
             "client_id": "sender-1",
             "batch_id": "ws_failed1",
-            "ops": [{"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
-                     "order_idx": 0}]})  # a cycle
+            "ops": [{"op": "create", "uid": "uid_b1", "page_title": "AI",
+                     "order_idx": 0, "text": "dup"}]})  # uid exists
         assert r.status_code == 400
         ok = client.post("/api/ops", json={
             "client_id": "sender-2",

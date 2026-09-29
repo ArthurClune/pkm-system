@@ -1,5 +1,5 @@
 {
-  "commit": "d564178",
+  "commit": "7637b6f8",
   "env": {
     "python": "3.12.10",
     "sqlite": "3.47.1"
@@ -463,7 +463,7 @@
       },
       "statements": {
         "class": "exact",
-        "value": 834
+        "value": 736
       },
       "trigger_statements": {
         "class": "exact",

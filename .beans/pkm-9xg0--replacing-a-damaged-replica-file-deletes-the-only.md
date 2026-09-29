@@ -104,3 +104,22 @@ dependency beside `discardDbFile`.
   plan's Deviations.
 - Filed pkm-87cf for the SAH pool VFS never rolling back a hot journal
   (review I-2).
+
+### Re-review fixes
+
+- A replacement at carry adoption imports `mergeCarriedRows` (new Functional
+  Core `carryMerge.ts`): the carry's rows merged by id with every row the old
+  file can still be read for, the carry's row winning a clash. A carry whose
+  write failed or was cut short (an empty or partial carry) plus a transient
+  import error no longer replaces the only file holding the queue.
+- A failed `carry.write` in `rebaseOrReplaceFile` discards the carry, best
+  effort.
+- Tests: the reviewer's scenario (replica holds `one` and `two`, empty carry,
+  SQLITE_IOERR on the first adoption read) keeps both batches; an unreadable
+  old file imports the carry's rows; a failed carry write leaves no carry;
+  merge cases.
+- Docs: sync-recovery.md states the actual guarantee (a short carry is a
+  subset; rows are lost only if both files are damaged at once), and notes
+  that a replacement that keeps failing reorders delivery but loses nothing.
+  frontend.md module map gains `carryMerge.ts`.
+

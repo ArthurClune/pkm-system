@@ -230,3 +230,28 @@ it("a fresh edit after undo clears redo", () => {
   act(() => outline().handlers.onRedo()); // nothing to redo
   expect(sync.sent).toHaveLength(sent);
 });
+
+it("a batch carrying a draft for a remotely deleted block stays undoable", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, [
+    block("a", "alpha", { order_idx: 0 }),
+    block("b", "beta", { order_idx: 1 }),
+    block("c", "gamma", { order_idx: 2 }),
+  ]);
+  act(() => outline().handlers.onDraftChange("a", "see [[Held", true));
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "delete", uid: "a" },
+  ] }));
+  // The indent's batch flushes the held draft first: its text op targets a
+  // block this tree no longer has, and the indent must still be undoable.
+  act(() => outline().handlers.onIndent("c"));
+  expect(sync.sent[0].map((op) => op.op)).toEqual(["update_text", "move"]);
+  expect(outline().blocks[0].children.map((n) => n.uid)).toEqual(["c"]);
+
+  act(() => outline().handlers.onUndo());
+  expect(outline().blocks.map((n) => n.uid)).toEqual(["b", "c"]);
+  // The undo reverses only the indent: nothing re-sends the orphaned text.
+  expect(sync.sent[1]).toEqual([
+    { op: "move", uid: "c", parent_uid: null, order_idx: 2 },
+  ]);
+});

@@ -15,6 +15,11 @@ export interface OutlineHandlers {
    * moved focus elsewhere, the old textarea's unmount-blur arrives late and
    * must not clear the new focus (the hook checks the uid). */
   onBlurBlock(uid: string): void;
+  /** The first edit of a clean draft is about to be reported: `shown` is the
+   * text the textarea showed, which the user is typing over. It becomes the
+   * new draft's base, so its flush hashes what the user saw rather than a
+   * remote text the tree took before the textarea could show it. */
+  onDraftStart(uid: string, shown: string): void;
   /** holdFlush (pkm-xlah): the caret sits mid [[ref / #tag token, so the
    * debounced autosave must wait — flushing now would create a page from the
    * half-typed title. Blur/structural commits flush held drafts regardless. */
@@ -36,7 +41,10 @@ export interface OutlineHandlers {
   onSetHeading(uid: string, heading: number | null): void;
   onSetViewType(uid: string, viewType: "numbered" | "document"): void;
   onToggleTodo(uid: string): void;
-  onFiles(uid: string, cursor: number, files: File[]): void;
+  /** Resolves once the uploads have finished: true when their markdown was
+   * spliced into the block, false when nothing was (every upload failed, or
+   * the block is gone). */
+  onFiles(uid: string, cursor: number, files: File[]): Promise<boolean>;
   /** /goodlinks (see outline/goodlinks.ts): resolve the nearest URL against
    * GoodLinks and splice the `Local copy::` attribute at `cursor` in `uid`.
    * The block has already been blurred by the pick, like /upload. */

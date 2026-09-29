@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-09-29T13:20:47Z
-updated_at: 2026-09-29T13:20:47Z
+updated_at: 2026-09-29T13:56:30Z
 parent: pkm-a4t2
 ---
 
@@ -20,9 +20,9 @@ Corrections:
   of one recursive-walk lineage; `localOps.parentChain` and
   `ops_apply._parent_chain` are a second independently mirrored pair neither
   enumerates.
-- D7: `sync-and-offline.md` "Nothing is discarded" is true of conflict blocks
-  and must not read as a subsystem guarantee; note the stale-delete gap as
-  open until the hash-guarded delete ships.
+- D7: the sentence scoping landed with pkm-impk (`sync-and-offline.md` now
+  reads "A conflict copy is never discarded"). Remaining: note the
+  stale-delete gap as open until the hash-guarded delete ships.
 - The post-latch ordering inversion (`opQueue.ts`) exists only in a code
   comment: a failure-table row.
 - `sync-recovery.md` reads as if the placement table were shared;

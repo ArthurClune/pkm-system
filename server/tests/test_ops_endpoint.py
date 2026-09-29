@@ -1,5 +1,7 @@
+import json
 import sqlite3
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -408,6 +410,66 @@ def test_orphan_conflict_names_hinted_page(client):
     assert _conflicts(client) == [
         ("[[conflict]] [[Machine Learning]]" + ORPHAN_SUFFIX,
          ["edited after delete"])]
+
+
+# --- the op an editor draft flushes ------------------------------------------
+#
+# shared/fixtures/draft_flush.json binds this to the editor half
+# (web/src/views/EditablePage.draftFlush.test.tsx): the draft's flush carries
+# the hash of the text it was typed over, so a concurrent edit from the same
+# base keeps both texts whichever arrives first, and a flush for a deleted
+# block lands on the daily note.
+
+DRAFT_FLUSH = json.loads(
+    (Path(__file__).parents[2] / "shared" / "fixtures" / "draft_flush.json")
+    .read_text(encoding="utf-8"))
+
+
+def _draft_flush_ops():
+    f = DRAFT_FLUSH
+    remote_op = {"op": "update_text", "uid": f["uid"], "text": f["remote"],
+                 "base_text_hash": text_hash(f["base"])}
+    draft_op = {"op": "update_text", "uid": f["uid"], "text": f["draft"],
+                "base_text_hash": text_hash(f["base"]),
+                "page_title": f["page_title"]}
+    return remote_op, draft_op
+
+
+def _seed_draft_flush_base(client):
+    f = DRAFT_FLUSH
+    r = _post(client, {"op": "update_text", "uid": f["uid"], "text": f["base"],
+                       "base_text_hash": text_hash("Tags:: #AI")},
+              client_id="seed")
+    assert r.status_code == 200
+    assert f["base"] in _ml_texts(client)
+    assert _conflicts(client) == []
+
+
+@pytest.mark.parametrize("order", ["remote_first", "draft_first"])
+def test_draft_flush_keeps_both_texts_whichever_arrives_first(client, order):
+    _seed_draft_flush_base(client)
+    remote_op, draft_op = _draft_flush_ops()
+    posts = [(remote_op, "other"), (draft_op, "editor")]
+    if order == "draft_first":
+        posts.reverse()
+    for op, client_id in posts:
+        assert _post(client, op, client_id=client_id).status_code == 200
+    (first, _), (second, _) = posts
+    assert second["text"] in _ml_texts(client)
+    assert _conflicts(client) == [
+        ("[[conflict]] [[Machine Learning]] — overwritten by ((uid_b1))",
+         [first["text"]])]
+
+
+def test_draft_flush_after_delete_lands_on_the_daily_note(client):
+    _seed_draft_flush_base(client)
+    _, draft_op = _draft_flush_ops()
+    assert _post(client, {"op": "delete", "uid": DRAFT_FLUSH["uid"]},
+                 client_id="other").status_code == 200
+    assert _post(client, draft_op, client_id="editor").status_code == 200
+    assert _conflicts(client) == [
+        ("[[conflict]] [[Machine Learning]]" + ORPHAN_SUFFIX,
+         [DRAFT_FLUSH["draft"]])]
 
 
 def test_orphan_conflict_hint_naming_a_renamed_away_page_does_not_recreate_it(

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
          useState, type ReactNode } from "react";
 import { ApiError } from "../api/client";
 import type { BlockNode } from "../api/payloads";
-import type { BlockOp } from "../api/ops";
+import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { apiPost } from "../api/typedClient";
 import { useConfirm } from "../components/ConfirmDialog";
 import type { OutlineDndApi } from "../dnd/DndContext";
@@ -14,7 +14,7 @@ import { toggleTodo } from "../grammar/todo";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 import { newUid } from "../uid";
-import { stampBaseTextHashes } from "./baseTextHash";
+import { stampBaseTextHashes, withoutStamps } from "./baseTextHash";
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          moveBlocksTo, moveSelectionDown, moveSelectionUp, moveSubtreeDown,
          moveSubtreeUp, outdentBlock, outdentSelection, setCollapsed,
@@ -32,8 +32,9 @@ import { extendSelection, needsDeleteConfirmation, selectedUids,
          type BlockSelection } from "./blockSelection";
 import { acquireOutlineSession,
          type OutlineSessionHandle } from "./outlineSessions";
-import { pendingTextOps, spliceUploadedMarkdown,
-         validateOutlineFocus } from "./outlineState";
+import { captureDraft, pendingTextOps, spliceUploadedMarkdown,
+         validateOutlineFocus, type PendingDraft,
+         type ShownText } from "./outlineState";
 import { performRedo, performUndo, recordHistory,
          registerOutlineHistory } from "./undoManager";
 
@@ -97,7 +98,12 @@ export function useOutline(
   const sessionRef = useRef<OutlineSessionHandle | null>(null);
   const bootstrapRef = useRef(initial);
   bootstrapRef.current = initial;
-  const pendingRef = useRef<{ uid: string; text: string } | null>(null);
+  const pendingRef = useRef<PendingDraft | null>(null);
+  // The text the focused textarea shows, which the next draft on that block
+  // is typed over: reported by the editor when a clean draft goes dirty, and
+  // the flushed draft's text after a flush (a still-dirty textarea keeps
+  // showing it, whether or not the flush sent anything).
+  const shownRef = useRef<ShownText | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useLayoutEffect(() => {
@@ -139,41 +145,28 @@ export function useOutline(
     sessionRef.current?.applyOptimistic(next);
   }, []);
 
-  // Parent fetches normally pair their payload with a read token before this
-  // prop changes. Direct consumers/tests still enter through the same session
-  // transition instead of bypassing causality with a naked setState.
-  const receivedInitialRef = useRef(initial);
-  useEffect(() => {
-    if (receivedInitialRef.current === initial) return;
-    receivedInitialRef.current = initial;
-    const handle = sessionRef.current;
-    if (!handle) return;
-    // Token-aware parents publish into the session before passing the exact
-    // accepted shared array down. Do not turn that already-reconciled payload
-    // into a newer, synthetic read that could hide the original causality.
-    if (handle.getSnapshot().blocks === initial) return;
-    const token = handle.beginAuthoritativeRead("parent");
-    handle.receiveAuthoritative(token, initial);
-    pendingRef.current = null;
-  }, [initial]);
-
-  const takePendingTextOps = useCallback((): BlockOp[] => {
+  const takePendingTextOps = useCallback((): UpdateTextOp[] => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
     const pending = pendingRef.current;
     pendingRef.current = null;
-    // no node: a remote batch deleted it — flushing would doom the whole
-    // batch. same text: the draft never actually changed anything.
-    return pendingTextOps(pending, blocksRef.current);
-  }, []);
+    if (pending) shownRef.current = { uid: pending.uid, base: pending.text };
+    // The draft ships even when its block has left the tree, and its hash is
+    // of the text it was typed over, not of what the tree holds now.
+    return pendingTextOps(pending, blocksRef.current, pageTitle);
+  }, [pageTitle]);
 
   /** Flush any pending text op, run the command against the flushed tree,
    * apply + enqueue everything in order, then move focus. */
   const run = useCallback((fn: (b: BlockNode[]) => EditResult) => {
     const textOps = takePendingTextOps();
     const pre = blocksRef.current; // history inverts the FULL batch from here
+    // A draft whose block has left this tree still ships, but it cannot be
+    // inverted here; leaving it out of the history entry keeps the rest of
+    // the batch undoable, and a redo does not re-send it.
+    const undoableTextOps = textOps.filter((op) => findNode(pre, op.uid));
     const base = textOps.length > 0
       ? applyOps(pre, textOps, pageTitle)
       : pre;
@@ -203,11 +196,14 @@ export function useOutline(
     // Deliberately the UNSTAMPED ops: a hash captured now is stale by the time
     // undo/redo replays the entry, and a stale hash lands a spurious
     // [[conflict]] header on the daily note. undoManager stamps at replay
-    // time instead.
-    const inverse = invertOps(pre, pageTitle, ops);
+    // time instead. The flushed text op arrives already stamped with the
+    // draft's base, so its stamps are stripped here.
+    const inverse =
+      invertOps(pre, pageTitle, [...undoableTextOps, ...result.ops]);
     if (inverse !== null && inverse.length > 0) {
       recordHistory({
-        pageTitle, ops: [...ops], inverse,
+        pageTitle, ops: [...undoableTextOps.map(withoutStamps), ...result.ops],
+        inverse,
         focusBefore: focusRef.current,
         focusAfter: result.focus ?? focusRef.current,
       });
@@ -218,6 +214,27 @@ export function useOutline(
   const flushNow = useCallback(() => {
     run((b) => ({ blocks: b, ops: [], focus: null }));
   }, [run]);
+
+  // Parent fetches normally pair their payload with a read token before this
+  // prop changes. Direct consumers/tests still enter through the same session
+  // transition instead of bypassing causality with a naked setState.
+  const receivedInitialRef = useRef(initial);
+  useEffect(() => {
+    if (receivedInitialRef.current === initial) return;
+    receivedInitialRef.current = initial;
+    const handle = sessionRef.current;
+    if (!handle) return;
+    // Token-aware parents publish into the session before passing the exact
+    // accepted shared array down. Do not turn that already-reconciled payload
+    // into a newer, synthetic read that could hide the original causality.
+    if (handle.getSnapshot().blocks === initial) return;
+    // A parent tree never discards a draft. Flushing first makes the draft a
+    // relevant write, so the session defers the parent tree until that write
+    // settles instead of overwriting the typed text.
+    flushNow();
+    const token = handle.beginAuthoritativeRead("parent");
+    handle.receiveAuthoritative(token, initial);
+  }, [initial, flushNow]);
 
   // The global undo manager needs to flush this outline's draft before
   // undoing, and to place focus after a history batch applies here.
@@ -269,8 +286,10 @@ export function useOutline(
   // Remote batches: the same applyOps as local edits. Text updates always
   // land on the block tree, even for the focused block — focus does not imply
   // an unflushed local draft. When a real draft exists the focused textarea
-  // keeps showing it (BlockInput owns that decision); its next flush then
-  // becomes the legitimate last-writer (per-block last-write-wins).
+  // keeps showing it (BlockInput owns that decision), and its flush carries
+  // the hash of the draft's base, not of the remote text now in the tree. The
+  // server therefore keeps the other text as a conflict copy, whichever edit
+  // arrives first.
   useEffect(() => sync.subscribe((batch) => {
     const remote = sessionRef.current?.applyRemote(batch);
     if (remote?.needsAuthoritative) {
@@ -280,19 +299,35 @@ export function useOutline(
     }
   }), [sync, refetch]);
 
+  // A draft on another block is flushed before this block's focus or draft
+  // takes over. Its textarea may have unmounted with no blur (a remote batch
+  // removed the block), and replacing the draft would drop its text.
+  const flushOtherDraft = useCallback((uid: string) => {
+    if (pendingRef.current && pendingRef.current.uid !== uid) flushNow();
+  }, [flushNow]);
+
   const handlers = useMemo<OutlineHandlers>(() => ({
     onFocusBlock: (uid, cursor) => {
+      flushOtherDraft(uid);
       setSelection(null); // focusing a block to edit ends any block selection
       setFocus({ uid, cursor });
     },
     onBlurBlock: (uid) => {
       flushNow();
+      // The textarea goes away; a later one reports its own shown text.
+      if (shownRef.current?.uid === uid) shownRef.current = null;
       // Only clear if this block still owns focus — a structural op may
       // already have moved it (the old textarea's unmount-blur arrives late).
       setFocus((f) => (f?.uid === uid ? null : f));
     },
+    onDraftStart: (uid, shown) => {
+      flushOtherDraft(uid);
+      shownRef.current = { uid, base: shown };
+    },
     onDraftChange: (uid, text, holdFlush) => {
-      pendingRef.current = { uid, text };
+      flushOtherDraft(uid);
+      pendingRef.current = captureDraft(
+        pendingRef.current, uid, text, blocksRef.current, shownRef.current);
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
@@ -342,7 +377,7 @@ export function useOutline(
     }),
     onFiles: (uid, cursor, files) => {
       setUploadError(null);
-      void (async () => {
+      return (async () => {
         let inserted = "";
         const failures: string[] = [];
         for (const file of files) {
@@ -359,10 +394,12 @@ export function useOutline(
             ? `Upload failed — ${failures[0]}`
             : `${failures.length} uploads failed — ${failures.join("; ")}`);
         }
-        if (inserted === "") return;
+        if (inserted === "") return false;
+        let didSplice = false;
         run((b) => {
           const node = findNode(b, uid);
           if (!node) return { blocks: b, ops: [], focus: null };
+          didSplice = true;
           // splice at the pre-paste offset, clamped: the user may have kept
           // typing during a slow upload (accepted for v1)
           const spliced = spliceUploadedMarkdown(node.text, cursor, inserted);
@@ -379,6 +416,7 @@ export function useOutline(
             ? { uid, cursor: spliced.selStart } : null;
           return { blocks: applyOps(b, ops, pageTitle), ops, focus };
         });
+        return didSplice;
       })();
     },
     onGoodlinks: (uid, cursor) => {
@@ -480,7 +518,7 @@ export function useOutline(
     // flushPending, including this outline's.
     onUndo: () => { performUndo(sync); },
     onRedo: () => { performRedo(sync); },
-  }), [run, flushNow, pageTitle, selection, sync, confirm]);
+  }), [run, flushNow, flushOtherDraft, pageTitle, selection, sync, confirm]);
 
   const dnd = useMemo<OutlineDndApi>(() => ({
     moveTo: (uids, target) => run((b) =>

@@ -7,9 +7,13 @@ import { block, makeSync, reserveOutlineEditor, stubFetch,
          type SyncFake } from "../test-helpers";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
+import { resetHistory } from "../outline/undoManager";
 import { EditablePage } from "./EditablePage";
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  resetHistory();
+});
 
 function mount(sync = makeSync(), initial = [
   block("u1", "first", { order_idx: 0 }),
@@ -353,26 +357,193 @@ test("remote update_text for a focused block with no draft is adopted", () => {
   expect(screen.getByText("second remote")).toBeInTheDocument();
 });
 
-test("focused block with a pending draft keeps the draft; it wins on flush", () => {
+test("a remote update under a debounced draft: the flush carries the draft's base hash", () => {
   vi.useFakeTimers();
   stubFetch([["/api/titles", { titles: [] }]]);
   const sync = mount();
   const ta = focusBlock("first");
   fireEvent.change(ta, { target: { value: "typed" } });
-  // Remote update arrives while a real local draft is unflushed: the block
-  // tree adopts it, but the textarea keeps showing the local draft (LWW).
+  // The tree takes the remote text; the textarea keeps showing the draft.
   act(() => sync.emit({ client_id: "other", ts: 1, ops: [
     { op: "update_text", uid: "u1", text: "remote" },
   ] }));
   expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("typed");
-  // The draft flush is the next legitimate last-writer.
+  act(() => { vi.advanceTimersByTime(500); });
+  // The flush hashes the text the draft was typed over ("first"), so the
+  // server sees a mismatch and keeps "remote" as a conflict copy.
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "u1", text: "typed",
+      base_text_hash: sha256Hex("first"), page_title: "Page" }],
+  ]);
+});
+
+test("keystrokes after a remote update keep the draft's first base", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "t1" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "update_text", uid: "u1", text: "remote" },
+  ] }));
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "t12" } });
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    // The remote batch already landed on the block tree, so the flush hashes
-    // what it is really replacing — "remote", not the "first" it was typed over.
-    [{ op: "update_text", uid: "u1", text: "typed",
-      base_text_hash: sha256Hex("remote"), page_title: "Page" }],
+    [{ op: "update_text", uid: "u1", text: "t12",
+      base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
+});
+
+test("typing back to the base under a remote edit, then typing on, still bases on the shown text", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "firstX" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "update_text", uid: "u1", text: "remote" },
+  ] }));
+  // Back to the base: the flush has nothing to send, but the textarea is
+  // still showing text typed over "first", not the "remote" in the tree.
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "first" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([]);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "first!" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "u1", text: "first!",
+      base_text_hash: sha256Hex("first"), page_title: "Page" }],
+  ]);
+});
+
+test("a first keystroke after a remote edit reached the tree but not the textarea bases on the shown text", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  // One act: the remote batch is in the tree, the textarea has not yet
+  // adopted it, and the keystroke is typed over the "first" still shown.
+  act(() => {
+    sync.emit({ client_id: "other", ts: 1, ops: [
+      { op: "update_text", uid: "u1", text: "remote" },
+    ] });
+    fireEvent.change(ta, { target: { value: "firstX" } });
+  });
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "u1", text: "firstX",
+      base_text_hash: sha256Hex("first"), page_title: "Page" }],
+  ]);
+});
+
+test("the draft after a flush bases on the flushed text", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "one" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "one two" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toHaveLength(2);
+  expect(sync.sent[1][0]).toMatchObject({
+    op: "update_text", uid: "u1", text: "one two",
+    base_text_hash: sha256Hex("one"),
+  });
+});
+
+test("a keystroke between a flush and the textarea catching up bases on the flushed text", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "one" } });
+  // One act: the debounce flushes "one", and the next keystroke lands before
+  // the textarea has seen its own text reach the tree (it is still dirty).
+  act(() => {
+    vi.advanceTimersByTime(500);
+    fireEvent.change(ta, { target: { value: "one two" } });
+  });
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toHaveLength(2);
+  expect(sync.sent[1][0]).toMatchObject({
+    op: "update_text", uid: "u1", text: "one two",
+    base_text_hash: sha256Hex("one"),
+  });
+});
+
+const textbox = () => screen.getByRole("textbox") as HTMLTextAreaElement;
+const undoKey = () => fireEvent.keyDown(textbox(), { key: "z", metaKey: true });
+const redoKey = () =>
+  fireEvent.keyDown(textbox(), { key: "z", metaKey: true, shiftKey: true });
+
+test("Cmd+Z on a dirty draft shows the undone text, and the next draft bases on it", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  fireEvent.change(focusBlock("first"), { target: { value: "first X" } });
+  undoKey(); // within the debounce: flushes "first X", then undoes it
+  expect(textbox().value).toBe("first");
+  fireEvent.change(textbox(), { target: { value: "first!" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  // The server holds "first" after the undo, so this applies cleanly.
+  expect(sync.sent.at(-1)).toEqual([
+    { op: "update_text", uid: "u1", text: "first!",
+      base_text_hash: sha256Hex("first"), page_title: "Page" },
+  ]);
+});
+
+test("Cmd+Shift+Z after an undo shows the redone text, and the next draft bases on it", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  fireEvent.change(focusBlock("first"), { target: { value: "first X" } });
+  undoKey();
+  redoKey();
+  expect(textbox().value).toBe("first X");
+  fireEvent.change(textbox(), { target: { value: "first X!" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent.at(-1)).toEqual([
+    { op: "update_text", uid: "u1", text: "first X!",
+      base_text_hash: sha256Hex("first X"), page_title: "Page" },
+  ]);
+});
+
+test("a second Cmd+Z reaches further back, and the next draft bases on its text", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  fireEvent.change(focusBlock("first"), { target: { value: "first X" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  fireEvent.change(textbox(), { target: { value: "first X!" } });
+  undoKey(); // flushes "first X!", then undoes it
+  undoKey(); // undoes "first X"
+  expect(textbox().value).toBe("first");
+  fireEvent.change(textbox(), { target: { value: "first?" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent.at(-1)).toEqual([
+    { op: "update_text", uid: "u1", text: "first?",
+      base_text_hash: sha256Hex("first"), page_title: "Page" },
+  ]);
+});
+
+test("Enter after a remote update under a draft stamps the split batch with the base", () => {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "first!" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "update_text", uid: "u1", text: "remote" },
+  ] }));
+  const live = screen.getByRole("textbox") as HTMLTextAreaElement;
+  live.setSelectionRange(6, 6);
+  fireEvent.keyDown(live, { key: "Enter" });
+  expect(sync.sent).toHaveLength(1);
+  expect(sync.sent[0][0]).toEqual({
+    op: "update_text", uid: "u1", text: "first!",
+    base_text_hash: sha256Hex("first"), page_title: "Page",
+  });
+  expect(sync.sent[0][1]).toMatchObject({ op: "create", page_title: "Page" });
 });
 
 test("focus then blur without editing after a remote update stays consistent", () => {
@@ -421,6 +592,27 @@ test("pasting an image uploads it and splices markdown at the cursor", async () 
       base_text_hash: sha256Hex("first"), page_title: "Page",
     });
   });
+});
+
+test("a paste-upload into a dirty draft shows the spliced text, and the next draft bases on it", async () => {
+  const url = `/assets/${"cd".repeat(32)}/pic.png`;
+  const spliced = `D![pic.png](${url})`;
+  stubFetch([["/api/titles", { titles: [] }],
+             ["/api/assets", { sha256: "cd".repeat(32), filename: "pic.png",
+                               mime: "image/png", size: 3, url }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "D" } });
+  ta.setSelectionRange(1, 1);
+  fireEvent.paste(ta, { clipboardData: {
+    files: [new File(["png"], "pic.png", { type: "image/png" })] } });
+  await vi.waitFor(() => { expect(textbox().value).toBe(spliced); });
+  fireEvent.change(textbox(), { target: { value: `${spliced}!` } });
+  fireEvent.blur(textbox());
+  expect(sync.sent.at(-1)).toEqual([
+    { op: "update_text", uid: "u1", text: `${spliced}!`,
+      base_text_hash: sha256Hex(spliced), page_title: "Page" },
+  ]);
 });
 
 test("hiding the tab flushes the pending draft immediately", () => {
@@ -520,17 +712,109 @@ test("navigating away with no blur still flushes a held draft (pkm-mvdx)", () =>
   expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
 });
 
-test("draft for a remotely-deleted block is dropped, not flushed", () => {
+const CROSS_PAGE_MOVE = { op: "move", uid: "u1", parent_uid: null,
+                         order_idx: 0, page_title: "Elsewhere" } as const;
+
+function hideTab() {
+  Object.defineProperty(document, "visibilityState",
+                        { value: "hidden", configurable: true });
+  fireEvent(document, new Event("visibilitychange"));
+  Object.defineProperty(document, "visibilityState",
+                        { value: "visible", configurable: true });
+}
+
+test("a debounced draft whose block a remote batch deleted still flushes", () => {
   vi.useFakeTimers();
   stubFetch([["/api/titles", { titles: [] }]]);
   const sync = mount();
   const ta = focusBlock("first");
-  fireEvent.change(ta, { target: { value: "doomed draft" } });
+  fireEvent.change(ta, { target: { value: "kept draft" } });
   act(() => sync.emit({ client_id: "other", ts: 1, ops: [
     { op: "delete", uid: "u1" },
   ] }));
   act(() => { vi.advanceTimersByTime(500); });
-  expect(sync.sent).toEqual([]);
+  // The server lands an edit to a missing block on today's daily note.
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "u1", text: "kept draft",
+      base_text_hash: sha256Hex("first"), page_title: "Page" }],
+  ]);
+});
+
+test("a debounced draft whose block a remote cross-page move took still flushes", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "moved draft" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [CROSS_PAGE_MOVE] }));
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "u1", text: "moved draft",
+      base_text_hash: sha256Hex("first"), page_title: "Page" }],
+  ]);
+});
+
+test("a debounced draft on a remotely deleted block flushes when another block's draft starts", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "kept draft" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "delete", uid: "u1" },
+  ] }));
+  // The textarea unmounted with the block, and no blur was delivered.
+  expect(screen.queryByRole("textbox")).toBeNull();
+  fireEvent.change(focusBlock("second"), { target: { value: "second!" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent.flat()).toContainEqual(
+    { op: "update_text", uid: "u1", text: "kept draft",
+      base_text_hash: sha256Hex("first"), page_title: "Page" });
+  expect(sync.sent.flat()).toContainEqual(
+    expect.objectContaining({ uid: "u2", text: "second!" }));
+});
+
+test("a held draft on a remotely deleted block flushes when another block's draft starts", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  heldRefDraft(sync);
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "delete", uid: "u1" },
+  ] }));
+  fireEvent.change(focusBlock("second"), { target: { value: "second!" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
+});
+
+test("a held draft under a remote update flushes on blur with its base hash", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  const ta = heldRefDraft(sync);
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "update_text", uid: "u1", text: "remote" },
+  ] }));
+  fireEvent.blur(ta);
+  expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
+});
+
+test("a held draft whose block a remote batch deleted flushes on tab hide", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  heldRefDraft(sync);
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "delete", uid: "u1" },
+  ] }));
+  hideTab();
+  expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
+});
+
+test("a held draft whose block a remote cross-page move took flushes on tab hide", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  heldRefDraft(sync);
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [CROSS_PAGE_MOVE] }));
+  hideTab();
+  expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
 });
 
 test("a page already active elsewhere in this tab renders read-only", () => {

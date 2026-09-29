@@ -54,6 +54,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       if (holdFlush) handlers.onDraftChange(node.uid, text, true);
       else handlers.onDraftChange(node.uid, text);
     },
+    onDirty: (shown) => handlers.onDraftStart(node.uid, shown),
     onAdopt: () => setDatePickerAt(null), // adopted text invalidates the offset
   });
   // Shared with the phone Composer (pkm-noow): the completion context and the
@@ -327,17 +328,28 @@ export function BlockInput({ node, cursor, handlers, readOnly,
         return;
       case "undo":
         e.preventDefault(); // kill native textarea undo
+        // The undo flushed the draft first, so settling loses nothing.
         handlers.onUndo();
+        draft.settle();
         return;
       case "redo":
         e.preventDefault();
         handlers.onRedo();
+        draft.settle();
         return;
       default: {
         const exhaustive: never = decision;
         return exhaustive;
       }
     }
+  };
+
+  // The splice's run() flushes the draft before it edits the tree, so
+  // settling afterwards loses nothing and shows the uploaded markdown.
+  const uploadFiles = (at: number, files: File[]) => {
+    void handlers.onFiles(node.uid, at, files).then((spliced) => {
+      if (spliced) draft.settle();
+    });
   };
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -347,7 +359,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     const files = Array.from(e.clipboardData.files);
     if (files.length > 0) {
       e.preventDefault();
-      handlers.onFiles(node.uid, e.currentTarget.selectionStart, files);
+      uploadFiles(e.currentTarget.selectionStart, files);
       return;
     }
     const text = e.clipboardData.getData("text/plain");
@@ -363,7 +375,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0 || readOnly) return;
     e.preventDefault();
-    handlers.onFiles(node.uid, e.currentTarget.selectionStart, files);
+    uploadFiles(e.currentTarget.selectionStart, files);
   };
 
   return (

@@ -154,7 +154,7 @@ flowchart LR
 | A growing text selection escalates to a block selection at the block's edge, whether the caret is collapsed or the text selection can no longer grow | it falls through to boundary-arrow block navigation, which drops the selection and jumps focus |
 | Every mutating selection branch gates on `!readOnly` — indent/outdent (Tab/Shift-Tab), move (Shift+Cmd+Arrow), delete (Backspace/Delete) | `useOutline`'s handlers do not re-check editability, so this is the only gate; creating, extending and copying a selection need none |
 | A gated key resolves to `"none"`, which the shell leaves uncancelled rather than calling `preventDefault` | a read-only Tab stops moving focus out of the tree |
-| Authoritative text lands on the tree even for the focused block, while the textarea keeps the local draft | per-block last-write-wins is what keeps the client consistent with the server's model |
+| Authoritative text lands on the tree even for the focused block, while the textarea keeps the local draft; the draft's flush hashes the draft's `base`, never the tree | without the draft's base, the flush hashes the remote text and overwrites it with no conflict copy |
 | `/upload` gives up the block before opening the picker: the pick strips the trigger, calls `onBlurBlock`, then clicks the tree-owned file input | otherwise the blur depends on the native file dialog; `onFiles` leaves focus alone on completion, so the uploaded asset renders at once |
 | `preventDefault` and `dataTransfer.dropEffect` stay synchronous in every `dragover` handler | HTML5 drag-and-drop honours them only inside the handler, so a deferred call leaves the drop refused; both are unconditional, which `allowedDepths` never returning empty makes sound |
 | `set_collapsed` must not stamp | `opBumpsUpdatedAt` (`outline/blockStamps.ts`) is the single statement that collapsing is a view toggle; `transitionOutline` uses it to choose which uids to stamp, and `replica/localOps.test.ts` pins the replica to it |
@@ -166,6 +166,38 @@ Plain typing debounces into a draft (`TEXT_DEBOUNCE_MS` = 500 ms in
 navigation (`onFlushDraft`) flush it first. A draft is flush-held while the
 caret sits inside a half-typed `[[ref` or `#tag` token, so autosave cannot
 create a page from a partial title.
+
+A draft is a `PendingDraft` (`outline/outlineState.ts`): `{ uid, text, base }`.
+`base` is the text the user typed over, which is what the textarea showed, not
+what the tree holds. The two differ in two cases. A remote batch reaches the
+tree before the textarea adopts it. A dirty textarea never adopts it at all.
+So `useBlockDraft` reports the shown text at the first edit of a clean draft
+(`onDraftStart`), and after a flush the draft's own text is what the textarea
+shows. `captureDraft` takes that shown text as a new draft's base, falling back
+to the tree's text, and keeps the base through later keystrokes. Undo, redo and
+an upload splice from the focused textarea change the block for the user after
+flushing its draft, so `BlockInput` then calls `settle()`. The draft goes
+clean and adopts the tree's text. Left dirty, the textarea would keep the old
+text, and the next draft would be typed over text the tree no longer holds.
+`pendingTextOps` decides what the flush sends:
+
+| Draft at flush | Flush sends |
+|---|---|
+| `text === base`, or the tree already holds `text` | nothing |
+| block still in the tree, text changed | `update_text` with `base_text_hash` = hash of `base`, plus `page_title` |
+| block gone from the tree (remote delete, cross-page move) | the same op; the server applies it to a moved block on its new page, and lands an edit to a deleted block on today's daily note |
+| `base` is `null` (the tree lacked the block at the first change) | `update_text` with `page_title` only; `stampBaseTextHashes` hashes it like any op |
+
+Hashing `base` is what lets the server keep both texts when another device
+edited the block from the same base. A draft on one block is flushed before
+focus or a new draft moves to another block. When a remote batch removes the
+block, its textarea unmounts with no blur, so nothing else would flush it. Undo history
+records the flushed op with its stamps removed (`withoutStamps`), so a redo
+hashes the tree it replays against. It leaves out a text op whose block has
+left the tree, which cannot be inverted there, so the rest of its batch stays
+undoable. A new `initial` from a parent flushes the draft before the session
+takes it: the flush makes the draft a relevant write, so the parent tree waits
+until that write settles.
 
 A debounced draft survives an unmount, because nothing cancels the pending
 `setTimeout`. A held draft has no armed timer, and React delivers no blur for a

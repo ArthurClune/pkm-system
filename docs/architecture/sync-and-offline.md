@@ -249,9 +249,13 @@ block:
 The header forms, the daily-page grouping and the per-op tables for missing
 targets and concurrent structure edits are in
 [backend.md § The write path](backend.md#the-write-path).
-Nothing is discarded: conflict blocks are ordinary blocks, so they reach every
-client through the feed and are findable through search and the `[[conflict]]`
-page's backlinks. The first row's replay, from records in the server-only
+An editor flush hashes the text the user typed over
+([frontend-editor.md § Drafts and commit points](frontend-editor.md#drafts-and-commit-points)).
+So two concurrent edits from the same base keep both texts whichever arrives
+first: the later one wins and the earlier one becomes the conflict copy.
+A conflict copy is never discarded: conflict blocks are ordinary blocks, so
+they reach every client through the feed and are findable through search and
+the `[[conflict]]` page's backlinks. The first row's replay, from records in the server-only
 `block_rewrites` table, stops a device that never saw a rename from carrying
 the old title back. A missing target never rejects its batch, so another
 device's delete cannot poison the queue; how the replica then drops its

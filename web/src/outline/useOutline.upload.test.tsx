@@ -147,7 +147,7 @@ it("moving focus to another block during a slow upload leaves it there "
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   act(() => getOutline().handlers.onFocusBlock("u1", 5));
-  act(() => getOutline().handlers.onFiles("u1", 5, [file]));
+  act(() => { void getOutline().handlers.onFiles("u1", 5, [file]); });
   act(() => getOutline().handlers.onFocusBlock("u2", 0));
 
   await act(async () => {

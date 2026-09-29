@@ -9,14 +9,16 @@ import { EditableBlockTree } from "./EditableBlockTree";
 
 function handlers(): OutlineHandlers {
   return {
-    onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftChange: vi.fn(),
+    onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftStart: vi.fn(),
+    onDraftChange: vi.fn(),
     onFlushDraft: vi.fn(),
     onSplit: vi.fn(), onIndent: vi.fn(), onOutdent: vi.fn(),
     onMoveSubtreeUp: vi.fn(), onMoveSubtreeDown: vi.fn(),
     onBackspaceAtStart: vi.fn(),
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
     onSetViewType: vi.fn(),
-    onToggleTodo: vi.fn(), onFiles: vi.fn(), onGoodlinks: vi.fn(), onPasteOutline: vi.fn(),
+    onToggleTodo: vi.fn(), onFiles: vi.fn(() => Promise.resolve(false)),
+    onGoodlinks: vi.fn(), onPasteOutline: vi.fn(),
     onStartBlockSelection: vi.fn(), onSelectBlock: vi.fn(),
     onExtendBlockSelection: vi.fn(),
     onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),

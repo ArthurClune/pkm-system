@@ -97,7 +97,8 @@ test("(b) an image upload completing after disconnect is preserved and flushes o
   act(() => lastWs().open()); // connected
 
   const file = new File(["x"], "pic.png", { type: "image/png" });
-  act(() => getOutline().handlers.onFiles("u1", 0, [file])); // upload starts
+  // upload starts
+  act(() => { void getOutline().handlers.onFiles("u1", 0, [file]); });
   act(() => lastWs().drop()); // disconnect while the upload is outstanding
 
   await act(async () => { finishUpload(); await Promise.resolve(); });

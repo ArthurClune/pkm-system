@@ -75,3 +75,11 @@ export function stampBaseTextHashes(
   }
   return stamped;
 }
+
+/** The op without its stamps. Undo history records ops unstamped, so a replay
+ * hashes the tree it replays against rather than a hash captured at record
+ * time. */
+export function withoutStamps(op: UpdateTextOp): UpdateTextOp {
+  const { base_text_hash: _hash, page_title: _title, ...rest } = op;
+  return rest;
+}

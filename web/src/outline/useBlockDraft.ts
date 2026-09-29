@@ -37,6 +37,9 @@ export interface BlockDraftOptions {
    * debounced autosave must wait — flushing now would create a page from the
    * half-typed title. */
   onEdit(text: string, holdFlush: boolean): void;
+  /** Called before the first onEdit of a clean draft with the text the
+   * textarea showed until then: the text the user is typing over. */
+  onDirty(shown: string): void;
   /** Called when committed text is adopted over the draft: the replacement
    * text invalidates any offset into the old text the caller remembered. */
   onAdopt(): void;
@@ -57,18 +60,25 @@ export interface BlockDraft {
           holdFlush: boolean): void;
   onCompositionStart(): void;
   onCompositionEnd(): void;
+  /** The draft has been committed and the tree has since changed this block
+   * for the user (undo, redo, an upload splice): mark it clean and adopt the
+   * tree's text once it has rendered. Left dirty, the textarea would keep
+   * showing the old text, and the next draft would be typed over text the
+   * tree no longer holds. */
+  settle(): void;
 }
 
 export function useBlockDraft(
-  { text, cursor, onEdit, onAdopt }: BlockDraftOptions,
+  { text, cursor, onEdit, onDirty, onAdopt }: BlockDraftOptions,
 ): BlockDraft {
   const [draft, setDraft] = useState(text);
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const initialCursorRef = useRef(cursor);
   // Whether the user has typed edits not yet committed to the block tree.
   // Focus alone is not a draft: while dirty, remote text still lands on the
-  // tree but the textarea keeps the local draft (last-write-wins); with no
-  // dirty draft the textarea adopts tree changes. draftRef mirrors `draft` so
+  // tree but the textarea keeps the local draft (the draft's flush carries its
+  // base hash, so the server keeps the remote text as a conflict copy); with
+  // no dirty draft the textarea adopts tree changes. draftRef mirrors `draft` so
   // the adoption effect can read it without re-subscribing on every keystroke.
   const dirtyRef = useRef(false);
   const draftRef = useRef(draft);
@@ -141,7 +151,11 @@ export function useBlockDraft(
     onAdoptRef.current();
     setDraft(text);
   };
-  useEffect(tryAdopt, [text]);
+  // settle() bumps this so adoption also runs when the tree's text for this
+  // block ends up where it started (an undo of a draft that had not yet
+  // reached the tree), which leaves `text` unchanged.
+  const [settled, setSettled] = useState(0);
+  useEffect(tryAdopt, [text, settled]);
 
   // Restore the selection once a setDraft has committed to the DOM (a plain
   // value swap would otherwise leave the browser's default of moving the
@@ -159,16 +173,24 @@ export function useBlockDraft(
     ref.current?.setSelectionRange(sel.start, sel.end);
   }, [draft]);
 
+  // draftRef, not the tree's text: until the adoption effect has run, the
+  // textarea still shows the text before a remote change, and that is what
+  // the user is typing over.
+  const markDirty = () => {
+    if (!dirtyRef.current) onDirty(draftRef.current);
+    dirtyRef.current = true;
+  };
+
   return {
     ref,
     text: draft,
     typed: (next, holdFlush) => {
-      dirtyRef.current = true;
+      markDirty();
       setDraft(next);
       onEdit(next, holdFlush);
     },
     replace: (next, selStart, selEnd, holdFlush) => {
-      dirtyRef.current = true;
+      markDirty();
       const el = ref.current;
       if (el && el.value === next) {
         // Selection-only edit (skipping over an auto-inserted closer): there
@@ -186,6 +208,10 @@ export function useBlockDraft(
     onCompositionEnd: () => {
       composingRef.current = false;
       tryAdopt();
+    },
+    settle: () => {
+      dirtyRef.current = false;
+      setSettled((n) => n + 1);
     },
   };
 }

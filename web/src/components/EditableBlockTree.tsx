@@ -83,7 +83,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     const target = uploadTargetRef.current;
     uploadTargetRef.current = null;
     if (files.length === 0 || !target) return;
-    handlers.onFiles(target.uid, target.at, files);
+    void handlers.onFiles(target.uid, target.at, files);
   };
   // Bullet context menu (pkm-y6af); one per tree, anchored at the pointer.
   const [menu, setMenu] = useState<{

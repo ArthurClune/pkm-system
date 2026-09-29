@@ -228,3 +228,31 @@ describe("queue reads and lifecycle", () => {
     });
   });
 });
+
+describe("importPendingRows", () => {
+  const readRows = () => t.db.select(
+    "SELECT id, batch_id, ops_json, poisoned, error FROM pending_ops ORDER BY id");
+
+  test("importPendingRows keeps ids verbatim and later enqueues number past them", () => {
+    const rows = [
+      { id: 4, batch_id: "b4", ops_json: JSON.stringify([{ op: "delete", uid: "uid_a" }]),
+        poisoned: 1, error: "HTTP 400" },
+      { id: 7, batch_id: "b7", ops_json: JSON.stringify([{ op: "delete", uid: "uid_b" }]),
+        poisoned: 0, error: null },
+    ];
+    queue.importPendingRows(t.db, rows);
+    expect(readRows()).toEqual(rows);
+    enqueueBatch(t.db, [{ op: "delete", uid: "uid_x" }], 10, "after");
+    expect(t.db.select<{ id: number }>(
+      "SELECT id FROM pending_ops WHERE batch_id = 'after'")).toEqual([{ id: 8 }]);
+  });
+
+  test("importPendingRows ignores a row whose id is already present", () => {
+    t.db.exec("INSERT INTO pending_ops(id, batch_id, ops_json) VALUES (1, 'kept', '[]')");
+    queue.importPendingRows(t.db, [
+      { id: 1, batch_id: "other", ops_json: "[]", poisoned: 0, error: null },
+    ]);
+    expect(t.db.select("SELECT batch_id FROM pending_ops WHERE id = 1"))
+      .toEqual([{ batch_id: "kept" }]);
+  });
+});

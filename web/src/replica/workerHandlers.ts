@@ -12,8 +12,8 @@ import { isCorruptionMessage, ReplicaUnavailableError } from "./errors";
 import { getMeta } from "./meta";
 import { handleLocalApi, type LocalApiRequest } from "./localApi/router";
 import { pendingSetStillCovered } from "./pendingGuard";
-import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
-         pendingCount, poisonedBatches } from "./queue";
+import { allBatches, deleteBatch, type DurablePendingRow, enqueueBatch,
+         markPoisoned, nextBatch, pendingCount, poisonedBatches } from "./queue";
 import { createRecoveryGate } from "./recoveryGate";
 import type { RpcHandlers } from "./rpc";
 
@@ -51,14 +51,6 @@ function readPendingBatches(db: ReplicaDb): PendingBatch[] {
   // extract wire-format JSON from an older database.
   if (!tableExists(db, "pending_ops")) return [];
   return allBatches(db);
-}
-
-interface DurablePendingRow {
-  id: number;
-  batch_id: string;
-  ops_json: string;
-  poisoned: number;
-  error: string | null;
 }
 
 function readDurablePendingRows(db: ReplicaDb): DurablePendingRow[] {

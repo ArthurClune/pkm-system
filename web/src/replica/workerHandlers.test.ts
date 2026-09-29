@@ -4,8 +4,7 @@ import { applySnapshot, type Snapshot } from "./apply";
 import type { ReplicaDiagnostics } from "./client";
 import { SCHEMA_VERSION } from "./clientSchema";
 import { availabilityOf, ReplicaUnavailableError } from "./errors";
-import type { ReplicaDb } from "./db";
-import { openRawTestDb } from "./testDb";
+import { openRawTestDb, withDamagedFreelist } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
 
 const SNAP: Snapshot = {
@@ -447,23 +446,6 @@ test("a schema rebuild forgets acked seqs, since pending_ops ids restart", async
       pages: [], blocks: [], sidebar: [], tombstones: [] },
     expectedPendingIds: [first],
   })).resolves.toEqual({ status: "pending-changed" });
-});
-
-/** A database whose file-level structure is damaged: dropping a table walks
- * the broken freelist, so every logical rebuild fails the same way (the
- * 2026-09-28 iPad incident, pkm-h1c6). Reads still work. */
-const withDamagedFreelist = (
-  db: ReplicaDb, freesPages: RegExp = /^DROP /i, isDamaged = () => true,
-): ReplicaDb => ({
-  ...db,
-  exec(sql, params) {
-    if (isDamaged() && freesPages.test(sql)) {
-      throw new Error(
-        "SQLITE_CORRUPT: sqlite3 result code 11: database disk image is malformed");
-    }
-    db.exec(sql, params);
-  },
-  transaction: (fn) => db.transaction(fn),
 });
 
 test("a reset over a damaged file replaces the file and rebuilds into the new one", async () => {

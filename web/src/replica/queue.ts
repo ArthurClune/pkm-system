@@ -165,3 +165,29 @@ export function markPoisoned(db: ReplicaDb, id: number, error: string,
     [error, id, batchId]);
   return true;
 }
+
+/** A pending_ops row exactly as stored, for moving the queue between files. */
+export interface DurablePendingRow {
+  id: number;
+  batch_id: string;
+  ops_json: string;
+  poisoned: number;
+  error: string | null;
+}
+
+/** Insert `rows` verbatim, ids included, in one transaction. Ids are kept
+ * because the provider deletes a poisoned row by id after a repair and acked
+ * seqs key on ids; a row whose id is already present is left as it is, so
+ * importing the same rows twice is a no-op. */
+export function importPendingRows(
+  db: ReplicaDb, rows: readonly DurablePendingRow[],
+): void {
+  db.transaction(() => {
+    for (const row of rows) {
+      db.exec(
+        "INSERT OR IGNORE INTO pending_ops(id, batch_id, ops_json, poisoned, error)" +
+        " VALUES (?, ?, ?, ?, ?)",
+        [row.id, row.batch_id, row.ops_json, row.poisoned, row.error]);
+    }
+  });
+}

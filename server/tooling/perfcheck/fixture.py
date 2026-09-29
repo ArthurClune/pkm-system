@@ -30,6 +30,37 @@ PHRASE = "quantum lattice"
 BATCH_OPS = 400
 DAY_MS = 86_400_000
 
+# Fixed text for the hashed update_text scenarios (ops/edit-hashed-*):
+# known verbatim so backend.py can compute a matching (or deliberately
+# stale) base_text_hash without re-deriving it from a randomly generated
+# block. Planted on its own page, appended after every random sample below
+# has already been taken, so nothing here is ever swept into an unrelated
+# edit or search-term plant.
+HASHED_EDIT_PAGE = "Perf Hashed Edits"
+HASHED_EDIT_TEXT = "a stable line about [[Hub Alpha]] for hashed edits"
+
+# A page renamed once, deterministically, while the fixture is built
+# (build.py calls store.rename_page_rows directly -- rename is a route, not
+# an op, so it can't ride an OpBatch), plus one block that references it and
+# so picks up a `block_rewrites` row. The hashed edit/rename-replay scenario
+# sends a stale base_text_hash predating the rename, targeting this block,
+# to exercise `ops_core.replay_title_rewrites`.
+RENAME_SOURCE_TITLE = "Perf Rename Source"
+RENAME_TARGET_TITLE = "Perf Rename Source Renamed"
+RENAME_REF_PAGE = "Perf Rename Refs"
+RENAME_REF_TEXT = f"a note about [[{RENAME_SOURCE_TITLE}]] worth remembering"
+RENAME_SOURCE_TEXT = "the source page content"
+# after every create batch above, before the seeded rename below
+RENAME_CREATED_AT_MS = FROZEN_NOW_MS - 5 * DAY_MS
+RENAME_APPLIED_AT_MS = FROZEN_NOW_MS - 4 * DAY_MS
+
+# Uids that never exist in the fixture, for the missing-target scenarios
+# (ops/edit-missing-block, ops/create-missing-parent, ops/move-missing-parent).
+# Distinct prefix from _Gen.uid()'s "f<11 digits>" and the paste scenario's
+# "pp<8 digits>", so a generator change can never make one of these real.
+MISSING_BLOCK_UID = "ghostblock0001"
+MISSING_PARENT_UID = "ghostparent0001"
+
 _SYLLABLES = ("ka", "lo", "mi", "ren", "sa", "tor", "vel", "qui", "dan", "ber",
               "nel", "pho", "stra", "gen", "ul", "ix", "mor", "tal", "shi", "e")
 # Head of the Zipf distribution: real words so search has meaningful common
@@ -63,6 +94,8 @@ class Landmarks:
     ref_uids: tuple[str, ...]
     move_uid: str
     edit_uid: str
+    hashed_edit_uid: str
+    rename_ref_uid: str
 
 
 @dataclass(frozen=True)
@@ -206,6 +239,28 @@ def generate(seed: int = 1, scale: float = 1.0) -> Fixture:
             when = g.rng.randint(lo, hi)
         g.edits.append((when, {"op": "update_text", "uid": uid, "text": g.text() + " (edited)"}))
 
+    # Fixed-content blocks for the hashed/rename-replay scenarios, added
+    # after every sample above so they can never be swept into one: their
+    # text must stay exactly as written for backend.py's precomputed
+    # base_text_hash values to mean anything.
+    hashed_edit_uid = g.uid()
+    g.creates.append((RENAME_CREATED_AT_MS, {
+        "op": "create", "uid": hashed_edit_uid, "page_title": HASHED_EDIT_PAGE,
+        "parent_uid": None, "order_idx": 0, "text": HASHED_EDIT_TEXT}))
+    g.all_uids.append(hashed_edit_uid)
+
+    rename_source_uid = g.uid()
+    g.creates.append((RENAME_CREATED_AT_MS - DAY_MS, {
+        "op": "create", "uid": rename_source_uid, "page_title": RENAME_SOURCE_TITLE,
+        "parent_uid": None, "order_idx": 0, "text": RENAME_SOURCE_TEXT}))
+    g.all_uids.append(rename_source_uid)
+
+    rename_ref_uid = g.uid()
+    g.creates.append((RENAME_CREATED_AT_MS, {
+        "op": "create", "uid": rename_ref_uid, "page_title": RENAME_REF_PAGE,
+        "parent_uid": None, "order_idx": 0, "text": RENAME_REF_TEXT}))
+    g.all_uids.append(rename_ref_uid)
+
     timed = sorted(g.creates + g.edits, key=lambda t: t[0])  # stable: page order kept
     batches: list[Batch] = []
     current: list[dict] = []
@@ -235,6 +290,7 @@ def generate(seed: int = 1, scale: float = 1.0) -> Fixture:
     landmarks = Landmarks(
         big_page=BIG_PAGE, hub=HUBS[0], journal_day=journal_titles[-4],
         popular_uid=popular_uid, ref_uids=tuple(g.rng.sample(g.all_uids, 30)),
-        move_uid=move_uid, edit_uid=big_uids[10])
+        move_uid=move_uid, edit_uid=big_uids[10],
+        hashed_edit_uid=hashed_edit_uid, rename_ref_uid=rename_ref_uid)
     sidebar = (BIG_PAGE, *HUBS, *g.topics[:4])
     return Fixture(tuple(batches), assets, sidebar, landmarks)

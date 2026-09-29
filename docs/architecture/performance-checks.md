@@ -193,7 +193,19 @@ popular ref target) and its planted search terms (`COMMON_TERM`, `RARE_TERM`,
 | Search | `search/common`, `search/rare`, `search/prefix`, `search/phrase`, `search/many-hits`, `search/title`, `titles/prefix`, `titles/infix`, `assets/search`, `assets/range` |
 | Lists | `todos/all`, `changed/week`, `query/and-not`, `sidebar` |
 | Sync | `sync/snapshot`, `sync/changes-mid` |
-| Writes | `ops/edit-1`, `ops/paste-50`, `ops/move-subtree`, `rename/hub` |
+| Writes | `ops/edit-1` (hashless), `ops/edit-hashed-clean`, `ops/edit-hashed-identical`, `ops/edit-hashed-conflict`, `ops/edit-rename-replay`, `ops/edit-missing-block`, `ops/create-missing-parent`, `ops/move-missing-parent`, `ops/paste-50`, `ops/move-subtree`, `rename/hub` |
+
+The three `ops/edit-hashed-*` scenarios and `ops/edit-rename-replay` send a
+`base_text_hash`, so they reach `ops_core.classify_text_edit` rather than the
+legacy hashless branch `ops/edit-1` exercises. They target
+`lm.hashed_edit_uid` (fixed text `HASHED_EDIT_TEXT`) and `lm.rename_ref_uid`.
+The latter's `block_rewrites` row comes from a rename `build.py` seeds once,
+directly through `store.rename_page_rows` — rename is a route, not an op, so
+it can't ride an `OpBatch` — which is the only way to exercise
+`ops_core.replay_title_rewrites`. The three `ops/*-missing-*` scenarios
+target uids the fixture never generates (`MISSING_BLOCK_UID`,
+`MISSING_PARENT_UID`), reaching `ops_core.classify_missing_target`'s
+`orphan_edit`, `diverted_create` and `move_parent_missing` branches.
 
 ## Frontend check
 

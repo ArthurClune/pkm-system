@@ -27,13 +27,26 @@ from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
 from pkm.server.db import get_db
 
+from pkm.contracts.ops import text_hash
+
 from perfcheck.build import cached_fixture, fixture_hash
-from perfcheck.fixture import FROZEN_NOW, Landmarks, generate
+from perfcheck.fixture import (FROZEN_NOW, HASHED_EDIT_TEXT,
+                               MISSING_BLOCK_UID, MISSING_PARENT_UID,
+                               RENAME_REF_TEXT, Landmarks, generate)
 from perfcheck.sqlplan import aliases, full_scans, plannable
 from perfcheck.trace import Tracer
 
 PASSWORD = "perf-pw"
 SALT = bytes.fromhex("22" * 16)
+
+# Deliberately wrong: a well-formed sha256 hex that can never equal
+# text_hash(HASHED_EDIT_TEXT), so ops/edit-hashed-conflict always lands as a
+# conflict (ops_core.classify_text_edit) rather than a clean apply.
+_STALE_HASH = "a" * 64
+# A fresh, never-created uid for ops/create-missing-parent's own block: it
+# must not exist yet (classify_missing_target checks block_exists on it
+# too), so it is neither a fixture uid nor MISSING_BLOCK_UID/MISSING_PARENT_UID.
+_NEW_CREATE_UID = "ghostcreate0001"
 
 
 class UnstableCountError(RuntimeError):
@@ -93,6 +106,48 @@ def scenarios(lm: Landmarks, max_seq: int) -> list[Scenario]:
         g("sync/changes-mid", "/api/sync/changes", since=max_seq // 2),
         Scenario("ops/edit-1", "POST", "/api/ops", body=batch(
             [{"op": "update_text", "uid": lm.edit_uid, "text": "edited by the perf check"}]), writes=True),
+        # Hashed update_text paths (pkm-wy1v): edit-1 above sends no
+        # base_text_hash at all, so it only ever exercises the legacy
+        # hashless branch (ops_core.classify_text_edit is never called).
+        # These four all target lm.hashed_edit_uid / lm.rename_ref_uid,
+        # whose text is the fixture's known HASHED_EDIT_TEXT / (post-rename)
+        # RENAME_REF_TEXT rewrite -- see perfcheck.fixture -- so the right
+        # base_text_hash for each outcome can be computed here rather than
+        # guessed.
+        Scenario("ops/edit-hashed-clean", "POST", "/api/ops", body=batch(
+            [{"op": "update_text", "uid": lm.hashed_edit_uid,
+              "text": HASHED_EDIT_TEXT + " (clean edit)",
+              "base_text_hash": text_hash(HASHED_EDIT_TEXT)}]), writes=True),
+        Scenario("ops/edit-hashed-identical", "POST", "/api/ops", body=batch(
+            [{"op": "update_text", "uid": lm.hashed_edit_uid, "text": HASHED_EDIT_TEXT,
+              "base_text_hash": text_hash(HASHED_EDIT_TEXT)}]), writes=True),
+        Scenario("ops/edit-hashed-conflict", "POST", "/api/ops", body=batch(
+            [{"op": "update_text", "uid": lm.hashed_edit_uid,
+              "text": HASHED_EDIT_TEXT + " (stale offline edit)",
+              "base_text_hash": _STALE_HASH}]), writes=True),
+        # lm.rename_ref_uid carries a block_rewrites row from the fixture's
+        # seeded rename (build.py); this base_text_hash is the block's text
+        # from *before* that rename, so classify_text_edit must replay the
+        # rewrite (ops_core.replay_title_rewrites) before it can classify
+        # the edit -- here, cleanly, since nothing has touched the block
+        # since the rename.
+        Scenario("ops/edit-rename-replay", "POST", "/api/ops", body=batch(
+            [{"op": "update_text", "uid": lm.rename_ref_uid,
+              "text": RENAME_REF_TEXT + " (offline edit predating the rename)",
+              "base_text_hash": text_hash(RENAME_REF_TEXT)}]), writes=True),
+        # Missing-target landings (pkm-foap): op.uid / op.parent_uid name
+        # nothing the server has, so classify_missing_target diverts the
+        # op instead of failing the whole batch.
+        Scenario("ops/edit-missing-block", "POST", "/api/ops", body=batch(
+            [{"op": "update_text", "uid": MISSING_BLOCK_UID,
+              "text": "orphaned edit, block already gone"}]), writes=True),
+        Scenario("ops/create-missing-parent", "POST", "/api/ops", body=batch(
+            [{"op": "create", "uid": _NEW_CREATE_UID, "page_title": lm.big_page,
+              "parent_uid": MISSING_PARENT_UID, "order_idx": 0,
+              "text": "diverted create, parent already gone"}]), writes=True),
+        Scenario("ops/move-missing-parent", "POST", "/api/ops", body=batch(
+            [{"op": "move", "uid": lm.move_uid, "parent_uid": MISSING_PARENT_UID,
+              "order_idx": 0}]), writes=True),
         Scenario("ops/paste-50", "POST", "/api/ops", body=batch(paste), writes=True),
         Scenario("ops/move-subtree", "POST", "/api/ops", body=batch(
             [{"op": "move", "uid": lm.move_uid, "parent_uid": None, "order_idx": 0,

@@ -115,6 +115,37 @@ def test_cache_lock_fails_naming_the_holder_after_waiting(cache, monkeypatch):
         pass  # released with the holder's file
 
 
+def test_build_seeds_a_rename_with_a_block_rewrites_row(tmp_path):
+    from pkm.contracts.ops import text_hash
+
+    from perfcheck.fixture import (RENAME_REF_TEXT, RENAME_SOURCE_TITLE,
+                                   RENAME_TARGET_TITLE)
+
+    dest = tmp_path / "fx.sqlite3"
+    b.build(dest, seed=1, scale=0.02)
+    fx = generate(1, 0.02)
+    con = sqlite3.connect(dest)
+    try:
+        titles = {r[0] for r in con.execute("SELECT title FROM pages")}
+        assert RENAME_TARGET_TITLE in titles
+        assert RENAME_SOURCE_TITLE not in titles
+        rewritten = con.execute(
+            "SELECT base_hash, after_hash, old_title, new_title FROM block_rewrites"
+            " WHERE uid = ?", (fx.landmarks.rename_ref_uid,)).fetchall()
+        assert len(rewritten) == 1
+        base_hash, after_hash, old_title, new_title = rewritten[0]
+        assert base_hash == text_hash(RENAME_REF_TEXT)
+        assert old_title == RENAME_SOURCE_TITLE
+        assert new_title == RENAME_TARGET_TITLE
+        current_text = con.execute(
+            "SELECT text FROM blocks WHERE uid = ?",
+            (fx.landmarks.rename_ref_uid,)).fetchone()[0]
+        assert after_hash == text_hash(current_text)
+        assert current_text == RENAME_REF_TEXT.replace(RENAME_SOURCE_TITLE, RENAME_TARGET_TITLE)
+    finally:
+        con.close()
+
+
 def test_failed_build_leaves_no_cache_file(cache, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("boom")

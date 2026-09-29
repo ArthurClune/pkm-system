@@ -55,7 +55,7 @@ target forms:
                                  block matches, falls back to a page
                                  lookup on that same string
 
-a uid starting with "-" (from an import, or created before pkm-y5yv --
+a uid starting with "-" (from an import, or created by an older version --
 no uid this CLI mints ever starts that way) looks like an option to
 argparse -- address it with the standard "--" end-of-options marker,
 e.g. pkm get -- -abc123wxyz9
@@ -195,7 +195,7 @@ heading it had. -D and -T only change the task marker and never touch
 the heading level. Since `pkm get` prints a heading AS "## text", a
 fetch-then-update round trip preserves the level on its own.
 
-A uid starting with "-" (from an import, or created before pkm-y5yv --
+A uid starting with "-" (from an import, or created by an older version --
 no uid this CLI mints ever starts that way) looks like an option to
 argparse -- address it with "--", putting any -D/-T flag before it:
 pkm update -- -abc123wxyz9 "new text" or pkm update -D -- -abc123wxyz9

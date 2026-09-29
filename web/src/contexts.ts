@@ -9,7 +9,7 @@ import { createBlockRefStore } from "./components/blockRefStore";
 
 export interface SidebarApi {
   /** uid, when given, is the block to scroll to and flash once the panel's
-   * page has rendered (pkm-gdi5) -- scoped to that panel's own container,
+   * page has rendered -- scoped to that panel's own container,
    * never a document-wide lookup (the same page may be open in the main
    * window at the same time). */
   openInSidebar: (title: string, uid?: string) => void;
@@ -45,7 +45,7 @@ export interface BlockEditApi {
 
 export const BlockEditContext = createContext<BlockEditApi | null>(null);
 
-/** Whether main-pane pages render the block-stamp margin column (pkm-4ler),
+/** Whether main-pane pages render the block-stamp margin column,
  * plus the toggle TopBar's page menu drives. One provider in App.tsx so the
  * menu's checkmark and PageView's column always agree. */
 export interface BlockStampsApi {
@@ -59,14 +59,14 @@ export const BlockStampsContext = createContext<BlockStampsApi>({
 });
 
 /** The blocks of the whole tree a row belongs to, published by
- * EditableBlockTree (pkm-mzks). A {{toc}} block has to see beyond its own
+ * EditableBlockTree. A {{toc}} block has to see beyond its own
  * node to list the page's headings, and rows are memoised on their own node
  * alone; ONLY the toc branch reads this, so no other row re-renders when a
  * distant block changes. Empty by default: a render site with no provider
  * above (a bare row in a test) simply has no tree to walk. */
 export const RootBlocksContext = createContext<BlockNode[]>([]);
 
-/** True inside popover rows whose whole row is a navigation target
- * (pkm-v57y): embedded media renders inert — no expand trigger — so a
+/** True inside popover rows whose whole row is a navigation target:
+ * embedded media renders inert — no expand trigger — so a
  * click anywhere in the row navigates instead of expanding. */
 export const InertMediaContext = createContext(false);

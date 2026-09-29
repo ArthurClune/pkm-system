@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 // The stale-response guard shared by surfaces that keep at most ONE request
-// live at a time (pkm-kk0t): a debounced search, a title-completion popup, a
+// live at a time: a debounced search, a title-completion popup, a
 // query block re-fetching for a new expression. Every dispatch calls
 // begin(); everything the response wants to commit is gated on
 // !isStale(token), so a slow answer for an old input can never overwrite a

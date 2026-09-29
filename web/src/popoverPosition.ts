@@ -1,5 +1,5 @@
 // pattern: Functional Core
-// Viewport clamping for fixed-position popovers (pkm-7iv7). An anchor point
+// Viewport clamping for fixed-position popovers. An anchor point
 // is a wish, not a contract: a badge at the right end of a long row would
 // otherwise push its popover off-screen, and position:fixed means the page
 // grows no scrollbar to recover it.

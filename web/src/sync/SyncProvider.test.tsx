@@ -15,9 +15,9 @@ import { SyncProvider, useResyncSeq, useSyncActions, useSyncEditability,
          useSyncHealth, type Sync } from "./SyncProvider";
 
 /** Every slice at once. The app has no such consumer — a component that only
- * writes must not wake for a pending tick (pkm-qfee) — but these tests assert
- * on the provider's whole output, so they compose it here rather than making
- * the provider export a hook nothing ships. */
+ * writes must not wake for a pending tick — but these tests assert on the
+ * provider's whole output, so they compose it here rather than making the
+ * provider export a hook nothing ships. */
 function useSyncWhole(): Sync {
   const actions = useSyncActions();
   const health = useSyncHealth();
@@ -132,7 +132,7 @@ describe("the socket and remote batches", () => {
   });
 });
 
-// --- replica lifecycle (pkm-y8p0) ---
+// --- replica lifecycle ---
 
 import type { Replica } from "../replica/client";
 import { ReplicaUnavailableError } from "../replica/errors";
@@ -181,10 +181,10 @@ const EMPTY_FEED = { reset: false, generation: "g1", next_since: 5,
 
 /** A fake server journal: a seq that advances when something is written to the
  * server, and the changes window a pull then reads. Needed because a reconnect
- * bumps resyncSeq only when its pull actually advances the replica's cursor
- * (pkm-5fak) — EMPTY_FEED is a server with nothing to say, which is exactly the
- * case no view has to refetch for, so a test about a reconnect that MUST
- * refetch has to give the server something new. */
+ * bumps resyncSeq only when its pull actually advances the replica's cursor —
+ * EMPTY_FEED is a server with nothing to say, which is exactly the case no
+ * view has to refetch for, so a test about a reconnect that MUST refetch has
+ * to give the server something new. */
 function fakeServerJournal() {
   let latest = EMPTY_FEED.latest_seq;
   return {
@@ -812,7 +812,7 @@ describe("durable batches on connect", () => {
 });
 
 describe("poison repair and startup marks", () => {
-  test("poison repair is not a second writer of the pending count (pkm-fgjg)",
+  test("poison repair is not a second writer of the pending count",
   async () => {
     // The queue's emitPending has exactly one caller for durable changes
     // (opQueue's setPendingCount) plus refreshPending as the door for an
@@ -1361,10 +1361,10 @@ describe("poison repair and startup marks", () => {
     expect(sync.problem).toMatchObject({
       kind: "poison-discovery", error: "poison discovery unavailable",
     });
-    // There used to be a separate init() viability probe here to distinguish an
-    // unopenable replica from this anomaly (pkm-bjae). It is gone (pkm-61zt):
-    // a plain Error is not the worker's typed ReplicaUnavailableError, so
-    // availabilityOf(error) is null and the gate stays up without asking twice.
+    // Availability is derived from the typed error alone: a plain Error is not
+    // the worker's typed ReplicaUnavailableError, so availabilityOf(error) is
+    // null here and the gate stays up without a separate init() probe asking
+    // twice.
     expect(initCalls).toBe(0);
     expect(sync.replicaMode).toBe("starting");
 
@@ -1376,13 +1376,13 @@ describe("poison repair and startup marks", () => {
   });
 });
 
-// --- an unopenable replica must not hold the startup gate (pkm-bjae) ---
+// --- an unopenable replica must not hold the startup gate ---
 
 /** A replica whose database can never be opened: every handler that reaches
  * `db()` rejects with the worker's latched ReplicaUnavailableError, and only
  * `init()` reports the failure as a value the way the real worker does
  * (workerHandlers.ts). The message is a parameter because the open error's
- * cause is exactly what must stop mattering (pkm-9x6u). */
+ * cause must not matter to how the session recovers. */
 function unopenableReplica(
   message = "Access Handles cannot be created if there is another open Access Handle",
 ): Replica & { log: string[]; initCalls: () => number } {
@@ -1390,7 +1390,7 @@ function unopenableReplica(
   let initCalls = 0;
   // A real worker latches its failed open, so every call — init() included —
   // replays one ReplicaUnavailableError. The fixture has to do the same or it
-  // is testing a replica that cannot exist (pkm-za9j).
+  // is testing a replica that cannot exist.
   const unavailable = new ReplicaUnavailableError(message);
   const dead = () => Promise.reject(unavailable);
   replica.init = () => { initCalls += 1; return dead(); };
@@ -1429,7 +1429,7 @@ describe("an unopenable replica", () => {
 
     await vi.waitFor(() => { expect(posts).toHaveLength(1); });
     expect(sync.replicaMode).toBe("no-replica");
-    // and it says so, rather than degrading silently (pkm-bjae review)
+    // and it says so, rather than degrading silently
     expect(sync.problem).toMatchObject({ kind: "replica-unavailable" });
   });
 
@@ -1457,23 +1457,24 @@ describe("an unopenable replica", () => {
     return { posts, sync: () => sync };
   }
 
-  test("an SAH-contention unopenable replica delivers the edit (pkm-9x6u)", async () => {
+  test("an SAH-contention unopenable replica delivers the edit", async () => {
     const { posts } = await runDead(
       "Access Handles cannot be created if there is another open Access Handle");
     expect(posts).toHaveLength(1);
   });
 
-  test("a NON-whitelisted unopenable replica delivers the edit too (pkm-9x6u)", async () => {
-    // Before pkm-s7af this dropped the edit and fired onDesync, whose legacy
-    // repair additionally rebased the active outline to server state: the
-    // whitelist, not the availability state, decided whether writes survived.
+  test("a NON-whitelisted unopenable replica delivers the edit too", async () => {
+    // Ops are retained by the availability TYPE of the enqueue failure, not by
+    // matching specific error messages: a message not on any whitelist must
+    // still deliver, not silently drop the edit and rebase the active outline
+    // to server state.
     // Deliberately does NOT pin sync.problem — a delivery problem can legitimately
     // take precedence over the background replica-unavailable report.
     const { posts } = await runDead("OPFS is not available in this browser");
     expect(posts).toHaveLength(1);
   });
 
-  test("an online-only session's update_text still carries a base_text_hash (pkm-4ubd)",
+  test("an online-only session's update_text still carries a base_text_hash",
   async () => {
     // What this can and cannot prove: SyncProvider.enqueue takes whatever ops it
     // is given. The provider is NOT where base_text_hash is stamped, and must not
@@ -1509,12 +1510,13 @@ describe("an unopenable replica", () => {
     expect(bodies[0].ops[0].base_text_hash).toEqual(sha256Hex("hello"));
   });
 
-  test("a reconnect in a no-replica session still bumps resyncSeq (pkm-9x6u)", async () => {
-    // Every drain used to end in failed() -> a ~5s backoff, forever, because the
-    // loop fell through to replica.nextBatch() on a replica it already knew was
-    // dead. drain() therefore never returned "drained", so finishReconnect never
-    // ran and views were never told to refetch: changes made elsewhere while this
-    // tab was disconnected stayed invisible until the user navigated.
+  test("a reconnect in a no-replica session still bumps resyncSeq", async () => {
+    // A no-replica session's drain must not fall through to replica.nextBatch()
+    // on a replica already known dead — that would end every drain in failed()
+    // (a ~5s backoff, forever), so drain() never returns "drained",
+    // finishReconnect never runs, and views are never told to refetch: changes
+    // made elsewhere while this tab was disconnected would stay invisible until
+    // the user navigated.
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/ops") return jsonResponse({ ok: true });
@@ -1540,9 +1542,8 @@ describe("an unopenable replica", () => {
     // Why this is safe without a `disabled` flag: the worker latches its failed
     // open until close(), so start() -> init() rejects for the whole session and
     // can never resume delivery with poison discovery SKIPPED — the exact
-    // ordering hazard the recovery barrier exists to prevent, which pkm-bjae's
-    // own first fix had reintroduced. The commitment lives where the commitment
-    // happens.
+    // ordering hazard the recovery barrier exists to prevent. The commitment
+    // lives where the commitment happens.
     //
     // A fixture whose init() succeeds on a second call would be testing a
     // replica that cannot exist; the property it used to guard (the provider
@@ -1579,18 +1580,18 @@ describe("an unopenable replica", () => {
 describe("the poison gate and repair problems", () => {
   /** Models the real worker's open memoisation (`workerHandlers.ts:63`): one
    * failed open is cached and replayed to every handler, and — crucially — is
-   * NOT cleared by any handler's rejection, including `init()`'s (pkm-za9j's
-   * latch; before that, pkm-bjae). Contention here would clear after the first
-   * real attempt, so a worker that re-armed its open WOULD succeed on a second
-   * attempt; that this double never does is the property `workerHandlers.test.ts`
-   * pins directly ("a failed open stays latched"). This test guards the other
-   * half: that the provider does not reach the database by some other route
-   * once the barrier is lifted. `unopenableReplica()` above is permanently dead
-   * and cannot express the race at all. The internal `db()` rejection must be a
+   * NOT cleared by any handler's rejection, including `init()`'s. Contention
+   * here would clear after the first real attempt, so a worker that re-armed
+   * its open WOULD succeed on a second attempt; that this double never does
+   * is the property `workerHandlers.test.ts` pins directly ("a failed open
+   * stays latched"). This test guards the other half: that the provider does
+   * not reach the database by some other route once the barrier is lifted.
+   * `unopenableReplica()` above is permanently dead and cannot express the
+   * race at all. The internal `db()` rejection must be a
    * `ReplicaUnavailableError` (not a plain `Error`), because `availabilityOf`
-   * — not a second call to `init()` — is what SyncProvider now consults to
-   * decide "unusable" (pkm-61zt); a plain `Error` would make this test pass
-   * vacuously by never lifting the barrier at all. */
+   * — not a second call to `init()` — is what SyncProvider consults to decide
+   * "unusable"; a plain `Error` would make this test pass vacuously by never
+   * lifting the barrier at all. */
   function racingReplica(): Replica & { log: string[] } {
     const log: string[] = [];
     let state: "unopened" | "failed" | "open" = "unopened";
@@ -1650,7 +1651,7 @@ describe("the poison gate and repair problems", () => {
 
   test("a session that declared the replica unavailable must not drain a queue it never checked for poison",
   async () => {
-    // pkm-bjae / pkm-za9j: the hazard this guards is a database that RE-ARMS
+    // The hazard this guards is a database that RE-ARMS
     // after being declared unavailable — the barrier lift then lets resume()'s
     // kick drain through a database that now opens, delivering a batch queued
     // behind an undiscovered poison row, which is precisely what the barrier
@@ -1681,8 +1682,8 @@ describe("the poison gate and repair problems", () => {
 
   test("a KNOWN-rejected batch still holds the gate when it cannot be repaired",
   async () => {
-    // The deliberate asymmetry (pkm-bjae): with no evidence of a rejected batch
-    // an unopenable replica falls back to online-only, but retained mark intents
+    // The deliberate asymmetry: with no evidence of a rejected batch an
+    // unopenable replica falls back to online-only, but retained mark intents
     // ARE evidence, and delivering past one would post ahead of a batch the
     // server already rejected. This path keeps its gate and its Retry banner.
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
@@ -1723,12 +1724,12 @@ describe("the poison gate and repair problems", () => {
 
   test("discarding an unmarkable intent releases the wedge into online-only",
   async () => {
-    // pkm-tu5k: the gate above is correct but was inescapable — the intent
+    // The gate above is correct but is otherwise inescapable — the intent
     // clears only after a successful markPoisoned, which an unopenable replica
     // can never perform, wedging every future session. Discard is the explicit
-    // way out: drop the intents, then rejoin the pkm-bjae online-only fallback.
-    // Safe because the unmarked batch redelivers if the replica ever opens
-    // again, and the server rejects it into the normal poison → repair flow.
+    // way out: drop the intents, then rejoin the online-only fallback. Safe
+    // because the unmarked batch redelivers if the replica ever opens again,
+    // and the server rejects it into the normal poison → repair flow.
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
       version: 1,
       intents: [{ rowId: 1, batchId: "bad-batch",
@@ -2029,7 +2030,7 @@ describe("offline and cold start", () => {
     expect(sync.readOnlyReason).toBeUndefined();
   });
 
-  test("a late mount-time durable read cannot wedge the pending count (pkm-qfee)",
+  test("a late mount-time durable read cannot wedge the pending count",
   async () => {
     // The count is published to React from exactly one place (the queue's
     // onPending), because the queue suppresses a re-emit of a number that did
@@ -2364,8 +2365,8 @@ describe("reconnect pulls and resync", () => {
     }
   });
 
-  test("a reconnect that found nothing pulls the feed but leaves views alone "
-     + "(pkm-5fak)", async () => {
+  test("a reconnect that found nothing pulls the feed but leaves views alone",
+     async () => {
     vi.useFakeTimers();
     try {
       // The train symptom, end to end: a flapping link with an empty queue and
@@ -2477,13 +2478,13 @@ describe("the replica-stalled problem", () => {
     }
   });
 
-  test("repeated OfflineError pull failures (network down) do not surface replica-stalled (pkm-gw5r)", async () => {
-    // Reproduces the pkm-gw5r banner bug through the real production wiring:
-    // apiFetch's own fetch-failure fallback (client.ts) routes to the offline
-    // gateway when `fetch` itself rejects, and the gateway's localApi doesn't
-    // serve /api/sync/changes, so this throws a genuine OfflineError -- not a
-    // stand-in. Before the fix this crossed STALL_AFTER_FAILURES and raised
-    // "Local sync is stuck ... Reset local data" for a plain network outage.
+  test("repeated OfflineError pull failures (network down) do not surface replica-stalled", async () => {
+    // Exercises the real production wiring: apiFetch's own fetch-failure
+    // fallback (client.ts) routes to the offline gateway when `fetch` itself
+    // rejects, and the gateway's localApi doesn't serve /api/sync/changes, so
+    // this throws a genuine OfflineError -- not a stand-in. A plain network
+    // outage must never cross STALL_AFTER_FAILURES and raise
+    // "Local sync is stuck ... Reset local data".
     vi.useFakeTimers();
     try {
       const replica = fakeReplicaForProvider();
@@ -2737,7 +2738,7 @@ describe("unmount cleanup", () => {
 });
 
 describe("the unload guard", () => {
-  // pkm-0htf: the guard is armed from the in-memory lane, never from `pending`.
+  // The guard is armed from the in-memory lane, never from `pending`.
   // The unit tests either side of this one prove the lane count is right and the
   // listener obeys its argument; only these two prove SyncProvider hands the
   // guard the lane count and not the total, which is the substitution a future

@@ -78,7 +78,7 @@ describe("start, bootstrap and feed pulls", () => {
     const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
     await sync.start();
     // untimed: a cold-start whole-graph download on a slow link must not be
-    // abandoned at the ordinary read deadline (pkm-d6i6)
+    // abandoned at the ordinary read deadline
     expect(fetchJson).toHaveBeenCalledWith(
       "/api/sync/snapshot", undefined, { timeoutMs: null },
     );
@@ -178,7 +178,7 @@ describe("start, bootstrap and feed pulls", () => {
   });
 
   test("appliedVersion answers 'cannot tell' only for a database that is gone, "
-     + "not for a pull that failed (pkm-5fak)", async () => {
+     + "not for a pull that failed", async () => {
     // The asymmetry the resync narrowing rests on. An ordinary failed pull keeps
     // a number: the cursor still remembers what was applied, so the next
     // successful pull re-reads the same window and reports the change then. The
@@ -580,11 +580,11 @@ describe("recovery flushes and the shared coordinator", () => {
     expect(states.at(-1)).toEqual({ mode: "ready" });
   });
 
-  test("the recovery flush delivers each batch's lane-ahead entries before posting it (pkm-5ekv)",
+  test("the recovery flush delivers each batch's lane-ahead entries before posting it",
   async () => {
     // flushBatches posts leased durable rows on its own, knowing nothing about
-    // the fallback lane — the second overtaking path the original bean
-    // analysis missed. It must ask the queue's deliverLaneAhead for each batch
+    // the fallback lane — a second overtaking path distinct from ordinary
+    // drain ordering. It must ask the queue's deliverLaneAhead for each batch
     // before posting it, so a lane entry the batch follows still goes out
     // first. A fake queue recording call order is enough to pin this: the
     // queue's own contract for deliverLaneAhead is tested at the opQueue level.
@@ -995,7 +995,7 @@ describe("pull retries and the stall report", () => {
     expect(states.some((s) => s.mode === "stalled")).toBe(false);
   });
 
-  test("network-shaped pull failures never stall, however many retries (pkm-80ds finding 2)", async () => {
+  test("network-shaped pull failures never stall, however many retries", async () => {
     vi.useFakeTimers();
     try {
       const replica = fakeReplica();
@@ -1020,7 +1020,7 @@ describe("pull retries and the stall report", () => {
     }
   });
 
-  test("pulls failing with ReplicaError still stall at 3 (pkm-80ds finding 2)", async () => {
+  test("pulls failing with ReplicaError still stall at 3", async () => {
     vi.useFakeTimers();
     try {
       const replica = fakeReplica();
@@ -1043,7 +1043,7 @@ describe("pull retries and the stall report", () => {
     }
   });
 
-  test("OfflineError pull failures never stall, however many retries (pkm-gw5r)", async () => {
+  test("OfflineError pull failures never stall, however many retries", async () => {
     // The offline gateway throws a real OfflineError (status 0, extends
     // ApiError) for any route it does not serve locally -- the classifier used
     // to accept any ApiError, so three offline pulls crossed STALL_AFTER_FAILURES
@@ -1070,7 +1070,7 @@ describe("pull retries and the stall report", () => {
     }
   });
 
-  test("the retry does not reschedule while offline, and reconnect resumes it (pkm-gw5r)", async () => {
+  test("the retry does not reschedule while offline, and reconnect resumes it", async () => {
     // Side effect of the misclassification: the 60 s-capped retry kept
     // rescheduling for the whole offline session even though nothing but the
     // reconnect flow's own start() call could ever make it succeed. isOffline
@@ -1110,7 +1110,7 @@ describe("pull retries and the stall report", () => {
     }
   });
 
-  test("an unavailable-shaped pull failure never stalls (pkm-y35i)", async () => {
+  test("an unavailable-shaped pull failure never stalls", async () => {
     // A session reporting `stalled` on top of `no-replica` lets computeEditability
     // flip the whole session read-only, so an availability failure must not count
     // toward the stall threshold — however many times it happens.
@@ -1131,7 +1131,7 @@ describe("pull retries and the stall report", () => {
     expect(states.filter((s) => s.mode === "stalled")).toEqual([]);
   });
 
-  test("a mix of network and replica errors stalls only once 3 replica-shaped failures accrue (pkm-80ds finding 2)", async () => {
+  test("a mix of network and replica errors stalls only once 3 replica-shaped failures accrue", async () => {
     vi.useFakeTimers();
     try {
       const replica = fakeReplica();
@@ -1166,7 +1166,7 @@ describe("pull retries and the stall report", () => {
     }
   });
 
-  test("repeatedly-failing in-pull recovery with a stall-shaped underlying error stalls at 3 (pkm-913m)", async () => {
+  test("repeatedly-failing in-pull recovery with a stall-shaped underlying error stalls at 3", async () => {
     // Before the fix, the needs-bootstrap path rethrew a synthetic plain Error
     // ("replica recovery failed during pull") instead of the recovery's real
     // failure, so isStallShaped never recognized it and consecutiveFailures
@@ -1198,7 +1198,7 @@ describe("pull retries and the stall report", () => {
     }
   });
 
-  test("repeatedly-failing in-pull recovery with a network-shaped underlying error never stalls (pkm-913m)", async () => {
+  test("repeatedly-failing in-pull recovery with a network-shaped underlying error never stalls", async () => {
     vi.useFakeTimers();
     try {
       const replica = fakeReplica({
@@ -1225,7 +1225,7 @@ describe("pull retries and the stall report", () => {
     }
   });
 
-  test("recovery-failed re-reports ready once a later pull succeeds (pkm-80ds finding 1)", async () => {
+  test("recovery-failed re-reports ready once a later pull succeeds", async () => {
     // Before the fix, a recovery-failed report that never crossed the stall
     // threshold left reportedNonReady false, so a later successful pull's
     // noteSuccess never re-emitted "ready" -- the banner and stale
@@ -1696,8 +1696,7 @@ describe("corruption rebuilds", () => {
   // A corrupt replica is a corrupt CACHE: everything in it but the pending
   // queue can be re-fetched, and runRecovery flushes that queue before it
   // touches the database. So corruption is a reason to rebuild, not a stall to
-  // show the user (pkm-n31j: FTS5 raised SQLITE_CORRUPT_VTAB on an iPad and the
-  // banner sat there until a manual "Reset local data").
+  // show the user.
   const CORRUPT = () => new ReplicaError(
     "SQLITE_CORRUPT_VTAB: sqlite3 result code 267: database disk image is malformed",
   );
@@ -1853,9 +1852,9 @@ describe("window strikes", () => {
   // window that throws for a reason nothing whitelisted (a NOT NULL/CHECK
   // violation from a malformed feed, a bug in upsertBlock) used to roll back,
   // leave the cursor in place, and be refetched with growing backoff forever
-  // until the user pressed "Reset local data" (the wedge shape of pkm-qvlx and
-  // pkm-n31j). apply.ts still throws; replicaSync decides what to do about the
-  // WINDOW_STRIKES-th identical throw.
+  // until the user pressed "Reset local data". apply.ts still throws;
+  // replicaSync decides what to do about the WINDOW_STRIKES-th identical
+  // throw.
   const UNAPPLIABLE_MSG =
     "SQLITE_CONSTRAINT_NOTNULL: sqlite3 result code 1299: " +
     "NOT NULL constraint failed: blocks.text";

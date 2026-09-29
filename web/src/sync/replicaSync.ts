@@ -38,7 +38,7 @@ export interface ReplicaSync {
   /** Monotonic count of the moments local data actually moved: a changes
    * window that advanced the cursor, a snapshot bootstrap, or a recovery
    * rebuild. A reconnect that leaves this unchanged has nothing for any view
-   * to refetch (pkm-5fak) — which is the common case on a flapping link.
+   * to refetch — which is the common case on a flapping link.
    *
    * `null` means the question cannot be answered: this session has no usable
    * database, so there is no cursor to compare and the caller must assume the
@@ -57,8 +57,8 @@ export interface ReplicaSync {
    * a usable snapshot, whether this call's start() bootstrapped it just now
    * or it was already populated (this session, or persisted from a previous
    * one). False for a mount that has never completed a bootstrap -- the
-   * offline-cold-start gap useSocketLifecycle's first-connect gate closes
-   * (pkm-8k2c): a failed start() while offline leaves this false, so the
+   * offline-cold-start gap useSocketLifecycle's first-connect gate closes:
+   * a failed start() while offline leaves this false, so the
    * first connect once online still knows to run the reconnect protocol even
    * with an empty durable queue. Never goes back to false once true. */
   hasStarted(): boolean;
@@ -108,7 +108,7 @@ export const RETRY_BASE_MS = 1000;
 export const RETRY_MAX_MS = 60000;
 
 /** The snapshot is the one read here that is exempt from the ordinary read
- * deadline (pkm-d6i6): its size grows with the graph, so on a slow link a
+ * deadline: its size grows with the graph, so on a slow link a
  * cold-start bootstrap can legitimately outlast any deadline picked for small
  * reads, and aborting it only restarts the same download. A link that is dead
  * rather than slow is still caught -- by noteFailure's backoff for the pull
@@ -125,7 +125,7 @@ export interface ReplicaSyncDeps {
   onState: (s: ReplicaState) => void;
   /** Delivery is paused while the worker recovery lease owns the database.
    * `deliverLaneAhead` is how the recovery flush below gets the drain's own
-   * lane-ordering guarantee (pkm-5ekv): this flush posts leased durable rows
+   * lane-ordering guarantee: this flush posts leased durable rows
    * on its own, knowing nothing about the lane, so flushBatches asks the
    * queue to deliver whatever the lane holds ahead of each one first. */
   queue?: Pick<OpQueue, "pause" | "resume"> &
@@ -204,13 +204,13 @@ class PullStarvedError extends Error {}
  * check because it extends `ApiError` (status 0, thrown when the offline
  * gateway has no local route for a request) and would otherwise pass the
  * `instanceof ApiError` branch as if the server itself had rejected the call
- * (pkm-gw5r: three offline pulls crossed STALL_AFTER_FAILURES and raised the
+ * (three offline pulls crossed STALL_AFTER_FAILURES and raised the
  * "Local sync is stuck / Reset local data" banner for a plain network
  * outage). Availability failures are excluded for the same offline-banner
  * reason and more sharply: a session that reports `stalled` on top of
  * `no-replica` is reporting a wedged replica it has already concluded does not
  * exist, and computeEditability would take editing away for the rest of the
- * session (pkm-y35i). Only failures that mean "the replica itself cannot make
+ * session. Only failures that mean "the replica itself cannot make
  * progress" -- a rejected/failed API call, a replica-side RPC error, or pull()
  * starving on pending-batch churn -- count toward the stall threshold;
  * anything else still retries with backoff but is neither counted nor reported
@@ -323,7 +323,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     // latches its own failed open mid-session rejects every pull with it until
     // close(). Without this latch appliedVersion() would freeze at its last
     // value and answer "nothing moved" for the rest of the session, so no
-    // reconnect would ever refetch a view again (pkm-5fak). Note this is a
+    // reconnect would ever refetch a view again. Note this is a
     // report about the database, not about the pull attempt: isStallShaped
     // still excludes it from the stall count and the retry below still runs.
     if (availabilityOf(error) === "unusable") usable = false;
@@ -336,7 +336,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     }
     // No timer while offline: every retry would just reproduce the same
     // OfflineError, and the reconnect flow's own start() call resumes the
-    // pull the moment the socket reconnects (pkm-gw5r) -- an armed timer here
+    // pull the moment the socket reconnects -- an armed timer here
     // only costs a wakeup roughly once a minute for nothing.
     if (!stopped && !isOffline() && retryTimer === null) {
       retryTimer = setTimeout(() => {
@@ -408,7 +408,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // them forever would wedge recovery (spec section 6)
       if (b.poisoned) continue;
       beforePost();
-      // This flush knows nothing about the lane on its own (pkm-5ekv): ask
+      // This flush knows nothing about the lane on its own: ask
       // the queue for the same ordering guarantee the drain enforces on
       // itself before posting a batch it pulls. Checked again after, since
       // deliverLaneAhead can take a while and a poison repair may claim
@@ -524,7 +524,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // Returns the underlying failure (not just a boolean) so a caller that
   // re-throws on failure -- pullLoop's needs-bootstrap path -- can preserve
   // the original error's type for isStallShaped instead of rethrowing a
-  // synthetic stand-in that always classifies as network-shaped (pkm-913m).
+  // synthetic stand-in that always classifies as network-shaped.
   const recover = async (
     kind: RecoveryCommit["kind"],
   ): Promise<{ ok: true } | { ok: false; error: unknown }> => {
@@ -602,7 +602,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   };
 
   /** What the database says about itself goes to the server log before the
-   * repair discards the evidence (pkm-1mx9): the origin of the FTS divergence
+   * repair discards the evidence: the origin of the FTS divergence
    * is still unknown, an unappliable window is by definition unexplained, and
    * after a rebuild nothing is left to inspect. Gathering waits (it needs the
    * pre-repair database); posting does not, and a failure to post is
@@ -711,7 +711,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
             // preemption) is already reported/retried by its own owner and
             // must stay silent here too; any other recovery failure is a
             // genuine failed pull attempt -- rethrow the real error so
-            // isStallShaped classifies it correctly (pkm-913m) instead of a
+            // isStallShaped classifies it correctly instead of a
             // synthetic stand-in that always looked network-shaped.
             if (authoritativeRepair === "poison") return;
             throw rebased.error;
@@ -746,7 +746,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // session is online-only, and no later start() can revive it, because the
       // latch replays for every call until close(). That is what replaces the
       // `disabled` boolean this function used to set — the session-commitment
-      // moment moves to where the commitment actually happens (pkm-61zt).
+      // moment moves to where the commitment actually happens.
       //
       // Anything else, INCLUDING "unreachable", stays an ordinary start
       // failure: "we could not ask" is not evidence there is no database, and
@@ -843,7 +843,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // prepareRecovery is the first of them, so this throws long before
       // `started = true` is reached. No UI path reaches this today anyway (the
       // reset control needs a stalled/recovery-failed mode, and neither can
-      // arise once the replica is unavailable) — pkm-bjae, pkm-61zt.
+      // arise once the replica is unavailable).
       await runRecovery("reset", {
         // discarding is the user answering the ResetBlockedError question
         flush: discardPending ? "skip" : "blocking",

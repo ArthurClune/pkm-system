@@ -12,6 +12,7 @@
 import { useEffect, useLayoutEffect, useRef, useState,
          type MutableRefObject } from "react";
 import { clampCaret } from "./edits";
+import type { ResumedDraft } from "./handlers";
 import { heightChanged, mayHaveShrunk } from "./textareaHeight";
 
 // Computed once per module load, not per block: `field-sizing: content`
@@ -30,8 +31,19 @@ export interface BlockDraftOptions {
   text: string;
   /** Caret offset to place on mount. Captured once: the input is remounted
    * each time focus moves to a new block, so the mount-time value is the
-   * intended initial caret and later prop changes must not re-run it. */
+   * intended initial caret and later prop changes must not re-run it. A
+   * resumed draft ignores it: its caret goes back where the previous textarea
+   * left it, or to the end of the draft when that was not recorded. */
   cursor: number;
+  /** The pending draft this textarea takes over, or null. Its text is read
+   * once, at the first render; its selection is read again at mount, because
+   * the textarea it replaces reports its selection (onUnmount) in the same
+   * commit that mounts this one, after this one has rendered. A resumed draft
+   * starts dirty, so the tree's text does not replace it, and its first edit
+   * reports no new draft start (onDirty), so the draft keeps its base. */
+  resume(): ResumedDraft | null;
+  /** The textarea is unmounting with this selection. */
+  onUnmount(selStart: number, selEnd: number): void;
   /** Report an edit to the outline (which debounces the autosave).
    * holdFlush (pkm-xlah): the caret sits mid [[ref / #tag token, so the
    * debounced autosave must wait — flushing now would create a page from the
@@ -69,18 +81,25 @@ export interface BlockDraft {
 }
 
 export function useBlockDraft(
-  { text, cursor, onEdit, onDirty, onAdopt }: BlockDraftOptions,
+  { text, cursor, onEdit, onDirty, onAdopt, resume,
+    onUnmount }: BlockDraftOptions,
 ): BlockDraft {
-  const [draft, setDraft] = useState(text);
+  const [resumedText] = useState(() => resume()?.text ?? null);
+  const [draft, setDraft] = useState(resumedText ?? text);
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const initialCursorRef = useRef(cursor);
+  const resumingRef = useRef(resumedText !== null);
+  const resumeRef = useRef(resume);
+  resumeRef.current = resume;
+  const onUnmountRef = useRef(onUnmount);
+  onUnmountRef.current = onUnmount;
   // Whether the user has typed edits not yet committed to the block tree.
   // Focus alone is not a draft: while dirty, remote text still lands on the
   // tree but the textarea keeps the local draft (the draft's flush carries its
   // base hash, so the server keeps the remote text as a conflict copy); with
   // no dirty draft the textarea adopts tree changes. draftRef mirrors `draft` so
   // the adoption effect can read it without re-subscribing on every keystroke.
-  const dirtyRef = useRef(false);
+  const dirtyRef = useRef(resumedText !== null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   // Set between compositionstart/end: an IME composition in progress. Remote
@@ -104,8 +123,19 @@ export function useBlockDraft(
     const el = ref.current;
     if (!el) return;
     el.focus();
-    const at = Math.min(initialCursorRef.current, el.value.length);
-    el.setSelectionRange(at, at);
+    const len = el.value.length;
+    const sel = !resumingRef.current
+      ? { start: initialCursorRef.current, end: initialCursorRef.current }
+      : resumeRef.current()?.selection ?? { start: len, end: len };
+    el.setSelectionRange(Math.min(sel.start, len), Math.min(sel.end, len));
+  }, []);
+
+  // A layout cleanup runs while the element is still in the document, and
+  // before the effects of a textarea mounting in the same commit.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    return () => onUnmountRef.current(el.selectionStart, el.selectionEnd);
   }, []);
 
   // Auto-grow to fit content. Skipped entirely where `field-sizing: content`

@@ -817,6 +817,141 @@ test("a held draft whose block a remote cross-page move took flushes on tab hide
   expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
 });
 
+// A remote batch that reparents the focused block (or an ancestor) within the
+// page remounts its textarea with no blur, while its draft is still pending.
+// The new textarea resumes that draft, keeps the draft's base (the text first
+// typed over, not the remounted tree's text), and puts the caret back where
+// the old textarea left it.
+const SAME_PAGE_MOVE = { op: "move", uid: "u1", parent_uid: "u2",
+                         order_idx: 0, page_title: "Page" } as const;
+
+test("a remote same-page move of the focused block keeps its draft on the remounted textarea", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "typed words" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [SAME_PAGE_MOVE] }));
+  expect(ta.isConnected).toBe(false); // the move remounted it
+  expect(textbox().value).toBe("typed words");
+  expect(document.activeElement).toBe(textbox());
+  expect(textbox().selectionStart).toBe("typed words".length);
+  fireEvent.change(textbox(), { target: { value: "typed words!" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "u1", text: "typed words!",
+       base_text_hash: sha256Hex("first"), page_title: "Page" }],
+  ]);
+});
+
+test("a remounted textarea keeps the caret where the user left it in the draft", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: {
+    value: "typed words", selectionStart: 5, selectionEnd: 5,
+  } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [SAME_PAGE_MOVE] }));
+  expect(ta.isConnected).toBe(false);
+  expect(textbox().value).toBe("typed words");
+  expect(textbox().selectionStart).toBe(5);
+  expect(textbox().selectionEnd).toBe(5);
+});
+
+test("a caret moved without typing is kept across the remount too", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "typed words" } });
+  ta.setSelectionRange(2, 7); // a click or arrow key: no change event
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [SAME_PAGE_MOVE] }));
+  expect(ta.isConnected).toBe(false);
+  expect(textbox().value).toBe("typed words");
+  expect(textbox().selectionStart).toBe(2);
+  expect(textbox().selectionEnd).toBe(7);
+});
+
+test("a resumed draft goes clean once it flushes, and later remote text is adopted", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  fireEvent.change(focusBlock("first"), { target: { value: "typed" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [SAME_PAGE_MOVE] }));
+  expect(textbox().value).toBe("typed");
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "u1", text: "typed",
+       base_text_hash: sha256Hex("first"), page_title: "Page" }],
+  ]);
+  act(() => sync.emit({ client_id: "other", ts: 2, ops: [
+    { op: "update_text", uid: "u1", text: "remote" },
+  ] }));
+  expect(textbox().value).toBe("remote");
+});
+
+test("a remote batch that moves and edits the focused block keeps the draft and its base", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  fireEvent.change(focusBlock("first"), { target: { value: "typed" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    SAME_PAGE_MOVE, { op: "update_text", uid: "u1", text: "remote" },
+  ] }));
+  expect(textbox().value).toBe("typed");
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "u1", text: "typed",
+       base_text_hash: sha256Hex("first"), page_title: "Page" }],
+  ]);
+});
+
+test("a remote move of the focused block's parent keeps the draft on the remounted child", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount(makeSync(), [
+    block("u1", "first", { order_idx: 0,
+      children: [block("c1", "child", { order_idx: 0 })] }),
+    block("u2", "second", { order_idx: 1 }),
+  ]);
+  const ta = focusBlock("child");
+  fireEvent.change(ta, { target: { value: "child typed" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [SAME_PAGE_MOVE] }));
+  expect(ta.isConnected).toBe(false);
+  expect(textbox().value).toBe("child typed");
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "c1", text: "child typed",
+       base_text_hash: sha256Hex("child"), page_title: "Page" }],
+  ]);
+});
+
+test("a held draft survives a remote same-page move and still flushes on blur", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  heldRefDraft(sync);
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [SAME_PAGE_MOVE] }));
+  expect(textbox().value).toBe("see [[Fresh Idea]]");
+  expect(textbox().selectionStart).toBe(16); // still mid-ref
+  act(() => { vi.advanceTimersByTime(5000); });
+  expect(sync.sent).toEqual([]); // still held
+  fireEvent.blur(textbox());
+  expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
+});
+
+test("Cmd+Z on a resumed draft shows the undone text", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  fireEvent.change(focusBlock("first"), { target: { value: "typed" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [SAME_PAGE_MOVE] }));
+  undoKey();
+  expect(textbox().value).toBe("first");
+  expect(sync.sent.flat()).toContainEqual({ op: "update_text", uid: "u1",
+    text: "typed", base_text_hash: sha256Hex("first"), page_title: "Page" });
+});
+
 test("a page already active elsewhere in this tab renders read-only", () => {
   // Simulates a second instance for the same title (e.g. the page is also
   // open in a sidebar panel): the newcomer must not offer an editable

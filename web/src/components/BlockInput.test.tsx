@@ -12,6 +12,7 @@ function handlers(): OutlineHandlers {
   return {
     onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftStart: vi.fn(),
     onDraftChange: vi.fn(), onFlushDraft: vi.fn(),
+    pendingDraft: vi.fn(() => null), onInputUnmount: vi.fn(),
     onSplit: vi.fn(), onIndent: vi.fn(), onOutdent: vi.fn(),
     onMoveSubtreeUp: vi.fn(), onMoveSubtreeDown: vi.fn(),
     onBackspaceAtStart: vi.fn(),
@@ -116,6 +117,40 @@ test("the first edit of a clean draft reports the text it was typed over", () =>
   fireEvent.change(focusedTextarea(), { target: { value: "hi!?" } });
   expect(h.onDraftStart).toHaveBeenCalledTimes(2);
   expect(h.onDraftStart).toHaveBeenLastCalledWith("u1", "hi!");
+});
+
+test("a textarea mounting over a pending draft shows it and keeps its base", () => {
+  const h = handlers();
+  vi.mocked(h.pendingDraft).mockImplementation((uid) => (uid === "u1"
+    ? { text: "draft text", selection: { start: 2, end: 5 } } : null));
+  const { rerender } = mount(h, 0);
+  expect(focusedTextarea().value).toBe("draft text");
+  expect(focusedTextarea().selectionStart).toBe(2);
+  expect(focusedTextarea().selectionEnd).toBe(5);
+  // Dirty from the start: a tree change does not replace it.
+  rerender(inputElement(h, { ...NODE, text: "remote" }));
+  expect(focusedTextarea().value).toBe("draft text");
+  // Its first edit starts no new draft, so the pending draft keeps its base.
+  fireEvent.change(focusedTextarea(), { target: { value: "draft text!" } });
+  expect(h.onDraftStart).not.toHaveBeenCalled();
+  expect(h.onDraftChange).toHaveBeenCalledWith("u1", "draft text!");
+});
+
+test("a resumed draft with no recorded selection puts the caret at its end", () => {
+  const h = handlers();
+  vi.mocked(h.pendingDraft).mockReturnValue(
+    { text: "draft text", selection: null });
+  mount(h, 3);
+  expect(focusedTextarea().selectionStart).toBe("draft text".length);
+  expect(focusedTextarea().selectionEnd).toBe("draft text".length);
+});
+
+test("an unmounting textarea reports its selection", () => {
+  const h = handlers();
+  const { unmount } = mount(h, 0);
+  focusedTextarea().setSelectionRange(3, 6);
+  unmount();
+  expect(h.onInputUnmount).toHaveBeenCalledWith("u1", 3, 6);
 });
 
 test("keyboard map dispatches to the right handlers", () => {

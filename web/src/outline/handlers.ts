@@ -24,6 +24,15 @@ export interface OutlineHandlers {
    * debounced autosave must wait — flushing now would create a page from the
    * half-typed title. Blur/structural commits flush held drafts regardless. */
   onDraftChange(uid: string, text: string, holdFlush?: boolean): void;
+  /** The unflushed draft for `uid`, or null when none is pending. A textarea
+   * mounting for that block resumes it: a remote batch that reparents the
+   * block (or an ancestor) remounts the textarea with no blur, so the draft
+   * is still pending and the tree does not hold its text. */
+  pendingDraft(uid: string): ResumedDraft | null;
+  /** The focused textarea for `uid` is unmounting with this selection. It is
+   * kept while that block's draft is pending, so a textarea remounted over
+   * the draft puts the caret back where the user left it. */
+  onInputUnmount(uid: string, selStart: number, selEnd: number): void;
   /** Commit the pending draft NOW, without touching focus (pkm-hhbc). The
    * tree calls this before it navigates away under its own steam: unmounting
    * delivers no blur, so a flush-held draft would otherwise be dropped. */
@@ -82,4 +91,12 @@ export interface OutlineHandlers {
   /** App-level undo/redo (pkm-7q14): global history, not per-outline. */
   onUndo(): void;
   onRedo(): void;
+}
+
+/** A pending draft a mounting textarea takes over. `selection` is where the
+ * textarea that last showed the draft left its selection, or null when none
+ * was recorded (the caret then goes to the end of the text). */
+export interface ResumedDraft {
+  text: string;
+  selection: { start: number; end: number } | null;
 }

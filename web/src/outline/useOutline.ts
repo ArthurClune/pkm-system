@@ -104,6 +104,11 @@ export function useOutline(
   // the flushed draft's text after a flush (a still-dirty textarea keeps
   // showing it, whether or not the flush sent anything).
   const shownRef = useRef<ShownText | null>(null);
+  // Where the pending draft's textarea left its selection when it unmounted
+  // without a flush; a textarea remounted over the draft restores it. Only
+  // meaningful while that draft is pending, so every flush drops it.
+  const draftSelectionRef =
+    useRef<{ uid: string; start: number; end: number } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useLayoutEffect(() => {
@@ -152,6 +157,7 @@ export function useOutline(
     }
     const pending = pendingRef.current;
     pendingRef.current = null;
+    draftSelectionRef.current = null;
     if (pending) shownRef.current = { uid: pending.uid, base: pending.text };
     // The draft ships even when its block has left the tree, and its hash is
     // of the text it was typed over, not of what the tree holds now.
@@ -338,6 +344,18 @@ export function useOutline(
       // (onFlushDraft, below) still flush it.
       if (holdFlush) return;
       timerRef.current = setTimeout(flushNow, TEXT_DEBOUNCE_MS);
+    },
+    pendingDraft: (uid) => {
+      const pending = pendingRef.current;
+      if (pending?.uid !== uid) return null;
+      const sel = draftSelectionRef.current;
+      return { text: pending.text,
+               selection: sel?.uid === uid ? { start: sel.start, end: sel.end }
+                                           : null };
+    },
+    onInputUnmount: (uid, selStart, selEnd) => {
+      if (pendingRef.current?.uid !== uid) return;
+      draftSelectionRef.current = { uid, start: selStart, end: selEnd };
     },
     // In-editor navigation (pkm-hhbc): the tree asks for the flush before it
     // takes the user off this page, because its own unmount produces no blur.

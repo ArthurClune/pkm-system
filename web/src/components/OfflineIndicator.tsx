@@ -39,6 +39,18 @@ function PoisonDiscoveryBanner({ problem, actions }: {
   );
 }
 
+/** The sentence naming edits that live only in this tab's memory: shared by
+ * the replica-unavailable banner (every pending op is in-memory there) and
+ * the offline connectivity banner (a replica can keep failing writes to the
+ * fallback lane beside healthy durable rows), so both name the same risk in
+ * the same words. */
+function memoryOnlySentence(unsentInMemory: number): string | null {
+  if (unsentInMemory === 0) return null;
+  return `You are offline: ${unsentInMemory} unsent change`
+    + `${unsentInMemory === 1 ? " exists" : "s exist"} only in memory here. `
+    + `Reloading or closing this tab discards ${unsentInMemory === 1 ? "it" : "them"}.`;
+}
+
 /** The second sentence turns on connectivity, because the truth does
  * (pkm-s1m8). This problem is a ReplicaUnavailableError (SyncProvider only
  * raises replica-unavailable for availabilityOf(error) === "unusable"), which
@@ -54,10 +66,8 @@ function onlineOnlySafetyCopy(status: SyncStatus, pending: number): string | nul
   if (status === "connected") {
     return " Your changes are still being saved to the server.";
   }
-  if (pending === 0) return null;
-  return ` You are offline: ${pending} unsent change`
-    + `${pending === 1 ? " exists" : "s exist"} only in memory here. `
-    + `Reloading or closing this tab discards ${pending === 1 ? "it" : "them"}.`;
+  const sentence = memoryOnlySentence(pending);
+  return sentence === null ? null : ` ${sentence}`;
 }
 
 function ReplicaUnavailableBanner({ status, pending, actions }: {
@@ -232,11 +242,12 @@ function DeliveryProblemBanner({ problem, status, pending, actions }: {
   }
 }
 
-function ConnectivityBanner({ status, canEdit, pending, readOnlyReason,
-                              syncingAfterReconnect }: {
+function ConnectivityBanner({ status, canEdit, pending, unsentInMemory,
+                              readOnlyReason, syncingAfterReconnect }: {
   status: SyncStatus;
   canEdit: boolean;
   pending: number;
+  unsentInMemory: number;
   readOnlyReason?: string;
   syncingAfterReconnect: boolean;
 }) {
@@ -248,10 +259,15 @@ function ConnectivityBanner({ status, canEdit, pending, readOnlyReason,
       </div>
     );
   }
+  // The lane can carry entries a durable-path failure never counted in
+  // `pending` (a replica that opens and then fails every write), so this is
+  // named regardless of whether editing is currently allowed.
+  const memoryOnly = memoryOnlySentence(unsentInMemory);
   if (!canEdit) {
     return (
       <div className="ws-banner" role="status">
         Offline — editing paused: {readOnlyReason}
+        {memoryOnly !== null && ` ${memoryOnly}`}
       </div>
     );
   }
@@ -259,12 +275,13 @@ function ConnectivityBanner({ status, canEdit, pending, readOnlyReason,
     <div className="ws-banner" role="status">
       Offline — {pending === 0 ? "changes will sync on reconnect"
         : `${pending} change${pending === 1 ? "" : "s"} pending`}
+      {memoryOnly !== null && ` ${memoryOnly}`}
     </div>
   );
 }
 
 export function OfflineIndicator() {
-  const { status, pending, problem } = useSyncHealth();
+  const { status, pending, unsentInMemory, problem } = useSyncHealth();
   const { canEdit, readOnlyReason } = useSyncEditability();
   const { retryProblem, dismissProblem, discardProblem,
           resetReplica } = useSyncActions();
@@ -309,6 +326,7 @@ export function OfflineIndicator() {
                                pending={pending} actions={actions} />
       )}
       <ConnectivityBanner status={status} canEdit={canEdit} pending={pending}
+                          unsentInMemory={unsentInMemory}
                           readOnlyReason={readOnlyReason}
                           syncingAfterReconnect={syncingAfterReconnect} />
       {dialog}

@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-09-29T13:20:35Z
-updated_at: 2026-09-29T15:37:21Z
+updated_at: 2026-09-29T15:49:21Z
 parent: pkm-a4t2
 blocked_by:
     - pkm-9xg0
@@ -49,3 +49,5 @@ fingerprint stays as it is. Blocked by F1: both rewrite the rebase commit path.
 - Decisions (from the plan): acks outlive a run that ends before its commit; deletes share the snapshot's transaction; `ackedSeqs` recorded only on the in-place commit; `acked` required on the rebase variant only.
 - Docs: `sync-recovery.md` (runRecovery flowchart and ack hand-off table, guard row, `ackedSeqs` paragraph, carry wording and step 1), `frontend.md` module map, one `troubleshooting.md` row.
 - Tests: composed `replicaSync.ackedReplay.test.ts`; 4 `ackedRows` tests; 7 worker commit tests; 4 replicaSync tests; 1 `opsAck` test. Web unit suite 183 files / 2844 tests green with coverage thresholds met.
+
+- Review round: `deleteBatch` now matches the row by id AND batch id end to end (client signature `deleteBatch(id, batchId, ackedSeq?)`, worker handler requires the batch id, `queue.ts::deleteBatch` returns whether it matched; the drain and the poison discard pass it). Closes a never-sent edit being deleted by the drain's bare-id delete after a reset or a replacing rebase restarted the ids (the reset case predates this branch). A delete that matches nothing records no acked seq and forgets any held for that id. Docs: the no-replay rule is per session; the carry leaves out acked rows; guard row and troubleshooting row for the reused id. Web unit suite 2850 tests green.

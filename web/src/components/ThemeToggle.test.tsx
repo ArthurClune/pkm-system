@@ -48,7 +48,7 @@ it("ignores a garbage stored value and falls back to system", () => {
   expect(screen.getByRole("button", { name: /theme: auto/i })).toBeInTheDocument();
 });
 
-it("renders an inline svg icon, not emoji text (pkm-mijo)", () => {
+it("renders an inline svg icon, not emoji text", () => {
   render(<ThemeToggle />);
   const button = screen.getByRole("button");
   expect(button.querySelector("svg")).not.toBeNull();

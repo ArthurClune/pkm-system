@@ -25,7 +25,7 @@ it("renders nothing when there are no entries", async () => {
   expect(container.querySelector("ul")).toBeNull();
 });
 
-it("marks the entry for the current route as active (pkm-1eaj)", async () => {
+it("marks the entry for the current route as active", async () => {
   stubFetch([["/api/sidebar", { entries: [
     { id: 1, title: "AWS" }, { id: 2, title: "AI" },
   ] }]]);
@@ -47,7 +47,7 @@ it("calls onNavigate when an entry link is clicked", async () => {
   expect(onNavigate).toHaveBeenCalledOnce();
 });
 
-it("shift-clicking an entry opens it in the sidebar and suppresses the browser's new window (pkm-10ah)", async () => {
+it("shift-clicking an entry opens it in the sidebar and suppresses the browser's new window", async () => {
   stubFetch([["/api/sidebar", { entries: [{ id: 1, title: "AI" }] }]]);
   const openInSidebar = vi.fn();
   const onNavigate = vi.fn();
@@ -177,7 +177,7 @@ it("moving an entry down calls the reorder API with the new order", async () => 
   });
 });
 
-// --- mutation lane serialization (pkm-stn6) ---
+// --- mutation lane serialization ---
 
 it("disables every mutating control while a reorder mutation and its refresh are in flight", async () => {
   const put = defer<Response>();

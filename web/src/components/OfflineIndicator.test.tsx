@@ -183,7 +183,7 @@ it("failed durable poison marking is visible and offers Retry", () => {
   expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
 });
 
-it("failed durable poison marking offers a discard escape (pkm-tu5k)", () => {
+it("failed durable poison marking offers a discard escape", () => {
   // Retry can never succeed while the replica stays unopenable, and the
   // intent it retries is what wedges every future session. Discard is the
   // way out; its label owns the consequence.
@@ -207,7 +207,7 @@ it("failed durable poison marking offers a discard escape (pkm-tu5k)", () => {
 });
 
 it("an online-only session says so and offers a Reload, not a Retry", async () => {
-  // pkm-bjae: this state was silent, so the user lost offline editing with no
+  // This state must not be silent, or the user loses offline editing with no
   // notice. Reload rather than Retry because the failed open is latched for
   // the session and the queue has already delivered online.
   const reload = vi.fn();
@@ -224,8 +224,7 @@ it("an online-only session says so and offers a Reload, not a Retry", async () =
     expect(screen.getByRole("status")).toHaveTextContent(
       "Working online only — offline editing is unavailable for now.");
     // Connected, so the reassurance is true and is given: opQueue retains every
-    // replica failure that raises this problem, and the socket is delivering
-    // (pkm-s1m8 — this used to assert the sentence was absent).
+    // replica failure that raises this problem, and the socket is delivering.
     expect(screen.getByRole("status")).toHaveTextContent(
       "Your changes are still being saved to the server.");
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
@@ -240,9 +239,9 @@ it("an online-only session says so and offers a Reload, not a Retry", async () =
 });
 
 it("warns instead of reassuring when an online-only session goes offline", () => {
-  // pkm-s1m8: the reassurance is true only while the socket is up. Offline,
+  // The reassurance is true only while the socket is up. Offline,
   // retained ops live in the in-memory fallback lane, and useUnloadGuard does
-  // not hold on iPad (pkm-0htf), so a refresh or a closed tab can still take
+  // not hold on iPad, so a refresh or a closed tab can still take
   // them — the one case where the user can act on the warning.
   renderWith({
     status: "reconnecting",
@@ -296,11 +295,11 @@ it("says nothing about safety when an offline online-only session is clean", () 
 });
 
 it("Reload confirms before discarding undelivered work", async () => {
-  // pkm-bjae review: location.reload() destroys the in-memory fallback lane,
+  // location.reload() destroys the in-memory fallback lane,
   // which in an online-only session is the ONLY place undelivered ops live.
   // The banner's own wording invites the click, so it must ask first —
   // mirroring resetReplica's "N unsent changes" refusal. This confirm outlives
-  // useUnloadGuard because beforeunload is unreliable on iPad (pkm-0htf).
+  // useUnloadGuard because beforeunload is unreliable on iPad.
   const reload = vi.fn();
   const original = globalThis.location;
   Object.defineProperty(globalThis, "location", {

@@ -51,7 +51,7 @@ it("bullets are draggable and a drop reorders via one move op", () => {
   expect(texts).toEqual(["two", "one"]);
 });
 
-it("dragging a block inside a multi-block selection moves the whole selection (pkm-q89w)", () => {
+it("dragging a block inside a multi-block selection moves the whole selection", () => {
   const sync = renderPage([
     block("u1", "one", { order_idx: 0 }),
     block("u2", "two", { order_idx: 1 }),
@@ -80,7 +80,7 @@ it("dragging a block inside a multi-block selection moves the whole selection (p
   expect(texts).toEqual(["two", "three", "one"]);
 });
 
-it("dragging a block outside the selection moves only that block (pkm-q89w)", () => {
+it("dragging a block outside the selection moves only that block", () => {
   const sync = renderPage([
     block("u1", "one", { order_idx: 0 }),
     block("u2", "two", { order_idx: 1 }),

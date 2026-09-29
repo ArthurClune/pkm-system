@@ -92,7 +92,7 @@ test("Escape closes the popup without blurring", async () => {
   vi.useRealTimers();
 });
 
-// useTitleOptions rides the shared stale-response guard (pkm-kk0t). Both
+// useTitleOptions rides the shared stale-response guard. Both
 // halves of that contract matter here: a superseded query must not win, and
 // a query the user has emptied must not be repopulated by its own answer.
 

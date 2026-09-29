@@ -1,4 +1,4 @@
-// Click-to-navigate on resolved ((block refs)) — pkm-pzdu.
+// Click-to-navigate on resolved ((block refs)).
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { expect, it, vi } from "vitest";

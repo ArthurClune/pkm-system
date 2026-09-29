@@ -38,7 +38,7 @@ it("stays absent for a day nothing links to", () => {
 });
 
 it("renders the reused BacklinksSection from the day's own payload, with no "
- + "request of its own (pkm-5fak)", () => {
+ + "request of its own", () => {
   // The references arrive in /api/journal's payload. A fetch from here is the
   // N+1 this replaced: one page read per day on screen.
   const fetchMock = show(PLANS);

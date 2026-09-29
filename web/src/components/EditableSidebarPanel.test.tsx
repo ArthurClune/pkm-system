@@ -211,7 +211,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
   expect(isOutlineSessionActive("Paper")).toBe(false);
 });
 
-// pkm-63s1: a daily page nobody has written to yet 404s (the server
+// A daily page nobody has written to yet 404s (the server
 // auto-creates only today's). That is an empty page, not an error, in every
 // surface that displays it — the same fixture in the main pane and in a
 // sidebar panel must both render an editable empty outline.
@@ -256,7 +256,7 @@ test("shows the fetch error", async () => {
   expect(await screen.findByText(/request failed: 404/i)).toBeInTheDocument();
 });
 
-test("a uid prop scrolls to and flashes that block within the panel's own container (pkm-gdi5)", async () => {
+test("a uid prop scrolls to and flashes that block within the panel's own container", async () => {
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   stubFetch([["/api/page/Paper", pagePayload("Paper", [
@@ -291,7 +291,7 @@ test("no uid prop: no scroll/flash side effect", async () => {
   expect(scrollIntoView).not.toHaveBeenCalled();
 });
 
-// pkm-0one: a ((uid)) typed into a sidebar block must resolve live, the
+// A ((uid)) typed into a sidebar block must resolve live, the
 // same as it does in the main pane -- not only after the panel is reopened.
 test("a ((uid)) ref missing from the seed map resolves live in the panel", async () => {
   stubFetch([

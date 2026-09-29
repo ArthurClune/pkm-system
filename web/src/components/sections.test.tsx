@@ -366,7 +366,7 @@ it("disables show-more during refresh so stale pagination cannot start", async (
   expect(screen.queryByRole("link", { name: "July 7th, 2026" })).toBeNull();
 });
 
-it("a concurrent loadAll's groups survive a loadMore that started from a stale snapshot (pkm-3lqg)", async () => {
+it("a concurrent loadAll's groups survive a loadMore that started from a stale snapshot", async () => {
   // Nothing disables the filter toggle while a plain loadMore is in flight
   // (only `refreshing` does) -- start show-more, then open the filter panel
   // before it resolves, then let loadAll's fetch resolve first.
@@ -806,7 +806,7 @@ it("shows an error and re-enables the button when unlinked show-more fails", asy
   expect(screen.getByRole("button", { name: /show more/i })).not.toBeDisabled();
 });
 
-it("show-more buttons carry the shared secondary-button style (pkm-9kye)", () => {
+it("show-more buttons carry the shared secondary-button style", () => {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <BacklinksSection title="Machine Learning" initial={initial} />
@@ -827,7 +827,7 @@ const filterInitial: Backlinks = {
   total_pages: 2, offset: 0, limit: 20,
 };
 
-it("filter panel: include, exclude via shift-click, clear (pkm-m4an)", () => {
+it("filter panel: include, exclude via shift-click, clear", () => {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <BacklinksSection title="Claude" initial={filterInitial} />
@@ -862,7 +862,7 @@ it("filter panel: include, exclude via shift-click, clear (pkm-m4an)", () => {
   expect(screen.getByText(/no matching references/i)).toBeInTheDocument();
 });
 
-it("opening the filter panel loads all remaining backlinks first (pkm-m4an)", async () => {
+it("opening the filter panel loads all remaining backlinks first", async () => {
   const rest = pagePayload("Claude", [], {
     backlinks: {
       groups: [{ page_id: 5, page_title: "Daily C", items: [
@@ -886,7 +886,7 @@ it("opening the filter panel loads all remaining backlinks first (pkm-m4an)", as
   expect(screen.queryByRole("button", { name: /show more/i })).toBeNull();
 });
 
-it("filter panel reaches loaded state when the backlink total shrinks server-side (pkm-m4an)", async () => {
+it("filter panel reaches loaded state when the backlink total shrinks server-side", async () => {
   const shrinkInitial: Backlinks = {
     groups: [{ page_id: 1, page_title: "Daily A", items: [
       { uid: "f1", text: "alpha", breadcrumbs: [] }] }],
@@ -911,7 +911,7 @@ it("filter panel reaches loaded state when the backlink total shrinks server-sid
   expect(screen.getByText(/linked references \(1\)/i)).toBeInTheDocument();
 });
 
-it("the unlinked header is a focusable button reporting its expanded state (pkm-l4z8)", async () => {
+it("the unlinked header is a focusable button reporting its expanded state", async () => {
   stubFetch([["/api/unlinked?title=ACME", unlinkedPayload()]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>

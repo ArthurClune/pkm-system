@@ -215,7 +215,7 @@ test("fallback renders nested rich text but exposes no editor controls", () => {
   expect(h.onFocusBlock).not.toHaveBeenCalled();
 });
 
-test("an emptied (previously-written) block still renders a clickable, focusable block-text (pkm-mc07)", () => {
+test("an emptied (previously-written) block still renders a clickable, focusable block-text", () => {
   const h = handlers();
   const emptied = [block("u1", "", { order_idx: 0 })];
   const { container } = render(
@@ -244,7 +244,7 @@ test("collapsed children are hidden", () => {
   expect(screen.queryByText("hidden kid")).toBeNull();
 });
 
-test("/upload strips the trigger and hands picked files to onFiles (pkm-coz9)", () => {
+test("/upload strips the trigger and hands picked files to onFiles", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });
   const ta = focusedTextarea();
@@ -254,7 +254,7 @@ test("/upload strips the trigger and hands picked files to onFiles (pkm-coz9)", 
   fireEvent.keyDown(ta, { key: "Enter" }); // pick /upload
   expect(h.onSplit).not.toHaveBeenCalled(); // Enter consumed by the popup
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", ""); // trigger stripped
-  // The pick gives up the block itself (pkm-zrjc) rather than relying on the
+  // The pick gives up the block itself rather than relying on the
   // native dialog to blur it. The stripped-trigger draft must be registered
   // before the blur flushes it, so onDraftChange's call precedes onBlurBlock's.
   expect(h.onBlurBlock).toHaveBeenCalledWith("u1");
@@ -267,7 +267,7 @@ test("/upload strips the trigger and hands picked files to onFiles (pkm-coz9)", 
 });
 
 test("the upload input survives the block blurring while the native picker is "
-     + "open, so a late file choice still reaches onFiles (pkm-gbsb)", () => {
+     + "open, so a late file choice still reaches onFiles", () => {
   const h = handlers();
   const view = mount(h, { uid: "u1", cursor: 0 });
   const ta = focusedTextarea();
@@ -313,13 +313,13 @@ function mountSelected(
     </MemoryRouter>);
 }
 
-test("selected block rows get the selected class (pkm-9b8n)", () => {
+test("selected block rows get the selected class", () => {
   const { container } = mountSelected(handlers(), { anchor: "u1", head: "u2" });
   expect(container.querySelector('.block-row.selected[data-uid="u1"]')).not.toBeNull();
   expect(container.querySelector('.block-row.selected[data-uid="u2"]')).not.toBeNull();
 });
 
-test("Shift+Arrow on the selection extends it; Escape clears it (pkm-9b8n)", () => {
+test("Shift+Arrow on the selection extends it; Escape clears it", () => {
   const h = handlers();
   const { container } = mountSelected(h, { anchor: "u1", head: "u1" });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
@@ -329,7 +329,7 @@ test("Shift+Arrow on the selection extends it; Escape clears it (pkm-9b8n)", () 
   expect(h.onClearBlockSelection).toHaveBeenCalled();
 });
 
-test("Tab and Shift-Tab indent and outdent an editable selection (pkm-0ovd)", () => {
+test("Tab and Shift-Tab indent and outdent an editable selection", () => {
   const h = handlers();
   const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
@@ -340,7 +340,7 @@ test("Tab and Shift-Tab indent and outdent an editable selection (pkm-0ovd)", ()
   expect(h.onOutdentSelection).toHaveBeenCalledTimes(1);
 });
 
-test("Tab does not mutate a read-only selection (pkm-0ovd)", () => {
+test("Tab does not mutate a read-only selection", () => {
   const h = handlers();
   const { container } = mountSelected(
     h, { anchor: "u1", head: "u2" }, true,
@@ -353,7 +353,7 @@ test("Tab does not mutate a read-only selection (pkm-0ovd)", () => {
   expect(h.onOutdentSelection).not.toHaveBeenCalled();
 });
 
-test("a plain arrow collapses the selection back to editing the head (pkm-9b8n)", () => {
+test("a plain arrow collapses the selection back to editing the head", () => {
   const h = handlers();
   const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
@@ -361,7 +361,7 @@ test("a plain arrow collapses the selection back to editing the head (pkm-9b8n)"
   expect(h.onFocusBlock).toHaveBeenCalledWith("u2", 0);
 });
 
-test("Cmd-C copies the selected blocks' text in document order (pkm-9b8n)", () => {
+test("Cmd-C copies the selected blocks' text in document order", () => {
   const writeText = vi.fn();
   Object.defineProperty(navigator, "clipboard", {
     value: { writeText }, configurable: true,
@@ -373,7 +373,7 @@ test("Cmd-C copies the selected blocks' text in document order (pkm-9b8n)", () =
   expect(writeText).toHaveBeenCalledWith("hello [[World]]\n{{[[TODO]]}} task");
 });
 
-test("Ctrl+Cmd+Arrow extends an active selection block-by-block (pkm-am54)", () => {
+test("Ctrl+Cmd+Arrow extends an active selection block-by-block", () => {
   const h = handlers();
   const { container } = mountSelected(h, { anchor: "u1", head: "u1" });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
@@ -432,7 +432,7 @@ test("read-only Shift+Cmd does not move or extend a selection", () => {
   expect(h.onExtendBlockSelection).not.toHaveBeenCalled();
 });
 
-test("Backspace/Delete on a selection deletes the whole group (pkm-q89w)", () => {
+test("Backspace/Delete on a selection deletes the whole group", () => {
   const h = handlers();
   const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
@@ -442,7 +442,7 @@ test("Backspace/Delete on a selection deletes the whole group (pkm-q89w)", () =>
   expect(h.onDeleteBlockSelection).toHaveBeenCalledTimes(2);
 });
 
-test("read-only Backspace/Delete cannot destroy a selection (pkm-rckh)", () => {
+test("read-only Backspace/Delete cannot destroy a selection", () => {
   const h = handlers();
   const { container } = mountSelected(h, { anchor: "u1", head: "u2" }, true);
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
@@ -452,14 +452,14 @@ test("read-only Backspace/Delete cannot destroy a selection (pkm-rckh)", () => {
   expect(fireEvent.keyDown(tree, { key: "Backspace" })).toBe(true);
   expect(fireEvent.keyDown(tree, { key: "Delete" })).toBe(true);
   expect(h.onDeleteBlockSelection).not.toHaveBeenCalled();
-  // creating and copying a selection stay read-only-safe (pkm-am54)
+  // creating and copying a selection stay read-only-safe
   expect(fireEvent.keyDown(tree, {
     key: "ArrowDown", ctrlKey: true, metaKey: true,
   })).toBe(false);
   expect(h.onExtendBlockSelection).toHaveBeenCalledWith("down");
 });
 
-test("a selection made while editable is safe once sync turns the outline read-only (pkm-rckh)", () => {
+test("a selection made while editable is safe once sync turns the outline read-only", () => {
   const h = handlers();
   const selection = { anchor: "u1", head: "u2" };
   const view = render(
@@ -481,7 +481,7 @@ test("a selection made while editable is safe once sync turns the outline read-o
   expect(h.onClearBlockSelection).toHaveBeenCalledTimes(1); // still dismissible
 });
 
-// --- bullet context menu: Copy block reference (pkm-y6af) ---
+// --- bullet context menu: Copy block reference ---
 
 function bullet(container: HTMLElement, uid: string): Element {
   const el = container.querySelector(`[data-uid="${uid}"] .bullet`);
@@ -489,7 +489,7 @@ function bullet(container: HTMLElement, uid: string): Element {
   return el as Element;
 }
 
-test("clicking a bullet opens the block menu (pkm-y6af)", () => {
+test("clicking a bullet opens the block menu", () => {
   const { container } = mount(handlers(), null);
   fireEvent.click(bullet(container, "u1"));
   expect(screen.getByRole("menu")).toBeInTheDocument();
@@ -497,7 +497,7 @@ test("clicking a bullet opens the block menu (pkm-y6af)", () => {
     .toBeInTheDocument();
 });
 
-test("right-clicking a bullet opens the block menu (pkm-y6af)", () => {
+test("right-clicking a bullet opens the block menu", () => {
   const { container } = mount(handlers(), null);
   fireEvent.contextMenu(bullet(container, "u2"));
   expect(screen.getByRole("menu")).toBeInTheDocument();
@@ -528,7 +528,7 @@ test("keyboard opens and navigates the block menu, then restores trigger focus",
   expect(screen.getByRole("menu")).toBeInTheDocument();
 });
 
-test("Copy block reference writes ((uid)) and closes the menu (pkm-y6af)", () => {
+test("Copy block reference writes ((uid)) and closes the menu", () => {
   const writeText = vi.fn();
   Object.defineProperty(navigator, "clipboard", {
     value: { writeText }, configurable: true,
@@ -540,7 +540,7 @@ test("Copy block reference writes ((uid)) and closes the menu (pkm-y6af)", () =>
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
-test("Escape and click-away close the block menu (pkm-y6af)", () => {
+test("Escape and click-away close the block menu", () => {
   const { container } = mount(handlers(), null);
   fireEvent.click(bullet(container, "u1"));
   fireEvent.keyDown(document, { key: "Escape" });
@@ -550,11 +550,11 @@ test("Escape and click-away close the block menu (pkm-y6af)", () => {
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
-// pkm-muka: the menu is position:fixed and anchored at viewport coordinates,
+// The menu is position:fixed and anchored at viewport coordinates,
 // so it must never render inside a container that imposes layout containment
 // -- such a container becomes the containing block for fixed descendants and
 // displaces the menu by its own offset (styling.md carries the invariant).
-test("the block menu renders in a portal at document.body (pkm-muka)", () => {
+test("the block menu renders in a portal at document.body", () => {
   const { container } = mount(handlers(), null);
   fireEvent.click(bullet(container, "u1"));
   expect(container.querySelector(".block-menu")).toBeNull();
@@ -564,7 +564,7 @@ test("the block menu renders in a portal at document.body (pkm-muka)", () => {
 // A portal still bubbles its synthetic events through the REACT tree
 // (PdfViewer.tsx documents the hazard), so the menu being out of the DOM
 // subtree is no reason to stop checking that a pick can't reach a row.
-test("a menu item's click does not reach the row's click-to-edit (pkm-muka)", () => {
+test("a menu item's click does not reach the row's click-to-edit", () => {
   const h = handlers();
   const { container } = mount(h, null);
   fireEvent.click(bullet(container, "u1"));
@@ -591,7 +591,7 @@ test("the block menu keeps its roving focus and Tab-closes", () => {
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
-test("the block menu also opens in read-only mode (pkm-y6af)", () => {
+test("the block menu also opens in read-only mode", () => {
   // copying a ref is read-only-safe, same as multi-block copy
   const { container } = mount(handlers(), null, true);
   fireEvent.click(bullet(container, "u1"));
@@ -767,7 +767,7 @@ test("an unfocused valid Roam table with a heading renders inside div.block-text
   expect(rendered.closest("h1, h2, h3")).toBeNull();
 });
 
-// --- block-stamp margin column (bean pkm-4ler) ---
+// --- block-stamp margin column ---
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -851,7 +851,7 @@ test("the stamp stays the row's last child while the block is focused", () => {
   expect(row.lastElementChild).toHaveClass("block-stamp");
 });
 
-// --- reference-count gutter badge (pkm-d31f) ---
+// --- reference-count gutter badge ---
 
 test("blocks with incoming refs show a count badge; others none", () => {
   const h = handlers();
@@ -877,7 +877,7 @@ test("badge click does not focus the block", () => {
   expect(h.onFocusBlock).not.toHaveBeenCalled();
 });
 
-// --- {{toc}} table of contents (pkm-mzks) ---
+// --- {{toc}} table of contents ---
 
 const TOC_TREE: BlockNode[] = [
   block("h1", "Intro", { heading: 1 }),

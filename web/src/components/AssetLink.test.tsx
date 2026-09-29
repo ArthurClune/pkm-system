@@ -1,4 +1,4 @@
-// Clickable bare /assets/<sha>/<filename> URLs -- pkm-gdi5. Click resolves
+// Clickable bare /assets/<sha>/<filename> URLs. Click resolves
 // the sha to the block that references it (GET /api/search?exact=true) and
 // opens THAT block; no hit (or a failed lookup) falls back to opening the
 // raw asset in a new tab.

@@ -28,7 +28,7 @@ replica is a cache and the queue is the user's intent.
 | Schema, generation, cursor, FK, title, corruption or repeated window failure | Seven detectors | `reset` or `rebase` from a snapshot | One lifecycle, `runRecovery` | [Rebootstrap triggers](#rebootstrap-triggers) |
 | A rebuild or rebase meets page-level file damage | A corruption message from the rebuild | The file is replaced | A rebase carries the durable queue across | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | `ROLLBACK` fails after SQLite already rolled back | `wrapSqlite`, `rollbackToSavepoint` | The original error is raised | Corruption keeps its own message | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
-| An op names a block or parent the server no longer has | `ops_core.classify_missing_target` | Skipped with an ack 200; journal rows fix the replica | Tombstones are journalled before live rows | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
+| An op names a block or parent the server no longer has | `ops_core.classify_missing_target`; `skipsOnMissingTarget` in the replica | Skipped with an ack 200, and skipped in local apply; journal rows fix the replica | Tombstones are journalled before live rows; both sides pass `missing_targets.json` | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
 | The replica opens, then fails every write | Nothing | Known gap | — | [What the UI shows](#what-the-ui-shows) |
 
 ## A local write fails
@@ -353,3 +353,11 @@ tombstone and then every block of the moved subtree. `_plan_missing_target`
 emits tombstones before live rows, so a window boundary never puts a tombstone
 after the rows that restore what it cascades away. The ghost goes without a
 snapshot repair.
+
+The replica's local apply skips the same ops. `skipsOnMissingTarget`
+(`replica/missingTarget.ts`) mirrors `classify_missing_target`, and
+`shared/fixtures/missing_targets.json` pins the two to one table. So when the
+feed removes one op's target, `reapplyPending` keeps the rest of that batch.
+Rolling the whole batch back would revert its other edits until the ack. The
+next edit to a reverted block would then hash against stale text and draw a
+spurious conflict header.

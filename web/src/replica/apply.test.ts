@@ -537,3 +537,68 @@ describe("applyChanges: a title moving between ids inside one window", () => {
     ]);
   });
 });
+
+describe("pkm-7788: a create under a ghost parent no longer reverts its sibling", () => {
+  // Regression for the bean: a pending batch [create C under parent G,
+  // update_text L] optimistically applies both while G is still present
+  // locally. When G is later gone (a snapshot that omits it, or a window
+  // that tombstones it), reapplyPending used to roll the WHOLE batch back
+  // -- C's dangling parent_uid added an FK violation the savepoint diff
+  // caught -- reverting L to its server text even though L's own op had
+  // nothing wrong with it. The fix skips the create (its parent is
+  // missing) instead of inserting the dangling row, so L's update
+  // survives the replay.
+  const enqueueGhostBatch = (batchId: string) => {
+    t.db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
+      " heading, collapsed, created_at, updated_at)" +
+      " VALUES ('uid_ghost1', 1, NULL, 9, 'ghost parent', NULL, 0, 5, 5)");
+    enqueueBatch(t.db, [
+      { op: "create", uid: "uid_child1", page_title: "Machine Learning",
+        parent_uid: "uid_ghost1", order_idx: 0, text: "lost child" },
+      { op: "update_text", uid: "uid_b1", text: "mine" },
+    ], 5, batchId);
+    // optimistic apply landed both ops while the ghost parent still existed
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+      .toEqual([{ text: "mine" }]);
+  };
+
+  test("snapshot lacking the ghost parent", () => {
+    enqueueGhostBatch("batch-ghost-snap");
+
+    applySnapshot(t.db, SNAP, 6); // SNAP has no uid_ghost1; uid_b1 at server text
+
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+      .toEqual([{ text: "mine" }]);
+    expect(t.db.select("SELECT uid FROM blocks WHERE uid = 'uid_child1'"))
+      .toEqual([]);
+    const batches = allBatches(t.db);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toMatchObject({
+      batch_id: "batch-ghost-snap", poisoned: false,
+    });
+  });
+
+  test("windowed applyChanges tombstoning the ghost parent and re-shipping the sibling", () => {
+    enqueueGhostBatch("batch-ghost-window");
+
+    const result = applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      tombstones: [{ kind: "block", entity_id: "uid_ghost1" }],
+      blocks: [block("uid_b1", 1, {
+        text: "links [[AI]]", refs: [{ target_page_id: 2, kind: "link" }],
+      })],
+    }), 6);
+
+    expect(result).toEqual({ status: "applied", cursor: 11 });
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+      .toEqual([{ text: "mine" }]);
+    expect(t.db.select("SELECT uid FROM blocks WHERE uid = 'uid_child1'"))
+      .toEqual([]);
+    const batches = allBatches(t.db);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toMatchObject({
+      batch_id: "batch-ghost-window", poisoned: false,
+    });
+  });
+});

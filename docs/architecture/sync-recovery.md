@@ -526,4 +526,4 @@ before that state arrived leaves no loop either. The window with the other
 device's move also ships the moved block's row, through the parent closure.
 The journalled subtree then restores what else the local move touched:
 descendants it re-paged, and the target's children it shifted.
-`missing_targets.json` pins the cycle rule on both sides.
+`missing_targets.json` pins the cycle rule, and the first two rows' placement, on both sides.

@@ -1,7 +1,8 @@
 // The queue: durable batches with batch_id, poison handling, retention of
 // failed local persistence, and the connectivity/backoff/recovery policy every
 // drain obeys. The fake Replica it drives lives in ./memReplica.
-import { beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { defaultUnauthorizedHandler, setUnauthorizedHandler } from "../api/client";
 import type { BlockOp } from "../api/ops";
 import type { Replica } from "../replica/client";
 import { ReplicaError, ReplicaUnavailableError,
@@ -13,6 +14,12 @@ import { clientId, createOpQueue, type PoisonEvent } from "./opQueue";
 const op = (uid: string): BlockOp => ({ op: "delete", uid });
 
 beforeEach(() => { localStorage.clear(); });
+// jsdom's window.location is unforgeable: apiFetch's real 401 handler sets
+// window.location.href, which jsdom only logs as "Not implemented:
+// navigation" rather than executing — a warning src/test-setup.ts turns into
+// a failure for whichever test happens to be running when it lands. A test
+// that pushes a 401 through the queue stubs the handler instead.
+afterEach(() => { setUnauthorizedHandler(defaultUnauthorizedHandler); });
 
 function fetchSeq(responses: Array<() => Response | Promise<Response>>) {
   const bodies: { url: string; body: unknown }[] = [];
@@ -139,6 +146,26 @@ test("a 4xx emits batch details and pauses later delivery before notifying", asy
   await q.drain();
   expect(bodies).toHaveLength(2);
 });
+
+test.each([409, 422])(
+  "a %d on a durable batch still poisons it (stays terminal)", async (status) => {
+    const { bodies } = fetchSeq([
+      () => jsonResponse({ detail: "still bad" }, status),
+      () => jsonResponse({ ok: true }),
+    ]);
+    const replica = memReplica();
+    const q = createOpQueue(replica, () => undefined);
+    const poisons: unknown[] = [];
+    q.onPoison((event) => poisons.push(event));
+    q.enqueue([op("bad")]);
+    q.enqueue([op("good")]);
+    await q.settled();
+    const outcome = await q.drain();
+    expect(poisons).toHaveLength(1);
+    expect(outcome).toMatchObject({ status: "blocked", reason: "recovering" });
+    expect(bodies).toHaveLength(1); // the good batch waits for repair
+  },
+);
 
 test("a 4xx raises the internal poison barrier before durable mark resolves", async () => {
   const { bodies } = fetchSeq([
@@ -537,6 +564,38 @@ test("a transient 503 returns retryable then the 250ms retry drains", async () =
     vi.useRealTimers();
   }
 });
+
+test.each([401, 429])(
+  "a %d on a durable batch retries under backoff instead of poisoning it",
+  async (status) => {
+    setUnauthorizedHandler(() => {}); // jsdom cannot navigate; see the afterEach above
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      vi.stubGlobal("fetch", vi.fn(async () => {
+        calls += 1;
+        return calls === 1 ? jsonResponse({ detail: "nope" }, status)
+                            : jsonResponse({ ok: true });
+      }));
+      const replica = memReplica();
+      const q = createOpQueue(replica, () => undefined);
+      const poisons: unknown[] = [];
+      q.onPoison((event) => poisons.push(event));
+      await q.enqueue([op("u1")]).settled;
+
+      await expect(q.drain()).resolves.toMatchObject({
+        status: "blocked", reason: "retryable", pending: 1,
+      });
+      expect(poisons).toEqual([]);
+      expect(localStorage.getItem("pkm.poison-mark-intents.v1")).toBeNull();
+      await vi.advanceTimersByTimeAsync(250);
+      await expect(q.drain()).resolves.toEqual({ status: "drained" });
+      await expect(replica.pendingCount()).resolves.toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
 
 test("dispose cancels retry and reports the retained durable batch", async () => {
   vi.useFakeTimers();
@@ -1415,6 +1474,38 @@ async () => {
   }
 });
 
+test.each([401, 429])(
+  "a %d keeps the retained lane op under the same batch id and the backoff retry delivers it",
+  async (status) => {
+    setUnauthorizedHandler(() => {}); // jsdom cannot navigate; see the afterEach above
+    vi.useFakeTimers();
+    try {
+      const { bodies } = fetchSeq([
+        () => jsonResponse({ detail: "nope" }, status),
+        () => jsonResponse({ ok: true }),
+      ]);
+      const replica = laneOnlyReplica();
+      const desyncs: unknown[] = [];
+      const q = createOpQueue(replica, (e) => desyncs.push(e));
+      const ticket = q.enqueue([op("u1")]);
+      await q.settled();
+
+      await expect(q.drain()).resolves.toMatchObject({
+        status: "blocked", reason: "retryable", pending: 1,
+      });
+      expect(desyncs).toEqual([]);
+      await vi.advanceTimersByTimeAsync(250);
+      await expect(q.drain()).resolves.toEqual({ status: "drained" });
+      await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+      const ids = bodies.map((b) => (b.body as { batch_id: string }).batch_id);
+      expect(ids).toHaveLength(2);
+      expect(ids[0]).toBe(ids[1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
 test("a transport failure on a retained op keeps it for the next drain", async () => {
   // Not an ApiError at all (fetch itself rejects): retryable like a 5xx, and
   // the op must survive to be posted again rather than being discarded.
@@ -1468,6 +1559,32 @@ async () => {
   await expect(q.drain()).resolves.toEqual({ status: "drained" });
   await expect(good.delivered).resolves.toEqual({ status: "delivered" });
 });
+
+test.each([409, 422])(
+  "a %d still discards only the rejected retained op (stays terminal)", async (status) => {
+    const { bodies } = fetchSeq([
+      () => jsonResponse({ detail: "still bad" }, status),
+      () => jsonResponse({ ok: true }),
+    ]);
+    const replica = laneOnlyReplica();
+    const desyncs: unknown[] = [];
+    const q = createOpQueue(replica, (e) => desyncs.push(e));
+    const bad = q.enqueue([op("bad")]);
+    const good = q.enqueue([op("good")]);
+    await q.settled();
+
+    await expect(q.drain()).resolves.toMatchObject({
+      status: "blocked", reason: "recovering", pending: 1,
+    });
+    await expect(bad.delivered).resolves.toMatchObject({ status: "failed" });
+    expect(desyncs).toHaveLength(1);
+    expect(bodies).toHaveLength(1);
+
+    q.resume("recovery");
+    await expect(q.drain()).resolves.toEqual({ status: "drained" });
+    await expect(good.delivered).resolves.toEqual({ status: "delivered" });
+  },
+);
 
 test("a retained op still delivers immediately when pendingCount() misreports a backlog",
 async () => {

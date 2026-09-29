@@ -11,6 +11,7 @@ import { availabilityOf, isSessionFatal, ReplicaError,
 import { newUid } from "../uid";
 import { createQueueState, terminalReason, transitionQueue,
          type QueueEffect, type QueueEvent } from "./queueState";
+import { isTerminalRejection } from "./rejection";
 
 export const clientId = newUid();
 
@@ -465,8 +466,7 @@ function createReplicaQueue(replica: Replica,
     try {
       ack = await postOps(head.ops, head.batchId);
     } catch (error: unknown) {
-      if (error instanceof ApiError && error.status >= 400
-          && error.status < 500) {
+      if (isTerminalRejection(error)) {
         // A lane entry has no durable row to poison, so terminal means
         // discarded: drop exactly the rejected entry — the only discard
         // this queue makes on its own — hold later entries behind the
@@ -614,7 +614,7 @@ function createReplicaQueue(replica: Replica,
       try {
         ack = await postOps(batch.ops, batch.batch_id);
       } catch (error: unknown) {
-        if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+        if (isTerminalRejection(error)) {
           return rejectDurableBatch(batch, error);
         }
         return failed(error);

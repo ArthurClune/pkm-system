@@ -10,8 +10,10 @@ const RETRY_LATER_STATUSES: ReadonlySet<number> = new Set([401, 403, 408, 429]);
 /** True only for an `ApiError` in the 4xx range that is not one of the
  * retry-later statuses above. Anything else — a 5xx, a non-`ApiError`
  * failure such as a dropped fetch or an offline error — is not a terminal
- * rejection. */
-export function isTerminalRejection(error: unknown): boolean {
+ * rejection. A `true` result narrows `error` to `ApiError` for the caller;
+ * `false` does not imply the opposite (a 5xx `ApiError` also returns
+ * false), it only means the caller must not treat it as one. */
+export function isTerminalRejection(error: unknown): error is ApiError {
   if (!(error instanceof Error) || !("status" in error)) return false;
   const apiError = error as ApiError;
   return (

@@ -1,5 +1,5 @@
-"""GET /api/block-refs: on-demand ((uid)) resolution for freshly pasted refs
-(pkm-y6af). Same transitive semantics as the page payload's block_ref_texts."""
+"""GET /api/block-refs: on-demand ((uid)) resolution for freshly pasted refs.
+Same transitive semantics as the page payload's block_ref_texts."""
 
 
 def test_resolves_requested_uids(client):

@@ -1,4 +1,4 @@
-"""Pure asset-browser helpers (pkm-jdu3, pkm-x3l7)."""
+"""Pure asset-browser helpers."""
 import hashlib
 
 import pytest
@@ -177,7 +177,7 @@ def test_zip_arcnames_mass_duplicates_fall_back_to_numeric_suffix():
     assert sum(1 for _, arc in arcs if f"({sha_b}-" in arc) == 3
 
 
-# --- sha256_hex / asset_needs_repair (pkm-x3l7) ---
+# --- sha256_hex / asset_needs_repair ---
 
 def test_sha256_hex_matches_hashlib():
     assert sha256_hex(b"hello") == hashlib.sha256(b"hello").hexdigest()
@@ -203,7 +203,7 @@ def test_needs_repair_true_on_same_size_hash_mismatch():
     assert asset_needs_repair(sha, 7, 7, other_sha) is True
 
 
-# --- export_limit_violation (pkm-13ty) ---
+# --- export_limit_violation ---
 
 def test_export_limit_violation_none_when_within_both_limits():
     assert export_limit_violation(5, 500, max_count=10, max_bytes=1000) is None

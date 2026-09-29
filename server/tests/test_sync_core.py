@@ -90,9 +90,9 @@ def test_chunk_ids_under_one_chunk_yields_single_chunk():
 
 
 def test_hydrate_in_order_preserves_order_and_skips_missing():
-    # pkm-ldqx: chunked IN-queries come back keyed by id in scan order, not
-    # the caller's order -- this is what puts the window's/input's order
-    # back, same as the old per-uid loop's incidental ordering.
+    # Chunked IN-queries come back keyed by id in scan order, not the
+    # caller's order -- this is what puts the window's/input's order back,
+    # same as a per-uid loop's incidental ordering.
     present = {"a": "A", "c": "C"}
     assert hydrate_in_order(["a", "b", "c"], present) == ["A", "C"]
 

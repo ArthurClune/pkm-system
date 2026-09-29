@@ -1,11 +1,11 @@
 ---
 # pkm-87cf
 title: SAH pool VFS never rolls back a hot journal, so a worker killed mid-commit leaves a torn replica
-status: todo
+status: completed
 type: bug
 priority: high
 created_at: 2026-09-29T14:26:50Z
-updated_at: 2026-09-29T14:26:50Z
+updated_at: 2026-09-29T15:42:41Z
 parent: pkm-a4t2
 ---
 
@@ -53,13 +53,45 @@ pool.
 
 ## Next steps
 
-- [ ] Confirm the behaviour upstream (is the constant 1 intended for the
+- [x] Confirm the behaviour upstream (is the constant 1 intended for the
       single-connection pool, and is hot-journal rollback knowingly given up?)
-- [ ] Report it to sqlite-wasm with the scenario-G reproduction
-- [ ] Confirm only one connection in the worker ever opens each pool file
+      Not intended: an unported fix. The same bug in the sibling "opfs" VFS
+      was reported and fixed in 2024 (forum a2f573b00cda1372); sahpool kept
+      the constant through 3.53.4-build1 and trunk (plan Investigation §1).
+- [x] Draft the upstream report (plan Appendix A); filing is Arthur's call
+- [x] Confirm only one connection in the worker ever opens each pool file
       (replica, carry), then consider a VFS shim or patch answering 0 from
       `xCheckReservedLock`, so a hot journal is rolled back on the next open
-- [ ] If shimmed: an e2e reproduction (kill mid-commit, reopen, the
+      (confirmed, plan Investigation §2; patched to answer RESERVED only
+      when this pool holds it on the path, rather than a constant 0)
+- [x] If shimmed: an e2e reproduction (kill mid-commit, reopen, the
       uncommitted change is gone and the journal removed), and revisit the
       journal comments in `worker.ts`/`poolCapacity.ts` and
       sync-recovery.md § Reset, rebase and file replacement
+
+## Summary of Changes
+
+- `web/patches/@sqlite.org__sqlite-wasm@3.53.0-build1.patch`, declared in
+  `web/pnpm-workspace.yaml` `patchedDependencies` and keyed to the exact
+  version: the opfs-sahpool VFS's `xCheckReservedLock` now reports RESERVED
+  only when a file this pool has open on the same path holds
+  `lockType >= SQLITE_LOCK_RESERVED` (new `OpfsSAHPool.isPathReserved`).
+  Patched in `dist/index.mjs` (the build the worker bundles) and
+  `dist/sqlite3-worker1.mjs` (Vite emits it as an unused asset). An upgrade
+  fails `pnpm install` ("patches were not used") until the patch is carried
+  forward or dropped.
+- `web/e2e/replica-hot-journal.spec.ts` (+ `sahpool-tool.ts`,
+  `sahpool-tool.worker.mjs`, a test-only worker on the app's pool): the app
+  rolls back a killed worker's uncommitted spill on its next open (red
+  before: 195 of 200 rows uncommitted); a second in-worker connection leaves
+  a live writer's journal alone (fails under a constant-0 patch); a first
+  transaction on a fresh file, cut short, leaves an empty database (red
+  before: SQLITE_NOTADB).
+- Investigation correction: a leftover journal was not held "for good". The
+  next write transaction reused and deleted it at commit, which made the torn
+  pages permanent.
+- Comments in `worker.ts`, `poolCapacity.ts`, `workerHandlers.ts` (+ test
+  helper) and docs (`sync-and-offline.md` § The replica, `sync-recovery.md` §
+  Reset, rebase and file replacement, `frontend.md` build notes and spec
+  count, two troubleshooting rows) now say commits are atomic across a
+  worker's death.

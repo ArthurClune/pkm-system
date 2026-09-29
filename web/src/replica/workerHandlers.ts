@@ -5,6 +5,7 @@
 import type { BlockOp } from "../api/ops";
 import type { Changes, Snapshot } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
+import type { CarryStore } from "./carryStore";
 import type { PendingBatch, RecoveryCommit, ReplicaDiagnostics } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
@@ -13,7 +14,8 @@ import { getMeta } from "./meta";
 import { handleLocalApi, type LocalApiRequest } from "./localApi/router";
 import { pendingSetStillCovered } from "./pendingGuard";
 import { allBatches, deleteBatch, type DurablePendingRow, enqueueBatch,
-         markPoisoned, nextBatch, pendingCount, poisonedBatches } from "./queue";
+         importPendingRows, markPoisoned, nextBatch, pendingCount,
+         poisonedBatches } from "./queue";
 import { createRecoveryGate } from "./recoveryGate";
 import type { RpcHandlers } from "./rpc";
 
@@ -25,6 +27,9 @@ export interface WorkerDeps {
    * the next openDb() creates an empty one. The reset path's escape from
    * damage a logical rebuild cannot get past (pkm-h1c6). */
   discardDbFile?(): Promise<void> | void;
+  /** Where a rebase commits the queue before a file replacement unlinks the
+   * old file. Without one, a rebase never replaces the file. */
+  carry?: CarryStore;
   /** Injectable for tests; the worker uses Date.now/crypto.randomUUID.
    * nowMs and clockMs both default to Date.now and are two names for the
    * same wall clock, kept distinct because they measure different things:
@@ -240,10 +245,15 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     }
   };
   /** Delete the damaged file and open a fresh one, if `error` is corruption
-   * and the host can delete files; otherwise rethrow `error`. */
-  const replaceFileAfter = async (error: unknown): Promise<ReplicaDb> => {
+   * and the host can delete files; otherwise rethrow `error`.
+   * `beforeDiscard` runs once the file is known to be going and before
+   * anything is deleted; if it throws, the file is kept. */
+  const replaceFileAfter = async (
+    error: unknown, beforeDiscard?: () => void,
+  ): Promise<ReplicaDb> => {
     const message = error instanceof Error ? error.message : String(error);
     if (!deps.discardDbFile || !isCorruptionMessage(message)) throw error;
+    beforeDiscard?.();
     console.warn("replica: rebuild hit file-level corruption, replacing the file",
                  error);
     await deps.discardDbFile();
@@ -253,25 +263,31 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   /** A rebase, and on the same file-level damage the same escape, except
    * that a rebase keeps the durable queue: the rejected-batch repair runs one
    * so the valid rows behind a poisoned batch are not posted ahead of it or
-   * lost (pkm-1b2w). `rows` move across verbatim, ids included, since the
-   * provider deletes the poisoned row by id afterwards. They commit before
-   * the snapshot applies, so a failed apply still leaves them durable. */
+   * lost. `rows` move across verbatim, ids included, since the provider
+   * deletes the poisoned row by id afterwards.
+   *
+   * The durable boundary: the rows are committed to the carry database
+   * before the damaged file and its journal are unlinked. The new file
+   * imports them from the carry by id once its schema is installed, and the
+   * carry is discarded as soon as that import commits, so a later snapshot
+   * failure leaves the rows in the new file and nothing stale behind to be
+   * adopted again. From the unlink to that commit the carry is the only
+   * copy, which is why every handler adopts a leftover carry before it
+   * serves. */
   const rebaseOrReplaceFile = async (
     snapshot: Snapshot, rows: readonly DurablePendingRow[],
   ): Promise<void> => {
     try {
       applySnapshotToDb(await db(), snapshot, nowMs());
     } catch (error: unknown) {
-      const fresh = await replaceFileAfter(error);
+      // No durable place for the rows: keep the damaged file, which still
+      // holds them, rather than replace it.
+      const carry = deps.carry;
+      if (!carry) throw error;
+      const fresh = await replaceFileAfter(error, () => { carry.write(rows); });
       rebuildSchema(fresh);
-      fresh.transaction(() => {
-        for (const row of rows) {
-          fresh.exec(
-            "INSERT INTO pending_ops(id, batch_id, ops_json, poisoned, error)" +
-            " VALUES (?, ?, ?, ?, ?)",
-            [row.id, row.batch_id, row.ops_json, row.poisoned, row.error]);
-        }
-      });
+      importPendingRows(fresh, carry.read());
+      carry.discard();
       applySnapshotToDb(fresh, snapshot, nowMs());
     }
   };

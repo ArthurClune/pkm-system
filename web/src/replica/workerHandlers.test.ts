@@ -4,8 +4,12 @@ import { applySnapshot, type Snapshot } from "./apply";
 import type { ReplicaDiagnostics } from "./client";
 import { SCHEMA_VERSION } from "./clientSchema";
 import { availabilityOf, ReplicaUnavailableError } from "./errors";
-import { openRawTestDb, withDamagedFreelist } from "./testDb";
-import { buildHandlers } from "./workerHandlers";
+import { type CarryStore, createCarryStore } from "./carryStore";
+import type { ReplicaDb } from "./db";
+import type { DurablePendingRow } from "./queue";
+import { failingOnce, fakeCarryFiles, openRawTestDb, withDamagedFreelist }
+  from "./testDb";
+import { buildHandlers, type WorkerDeps } from "./workerHandlers";
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: 5,
@@ -507,16 +511,36 @@ test("a reset failure that is not corruption keeps the file", async () => {
   expect(discardDbFile).not.toHaveBeenCalled();
 });
 
-test("a rebase over a damaged file carries every durable row into a new file", async () => {
-  // The rejected-batch repair is a rebase and must never drop the valid rows
-  // queued behind the poisoned one (pkm-1b2w): they move across verbatim.
+const SQLITE_FULL = "SQLITE_FULL: sqlite3 result code 13: database or disk is full";
+const DURABLE_ROWS =
+  "SELECT id, batch_id, ops_json, poisoned, error FROM pending_ops ORDER BY id";
+
+/** A poisoned batch and a valid one queued behind it, in a replica file that
+ * turns out damaged when the repair's rebase runs. Discarding the file really
+ * closes the old database, so the rows survive only if they were made
+ * durable elsewhere first. `fresh` wraps the new file's database (once, so a
+ * failing wrapper fails once per worker); `openAfterDiscard` may be replaced
+ * to make the new file's open fail or hang. */
+async function poisonedQueueOverDamagedFile(options: {
+  fresh?: (db: ReplicaDb) => ReplicaDb;
+  carry?: (files: ReturnType<typeof fakeCarryFiles>) => CarryStore | undefined;
+  applySnapshot?: WorkerDeps["applySnapshot"];
+} = {}) {
   const damaged = await openRawTestDb();
   const fresh = await openRawTestDb();
+  const carryFiles = fakeCarryFiles(await openRawTestDb());
+  const carry = options.carry
+    ? options.carry(carryFiles) : createCarryStore(carryFiles);
+  const freshDb = options.fresh ? options.fresh(fresh.db) : fresh.db;
   let isDamaged = false;
-  let current = withDamagedFreelist(damaged.db, /^DELETE /i, () => isDamaged);
-  const discardDbFile = vi.fn(() => { current = fresh.db; });
+  let discarded = false;
+  const damagedDb = withDamagedFreelist(damaged.db, /^DELETE /i, () => isDamaged);
+  const files = { openAfterDiscard: async (): Promise<ReplicaDb> => freshDb };
+  const discardDbFile = vi.fn(() => { damaged.close(); discarded = true; });
   const handlers = buildHandlers({
-    openDb: async () => current, discardDbFile, nowMs: () => 10,
+    openDb: async () => discarded ? files.openAfterDiscard() : damagedDb,
+    discardDbFile, carry, nowMs: () => 10,
+    applySnapshot: options.applySnapshot,
   });
   await handlers.init(undefined);
   await handlers.applySnapshot(SNAP);
@@ -529,19 +553,29 @@ test("a rebase over a damaged file carries every durable row into a new file", a
     batchId: "valid",
   });
   await handlers.markPoisoned({ id: 1, error: "HTTP 400", batchId: "rejected" });
-  const rowsBefore = damaged.db.select(
-    "SELECT id, batch_id, ops_json, poisoned, error FROM pending_ops ORDER BY id");
+  const rowsBefore = damaged.db.select<DurablePendingRow>(DURABLE_ROWS);
   isDamaged = true;
   const lease = await handlers.prepareRecovery(undefined) as { token: string };
-
-  await expect(handlers.commitRecovery({
+  const commit = () => handlers.commitRecovery({
     token: lease.token, input: { kind: "rebase", snapshot: SNAP },
-  })).resolves.toBeNull();
+  });
+  return {
+    handlers, commit, rowsBefore, carry, carryFiles, discardDbFile,
+    damaged, fresh, files,
+  };
+}
+
+test("a rebase over a damaged file carries every durable row into a new file", async () => {
+  // The rejected-batch repair is a rebase and must never drop the valid rows
+  // queued behind the poisoned one: they move across verbatim.
+  const { handlers, commit, rowsBefore, carry, discardDbFile, fresh } =
+    await poisonedQueueOverDamagedFile();
+
+  await expect(commit()).resolves.toBeNull();
 
   expect(discardDbFile).toHaveBeenCalledOnce();
-  expect(fresh.db.select(
-    "SELECT id, batch_id, ops_json, poisoned, error FROM pending_ops ORDER BY id"))
-    .toEqual(rowsBefore);
+  expect(fresh.db.select(DURABLE_ROWS)).toEqual(rowsBefore);
+  expect(carry?.exists()).toBe(false);
   // snapshot applied, and the valid batch re-applied over it
   expect(fresh.db.select("SELECT uid, text FROM blocks"))
     .toEqual([{ uid: "uid_b1", text: "edited" }]);
@@ -555,12 +589,14 @@ test("a rebase over a damaged file carries every durable row into a new file", a
 test("a rebase keeps the carried rows even if the snapshot then fails on the new file", async () => {
   const damaged = await openRawTestDb();
   const fresh = await openRawTestDb();
+  const carry = createCarryStore(fakeCarryFiles(await openRawTestDb()));
   let isDamaged = false;
   let current = withDamagedFreelist(damaged.db, /^DELETE /i, () => isDamaged);
   let failSnapshot = false;
   const handlers = buildHandlers({
     openDb: async () => current,
-    discardDbFile: () => { current = fresh.db; },
+    discardDbFile: () => { damaged.close(); current = fresh.db; },
+    carry,
     nowMs: () => 10,
     applySnapshot: (db, snapshot, nowMs) => {
       if (failSnapshot && db === fresh.db) throw new Error("snapshot apply failed");
@@ -578,4 +614,80 @@ test("a rebase keeps the carried rows even if the snapshot then fails on the new
   })).rejects.toThrow();
   expect(fresh.db.select("SELECT batch_id FROM pending_ops"))
     .toEqual([{ batch_id: "kept" }]);
+  expect(carry.exists()).toBe(false);
 });
+
+test("a rebase whose new file will not open leaves every row in the carry", async () => {
+  const { commit, rowsBefore, carry, files } = await poisonedQueueOverDamagedFile();
+  files.openAfterDiscard = () => Promise.reject(new Error("open failed"));
+  await expect(commit()).rejects.toThrow("open failed");
+  expect(carry?.read()).toEqual(rowsBefore);
+});
+
+test("a rebase whose schema install fails on the new file leaves every row in the carry", async () => {
+  const { commit, rowsBefore, carry } = await poisonedQueueOverDamagedFile({
+    fresh: (db) => failingOnce(db, /CREATE TABLE/i, SQLITE_FULL),
+  });
+  await expect(commit()).rejects.toThrow(/SQLITE_FULL/);
+  expect(carry?.read()).toEqual(rowsBefore);
+});
+
+test("a rebase whose row import fails leaves every row in the carry", async () => {
+  const { commit, rowsBefore, carry } = await poisonedQueueOverDamagedFile({
+    fresh: (db) => failingOnce(db, /^INSERT OR IGNORE INTO pending_ops/, SQLITE_FULL),
+  });
+  await expect(commit()).rejects.toThrow(/SQLITE_FULL/);
+  expect(carry?.read()).toEqual(rowsBefore);
+});
+
+test("a carry write failure leaves the damaged file and its rows in place", async () => {
+  const { commit, rowsBefore, discardDbFile, damaged } =
+    await poisonedQueueOverDamagedFile({
+      carry: (inner) => createCarryStore({
+        exists: () => inner.exists(),
+        unlink: () => { inner.unlink(); },
+        open: () => {
+          const handle = inner.open();
+          return {
+            db: failingOnce(handle.db, /^INSERT OR IGNORE/, SQLITE_FULL),
+            close: handle.close,
+          };
+        },
+      }),
+    });
+  await expect(commit()).rejects.toThrow(/SQLITE_FULL/);
+  expect(discardDbFile).not.toHaveBeenCalled();
+  expect(damaged.db.select(DURABLE_ROWS)).toEqual(rowsBefore);
+});
+
+test("a rebase without a carry store keeps the damaged file", async () => {
+  const { commit, rowsBefore, discardDbFile, damaged } =
+    await poisonedQueueOverDamagedFile({ carry: () => undefined });
+  await expect(commit()).rejects.toThrow(/SQLITE_CORRUPT/);
+  expect(discardDbFile).not.toHaveBeenCalled();
+  expect(damaged.db.select(DURABLE_ROWS)).toEqual(rowsBefore);
+});
+
+test("a snapshot failure after the import leaves no carry to resurrect drained rows", async () => {
+  // The carry goes as soon as the new file holds the rows. Kept past a failed
+  // snapshot, it would be adopted on the next open and bring back rows that
+  // were acked or deleted in the meantime.
+  let failOn: ReplicaDb | null = null;
+  const setup = await poisonedQueueOverDamagedFile({
+    applySnapshot: (db, snapshot, nowMs) => {
+      if (db === failOn) throw new Error("snapshot apply failed");
+      applySnapshot(db, snapshot, nowMs);
+    },
+  });
+  const { handlers, commit, carry, fresh } = setup;
+  failOn = fresh.db;
+  await expect(commit()).rejects.toThrow("snapshot apply failed");
+  expect(fresh.db.select<{ id: number }>(DURABLE_ROWS).map((row) => row.id))
+    .toEqual([1, 2]);
+  expect(carry?.exists()).toBe(false);
+  await handlers.deleteBatch({ id: 1 });
+  await handlers.close(undefined);
+  const init = await handlers.init(undefined) as { pendingBatches: { id: number }[] };
+  expect(init.pendingBatches.map((batch) => batch.id)).toEqual([2]);
+});
+

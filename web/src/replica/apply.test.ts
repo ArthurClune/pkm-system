@@ -538,6 +538,60 @@ describe("applyChanges: a title moving between ids inside one window", () => {
   });
 });
 
+describe("applyChanges: a page id deleted and reused inside one window", () => {
+  // SQLite hands a deleted page id to the next insert, so the server ships
+  // such an id as a tombstone and a live row in one window. Tombstones lead:
+  // the page's cascade clears what hung off the old page, then the upserts
+  // bring back everything the window ships for the new one.
+  test("the tombstone clears the old page's blocks and other blocks' refs before the new page lands", () => {
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, blocks: [block("uid_on_ai", 2)],
+    }));
+    expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid = 'uid_on_ai'")).toBe(1);
+    const feed = emptyFeed({
+      next_since: 12, latest_seq: 12,
+      tombstones: [{ kind: "page", entity_id: "2" }],
+      pages: [page(2, "Reborn")],
+    });
+    expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 12 });
+    expect(t.db.select("SELECT id, title FROM pages WHERE id = 2"))
+      .toEqual([{ id: 2, title: "Reborn" }]);
+    expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid = 'uid_on_ai'")).toBe(0);
+    expect(count("SELECT COUNT(*) AS n FROM refs WHERE target_page_id = 2")).toBe(0);
+    expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid = 'uid_b1'")).toBe(1);
+  });
+
+  test("blocks the window ships for the reused page survive the tombstone", () => {
+    const feed = emptyFeed({
+      next_since: 12, latest_seq: 12,
+      tombstones: [{ kind: "page", entity_id: "2" }],
+      pages: [page(2, "Reborn")],
+      blocks: [
+        block("uid_new", 2),
+        block("uid_b1", 1, { text: "links [[Reborn]]",
+                             refs: [{ target_page_id: 2, kind: "link" }] }),
+      ],
+    });
+    expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 12 });
+    expect(t.db.select("SELECT page_id FROM blocks WHERE uid = 'uid_new'"))
+      .toEqual([{ page_id: 2 }]);
+    expect(t.db.select("SELECT target_page_id FROM refs WHERE src_block_uid = 'uid_b1'"))
+      .toEqual([{ target_page_id: 2 }]);
+  });
+
+  test("a same-title recreate still drops the stale refs", () => {
+    const feed = emptyFeed({
+      next_since: 12, latest_seq: 12,
+      tombstones: [{ kind: "page", entity_id: "2" }],
+      pages: [page(2, "AI")],
+    });
+    expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 12 });
+    expect(t.db.select("SELECT id, title FROM pages WHERE id = 2"))
+      .toEqual([{ id: 2, title: "AI" }]);
+    expect(count("SELECT COUNT(*) AS n FROM refs WHERE target_page_id = 2")).toBe(0);
+  });
+});
+
 describe("pkm-7788: a create under a ghost parent no longer reverts its sibling", () => {
   // Regression for the bean: a pending batch [create C under parent G,
   // update_text L] optimistically applies both while G is still present

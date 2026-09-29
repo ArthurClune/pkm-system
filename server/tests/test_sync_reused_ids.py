@@ -59,3 +59,56 @@ def test_reused_sidebar_id_ships_tombstone_and_new_entry(client):
     feed = _drain(client, since=start)
     assert ("sidebar", str(sid)) in _tombstones(feed)
     assert {s["id"]: s["title"] for s in feed["sidebar"]}[sid] == "SbReborn"
+
+
+def test_reused_page_window_ships_blocks_on_and_referencing_the_page(client):
+    # The replica applies tombstones first, so the page tombstone's cascade
+    # removes every local block on the id and every ref to it. A window
+    # that ships the page as tombstone plus live row must therefore ship
+    # the current blocks on the page and those referencing it, even when
+    # their own journal rows fall in a later window.
+    start, pid = _reuse_page_id(client)
+    r = client.post("/api/ops", json={
+        "client_id": "c1", "batch_id": "reuse_dependents1", "ops": [
+            {"op": "create", "uid": "uid_reborn_kid", "page_title": "Reborn",
+             "parent_uid": None, "order_idx": 0, "text": "on the new page"},
+            {"op": "update_text", "uid": "uid_b6",
+             "text": "links [[Reborn]]"}]})
+    assert r.status_code == 200, r.text
+    # the page delete row and the page create row only
+    feed = _drain(client, since=start, limit=2)
+    assert feed["next_since"] < feed["latest_seq"]
+    assert ("page", str(pid)) in _tombstones(feed)
+    blocks = {b["uid"]: b for b in feed["blocks"]}
+    assert {"uid_reborn_kid", "uid_b6"} <= set(blocks)
+    assert {"target_page_id": pid, "kind": "link"} in blocks["uid_b6"]["refs"]
+    # dependency-complete: every page a shipped block needs ships too
+    page_ids = {p["id"] for p in feed["pages"]}
+    assert {b["page_id"] for b in feed["blocks"]} <= page_ids
+    assert {r_["target_page_id"] for b in feed["blocks"]
+            for r_ in b["refs"]} <= page_ids
+
+
+def test_reused_page_dependents_are_not_shipped_twice(client):
+    start, _pid = _reuse_page_id(client)
+    r = client.post("/api/ops", json={
+        "client_id": "c1", "batch_id": "reuse_dependents2", "ops": [
+            {"op": "create", "uid": "uid_reborn_kid2", "page_title": "Reborn",
+             "parent_uid": None, "order_idx": 0, "text": "[[Reborn]] self"}]})
+    assert r.status_code == 200, r.text
+    # one window holding the block's own row as well as the page rows; the
+    # block is on the page and references it
+    feed = _drain(client, since=start)
+    uids = [b["uid"] for b in feed["blocks"]]
+    assert uids.count("uid_reborn_kid2") == 1
+
+
+def test_window_with_no_reused_page_ships_no_extra_blocks(client):
+    # a page deleted and not reused leaves nothing on or pointing at it
+    r = client.post("/api/pages", json={"title": "Gone"})
+    assert r.status_code == 200
+    start = _drain(client)["latest_seq"]
+    assert client.delete("/api/page/Gone").status_code == 200
+    feed = _drain(client, since=start)
+    assert feed["blocks"] == []
+    assert _tombstones(feed) == {("page", str(r.json()["id"]))}

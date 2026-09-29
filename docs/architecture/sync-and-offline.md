@@ -209,8 +209,10 @@ sequenceDiagram
             S-->>Q: 2xx → delete row
         else retry of an already-applied batch
             S-->>Q: stored ack replayed (idempotent) → delete row
-        else 4xx (bad batch)
+        else terminal 4xx (bad batch)
             S-->>Q: row marked poisoned, queue pauses,<br/>snapshot repair runs
+        else 401 / 403 / 408 / 429 (not terminal)
+            S-->>Q: row stays queued, backoff retry (250ms/1s/5s cap)<br/>— same outcome as 5xx below
         else 5xx / network error
             S-->>Q: row stays queued, backoff retry (250ms/1s/5s cap)
         end
@@ -223,7 +225,8 @@ Reconnect ordering in `reconnectFlow.ts` is fixed: **drain the queue first, then
 pull, then refetch views**, so the pull observes server state that already
 includes this client's offline edits. A socket reconnect and the queue's drain
 observer share one completion, which is what finishes a reconnect whose first
-drain was blocked. The 4xx branch's repair is in
+drain was blocked. The terminal-4xx branch's repair, and which statuses count
+as terminal (`isTerminalRejection`), are in
 [sync-recovery.md § A batch the server rejects](sync-recovery.md#a-batch-the-server-rejects).
 
 ### Conflicts at push time

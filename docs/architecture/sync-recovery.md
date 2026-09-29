@@ -23,7 +23,8 @@ replica is a cache and the queue is the user's intent.
 | A window was fetched before an ack deleted its pending row | `pendingSetStillCovered` | Applied if the ack's `seq` is covered, else refetched | No window applies without the edits it lacks | [Windows and the pending queue](#windows-and-the-pending-queue) |
 | Pending rows change while recovery runs | The fingerprint check in `commitRecovery` | Recovery aborts before anything is destroyed | Every mutating RPC passes the recovery gate | [Recovery never erases intent](#recovery-never-erases-intent) |
 | A re-applied pending batch dangles a foreign key | `PRAGMA foreign_key_check` diff in `reapplyPending` | That batch rolls back locally; its row stays | The queue row is never deleted locally | [Recovery never erases intent](#recovery-never-erases-intent) |
-| The server answers 4xx for a durable batch | The drain's `ApiError` branch | Row poisoned, delivery paused, snapshot repair drops it | Later rows never post ahead of it; the repair never resets | [A batch the server rejects](#a-batch-the-server-rejects) |
+| The server answers a terminal 4xx for a durable batch | `isTerminalRejection` returns true | Row poisoned, delivery paused, snapshot repair drops it | Later rows never post ahead of it; the repair never resets | [A batch the server rejects](#a-batch-the-server-rejects) |
+| The server answers 401, 403, 408 or 429 | `isTerminalRejection` returns false | Retained under backoff exactly like a 5xx; `apiFetch` still redirects to `/login` | A session expiry, a rotated secret or a cleared cookie never poisons or discards a batch | [A batch the server rejects](#a-batch-the-server-rejects) |
 | A pull keeps failing | `noteFailure`, counting only `isStallShaped` errors | Backoff retry; `stalled` after `STALL_AFTER_FAILURES` | Network-down and availability failures never count | [A pull that keeps failing](#a-pull-that-keeps-failing) |
 | Schema, generation, cursor, FK, title, corruption or repeated window failure | Seven detectors | `reset` or `rebase` from a snapshot | One lifecycle, `runRecovery` | [Rebootstrap triggers](#rebootstrap-triggers) |
 | A rebuild or rebase meets page-level file damage | A corruption message from the rebuild | The file is replaced | A rebase carries the durable queue across | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
@@ -71,7 +72,7 @@ batches ahead:
 **Every path that posts durable rows asks the queue first.** The drain applies
 the predicate to each batch `nextBatch()` hands it. The recovery flush
 (`flushBatches`) calls `deliverLaneAhead(batch_id)` before each leased batch.
-That method only posts; a lane entry's 4xx discard stays the drain's decision.
+That method only posts; a lane entry's terminal-4xx discard stays the drain's decision.
 A new path that posts durable rows without that call can put a move ahead of
 the create it depends on. The lane therefore waits for a `nextBatch()` read, so
 a failed read delays it through the normal backoff. A duplicate POST of one
@@ -88,8 +89,11 @@ row, while the lane holds the caller's unfilled ops. `batch_replay_hash`
 drawing a 409 (see [backend.md § The write path](backend.md#the-write-path)).
 
 Every entry counts towards "N changes pending" and is kept until delivered,
-rejected with a 4xx, or the queue is disposed. That 4xx is the only discard the
-queue makes on its own; it raises the repair barrier and calls `onDesync`.
+rejected with a terminal 4xx, or the queue is disposed. That terminal 4xx is
+the only discard the queue makes on its own; it raises the repair barrier and
+calls `onDesync`. A 401, 403, 408 or 429 is not terminal — see
+[A batch the server rejects](#a-batch-the-server-rejects) — so it takes the
+same retained-under-backoff path as a 5xx instead.
 
 A reload destroys the lane, so `useUnloadGuard` interrupts one. It arms from
 `onUnsentInMemory`, the lane's own length, never from "N changes pending",
@@ -226,10 +230,21 @@ server 400s it.
 
 ## A batch the server rejects
 
-A 4xx on a durable batch marks its row *poisoned* and pauses delivery.
-`SyncProvider` then runs the authoritative repair: `rebaseAuthoritative`, a
-`rebase` with flush `"skip"`, re-applies the non-poisoned batches over a fresh
-snapshot. The provider deletes the poisoned row by id and resumes delivery.
+`isTerminalRejection` (`web/src/sync/rejection.ts`) decides which delivery
+failures mean the batch itself is bad, at both delivery sites in `opQueue.ts`
+(the lane and the durable drain). It is true only for an `ApiError` whose
+status is in `[400, 500)` and is not 401, 403, 408 or 429. Those four can
+follow a session expiry, a rotated secret or a cleared cookie, and say nothing
+about the batch's content. They take the same retained-under-backoff path as
+a 5xx or a dropped fetch, instead of poisoning or discarding anything.
+`apiFetch` still redirects to `/login` on a 401 unconditionally; that
+redirect is orthogonal to this predicate.
+
+A terminal 4xx on a durable batch marks its row *poisoned* and pauses
+delivery. `SyncProvider` then runs the authoritative repair:
+`rebaseAuthoritative`, a `rebase` with flush `"skip"`, re-applies the
+non-poisoned batches over a fresh snapshot. The provider deletes the poisoned
+row by id and resumes delivery.
 
 The repair never escalates to a `reset`, because a reset drops `pending_ops`
 and the valid rows behind the poisoned one must stay durable until it is

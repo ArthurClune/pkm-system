@@ -203,11 +203,17 @@ starts a pull while the batch is still pending, and the HTTP ack lands during
 the fetch.
 
 The worker holds the acked seqs in memory (`ackedSeqs`), keyed by `pending_ops`
-row id. `deleteBatch` writes them, and so does a rebase commit that deletes
+row id. `deleteBatch` writes them only when its row matched, and so does a rebase commit that deletes
 acked rows in place (see [runRecovery](#runrecovery)). A file replacement writes
 none, because its rebuild clears them. The worker drops entries outside the
 latest snapshot on each `applyChanges`, and clears them all on a schema
 rebuild, which restarts the AUTOINCREMENT ids.
+
+That restart is why every delete and poison mark from the main thread names
+the row by `id` and `batch_id` both (`queue.ts::deleteBatch`,
+`markPoisoned`). A reset, or a replacement that carries no acked row, can
+hand an old id to a batch enqueued behind the lease. The drain's delete for
+the old batch, queued behind that enqueue, must then match nothing.
 
 ## Recovery never erases intent
 
@@ -220,6 +226,7 @@ rebuild, which restarts the AUTOINCREMENT ids.
 | `reapplyPending` diffs `PRAGMA foreign_key_check` around each batch and rolls a violating one back to its savepoint | `replica/apply.ts` | A pending block re-created under a row the feed removed failing the whole window at COMMIT |
 | Replay (`applyLocalOps` with `reapply`) keeps a create whose row exists, and a move whose block already sits at its target, in place | `replica/localOps.ts::keepSlot` | A pending create failing its whole batch on every window; sibling `order_idx` drifting up per window |
 | A rebase commit deletes the rows its flush got acks for, in the snapshot's transaction, before the replay | `replicaSync.ts::flushBatches`, `workerHandlers.ts`, `replica/ackedRows.ts` | Recovery replaying a batch's wire text over the server's result |
+| Every delete and poison mark names its row by `id` and `batch_id` both | `replica/queue.ts::deleteBatch`, `markPoisoned` | A delete queued behind a reset or file replacement removing the batch that took its row id |
 | A rebase that replaces the file commits the queue to a carry database first; every queue handler adopts a leftover carry before serving | `workerHandlers.ts`, `replica/carryStore.ts` | A failed open, schema install or import, or a killed worker, losing the queue during a file replacement |
 
 The FK diff works whatever the enforcement pragmas say, so it also covers the
@@ -345,10 +352,13 @@ backwards. Schema and feed recovery keeps `awaitInFlightPull` false because
 through `recover()`, which turns a `rebase` failing on fresh corruption into
 the session's one `reset`.
 
-**A rebase never replays a batch its flush got an ack for.** The server's
-result can differ from the wire op (a rename replay, a conflict, another
-device's write). The next pull starts at the snapshot's seq, so that batch's
-journal row never comes back to correct a replay of its wire text.
+**Within a session, a rebase never replays a batch its flush got an ack
+for.** The server's result can differ from the wire op (a rename replay, a
+conflict, another device's write). The next pull starts at the snapshot's
+seq, so that batch's journal row never comes back to correct a replay of its
+wire text. The held acks live in memory only. After a reload between the
+flush and the commit, the acked rows are replayed once more, then re-posted,
+and the server's stored ack deletes them.
 
 | Where | What happens to the acks |
 |---|---|
@@ -409,7 +419,8 @@ cannot sink its report.
 
 No handler succeeds while a carry exists, because each adopts first and
 fails if it cannot. So neither file's queue changes while a carry exists. A
-carry whose write committed holds every pending row the replica held. One
+carry whose write committed holds every pending row the replica held, except
+the ones the rebase's acks settled, which the server already has. One
 whose write failed or was cut short holds a subset, possibly none, and the
 replica it was written from still holds them all. Beyond its queue the
 replica is a cache. That makes adoption's two escapes safe:

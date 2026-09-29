@@ -175,7 +175,8 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
    * A carry is written only when its replica file has already been judged
    * damaged, and no handler can succeed while one exists (each adopts first
    * and fails if it cannot), so neither file's queue changes while it does.
-   * A carry whose write committed holds every pending row the replica held;
+   * A carry whose write committed holds every pending row the replica held
+   * except those the rebase's acks settled, which the server already has;
    * one whose write failed or was cut short holds a subset, possibly none,
    * and the replica it was written from still holds them all. Beyond its
    * queue the replica is a cache the next snapshot refills. That makes two

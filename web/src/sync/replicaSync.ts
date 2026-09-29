@@ -274,6 +274,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // that ends before its commit (a preempted flush, a failed snapshot fetch)
   // leaves them for the one that follows, and a commit that fails hands them
   // back. A held ack whose row has since gone matches nothing in the worker.
+  // They are memory only, so the rule holds within a session: after a reload
+  // the acked rows are replayed and re-posted, and the server's stored ack
+  // deletes them.
   let heldAcks: AckedBatch[] = [];
   // A per-instance sentinel thrown to abort a normal-recovery flush that a
   // poison repair has preempted. It is caught by identity (=== below), never

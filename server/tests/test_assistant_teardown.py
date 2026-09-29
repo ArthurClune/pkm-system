@@ -1,6 +1,6 @@
 """SSE teardown: a vanished client must run the engine's dropped-consumer
 cleanup on a schedule, not whenever CPython gets round to finalizing an
-orphaned async generator (pkm-f3mo).
+orphaned async generator.
 
 These tests drive the real chain, minus HTTP -- `ClaudeConversation` over a
 fake SDK client, the real `AssistantService`, and the real SSE frame
@@ -49,8 +49,8 @@ class ParkedTurn:
         async def fake_model_turn() -> None:
             # what the SDK does with a write tool: call the permission hook
             # and park inside it until a decision arrives. A harness parked
-            # here cannot acknowledge an interrupt (pkm-mbcc), so the double
-            # blocks exactly where the real one blocks.
+            # here cannot acknowledge an interrupt, so the double blocks
+            # exactly where the real one blocks.
             self.decisions.append(
                 await self.conversation.can_use_tool(
                     "mcp__pkm__save_note", {"title": "Demo"}, None)
@@ -103,9 +103,9 @@ def test_disconnect_after_an_event_declines_interrupts_and_retires(
     tmp_path, quick_interrupt_timeout
 ):
     # The plain disconnect: the confirm frame reached the client, the client
-    # went away, and Starlette closes the response body generator. Nothing is
-    # in flight on the underlying stream at that moment, so before pkm-f3mo
-    # the teardown did nothing at all and the engine's cleanup was left to
+    # went away, and Starlette closes the response body generator. Nothing
+    # is in flight on the underlying stream at that moment, so the teardown
+    # must still run the engine's cleanup rather than leaving it to
     # async-generator finalization.
     async def scenario():
         turn = await ParkedTurn(tmp_path, HangingInterruptClient, keepalive=30.0).start()

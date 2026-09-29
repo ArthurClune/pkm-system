@@ -362,8 +362,9 @@ file torn. The carry guarantees that no row is lost at any instant: at every
 step, a file that is not being written holds them all. It does not guarantee
 that the file being written is readable, and adoption handles that case.
 
-A failed carry write leaves the damaged file untouched, and without a carry
-store a rebase rethrows rather than replace the file. The carry goes at step
+A failed carry write leaves the damaged file untouched and discards the
+carry, best effort. Without a carry store a rebase rethrows rather than
+replace the file. The carry goes at step
 4, not after the snapshot. A carry kept past a failed snapshot would be
 adopted on a later open and bring back batches acked or deleted since.
 
@@ -375,18 +376,27 @@ take the carried ids, and the by-id import would then drop those rows.
 cannot sink its report.
 
 No handler succeeds while a carry exists, because each adopts first and
-fails if it cannot. So every pending row the replica holds is also in the
-carry, and the rest of the replica is a cache. That makes adoption's two
-escapes safe:
+fails if it cannot. So neither file's queue changes while a carry exists. A
+carry whose write committed holds every pending row the replica held. One
+whose write failed or was cut short holds a subset, possibly none, and the
+replica it was written from still holds them all. Beyond its queue the
+replica is a cache. That makes adoption's two escapes safe:
 
 | Adoption meets | Outcome | Why no row is lost |
 |---|---|---|
 | A carry that reads as `SQLITE_CORRUPT*` or `SQLITE_NOTADB` (`isUnreadableFileMessage`, `errors.ts`) | The carry is discarded with a warning | Only a death inside step 1 tears it, and step 1 precedes the unlink, so the replica still holds the rows |
-| A replica whose `installSchema` or `importPendingRows` throws | `discardDbFile`, then the new file imports the rows and the carry is discarded | Every pending row in the replica is also in the carry |
+| A replica whose `installSchema` or `importPendingRows` throws | `discardDbFile`, then the new file imports the carry's rows merged by id with every row the old file can still be read for (`mergeCarriedRows`, `carryMerge.ts`; the carry's row wins a clash), and the carry is discarded | A short carry cannot shed rows only the old file held. Rows are lost only if the carry is short and the old file unreadable, both files damaged at once |
 | Any other read error (contention, transient I/O), or a replacement that fails too | The handler fails and the carry is kept | The carry may be the rows' only copy |
 
 Without the escapes, one torn file would fail every handler for good,
 `prepareRecovery` included, and no edit would leave the device again.
+
+A replacement that keeps failing leaves the carry for the next handler, which
+replaces the file again. If the new file will not open, `db()` latches the
+session unavailable and edits go online through the
+[fallback lane](#the-in-memory-fallback-lane). Those new edits can then reach
+the server ahead of the carried rows, which the next session delivers. That
+changes their order, but loses none of them.
 
 **Corruption must reach `isCorruptionError` with its own message.** SQLite
 rolls back the whole transaction by itself on `SQLITE_CORRUPT`, `IOERR` or

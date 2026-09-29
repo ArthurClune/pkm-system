@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// Offline /api/journal — port of routes_pages.get_journal (pkm-03x6):
+// Offline /api/journal — port of routes_pages.get_journal:
 // newest-first batches of NON-EMPTY daily pages; empty days are omitted.
 // The head batch auto-creates today locally (negative id, deliberately
 // not pushed) so there is always a page to compose into.
@@ -23,15 +23,15 @@ const NONEMPTY_DAILY_SQL =
   + " SELECT 1 FROM blocks b WHERE b.page_id = pages.id"
   + " AND trim(b.text, char(9)||char(10)||char(13)||char(32)) <> '')";
 
-// Identical SQL to the server's _REFERENCED_DAILY_SQL (pkm-vvta): a daily
+// Identical SQL to the server's _REFERENCED_DAILY_SQL: a daily
 // page with no blocks of its own still counts as non-empty if another page
 // [[links]] to it, so a reminder written elsewhere surfaces on its day.
 const REFERENCED_DAILY_SQL =
   "SELECT DISTINCT p.title FROM pages p JOIN refs r ON r.target_page_id = p.id";
 
 // Same number as the server's JOURNAL_BACKLINK_PREVIEW: how many referencing
-// pages each day carries inline, so a scroll of N days is not N page reads
-// (pkm-5fak). Both engines must agree — the client renders "Show more" from
+// pages each day carries inline, so a scroll of N days is not N page reads.
+// Both engines must agree — the client renders "Show more" from
 // the limit the payload states.
 const BACKLINK_PREVIEW = 5;
 

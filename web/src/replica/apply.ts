@@ -9,7 +9,7 @@
 //
 // Deferred FKs move every violation to the outer COMMIT, so neither the
 // savepoints reapplyPending rolls back to nor a try/catch around a single op
-// can see one (pkm-qvlx). Two guards keep that from wedging sync:
+// can see one. Two guards keep that from wedging sync:
 //   - reapplyPending diffs `PRAGMA foreign_key_check` around each batch and
 //     rolls a batch back when it ADDS a violation, so an unappliable optimistic
 //     batch is skipped like any other instead of poisoning the COMMIT. The
@@ -65,7 +65,7 @@ const upsertBlock = (db: ReplicaDb, b: SyncBlock): void => {
     db.exec("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
             [b.uid, r.target_page_id, r.kind] as SqlValue[]);
   }
-  // block_refs are never shipped over sync (pkm-d31f): derived locally here
+  // block_refs are never shipped over sync: derived locally here
   // and in localOps.ts through the one composition (see blockRefs.ts).
   reindexBlockRefs(db, b.uid, b.text);
 };
@@ -111,12 +111,11 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
  * since what the server saved for them can differ from their wire text. The
  * batches replayed here still flush to the server unchanged. An op whose
  * block or parent the feed removed is skipped inside applyLocalOps, as the
- * server skips it, so the rest of its batch still lands (pkm-7788). A window
+ * server skips it, so the rest of its batch still lands. A window
  * does not wipe first, so its replay runs over the batch's own effects:
  * `reapply` keeps a create's existing row and an already-placed move where
- * they are rather than failing the insert or shifting siblings again
- * (pkm-b0zf). A batch
- * that still cannot apply (applyLocalOps throws) is skipped whole via
+ * they are rather than failing the insert or shifting siblings again. A
+ * batch that still cannot apply (applyLocalOps throws) is skipped whole via
  * savepoint rollback — push-time resolution owns it. A batch
  * whose rows dangle counts as no-longer-applicable too: deferred FKs let the
  * ops themselves succeed, so the violation set is compared around each batch
@@ -153,7 +152,7 @@ function reapplyPending(db: ReplicaDb, nowMs: number): void {
       // foreign_key_check key ([blocks, rowid, blocks, fkid]) the deleted
       // row used to report. Leaving `before` untightened would still contain
       // that key and wave the reused-rowid insert through as "no new
-      // violation" (pkm-ufjt). Reuse WITHIN one batch (a delete and a
+      // violation". Reuse WITHIN one batch (a delete and a
       // dangling insert together) still slips past this -- but that's
       // harmless: it needs the window's own dangling row already in the
       // baseline, which fails the deferred COMMIT regardless and falls back
@@ -188,7 +187,7 @@ function reapplyPending(db: ReplicaDb, nowMs: number): void {
  * check must run all three, and the unscoped pragma already visits only
  * FK-bearing tables -- measured at 1 000/5 000/20 000 blocks, whole-database
  * (0.32/1.72/7.54 ms) equals the sum of the three scoped checks
- * (0.32/1.72/7.41 ms) within noise (pkm-ey1f). Scoping to `blocks` alone
+ * (0.32/1.72/7.41 ms) within noise. Scoping to `blocks` alone
  * would drop exactly the two tables the paragraph above is about. */
 const fkViolations = (db: ReplicaDb): Set<string> =>
   new Set(db.select<{ table: string; rowid: SqlValue; parent: string;
@@ -213,7 +212,7 @@ export function applyChanges(db: ReplicaDb, feed: Changes,
                              nowMs: number = Date.now()): ApplyResult {
   if (feed.reset || feed.generation !== getMeta(db, "generation")) {
     // cursor from another life: a reset request, or a rebuilt database
-    // whose journal restarted (pkm-o9o5). Never apply mid-journal rows.
+    // whose journal restarted. Never apply mid-journal rows.
     return { status: "needs-bootstrap" };
   }
   try {
@@ -309,7 +308,7 @@ function assertNoParkedTitles(db: ReplicaDb, table: TitledTable,
  * sidebar upserts, then the queue replay. Deferred FKs make the order
  * irrelevant for referential integrity; it is the UNIQUE titles that fix it.
  * A row that gave a title up by being deleted must be gone before the row
- * that took the title arrives, so tombstones go first (pkm-n31j). A page
+ * that took the title arrives, so tombstones go first. A page
  * tombstone cascades to its local blocks; any of those that survived
  * server-side (moved to another page) come back through the block upserts
  * that follow, because the feed hydrates current rows. A page id the server

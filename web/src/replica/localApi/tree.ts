@@ -103,7 +103,7 @@ export function blockRefTexts(db: ReplicaDb, texts: string[]): BlockRefTexts {
   return resolveRefUids(db, collectBlockRefUids(texts));
 }
 
-/** Incoming ((ref)) count per uid, nonzero entries only (pkm-d31f): one
+/** Incoming ((ref)) count per uid, nonzero entries only: one
  * GROUP BY against idx_block_refs_target. Source rows CASCADE with their
  * block, so every counted row has a live source. */
 export function blockRefCounts(db: ReplicaDb,

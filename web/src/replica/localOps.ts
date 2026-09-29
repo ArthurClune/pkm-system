@@ -164,8 +164,13 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
       // the server's echo. Later ops re-apply over it; keep it as it is.
       if (reapply && info !== null) {
         // ... except that it follows a parent the window moved to another
-        // page, as the server will place it (pkm-fe9b)
-        if (parentInfo !== null && info.page_id !== parentInfo.page_id) {
+        // page, as the server will place it (pkm-fe9b). Only while it is
+        // still under that parent: a later pending move that took it
+        // elsewhere owns its page, and re-paging it here would make that
+        // move's replay re-shift its target's children on every window.
+        if (parentInfo !== null
+            && info.parent_uid === (op.parent_uid ?? null)
+            && info.page_id !== parentInfo.page_id) {
           for (const uid of subtreeUids(db, op.uid)) {
             db.exec("UPDATE blocks SET page_id = ? WHERE uid = ?",
                     [parentInfo.page_id, uid]);

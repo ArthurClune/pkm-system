@@ -602,10 +602,12 @@ def _plan_missing_target(index: int, op: BlockOp, miss: MissingTarget,
             raise OpError(index, "conflict context missing")
         # the whole moved subtree, root first. move_parent_missing: a
         # replica that applied the move loses all of it to the parent's
-        # tombstone cascade. move_cycle: nothing is gone, but the replica
-        # holds the block under its own descendant, a loop no page root
-        # reaches, and a cross-page move re-paged the block's local subtree
-        # (the target's shifted siblings sit inside that subtree too).
+        # tombstone cascade. move_cycle: nothing is gone, and the block's
+        # own row already reaches the replica with the other device's move
+        # (the block is that move's ancestor, so the feed's parent closure
+        # ships it). What the optimistic move also touched still needs
+        # re-shipping: descendants a cross-page move re-paged, and the
+        # target's children it shifted. Both lie inside this subtree.
         live = tuple(JournalBlock(u, False)
                      for u in reversed(ctx.subtree))
         if miss.kind == "move_parent_missing":

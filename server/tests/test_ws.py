@@ -191,6 +191,51 @@ def test_failed_batch_broadcasts_nothing(client):
         assert ws.receive_json()["client_id"] == "sender-2"
 
 
+def _ops_frames(frames, client_id):
+    return [f for f in frames if f.get("client_id") == client_id]
+
+
+def test_skipped_ops_are_absent_from_the_ws_echo(client):
+    # A skipped op reached no row, so other tabs must not replay it from the
+    # socket; they pick up its daily-note entry and journal rows through the
+    # changes feed. Asserted on the frame a subscriber actually receives.
+    with client.websocket_connect("/api/ws") as ws:
+        r = client.post("/api/ops", json={
+            "client_id": "sender-skip",
+            "batch_id": "ws_skipped_echo1",
+            "ops": [
+                {"op": "set_collapsed", "uid": "ghost_ws1", "collapsed": True},
+                {"op": "update_text", "uid": "ghost_ws1", "text": "lost"},
+                {"op": "move", "uid": "uid_b3", "parent_uid": "ghost_ws2",
+                 "order_idx": 0},
+                # uid_b3 is uid_b2's child: this move would make a cycle
+                {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
+                 "order_idx": 0},
+                {"op": "set_collapsed", "uid": "uid_b1", "collapsed": True},
+            ]})
+        assert r.status_code == 200
+        assert [s["uid"] for s in r.json()["skipped"]] == [
+            "ghost_ws1", "ghost_ws1", "uid_b3", "uid_b2"]
+        frames = _ops_frames(_frames_until_seq(ws), "sender-skip")
+        assert [f["ops"] for f in frames] == [
+            [{"op": "set_collapsed", "uid": "uid_b1", "collapsed": True}]]
+
+
+def test_an_all_skipped_batch_puts_no_op_on_the_socket(client):
+    with client.websocket_connect("/api/ws") as ws:
+        r = client.post("/api/ops", json={
+            "client_id": "sender-skip",
+            "batch_id": "ws_skipped_echo2",
+            "ops": [
+                {"op": "update_text", "uid": "ghost_ws1", "text": "lost"},
+                {"op": "set_heading", "uid": "ghost_ws1", "heading": 1},
+            ]})
+        assert r.status_code == 200
+        assert len(r.json()["skipped"]) == 2
+        frames = _ops_frames(_frames_until_seq(ws), "sender-skip")
+        assert all(f["ops"] == [] for f in frames)
+
+
 def test_broadcast_drops_bad_connections_and_still_delivers(monkeypatch):
     from pkm.server import ws as ws_module
     monkeypatch.setattr(ws_module, "SEND_TIMEOUT", 0.05)

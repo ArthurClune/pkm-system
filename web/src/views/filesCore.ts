@@ -1,5 +1,5 @@
 // pattern: Functional Core
-// Pure logic for the /files asset browser (pkm-jdu3). The Files view is
+// Pure logic for the /files asset browser. The Files view is
 // the imperative shell; everything testable without I/O lives here.
 import type { AssetSearchItem, BacklinkGroup } from "../api/payloads";
 

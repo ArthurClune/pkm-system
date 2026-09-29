@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// Popovers for /files cards (pkm-vcn6): which blocks reference an asset,
+// Popovers for /files cards: which blocks reference an asset,
 // and its description / describe error. Chrome, clamping and dismissal come
 // from the shared Popover shell.
 import { useEffect, useState } from "react";

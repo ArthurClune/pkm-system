@@ -22,10 +22,10 @@ export function EditablePage({ title, initial, composer = false,
   title: string;
   initial: BlockNode[];
   composer?: boolean;
-  /** Show the last-changed margin column (pkm-4ler). Only the main-pane
+  /** Show the last-changed margin column. Only the main-pane
    * PageView passes this; the journal scroll and sidebar panels omit it. */
   stamps?: boolean;
-  /** Incoming ((uid)) reference counts (pkm-d31f), threaded straight to the
+  /** Incoming ((uid)) reference counts, threaded straight to the
    * tree exactly like `stamps`. */
   refCounts?: Record<string, number>;
 }) {
@@ -55,7 +55,7 @@ export function EditablePage({ title, initial, composer = false,
   const onDragStartBlock = useCallback((uid: string) => {
     if (!ownsEditor || outline.readOnly) return;
     // Grabbing a block inside an active multi-block selection drags the
-    // whole selection (pkm-q89w); grabbing any other block drags just it.
+    // whole selection; grabbing any other block drags just it.
     const group = outline.selection
       ? selectionDragUids(blocksRef.current, outline.selection, uid) : null;
     dnd.startDrag(group && group.length > 1
@@ -64,7 +64,7 @@ export function EditablePage({ title, initial, composer = false,
   }, [ownsEditor, outline.readOnly, outline.selection, dnd, title]);
   // The tree hands this object to every row, so a fresh literal per render
   // would defeat EditableBlock's memo — one Journal day's worth of wasted
-  // rows per mounted day, on any re-render (pkm-qfee).
+  // rows per mounted day, on any re-render.
   const handlers = useMemo(() => ({ ...outline.handlers, onDragStartBlock }),
                            [outline.handlers, onDragStartBlock]);
 

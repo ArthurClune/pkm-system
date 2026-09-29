@@ -7,11 +7,14 @@
 // at push time). Pages referenced or created locally get temporary
 // NEGATIVE ids, reconciled when the feed delivers the authoritative row
 // (reconcile.ts); ops carry titles, so negative ids never go on the wire.
+// An op on a missing block or create/move parent is skipped, as the server
+// skips it (missingTarget.ts, pkm-7788).
 
 import type { BlockOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
 import { plainSpaceTitleCanonicalizationActive } from "./meta";
+import { skipsOnMissingTarget } from "./missingTarget";
 import { canonicalizeTitle, findOpTitleViolation,
          type OpTitleViolation, titleSyntaxReason } from "./titles";
 
@@ -93,12 +96,6 @@ const blockInfo = (db: ReplicaDb, uid: string): BlockInfo | null => {
   return rows.length > 0 ? rows[0] : null;
 };
 
-const requireBlock = (db: ReplicaDb, uid: string): BlockInfo => {
-  const info = blockInfo(db, uid);
-  if (info === null) throw new LocalOpError(`block not found: ${uid}`);
-  return info;
-};
-
 export const subtreeUids = (db: ReplicaDb, uid: string): string[] =>
   db.select<{ uid: string }>(
     `WITH RECURSIVE sub(uid, path, depth) AS (
@@ -111,12 +108,19 @@ export const subtreeUids = (db: ReplicaDb, uid: string): string[] =>
      SELECT uid FROM sub ORDER BY depth DESC`, [uid]).map((r) => r.uid);
 
 function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
+  if (op.op === "create_page") {
+    getOrCreateLocalPage(db, op.page_title, nowMs);
+    return;
+  }
+  const info = blockInfo(db, op.uid);
+  const parentUid = op.op === "create" || op.op === "move"
+    ? op.parent_uid ?? null : null;
+  const parentInfo = parentUid !== null ? blockInfo(db, parentUid) : null;
+  if (skipsOnMissingTarget(op, info !== null, parentInfo !== null)) return;
+
   switch (op.op) {
-    case "create_page": {
-      getOrCreateLocalPage(db, op.page_title, nowMs);
-      return;
-    }
     case "create": {
+      // a create onto an existing uid fails the INSERT, as the server 400s
       const pageId = getOrCreateLocalPage(db, op.page_title, nowMs);
       shiftSiblings(db, pageId, op.parent_uid ?? null, op.order_idx);
       db.exec(
@@ -130,77 +134,77 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
       return;
     }
     case "update_text": {
-      const info = requireBlock(db, op.uid);
+      // past the skip check, every op but create names an existing block
+      const block = info!;
       db.exec("UPDATE blocks SET text = ?, updated_at = ? WHERE uid = ?",
               [op.text, nowMs, op.uid]);
       reindexRefs(db, op.uid, op.text, nowMs);
-      touchPage(db, info.page_id, nowMs);
+      touchPage(db, block.page_id, nowMs);
       return;
     }
     case "move": {
-      const info = requireBlock(db, op.uid);
-      const parent = op.parent_uid ? requireBlock(db, op.parent_uid) : null;
+      const block = info!;
+      const parent = op.parent_uid !== null ? parentInfo! : null;
       const targetPage = parent !== null
         ? parent.page_id
         : (op.page_title != null
            ? getOrCreateLocalPage(db, op.page_title, nowMs)
-           : info.page_id);
+           : block.page_id);
       shiftSiblings(db, targetPage, op.parent_uid ?? null, op.order_idx);
       db.exec(
         "UPDATE blocks SET parent_uid = ?, order_idx = ?, updated_at = ?" +
         " WHERE uid = ?",
         [op.parent_uid ?? null, op.order_idx, nowMs, op.uid]);
-      if (targetPage !== info.page_id) {
+      if (targetPage !== block.page_id) {
         for (const uid of subtreeUids(db, op.uid)) {
           db.exec("UPDATE blocks SET page_id = ?, updated_at = ? WHERE uid = ?",
                   [targetPage, nowMs, uid]);
         }
-        touchPage(db, info.page_id, nowMs);
+        touchPage(db, block.page_id, nowMs);
       }
       touchPage(db, targetPage, nowMs);
       return;
     }
     case "delete": {
-      const info = requireBlock(db, op.uid);
+      const block = info!;
       for (const uid of subtreeUids(db, op.uid)) {
         db.exec("DELETE FROM blocks WHERE uid = ?", [uid]);
       }
-      touchPage(db, info.page_id, nowMs);
+      touchPage(db, block.page_id, nowMs);
       return;
     }
     case "set_collapsed": {
       // Collapse/expand is not a real change (bean pkm-r7k8): unlike the
       // other cases here, it must not bump the block's updated_at or its
       // page's — otherwise a UI-only toggle would pollute "last changed"
-      // and reorder recency-sorted page lists. requireBlock still runs so
-      // a set_collapsed on an unknown uid fails the same way every other
-      // op here does.
-      requireBlock(db, op.uid);
+      // and reorder recency-sorted page lists.
       db.exec("UPDATE blocks SET collapsed = ? WHERE uid = ?",
               [op.collapsed ? 1 : 0, op.uid]);
       return;
     }
     case "set_heading": {
-      const info = requireBlock(db, op.uid);
+      const block = info!;
       db.exec("UPDATE blocks SET heading = ?, updated_at = ? WHERE uid = ?",
               [op.heading ?? null, nowMs, op.uid]);
-      touchPage(db, info.page_id, nowMs);
+      touchPage(db, block.page_id, nowMs);
       return;
     }
     case "set_view_type": {
-      const info = requireBlock(db, op.uid);
+      const block = info!;
       db.exec("UPDATE blocks SET view_type = ?, updated_at = ? WHERE uid = ?",
               [op.view_type, nowMs, op.uid]);
-      touchPage(db, info.page_id, nowMs);
+      touchPage(db, block.page_id, nowMs);
       return;
     }
   }
 }
 
 /** Apply a batch atomically; a throwing op rolls the whole batch back.
- * Failures are expected while the replica is behind the editor (ops can
- * reference rows the sync feed has not delivered yet) — callers treat the
- * local apply as best-effort cache maintenance, never as durability. */
+ * An op on a missing target is skipped rather than thrown on, as the server
+ * skips it, so the rest of the batch still lands (the replica may simply be
+ * behind the editor). What still throws: a create onto an existing uid, a
+ * title the grammar refuses. Callers treat the local apply as best-effort
+ * cache maintenance, never as durability. */
 export function applyLocalOps(db: ReplicaDb, ops: BlockOp[],
                               nowMs: number): void {
   const violation = findOpTitleViolation(ops);

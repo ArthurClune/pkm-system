@@ -1,8 +1,11 @@
-import pytest
-from pydantic import ValidationError
+import json
+from pathlib import Path
 
-from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
-                               OpBatch, SetCollapsedOp, SetHeadingOp,
+import pytest
+from pydantic import TypeAdapter, ValidationError
+
+from pkm.contracts.ops import (BlockOp, CreateOp, CreatePageOp, DeleteOp,
+                               MoveOp, OpBatch, SetCollapsedOp, SetHeadingOp,
                                SetViewTypeOp, UpdateTextOp, text_hash)
 from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
                                  InsertBlock, JournalBlock, MissingTarget,
@@ -515,6 +518,25 @@ def _create_under(parent_uid="ghost_p1", text="lost child", page_title="AI"):
 ])
 def test_classify_missing_target(op, block_exists, parent_exists, expected):
     assert classify_missing_target(op, block_exists, parent_exists) == expected
+
+
+MISSING_TARGETS_FIXTURE = (
+    Path(__file__).parents[2] / "shared" / "fixtures" / "missing_targets.json"
+)
+MISSING_TARGETS_CASES = json.loads(MISSING_TARGETS_FIXTURE.read_text())["cases"]
+_BLOCK_OP_ADAPTER = TypeAdapter(BlockOp)
+
+
+@pytest.mark.parametrize("case", MISSING_TARGETS_CASES,
+                        ids=[c["name"] for c in MISSING_TARGETS_CASES])
+def test_classify_missing_target_matches_shared_fixture(case):
+    # Pins classify_missing_target against the same skip/no-skip table the
+    # replica's TS mirror (web/src/replica/missingTarget.ts) is tested
+    # against, so the two languages cannot drift apart (pkm-7788).
+    op = _BLOCK_OP_ADAPTER.validate_python(case["op"])
+    skipped = classify_missing_target(
+        op, case["block_exists"], case["parent_exists"]) is not None
+    assert skipped == case["skip"]
 
 
 def test_collapse_on_missing_block_only_journals_the_ghost():

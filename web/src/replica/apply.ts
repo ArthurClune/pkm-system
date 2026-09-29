@@ -106,9 +106,11 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
  * Rejected batches remain durable only while repair is pending: they are
  * skipped here so the authoritative snapshot removes their optimistic effect,
  * then the provider deletes their rows before delivery resumes.
- * Re-applying is safe: batches flush to the server unchanged, and a batch
- * that can no longer apply (e.g. its rows were superseded or tombstoned)
- * is skipped via savepoint rollback — push-time resolution owns it. A batch
+ * Re-applying is safe: batches flush to the server unchanged. An op whose
+ * block or parent the feed removed is skipped inside applyLocalOps, as the
+ * server skips it, so the rest of its batch still lands (pkm-7788). A batch
+ * that still cannot apply (applyLocalOps throws) is skipped whole via
+ * savepoint rollback — push-time resolution owns it. A batch
  * whose rows dangle counts as no-longer-applicable too: deferred FKs let the
  * ops themselves succeed, so the violation set is compared around each batch
  * (see the file header). Rows are never deleted here — the queue is the

@@ -359,11 +359,60 @@ describe("applyLocalOps", () => {
   });
 
   test("a batch applies atomically: a bad op rolls the whole batch back", () => {
+    // A missing target is skipped (pkm-7788), not a failure, so this now
+    // needs an op that still throws: a create whose uid already exists.
     expect(() => applyLocalOps(t.db, [
       { op: "update_text", uid: "uid_r1", text: "changed" },
-      { op: "delete", uid: "uid_missing" },
-    ], 99)).toThrow(/block not found/);
+      { op: "create", uid: "uid_r2", page_title: "AI", parent_uid: null,
+        order_idx: 0, text: "collides" },
+    ], 99)).toThrow();
     expect(blockRow("uid_r1").text).toBe("first"); // rolled back
+  });
+
+  describe("pkm-7788: missing-target ops are skipped, not thrown, like the server", () => {
+    test.each([
+      ["update_text", { op: "update_text", uid: "uid_missing", text: "x" }],
+      ["move", { op: "move", uid: "uid_missing", parent_uid: null, order_idx: 0 }],
+      ["delete", { op: "delete", uid: "uid_missing" }],
+      ["set_collapsed", { op: "set_collapsed", uid: "uid_missing", collapsed: true }],
+      ["set_heading", { op: "set_heading", uid: "uid_missing", heading: 1 }],
+      ["set_view_type", { op: "set_view_type", uid: "uid_missing", view_type: "numbered" }],
+    ] as const)("%s on a missing block is skipped; the batch's other ops still apply",
+      (_label, missingOp) => {
+        applyLocalOps(t.db, [
+          missingOp as BlockOp,
+          { op: "update_text", uid: "uid_r1", text: "still applied" },
+        ], 99);
+
+        expect(blockRow("uid_r1").text).toBe("still applied");
+        // nothing about the missing op's uid was ever inserted
+        expect(rows("SELECT uid FROM blocks WHERE uid = 'uid_missing'")).toEqual([]);
+      });
+
+    test("create under a missing parent leaves no row, and a follow-on" +
+         " update_text to it in the same batch is skipped too", () => {
+      applyLocalOps(t.db, [
+        { op: "create", uid: "uid_orphan", page_title: "AI",
+          parent_uid: "uid_ghost_parent", order_idx: 0, text: "lost child" },
+        { op: "update_text", uid: "uid_orphan", text: "still lost" },
+        { op: "update_text", uid: "uid_r1", text: "sibling applied" },
+      ], 99);
+
+      expect(rows("SELECT uid FROM blocks WHERE uid = 'uid_orphan'")).toEqual([]);
+      expect(blockRow("uid_r1").text).toBe("sibling applied");
+    });
+
+    test("move to a missing parent leaves the block where it was", () => {
+      const before = blockRow("uid_r1");
+
+      applyLocalOps(t.db, [
+        { op: "move", uid: "uid_r1", parent_uid: "uid_ghost_parent", order_idx: 0 },
+        { op: "update_text", uid: "uid_r2", text: "sibling applied" },
+      ], 99);
+
+      expect(blockRow("uid_r1")).toEqual(before);
+      expect(blockRow("uid_r2").text).toBe("sibling applied");
+    });
   });
 
   test("touches the page's updated_at", () => {

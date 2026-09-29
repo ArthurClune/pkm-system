@@ -185,14 +185,16 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
    *   unlinked, so the replica still holds the rows, and the carry is
    *   discarded unread.
    * - The replica cannot take the rows (a new file torn while it was being
-   *   built, or a transient I/O error): the replica file is replaced, and the
-   *   new one imports the carry's rows together with every row the old file
-   *   can still be read for, so a short carry cannot shed rows only the old
+   *   built, or a transient I/O error): the carry's rows are merged with
+   *   every row the old file can still be read for, written back to the
+   *   carry, and only then is the old file replaced; the new file imports
+   *   from that merged carry, so a short carry cannot shed rows only the old
    *   file held. An old file that cannot be read adds none; rows are lost
    *   then only if the carry is short too, which takes both files damaged.
    * Any other read failure (contention, transient I/O) propagates and keeps
    * the carry for the next handler, and so does a replacement that fails in
-   * turn: the carry is then the rows' only sure copy. */
+   * turn: the merged write lands before the old file goes, so the carry is
+   * always the rows' sure copy from that point on. */
   const adoptLeftoverCarry = async (d: ReplicaDb): Promise<ReplicaDb> => {
     const carry = deps.carry;
     if (carry?.exists() !== true) return d;
@@ -215,6 +217,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
                    + " replacing it", error);
       const held = probe(() => readDurablePendingRows(target), () => []);
       const kept = mergeCarriedRows(rows, held);
+      // committed to the carry before the old file goes, so a failure from
+      // here on keeps the merged rows durable instead of only in memory
+      carry.write(kept);
       // the new file's ids restart from the kept rows, as after a rebuild
       ackedSeqs.clear();
       await deps.discardDbFile();

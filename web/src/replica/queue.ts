@@ -8,8 +8,8 @@
 // fills a hash it also fills a missing page_title, from the replica's own
 // pages table, so the daily-note conflict header the server writes on a
 // missing block can name the page (pkm-3g4n).
-// Poisoned batches (server 4xx) are set aside, never retried forever
-// (spec section 6).
+// Poisoned batches (server terminal 4xx, see sync/rejection.ts) are set
+// aside, never retried forever (spec section 6).
 
 import type { BlockOp } from "../api/ops";
 import type { PendingBatch, PoisonedBatch } from "./client";

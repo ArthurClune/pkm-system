@@ -328,9 +328,10 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     }
   };
 
-  // The queue fires this synchronously on the 4xx path, before the durable
-  // poison mark and its public event. A normal recovery lease acquired just
-  // before that mark therefore cannot flush its stale pre-mark batch list.
+  // The queue fires this synchronously on the terminal-rejection path,
+  // before the durable poison mark and its public event. A normal recovery
+  // lease acquired just before that mark therefore cannot flush its stale
+  // pre-mark batch list.
   queue.onPoisonPending?.(() => { authoritativeRepair = "poison"; });
 
   /** Local data now reflects `seq`. A `"snapshot"` always replaced the

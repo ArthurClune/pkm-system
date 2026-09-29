@@ -1007,3 +1007,36 @@ test("a failed carry write leaves no carry behind", async () => {
   expect(carryFiles.exists()).toBe(false);
 });
 
+test("a replacement that fails after the old file is discarded keeps the union in the carry",
+async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const replica = await openRawTestDb();
+  const fresh = await openRawTestDb();
+  const carryFiles = fakeCarryFiles(await openRawTestDb());
+  const carry = createCarryStore(carryFiles);
+  const failing = failingSchemaReads(replica.db, SQLITE_IOERR);
+  let replaced = false;
+  const handlers = buildHandlers({
+    openDb: async () => replaced
+      ? failingOnce(fresh.db, IMPORT_ROW, SQLITE_FULL)
+      : failing.db,
+    discardDbFile: () => { replica.close(); replaced = true; },
+    carry, nowMs: () => 10,
+  });
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "one" });
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b2" }], batchId: "two" });
+  // an empty carry, present but never written
+  carryFiles.open().close();
+  failing.arm(1);
+
+  // the retry's own import (into the new file) fails, after the old file
+  // holding "one" and "two" is already gone
+  await expect(handlers.pendingBatches(undefined)).rejects.toThrow(/SQLITE_FULL/);
+
+  // the merged rows must have reached the carry before the old file was
+  // discarded, or they are lost for good
+  expect(carry.exists()).toBe(true);
+  expect(carry.read().map((row) => row.batch_id)).toEqual(["one", "two"]);
+  warn.mockRestore();
+});
+

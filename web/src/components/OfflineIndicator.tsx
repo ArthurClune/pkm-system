@@ -46,7 +46,7 @@ function PoisonDiscoveryBanner({ problem, actions }: {
  * the same words. */
 function memoryOnlySentence(unsentInMemory: number): string | null {
   if (unsentInMemory === 0) return null;
-  return `You are offline: ${unsentInMemory} unsent change`
+  return `${unsentInMemory} unsent change`
     + `${unsentInMemory === 1 ? " exists" : "s exist"} only in memory here. `
     + `Reloading or closing this tab discards ${unsentInMemory === 1 ? "it" : "them"}.`;
 }
@@ -67,7 +67,7 @@ function onlineOnlySafetyCopy(status: SyncStatus, pending: number): string | nul
     return " Your changes are still being saved to the server.";
   }
   const sentence = memoryOnlySentence(pending);
-  return sentence === null ? null : ` ${sentence}`;
+  return sentence === null ? null : ` You are offline: ${sentence}`;
 }
 
 function ReplicaUnavailableBanner({ status, pending, actions }: {
@@ -264,10 +264,13 @@ function ConnectivityBanner({ status, canEdit, pending, unsentInMemory,
   // named regardless of whether editing is currently allowed.
   const memoryOnly = memoryOnlySentence(unsentInMemory);
   if (!canEdit) {
+    // A full stop already closing readOnlyReason must not double up when the
+    // memory-only sentence is appended after it.
+    const reasonEndsSentence = readOnlyReason?.trim().endsWith(".") ?? false;
     return (
       <div className="ws-banner" role="status">
         Offline — editing paused: {readOnlyReason}
-        {memoryOnly !== null && ` ${memoryOnly}`}
+        {memoryOnly !== null && (reasonEndsSentence ? ` ${memoryOnly}` : `. ${memoryOnly}`)}
       </div>
     );
   }
@@ -275,7 +278,7 @@ function ConnectivityBanner({ status, canEdit, pending, unsentInMemory,
     <div className="ws-banner" role="status">
       Offline — {pending === 0 ? "changes will sync on reconnect"
         : `${pending} change${pending === 1 ? "" : "s"} pending`}
-      {memoryOnly !== null && ` ${memoryOnly}`}
+      {memoryOnly !== null && `. ${memoryOnly}`}
     </div>
   );
 }

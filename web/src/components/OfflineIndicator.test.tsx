@@ -92,9 +92,8 @@ it("offline without editing shows the read-only reason", () => {
 it("names memory-only edits in the offline connectivity banner", () => {
   renderWith({ status: "reconnecting", canEdit: true, pending: 3, unsentInMemory: 2 });
   const banner = screen.getByRole("status");
-  expect(banner).toHaveTextContent("Offline — 3 changes pending");
   expect(banner).toHaveTextContent(
-    "You are offline: 2 unsent changes exist only in memory here. "
+    "Offline — 3 changes pending. 2 unsent changes exist only in memory here. "
     + "Reloading or closing this tab discards them.");
 });
 
@@ -117,8 +116,23 @@ it("names memory-only edits even while editing is paused", () => {
     unsentInMemory: 1,
   });
   expect(screen.getByRole("status")).toHaveTextContent(
-    "1 unsent change exists only in memory here. Reloading or closing this "
-    + "tab discards it.");
+    "Offline — editing paused: offline — this graph is not yet available "
+    + "locally. 1 unsent change exists only in memory here. Reloading or "
+    + "closing this tab discards it.");
+});
+
+it("does not double a full stop when the read-only reason already ends with one", () => {
+  renderWith({
+    status: "reconnecting", canEdit: false,
+    readOnlyReason: "offline — this graph is not yet available locally.",
+    unsentInMemory: 1,
+  });
+  const banner = screen.getByRole("status");
+  expect(banner).toHaveTextContent(
+    "Offline — editing paused: offline — this graph is not yet available "
+    + "locally. 1 unsent change exists only in memory here. Reloading or "
+    + "closing this tab discards it.");
+  expect(banner.textContent).not.toMatch(/\.\./);
 });
 
 const rejected = {

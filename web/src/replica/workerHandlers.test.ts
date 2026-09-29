@@ -768,19 +768,150 @@ test("a Retry in the same worker rebases the carried rows", async () => {
   expect(carry?.exists()).toBe(false);
 });
 
-test("a carry that cannot be read is kept and the handler fails", async () => {
-  const t = await openTestDb();
-  const discard = vi.fn();
-  const handlers = buildHandlers({
-    openDb: async () => t.db,
-    carry: {
-      exists: () => true,
-      write: vi.fn(),
-      read: () => { throw new Error("carry unreadable"); },
-      discard,
-    },
-  });
-  await expect(handlers.pendingCount(undefined)).rejects.toThrow("carry unreadable");
-  expect(discard).not.toHaveBeenCalled();
+test("a deleteBatch served first by a restarted worker adopts the carry", async () => {
+  const { next, fresh } = await workerDiedAfterDiscard();
+  await expect(next.deleteBatch({ id: 1 })).resolves.toEqual({ pending: 1 });
+  expect(fresh.db.select("SELECT id, batch_id FROM pending_ops ORDER BY id"))
+    .toEqual([{ id: 2, batch_id: "valid" }]);
 });
 
+test("a nextBatch served first by a restarted worker drains the carried rows", async () => {
+  const { next } = await workerDiedAfterDiscard();
+  await expect(next.nextBatch(undefined))
+    .resolves.toMatchObject({ id: 2, batch_id: "valid" });
+});
+
+test("a local-API write served first by a restarted worker keeps the carried ids", async () => {
+  const { next, fresh } = await workerDiedAfterDiscard();
+  await expect(next.localApi({
+    method: "POST", path: "/api/pages", body: { title: "Offline" }, nowMs: 1,
+  })).resolves.toMatchObject({ handled: true, status: 200 });
+  expect(fresh.db.select<{ id: number }>("SELECT id FROM pending_ops ORDER BY id")
+    .map((row) => row.id)).toEqual([1, 2, 3]);
+});
+
+const SQLITE_CORRUPT =
+  "SQLITE_CORRUPT: sqlite3 result code 11: database disk image is malformed";
+const SQLITE_NOTADB =
+  "SQLITE_NOTADB: sqlite3 result code 26: file is not a database";
+const IMPORT_ROW = /^INSERT OR IGNORE INTO pending_ops/;
+const CARRIED: DurablePendingRow[] = [
+  { id: 1, batch_id: "rejected", ops_json: "[]", poisoned: 1, error: "HTTP 400" },
+  { id: 2, batch_id: "valid", ops_json: "[]", poisoned: 0, error: null },
+];
+
+/** A committed carry beside a replica file that cannot take its rows, as a
+ * new file torn by a worker killed mid-commit cannot. `raw` leaves the
+ * replica without a schema, so the adoption's schema install is what runs
+ * first; `replacement` opens the file that replaces it. */
+async function carryBesideUnwritableReplica(options: {
+  failing: RegExp;
+  raw?: boolean;
+  replacement?: (fresh: ReplicaDb) => Promise<ReplicaDb>;
+}) {
+  const replica = options.raw ? await openRawTestDb() : await openTestDb();
+  const fresh = await openRawTestDb();
+  const carry = createCarryStore(fakeCarryFiles(await openRawTestDb()));
+  carry.write(CARRIED);
+  let replaced = false;
+  const discardDbFile = vi.fn(() => { replica.close(); replaced = true; });
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const handlers = buildHandlers({
+    openDb: async () => replaced
+      ? (options.replacement ?? (async (db) => db))(fresh.db)
+      : failingOnce(replica.db, options.failing, SQLITE_CORRUPT),
+    discardDbFile, carry, nowMs: () => 10,
+  });
+  return { handlers, carry, fresh, discardDbFile, warn };
+}
+
+test.each([
+  ["schema install", /CREATE TABLE/i, true],
+  ["row import", IMPORT_ROW, false],
+])("an adoption whose %s fails replaces the replica file and keeps every carried row",
+async (_step, failing, raw) => {
+  const { handlers, carry, fresh, discardDbFile, warn } =
+    await carryBesideUnwritableReplica({ failing, raw });
+  const batches = await handlers.pendingBatches(undefined);
+  expect(pendingSummary(batches)).toEqual([
+    { id: 1, batch_id: "rejected", poisoned: true },
+    { id: 2, batch_id: "valid", poisoned: false },
+  ]);
+  expect(discardDbFile).toHaveBeenCalledOnce();
+  expect(fresh.db.select(DURABLE_ROWS)).toEqual(CARRIED);
+  expect(carry.exists()).toBe(false);
+  expect(warn).toHaveBeenCalled();
+  warn.mockRestore();
+});
+
+test.each([
+  ["will not open", async (): Promise<ReplicaDb> => {
+    throw new Error("open failed");
+  }, /open failed/],
+  ["cannot take the rows either", async (db: ReplicaDb) =>
+    failingOnce(db, IMPORT_ROW, SQLITE_FULL), /SQLITE_FULL/],
+])("an adoption whose replacement file %s fails loudly and keeps the carry",
+async (_how, replacement, expected) => {
+  const { handlers, carry, discardDbFile, warn } =
+    await carryBesideUnwritableReplica({ failing: IMPORT_ROW, replacement });
+  await expect(handlers.pendingBatches(undefined)).rejects.toThrow(expected);
+  expect(discardDbFile).toHaveBeenCalledOnce();
+  expect(carry.exists()).toBe(true);
+  expect(carry.read()).toEqual(CARRIED);
+  warn.mockRestore();
+});
+
+/** A carry store whose file is present but whose read throws `message`. */
+const unreadableCarry = (message: string) => {
+  let present = true;
+  return {
+    exists: () => present,
+    write: vi.fn(),
+    read: vi.fn((): DurablePendingRow[] => { throw new Error(message); }),
+    discard: vi.fn(() => { present = false; }),
+  };
+};
+
+test.each([SQLITE_NOTADB, SQLITE_CORRUPT])(
+  "a torn carry beside an intact replica is discarded and the replica's rows kept: %s",
+  async (message) => {
+    const t = await openRawTestDb();
+    const carry = unreadableCarry(message);
+    let carryLeft = false;
+    const handlers = buildHandlers({
+      openDb: async () => t.db,
+      carry: { ...carry, exists: () => carryLeft && carry.exists() },
+      nowMs: () => 10,
+    });
+    await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "kept" });
+    carryLeft = true;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await expect(handlers.pendingCount(undefined)).resolves.toBe(1);
+    expect(carry.discard).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+    expect(t.db.select("SELECT batch_id FROM pending_ops"))
+      .toEqual([{ batch_id: "kept" }]);
+  });
+
+test.each([
+  "SQLITE_BUSY: sqlite3 result code 5: database is locked",
+  "SQLITE_IOERR: sqlite3 result code 10: disk I/O error",
+])("a carry that cannot be read for any other reason is kept and the handler fails: %s",
+async (message) => {
+  const t = await openTestDb();
+  const carry = unreadableCarry(message);
+  const handlers = buildHandlers({ openDb: async () => t.db, carry });
+  await expect(handlers.pendingCount(undefined)).rejects.toThrow(message);
+  expect(carry.discard).not.toHaveBeenCalled();
+});
+
+test("diagnostics neither adopts a carry nor fails on one", async () => {
+  const t = await openTestDb();
+  const carry = unreadableCarry("SQLITE_BUSY: sqlite3 result code 5: database is locked");
+  const handlers = buildHandlers({ openDb: async () => t.db, carry });
+  const report = await handlers.diagnostics(undefined) as ReplicaDiagnostics;
+  expect(report.quickCheck).toEqual(["ok"]);
+  expect(carry.read).not.toHaveBeenCalled();
+  expect(carry.discard).not.toHaveBeenCalled();
+});

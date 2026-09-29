@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { availabilityOf, isCorruptionError, isSessionFatal, ReplicaError,
-         ReplicaUnavailableError, RpcLifecycleError } from "./errors";
+import { availabilityOf, isCorruptionError, isSessionFatal,
+         isUnreadableFileMessage, ReplicaError, ReplicaUnavailableError,
+         RpcLifecycleError } from "./errors";
 
 describe("ReplicaError flags", () => {
   test("rejected defaults to false", () => {
@@ -79,5 +80,28 @@ describe("isCorruptionError", () => {
       "database disk image is malformed"))).toBe(false);
     expect(isCorruptionError(new Error("database disk image is malformed"))).toBe(false);
     expect(isCorruptionError("SQLITE_CORRUPT")).toBe(false);
+  });
+});
+
+describe("isUnreadableFileMessage", () => {
+  test("recognises a file SQLite cannot read as a database", () => {
+    for (const message of [
+      "SQLITE_NOTADB: sqlite3 result code 26: file is not a database",
+      "SQLITE_CORRUPT: sqlite3 result code 11: database disk image is malformed",
+      "SQLITE_CORRUPT_VTAB: sqlite3 result code 267: database disk image is malformed",
+    ]) {
+      expect(isUnreadableFileMessage(message), message).toBe(true);
+    }
+  });
+
+  test("ignores contention and transient I/O", () => {
+    for (const message of [
+      "SQLITE_BUSY: sqlite3 result code 5: database is locked",
+      "SQLITE_IOERR: sqlite3 result code 10: disk I/O error",
+      "SQLITE_CANTOPEN: sqlite3 result code 14: unable to open database file",
+      "replica pool not installed",
+    ]) {
+      expect(isUnreadableFileMessage(message), message).toBe(false);
+    }
   });
 });

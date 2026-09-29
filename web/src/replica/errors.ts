@@ -121,3 +121,13 @@ export function isCorruptionMessage(message: string): boolean {
   return /\bSQLITE_CORRUPT(_VTAB)?\b|database disk image is malformed/
     .test(message);
 }
+
+/** SQLite unable to read a file as a database at all: corruption (above) or
+ * result code 26 (SQLITE_NOTADB, "file is not a database"), which is what a
+ * file whose header page never finished writing reads as. Contention
+ * (SQLITE_BUSY) and I/O failures (SQLITE_IOERR, SQLITE_CANTOPEN) are not
+ * this: the same file may read fine on the next attempt. */
+export function isUnreadableFileMessage(message: string): boolean {
+  return isCorruptionMessage(message)
+    || /\bSQLITE_NOTADB\b|file is not a database/.test(message);
+}

@@ -725,7 +725,7 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
   }
 });
 
-// pkm-jk21: applyLocal records the write's replay itself and then hands the
+// applyLocal records the write's replay itself and then hands the
 // same ticket to write tracking. Tracking must announce that write with the
 // ops it just applied, never with an empty replay, or a repair rebase drops
 // the local edit for any ticket the delivery registry has not pre-tracked.

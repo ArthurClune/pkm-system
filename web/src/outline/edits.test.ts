@@ -231,7 +231,7 @@ const gapTree = () => [
   }),
 ];
 
-describe("indentSelection / outdentSelection (pkm-0ovd)", () => {
+describe("indentSelection / outdentSelection", () => {
   test("indents one sibling run under one parent without staircasing", () => {
     const r = indentSelection(selectionTree(), P, ["b", "b1", "c"]);
 
@@ -461,7 +461,7 @@ const selectedDestinationTree = () => [
   }),
 ];
 
-describe("moveSubtreeUp / moveSubtreeDown (pkm-hx2w)", () => {
+describe("moveSubtreeUp / moveSubtreeDown", () => {
   test("up: a previous sibling means a plain sibling swap", () => {
     const r = moveSubtreeUp(deepTree(), P, "b2");
     expect(r.ops).toEqual([
@@ -587,7 +587,7 @@ describe("moveSubtreeUp / moveSubtreeDown (pkm-hx2w)", () => {
   });
 });
 
-describe("moveSelectionUp / moveSelectionDown (pkm-8jt5)", () => {
+describe("moveSelectionUp / moveSelectionDown", () => {
   test("up: a same-parent run swaps with the sibling above", () => {
     const r = moveSelectionUp(tree(), P, ["b", "c"]);
     expect(r.ops).toEqual([
@@ -700,7 +700,7 @@ describe("moveSelectionUp / moveSelectionDown (pkm-8jt5)", () => {
   });
 });
 
-describe("moveBlocksTo (pkm-q89w drag)", () => {
+describe("moveBlocksTo", () => {
   test("moves every uid to the target as a contiguous run, order preserved", () => {
     // drop [b, c] at the very top: one move op per block, sequential slots
     const r = moveBlocksTo(tree(), P, ["b", "c"], null, 0);
@@ -751,7 +751,7 @@ describe("moveBlocksTo (pkm-q89w drag)", () => {
   });
 });
 
-describe("deleteSelection (pkm-q89w)", () => {
+describe("deleteSelection", () => {
   test("deletes every selected top-level block, focus on the sibling after", () => {
     const r = deleteSelection(tree(), P, ["a", "b"]);
     expect(r.ops).toEqual([

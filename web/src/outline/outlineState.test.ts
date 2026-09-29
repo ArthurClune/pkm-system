@@ -408,7 +408,7 @@ describe("outline causality", () => {
     });
   });
 
-  // pkm-jk21: `local-ops` records a ticket's replay, and the delivery
+  // `local-ops` records a ticket's replay, and the delivery
   // registry then announces the same ticket with whatever replay it holds.
   // The already-relevant guard in `write-started` is the only thing standing
   // between that announcement and the recorded replay, so a rebase would
@@ -485,7 +485,7 @@ describe("outline causality", () => {
   });
 });
 
-describe("block stamps (pkm-4ler)", () => {
+describe("block stamps", () => {
   const tree = () => [
     block("u1", "one", { order_idx: 0, created_at: 100, updated_at: 200 }),
     block("u2", "two", { order_idx: 1, created_at: 100, updated_at: 200,
@@ -514,7 +514,7 @@ describe("block stamps (pkm-4ler)", () => {
     expect(findNode(state.blocks, "u3")?.updated_at).toBe(NOW);
   });
 
-  it("does not stamp for a collapse-only batch (pkm-r7k8)", () => {
+  it("does not stamp for a collapse-only batch", () => {
     const state = transitionOutline(createOutlineState("Page", tree()), {
       type: "local-ops", ticketId: "w1", nowMs: NOW,
       ops: [{ op: "set_collapsed", uid: "u2", collapsed: true }],
@@ -547,7 +547,7 @@ describe("block stamps (pkm-4ler)", () => {
   });
 });
 
-describe("outline change detection (pkm-nvxh)", () => {
+describe("outline change detection", () => {
   const nested = () => [
     block("u1", "one", { order_idx: 0, children: [block("u1c", "child")] }),
     block("u2", "two", { order_idx: 1 }),

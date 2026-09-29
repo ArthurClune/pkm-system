@@ -71,7 +71,7 @@ describe("opBumpsUpdatedAt", () => {
     [{ op: "move", uid: "u1", parent_uid: null, order_idx: 1 }, true],
     [{ op: "set_heading", uid: "u1", heading: 2 }, true],
     [{ op: "set_view_type", uid: "u1", view_type: "numbered" }, true],
-    // pkm-r7k8: collapsing is a view toggle, not a change
+    // collapsing is a view toggle, not a change
     [{ op: "set_collapsed", uid: "u1", collapsed: true }, false],
     [{ op: "delete", uid: "u1" }, false],
     [{ op: "create_page", page_title: "P" }, false],

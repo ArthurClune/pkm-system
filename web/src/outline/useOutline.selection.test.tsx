@@ -1,4 +1,4 @@
-// pkm-q89w: multi-block selection move + delete, wired through useOutline's
+// Multi-block selection move + delete, wired through useOutline's
 // handlers (the imperative half — confirm() gating and op dispatch — of the
 // pure moveSelectionUp/moveSelectionDown/deleteSelection in edits.ts).
 import { act, fireEvent, render, screen } from "@testing-library/react";
@@ -158,7 +158,7 @@ it("keeps the whole selection unchanged when one indent run is ineligible", () =
   expect(getOutline().selection).toEqual({ anchor: "a", head: "b" });
 });
 
-it("onSelectBlock selects exactly that block and ends editing (pkm-am54)", () => {
+it("onSelectBlock selects exactly that block and ends editing", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
   act(() => getOutline().handlers.onFocusBlock("b", 2));
@@ -196,7 +196,7 @@ function manyBlocks() {
   return MANY_UIDS.map((uid, i) => block(uid, uid, { order_idx: i }));
 }
 
-// pkm-2jaz: window.confirm is suppressed by iPadOS Safari in standalone/PWA
+// window.confirm is suppressed by iPadOS Safari in standalone/PWA
 // mode, so the large-selection prompt goes through the app's own useConfirm
 // dialog (a real, awaited DOM dialog) rather than window.confirm.
 it("deleting more than 20 selected blocks requires confirmation via the in-app dialog, and honours cancel", async () => {

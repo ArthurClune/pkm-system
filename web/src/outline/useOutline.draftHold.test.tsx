@@ -1,4 +1,4 @@
-// pkm-xlah: a flush-held draft (caret mid [[ref / #tag token) must not
+// A flush-held draft (caret mid [[ref / #tag token) must not
 // autosave when the debounce elapses — that's what turned half-typed titles
 // like "How LLM" into pages (the server creates a page for every ref it
 // indexes). Explicit commit points (blur, structural edits) still flush.
@@ -85,9 +85,9 @@ it("blur still flushes a held draft (explicit commit point)", () => {
   ]);
 });
 
-// pkm-hhbc: navigating away (Ctrl-O over the very ref being typed) unmounts
+// Navigating away (Ctrl-O over the very ref being typed) unmounts
 // the tree with no blur, so the tree asks for the flush explicitly.
-it("an explicit draft flush commits a held draft (navigation, pkm-hhbc)", () => {
+it("an explicit draft flush commits a held draft (navigation)", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, one());
   act(() => outline().handlers.onFocusBlock("a", 0));
@@ -99,11 +99,11 @@ it("an explicit draft flush commits a held draft (navigation, pkm-hhbc)", () => 
   ]);
 });
 
-// pkm-mvdx: an ordinary draft survives an unmount on its own — nothing
+// An ordinary draft survives an unmount on its own — nothing
 // cancels the pending debounce, so it fires after the outline is gone. A HELD
 // draft has no timer at all, and React delivers no blur for a node it removes,
 // so unmounting is itself a commit point.
-it("unmounting flushes a held draft (navigation with no blur, pkm-mvdx)", () => {
+it("unmounting flushes a held draft (navigation with no blur)", () => {
   const sync = makeSync();
   const h = mountOutline(sync, PAGE, one());
   act(() => h.outline().handlers.onFocusBlock("a", 0));

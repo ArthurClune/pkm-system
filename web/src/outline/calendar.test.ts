@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { calendarWeeks, monthLabel } from "./calendar";
 
-describe("calendarWeeks (pkm-rw6w)", () => {
+describe("calendarWeeks", () => {
   test("July 2026: Monday-first grid, June 29 through August 2, 5 weeks", () => {
     const weeks = calendarWeeks(2026, 6);
     expect(weeks).toHaveLength(5);

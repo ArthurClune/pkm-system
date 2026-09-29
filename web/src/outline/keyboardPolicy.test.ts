@@ -60,7 +60,7 @@ describe("decideEditorKey autocomplete precedence", () => {
       .toEqual({ type: "split", cursor: 0 });
   });
 
-  // pkm-clt1: every Cmd/Ctrl/Shift/Alt combination must fall through to the
+  // Every Cmd/Ctrl/Shift/Alt combination must fall through to the
   // same decision it would get with the popup closed, never an ac-* type —
   // modified keys perform native selection/navigation or editor commands,
   // never autocomplete navigation/pick/close.
@@ -139,7 +139,7 @@ describe("decideEditorKey Escape / navigation", () => {
     }))).toEqual({ type: "navigate-ref", title: "Target", sidebar: false });
   });
 
-  it("opens in the sidebar when Ctrl-Shift-O fires inside a page reference (pkm-a1e4)", () => {
+  it("opens in the sidebar when Ctrl-Shift-O fires inside a page reference", () => {
     expect(decideEditorKey(input({
       key: "o", ctrlKey: true, shiftKey: true, draft: "see [[Target]]",
       selStart: 8, selEnd: 8,
@@ -181,7 +181,7 @@ describe("decideEditorKey block selection", () => {
     }))).toEqual({ type: "none" });
   });
 
-  it("starts a selection when text is selected and its start is on the first line (pkm-jgtn)", () => {
+  it("starts a selection when text is selected and its start is on the first line", () => {
     // Shift+ArrowUp with a live text selection used to fall into the
     // boundary-arrow rule: focus jumped a block up and the selection died.
     // It must escalate to a block selection (current block + neighbour).
@@ -190,7 +190,7 @@ describe("decideEditorKey block selection", () => {
     }))).toEqual({ type: "start-block-selection", dir: "up" });
   });
 
-  it("starts a downward selection when the selection end is on the last line (pkm-jgtn)", () => {
+  it("starts a downward selection when the selection end is on the last line", () => {
     expect(decideEditorKey(input({
       key: "ArrowDown", shiftKey: true, draft: "one\ntwo", selStart: 5, selEnd: 6,
     }))).toEqual({ type: "start-block-selection", dir: "down" });
@@ -214,7 +214,7 @@ describe("decideEditorKey block selection", () => {
   });
 });
 
-describe("decideEditorKey subtree move (pkm-hx2w)", () => {
+describe("decideEditorKey subtree move", () => {
   it("moves the subtree on Shift+Cmd+ArrowUp/Down", () => {
     expect(decideEditorKey(input({ key: "ArrowUp", shiftKey: true, metaKey: true })))
       .toEqual({ type: "move-subtree-up" });
@@ -303,7 +303,7 @@ describe("decideEditorKey heading chord", () => {
   });
 
   it("no longer fires on the old Ctrl+Alt+Digit chord", () => {
-    // pkm-bt9h: the chord moved to Cmd+Alt to match Google Docs; the old
+    // The chord moved to Cmd+Alt to match Google Docs; the old
     // Ctrl+Alt chord now falls through like any other unrecognised combo.
     expect(decideEditorKey(input({
       key: "2", code: "Digit2", ctrlKey: true, altKey: true,
@@ -422,7 +422,7 @@ describe("decideEditorKey structural keys", () => {
   });
 });
 
-describe("decideEditorKey ctrl-cmd selection (pkm-am54)", () => {
+describe("decideEditorKey ctrl-cmd selection", () => {
   it("selects to the block start on Ctrl+Cmd+ArrowLeft", () => {
     expect(decideEditorKey(input({
       key: "ArrowLeft", ctrlKey: true, metaKey: true, draft: "hello",
@@ -481,7 +481,7 @@ describe("decideEditorKey ctrl-cmd selection (pkm-am54)", () => {
   });
 });
 
-describe("decideEditorKey shift-cmd line-wise selection (pkm-jgtn)", () => {
+describe("decideEditorKey shift-cmd line-wise selection", () => {
   // "one\ntwo\nthree": line starts at 0 / 4 / 8, line ends at 3 / 7 / 13.
   const draft = "one\ntwo\nthree";
 
@@ -650,7 +650,7 @@ describe("decideEditorKey boundary arrows", () => {
     }))).toEqual({ type: "none" });
   });
 
-  it("never lets Shift+Arrow steal focus at block boundaries (pkm-jgtn)", () => {
+  it("never lets Shift+Arrow steal focus at block boundaries", () => {
     // Shift means "extend a selection" everywhere; block navigation would
     // silently drop that intent (and any live selection with it).
     expect(decideEditorKey(input({
@@ -678,7 +678,7 @@ describe("decideEditorKey browser default", () => {
   });
 });
 
-describe("decideEditorKey undo/redo (pkm-7q14)", () => {
+describe("decideEditorKey undo/redo", () => {
   it("Cmd-Z is undo, Shift-Cmd-Z is redo (Ctrl variants for non-Mac)", () => {
     expect(decideEditorKey(input({ key: "z", metaKey: true }))).toEqual({ type: "undo" });
     expect(decideEditorKey(input({ key: "z", ctrlKey: true }))).toEqual({ type: "undo" });
@@ -760,7 +760,7 @@ const selKey = (over: Partial<SelectionKeyInput>): SelectionKeyInput => ({
 });
 
 describe("decideSelectionKey", () => {
-  it("indents and outdents with Tab / Shift-Tab (pkm-0ovd)", () => {
+  it("indents and outdents with Tab / Shift-Tab", () => {
     expect(decideSelectionKey(selKey({ key: "Tab" })))
       .toEqual({ type: "indent-selection" });
     expect(decideSelectionKey(selKey({ key: "Tab", shiftKey: true })))
@@ -776,7 +776,7 @@ describe("decideSelectionKey", () => {
     }))).toEqual({ type: "move-selection", dir: "down" });
   });
 
-  it("extends on plain Shift+Arrow and on Ctrl+Cmd+Arrow (pkm-am54)", () => {
+  it("extends on plain Shift+Arrow and on Ctrl+Cmd+Arrow", () => {
     expect(decideSelectionKey(selKey({ key: "ArrowDown", shiftKey: true })))
       .toEqual({ type: "extend-selection", dir: "down" });
     expect(decideSelectionKey(selKey({ key: "ArrowUp", shiftKey: true })))
@@ -796,7 +796,7 @@ describe("decideSelectionKey", () => {
       .toEqual({ type: "copy-selection" });
   });
 
-  it("clears on Escape and deletes on Backspace / Delete (pkm-q89w)", () => {
+  it("clears on Escape and deletes on Backspace / Delete", () => {
     expect(decideSelectionKey(selKey({ key: "Escape" })))
       .toEqual({ type: "clear-selection" });
     expect(decideSelectionKey(selKey({ key: "Backspace" })))
@@ -823,7 +823,7 @@ describe("decideSelectionKey", () => {
     ]) {
       expect(decideSelectionKey(k)).toEqual({ type: "none" });
     }
-    // read-only-safe: extending, copying and dismissing still work (pkm-rckh)
+    // read-only-safe: extending, copying and dismissing still work
     expect(decideSelectionKey(selKey({
       key: "ArrowDown", ctrlKey: true, metaKey: true, readOnly: true,
     }))).toEqual({ type: "extend-selection", dir: "down" });

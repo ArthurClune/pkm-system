@@ -1,11 +1,11 @@
 ---
 # pkm-impk
 title: 'Unflushed drafts fall outside the conflict model: remote text overwritten silently, local text dropped when the block leaves the tree'
-status: in-progress
+status: completed
 type: bug
 priority: high
 created_at: 2026-09-29T13:20:29Z
-updated_at: 2026-09-29T13:48:58Z
+updated_at: 2026-09-29T13:59:11Z
 parent: pkm-a4t2
 ---
 
@@ -42,7 +42,8 @@ changed or the present node already has the text.
 - [x] Tests: remote update during a debounced draft flushes with the pre-remote hash; remote delete and remote cross-page move during a debounced and a held draft both flush; `text === base` and an identical remote edit both suppress
 - [x] Trace the `initial`-change effect in `useOutline.ts` that clears a draft without flushing; flush first if a production parent reaches it with a live draft; record the outcome here
 - [x] Docs: `frontend-editor.md` § Drafts and commit points; `sync-and-offline.md` conflict section (order independence; D7's sentence scoped); troubleshooting row
-- [ ] verify, perf, merge
+- [x] verify: web typecheck, lint, check:fcis, test:coverage, build; server pytest, pyrefly, ruff (all green in the branch)
+- [ ] full Playwright suite, perf/check.sh and merge: run by the orchestrator serially after merge (parallel-executor brief)
 
 ## Initial-effect trace
 
@@ -54,3 +55,14 @@ The `initial`-change effect in `useOutline.ts` used to null `pendingRef` without
 It is still reachable with a live draft: `publish` (`outlineSessions.ts:177`) replaces the snapshot synchronously on every `applyRemote` / `applyLocal`, and a WebSocket batch can land between the parent's `setState` and the passive effect, so the effect sees `initial !== snapshot`. Windows: PageView's resync reload, a parent-read election in `useOutlinePageLoad`, Journal's in-place head reload after `reset`.
 
 Outcome: reachable via a narrow race; now flushes first. `flushNow()` runs before `beginAuthoritativeRead("parent")`, which makes the draft a relevant write, so `transitionOutline` defers the parent tree until that write settles (pinned by `useOutline.reconciliation.test.tsx` "a new parent tree flushes a live draft before adopting it").
+
+## Summary of Changes
+
+- Draft shape: `PendingDraft = { uid, text, base }` (`outline/outlineState.ts`). `captureDraft` sets `base` from the tree on the first change and keeps it across later keystrokes, even after a remote batch changes the tree.
+- Flush rule: `pendingTextOps(pending, blocks, pageTitle)` stamps `base_text_hash` = hash of `base` plus `page_title`, and emits the op even when the block has left the tree (remote delete, cross-page move). It sends nothing when `text === base` or the tree already holds `text`. A `null` base carries `page_title` only and `stampBaseTextHashes` hashes it as before.
+- History strip: `run()` records the flushed text op through `withoutStamps` (`outline/baseTextHash.ts`), so a redo still hashes the tree at replay time (`useOutline.undo.test.tsx` "run() records UNSTAMPED ops" stays green; mutation-checked).
+- Initial effect: a new parent `initial` now calls `flushNow()` before `beginAuthoritativeRead("parent")` instead of nulling the draft (trace above).
+- Two component tests that pinned the loss were inverted: `EditablePage.test.tsx` "focused block with a pending draft keeps the draft; it wins on flush" (asserted the remote hash) and "draft for a remotely-deleted block is dropped, not flushed". Added debounced/held x update/delete/cross-page-move cases, first-base-kept, next-draft-bases-on-flushed-text, and Enter-after-remote-update.
+- Composed fixture: `shared/fixtures/draft_flush.json`, consumed by `web/src/views/EditablePage.draftFlush.test.tsx` and `server/tests/test_ops_endpoint.py` (both arrival orders keep both texts; a flush after delete lands on the daily note). The web half is red against the pre-branch sources and against a flush-time-base mutation.
+- Docs: `frontend-editor.md` § Drafts and commit points (table) and rules-table row; `sync-and-offline.md` § Conflicts at push time (order independence, D7 sentence scoped to conflict copies); `backend.md` fixtures table (`draft_flush.json`, plus the missing `missing_targets.json` row); `troubleshooting.md` Editor row; pkm-xjew D7 bullet updated.
+- Perf: not run in this branch (parallel-executor brief); the orchestrator runs `perf/check.sh` after merge.

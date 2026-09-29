@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: low
 created_at: 2026-09-29T13:20:54Z
-updated_at: 2026-09-29T20:14:00Z
+updated_at: 2026-09-29T20:16:54Z
 parent: pkm-a4t2
 ---
 
@@ -40,5 +40,5 @@ Bounded refactors; no spec. After the fixes in this epic land.
 - [x] Per-kind contexts carry the shell's one classification
 - [x] Docs updated
 - [x] Stale test comments; apply.test.ts groups named by behaviour
-- [ ] describe grouping in the flat web test files
+- [x] describe grouping in the flat web test files
 - [ ] Verification; findings recorded in the report

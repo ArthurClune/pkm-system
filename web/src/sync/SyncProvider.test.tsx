@@ -1,6 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import { StrictMode, useEffect, useMemo } from "react";
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { OpsAck } from "../api/payloads";
 import { DndProvider, useDnd } from "../dnd/DndContext";
@@ -44,90 +44,92 @@ function lastWs(): FakeWebSocket {
   return FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
 }
 
-test("status: connecting -> connected -> reconnecting -> connected, resync bump on re-open", async () => {
-  vi.useFakeTimers();
-  const onBatch = vi.fn();
-  render(<SyncProvider><Probe onBatch={onBatch} /></SyncProvider>);
-  expect(screen.getByTestId("status").textContent).toBe("connecting:0");
-  act(() => lastWs().open());
-  expect(screen.getByTestId("status").textContent).toBe("connected:0");
-  act(() => lastWs().drop());
-  expect(screen.getByTestId("status").textContent).toBe("reconnecting:0");
-  act(() => { vi.advanceTimersByTime(2000); }); // reconnect timer -> new socket
-  // the resync bump is deferred until the preserved queue has drained
-  await act(async () => { lastWs().open(); });
-  // re-established after a gap: views must refetch (resyncSeq bumped)
-  expect(screen.getByTestId("status").textContent).toBe("connected:1");
-  vi.useRealTimers();
-});
+describe("the socket and remote batches", () => {
+  test("status: connecting -> connected -> reconnecting -> connected, resync bump on re-open", async () => {
+    vi.useFakeTimers();
+    const onBatch = vi.fn();
+    render(<SyncProvider><Probe onBatch={onBatch} /></SyncProvider>);
+    expect(screen.getByTestId("status").textContent).toBe("connecting:0");
+    act(() => lastWs().open());
+    expect(screen.getByTestId("status").textContent).toBe("connected:0");
+    act(() => lastWs().drop());
+    expect(screen.getByTestId("status").textContent).toBe("reconnecting:0");
+    act(() => { vi.advanceTimersByTime(2000); }); // reconnect timer -> new socket
+    // the resync bump is deferred until the preserved queue has drained
+    await act(async () => { lastWs().open(); });
+    // re-established after a gap: views must refetch (resyncSeq bumped)
+    expect(screen.getByTestId("status").textContent).toBe("connected:1");
+    vi.useRealTimers();
+  });
 
-test("on reconnect, resyncSeq bumps only after the preserved queue has flushed", async () => {
-  vi.useFakeTimers();
-  let releasePost!: () => void;
-  const postGate = new Promise<void>((r) => { releasePost = r; });
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    if (String(input).startsWith("/api/ops")) await postGate;
-    return new Response(JSON.stringify({ ok: true }),
-      { status: 200, headers: { "Content-Type": "application/json" } });
-  }));
+  test("on reconnect, resyncSeq bumps only after the preserved queue has flushed", async () => {
+    vi.useFakeTimers();
+    let releasePost!: () => void;
+    const postGate = new Promise<void>((r) => { releasePost = r; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).startsWith("/api/ops")) await postGate;
+      return new Response(JSON.stringify({ ok: true }),
+        { status: 200, headers: { "Content-Type": "application/json" } });
+    }));
 
-  let sync!: Sync;
-  function Grab() {
-    sync = useSyncWhole();
-    return <div data-testid="status">{sync.status}:{sync.resyncSeq}</div>;
-  }
-  render(<SyncProvider><Grab /></SyncProvider>);
-  act(() => lastWs().open());  // first connect
-  act(() => lastWs().drop());  // offline: queue paused
-  act(() => sync.enqueue([{ op: "delete", uid: "u1" }])); // preserved, not sent
-  act(() => { vi.advanceTimersByTime(2000); }); // socket reconnect timer
-  await act(async () => { lastWs().open(); }); // reconnect: flush starts (gated)
+    let sync!: Sync;
+    function Grab() {
+      sync = useSyncWhole();
+      return <div data-testid="status">{sync.status}:{sync.resyncSeq}</div>;
+    }
+    render(<SyncProvider><Grab /></SyncProvider>);
+    act(() => lastWs().open());  // first connect
+    act(() => lastWs().drop());  // offline: queue paused
+    act(() => sync.enqueue([{ op: "delete", uid: "u1" }])); // preserved, not sent
+    act(() => { vi.advanceTimersByTime(2000); }); // socket reconnect timer
+    await act(async () => { lastWs().open(); }); // reconnect: flush starts (gated)
 
-  // the flush POST is still outstanding, so the refetch must not be signalled
-  expect(screen.getByTestId("status").textContent).toBe("connected:0");
-  await act(async () => { releasePost(); }); // flush completes
-  expect(screen.getByTestId("status").textContent).toBe("connected:1");
-  vi.useRealTimers();
-});
+    // the flush POST is still outstanding, so the refetch must not be signalled
+    expect(screen.getByTestId("status").textContent).toBe("connected:0");
+    await act(async () => { releasePost(); }); // flush completes
+    expect(screen.getByTestId("status").textContent).toBe("connected:1");
+    vi.useRealTimers();
+  });
 
-test("dispatches remote batches to subscribers, filters own echoes", () => {
-  const onBatch = vi.fn();
-  render(<SyncProvider><Probe onBatch={onBatch} /></SyncProvider>);
-  act(() => lastWs().open());
-  const remote = { client_id: "someone-else", ts: 1,
-                   ops: [{ op: "delete", uid: "u1" }] };
-  act(() => lastWs().message(remote));
-  act(() => lastWs().message({ client_id: clientId, ts: 2, ops: [] }));
-  expect(onBatch).toHaveBeenCalledTimes(1);
-  expect(onBatch).toHaveBeenCalledWith(remote);
-});
+  test("dispatches remote batches to subscribers, filters own echoes", () => {
+    const onBatch = vi.fn();
+    render(<SyncProvider><Probe onBatch={onBatch} /></SyncProvider>);
+    act(() => lastWs().open());
+    const remote = { client_id: "someone-else", ts: 1,
+                     ops: [{ op: "delete", uid: "u1" }] };
+    act(() => lastWs().message(remote));
+    act(() => lastWs().message({ client_id: clientId, ts: 2, ops: [] }));
+    expect(onBatch).toHaveBeenCalledTimes(1);
+    expect(onBatch).toHaveBeenCalledWith(remote);
+  });
 
-test("ignores non-batch frames (e.g. a seq nudge), still dispatches batches", () => {
-  const onBatch = vi.fn();
-  render(<SyncProvider><Probe onBatch={onBatch} /></SyncProvider>);
-  act(() => lastWs().open());
-  act(() => lastWs().message({ type: "seq", seq: 42 }));
-  expect(onBatch).not.toHaveBeenCalled();
-  const remote = { client_id: "someone-else", ts: 1,
-                   ops: [{ op: "delete", uid: "u1" }] };
-  act(() => lastWs().message(remote));
-  expect(onBatch).toHaveBeenCalledTimes(1);
-  expect(onBatch).toHaveBeenCalledWith(remote);
-});
+  test("ignores non-batch frames (e.g. a seq nudge), still dispatches batches", () => {
+    const onBatch = vi.fn();
+    render(<SyncProvider><Probe onBatch={onBatch} /></SyncProvider>);
+    act(() => lastWs().open());
+    act(() => lastWs().message({ type: "seq", seq: 42 }));
+    expect(onBatch).not.toHaveBeenCalled();
+    const remote = { client_id: "someone-else", ts: 1,
+                     ops: [{ op: "delete", uid: "u1" }] };
+    act(() => lastWs().message(remote));
+    expect(onBatch).toHaveBeenCalledTimes(1);
+    expect(onBatch).toHaveBeenCalledWith(remote);
+  });
 
-test("connects to /api/ws on the current host", () => {
-  render(<SyncProvider><div /></SyncProvider>);
-  expect(lastWs().url).toMatch(/^ws{1,2}:\/\/.+\/api\/ws$/);
-});
+  test("connects to /api/ws on the current host", () => {
+    render(<SyncProvider><div /></SyncProvider>);
+    expect(lastWs().url).toMatch(/^ws{1,2}:\/\/.+\/api\/ws$/);
+  });
 
-test("enqueue outside a provider throws instead of dropping writes", () => {
-  let sync: Sync | undefined;
-  function Probe() {
-    sync = useSyncWhole();
-    return null;
-  }
-  render(<Probe />);
-  expect(() => sync!.enqueue([])).toThrow(/SyncProvider/);
+  test("enqueue outside a provider throws instead of dropping writes", () => {
+    let sync: Sync | undefined;
+    function Probe() {
+      sync = useSyncWhole();
+      return null;
+    }
+    render(<Probe />);
+    expect(() => sync!.enqueue([])).toThrow(/SyncProvider/);
+  });
 });
 
 // --- replica lifecycle (pkm-y8p0) ---
@@ -192,1178 +194,1186 @@ function fakeServerJournal() {
   };
 }
 
-test("first connect bootstraps an empty replica and reports ready", async () => {
-  const fetchMock = stubFetch([
-    ["/api/sync/snapshot", SNAPSHOT],
-    ["/api/sync/changes", EMPTY_FEED],
-    ["/api/ops", { ok: true }],
-  ]);
-  const replica = fakeReplicaForProvider();
-  function Mode() {
-    return <div data-testid="mode">{useSyncWhole().replicaMode}</div>;
-  }
-  render(<SyncProvider replica={replica}><Mode /></SyncProvider>);
-  expect(screen.getByTestId("mode").textContent).toBe("starting");
-  await act(async () => { lastWs().open(); });
-  expect(replica.log).toContain("applySnapshot");
-  expect(screen.getByTestId("mode").textContent).toBe("ready");
-  const urls = fetchMock.mock.calls.map((c) => String(c[0]));
-  expect(urls).toContain("/api/sync/snapshot");
-});
-
-test("a WS seq nudge beyond the cursor pulls the changes feed", async () => {
-  const fetchMock = stubFetch([
-    ["/api/sync/snapshot", SNAPSHOT],
-    ["/api/sync/changes", { ...EMPTY_FEED, next_since: 9, latest_seq: 9 }],
-    ["/api/ops", { ok: true }],
-  ]);
-  const replica = fakeReplicaForProvider();
-  render(<SyncProvider replica={replica}><div /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-  const before = fetchMock.mock.calls.length;
-  await act(async () => { lastWs().message({ type: "seq", seq: 12 }); });
-  const changeCalls = fetchMock.mock.calls.slice(before)
-    .map((c) => String(c[0]))
-    .filter((u) => u.startsWith("/api/sync/changes"));
-  expect(changeCalls).toEqual(["/api/sync/changes?since=9"]);
-});
-
-test("a forced equal-cursor generation nudge immediately reboots an active replica without moving its cursor", async () => {
-  let localGeneration = "g1";
-  let localActivation = false;
-  let localCursor = 9;
-  let committedSnapshot: {
-    generation: string;
-    plain_space_title_canonicalization: boolean;
-    seq: number;
-  } | null = null;
-  const replica = fakeReplicaForProvider();
-  replica.init = async () => ({
-    empty: false, cursor: localCursor, schemaMismatch: false,
-    pendingBatches: [],
-  });
-  replica.applyChanges = async (changes) => {
-    if (changes.generation !== localGeneration) {
-      return { status: "needs-bootstrap" };
+describe("replica bootstrap and nudges", () => {
+  test("first connect bootstraps an empty replica and reports ready", async () => {
+    const fetchMock = stubFetch([
+      ["/api/sync/snapshot", SNAPSHOT],
+      ["/api/sync/changes", EMPTY_FEED],
+      ["/api/ops", { ok: true }],
+    ]);
+    const replica = fakeReplicaForProvider();
+    function Mode() {
+      return <div data-testid="mode">{useSyncWhole().replicaMode}</div>;
     }
-    localCursor = changes.next_since;
-    return { status: "applied", cursor: localCursor };
-  };
-  replica.commitRecovery = async (_token, input) => {
-    committedSnapshot = input.snapshot;
-    localGeneration = input.snapshot.generation;
-    localActivation = input.snapshot.plain_space_title_canonicalization;
-    localCursor = input.snapshot.seq;
-  };
+    render(<SyncProvider replica={replica}><Mode /></SyncProvider>);
+    expect(screen.getByTestId("mode").textContent).toBe("starting");
+    await act(async () => { lastWs().open(); });
+    expect(replica.log).toContain("applySnapshot");
+    expect(screen.getByTestId("mode").textContent).toBe("ready");
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls).toContain("/api/sync/snapshot");
+  });
 
-  let changesCalls = 0;
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url.startsWith("/api/sync/changes")) {
-      changesCalls += 1;
-      if (changesCalls === 1) {
-        return jsonResponse({
-          ...EMPTY_FEED,
-          generation: "g1",
-          plain_space_title_canonicalization: false,
-          next_since: 9,
-          latest_seq: 9,
-        });
+  test("a WS seq nudge beyond the cursor pulls the changes feed", async () => {
+    const fetchMock = stubFetch([
+      ["/api/sync/snapshot", SNAPSHOT],
+      ["/api/sync/changes", { ...EMPTY_FEED, next_since: 9, latest_seq: 9 }],
+      ["/api/ops", { ok: true }],
+    ]);
+    const replica = fakeReplicaForProvider();
+    render(<SyncProvider replica={replica}><div /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+    const before = fetchMock.mock.calls.length;
+    await act(async () => { lastWs().message({ type: "seq", seq: 12 }); });
+    const changeCalls = fetchMock.mock.calls.slice(before)
+      .map((c) => String(c[0]))
+      .filter((u) => u.startsWith("/api/sync/changes"));
+    expect(changeCalls).toEqual(["/api/sync/changes?since=9"]);
+  });
+
+  test("a forced equal-cursor generation nudge immediately reboots an active replica without moving its cursor", async () => {
+    let localGeneration = "g1";
+    let localActivation = false;
+    let localCursor = 9;
+    let committedSnapshot: {
+      generation: string;
+      plain_space_title_canonicalization: boolean;
+      seq: number;
+    } | null = null;
+    const replica = fakeReplicaForProvider();
+    replica.init = async () => ({
+      empty: false, cursor: localCursor, schemaMismatch: false,
+      pendingBatches: [],
+    });
+    replica.applyChanges = async (changes) => {
+      if (changes.generation !== localGeneration) {
+        return { status: "needs-bootstrap" };
       }
-      if (changesCalls === 2) {
+      localCursor = changes.next_since;
+      return { status: "applied", cursor: localCursor };
+    };
+    replica.commitRecovery = async (_token, input) => {
+      committedSnapshot = input.snapshot;
+      localGeneration = input.snapshot.generation;
+      localActivation = input.snapshot.plain_space_title_canonicalization;
+      localCursor = input.snapshot.seq;
+    };
+
+    let changesCalls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/sync/changes")) {
+        changesCalls += 1;
+        if (changesCalls === 1) {
+          return jsonResponse({
+            ...EMPTY_FEED,
+            generation: "g1",
+            plain_space_title_canonicalization: false,
+            next_since: 9,
+            latest_seq: 9,
+          });
+        }
+        if (changesCalls === 2) {
+          return jsonResponse({
+            ...EMPTY_FEED,
+            generation: "g2",
+            plain_space_title_canonicalization: true,
+            next_since: 9,
+            latest_seq: 9,
+          });
+        }
         return jsonResponse({
           ...EMPTY_FEED,
           generation: "g2",
           plain_space_title_canonicalization: true,
-          next_since: 9,
-          latest_seq: 9,
+          next_since: 10,
+          latest_seq: 10,
         });
       }
-      return jsonResponse({
-        ...EMPTY_FEED,
-        generation: "g2",
-        plain_space_title_canonicalization: true,
-        next_since: 10,
-        latest_seq: 10,
-      });
+      if (url === "/api/sync/snapshot") {
+        return jsonResponse({
+          ...SNAPSHOT,
+          generation: "g2",
+          plain_space_title_canonicalization: true,
+          seq: 9,
+        });
+      }
+      if (url === "/api/ops") return jsonResponse({ ok: true });
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+
+    render(<SyncProvider replica={replica}><div /></SyncProvider>);
+    await act(async () => {
+      lastWs().open();
+      await vi.waitFor(() => expect(changesCalls).toBe(1));
+    });
+
+    await act(async () => {
+      lastWs().message({ type: "seq", seq: 9, force: true, generation: "g2" });
+      await vi.waitFor(() => expect(committedSnapshot).not.toBeNull());
+    });
+
+    expect(committedSnapshot).toMatchObject({
+      generation: "g2",
+      plain_space_title_canonicalization: true,
+      seq: 9,
+    });
+    expect(localGeneration).toBe("g2");
+    expect(localActivation).toBe(true);
+    expect(localCursor).toBe(9);
+
+    await act(async () => {
+      lastWs().message({ type: "seq", seq: 10 });
+      await vi.waitFor(() => expect(localCursor).toBe(10));
+    });
+    expect(changesCalls).toBe(3);
+  });
+
+  test("without a replica the provider reports no-replica mode", async () => {
+    stubFetch([["/api/ops", { ok: true }]]);
+    function Mode() {
+      return <div data-testid="mode">{useSyncWhole().replicaMode}</div>;
     }
-    if (url === "/api/sync/snapshot") {
-      return jsonResponse({
-        ...SNAPSHOT,
-        generation: "g2",
-        plain_space_title_canonicalization: true,
-        seq: 9,
-      });
+    render(<SyncProvider replica={null}><Mode /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+    expect(screen.getByTestId("mode").textContent).toBe("no-replica");
+  });
+});
+
+describe("legacy repair of a rejected batch", () => {
+  test("empty legacy repair resumes a wholly later ticket after drain handoff", async () => {
+    let postCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
+      postCount += 1;
+      return postCount === 1
+        ? jsonResponse({ detail: "bad op" }, 400)
+        : jsonResponse({ ok: true });
+    }));
+    let sync!: Sync;
+    function Grab() {
+      sync = useSyncWhole();
+      return null;
     }
-    if (url === "/api/ops") return jsonResponse({ ok: true });
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
+    const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+    let later: ReturnType<Sync["enqueue"]> | undefined;
+    try {
+      const rejected = sync.enqueue(Array.from(
+        { length: 500 }, (_, i) => ({ op: "delete" as const, uid: `bad-${i}` }),
+      ));
+      later = sync.enqueue([{ op: "delete", uid: "later" }]);
 
-  render(<SyncProvider replica={replica}><div /></SyncProvider>);
-  await act(async () => {
-    lastWs().open();
-    await vi.waitFor(() => expect(changesCalls).toBe(1));
+      await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+      await vi.waitFor(() => expect(postCount).toBe(2));
+      await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+    } finally {
+      view.unmount();
+    }
   });
 
-  await act(async () => {
-    lastWs().message({ type: "seq", seq: 9, force: true, generation: "g2" });
-    await vi.waitFor(() => expect(committedSnapshot).not.toBeNull());
-  });
+  test("legacy repair rebases an unmounted cross-page target before resuming its move", async () => {
+    const sourceTitle = "Unmounted replay source";
+    const targetTitle = "Unmounted replay target";
+    const moved = block("moved", "moved", {
+      children: [block("child", "child")],
+    });
+    const sourceTree = [block("source-root", "source", {
+      children: [moved],
+    })];
+    const targetTree = [block("target-root", "target", {
+      children: [block("existing", "existing")],
+    })];
+    let releaseSourceRepair!: () => void;
+    const sourceRepairGate = new Promise<void>((done) => {
+      releaseSourceRepair = done;
+    });
+    const source = acquireOutlineSession(sourceTitle, sourceTree);
+    const sourceLoad = vi.fn(async () => {
+      await sourceRepairGate;
+      return sourceTree;
+    });
+    const removeSourceLoader = source.setAuthoritativeLoader("editable", sourceLoad);
+    let target: ReturnType<typeof acquireOutlineSession> | undefined;
+    let removeTargetLoader: (() => void) | undefined;
+    let targetAtResume: ReturnType<
+      ReturnType<typeof acquireOutlineSession>["getSnapshot"]
+    > | undefined;
+    let postCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
+      postCount += 1;
+      if (postCount === 1) return jsonResponse({ detail: "bad op" }, 400);
+      targetAtResume = target?.getSnapshot();
+      return jsonResponse({ ok: true });
+    }));
 
-  expect(committedSnapshot).toMatchObject({
-    generation: "g2",
-    plain_space_title_canonicalization: true,
-    seq: 9,
-  });
-  expect(localGeneration).toBe("g2");
-  expect(localActivation).toBe(true);
-  expect(localCursor).toBe(9);
-
-  await act(async () => {
-    lastWs().message({ type: "seq", seq: 10 });
-    await vi.waitFor(() => expect(localCursor).toBe(10));
-  });
-  expect(changesCalls).toBe(3);
-});
-
-test("without a replica the provider reports no-replica mode", async () => {
-  stubFetch([["/api/ops", { ok: true }]]);
-  function Mode() {
-    return <div data-testid="mode">{useSyncWhole().replicaMode}</div>;
-  }
-  render(<SyncProvider replica={null}><Mode /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-  expect(screen.getByTestId("mode").textContent).toBe("no-replica");
-});
-
-test("empty legacy repair resumes a wholly later ticket after drain handoff", async () => {
-  let postCount = 0;
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
-    postCount += 1;
-    return postCount === 1
-      ? jsonResponse({ detail: "bad op" }, 400)
-      : jsonResponse({ ok: true });
-  }));
-  let sync!: Sync;
-  function Grab() {
-    sync = useSyncWhole();
-    return null;
-  }
-  const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
-  let later: ReturnType<Sync["enqueue"]> | undefined;
-  try {
-    const rejected = sync.enqueue(Array.from(
-      { length: 500 }, (_, i) => ({ op: "delete" as const, uid: `bad-${i}` }),
-    ));
-    later = sync.enqueue([{ op: "delete", uid: "later" }]);
-
-    await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
-    await vi.waitFor(() => expect(postCount).toBe(2));
-    await expect(later.delivered).resolves.toEqual({ status: "delivered" });
-  } finally {
-    view.unmount();
-  }
-});
-
-test("legacy repair rebases an unmounted cross-page target before resuming its move", async () => {
-  const sourceTitle = "Unmounted replay source";
-  const targetTitle = "Unmounted replay target";
-  const moved = block("moved", "moved", {
-    children: [block("child", "child")],
-  });
-  const sourceTree = [block("source-root", "source", {
-    children: [moved],
-  })];
-  const targetTree = [block("target-root", "target", {
-    children: [block("existing", "existing")],
-  })];
-  let releaseSourceRepair!: () => void;
-  const sourceRepairGate = new Promise<void>((done) => {
-    releaseSourceRepair = done;
-  });
-  const source = acquireOutlineSession(sourceTitle, sourceTree);
-  const sourceLoad = vi.fn(async () => {
-    await sourceRepairGate;
-    return sourceTree;
-  });
-  const removeSourceLoader = source.setAuthoritativeLoader("editable", sourceLoad);
-  let target: ReturnType<typeof acquireOutlineSession> | undefined;
-  let removeTargetLoader: (() => void) | undefined;
-  let targetAtResume: ReturnType<
-    ReturnType<typeof acquireOutlineSession>["getSnapshot"]
-  > | undefined;
-  let postCount = 0;
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
-    postCount += 1;
-    if (postCount === 1) return jsonResponse({ detail: "bad op" }, 400);
-    targetAtResume = target?.getSnapshot();
-    return jsonResponse({ ok: true });
-  }));
-
-  let sync!: Sync;
-  let dnd!: ReturnType<typeof useDnd>;
-  function Grab() {
-    sync = useSyncWhole();
-    dnd = useDnd();
-    return null;
-  }
-  const view = render(
-    <SyncProvider replica={null}>
-      <DndProvider><Grab /></DndProvider>
-    </SyncProvider>,
-  );
-  const sourceDnd = {
-    moveTo: vi.fn(),
-    removeSubtreeLocal: vi.fn(() => moved),
-    insertSubtreeLocal: vi.fn(),
-  };
-  const sourceRegistration = dnd.registerOutline(sourceTitle, sourceDnd);
-  try {
-    const rejected = sync.enqueue(Array.from(
-      { length: 500 }, (_, i) => ({ op: "delete" as const, uid: `bad-${i}` }),
-    ), ["page", sourceTitle]);
-    dnd.drop(
-      { uid: "moved", pageTitle: sourceTitle },
-      { parent_uid: "target-root", order_idx: 1, page_title: targetTitle },
+    let sync!: Sync;
+    let dnd!: ReturnType<typeof useDnd>;
+    function Grab() {
+      sync = useSyncWhole();
+      dnd = useDnd();
+      return null;
+    }
+    const view = render(
+      <SyncProvider replica={null}>
+        <DndProvider><Grab /></DndProvider>
+      </SyncProvider>,
     );
+    const sourceDnd = {
+      moveTo: vi.fn(),
+      removeSubtreeLocal: vi.fn(() => moved),
+      insertSubtreeLocal: vi.fn(),
+    };
+    const sourceRegistration = dnd.registerOutline(sourceTitle, sourceDnd);
+    try {
+      const rejected = sync.enqueue(Array.from(
+        { length: 500 }, (_, i) => ({ op: "delete" as const, uid: `bad-${i}` }),
+      ), ["page", sourceTitle]);
+      dnd.drop(
+        { uid: "moved", pageTitle: sourceTitle },
+        { parent_uid: "target-root", order_idx: 1, page_title: targetTitle },
+      );
 
-    await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
-    await vi.waitFor(() => expect(sourceLoad).toHaveBeenCalledTimes(1));
-    target = acquireOutlineSession(targetTitle, targetTree);
-    const targetLoad = vi.fn(async () => targetTree);
-    removeTargetLoader = target.setAuthoritativeLoader("editable", targetLoad);
-    expect(postCount).toBe(1);
+      await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+      await vi.waitFor(() => expect(sourceLoad).toHaveBeenCalledTimes(1));
+      target = acquireOutlineSession(targetTitle, targetTree);
+      const targetLoad = vi.fn(async () => targetTree);
+      removeTargetLoader = target.setAuthoritativeLoader("editable", targetLoad);
+      expect(postCount).toBe(1);
 
-    releaseSourceRepair();
-    await vi.waitFor(() => expect(targetLoad).toHaveBeenCalled());
-    await vi.waitFor(() => expect(postCount).toBe(2));
-    expect(targetAtResume?.blocks[0]).toMatchObject({
-      uid: "target-root",
-      children: [
-        expect.objectContaining({ uid: "existing", order_idx: 0 }),
-        expect.objectContaining({
-          uid: "moved",
-          order_idx: 1,
-          children: [expect.objectContaining({ uid: "child" })],
-        }),
-      ],
-    });
-    await vi.waitFor(() => expect(sync.pending).toBe(0));
-  } finally {
-    releaseSourceRepair();
-    if (sourceRegistration.accepted) sourceRegistration.unregister();
-    view.unmount();
-    removeTargetLoader?.();
-    target?.release();
-    removeSourceLoader();
-    source.release();
-  }
-});
-
-test("legacy rejection resumes later delivery only after active outline repair", async () => {
-  let postCount = 0;
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
-    postCount += 1;
-    return postCount === 1
-      ? jsonResponse({ detail: "bad op" }, 400)
-      : jsonResponse({ ok: true });
-  }));
-  let releaseRepair!: () => void;
-  const repairGate = new Promise<void>((done) => { releaseRepair = done; });
-  const session = acquireOutlineSession("Legacy repair target", []);
-  const load = vi.fn(async () => {
-    await repairGate;
-    return [];
-  });
-  const removeLoader = session.setAuthoritativeLoader("editable", load);
-  let sync!: Sync;
-  function Grab() {
-    sync = useSyncWhole();
-    return <div data-testid="legacy-resync">{sync.resyncSeq}</div>;
-  }
-
-  const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-  const rejected = sync.enqueue(
-    [{ op: "delete", uid: "bad" }], ["page", "Legacy repair target"],
-  );
-  session.applyLocal(rejected, [{ op: "delete", uid: "bad" }]);
-  await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
-  await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
-
-  const later = sync.enqueue([{ op: "delete", uid: "later" }]);
-  await Promise.resolve();
-  expect(postCount).toBe(1);
-  expect(screen.getByTestId("legacy-resync")).toHaveTextContent("0");
-
-  releaseRepair();
-  await expect(later.delivered).resolves.toEqual({ status: "delivered" });
-  expect(postCount).toBe(2);
-  await vi.waitFor(() => {
-    expect(screen.getByTestId("legacy-resync")).toHaveTextContent("1");
+      releaseSourceRepair();
+      await vi.waitFor(() => expect(targetLoad).toHaveBeenCalled());
+      await vi.waitFor(() => expect(postCount).toBe(2));
+      expect(targetAtResume?.blocks[0]).toMatchObject({
+        uid: "target-root",
+        children: [
+          expect.objectContaining({ uid: "existing", order_idx: 0 }),
+          expect.objectContaining({
+            uid: "moved",
+            order_idx: 1,
+            children: [expect.objectContaining({ uid: "child" })],
+          }),
+        ],
+      });
+      await vi.waitFor(() => expect(sync.pending).toBe(0));
+    } finally {
+      releaseSourceRepair();
+      if (sourceRegistration.accepted) sourceRegistration.unregister();
+      view.unmount();
+      removeTargetLoader?.();
+      target?.release();
+      removeSourceLoader();
+      source.release();
+    }
   });
 
-  view.unmount();
-  removeLoader();
-  session.release();
-});
+  test("legacy rejection resumes later delivery only after active outline repair", async () => {
+    let postCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
+      postCount += 1;
+      return postCount === 1
+        ? jsonResponse({ detail: "bad op" }, 400)
+        : jsonResponse({ ok: true });
+    }));
+    let releaseRepair!: () => void;
+    const repairGate = new Promise<void>((done) => { releaseRepair = done; });
+    const session = acquireOutlineSession("Legacy repair target", []);
+    const load = vi.fn(async () => {
+      await repairGate;
+      return [];
+    });
+    const removeLoader = session.setAuthoritativeLoader("editable", load);
+    let sync!: Sync;
+    function Grab() {
+      sync = useSyncWhole();
+      return <div data-testid="legacy-resync">{sync.resyncSeq}</div>;
+    }
 
-test("legacy repair waits for a forced read after an existing stale automatic read", async () => {
-  let postCount = 0;
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
-    postCount += 1;
-    return postCount === 1
-      ? jsonResponse({ detail: "bad op" }, 400)
-      : jsonResponse({ ok: true });
-  }));
-  const stale = (() => {
-    let resolve!: (blocks: ReturnType<typeof block>[]) => void;
-    const promise = new Promise<ReturnType<typeof block>[]>((done) => {
-      resolve = done;
-    });
-    return { promise, resolve };
-  })();
-  const forced = (() => {
-    let resolve!: (blocks: ReturnType<typeof block>[]) => void;
-    const promise = new Promise<ReturnType<typeof block>[]>((done) => {
-      resolve = done;
-    });
-    return { promise, resolve };
-  })();
-  const session = acquireOutlineSession(
-    "Legacy forced target", [block("u1", "optimistic")],
-  );
-  const loadForced = vi.fn(() => forced.promise);
-  const removeLoader = session.setAuthoritativeLoader("editable", loadForced);
-  let sync!: Sync;
-  function Grab() {
-    sync = useSyncWhole();
-    return <div data-testid="forced-repair">{
-      sync.problem?.kind === "legacy-rejected" ? sync.problem.repair : "none"
-    }</div>;
-  }
-  const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
-  let later: ReturnType<Sync["enqueue"]> | undefined;
-  try {
+    const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
     const rejected = sync.enqueue(
-      [{ op: "delete", uid: "bad" }], ["page", "Legacy forced target"],
+      [{ op: "delete", uid: "bad" }], ["page", "Legacy repair target"],
     );
-    session.applyLocal(rejected, []);
-    const existing = session.requestAuthoritative(() => stale.promise);
+    session.applyLocal(rejected, [{ op: "delete", uid: "bad" }]);
     await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
-    later = sync.enqueue(
-      [{ op: "delete", uid: "later" }], ["page", "Legacy forced target"],
-    );
-    session.applyLocal(later, []);
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
 
-    stale.resolve([block("u1", "stale pre-rejection")]);
-    await existing;
-    await vi.waitFor(() => expect(loadForced).toHaveBeenCalledTimes(1));
+    const later = sync.enqueue([{ op: "delete", uid: "later" }]);
+    await Promise.resolve();
     expect(postCount).toBe(1);
-    expect(screen.getByTestId("forced-repair")).toHaveTextContent("running");
+    expect(screen.getByTestId("legacy-resync")).toHaveTextContent("0");
 
-    forced.resolve([block("u1", "post-rejection authoritative")]);
+    releaseRepair();
     await expect(later.delivered).resolves.toEqual({ status: "delivered" });
     expect(postCount).toBe(2);
-  } finally {
-    stale.resolve([block("u1", "cleanup stale")]);
-    forced.resolve([block("u1", "cleanup forced")]);
+    await vi.waitFor(() => {
+      expect(screen.getByTestId("legacy-resync")).toHaveTextContent("1");
+    });
+
     view.unmount();
     removeLoader();
     session.release();
-  }
-});
-
-test("legacy repair enrolls a session opened before queue resume", async () => {
-  let postCount = 0;
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
-    postCount += 1;
-    return postCount === 1
-      ? jsonResponse({ detail: "bad op" }, 400)
-      : jsonResponse({ ok: true });
-  }));
-  let releaseFirst!: () => void;
-  const firstGate = new Promise<void>((done) => { releaseFirst = done; });
-  let releaseSecond!: () => void;
-  const secondGate = new Promise<void>((done) => { releaseSecond = done; });
-  const first = acquireOutlineSession("Dynamic repair first", []);
-  const firstLoad = vi.fn(async () => {
-    await firstGate;
-    return [];
   });
-  const removeFirstLoader = first.setAuthoritativeLoader("editable", firstLoad);
-  let sync!: Sync;
-  function Grab() {
-    sync = useSyncWhole();
-    return null;
-  }
-  const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
-  let second: ReturnType<typeof acquireOutlineSession> | undefined;
-  let removeSecondLoader: (() => void) | undefined;
-  try {
-    await act(async () => { lastWs().open(); });
-    const rejected = sync.enqueue(
-      [{ op: "delete", uid: "bad" }], ["page", "Dynamic repair first"],
-    );
-    first.applyLocal(rejected, []);
-    await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
-    await vi.waitFor(() => expect(firstLoad).toHaveBeenCalledTimes(1));
 
-    second = acquireOutlineSession("Dynamic repair second", []);
-    const secondLoad = vi.fn(async () => {
-      await secondGate;
+  test("legacy repair waits for a forced read after an existing stale automatic read", async () => {
+    let postCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
+      postCount += 1;
+      return postCount === 1
+        ? jsonResponse({ detail: "bad op" }, 400)
+        : jsonResponse({ ok: true });
+    }));
+    const stale = (() => {
+      let resolve!: (blocks: ReturnType<typeof block>[]) => void;
+      const promise = new Promise<ReturnType<typeof block>[]>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
+    const forced = (() => {
+      let resolve!: (blocks: ReturnType<typeof block>[]) => void;
+      const promise = new Promise<ReturnType<typeof block>[]>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
+    const session = acquireOutlineSession(
+      "Legacy forced target", [block("u1", "optimistic")],
+    );
+    const loadForced = vi.fn(() => forced.promise);
+    const removeLoader = session.setAuthoritativeLoader("editable", loadForced);
+    let sync!: Sync;
+    function Grab() {
+      sync = useSyncWhole();
+      return <div data-testid="forced-repair">{
+        sync.problem?.kind === "legacy-rejected" ? sync.problem.repair : "none"
+      }</div>;
+    }
+    const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+    let later: ReturnType<Sync["enqueue"]> | undefined;
+    try {
+      await act(async () => { lastWs().open(); });
+      const rejected = sync.enqueue(
+        [{ op: "delete", uid: "bad" }], ["page", "Legacy forced target"],
+      );
+      session.applyLocal(rejected, []);
+      const existing = session.requestAuthoritative(() => stale.promise);
+      await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+      later = sync.enqueue(
+        [{ op: "delete", uid: "later" }], ["page", "Legacy forced target"],
+      );
+      session.applyLocal(later, []);
+
+      stale.resolve([block("u1", "stale pre-rejection")]);
+      await existing;
+      await vi.waitFor(() => expect(loadForced).toHaveBeenCalledTimes(1));
+      expect(postCount).toBe(1);
+      expect(screen.getByTestId("forced-repair")).toHaveTextContent("running");
+
+      forced.resolve([block("u1", "post-rejection authoritative")]);
+      await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+      expect(postCount).toBe(2);
+    } finally {
+      stale.resolve([block("u1", "cleanup stale")]);
+      forced.resolve([block("u1", "cleanup forced")]);
+      view.unmount();
+      removeLoader();
+      session.release();
+    }
+  });
+
+  test("legacy repair enrolls a session opened before queue resume", async () => {
+    let postCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
+      postCount += 1;
+      return postCount === 1
+        ? jsonResponse({ detail: "bad op" }, 400)
+        : jsonResponse({ ok: true });
+    }));
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((done) => { releaseFirst = done; });
+    let releaseSecond!: () => void;
+    const secondGate = new Promise<void>((done) => { releaseSecond = done; });
+    const first = acquireOutlineSession("Dynamic repair first", []);
+    const firstLoad = vi.fn(async () => {
+      await firstGate;
       return [];
     });
-    removeSecondLoader = second.setAuthoritativeLoader("editable", secondLoad);
+    const removeFirstLoader = first.setAuthoritativeLoader("editable", firstLoad);
+    let sync!: Sync;
+    function Grab() {
+      sync = useSyncWhole();
+      return null;
+    }
+    const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+    let second: ReturnType<typeof acquireOutlineSession> | undefined;
+    let removeSecondLoader: (() => void) | undefined;
+    try {
+      await act(async () => { lastWs().open(); });
+      const rejected = sync.enqueue(
+        [{ op: "delete", uid: "bad" }], ["page", "Dynamic repair first"],
+      );
+      first.applyLocal(rejected, []);
+      await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+      await vi.waitFor(() => expect(firstLoad).toHaveBeenCalledTimes(1));
+
+      second = acquireOutlineSession("Dynamic repair second", []);
+      const secondLoad = vi.fn(async () => {
+        await secondGate;
+        return [];
+      });
+      removeSecondLoader = second.setAuthoritativeLoader("editable", secondLoad);
+      const later = sync.enqueue([{ op: "delete", uid: "later" }]);
+      expect(postCount).toBe(1);
+
+      releaseFirst();
+      await vi.waitFor(() => expect(secondLoad).toHaveBeenCalledTimes(1));
+      expect(postCount).toBe(1);
+
+      releaseSecond();
+      await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+      expect(postCount).toBe(2);
+    } finally {
+      releaseFirst();
+      releaseSecond();
+      view.unmount();
+      removeSecondLoader?.();
+      second?.release();
+      removeFirstLoader();
+      first.release();
+    }
+  });
+
+  test("the Sync enqueue boundary registers a page ticket before its session opens", async () => {
+    let releasePost!: () => void;
+    const postGate = new Promise<void>((done) => { releasePost = done; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/ops") await postGate;
+      return jsonResponse({ ok: true });
+    }));
+    let sync!: Sync;
+    function Grab() {
+      sync = useSyncWhole();
+      return null;
+    }
+    const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+    const targetTitle = "Same-page fallback target";
+    const otherTitle = "Unrelated fallback title";
+    let target: ReturnType<typeof acquireOutlineSession> | undefined;
+    let other: ReturnType<typeof acquireOutlineSession> | undefined;
+    let removeLoader: (() => void) | undefined;
+    try {
+      await act(async () => { lastWs().open(); });
+      const ticket = sync.enqueue(
+        [{ op: "move", uid: "u1", parent_uid: null, order_idx: 0 }],
+        ["page", targetTitle],
+      );
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(
+        "/api/ops", expect.anything(),
+      ));
+      target = acquireOutlineSession(targetTitle, [block("u1", "opened")]);
+      const load = vi.fn(async () => [block("u1", "post-delivery")]);
+      removeLoader = target.setAuthoritativeLoader("editable", load);
+      other = acquireOutlineSession(otherTitle, [block("u2", "other old")]);
+      const targetToken = target.beginAuthoritativeRead("parent");
+      const otherToken = other.beginAuthoritativeRead("parent");
+      target.receiveAuthoritative(targetToken, [block("u1", "pre-POST")]);
+      other.receiveAuthoritative(otherToken, [block("u2", "other fresh")]);
+
+      expect(target.getSnapshot().blocks[0].text).toBe("opened");
+      expect(other.getSnapshot().blocks[0].text).toBe("other fresh");
+
+      releasePost();
+      await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+      await vi.waitFor(() => {
+        expect(target!.getSnapshot().blocks[0].text).toBe("post-delivery");
+      });
+    } finally {
+      releasePost();
+      removeLoader?.();
+      target?.release();
+      other?.release();
+      view.unmount();
+    }
+  });
+
+  test("failed legacy outline repair stays visible and Retry releases delivery", async () => {
+    let postCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
+      postCount += 1;
+      return postCount === 1
+        ? jsonResponse({ detail: "bad op" }, 400)
+        : jsonResponse({ ok: true });
+    }));
+    const session = acquireOutlineSession("Retry legacy repair", []);
+    let loadCount = 0;
+    const removeLoader = session.setAuthoritativeLoader("editable", async () => {
+      loadCount += 1;
+      if (loadCount === 1) throw new Error("page read failed");
+      return [];
+    });
+    let sync!: Sync;
+    function Grab() {
+      sync = useSyncWhole();
+      return <div data-testid="legacy-problem">{
+        sync.problem?.kind === "legacy-rejected" ? sync.problem.repair : "none"
+      }</div>;
+    }
+
+    const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+    const rejected = sync.enqueue([{ op: "delete", uid: "bad" }]);
+    await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+    await vi.waitFor(() => {
+      expect(screen.getByTestId("legacy-problem")).toHaveTextContent("failed");
+    });
+
     const later = sync.enqueue([{ op: "delete", uid: "later" }]);
     expect(postCount).toBe(1);
-
-    releaseFirst();
-    await vi.waitFor(() => expect(secondLoad).toHaveBeenCalledTimes(1));
-    expect(postCount).toBe(1);
-
-    releaseSecond();
+    await act(async () => { await sync.retryProblem(); });
     await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+    expect(loadCount).toBe(2);
     expect(postCount).toBe(2);
-  } finally {
-    releaseFirst();
-    releaseSecond();
+
     view.unmount();
-    removeSecondLoader?.();
-    second?.release();
-    removeFirstLoader();
-    first.release();
-  }
+    removeLoader();
+    session.release();
+  });
 });
 
-test("the Sync enqueue boundary registers a page ticket before its session opens", async () => {
-  let releasePost!: () => void;
-  const postGate = new Promise<void>((done) => { releasePost = done; });
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    if (String(input) === "/api/ops") await postGate;
-    return jsonResponse({ ok: true });
-  }));
-  let sync!: Sync;
-  function Grab() {
-    sync = useSyncWhole();
-    return null;
-  }
-  const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
-  const targetTitle = "Same-page fallback target";
-  const otherTitle = "Unrelated fallback title";
-  let target: ReturnType<typeof acquireOutlineSession> | undefined;
-  let other: ReturnType<typeof acquireOutlineSession> | undefined;
-  let removeLoader: (() => void) | undefined;
-  try {
-    await act(async () => { lastWs().open(); });
-    const ticket = sync.enqueue(
-      [{ op: "move", uid: "u1", parent_uid: null, order_idx: 0 }],
-      ["page", targetTitle],
-    );
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(
-      "/api/ops", expect.anything(),
-    ));
-    target = acquireOutlineSession(targetTitle, [block("u1", "opened")]);
-    const load = vi.fn(async () => [block("u1", "post-delivery")]);
-    removeLoader = target.setAuthoritativeLoader("editable", load);
-    other = acquireOutlineSession(otherTitle, [block("u2", "other old")]);
-    const targetToken = target.beginAuthoritativeRead("parent");
-    const otherToken = other.beginAuthoritativeRead("parent");
-    target.receiveAuthoritative(targetToken, [block("u1", "pre-POST")]);
-    other.receiveAuthoritative(otherToken, [block("u2", "other fresh")]);
+describe("durable batches on connect", () => {
+  test("leftover durable batches flush on first connect, then views resync", async () => {
+    // a reload can kill an in-flight POST: the next session's first connect
+    // must drain the leftover AND refetch views (they loaded server state
+    // that predates the flush; the WS echo is filtered as this tab's own).
+    // Deliberately a feed with nothing new on it: a first connect resyncs on
+    // `viewsAreStale`, not on anything the cursor comparison could see.
+    const fetchMock = stubFetch([
+      ["/api/sync/snapshot", SNAPSHOT],
+      ["/api/sync/changes", EMPTY_FEED],
+      ["/api/ops", { ok: true }],
+    ]);
+    const replica = fakeReplicaForProvider();
+    const rows = [{ id: 1, batch_id: "leftover",
+                    ops: [{ op: "delete", uid: "u1" } as const], poisoned: false }];
+    replica.pendingCount = async () => rows.length;
+    replica.nextBatch = async () => rows[0] ?? null;
+    replica.deleteBatch = async () => { rows.pop(); return { pending: 0 }; };
+    render(<SyncProvider replica={replica}><Probe onBatch={() => undefined} /></SyncProvider>);
+    await act(async () => { lastWs().open(); }); // first connect of this load
+    expect(rows).toEqual([]); // drained
+    const opsPosts = fetchMock.mock.calls.filter((c) => String(c[0]) === "/api/ops");
+    expect(opsPosts.length).toBe(1);
+    expect(screen.getByTestId("status").textContent).toBe("connected:1"); // resync
+  });
 
-    expect(target.getSnapshot().blocks[0].text).toBe("opened");
-    expect(other.getSnapshot().blocks[0].text).toBe("other fresh");
+  test("a durable batch's ack naming a skipped op bumps resyncSeq (a " +
+  "replica-backed tab's own feed tombstones the row, but nothing else " +
+  "resyncs the view for it)", async () => {
+    stubFetch([
+      ["/api/sync/snapshot", SNAPSHOT],
+      ["/api/sync/changes", EMPTY_FEED],
+      ["/api/ops", {
+        ok: true, ts: 1, applied: 1,
+        skipped: [{ index: 0, op: "update_text", uid: "u1",
+                    reason: "block_not_found", note_page: "2026-09-29" }],
+      } satisfies OpsAck],
+    ]);
+    const replica = fakeReplicaForProvider();
+    const rows: Array<{ id: number; batch_id: string;
+                       ops: BlockOp[]; poisoned: boolean }> = [];
+    let nextId = 1;
+    replica.enqueue = async (ops, batchId) => {
+      rows.push({ id: nextId++, batch_id: batchId, ops, poisoned: false });
+      return { pending: rows.length, batchId };
+    };
+    replica.nextBatch = async () => rows.find((r) => !r.poisoned) ?? null;
+    replica.deleteBatch = async (id) => {
+      const i = rows.findIndex((r) => r.id === id);
+      if (i !== -1) rows.splice(i, 1);
+      return { pending: rows.length };
+    };
 
-    releasePost();
-    await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
-    await vi.waitFor(() => {
-      expect(target!.getSnapshot().blocks[0].text).toBe("post-delivery");
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); }); // first connect settles
+    const before = sync.resyncSeq;
+    await act(async () => {
+      await sync.enqueue([{ op: "delete", uid: "u1" }]).delivered;
     });
-  } finally {
-    releasePost();
-    removeLoader?.();
-    target?.release();
-    other?.release();
-    view.unmount();
-  }
+    expect(sync.resyncSeq).toBeGreaterThan(before);
+    expect(rows).toEqual([]); // delivered normally alongside the resync bump
+  });
 });
 
-test("failed legacy outline repair stays visible and Retry releases delivery", async () => {
-  let postCount = 0;
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
-    postCount += 1;
-    return postCount === 1
-      ? jsonResponse({ detail: "bad op" }, 400)
-      : jsonResponse({ ok: true });
-  }));
-  const session = acquireOutlineSession("Retry legacy repair", []);
-  let loadCount = 0;
-  const removeLoader = session.setAuthoritativeLoader("editable", async () => {
-    loadCount += 1;
-    if (loadCount === 1) throw new Error("page read failed");
-    return [];
+describe("poison repair and startup marks", () => {
+  test("poison repair is not a second writer of the pending count (pkm-fgjg)",
+  async () => {
+    // The queue's emitPending has exactly one caller for durable changes
+    // (opQueue's setPendingCount) plus refreshPending as the door for an
+    // outside re-read (see opQueue.ts's INVARIANT comment). If the repair
+    // path instead assigns React state directly from deleteBatch's return
+    // value, that value can disagree with the replica's own pendingCount —
+    // and once it does, the badge shows the wrong number even though the
+    // queue's internal bookkeeping (and every later same-valued publish) is
+    // correct and gets suppressed as a no-op repeat.
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/ops") return jsonResponse({ detail: "bad op" }, 400);
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+    const replica = fakeReplicaForProvider();
+    const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                       poisoned: boolean }> = [];
+    replica.enqueue = async (ops, batchId) => {
+      rows.push({ id: 1, batch_id: batchId, ops, poisoned: false });
+      return { pending: rows.filter((row) => !row.poisoned).length, batchId };
+    };
+    replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+    replica.markPoisoned = async (id) => {
+      rows.find((row) => row.id === id)!.poisoned = true;
+      return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
+    };
+    // The ground truth the queue is supposed to track and republish.
+    replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+    replica.pendingBatches = async () => [...rows];
+    replica.prepareRecovery = async () => ({ token: "poison-lease", batches: [...rows] });
+    replica.commitRecovery = async () => undefined;
+    // Deliberately disagrees with pendingCount() above: a real deleteBatch
+    // reporting a value from a moment other call sites have already moved
+    // past is exactly the race the single-publisher invariant guards against.
+    replica.deleteBatch = async (id) => {
+      rows.splice(rows.findIndex((row) => row.id === id), 1);
+      return { pending: 3 };
+    };
+
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+    await act(async () => {
+      await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
+    });
+    await vi.waitFor(() => { expect(sync.problem).toMatchObject({
+      kind: "rejected-batch", repair: "repaired",
+    }); });
+
+    // Nothing is legitimately pending: the only durable row was poisoned and
+    // has now been deleted. The badge must reflect that, not deleteBatch's
+    // unrelated stale return value.
+    expect(sync.pending).toBe(0);
   });
-  let sync!: Sync;
-  function Grab() {
-    sync = useSyncWhole();
-    return <div data-testid="legacy-problem">{
-      sync.problem?.kind === "legacy-rejected" ? sync.problem.repair : "none"
-    }</div>;
-  }
 
-  const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-  const rejected = sync.enqueue([{ op: "delete", uid: "bad" }]);
-  await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
-  await vi.waitFor(() => {
-    expect(screen.getByTestId("legacy-problem")).toHaveTextContent("failed");
-  });
-
-  const later = sync.enqueue([{ op: "delete", uid: "later" }]);
-  expect(postCount).toBe(1);
-  await act(async () => { await sync.retryProblem(); });
-  await expect(later.delivered).resolves.toEqual({ status: "delivered" });
-  expect(loadCount).toBe(2);
-  expect(postCount).toBe(2);
-
-  view.unmount();
-  removeLoader();
-  session.release();
-});
-
-test("leftover durable batches flush on first connect, then views resync", async () => {
-  // a reload can kill an in-flight POST: the next session's first connect
-  // must drain the leftover AND refetch views (they loaded server state
-  // that predates the flush; the WS echo is filtered as this tab's own).
-  // Deliberately a feed with nothing new on it: a first connect resyncs on
-  // `viewsAreStale`, not on anything the cursor comparison could see.
-  const fetchMock = stubFetch([
-    ["/api/sync/snapshot", SNAPSHOT],
-    ["/api/sync/changes", EMPTY_FEED],
-    ["/api/ops", { ok: true }],
-  ]);
-  const replica = fakeReplicaForProvider();
-  const rows = [{ id: 1, batch_id: "leftover",
-                  ops: [{ op: "delete", uid: "u1" } as const], poisoned: false }];
-  replica.pendingCount = async () => rows.length;
-  replica.nextBatch = async () => rows[0] ?? null;
-  replica.deleteBatch = async () => { rows.pop(); return { pending: 0 }; };
-  render(<SyncProvider replica={replica}><Probe onBatch={() => undefined} /></SyncProvider>);
-  await act(async () => { lastWs().open(); }); // first connect of this load
-  expect(rows).toEqual([]); // drained
-  const opsPosts = fetchMock.mock.calls.filter((c) => String(c[0]) === "/api/ops");
-  expect(opsPosts.length).toBe(1);
-  expect(screen.getByTestId("status").textContent).toBe("connected:1"); // resync
-});
-
-test("a durable batch's ack naming a skipped op bumps resyncSeq (a " +
-"replica-backed tab's own feed tombstones the row, but nothing else " +
-"resyncs the view for it)", async () => {
-  stubFetch([
-    ["/api/sync/snapshot", SNAPSHOT],
-    ["/api/sync/changes", EMPTY_FEED],
-    ["/api/ops", {
-      ok: true, ts: 1, applied: 1,
-      skipped: [{ index: 0, op: "update_text", uid: "u1",
-                  reason: "block_not_found", note_page: "2026-09-29" }],
-    } satisfies OpsAck],
-  ]);
-  const replica = fakeReplicaForProvider();
-  const rows: Array<{ id: number; batch_id: string;
-                     ops: BlockOp[]; poisoned: boolean }> = [];
-  let nextId = 1;
-  replica.enqueue = async (ops, batchId) => {
-    rows.push({ id: nextId++, batch_id: batchId, ops, poisoned: false });
-    return { pending: rows.length, batchId };
-  };
-  replica.nextBatch = async () => rows.find((r) => !r.poisoned) ?? null;
-  replica.deleteBatch = async (id) => {
-    const i = rows.findIndex((r) => r.id === id);
-    if (i !== -1) rows.splice(i, 1);
-    return { pending: rows.length };
-  };
-
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); }); // first connect settles
-  const before = sync.resyncSeq;
-  await act(async () => {
-    await sync.enqueue([{ op: "delete", uid: "u1" }]).delivered;
-  });
-  expect(sync.resyncSeq).toBeGreaterThan(before);
-  expect(rows).toEqual([]); // delivered normally alongside the resync bump
-});
-
-test("poison repair is not a second writer of the pending count (pkm-fgjg)",
-async () => {
-  // The queue's emitPending has exactly one caller for durable changes
-  // (opQueue's setPendingCount) plus refreshPending as the door for an
-  // outside re-read (see opQueue.ts's INVARIANT comment). If the repair
-  // path instead assigns React state directly from deleteBatch's return
-  // value, that value can disagree with the replica's own pendingCount —
-  // and once it does, the badge shows the wrong number even though the
-  // queue's internal bookkeeping (and every later same-valued publish) is
-  // correct and gets suppressed as a no-op repeat.
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url === "/api/ops") return jsonResponse({ detail: "bad op" }, 400);
-    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-  const replica = fakeReplicaForProvider();
-  const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
-                     poisoned: boolean }> = [];
-  replica.enqueue = async (ops, batchId) => {
-    rows.push({ id: 1, batch_id: batchId, ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length, batchId };
-  };
-  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
-  replica.markPoisoned = async (id) => {
-    rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
-  };
-  // The ground truth the queue is supposed to track and republish.
-  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
-  replica.pendingBatches = async () => [...rows];
-  replica.prepareRecovery = async () => ({ token: "poison-lease", batches: [...rows] });
-  replica.commitRecovery = async () => undefined;
-  // Deliberately disagrees with pendingCount() above: a real deleteBatch
-  // reporting a value from a moment other call sites have already moved
-  // past is exactly the race the single-publisher invariant guards against.
-  replica.deleteBatch = async (id) => {
-    rows.splice(rows.findIndex((row) => row.id === id), 1);
-    return { pending: 3 };
-  };
-
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-  await act(async () => {
-    await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
-  });
-  await vi.waitFor(() => { expect(sync.problem).toMatchObject({
-    kind: "rejected-batch", repair: "repaired",
-  }); });
-
-  // Nothing is legitimately pending: the only durable row was poisoned and
-  // has now been deleted. The badge must reflect that, not deleteBatch's
-  // unrelated stale return value.
-  expect(sync.pending).toBe(0);
-});
-
-test("rejected batch repair finishes before resync and later delivery", async () => {
-  let releaseSnapshot!: () => void;
-  let snapshotHasStarted = false;
-  const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
-  const posts: string[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
-                                      init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/ops") {
-      const body = JSON.parse(String(init?.body)) as { batch_id: string };
-      posts.push(body.batch_id);
-      return body.batch_id === "bad-batch"
-        ? jsonResponse({ detail: "bad op" }, 400)
-        : jsonResponse({ ok: true });
-    }
-    if (url === "/api/sync/snapshot") {
-      snapshotHasStarted = true;
-      await snapshotGate;
-      return jsonResponse(SNAPSHOT);
-    }
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-
-  const replica = fakeReplicaForProvider();
-  const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
-                     poisoned: boolean }> = [];
-  let nextId = 1;
-  const trace: string[] = [];
-  replica.init = async () => ({
-    empty: false, cursor: 5, schemaMismatch: false,
-    pendingBatches: [],
-  });
-  replica.enqueue = async (ops) => {
-    const id = nextId++;
-    const batch_id = id === 1 ? "bad-batch" : "good-batch";
-    rows.push({ id, batch_id, ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
-  };
-  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
-  replica.markPoisoned = async (id) => {
-    trace.push("mark poison");
-    rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
-  };
-  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
-  replica.pendingBatches = async () => [...rows];
-  replica.prepareRecovery = async () => {
-    trace.push("prepare repair");
-    return { token: "poison-lease", batches: [...rows] };
-  };
-  replica.commitRecovery = async () => { trace.push("commit repair"); };
-  replica.deleteBatch = async (id, batchId) => {
-    trace.push(`delete ${id} ${batchId}`);
-    rows.splice(rows.findIndex((row) => row.id === id), 1);
-    return { pending: rows.filter((row) => !row.poisoned).length };
-  };
-
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-  const baselineResync = sync.resyncSeq;
-  await act(async () => {
-    await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
-    await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
-    await Promise.resolve();
-  });
-  await vi.waitFor(() => { expect(snapshotHasStarted).toBe(true); });
-
-  expect(posts).toEqual(["bad-batch"]);
-  expect(trace).toEqual(["mark poison", "prepare repair"]);
-  expect(sync.resyncSeq).toBe(baselineResync);
-
-  await act(async () => { releaseSnapshot(); await snapshotGate; });
-  await vi.waitFor(() => { expect(posts).toEqual(["bad-batch", "good-batch"]); });
-  expect(trace).toEqual([
-    // both deletes name the batch: the poison discard, then the drain's ack
-    "mark poison", "prepare repair", "commit repair",
-    "delete 1 bad-batch", "delete 2 good-batch",
-  ]);
-  expect(sync.resyncSeq).toBe(baselineResync + 1);
-});
-
-test("discardProblem releases ownership before resuming, not only after the re-POST heals",
-async () => {
-  // The re-POST discardProblem's own resume triggers is gated at its SECOND
-  // attempt: the assertion below runs while that re-POST is still in flight,
-  // before it could reject and (via a matched mark) repair its own way to a
-  // release. That isolates discardProblem's release from Path B's natural
-  // self-heal, which would otherwise make this pass even with the bug.
-  let releaseRepost!: () => void;
-  const repostGate = new Promise<void>((resolve) => { releaseRepost = resolve; });
-  let badBatchPosts = 0;
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
-                                      init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/ops") {
-      const body = JSON.parse(String(init?.body)) as { batch_id: string };
-      if (body.batch_id === "bad-batch") {
-        badBatchPosts += 1;
-        if (badBatchPosts > 1) await repostGate;
-        return jsonResponse({ detail: "bad op" }, 400);
+  test("rejected batch repair finishes before resync and later delivery", async () => {
+    let releaseSnapshot!: () => void;
+    let snapshotHasStarted = false;
+    const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                        init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/ops") {
+        const body = JSON.parse(String(init?.body)) as { batch_id: string };
+        posts.push(body.batch_id);
+        return body.batch_id === "bad-batch"
+          ? jsonResponse({ detail: "bad op" }, 400)
+          : jsonResponse({ ok: true });
       }
-      return jsonResponse({ ok: true });
-    }
-    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
+      if (url === "/api/sync/snapshot") {
+        snapshotHasStarted = true;
+        await snapshotGate;
+        return jsonResponse(SNAPSHOT);
+      }
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
 
-  const replica = fakeReplicaForProvider();
-  const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
-                     poisoned: boolean }> = [];
-  let nextId = 1;
-  replica.init = async () => ({
-    empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
-  });
-  replica.enqueue = async (ops) => {
-    const id = nextId++;
-    const batch_id = id === 1 ? "bad-batch" : "good-batch";
-    rows.push({ id, batch_id, ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
-  };
-  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
-  // The mark RPC itself fails every time (not a match failure): the row
-  // stays unpoisoned and deliverable, reaching problem.repair === "mark-failed"
-  // mid-session, exactly the branch discardProblem's fix must release.
-  replica.markPoisoned = async () => {
-    throw new Error("Access Handles cannot be created");
-  };
-  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
-  replica.pendingBatches = async () => [...rows];
+    const replica = fakeReplicaForProvider();
+    const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                       poisoned: boolean }> = [];
+    let nextId = 1;
+    const trace: string[] = [];
+    replica.init = async () => ({
+      empty: false, cursor: 5, schemaMismatch: false,
+      pendingBatches: [],
+    });
+    replica.enqueue = async (ops) => {
+      const id = nextId++;
+      const batch_id = id === 1 ? "bad-batch" : "good-batch";
+      rows.push({ id, batch_id, ops, poisoned: false });
+      return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
+    };
+    replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+    replica.markPoisoned = async (id) => {
+      trace.push("mark poison");
+      rows.find((row) => row.id === id)!.poisoned = true;
+      return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
+    };
+    replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+    replica.pendingBatches = async () => [...rows];
+    replica.prepareRecovery = async () => {
+      trace.push("prepare repair");
+      return { token: "poison-lease", batches: [...rows] };
+    };
+    replica.commitRecovery = async () => { trace.push("commit repair"); };
+    replica.deleteBatch = async (id, batchId) => {
+      trace.push(`delete ${id} ${batchId}`);
+      rows.splice(rows.findIndex((row) => row.id === id), 1);
+      return { pending: rows.filter((row) => !row.poisoned).length };
+    };
 
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-  await act(async () => {
-    await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
-    await Promise.resolve();
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+    const baselineResync = sync.resyncSeq;
+    await act(async () => {
+      await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
+      await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => { expect(snapshotHasStarted).toBe(true); });
+
+    expect(posts).toEqual(["bad-batch"]);
+    expect(trace).toEqual(["mark poison", "prepare repair"]);
+    expect(sync.resyncSeq).toBe(baselineResync);
+
+    await act(async () => { releaseSnapshot(); await snapshotGate; });
+    await vi.waitFor(() => { expect(posts).toEqual(["bad-batch", "good-batch"]); });
+    expect(trace).toEqual([
+      // both deletes name the batch: the poison discard, then the drain's ack
+      "mark poison", "prepare repair", "commit repair",
+      "delete 1 bad-batch", "delete 2 good-batch",
+    ]);
+    expect(sync.resyncSeq).toBe(baselineResync + 1);
   });
-  await vi.waitFor(() => {
+
+  test("discardProblem releases ownership before resuming, not only after the re-POST heals",
+  async () => {
+    // The re-POST discardProblem's own resume triggers is gated at its SECOND
+    // attempt: the assertion below runs while that re-POST is still in flight,
+    // before it could reject and (via a matched mark) repair its own way to a
+    // release. That isolates discardProblem's release from Path B's natural
+    // self-heal, which would otherwise make this pass even with the bug.
+    let releaseRepost!: () => void;
+    const repostGate = new Promise<void>((resolve) => { releaseRepost = resolve; });
+    let badBatchPosts = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                        init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/ops") {
+        const body = JSON.parse(String(init?.body)) as { batch_id: string };
+        if (body.batch_id === "bad-batch") {
+          badBatchPosts += 1;
+          if (badBatchPosts > 1) await repostGate;
+          return jsonResponse({ detail: "bad op" }, 400);
+        }
+        return jsonResponse({ ok: true });
+      }
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+
+    const replica = fakeReplicaForProvider();
+    const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                       poisoned: boolean }> = [];
+    let nextId = 1;
+    replica.init = async () => ({
+      empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
+    });
+    replica.enqueue = async (ops) => {
+      const id = nextId++;
+      const batch_id = id === 1 ? "bad-batch" : "good-batch";
+      rows.push({ id, batch_id, ops, poisoned: false });
+      return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
+    };
+    replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+    // The mark RPC itself fails every time (not a match failure): the row
+    // stays unpoisoned and deliverable, reaching problem.repair === "mark-failed"
+    // mid-session, exactly the branch discardProblem's fix must release.
+    replica.markPoisoned = async () => {
+      throw new Error("Access Handles cannot be created");
+    };
+    replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+    replica.pendingBatches = async () => [...rows];
+
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+    await act(async () => {
+      await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => {
+      expect(sync.problem).toMatchObject({
+        kind: "rejected-batch", repair: "mark-failed",
+      });
+    });
+
+    await act(async () => { await sync.discardProblem(); });
+    // The still-unmarked row redelivers as designed; wait for that re-POST to
+    // actually be in flight (gated, not yet rejected) before checking release.
+    await vi.waitFor(() => { expect(badBatchPosts).toBeGreaterThan(1); });
+
+    // Ownership was actually released, not merely "will heal once redelivered":
+    // resetLocalData's own barrier guard must no longer see a repair in progress,
+    // even though the re-POST above has not yet had a chance to reject and
+    // repair its own way to a release.
+    await act(async () => { await sync.resetReplica(true); });
+    // syncState's "reset-failed" case stores the message in `resetError`, not
+    // `error` (that field is the stalled-base default and stays ""); discarding
+    // cleared `problem` to undefined first, so this is the only source of a
+    // "reset-failed" problem here.
+    expect(sync.problem).not.toMatchObject({
+      reset: "failed", resetError: expect.stringContaining("in progress"),
+    });
+
+    releaseRepost();
+  });
+
+  test("an unmatched poison mark releases ownership so delivery resumes and a later rebootstrap can run",
+  async () => {
+    // Composed across the real opQueue + replicaSync + SyncProvider stack (no
+    // mocked queue below the provider), unlike the other two branch tests
+    // above: this is the boundary the signal has to cross.
+    const posts: string[] = [];
+    const trace: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                        init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/ops") {
+        const body = JSON.parse(String(init?.body)) as { batch_id: string };
+        posts.push(body.batch_id);
+        return body.batch_id === "bad-batch"
+          ? jsonResponse({ detail: "bad op" }, 400)
+          : jsonResponse({ ok: true });
+      }
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+
+    const replica = fakeReplicaForProvider();
+    const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                       poisoned: boolean }> = [];
+    let nextId = 1;
+    replica.init = async () => ({
+      empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
+    });
+    replica.enqueue = async (ops) => {
+      const id = nextId++;
+      const batch_id = id === 1 ? "bad-batch" : "good-batch";
+      rows.push({ id, batch_id, ops, poisoned: false });
+      return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
+    };
+    replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+    // Path A: the row vanished between POST and mark (e.g. a concurrent manual
+    // reset raced the drain) — nothing left to mark, so nothing matches.
+    replica.markPoisoned = async (id) => {
+      const idx = rows.findIndex((row) => row.id === id);
+      if (idx !== -1) rows.splice(idx, 1);
+      return { pending: rows.filter((row) => !row.poisoned).length, matched: false };
+    };
+    replica.prepareRecovery = async () => {
+      trace.push("prepare repair");
+      return { token: "poison-lease", batches: [...rows] };
+    };
+    replica.deleteBatch = async (id) => {
+      const idx = rows.findIndex((row) => row.id === id);
+      if (idx !== -1) rows.splice(idx, 1);
+      return { pending: rows.filter((row) => !row.poisoned).length };
+    };
+    replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+    replica.pendingBatches = async () => [...rows];
+
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+    await act(async () => {
+      await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
+      await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => { expect(posts).toEqual(["bad-batch", "good-batch"]); });
+
+    // No repair ever ran (nothing matched), yet delivery still resumed and a
+    // later bootstrap-needed pull is not silently deferred.
+    expect(trace).not.toContain("prepare repair");
+    await act(async () => { await sync.resetReplica(true); });
+    expect(sync.problem).not.toMatchObject({
+      reset: "failed", resetError: expect.stringContaining("in progress"),
+    });
+  });
+
+  test("startup repairs durable poison before posting a later batch", async () => {
+    let releaseSnapshot!: () => void;
+    const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
+    let snapshotStarted = false;
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                        init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/sync/snapshot") {
+        snapshotStarted = true;
+        await snapshotGate;
+        return jsonResponse(SNAPSHOT);
+      }
+      if (url === "/api/ops") {
+        posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+        return jsonResponse({ ok: true });
+      }
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+
+    const rejectedOp = { op: "delete", uid: "rejected" } as const;
+    const goodOp = { op: "delete", uid: "good" } as const;
+    const rows = [
+      { id: 1, batch_id: "old-poison", ops: [rejectedOp], poisoned: true },
+      { id: 2, batch_id: "later-good", ops: [goodOp], poisoned: false },
+    ];
+    const replica = fakeReplicaForProvider();
+    replica.init = async () => ({
+      empty: false, cursor: 5, schemaMismatch: false,
+      pendingBatches: [...rows],
+    });
+    replica.poisonedBatches = async () => [{
+      rowId: 1, batchId: "old-poison", ops: [rejectedOp], status: 400,
+      message: "request failed: 400 /api/ops",
+    }];
+    replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+    replica.pendingBatches = async () => [...rows];
+    replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+    replica.prepareRecovery = async () => ({ token: "startup-poison", batches: [...rows] });
+    replica.commitRecovery = async () => undefined;
+    replica.deleteBatch = async (id) => {
+      rows.splice(rows.findIndex((row) => row.id === id), 1);
+      return { pending: rows.filter((row) => !row.poisoned).length };
+    };
+
+    render(<SyncProvider replica={replica}><div /></SyncProvider>);
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+    await vi.waitFor(() => { expect(snapshotStarted).toBe(true); });
+    expect(posts).toEqual([]);
+
+    await act(async () => { releaseSnapshot(); await snapshotGate; });
+    await vi.waitFor(() => { expect(posts).toEqual(["later-good"]); });
+    expect(rows).toEqual([]);
+  });
+
+  test("reload retries only the durable mark and surfaces failure before startup",
+  async () => {
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                        init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/ops") {
+        const batchId = (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
+        posts.push(batchId);
+        return batchId === "bad-batch"
+          ? jsonResponse({ detail: "bad op" }, 400)
+          : jsonResponse({ ok: true });
+      }
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+
+    const replica = fakeReplicaForProvider();
+    const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                       poisoned: boolean }> = [];
+    let nextId = 1;
+    let markAttempts = 0;
+    let poisonDiscoveryCalls = 0;
+    let initCalls = 0;
+    replica.enqueue = async (ops) => {
+      const id = nextId++;
+      const batch_id = id === 1 ? "bad-batch" : "later-good";
+      rows.push({ id, batch_id, ops, poisoned: false });
+      return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
+    };
+    replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+    replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+    replica.pendingBatches = async () => [...rows];
+    replica.markPoisoned = async (id) => {
+      markAttempts += 1;
+      if (markAttempts <= 2) throw new Error(`mark unavailable ${markAttempts}`);
+      rows.find((row) => row.id === id)!.poisoned = true;
+      return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
+    };
+    replica.poisonedBatches = async () => {
+      poisonDiscoveryCalls += 1;
+      return rows.filter((row) => row.poisoned).map((row) => ({
+        rowId: row.id, batchId: row.batch_id, ops: row.ops,
+        status: 400, message: "request failed: 400 /api/ops",
+      }));
+    };
+    replica.init = async () => {
+      initCalls += 1;
+      return { empty: false, cursor: 5, schemaMismatch: false,
+               pendingBatches: [...rows] };
+    };
+    replica.prepareRecovery = async () => ({ token: "reload-poison", batches: [...rows] });
+    replica.commitRecovery = async () => undefined;
+    replica.deleteBatch = async (id) => {
+      rows.splice(rows.findIndex((row) => row.id === id), 1);
+      return { pending: rows.filter((row) => !row.poisoned).length };
+    };
+
+    const firstPage = createOpQueue(replica, () => undefined);
+    firstPage.enqueue([{ op: "delete", uid: "bad" }]);
+    firstPage.enqueue([{ op: "delete", uid: "good" }]);
+    await firstPage.settled();
+    await firstPage.drain();
+    firstPage.dispose();
+    expect(posts).toEqual(["bad-batch"]);
+    expect(markAttempts).toBe(1);
+
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+    await vi.waitFor(() => { expect(sync.problem).toMatchObject({
+      kind: "rejected-batch", repair: "mark-failed",
+    }); });
+
     expect(sync.problem).toMatchObject({
       kind: "rejected-batch", repair: "mark-failed",
+      event: { batchId: "bad-batch" }, error: "mark unavailable 2",
     });
+    expect(posts).toEqual(["bad-batch"]); // reload never redelivered either row
+    expect(markAttempts).toBe(2); // startup performed mark-only retry
+    expect(poisonDiscoveryCalls).toBe(0);
+    expect(initCalls).toBe(0);
+
+    await act(async () => { await sync.retryProblem(); });
+    await vi.waitFor(() => { expect(sync.problem).toMatchObject({
+      kind: "rejected-batch", repair: "repaired",
+    }); });
+
+    expect(markAttempts).toBe(3);
+    expect(posts.filter((batchId) => batchId === "bad-batch")).toHaveLength(1);
+    expect(poisonDiscoveryCalls).toBe(1);
+    expect(initCalls).toBe(1);
   });
 
-  await act(async () => { await sync.discardProblem(); });
-  // The still-unmarked row redelivers as designed; wait for that re-POST to
-  // actually be in flight (gated, not yet rejected) before checking release.
-  await vi.waitFor(() => { expect(badBatchPosts).toBeGreaterThan(1); });
-
-  // Ownership was actually released, not merely "will heal once redelivered":
-  // resetLocalData's own barrier guard must no longer see a repair in progress,
-  // even though the re-POST above has not yet had a chance to reject and
-  // repair its own way to a release.
-  await act(async () => { await sync.resetReplica(true); });
-  // syncState's "reset-failed" case stores the message in `resetError`, not
-  // `error` (that field is the stalled-base default and stays ""); discarding
-  // cleared `problem` to undefined first, so this is the only source of a
-  // "reset-failed" problem here.
-  expect(sync.problem).not.toMatchObject({
-    reset: "failed", resetError: expect.stringContaining("in progress"),
-  });
-
-  releaseRepost();
-});
-
-test("an unmatched poison mark releases ownership so delivery resumes and a later rebootstrap can run",
-async () => {
-  // Composed across the real opQueue + replicaSync + SyncProvider stack (no
-  // mocked queue below the provider), unlike the other two branch tests
-  // above: this is the boundary the signal has to cross.
-  const posts: string[] = [];
-  const trace: string[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
-                                      init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/ops") {
-      const body = JSON.parse(String(init?.body)) as { batch_id: string };
-      posts.push(body.batch_id);
-      return body.batch_id === "bad-batch"
-        ? jsonResponse({ detail: "bad op" }, 400)
-        : jsonResponse({ ok: true });
-    }
-    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-
-  const replica = fakeReplicaForProvider();
-  const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
-                     poisoned: boolean }> = [];
-  let nextId = 1;
-  replica.init = async () => ({
-    empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
-  });
-  replica.enqueue = async (ops) => {
-    const id = nextId++;
-    const batch_id = id === 1 ? "bad-batch" : "good-batch";
-    rows.push({ id, batch_id, ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
-  };
-  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
-  // Path A: the row vanished between POST and mark (e.g. a concurrent manual
-  // reset raced the drain) — nothing left to mark, so nothing matches.
-  replica.markPoisoned = async (id) => {
-    const idx = rows.findIndex((row) => row.id === id);
-    if (idx !== -1) rows.splice(idx, 1);
-    return { pending: rows.filter((row) => !row.poisoned).length, matched: false };
-  };
-  replica.prepareRecovery = async () => {
-    trace.push("prepare repair");
-    return { token: "poison-lease", batches: [...rows] };
-  };
-  replica.deleteBatch = async (id) => {
-    const idx = rows.findIndex((row) => row.id === id);
-    if (idx !== -1) rows.splice(idx, 1);
-    return { pending: rows.filter((row) => !row.poisoned).length };
-  };
-  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
-  replica.pendingBatches = async () => [...rows];
-
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-  await act(async () => {
-    await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
-    await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
-    await Promise.resolve();
-  });
-  await vi.waitFor(() => { expect(posts).toEqual(["bad-batch", "good-batch"]); });
-
-  // No repair ever ran (nothing matched), yet delivery still resumed and a
-  // later bootstrap-needed pull is not silently deferred.
-  expect(trace).not.toContain("prepare repair");
-  await act(async () => { await sync.resetReplica(true); });
-  expect(sync.problem).not.toMatchObject({
-    reset: "failed", resetError: expect.stringContaining("in progress"),
-  });
-});
-
-test("startup repairs durable poison before posting a later batch", async () => {
-  let releaseSnapshot!: () => void;
-  const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
-  let snapshotStarted = false;
-  const posts: string[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
-                                      init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/sync/snapshot") {
-      snapshotStarted = true;
-      await snapshotGate;
-      return jsonResponse(SNAPSHOT);
-    }
-    if (url === "/api/ops") {
-      posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
-      return jsonResponse({ ok: true });
-    }
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-
-  const rejectedOp = { op: "delete", uid: "rejected" } as const;
-  const goodOp = { op: "delete", uid: "good" } as const;
-  const rows = [
-    { id: 1, batch_id: "old-poison", ops: [rejectedOp], poisoned: true },
-    { id: 2, batch_id: "later-good", ops: [goodOp], poisoned: false },
-  ];
-  const replica = fakeReplicaForProvider();
-  replica.init = async () => ({
-    empty: false, cursor: 5, schemaMismatch: false,
-    pendingBatches: [...rows],
-  });
-  replica.poisonedBatches = async () => [{
-    rowId: 1, batchId: "old-poison", ops: [rejectedOp], status: 400,
-    message: "request failed: 400 /api/ops",
-  }];
-  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
-  replica.pendingBatches = async () => [...rows];
-  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
-  replica.prepareRecovery = async () => ({ token: "startup-poison", batches: [...rows] });
-  replica.commitRecovery = async () => undefined;
-  replica.deleteBatch = async (id) => {
-    rows.splice(rows.findIndex((row) => row.id === id), 1);
-    return { pending: rows.filter((row) => !row.poisoned).length };
-  };
-
-  render(<SyncProvider replica={replica}><div /></SyncProvider>);
-  await act(async () => { lastWs().open(); await Promise.resolve(); });
-  await vi.waitFor(() => { expect(snapshotStarted).toBe(true); });
-  expect(posts).toEqual([]);
-
-  await act(async () => { releaseSnapshot(); await snapshotGate; });
-  await vi.waitFor(() => { expect(posts).toEqual(["later-good"]); });
-  expect(rows).toEqual([]);
-});
-
-test("reload retries only the durable mark and surfaces failure before startup",
-async () => {
-  const posts: string[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
-                                      init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/ops") {
-      const batchId = (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
-      posts.push(batchId);
-      return batchId === "bad-batch"
-        ? jsonResponse({ detail: "bad op" }, 400)
-        : jsonResponse({ ok: true });
-    }
-    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-
-  const replica = fakeReplicaForProvider();
-  const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
-                     poisoned: boolean }> = [];
-  let nextId = 1;
-  let markAttempts = 0;
-  let poisonDiscoveryCalls = 0;
-  let initCalls = 0;
-  replica.enqueue = async (ops) => {
-    const id = nextId++;
-    const batch_id = id === 1 ? "bad-batch" : "later-good";
-    rows.push({ id, batch_id, ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
-  };
-  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
-  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
-  replica.pendingBatches = async () => [...rows];
-  replica.markPoisoned = async (id) => {
-    markAttempts += 1;
-    if (markAttempts <= 2) throw new Error(`mark unavailable ${markAttempts}`);
-    rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
-  };
-  replica.poisonedBatches = async () => {
-    poisonDiscoveryCalls += 1;
-    return rows.filter((row) => row.poisoned).map((row) => ({
-      rowId: row.id, batchId: row.batch_id, ops: row.ops,
+  test("startup repairs returned marks even when poison discovery fails", async () => {
+    const event = {
+      rowId: 1, batchId: "bad-batch",
+      ops: [{ op: "delete", uid: "bad" } as const],
       status: 400, message: "request failed: 400 /api/ops",
+    };
+    localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
+      version: 1, intents: [event],
     }));
-  };
-  replica.init = async () => {
-    initCalls += 1;
-    return { empty: false, cursor: 5, schemaMismatch: false,
-             pendingBatches: [...rows] };
-  };
-  replica.prepareRecovery = async () => ({ token: "reload-poison", batches: [...rows] });
-  replica.commitRecovery = async () => undefined;
-  replica.deleteBatch = async (id) => {
-    rows.splice(rows.findIndex((row) => row.id === id), 1);
-    return { pending: rows.filter((row) => !row.poisoned).length };
-  };
+    let releaseSnapshot!: () => void;
+    const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
+    let snapshotStarted = false;
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                        init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/sync/snapshot") {
+        snapshotStarted = true;
+        await snapshotGate;
+        return jsonResponse(SNAPSHOT);
+      }
+      if (url === "/api/ops") {
+        posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+        return jsonResponse({ ok: true });
+      }
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+    const rows = [
+      { id: 1, batch_id: "bad-batch", ops: [...event.ops], poisoned: false },
+      { id: 2, batch_id: "later-good",
+        ops: [{ op: "delete", uid: "good" } as const], poisoned: false },
+    ];
+    const replica = fakeReplicaForProvider();
+    let discoveryCalls = 0;
+    let initCalls = 0;
+    replica.markPoisoned = async (id) => {
+      rows.find((row) => row.id === id)!.poisoned = true;
+      return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
+    };
+    replica.poisonedBatches = async () => {
+      discoveryCalls += 1;
+      throw new Error("poison discovery unavailable");
+    };
+    replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+    replica.pendingBatches = async () => [...rows];
+    replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+    replica.init = async () => {
+      initCalls += 1;
+      return { empty: false, cursor: 5, schemaMismatch: false,
+               pendingBatches: [...rows] };
+    };
+    replica.prepareRecovery = async () => ({ token: "returned-mark", batches: [...rows] });
+    replica.commitRecovery = async () => undefined;
+    replica.deleteBatch = async (id) => {
+      rows.splice(rows.findIndex((row) => row.id === id), 1);
+      return { pending: rows.filter((row) => !row.poisoned).length };
+    };
 
-  const firstPage = createOpQueue(replica, () => undefined);
-  firstPage.enqueue([{ op: "delete", uid: "bad" }]);
-  firstPage.enqueue([{ op: "delete", uid: "good" }]);
-  await firstPage.settled();
-  await firstPage.drain();
-  firstPage.dispose();
-  expect(posts).toEqual(["bad-batch"]);
-  expect(markAttempts).toBe(1);
+    render(<SyncProvider replica={replica}><div /></SyncProvider>);
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+    await vi.waitFor(() => { expect(discoveryCalls).toBe(1); });
 
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-  await vi.waitFor(() => { expect(sync.problem).toMatchObject({
-    kind: "rejected-batch", repair: "mark-failed",
-  }); });
+    expect(snapshotStarted).toBe(true);
+    expect(initCalls).toBe(0);
+    expect(posts).toEqual([]);
 
-  expect(sync.problem).toMatchObject({
-    kind: "rejected-batch", repair: "mark-failed",
-    event: { batchId: "bad-batch" }, error: "mark unavailable 2",
+    await act(async () => { releaseSnapshot(); await snapshotGate; });
   });
-  expect(posts).toEqual(["bad-batch"]); // reload never redelivered either row
-  expect(markAttempts).toBe(2); // startup performed mark-only retry
-  expect(poisonDiscoveryCalls).toBe(0);
-  expect(initCalls).toBe(0);
 
-  await act(async () => { await sync.retryProblem(); });
-  await vi.waitFor(() => { expect(sync.problem).toMatchObject({
-    kind: "rejected-batch", repair: "repaired",
-  }); });
+  test("startup discovery failure without fallback is visible and retryable",
+  async () => {
+    const replica = fakeReplicaForProvider();
+    let discoveryCalls = 0;
+    let initCalls = 0;
+    replica.poisonedBatches = async () => {
+      discoveryCalls += 1;
+      if (discoveryCalls === 1) throw new Error("poison discovery unavailable");
+      return [];
+    };
+    replica.init = async () => {
+      initCalls += 1;
+      return { empty: false, cursor: 5, schemaMismatch: false,
+               pendingBatches: [] };
+    };
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+    await vi.waitFor(() => { expect(discoveryCalls).toBe(1); });
 
-  expect(markAttempts).toBe(3);
-  expect(posts.filter((batchId) => batchId === "bad-batch")).toHaveLength(1);
-  expect(poisonDiscoveryCalls).toBe(1);
-  expect(initCalls).toBe(1);
-});
+    expect(sync.problem).toMatchObject({
+      kind: "poison-discovery", error: "poison discovery unavailable",
+    });
+    // There used to be a separate init() viability probe here to distinguish an
+    // unopenable replica from this anomaly (pkm-bjae). It is gone (pkm-61zt):
+    // a plain Error is not the worker's typed ReplicaUnavailableError, so
+    // availabilityOf(error) is null and the gate stays up without asking twice.
+    expect(initCalls).toBe(0);
+    expect(sync.replicaMode).toBe("starting");
 
-test("startup repairs returned marks even when poison discovery fails", async () => {
-  const event = {
-    rowId: 1, batchId: "bad-batch",
-    ops: [{ op: "delete", uid: "bad" } as const],
-    status: 400, message: "request failed: 400 /api/ops",
-  };
-  localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
-    version: 1, intents: [event],
-  }));
-  let releaseSnapshot!: () => void;
-  const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
-  let snapshotStarted = false;
-  const posts: string[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
-                                      init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/sync/snapshot") {
-      snapshotStarted = true;
-      await snapshotGate;
-      return jsonResponse(SNAPSHOT);
-    }
-    if (url === "/api/ops") {
-      posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
-      return jsonResponse({ ok: true });
-    }
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-  const rows = [
-    { id: 1, batch_id: "bad-batch", ops: [...event.ops], poisoned: false },
-    { id: 2, batch_id: "later-good",
-      ops: [{ op: "delete", uid: "good" } as const], poisoned: false },
-  ];
-  const replica = fakeReplicaForProvider();
-  let discoveryCalls = 0;
-  let initCalls = 0;
-  replica.markPoisoned = async (id) => {
-    rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
-  };
-  replica.poisonedBatches = async () => {
-    discoveryCalls += 1;
-    throw new Error("poison discovery unavailable");
-  };
-  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
-  replica.pendingBatches = async () => [...rows];
-  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
-  replica.init = async () => {
-    initCalls += 1;
-    return { empty: false, cursor: 5, schemaMismatch: false,
-             pendingBatches: [...rows] };
-  };
-  replica.prepareRecovery = async () => ({ token: "returned-mark", batches: [...rows] });
-  replica.commitRecovery = async () => undefined;
-  replica.deleteBatch = async (id) => {
-    rows.splice(rows.findIndex((row) => row.id === id), 1);
-    return { pending: rows.filter((row) => !row.poisoned).length };
-  };
-
-  render(<SyncProvider replica={replica}><div /></SyncProvider>);
-  await act(async () => { lastWs().open(); await Promise.resolve(); });
-  await vi.waitFor(() => { expect(discoveryCalls).toBe(1); });
-
-  expect(snapshotStarted).toBe(true);
-  expect(initCalls).toBe(0);
-  expect(posts).toEqual([]);
-
-  await act(async () => { releaseSnapshot(); await snapshotGate; });
-});
-
-test("startup discovery failure without fallback is visible and retryable",
-async () => {
-  const replica = fakeReplicaForProvider();
-  let discoveryCalls = 0;
-  let initCalls = 0;
-  replica.poisonedBatches = async () => {
-    discoveryCalls += 1;
-    if (discoveryCalls === 1) throw new Error("poison discovery unavailable");
-    return [];
-  };
-  replica.init = async () => {
-    initCalls += 1;
-    return { empty: false, cursor: 5, schemaMismatch: false,
-             pendingBatches: [] };
-  };
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); await Promise.resolve(); });
-  await vi.waitFor(() => { expect(discoveryCalls).toBe(1); });
-
-  expect(sync.problem).toMatchObject({
-    kind: "poison-discovery", error: "poison discovery unavailable",
+    await act(async () => { await sync.retryProblem(); });
+    expect(discoveryCalls).toBe(2);
+    // Retry must actually start syncing, not merely re-run discovery.
+    expect(initCalls).toBe(1);
+    expect(sync.replicaMode).toBe("ready");
   });
-  // There used to be a separate init() viability probe here to distinguish an
-  // unopenable replica from this anomaly (pkm-bjae). It is gone (pkm-61zt):
-  // a plain Error is not the worker's typed ReplicaUnavailableError, so
-  // availabilityOf(error) is null and the gate stays up without asking twice.
-  expect(initCalls).toBe(0);
-  expect(sync.replicaMode).toBe("starting");
-
-  await act(async () => { await sync.retryProblem(); });
-  expect(discoveryCalls).toBe(2);
-  // Retry must actually start syncing, not merely re-run discovery.
-  expect(initCalls).toBe(1);
-  expect(sync.replicaMode).toBe("ready");
 });
 
 // --- an unopenable replica must not hold the startup gate (pkm-bjae) ---
@@ -1392,1370 +1402,1388 @@ function unopenableReplica(
   return Object.assign(replica, { initCalls: () => initCalls });
 }
 
-test("an unopenable replica delivers queued ops online instead of stranding them",
-async () => {
-  const posts: string[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
-                                      init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/ops") {
-      posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
-      return jsonResponse({ ok: true });
-    }
-    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-  const replica = unopenableReplica();
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); await Promise.resolve(); });
-
-  await act(async () => {
-    sync.enqueue([{ op: "delete", uid: "typed-while-dead" }]);
-  });
-
-  await vi.waitFor(() => { expect(posts).toHaveLength(1); });
-  expect(sync.replicaMode).toBe("no-replica");
-  // and it says so, rather than degrading silently (pkm-bjae review)
-  expect(sync.problem).toMatchObject({ kind: "replica-unavailable" });
-});
-
-async function runDead(message: string) {
-  const posts: Array<{ ops: Array<Record<string, unknown>> }> = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/ops") {
-      posts.push(JSON.parse(String(init?.body)));
-      return jsonResponse({ ok: true });
-    }
-    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={unopenableReplica(message)}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); await Promise.resolve(); });
-  await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
-  await act(async () => {
-    sync.enqueue([{ op: "update_text", uid: "u1", text: "typed while dead" }]);
-  });
-  await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
-  return { posts, sync: () => sync };
-}
-
-test("an SAH-contention unopenable replica delivers the edit (pkm-9x6u)", async () => {
-  const { posts } = await runDead(
-    "Access Handles cannot be created if there is another open Access Handle");
-  expect(posts).toHaveLength(1);
-});
-
-test("a NON-whitelisted unopenable replica delivers the edit too (pkm-9x6u)", async () => {
-  // Before pkm-s7af this dropped the edit and fired onDesync, whose legacy
-  // repair additionally rebased the active outline to server state: the
-  // whitelist, not the availability state, decided whether writes survived.
-  // Deliberately does NOT pin sync.problem — a delivery problem can legitimately
-  // take precedence over the background replica-unavailable report.
-  const { posts } = await runDead("OPFS is not available in this browser");
-  expect(posts).toHaveLength(1);
-});
-
-test("an online-only session's update_text still carries a base_text_hash (pkm-4ubd)",
-async () => {
-  // What this can and cannot prove: SyncProvider.enqueue takes whatever ops it
-  // is given. The provider is NOT where base_text_hash is stamped, and must not
-  // be — there is no block tree here to hash against. Stamping is pinned by
-  // baseTextHash.test.ts and by the useOutline/undoManager tests. What THIS
-  // test pins is the lane: with no replica, the in-memory fallback posts
-  // head.ops verbatim, so a lane that stripped or reordered op fields would
-  // strand the conflict guard exactly where it is needed most.
-  const bodies: Array<{ ops: Array<Record<string, unknown>> }> = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/ops") {
-      bodies.push(JSON.parse(String(init?.body)));
-      return jsonResponse({ ok: true });
-    }
-    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-  const replica = unopenableReplica();
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); await Promise.resolve(); });
-  await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
-  await act(async () => {
-    sync.enqueue([{ op: "update_text", uid: "block-1", text: "edited online-only",
-                    base_text_hash: sha256Hex("hello") }]);
-  });
-  await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
-  // The VALUE, not just the field: a lane that carried the property through but
-  // mangled its contents would guard nothing.
-  expect(bodies[0].ops[0].base_text_hash).toEqual(sha256Hex("hello"));
-});
-
-test("a reconnect in a no-replica session still bumps resyncSeq (pkm-9x6u)", async () => {
-  // Every drain used to end in failed() -> a ~5s backoff, forever, because the
-  // loop fell through to replica.nextBatch() on a replica it already knew was
-  // dead. drain() therefore never returned "drained", so finishReconnect never
-  // ran and views were never told to refetch: changes made elsewhere while this
-  // tab was disconnected stayed invisible until the user navigated.
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url === "/api/ops") return jsonResponse({ ok: true });
-    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-  const replica = unopenableReplica();
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); await Promise.resolve(); });
-  await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
-  const before = sync.resyncSeq;
-
-  await act(async () => { lastWs().drop(); await Promise.resolve(); });
-  await act(async () => { lastWs().open(); await Promise.resolve(); });
-
-  await vi.waitFor(() => { expect(sync.resyncSeq).toBeGreaterThan(before); });
-});
-
-test("a replica that cannot be opened never starts syncing", async () => {
-  // Why this is safe without a `disabled` flag: the worker latches its failed
-  // open until close(), so start() -> init() rejects for the whole session and
-  // can never resume delivery with poison discovery SKIPPED — the exact
-  // ordering hazard the recovery barrier exists to prevent, which pkm-bjae's
-  // own first fix had reintroduced. The commitment lives where the commitment
-  // happens.
-  //
-  // A fixture whose init() succeeds on a second call would be testing a
-  // replica that cannot exist; the property it used to guard (the provider
-  // must not call start() again) is now guarded by the latch itself, so
-  // unopenableReplica()'s own permanently-rejecting init is enough here.
-  const feeds: string[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url === "/api/ops") return jsonResponse({ ok: true });
-    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-    if (url.startsWith("/api/sync/changes")) {
-      feeds.push(url);
-      return jsonResponse(EMPTY_FEED);
-    }
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-  const replica = unopenableReplica();
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); await Promise.resolve(); });
-  await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
-
-  // A reconnect issues start(); it must stay a no-op for the whole session.
-  await act(async () => { lastWs().drop(); await Promise.resolve(); });
-  await act(async () => { lastWs().open(); await Promise.resolve(); });
-  await act(async () => { await Promise.resolve(); });
-
-  expect(sync.replicaMode).toBe("no-replica");
-  expect(feeds).toEqual([]);
-});
-
-/** Models the real worker's open memoisation (`workerHandlers.ts:63`): one
- * failed open is cached and replayed to every handler, and — crucially — is
- * NOT cleared by any handler's rejection, including `init()`'s (pkm-za9j's
- * latch; before that, pkm-bjae). Contention here would clear after the first
- * real attempt, so a worker that re-armed its open WOULD succeed on a second
- * attempt; that this double never does is the property `workerHandlers.test.ts`
- * pins directly ("a failed open stays latched"). This test guards the other
- * half: that the provider does not reach the database by some other route
- * once the barrier is lifted. `unopenableReplica()` above is permanently dead
- * and cannot express the race at all. The internal `db()` rejection must be a
- * `ReplicaUnavailableError` (not a plain `Error`), because `availabilityOf`
- * — not a second call to `init()` — is what SyncProvider now consults to
- * decide "unusable" (pkm-61zt); a plain `Error` would make this test pass
- * vacuously by never lifting the barrier at all. */
-function racingReplica(): Replica & { log: string[] } {
-  const log: string[] = [];
-  let state: "unopened" | "failed" | "open" = "unopened";
-  let contended = true;
-  const sah = () => new ReplicaUnavailableError(
-    "Access Handles cannot be created if there is another open Access Handle");
-  const db = async (): Promise<void> => {
-    if (state === "open") return;
-    if (state === "failed") throw sah();       // memoised rejection, replayed
-    if (contended) { contended = false; state = "failed"; throw sah(); }
-    state = "open";
-  };
-  const rejected = { op: "delete", uid: "rejected" } as const;
-  const rows = [
-    { id: 7, batch_id: "rejected-last-session", ops: [rejected], poisoned: true },
-    { id: 8, batch_id: "queued-behind-poison",
-      ops: [{ op: "delete", uid: "behind" } as const], poisoned: false },
-  ];
-  const replica = fakeReplicaForProvider();
-  replica.init = async () => {
-    log.push("init");
-    try {
-      await db();
-    } catch {
-      // Deliberately does NOT reset `state`: the real worker leaves its
-      // memoised rejection in place so the database stays latched shut.
-      return { empty: true, cursor: 0, schemaMismatch: false,
-               pendingBatches: [] };
-    }
-    return { empty: false, cursor: 5, schemaMismatch: false,
-             pendingBatches: [...rows] };
-  };
-  replica.poisonedBatches = async () => {
-    log.push("poisonedBatches");
-    await db();
-    return rows.filter((row) => row.poisoned).map((row) => ({
-      rowId: row.id, batchId: row.batch_id, ops: [...row.ops],
-      status: 400, message: "request failed: 400 /api/ops",
-    }));
-  };
-  replica.nextBatch = async () => {
-    log.push("nextBatch");
-    await db();
-    return rows.find((row) => !row.poisoned) ?? null;
-  };
-  replica.deleteBatch = async (id) => {
-    await db();
-    rows.splice(rows.findIndex((row) => row.id === id), 1);
-    return { pending: rows.filter((row) => !row.poisoned).length };
-  };
-  replica.pendingCount = async () => {
-    await db();
-    return rows.filter((row) => !row.poisoned).length;
-  };
-  return Object.assign(replica, { log });
-}
-
-test("a session that declared the replica unavailable must not drain a queue it never checked for poison",
-async () => {
-  // pkm-bjae / pkm-za9j: the hazard this guards is a database that RE-ARMS
-  // after being declared unavailable — the barrier lift then lets resume()'s
-  // kick drain through a database that now opens, delivering a batch queued
-  // behind an undiscovered poison row, which is precisely what the barrier
-  // exists to prevent. The worker's latch (and this fixture's `state` staying
-  // "failed" forever, never reset on the caught rejection) is what makes that
-  // impossible; this test is the only one that can still express the race at
-  // all, since unopenableReplica() is permanently dead.
-  const posts: string[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
-                                      init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/ops") {
-      posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
-      return jsonResponse({ ok: true });
-    }
-    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-  const replica = racingReplica();
-  render(<SyncProvider replica={replica}><div /></SyncProvider>);
-  await act(async () => { lastWs().open(); await Promise.resolve(); });
-  await act(async () => { await Promise.resolve(); });
-  await act(async () => { await Promise.resolve(); });
-
-  expect(posts).not.toContain("queued-behind-poison");
-});
-
-test("a KNOWN-rejected batch still holds the gate when it cannot be repaired",
-async () => {
-  // The deliberate asymmetry (pkm-bjae): with no evidence of a rejected batch
-  // an unopenable replica falls back to online-only, but retained mark intents
-  // ARE evidence, and delivering past one would post ahead of a batch the
-  // server already rejected. This path keeps its gate and its Retry banner.
-  localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
-    version: 1,
-    intents: [{ rowId: 1, batchId: "bad-batch",
-                ops: [{ op: "delete", uid: "bad" }],
-                status: 400, message: "request failed: 400 /api/ops" }],
-  }));
-  const posts: string[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
-                                      init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/ops") {
-      posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
-      return jsonResponse({ ok: true });
-    }
-    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-  const replica = unopenableReplica();
-  replica.markPoisoned = async () => {
-    throw new Error("Access Handles cannot be created");
-  };
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); await Promise.resolve(); });
-
-  await act(async () => {
-    sync.enqueue([{ op: "delete", uid: "typed-while-wedged" }]);
-  });
-  await act(async () => { await Promise.resolve(); });
-
-  expect(posts).toEqual([]);
-  expect(replica.initCalls()).toBe(0);
-});
-
-test("discarding an unmarkable intent releases the wedge into online-only",
-async () => {
-  // pkm-tu5k: the gate above is correct but was inescapable — the intent
-  // clears only after a successful markPoisoned, which an unopenable replica
-  // can never perform, wedging every future session. Discard is the explicit
-  // way out: drop the intents, then rejoin the pkm-bjae online-only fallback.
-  // Safe because the unmarked batch redelivers if the replica ever opens
-  // again, and the server rejects it into the normal poison → repair flow.
-  localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
-    version: 1,
-    intents: [{ rowId: 1, batchId: "bad-batch",
-                ops: [{ op: "delete", uid: "bad" }],
-                status: 400, message: "request failed: 400 /api/ops" }],
-  }));
-  const posts: string[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
-                                      init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/ops") {
-      posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
-      return jsonResponse({ ok: true });
-    }
-    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-  const replica = unopenableReplica();
-  replica.markPoisoned = async () => {
-    throw new Error("Access Handles cannot be created");
-  };
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); await Promise.resolve(); });
-  await act(async () => {
-    sync.enqueue([{ op: "delete", uid: "typed-while-wedged" }]);
-  });
-  await act(async () => { await Promise.resolve(); });
-  expect(sync.problem).toMatchObject({
-    kind: "rejected-batch", repair: "mark-failed",
-  });
-  expect(posts).toEqual([]);
-
-  await act(async () => { await sync.discardProblem(); });
-  await act(async () => { await Promise.resolve(); });
-
-  expect(localStorage.getItem("pkm.poison-mark-intents.v1")).toBeNull();
-  // The edit typed while wedged delivers instead of dying with the tab.
-  expect(posts).toHaveLength(1);
-  // Never the rejected batch itself: nothing may deliver what the server
-  // already rejected.
-  expect(posts).not.toContain("bad-batch");
-  expect(sync.problem).toMatchObject({ kind: "replica-unavailable" });
-  expect(sync.replicaMode).toBe("no-replica");
-});
-
-test("failed poison repair stays visible and Retry succeeds without reapplying it", async () => {
-  let snapshotCalls = 0;
-  const posts: string[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
-                                      init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/ops") {
-      const batchId = (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
-      posts.push(batchId);
-      return batchId === "bad-batch"
-        ? jsonResponse({ detail: "bad op" }, 400)
-        : jsonResponse({ ok: true });
-    }
-    if (url === "/api/sync/snapshot") {
-      snapshotCalls += 1;
-      return snapshotCalls === 1
-        ? jsonResponse({ detail: "snapshot unavailable" }, 503)
-        : jsonResponse(SNAPSHOT);
-    }
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-
-  const replica = fakeReplicaForProvider();
-  const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
-                     poisoned: boolean }> = [];
-  let nextId = 1;
-  replica.init = async () => ({
-    empty: false, cursor: 5, schemaMismatch: false,
-    pendingBatches: [],
-  });
-  replica.enqueue = async (ops) => {
-    const id = nextId++;
-    const batch_id = id === 1 ? "bad-batch" : "good-batch";
-    rows.push({ id, batch_id, ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
-  };
-  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
-  replica.markPoisoned = async (id) => {
-    rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
-  };
-  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
-  replica.pendingBatches = async () => [...rows];
-  replica.prepareRecovery = async () => ({ token: `lease-${snapshotCalls}`, batches: [...rows] });
-  replica.commitRecovery = async () => undefined;
-  replica.abortRecovery = async () => undefined;
-  replica.deleteBatch = async (id) => {
-    rows.splice(rows.findIndex((row) => row.id === id), 1);
-    return { pending: rows.filter((row) => !row.poisoned).length };
-  };
-
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-  await act(async () => {
-    await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
-    await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
-  });
-  await vi.waitFor(() => { expect(sync.problem).toMatchObject({
-    kind: "rejected-batch", repair: "failed",
-  }); });
-  expect(sync.status).toBe("connected");
-  expect(sync.problem).toMatchObject({
-    kind: "rejected-batch", repair: "failed",
-    event: { batchId: "bad-batch", status: 400 },
-    error: "request failed: 503 /api/sync/snapshot: snapshot unavailable",
-  });
-  expect(posts).toEqual(["bad-batch"]);
-
-  const controls = sync as unknown as {
-    retryProblem(): Promise<void>;
-    dismissProblem(): void;
-  };
-  expect(controls.retryProblem).toBeTypeOf("function");
-  expect(controls.dismissProblem).toBeTypeOf("function");
-  act(() => { controls.dismissProblem(); });
-  expect(sync.problem).toMatchObject({
-    kind: "rejected-batch", repair: "failed",
-  });
-
-  await act(async () => { await controls.retryProblem(); });
-  await vi.waitFor(() => { expect(posts).toEqual(["bad-batch", "good-batch"]); });
-  expect(sync.problem).toMatchObject({
-    kind: "rejected-batch", repair: "repaired",
-  });
-  expect(snapshotCalls).toBe(2);
-
-  act(() => { controls.dismissProblem(); });
-  expect(sync.problem).toBeUndefined();
-  await act(async () => { await Promise.resolve(); });
-  expect(posts).toEqual(["bad-batch", "good-batch"]);
-});
-
-test("applySync reads the freshest problem for same-tick dispatches: a dismiss " +
-"racing a new repair-started must not erase it", async () => {
-  let snapshotCalls = 0;
-  const posts: string[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
-                                      init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/ops") {
-      const batchId = (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
-      posts.push(batchId);
-      return batchId === "bad-batch" || batchId === "bad-batch-2"
-        ? jsonResponse({ detail: "bad op" }, 400)
-        : jsonResponse({ ok: true });
-    }
-    if (url === "/api/sync/snapshot") {
-      snapshotCalls += 1;
-      return snapshotCalls === 1
-        ? jsonResponse({ detail: "snapshot unavailable" }, 503)
-        : jsonResponse(SNAPSHOT);
-    }
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ detail: "not found" }, 404);
-  }));
-
-  const replica = fakeReplicaForProvider();
-  const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
-                     poisoned: boolean }> = [];
-  let nextId = 1;
-  replica.init = async () => ({
-    empty: false, cursor: 5, schemaMismatch: false,
-    pendingBatches: [],
-  });
-  replica.enqueue = async (ops) => {
-    const id = nextId++;
-    const batchId = id === 1 ? "bad-batch" : id === 2 ? "good-batch" : "bad-batch-2";
-    rows.push({ id, batch_id: batchId, ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length, batchId };
-  };
-  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
-  replica.markPoisoned = async (id) => {
-    rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
-  };
-  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
-  replica.pendingBatches = async () => [...rows];
-  let prepareCalls = 0;
-  let reachedThirdRebase!: () => void;
-  const thirdRebase = new Promise<void>((resolve) => { reachedThirdRebase = resolve; });
-  replica.prepareRecovery = async () => {
-    prepareCalls += 1;
-    if (prepareCalls < 3) return { token: `lease-${prepareCalls}`, batches: [...rows] };
-    // The third repair (bad-batch-2's) is left permanently mid-flight so its
-    // "running" problem state cannot itself progress to repaired/failed
-    // before the same-tick dismiss below is dispatched.
-    reachedThirdRebase();
-    return new Promise<never>(() => undefined);
-  };
-  replica.commitRecovery = async () => undefined;
-  replica.abortRecovery = async () => undefined;
-  replica.deleteBatch = async (id) => {
-    rows.splice(rows.findIndex((row) => row.id === id), 1);
-    return { pending: rows.filter((row) => !row.poisoned).length };
-  };
-
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-  await act(async () => {
-    await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
-    await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
-  });
-  await vi.waitFor(() => { expect(sync.problem).toMatchObject({
-    kind: "rejected-batch", repair: "failed",
-  }); });
-
-  const controls = sync as unknown as { retryProblem(): Promise<void> };
-  await act(async () => { await controls.retryProblem(); });
-  await vi.waitFor(() => { expect(sync.problem).toMatchObject({
-    kind: "rejected-batch", repair: "repaired",
-  }); });
-  expect(posts).toEqual(["bad-batch", "good-batch"]);
-
-  // Same-tick race: a new batch is rejected (repair-started fires, replacing
-  // the still-visible "repaired" problem) and, before React can re-render,
-  // dismissProblem() is invoked. dismissProblem must judge the freshest
-  // problem (now "running"), not the stale "repaired" snapshot from before
-  // this tick -- otherwise it wrongly dismisses the live repair.
-  await act(async () => {
-    sync.enqueue([{ op: "delete", uid: "bad2" }]);
-    await thirdRebase;
-    sync.dismissProblem();
-  });
-
-  expect(sync.problem).toMatchObject({
-    kind: "rejected-batch", repair: "running", event: { batchId: "bad-batch-2" },
-  });
-});
-
-test("gateway: requests reach the network until the socket has actually dropped", async () => {
-  stubFetch([
-    ["/api/sync/snapshot", SNAPSHOT],
-    ["/api/sync/changes", EMPTY_FEED],
-    ["/api/ops", { ok: true }],
-    ["/api/x", { net: true }],
-  ]);
-  const replica = fakeReplicaForProvider();
-  replica.localApi = async () =>
-    ({ handled: true, status: 200, body: { local: true } });
-  const { unmount } = render(<SyncProvider replica={replica}><div /></SyncProvider>);
-  // "connecting" is not offline: the network is reachable before the socket
-  // finishes its handshake (a reload lands here with hot caches)
-  await expect(apiFetch("/api/x")).resolves.toEqual({ net: true });
-  await act(async () => { lastWs().open(); });
-  await expect(apiFetch("/api/x")).resolves.toEqual({ net: true });
-  // only a dropped socket routes reads to the replica shim
-  await act(async () => { lastWs().drop(); });
-  await expect(apiFetch("/api/x")).resolves.toEqual({ local: true });
-  unmount(); // deregisters the gateway for later tests
-});
-
-test("offline with a ready replica keeps editing enabled and counts pending", async () => {
-  stubFetch([
-    ["/api/sync/snapshot", SNAPSHOT],
-    ["/api/sync/changes", EMPTY_FEED],
-    ["/api/ops", { ok: true }],
-  ]);
-  const replica = fakeReplicaForProvider();
-  let pendingN = 2;
-  replica.pendingCount = async () => pendingN;
-  replica.enqueue = async (_ops, batchId) => ({ pending: ++pendingN, batchId });
-  // Nothing drains in this test. It has to PARK rather than answer "empty":
-  // a replica reporting two pending rows and an empty batch queue in the same
-  // breath is not a state the real one can be in, and the queue now believes
-  // (and publishes) the emptier of the two.
-  replica.nextBatch = () => new Promise(() => undefined);
-  let sync!: Sync;
-  function Grab() {
-    sync = useSyncWhole();
-    return <div data-testid="s">{String(sync.canEdit)}:{sync.pending}</div>;
-  }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-  await act(async () => { lastWs().drop(); }); // offline
-  expect(sync.status).toBe("reconnecting");
-  expect(sync.canEdit).toBe(true); // replica ready: editing continues
-  expect(sync.pending).toBe(2);    // durable queue from a previous session
-  await act(async () => {
-    const write = sync.enqueue([{ op: "delete", uid: "u1" }]);
-    await write.settled;
-  });
-  expect(sync.pending).toBe(3);
-  expect(sync.readOnlyReason).toBeUndefined();
-});
-
-test("a late mount-time durable read cannot wedge the pending count (pkm-qfee)",
-async () => {
-  // The count is published to React from exactly one place (the queue's
-  // onPending), because the queue suppresses a re-emit of a number that did
-  // not move. A second writer breaks that: it moves the React state while the
-  // queue's idea of what it last published stays put, and every later emit of
-  // that same number is then dropped as a no-op.
-  stubFetch([
-    ["/api/sync/snapshot", SNAPSHOT],
-    ["/api/sync/changes", EMPTY_FEED],
-    ["/api/ops", { ok: true }],
-  ]);
-  const replica = fakeReplicaForProvider();
-  let answerCount!: (n: number) => void;
-  const durableRead = new Promise<number>((r) => { answerCount = r; });
-  // The mount-time read of a previous session's durable rows, held open until
-  // the test releases it: a real worker RPC can easily land after a keystroke.
-  replica.pendingCount = () => durableRead;
-  replica.enqueue = async (_ops, batchId) => ({ pending: 1, batchId });
-  // Parks the drain, so nothing else moves the count in this test.
-  replica.nextBatch = () => new Promise(() => undefined);
-  let sync!: Sync;
-  function Grab() {
-    sync = useSyncWhole();
-    return <div data-testid="s">{sync.pending}</div>;
-  }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-
-  await act(async () => {
-    await sync.enqueue([{ op: "delete", uid: "u1" }]).settled;
-  });
-  expect(sync.pending).toBe(1);
-
-  // The mount-time read answers at last, with a count taken before that edit.
-  await act(async () => { answerCount(0); await durableRead; });
-
-  await act(async () => {
-    await sync.enqueue([{ op: "delete", uid: "u2" }]).settled;
-  });
-  expect(sync.pending).toBe(1); // one durable row again, and it must show
-});
-
-test("cold start offline: a hydrated replica reaches ready and bumps resync", async () => {
-  // no socket ever opens; init is local, and views that errored while the
-  // replica was starting must be told to refetch (through the shim)
-  vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
-  const replica = fakeReplicaForProvider();
-  replica.init = async () => ({ empty: false, cursor: 5,
-                                schemaMismatch: false, pendingBatches: [] });
-  function Grab() {
-    const sync = useSyncWhole();
-    return <div data-testid="s">{sync.replicaMode}:{sync.resyncSeq}:{String(sync.canEdit)}</div>;
-  }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { await Promise.resolve(); });
-  expect(screen.getByTestId("s").textContent).toBe("ready:1:true");
-});
-
-test("offline without a replica stays read-only with a reason", async () => {
-  stubFetch([["/api/ops", { ok: true }]]);
-  let sync!: Sync;
-  function Grab() {
-    sync = useSyncWhole();
-    return null;
-  }
-  render(<SyncProvider replica={null}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-  await act(async () => { lastWs().drop(); });
-  expect(sync.canEdit).toBe(false);
-  expect(sync.readOnlyReason).toMatch(/offline/);
-});
-
-test("an injected replica remains caller-owned on provider unmount", async () => {
-  const replica = fakeReplicaForProvider();
-  const dispose = vi.spyOn(replica, "dispose");
-  const { unmount } = render(
-    <SyncProvider replica={replica}><div /></SyncProvider>);
-
-  unmount();
-  await Promise.resolve();
-
-  expect(dispose).not.toHaveBeenCalled();
-});
-
-test("the internally created worker closes its database before one termination", async () => {
-  const events: string[] = [];
-  class FakeWorker {
-    onmessage: ((ev: { data: unknown }) => void) | null = null;
-    onerror: ((ev: { error?: unknown; message?: string }) => void) | null = null;
-    onmessageerror: ((ev: { data?: unknown }) => void) | null = null;
-
-    postMessage(message: unknown): void {
-      const req = message as { id: number; method: string };
-      if (req.method === "close") events.push("close-db");
-      const result = req.method === "init"
-        ? { empty: true, cursor: 0, schemaMismatch: false,
-            pendingBatches: [] }
-        : req.method === "pendingCount" ? 0 : null;
-      queueMicrotask(() => this.onmessage?.({ data: { id: req.id, result } }));
-    }
-
-    terminate(): void { events.push("terminate-worker"); }
-  }
-  vi.stubGlobal("Worker", FakeWorker);
-  const { unmount } = render(
-    <StrictMode><SyncProvider><div /></SyncProvider></StrictMode>);
-  await act(async () => { await Promise.resolve(); });
-  expect(events).toEqual([]);
-
-  unmount();
-  await act(async () => { await Promise.resolve(); });
-
-  expect(events).toEqual(["close-db", "terminate-worker"]);
-});
-
-test("StrictMode effect replay keeps the queue live", async () => {
-  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
-    status: 200, headers: { "Content-Type": "application/json" },
-  }));
-  vi.stubGlobal("fetch", fetchMock);
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(
-    <StrictMode>
-      <SyncProvider replica={null}><Grab /></SyncProvider>
-    </StrictMode>);
-  act(() => lastWs().open());
-
-  const write = sync.enqueue([{ op: "delete", uid: "u1" }]);
-  // With no replica there is nothing to persist into, so the op rides the
-  // in-memory lane; liveness is that the queue still delivers it after
-  // StrictMode has replayed the mount effects.
-  await act(async () => {
-    await expect(write.delivered).resolves.toEqual({ status: "delivered" });
-  });
-
-  expect(fetchMock).toHaveBeenCalledTimes(1);
-});
-
-test("StrictMode effect replay leaves exactly one live connect lifecycle", async () => {
-  // The replayed setup builds a second socket and a second reconnect flow; the
-  // first mount's cleanup must have detached its own (mountedRef false, drain
-  // observer cleared, socket closed) or a reconnect would finish twice and bump
-  // resyncSeq twice. Deliberately paired with "StrictMode effect replay keeps
-  // the queue live": that one pins what replay must NOT tear down, this one
-  // pins what it must not leave running.
-  vi.useFakeTimers();
-  try {
-    let sync!: Sync;
-    function Grab() {
-      sync = useSyncWhole();
-      return <div data-testid="strict-lifecycle">{sync.status}:{sync.resyncSeq}</div>;
-    }
-    render(
-      <StrictMode>
-        <SyncProvider replica={null}><Grab /></SyncProvider>
-      </StrictMode>);
-    act(() => lastWs().open());
-    expect(screen.getByTestId("strict-lifecycle").textContent).toBe("connected:0");
-
-    act(() => lastWs().drop());
-    act(() => { vi.advanceTimersByTime(2_000); }); // reconnect timer -> new socket
-    await act(async () => { lastWs().open(); });
-
-    expect(screen.getByTestId("strict-lifecycle").textContent).toBe("connected:1");
-  } finally {
-    vi.useRealTimers();
-  }
-});
-
-test("a blocked reconnect drain does not pull the feed or bump resync", async () => {
-  vi.useFakeTimers();
-  try {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      if (String(input) === "/api/ops") {
-        return new Response(JSON.stringify({ detail: "busy" }), { status: 503 });
-      }
-      return new Response(JSON.stringify({}), {
-        status: 200, headers: { "Content-Type": "application/json" },
-      });
-    }));
-    let sync!: Sync;
-    function Grab() {
-      sync = useSyncWhole();
-      return <div data-testid="blocked-status">{sync.resyncSeq}</div>;
-    }
-    render(<SyncProvider replica={null}><Grab /></SyncProvider>);
-    act(() => lastWs().open());
-    act(() => lastWs().drop());
-    act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
-    act(() => { vi.advanceTimersByTime(2_000); });
-    await act(async () => { lastWs().open(); await Promise.resolve(); });
-
-    expect(screen.getByTestId("blocked-status").textContent).toBe("0");
-  } finally {
-    vi.useRealTimers();
-  }
-});
-
-test("automatic retry completes reconnect feed pull and resync exactly once", async () => {
-  vi.useFakeTimers();
-  try {
-    let opsCalls = 0;
-    let changeCalls = 0;
-    const journal = fakeServerJournal();
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+describe("an unopenable replica", () => {
+  test("an unopenable replica delivers queued ops online instead of stranding them",
+  async () => {
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                        init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/ops") {
-        opsCalls += 1;
-        if (opsCalls === 1) return jsonResponse({ detail: "busy" }, 503);
-        journal.wrote();
+        posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
         return jsonResponse({ ok: true });
       }
-      if (url.startsWith("/api/sync/changes")) {
-        changeCalls += 1;
-        return jsonResponse(journal.window());
-      }
-      return jsonResponse({ ok: true });
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
     }));
+    const replica = unopenableReplica();
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+
+    await act(async () => {
+      sync.enqueue([{ op: "delete", uid: "typed-while-dead" }]);
+    });
+
+    await vi.waitFor(() => { expect(posts).toHaveLength(1); });
+    expect(sync.replicaMode).toBe("no-replica");
+    // and it says so, rather than degrading silently (pkm-bjae review)
+    expect(sync.problem).toMatchObject({ kind: "replica-unavailable" });
+  });
+
+  async function runDead(message: string) {
+    const posts: Array<{ ops: Array<Record<string, unknown>> }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/ops") {
+        posts.push(JSON.parse(String(init?.body)));
+        return jsonResponse({ ok: true });
+      }
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={unopenableReplica(message)}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+    await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+    await act(async () => {
+      sync.enqueue([{ op: "update_text", uid: "u1", text: "typed while dead" }]);
+    });
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    return { posts, sync: () => sync };
+  }
+
+  test("an SAH-contention unopenable replica delivers the edit (pkm-9x6u)", async () => {
+    const { posts } = await runDead(
+      "Access Handles cannot be created if there is another open Access Handle");
+    expect(posts).toHaveLength(1);
+  });
+
+  test("a NON-whitelisted unopenable replica delivers the edit too (pkm-9x6u)", async () => {
+    // Before pkm-s7af this dropped the edit and fired onDesync, whose legacy
+    // repair additionally rebased the active outline to server state: the
+    // whitelist, not the availability state, decided whether writes survived.
+    // Deliberately does NOT pin sync.problem — a delivery problem can legitimately
+    // take precedence over the background replica-unavailable report.
+    const { posts } = await runDead("OPFS is not available in this browser");
+    expect(posts).toHaveLength(1);
+  });
+
+  test("an online-only session's update_text still carries a base_text_hash (pkm-4ubd)",
+  async () => {
+    // What this can and cannot prove: SyncProvider.enqueue takes whatever ops it
+    // is given. The provider is NOT where base_text_hash is stamped, and must not
+    // be — there is no block tree here to hash against. Stamping is pinned by
+    // baseTextHash.test.ts and by the useOutline/undoManager tests. What THIS
+    // test pins is the lane: with no replica, the in-memory fallback posts
+    // head.ops verbatim, so a lane that stripped or reordered op fields would
+    // strand the conflict guard exactly where it is needed most.
+    const bodies: Array<{ ops: Array<Record<string, unknown>> }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/ops") {
+        bodies.push(JSON.parse(String(init?.body)));
+        return jsonResponse({ ok: true });
+      }
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+    const replica = unopenableReplica();
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+    await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+    await act(async () => {
+      sync.enqueue([{ op: "update_text", uid: "block-1", text: "edited online-only",
+                      base_text_hash: sha256Hex("hello") }]);
+    });
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    // The VALUE, not just the field: a lane that carried the property through but
+    // mangled its contents would guard nothing.
+    expect(bodies[0].ops[0].base_text_hash).toEqual(sha256Hex("hello"));
+  });
+
+  test("a reconnect in a no-replica session still bumps resyncSeq (pkm-9x6u)", async () => {
+    // Every drain used to end in failed() -> a ~5s backoff, forever, because the
+    // loop fell through to replica.nextBatch() on a replica it already knew was
+    // dead. drain() therefore never returned "drained", so finishReconnect never
+    // ran and views were never told to refetch: changes made elsewhere while this
+    // tab was disconnected stayed invisible until the user navigated.
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/ops") return jsonResponse({ ok: true });
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+    const replica = unopenableReplica();
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+    await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+    const before = sync.resyncSeq;
+
+    await act(async () => { lastWs().drop(); await Promise.resolve(); });
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+
+    await vi.waitFor(() => { expect(sync.resyncSeq).toBeGreaterThan(before); });
+  });
+
+  test("a replica that cannot be opened never starts syncing", async () => {
+    // Why this is safe without a `disabled` flag: the worker latches its failed
+    // open until close(), so start() -> init() rejects for the whole session and
+    // can never resume delivery with poison discovery SKIPPED — the exact
+    // ordering hazard the recovery barrier exists to prevent, which pkm-bjae's
+    // own first fix had reintroduced. The commitment lives where the commitment
+    // happens.
+    //
+    // A fixture whose init() succeeds on a second call would be testing a
+    // replica that cannot exist; the property it used to guard (the provider
+    // must not call start() again) is now guarded by the latch itself, so
+    // unopenableReplica()'s own permanently-rejecting init is enough here.
+    const feeds: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/ops") return jsonResponse({ ok: true });
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) {
+        feeds.push(url);
+        return jsonResponse(EMPTY_FEED);
+      }
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+    const replica = unopenableReplica();
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+    await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+
+    // A reconnect issues start(); it must stay a no-op for the whole session.
+    await act(async () => { lastWs().drop(); await Promise.resolve(); });
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(sync.replicaMode).toBe("no-replica");
+    expect(feeds).toEqual([]);
+  });
+});
+
+describe("the poison gate and repair problems", () => {
+  /** Models the real worker's open memoisation (`workerHandlers.ts:63`): one
+   * failed open is cached and replayed to every handler, and — crucially — is
+   * NOT cleared by any handler's rejection, including `init()`'s (pkm-za9j's
+   * latch; before that, pkm-bjae). Contention here would clear after the first
+   * real attempt, so a worker that re-armed its open WOULD succeed on a second
+   * attempt; that this double never does is the property `workerHandlers.test.ts`
+   * pins directly ("a failed open stays latched"). This test guards the other
+   * half: that the provider does not reach the database by some other route
+   * once the barrier is lifted. `unopenableReplica()` above is permanently dead
+   * and cannot express the race at all. The internal `db()` rejection must be a
+   * `ReplicaUnavailableError` (not a plain `Error`), because `availabilityOf`
+   * — not a second call to `init()` — is what SyncProvider now consults to
+   * decide "unusable" (pkm-61zt); a plain `Error` would make this test pass
+   * vacuously by never lifting the barrier at all. */
+  function racingReplica(): Replica & { log: string[] } {
+    const log: string[] = [];
+    let state: "unopened" | "failed" | "open" = "unopened";
+    let contended = true;
+    const sah = () => new ReplicaUnavailableError(
+      "Access Handles cannot be created if there is another open Access Handle");
+    const db = async (): Promise<void> => {
+      if (state === "open") return;
+      if (state === "failed") throw sah();       // memoised rejection, replayed
+      if (contended) { contended = false; state = "failed"; throw sah(); }
+      state = "open";
+    };
+    const rejected = { op: "delete", uid: "rejected" } as const;
+    const rows = [
+      { id: 7, batch_id: "rejected-last-session", ops: [rejected], poisoned: true },
+      { id: 8, batch_id: "queued-behind-poison",
+        ops: [{ op: "delete", uid: "behind" } as const], poisoned: false },
+    ];
+    const replica = fakeReplicaForProvider();
+    replica.init = async () => {
+      log.push("init");
+      try {
+        await db();
+      } catch {
+        // Deliberately does NOT reset `state`: the real worker leaves its
+        // memoised rejection in place so the database stays latched shut.
+        return { empty: true, cursor: 0, schemaMismatch: false,
+                 pendingBatches: [] };
+      }
+      return { empty: false, cursor: 5, schemaMismatch: false,
+               pendingBatches: [...rows] };
+    };
+    replica.poisonedBatches = async () => {
+      log.push("poisonedBatches");
+      await db();
+      return rows.filter((row) => row.poisoned).map((row) => ({
+        rowId: row.id, batchId: row.batch_id, ops: [...row.ops],
+        status: 400, message: "request failed: 400 /api/ops",
+      }));
+    };
+    replica.nextBatch = async () => {
+      log.push("nextBatch");
+      await db();
+      return rows.find((row) => !row.poisoned) ?? null;
+    };
+    replica.deleteBatch = async (id) => {
+      await db();
+      rows.splice(rows.findIndex((row) => row.id === id), 1);
+      return { pending: rows.filter((row) => !row.poisoned).length };
+    };
+    replica.pendingCount = async () => {
+      await db();
+      return rows.filter((row) => !row.poisoned).length;
+    };
+    return Object.assign(replica, { log });
+  }
+
+  test("a session that declared the replica unavailable must not drain a queue it never checked for poison",
+  async () => {
+    // pkm-bjae / pkm-za9j: the hazard this guards is a database that RE-ARMS
+    // after being declared unavailable — the barrier lift then lets resume()'s
+    // kick drain through a database that now opens, delivering a batch queued
+    // behind an undiscovered poison row, which is precisely what the barrier
+    // exists to prevent. The worker's latch (and this fixture's `state` staying
+    // "failed" forever, never reset on the caught rejection) is what makes that
+    // impossible; this test is the only one that can still express the race at
+    // all, since unopenableReplica() is permanently dead.
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                        init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/ops") {
+        posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+        return jsonResponse({ ok: true });
+      }
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+    const replica = racingReplica();
+    render(<SyncProvider replica={replica}><div /></SyncProvider>);
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(posts).not.toContain("queued-behind-poison");
+  });
+
+  test("a KNOWN-rejected batch still holds the gate when it cannot be repaired",
+  async () => {
+    // The deliberate asymmetry (pkm-bjae): with no evidence of a rejected batch
+    // an unopenable replica falls back to online-only, but retained mark intents
+    // ARE evidence, and delivering past one would post ahead of a batch the
+    // server already rejected. This path keeps its gate and its Retry banner.
+    localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
+      version: 1,
+      intents: [{ rowId: 1, batchId: "bad-batch",
+                  ops: [{ op: "delete", uid: "bad" }],
+                  status: 400, message: "request failed: 400 /api/ops" }],
+    }));
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                        init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/ops") {
+        posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+        return jsonResponse({ ok: true });
+      }
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+    const replica = unopenableReplica();
+    replica.markPoisoned = async () => {
+      throw new Error("Access Handles cannot be created");
+    };
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+
+    await act(async () => {
+      sync.enqueue([{ op: "delete", uid: "typed-while-wedged" }]);
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(posts).toEqual([]);
+    expect(replica.initCalls()).toBe(0);
+  });
+
+  test("discarding an unmarkable intent releases the wedge into online-only",
+  async () => {
+    // pkm-tu5k: the gate above is correct but was inescapable — the intent
+    // clears only after a successful markPoisoned, which an unopenable replica
+    // can never perform, wedging every future session. Discard is the explicit
+    // way out: drop the intents, then rejoin the pkm-bjae online-only fallback.
+    // Safe because the unmarked batch redelivers if the replica ever opens
+    // again, and the server rejects it into the normal poison → repair flow.
+    localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
+      version: 1,
+      intents: [{ rowId: 1, batchId: "bad-batch",
+                  ops: [{ op: "delete", uid: "bad" }],
+                  status: 400, message: "request failed: 400 /api/ops" }],
+    }));
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                        init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/ops") {
+        posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+        return jsonResponse({ ok: true });
+      }
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+    const replica = unopenableReplica();
+    replica.markPoisoned = async () => {
+      throw new Error("Access Handles cannot be created");
+    };
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+    await act(async () => {
+      sync.enqueue([{ op: "delete", uid: "typed-while-wedged" }]);
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(sync.problem).toMatchObject({
+      kind: "rejected-batch", repair: "mark-failed",
+    });
+    expect(posts).toEqual([]);
+
+    await act(async () => { await sync.discardProblem(); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(localStorage.getItem("pkm.poison-mark-intents.v1")).toBeNull();
+    // The edit typed while wedged delivers instead of dying with the tab.
+    expect(posts).toHaveLength(1);
+    // Never the rejected batch itself: nothing may deliver what the server
+    // already rejected.
+    expect(posts).not.toContain("bad-batch");
+    expect(sync.problem).toMatchObject({ kind: "replica-unavailable" });
+    expect(sync.replicaMode).toBe("no-replica");
+  });
+
+  test("failed poison repair stays visible and Retry succeeds without reapplying it", async () => {
+    let snapshotCalls = 0;
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                        init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/ops") {
+        const batchId = (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
+        posts.push(batchId);
+        return batchId === "bad-batch"
+          ? jsonResponse({ detail: "bad op" }, 400)
+          : jsonResponse({ ok: true });
+      }
+      if (url === "/api/sync/snapshot") {
+        snapshotCalls += 1;
+        return snapshotCalls === 1
+          ? jsonResponse({ detail: "snapshot unavailable" }, 503)
+          : jsonResponse(SNAPSHOT);
+      }
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
+    }));
+
     const replica = fakeReplicaForProvider();
     const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
                        poisoned: boolean }> = [];
+    let nextId = 1;
     replica.init = async () => ({
       empty: false, cursor: 5, schemaMismatch: false,
       pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
-      rows.push({ id: 1, batch_id: "retry-me", ops, poisoned: false });
-      return { pending: rows.length, batchId: "retry-me" };
+      const id = nextId++;
+      const batch_id = id === 1 ? "bad-batch" : "good-batch";
+      rows.push({ id, batch_id, ops, poisoned: false });
+      return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
     };
-    replica.nextBatch = async () => rows[0] ?? null;
-    replica.deleteBatch = async () => {
-      rows.pop();
-      return { pending: rows.length };
+    replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+    replica.markPoisoned = async (id) => {
+      rows.find((row) => row.id === id)!.poisoned = true;
+      return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
     };
-    replica.pendingCount = async () => rows.length;
+    replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+    replica.pendingBatches = async () => [...rows];
+    replica.prepareRecovery = async () => ({ token: `lease-${snapshotCalls}`, batches: [...rows] });
+    replica.commitRecovery = async () => undefined;
+    replica.abortRecovery = async () => undefined;
+    replica.deleteBatch = async (id) => {
+      rows.splice(rows.findIndex((row) => row.id === id), 1);
+      return { pending: rows.filter((row) => !row.poisoned).length };
+    };
+
     let sync!: Sync;
-    function Grab() {
-      sync = useSyncWhole();
-      return <div data-testid="retry-status">{sync.resyncSeq}</div>;
-    }
+    function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
-    const baselineResync = sync.resyncSeq;
-    const baselineChanges = changeCalls;
-    act(() => lastWs().drop());
     await act(async () => {
-      await sync.enqueue([{ op: "delete", uid: "u1" }]).settled;
+      await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
+      await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
     });
-    act(() => { vi.advanceTimersByTime(2_000); });
-    await act(async () => { lastWs().open(); await Promise.resolve(); });
-    expect(sync.resyncSeq).toBe(baselineResync);
+    await vi.waitFor(() => { expect(sync.problem).toMatchObject({
+      kind: "rejected-batch", repair: "failed",
+    }); });
+    expect(sync.status).toBe("connected");
+    expect(sync.problem).toMatchObject({
+      kind: "rejected-batch", repair: "failed",
+      event: { batchId: "bad-batch", status: 400 },
+      error: "request failed: 503 /api/sync/snapshot: snapshot unavailable",
+    });
+    expect(posts).toEqual(["bad-batch"]);
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    const controls = sync as unknown as {
+      retryProblem(): Promise<void>;
+      dismissProblem(): void;
+    };
+    expect(controls.retryProblem).toBeTypeOf("function");
+    expect(controls.dismissProblem).toBeTypeOf("function");
+    act(() => { controls.dismissProblem(); });
+    expect(sync.problem).toMatchObject({
+      kind: "rejected-batch", repair: "failed",
+    });
 
-    expect(rows).toEqual([]);
-    expect(changeCalls).toBe(baselineChanges + 1);
-    expect(sync.resyncSeq).toBe(baselineResync + 1);
-    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
-    expect(changeCalls).toBe(baselineChanges + 1);
-    expect(sync.resyncSeq).toBe(baselineResync + 1);
-  } finally {
-    vi.useRealTimers();
-  }
-});
+    await act(async () => { await controls.retryProblem(); });
+    await vi.waitFor(() => { expect(posts).toEqual(["bad-batch", "good-batch"]); });
+    expect(sync.problem).toMatchObject({
+      kind: "rejected-batch", repair: "repaired",
+    });
+    expect(snapshotCalls).toBe(2);
 
-test("overlapping reconnects share one completion and leave no stale intent", async () => {
-  vi.useFakeTimers();
-  try {
-    let changeCalls = 0;
-    let holdNextFeed = false;
-    let releaseFeed!: () => void;
-    let feedStarted!: () => void;
-    const feedGate = new Promise<void>((resolve) => { releaseFeed = resolve; });
-    const started = new Promise<void>((resolve) => { feedStarted = resolve; });
-    const journal = fakeServerJournal();
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    act(() => { controls.dismissProblem(); });
+    expect(sync.problem).toBeUndefined();
+    await act(async () => { await Promise.resolve(); });
+    expect(posts).toEqual(["bad-batch", "good-batch"]);
+  });
+
+  test("applySync reads the freshest problem for same-tick dispatches: a dismiss " +
+  "racing a new repair-started must not erase it", async () => {
+    let snapshotCalls = 0;
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                        init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/sync/changes")) {
-        changeCalls += 1;
-        if (holdNextFeed) {
-          holdNextFeed = false;
-          feedStarted();
-          await feedGate;
-        }
-        return jsonResponse(journal.window());
+      if (url === "/api/ops") {
+        const batchId = (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
+        posts.push(batchId);
+        return batchId === "bad-batch" || batchId === "bad-batch-2"
+          ? jsonResponse({ detail: "bad op" }, 400)
+          : jsonResponse({ ok: true });
       }
-      return jsonResponse({ ok: true });
+      if (url === "/api/sync/snapshot") {
+        snapshotCalls += 1;
+        return snapshotCalls === 1
+          ? jsonResponse({ detail: "snapshot unavailable" }, 503)
+          : jsonResponse(SNAPSHOT);
+      }
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ detail: "not found" }, 404);
     }));
+
     const replica = fakeReplicaForProvider();
+    const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                       poisoned: boolean }> = [];
+    let nextId = 1;
     replica.init = async () => ({
       empty: false, cursor: 5, schemaMismatch: false,
       pendingBatches: [],
     });
+    replica.enqueue = async (ops) => {
+      const id = nextId++;
+      const batchId = id === 1 ? "bad-batch" : id === 2 ? "good-batch" : "bad-batch-2";
+      rows.push({ id, batch_id: batchId, ops, poisoned: false });
+      return { pending: rows.filter((row) => !row.poisoned).length, batchId };
+    };
+    replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+    replica.markPoisoned = async (id) => {
+      rows.find((row) => row.id === id)!.poisoned = true;
+      return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
+    };
+    replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+    replica.pendingBatches = async () => [...rows];
+    let prepareCalls = 0;
+    let reachedThirdRebase!: () => void;
+    const thirdRebase = new Promise<void>((resolve) => { reachedThirdRebase = resolve; });
+    replica.prepareRecovery = async () => {
+      prepareCalls += 1;
+      if (prepareCalls < 3) return { token: `lease-${prepareCalls}`, batches: [...rows] };
+      // The third repair (bad-batch-2's) is left permanently mid-flight so its
+      // "running" problem state cannot itself progress to repaired/failed
+      // before the same-tick dismiss below is dispatched.
+      reachedThirdRebase();
+      return new Promise<never>(() => undefined);
+    };
+    replica.commitRecovery = async () => undefined;
+    replica.abortRecovery = async () => undefined;
+    replica.deleteBatch = async (id) => {
+      rows.splice(rows.findIndex((row) => row.id === id), 1);
+      return { pending: rows.filter((row) => !row.poisoned).length };
+    };
+
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
-    const baselineChanges = changeCalls;
-    const baselineResync = sync.resyncSeq;
-
-    // Another tab edited while this one was away, so the reconnect's single
-    // completion has a real change to carry into the views.
-    journal.wrote();
-    holdNextFeed = true;
-    act(() => lastWs().drop());
-    act(() => { vi.advanceTimersByTime(2_000); });
-    await act(async () => { lastWs().open(); await started; });
-
-    act(() => lastWs().drop());
-    act(() => { vi.advanceTimersByTime(2_000); });
-    await act(async () => { lastWs().open(); await Promise.resolve(); });
-    expect(changeCalls).toBe(baselineChanges + 1);
-    expect(sync.resyncSeq).toBe(baselineResync);
-
-    await act(async () => { releaseFeed(); await feedGate; });
-    expect(changeCalls).toBe(baselineChanges + 1);
-    expect(sync.resyncSeq).toBe(baselineResync + 1);
-
     await act(async () => {
-      await sync.enqueue([{ op: "delete", uid: "unrelated" }]).settled;
-      await Promise.resolve();
+      await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
+      await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
     });
-    expect(changeCalls).toBe(baselineChanges + 1);
-    expect(sync.resyncSeq).toBe(baselineResync + 1);
-  } finally {
-    vi.useRealTimers();
-  }
+    await vi.waitFor(() => { expect(sync.problem).toMatchObject({
+      kind: "rejected-batch", repair: "failed",
+    }); });
+
+    const controls = sync as unknown as { retryProblem(): Promise<void> };
+    await act(async () => { await controls.retryProblem(); });
+    await vi.waitFor(() => { expect(sync.problem).toMatchObject({
+      kind: "rejected-batch", repair: "repaired",
+    }); });
+    expect(posts).toEqual(["bad-batch", "good-batch"]);
+
+    // Same-tick race: a new batch is rejected (repair-started fires, replacing
+    // the still-visible "repaired" problem) and, before React can re-render,
+    // dismissProblem() is invoked. dismissProblem must judge the freshest
+    // problem (now "running"), not the stale "repaired" snapshot from before
+    // this tick -- otherwise it wrongly dismisses the live repair.
+    await act(async () => {
+      sync.enqueue([{ op: "delete", uid: "bad2" }]);
+      await thirdRebase;
+      sync.dismissProblem();
+    });
+
+    expect(sync.problem).toMatchObject({
+      kind: "rejected-batch", repair: "running", event: { batchId: "bad-batch-2" },
+    });
+  });
 });
 
-test("a reconnect that found nothing pulls the feed but leaves views alone "
-   + "(pkm-5fak)", async () => {
-  vi.useFakeTimers();
-  try {
-    // The train symptom, end to end: a flapping link with an empty queue and
-    // an unmoving server costs one changes pull per reconnect and no view
-    // refetch. Three flaps used to cost three full refetches of every view.
-    let changeCalls = 0;
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.startsWith("/api/sync/changes")) {
-        changeCalls += 1;
-        return jsonResponse(EMPTY_FEED);
-      }
-      return jsonResponse({ ok: true });
-    }));
+describe("offline and cold start", () => {
+  test("gateway: requests reach the network until the socket has actually dropped", async () => {
+    stubFetch([
+      ["/api/sync/snapshot", SNAPSHOT],
+      ["/api/sync/changes", EMPTY_FEED],
+      ["/api/ops", { ok: true }],
+      ["/api/x", { net: true }],
+    ]);
     const replica = fakeReplicaForProvider();
-    replica.init = async () => ({
-      empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
-    });
+    replica.localApi = async () =>
+      ({ handled: true, status: 200, body: { local: true } });
+    const { unmount } = render(<SyncProvider replica={replica}><div /></SyncProvider>);
+    // "connecting" is not offline: the network is reachable before the socket
+    // finishes its handshake (a reload lands here with hot caches)
+    await expect(apiFetch("/api/x")).resolves.toEqual({ net: true });
+    await act(async () => { lastWs().open(); });
+    await expect(apiFetch("/api/x")).resolves.toEqual({ net: true });
+    // only a dropped socket routes reads to the replica shim
+    await act(async () => { lastWs().drop(); });
+    await expect(apiFetch("/api/x")).resolves.toEqual({ local: true });
+    unmount(); // deregisters the gateway for later tests
+  });
+
+  test("offline with a ready replica keeps editing enabled and counts pending", async () => {
+    stubFetch([
+      ["/api/sync/snapshot", SNAPSHOT],
+      ["/api/sync/changes", EMPTY_FEED],
+      ["/api/ops", { ok: true }],
+    ]);
+    const replica = fakeReplicaForProvider();
+    let pendingN = 2;
+    replica.pendingCount = async () => pendingN;
+    replica.enqueue = async (_ops, batchId) => ({ pending: ++pendingN, batchId });
+    // Nothing drains in this test. It has to PARK rather than answer "empty":
+    // a replica reporting two pending rows and an empty batch queue in the same
+    // breath is not a state the real one can be in, and the queue now believes
+    // (and publishes) the emptier of the two.
+    replica.nextBatch = () => new Promise(() => undefined);
     let sync!: Sync;
-    function Grab() { sync = useSyncWhole(); return null; }
+    function Grab() {
+      sync = useSyncWhole();
+      return <div data-testid="s">{String(sync.canEdit)}:{sync.pending}</div>;
+    }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
-    const baselineChanges = changeCalls;
-    const baselineResync = sync.resyncSeq;
+    await act(async () => { lastWs().drop(); }); // offline
+    expect(sync.status).toBe("reconnecting");
+    expect(sync.canEdit).toBe(true); // replica ready: editing continues
+    expect(sync.pending).toBe(2);    // durable queue from a previous session
+    await act(async () => {
+      const write = sync.enqueue([{ op: "delete", uid: "u1" }]);
+      await write.settled;
+    });
+    expect(sync.pending).toBe(3);
+    expect(sync.readOnlyReason).toBeUndefined();
+  });
 
-    for (let flap = 0; flap < 3; flap += 1) {
+  test("a late mount-time durable read cannot wedge the pending count (pkm-qfee)",
+  async () => {
+    // The count is published to React from exactly one place (the queue's
+    // onPending), because the queue suppresses a re-emit of a number that did
+    // not move. A second writer breaks that: it moves the React state while the
+    // queue's idea of what it last published stays put, and every later emit of
+    // that same number is then dropped as a no-op.
+    stubFetch([
+      ["/api/sync/snapshot", SNAPSHOT],
+      ["/api/sync/changes", EMPTY_FEED],
+      ["/api/ops", { ok: true }],
+    ]);
+    const replica = fakeReplicaForProvider();
+    let answerCount!: (n: number) => void;
+    const durableRead = new Promise<number>((r) => { answerCount = r; });
+    // The mount-time read of a previous session's durable rows, held open until
+    // the test releases it: a real worker RPC can easily land after a keystroke.
+    replica.pendingCount = () => durableRead;
+    replica.enqueue = async (_ops, batchId) => ({ pending: 1, batchId });
+    // Parks the drain, so nothing else moves the count in this test.
+    replica.nextBatch = () => new Promise(() => undefined);
+    let sync!: Sync;
+    function Grab() {
+      sync = useSyncWhole();
+      return <div data-testid="s">{sync.pending}</div>;
+    }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+
+    await act(async () => {
+      await sync.enqueue([{ op: "delete", uid: "u1" }]).settled;
+    });
+    expect(sync.pending).toBe(1);
+
+    // The mount-time read answers at last, with a count taken before that edit.
+    await act(async () => { answerCount(0); await durableRead; });
+
+    await act(async () => {
+      await sync.enqueue([{ op: "delete", uid: "u2" }]).settled;
+    });
+    expect(sync.pending).toBe(1); // one durable row again, and it must show
+  });
+
+  test("cold start offline: a hydrated replica reaches ready and bumps resync", async () => {
+    // no socket ever opens; init is local, and views that errored while the
+    // replica was starting must be told to refetch (through the shim)
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
+    const replica = fakeReplicaForProvider();
+    replica.init = async () => ({ empty: false, cursor: 5,
+                                  schemaMismatch: false, pendingBatches: [] });
+    function Grab() {
+      const sync = useSyncWhole();
+      return <div data-testid="s">{sync.replicaMode}:{sync.resyncSeq}:{String(sync.canEdit)}</div>;
+    }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByTestId("s").textContent).toBe("ready:1:true");
+  });
+
+  test("offline without a replica stays read-only with a reason", async () => {
+    stubFetch([["/api/ops", { ok: true }]]);
+    let sync!: Sync;
+    function Grab() {
+      sync = useSyncWhole();
+      return null;
+    }
+    render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+    await act(async () => { lastWs().drop(); });
+    expect(sync.canEdit).toBe(false);
+    expect(sync.readOnlyReason).toMatch(/offline/);
+  });
+});
+
+describe("ownership and StrictMode lifecycle", () => {
+  test("an injected replica remains caller-owned on provider unmount", async () => {
+    const replica = fakeReplicaForProvider();
+    const dispose = vi.spyOn(replica, "dispose");
+    const { unmount } = render(
+      <SyncProvider replica={replica}><div /></SyncProvider>);
+
+    unmount();
+    await Promise.resolve();
+
+    expect(dispose).not.toHaveBeenCalled();
+  });
+
+  test("the internally created worker closes its database before one termination", async () => {
+    const events: string[] = [];
+    class FakeWorker {
+      onmessage: ((ev: { data: unknown }) => void) | null = null;
+      onerror: ((ev: { error?: unknown; message?: string }) => void) | null = null;
+      onmessageerror: ((ev: { data?: unknown }) => void) | null = null;
+
+      postMessage(message: unknown): void {
+        const req = message as { id: number; method: string };
+        if (req.method === "close") events.push("close-db");
+        const result = req.method === "init"
+          ? { empty: true, cursor: 0, schemaMismatch: false,
+              pendingBatches: [] }
+          : req.method === "pendingCount" ? 0 : null;
+        queueMicrotask(() => this.onmessage?.({ data: { id: req.id, result } }));
+      }
+
+      terminate(): void { events.push("terminate-worker"); }
+    }
+    vi.stubGlobal("Worker", FakeWorker);
+    const { unmount } = render(
+      <StrictMode><SyncProvider><div /></SyncProvider></StrictMode>);
+    await act(async () => { await Promise.resolve(); });
+    expect(events).toEqual([]);
+
+    unmount();
+    await act(async () => { await Promise.resolve(); });
+
+    expect(events).toEqual(["close-db", "terminate-worker"]);
+  });
+
+  test("StrictMode effect replay keeps the queue live", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(
+      <StrictMode>
+        <SyncProvider replica={null}><Grab /></SyncProvider>
+      </StrictMode>);
+    act(() => lastWs().open());
+
+    const write = sync.enqueue([{ op: "delete", uid: "u1" }]);
+    // With no replica there is nothing to persist into, so the op rides the
+    // in-memory lane; liveness is that the queue still delivers it after
+    // StrictMode has replayed the mount effects.
+    await act(async () => {
+      await expect(write.delivered).resolves.toEqual({ status: "delivered" });
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("StrictMode effect replay leaves exactly one live connect lifecycle", async () => {
+    // The replayed setup builds a second socket and a second reconnect flow; the
+    // first mount's cleanup must have detached its own (mountedRef false, drain
+    // observer cleared, socket closed) or a reconnect would finish twice and bump
+    // resyncSeq twice. Deliberately paired with "StrictMode effect replay keeps
+    // the queue live": that one pins what replay must NOT tear down, this one
+    // pins what it must not leave running.
+    vi.useFakeTimers();
+    try {
+      let sync!: Sync;
+      function Grab() {
+        sync = useSyncWhole();
+        return <div data-testid="strict-lifecycle">{sync.status}:{sync.resyncSeq}</div>;
+      }
+      render(
+        <StrictMode>
+          <SyncProvider replica={null}><Grab /></SyncProvider>
+        </StrictMode>);
+      act(() => lastWs().open());
+      expect(screen.getByTestId("strict-lifecycle").textContent).toBe("connected:0");
+
+      act(() => lastWs().drop());
+      act(() => { vi.advanceTimersByTime(2_000); }); // reconnect timer -> new socket
+      await act(async () => { lastWs().open(); });
+
+      expect(screen.getByTestId("strict-lifecycle").textContent).toBe("connected:1");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("reconnect pulls and resync", () => {
+  test("a blocked reconnect drain does not pull the feed or bump resync", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/ops") {
+          return new Response(JSON.stringify({ detail: "busy" }), { status: 503 });
+        }
+        return new Response(JSON.stringify({}), {
+          status: 200, headers: { "Content-Type": "application/json" },
+        });
+      }));
+      let sync!: Sync;
+      function Grab() {
+        sync = useSyncWhole();
+        return <div data-testid="blocked-status">{sync.resyncSeq}</div>;
+      }
+      render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+      act(() => lastWs().open());
+      act(() => lastWs().drop());
+      act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
+      act(() => { vi.advanceTimersByTime(2_000); });
+      await act(async () => { lastWs().open(); await Promise.resolve(); });
+
+      expect(screen.getByTestId("blocked-status").textContent).toBe("0");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("automatic retry completes reconnect feed pull and resync exactly once", async () => {
+    vi.useFakeTimers();
+    try {
+      let opsCalls = 0;
+      let changeCalls = 0;
+      const journal = fakeServerJournal();
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/ops") {
+          opsCalls += 1;
+          if (opsCalls === 1) return jsonResponse({ detail: "busy" }, 503);
+          journal.wrote();
+          return jsonResponse({ ok: true });
+        }
+        if (url.startsWith("/api/sync/changes")) {
+          changeCalls += 1;
+          return jsonResponse(journal.window());
+        }
+        return jsonResponse({ ok: true });
+      }));
+      const replica = fakeReplicaForProvider();
+      const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                         poisoned: boolean }> = [];
+      replica.init = async () => ({
+        empty: false, cursor: 5, schemaMismatch: false,
+        pendingBatches: [],
+      });
+      replica.enqueue = async (ops) => {
+        rows.push({ id: 1, batch_id: "retry-me", ops, poisoned: false });
+        return { pending: rows.length, batchId: "retry-me" };
+      };
+      replica.nextBatch = async () => rows[0] ?? null;
+      replica.deleteBatch = async () => {
+        rows.pop();
+        return { pending: rows.length };
+      };
+      replica.pendingCount = async () => rows.length;
+      let sync!: Sync;
+      function Grab() {
+        sync = useSyncWhole();
+        return <div data-testid="retry-status">{sync.resyncSeq}</div>;
+      }
+      render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+      await act(async () => { lastWs().open(); });
+      const baselineResync = sync.resyncSeq;
+      const baselineChanges = changeCalls;
+      act(() => lastWs().drop());
+      await act(async () => {
+        await sync.enqueue([{ op: "delete", uid: "u1" }]).settled;
+      });
+      act(() => { vi.advanceTimersByTime(2_000); });
+      await act(async () => { lastWs().open(); await Promise.resolve(); });
+      expect(sync.resyncSeq).toBe(baselineResync);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+
+      expect(rows).toEqual([]);
+      expect(changeCalls).toBe(baselineChanges + 1);
+      expect(sync.resyncSeq).toBe(baselineResync + 1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(changeCalls).toBe(baselineChanges + 1);
+      expect(sync.resyncSeq).toBe(baselineResync + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("overlapping reconnects share one completion and leave no stale intent", async () => {
+    vi.useFakeTimers();
+    try {
+      let changeCalls = 0;
+      let holdNextFeed = false;
+      let releaseFeed!: () => void;
+      let feedStarted!: () => void;
+      const feedGate = new Promise<void>((resolve) => { releaseFeed = resolve; });
+      const started = new Promise<void>((resolve) => { feedStarted = resolve; });
+      const journal = fakeServerJournal();
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/api/sync/changes")) {
+          changeCalls += 1;
+          if (holdNextFeed) {
+            holdNextFeed = false;
+            feedStarted();
+            await feedGate;
+          }
+          return jsonResponse(journal.window());
+        }
+        return jsonResponse({ ok: true });
+      }));
+      const replica = fakeReplicaForProvider();
+      replica.init = async () => ({
+        empty: false, cursor: 5, schemaMismatch: false,
+        pendingBatches: [],
+      });
+      let sync!: Sync;
+      function Grab() { sync = useSyncWhole(); return null; }
+      render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+      await act(async () => { lastWs().open(); });
+      const baselineChanges = changeCalls;
+      const baselineResync = sync.resyncSeq;
+
+      // Another tab edited while this one was away, so the reconnect's single
+      // completion has a real change to carry into the views.
+      journal.wrote();
+      holdNextFeed = true;
+      act(() => lastWs().drop());
+      act(() => { vi.advanceTimersByTime(2_000); });
+      await act(async () => { lastWs().open(); await started; });
+
+      act(() => lastWs().drop());
+      act(() => { vi.advanceTimersByTime(2_000); });
+      await act(async () => { lastWs().open(); await Promise.resolve(); });
+      expect(changeCalls).toBe(baselineChanges + 1);
+      expect(sync.resyncSeq).toBe(baselineResync);
+
+      await act(async () => { releaseFeed(); await feedGate; });
+      expect(changeCalls).toBe(baselineChanges + 1);
+      expect(sync.resyncSeq).toBe(baselineResync + 1);
+
+      await act(async () => {
+        await sync.enqueue([{ op: "delete", uid: "unrelated" }]).settled;
+        await Promise.resolve();
+      });
+      expect(changeCalls).toBe(baselineChanges + 1);
+      expect(sync.resyncSeq).toBe(baselineResync + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a reconnect that found nothing pulls the feed but leaves views alone "
+     + "(pkm-5fak)", async () => {
+    vi.useFakeTimers();
+    try {
+      // The train symptom, end to end: a flapping link with an empty queue and
+      // an unmoving server costs one changes pull per reconnect and no view
+      // refetch. Three flaps used to cost three full refetches of every view.
+      let changeCalls = 0;
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/api/sync/changes")) {
+          changeCalls += 1;
+          return jsonResponse(EMPTY_FEED);
+        }
+        return jsonResponse({ ok: true });
+      }));
+      const replica = fakeReplicaForProvider();
+      replica.init = async () => ({
+        empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
+      });
+      let sync!: Sync;
+      function Grab() { sync = useSyncWhole(); return null; }
+      render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+      await act(async () => { lastWs().open(); });
+      const baselineChanges = changeCalls;
+      const baselineResync = sync.resyncSeq;
+
+      for (let flap = 0; flap < 3; flap += 1) {
+        act(() => lastWs().drop());
+        act(() => { vi.advanceTimersByTime(30_000); });
+        await act(async () => { lastWs().open(); await Promise.resolve(); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+      }
+
+      expect(changeCalls).toBe(baselineChanges + 3);
+      expect(sync.resyncSeq).toBe(baselineResync);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a reconnect whose feed window carries changes still refetches views",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      // The other half of the narrowing: the moment the server has something,
+      // the views must hear about it, so this must not be a blanket suppression.
+      const journal = fakeServerJournal();
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/api/sync/changes")) {
+          return jsonResponse(journal.window());
+        }
+        return jsonResponse({ ok: true });
+      }));
+      const replica = fakeReplicaForProvider();
+      replica.init = async () => ({
+        empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
+      });
+      let sync!: Sync;
+      function Grab() { sync = useSyncWhole(); return null; }
+      render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+      await act(async () => { lastWs().open(); });
+      const baselineResync = sync.resyncSeq;
+
+      journal.wrote(); // another tab edited while this one was away
       act(() => lastWs().drop());
       act(() => { vi.advanceTimersByTime(30_000); });
       await act(async () => { lastWs().open(); await Promise.resolve(); });
       await act(async () => { await vi.advanceTimersByTimeAsync(250); });
-    }
 
-    expect(changeCalls).toBe(baselineChanges + 3);
-    expect(sync.resyncSeq).toBe(baselineResync);
-  } finally {
-    vi.useRealTimers();
-  }
+      expect(sync.resyncSeq).toBe(baselineResync + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
-test("a reconnect whose feed window carries changes still refetches views",
-async () => {
-  vi.useFakeTimers();
-  try {
-    // The other half of the narrowing: the moment the server has something,
-    // the views must hear about it, so this must not be a blanket suppression.
-    const journal = fakeServerJournal();
+describe("the replica-stalled problem", () => {
+  // --- replica stall + manual reset (Fix A) ---
+
+  test("repeated pull failures surface a replica-stalled problem", async () => {
+    vi.useFakeTimers();
+    try {
+      const replica = fakeReplicaForProvider();
+      let changesCalls = 0;
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+        if (url.startsWith("/api/sync/changes")) {
+          changesCalls += 1;
+          return new Response("boom", { status: 500 });
+        }
+        return jsonResponse({ ok: true });
+      }));
+      let sync!: Sync;
+      function Grab() { sync = useSyncWhole(); return null; }
+      render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+      await act(async () => { await Promise.resolve(); }); // pull 1 fails
+      expect(sync.problem).toBeUndefined();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); }); // pull 2 fails
+      expect(sync.problem).toBeUndefined();
+
+      // pull 3 fails -> stalled
+      await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); });
+      expect(sync.problem).toMatchObject({ kind: "replica-stalled" });
+      expect(changesCalls).toBeGreaterThanOrEqual(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("repeated OfflineError pull failures (network down) do not surface replica-stalled (pkm-gw5r)", async () => {
+    // Reproduces the pkm-gw5r banner bug through the real production wiring:
+    // apiFetch's own fetch-failure fallback (client.ts) routes to the offline
+    // gateway when `fetch` itself rejects, and the gateway's localApi doesn't
+    // serve /api/sync/changes, so this throws a genuine OfflineError -- not a
+    // stand-in. Before the fix this crossed STALL_AFTER_FAILURES and raised
+    // "Local sync is stuck ... Reset local data" for a plain network outage.
+    vi.useFakeTimers();
+    try {
+      const replica = fakeReplicaForProvider();
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+        throw new TypeError("Failed to fetch"); // changes calls: network down
+      }));
+      let sync!: Sync;
+      function Grab() { sync = useSyncWhole(); return null; }
+      render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+      await act(async () => { await Promise.resolve(); }); // pull 1 fails
+      expect(sync.problem).toBeUndefined();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); }); // pull 2 fails
+      expect(sync.problem).toBeUndefined();
+
+      // pull 3 fails -- before the fix this is where replica-stalled appeared
+      await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); });
+      expect(sync.problem).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a recovered pull clears the replica-stalled problem", async () => {
+    vi.useFakeTimers();
+    try {
+      const replica = fakeReplicaForProvider();
+      let failing = true;
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+        if (url.startsWith("/api/sync/changes")) {
+          if (failing) return new Response("boom", { status: 500 });
+          return jsonResponse(EMPTY_FEED);
+        }
+        return jsonResponse({ ok: true });
+      }));
+      let sync!: Sync;
+      function Grab() { sync = useSyncWhole(); return null; }
+      render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); });
+      expect(sync.problem).toMatchObject({ kind: "replica-stalled" });
+
+      failing = false;
+      await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 4); });
+      expect(sync.problem).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("recovery-failed while connected also surfaces replica-stalled", async () => {
+    let releaseSnapshot!: () => void;
+    const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.startsWith("/api/sync/changes")) {
-        return jsonResponse(journal.window());
+      if (url === "/api/sync/snapshot") {
+        await snapshotGate;
+        return new Response("boom", { status: 500 });
       }
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
       return jsonResponse({ ok: true });
     }));
     const replica = fakeReplicaForProvider();
-    replica.init = async () => ({
-      empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
+    replica.init = async () => ({ empty: false, cursor: 0,
+                                  schemaMismatch: true, pendingBatches: [] });
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); }); // socket connects before recovery settles
+    expect(sync.status).toBe("connected");
+
+    await act(async () => { releaseSnapshot(); await Promise.resolve(); await Promise.resolve(); });
+    await vi.waitFor(() => {
+      expect(sync.problem).toMatchObject({ kind: "replica-stalled" });
     });
+  });
+
+  test("recovery-failed while not connected leaves the problem unchanged", async () => {
+    let releaseSnapshot!: () => void;
+    const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/sync/snapshot") {
+        await snapshotGate;
+        return new Response("boom", { status: 500 });
+      }
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ ok: true });
+    }));
+    const replica = fakeReplicaForProvider();
+    replica.init = async () => ({ empty: false, cursor: 0,
+                                  schemaMismatch: true, pendingBatches: [] });
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    // socket never connects -- status stays "connecting"
+    expect(sync.status).toBe("connecting");
+
+    await act(async () => { releaseSnapshot(); await Promise.resolve(); await Promise.resolve(); });
+    await vi.waitFor(() => {
+      expect(sync.replicaMode).toBe("recovery-failed");
+    });
+    expect(sync.problem).toBeUndefined();
+  });
+});
+
+describe("resetReplica", () => {
+  test("resetReplica success path clears the problem and bumps resync", async () => {
+    vi.useFakeTimers();
+    try {
+      const replica = fakeReplicaForProvider();
+      let failing = true; // only the changes feed fails; bootstrap must succeed
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+        if (url.startsWith("/api/sync/changes")) {
+          if (failing) return new Response("boom", { status: 500 });
+          return jsonResponse(EMPTY_FEED);
+        }
+        return jsonResponse({ ok: true });
+      }));
+      let sync!: Sync;
+      function Grab() { sync = useSyncWhole(); return null; }
+      render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); });
+      expect(sync.problem).toMatchObject({ kind: "replica-stalled" });
+      const baselineResync = sync.resyncSeq;
+
+      failing = false; // resetReplica's own feed pull succeeds
+      await act(async () => { await sync.resetReplica(); });
+
+      expect(sync.problem).toBeUndefined();
+      expect(sync.resyncSeq).toBeGreaterThan(baselineResync);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("resetReplica surfaces ResetBlockedError as a blocked reset with pending count", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/ops") return new Response("boom", { status: 503 });
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+      return jsonResponse({ ok: true });
+    }));
+    const replica = fakeReplicaForProvider();
+    const pendingBatch: { id: number; batch_id: string; ops: BlockOp[];
+                          poisoned: boolean } =
+      { id: 1, batch_id: "b1", ops: [{ op: "delete", uid: "u1" }], poisoned: false };
+    replica.prepareRecovery = async () =>
+      ({ token: "lease-1", batches: [pendingBatch] });
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
-    const baselineResync = sync.resyncSeq;
 
-    journal.wrote(); // another tab edited while this one was away
-    act(() => lastWs().drop());
-    act(() => { vi.advanceTimersByTime(30_000); });
-    await act(async () => { lastWs().open(); await Promise.resolve(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    await act(async () => { await sync.resetReplica(); }); // discardPending defaults false
 
-    expect(sync.resyncSeq).toBe(baselineResync + 1);
-  } finally {
-    vi.useRealTimers();
-  }
-});
+    expect(sync.problem).toMatchObject({
+      kind: "replica-stalled", reset: "blocked", pending: 1,
+    });
+  });
 
-// --- replica stall + manual reset (Fix A) ---
-
-test("repeated pull failures surface a replica-stalled problem", async () => {
-  vi.useFakeTimers();
-  try {
-    const replica = fakeReplicaForProvider();
-    let changesCalls = 0;
+  test("resetReplica(true) discards pending writes instead of flushing them", async () => {
+    const opsPosts: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url === "/api/ops") { opsPosts.push(url); return new Response("boom", { status: 503 }); }
       if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-      if (url.startsWith("/api/sync/changes")) {
-        changesCalls += 1;
-        return new Response("boom", { status: 500 });
-      }
+      if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
       return jsonResponse({ ok: true });
     }));
-    let sync!: Sync;
-    function Grab() { sync = useSyncWhole(); return null; }
-    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-    await act(async () => { await Promise.resolve(); }); // pull 1 fails
-    expect(sync.problem).toBeUndefined();
-
-    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); }); // pull 2 fails
-    expect(sync.problem).toBeUndefined();
-
-    // pull 3 fails -> stalled
-    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); });
-    expect(sync.problem).toMatchObject({ kind: "replica-stalled" });
-    expect(changesCalls).toBeGreaterThanOrEqual(3);
-  } finally {
-    vi.useRealTimers();
-  }
-});
-
-test("repeated OfflineError pull failures (network down) do not surface replica-stalled (pkm-gw5r)", async () => {
-  // Reproduces the pkm-gw5r banner bug through the real production wiring:
-  // apiFetch's own fetch-failure fallback (client.ts) routes to the offline
-  // gateway when `fetch` itself rejects, and the gateway's localApi doesn't
-  // serve /api/sync/changes, so this throws a genuine OfflineError -- not a
-  // stand-in. Before the fix this crossed STALL_AFTER_FAILURES and raised
-  // "Local sync is stuck ... Reset local data" for a plain network outage.
-  vi.useFakeTimers();
-  try {
     const replica = fakeReplicaForProvider();
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-      throw new TypeError("Failed to fetch"); // changes calls: network down
-    }));
+    const pendingBatch: { id: number; batch_id: string; ops: BlockOp[];
+                          poisoned: boolean } =
+      { id: 1, batch_id: "b1", ops: [{ op: "delete", uid: "u1" }], poisoned: false };
+    replica.prepareRecovery = async () =>
+      ({ token: "lease-1", batches: [pendingBatch] });
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-    await act(async () => { await Promise.resolve(); }); // pull 1 fails
-    expect(sync.problem).toBeUndefined();
+    await act(async () => { lastWs().open(); });
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); }); // pull 2 fails
-    expect(sync.problem).toBeUndefined();
+    await act(async () => { await sync.resetReplica(true); });
 
-    // pull 3 fails -- before the fix this is where replica-stalled appeared
-    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); });
-    expect(sync.problem).toBeUndefined();
-  } finally {
-    vi.useRealTimers();
-  }
+    expect(opsPosts).toEqual([]); // discardPending skipped the flush entirely
+    expect(sync.problem).toBeUndefined(); // reset succeeded, no blocked/failed problem
+  });
 });
 
-test("a recovered pull clears the replica-stalled problem", async () => {
-  vi.useFakeTimers();
-  try {
-    const replica = fakeReplicaForProvider();
-    let failing = true;
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-      if (url.startsWith("/api/sync/changes")) {
-        if (failing) return new Response("boom", { status: 500 });
-        return jsonResponse(EMPTY_FEED);
-      }
-      return jsonResponse({ ok: true });
-    }));
-    let sync!: Sync;
-    function Grab() { sync = useSyncWhole(); return null; }
-    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-    await act(async () => { await Promise.resolve(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); });
-    expect(sync.problem).toMatchObject({ kind: "replica-stalled" });
+describe("unmount cleanup", () => {
+  test("provider unmount stops the replica sync's backoff retry timer", async () => {
+    vi.useFakeTimers();
+    try {
+      const replica = fakeReplicaForProvider();
+      let changesCalls = 0;
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+        if (url.startsWith("/api/sync/changes")) {
+          changesCalls += 1;
+          return new Response("boom", { status: 500 });
+        }
+        return jsonResponse({ ok: true });
+      }));
+      const { unmount } = render(<SyncProvider replica={replica}><div /></SyncProvider>);
+      await act(async () => { await Promise.resolve(); }); // pull 1 fails, schedules a retry
+      const callsAtUnmount = changesCalls;
+      expect(callsAtUnmount).toBeGreaterThan(0);
 
-    failing = false;
-    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 4); });
-    expect(sync.problem).toBeUndefined();
-  } finally {
-    vi.useRealTimers();
-  }
-});
+      unmount();
+      await act(async () => { await Promise.resolve(); }); // let the deferred teardown run
 
-test("recovery-failed while connected also surfaces replica-stalled", async () => {
-  let releaseSnapshot!: () => void;
-  const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url === "/api/sync/snapshot") {
-      await snapshotGate;
-      return new Response("boom", { status: 500 });
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(changesCalls).toBe(callsAtUnmount); // no further retries after stop()
+    } finally {
+      vi.useRealTimers();
     }
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ ok: true });
-  }));
-  const replica = fakeReplicaForProvider();
-  replica.init = async () => ({ empty: false, cursor: 0,
-                                schemaMismatch: true, pendingBatches: [] });
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); }); // socket connects before recovery settles
-  expect(sync.status).toBe("connected");
-
-  await act(async () => { releaseSnapshot(); await Promise.resolve(); await Promise.resolve(); });
-  await vi.waitFor(() => {
-    expect(sync.problem).toMatchObject({ kind: "replica-stalled" });
   });
-});
 
-test("recovery-failed while not connected leaves the problem unchanged", async () => {
-  let releaseSnapshot!: () => void;
-  const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url === "/api/sync/snapshot") {
-      await snapshotGate;
-      return new Response("boom", { status: 500 });
+  test("provider cleanup disposes the queue and cancels its retry timer", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn(async () =>
+        new Response(JSON.stringify({ detail: "busy" }), { status: 503 }));
+      vi.stubGlobal("fetch", fetchMock);
+      let sync!: Sync;
+      function Grab() { sync = useSyncWhole(); return null; }
+      const { unmount } = render(
+        <SyncProvider replica={null}><Grab /></SyncProvider>);
+      act(() => lastWs().open());
+      act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
+      await act(async () => { await Promise.resolve(); });
+      unmount();
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
     }
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ ok: true });
-  }));
-  const replica = fakeReplicaForProvider();
-  replica.init = async () => ({ empty: false, cursor: 0,
-                                schemaMismatch: true, pendingBatches: [] });
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  // socket never connects -- status stays "connecting"
-  expect(sync.status).toBe("connecting");
-
-  await act(async () => { releaseSnapshot(); await Promise.resolve(); await Promise.resolve(); });
-  await vi.waitFor(() => {
-    expect(sync.replicaMode).toBe("recovery-failed");
   });
-  expect(sync.problem).toBeUndefined();
 });
 
-test("resetReplica success path clears the problem and bumps resync", async () => {
-  vi.useFakeTimers();
-  try {
-    const replica = fakeReplicaForProvider();
-    let failing = true; // only the changes feed fails; bootstrap must succeed
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-      if (url.startsWith("/api/sync/changes")) {
-        if (failing) return new Response("boom", { status: 500 });
-        return jsonResponse(EMPTY_FEED);
-      }
-      return jsonResponse({ ok: true });
-    }));
+describe("the unload guard", () => {
+  // pkm-0htf: the guard is armed from the in-memory lane, never from `pending`.
+  // The unit tests either side of this one prove the lane count is right and the
+  // listener obeys its argument; only these two prove SyncProvider hands the
+  // guard the lane count and not the total, which is the substitution a future
+  // edit is most likely to make.
+
+  function dispatchUnload(): Event {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event;
+  }
+
+  test("an op stranded in the in-memory lane arms the unload guard", async () => {
+    const replica = {
+      ...fakeReplicaForProvider(),
+      // What a full disk reaches this layer as: the opfs-sahpool VFS reports it
+      // as a bare I/O error, so it is retained like any other failure to persist.
+      enqueue: async () => { throw new Error("SQLITE_IOERR: disk I/O error"); },
+    };
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }
+    // The socket stays closed: a connected queue would deliver the lane entry
+    // immediately and there would be nothing left to lose.
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-    await act(async () => { await Promise.resolve(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); });
-    expect(sync.problem).toMatchObject({ kind: "replica-stalled" });
-    const baselineResync = sync.resyncSeq;
-
-    failing = false; // resetReplica's own feed pull succeeds
-    await act(async () => { await sync.resetReplica(); });
-
-    expect(sync.problem).toBeUndefined();
-    expect(sync.resyncSeq).toBeGreaterThan(baselineResync);
-  } finally {
-    vi.useRealTimers();
-  }
-});
-
-test("resetReplica surfaces ResetBlockedError as a blocked reset with pending count", async () => {
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url === "/api/ops") return new Response("boom", { status: 503 });
-    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ ok: true });
-  }));
-  const replica = fakeReplicaForProvider();
-  const pendingBatch: { id: number; batch_id: string; ops: BlockOp[];
-                        poisoned: boolean } =
-    { id: 1, batch_id: "b1", ops: [{ op: "delete", uid: "u1" }], poisoned: false };
-  replica.prepareRecovery = async () =>
-    ({ token: "lease-1", batches: [pendingBatch] });
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-
-  await act(async () => { await sync.resetReplica(); }); // discardPending defaults false
-
-  expect(sync.problem).toMatchObject({
-    kind: "replica-stalled", reset: "blocked", pending: 1,
-  });
-});
-
-test("resetReplica(true) discards pending writes instead of flushing them", async () => {
-  const opsPosts: string[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url === "/api/ops") { opsPosts.push(url); return new Response("boom", { status: 503 }); }
-    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
-    return jsonResponse({ ok: true });
-  }));
-  const replica = fakeReplicaForProvider();
-  const pendingBatch: { id: number; batch_id: string; ops: BlockOp[];
-                        poisoned: boolean } =
-    { id: 1, batch_id: "b1", ops: [{ op: "delete", uid: "u1" }], poisoned: false };
-  replica.prepareRecovery = async () =>
-    ({ token: "lease-1", batches: [pendingBatch] });
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  await act(async () => { lastWs().open(); });
-
-  await act(async () => { await sync.resetReplica(true); });
-
-  expect(opsPosts).toEqual([]); // discardPending skipped the flush entirely
-  expect(sync.problem).toBeUndefined(); // reset succeeded, no blocked/failed problem
-});
-
-test("provider unmount stops the replica sync's backoff retry timer", async () => {
-  vi.useFakeTimers();
-  try {
-    const replica = fakeReplicaForProvider();
-    let changesCalls = 0;
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
-      if (url.startsWith("/api/sync/changes")) {
-        changesCalls += 1;
-        return new Response("boom", { status: 500 });
-      }
-      return jsonResponse({ ok: true });
-    }));
-    const { unmount } = render(<SyncProvider replica={replica}><div /></SyncProvider>);
-    await act(async () => { await Promise.resolve(); }); // pull 1 fails, schedules a retry
-    const callsAtUnmount = changesCalls;
-    expect(callsAtUnmount).toBeGreaterThan(0);
-
-    unmount();
-    await act(async () => { await Promise.resolve(); }); // let the deferred teardown run
-
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
-    expect(changesCalls).toBe(callsAtUnmount); // no further retries after stop()
-  } finally {
-    vi.useRealTimers();
-  }
-});
-
-test("provider cleanup disposes the queue and cancels its retry timer", async () => {
-  vi.useFakeTimers();
-  try {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ detail: "busy" }), { status: 503 }));
-    vi.stubGlobal("fetch", fetchMock);
-    let sync!: Sync;
-    function Grab() { sync = useSyncWhole(); return null; }
-    const { unmount } = render(
-      <SyncProvider replica={null}><Grab /></SyncProvider>);
-    act(() => lastWs().open());
     act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
-    await act(async () => { await Promise.resolve(); });
-    unmount();
+    await act(async () => { await sync.settled(); });
 
-    await vi.advanceTimersByTimeAsync(5_000);
+    expect(sync.unsentInMemory).toBe(1);
+    expect(dispatchUnload().defaultPrevented).toBe(true);
+  });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  } finally {
-    vi.useRealTimers();
-  }
-});
+  test("a durable pending row leaves the unload guard disarmed", async () => {
+    const replica = {
+      ...fakeReplicaForProvider(),
+      enqueue: async (_ops: BlockOp[], batchId: string) => ({ pending: 1, batchId }),
+      pendingCount: async () => 1,
+    };
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
+    await act(async () => { await sync.settled(); });
 
-// pkm-0htf: the guard is armed from the in-memory lane, never from `pending`.
-// The unit tests either side of this one prove the lane count is right and the
-// listener obeys its argument; only these two prove SyncProvider hands the
-// guard the lane count and not the total, which is the substitution a future
-// edit is most likely to make.
-
-function dispatchUnload(): Event {
-  const event = new Event("beforeunload", { cancelable: true });
-  window.dispatchEvent(event);
-  return event;
-}
-
-test("an op stranded in the in-memory lane arms the unload guard", async () => {
-  const replica = {
-    ...fakeReplicaForProvider(),
-    // What a full disk reaches this layer as: the opfs-sahpool VFS reports it
-    // as a bare I/O error, so it is retained like any other failure to persist.
-    enqueue: async () => { throw new Error("SQLITE_IOERR: disk I/O error"); },
-  };
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  // The socket stays closed: a connected queue would deliver the lane entry
-  // immediately and there would be nothing left to lose.
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
-  await act(async () => { await sync.settled(); });
-
-  expect(sync.unsentInMemory).toBe(1);
-  expect(dispatchUnload().defaultPrevented).toBe(true);
-});
-
-test("a durable pending row leaves the unload guard disarmed", async () => {
-  const replica = {
-    ...fakeReplicaForProvider(),
-    enqueue: async (_ops: BlockOp[], batchId: string) => ({ pending: 1, batchId }),
-    pendingCount: async () => 1,
-  };
-  let sync!: Sync;
-  function Grab() { sync = useSyncWhole(); return null; }
-  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-  act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
-  await act(async () => { await sync.settled(); });
-
-  // Undelivered, so it shows in the offline banner's count — but it is on disk
-  // and a reload will still find it.
-  expect(sync.pending).toBe(1);
-  expect(sync.unsentInMemory).toBe(0);
-  expect(dispatchUnload().defaultPrevented).toBe(false);
+    // Undelivered, so it shows in the offline banner's count — but it is on disk
+    // and a reload will still find it.
+    expect(sync.pending).toBe(1);
+    expect(sync.unsentInMemory).toBe(0);
+    expect(dispatchUnload().defaultPrevented).toBe(false);
+  });
 });

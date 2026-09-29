@@ -41,7 +41,7 @@ changed or the present node already has the text.
 - [x] Draft becomes `{ uid, text, base }`; `pendingTextOps(pending, blocks, pageTitle)` per the spec; `stampBaseTextHashes` already leaves a stamped op alone
 - [x] Tests: remote update during a debounced draft flushes with the pre-remote hash; remote delete and remote cross-page move during a debounced and a held draft both flush; `text === base` and an identical remote edit both suppress
 - [x] Trace the `initial`-change effect in `useOutline.ts` that clears a draft without flushing; flush first if a production parent reaches it with a live draft; record the outcome here
-- [ ] Docs: `frontend-editor.md` § Drafts and commit points; `sync-and-offline.md` conflict section (order independence; D7's sentence scoped); troubleshooting row
+- [x] Docs: `frontend-editor.md` § Drafts and commit points; `sync-and-offline.md` conflict section (order independence; D7's sentence scoped); troubleshooting row
 - [ ] verify, perf, merge
 
 ## Initial-effect trace

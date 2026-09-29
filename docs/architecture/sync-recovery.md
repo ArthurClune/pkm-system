@@ -259,9 +259,24 @@ Retained mark intents live in `localStorage`, not the replica, so they survive
 an unopenable database. A `retryPoisonMarks()` that fails while intents exist
 keeps its barrier and a "Saving rejected-change recovery failed: …" Retry
 banner. That banner also offers "Discard rejected change"
-(`Sync.discardProblem()`), which drops the intents and rejoins startup, since an
-intent otherwise clears only after a successful `markPoisoned`. Which recovery
-a Retry click runs is decided by `retryPolicy.ts::planRetry`.
+(`Sync.discardProblem()`), which drops the retained intents and releases the
+ownership claim below: at startup it rejoins discovery, mid-session it resumes
+delivery. Which recovery a Retry click runs is decided by
+`retryPolicy.ts::planRetry`.
+
+`replicaSync`'s `authoritativeRepair` flag is the recovery barrier's ownership
+claim. Every exit that can hold it is one of these four:
+
+| Ownership | When |
+|---|---|
+| Claimed | `rejectDurableBatch` emits `poisonPending`, before the durable mark |
+| Released — repaired | A successful `markPoisoned` fires `onPoison`, which runs the repair to success |
+| Released — unmatched round | `markRetainedPoison` calls `markPoisoned` and it matches no row (the row vanished between POST and mark); `replicaSync` releases and resumes on its own |
+| Released — discarded | `Sync.discardProblem()` drops the retained intents and releases before it resumes |
+
+A mark RPC failure (network or database error, not a match failure) holds the
+claim on purpose: the row is still unmarked, so the barrier must stand until a
+Retry re-marks it.
 
 ## A pull that keeps failing
 

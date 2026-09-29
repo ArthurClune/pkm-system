@@ -1,4 +1,4 @@
-"""Filters + pagination on GET /api/assets/search (pkm-jdu3)."""
+"""Filters + pagination on GET /api/assets/search."""
 from pkm.server.db import open_db
 
 

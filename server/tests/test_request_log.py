@@ -42,11 +42,11 @@ def test_uvicorn_log_config_routes_pkm_access_to_stdout():
 
 
 def test_uvicorn_log_config_configures_a_pkm_parent_logger():
-    # pkm-5g3d: a parent "pkm" logger carries the shared level/handler so
-    # every pkm.* child (pkm.assets, pkm.assistant, pkm.describe, and any
-    # future addition) inherits it by propagation instead of needing its own
-    # entry here - the per-logger allowlist this replaces let pkm.assets and
-    # pkm.assistant silently lose their INFO logs (they inherited from the
+    # A parent "pkm" logger carries the shared level/handler so every
+    # pkm.* child (pkm.assets, pkm.assistant, pkm.describe, and any future
+    # addition) inherits it by propagation instead of needing its own
+    # entry here - a per-logger allowlist would let pkm.assets and
+    # pkm.assistant silently lose their INFO logs (they'd inherit from the
     # unconfigured root logger instead).
     config = uvicorn_log_config()
     parent = config["loggers"]["pkm"]
@@ -58,8 +58,8 @@ def test_uvicorn_log_config_configures_a_pkm_parent_logger():
 
 
 def test_uvicorn_log_config_no_longer_lists_pkm_describe_individually():
-    # Locks in the parent-policy replacement: pkm.describe used to need its
-    # own entry (pkm-4z9r); now it inherits from "pkm" like any other child.
+    # Locks in the parent-policy replacement: pkm.describe needs no own
+    # entry; it inherits from "pkm" like any other child.
     config = uvicorn_log_config()
     assert "pkm.describe" not in config["loggers"]
 
@@ -118,11 +118,11 @@ def _effective_handlers(logger: logging.Logger) -> list[logging.Handler]:
 
 
 def test_every_declared_pkm_logger_has_an_effective_info_handler():
-    # pkm-5g3d: enumerates every pkm.* logger declared in the codebase and,
-    # once uvicorn_log_config() is applied, asserts each resolves to a real
-    # handler at INFO. Guards the drift this task fixed (pkm.assets and
-    # pkm.assistant silently losing lifecycle logs) against recurring for
-    # the next new pkm.* logger.
+    # Enumerates every pkm.* logger declared in the codebase and, once
+    # uvicorn_log_config() is applied, asserts each resolves to a real
+    # handler at INFO. Guards against pkm.assets- or pkm.assistant-style
+    # silent loss of lifecycle logs recurring for the next new pkm.*
+    # logger.
     declared = _declared_pkm_loggers()
     assert declared >= {"pkm.access", "pkm.assets", "pkm.assistant", "pkm.describe"}
     with _dict_config_applied(uvicorn_log_config()):

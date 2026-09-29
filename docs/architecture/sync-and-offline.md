@@ -49,7 +49,7 @@ sequenceDiagram
     U->>Q: enqueue(ops) — base_text_hash and batch_id<br/>stamped main-thread, optimistic local apply
     Q-->>U: WriteTicket (persisted durably)
     Q->>S: POST /api/ops {client_id, batch_id, ops}
-    S->>S: one transaction: plan ops (pure core),<br/>execute, re-derive refs + FTS<br/>(triggers append journal rows)
+    S->>S: one transaction: batch_id dedupe check,<br/>plan ops (pure core), execute,<br/>re-derive refs + FTS (triggers append journal rows)
     S-->>Q: 2xx ack → delete pending row
     S-->>B: WS: ops echo + {type:"seq", seq}
     B->>S: GET /api/sync/changes?since=cursor

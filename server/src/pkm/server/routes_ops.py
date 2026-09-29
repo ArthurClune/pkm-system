@@ -22,7 +22,20 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 async def post_ops(request: Request,
                    batch: OpBatch,
                    db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """One SQLite transaction covers the batch_id dedupe check through the
+    commit, so a concurrent delete_page/rename_page/cleanup_journal commit
+    (their own connections, on the threadpool) can no longer land between
+    the dedupe read and this batch's writes. A write lock the busy timeout
+    could not take (a concurrent writer already holds it) returns 503 with
+    Retry-After rather than surfacing the raw sqlite3.OperationalError."""
     now = int(time.time() * 1000)
+    try:
+        db.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError as exc:
+        if "locked" not in str(exc):
+            raise
+        raise HTTPException(status_code=503, headers={"Retry-After": "1"},
+                            detail="database busy, retry") from exc
     rhash = batch_request_hash(batch)
     replay_hash = batch_replay_hash(batch)
     row = db.execute(
@@ -38,6 +51,7 @@ async def post_ops(request: Request,
         # replay"; neither means a genuinely different payload reused the
         # batch_id.
         if row["request_hash"] not in (rhash, replay_hash):
+            db.rollback()
             # same dict shape as the 400 OpError detail below, so
             # clients parse one error contract (pkm-x7a5)
             raise HTTPException(
@@ -45,6 +59,7 @@ async def post_ops(request: Request,
                 detail={"index": None,
                         "reason": "batch_id was already used with"
                                   " different ops"})
+        db.rollback()
         return json.loads(row["response"])  # replay: stored ack, no effects
     try:
         result = apply_batch(db, batch, now)
@@ -66,19 +81,14 @@ async def post_ops(request: Request,
     response = {"ok": True, "ts": now, "applied": len(batch.ops), "seq": seq}
     if result.skipped:
         response["skipped"] = result.skipped
-    try:
-        db.execute(
-            "INSERT INTO applied_batches VALUES (?,?,?,?)",
-            (batch.batch_id, replay_hash, json.dumps(response), now))
-    except sqlite3.IntegrityError:
-        # two concurrent submissions of the same batch raced; this one
-        # loses -- roll back its effects and serve the winner's ack
-        db.rollback()
-        row = db.execute(
-            "SELECT response FROM applied_batches WHERE batch_id = ?",
-            (batch.batch_id,)).fetchone()
-        assert row is not None
-        return json.loads(row["response"])
+    # No IntegrityError branch here: BEGIN IMMEDIATE has been held since
+    # before the dedupe SELECT above, so a second submission of this same
+    # batch_id cannot reach this INSERT concurrently -- it blocks on the
+    # write lock this transaction holds, and finds the row through the
+    # ordinary dedupe SELECT once this transaction commits and releases it.
+    db.execute(
+        "INSERT INTO applied_batches VALUES (?,?,?,?)",
+        (batch.batch_id, replay_hash, json.dumps(response), now))
     db.commit()
     await request.app.state.hub.broadcast({
         "client_id": batch.client_id,

@@ -64,7 +64,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Post Ops */
+        /**
+         * Post Ops
+         * @description One SQLite transaction covers the batch_id dedupe check through the
+         *     commit, so a concurrent delete_page/rename_page/cleanup_journal commit
+         *     (their own connections, on the threadpool) can no longer land between
+         *     the dedupe read and this batch's writes. A write lock the busy timeout
+         *     could not take (a concurrent writer already holds it) returns 503 with
+         *     Retry-After rather than surfacing the raw sqlite3.OperationalError.
+         */
         post: operations["post_ops_api_ops_post"];
         delete?: never;
         options?: never;

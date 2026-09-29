@@ -8,7 +8,7 @@
 // read-only there.) All that is left here is presentation: the panel's own
 // error/loading text and the scoped scroll below.
 //
-// An optional uid (pkm-gdi5, a block ref or asset link opened with
+// An optional uid (a block ref or asset link opened with
 // shift-click) is scrolled to and flashed once the page has rendered --
 // scoped to this panel's OWN container via containerRef, never a
 // document-wide query: the same page can be open in the main window at

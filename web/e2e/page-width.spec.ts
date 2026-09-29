@@ -1,7 +1,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 
-// pkm-57mo: the center pane (.main-pane) is meant to widen into whatever
+// The center pane (.main-pane) is meant to widen into whatever
 // room a missing/collapsed sidebar frees up, rather than sitting at a fixed
 // max-width regardless of how much of the window is actually available.
 // This asserts the four left-nav x right-sidebar combinations produce
@@ -40,7 +40,7 @@ async function mainPaneWidth(page: Page): Promise<number> {
   return box.width;
 }
 
-test("center pane widens as the left nav collapses and the right sidebar closes (pkm-57mo)", async ({ page }) => {
+test("center pane widens as the left nav collapses and the right sidebar closes", async ({ page }) => {
   const stamp = Date.now();
   const source = `PageWidthSource${stamp}`;
   const target = `PageWidthTarget${stamp}`;

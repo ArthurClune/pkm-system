@@ -1,9 +1,9 @@
 // pattern: Imperative Shell
-// The chrome shared by every anchored popover (pkm-2i6a): a labelled dialog
+// The chrome shared by every anchored popover: a labelled dialog
 // at a fixed position, measured after layout and clamped into the viewport
 // (popoverPosition.ts), dismissed by Escape or an outside mousedown
 // (useDismiss.ts). Mouse/touch-only by the accepted popover convention
-// (pkm-3w2h) — there is no focus trap and nothing steals focus on open.
+// — there is no focus trap and nothing steals focus on open.
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { clampPopoverPosition } from "./popoverPosition";
@@ -34,7 +34,7 @@ export function Popover({ label, x, y, onClose, remeasure, children }: {
 
   // An anchor is a wish: a badge at the right end of a long row would put a
   // 260-480px popover past the window edge, and position:fixed grows no
-  // scrollbar to recover it (pkm-7iv7). Measure after layout, then clamp.
+  // scrollbar to recover it. Measure after layout, then clamp.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -49,7 +49,7 @@ export function Popover({ label, x, y, onClose, remeasure, children }: {
 
   useDismiss(ref, onClose, { preventDefaultOnEscape: true });
 
-  // Portalled to document.body (pkm-muka), never rendered in place: the
+  // Portalled to document.body, never rendered in place: the
   // clamp above is in viewport coordinates, and `position: fixed` only
   // resolves against the viewport while no ancestor imposes layout
   // containment (`content-visibility`, `contain: layout`). Inside such a

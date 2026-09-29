@@ -38,11 +38,11 @@ interface TreeProps {
   handlers: OutlineHandlers;
   readOnly: boolean;
   fallback?: boolean;
-  /** Render the last-changed margin column (bean pkm-4ler). A PROP, never a
+  /** Render the last-changed margin column. A PROP, never a
    * context read: only PageView passes it, which is exactly what keeps the
    * journal scroll and sidebar panels bare. */
   stamps?: boolean;
-  /** Incoming ((uid)) reference counts (pkm-d31f). Payload-fresh, like
+  /** Incoming ((uid)) reference counts. Payload-fresh, like
    * block_ref_texts: PageView and Journal pass it; sidebar panels stay bare. */
   refCounts?: Record<string, number>;
 }
@@ -55,7 +55,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   // One instant for the whole tree, so two rows a millisecond either side of
   // a band edge can't be tinted inconsistently within a single paint. Re-read
   // only when the tree itself changes: every row takes it as a prop, so a
-  // fresh Date.now() per render would defeat their memo (pkm-qfee) — and the
+  // fresh Date.now() per render would defeat their memo — and the
   // bands are hours wide, while a new tree is exactly when a stamp moves.
   const nowRef = useRef(0);
   const nowBlocksRef = useRef<BlockNode[] | null>(null);
@@ -64,9 +64,9 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     nowRef.current = Date.now();
   }
   const nowMs = nowRef.current;
-  // The /upload file picker (pkm-gbsb): owned by the tree root, not the
+  // The /upload file picker: owned by the tree root, not the
   // focus-scoped BlockInput. The pick blurs the block itself before opening
-  // the dialog (pkm-zrjc, not relying on the native dialog to do it), which
+  // the dialog (not relying on the native dialog to do it), which
   // unmounts BlockInput while the dialog is still open; a picker-owned input
   // would be detached from the DOM by the time the user picks a file, so its
   // change event would never dispatch. This one input is shared across every
@@ -85,7 +85,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     if (files.length === 0 || !target) return;
     void handlers.onFiles(target.uid, target.at, files);
   };
-  // Bullet context menu (pkm-y6af); one per tree, anchored at the pointer.
+  // Bullet context menu; one per tree, anchored at the pointer.
   const [menu, setMenu] = useState<{
     uid: string;
     x: number;
@@ -93,7 +93,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     viewMode: EffectiveBlockView;
     trigger: HTMLElement;
   } | null>(null);
-  // The badge's references popover (pkm-d31f); one per tree, anchored at
+  // The badge's references popover; one per tree, anchored at
   // the badge that opened it. Renders in fallback trees too -- read-only
   // navigation to a referencing block is fine even where editing isn't.
   const [refPopover, setRefPopover] = useState<{
@@ -101,7 +101,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   } | null>(null);
   // Both sets are memoised on what they are derived from, not rebuilt per
   // render: they are props of every row, so a fresh Set would re-render the
-  // whole tree (pkm-qfee).
+  // whole tree.
   const selected = useMemo(() => (!fallback && selection
     ? new Set(selectedUids(blocks, selection)) : EMPTY_SET),
     [blocks, selection, fallback]);
@@ -182,9 +182,9 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     <div className="block-tree" ref={treeRef}
          tabIndex={selection ? -1 : undefined} onKeyDown={onKeyDown}>
       {/* The whole tree, for the one row kind that has to see past its own
-          node: a {{toc}} block listing the page's headings (pkm-mzks). A
+          node: a {{toc}} block listing the page's headings. A
           context, not a prop, so the rows themselves keep the props they
-          had and their memo (pkm-qfee) is untouched. */}
+          had and their memo is untouched. */}
       <RootBlocksContext.Provider value={blocks}>
         {blocks.map((b, index) => (
           <EditableBlock key={b.uid} node={b} focus={focus} selected={selected}
@@ -276,7 +276,7 @@ function BlockStamp({ node, nowMs }: { node: BlockNode; nowMs: number }) {
   );
 }
 
-/** The gutter count of incoming ((uid)) refs (pkm-d31f). Sparse — rendered
+/** The gutter count of incoming ((uid)) refs. Sparse — rendered
  * only on rows that have any — so unlike BlockStamp it is not a column and
  * needs no empty placeholder; it borrows width from the flexible text cell
  * on exactly the rows where it appears. */
@@ -305,7 +305,7 @@ function RefCountBadge({ uid, count, onOpen }: {
  * so a changed block always arrives as a new object. The gain is on the renders
  * that are NOT edits — a Sync context update, a sibling day's fetch, a menu
  * opening — where the Journal would otherwise re-render every row of every
- * mounted day (pkm-qfee). */
+ * mounted day. */
 const EditableBlock = memo(function EditableBlock(
                         { node, focus, selected, focusChain, handlers, readOnly,
                           fallback, onRequestUpload, viewMode, number,
@@ -313,13 +313,13 @@ const EditableBlock = memo(function EditableBlock(
                           onOpenRefPopover }: {
   node: BlockNode; focus: FocusTarget | null;
   selected: ReadonlySet<string>;
-  /** The focused block plus its ancestors, from the tree root (pkm-nvxh):
+  /** The focused block plus its ancestors, from the tree root:
    * membership is this block's constant-time "focus is in my subtree" test.
    * Empty in a fallback tree, which never reveals a table's raw rows. */
   focusChain: ReadonlySet<string>;
   handlers: OutlineHandlers; readOnly: boolean; fallback: boolean;
   /** Click the tree-owned upload input for `uid`, splicing at offset `at`
-   * once files are chosen (pkm-gbsb) — see EditableBlockTree for why the
+   * once files are chosen — see EditableBlockTree for why the
    * input can't live in BlockInput itself. */
   onRequestUpload: (uid: string, at: number) => void;
   viewMode: EffectiveBlockView;
@@ -377,7 +377,7 @@ const EditableBlock = memo(function EditableBlock(
                 e.dataTransfer.effectAllowed = "move";
                 handlers.onDragStartBlock?.(node.uid);
               }}
-              // Click or right-click opens the block menu (pkm-y6af); plain
+              // Click or right-click opens the block menu; plain
               // click included because iPad Safari doesn't fire contextmenu
               // from touch. Drag suppresses click, so DnD is unaffected.
               onClick={(e) => {

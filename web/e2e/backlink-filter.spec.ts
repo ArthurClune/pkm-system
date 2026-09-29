@@ -13,7 +13,7 @@ async function login(page: Page) {
 
 const input = (page: Page) => page.locator("textarea.block-input");
 
-test("linked-refs filter: include, exclude, ancestor tags (pkm-m4an)", async ({ page }) => {
+test("linked-refs filter: include, exclude, ancestor tags", async ({ page }) => {
   // unique target *and* source pages per run: the e2e DB is shared across
   // specs/retries. The scenario's blocks are written to a dedicated `src`
   // page rather than today's journal — the journal is shared and

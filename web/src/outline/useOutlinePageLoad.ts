@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// The one outline page-loading controller (pkm-63s1). Every surface that
+// The one outline page-loading controller. Every surface that
 // shows an editable page outline — the main pane's PageView, a sidebar
 // panel — loads through this hook, and differs from the others only in how
 // it presents the result and where it scrolls.

@@ -127,7 +127,7 @@ export function UnlinkedSection({ title, onLinked }: {
 
   return (
     <section className="unlinked">
-      {/* The toggle is a real button inside the heading (pkm-l4z8): an onClick
+      {/* The toggle is a real button inside the heading: an onClick
         * on the <h2> was unreachable from the keyboard and announced no state. */}
       <h2 className="section-header collapsible">
         <button type="button" className="section-toggle" aria-expanded={open}

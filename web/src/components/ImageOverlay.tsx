@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 // Fullscreen overlay for uploaded images, extracted from AssetImage
-// (pkm-vcn6) so the /files browser can share it. Body scroll lock,
+// so the /files browser can share it. Body scroll lock,
 // Escape-to-close, Tab pinned to Close and focus restore to the trigger
 // come from useOverlayDismiss, shared with the GoodLinks reader.
 import { useRef } from "react";

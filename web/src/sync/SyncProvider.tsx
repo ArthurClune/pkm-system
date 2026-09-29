@@ -3,7 +3,7 @@
 // them as four contexts split by rate of change (see SyncContext below).
 // status drives connectivity UI; resyncSeq bumps whenever local state may have
 // diverged (rejected batch, or reconnect after a gap): views refetch
-// authoritative state via useResync. The replica (pkm-y8p0) is kept warm
+// authoritative state via useResync. The replica is kept warm
 // from the changes feed via WS seq nudges; reconnect ordering is flush
 // pending ops -> pull feed -> resync bump (spec sections 3/6).
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef,
@@ -45,12 +45,12 @@ const mergePoisonEvents = (
 export interface SyncHealth {
   status: SyncStatus;
   /** Replica lifecycle (offline support): "no-replica" means the app runs
-   * online-only exactly as before pkm-y8p0. */
+   * online-only exactly as before the replica existed. */
   replicaMode: ReplicaState["mode"];
   /** Queued (non-poisoned) batches not yet acknowledged by the server. */
   pending: number;
   /** Ops stranded ONLY in this tab's memory — the subset of `pending` a
-   * reload actually destroys (pkm-0htf). Durable replica rows count toward
+   * reload actually destroys. Durable replica rows count toward
    * `pending` too but survive a reload fine, which is why the beforeunload
    * guard (wired in SyncProvider, not here) is gated on this and not on
    * `pending`. */
@@ -72,8 +72,8 @@ export interface SyncEditability {
 
 /** Everything callable. One object for the provider's whole lifetime: every
  * outline keeps it in the dependencies of its handlers, its edit runner and
- * its DnD api, so a new identity here re-renders every mounted Journal day
- * (pkm-qfee). Each method reads the freshest state through a ref rather than
+ * its DnD api, so a new identity here re-renders every mounted Journal day.
+ * Each method reads the freshest state through a ref rather than
  * closing over rendered state, which is what makes that possible. */
 export interface SyncActions {
   /** Retry the retained rejected-batch repair, if it failed. */
@@ -81,7 +81,7 @@ export interface SyncActions {
   /** Clear repaired details. Failed/running problems cannot be dismissed. */
   dismissProblem(): void;
   /** Give up on a mark-failed rejected batch: drop its retained intents and
-   * release the recovery barrier they held (pkm-tu5k). The escape from a
+   * release the recovery barrier they held. The escape from a
    * profile whose replica can never open — without it the intent can never
    * clear and every future session boots wedged. Safe to give up because the
    * unmarked batch redelivers if the replica ever opens again, and the server
@@ -127,8 +127,8 @@ const DEFAULT_EDITABILITY: SyncEditability = { canEdit: false };
 
 // Four contexts rather than one, because React has no way to subscribe to part
 // of a context value: whatever shares an identity with `pending` re-renders
-// twice per flushed edit, and in the Journal that is every mounted outline
-// (pkm-qfee). Ordered here from most to least stable.
+// twice per flushed edit, and in the Journal that is every mounted outline.
+// Ordered here from most to least stable.
 const SyncActionsContext = createContext<SyncActions>(DEFAULT_ACTIONS);
 const ResyncContext = createContext(0);
 const SyncEditabilityContext =
@@ -196,7 +196,7 @@ function defaultReplica(): OwnedReplica | null {
 /** The queue always has a Replica; where there is none, this reports the same
  * permanent unavailability the worker reports for a database it could not open.
  * The queue latches that once and answers it by delivering online-only through
- * its in-memory lane (pkm-bjae) — which is what a browser with no usable OPFS
+ * its in-memory lane — which is what a browser with no usable OPFS
  * already does, so "no replica at all" needs no second delivery path. Reachable
  * only where `Worker` is undefined (jsdom) or a test passes `replica={null}`; a
  * real browser always builds the worker-backed replica above. */
@@ -361,7 +361,7 @@ export function SyncProvider({ children, replica }: {
       clientId,
       queue,
       // Same predicate as the offline gateway below: a failed pull's retry
-      // is pointless while the socket is down (pkm-gw5r), and reconnect's
+      // is pointless while the socket is down, and reconnect's
       // own start() call resumes it once statusRef flips back.
       isOffline: () => statusRef.current === "reconnecting",
       // Same skipped callback the queue uses above: the recovery flush is a
@@ -448,15 +448,14 @@ export function SyncProvider({ children, replica }: {
         // own latched open failure ("unusable") is evidence that there is no
         // poison table for this gate to protect; with no replica there are no
         // poison rows, and holding the barrier would strand every accepted edit
-        // in the in-memory fallback lane until the tab closes (pkm-bjae).
+        // in the in-memory fallback lane until the tab closes.
         //
         // Anything else — a dead worker, a module chunk 404 after a deploy
         // against a stale index.html, an RPC timeout — is "we could not ask",
         // not "there is nothing to read", so it keeps today's gate and its
-        // Retry banner rather than delivering past unread poison. There used to
-        // be an init() probe here whose third outcome ("unknown") retained the
-        // gate while setting no availability state at all, so nothing
-        // downstream knew (pkm-q2jj).
+        // Retry banner rather than delivering past unread poison. Every branch
+        // here must resolve to a definite availability state; none may leave
+        // downstream unable to tell what happened.
         const message = error instanceof Error ? error.message : String(error);
         if (availabilityOf(error) === "unusable") {
           startupDiscoveringPoisonRef.current = false;
@@ -468,7 +467,7 @@ export function SyncProvider({ children, replica }: {
           queue.resume("recovery");
           // Not silent: the user has lost offline editing for the session and
           // gets no other signal, since "no-replica" raises no banner of its
-          // own (pkm-bjae review).
+          // own.
           applySync({ type: "replica-unavailable", error: message });
           return;
         }
@@ -610,7 +609,7 @@ export function SyncProvider({ children, replica }: {
     computeEditability(status, replicaState.mode);
 
   // Live for the provider's whole lifetime, independent of whether any
-  // banner component is mounted to show the corresponding copy (pkm-0htf).
+  // banner component is mounted to show the corresponding copy.
   useUnloadGuard(unsentInMemory);
 
   const health = useMemo<SyncHealth>(
@@ -678,8 +677,7 @@ export function SyncProvider({ children, replica }: {
         replicaSync!.completeAuthoritativeRepair("poison");
         if (startupDiscoveringPoisonRef.current) {
           // Rejoin the normal startup: discovery runs against the replica,
-          // and an unopenable one falls into the pkm-bjae online-only
-          // fallback.
+          // and an unopenable one falls into the online-only fallback.
           return continueStartupRef.current([]);
         }
         // Mid-session the still-unmarked durable row is simply handed out

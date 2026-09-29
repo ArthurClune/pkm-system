@@ -20,7 +20,7 @@ export interface BlockRefStore {
   /** Merge a fetched batch, waking only the uids it changed. */
   resolve(entries: Record<string, BlockRefText>): void;
   /** Drop an entry and wake its consumers, so the next reader re-requests
-   * it. This is the whole shape an invalidation needs (pkm-1w6u): resolved
+   * it. This is the whole shape an invalidation needs: resolved
    * texts currently never expire, and the fix is a `forget` per edited uid
    * rather than any change to how consumers read. */
   forget(uid: string): void;

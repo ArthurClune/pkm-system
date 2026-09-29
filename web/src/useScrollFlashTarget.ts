@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
-// Scroll a just-rendered block into view and flash it (pkm-kk0t), shared by
-// the main pane (target from the URL hash, pkm-pzdu) and a sidebar panel
-// (target from the opening shift-click, pkm-gdi5).
+// Scroll a just-rendered block into view and flash it, shared by
+// the main pane (target from the URL hash) and a sidebar panel
+// (target from the opening shift-click).
 //
 // `ready` is the caller's render gate -- the page payload itself, not a
 // boolean derived from it. Its identity is in the dependency array, so a

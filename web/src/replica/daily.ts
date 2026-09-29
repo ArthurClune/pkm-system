@@ -28,7 +28,7 @@ export function dateForTitle(title: string): Date | null {
   return new Date(Number(m[4]), MONTHS.indexOf(m[1]), day);
 }
 
-// TS port of daily.py select_journal_days (pkm-03x6): the dates a journal
+// TS port of daily.py select_journal_days: the dates a journal
 // batch shows, newest first. No cursor: today leads — always, even when
 // empty, so there is a page to compose into — then the most recent
 // non-empty days before it. With a cursor: the most recent non-empty days

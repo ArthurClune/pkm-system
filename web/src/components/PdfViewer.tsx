@@ -6,7 +6,7 @@
 // placeholders once the scroll leaves them behind, so a long document
 // rasterizes neither every canvas up front nor every canvas it has passed.
 // Text/annotation layers are disabled -- this is deliberately a scroll-only
-// viewer (pkm-srek spec).
+// viewer.
 //
 // This module is loaded lazily by PdfEmbed (dynamic import), so react-pdf/
 // pdfjs-dist stay out of the eager entry chunk. The worker resolves to a

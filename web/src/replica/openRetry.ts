@@ -1,5 +1,5 @@
 // pattern: Functional Core
-// Bounded retry for the replica's OPFS open (pkm-c9hp).
+// Bounded retry for the replica's OPFS open.
 //
 // sqlite-wasm's OpfsSAHPool VFS acquires an exclusive SyncAccessHandle for
 // each pooled file, and a given OPFS file can back only ONE open access
@@ -20,7 +20,7 @@
 
 /** The options the replica worker must install the SAH pool with.
  *
- * `forceReinitIfPreviouslyFailed` (pkm-wi25) is what makes the backoff below
+ * `forceReinitIfPreviouslyFailed` is what makes the backoff below
  * mean anything. sqlite-wasm memoises `installOpfsSAHPoolVfs` per VFS name and
  * by default re-awaits — and so rethrows — a cached *rejection* on every later
  * call (dist/index.mjs, `initPromises[vfsName]`). Without the flag the very
@@ -34,9 +34,9 @@
  * The cost of a dead replica is the local cache and offline reads: startup's
  * rejected-changes check fails, and the session degrades to online-only
  * delivery. It is no longer a durability hazard in the general case —
- * pkm-bjae made startup fall back instead of holding its recovery barrier —
+ * startup falls back instead of holding its recovery barrier —
  * but edits still strand in memory in the one case that barrier is retained
- * for (a KNOWN-rejected batch that cannot be repaired; see pkm-tu5k). */
+ * for (a KNOWN-rejected batch that cannot be repaired). */
 export const SAH_POOL_INSTALL_OPTIONS = {
   name: "pkm-replica",
   forceReinitIfPreviouslyFailed: true,

@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// The badge's popover (pkm-d31f): who references this block. Fetches
+// The badge's popover: who references this block. Fetches
 // lazily on open (offline: the shim serves it identically); the badge
 // count is payload-fresh, this list is live truth — no reconciliation.
 // Chrome, clamping and dismissal come from the shared Popover shell.

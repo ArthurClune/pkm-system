@@ -77,7 +77,7 @@ test("/goodlinks links a saved page and the reader shows the sanitised article",
     // The Tab press above is a move op; wait for the server's own copy of
     // the page to have the final edit before the finally block deletes it,
     // or the delete can land between the move's apply and its broadcast
-    // (an in-flight ops batch racing page deletion -- pkm-h7jb-style).
+    // (an in-flight ops batch racing page deletion).
     await waitForServerText(page, title, `Local copy:: [Goodlinks](/api/goodlinks/${ARTICLE_ID})`);
   } finally {
     if (title) await page.request.delete(`/api/page/${encodeURIComponent(title)}`);

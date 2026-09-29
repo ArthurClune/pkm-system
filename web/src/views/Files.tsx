@@ -24,7 +24,7 @@ import type { FileFilters } from "./filesCore";
 // instead of mixing result sets, overwriting totals, or selecting files
 // outside the now-visible filter.
 //
-// Deliberately NOT the shared useStaleGuard (pkm-kk0t): that guard's
+// Deliberately NOT the shared useStaleGuard: that guard's
 // contract is "one live request at a time", where begin() invalidates its
 // predecessor. Here the generation is a query key for the current FILTER
 // set, and loadMore/selectAll join the generation reload started rather
@@ -92,7 +92,7 @@ function FileCard({ item, checked, onToggle, onCopy }: {
         </button>
       ) : category === "pdf" ? (
         // In-app viewer on every surface: a same-origin navigation would
-        // take over the iOS standalone PWA with no way back (pkm-5o11).
+        // take over the iOS standalone PWA with no way back.
         <button type="button" className="file-thumb" ref={thumbRef}
                 aria-label={`Open PDF: ${item.filename}`}
                 onClick={() => setExpanded(true)}>

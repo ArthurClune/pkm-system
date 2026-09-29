@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
-// The one dismissal contract every transient surface in the app shares
-// (pkm-2i6a): a mousedown that lands outside the surface, or Escape pressed
+// The one dismissal contract every transient surface in the app shares:
+// a mousedown that lands outside the surface, or Escape pressed
 // anywhere, closes it. Both listeners sit on `document`, deliberately:
 // - mousedown, not click, so the surface goes away on press rather than
 //   waiting for a release that may never come over it;

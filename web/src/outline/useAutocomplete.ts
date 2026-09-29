@@ -3,7 +3,7 @@
 // and the phone Composer: which completion context is open, which row is
 // highlighted, and — the reason it is shared — resolving the context to act
 // on from the textarea's LIVE selection rather than the one the last input
-// event captured (pkm-noow). Detection and the staleness rule are pure and
+// event captured. Detection and the staleness rule are pure and
 // live in autocomplete.ts; this only holds React state and reads the DOM.
 import { useState, type Dispatch, type SetStateAction } from "react";
 import { detectAutocomplete, liveAcContext, type AcContext } from "./autocomplete";
@@ -36,7 +36,7 @@ export interface AutocompleteController {
    *
    * It reads the DOM caret, so it relies on both editors placing a key-edit's
    * or pick's caret in a layout effect of the same commit (an auto-paired
-   * "[[" is the common case), never a requestAnimationFrame (pkm-j7ez): in a
+   * "[[" is the common case), never a requestAnimationFrame: in a
    * frame callback's window the caret sits at the end of the freshly
    * committed value and every context looks stale. */
   resolve: (el: HTMLTextAreaElement | null) => AcTarget | null;
@@ -65,7 +65,7 @@ export function useAutocomplete(): AutocompleteController {
     resolve: (el) => {
       if (ctx === null || el === null) return null;
       // The selection END is the caret the query ends at. When "[[" wraps a
-      // selection the inner text stays selected (pkm-wxwp); the start of
+      // selection the inner text stays selected; the start of
       // that selection sits right after the "[[" and would read as an empty
       // query, wrongly closing a live popup. Same offset when collapsed.
       const caret = el.selectionEnd;

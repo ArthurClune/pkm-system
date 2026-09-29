@@ -8,11 +8,11 @@
 // NEGATIVE ids, reconciled when the feed delivers the authoritative row
 // (reconcile.ts); ops carry titles, so negative ids never go on the wire.
 // An op on a missing block or create/move parent is skipped, as the server
-// skips it (missingTarget.ts, pkm-7788), and so is a move that would nest
+// skips it (missingTarget.ts), and so is a move that would nest
 // a block under itself or its own descendant. A create or move under a
-// live parent lands on the parent's page, whatever its page_title says
-// (pkm-fe9b). A re-applied batch (reapply) finds its own create and move
-// effects already in place and does not repeat them (pkm-b0zf).
+// live parent lands on the parent's page, whatever its page_title says.
+// A re-applied batch (reapply) finds its own create and move
+// effects already in place and does not repeat them.
 
 import type { BlockOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
@@ -69,7 +69,7 @@ export function getOrCreateLocalPage(db: ReplicaDb, title: string,
 
 const reindexRefs = (db: ReplicaDb, uid: string, text: string,
                      nowMs: number): void => {
-  // pkm-d31f/pkm-t3qw: the block-level index is the composition apply.ts
+  // The block-level index is the composition apply.ts
   // shares; it hands back the parse so the page-level refs below reuse it.
   const { refs } = reindexBlockRefs(db, uid, text);
   db.exec("DELETE FROM refs WHERE src_block_uid = ?", [uid]);
@@ -164,7 +164,7 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
       // the server's echo. Later ops re-apply over it; keep it as it is.
       if (reapply && info !== null) {
         // ... except that it follows a parent the window moved to another
-        // page, as the server will place it (pkm-fe9b). Only while it is
+        // page, as the server will place it. Only while it is
         // still under that parent: a later pending move that took it
         // elsewhere owns its page, and re-paging it here would make that
         // move's replay re-shift its target's children on every window.
@@ -244,7 +244,7 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
       return;
     }
     case "set_collapsed": {
-      // Collapse/expand is not a real change (bean pkm-r7k8): unlike the
+      // Collapse/expand is not a real change: unlike the
       // other cases here, it must not bump the block's updated_at or its
       // page's — otherwise a UI-only toggle would pollute "last changed"
       // and reorder recency-sorted page lists.

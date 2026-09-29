@@ -17,7 +17,7 @@ const focusedUid = (page: Page) => page.locator(".block-row.focused").getAttribu
 
 /** Long, space-separated, newline-free text: at the narrow viewport below it
  * soft-wraps onto many display lines, which is exactly the case the old
- * logical-newline-only heuristic couldn't see (pkm-2867). */
+ * logical-newline-only heuristic couldn't see. */
 const WRAPPED_TEXT = Array.from({ length: 12 },
   () => "lorem ipsum dolor sit amet consectetur adipiscing elit").join(" ");
 
@@ -35,7 +35,7 @@ async function setCaret(page: Page, pos: number) {
     (el: HTMLTextAreaElement, p: number) => el.setSelectionRange(p, p), pos);
 }
 
-test.describe("wrapped-block boundary arrows (pkm-2867)", () => {
+test.describe("wrapped-block boundary arrows", () => {
   test("plain ArrowUp/Down move within a wrapped block before jumping blocks", async ({ page }) => {
     // Narrow enough to force soft-wrap, but above the 600px phone breakpoint
     // (below it the composer replaces normal block editing entirely).

@@ -1,6 +1,6 @@
 // pattern: Functional Core
 // Single source for the app's route paths, top-bar labels, and browser
-// titles (pkm-77w2). Previously the router (App.tsx), TopBar, and five
+// titles. Previously the router (App.tsx), TopBar, and five
 // near-identical per-view effects each hardcoded their own copy of this --
 // /files and /settings had fallen through the cracks and had no top-bar
 // label at all.

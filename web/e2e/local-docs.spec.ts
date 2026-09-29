@@ -1,7 +1,7 @@
 // A Local copy:: value written as a link to /api/local/... renders the
 // in-app PDF viewer once its Open button is clicked (click-to-load, so a
-// page of many papers fetches nothing on render -- pkm-pv7w), and a non-PDF
-// local link stays a plain new-tab anchor (pkm-g1ep). Uses its own page so
+// page of many papers fetches nothing on render), and a non-PDF
+// local link stays a plain new-tab anchor. Uses its own page so
 // it never touches the journal.
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";

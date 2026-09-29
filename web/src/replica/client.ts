@@ -63,7 +63,7 @@ export type RecoveryCommit =
   | { kind: "rebase"; snapshot: Snapshot; acked: readonly AckedBatch[] };
 
 /** What the replica can say about its own database, gathered before a
- * corruption rebuild drops the evidence (pkm-1mx9). Every probe is
+ * corruption rebuild drops the evidence. Every probe is
  * independent: a probe that throws contributes its error text, never a
  * rejection of the whole report. */
 export interface ReplicaDiagnostics {
@@ -84,7 +84,7 @@ export type { LocalApiRequest, LocalApiResult } from "./localApi/router";
 
 export interface Replica {
   /** Rejects with ReplicaUnavailableError when the database cannot be opened;
-   * the worker has latched that for the session (pkm-za9j). */
+   * the worker has latched that for the session. */
   init(): Promise<ReplicaInit>;
   applySnapshot(snap: Snapshot): Promise<void>;
   applyChanges(feed: Changes,
@@ -93,7 +93,7 @@ export interface Replica {
    * ALWAYS mints batchId BEFORE this call: if the reply is lost after the row
    * was persisted, the copy the caller retains still shares the row's id, so
    * a duplicate delivery hits the server's replay dedup instead of a
-   * create-collision 400 (pkm-ybgt). */
+   * create-collision 400. */
   enqueue(ops: BlockOp[],
           batchId: string): Promise<{ pending: number; batchId: string }>;
   nextBatch(): Promise<PendingBatch | null>;

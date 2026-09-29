@@ -17,7 +17,7 @@ export function isBlueskyPostUrl(href: string): boolean {
 
 /** Builds the embed.bsky.app iframe src for a post URL, or null if href
  * isn't a Bluesky post URL. The embed path only accepts DIDs — a handle
- * renders Bluesky's "Invalid DID" page (pkm-es9o) — so the caller must
+ * renders Bluesky's "Invalid DID" page — so the caller must
  * pass the actor's resolved DID. `id` keys the embed page's postMessage
  * height reports back to this iframe; the original href rides along as
  * ref_url. */

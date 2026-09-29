@@ -61,9 +61,9 @@ const CURRENT_WORK_SECTIONS = [
 ] as const;
 
 /** Shared with the journal shim, which previews each day's references from
- * the same query rather than a page read per day (pkm-5fak). A page's own
+ * the same query rather than a page read per day. A page's own
  * blocks are excluded even when they reference it, as the server's
- * `_backlinks` and unlinked references do (pkm-r747). */
+ * `_backlinks` and unlinked references do. */
 export function backlinks(db: ReplicaDb, pageId: number, offset: number,
                           limit: number):
     { groups: BacklinkGroup[]; total: number; texts: string[] } {
@@ -136,7 +136,7 @@ export function pagePayload(db: ReplicaDb, title: string, blOffset: number,
   const limit = Math.max(1, Math.min(blLimit, 100));
   let page = fetchPage(db, title);
   if (page === null) {
-    // Mirror of the server rule (bean pkm-fy52): only TODAY auto-creates
+    // Mirror of the server rule: only TODAY auto-creates
     // on read; other daily titles 404 like normal pages.
     if (title !== titleForDate(new Date(nowMs))) return null;
     getOrCreateLocalPage(db, title, nowMs); // local only, no push

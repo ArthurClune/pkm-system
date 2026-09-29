@@ -45,7 +45,7 @@ export function useDnd(): Dnd {
 
 export function DndProvider({ children }: { children: ReactNode }) {
   // Writes only: this value is a dependency of every outline's drop handling,
-  // so it must not churn with the delivery counters (pkm-qfee).
+  // so it must not churn with the delivery counters.
   const sync = useSyncActions();
   const [drag, setDrag] = useState<DragSource | null>(null);
   const outlinesRef = useRef(new Map<
@@ -77,7 +77,7 @@ export function DndProvider({ children }: { children: ReactNode }) {
     },
     drop: (d, target) => {
       const src = outlinesRef.current.get(d.pageTitle)?.api;
-      const uids = dragUids(d); // one uid, or a whole selection (pkm-q89w)
+      const uids = dragUids(d); // one uid, or a whole selection
       if (target.page_title === d.pageTitle) {
         if (src) {
           src.moveTo(uids, target);

@@ -6,7 +6,7 @@
 //
 // The bump is conditional on the catch-up having moved local data, because a
 // flapping link otherwise makes every 2 s blip cost a full refetch of every
-// view (pkm-5fak). The order is unchanged; only *whether* to refetch narrows.
+// view. The order is unchanged; only *whether* to refetch narrows.
 // Two things make the replica's own cursor the right thing to ask:
 //   * a drain that delivered ops needs no signal of its own — the POST commits
 //     server-side before it resolves, and the drain resolves before the pull
@@ -66,7 +66,7 @@ export function createReconnectFlow(deps: {
       // connect that JOINED this completion is still honoured by it.
       const unconditional = staleViews;
       staleViews = false;
-      // Refetch only when the catch-up actually moved local data (pkm-5fak).
+      // Refetch only when the catch-up actually moved local data.
       // `null` on either side is "cannot tell" — no replica, or one this
       // session can never use — and must count as moved, or an online-only
       // session would stop refreshing its views altogether.

@@ -182,7 +182,7 @@ function holdsAny(nodes: BlockNode[], uids: ReadonlySet<string>): boolean {
  *
  * A batch where every op is skipped that way — the common case, since every
  * open outline sees every other page's broadcasts — returns the input tree
- * itself and allocates nothing (pkm-a4wf). Anything else returns a fresh
+ * itself and allocates nothing. Anything else returns a fresh
  * clone, which may still be `blocksEqual` to the input when the ops resolved
  * to what was already there; `changed` is the verdict either way. */
 export function applyOpsWithChange(blocks: BlockNode[], ops: BlockOp[],

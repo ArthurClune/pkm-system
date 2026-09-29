@@ -6,7 +6,7 @@
 //
 // Why a taxonomy exists at all: "is the replica usable?" used to be re-derived
 // by every consumer, most alarmingly by matching strings in an error message to
-// decide whether the user's writes survived (pkm-q2jj). The worker owns the
+// decide whether the user's writes survived. The worker owns the
 // fact; these types are how it travels.
 
 export interface ReplicaErrorFlags {
@@ -19,7 +19,7 @@ export interface ReplicaErrorFlags {
 
 /** There was a `quota` flag here too, meant to mark "local storage refused the
  * write for want of space" and to drive a read-only mode. NOTHING could ever
- * set it (pkm-avag): the app runs on sqlite-wasm's opfs-sahpool VFS, whose
+ * set it: the app runs on sqlite-wasm's opfs-sahpool VFS, whose
  * `xWrite` catches the `QuotaExceededError` DOMException from
  * `SyncAccessHandle.write()`, stores it on the pool's private `$error` and
  * returns `SQLITE_IOERR` — so what reaches this module is a bare "disk I/O
@@ -70,7 +70,7 @@ export class RpcLifecycleError extends Error {
  * Retaining an op needs only "this write did not persist locally"; lifting the
  * op queue's recovery barrier needs "there is positively no poison table to
  * read", because delivering past an unrepaired rejection is the ordering hazard
- * the barrier exists for (pkm-bjae).
+ * the barrier exists for.
  *
  * | value        | meaning                          | retain? | may lift barrier? |
  * | unusable     | openDb() failed: no database      | yes     | YES               |
@@ -106,7 +106,7 @@ export function isSessionFatal(error: unknown): boolean {
  * the wrapper surfaces the engine's error unchanged.
  *
  * The replica is a cache, so this is a reason to REBUILD it, not a stall to
- * show the user (pkm-n31j). Only an ordinary ReplicaError qualifies: a
+ * show the user. Only an ordinary ReplicaError qualifies: a
  * latched failed open is an availability fact with its own handling, and a
  * plain Error carrying the same words did not come from the worker. */
 export function isCorruptionError(error: unknown): boolean {

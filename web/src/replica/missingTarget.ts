@@ -1,8 +1,8 @@
 // pattern: Functional Core
 // Which ops the replica's local apply skips on a missing target: the same
-// ops the server's ops_core.classify_missing_target skips (pkm-7788), so a
-// re-applied batch keeps its valid ops instead of rolling back whole. That
-// includes a move that would make a cycle (pkm-fe9b), which the server
+// ops the server's ops_core.classify_missing_target skips, so a re-applied
+// batch keeps its valid ops instead of rolling back whole. That includes a
+// move that would make a cycle, which the server
 // skips the same way. Both sides pass shared/fixtures/missing_targets.json,
 // which also pins where a create or move lands (localOps.ts places it). The
 // daily-note landing is the server's alone, and reaches the replica through

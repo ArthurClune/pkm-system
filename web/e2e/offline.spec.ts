@@ -1,4 +1,4 @@
-// Offline editing (pkm-y8p0/pkm-wptk): with the network down, the replica
+// Offline editing: with the network down, the replica
 // serves reads and edits queue durably; reconnecting drains the queue to
 // the server. The websocket is steered through routeWebSocket so "offline"
 // is deterministic — context.setOffline alone does not kill an open socket.
@@ -148,7 +148,7 @@ test("offline: edit, create page, link, navigate; reconnect drains to server", a
   await expect(page.locator(".backlinks")).toContainText("Linked references (1)");
   await expect(page.locator(".backlink-text")).toContainText("offline edit survives");
 
-  // search runs on the replica's FTS index while offline (pkm-blz2):
+  // search runs on the replica's FTS index while offline:
   // page-title hits and block hits over text typed THIS offline session
   await page.getByLabel("Search").fill("survives");
   const blockHit = page.locator(".search-result", { hasText: "offline edit survives" });

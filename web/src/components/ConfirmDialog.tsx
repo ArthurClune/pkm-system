@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// In-app replacement for window.confirm (pkm-pe79). iPadOS Safari
+// In-app replacement for window.confirm. iPadOS Safari
 // suppresses window.confirm/window.alert while the app runs standalone
 // (added to home screen / installed as a PWA): the call returns `false`
 // immediately without ever showing anything, so any destructive action

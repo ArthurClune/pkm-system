@@ -4,7 +4,7 @@
 // (scan.ts, which follows server/src/pkm/refs.py semantics); this file owns
 // only the rendering-side grammar the scanner does not model: markdown
 // links and images, bare-URL autolinking (including bare /assets/<sha256>/
-// filename URLs, e.g. mentioned by the assistant, pkm-gdi5), emphasis,
+// filename URLs, e.g. mentioned by the assistant), emphasis,
 // {{query}} blocks, {{pdf}} embed macros (Roam's PDF-embed spelling), $$
 // math, and line breaks. Ref *extraction* lives in refs.ts on the same
 // scanner.
@@ -44,7 +44,7 @@ const BLOCK_MATH_RE = /^\$\$([\s\S]+)\$\$$/;
 // Bare (not already inside markdown [text](...) / ![alt](...) syntax, which
 // are consumed whole by scanMarkdownLinkAt before this rule ever sees them)
 // asset URL, e.g. a chat reply mentioning "/assets/<sha256>/name.jpeg" as
-// plain prose (pkm-gdi5). The 64 hex chars are the uploader's sha256.
+// plain prose. The 64 hex chars are the uploader's sha256.
 const ASSET_LINK_RE = /^\/assets\/([0-9a-f]{64})\/(\S+)/;
 
 const EMPHASIS: [string, EmphasisKind][] = [
@@ -90,7 +90,7 @@ function inlineSegment(text: string, tok: GrammarToken): InlineSegment | null {
       return { kind: "inline-code", code: text.slice(tok.start + 1, tok.end - 1) };
     case "page-ref":
       // raw slice, not tok.title: the rendered title keeps code verbatim.
-      // Still normalized (pkm-hjhy) — PageLink uses this one string for
+      // Still normalized — PageLink uses this one string for
       // both the label and the href, so a raw multi-line title would
       // render a link pointing at a page the API cannot address.
       return { kind: "page-ref",
@@ -239,7 +239,7 @@ function tokenizeInline(
 // site (EditableBlockTree, BlockRef, QueryBlock, BacklinkGroupList,
 // UnlinkedSection, roamTable, AssistantPanel) passes the returned array
 // straight into <InlineSegments> as a read-only prop and never mutates it
-// (audited pkm-l33u), so the same cached array can safely be shared across
+// (audited), so the same cached array can safely be shared across
 // callers and across renders.
 //
 // Bounded by a whole-map clear rather than an LRU: an LRU only earns its

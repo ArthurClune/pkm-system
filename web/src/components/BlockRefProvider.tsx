@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 // Serves ((uid)) block-ref texts: the payload's map, plus on-demand fetches
-// for uids that appear after load (a freshly pasted ref, pkm-y6af). BlockRef
+// for uids that appear after load (a freshly pasted ref). BlockRef
 // asks via BlockRefRequestContext; requests made in one render pass are
 // batched into a single GET /api/block-refs call. Each uid is fetched at
 // most once per mount — a uid the server doesn't know stays unresolved

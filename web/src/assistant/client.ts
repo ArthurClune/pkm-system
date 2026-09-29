@@ -25,7 +25,7 @@ export async function deleteConversation(id: string): Promise<void> {
                   { path: { conversation_id: id } });
 }
 
-/** Best-effort, fire-and-forget close for pagehide (pkm-c98s item 1):
+/** Best-effort, fire-and-forget close for pagehide:
  * `fetch` calls started from a `pagehide` handler are routinely dropped by
  * the browser before they reach the network, but `navigator.sendBeacon`
  * survives page teardown. Beacons can only POST with no custom
@@ -49,7 +49,7 @@ export async function confirmTool(
   });
 }
 
-// pkm-e9ok leg 2: the server writes a keepalive comment frame into the
+// The server writes a keepalive comment frame into the
 // stream every 15s (routes.py KEEPALIVE_INTERVAL_S), so a full minute with
 // no bytes at all means the link to the server is dead -- a state a stalled
 // fetch stream can otherwise sit in indefinitely without erroring. Four

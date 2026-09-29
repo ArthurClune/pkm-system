@@ -6,7 +6,7 @@
 // chunk arrives (and if it never does) the plain download link renders, so
 // degraded behaviour is never worse than the pre-viewer UI.
 //
-// `deferred` embeds (local-copy PDFs, pkm-pv7w) go one step further: they
+// `deferred` embeds (local-copy PDFs) go one step further: they
 // rest as the plain link plus an Open button and import nothing until
 // clicked. A page that lists dozens of `Local copy::` papers would otherwise
 // fetch and parse every one of them on render, and each evicted file would

@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// Inline month-grid picker for the /date slash command (pkm-rw6w).
+// Inline month-grid picker for the /date slash command.
 // Mouse-only BY DESIGN: every interactive element handles onMouseDown +
 // preventDefault (the AutocompletePopup row trick) so the block textarea
 // never loses focus — BlockInput stays mounted and the insertion can ride

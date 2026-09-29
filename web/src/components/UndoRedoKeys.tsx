@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// Window-level Cmd-Z / Shift-Cmd-Z (pkm-7q14), for when no block textarea
+// Window-level Cmd-Z / Shift-Cmd-Z, for when no block textarea
 // owns the keystroke (block selection active, or nothing focused). Editable
 // targets are left alone: block textareas run the chord through
 // keyboardPolicy themselves (and preventDefault, so defaultPrevented guards

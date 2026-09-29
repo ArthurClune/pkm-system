@@ -26,7 +26,7 @@ async function waitForText(page: Page, pageTitle: string, text: string) {
   }, { timeout: 20_000 }).toBe(true);
 }
 
-test("links a differently cased plain mention with canonical casing (pkm-965i)", async ({ page }) => {
+test("links a differently cased plain mention with canonical casing", async ({ page }) => {
   const stamp = Date.now();
   const target = `LinkTarget${stamp}`;
   const source = `LinkSource${stamp}`;
@@ -50,7 +50,7 @@ test("links a differently cased plain mention with canonical casing (pkm-965i)",
   await expect(page.locator(".backlinks .backlink-group", { hasText: source })).toBeVisible();
 });
 
-test("preserves Markdown and appends a canonical tag (pkm-965i)", async ({ page }) => {
+test("preserves Markdown and appends a canonical tag", async ({ page }) => {
   const stamp = Date.now();
   const target = `MarkdownTarget${stamp}`;
   const source = `MarkdownSource${stamp}`;

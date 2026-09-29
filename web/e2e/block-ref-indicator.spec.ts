@@ -1,7 +1,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 
-// pkm-d31f: a referenced block shows an incoming-reference count badge in
+// A referenced block shows an incoming-reference count badge in
 // the right gutter; clicking it pops up the referencing locations, and an
 // entry navigates to the referencing block (hash scroll + flash).
 
@@ -52,7 +52,7 @@ test("badge shows the incoming count and its popover navigates", async ({ page }
   await expect(popover.getByText("the referenced block")).toBeVisible(); // the ((ref)) resolves inline
 
   // the badge sits at the right edge of this full-width row, so this also
-  // covers pkm-7iv7: the popover must be clamped fully inside the viewport
+  // covers the popover being clamped fully inside the viewport
   const popBox = await popover.boundingBox();
   const viewport = page.viewportSize();
   expect(popBox!.x).toBeGreaterThanOrEqual(0);
@@ -71,7 +71,7 @@ test("badge shows the incoming count and its popover navigates", async ({ page }
   // rely on (web/e2e/assistant-asset-link.spec.ts).
   await expect(page.locator(`[data-uid="${sourceUid}"]`)).toHaveClass(/flash-target/);
 
-  // Both dismiss paths of the shared popover shell (pkm-2i6a), in a real
+  // Both dismiss paths of the shared popover shell, in a real
   // browser: Escape from the document, and a mousedown outside the dialog.
   await page.goto(`/page/${encodeURIComponent(target)}`);
   await page.locator(".block-ref-badge").click();

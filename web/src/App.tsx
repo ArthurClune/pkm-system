@@ -29,7 +29,7 @@ import { Settings } from "./views/Settings";
 interface SidebarEntry {
   id: number; // monotonic: the same title can be stacked twice
   title: string;
-  // The block to scroll to and flash within this panel (pkm-gdi5), e.g. a
+  // The block to scroll to and flash within this panel, e.g. a
   // shift-clicked block ref or assistant asset link.
   uid?: string;
 }
@@ -64,7 +64,7 @@ export function App() {
   const navigate = useNavigate();
   useRouteTitle();
   // Governs both whether <aside class="sidebar"> renders (below) and how
-  // much room the center pane claims (pkm-57mo): the two must agree, or the
+  // much room the center pane claims: the two must agree, or the
   // pane would stay narrow next to a sidebar that isn't actually there.
   const rightSidebarOpen = stack.length > 0 && !sidebarHidden;
 
@@ -104,7 +104,7 @@ export function App() {
   // Closing the phone drawer must not leave focus inside it: below 600px the
   // closed nav is visibility:hidden, so a focused link there would strand the
   // keyboard on an invisible element. Hand focus back to the control that
-  // opened it (pkm-rwwp). Guarded on the previous state, because every nav
+  // opened it. Guarded on the previous state, because every nav
   // link that navigates calls setNavOpen(false) whether or not the drawer was
   // open -- on desktop navOpen is already false and the hamburger is
   // display:none.
@@ -166,7 +166,7 @@ export function App() {
                    className={"left-nav" + (navOpen ? " open" : "") + (sidebarCollapsed ? " collapsed" : "")}>
                 <div className="nav-title">pkm</div>
                 {/* "primary": always accent-coloured, unlike the pinned pages
-                  * below which are muted until active (pkm-nn7o) */}
+                  * below which are muted until active */}
                 <NavRouteLink to={ROUTES.journal} end className="nav-link primary"
                               onNavigate={() => setNavOpen(false)}>
                   Daily Notes
@@ -183,7 +183,7 @@ export function App() {
                 <SidebarNav onNavigate={() => setNavOpen(false)} />
                 {/* "nav-section-start": closes off the pinned pages above with
                   * the same rule that opens them, so they read as the user's
-                  * own block rather than running on into these links (pkm-usb6) */}
+                  * own block rather than running on into these links */}
                 <button type="button" className="nav-link primary nav-section-start"
                         onClick={() => {
                           setAssistantOpen(true);
@@ -192,7 +192,7 @@ export function App() {
                   Assistant
                 </button>
                 {/* Below the user-editable favourites, but styled "primary"
-                  * like Daily Notes/Current Work/TODO above (pkm-eztt). Only
+                  * like Daily Notes/Current Work/TODO above. Only
                   * one setting exists today; more are coming, so this link --
                   * not those -- is where they'll live. */}
                 <NavRouteLink to={ROUTES.files} className="nav-link primary"

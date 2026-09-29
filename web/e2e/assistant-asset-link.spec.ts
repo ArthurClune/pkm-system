@@ -1,4 +1,4 @@
-// Clickable /assets/<sha>/<filename> URLs in assistant replies -- pkm-gdi5.
+// Clickable /assets/<sha>/<filename> URLs in assistant replies.
 // FakeEngine's default scenario replies "echo: <user text>" (see
 // server/tests/fake_engine.py), so sending the asset URL as the message is
 // enough to get it rendered by the assistant panel. No real /api/assets

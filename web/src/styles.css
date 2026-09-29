@@ -18,7 +18,7 @@
   /* tells the browser which way to paint the bits CSS can't reach: native
    * select/date widgets and their popups, scrollbars, spellcheck underlines.
    * Without it Chrome paints all of those light even in dark mode, whatever
-   * background-color the author sets (pkm-mrru). Declared in all three theme
+   * background-color the author sets. Declared in all three theme
    * rules below so it tracks the tokens. */
   color-scheme: light;
   --color-bg: #f8f9fb;
@@ -35,10 +35,10 @@
   --color-text-secondary: #5d6f8f;
   --color-accent: #ec6f35;
   /* calmer than the accent: page links are most of a PKM page's text, so
-   * they must read as "linked text", not "warning" (pkm-1eaj) */
+   * they must read as "linked text", not "warning" */
   --color-link: #c25a28;
   --color-link-ext: #7056f2;
-  /* per-tree link colours (pkm-r71a): a [[Tree/Page]] ref takes its tree's
+  /* per-tree link colours: a [[Tree/Page]] ref takes its tree's
    * token via the a.page-link[data-ns] rules below, so [[AWS/EC2]] and
    * [[Project/SITS]] read as different kinds of link. Four groups, not one
    * per tree -- more colours than that and none of them signals anything.
@@ -49,10 +49,10 @@
   --color-link-reading: #c4507a;
   --color-tag: #9dafca;
   /* a step darker than the old #e3ecf2/#d8e5ee, which vanished into the
-   * white pane and left the outline structureless (pkm-9kye) */
+   * white pane and left the outline structureless */
   --color-bullet: #d2e0ea;
   --color-bullet-ring: #c6d7e3;
-  /* block stamp bands (pkm-4ler): warm for fresh, cooling toward neutral as
+  /* block stamp bands: warm for fresh, cooling toward neutral as
    * material ages. Only week/month/year get a fill -- older has no token and
    * renders unfilled (see .block-stamp below), because in a mature database
    * most rows are old, so the commonest rows should carry no ink; tint is
@@ -65,7 +65,7 @@
   --color-error: #c23030;
   /* solid-fill variant of --color-error. The dark --color-error is tuned for
    * error *text* on a dark background; as a button fill behind white text it
-   * reads as bright coral, which the pill shape amplifies (pkm-0wg9). */
+   * reads as bright coral, which the pill shape amplifies. */
   --color-error-fill: #c23030;
   --color-highlight-bg: #fcc1786d;
   --color-selection-bg: #fcc1786d;
@@ -76,7 +76,7 @@
   --color-banner-text: #ffffff;
   --shadow-rgb: 63, 71, 88;
 
-  /* one radius scale for the whole chrome (pkm-9kye); not re-declared by
+  /* one radius scale for the whole chrome; not re-declared by
    * the dark blocks since geometry doesn't change with theme */
   --radius-pill: 999px;  /* actions: buttons, ghost icon buttons, search fields */
   --radius-field: 7px;   /* text inputs, selects, textareas */
@@ -231,7 +231,7 @@ body {
 a { color: var(--color-link-ext); font-weight: 600; text-decoration: none; }
 /* medium, not bold: bold page links make link-dense outlines shout */
 a.page-link { color: var(--color-link); font-weight: 500; }
-/* tree colours (pkm-r71a): data-ns is the lowercased prefix before the
+/* tree colours: data-ns is the lowercased prefix before the
  * title's first "/" (PageLink). To colour another tree, add its prefix to a
  * group here -- no code change. Anything not listed stays --color-link. */
 a.page-link[data-ns="aws"], a.page-link[data-ns="azure"], a.page-link[data-ns="gcp"] {
@@ -242,7 +242,7 @@ a.page-link[data-ns="project"], a.page-link[data-ns="uos"] {
   color: var(--color-link-work); }
 a.page-link[data-ns="paper"], a.page-link[data-ns="book"], a.page-link[data-ns="article"] {
   color: var(--color-link-reading); }
-/* tags are metadata chips, not prose links (pkm-7t7o); the hairline border
+/* tags are metadata chips, not prose links; the hairline border
  * keeps them legible on .backlink-item cards whose bg matches the chip's */
 a.tag { color: var(--color-tag); font-weight: 400; font-size: 13px;
   background: var(--color-bg-subtle); border: 1px solid var(--color-border-subtle);
@@ -251,8 +251,8 @@ a:hover { text-decoration: underline; }
 ::selection { background: var(--color-selection-bg); }
 button { font: inherit; }
 /* the one secondary-button look (Show more, sidebar entry controls,
- * composer send, ...); owning classes keep only their layout (pkm-9kye).
- * The default padding is part of the token (pkm-mrru): without it a bare
+ * composer send, ...); owning classes keep only their layout.
+ * The default padding is part of the token: without it a bare
  * .btn-secondary fell back to the UA's cramped button metrics, so every new
  * call site was silently wrong unless it remembered to add its own. Call
  * sites that want tighter/looser metrics still override -- each such rule
@@ -273,14 +273,14 @@ button { font: inherit; }
 .btn-danger:hover:not(:disabled) { opacity: 0.9; }
 .btn-danger:disabled { opacity: 0.35; cursor: default; }
 /* themed keyboard focus; without this Chrome paints its default blue ring,
- * which clashes with the palette (pkm-0wg9) */
+ * which clashes with the palette */
 .btn-secondary:focus-visible, .btn-danger:focus-visible {
   outline: 2px solid var(--color-link); outline-offset: 1px; }
-/* the input counterpart of .btn-secondary (pkm-mrru): text/search/date inputs,
+/* the input counterpart of .btn-secondary: text/search/date inputs,
  * selects and textareas. There is no base input/select rule -- a blanket one
  * would hit checkboxes and the outline's own editors -- so form controls opt in
  * by class, the way buttons do. The look is modelled on the Cmd-U search so
- * every field in the app is the same object (pkm-0wg9); .block-input is
+ * every field in the app is the same object; .block-input is
  * deliberately excluded, it is a writing surface not a field.
  * .search-field-input shares the colours here and takes its pill geometry in
  * the search-field block further down. */
@@ -299,7 +299,7 @@ button { font: inherit; }
 .input-control:focus-visible { outline: 2px solid var(--color-link);
   outline-offset: 1px; }
 
-/* in-app confirm() replacement (pkm-pe79): window.confirm is suppressed by
+/* in-app confirm() replacement: window.confirm is suppressed by
  * iPadOS Safari in standalone/PWA mode, so destructive actions use this
  * instead -- see components/ConfirmDialog.tsx */
 .confirm-dialog-overlay { position: fixed; inset: 0; z-index: 1000;
@@ -334,7 +334,7 @@ button { font: inherit; }
   color: var(--color-text-secondary); font-weight: 500; cursor: pointer; }
 .nav-link:hover { color: var(--color-accent); text-decoration: none; }
 /* the class covers both the <a> destinations and the <button> controls, so one
- * rule themes the whole left nav (pkm-cq32) -- these are the first eight tab
+ * rule themes the whole left nav -- these are the first eight tab
  * stops in the app, and every one of them showed Chrome's blue ring */
 .nav-link:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .nav-link.active { color: var(--color-accent); }
@@ -343,7 +343,7 @@ button { font: inherit; }
 .nav-link.primary { color: var(--color-accent); }
 /* Closes the pinned-pages block the way .nav-sidebar-entries opens it, so the
  * user's own entries are fenced top and bottom rather than running straight on
- * into the links below (pkm-usb6). The 8px above the rule comes free from
+ * into the links below. The 8px above the rule comes free from
  * .left-nav's flex gap; 12px = that same 8px plus the 4px .nav-link already
  * pads, which keeps the text the same distance below the rule as above. */
 .nav-section-start { border-top: 1px solid var(--color-border); padding-top: 12px; }
@@ -361,14 +361,14 @@ button { font: inherit; }
 .nav-sidebar-add { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 /* the shared .input-control fill is --color-bg-subtle, which is exactly
  * .left-nav's background, so this is the one field that needs the surface
- * colour at rest to read as a field at all (pkm-k1ak). Focus then can't shift
+ * colour at rest to read as a field at all. Focus then can't shift
  * the fill; the border-colour change and .input-control's focus ring carry it. */
 .nav-sidebar-add input { padding: 4px 6px; background: var(--color-bg-surface); }
 .nav-sidebar-add button[type="submit"] { align-self: flex-start; padding: 3px 10px; }
 .content-area { flex: 1; min-width: 0; display: flex; flex-direction: column;
   /* card geometry shared by .top-bar and .main-pane; --pane-left leans the
-   * card left so the gutter is ~1/3 of what centering would give (pkm-7cbq).
-   * Both vars are widened below (pkm-57mo) when a sidebar's absence frees up
+   * card left so the gutter is ~1/3 of what centering would give.
+   * Both vars are widened below when a sidebar's absence frees up
    * window width, so the pane grows into it instead of sitting in a fixed
    * 860px column regardless of how much room is actually available. */
   --pane-width: min(860px, calc(100% - 32px));
@@ -387,7 +387,7 @@ button { font: inherit; }
 /* both freed: the widest, most-centered case. Higher specificity than either
  * single-class rule above, so it always wins for this combination
  * regardless of source order. Slightly wider side margins than a plain
- * scale-up of the other combinations would give (pkm-5nif): with no
+ * scale-up of the other combinations would give: with no
  * sidebar to lean toward at all, a wide flat expanse of text read as too
  * close to the window edges, so the gutter is a bit more generous and the
  * cap a bit lower than the 96px/1320px this replaced. */
@@ -404,7 +404,7 @@ button { font: inherit; }
   margin: 0 0 16px; }
 .page-title a { color: inherit; }
 .page-title-editable { cursor: text; }
-/* The title's edit affordance is a real button (pkm-l4z8); it inherits the
+/* The title's edit affordance is a real button; it inherits the
  * heading's type so the page looks unchanged, and spans the line so the click
  * target is the same one the <h1> used to offer. */
 .page-title-edit { font: inherit; color: inherit; letter-spacing: inherit;
@@ -416,7 +416,7 @@ button { font: inherit; }
   font-family: inherit; }
 .loading, .empty, .empty-day { color: var(--color-text-muted); }
 .error { color: var(--color-error); }
-/* /upload, paste, drag-drop failures (pkm-gbsb): inline, dismissible, next
+/* /upload, paste, drag-drop failures: inline, dismissible, next
  * to the outline they failed in rather than a page-global banner. */
 .upload-error { display: flex; align-items: center; gap: 8px; }
 .upload-error button { padding: 1px 8px; font-size: 13px; }
@@ -434,17 +434,17 @@ button { font: inherit; }
   border-radius: var(--radius-pill); padding: 5px 8px; color: var(--color-text-secondary); }
 .top-bar-menu-button:hover, .sidebar-toggle-button:hover, .help-button:hover {
   background: var(--color-bg-subtle); color: var(--color-text); }
-/* themed keyboard focus (pkm-cq32): without this Chrome's default blue ring
- * clashes with the palette, as .btn-secondary/.btn-danger already fixed
- * (pkm-0wg9). The transparent border above stays untouched. */
+/* themed keyboard focus: without this Chrome's default blue ring
+ * clashes with the palette, as .btn-secondary/.btn-danger already fixed.
+ * The transparent border above stays untouched. */
 .top-bar-menu-button:focus-visible, .sidebar-toggle-button:focus-visible, .help-button:focus-visible {
   outline: 2px solid var(--color-link); outline-offset: 1px; }
 /* context label (current page / view); also the spacer that splits the bar
- * into its left and right button groups (pkm-absu) */
+ * into its left and right button groups */
 .top-bar-title { margin-right: auto; min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; font-size: 14px;
   font-weight: 600; color: var(--color-text-secondary); padding: 0 4px; }
-/* the search field, shared by the Cmd-U search and /files (pkm-0wg9): one
+/* the search field, shared by the Cmd-U search and /files: one
  * object, so the two cannot drift apart. Colours come from the field group
  * above; the icon sits inside the pill's left padding. */
 .search-field { position: relative; display: flex; }
@@ -473,7 +473,7 @@ button { font: inherit; }
   padding: 0 4px; }
 .top-bar-search-input:focus + .top-bar-search-hint,
 .top-bar-search-input:not(:placeholder-shown) + .top-bar-search-hint { display: none; }
-/* deletion-failure banner (pkm-d5re): sits below .top-bar in the same
+/* deletion-failure banner: sits below .top-bar in the same
  * .content-area column, aligned to the same pane geometry so it reads as
  * part of the bar rather than a page-global notification. */
 .top-bar-error { width: var(--pane-width); margin: 0 auto 8px var(--pane-left); padding: 0 4px; }
@@ -482,11 +482,11 @@ button { font: inherit; }
   padding: 4px 0; list-style: none; min-width: 160px; background: var(--color-bg-surface);
   border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
   box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); }
-/* the export item is an <a download> among <button> siblings (pkm-uvqf); the
- * global `a { font-weight: 600 }` rule (pkm-1eaj) otherwise wins the cascade
+/* the export item is an <a download> among <button> siblings; the
+ * global `a { font-weight: 600 }` rule otherwise wins the cascade
  * here since this selector didn't previously set font-weight at all, so the
  * anchor rendered bold next to the buttons' inherited normal weight
- * (pkm-ciy8) -- pin it explicitly rather than relying on non-override. */
+ * -- pin it explicitly rather than relying on non-override. */
 /* nowrap keeps two-word labels on one line. The menu is absolutely positioned
  * inside a button-sized relative parent, so its shrink-to-fit width resolves
  * against ~30px of available space: without this it sits at min-content --
@@ -522,11 +522,11 @@ button { font: inherit; }
   border: 4px solid transparent; border-radius: 50%;
   background-color: var(--color-bullet); background-clip: content-box; }
 .bullet.closed { border-color: var(--color-bullet-ring); }
-/* The bullet is the block menu's button (pkm-y6af) and the only keyboard way
+/* The bullet is the block menu's button and the only keyboard way
  * in, so it stays a tab stop. Chrome's default ring hugged the dot exactly
  * like .closed's ring above, making a focused block look collapsed; the themed
  * ring differs in colour and sits outside the border it would be confused
- * with (pkm-scgu). */
+ * with. */
 .bullet:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .bullet.numbered { box-sizing: border-box; width: 21px; height: auto;
   margin: 0 8px 0 0; border: 0; border-radius: 0;
@@ -537,7 +537,7 @@ button { font: inherit; }
 .block-text { flex: 1; margin: 0; font-weight: normal; min-width: 0; overflow-wrap: break-word; }
 .block-text.quote-block { border-left: 3px solid var(--color-border-strong);
   color: var(--color-text-muted); padding-left: 12px; }
-/* Last-changed margin column (pkm-4ler). Lives INSIDE .block-row, after
+/* Last-changed margin column. Lives INSIDE .block-row, after
  * .block-text and after the focused row's textarea, which is what makes the
  * column align across every nesting depth (.block-children indents from the
  * left only) and what stops the cell shifting when a row gains focus.
@@ -551,8 +551,8 @@ button { font: inherit; }
 .block-stamp-month { background: var(--color-stamp-month); }
 .block-stamp-year { background: var(--color-stamp-year); }
 /* .block-stamp-older intentionally has no fill: .block-stamp's own
- * background: none above is what renders it unfilled (pkm-4ler). */
-/* pkm-d31f: incoming-reference count badge. Sparse per-row pill, not a
+ * background: none above is what renders it unfilled. */
+/* incoming-reference count badge. Sparse per-row pill, not a
  * column (contrast .block-stamp above); sits between .block-text and the
  * stamp cell, with its own margin-left supplying the separation. Deliberately
  * low-ink so a stamp's freshness tint stays the louder signal on rows with
@@ -564,7 +564,7 @@ button { font: inherit; }
   color: var(--color-text-muted); background: var(--color-bg-subtle); }
 .block-ref-badge:hover { border: none; color: var(--color-text); }
 .block-ref-badge:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
-/* pkm-d31f: the badge's popover. Same layering and surface treatment as
+/* the badge's popover. Same layering and surface treatment as
  * .block-menu (styles.css ~line 855); capped height with its own scroll
  * (never the page's horizontal). */
 .block-ref-popover { position: fixed; z-index: 60;
@@ -584,7 +584,7 @@ h3.block-text, .block-input.heading-3 { font-size: 1.1rem; font-weight: 600; }
 a.tag:hover { color: var(--color-tag); text-decoration: none;
   border-color: var(--color-border); }
 /* the attribute name is a field label, not content: small caps, muted, and
- * the source "::" stays in the textarea only (pkm-7t7o) */
+ * the source "::" stays in the textarea only */
 .attribute a { font-variant-caps: all-small-caps; letter-spacing: 0.03em;
   font-weight: 500; color: var(--color-text-muted); }
 /* an attribute whose page is namespaced (AWS/Region::) would otherwise take
@@ -624,7 +624,7 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
 .help-page h3 { font-size: 16px; font-weight: 600; color: var(--color-text-secondary); margin: 20px 0 8px; }
 .help-page p { margin: 0 0 14px; color: var(--color-text-secondary); }
 .help-page .roam-table-scroll { margin: 4px 0 20px; }
-/* /settings (pkm-7myl): a plain list of sections, each free to grow its
+/* /settings: a plain list of sections, each free to grow its
  * own controls later -- same prose-width convention as .help-page. */
 .settings-page { max-width: 640px; }
 .settings-section { margin: 24px 0; }
@@ -634,7 +634,7 @@ p.settings-note { font-size: 13px; color: var(--color-text-muted); margin-top: 6
 .block-ref::before { content: ""; display: inline-block; width: 2px; height: 10px;
   border-radius: 2px; background: var(--color-link); margin-right: 6px; vertical-align: middle; }
 .block-ref.unresolved { color: var(--color-text-muted); }
-/* resolved refs navigate on click (pkm-pzdu) */
+/* resolved refs navigate on click */
 .block-ref:not(.unresolved) { cursor: pointer; }
 .block-ref:not(.unresolved):hover { background: var(--color-bg-subtle); border-radius: var(--radius-control); }
 .block-row.flash-target { animation: flash-target 1.6s ease-out; }
@@ -643,7 +643,7 @@ p.settings-note { font-size: 13px; color: var(--color-text-muted); margin-top: 6
   to { background: transparent; }
 }
 mark.highlight { background: var(--color-highlight-bg); }
-/* Embedded images stop at two-thirds of the text column (pkm-1vq4): a photo at
+/* Embedded images stop at two-thirds of the text column: a photo at
  * full column width dominates the page. An external URL renders as a bare
  * <img> and an uploaded /assets/ image is wrapped in the expansion trigger, so
  * both boxes carry the cap -- whichever is outermost decides the width. The
@@ -689,7 +689,7 @@ mark.highlight { background: var(--color-highlight-bg); }
   color: var(--color-text-muted); font-size: 13px; font-style: italic;
 }
 .pdf-embed { display: block; margin: 4px 0; }
-/* contain: layout makes the frame baseline-less (pkm-vg3y). The frame sits in
+/* contain: layout makes the frame baseline-less. The frame sits in
  * a baseline-aligned .block-row, and iPadOS WebKit took the row's baseline
  * from the bottom of the page-1 canvas INSIDE this scroller -- 760px down,
  * well past the 480px clip -- then never re-laid the row out when the
@@ -776,7 +776,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 .section-header { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;
   color: var(--color-text-secondary); margin: 0 0 8px; }
 .section-header.collapsible { cursor: pointer; user-select: none; }
-/* Collapsible section headers toggle through a real button (pkm-l4z8), which
+/* Collapsible section headers toggle through a real button, which
  * must keep the header's uppercase letter-spaced type: font: inherit carries
  * neither text-transform nor letter-spacing. display: block + width: 100%
  * spans the button across the header the same way .page-title-edit does --
@@ -790,7 +790,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 .section-header .chevron.closed { transform: rotate(0deg); }
 .group-title { font-size: 15px; margin: 12px 0 4px; }
 /* cards lean on the subtle bg alone; the transparent border reserves space
- * so a hover border (if ever added) wouldn't shift layout (pkm-mqvv) */
+ * so a hover border (if ever added) wouldn't shift layout */
 .backlink-item, .query-item { margin: 6px 0; padding: 6px 10px;
   border: 1px solid transparent; border-radius: var(--radius-card);
   background: var(--color-bg-subtle); }
@@ -800,7 +800,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 .reference-link-button { flex-shrink: 0; font-size: 12px; padding: 1px 10px; }
 .unlinked-item-error { margin: 4px 0 0; }
 
-/* linked-refs filter (pkm-m4an) */
+/* linked-refs filter */
 .section-header .filter-toggle { margin-left: 10px; font-size: 12px;
   text-transform: none; letter-spacing: normal; padding: 1px 10px; }
 .filter-panel { margin: 8px 0 12px; padding: 8px 10px;
@@ -824,13 +824,13 @@ mark.highlight { background: var(--color-highlight-bg); }
   color: var(--color-text-secondary); }
 
 .breadcrumbs { font-size: 12px; color: var(--color-text-muted); margin-bottom: 2px; }
-/* padding comes from .btn-secondary (pkm-mrru); this class is layout only */
+/* padding comes from .btn-secondary; this class is layout only */
 .show-more { margin-top: 8px; }
 
 /* journal */
 /* No `content-visibility: auto` here. The Journal never unmounts a loaded
  * day, so skipping the off-screen ones looks like the obvious win -- it was
- * measured on scenario I and is a small, repeatable LOSS (pkm-muka,
+ * measured on scenario I and is a small, repeatable LOSS (see
  * tooling/perf/baselines/2026-09-02-muka): a day is plain text and cheap to
  * lay out, while every section crossing the relevance boundary forces its
  * own layout and style recalc, so 6-8 layouts per scroll became 31-45 and
@@ -890,8 +890,8 @@ mark.highlight { background: var(--color-highlight-bg); }
 @media (max-width: 600px) {
   .hamburger { display: block; }
   /* Closed, the drawer is only translated off-screen, which leaves every link
-   * and button in it tabbable -- and they are the page's first tab stops
-   * (pkm-rwwp). visibility:hidden removes the whole subtree from the focus
+   * and button in it tabbable -- and they are the page's first tab stops.
+   * visibility:hidden removes the whole subtree from the focus
    * order; it is transitioned so the slide-out stays visible (a visibility
    * transition holds "visible" for the duration when moving to hidden, and
    * applies immediately when moving to visible). Scoped to this breakpoint on
@@ -912,20 +912,20 @@ mark.highlight { background: var(--color-highlight-bg); }
   .main-pane { width: auto; margin: 0; padding: 24px 16px 120px;
     border: none; border-radius: 0; box-shadow: none; }
   .sidebar { width: 100vw; }
-  /* search field (pkm-vszf): .search-field is the flex item that actually
+  /* search field: .search-field is the flex item that actually
    * overflowed -- with no width of its own, a flex item's default min-width
    * sizes to its content, so it never shrank below the focused input's fixed
-   * 320px (pkm-0wg9), pushing the field past 320/390px viewports. min-width:
+   * 320px, pushing the field past 320/390px viewports. min-width:
    * 0 lets the flex algorithm squeeze it into whatever room the title and
    * buttons leave. Desktop's fixed widths on .top-bar-search-input are
    * untouched; they just act as a cap the flex item can no longer be forced
    * past. Losing that growth cue also loses its only focus signal here
-   * (.top-bar-search-input:focus-visible normally opts out, pkm-0wg9), so
+   * (.top-bar-search-input:focus-visible normally opts out), so
    * the themed ring the field family carries everywhere else comes back. */
   .search-field { min-width: 0; }
   .top-bar-search-input:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
   /* A ~68px gutter is too much of a phone line, and the page-menu toggle is
-   * a desktop affordance (pkm-4ler). */
+   * a desktop affordance. */
   .block-stamp { display: none; }
 }
 
@@ -942,7 +942,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 .block-input { flex: 1; width: 100%; font: inherit; color: inherit;
   line-height: inherit; background: transparent; border: none; outline: none;
   resize: none; padding: 0; margin: 0; overflow: hidden; display: block; }
-/* Native auto-grow (pkm-youp): where supported, the browser resizes the
+/* Native auto-grow: where supported, the browser resizes the
  * textarea to fit its content with no JS measure-and-set, and useBlockDraft
  * skips that effect entirely (see the `supportsFieldSizing` check there).
  * Feature-detected, not browser-sniffed, so this and the JS fallback can
@@ -968,14 +968,14 @@ mark.highlight { background: var(--color-highlight-bg); }
 .ac-row { padding: 4px 10px; cursor: pointer; }
 .ac-row.selected { background: var(--color-ac-selected-bg); }
 
-/* --- /date picker (pkm-rw6w) --- */
+/* --- /date picker --- */
 .date-picker { position: absolute; top: 100%; left: 0; z-index: 50;
   background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
   box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); padding: 8px; width: 252px; }
 .date-picker-header { display: flex; align-items: center;
   justify-content: space-between; padding: 0 2px 6px; font-weight: 600; }
 /* no :focus-visible ring on the picker's buttons, unlike every other bare
- * button here (pkm-cq32): DatePickerPopup is mouse-only by design, its buttons
+ * button here: DatePickerPopup is mouse-only by design, its buttons
  * preventDefault on mousedown so they never take focus, and Tab inside a block
  * indents rather than moving focus — so the ring would be unreachable. */
 .date-picker-header button { background: none; border: none; cursor: pointer;
@@ -988,7 +988,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 .date-picker-day.outside { opacity: 0.45; }
 .date-picker-day.today { font-weight: 600; }
 
-/* --- block context menu (pkm-y6af) --- */
+/* --- block context menu --- */
 .block-menu { position: fixed; z-index: 60;
   background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
   box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); min-width: 200px;
@@ -1087,10 +1087,10 @@ mark.highlight { background: var(--color-highlight-bg); }
 .assistant-input textarea { flex: 1; resize: none; padding: 6px 8px; }
 /* .assistant-input is a flex row with the default align-items: stretch, so
  * Send would grow to the textarea's height and the pill would read as a tall
- * lozenge (pkm-0wg9) */
+ * lozenge */
 .assistant-input .btn-secondary { align-self: flex-end; }
 
-/* Files view (pkm-jdu3) */
+/* Files view */
 .files-page { max-width: 1100px; }
 .files-filters {
   display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
@@ -1124,7 +1124,7 @@ mark.highlight { background: var(--color-highlight-bg); }
   background: var(--color-bg-subtle);
 }
 .file-thumb img { width: 100%; height: 100%; object-fit: cover; }
-/* pkm-vcn6: an image thumb is a button (in-app expansion), not a link */
+/* an image thumb is a button (in-app expansion), not a link */
 button.file-thumb { appearance: none; width: 100%; padding: 0;
   border: none; font: inherit; cursor: zoom-in; }
 button.file-thumb:focus-visible { outline: 2px solid var(--color-link);
@@ -1148,17 +1148,17 @@ button.file-thumb:focus-visible { outline: 2px solid var(--color-link);
 }
 .file-badge.status-failed { color: var(--color-error); }
 .file-badge.linked { color: var(--color-link); }
-/* pkm-vcn6: badges with something to show are buttons */
+/* badges with something to show are buttons */
 button.file-badge { appearance: none; font-family: inherit;
   cursor: pointer; }
 button.file-badge:hover { color: var(--color-text); }
 button.file-badge:focus-visible { outline: 2px solid var(--color-link);
   outline-offset: 1px; }
 button.file-badge.status-failed:hover { color: var(--color-error); }
-/* pkm-vcn6: description/error text inside a card popover */
+/* description/error text inside a card popover */
 .file-popover-text { margin: 4px 0; font-size: 0.9em;
   white-space: pre-wrap; overflow-wrap: anywhere; }
-/* pkm-v57y: media inside popover rows is inert and thumbnail-sized —
+/* media inside popover rows is inert and thumbnail-sized —
    the row itself is the click target */
 .block-ref-popover .asset-image { max-height: 80px; width: auto; }
 .file-select { position: absolute; top: 12px; left: 12px; }

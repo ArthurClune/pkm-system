@@ -9,7 +9,7 @@ import { elapsedLabel } from "./elapsed";
 import { stripCaretBlockRefs } from "./normalizeRefs";
 import { useAssistant } from "./useAssistant";
 
-// pkm-c98s item 6: the server only clips ops_preview at a generous 4000
+// The server only clips ops_preview at a generous 4000
 // chars (see policy.py); this is a purely visual collapse so the approval
 // card doesn't dominate the panel for a long batch, with a toggle to see
 // everything the server actually sent.
@@ -57,7 +57,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
   const [draft, setDraft] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
 
-  // ticks the busy line's elapsed clock (pkm-e9ok); idle/confirm renders no
+  // ticks the busy line's elapsed clock; idle/confirm renders no
   // clock, so no interval runs then
   const busy = assistant.status === "busy";
   const [now, setNow] = useState(() => Date.now());
@@ -124,7 +124,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
       </header>
       <div className="assistant-messages" ref={listRef}>
         {/* seed={{}}: no page payload backs this panel, so every ((uid)) a
-          * reply mentions is unseeded and resolved live (pkm-gdi5). */}
+          * reply mentions is unseeded and resolved live. */}
         <BlockRefProvider seed={{}}>
           {assistant.items.map((item, i) =>
             item.kind === "tool" ? (

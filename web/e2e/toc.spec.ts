@@ -1,4 +1,4 @@
-// The /toc slash command (pkm-mzks): the block stores only "{{toc}}", and
+// The /toc slash command: the block stores only "{{toc}}", and
 // an unfocused toc block renders the page's headings, re-derived from the
 // live block tree — so editing a heading changes the list with no refresh.
 import { type Page } from "@playwright/test";

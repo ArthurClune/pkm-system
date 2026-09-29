@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// Offline /api/search (pkm-blz2): the same FTS5 MATCH expressions, rank
+// Offline /api/search: the same FTS5 MATCH expressions, rank
 // ordering and snippet() call as routes_search.py, over the replica's
 // self-maintaining local index.
 

@@ -1,7 +1,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 
-// pkm-10ah: shift-clicking a pinned page in the left nav fell through to the
+// Shift-clicking a pinned page in the left nav fell through to the
 // browser's native shift-click and opened the whole app in a second window --
 // two live copies of the same page, which the sync layer then warns about.
 // Only a real browser can prove the new window is gone; jsdom has no popups.
@@ -16,7 +16,7 @@ async function login(page: Page) {
   await expect(page.locator(".ws-banner")).toHaveCount(0);
 }
 
-test("shift-clicking a non-page nav destination does nothing at all (pkm-10ah)",
+test("shift-clicking a non-page nav destination does nothing at all",
      async ({ page, context }) => {
   await login(page);
   await page.goto("/current-work");
@@ -35,7 +35,7 @@ test("shift-clicking a non-page nav destination does nothing at all (pkm-10ah)",
   expect(popups).toHaveLength(0);
 });
 
-test("shift-clicking a pinned left-nav page opens the sidebar, not a second window (pkm-10ah)",
+test("shift-clicking a pinned left-nav page opens the sidebar, not a second window",
      async ({ page, context }) => {
   const title = `NavShiftClick${Date.now()}`;
   await login(page);

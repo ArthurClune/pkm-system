@@ -1,4 +1,4 @@
-// Cold start offline (pkm-xnnh): the service worker precaches the app
+// Cold start offline: the service worker precaches the app
 // shell, so a hard reload with no network boots the SPA; the replica
 // serves content, runtime-cached assets render, uncached ones show a
 // placeholder.
@@ -85,7 +85,7 @@ test("cold start offline: SW shell + replica content + asset cache", async ({ pa
   // the offline reload below reads from the replica, so the flushed edit
   // must be durably enqueued first. Server delivery implies exactly that —
   // drain() only POSTs rows it reads back out of the replica — and unlike
-  // the render assertions above it actually waits for the flush (pkm-57n9).
+  // the render assertions above it actually waits for the flush.
   await waitForServerText(page, pageTitle, `shell smoke ![pic](${url})`);
 
   // -- cold start with no network -------------------------------------------
@@ -166,7 +166,7 @@ test("mermaid renders offline from the precached chunk", async ({ page, context 
 
   // the offline reload must find the diagram block in the replica: wait for
   // the flush to become durable (server delivery implies the local enqueue
-  // landed — see the first test) before cutting the network (pkm-57n9)
+  // landed — see the first test) before cutting the network
   await waitForServerText(page, pageTitle, "```mermaid\ngraph TD\nA-->B\n```");
 
   // -- cold start with no network -------------------------------------------

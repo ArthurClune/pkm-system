@@ -362,7 +362,7 @@ describe("applyChanges", () => {
 
   test("upsertBlock derives block_refs from synced text", () => {
     // block_refs never ride the feed: the client extracts them from the
-    // block's own text on every upsert (pkm-d31f).
+    // block's own text on every upsert.
     applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12,
       blocks: [block("uid_b1", 1, { text: "cites ((uid_tgtA))", refs: [] })],
@@ -462,7 +462,8 @@ describe("applyChanges: a title moving between ids inside one window", () => {
   // gave a title up (a tombstone, or its own retitled row) together with the
   // row that took it over. Applying the taker before the giver has gone
   // used to trip UNIQUE, roll the window back, and refetch it forever
-  // (pkm-n31j: "SIS" merged away as 3521, re-created as 4518, same window).
+  // (e.g. a title merged away under one id and re-created under another
+  // inside the same window).
   test("a page deleted and re-created under a new id in one window", () => {
     const feed = emptyFeed({
       next_since: 20, latest_seq: 20,

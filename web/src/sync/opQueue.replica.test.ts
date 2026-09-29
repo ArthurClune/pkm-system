@@ -41,8 +41,8 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-/** The exhausted-SAH-pool shape (pkm-ndcu): local storage is unavailable, and
- * that is never a server rejection. */
+/** The exhausted-SAH-pool shape: local storage is unavailable, and that is
+ * never a server rejection. */
 const CANTOPEN =
   "SQLITE_CANTOPEN: sqlite3 result code 14: unable to open database file";
 
@@ -77,7 +77,7 @@ describe("durable batch delivery", () => {
   });
 
   test("an acknowledged batch is deleted with the journal seq its ack named", async () => {
-    // pkm-ur2n: the seq lets a pull that snapshotted this batch as pending
+    // The seq lets a pull that snapshotted this batch as pending
     // apply a window that already carries it instead of refetching.
     fetchSeq([
       () => jsonResponse({ ok: true, ts: 1, applied: 1, seq: 42 }),
@@ -284,7 +284,7 @@ describe("an enqueue the replica cannot persist", () => {
   test("a disk-full enqueue is retained for ordered delivery", async () => {
     // An exhausted disk reaches the queue as a bare SQLITE_IOERR — the
     // opfs-sahpool VFS swallows the QuotaExceededError DOMException — so there
-    // is no storage-specific handling to test, only retention (pkm-avag).
+    // is no storage-specific handling to test, only retention.
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica({
       enqueue: async () => {
@@ -309,11 +309,11 @@ describe("an enqueue the replica cannot persist", () => {
     // local-storage problem, never a server rejection: the edit must still be
     // delivered online — through the drain, so it cannot overtake older batches
     // or ignore backoff — and onDesync (which would wipe the active outline)
-    // must NOT fire (pkm-c9hp).
+    // must NOT fire.
     //
-    // The REASON this passes changed in pkm-s7af: it is no longer that this
-    // message is on a retention allowlist, but that the replica did not report
-    // the failure as a rejection of the op. The message is now incidental.
+    // Retention turns on whether the replica reported the failure as a
+    // rejection of the op, not on matching this message against an allowlist.
+    // The message is incidental.
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica({
       enqueue: async () => {
@@ -339,17 +339,16 @@ describe("an enqueue the replica cannot persist", () => {
   test("an exhausted SAH pool enqueue failure is retained, not desynced", async () => {
     // A pool that raced its way to a single slot holds the database file and
     // nothing else, so SQLite cannot create the rollback journal a write
-    // transaction needs and every enqueue fails with SQLITE_CANTOPEN
-    // (pkm-ndcu). Like access-handle contention this is purely local: it must
-    // deliver online — through the drain, so it cannot overtake older batches or
-    // ignore backoff — and must NOT fire onDesync, whose repair wipes the active
-    // outline and detaches the editor mid-keystroke.
+    // transaction needs and every enqueue fails with SQLITE_CANTOPEN.
+    // Like access-handle contention this is purely local: it must deliver
+    // online — through the drain, so it cannot overtake older batches or
+    // ignore backoff — and must NOT fire onDesync, whose repair wipes the
+    // active outline and detaches the editor mid-keystroke.
     //
-    // The REASON this passes changed in pkm-s7af: not "this message is on a
-    // retention allowlist" but "the replica did not report a rejection of the
-    // op". Note that this failure happens on a SUCCESSFULLY OPEN database, so it
-    // is not an availability failure at all — which is why the rule cannot be a
-    // check on the availability type.
+    // Retention turns on whether the replica reported a rejection of the op,
+    // not on matching this message against an allowlist. This failure happens
+    // on a SUCCESSFULLY OPEN database, so it is not an availability failure at
+    // all — which is why the rule cannot be a check on the availability type.
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = laneOnlyReplica();
     const desyncs: unknown[] = [];
@@ -364,15 +363,13 @@ describe("an enqueue the replica cannot persist", () => {
   });
 
   test("a replica that REJECTS the op desyncs and is not retained", async () => {
-    // Characterisation for pkm-s7af: an unsupported title syntax is the replica
-    // refusing the op on its merits (replica/queue.ts throws LocalOpError), and
-    // the server would refuse it too — so retaining and retrying it can never
-    // help. Task 4 inverted the retain rule from a message allowlist to "retain
-    // everything except this"; this is the "except". The `rejected` flag is no
-    // longer inert: opQueue.ts reads `replicaError?.rejected === true` as the
-    // sole discriminator for the only onDesync path a replica failure can
-    // reach, so this is now a test of the flag itself, not just of the
-    // message.
+    // An unsupported title syntax is the replica refusing the op on its merits
+    // (replica/queue.ts throws LocalOpError), and the server would refuse it
+    // too — so retaining and retrying it can never help. The retain rule is a
+    // blocklist ("retain everything except this"), not a message allowlist:
+    // opQueue.ts reads `replicaError?.rejected === true` as the sole
+    // discriminator for the only onDesync path a replica failure can reach, so
+    // this is a test of the flag itself, not just of the message.
     const replica = memReplica({
       enqueue: async () => { throw new ReplicaError(
         'unsupported reference title syntax: "a[[b]]"', { rejected: true }); },
@@ -391,13 +388,12 @@ describe("an enqueue the replica cannot persist", () => {
   });
 
   test("an unclassified replica enqueue failure is retained, not desynced", async () => {
-    // This test used to pin the opposite (`desyncs.length` 1). Retention was an
-    // allowlist of three error shapes, so an error carrying no flags at all fell
-    // through to onDesync; under the one-item blocklist it is retained, because a
-    // plain error is not the replica reporting that it refused the OP. Only that
-    // one report means the server would refuse it too — everything else means
-    // "could not persist locally", which is never grounds for wiping the active
-    // outline to server state (pkm-9x6u).
+    // Retention is a one-item blocklist, not an allowlist of error shapes: an
+    // error carrying no flags at all is retained, because a plain error is not
+    // the replica reporting that it refused the op. Only that one report means
+    // the server would refuse it too — everything else means "could not
+    // persist locally", which is never grounds for wiping the active outline
+    // to server state.
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica({
       enqueue: async () => { throw new Error("worker crashed"); },
@@ -413,9 +409,9 @@ describe("an enqueue the replica cannot persist", () => {
   });
 
   test("a terminal RPC failure retains the op instead of desyncing", async () => {
-    // pkm-9x6u's second half: a dead worker or a module chunk 404 after a deploy
-    // makes every call reject with RpcLifecycleError, which no availability
-    // *mode* would ever see because SyncProvider only reports "no-replica" for
+    // A dead worker or a module chunk 404 after a deploy makes every call
+    // reject with RpcLifecycleError, which no availability *mode* would ever
+    // see because SyncProvider only reports "no-replica" for
     // availabilityOf(error) === "unusable", never reached here.
     fetchSeq([() => jsonResponse({ ok: true })]);
     const desyncs: unknown[] = [];
@@ -452,8 +448,8 @@ describe("an enqueue the replica cannot persist", () => {
 
   test("a lost-reply enqueue retains the lane copy under the durable row's batch id", async () => {
     // The worker persisted the row but the reply never arrived (e.g. iOS
-    // suspending the PWA mid-RPC, pkm-ybgt). Both copies may deliver; they must
-    // carry ONE batch id so the second POST hits the server's applied_batches
+    // suspending the PWA mid-RPC). Both copies may deliver; they must carry
+    // ONE batch id so the second POST hits the server's applied_batches
     // replay (stored ack) instead of a create-collision 400.
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
@@ -938,7 +934,7 @@ describe("poison marks and retained mark intents", () => {
 
   test("discarding retained mark intents clears them without touching the replica",
   async () => {
-    // pkm-tu5k: the escape from a permanently-wedged profile. Discard must not
+    // The escape from a permanently-wedged profile. Discard must not
     // require an openable replica — that impossibility is the whole scenario.
     const wedged: PoisonEvent = {
       rowId: 1, batchId: "bad-batch", ops: [op("bad")], status: 400,
@@ -1040,7 +1036,7 @@ describe("replica RPC failures and retry delays", () => {
 });
 
 describe("fallback lane ordering against durable batches", () => {
-  // --- pkm-49eh: an enqueue that cannot persist locally joins an ordered
+  // --- An enqueue that cannot persist locally joins an ordered
   // in-memory lane instead of being POSTed directly from enqueue(). ---
 
   test("an unpersistable enqueue is retained offline and delivered on reconnect",
@@ -1196,7 +1192,7 @@ describe("fallback lane ordering against durable batches", () => {
     await expect(retained.delivered).resolves.toEqual({ status: "delivered" });
   });
 
-  // --- pkm-5ekv: ordering is decided by batch identity (`follows`), never by
+  // --- Ordering is decided by batch identity (`follows`), never by
   // a count of durable batches ahead of a lane entry. A count can be wrong —
   // stale, over-counted, or simply orphaned when the row it was counting
   // vanishes outside the normal successful-delete path — and once wrong it let
@@ -1204,7 +1200,7 @@ describe("fallback lane ordering against durable batches", () => {
 
   test("a durable batch delivered but never deleted, then dropped out of band, cannot overtake the lane entry it stood ahead of",
   async () => {
-    // The bean's traced cause: X's POST succeeds but its deleteBatch throws
+    // Traced cause: X's POST succeeds but its deleteBatch throws
     // (a worker hiccup), so X's row survives in pending_ops — until something
     // OUTSIDE this drain drops it anyway (a reset re-snapshotting past it,
     // exactly as "a rebase-flushed durable queue..." above simulates for a
@@ -1701,13 +1697,12 @@ describe("fallback lane delivery outcomes", () => {
 
   test("a retained op still delivers immediately when pendingCount() misreports a backlog",
   async () => {
-    // pendingCount() used to be read at append time to decide how many durable
-    // batches stood ahead of a new lane entry, so a stale read here (a
-    // concurrent drain already clearing the real backlog) could delay delivery
-    // and, per pkm-5ekv, sometimes never correct itself. Ordering is now
-    // decided by batch identity (`follows`), never by a count, so a lying
-    // pendingCount() cannot affect it: with no durable row to actually precede
-    // this entry, it still goes out immediately.
+    // Ordering is decided by batch identity (`follows`), never by a count of
+    // durable batches ahead of a lane entry, so a lying pendingCount() cannot
+    // affect it: with no durable row to actually precede this entry, it still
+    // goes out immediately. A count read at append time (a concurrent drain
+    // already clearing the real backlog) could otherwise delay delivery and
+    // sometimes never correct itself.
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = laneOnlyReplica({
       pendingCount: async () => 3,   // no rows exist, but the count claims three
@@ -1806,7 +1801,7 @@ describe("dispose", () => {
 describe("blocked drains and terminal states", () => {
   test("a reconnect landing on a blocked drain redrains without a further kick",
   async () => {
-    // pkm-v5x5: setOnline(true) can arrive while a drain is already concluding
+    // setOnline(true) can arrive while a drain is already concluding
     // "offline". Its kick is only recorded on the in-flight run, so dropping it
     // would leave the batch waiting for whatever kicks the queue next — the
     // user's next edit, or another reconnect.
@@ -1839,12 +1834,11 @@ describe("blocked drains and terminal states", () => {
 
   test("a failed poison mark does not let the lane overtake a row it's still ahead of",
   async () => {
-    // pkm-yavj: a mark RPC that throws leaves the row deliverable, so an
-    // outside resume hands the same batch out again for a second rejection.
-    // Ordering is now decided by batch identity (`follows`), not a count that a
-    // repeat could double-decrement, but the outcome this test pins is the
-    // same: row 1's repeated rejection, and row 2, must still both post before
-    // the retained op that came after them.
+    // A mark RPC that throws leaves the row deliverable, so an outside resume
+    // hands the same batch out again for a second rejection. Ordering is
+    // decided by batch identity (`follows`), not a count a repeat could
+    // double-decrement: row 1's repeated rejection, and row 2, must still
+    // both post before the retained op that came after them.
     const { bodies } = fetchSeq([
       () => jsonResponse({ detail: "bad op" }, 400),
       () => jsonResponse({ detail: "bad op" }, 400),
@@ -1927,7 +1921,7 @@ describe("blocked drains and terminal states", () => {
 });
 
 describe("pending and unsent-in-memory counts", () => {
-  // --- pkm-0htf: onUnsentInMemory reports only the fallback lane (ops that
+  // --- onUnsentInMemory reports only the fallback lane (ops that
   // exist ONLY in this tab's memory), never durable rows that survive a
   // reload, so a beforeunload guard gated on it never fires for ordinary
   // offline reloads. ---
@@ -1948,7 +1942,7 @@ describe("pending and unsent-in-memory counts", () => {
     expect(bodies).toHaveLength(1);
   });
 
-  test("a count that did not move is not re-emitted (pkm-qfee)", async () => {
+  test("a count that did not move is not re-emitted", async () => {
     fetchSeq([() => jsonResponse({ ok: true })]);
     const q = createOpQueue(memReplica(), () => undefined);
     const pendingCounts: number[] = [];
@@ -1963,7 +1957,7 @@ describe("pending and unsent-in-memory counts", () => {
     // Both edits move the durable count, so both are published...
     expect(pendingCounts).toEqual([1, 0, 1, 0]);
     // ...but the empty in-memory lane is published once and then left alone:
-    // every emit is a new context identity for each mounted outline (pkm-qfee).
+    // every emit is a new context identity for each mounted outline.
     expect(unsentCounts).toEqual([0]);
   });
 
@@ -1984,10 +1978,8 @@ describe("pending and unsent-in-memory counts", () => {
 });
 
 describe("onDesync", () => {
-  // --- Connectivity, barrier and backoff policy (pkm-w5gf). These rules used to
-  // be pinned only against the in-memory queue that ran when no Replica existed;
-  // they are the queue's policy, not that implementation's, so they are pinned
-  // here against the one queue that ships. onDesync is reached from a lane 4xx:
+  // --- Connectivity, barrier and backoff policy: the queue's policy, pinned
+  // against the one queue that ships. onDesync is reached from a lane 4xx:
   // a durable row's rejection takes the poison path instead. ---
 
   test("ops re-enqueued synchronously from onDesync are not stranded", async () => {
@@ -2289,7 +2281,7 @@ describe("skipped ops in an ack", () => {
   "fine still refetches (both paths read the ack's skipped list, not only " +
   "the no-replica latch)", async () => {
     // The lane also delivers ordering-only entries ahead of a durable batch
-    // while unavailable is still null (pkm-5ekv) -- a working replica, just a
+    // while unavailable is still null -- a working replica, just a
     // transient local persist failure. Its own feed will also tombstone the
     // ghost, so this refetch is a harmless extra, not a correctness gap.
     const { bodies } = fetchSeq([() => jsonResponse({

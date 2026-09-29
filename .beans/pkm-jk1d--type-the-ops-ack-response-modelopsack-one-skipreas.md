@@ -32,7 +32,7 @@ task replaces.
 - [x] Regen `openapi.json` and the web types; one typed reader in `opQueue.ts` tolerating a missing `seq` or `skipped`, replacing `ackSeq` and `ackSkipped`; test over an ack missing either field
 - [x] Fixtures → `block_not_found`; `responses.py` comment; `parent_not_found` in `client/workflows.py`, `docs/cli.md`, `cli/main.py`
 - [x] Docs: `backend.md` API table (response model; D5: `batch_id` required, minimum length 8, 422 without)
-- [ ] verify, perf, merge
+- [x] verify, perf, merge
 
 ## Summary of Changes
 

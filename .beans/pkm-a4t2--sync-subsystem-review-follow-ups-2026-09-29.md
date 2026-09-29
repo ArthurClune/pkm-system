@@ -27,11 +27,11 @@ comments as they are from `docs/architecture/`.
 
 ## Working agreement
 
-- [ ] F1 to F4 first, each independent; F6 after F1; F5 before the typed ack
-- [ ] Red-green for every behaviour change; a fix ships its composed test and its doc correction in the same branch
-- [ ] Comments in touched code state the rule and carry no bean id
-- [ ] Route or contract changes run the regen checklist before review
-- [ ] `perf/check.sh` per completed fix before merge; whole-branch review on the strongest model
+- [x] F1 to F4 first, each independent; F6 after F1; F5 before the typed ack
+- [x] Red-green for every behaviour change; a fix ships its composed test and its doc correction in the same branch
+- [x] Comments in touched code state the rule and carry no bean id
+- [x] Route or contract changes run the regen checklist before review
+- [x] `perf/check.sh` per completed fix before merge; whole-branch review on the strongest model
 - [ ] Every child reaches a terminal status or records why it was scrapped or deferred
 
 ## Completion

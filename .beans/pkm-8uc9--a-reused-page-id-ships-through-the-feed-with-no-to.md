@@ -36,7 +36,7 @@ the only migration mechanism) or a stable page uid.
 - [x] Note here whether a block uid recreated by undo has the same shape (out of scope unless trivial): a block uid recreated by undo is the same block: everything a server block delete cascades (its subtree, its refs and block_refs) is journalled per row or re-derived by `upsertBlock`, so the presence rule loses nothing; no change
 - [x] Docs: `sync-and-offline.md` feed section tombstone rule; `backend.md` changes-route row if it describes tombstones (it does not; left alone); troubleshooting row
 - [x] verify (branch-local: server suite, web checks, the new e2e spec)
-- [ ] perf (before merge), merge
+- [x] perf (before merge), merge
 
 ## Summary of Changes
 

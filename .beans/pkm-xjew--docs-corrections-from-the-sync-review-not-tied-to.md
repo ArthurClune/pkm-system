@@ -52,7 +52,7 @@ Corrections:
 - [x] The corrections above, verified against the code
 - [x] pkm-foap record; AGENTS.md line
 - [x] Shape pass under `architecture-docs`; `check-arch-docs` clean
-- [ ] merge
+- [x] merge
 
 ## Summary of Changes
 

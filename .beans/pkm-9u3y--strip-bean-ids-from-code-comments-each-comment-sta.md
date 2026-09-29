@@ -1,7 +1,7 @@
 ---
 # pkm-9u3y
 title: Strip bean ids from code comments; each comment states its rule
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-09-29T13:20:49Z
@@ -23,7 +23,25 @@ first, then tests, one directory per lower-power agent, reviewed by diff.
 
 ## Todo
 
-- [ ] `server/src` sweep
-- [ ] `web/src` runtime sweep
-- [ ] test files sweep (group names included)
-- [ ] verify, merge
+- [x] `server/src` sweep
+- [x] `web/src` runtime sweep
+- [x] test files sweep (group names included)
+- [x] verify, merge
+
+## Summary of Changes
+
+Bean ids are gone from code and test comments across web/src (runtime and
+tests), web/e2e, web/tooling, server/src, server/tooling and server/tests,
+swept by directory in parallel worktrees (2026-09-29). Each comment that
+cited a bean now states its rule; pure pointers were rewritten from the
+bean or deleted where the code already says it; history notes kept only the
+invariant; test and describe names that carried an id got behaviour names.
+Generated files (openapi.json, types.d.ts, baseSchema.gen.ts) were
+regenerated from their edited sources. Two CLI help epilogs said "created
+before pkm-y5yv" and now say "created by an older version".
+
+Left on purpose: strings that match the pattern but are not bean ids
+(temp-file prefixes such as pkm-export-, backup filenames pkm-YYYY-MM-DD,
+the OPFS name pkm-replica, the word "pkm-specific") and historical perf
+reports under web/tooling. No behaviour change; server pytest, pyrefly,
+ruff and pnpm verify pass on the merged tree.

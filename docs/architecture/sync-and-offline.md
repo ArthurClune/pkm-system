@@ -166,6 +166,8 @@ skips the ops the server skips: those on a missing block or parent, and a move
 that would make a cycle. A create under a live parent lands on that parent's
 page. `missingTarget.ts` makes the skip decision, and
 `shared/fixtures/missing_targets.json` pins it to `ops_core.classify_missing_target`.
+The same fixture's `placement_cases` pin where each create or move lands to
+the server's write path, including a replay over a parent a window re-paged.
 Why a replay must agree with the server is in
 [sync-recovery.md § Ops on blocks the server no longer has](sync-recovery.md#ops-on-blocks-the-server-no-longer-has).
 

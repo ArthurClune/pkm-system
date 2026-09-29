@@ -67,8 +67,9 @@ Corrected (claims that were wrong or incomplete):
 - D7: the stale-delete gap is stated as open in sync-and-offline.md's
   conflict table and backend.md § Conflicts, until the hash-guarded delete
   (pkm-nny8) ships.
-- `missing_targets.json` is described as pinning skip-or-not verdicts only;
-  placement is each side's own tests.
+- `missing_targets.json`'s scope: after merging pkm-rrzq, sync-recovery.md
+  says its `cases` pin skip-or-not and its `placement_cases` pin where a
+  create or move lands (one sentence, reconciled with rrzq's).
 - The reconnect diagram no longer shows an unconditional resync bump; the
   stale "a tab with no replica bumps on skipped ops" line is gone (skipped
   ops bump whatever the replica state).

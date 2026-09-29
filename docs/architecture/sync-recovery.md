@@ -543,5 +543,6 @@ before that state arrived leaves no loop either. The window with the other
 device's move also ships the moved block's row, through the parent closure.
 The journalled subtree then restores what else the local move touched:
 descendants it re-paged, and the target's children it shifted.
-`missing_targets.json` pins the cycle skip on both sides. The placement
-columns above are pinned by each side's own tests, not by a shared fixture.
+`missing_targets.json` pins the whole table on both sides: the cycle skip in
+its `cases`, and the first two rows' placement, replays included, in its
+`placement_cases`.

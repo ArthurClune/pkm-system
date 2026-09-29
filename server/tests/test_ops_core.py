@@ -16,6 +16,8 @@ from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
                                  UpdateText, classify_missing_target,
                                  classify_text_edit, conflict_label, plan_op,
                                  skip_report)
+from pkm.server.db import init_db, open_db
+from pkm.server.ops_apply import apply_batch
 
 B = BlockInfo(uid="uid_b3", page_id=1, parent_uid="uid_b2")
 
@@ -543,6 +545,51 @@ def test_classify_missing_target_matches_shared_fixture(case):
         op, case["block_exists"], case["parent_exists"],
         tuple(case.get("parent_chain", ()))) is not None
     assert skipped == case["skip"]
+
+
+MISSING_TARGETS = json.loads(MISSING_TARGETS_FIXTURE.read_text())
+PLACEMENT_STATE = MISSING_TARGETS["placement_state"]
+PLACEMENT_CASES = MISSING_TARGETS["placement_cases"]
+
+
+@pytest.mark.parametrize("case", PLACEMENT_CASES,
+                        ids=[c["name"] for c in PLACEMENT_CASES])
+def test_placement_matches_shared_fixture(case, tmp_path):
+    # Where a create or move lands, applied through the real write path.
+    # The replica's local apply (web/src/replica/localOps.ts) is pinned to
+    # the same table, so an optimistic placement is what the feed confirms.
+    # replica_only rows are the replica's own earlier apply of these ops
+    # (a row for a shared uid is where that apply shifted it); the server
+    # never received them, so it starts from the shared state.
+    db_path = tmp_path / "placement.sqlite3"
+    init_db(db_path)
+    db = open_db(db_path)
+    try:
+        page_ids = {p["title"]: p["id"] for p in PLACEMENT_STATE["pages"]}
+        db.executemany("INSERT INTO pages(id, title) VALUES (?, ?)",
+                       [(i, t) for t, i in page_ids.items()])
+        db.executemany(
+            "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)"
+            " VALUES (?,?,?,?,?)",
+            [(b["uid"], page_ids[b["page"]], b["parent_uid"], b["order_idx"],
+              b["uid"]) for b in PLACEMENT_STATE["blocks"]])
+        db.commit()
+        apply_batch(db, OpBatch.model_validate({
+            "client_id": "fixture", "batch_id": f"placement_{case['name']}"[:64],
+            "ops": case["ops"]}), 1_800_000_000_000)
+        db.commit()
+        placed = {r["uid"]: {"uid": r["uid"], "page": r["title"],
+                             "parent_uid": r["parent_uid"],
+                             "order_idx": r["order_idx"]}
+                  for r in db.execute(
+                      "SELECT b.uid, p.title, b.parent_uid, b.order_idx"
+                      " FROM blocks b JOIN pages p ON p.id = b.page_id")}
+        assert [placed.get(e["uid"]) for e in case["expect"]] == case["expect"]
+        for title in case["pages_absent"]:
+            assert db.execute("SELECT 1 FROM pages WHERE title = ?",
+                              (title,)).fetchone() is None
+    finally:
+        db.close()
 
 
 def test_collapse_on_missing_block_only_journals_the_ghost():

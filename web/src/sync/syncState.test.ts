@@ -465,16 +465,16 @@ describe("transitionSync replica-stalled lifecycle", () => {
   });
 });
 
-describe("transitionSync ops-skipped-no-replica", () => {
+describe("transitionSync ops-skipped", () => {
   it("bumps resync without raising a problem", () => {
-    const t = transitionSync(createSyncState(), { type: "ops-skipped-no-replica" });
+    const t = transitionSync(createSyncState(), { type: "ops-skipped" });
     expect(t.effects).toEqual([{ type: "bump-resync" }]);
     expect(t.state.problem).toBeUndefined();
   });
 
   it("bumps resync but leaves an unrelated problem alone", () => {
     const other: SyncProblem = { kind: "poison-discovery", error: "y" };
-    const t = transitionSync(withProblem(other), { type: "ops-skipped-no-replica" });
+    const t = transitionSync(withProblem(other), { type: "ops-skipped" });
     expect(t.state.problem).toEqual(other);
     expect(t.effects).toEqual([{ type: "bump-resync" }]);
   });

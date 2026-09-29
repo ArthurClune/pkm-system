@@ -255,11 +255,11 @@ export function SyncProvider({ children, replica }: {
   ) => Promise<void>>(async () => undefined);
   const problemRef = useRef<SyncProblem>();
   problemRef.current = problem;
-  // pkm-c2gs: read via a ref, not closed over directly, for the same reason
+  // Read via a ref, not closed over directly, for the same reason
   // repairLegacyRef is -- the queue below is memoised with an empty
   // dependency array (it must stay one stable instance for the provider's
   // whole lifetime), so nothing it closes over may need to change identity.
-  const skippedNoReplicaRef = useRef<() => void>(() => undefined);
+  const skippedRef = useRef<() => void>(() => undefined);
 
   // Route the deterministic delivery-health policy through the syncState core:
   // it computes the next problem value and any resync intent; this shell keeps
@@ -284,7 +284,7 @@ export function SyncProvider({ children, replica }: {
       if (effect.type === "bump-resync") setResyncSeq((n) => n + 1);
     }
   }, []);
-  skippedNoReplicaRef.current = () => applySync({ type: "ops-skipped-no-replica" });
+  skippedRef.current = () => applySync({ type: "ops-skipped" });
 
   const replicaRef = useRef<Replica | null | undefined>(undefined);
   const ownedReplicaRef = useRef<OwnedReplica | null>(null);
@@ -301,10 +301,11 @@ export function SyncProvider({ children, replica }: {
     () => createOpQueue(replicaRef.current ?? absentReplica(), (error) => {
       void repairLegacyRef.current(error);
     }, (outcome) => drainObserverRef.current(outcome),
-    // pkm-c2gs: a no-replica tab has no changes feed to tombstone a ghost
-    // block a skipped op targeted, so it must refetch instead. Never a
-    // desync -- the batch committed -- so this bumps resync only.
-    () => skippedNoReplicaRef.current()), []);
+    // Either delivery path's ack named a skipped op: a replica-backed
+    // tab's own feed tombstones the row, but nothing else bumps resync
+    // for it, so this refetches regardless. Never a desync -- the batch
+    // committed -- so this bumps resync only.
+    () => skippedRef.current()), []);
 
   repairLegacyRef.current = (error) => {
     legacyRejectedRef.current = error;

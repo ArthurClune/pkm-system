@@ -763,6 +763,45 @@ test("leftover durable batches flush on first connect, then views resync", async
   expect(screen.getByTestId("status").textContent).toBe("connected:1"); // resync
 });
 
+test("a durable batch's ack naming a skipped op bumps resyncSeq (a " +
+"replica-backed tab's own feed tombstones the row, but nothing else " +
+"resyncs the view for it)", async () => {
+  stubFetch([
+    ["/api/sync/snapshot", SNAPSHOT],
+    ["/api/sync/changes", EMPTY_FEED],
+    ["/api/ops", {
+      ok: true, ts: 1, applied: 1,
+      skipped: [{ index: 0, op: "update_text", uid: "u1",
+                  reason: "missing_target", note_page: "2026-09-29" }],
+    }],
+  ]);
+  const replica = fakeReplicaForProvider();
+  const rows: Array<{ id: number; batch_id: string;
+                     ops: BlockOp[]; poisoned: boolean }> = [];
+  let nextId = 1;
+  replica.enqueue = async (ops, batchId) => {
+    rows.push({ id: nextId++, batch_id: batchId, ops, poisoned: false });
+    return { pending: rows.length, batchId };
+  };
+  replica.nextBatch = async () => rows.find((r) => !r.poisoned) ?? null;
+  replica.deleteBatch = async (id) => {
+    const i = rows.findIndex((r) => r.id === id);
+    if (i !== -1) rows.splice(i, 1);
+    return { pending: rows.length };
+  };
+
+  let sync!: Sync;
+  function Grab() { sync = useSyncWhole(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); }); // first connect settles
+  const before = sync.resyncSeq;
+  await act(async () => {
+    await sync.enqueue([{ op: "delete", uid: "u1" }]).delivered;
+  });
+  expect(sync.resyncSeq).toBeGreaterThan(before);
+  expect(rows).toEqual([]); // delivered normally alongside the resync bump
+});
+
 test("poison repair is not a second writer of the pending count (pkm-fgjg)",
 async () => {
   // The queue's emitPending has exactly one caller for durable changes

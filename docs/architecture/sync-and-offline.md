@@ -54,15 +54,16 @@ sequenceDiagram
     S-->>B: WS: ops echo + {type:"seq", seq}
     B->>S: GET /api/sync/changes?since=cursor
     S-->>B: hydrated changes + next_since
-    B->>B: apply to replica, advance cursor,<br/>refetch visible views
+    B->>B: apply to replica, advance cursor,<br/>refetch visible views only<br/>when catch-up moved data or an ack skipped an op
 ```
 
 Success is the 2xx, and the client's own state arrives through the same changes
 pull every other client uses. The client reads two ack fields. `seq` goes to
 the pending-row delete, so a pull already in flight can accept its window (see
 [sync-recovery.md § Windows and the pending queue](sync-recovery.md#windows-and-the-pending-queue)).
-`skipped` matters only to a tab with no replica, which refetches its views
-when the list is non-empty (see the `resyncSeq` note below).
+A non-empty `skipped` bumps `resyncSeq` regardless of replica state (see the
+`resyncSeq` note below): a replica-backed tab's own feed tombstones the row,
+but nothing else refetches the view for it.
 State flows down one way. Incoming WS op echoes are never written to the
 replica: a tab drops its own, matched by `client_id`, and uses other tabs' only
 to update live views.

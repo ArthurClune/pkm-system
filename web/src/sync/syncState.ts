@@ -54,12 +54,11 @@ export type SyncEvent =
   | { type: "reset-failed"; error: string }
   | { type: "reset-succeeded" }
   | { type: "dismiss" }
-  /** The fallback lane delivered a batch whose ack named a skipped op (pkm-c2gs):
-   * this session has no replica, so there is no changes feed to tombstone the
-   * ghost block the op targeted. Never a "problem" — the server committed the
-   * batch fine — just a signal that the active view is stale and must refetch,
-   * the same guarded read every other resync bump triggers. */
-  | { type: "ops-skipped-no-replica" };
+  /** Either delivery path's ack named a skipped op: the active view may be
+   * stale (a replica-backed tab's own feed tombstones the row, but nothing
+   * else bumps resync for it) and must refetch, same as any other resync
+   * bump. Never a "problem" -- the server committed the batch fine. */
+  | { type: "ops-skipped" };
 
 export type SyncEffect = { type: "bump-resync" };
 
@@ -239,7 +238,7 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
       return repaired || acknowledgedReset
         ? problem(state, undefined) : { state, effects: [] };
     }
-    case "ops-skipped-no-replica":
+    case "ops-skipped":
       return { state, effects: [{ type: "bump-resync" }] };
     default: {
       const exhaustive: never = event;

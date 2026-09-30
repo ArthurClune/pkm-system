@@ -7,6 +7,7 @@ import { block, makeSync, reserveOutlineEditor, stubFetch,
          type SyncFake } from "../test-helpers";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
+import { subtreeHash } from "../replica/subtreeHash";
 import { resetHistory } from "../outline/undoManager";
 import { EditablePage } from "./EditablePage";
 
@@ -221,7 +222,8 @@ test("Backspace at the start merges with the previous block", () => {
   expect(sync.sent).toEqual([[
     { op: "update_text", uid: "u1", text: "firstsecond",
       base_text_hash: sha256Hex("first"), page_title: "Page" },
-    { op: "delete", uid: "u2" },
+    { op: "delete", uid: "u2",
+      base_subtree_hash: subtreeHash([["u2", "second"]]) },
   ]]);
   expect(screen.getByRole("textbox")).toHaveValue("firstsecond");
 });

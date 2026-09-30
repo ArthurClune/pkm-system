@@ -21,8 +21,9 @@ from typing import Annotated, Literal, Union
 from pydantic import (BaseModel, ConfigDict, Field, TypeAdapter,
                       ValidationError, model_validator)
 
-from pkm.contracts.ops import BlockOp, CreateOp, DeleteOp, MoveOp
-from pkm.contracts.responses import BlockNode
+from pkm.contracts.ops import (BlockOp, CreateOp, DeleteOp, MoveOp,
+                               Sha256Hex, UpdateTextOp, subtree_hash)
+from pkm.contracts.responses import BlockNode, walk_blocks
 from pkm.planning import (BuildError, Planner, parse_uid_spec, plan_update,
                           resolve_parent)
 
@@ -235,7 +236,81 @@ def referenced_pages(commands: Sequence[BatchCommand]) -> list[str]:
     return seen
 
 
+def delete_uids(commands: Sequence[BatchCommand]) -> list[str]:
+    """The uids a batch's `delete` commands name (first-seen order), so the
+    shell knows which subtrees to fetch before planning. An `{{alias}}` is
+    left out: it names a block this batch creates, which the server cannot
+    have edited, so its delete needs no hash."""
+    seen: list[str] = []
+    for cmd in commands:
+        if isinstance(cmd, DeleteCommand):
+            uid = cmd.params.uid
+            if not _ALIAS_SPEC.match(uid) and uid not in seen:
+                seen.append(uid)
+    return seen
+
+
 PageBlocks = Mapping[str, Sequence[BlockNode]]
+
+
+@dataclass
+class _SubtreeModel:
+    """One fetched block's subtree as (uid -> parent uid, text), advanced
+    through the batch's ops in order, so a later `delete` of `root` hashes
+    the tree the server will hold when that delete applies -- not the tree
+    as fetched. `known` goes False once a block from outside moves in:
+    its own subtree was never fetched, so no hash can describe it, and the
+    delete goes hashless (a plain delete, never a false conflict)."""
+    root: str
+    nodes: dict[str, tuple[str | None, str]]
+    known: bool = True
+
+    @classmethod
+    def of(cls, node: BlockNode) -> _SubtreeModel:
+        nodes: dict[str, tuple[str | None, str]] = {node.uid: (None, node.text)}
+        for n in walk_blocks([node]):
+            for c in n.children:
+                nodes[c.uid] = (n.uid, c.text)
+        return cls(root=node.uid, nodes=nodes)
+
+    def _drop(self, uid: str) -> None:
+        """Remove `uid` and every block below it."""
+        doomed = {uid}
+        grew = True
+        while grew:
+            below = {u for u, (parent, _) in self.nodes.items()
+                     if parent in doomed and u not in doomed}
+            doomed |= below
+            grew = bool(below)
+        for u in doomed:
+            del self.nodes[u]
+
+    def apply(self, op: BlockOp) -> None:
+        if isinstance(op, UpdateTextOp) and op.uid in self.nodes:
+            self.nodes[op.uid] = (self.nodes[op.uid][0], op.text)
+        elif isinstance(op, CreateOp) and op.parent_uid in self.nodes:
+            self.nodes[op.uid] = (op.parent_uid, op.text)
+        elif isinstance(op, MoveOp):
+            inside = op.parent_uid in self.nodes
+            if op.uid not in self.nodes:
+                if inside:
+                    self.known = False
+            elif op.uid == self.root:
+                # The root carries its subtree wherever it goes; a move
+                # under its own descendant is a cycle the server skips.
+                pass
+            elif inside:
+                self.nodes[op.uid] = (op.parent_uid, self.nodes[op.uid][1])
+            else:
+                self._drop(op.uid)
+        elif isinstance(op, DeleteOp) and op.uid in self.nodes:
+            self._drop(op.uid)
+
+    def hash(self) -> Sha256Hex | None:
+        if not self.known or self.root not in self.nodes:
+            return None
+        return subtree_hash((uid, text)
+                            for uid, (_, text) in self.nodes.items())
 
 
 @dataclass
@@ -244,11 +319,13 @@ class _BatchCtx:
     one `Planner` they share (append counters and heading memo), the pages
     the shell fetched, the `{{alias}}` -> uid map that `as` params fill in,
     and the uids created so far in this batch -- which are on none of those
-    fetched pages."""
+    fetched pages; and, per `delete` uid the shell fetched, that block's
+    subtree as the batch has changed it so far."""
     planner: Planner
     pages: PageBlocks
     aliases: dict[str, str] = field(default_factory=dict)
     created: set[str] = field(default_factory=set)
+    subtrees: dict[str, _SubtreeModel] = field(default_factory=dict)
 
     def blocks(self, title: str) -> Sequence[BlockNode]:
         if title not in self.pages:
@@ -257,8 +334,13 @@ class _BatchCtx:
 
     def record(self, ops: Sequence[BlockOp]) -> None:
         """Remember the uids `ops` create, so a later command's `((uid))`
-        parent or move target resolves against them."""
+        parent or move target resolves against them, and advance every
+        fetched subtree through `ops`, so a later delete hashes what the
+        server will hold by then."""
         self.created.update(o.uid for o in ops if isinstance(o, CreateOp))
+        for op in ops:
+            for model in self.subtrees.values():
+                model.apply(op)
 
     def resolve_parent(
         self, blocks: Sequence[BlockNode], page: str, spec: str | None
@@ -338,12 +420,16 @@ def _batch_move(cmd: MoveCommand, ctx: _BatchCtx) -> list[MoveOp]:
 
 
 def _batch_delete(cmd: DeleteCommand, ctx: _BatchCtx) -> list[DeleteOp]:
-    return [DeleteOp(op="delete",
-                     uid=_alias_uid(cmd.params.uid, ctx.aliases))]
+    uid = _alias_uid(cmd.params.uid, ctx.aliases)
+    model = ctx.subtrees.get(uid)
+    return [DeleteOp(op="delete", uid=uid,
+                     base_subtree_hash=model.hash() if model else None)]
 
 
 def plan_batch(commands: Sequence[object], pages: PageBlocks,
-               uids: Iterator[str]) -> list[BlockOp]:
+               uids: Iterator[str],
+               subtrees: Mapping[str, BlockNode | None] | None = None,
+               ) -> list[BlockOp]:
     """Translate a batch of `{command, params}` items into one op list.
 
     The first step parses every item against the command schema (see
@@ -355,9 +441,19 @@ def plan_batch(commands: Sequence[object], pages: PageBlocks,
     batch can reference the block just created via `parent: "{{alias}}"`.
     Those in-batch uids live in `_BatchCtx.created`, since they don't exist
     on the fetched pages that `resolve_parent`/`next_child_idx` consult.
+
+    `subtrees` maps each `delete` uid the shell fetched (see `delete_uids`)
+    to that block's subtree, or None when the fetch found no block. A
+    delete with a subtree carries `base_subtree_hash`, so the server keeps
+    the texts as a conflict copy if another device edited them since the
+    fetch; one without (None, never fetched, or an alias) is a plain
+    delete, as is every delete when `subtrees` is omitted.
     """
     parsed = [_parse_command(cmd, i) for i, cmd in enumerate(commands)]
-    ctx = _BatchCtx(planner=Planner(uids), pages=pages)
+    ctx = _BatchCtx(planner=Planner(uids), pages=pages,
+                    subtrees={uid: _SubtreeModel.of(node)
+                              for uid, node in (subtrees or {}).items()
+                              if node is not None})
     ops: list[BlockOp] = []
 
     for cmd in parsed:
@@ -379,5 +475,5 @@ def plan_batch(commands: Sequence[object], pages: PageBlocks,
 
 __all__ = [
     "NestedItem", "BatchCommand", "PageBlocks", "validate_batch",
-    "referenced_pages", "plan_batch",
+    "referenced_pages", "delete_uids", "plan_batch",
 ]

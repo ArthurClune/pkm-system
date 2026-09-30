@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
-import type { BlockOp, UpdateTextOp } from "../api/ops";
+import type { BlockOp, DeleteOp, UpdateTextOp } from "../api/ops";
 import { LocalOpError } from "./localOps";
 import * as queue from "./queue";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
          pendingCount } from "./queue";
-import { sha256Hex } from "./sha256";
+import { sha256Hex, type Sha256Hex } from "./sha256";
+import { subtreeHash } from "./subtreeHash";
 import { openTestDb, type TestDb } from "./testDb";
 
 let t: TestDb;
@@ -74,7 +75,7 @@ describe("enqueueBatch", () => {
       op: "update_text",
       uid: "uid_q1",
       text: "linked snapshot",
-      base_text_hash: "snapshot-hash",
+      base_text_hash: "snapshot-hash" as Sha256Hex,
     }], 99, "batch-explicit");
 
     const ops = JSON.parse(t.db.select<{ ops_json: string }>(
@@ -175,6 +176,72 @@ describe("enqueueBatch", () => {
     expect(t.db.select<{ ops_json: string }>(
       "SELECT ops_json FROM pending_ops")[0].ops_json)
       .toBe(JSON.stringify(ops));
+  });
+});
+
+describe("enqueueBatch on delete", () => {
+  const seedSubtree = () => {
+    // uid_r -> uid_c1 -> uid_g, and uid_r -> uid_c2
+    t.db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text) VALUES" +
+      " ('uid_r', 1, NULL, 1, 'root')," +
+      " ('uid_c1', 1, 'uid_r', 0, 'child one')," +
+      " ('uid_g', 1, 'uid_c1', 0, 'grandchild')," +
+      " ('uid_c2', 1, 'uid_r', 1, '')");
+  };
+  const storedOps = () => JSON.parse(t.db.select<{ ops_json: string }>(
+    "SELECT ops_json FROM pending_ops")[0].ops_json) as DeleteOp[];
+
+  test("fills a delete's subtree hash from the replica before the optimistic apply", () => {
+    seedSubtree();
+    enqueueBatch(t.db, [{ op: "delete", uid: "uid_r" }], 99, "batch-del");
+    expect(storedOps()[0].base_subtree_hash).toBe(subtreeHash([
+      ["uid_r", "root"], ["uid_c1", "child one"], ["uid_g", "grandchild"],
+      ["uid_c2", ""],
+    ]));
+    // the optimistic apply still removed the whole subtree after the capture
+    expect(t.db.select("SELECT uid FROM blocks ORDER BY uid"))
+      .toEqual([{ uid: "uid_q1" }]);
+  });
+
+  test("a parent delete after its child's delete hashes what the child's delete left", () => {
+    seedSubtree();
+    enqueueBatch(t.db, [
+      { op: "delete", uid: "uid_c1" },
+      { op: "delete", uid: "uid_r" },
+    ], 99, "batch-del-chain");
+    const ops = storedOps();
+    expect(ops[0].base_subtree_hash).toBe(subtreeHash([
+      ["uid_c1", "child one"], ["uid_g", "grandchild"]]));
+    expect(ops[1].base_subtree_hash).toBe(subtreeHash([
+      ["uid_r", "root"], ["uid_c2", ""]]));
+  });
+
+  test("stores a caller-hashed delete as sent", () => {
+    seedSubtree();
+    const ops: BlockOp[] = [
+      { op: "delete", uid: "uid_r", base_subtree_hash: "feedface" as Sha256Hex },
+    ];
+    enqueueBatch(t.db, ops, 99, "batch-del-hashed");
+    expect(t.db.select<{ ops_json: string }>(
+      "SELECT ops_json FROM pending_ops")[0].ops_json)
+      .toBe(JSON.stringify(ops));
+  });
+
+  test("leaves a delete of a block the replica lacks unhashed", () => {
+    enqueueBatch(t.db, [{ op: "delete", uid: "uid_ghost" }], 99, "batch-del-ghost");
+    expect(storedOps()[0]).not.toHaveProperty("base_subtree_hash");
+  });
+
+  test("a parent cycle in corrupted rows ends the subtree walk", () => {
+    // The visited-path guard: a proper tree never revisits a uid, so this
+    // only fires on already-corrupted data, which must not hang the enqueue.
+    t.db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text) VALUES" +
+      " ('uid_x', 1, 'uid_y', 0, 'x'), ('uid_y', 1, 'uid_x', 0, 'y')");
+    enqueueBatch(t.db, [{ op: "delete", uid: "uid_x" }], 99, "batch-del-cycle");
+    expect(storedOps()[0].base_subtree_hash).toBe(subtreeHash([
+      ["uid_x", "x"], ["uid_y", "y"]]));
   });
 });
 

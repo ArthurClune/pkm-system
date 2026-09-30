@@ -70,11 +70,18 @@ may already be referenced by unrelated blocks. Asset store:
 
 Writes go through `POST /api/ops` with a fresh `batch_id`. `pkm update` fetches
 the current text first and rides the `base_text_hash` conflict path, so a
-missing uid 404s before any op is sent. `pkm batch` sends `update`, `move` and
-`delete` uids unchecked, and the server skips an op on a missing block (or a
-move that would make a cycle) rather than rejecting the batch. The ack's `skipped` list is therefore the only sign
+missing uid 404s before any op is sent. `pkm batch` sends `update` and `move`
+uids unchecked. It fetches each deleted uid first, one `GET /api/block/{uid}`
+per uid and none for an `{{alias}}`, and `batch.plan_batch` stamps the delete's
+`base_subtree_hash` from that subtree ([Pure planners](#pure-planners)). A
+delete whose uid is missing still goes out, unguarded. One whose uid is not a
+valid uid fails that fetch (422), so the whole batch is refused before
+anything is sent, and `cmd_batch` exits 1. The server skips
+an op on a missing block (or a move that would make a cycle) rather than
+rejecting the batch. The ack's `skipped` list is therefore the only sign
 of a mistyped uid: `render.render_ops_ack` leads with `warning:` when it is
-non-empty, and `cmd_batch` then exits 1.
+non-empty, and `cmd_batch` then exits 1. The MCP `batch` tool shares
+`workflows.apply_batch`, so it fetches and stamps the same way.
 
 Every uid minter resamples until the first character is alphanumeric:
 `client/api.py::new_uid`, `server/ops_apply.py::_new_uid` and
@@ -123,8 +130,8 @@ bookkeeping.
 `batch.py` owns the `pkm batch` command language: `create`, `todo`, `update`,
 `move`, `delete`, `outline`, `as`-aliases, matched-or-created `## Heading`
 parents. `plan_batch` threads a `_BatchCtx` through the commands — the shared
-`Planner`, the fetched pages, the alias map, the uids created so far — resolving
-each parent spec by its form:
+`Planner`, the fetched pages, the alias map, the uids created so far, and a
+`_SubtreeModel` per fetched delete uid — resolving each parent spec by its form:
 
 | Parent spec | Resolved by | First child's `order_idx` |
 |---|---|---|
@@ -133,6 +140,11 @@ each parent spec by its form:
 | `{{alias}}` | `_resolve_alias`, to the `((uid))` an earlier `as` recorded | 0 |
 | `## Heading` on the fetched page | `resolve_parent`, on level and text together, first in document order | `next_child_idx`, the parent's child count |
 | `## Heading` not there yet | `Planner.heading`, memoized per (page, level, text) | 0 |
+
+A `_SubtreeModel` follows its block through every op the batch plans, so a
+later `delete` hashes the tree the server will hold when it applies. A block
+moved in from outside the subtree sends the delete hashless, since no fetch
+describes the newcomer's own subtree.
 
 `Planner.create_at` is the one create
 that skips the append counter, taking the batch `index` param as `order_idx`

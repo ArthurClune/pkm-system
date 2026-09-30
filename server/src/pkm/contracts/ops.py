@@ -12,12 +12,20 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Annotated, Literal, Union
+from collections.abc import Iterable
+from typing import Annotated, Literal, NewType, Union
 
 from pydantic import BaseModel, Field
 
 UID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,32}$")
 ViewType = Literal["numbered", "document"]
+
+# A sha256 hex digest, distinct from a plain str so a text can never be
+# passed where a hash belongs. Pydantic validates and dumps a NewType as
+# its base type, so the wire format is unchanged. Minted only by
+# `text_hash` (and its web twin `sha256Hex`); a test literal standing in
+# for a hash wraps in `Sha256Hex(...)`.
+Sha256Hex = NewType("Sha256Hex", str)
 
 
 class CreateOp(BaseModel):
@@ -42,8 +50,8 @@ class UpdateTextOp(BaseModel):
     # client, LWW-apply as always. Present => conflict detection per spec
     # section 2 (text hash, not a version counter: structural changes must
     # never manufacture a text conflict).
-    base_text_hash: str | None = Field(default=None, min_length=64,
-                                       max_length=64)
+    base_text_hash: Sha256Hex | None = Field(default=None, min_length=64,
+                                              max_length=64)
     # A conflict-header label only: names the page the client believed it
     # was editing, for when the block itself is gone by the time this
     # lands (edit-vs-delete race). Never checked against the target block
@@ -66,6 +74,16 @@ class MoveOp(BaseModel):
 class DeleteOp(BaseModel):
     op: Literal["delete"]
     uid: str
+    # sha256 of the subtree this delete was based on (spec section 1):
+    # the (uid, text) pairs of the block and its descendants, as of the
+    # tree the deleting device last saw. Absent => legacy client or a uid
+    # the batch itself created, LWW-apply as always (plain delete, no
+    # conflict copy). Present => the server compares against its own
+    # current subtree; on a mismatch the delete still wins, but first the
+    # subtree's texts land as a conflict copy on today's daily page, so
+    # text another device wrote is never silently destroyed.
+    base_subtree_hash: Sha256Hex | None = Field(default=None, min_length=64,
+                                                 max_length=64)
 
 
 class SetCollapsedOp(BaseModel):
@@ -109,5 +127,15 @@ class OpBatch(BaseModel):
     ops: list[BlockOp] = Field(min_length=1, max_length=500)
 
 
-def text_hash(text: str) -> str:
-    return hashlib.sha256(text.encode()).hexdigest()
+def text_hash(text: str) -> Sha256Hex:
+    return Sha256Hex(hashlib.sha256(text.encode()).hexdigest())
+
+
+def subtree_hash(pairs: Iterable[tuple[str, str]]) -> Sha256Hex:
+    """Canonical hash of a subtree's (uid, text) pairs, order-independent
+    (spec section 1). Each text is hashed on its own rather than
+    JSON-encoding the pairs, because Python and JS escape JSON strings
+    differently -- text_hash / sha256Hex already agree. Uids are ASCII
+    (UID_RE), so both languages' default sorts agree too."""
+    canon = "\n".join(f"{uid} {text_hash(text)}" for uid, text in sorted(pairs))
+    return Sha256Hex(hashlib.sha256(canon.encode()).hexdigest())

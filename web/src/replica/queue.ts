@@ -7,7 +7,9 @@
 // flushes cleanly (op N leaves the text op N+1's hash matches). When it
 // fills a hash it also fills a missing page_title, from the replica's own
 // pages table, so the daily-note conflict header the server writes on a
-// missing block can name the page.
+// missing block can name the page. delete captures a base_subtree_hash of
+// the block and its descendants the same way, only when none is supplied,
+// so a delete after its child's delete in one batch hashes what that left.
 // Poisoned batches (server terminal 4xx, see sync/rejection.ts) are set
 // aside, never retried forever (spec section 6).
 
@@ -16,6 +18,7 @@ import type { PendingBatch, PoisonedBatch } from "./client";
 import { type ReplicaDb, rollbackToSavepoint } from "./db";
 import { applyLocalOps, LocalOpError } from "./localOps";
 import { sha256Hex } from "./sha256";
+import { subtreeHash } from "./subtreeHash";
 import { findOpTitleViolation } from "./titles";
 
 const currentText = (db: ReplicaDb, uid: string): string | null => {
@@ -29,6 +32,23 @@ const currentPageTitle = (db: ReplicaDb, uid: string): string | null => {
     "SELECT p.title FROM blocks b JOIN pages p ON p.id = b.page_id" +
     " WHERE b.uid = ?", [uid]);
   return rows.length > 0 ? rows[0].title : null;
+};
+
+/** (uid, text) of `uid` and every descendant, or null when the replica has
+ * no row for `uid`. Same visited-path guard as the server's subtree walk
+ * (ops_apply._subtree_deepest_first): a proper tree never revisits a uid, so
+ * the guard only ever ends the walk on already-corrupted parent links. */
+const currentSubtreePairs = (db: ReplicaDb,
+                             uid: string): [string, string][] | null => {
+  const rows = db.select<{ uid: string; text: string }>(
+    `WITH RECURSIVE sub(uid, text, path) AS (
+       SELECT uid, text, ',' || uid || ',' FROM blocks WHERE uid = ?
+       UNION ALL
+       SELECT b.uid, b.text, s.path || b.uid || ','
+         FROM sub s JOIN blocks b ON b.parent_uid = s.uid
+        WHERE instr(s.path, ',' || b.uid || ',') = 0
+     ) SELECT uid, text FROM sub`, [uid]);
+  return rows.length > 0 ? rows.map((r) => [r.uid, r.text]) : null;
 };
 
 export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
@@ -65,6 +85,13 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
               base_text_hash: sha256Hex(base),
               ...(title !== null ? { page_title: title } : {}),
             };
+          }
+        } else if (op.op === "delete" && op.base_subtree_hash === undefined) {
+          // capture BEFORE this op's own optimistic apply; a block unknown
+          // locally goes out hashless and the server deletes it unguarded
+          const pairs = currentSubtreePairs(db, op.uid);
+          if (pairs !== null) {
+            wireOp = { ...op, base_subtree_hash: subtreeHash(pairs) };
           }
         }
         augmented.push(wireOp);

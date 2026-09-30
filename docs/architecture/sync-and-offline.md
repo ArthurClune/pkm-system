@@ -46,7 +46,7 @@ sequenceDiagram
     participant S as Server (FastAPI + SQLite)
     participant B as Other client (tab B)
 
-    U->>Q: enqueue(ops) — base_text_hash and batch_id<br/>stamped main-thread, optimistic local apply
+    U->>Q: enqueue(ops) — base_text_hash / base_subtree_hash<br/>and batch_id stamped main-thread, optimistic local apply
     Q-->>U: WriteTicket (persisted durably)
     Q->>S: POST /api/ops {client_id, batch_id, ops}
     S->>S: one transaction: batch_id dedupe check,<br/>plan ops (pure core), execute,<br/>re-derive refs + FTS (triggers append journal rows)
@@ -161,16 +161,19 @@ While disconnected, reads and search come from the replica through the local API
 shim, and edits keep enqueueing durably, each applied optimistically under its
 own SAVEPOINT. The header shows "Offline — N changes pending".
 
-`base_text_hash` is the sha256 of the text the edit was based on. The editor
-stamps it while building the batch (`outline/baseTextHash.ts`), against the
+`base_text_hash` is the sha256 of the text the edit was based on, and a
+`delete`'s `base_subtree_hash` is the hash of the subtree it removes. Both are
+typed `Sha256Hex` and minted only by `text_hash` / `subtree_hash`
+(`sha256Hex` / `subtreeHash` on the web). The editor
+stamps both while building the batch (`outline/baseTextHash.ts`), against the
 tree the batch was planned from, so op N leaves the text op N+1's hash matches.
 The same pass stamps `page_title`, the block's page, which labels the
 daily-note conflict header if the block is gone by the time the op lands. The
-worker (`replica/queue.ts`) fills the hash from `currentText` only when it is
-still `undefined`, and fills a missing `page_title` only alongside a hash it
-fills. Undo history records unstamped ops and `undoManager.dispatch` stamps at
-replay time, because an entry-time hash is stale and lands a spurious
-`[[conflict]]` entry.
+worker (`replica/queue.ts`) fills either hash from the replica
+(`currentText`, `currentSubtreePairs`) only when it is still `undefined`, and
+fills a missing `page_title` only alongside a text hash it fills. Undo history
+records unstamped ops and `undoManager.dispatch` stamps at replay time,
+because an entry-time hash is stale and lands a spurious `[[conflict]]` entry.
 
 The optimistic apply mirrors the server's timestamp rules as well as its row
 contents: `localOps.ts` leaves `blocks.updated_at` and `pages.updated_at` alone
@@ -282,8 +285,11 @@ block:
 | Structural op on a block or parent the server no longer has | Skipped or a no-op, with a daily-note entry wherever something was lost; the batch still acks 200 |
 | Create or move under a parent another device moved to another page | Follows the parent onto its current page |
 | Move that another device's move made a cycle | Skipped with a daily-note entry; the batch still acks 200 |
-| `delete` of a block another device edited since this one last saw it | The delete wins and the edit is lost, with no conflict copy. This gap is open until a hash-guarded delete ships |
+| `delete` whose subtree another device changed since this one last saw it | The delete wins; the server's texts for the subtree land nested under a `[[conflict]] … — deleted while edited elsewhere` header |
 
+The subtree hash is the sha256 of one `{uid} {text_hash(text)}` line per block
+in the subtree, sorted by uid and joined by newlines, and
+`shared/fixtures/subtree_hash.json` pins `subtree_hash` and `subtreeHash` to it.
 The header forms and the daily-page grouping are in
 [backend.md § Conflicts](backend.md#conflicts); the per-op tables are in
 [§ Missing targets](backend.md#missing-targets) and
@@ -404,4 +410,5 @@ always be re-fetched; an unflushed pending op cannot. Every guard in
   wasm binary, the pdf.js worker and the core KaTeX faces. A build budget and an
   offline Playwright test enforce it.
 - **`pkm` CLI and MCP writes** ride the same path: a fresh `batch_id` per
-  command, and `base_text_hash` on updates.
+  command, `base_text_hash` on updates, and `base_subtree_hash` on `pkm batch`
+  deletes ([cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)).

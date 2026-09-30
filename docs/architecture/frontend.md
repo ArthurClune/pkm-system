@@ -84,7 +84,7 @@ web/src/
 │   ├── blockSelection.ts / history.ts / paste.ts / dnd.ts  Core  Selection, undo
 │   │                                      history, outline paste, drag planning
 │   ├── blockStamps.ts        Core         Stamp bands; which ops count as a change
-│   ├── baseTextHash.ts       Core         Stamps update_text ops at build time
+│   ├── baseTextHash.ts       Core         Stamps update_text and delete ops at build time
 │   ├── textareaHeight.ts     Core         Auto-grow reset/write decisions (JS fallback)
 │   ├── missingPage.ts        Core         The missing-page policy
 │   ├── useOutline.ts         Shell        Implements OutlineHandlers
@@ -166,6 +166,7 @@ web/src/
 │   ├── refs.ts               Core         Ref extraction for local writes (mirrors refs.py)
 │   ├── daily.ts              Core         Daily-page titles (mirrors daily.py)
 │   ├── sha256.ts             Core         Synchronous sha256 inside a replica transaction
+│   ├── subtreeHash.ts        Core         Canonical subtree hash a delete is stamped with
 │   └── baseSchema.gen.ts     —            Generated from the server's BASE_DDL
 │
 ├── dnd/                      Shell        Drag-and-drop context + drop zones

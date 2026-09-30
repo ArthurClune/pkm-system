@@ -472,3 +472,89 @@ def test_batch_reports_ops_skipped_for_a_missing_uid_and_exits_1(
         "the batch is committed: fix the skipped ops on their own, do not re-run it\n")
     assert "do not re-run the batch" in err
     assert "kept" in _page_texts(pkm_client, "AI")
+
+
+def _seed_root_with_child(pkm_client, batch_id):
+    pkm_client.post_ops([
+        {"op": "create", "uid": "gdroot0001", "page_title": "AI",
+         "parent_uid": None, "order_idx": 60, "text": "doomed root"},
+        {"op": "create", "uid": "gdchild001", "page_title": "AI",
+         "parent_uid": "gdroot0001", "order_idx": 0, "text": "server child"},
+    ], batch_id=batch_id)
+
+
+def _today_texts(pkm_client):
+    from datetime import date
+    try:
+        return _page_texts(pkm_client, title_for_date(date.today()))
+    except ApiError as e:
+        assert e.status == 404
+        return []
+
+
+def test_batch_delete_matching_subtree_lands_no_copy(run, pkm_client):
+    _seed_root_with_child(pkm_client, "gd-seed-match")
+    code, out, _ = run("batch", stdin=json.dumps(
+        [{"command": "delete", "params": {"uid": "gdroot0001"}}]))
+    assert code == 0
+    assert out == "applied 1 ops\n"
+    assert "doomed root" not in _page_texts(pkm_client, "AI")
+    assert not any("[[conflict]]" in t for t in _today_texts(pkm_client))
+
+
+def test_batch_delete_stale_fetch_lands_the_copy(
+        run, pkm_client, monkeypatch):
+    # The fetch saw an older child text than the server now holds: the
+    # delete still applies, and the server's texts are kept under the
+    # conflict header on today's daily page.
+    _seed_root_with_child(pkm_client, "gd-seed-stale")
+    real_get_block = pkm_client.get_block
+
+    def _stale_get_block(uid):
+        payload = real_get_block(uid)
+        block = payload.block
+        stale = [c.model_copy(update={"text": "what the fetch saw"})
+                 for c in block.children]
+        return payload.model_copy(
+            update={"block": block.model_copy(update={"children": stale})})
+
+    monkeypatch.setattr(pkm_client, "get_block", _stale_get_block)
+    code, _, _ = run("batch", stdin=json.dumps(
+        [{"command": "delete", "params": {"uid": "gdroot0001"}}]))
+    assert code == 0
+    assert "doomed root" not in _page_texts(pkm_client, "AI")
+    from datetime import date
+    today = pkm_client.get_page(title_for_date(date.today()))
+    [header] = [n for n in today.blocks if n.text ==
+                "[[conflict]] [[AI]] — deleted while edited elsewhere"]
+    [root_copy] = header.children
+    assert root_copy.text == "doomed root"
+    assert [c.text for c in root_copy.children] == ["server child"]
+
+
+def test_batch_delete_of_a_missing_uid_still_reports_skipped(run, pkm_client):
+    code, out, err = run("batch", stdin=json.dumps(
+        [{"command": "delete", "params": {"uid": "gdmissing1"}}]))
+    assert code == 1
+    assert out.splitlines()[:2] == [
+        "warning: skipped 1 of 1 ops; nothing else was applied",
+        "  delete ^gdmissing1: block not found; nothing written"]
+    assert "do not re-run the batch" in err
+
+
+def test_batch_delete_fetch_failure_fails_the_batch(
+        run, pkm_client, monkeypatch):
+    # Only a 404 means "no such block"; any other fetch failure must not
+    # quietly send the delete unguarded.
+    _seed_root_with_child(pkm_client, "gd-seed-fail")
+
+    def _broken_get_block(uid):
+        raise ApiError(503, "unavailable")
+
+    monkeypatch.setattr(pkm_client, "get_block", _broken_get_block)
+    code, out, err = run("batch", stdin=json.dumps(
+        [{"command": "delete", "params": {"uid": "gdroot0001"}}]))
+    assert code == 1
+    assert out == ""
+    assert "503" in err
+    assert "doomed root" in _page_texts(pkm_client, "AI")

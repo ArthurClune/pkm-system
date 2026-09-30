@@ -62,7 +62,9 @@ working replica. That session delivers them after the lane ops this one
 already sent, so the two outboxes arrive in reverse order. No edit is lost to
 that. A deferred `update_text` still carries the hash of the text it was
 based on, so it lands as a conflict and the newer text becomes the conflict
-copy. A deferred op on a block the lane's ops removed lands as a
+copy. A deferred `delete` carries its subtree's hash, so newer texts under it
+land on the daily note before it removes them. A deferred op on a block the
+lane's ops removed lands as a
 [missing target](#ops-on-blocks-the-server-no-longer-has).
 
 ### The in-memory fallback lane

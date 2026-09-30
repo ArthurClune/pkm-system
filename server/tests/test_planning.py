@@ -2,9 +2,11 @@ import itertools
 
 import pytest
 
-from pkm.batch import plan_batch, referenced_pages, validate_batch
+from pkm.batch import (delete_uids, plan_batch, referenced_pages,
+                       validate_batch)
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
-                               SetHeadingOp, UpdateTextOp, text_hash)
+                               SetHeadingOp, UpdateTextOp, subtree_hash,
+                               text_hash)
 from pkm.contracts.responses import BlockNode, PagePayload
 from pkm.planning import (BuildError, asset_block_text, create_page_ops,
                           next_child_idx, parse_outline, plan_mark,
@@ -344,6 +346,162 @@ def test_plan_batch_alias_as_uid_unknown_raises():
     with pytest.raises(BuildError, match="unknown alias"):
         plan_batch([{"command": "delete", "params": {"uid": "{{ghost}}"}}],
                    {}, uid_gen())
+
+
+# -- guarded batch delete: a delete of a fetched block carries the hash of
+# that block's subtree, advanced through the batch's earlier ops, so the
+# server can tell whether another device edited it since the fetch.
+
+SUBTREE = _node("r0000001", "root", children=[_node("c0000001", "child")])
+
+
+def _delete_of(ops, uid) -> DeleteOp:
+    [op] = [o for o in ops if isinstance(o, DeleteOp) and o.uid == uid]
+    return op
+
+
+def test_batch_delete_is_stamped_from_its_fetched_subtree():
+    ops = plan_batch([{"command": "delete", "params": {"uid": "r0000001"}}],
+                     {}, uid_gen(), subtrees={"r0000001": SUBTREE})
+    assert ops == [DeleteOp(
+        op="delete", uid="r0000001",
+        base_subtree_hash=subtree_hash([("r0000001", "root"),
+                                        ("c0000001", "child")]))]
+
+
+def test_batch_delete_of_an_alias_is_unhashed():
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "x", "as": "n"}},
+        {"command": "delete", "params": {"uid": "{{n}}"}},
+    ]
+    ops = plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen(),
+                     subtrees={"r0000001": SUBTREE})
+    assert ops[1] == DeleteOp(op="delete", uid=as_create(ops[0]).uid)
+
+
+def test_batch_delete_without_a_fetched_subtree_is_unhashed():
+    # A uid whose fetch 404'd arrives as None; one never fetched is absent.
+    cmds = [{"command": "delete", "params": {"uid": "gone0001"}},
+            {"command": "delete", "params": {"uid": "never001"}}]
+    ops = plan_batch(cmds, {}, uid_gen(), subtrees={"gone0001": None})
+    assert ops == [DeleteOp(op="delete", uid="gone0001"),
+                   DeleteOp(op="delete", uid="never001")]
+
+
+def test_batch_update_then_delete_hashes_the_updated_text():
+    cmds = [{"command": "update",
+             "params": {"uid": "c0000001", "text": "edited"}},
+            {"command": "delete", "params": {"uid": "r0000001"}}]
+    ops = plan_batch(cmds, {}, uid_gen(), subtrees={"r0000001": SUBTREE})
+    assert _delete_of(ops, "r0000001").base_subtree_hash == subtree_hash(
+        [("r0000001", "root"), ("c0000001", "edited")])
+
+
+def test_batch_create_under_then_delete_includes_the_created_block():
+    cmds = [{"command": "create",
+             "params": {"page": "Machine Learning", "text": "new",
+                        "parent": "((c0000001))", "index": 0}},
+            {"command": "delete", "params": {"uid": "r0000001"}}]
+    blocks = [*BLOCKS, SUBTREE]
+    ops = plan_batch(cmds, {"Machine Learning": blocks}, uid_gen(),
+                     subtrees={"r0000001": SUBTREE})
+    created = as_create(ops[0])
+    assert _delete_of(ops, "r0000001").base_subtree_hash == subtree_hash(
+        [("r0000001", "root"), ("c0000001", "child"), (created.uid, "new")])
+
+
+def test_batch_move_into_the_subtree_leaves_the_delete_unhashed():
+    # u1's own subtree was never fetched, so the delete cannot know what
+    # the server's copy of it holds: no stamp, a plain delete as before.
+    cmds = [{"command": "move",
+             "params": {"uid": "u1", "page": "Machine Learning",
+                        "parent": "((r0000001))", "index": 0}},
+            {"command": "delete", "params": {"uid": "r0000001"}}]
+    ops = plan_batch(cmds, {"Machine Learning": [*BLOCKS, SUBTREE]},
+                     uid_gen(), subtrees={"r0000001": SUBTREE})
+    assert _delete_of(ops, "r0000001").base_subtree_hash is None
+
+
+def test_batch_move_out_of_the_subtree_drops_it_from_the_hash():
+    deep = _node("r0000001", "root", children=[
+        _node("c0000001", "child", children=[_node("g0000001", "grand")]),
+        _node("c0000002", "other")])
+    cmds = [{"command": "move",
+             "params": {"uid": "c0000001", "page": "Machine Learning",
+                        "parent": "((u2))", "index": 0}},
+            {"command": "delete", "params": {"uid": "r0000001"}}]
+    ops = plan_batch(cmds, {"Machine Learning": [*BLOCKS, deep]}, uid_gen(),
+                     subtrees={"r0000001": deep})
+    assert _delete_of(ops, "r0000001").base_subtree_hash == subtree_hash(
+        [("r0000001", "root"), ("c0000002", "other")])
+
+
+def test_batch_move_within_the_subtree_keeps_the_moved_block_in_the_hash():
+    deep = _node("r0000001", "root", children=[
+        _node("c0000001", "child", children=[_node("g0000001", "grand")]),
+        _node("c0000002", "other")])
+    cmds = [{"command": "move",
+             "params": {"uid": "g0000001", "page": "Machine Learning",
+                        "parent": "((c0000002))", "index": 0}},
+            {"command": "move",
+             "params": {"uid": "c0000001", "page": "Machine Learning",
+                        "parent": "((u2))", "index": 0}},
+            {"command": "delete", "params": {"uid": "r0000001"}}]
+    ops = plan_batch(cmds, {"Machine Learning": [*BLOCKS, deep]}, uid_gen(),
+                     subtrees={"r0000001": deep})
+    assert _delete_of(ops, "r0000001").base_subtree_hash == subtree_hash(
+        [("r0000001", "root"), ("c0000002", "other"),
+         ("g0000001", "grand")])
+
+
+def test_batch_move_of_the_deleted_root_keeps_its_subtree():
+    # The root moves with its children wherever it goes, so moving it off
+    # the page changes nothing the delete's hash covers.
+    cmds = [{"command": "move",
+             "params": {"uid": "r0000001", "page": "Machine Learning",
+                        "parent": "((u2))", "index": 0}},
+            {"command": "delete", "params": {"uid": "r0000001"}}]
+    ops = plan_batch(cmds, {"Machine Learning": [*BLOCKS, SUBTREE]},
+                     uid_gen(), subtrees={"r0000001": SUBTREE})
+    assert _delete_of(ops, "r0000001").base_subtree_hash == subtree_hash(
+        [("r0000001", "root"), ("c0000001", "child")])
+
+
+def test_batch_delete_of_a_child_then_its_parent_hashes_without_the_child():
+    child = SUBTREE.children[0]
+    cmds = [{"command": "delete", "params": {"uid": "c0000001"}},
+            {"command": "delete", "params": {"uid": "r0000001"}}]
+    ops = plan_batch(cmds, {}, uid_gen(),
+                     subtrees={"r0000001": SUBTREE, "c0000001": child})
+    assert ops == [
+        DeleteOp(op="delete", uid="c0000001",
+                 base_subtree_hash=subtree_hash([("c0000001", "child")])),
+        DeleteOp(op="delete", uid="r0000001",
+                 base_subtree_hash=subtree_hash([("r0000001", "root")]))]
+
+
+def test_batch_second_delete_of_the_same_uid_is_unhashed():
+    cmds = [{"command": "delete", "params": {"uid": "r0000001"}},
+            {"command": "delete", "params": {"uid": "r0000001"}}]
+    ops = plan_batch(cmds, {}, uid_gen(), subtrees={"r0000001": SUBTREE})
+    assert ops == [
+        DeleteOp(op="delete", uid="r0000001",
+                 base_subtree_hash=subtree_hash([("r0000001", "root"),
+                                                 ("c0000001", "child")])),
+        DeleteOp(op="delete", uid="r0000001")]
+
+
+def test_delete_uids_skips_aliases():
+    parsed = validate_batch([
+        {"command": "create", "params": {"page": "P", "text": "x", "as": "n"}},
+        {"command": "delete", "params": {"uid": "{{n}}"}},
+        {"command": "delete", "params": {"uid": "b0000002"}},
+        {"command": "update", "params": {"uid": "b0000009", "text": "y"}},
+        {"command": "delete", "params": {"uid": "b0000001"}},
+        {"command": "delete", "params": {"uid": "b0000002"}},
+    ])
+    assert delete_uids(parsed) == ["b0000002", "b0000001"]
 
 
 # -- validate_batch: schema validation of the raw envelope, before any page

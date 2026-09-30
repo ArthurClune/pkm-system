@@ -2,12 +2,14 @@
 durable client queue must not double-apply (spec section 1)."""
 import json
 from pathlib import Path
+from typing import assert_type
 
 import pytest
 
-from pkm.contracts.ops import OpBatch
+from pkm.contracts.ops import (OpBatch, Sha256Hex, UpdateTextOp, subtree_hash,
+                               text_hash)
 from pkm.server.db import open_db
-from pkm.server.ops_hash import batch_replay_hash
+from pkm.server.ops_hash import batch_replay_hash, batch_request_hash
 
 CASES = json.loads(
     (Path(__file__).parents[2] / "shared" / "fixtures" / "ops_acks.json")
@@ -19,6 +21,16 @@ BATCH = {
     "ops": [{"op": "create", "uid": "uid_idem1", "page_title": "AI",
              "parent_uid": None, "order_idx": 0, "text": "queued offline"}],
 }
+
+
+def test_hash_fields_are_sha256hex():
+    """A hash and a text are both str, so nothing but a distinct type stops
+    a caller passing text where a hash belongs. pyrefly checks the
+    assert_type call statically; the annotation check is the same guarantee
+    read back at runtime."""
+    assert_type(text_hash("x"), Sha256Hex)
+    assert (UpdateTextOp.model_fields["base_text_hash"].annotation
+            == Sha256Hex | None)
 
 
 def test_replay_returns_stored_ack_and_applies_nothing(client):
@@ -199,7 +211,7 @@ def _replay_hash(ops) -> str:
 
 def test_replay_hash_ignores_worker_filled_guard_fields():
     bare = [{"op": "update_text", "uid": "uid_b1", "text": "golden"}]
-    hashed = [dict(bare[0], base_text_hash="0" * 64)]
+    hashed = [dict(bare[0], base_text_hash=Sha256Hex("0" * 64))]
     hashed_and_titled = [dict(hashed[0], page_title="AI")]
     assert (_replay_hash(bare) == _replay_hash(hashed)
             == _replay_hash(hashed_and_titled))
@@ -230,7 +242,8 @@ def test_worker_filled_then_bare_replays_with_one_effect(client):
            "ops": [{"op": "update_text", "uid": "uid_b1", "text": "v1"}]}
     r1 = client.post("/api/ops", json=bare)
     assert r1.status_code == 200
-    filled = dict(bare, ops=[dict(bare["ops"][0], base_text_hash="0" * 64,
+    filled = dict(bare, ops=[dict(bare["ops"][0],
+                                 base_text_hash=Sha256Hex("0" * 64),
                                  page_title="AI")])
     r2 = client.post("/api/ops", json=filled)
     assert r2.status_code == 200
@@ -295,3 +308,40 @@ def test_pre_deploy_strict_hash_row_still_replays_and_still_409s(client):
     different = dict(batch, ops=[dict(batch["ops"][0], text="v2")])
     r_diff = client.post("/api/ops", json=different)
     assert r_diff.status_code == 409
+
+
+def _delete_batch(**fields):
+    return OpBatch.model_validate({"client_id": "c", "batch_id": "batch-0001",
+        "ops": [{"op": "delete", "uid": "uid_a", **fields}]})
+
+
+def test_hashless_delete_keeps_its_pre_field_hash():
+    """Recorded on main before base_subtree_hash existed: adding the field
+    must not change the hash of a delete that never sends it."""
+    expected = "ae9f719e045c92bc33ebf2cee2e26196b8363f1fc021bdff99050199cf36f1ff"
+    assert batch_request_hash(_delete_batch()) == expected
+    assert batch_replay_hash(_delete_batch()) == expected
+
+
+def test_delete_replay_hash_ignores_base_subtree_hash():
+    filled = _delete_batch(base_subtree_hash="a" * 64)  # raw JSON: no Sha256Hex needed
+    assert batch_replay_hash(filled) == batch_replay_hash(_delete_batch())
+    assert batch_request_hash(filled) != batch_request_hash(_delete_batch())
+
+
+def test_filled_delete_then_bare_replays_with_one_effect(client):
+    """The worker fills base_subtree_hash into the durable copy of a
+    delete batch; a lost enqueue reply can leave the client's
+    fallback-lane copy of the same batch_id unfilled. Both must replay as
+    one effect, whichever arrives first. The filled hash matches the seeded
+    block, so the first post is a plain delete and no conflict copy lands."""
+    filled = {"client_id": "c1", "batch_id": "batch-95ss-0005",
+             "ops": [{"op": "delete", "uid": "uid_b1",
+                      "base_subtree_hash": subtree_hash(
+                          [("uid_b1", "Tags:: #AI")])}]}
+    r1 = client.post("/api/ops", json=filled)
+    assert r1.status_code == 200
+    bare = dict(filled, ops=[{"op": "delete", "uid": "uid_b1"}])
+    r2 = client.post("/api/ops", json=bare)
+    assert r2.status_code == 200
+    assert r2.json() == r1.json()  # replayed ack, same seq: no second delete

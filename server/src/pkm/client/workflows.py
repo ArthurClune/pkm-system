@@ -19,12 +19,13 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from pkm.batch import plan_batch, referenced_pages, validate_batch
+from pkm.batch import (delete_uids, plan_batch, referenced_pages,
+                       validate_batch)
 from pkm.client.api import PkmClient, new_uid
 from pkm.client.core import ApiError
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BlockOp, CreateOp
-from pkm.contracts.responses import OpsAck
+from pkm.contracts.responses import BlockNode, OpsAck
 from pkm.planning import (asset_block_text, create_page_ops, plan_mark,
                           plan_save, plan_update, resolve_parent)
 
@@ -106,22 +107,41 @@ def apply_batch(client: PkmClient, commands: object) -> OpsAck:
     ack. Its `skipped` list names ops whose uid no longer exists, creates
     and moves whose parent no longer exists, and moves that would make a
     cycle: the server skips those (noting them on today's daily page)
-    rather than failing the batch, and batch commands send uids unchecked,
-    so the shells must report it.
+    rather than failing the batch, and update/move uids are sent
+    unchecked, so the shells must report it.
 
     Validation runs before any page is fetched or created, so a malformed
-    batch triggers no I/O at all, and every page the batch
-    names is fetched once up front -- planning needs each page's existing
-    blocks to compute append positions."""
+    batch triggers no I/O at all. Then every page the batch names is
+    fetched once up front -- planning needs each page's existing blocks to
+    compute append positions -- and so is the subtree of every block a
+    `delete` names, which the planner hashes so the server can keep the
+    texts if another device edited them since. A delete whose block is not
+    found (404) goes unhashed and is skipped and reported like any other
+    missing uid."""
     parsed = validate_batch(commands)
     fetched = {title: client.get_page_blocks(title)
                for title in referenced_pages(parsed)}
     pages = {title: blocks for title, (blocks, _) in fetched.items()}
     missing = [title for title, (_, is_missing) in fetched.items()
                if is_missing]
+    subtrees = {uid: _subtree_or_none(client, uid)
+                for uid in delete_uids(parsed)}
     ops: list[BlockOp] = [*create_page_ops(missing),
-                          *plan_batch(parsed, pages, uids=_uids())]
+                          *plan_batch(parsed, pages, uids=_uids(),
+                                      subtrees=subtrees)]
     return client.post_ops(ops, batch_id=_batch_id())
+
+
+def _subtree_or_none(client: PkmClient, uid: str) -> BlockNode | None:
+    """`uid`'s subtree, or None when the server has no such block. Any
+    other failure propagates: a delete that cannot be checked fails the
+    batch rather than silently going unguarded."""
+    try:
+        return client.get_block(uid).block
+    except ApiError as e:
+        if e.status == 404:
+            return None
+        raise
 
 
 def upload_and_link(client: PkmClient, path: Path, page: str | None = None,

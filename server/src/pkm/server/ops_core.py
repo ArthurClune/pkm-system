@@ -10,7 +10,7 @@ contract every client builds against, so they must not sit behind
 `pkm.server`."""
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, Union
 
@@ -18,11 +18,12 @@ from pkm.contracts.ops import (UID_RE, BlockOp, CreateOp, CreatePageOp,
                                DeleteOp, MoveOp, SetCollapsedOp,
                                SetHeadingOp, SetViewTypeOp, UpdateTextOp,
                                ViewType,
-                               text_hash)
+                               subtree_hash, text_hash)
 from pkm.contracts.responses import SkipReason
 from pkm.refs import TitleSyntaxReason, extract, title_syntax_reason
 from pkm.rename import rewrite_title_refs_map
 from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
+                                       deleted_header_text,
                                        live_block_header_text,
                                        move_parent_missing_note,
                                        orphan_header_text,
@@ -313,6 +314,67 @@ class DeleteContext:
 
 
 @dataclass(frozen=True)
+class SubtreeRow:
+    uid: str
+    parent_uid: str | None
+    order_idx: int
+    text: str
+
+
+@dataclass(frozen=True)
+class DeleteConflictContext:
+    """A hashed delete whose subtree diverged: the delete still wins, and
+    `rows` (deepest first) land as copies under a header naming
+    `page_title`, the block's own page. `landing.entry_uid` is the root's
+    copy; `copy_uids` maps every other row's uid to its copy's uid."""
+    block: BlockInfo
+    rows: tuple[SubtreeRow, ...]
+    page_title: str
+    landing: ConflictLanding
+    copy_uids: Mapping[str, str]
+
+
+def delete_diverged(base_subtree_hash: str, rows: Sequence[SubtreeRow]) -> bool:
+    """Whether the subtree's current (uid, text) pairs no longer hash to
+    what the deleting device last saw -- spec section 1's canonical hash,
+    order-independent so a reorder or re-parenting inside the subtree never
+    diverges it."""
+    return subtree_hash((row.uid, row.text) for row in rows) != base_subtree_hash
+
+
+def descendant_copy_effects(
+    rows: Sequence[SubtreeRow], root_uid: str, root_copy_uid: str,
+    copy_uids: Mapping[str, str], daily_page_id: int,
+) -> tuple[Effect, ...]:
+    """InsertBlock + ReindexRefs for every row but the root (the root's copy
+    goes through `conflict_entry_effects` instead), walked from `root_uid`
+    in pre-order so a parent's copy always lands before its children's, and
+    renumbered 0..n per parent by `(order_idx, uid)` -- fresh uids nested as
+    the subtree was, text only (spec section 3). The root is left out of
+    the child map: a corrupted tree whose root's parent lies inside the
+    subtree must not lead the walk back into its start."""
+    children: dict[str | None, list[SubtreeRow]] = {}
+    for row in rows:
+        if row.uid != root_uid:
+            children.setdefault(row.parent_uid, []).append(row)
+    for siblings in children.values():
+        siblings.sort(key=lambda row: (row.order_idx, row.uid))
+
+    effects: list[Effect] = []
+
+    def walk(orig_parent_uid: str, copy_parent_uid: str) -> None:
+        for idx, row in enumerate(children.get(orig_parent_uid, ())):
+            copy_uid = copy_uids[row.uid]
+            effects.append(InsertBlock(copy_uid, daily_page_id,
+                                       copy_parent_uid, idx, row.text, None))
+            effects.append(ReindexRefs(copy_uid, row.text))
+            walk(row.uid, copy_uid)
+
+    walk(root_uid, root_copy_uid)
+    return tuple(effects)
+
+
+@dataclass(frozen=True)
 class BlockContext:
     """set_collapsed, set_heading, set_view_type, or a hashless update_text
     (check 3) of a live block."""
@@ -375,8 +437,9 @@ SkippedContext = Union[SkipContext, LandedSkipContext, StuckMoveContext]
 # it to the Union
 SKIPPED_CONTEXTS = (SkipContext, LandedSkipContext, StuckMoveContext)
 OpContext = Union[PageContext, CreateContext, MoveContext, DeleteContext,
-                  BlockContext, TextEditContext, TextConflictContext,
-                  SkipContext, LandedSkipContext, StuckMoveContext]
+                  DeleteConflictContext, BlockContext, TextEditContext,
+                  TextConflictContext, SkipContext, LandedSkipContext,
+                  StuckMoveContext]
 
 
 def skip_report(index: int, op: BlockOp, ctx: SkippedContext) -> dict:
@@ -671,6 +734,23 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
             effects.append(TouchPage(ctx.block.page_id))
         effects.append(TouchPage(target_page))
         return tuple(effects)
+    if isinstance(ctx, DeleteConflictContext):
+        assert isinstance(op, DeleteOp)
+        # the subtree diverged since the deleting device last saw it: the
+        # delete still wins, but the server's texts land first, nested
+        # under today's conflict header, so a stale stamp only ever costs
+        # an extra copy, never lost text
+        root = next(row for row in ctx.rows if row.uid == op.uid)
+        return (
+            *conflict_entry_effects(
+                op.uid, root.text, deleted_header_text(ctx.page_title),
+                ctx.landing),
+            *descendant_copy_effects(
+                ctx.rows, op.uid, ctx.landing.entry_uid, ctx.copy_uids,
+                ctx.landing.daily_page_id),
+            DeleteBlocks(tuple(row.uid for row in ctx.rows)),
+            TouchPage(ctx.block.page_id),
+        )
     if isinstance(ctx, DeleteContext):
         assert isinstance(op, DeleteOp)
         return (DeleteBlocks(ctx.subtree), TouchPage(ctx.block.page_id))

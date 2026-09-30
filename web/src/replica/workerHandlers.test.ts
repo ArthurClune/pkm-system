@@ -9,6 +9,7 @@ import type { ReplicaDb } from "./db";
 import type { DurablePendingRow } from "./queue";
 import { failingOnce, fakeCarryFiles, openRawTestDb, openTestDb,
          withDamagedFreelist } from "./testDb";
+import { subtreeHash } from "./subtreeHash";
 import { buildHandlers, type WorkerDeps } from "./workerHandlers";
 
 const SNAP: Snapshot = {
@@ -163,7 +164,8 @@ test("a reset commit rolls back schema rebuild when snapshot application fails",
   await expect(handlers.pendingBatches(undefined)).resolves.toEqual([{
     id: 1,
     batch_id: "batch-retained",
-    ops: [{ op: "delete", uid: "uid_b1" }],
+    ops: [{ op: "delete", uid: "uid_b1",
+            base_subtree_hash: subtreeHash([["uid_b1", "hello"]]) }],
     poisoned: true,
   }]);
   expect(t.db.select("SELECT id FROM pages WHERE id=999")).toEqual([]);

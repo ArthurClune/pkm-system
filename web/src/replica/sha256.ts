@@ -19,7 +19,13 @@ const K = new Uint32Array([
 
 const rotr = (x: number, n: number): number => (x >>> n) | (x << (32 - n));
 
-export function sha256Hex(text: string): string {
+// A sha256 hex digest, distinct from a plain string so a text can never
+// be passed where a hash belongs. Minted only by `sha256Hex` (and its
+// server twin `text_hash`); a test literal standing in for a hash casts
+// `as Sha256Hex`.
+export type Sha256Hex = string & { readonly __brand: "Sha256Hex" };
+
+export function sha256Hex(text: string): Sha256Hex {
   const data = new TextEncoder().encode(text);
   const bitLen = data.length * 8;
   // pad to 64-byte blocks: 0x80, zeros, 64-bit big-endian length
@@ -58,5 +64,6 @@ export function sha256Hex(text: string): string {
     h[4] = (h[4] + e) >>> 0; h[5] = (h[5] + f) >>> 0;
     h[6] = (h[6] + g) >>> 0; h[7] = (h[7] + hh) >>> 0;
   }
-  return Array.from(h, (x) => x.toString(16).padStart(8, "0")).join("");
+  return Array.from(h, (x) => x.toString(16).padStart(8, "0"))
+    .join("") as Sha256Hex;
 }

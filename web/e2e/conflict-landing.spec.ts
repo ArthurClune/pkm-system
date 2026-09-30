@@ -2,14 +2,17 @@
 // lose either side's text: the server applies the incoming edit and puts
 // the other text on today's daily note, under a [[conflict]] header naming
 // the block's page. An edit to a block another device deleted is skipped
-// in the ack and its text lands on today's note the same way. Both are
-// driven through the real editor, queue, ops route and feed: the browser's
+// in the ack and its text lands on today's note the same way. A delete of a
+// block whose subtree another device edited still wins, and the server's
+// texts for that subtree land on today's note first. All three are driven
+// through the real editor, queue, ops route and feed: the browser's
 // POST /api/ops is held in a route handler while the other device writes
 // through page.request, which page routes do not intercept.
 //
 // Today's journal is shared by every spec, so each test deletes exactly the
 // entries it caused (keyed by its own stamped page title) and checks that
 // the day's top-level blocks are the ones it found.
+import { createHash } from "node:crypto";
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
@@ -19,6 +22,13 @@ const PASSWORD = "e2e-pw";
 type BlockNode = { uid: string; text: string; children: BlockNode[] };
 type SkippedOp = { uid: string; op: string; reason: string };
 type Ack = { skipped?: SkippedOp[] };
+type WireOp = { op: string; uid?: string; base_subtree_hash?: string | null };
+
+const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+/** The canonical subtree hash, computed independently of the app's code. */
+const subtreeHash = (pairs: [string, string][]) => sha256(
+  [...pairs].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([uid, text]) => `${uid} ${sha256(text)}`).join("\n"));
 
 async function login(page: Page) {
   await page.goto("/login");
@@ -82,30 +92,34 @@ async function withScenario(page: Page, label: string, base: string,
   }
 }
 
-/** Holds this tab's first update_text batch for `uid`: `first` runs (the
- * other device's write), then the batch reaches the server. Resolves with
- * the server's ack. */
-async function holdEditTo(page: Page, uid: string,
-                          first: () => Promise<void>): Promise<() => Ack | null> {
-  let ack: Ack | null = null;
-  let held = false;
+/** Holds this tab's first batch carrying a `kind` op for `uid`: `first`
+ * runs (the other device's write), then the batch reaches the server.
+ * Resolves with the held op as sent and the server's ack. */
+async function holdOpTo(page: Page, kind: string, uid: string,
+                        first: () => Promise<void>):
+    Promise<() => { sent: WireOp; ack: Ack } | null> {
+  let held: { sent: WireOp; ack: Ack } | null = null;
+  let taken = false;
   await page.route("**/api/ops", async (route) => {
-    const batch = route.request().postDataJSON() as {
-      ops: { op: string; uid?: string }[];
-    };
-    const hits = batch.ops.some((op) => op.op === "update_text" && op.uid === uid);
-    if (held || !hits) {
+    const batch = route.request().postDataJSON() as { ops: WireOp[] };
+    const sent = batch.ops.find((op) => op.op === kind && op.uid === uid);
+    if (taken || !sent) {
       await route.continue();
       return;
     }
-    held = true;
+    taken = true;
     await first();
     const response = await route.fetch();
-    ack = await response.json() as Ack;
+    held = { sent, ack: await response.json() as Ack };
     await route.fulfill({ response });
   });
-  return () => ack;
+  return () => held;
 }
+
+const holdEditTo = async (page: Page, uid: string, first: () => Promise<void>) => {
+  const held = await holdOpTo(page, "update_text", uid, first);
+  return () => held()?.ack ?? null;
+};
 
 async function editBlock(page: Page, from: string, to: string) {
   await page.locator(".block-text", { hasText: from }).click();
@@ -173,5 +187,53 @@ async ({ page }) => {
 
     await page.getByRole("link", { name: "Daily Notes" }).click();
     await expect(page.locator(".journal-day").first()).toContainText(typed);
+  });
+});
+
+test("a delete that raced an edit to its child lands the subtree under a conflict header on today's note",
+async ({ page }) => {
+  test.setTimeout(60_000);
+  await withScenario(page, "Delete Landing", "delete base", async (s) => {
+    const child = `${s.u1}k`.slice(0, 32);
+    const seeded = "child as this tab saw it";
+    const edited = "child edited elsewhere";
+    await s.remote("child", [{ op: "create", uid: child, page_title: s.title,
+                               parent_uid: s.u1, order_idx: 0, text: seeded }]);
+    // the feed brings the child to this tab, so the delete is stamped
+    // over the subtree as it stands before the other device's edit
+    await expect(page.locator(".block-text", { hasText: seeded })).toBeVisible();
+
+    const held = await holdOpTo(page, "delete", s.u1, () =>
+      s.remote("edit", [{ op: "update_text", uid: child, text: edited,
+                          base_text_hash: sha256(seeded) }]));
+
+    // select the parent block and delete it, as a user would
+    await page.locator(".block-text", { hasText: "delete base" }).click();
+    await expect(page.locator("textarea.block-input")).toBeFocused();
+    await page.locator("textarea.block-input").press("Control+Meta+ArrowUp");
+    await expect(page.locator(`.block-row.selected[data-uid="${s.u1}"]`))
+      .toHaveCount(1);
+    await page.keyboard.press("Backspace");
+
+    await expect.poll(held).not.toBeNull();
+    expect(held()!.sent.base_subtree_hash)
+      .toBe(subtreeHash([[s.u1, "delete base"], [child, seeded]]));
+    expect(held()!.ack.skipped ?? []).toEqual([]);
+
+    // the delete wins on the server
+    await expect.poll(async () => (await pageBlocks(page, s.title)).length)
+      .toBe(0);
+    // the server's texts for the subtree are kept on today's note, nested
+    // as they were, the other device's edit included
+    const header = `[[conflict]] [[${s.title}]] — deleted while edited elsewhere`;
+    const entry = landing(await pageBlocks(page, s.today), header);
+    expect(entry?.children.map((c) => c.text)).toEqual(["delete base"]);
+    expect(entry?.children[0].children.map((c) => c.text)).toEqual([edited]);
+    // copies take fresh uids
+    expect(entry?.children[0].uid).not.toBe(s.u1);
+    expect(entry?.children[0].children[0].uid).not.toBe(child);
+
+    await page.getByRole("link", { name: "Daily Notes" }).click();
+    await expect(page.locator(".journal-day").first()).toContainText(edited);
   });
 });

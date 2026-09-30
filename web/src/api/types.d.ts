@@ -1292,6 +1292,8 @@ export interface components {
             op: "delete";
             /** Uid */
             uid: string;
+            /** Base Subtree Hash */
+            base_subtree_hash?: string | null;
         };
         /** DescribeStatusPayload */
         DescribeStatusPayload: {

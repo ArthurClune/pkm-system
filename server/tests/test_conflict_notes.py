@@ -2,7 +2,8 @@ import pytest
 
 from pkm.contracts.ops import MoveOp, SetHeadingOp, SetViewTypeOp
 from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
-                                       conflict_label, existing_page_label,
+                                       conflict_label, deleted_header_text,
+                                       existing_page_label,
                                        live_block_header_text,
                                        move_parent_missing_note,
                                        orphan_header_text,
@@ -67,3 +68,13 @@ def test_move_notes_say_why_the_block_stayed_put():
     assert move_parent_missing_note("ghost_p1") == (
         "move skipped: target parent ghost_p1 not found")
     assert MOVE_CYCLE_NOTE == "move skipped: would create a cycle"
+
+
+def test_deleted_header_links_the_page():
+    assert deleted_header_text("Project X") == (
+        "[[conflict]] [[Project X]] — deleted while edited elsewhere")
+
+
+def test_deleted_header_fences_a_title_that_does_not_link_back():
+    assert deleted_header_text("Project X]") == (
+        "[[conflict]] `Project X]` — deleted while edited elsewhere")

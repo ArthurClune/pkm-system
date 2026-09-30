@@ -129,7 +129,10 @@ committed. The output starts with `warning:`, lists each skipped op and the
 daily page its note landed on, and `pkm batch` exits 1. Fix the skipped ops on
 their own: re-running the batch repeats everything that applied. A `((uid))`
 parent is checked before anything is sent, so a mistyped one fails the whole
-batch. The MCP `batch` tool returns the same text.
+batch. So does a `delete` uid that is not a valid uid: nothing is written and
+`pkm batch` exits 1. A `delete` still removes a block another device changed after the batch
+read it, but the server's texts for the block and everything under it land on
+today's daily page first. The MCP `batch` tool returns the same text.
 
 `as` names a created block so later commands can refer to it as
 `"parent": "{{alias}}"`, or as `"uid": "{{alias}}"` for `update`, `move` and

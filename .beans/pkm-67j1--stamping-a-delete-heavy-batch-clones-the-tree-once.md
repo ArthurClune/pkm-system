@@ -1,11 +1,11 @@
 ---
 # pkm-67j1
 title: Stamping a delete-heavy batch clones the tree once per delete
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-09-30T12:47:07Z
-updated_at: 2026-09-30T12:47:07Z
+updated_at: 2026-09-30T13:28:15Z
 parent: pkm-a4t2
 ---
 
@@ -13,6 +13,6 @@ parent: pkm-a4t2
 
 Fix: clone once at the start and apply each op in place (`applyOne`, or an exported in-place variant of `applyOps`). Every stamp is a string computed before its op applies, so results are identical.
 
-- [ ] Clone once, apply in place; existing stamping tests unchanged
-- [ ] A test or bench showing a delete-heavy batch no longer scales with deletes x page size
+- [x] Clone once, apply in place; existing stamping tests unchanged
+- [x] A test or bench showing a delete-heavy batch no longer scales with deletes x page size
 - [ ] `perf/check.sh frontend`

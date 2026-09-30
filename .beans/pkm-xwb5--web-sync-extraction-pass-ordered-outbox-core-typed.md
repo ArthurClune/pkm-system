@@ -1,11 +1,11 @@
 ---
 # pkm-xwb5
 title: 'Web sync extraction pass: ordered-outbox core, typed ack reader, listeners for constructor callbacks, pure placementFor, classifiers out of replicaSync'
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-09-29T13:20:52Z
-updated_at: 2026-09-29T13:20:52Z
+updated_at: 2026-09-30T14:25:38Z
 parent: pkm-a4t2
 ---
 

@@ -110,8 +110,11 @@ export function visibleNeighbor(blocks: BlockNode[], uid: string,
   return order[dir === "up" ? i - 1 : i + 1] ?? null;
 }
 
-function clone(nodes: BlockNode[]): BlockNode[] {
-  return nodes.map((n) => ({ ...n, children: clone(n.children) }));
+/** Deep-copies a block tree. Exported so a caller that needs to apply many
+ * ops in place — stampBaseTextHashes, notably — can clone once up front
+ * instead of paying applyOps' per-call clone once per op. */
+export function cloneTree(nodes: BlockNode[]): BlockNode[] {
+  return nodes.map((n) => ({ ...n, children: cloneTree(n.children) }));
 }
 
 function sortSiblings(siblings: BlockNode[]): void {
@@ -188,9 +191,9 @@ function holdsAny(nodes: BlockNode[], uids: ReadonlySet<string>): boolean {
 export function applyOpsWithChange(blocks: BlockNode[], ops: BlockOp[],
                                    pageTitle: string): AppliedOps {
   if (!opsTouchPage(blocks, ops, pageTitle)) return { blocks, changed: false };
-  const tree = clone(blocks);
+  const tree = cloneTree(blocks);
   let changed = false;
-  for (const op of ops) changed = applyOne(tree, op, pageTitle) || changed;
+  for (const op of ops) changed = applyOpInPlace(tree, op, pageTitle) || changed;
   return { blocks: tree, changed };
 }
 
@@ -215,8 +218,13 @@ function layoutHeld(before: Layout, siblings: BlockNode[]): boolean {
       node === siblings[i] && orderIdx === siblings[i].order_idx);
 }
 
-/** Applies one op in place; returns whether the tree actually changed. */
-function applyOne(tree: BlockNode[], op: BlockOp, pageTitle: string): boolean {
+/** Applies one op to `tree` in place, mutating it; returns whether the tree
+ * actually changed. The single source of op semantics: `applyOpsWithChange`
+ * calls this per op on a clone it owns, and a caller applying many ops to
+ * one tree it cloned itself (stampBaseTextHashes, notably) calls this
+ * directly instead of paying a fresh clone per op via applyOps. Either way,
+ * the clone is the caller's responsibility — this function never clones. */
+export function applyOpInPlace(tree: BlockNode[], op: BlockOp, pageTitle: string): boolean {
   if (op.op === "create") {
     if (op.page_title !== pageTitle) return false;
     if (locate(tree, op.uid)) return false; // replay of a block we already have
@@ -276,7 +284,7 @@ function applyOne(tree: BlockNode[], op: BlockOp, pageTitle: string): boolean {
  * (null = uid not found; tree returned unchanged). Pure: clones. */
 export function removeSubtree(blocks: BlockNode[], uid: string):
     { tree: BlockNode[]; node: BlockNode | null } {
-  const tree = clone(blocks);
+  const tree = cloneTree(blocks);
   const found = locate(tree, uid);
   if (!found) return { tree, node: null };
   found.siblings.splice(found.index, 1);
@@ -288,11 +296,11 @@ export function removeSubtree(blocks: BlockNode[], uid: string):
 export function insertSubtree(blocks: BlockNode[], node: BlockNode,
                               parentUid: string | null,
                               orderIdx: number): BlockNode[] {
-  const tree = clone(blocks);
+  const tree = cloneTree(blocks);
   const siblings = siblingsOf(tree, parentUid);
   if (siblings === null) return tree;
   shiftFrom(siblings, orderIdx);
-  siblings.push({ ...node, children: clone(node.children), order_idx: orderIdx });
+  siblings.push({ ...node, children: cloneTree(node.children), order_idx: orderIdx });
   sortSiblings(siblings);
   return tree;
 }

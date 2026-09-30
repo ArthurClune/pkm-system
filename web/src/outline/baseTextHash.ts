@@ -39,7 +39,7 @@ import type { BlockNode } from "../api/payloads";
 import type { BlockOp, DeleteOp, UpdateTextOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
-import { applyOps, findNode } from "./tree";
+import { applyOpInPlace, cloneTree, findNode } from "./tree";
 
 // A type predicate, not a boolean: `create_page` carries no `uid`, so without
 // the narrowing the loop below cannot read `op.uid` at all.
@@ -76,18 +76,21 @@ function stampOne(op: UpdateTextOp | DeleteOp, node: BlockNode,
 export function stampBaseTextHashes(
   blocks: BlockNode[], pageTitle: string, ops: readonly BlockOp[],
 ): BlockOp[] {
-  // applyOps clones the whole tree, so only re-apply while a later op still
-  // needs stamping. A large paste batch on a big page would otherwise pay for
-  // a clone per op for no benefit.
+  // Only re-apply while a later op still needs stamping — a large paste
+  // batch on a big page would otherwise walk ops for no benefit. Cloning is
+  // the expensive part (see tree.ts), so this clones `blocks` at most once,
+  // lazily, the first time an op actually needs applying to keep a later
+  // stamp correct, then mutates that one clone in place for every op after
+  // it. The caller's `blocks` is never mutated.
   const lastNeedingStamp = ops.reduce(
     (last, op, index) => (needsStamp(op) ? index : last), -1);
   if (lastNeedingStamp === -1) return [...ops];
-  let tree = blocks;
+  let tree: BlockNode[] | null = null;
   const stamped: BlockOp[] = [];
   for (const [index, op] of ops.entries()) {
     let wireOp: BlockOp = op;
     if (needsStamp(op)) {
-      const node = findNode(tree, op.uid);
+      const node = findNode(tree ?? blocks, op.uid);
       // No node: this tree does not know the block (a cross-page op, or one
       // the batch itself creates). No hash means plain LWW, or for a delete
       // an unguarded removal — exactly what the worker does when the replica
@@ -96,7 +99,10 @@ export function stampBaseTextHashes(
       if (node !== null) wireOp = stampOne(op, node, pageTitle);
     }
     stamped.push(wireOp);
-    if (index < lastNeedingStamp) tree = applyOps(tree, [wireOp], pageTitle);
+    if (index < lastNeedingStamp) {
+      tree ??= cloneTree(blocks);
+      applyOpInPlace(tree, wireOp, pageTitle);
+    }
   }
   return stamped;
 }

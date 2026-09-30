@@ -1,11 +1,11 @@
 ---
 # pkm-67j1
 title: Stamping a delete-heavy batch clones the tree once per delete
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-09-30T12:47:07Z
-updated_at: 2026-09-30T12:47:07Z
+updated_at: 2026-09-30T13:39:05Z
 parent: pkm-a4t2
 ---
 
@@ -13,6 +13,10 @@ parent: pkm-a4t2
 
 Fix: clone once at the start and apply each op in place (`applyOne`, or an exported in-place variant of `applyOps`). Every stamp is a string computed before its op applies, so results are identical.
 
-- [ ] Clone once, apply in place; existing stamping tests unchanged
-- [ ] A test or bench showing a delete-heavy batch no longer scales with deletes x page size
-- [ ] `perf/check.sh frontend`
+- [x] Clone once, apply in place; existing stamping tests unchanged
+- [x] A test or bench showing a delete-heavy batch no longer scales with deletes x page size
+- [x] `perf/check.sh frontend`
+
+## Summary of Changes
+
+stampBaseTextHashes clones the page at most once per batch (lazily, only when an op before the last stamp must be applied) and applies each op to that clone in place. tree.ts exports cloneTree and applyOpInPlace (the former private clone/applyOne), so op semantics stay in one function. baseTextHash.clone.test.ts pins the clone count (once for 100 deletes, zero for a single stamp or none) and that the caller's blocks are untouched; the existing stamping tests are unchanged. Scratch bench: 9k nodes / 1,000 deletes went from ~158 ms to ~20 ms (the remaining cost is the per-op locate walks). perf/check.sh frontend: no changes (no scenario covers a bulk delete).

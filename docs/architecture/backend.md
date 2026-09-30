@@ -342,7 +342,11 @@ nesting inside the subtree are not hashed, so a reorder does not diverge it.
 An edit, a new child or a block moved out does. On a mismatch the delete
 still wins, but first the server's current texts land under the block's
 conflict header, nested as they were. The copies are text only, with fresh
-uids (`ops_core.descendant_copy_effects`). A matching or hashless delete
+uids (`ops_core.descendant_copy_effects`). They never land under a header
+inside the subtree being deleted, since the delete would cascade them away.
+A block on today's daily page can hold its own earlier header, so that case
+gets a fresh header, recorded in place of the old one
+(`ops_apply._conflict_landing`'s `exclude`). A matching or hashless delete
 removes the subtree with no copy and never touches today's daily page.
 
 ### Missing targets

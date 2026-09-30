@@ -729,6 +729,51 @@ def test_diverged_delete_appends_under_todays_existing_header(client):
                        ("root, edited elsewhere", [_ONE, ("two", [])])])]
 
 
+def test_diverged_delete_never_lands_under_a_header_it_deletes(
+        client, seeded_config):
+    # r sits on today's daily page and today's header for r has been moved
+    # under r: appending there would put the copies inside the subtree the
+    # delete removes, and the cascade would take them (and the earlier
+    # conflict copy) with it
+    from pkm.server.db import open_db
+
+    today = title_for_date(date.today())
+    r_uid, c_uid = "gt_r00", "gt_c01"
+    assert _post(client,
+                 {"op": "create", "uid": r_uid, "page_title": today,
+                  "parent_uid": None, "order_idx": 0, "text": "root"},
+                 {"op": "create", "uid": c_uid, "page_title": today,
+                  "parent_uid": r_uid, "order_idx": 0, "text": "one"},
+                 client_id="seed").status_code == 200
+    assert _post(client, {"op": "update_text", "uid": r_uid,
+                          "text": "root, edited elsewhere",
+                          "base_text_hash": text_hash("a stale base")},
+                 client_id="other").status_code == 200
+    overwritten = f"[[conflict]] [[{today}]] — overwritten by (({r_uid}))"
+    [header] = [b for b in _page_blocks(client, today)
+                if b["text"] == overwritten]
+    assert _post(client, {"op": "move", "uid": header["uid"],
+                          "parent_uid": r_uid, "order_idx": 1},
+                 client_id="other").status_code == 200
+
+    base = subtree_hash([(r_uid, "root"), (c_uid, "one")])
+    assert _post(client, _gd_delete(r_uid, base)).status_code == 200
+
+    assert _conflict_trees(client) == [
+        (f"[[conflict]] [[{today}]] — deleted while edited elsewhere",
+         [("root, edited elsewhere",
+           [("one", []), (overwritten, [("root", [])])])])]
+    con = open_db(seeded_config.db_path)
+    dangling = con.execute(
+        "SELECT uid FROM blocks WHERE parent_uid IS NOT NULL"
+        " AND parent_uid NOT IN (SELECT uid FROM blocks)").fetchall()
+    gone = con.execute(
+        "SELECT uid FROM blocks WHERE uid IN (?, ?, ?)",
+        (r_uid, c_uid, header["uid"])).fetchall()
+    con.close()
+    assert dangling == [] and gone == []
+
+
 def test_diverged_delete_copies_roll_back_with_a_failing_batch(client):
     _gd_seed(client)
     r = _post(client,

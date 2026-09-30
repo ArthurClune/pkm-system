@@ -6,6 +6,7 @@ from __future__ import annotations
 import dataclasses
 import secrets
 import sqlite3
+from collections.abc import Collection
 from datetime import date
 
 from pkm.contracts.daily import title_for_date
@@ -183,10 +184,16 @@ def _conflict_header(db: sqlite3.Connection, target_uid: str, day: str,
 
 
 def _conflict_landing(db: sqlite3.Connection, target_uid: str,
-                      now_ms: int) -> ConflictLanding:
+                      now_ms: int,
+                      exclude: Collection[str] = ()) -> ConflictLanding:
     """Where text that could not apply to target_uid lands: today's daily
     page, under its existing header for the block or at a fresh top-level
-    slot. The day key is the server's local date, same as the daily page."""
+    slot. The day key is the server's local date, same as the daily page.
+
+    An existing header whose uid is in `exclude` is passed over for a fresh
+    one: a delete passes the subtree it removes, and a header inside that
+    subtree would take the copies down with it. The fresh header is then
+    recorded in its place."""
     day = title_for_date(date.today())
     daily = get_or_create_page(db, day, now_ms)
     idx = db.execute(
@@ -194,6 +201,8 @@ def _conflict_landing(db: sqlite3.Connection, target_uid: str,
         " WHERE page_id = ? AND parent_uid IS NULL",
         (daily["id"],)).fetchone()[0]
     existing = _conflict_header(db, target_uid, day, daily["id"])
+    if existing is not None and existing[0] in exclude:
+        existing = None
     # A fresh header uid is minted only when there's no existing header to
     # append under: minting one anyway would be a uid neither this apply nor
     # any later one ever uses. It is minted before the entry uid.
@@ -266,8 +275,11 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
             return DeleteContext(block, tuple(r.uid for r in rows))
         # only a divergence pays for today's daily page: the landing mints
         # the header then the root's entry, and each other row's copy uid
-        # follows in `rows` order
-        landing = _conflict_landing(db, op.uid, now_ms)
+        # follows in `rows` order. The copies never land under a header
+        # inside the subtree being deleted (a block on today's daily page
+        # can hold its own earlier header): that header gets a fresh one.
+        landing = _conflict_landing(db, op.uid, now_ms,
+                                    exclude={r.uid for r in rows})
         copy_uids = {r.uid: _new_uid() for r in rows if r.uid != op.uid}
         return DeleteConflictContext(
             block, rows, _require_page_title(db, block.page_id), landing,

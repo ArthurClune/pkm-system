@@ -215,7 +215,7 @@ an id-less batch cannot be deduplicated, so any retry or replay re-applies it.
 | `create` | insert a block; `page_title` places (and may create) the page of a top-level create, while a child lands on its parent's page |
 | `update_text` | replace a block's text; optional `base_text_hash` rides the conflict path, optional `page_title` labels a missing block's conflict header |
 | `move` | reposition or reparent; cross-page moves re-page the whole subtree. `page_title` places a top-level move; a reparented block follows its parent's page |
-| `delete` | remove a block and its subtree |
+| `delete` | remove a block and its subtree; optional `base_subtree_hash` rides the conflict path |
 | `set_heading` | set the block's heading level |
 | `set_view_type` | set `numbered` / `document` rendering for the block's children |
 | `set_collapsed` | fold or unfold — view state only (see Timestamps below) |
@@ -276,7 +276,8 @@ Key mechanics:
   hash — replays the stored ack with no effects. The same id with a different
   payload is a 409. Offline queue replay depends on it. New `applied_batches`
   rows store `batch_replay_hash` (`ops_hash.py`), which leaves out an
-  `update_text` op's `base_text_hash` and `page_title`: the worker can fill
+  `update_text` op's `base_text_hash` and `page_title`, and a `delete` op's
+  `base_subtree_hash`: the worker can fill
   those into the durable copy of a batch while the fallback-lane copy under the
   same `batch_id` keeps the caller's ops. Rows written before it hold the
   strict `batch_request_hash`, so the route accepts a match on either.
@@ -309,6 +310,7 @@ the page:
 | Block gone, hint usable but names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
 | Block gone, hint missing, blank, syntactically invalid, or (naming no current page) itself containing a backtick | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
 | Block exists, but its move's target parent is gone, is the block itself, or is its descendant | `` [[conflict]] [[Page]] — ((uid)) ``, `Page` read from the live block's own row |
+| Guarded `delete` whose subtree changed since the deleting device saw it | `` [[conflict]] [[Page]] — deleted while edited elsewhere ``, `Page` read from the block's own row before the delete; no `((uid))`, since the block is gone |
 
 `page_title` only labels a header for the missing-block case; it never
 changes whether or where an op applies. An invalid hint can't fail the
@@ -333,10 +335,15 @@ cannot win with the old title and re-create the page it emptied. Only a
 conflict resolves (and may create) today's daily page. Hashless edits to a
 live block never touch it.
 
-`delete` carries no hash. A delete that arrives after an edit it never saw
-removes that edit with no conflict copy. This gap is open, not accepted: a
-hash-guarded delete, which keeps the server's texts under the block's
-conflict header, is planned but not built.
+`delete` carries an optional `base_subtree_hash`, taken over the uid and text
+of the block and every descendant
+([canonical form](sync-and-offline.md#conflicts-at-push-time)). Order and
+nesting inside the subtree are not hashed, so a reorder does not diverge it.
+An edit, a new child or a block moved out does. On a mismatch the delete
+still wins, but first the server's current texts land under the block's
+conflict header, nested as they were. The copies are text only, with fresh
+uids (`ops_core.descendant_copy_effects`). A matching or hashless delete
+removes the subtree with no copy and never touches today's daily page.
 
 ### Missing targets
 
@@ -656,6 +663,7 @@ with the change that invalidates them.
 | `shared/fixtures/shim_parity.json` | `pkm.server.shim_parity_dump` | `tests/test_shim_parity_fixture.py` | The offline API shim (`web/src/replica/localApi/`) must return byte-identical JSON to the real routes |
 | `shared/fixtures/missing_targets.json` | hand-maintained cases | `tests/test_ops_core.py` | Pins `ops_core.classify_skip` and the replica's `skipsOnMissingTarget` (`web/src/replica/missingTarget.test.ts`) to the same skip-or-not verdicts. Its `placement_cases` pin where a create or move lands, through `ops_apply.apply_batch` and the replica's `applyLocalOps`, replays included |
 | `shared/fixtures/draft_flush.json` | hand-maintained case | `tests/test_ops_endpoint.py` | `web/src/views/EditablePage.draftFlush.test.tsx`: the op an editor draft flushes is the op the ops route's conflict and orphan paths are tested with |
+| `shared/fixtures/subtree_hash.json` | hand-maintained cases | `tests/test_subtree_hash.py` | Pins `contracts.ops.subtree_hash` and the web's `subtreeHash` (`web/src/replica/subtreeHash.test.ts`) to the same canonical hash a guarded `delete` is checked against |
 | `shared/fixtures/ops_acks.json` | hand-maintained cases | `tests/test_ops_idempotency.py`, `tests/test_client_contracts.py` | Pins the stored-ack-to-wire mapping of `POST /api/ops` and the `SkipReason` values; the web's `readOpsAck` and queue replay the wire acks (`web/src/sync/opsAck.test.ts`, `opsAck.composed.test.ts`) |
 
 ## Configuration and entrypoints

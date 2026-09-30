@@ -92,8 +92,11 @@ sees what ops before it left.
 - **Worker**: `web/src/replica/queue.ts` `enqueueBatch` fills the field when
   absent, from a recursive query on the replica, BEFORE that op's optimistic
   apply. A caller-supplied hash is stored as sent.
-- **Undo**: `withoutStamps` also strips `base_subtree_hash` from `delete`, so
-  a replayed undo stamps against the tree at replay time.
+- **Undo**: history already records deletes unstamped (`useOutline` strips
+  only the flushed text op, which is the one op that arrives pre-stamped), and
+  `undoManager.dispatch` stamps through `stampBaseTextHashes` at replay time,
+  so an undo that deletes (the inverse of a create) hashes the tree at replay
+  time with no change to `withoutStamps`.
 - **CLI / MCP**: `pkm batch`'s `delete` (`server/src/pkm/batch.py`, shared by
   the MCP batch tool) is stamped from `GET /api/block/{uid}`, which already
   returns the block's subtree, advanced through the batch's earlier ops the
@@ -128,9 +131,9 @@ sees what ops before it left.
 3. `DeleteBlocks(subtree)` and `TouchPage` for the block's page and the
    daily page. The delete still wins.
 
-`conflict_entry_effects` is generalised to take a tree of entries; the
-existing single-text callers pass a one-node tree, so every conflict path
-shares one header-and-record path. `conflict_notes.deleted_header_text` gives
+The root copy goes through `conflict_entry_effects` unchanged, so every
+conflict path shares one header-and-record path; the descendant copies follow
+it as plain `InsertBlock` + `ReindexRefs` effects, parent copy before child. `conflict_notes.deleted_header_text` gives
 
 ```
 [[conflict]] [[Page]] — deleted while edited elsewhere
@@ -177,14 +180,15 @@ Tests first, per task.
   than 409.
 - **Web unit**: main-thread stamping follows the batch walk (children moved
   out then delete; child update then delete); the worker fills before the
-  optimistic apply and defers to a supplied hash; `withoutStamps` strips the
-  field; an undo replay stamps at replay time.
+  optimistic apply and defers to a supplied hash; an undo replay stamps a
+  delete against the replay-time tree.
 - **CLI planner**: batch delete stamped from a fetched subtree; alias gets no
   hash; update then delete in one batch; 404 sends hashless.
-- **Playwright**, one spec, two contexts: A goes offline (`routeWebSocket`)
-  and deletes a block while B edits its child; A reconnects; the nested copy
-  sits under the header on today's daily note. Own `E2E_PORT`; deletes what
-  it creates.
+- **Playwright**, a new test in `web/e2e/conflict-landing.spec.ts` using its
+  pattern: the browser's `POST /api/ops` for a delete made in the editor is
+  held in a route handler while another client edits the block's child
+  through `page.request`; once released, the nested copy sits under the
+  header on today's daily note. Own `E2E_PORT`; deletes what it creates.
 
 ## 5. Docs (same branch)
 

@@ -5,7 +5,8 @@ status: todo
 type: task
 priority: low
 created_at: 2026-09-30T10:50:05Z
-updated_at: 2026-09-30T10:50:05Z
+updated_at: 2026-09-30T10:58:55Z
+parent: pkm-a4t2
 ---
 
 Op hash fields are bare strings: `UpdateTextOp.base_text_hash` is `str` with a 64-length check (`server/src/pkm/contracts/ops.py`), and the web side is a plain `string`. A hash and a text are both `str`, so passing a text where a hash belongs (`base_text_hash=text`) type-checks on both sides. `DeleteOp.base_subtree_hash` (pkm-nny8) adds a second such field.
@@ -19,3 +20,7 @@ Agreed shape (2026-09-30, while brainstorming pkm-nny8), no wire change:
 - [ ] Python `Sha256Hex` on both hash fields; producers return it
 - [ ] Web branded `Sha256Hex`; stampers and hash helpers typed with it
 - [ ] openapi.json / gen-types diff is empty
+
+
+
+Spec: docs/superpowers/specs/2026-09-30-typed-op-hashes-design.md. Built as Task 1 of docs/superpowers/plans/2026-09-30-hash-guarded-delete.md (Arthur, 2026-09-30), on the pkm-nny8 branch.

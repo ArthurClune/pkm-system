@@ -5,7 +5,7 @@ status: draft
 type: feature
 priority: normal
 created_at: 2026-09-29T13:20:56Z
-updated_at: 2026-09-30T10:53:04Z
+updated_at: 2026-09-30T10:58:55Z
 parent: pkm-a4t2
 ---
 
@@ -37,3 +37,6 @@ ships, the docs state the stale-delete limit as open, not accepted.
 
 
 Spec: docs/superpowers/specs/2026-09-30-hash-guarded-delete-design.md (brainstormed 2026-09-30). The CLI line above is superseded: there is no standalone guarded delete; `pkm batch` `delete` is guarded from a fetched subtree.
+
+
+Plan: docs/superpowers/plans/2026-09-30-hash-guarded-delete.md (Tasks 2-7; Task 1 is pkm-r5ra).

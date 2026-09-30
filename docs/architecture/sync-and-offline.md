@@ -33,9 +33,19 @@ preservation resolves collisions at push time.
 | Idempotent writes | `routes_ops.py`, `applied_batches` table | Same `batch_id` + same payload hash → replay stored ack; different payload → 409; `ops` capped at 500 per batch (`server/src/pkm/contracts/ops.py`) |
 | WS hub | `server/.../ws.py`, `notify.py` | Post-commit `{type:"seq",seq}`; generation rotation adds `force:true,generation`; applied-op echoes; drops a client at `QUEUE_SIZE` (64) or a `SEND_TIMEOUT` (10 s) send |
 | Replica | `web/src/replica/` (worker, OPFS) | sqlite-wasm copy of the graph (BASE_DDL only) on the OPFS SAHPool VFS |
-| Op queue | `web/src/sync/opQueue.ts`, `web/src/replica/queue.ts` | Durable `pending_ops` rows; optimistic local apply; drain-on-reconnect |
-| Sync orchestration | `web/src/sync/SyncProvider.tsx`, `useSocketLifecycle.ts`, `reconnectFlow.ts`, `replicaSync.ts` | Connect/reconnect ordering, cursor pull loop, recovery, view refetch (`resyncSeq`) |
+| Op queue | `web/src/sync/opQueue.ts`, `web/src/replica/queue.ts` | Durable `pending_ops` rows; optimistic local apply; drain-on-reconnect. Its pure rules: lane ordering in `outbox.ts`, poison-mark intents in `poisonIntents.ts` (stored by `poisonIntentStore.ts`) |
+| Sync orchestration | `web/src/sync/SyncProvider.tsx`, `useSocketLifecycle.ts`, `reconnectFlow.ts`, `replicaSync.ts` | Connect/reconnect ordering, cursor pull loop, recovery, view refetch (`resyncSeq`). `syncFailures.ts` classifies pull failures |
 | Offline API shim | `web/src/replica/localApi/` | Serves the read API's JSON shapes from the replica, pinned by `shared/fixtures/shim_parity.json` and by generated return types |
+
+`createOpQueue(replica)` takes no callbacks. Every `OpQueue` signal
+(`onDesync`, `onDrain`, `onSkipped`, `onPending`, `onPoison`, …) and
+`ReplicaSync.onSkipped` is a listener built with `listeners<T>()`
+(`sync/listeners.ts`), so a throwing listener never reaches the emitter or
+the other listeners. `SyncProvider` and `useSocketLifecycle` subscribe in
+effects, after the commit that built the queue. No event can arrive before
+them, because every emission follows at least one `await`. So no queue
+method may emit synchronously; `opQueue.replica.test.ts` pins that for
+`enqueue`, `drain`, `setOnline`, `pause` and `resume`.
 
 ## An online edit, end to end
 
@@ -179,11 +189,12 @@ The optimistic apply mirrors the server's timestamp rules as well as its row
 contents: `localOps.ts` leaves `blocks.updated_at` and `pages.updated_at` alone
 for `set_collapsed` (see [backend.md](backend.md#the-write-path)). It also
 skips the ops the server skips: those on a missing block or parent, and a move
-that would make a cycle. A create under a live parent lands on that parent's
-page. `missingTarget.ts` makes the skip decision, and
-`shared/fixtures/missing_targets.json` pins it to `ops_core.classify_skip`.
-The same fixture's `placement_cases` pin where each create or move lands to
-the server's write path, including a replay over a parent a window re-paged.
+that would make a cycle. `missingTarget.ts` makes the skip decision, and
+`placementFor` (`replica/placement.ts`) decides where a create or move lands,
+or keeps it in place on a replay. `shared/fixtures/missing_targets.json` pins
+both to the server: its `cases` to `ops_core.classify_skip`, its
+`placement_cases` to `ops_apply`. The cross-side table is
+[sync-recovery.md § Ops another device's tree edit overtook](sync-recovery.md#ops-another-devices-tree-edit-overtook).
 Why a replay must agree with the server is in
 [sync-recovery.md § Ops on blocks the server no longer has](sync-recovery.md#ops-on-blocks-the-server-no-longer-has).
 
@@ -241,10 +252,11 @@ sequenceDiagram
 
 Reconnect ordering in `reconnectFlow.ts` is fixed: **drain the queue first, then
 pull, then refetch views**, so the pull observes server state that already
-includes this client's offline edits. A socket reconnect and the queue's drain
-observer share one completion, which is what finishes a reconnect whose first
-drain was blocked. The terminal-4xx branch's repair, and which statuses count
-as terminal (`isTerminalRejection`), are in
+includes this client's offline edits. A socket reconnect and the queue's
+`onDrain` listener (`reconnect.observeDrain`) share one completion, which is
+what finishes a reconnect whose first drain was blocked. The terminal-4xx
+branch's repair, and which statuses count as terminal (`isTerminalRejection`),
+are in
 [sync-recovery.md § A batch the server rejects](sync-recovery.md#a-batch-the-server-rejects).
 
 ### When views refetch

@@ -16,7 +16,7 @@ replica is a cache and the queue is the user's intent.
 |---|---|---|---|---|
 | A replica write fails: `SQLITE_CANTOPEN`, `IOERR`, a dead worker | `enqueue`'s catch in `opQueue.ts` | Op kept in the in-memory fallback lane | Only `ReplicaError.rejected` drops an op | [A local write fails](#a-local-write-fails) |
 | The replica refuses the op itself (title syntax) | `ReplicaError.rejected` | Ticket fails; `onDesync` repairs the outline | The only replica failure that discards | [A local write fails](#a-local-write-fails) |
-| Lane entries and durable rows are both waiting | `laneHeadPrecedes` | Ordered by batch identity | Every path that posts durable rows asks the queue first | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
+| Lane entries and durable rows are both waiting | `headPrecedes` (`sync/outbox.ts`) | Ordered by batch identity | Every path that posts durable rows asks the queue first | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
 | An enqueue reply is lost after the row persisted | Two copies share one `batch_id` | The second delivery replays | `batch_id` is minted before the RPC | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
 | The replica latches `availability` with durable rows still queued | `noteReplicaFailure`, on `isSessionFatal` evidence | The drain delivers only the lane; a later session delivers the durable rows, behind the lane's ops | A deferred `update_text` carries its `base_text_hash`, so it lands as a conflict and the newer text is kept; an op on a target the lane removed lands as a missing target | [A local write fails](#a-local-write-fails) |
 | The OPFS file cannot be opened | `openWithRetry`, `ensureMinimumCapacity` | Up to 6 attempts, then `unusable` for the session | `forceReinitIfPreviouslyFailed`; pool top-up before the open | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
@@ -71,8 +71,8 @@ lane's ops removed lands as a
 
 The lane is drained under the same connectivity, backoff and recovery-barrier
 policy as durable rows. Two outboxes feed one server, so order is decided by
-batch identity in one predicate, `laneHeadPrecedes`, never by a count of
-batches ahead:
+batch identity in one predicate, `headPrecedes` in `sync/outbox.ts`, never
+by a count of batches ahead:
 
 | Durable batch | Goes |
 |---|---|
@@ -87,8 +87,8 @@ That method only posts; a lane entry's terminal-4xx discard stays the drain's de
 A new path that posts durable rows without that call can put a move ahead of
 the create it depends on. The lane therefore waits for a `nextBatch()` read, so
 a failed read delays it through the normal backoff. A duplicate POST of one
-head from the drain and the flush is a server replay, and the head leaves the
-lane once.
+head from the drain and the flush is a server replay. `settleHead` shifts the
+head only while it is still that `batch_id`, so the head leaves the lane once.
 
 `opQueue.enqueue` mints an entry's `batch_id` *before* the persist RPC, and a
 retained entry keeps it. After a lost enqueue reply, a durable row and its lane
@@ -292,8 +292,9 @@ deleted. It also never posts those rows first. Its way past a damaged file is
 the rebase's own file replacement (see
 [Reset, rebase and file replacement](#reset-rebase-and-file-replacement)).
 
-Retained mark intents live in `localStorage`, not the replica, so they survive
-an unopenable database. A `retryPoisonMarks()` that fails while intents exist
+Retained mark intents live in `localStorage` (`sync/poisonIntentStore.ts`,
+key `pkm.poison-mark-intents.v1`), not the replica, so they survive an
+unopenable database. A `retryPoisonMarks()` that fails while intents exist
 keeps its barrier and a "Saving rejected-change recovery failed: …" Retry
 banner. That banner also offers "Discard rejected change"
 (`Sync.discardProblem()`), which drops the retained intents and releases the
@@ -320,7 +321,8 @@ Retry re-marks it.
 A pull failure that escapes `pullLoop` reaches `noteFailure`, which retries
 from `RETRY_BASE_MS` (1 s) doubling to `RETRY_MAX_MS` (60 s), with no timer
 while offline. The reconnect flow restarts the pull when the socket returns.
-`isStallShaped` decides whether the failure counts towards
+`isStallShaped` (`sync/syncFailures.ts`, beside `isWindowFailure` and
+`isFreshCorruption`) decides whether the failure counts towards
 `STALL_AFTER_FAILURES` (3):
 
 | Failure | Counts? | Why |
@@ -549,4 +551,5 @@ The journalled subtree then restores what else the local move touched:
 descendants it re-paged, and the target's children it shifted.
 `missing_targets.json` pins the whole table on both sides: the cycle skip in
 its `cases`, and the first two rows' placement, replays included, in its
-`placement_cases`.
+`placement_cases`. The replica's column is `placementFor`
+(`replica/placement.ts`), which `localOps.ts` asks before it runs the SQL.

@@ -339,7 +339,7 @@ live block never touch it.
 of the block and every descendant
 ([canonical form](sync-and-offline.md#conflicts-at-push-time)). Order and
 nesting inside the subtree are not hashed, so a reorder does not diverge it.
-An edit, a new child or a block moved out does. On a mismatch the delete
+An edit, a new child or a block moved in or out does. On a mismatch the delete
 still wins, but first the server's current texts land under the block's
 conflict header, nested as they were. The copies are text only, with fresh
 uids (`ops_core.descendant_copy_effects`). They never land under a header

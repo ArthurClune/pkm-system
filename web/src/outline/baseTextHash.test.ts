@@ -125,7 +125,7 @@ describe("stampBaseTextHashes on delete", () => {
       .not.toHaveProperty("base_subtree_hash");
   });
 
-  test("a merge batch stamps the delete against the tree its moves left", () => {
+  test("a backspace merge hashes the deleted block as it stood before the merge", () => {
     // The real backspace merge: backspaceAtStart only merges a childless
     // block, as [update_text prev, delete B]. The delete must hash B as it
     // stood before the merge, not the merged text on prev.

@@ -181,10 +181,10 @@ export function useOutline(
     if (ops.length === 0) return;
     const next = result.ops.length > 0 ? result.blocks : base;
     // Conflict protection must not depend on the ops reaching the database:
-    // base_text_hash is stamped here, against `pre` — the
-    // pre-flush tree the whole batch grew from — because an online-only
-    // session's ops never reach replica/queue.ts, which is where the worker
-    // would otherwise fill it in.
+    // the guards (base_text_hash on update_text, base_subtree_hash on
+    // delete) are stamped here, against `pre` — the pre-flush tree the whole
+    // batch grew from — because an online-only session's ops never reach
+    // replica/queue.ts, the other choke point that stamps them.
     const wireOps = stampBaseTextHashes(pre, pageTitle, ops);
     const write = sync.enqueue(wireOps, ["page", pageTitle]);
     const handle = sessionRef.current;

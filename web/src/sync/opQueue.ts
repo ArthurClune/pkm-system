@@ -530,11 +530,12 @@ function createReplicaQueue(replica: Replica,
      * This does not hold across sessions: a later session with a working
      * replica replays the deferred durable rows, and by then they are
      * strictly behind the lane ops this session already delivered. That
-     * ordering is defensible rather than merely accepted, because
-     * base_text_hash is now stamped on update_text ops at both choke points —
-     * the durable row's hash was taken against text that is now stale, so the
-     * server lands it under a daily-note `[[conflict]]` header instead of
-     * silently LWW-overwriting the newer lane op.
+     * ordering is defensible rather than merely accepted, because both
+     * choke points stamp the guards: base_text_hash on update_text and
+     * base_subtree_hash on delete. The durable row's hash was taken against
+     * a tree that is now stale, so the server lands its texts under a
+     * daily-note `[[conflict]]` header instead of silently overwriting or
+     * deleting the newer lane op's work.
      *
      * pendingCount is deliberately NOT zeroed: durable rows persisted before
      * the replica died are genuinely undelivered and belong in the pending

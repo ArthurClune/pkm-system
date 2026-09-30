@@ -74,7 +74,9 @@ missing uid 404s before any op is sent. `pkm batch` sends `update` and `move`
 uids unchecked. It fetches each deleted uid first, one `GET /api/block/{uid}`
 per uid and none for an `{{alias}}`, and `batch.plan_batch` stamps the delete's
 `base_subtree_hash` from that subtree ([Pure planners](#pure-planners)). A
-delete whose uid is missing still goes out, unguarded. The server skips
+delete whose uid is missing still goes out, unguarded. One whose uid is not a
+valid uid fails that fetch (422), so the whole batch is refused before
+anything is sent, and `cmd_batch` exits 1. The server skips
 an op on a missing block (or a move that would make a cycle) rather than
 rejecting the batch. The ack's `skipped` list is therefore the only sign
 of a mistyped uid: `render.render_ops_ack` leads with `warning:` when it is

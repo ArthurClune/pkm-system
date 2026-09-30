@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
+import { subtreeHash } from "../replica/subtreeHash";
 import { block, makeSync, type SyncFake } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -184,7 +185,8 @@ it("deleting 20 or fewer selected blocks proceeds without confirmation", () => {
   expect(confirmSpy).not.toHaveBeenCalled();
   expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(sync.sent).toEqual([
-    [{ op: "delete", uid: "a" }, { op: "delete", uid: "b" }],
+    [{ op: "delete", uid: "a", base_subtree_hash: subtreeHash([["a", "alpha"]]) },
+     { op: "delete", uid: "b", base_subtree_hash: subtreeHash([["b", "beta"]]) }],
   ]);
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(["c"]);
   expect(getOutline().selection).toBeNull();
@@ -242,7 +244,9 @@ it("deleting more than 20 selected blocks proceeds once confirmed in the dialog"
   });
 
   expect(sync.sent).toEqual([
-    MANY_UIDS.map((uid) => ({ op: "delete", uid })),
+    MANY_UIDS.map((uid) => ({
+      op: "delete", uid, base_subtree_hash: subtreeHash([[uid, uid]]),
+    })),
   ]);
   expect(getOutline().blocks).toEqual([]);
   expect(getOutline().selection).toBeNull();

@@ -1,11 +1,12 @@
 import { afterEach, expect, it } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
+import { subtreeHash } from "../replica/subtreeHash";
 import { block, makeSync } from "../test-helpers";
 import { acquireOutlineSession } from "./outlineSessions";
 import { performRedo, performUndo, recordHistory, registerOutlineHistory,
          resetHistory, setHistoryNavigator } from "./undoManager";
-import type { HistoryEntry } from "./history";
+import { invertOps, type HistoryEntry } from "./history";
 
 const PAGE = "Undo Page";
 
@@ -133,6 +134,32 @@ it("redo stamps against the current tree, not the recorded one", () => {
     op: "update_text", uid: "a", text: "one",
     base_text_hash: sha256Hex("two"),
   });
+  handle.release();
+});
+
+it("an undo that deletes is stamped against the tree at replay time", () => {
+  // The inverse of a create is a delete, recorded unstamped: its subtree hash
+  // must cover the block's text as it is when the undo replays, or undoing a
+  // block the user has since typed into would land a spurious conflict copy.
+  const sync = makeSync();
+  const before = [block("a", "first", { order_idx: 0 })];
+  const create: BlockOp[] = [{ op: "create", uid: "n", page_title: PAGE,
+                               parent_uid: null, order_idx: 1, text: "" }];
+  const inverse = invertOps(before, PAGE, create);
+  expect(inverse).toEqual([{ op: "delete", uid: "n" }]);
+  const handle = acquireOutlineSession(PAGE, [
+    ...before, block("n", "", { order_idx: 1 })]);
+  recordHistory({ pageTitle: PAGE, ops: create, inverse: inverse!,
+                  focusBefore: null, focusAfter: null });
+  const typed: BlockOp[] = [{ op: "update_text", uid: "n", text: "typed later" }];
+  handle.applyLocal(sync.enqueue(typed, ["page", PAGE]), typed);
+
+  expect(performUndo(sync)).toBe(true);
+
+  expect(sync.sent[sync.sent.length - 1]).toEqual([{
+    op: "delete", uid: "n",
+    base_subtree_hash: subtreeHash([["n", "typed later"]]),
+  }]);
   handle.release();
 });
 

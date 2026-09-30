@@ -6,7 +6,7 @@ import { defaultUnauthorizedHandler, setUnauthorizedHandler } from "../api/clien
 import type { BlockOp } from "../api/ops";
 import type { OpsAck } from "../api/payloads";
 import type { Replica } from "../replica/client";
-import { ReplicaError, ReplicaUnavailableError,
+import { ReplicaError, ReplicaUnusableError,
          RpcLifecycleError } from "../replica/errors";
 import { jsonResponse } from "../test-helpers";
 import { memReplica } from "./memReplica";
@@ -471,7 +471,7 @@ describe("an enqueue the replica cannot persist", () => {
     let nextBatchCalls = 0;
     replica.nextBatch = () => {
       nextBatchCalls += 1;
-      return Promise.reject(new ReplicaUnavailableError("no openable database"));
+      return Promise.reject(new ReplicaUnusableError("no openable database"));
     };
     const queue = createOpQueue(replica, () => undefined);
     await expect(queue.drain()).resolves.toEqual({ status: "drained" });
@@ -2213,14 +2213,14 @@ describe("skipped ops in an ack", () => {
   // leaves the screen, and every debounced flush lands another child under
   // its daily-note conflict header. A replica-backed tab's own feed also
   // tombstones the ghost row, but nothing else bumps resync for it, so this
-  // fires regardless of whether the queue has latched `unavailable`.
+  // fires regardless of whether the queue has latched `availability`.
 
   /** Unlike laneOnlyReplica's CANTOPEN (a local persist failure that is never
-   * session-fatal, see errors.ts::isSessionFatal), this latches `unavailable`
+   * session-fatal, see errors.ts::isSessionFatal), this latches `availability`
    * exactly as absentReplica() does for a real no-replica session -- the
    * condition deliverLaneHead's refetch is narrowed to. */
   const noReplicaAtAll = () => laneOnlyReplica({
-    enqueue: async () => { throw new ReplicaUnavailableError("no openable database"); },
+    enqueue: async () => { throw new ReplicaUnusableError("no openable database"); },
   });
 
   test("a fallback-lane ack naming a skipped op triggers the no-replica refetch",
@@ -2281,7 +2281,7 @@ describe("skipped ops in an ack", () => {
   "fine still refetches (both paths read the ack's skipped list, not only " +
   "the no-replica latch)", async () => {
     // The lane also delivers ordering-only entries ahead of a durable batch
-    // while unavailable is still null -- a working replica, just a
+    // while availability is still null -- a working replica, just a
     // transient local persist failure. Its own feed will also tombstone the
     // ghost, so this refetch is a harmless extra, not a correctness gap.
     const { bodies } = fetchSeq([() => jsonResponse({

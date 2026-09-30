@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import type { Changes } from "../replica/apply";
-import { ReplicaUnavailableError } from "../replica/errors";
+import { ReplicaUnusableError } from "../replica/errors";
 import { memReplica } from "./memReplica";
 import { createReconnectFlow } from "./reconnectFlow";
 import { createReplicaSync } from "./replicaSync";
@@ -266,7 +266,7 @@ test("a reconnect resyncs once a pull reports the replica has become unusable",
   await flow.begin();
   expect(trace).toEqual(["drain", "start", "idle"]);
 
-  latched = new ReplicaUnavailableError("no openable database");
+  latched = new ReplicaUnusableError("no openable database");
   await flow.begin();
 
   expect(trace).toEqual([

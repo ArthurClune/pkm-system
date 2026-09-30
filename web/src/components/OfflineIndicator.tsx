@@ -40,7 +40,7 @@ function PoisonDiscoveryBanner({ problem, actions }: {
 }
 
 /** The sentence naming edits that live only in this tab's memory: shared by
- * the replica-unavailable banner (every pending op is in-memory there) and
+ * the replica-unusable banner (every pending op is in-memory there) and
  * the offline connectivity banner (a replica can keep failing writes to the
  * fallback lane beside healthy durable rows), so both name the same risk in
  * the same words. */
@@ -52,8 +52,8 @@ function memoryOnlySentence(unsentInMemory: number): string | null {
 }
 
 /** The second sentence turns on connectivity, because the truth does.
- * This problem is a ReplicaUnavailableError (SyncProvider only
- * raises replica-unavailable for availabilityOf(error) === "unusable"), which
+ * This problem is a ReplicaUnusableError (SyncProvider only
+ * raises replica-unusable for availabilityOf(error) === "unusable"), which
  * is never `rejected`, so opQueue always retains here — but retained ops live
  * in the in-memory fallback lane. So "still being saved" is true while the
  * socket is up and delivering, and false the moment it is not: a refresh or a
@@ -70,7 +70,7 @@ function onlineOnlySafetyCopy(status: SyncStatus, pending: number): string | nul
   return sentence === null ? null : ` You are offline: ${sentence}`;
 }
 
-function ReplicaUnavailableBanner({ status, pending, actions }: {
+function ReplicaUnusableBanner({ status, pending, actions }: {
   status: SyncStatus;
   pending: number;
   actions: BannerActions;
@@ -230,9 +230,9 @@ function DeliveryProblemBanner({ problem, status, pending, actions }: {
   switch (problem.kind) {
     case "poison-discovery":
       return <PoisonDiscoveryBanner problem={problem} actions={actions} />;
-    case "replica-unavailable":
-      return <ReplicaUnavailableBanner status={status} pending={pending}
-                                       actions={actions} />;
+    case "replica-unusable":
+      return <ReplicaUnusableBanner status={status} pending={pending}
+                                    actions={actions} />;
     case "legacy-rejected":
       return <LegacyRejectedBanner problem={problem} actions={actions} />;
     case "rejected-batch":

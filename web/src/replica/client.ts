@@ -83,7 +83,7 @@ export interface ReplicaDiagnostics {
 export type { LocalApiRequest, LocalApiResult } from "./localApi/router";
 
 export interface Replica {
-  /** Rejects with ReplicaUnavailableError when the database cannot be opened;
+  /** Rejects with ReplicaUnusableError when the database cannot be opened;
    * the worker has latched that for the session. */
   init(): Promise<ReplicaInit>;
   applySnapshot(snap: Snapshot): Promise<void>;

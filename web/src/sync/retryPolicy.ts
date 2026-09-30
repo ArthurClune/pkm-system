@@ -42,7 +42,7 @@ export function planRetry(
         ? { kind: "repair-targets" } : { kind: "none" };
     case "poison-discovery":
       return { kind: "continue-startup" };
-    case "replica-unavailable":
+    case "replica-unusable":
     case "replica-stalled":
       // Neither offers a Retry: the first is latched for the session and the
       // banner offers Reload, the second offers Reset local data.

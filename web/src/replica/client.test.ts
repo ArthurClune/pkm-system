@@ -5,7 +5,7 @@ import { expect, test, vi } from "vitest";
 import type { Snapshot } from "./apply";
 import { createReplica, type Replica } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
-import { ReplicaUnavailableError } from "./errors";
+import { ReplicaUnusableError } from "./errors";
 import { setMeta } from "./meta";
 import { serveRpc, toPortLike } from "./rpc";
 import { openRawTestDb, type TestDb } from "./testDb";
@@ -203,7 +203,7 @@ test("openDb failure rejects init() with the worker's latched error", async () =
   }));
   const replica = createReplica(toPortLike(ch.port1));
   const err = await replica.init().catch((e: unknown) => e);
-  expect(err).toBeInstanceOf(ReplicaUnavailableError);
+  expect(err).toBeInstanceOf(ReplicaUnusableError);
   expect((err as Error).message).toBe("OPFS unavailable");
 });
 

@@ -229,17 +229,17 @@ function createReplicaQueue(replica: Replica,
   // is cleared once the lane empties or nextBatch() observes the durable
   // queue empty, which catches batches flushed out of band.
   const follows = new Map<string, number>();
-  // The availability fact, DERIVED from this queue's own failed RPCs and
-  // latched only on evidence that is itself permanent (the worker's latched
-  // open, or a terminally failed RPC client — never a timeout). The queue does
-  // not need telling by anyone: the single owner is the worker, and this is a
-  // local cache of what it said. Nothing here lifts the recovery barrier —
-  // that decision needs the stronger `unusable` evidence and belongs to
-  // startup.
-  let unavailable: ReplicaAvailability | null = null;
+  // Whether the replica can be used at all, DERIVED from this queue's own
+  // failed RPCs and latched only on evidence that is itself permanent (the
+  // worker's latched open, or a terminally failed RPC client — never a
+  // timeout). The queue does not need telling by anyone: the single owner is
+  // the worker, and this is a local cache of what it said. Nothing here lifts
+  // the recovery barrier — that decision needs the stronger `unusable`
+  // evidence and belongs to startup.
+  let availability: ReplicaAvailability | null = null;
   const noteReplicaFailure = (error: unknown): void => {
-    if (unavailable === null && isSessionFatal(error)) {
-      unavailable = availabilityOf(error);
+    if (availability === null && isSessionFatal(error)) {
+      availability = availabilityOf(error);
     }
   };
 
@@ -359,9 +359,10 @@ function createReplicaQueue(replica: Replica,
   };
 
   const countPending = async (): Promise<number> => {
-    // A known-unavailable replica must not be asked: skip the RPC rather than
-    // rediscovering unavailability on every call via a rejected promise.
-    if (unavailable !== null) return pendingCount;
+    // A replica whose availability is already known must not be asked: skip
+    // the RPC rather than rediscovering it on every call via a rejected
+    // promise.
+    if (availability !== null) return pendingCount;
     try {
       setPendingCount(await replica.pendingCount());
     } catch (error: unknown) {
@@ -468,7 +469,7 @@ function createReplicaQueue(replica: Replica,
       return failed(error);
     }
     // This batch committed (skipped ops are not a rejection); the ack's
-    // skipped list is consulted regardless of `unavailable`: a replica-backed
+    // skipped list is consulted regardless of `availability`: a replica-backed
     // tab's own feed tombstones the replica row, but no resync event follows
     // from that alone, so the view keeps the ghost until something else bumps
     // resync. The extra refetch is harmless when the feed also converges the
@@ -551,7 +552,7 @@ function createReplicaQueue(replica: Replica,
 
     for (;;) {
       drainAgain = false;
-      if (unavailable !== null) {
+      if (availability !== null) {
         const head = fallback[0];
         if (head !== undefined) {
           const outcome = await deliverLaneHead(head);
@@ -567,7 +568,7 @@ function createReplicaQueue(replica: Replica,
         batch = await replica.nextBatch();
       } catch (error: unknown) {
         noteReplicaFailure(error);
-        if (unavailable === null) return failed(error);
+        if (availability === null) return failed(error);
         const outcome = deferDurableQueue();
         if (outcome !== null) return outcome;
         continue;

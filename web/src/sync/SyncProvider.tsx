@@ -14,7 +14,7 @@ import { attachActiveOutlineWriteReplay, repairActiveOutlineSessions,
          trackActiveOutlineWrite } from "../outline/outlineSessions";
 import type { OutlineReplayAction } from "../outline/outlineState";
 import { createReplica, type Replica } from "../replica/client";
-import { availabilityOf, ReplicaUnavailableError } from "../replica/errors";
+import { availabilityOf, ReplicaUnusableError } from "../replica/errors";
 import { toPortLike } from "../replica/rpc";
 import { clientId, createOpQueue, type DrainOutcome,
          type PoisonEvent, type WriteTicket } from "./opQueue";
@@ -202,7 +202,7 @@ function defaultReplica(): OwnedReplica | null {
  * real browser always builds the worker-backed replica above. */
 function absentReplica(): Replica {
   const absent = async (): Promise<never> => {
-    throw new ReplicaUnavailableError("no replica in this environment");
+    throw new ReplicaUnusableError("no replica in this environment");
   };
   return {
     init: absent, applySnapshot: absent, applyChanges: absent,
@@ -468,7 +468,7 @@ export function SyncProvider({ children, replica }: {
           // Not silent: the user has lost offline editing for the session and
           // gets no other signal, since "no-replica" raises no banner of its
           // own.
-          applySync({ type: "replica-unavailable", error: message });
+          applySync({ type: "replica-unusable", error: message });
           return;
         }
         applySync({ type: "poison-discovery-failed", error: message });

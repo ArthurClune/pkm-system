@@ -3,7 +3,7 @@ import { expect, test, vi } from "vitest";
 import { applySnapshot, type Snapshot } from "./apply";
 import type { AckedBatch, ReplicaDiagnostics } from "./client";
 import { SCHEMA_VERSION } from "./clientSchema";
-import { availabilityOf, ReplicaUnavailableError } from "./errors";
+import { availabilityOf, ReplicaUnusableError } from "./errors";
 import { type CarryStore, createCarryStore } from "./carryStore";
 import type { ReplicaDb } from "./db";
 import type { DurablePendingRow } from "./queue";
@@ -278,7 +278,7 @@ test("an acquired recovery lease expires if its client forgets the token", async
 test("a failed open stays latched: init's rejection must not re-arm the database",
 async () => {
   // SyncProvider lifts the op queue's recovery barrier on
-  // the strength of init() rejecting with the latched ReplicaUnavailableError,
+  // the strength of init() rejecting with the latched ReplicaUnusableError,
   // WITHOUT having read the poison table. If init's failure path cleared the
   // memoised open, the next handler call would attempt a fresh one — and in
   // the reload race that succeeds, letting the queue drain batches queued
@@ -350,7 +350,7 @@ test("one failed open is replayed by EVERY handler, and opens only once", async 
   expect(opens).toBe(1);
 });
 
-test("the latched unavailable error is one typed object, and close() is its only reset",
+test("the latched unusable error is one typed object, and close() is its only reset",
 async () => {
   let opens = 0;
   let fail = true;
@@ -364,7 +364,7 @@ async () => {
   });
 
   const first = await handlers.pendingCount(undefined).catch((e: unknown) => e);
-  expect(first).toBeInstanceOf(ReplicaUnavailableError);
+  expect(first).toBeInstanceOf(ReplicaUnusableError);
   // The original message is preserved deliberately: it is the only
   // diagnostic a user-visible banner has. Retention matches on a type
   // check against this class, never on the message text.
@@ -401,7 +401,7 @@ test("init rejects with the latched error instead of reporting ok:false", async 
     openDb: async () => { throw new Error("OPFS is not available in this browser"); },
   });
   const err = await handlers.init(undefined).catch((e: unknown) => e);
-  expect(err).toBeInstanceOf(ReplicaUnavailableError);
+  expect(err).toBeInstanceOf(ReplicaUnusableError);
   expect(availabilityOf(err)).toBe("unusable");
 });
 

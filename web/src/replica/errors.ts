@@ -2,7 +2,7 @@
 // The replica's error taxonomy, and what each kind implies about availability.
 // Pure class definitions and predicates: no I/O, no transport. rpc.ts (the
 // transport shell) imports these; nothing here imports rpc.ts, which is what
-// keeps ReplicaUnavailableError's `extends` out of an import cycle.
+// keeps ReplicaUnusableError's `extends` out of an import cycle.
 //
 // Why a taxonomy exists at all: "is the replica usable?" used to be re-derived
 // by every consumer, most alarmingly by matching strings in an error message to
@@ -41,10 +41,10 @@ export class ReplicaError extends Error {
  * ask": by the worker, which is the one party that can say so of a database it
  * tried to open, and by SyncProvider's absentReplica(), which says the same of
  * an environment with no Worker to open one in. */
-export class ReplicaUnavailableError extends ReplicaError {
+export class ReplicaUnusableError extends ReplicaError {
   constructor(message: string, flags: ReplicaErrorFlags = {}) {
     super(message, flags);
-    this.name = "ReplicaUnavailableError";
+    this.name = "ReplicaUnusableError";
   }
 }
 
@@ -66,11 +66,11 @@ export class RpcLifecycleError extends Error {
   }
 }
 
-/** The availability fact, at the two evidentiary levels its two consumers need.
- * Retaining an op needs only "this write did not persist locally"; lifting the
- * op queue's recovery barrier needs "there is positively no poison table to
- * read", because delivering past an unrepaired rejection is the ordering hazard
- * the barrier exists for.
+/** Whether the replica can be used at all, at the two levels its two
+ * consumers need. Retaining an op needs only "this write did not persist
+ * locally"; lifting the recovery barrier needs "there is no database",
+ * because delivering past an unrepaired rejection is the hazard the barrier
+ * guards.
  *
  * | value        | meaning                          | retain? | may lift barrier? |
  * | unusable     | openDb() failed: no database      | yes     | YES               |
@@ -82,7 +82,7 @@ export class RpcLifecycleError extends Error {
 export type ReplicaAvailability = "unusable" | "unreachable";
 
 export function availabilityOf(error: unknown): ReplicaAvailability | null {
-  if (error instanceof ReplicaUnavailableError) return "unusable";
+  if (error instanceof ReplicaUnusableError) return "unusable";
   if (error instanceof RpcLifecycleError) return "unreachable";
   return null;
 }
@@ -94,7 +94,7 @@ export function availabilityOf(error: unknown): ReplicaAvailability | null {
  * leaves the client usable. Retention does not need this distinction (every
  * level retains); latching a state does. */
 export function isSessionFatal(error: unknown): boolean {
-  if (error instanceof ReplicaUnavailableError) return true;
+  if (error instanceof ReplicaUnusableError) return true;
   return error instanceof RpcLifecycleError && error.kind !== "timeout";
 }
 
@@ -107,11 +107,11 @@ export function isSessionFatal(error: unknown): boolean {
  *
  * The replica is a cache, so this is a reason to REBUILD it, not a stall to
  * show the user. Only an ordinary ReplicaError qualifies: a
- * latched failed open is an availability fact with its own handling, and a
+ * latched failed open is unusable, handled separately, and a
  * plain Error carrying the same words did not come from the worker. */
 export function isCorruptionError(error: unknown): boolean {
   if (!(error instanceof ReplicaError)) return false;
-  if (error instanceof ReplicaUnavailableError) return false;
+  if (error instanceof ReplicaUnusableError) return false;
   return isCorruptionMessage(error.message);
 }
 

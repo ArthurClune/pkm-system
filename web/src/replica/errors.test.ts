@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { availabilityOf, isCorruptionError, isSessionFatal,
-         isUnreadableFileMessage, ReplicaError, ReplicaUnavailableError,
+         isUnreadableFileMessage, ReplicaError, ReplicaUnusableError,
          RpcLifecycleError } from "./errors";
 
 describe("ReplicaError flags", () => {
@@ -12,15 +12,15 @@ describe("ReplicaError flags", () => {
     expect(new ReplicaError("bad title", { rejected: true }).rejected).toBe(true);
   });
 
-  test("an unavailable error is still a ReplicaError", () => {
+  test("an unusable error is still a ReplicaError", () => {
     // Every existing `instanceof ReplicaError` check must keep working.
-    expect(new ReplicaUnavailableError("no db")).toBeInstanceOf(ReplicaError);
+    expect(new ReplicaUnusableError("no db")).toBeInstanceOf(ReplicaError);
   });
 });
 
 describe("availabilityOf", () => {
   test("the worker's own failed open is unusable", () => {
-    expect(availabilityOf(new ReplicaUnavailableError("no db"))).toBe("unusable");
+    expect(availabilityOf(new ReplicaUnusableError("no db"))).toBe("unusable");
   });
 
   test("a terminal RPC failure is unreachable, not unusable", () => {
@@ -39,7 +39,7 @@ describe("availabilityOf", () => {
 
 describe("isSessionFatal", () => {
   test("a latched open failure is fatal for the session", () => {
-    expect(isSessionFatal(new ReplicaUnavailableError("no db"))).toBe(true);
+    expect(isSessionFatal(new ReplicaUnusableError("no db"))).toBe(true);
   });
 
   test("a timeout is NOT fatal: one slow call is not a dead replica", () => {
@@ -75,8 +75,8 @@ describe("isCorruptionError", () => {
     expect(isCorruptionError(new ReplicaError(
       "SQLITE_CONSTRAINT_UNIQUE: sqlite3 result code 2067: UNIQUE constraint failed: pages.title",
     ))).toBe(false);
-    // a latched failed open is an availability fact, never a rebuild trigger
-    expect(isCorruptionError(new ReplicaUnavailableError(
+    // a latched failed open is unusable, never a rebuild trigger
+    expect(isCorruptionError(new ReplicaUnusableError(
       "database disk image is malformed"))).toBe(false);
     expect(isCorruptionError(new Error("database disk image is malformed"))).toBe(false);
     expect(isCorruptionError("SQLITE_CORRUPT")).toBe(false);

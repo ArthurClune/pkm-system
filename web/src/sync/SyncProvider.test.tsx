@@ -1391,8 +1391,8 @@ function unopenableReplica(
   // A real worker latches its failed open, so every call — init() included —
   // replays one ReplicaUnusableError. The fixture has to do the same or it
   // is testing a replica that cannot exist.
-  const unavailable = new ReplicaUnusableError(message);
-  const dead = () => Promise.reject(unavailable);
+  const unusable = new ReplicaUnusableError(message);
+  const dead = () => Promise.reject(unusable);
   replica.init = () => { initCalls += 1; return dead(); };
   replica.poisonedBatches = dead;
   replica.pendingBatches = dead;

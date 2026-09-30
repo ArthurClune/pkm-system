@@ -132,7 +132,6 @@ describe("purity", () => {
     append(s, "c", [op("c")]);
     markFollows(s, "other");
     settleHead(s, "a");
-    settleHead(withEntries("a"), "a");
     forget(s, "durable");
     clearMarks(s);
     headPrecedes(s, "durable");

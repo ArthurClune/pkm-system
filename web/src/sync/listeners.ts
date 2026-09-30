@@ -1,4 +1,4 @@
-// pattern: Functional Core
+// pattern: Imperative Shell
 // A set of subscribers. A listener that throws never stops the others from
 // hearing the same value, nor reaches the code that emitted it.
 

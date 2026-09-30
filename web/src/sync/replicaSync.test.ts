@@ -222,9 +222,9 @@ describe("start, bootstrap and feed pulls", () => {
     // reporting "no-replica" with no fetch at all.
     const feeds: string[] = [];
     const replica = fakeReplica();
-    const unavailable = new ReplicaUnusableError("no openable database");
-    replica.init = () => Promise.reject(unavailable);
-    replica.prepareRecovery = () => Promise.reject(unavailable);
+    const unusable = new ReplicaUnusableError("no openable database");
+    replica.init = () => Promise.reject(unusable);
+    replica.prepareRecovery = () => Promise.reject(unusable);
     const sync = createReplicaSync({
       replica,
       fetchJson: async (path: string) => {
@@ -235,7 +235,7 @@ describe("start, bootstrap and feed pulls", () => {
       onState: () => undefined,
     });
     await sync.start();
-    await expect(sync.resetLocalData({ discardPending: true })).rejects.toBe(unavailable);
+    await expect(sync.resetLocalData({ discardPending: true })).rejects.toBe(unusable);
     await sync.start();
     expect(feeds).toEqual([]);
   });

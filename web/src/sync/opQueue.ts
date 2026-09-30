@@ -137,7 +137,7 @@ function postOps(ops: BlockOp[], batchId: string): Promise<OpsAck> {
   });
 }
 
-function createReplicaQueue(replica: Replica): OpQueue {
+export function createOpQueue(replica: Replica): OpQueue {
   let poisonMarkIntents = readPoisonMarkIntents();
   // Connectivity + retry policy lives in the queueState core; this shell owns
   // the timer handle and dispatches events into it.
@@ -761,8 +761,4 @@ function createReplicaQueue(replica: Replica): OpQueue {
       }
     },
   };
-}
-
-export function createOpQueue(replica: Replica): OpQueue {
-  return createReplicaQueue(replica);
 }

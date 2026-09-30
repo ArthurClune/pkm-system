@@ -1,11 +1,11 @@
 ---
 # pkm-amw9
 title: pkm batch fetches one page per deleted uid
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-09-30T12:47:07Z
-updated_at: 2026-09-30T12:47:07Z
+updated_at: 2026-09-30T13:34:33Z
 parent: pkm-a4t2
 ---
 
@@ -13,5 +13,5 @@ parent: pkm-a4t2
 
 Fix: group delete uids by page and take each subtree from one page fetch, reusing the page already fetched for `referenced_pages` when there is one. The uid -> page mapping needs one lookup per uid (or a batched lookup route), so weigh that against the saving.
 
-- [ ] Fetch count scales with pages, not deletes
-- [ ] Workflow test pins the fetch count (and no fetch for a batch with no deletes or only alias deletes)
+- [x] Fetch count scales with pages, not deletes
+- [x] Workflow test pins the fetch count (and no fetch for a batch with no deletes or only alias deletes)

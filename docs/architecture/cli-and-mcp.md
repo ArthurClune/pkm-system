@@ -71,12 +71,15 @@ may already be referenced by unrelated blocks. Asset store:
 Writes go through `POST /api/ops` with a fresh `batch_id`. `pkm update` fetches
 the current text first and rides the `base_text_hash` conflict path, so a
 missing uid 404s before any op is sent. `pkm batch` sends `update` and `move`
-uids unchecked. It fetches each deleted uid first, one `GET /api/block/{uid}`
-per uid and none for an `{{alias}}`, and `batch.plan_batch` stamps the delete's
-`base_subtree_hash` from that subtree ([Pure planners](#pure-planners)). A
-delete whose uid is missing still goes out, unguarded. One whose uid is not a
-valid uid fails that fetch (422), so the whole batch is refused before
-anything is sent, and `cmd_batch` exits 1. The server skips
+uids unchecked. It fetches each deleted uid's subtree first (none for an
+`{{alias}}`), and `batch.plan_batch` stamps the delete's `base_subtree_hash`
+from that subtree ([Pure planners](#pure-planners)). The fetches scale with
+pages, not deletes. A uid on a page already fetched for `referenced_pages`
+costs nothing. Otherwise `workflows._delete_subtrees` asks
+`GET /api/block/{uid}` for its page, then fetches that page once for every
+later delete on it. A delete whose uid is missing still goes out, unguarded.
+One whose uid is not a valid uid fails that fetch (422), so the whole batch
+is refused before anything is sent, and `cmd_batch` exits 1. The server skips
 an op on a missing block (or a move that would make a cycle) rather than
 rejecting the batch. The ack's `skipped` list is therefore the only sign
 of a mistyped uid: `render.render_ops_ack` leads with `warning:` when it is

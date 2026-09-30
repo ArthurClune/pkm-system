@@ -506,19 +506,35 @@ def test_batch_delete_stale_fetch_lands_the_copy(
         run, pkm_client, monkeypatch):
     # The fetch saw an older child text than the server now holds: the
     # delete still applies, and the server's texts are kept under the
-    # conflict header on today's daily page.
+    # conflict header on today's daily page. A lone `delete` names no
+    # page, so `apply_batch` learns "AI" from `get_block` and then hashes
+    # the subtree from `get_page_blocks("AI")` (see `_delete_subtrees`);
+    # both are staled here so the hash reflects the same older snapshot
+    # regardless of which one the resolution path lands on.
     _seed_root_with_child(pkm_client, "gd-seed-stale")
     real_get_block = pkm_client.get_block
+    real_get_page_blocks = pkm_client.get_page_blocks
+
+    def _stale_children(children):
+        return [c.model_copy(update={"text": "what the fetch saw"})
+                for c in children]
 
     def _stale_get_block(uid):
         payload = real_get_block(uid)
         block = payload.block
-        stale = [c.model_copy(update={"text": "what the fetch saw"})
-                 for c in block.children]
-        return payload.model_copy(
-            update={"block": block.model_copy(update={"children": stale})})
+        return payload.model_copy(update={"block": block.model_copy(
+            update={"children": _stale_children(block.children)})})
+
+    def _stale_get_page_blocks(title):
+        blocks, missing = real_get_page_blocks(title)
+        if title != "AI":
+            return blocks, missing
+        staled = [b.model_copy(update={"children": _stale_children(b.children)})
+                 if b.uid == "gdroot0001" else b for b in blocks]
+        return staled, missing
 
     monkeypatch.setattr(pkm_client, "get_block", _stale_get_block)
+    monkeypatch.setattr(pkm_client, "get_page_blocks", _stale_get_page_blocks)
     code, _, _ = run("batch", stdin=json.dumps(
         [{"command": "delete", "params": {"uid": "gdroot0001"}}]))
     assert code == 0

@@ -68,6 +68,17 @@ def parse_uid_spec(spec: str | None) -> str | None:
     return m.group(1) if m else None
 
 
+def find_block(blocks: Sequence[BlockNode], uid: str) -> BlockNode | None:
+    """The node with `uid` somewhere in `blocks`' tree, or None if `uid`
+    isn't on this page. A `BlockNode` already nests its own children, so
+    the node returned IS its full subtree -- there is no separate cutting
+    step."""
+    for n in walk_blocks(blocks):
+        if n.uid == uid:
+            return n
+    return None
+
+
 def resolve_parent(
     blocks: Sequence[BlockNode], spec: str | None
 ) -> tuple[str | None, tuple[int, str] | None]:

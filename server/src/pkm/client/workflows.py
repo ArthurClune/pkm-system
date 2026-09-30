@@ -15,19 +15,20 @@ outside every shell for the same reason this module does."""
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from pkm.batch import (delete_uids, plan_batch, referenced_pages,
-                       validate_batch)
+from pkm.batch import (BatchCommand, delete_uids, plan_batch,
+                       referenced_pages, validate_batch)
 from pkm.client.api import PkmClient, new_uid
 from pkm.client.core import ApiError
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BlockOp, CreateOp
 from pkm.contracts.responses import BlockNode, OpsAck
-from pkm.planning import (asset_block_text, create_page_ops, plan_mark,
-                          plan_save, plan_update, resolve_parent)
+from pkm.planning import (asset_block_text, create_page_ops, find_block,
+                          plan_mark, plan_save, plan_update, resolve_parent)
 
 
 def _uids():
@@ -117,31 +118,69 @@ def apply_batch(client: PkmClient, commands: object) -> OpsAck:
     `delete` names, which the planner hashes so the server can keep the
     texts if another device edited them since. A delete whose block is not
     found (404) goes unhashed and is skipped and reported like any other
-    missing uid."""
+    missing uid.
+
+    Delete subtrees are cut from those same fetched pages wherever
+    possible, so fetch count scales with the pages a batch touches, not
+    with how many blocks it deletes -- see `_delete_subtrees`."""
     parsed = validate_batch(commands)
     fetched = {title: client.get_page_blocks(title)
                for title in referenced_pages(parsed)}
     pages = {title: blocks for title, (blocks, _) in fetched.items()}
     missing = [title for title, (_, is_missing) in fetched.items()
                if is_missing]
-    subtrees = {uid: _subtree_or_none(client, uid)
-                for uid in delete_uids(parsed)}
+    subtrees = _delete_subtrees(client, parsed, pages)
     ops: list[BlockOp] = [*create_page_ops(missing),
                           *plan_batch(parsed, pages, uids=_uids(),
                                       subtrees=subtrees)]
     return client.post_ops(ops, batch_id=_batch_id())
 
 
-def _subtree_or_none(client: PkmClient, uid: str) -> BlockNode | None:
-    """`uid`'s subtree, or None when the server has no such block. Any
-    other failure propagates: a delete that cannot be checked fails the
-    batch rather than silently going unguarded."""
-    try:
-        return client.get_block(uid).block
-    except ApiError as e:
-        if e.status == 404:
-            return None
-        raise
+def _delete_subtrees(
+    client: PkmClient, parsed: Sequence[BatchCommand],
+    pages: dict[str, list[BlockNode]],
+) -> dict[str, BlockNode | None]:
+    """The subtree for every uid `delete_uids` names.
+
+    Pages the batch already fetched (for its `create`/`outline`/`move`
+    targets) are searched first, at no extra cost. A uid not on any of
+    those is looked up once with `get_block`, which names its page; that
+    page is then fetched with `get_page_blocks` and cached, so every later
+    delete uid that turns out to live on it is found without another
+    request -- one `get_page_blocks` per page a delete touches, not one
+    `get_block` per delete. A 404 from `get_block` maps the uid to None
+    (unchanged: skipped and reported like any other missing uid); any
+    other `ApiError` propagates and fails the batch closed.
+
+    The uid can, rarely, be missing from that freshly fetched page too --
+    it moved or was deleted between the `get_block` and the
+    `get_page_blocks` calls -- in which case the `get_block` payload's own
+    subtree is used instead."""
+    cached: dict[str, Sequence[BlockNode]] = dict(pages)
+    subtrees: dict[str, BlockNode | None] = {}
+    for uid in delete_uids(parsed):
+        found: BlockNode | None = None
+        for blocks in cached.values():
+            found = find_block(blocks, uid)
+            if found is not None:
+                break
+        if found is not None:
+            subtrees[uid] = found
+            continue
+        try:
+            fetched_block = client.get_block(uid)
+        except ApiError as e:
+            if e.status != 404:
+                raise
+            subtrees[uid] = None
+            continue
+        title = fetched_block.page.title
+        if title not in cached:
+            blocks, _missing = client.get_page_blocks(title)
+            cached[title] = blocks
+        refound = find_block(cached[title], uid)
+        subtrees[uid] = refound if refound is not None else fetched_block.block
+    return subtrees
 
 
 def upload_and_link(client: PkmClient, path: Path, page: str | None = None,

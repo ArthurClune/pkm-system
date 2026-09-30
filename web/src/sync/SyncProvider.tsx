@@ -16,8 +16,8 @@ import type { OutlineReplayAction } from "../outline/outlineState";
 import { createReplica, type Replica } from "../replica/client";
 import { availabilityOf, ReplicaUnusableError } from "../replica/errors";
 import { toPortLike } from "../replica/rpc";
-import { clientId, createOpQueue, type DrainOutcome,
-         type PoisonEvent, type WriteTicket } from "./opQueue";
+import { clientId, createOpQueue, type PoisonEvent,
+         type WriteTicket } from "./opQueue";
 import { createReplicaSync, ResetBlockedError, type ReplicaState } from "./replicaSync";
 import { planRetry } from "./retryPolicy";
 import type { WsBatch } from "./socket";
@@ -238,8 +238,6 @@ export function SyncProvider({ children, replica }: {
   const statusRef = useRef<SyncStatus>("connecting");
   const modeRef = useRef(replicaState.mode);
   modeRef.current = replicaState.mode;
-  const drainObserverRef = useRef<(outcome: DrainOutcome) => void>(
-    () => undefined);
   const startupRunRef = useRef<Promise<void>>(Promise.resolve());
   const repairRunRef = useRef<Promise<void> | null>(null);
   const repairTargetsRef = useRef<readonly PoisonEvent[]>([]);
@@ -247,19 +245,11 @@ export function SyncProvider({ children, replica }: {
   const startupDiscoveringPoisonRef = useRef(true);
   const legacyRepairRunRef = useRef<Promise<void> | null>(null);
   const legacyRejectedRef = useRef<unknown>();
-  const repairLegacyRef = useRef<(error: unknown) => Promise<void>>(
-    async () => undefined,
-  );
   const continueStartupRef = useRef<(
     marked: readonly PoisonEvent[],
   ) => Promise<void>>(async () => undefined);
   const problemRef = useRef<SyncProblem>();
   problemRef.current = problem;
-  // Read via a ref, not closed over directly, for the same reason
-  // repairLegacyRef is -- the queue below is memoised with an empty
-  // dependency array (it must stay one stable instance for the provider's
-  // whole lifetime), so nothing it closes over may need to change identity.
-  const skippedRef = useRef<() => void>(() => undefined);
 
   // Route the deterministic delivery-health policy through the syncState core:
   // it computes the next problem value and any resync intent; this shell keeps
@@ -284,7 +274,6 @@ export function SyncProvider({ children, replica }: {
       if (effect.type === "bump-resync") setResyncSeq((n) => n + 1);
     }
   }, []);
-  skippedRef.current = () => applySync({ type: "ops-skipped" });
 
   const replicaRef = useRef<Replica | null | undefined>(undefined);
   const ownedReplicaRef = useRef<OwnedReplica | null>(null);
@@ -297,17 +286,15 @@ export function SyncProvider({ children, replica }: {
     }
   }
 
+  // One stable instance for the provider's whole lifetime; its signals are
+  // subscribed in the effects below (see opQueue.ts's header for why none can
+  // be missed).
   const queue = useMemo(
-    () => createOpQueue(replicaRef.current ?? absentReplica(), (error) => {
-      void repairLegacyRef.current(error);
-    }, (outcome) => drainObserverRef.current(outcome),
-    // Either delivery path's ack named a skipped op: a replica-backed
-    // tab's own feed tombstones the row, but nothing else bumps resync
-    // for it, so this refetches regardless. Never a desync -- the batch
-    // committed -- so this bumps resync only.
-    () => skippedRef.current()), []);
+    () => createOpQueue(replicaRef.current ?? absentReplica()), []);
 
-  repairLegacyRef.current = (error) => {
+  // Stable (refs, applySync and the queue only): the desync listener and the
+  // legacy-repair Retry both call it, and the actions value memoises on it.
+  const repairLegacy = useCallback((error: unknown): Promise<void> => {
     legacyRejectedRef.current = error;
     if (legacyRepairRunRef.current) return legacyRepairRunRef.current;
     const message = error instanceof Error ? error.message : String(error);
@@ -328,10 +315,16 @@ export function SyncProvider({ children, replica }: {
       legacyRepairRunRef.current = null;
     });
     return legacyRepairRunRef.current;
-  };
+  }, [applySync, queue]);
 
   useEffect(() => {
     const offs = [
+      queue.onDesync((error) => { void repairLegacy(error); }),
+      // Either delivery path's ack named a skipped op: a replica-backed
+      // tab's own feed tombstones the row, but nothing else bumps resync
+      // for it, so this refetches regardless. Never a desync -- the batch
+      // committed -- so this bumps resync only.
+      queue.onSkipped(() => applySync({ type: "ops-skipped" })),
       queue.onPending((n) => { if (mountedRef.current) setPending(n); }),
       queue.onUnsentInMemory((n) => {
         if (mountedRef.current) setUnsentInMemory(n);
@@ -352,7 +345,7 @@ export function SyncProvider({ children, replica }: {
     // suppression into a stuck banner (see opQueue's emitPending).
     if (replicaRef.current) void queue.refreshPending();
     return () => { offs.forEach((off) => off()); };
-  }, [applySync, queue]);
+  }, [applySync, queue, repairLegacy]);
   const replicaSync = useMemo(() => {
     const r = replicaRef.current;
     return r ? createReplicaSync({
@@ -364,10 +357,6 @@ export function SyncProvider({ children, replica }: {
       // is pointless while the socket is down, and reconnect's
       // own start() call resumes it once statusRef flips back.
       isOffline: () => statusRef.current === "reconnecting",
-      // Same skipped callback the queue uses above: the recovery flush is a
-      // third POST path outside the queue's own lane/drain, and its ack can
-      // name a skip too.
-      onSkipped: () => skippedRef.current(),
       onState: (next) => {
         if (mountedRef.current) setReplicaState(next);
         // Delivery health (Fix A): a wedged replica or a failed recovery
@@ -390,6 +379,11 @@ export function SyncProvider({ children, replica }: {
     // queue and applySync are both mount-stable; listing them keeps this
     // memo honest without changing that replicaSync is created exactly once.
   }, [applySync, queue]);
+  // The same skip handling the queue's listener has above: the recovery
+  // flush is a third POST path outside the queue's own lane/drain, and its
+  // ack can name a skip too.
+  useEffect(() => replicaSync?.onSkipped(
+    () => applySync({ type: "ops-skipped" })), [applySync, replicaSync]);
 
   const repairEventsRef = useRef<(events: readonly PoisonEvent[]) => Promise<void>>(
     async () => undefined);
@@ -587,7 +581,6 @@ export function SyncProvider({ children, replica }: {
     startupRun: () => startupRunRef.current,
     mountedRef,
     statusRef,
-    drainObserverRef,
     onBatch: (batch) => {
       if (batch.client_id === clientId) return; // our own echo
       subsRef.current.forEach((fn) => fn(batch));
@@ -640,7 +633,7 @@ export function SyncProvider({ children, replica }: {
         });
         switch (plan.kind) {
           case "legacy-repair":
-            return repairLegacyRef.current(legacyRejectedRef.current);
+            return repairLegacy(legacyRejectedRef.current);
           case "retry-poison-marks":
             return (async () => {
               try {
@@ -732,9 +725,9 @@ export function SyncProvider({ children, replica }: {
       },
       settled: () => queue.settled(),
     };
-    // All three are created once per provider, so this value is too. The
+    // All four are created once per provider, so this value is too. The
     // methods reach current state through refs on purpose (see SyncActions).
-  }, [applySync, queue, replicaSync]);
+  }, [applySync, queue, replicaSync, repairLegacy]);
 
   // Nested rather than combined, most stable outermost. A change to one slice
   // re-renders that slice's consumers only; `children` is the same element

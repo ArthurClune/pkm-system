@@ -17,6 +17,7 @@ function fakeQueue(): OpQueue {
     setOnline: () => undefined,
     dispose: () => undefined,
     drain: async () => ({ status: "drained" }),
+    onDrain: () => () => undefined,
   } as unknown as OpQueue;
 }
 
@@ -28,7 +29,6 @@ function fakeDeps(over: Partial<SocketLifecycleDeps> = {}): SocketLifecycleDeps 
     startupRun: async () => undefined,
     mountedRef: { current: true },
     statusRef: { current: "connecting" as SyncStatus },
-    drainObserverRef: { current: () => undefined },
     onBatch: () => undefined,
     onSeq: () => undefined,
     onStatus: () => undefined,

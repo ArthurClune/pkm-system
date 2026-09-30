@@ -624,7 +624,7 @@ describe("recovery flushes and the shared coordinator", () => {
     ]);
   });
 
-  test("a recovery flush whose ack names a skipped op calls deps.onSkipped once",
+  test("a recovery flush whose ack names a skipped op calls onSkipped once",
   async () => {
     const batches: PendingBatch[] = [
       { id: 1, batch_id: "b-1",
@@ -642,17 +642,15 @@ describe("recovery flushes and the shared coordinator", () => {
     });
     const { onState } = collector();
     const skips: void[] = [];
-    const sync = createReplicaSync({
-      replica, fetchJson, clientId: "c1", onState,
-      onSkipped: () => skips.push(undefined),
-    });
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+    sync.onSkipped(() => skips.push(undefined));
 
     await sync.start();
 
     expect(skips).toHaveLength(1);
   });
 
-  test("a recovery flush whose ack names no skipped op does not call deps.onSkipped",
+  test("a recovery flush whose ack names no skipped op does not call onSkipped",
   async () => {
     const batches: PendingBatch[] = [
       { id: 1, batch_id: "b-1", ops: [{ op: "delete", uid: "uid_a1" }], poisoned: false },
@@ -665,10 +663,8 @@ describe("recovery flushes and the shared coordinator", () => {
     });
     const { onState } = collector();
     const skips: void[] = [];
-    const sync = createReplicaSync({
-      replica, fetchJson, clientId: "c1", onState,
-      onSkipped: () => skips.push(undefined),
-    });
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+    sync.onSkipped(() => skips.push(undefined));
 
     await sync.start();
 

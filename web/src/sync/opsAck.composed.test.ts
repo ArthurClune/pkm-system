@@ -38,8 +38,8 @@ async ({ wire }) => {
     return base(id, batchId, ackedSeq);
   };
   const skips: void[] = [];
-  const q = createOpQueue(replica, () => undefined, () => undefined,
-    () => skips.push(undefined));
+  const q = createOpQueue(replica);
+  q.onSkipped(() => skips.push(undefined));
   const ticket = q.enqueue([op]);
   await q.settled();
   await q.drain();

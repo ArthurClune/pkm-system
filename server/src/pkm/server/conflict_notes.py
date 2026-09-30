@@ -58,6 +58,15 @@ def overwritten_header_text(page_title: str, uid: str) -> str:
             f" — overwritten by (({uid}))")
 
 
+def deleted_header_text(page_title: str) -> str:
+    """Header for a subtree whose delete diverged (spec section 3): names
+    the block's own page, read from its row before the delete. It cannot
+    embed `((uid))` like `live_block_header_text` -- by the time this lands
+    the block is gone, so there is nothing left for the ref to point at."""
+    return (f"[[conflict]] {existing_page_label(page_title)}"
+            " — deleted while edited elsewhere")
+
+
 def orphan_header_text(page_title: str | None, hint_page_exists: bool) -> str:
     """Header for check 1: page_title is the client's op.page_title hint,
     which may be missing, unusable, or stale (naming a page the store no

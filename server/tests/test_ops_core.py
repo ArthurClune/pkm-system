@@ -5,23 +5,28 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from pkm.contracts.ops import (BlockOp, CreateOp, CreatePageOp, DeleteOp,
-                               MoveOp, OpBatch, SetCollapsedOp, SetHeadingOp,
-                               SetViewTypeOp, UpdateTextOp, text_hash)
+                               MoveOp, OpBatch, Sha256Hex, SetCollapsedOp,
+                               SetHeadingOp, SetViewTypeOp, UpdateTextOp,
+                               subtree_hash, text_hash)
+from pkm.server.conflict_notes import deleted_header_text
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
 from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  ConflictLanding, CreateContext, DeleteBlocks,
-                                 DeleteContext, ExistingHeader, FreshHeader,
-                                 InsertBlock, JournalBlock, LandedSkipContext,
-                                 MoveContext, OpError, PageContext,
-                                 RecordConflictHeader, ReindexRefs,
-                                 SetCollapsed, SetHeading, SetPageId,
-                                 SetParent, SetViewType, ShiftSiblings, Skip,
-                                 SkipContext, SkippedContext,
-                                 StuckMoveContext, TextConflictContext,
+                                 DeleteConflictContext, DeleteContext,
+                                 ExistingHeader, FreshHeader, InsertBlock,
+                                 JournalBlock, LandedSkipContext, MoveContext,
+                                 OpError, PageContext, RecordConflictHeader,
+                                 ReindexRefs, SetCollapsed, SetHeading,
+                                 SetPageId, SetParent, SetViewType,
+                                 ShiftSiblings, Skip, SkipContext,
+                                 SkippedContext, StuckMoveContext,
+                                 SubtreeRow, TextConflictContext,
                                  TextEditContext, TextEditOutcome, TouchPage,
                                  UpdateText, classify_skip,
-                                 classify_text_edit, plan_op, skip_report)
+                                 classify_text_edit, conflict_entry_effects,
+                                 descendant_copy_effects, delete_diverged,
+                                 plan_op, skip_report)
 
 B = BlockInfo(uid="uid_b3", page_id=1, parent_uid="uid_b2")
 _DAY = "September 28th, 2026"
@@ -136,6 +141,67 @@ def test_plan_delete_and_collapse():
                                      collapsed=True),
                    BlockContext(BlockInfo("uid_b2", 1, None))) == (
         SetCollapsed("uid_b2", True),)
+
+
+# --- diverged delete: the subtree changed since the deleting device last
+# saw it, so the delete still wins but the server's texts land first -------
+
+# root r has children c2 (order_idx 5) and c1 (order_idx 2); c1 has child g
+# (order_idx 0). Deepest first: g, then c1/c2, then r.
+_ROOT = SubtreeRow("r", None, 0, "root text")
+_C1 = SubtreeRow("c1", "r", 2, "c1 text")
+_C2 = SubtreeRow("c2", "r", 5, "c2 text")
+_G = SubtreeRow("g", "c1", 0, "g text")
+_SUBTREE_ROWS = (_G, _C1, _C2, _ROOT)
+
+
+def test_delete_diverged_compares_the_subtree_hash():
+    base = subtree_hash((row.uid, row.text) for row in _SUBTREE_ROWS)
+    assert delete_diverged(base, _SUBTREE_ROWS) is False
+    changed = (_G, _C1, _C2, SubtreeRow("r", None, 0, "edited elsewhere"))
+    assert delete_diverged(base, changed) is True
+
+
+def test_descendant_copies_nest_and_renumber():
+    copy_uids = {"c1": "copy_c1", "c2": "copy_c2", "g": "copy_g"}
+    effects = descendant_copy_effects(_SUBTREE_ROWS, "r", "copy_r",
+                                      copy_uids, daily_page_id=9)
+    assert effects == (
+        InsertBlock("copy_c1", 9, "copy_r", 0, "c1 text", None),
+        ReindexRefs("copy_c1", "c1 text"),
+        InsertBlock("copy_g", 9, "copy_c1", 0, "g text", None),
+        ReindexRefs("copy_g", "g text"),
+        InsertBlock("copy_c2", 9, "copy_r", 1, "c2 text", None),
+        ReindexRefs("copy_c2", "c2 text"),
+    )
+
+
+def test_descendant_copies_keep_blank_texts():
+    rows = (SubtreeRow("c1", "r", 0, ""), SubtreeRow("r", None, 0, "root"))
+    effects = descendant_copy_effects(rows, "r", "copy_r",
+                                      {"c1": "copy_c1"}, daily_page_id=9)
+    assert effects == (
+        InsertBlock("copy_c1", 9, "copy_r", 0, "", None),
+        ReindexRefs("copy_c1", ""),
+    )
+
+
+def test_plan_diverged_delete_lands_copies_then_deletes():
+    copy_uids = {"c1": "copy_c1", "c2": "copy_c2", "g": "copy_g"}
+    landing = _landing()  # FreshHeader, entry_uid "uid_ch1"
+    ctx = DeleteConflictContext(
+        BlockInfo("r", 1, None), _SUBTREE_ROWS, "Project X", landing,
+        copy_uids)
+    op = DeleteOp(op="delete", uid="r",
+                 base_subtree_hash=Sha256Hex("a" * 64))
+    assert plan_op(0, op, ctx) == (
+        *conflict_entry_effects("r", _ROOT.text, deleted_header_text(
+            "Project X"), landing),
+        *descendant_copy_effects(_SUBTREE_ROWS, "r", landing.entry_uid,
+                                 copy_uids, landing.daily_page_id),
+        DeleteBlocks(tuple(row.uid for row in _SUBTREE_ROWS)),
+        TouchPage(1),
+    )
 
 
 def test_plan_set_heading():

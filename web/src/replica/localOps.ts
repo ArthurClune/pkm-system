@@ -9,16 +9,16 @@
 // (reconcile.ts); ops carry titles, so negative ids never go on the wire.
 // An op on a missing block or create/move parent is skipped, as the server
 // skips it (missingTarget.ts), and so is a move that would nest
-// a block under itself or its own descendant. A create or move under a
-// live parent lands on the parent's page, whatever its page_title says.
-// A re-applied batch (reapply) finds its own create and move
-// effects already in place and does not repeat them.
+// a block under itself or its own descendant. Where a create or move
+// lands, including a re-applied batch (reapply) keeping its own effects
+// in place, is placementFor's verdict (placement.ts); this file runs it.
 
-import type { BlockOp } from "../api/ops";
+import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
 import { plainSpaceTitleCanonicalizationActive } from "./meta";
 import { skipsOnMissingTarget } from "./missingTarget";
+import { type Placement, type PlacementFacts, placementFor } from "./placement";
 import { canonicalizeTitle, findOpTitleViolation,
          type OpTitleViolation, titleSyntaxReason } from "./titles";
 
@@ -48,17 +48,32 @@ const titleViolationError = (violation: OpTitleViolation): LocalOpError =>
     violation,
   );
 
+/** The title a page is stored under: canonicalised, blank as "Untitled". */
+const localPageTitle = (db: ReplicaDb, title: string): string => {
+  const canonical = canonicalizeTitle(
+    title, plainSpaceTitleCanonicalizationActive(db));
+  return canonical.trim().length === 0 ? "Untitled" : canonical;
+};
+
+const pageIdByTitle = (db: ReplicaDb, title: string): number | null => {
+  const rows = db.select<{ id: number }>(
+    "SELECT id FROM pages WHERE title = ?", [title]);
+  return rows.length > 0 ? rows[0].id : null;
+};
+
+/** The page getOrCreateLocalPage would return for `title`, if it exists
+ * already; never creates one. */
+const existingLocalPageId = (db: ReplicaDb, title: string):
+  number | null => pageIdByTitle(db, localPageTitle(db, title));
+
 export function getOrCreateLocalPage(db: ReplicaDb, title: string,
                                      nowMs: number): number {
-  title = canonicalizeTitle(
-    title, plainSpaceTitleCanonicalizationActive(db));
-  if (title.trim().length === 0) title = "Untitled";
+  title = localPageTitle(db, title);
   if (titleSyntaxReason(title) !== null) {
     throw new LocalOpError(`unsupported page title syntax: ${JSON.stringify(title)}`);
   }
-  const existing = db.select<{ id: number }>(
-    "SELECT id FROM pages WHERE title = ?", [title]);
-  if (existing.length > 0) return existing[0].id;
+  const existing = pageIdByTitle(db, title);
+  if (existing !== null) return existing;
   const next = db.select<{ id: number }>(
     "SELECT MIN(0, COALESCE((SELECT MIN(id) FROM pages), 0)) - 1 AS id")[0].id;
   db.exec(
@@ -142,6 +157,69 @@ export const subtreeUids = (db: ReplicaDb, uid: string): string[] =>
      )
      SELECT uid FROM sub ORDER BY depth DESC`, [uid]).map((r) => r.uid);
 
+/** The facts placementFor reads for a create or move. */
+const placementFacts = (db: ReplicaDb, op: CreateOp | MoveOp,
+                        block: BlockInfo | null): PlacementFacts => {
+  const parentUid = op.parent_uid ?? null;
+  const parent = parentUid !== null ? blockInfo(db, parentUid) : null;
+  return {
+    block,
+    parent,
+    parentChain: op.op === "move" && block !== null && parent !== null
+      ? parentChain(db, parentUid!) : [],
+    titlePageId: op.op === "move" && parentUid === null && op.page_title != null
+      ? existingLocalPageId(db, op.page_title) : null,
+  };
+};
+
+/** Carry out placementFor's verdict for a create or move. */
+const place = (db: ReplicaDb, op: CreateOp | MoveOp, block: BlockInfo | null,
+               verdict: Placement, nowMs: number): void => {
+  if (verdict.kind === "skip") return;
+  if (verdict.kind === "keep") {
+    // only a replayed create is ever kept with a re-page
+    const at = block!;
+    if (verdict.repageTo !== null) {
+      for (const uid of subtreeUids(db, op.uid)) {
+        db.exec("UPDATE blocks SET page_id = ? WHERE uid = ?",
+                [verdict.repageTo, uid]);
+      }
+      at.page_id = verdict.repageTo;
+    }
+    keepSlot(db, op.uid, at);
+    return;
+  }
+  const pageId = "id" in verdict.page
+    ? verdict.page.id
+    : getOrCreateLocalPage(db, verdict.page.title, nowMs);
+  shiftSiblings(db, pageId, verdict.parentUid, verdict.orderIdx);
+  if (op.op === "create") {
+    db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
+      " heading, collapsed, created_at, updated_at, view_type)" +
+      " VALUES (?,?,?,?,?,?,0,?,?,?)",
+      [op.uid, pageId, verdict.parentUid, verdict.orderIdx, op.text,
+       op.heading ?? null, nowMs, nowMs, op.view_type ?? null]);
+    reindexRefs(db, op.uid, op.text, nowMs);
+    touchPage(db, pageId, nowMs);
+    return;
+  }
+  // past the skip check, a move names an existing block
+  const moved = block!;
+  db.exec(
+    "UPDATE blocks SET parent_uid = ?, order_idx = ?, updated_at = ?" +
+    " WHERE uid = ?",
+    [verdict.parentUid, verdict.orderIdx, nowMs, op.uid]);
+  if (verdict.repage) {
+    for (const uid of subtreeUids(db, op.uid)) {
+      db.exec("UPDATE blocks SET page_id = ?, updated_at = ? WHERE uid = ?",
+              [pageId, nowMs, uid]);
+    }
+    touchPage(db, moved.page_id, nowMs);
+  }
+  touchPage(db, pageId, nowMs);
+};
+
 function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
                   reapply: boolean): void {
   if (op.op === "create_page") {
@@ -149,54 +227,14 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
     return;
   }
   const info = blockInfo(db, op.uid);
-  const parentUid = op.op === "create" || op.op === "move"
-    ? op.parent_uid ?? null : null;
-  const parentInfo = parentUid !== null ? blockInfo(db, parentUid) : null;
-  const chain = op.op === "move" && info !== null && parentInfo !== null
-    ? parentChain(db, parentUid!) : [];
-  if (skipsOnMissingTarget(op, info !== null, parentInfo !== null, chain)) {
+  if (op.op === "create" || op.op === "move") {
+    place(db, op, info,
+          placementFor(op, placementFacts(db, op, info), reapply), nowMs);
     return;
   }
+  if (skipsOnMissingTarget(op, info !== null, false)) return;
 
   switch (op.op) {
-    case "create": {
-      // On replay the row is this create's own: the enqueue-time apply, or
-      // the server's echo. Later ops re-apply over it; keep it as it is.
-      if (reapply && info !== null) {
-        // ... except that it follows a parent the window moved to another
-        // page, as the server will place it. Only while it is
-        // still under that parent: a later pending move that took it
-        // elsewhere owns its page, and re-paging it here would make that
-        // move's replay re-shift its target's children on every window.
-        if (parentInfo !== null
-            && info.parent_uid === (op.parent_uid ?? null)
-            && info.page_id !== parentInfo.page_id) {
-          for (const uid of subtreeUids(db, op.uid)) {
-            db.exec("UPDATE blocks SET page_id = ? WHERE uid = ?",
-                    [parentInfo.page_id, uid]);
-          }
-          info.page_id = parentInfo.page_id;
-        }
-        keepSlot(db, op.uid, info);
-        return;
-      }
-      // otherwise an existing uid fails the INSERT, as the server 400s.
-      // Under a live parent the block lands on the parent's page, as on
-      // the server: page_title places only a top-level create.
-      const pageId = parentInfo !== null
-        ? parentInfo.page_id
-        : getOrCreateLocalPage(db, op.page_title, nowMs);
-      shiftSiblings(db, pageId, op.parent_uid ?? null, op.order_idx);
-      db.exec(
-        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
-        " heading, collapsed, created_at, updated_at, view_type)" +
-        " VALUES (?,?,?,?,?,?,0,?,?,?)",
-        [op.uid, pageId, op.parent_uid ?? null, op.order_idx, op.text,
-         op.heading ?? null, nowMs, nowMs, op.view_type ?? null]);
-      reindexRefs(db, op.uid, op.text, nowMs);
-      touchPage(db, pageId, nowMs);
-      return;
-    }
     case "update_text": {
       // past the skip check, every op but create names an existing block
       const block = info!;
@@ -204,35 +242,6 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
               [op.text, nowMs, op.uid]);
       reindexRefs(db, op.uid, op.text, nowMs);
       touchPage(db, block.page_id, nowMs);
-      return;
-    }
-    case "move": {
-      const block = info!;
-      const parent = op.parent_uid !== null ? parentInfo! : null;
-      const targetPage = parent !== null
-        ? parent.page_id
-        : (op.page_title != null
-           ? getOrCreateLocalPage(db, op.page_title, nowMs)
-           : block.page_id);
-      if (reapply && block.page_id === targetPage
-          && block.parent_uid === (op.parent_uid ?? null)
-          && block.order_idx === op.order_idx) {
-        keepSlot(db, op.uid, block);
-        return;
-      }
-      shiftSiblings(db, targetPage, op.parent_uid ?? null, op.order_idx);
-      db.exec(
-        "UPDATE blocks SET parent_uid = ?, order_idx = ?, updated_at = ?" +
-        " WHERE uid = ?",
-        [op.parent_uid ?? null, op.order_idx, nowMs, op.uid]);
-      if (targetPage !== block.page_id) {
-        for (const uid of subtreeUids(db, op.uid)) {
-          db.exec("UPDATE blocks SET page_id = ?, updated_at = ? WHERE uid = ?",
-                  [targetPage, nowMs, uid]);
-        }
-        touchPage(db, block.page_id, nowMs);
-      }
-      touchPage(db, targetPage, nowMs);
       return;
     }
     case "delete": {

@@ -1,11 +1,11 @@
 ---
 # pkm-nny8
 title: 'Hash-guarded delete: a stale delete over an unseen edit preserves the text under the daily-note conflict header'
-status: draft
+status: completed
 type: feature
 priority: normal
 created_at: 2026-09-29T13:20:56Z
-updated_at: 2026-09-30T13:45:00Z
+updated_at: 2026-09-30T12:51:18Z
 parent: pkm-a4t2
 ---
 
@@ -64,3 +64,5 @@ current texts, nested, onto today's daily page under a
 delete behaves as before. The e2e test and architecture docs landed with the
 last task; the docs no longer describe the stale-delete gap as open.
 
+
+Final review fix: copies never land under a conflict header inside the subtree being deleted (`_conflict_landing` takes `exclude`; a fresh header is used instead), so a header the user had dragged under the block cannot cascade the copies away. Verified: server 2217 passed, pyrefly/ruff clean, web pnpm verify green (2920 unit, 72/72 Playwright), perf/check.sh backend and frontend no changes. Follow-ups: pkm-67j1 (clone-once stamping), pkm-amw9 (per-page subtree fetch in pkm batch).

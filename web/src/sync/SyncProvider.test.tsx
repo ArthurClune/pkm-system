@@ -135,7 +135,7 @@ describe("the socket and remote batches", () => {
 // --- replica lifecycle ---
 
 import type { Replica } from "../replica/client";
-import { ReplicaUnavailableError } from "../replica/errors";
+import { ReplicaUnusableError } from "../replica/errors";
 
 function fakeReplicaForProvider(): Replica & { log: string[] } {
   const log: string[] = [];
@@ -1230,7 +1230,7 @@ describe("poison repair and startup marks", () => {
       return { pending: rows.filter((row) => !row.poisoned).length };
     };
 
-    const firstPage = createOpQueue(replica, () => undefined);
+    const firstPage = createOpQueue(replica);
     firstPage.enqueue([{ op: "delete", uid: "bad" }]);
     firstPage.enqueue([{ op: "delete", uid: "good" }]);
     await firstPage.settled();
@@ -1362,7 +1362,7 @@ describe("poison repair and startup marks", () => {
       kind: "poison-discovery", error: "poison discovery unavailable",
     });
     // Availability is derived from the typed error alone: a plain Error is not
-    // the worker's typed ReplicaUnavailableError, so availabilityOf(error) is
+    // the worker's typed ReplicaUnusableError, so availabilityOf(error) is
     // null here and the gate stays up without a separate init() probe asking
     // twice.
     expect(initCalls).toBe(0);
@@ -1379,7 +1379,7 @@ describe("poison repair and startup marks", () => {
 // --- an unopenable replica must not hold the startup gate ---
 
 /** A replica whose database can never be opened: every handler that reaches
- * `db()` rejects with the worker's latched ReplicaUnavailableError, and only
+ * `db()` rejects with the worker's latched ReplicaUnusableError, and only
  * `init()` reports the failure as a value the way the real worker does
  * (workerHandlers.ts). The message is a parameter because the open error's
  * cause must not matter to how the session recovers. */
@@ -1389,10 +1389,10 @@ function unopenableReplica(
   const replica = fakeReplicaForProvider();
   let initCalls = 0;
   // A real worker latches its failed open, so every call — init() included —
-  // replays one ReplicaUnavailableError. The fixture has to do the same or it
+  // replays one ReplicaUnusableError. The fixture has to do the same or it
   // is testing a replica that cannot exist.
-  const unavailable = new ReplicaUnavailableError(message);
-  const dead = () => Promise.reject(unavailable);
+  const unusable = new ReplicaUnusableError(message);
+  const dead = () => Promise.reject(unusable);
   replica.init = () => { initCalls += 1; return dead(); };
   replica.poisonedBatches = dead;
   replica.pendingBatches = dead;
@@ -1430,7 +1430,7 @@ describe("an unopenable replica", () => {
     await vi.waitFor(() => { expect(posts).toHaveLength(1); });
     expect(sync.replicaMode).toBe("no-replica");
     // and it says so, rather than degrading silently
-    expect(sync.problem).toMatchObject({ kind: "replica-unavailable" });
+    expect(sync.problem).toMatchObject({ kind: "replica-unusable" });
   });
 
   async function runDead(message: string) {
@@ -1469,7 +1469,7 @@ describe("an unopenable replica", () => {
     // still deliver, not silently drop the edit and rebase the active outline
     // to server state.
     // Deliberately does NOT pin sync.problem — a delivery problem can legitimately
-    // take precedence over the background replica-unavailable report.
+    // take precedence over the background replica-unusable report.
     const { posts } = await runDead("OPFS is not available in this browser");
     expect(posts).toHaveLength(1);
   });
@@ -1588,7 +1588,7 @@ describe("the poison gate and repair problems", () => {
    * not reach the database by some other route once the barrier is lifted.
    * `unopenableReplica()` above is permanently dead and cannot express the
    * race at all. The internal `db()` rejection must be a
-   * `ReplicaUnavailableError` (not a plain `Error`), because `availabilityOf`
+   * `ReplicaUnusableError` (not a plain `Error`), because `availabilityOf`
    * — not a second call to `init()` — is what SyncProvider consults to decide
    * "unusable"; a plain `Error` would make this test pass vacuously by never
    * lifting the barrier at all. */
@@ -1596,7 +1596,7 @@ describe("the poison gate and repair problems", () => {
     const log: string[] = [];
     let state: "unopened" | "failed" | "open" = "unopened";
     let contended = true;
-    const sah = () => new ReplicaUnavailableError(
+    const sah = () => new ReplicaUnusableError(
       "Access Handles cannot be created if there is another open Access Handle");
     const db = async (): Promise<void> => {
       if (state === "open") return;
@@ -1774,7 +1774,7 @@ describe("the poison gate and repair problems", () => {
     // Never the rejected batch itself: nothing may deliver what the server
     // already rejected.
     expect(posts).not.toContain("bad-batch");
-    expect(sync.problem).toMatchObject({ kind: "replica-unavailable" });
+    expect(sync.problem).toMatchObject({ kind: "replica-unusable" });
     expect(sync.replicaMode).toBe("no-replica");
   });
 
@@ -2201,6 +2201,33 @@ describe("ownership and StrictMode lifecycle", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  test("under StrictMode, a delivered ack naming a skip bumps resync exactly once",
+  async () => {
+    // The replayed setup subscribes the queue's listeners a second time; the
+    // first mount's cleanup must have removed its own, or one skip would
+    // refetch every view twice.
+    stubFetch([["/api/ops", {
+      ok: true, ts: 1, applied: 1,
+      skipped: [{ index: 0, op: "update_text", uid: "u1",
+                  reason: "block_not_found", note_page: "2026-09-29" }],
+    } satisfies OpsAck]]);
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(
+      <StrictMode>
+        <SyncProvider replica={null}><Grab /></SyncProvider>
+      </StrictMode>);
+    act(() => lastWs().open());
+    const before = sync.resyncSeq;
+
+    await act(async () => {
+      await expect(sync.enqueue([{ op: "delete", uid: "u1" }]).delivered)
+        .resolves.toEqual({ status: "delivered" });
+    });
+
+    expect(sync.resyncSeq).toBe(before + 1);
   });
 });
 

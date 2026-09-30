@@ -218,7 +218,7 @@ it("an online-only session says so and offers a Reload, not a Retry", async () =
   try {
     renderWith({
       problem: {
-        kind: "replica-unavailable", error: "Access Handles cannot be created",
+        kind: "replica-unusable", error: "Access Handles cannot be created",
       } as unknown as Sync["problem"],
     });
     expect(screen.getByRole("status")).toHaveTextContent(
@@ -247,7 +247,7 @@ it("warns instead of reassuring when an online-only session goes offline", () =>
     status: "reconnecting",
     canEdit: false,
     problem: {
-      kind: "replica-unavailable", error: "Access Handles cannot be created",
+      kind: "replica-unusable", error: "Access Handles cannot be created",
     } as unknown as Sync["problem"],
     pending: 2,
   });
@@ -266,7 +266,7 @@ it("uses the singular for one unsent change in an offline online-only session", 
     status: "reconnecting",
     canEdit: false,
     problem: {
-      kind: "replica-unavailable", error: "Access Handles cannot be created",
+      kind: "replica-unusable", error: "Access Handles cannot be created",
     } as unknown as Sync["problem"],
     pending: 1,
   });
@@ -282,7 +282,7 @@ it("says nothing about safety when an offline online-only session is clean", () 
     status: "reconnecting",
     canEdit: false,
     problem: {
-      kind: "replica-unavailable", error: "Access Handles cannot be created",
+      kind: "replica-unusable", error: "Access Handles cannot be created",
     } as unknown as Sync["problem"],
     pending: 0,
   });
@@ -308,7 +308,7 @@ it("Reload confirms before discarding undelivered work", async () => {
   try {
     renderWith({
       problem: {
-        kind: "replica-unavailable", error: "Access Handles cannot be created",
+        kind: "replica-unusable", error: "Access Handles cannot be created",
       } as unknown as Sync["problem"],
       pending: 2,
     });
@@ -480,8 +480,8 @@ it("a repaired legacy rejection keeps its note until Dismiss", () => {
 const matrix: Array<[string, SyncProblem, "alert" | "status", string[], string]> = [
   ["poison-discovery", { kind: "poison-discovery", error: "worker read failed" },
    "alert", ["Retry"], "Checking rejected changes failed: worker read failed"],
-  ["replica-unavailable",
-   { kind: "replica-unavailable", error: "no access handles" },
+  ["replica-unusable",
+   { kind: "replica-unusable", error: "no access handles" },
    "status", ["Reload"],
    "Working online only — offline editing is unavailable for now."],
   ["legacy-rejected/running",
@@ -542,7 +542,7 @@ it("a problem banner renders above the connectivity banner", () => {
   // when they read getAllByRole("status")[0].
   renderWith({
     status: "reconnecting", canEdit: true, pending: 2,
-    problem: { kind: "replica-unavailable", error: "no access handles" },
+    problem: { kind: "replica-unusable", error: "no access handles" },
   });
   const [problemBanner, connectivity] = screen.getAllByRole("status");
   expect(problemBanner).toHaveTextContent("Working online only");

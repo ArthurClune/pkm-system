@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { availabilityOf, ReplicaError, ReplicaUnavailableError,
+import { availabilityOf, ReplicaError, ReplicaUnusableError,
          RpcLifecycleError } from "./errors";
 import {
   createRpcClient,
@@ -59,18 +59,18 @@ test("unknown method rejects", async () => {
   await expect(rpc.call("nope")).rejects.toThrow("unknown replica method: nope");
 });
 
-test("an unavailable handler error reconstructs as ReplicaUnavailableError", async () => {
+test("an unusable handler error reconstructs as ReplicaUnusableError", async () => {
   // The wire flag is a boolean and the fact is two-valued, deliberately: only
   // `unusable` crosses the wire. `unreachable` is what the client itself
   // produces when nothing can cross.
   const { server, client } = pair();
   serveRpc(server, {
-    boom: () => Promise.reject(new ReplicaUnavailableError("no openable database")),
+    boom: () => Promise.reject(new ReplicaUnusableError("no openable database")),
   });
   const rpc = createRpcClient(client);
   const err = await rpc.call("boom").catch((e: unknown) => e);
-  expect(err).toBeInstanceOf(ReplicaUnavailableError);
-  expect((err as ReplicaUnavailableError).message).toBe("no openable database");
+  expect(err).toBeInstanceOf(ReplicaUnusableError);
+  expect((err as ReplicaUnusableError).message).toBe("no openable database");
   expect(availabilityOf(err)).toBe("unusable");
 });
 
@@ -84,7 +84,7 @@ test("the rejected flag survives the wire", async () => {
   const rpc = createRpcClient(client);
   const err = await rpc.call("boom").catch((e: unknown) => e);
   expect(err).toBeInstanceOf(ReplicaError);
-  expect(err).not.toBeInstanceOf(ReplicaUnavailableError);
+  expect(err).not.toBeInstanceOf(ReplicaUnusableError);
   expect((err as ReplicaError).rejected).toBe(true);
 });
 

@@ -1,11 +1,11 @@
 // pattern: Imperative Shell
 // MessagePort RPC transport and lifecycle shell: installs port handlers, owns
 // mutable request/timer state, posts messages, and disposes terminal resources.
-// Errors cross as {message, rejected, unavailable} so the op-rejected signal
-// and the replica-unavailable signal both survive the boundary; the taxonomy
+// Errors cross as {message, rejected, unusable} so the op-rejected signal
+// and the replica-unusable signal both survive the boundary; the taxonomy
 // itself lives in ./errors.
 
-import { ReplicaError, ReplicaUnavailableError, RpcLifecycleError } from "./errors";
+import { ReplicaError, ReplicaUnusableError, RpcLifecycleError } from "./errors";
 
 export interface PortLike {
   postMessage(msg: unknown): void;
@@ -32,7 +32,7 @@ interface RpcResponse {
     message: string;
     rejected: boolean;
     /** The worker's latched openDb() failure. Only ever set worker-side. */
-    unavailable: boolean;
+    unusable: boolean;
   };
 }
 
@@ -52,7 +52,7 @@ export function serveRpc(port: PortLike, handlers: RpcHandlers): void {
         error: {
           message: e instanceof Error ? e.message : String(e),
           rejected: Boolean((e as { rejected?: boolean })?.rejected),
-          unavailable: e instanceof ReplicaUnavailableError,
+          unusable: e instanceof ReplicaUnusableError,
         },
       } as RpcResponse),
     );
@@ -90,8 +90,8 @@ export function createRpcClient(port: PortLike): RpcClient {
     clearTimeout(p.timer);
     if (res.error) {
       const flags = { rejected: res.error.rejected };
-      p.reject(res.error.unavailable
-        ? new ReplicaUnavailableError(res.error.message, flags)
+      p.reject(res.error.unusable
+        ? new ReplicaUnusableError(res.error.message, flags)
         : new ReplicaError(res.error.message, flags));
     } else p.resolve(res.result);
   };

@@ -127,8 +127,19 @@ web/src/
 │   ├── useSocketLifecycle.ts Shell        Connect lifecycle: pending bootstrap, socket
 │   │                                      status, StrictMode teardown
 │   ├── reconnectFlow.ts      Shell        Reconnect single-flight: drain → pull → resync
-│   ├── opQueue.ts            Shell        Durable-queue driver (+ queueState.ts Core)
+│   ├── opQueue.ts            Shell        Durable-queue driver: enqueue retention, the
+│   │                                      drain, rejection → poison; composes the cores
+│   ├── queueState.ts         Core         Connectivity and retry-backoff transitions
+│   ├── outbox.ts             Core         The fallback lane's entries and ordering
+│   │                                      (headPrecedes, follows marks, settleHead)
+│   ├── poisonIntents.ts      Core         Validate, dedupe and order poison-mark intents
+│   ├── poisonIntentStore.ts  Shell        Their localStorage copy
+│   │                                      (pkm.poison-mark-intents.v1)
+│   ├── listeners.ts          Core         listeners<T>(): the subscriber sets behind
+│   │                                      OpQueue's onX and ReplicaSync.onSkipped
 │   ├── replicaSync.ts        Shell        Cursor pull loop
+│   ├── syncFailures.ts       Core         isStallShaped, isWindowFailure,
+│   │                                      isFreshCorruption; PullStarvedError
 │   ├── opsAck.ts             Core         Reads the /api/ops ack (seq, skipped)
 │   │                                      through the generated OpsAck
 │   ├── socket.ts             Shell        WebSocket + reconnect policy
@@ -157,6 +168,8 @@ web/src/
 │   │                                      apply, negative-id remap, recovery FIFO
 │   ├── localApi/             Shell        Offline read shims: the routes' exact JSON
 │   ├── localOps.ts           Shell        Optimistic apply (server timestamp rules)
+│   ├── placement.ts          Core         placementFor: where a create or move lands,
+│   │                                      or skip / keep on replay (mirrors ops_apply)
 │   ├── missingTarget.ts      Core         Which ops skip on a missing target (mirrors ops_core)
 │   ├── blockRefs.ts          Shell        block_refs re-derivation, shared by both applies
 │   ├── errors.ts             Core         The availability taxonomy

@@ -4,8 +4,8 @@
 //   1. mount-time pending bootstrap — leftovers from a previous page load (a
 //      reload can kill an in-flight POST), read before the first connect can
 //      start draining them;
-//   2. the reconnect protocol (reconnectFlow.ts), including the drain observer
-//      the queue was constructed with;
+//   2. the reconnect protocol (reconnectFlow.ts), including its subscription
+//      to the queue's drain outcomes;
 //   3. socket status — the queue's connectivity is driven synchronously here,
 //      never from a status effect, which would race child refetch effects;
 //   4. StrictMode-safe teardown — terminal ownership cleanup deferred one
@@ -13,7 +13,7 @@
 //      queue/replica alive.
 import { useEffect, useRef, type MutableRefObject } from "react";
 import { createReconnectFlow } from "./reconnectFlow";
-import type { DrainOutcome, OpQueue } from "./opQueue";
+import type { OpQueue } from "./opQueue";
 import type { ReplicaSync } from "./replicaSync";
 import { connectSocket, type WsBatch, type WsSeq } from "./socket";
 import type { SyncStatus } from "./syncState";
@@ -31,9 +31,6 @@ export interface SocketLifecycleDeps {
   /** Written synchronously on every transition: the offline gateway and the
    * replica-state callback must not lag a transition by a React render. */
   statusRef: MutableRefObject<SyncStatus>;
-  /** The indirection the queue was constructed with, so drains completing out
-   * of band reach this mount's reconnect flow (and nothing after unmount). */
-  drainObserverRef: MutableRefObject<(outcome: DrainOutcome) => void>;
   onBatch: (batch: WsBatch) => void;
   onSeq: (frame: WsSeq) => void;
   onStatus: (status: SyncStatus) => void;
@@ -52,7 +49,7 @@ export function useSocketLifecycle(deps: SocketLifecycleDeps): void {
   const { queue, replicaSync } = deps;
 
   useEffect(() => {
-    const { mountedRef, statusRef, drainObserverRef } = depsRef.current;
+    const { mountedRef, statusRef } = depsRef.current;
     mountedRef.current = true;
     const initialPending = depsRef.current.readInitialPending();
     const reconnect = createReconnectFlow({
@@ -61,7 +58,9 @@ export function useSocketLifecycle(deps: SocketLifecycleDeps): void {
       isMounted: () => mountedRef.current,
       onResync: () => depsRef.current.onResync(),
     });
-    drainObserverRef.current = (outcome) => reconnect.observeDrain(outcome);
+    // Drains completing out of band reach this mount's reconnect flow, and
+    // nothing after its cleanup.
+    const offDrain = queue.onDrain((outcome) => reconnect.observeDrain(outcome));
 
     const handle = connectSocket({
       onBatch: (batch) => depsRef.current.onBatch(batch),
@@ -120,7 +119,7 @@ export function useSocketLifecycle(deps: SocketLifecycleDeps): void {
 
     return () => {
       mountedRef.current = false;
-      drainObserverRef.current = () => undefined;
+      offDrain();
       handle.close();
       // React StrictMode immediately replays effects in development while
       // preserving memoized resources. Defer terminal ownership cleanup one

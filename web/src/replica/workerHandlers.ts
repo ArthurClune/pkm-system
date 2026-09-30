@@ -13,7 +13,7 @@ import type { AckedBatch, PendingBatch, RecoveryCommit, ReplicaDiagnostics }
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
 import { isCorruptionMessage, isUnreadableFileMessage,
-         ReplicaUnavailableError } from "./errors";
+         ReplicaUnusableError } from "./errors";
 import { getMeta } from "./meta";
 import { handleLocalApi, type LocalApiRequest } from "./localApi/router";
 import { pendingSetStillCovered } from "./pendingGuard";
@@ -135,16 +135,17 @@ function collectDiagnostics(db: ReplicaDb): ReplicaDiagnostics {
 
 export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   let dbPromise: Promise<ReplicaDb> | null = null;
-  // The availability fact, owned here — the worker is the only party that can
-  // say "there is definitively no database" rather than "I could not ask".
+  // Whether the replica is usable, decided here — the worker is the only
+  // party that can say "there is definitively no database" rather than "I
+  // could not ask".
   //
-  // Once set, `unavailable` (and the memoised `dbPromise` rejection behind
+  // Once set, `unusable` (and the memoised `dbPromise` rejection behind
   // it) must persist until close(): a barrier lift kicks a drain that would
   // post batches queued behind an undiscovered poison row, so nothing may
   // clear either before then. close() is the only reset.
-  let unavailable: ReplicaUnavailableError | null = null;
+  let unusable: ReplicaUnusableError | null = null;
   const db = async (): Promise<ReplicaDb> => {
-    if (unavailable !== null) throw unavailable;
+    if (unusable !== null) throw unusable;
     dbPromise ??= deps.openDb();
     try {
       return await dbPromise;
@@ -153,10 +154,10 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       // diagnostic the banner has. Retention classifies by a type check on
       // this class, never by matching the message, so the message itself is
       // display-only from here on.
-      unavailable ??= new ReplicaUnavailableError(
+      unusable ??= new ReplicaUnusableError(
         error instanceof Error ? error.message : String(error),
       );
-      throw unavailable;
+      throw unusable;
     }
   };
   /** The carried rows into `d`, with the same fresh-file rule init and
@@ -460,7 +461,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     async init() {
       return gate.run(async () => {
         // No catch: an unopenable database is db()'s latched
-        // ReplicaUnavailableError, exactly as it is for every other handler.
+        // ReplicaUnusableError, exactly as it is for every other handler.
         // Consumers derive "no-replica" from that rejection.
         const d = await queueDb();
         const fresh = !tableExists(d, "sync_client_meta");
@@ -609,7 +610,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         await deps.closeDb?.();
         // The only re-arm. A new open may now be attempted, and may succeed.
         dbPromise = null;
-        unavailable = null;
+        unusable = null;
         return null;
       });
     },

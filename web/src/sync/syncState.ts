@@ -22,7 +22,7 @@ export type SyncProblem =
    * still reach the server, but there is no local cache and no offline
    * editing. Session-scoped by design (the worker latches a failed open), so
    * the only way out is a reload. */
-  | { kind: "replica-unavailable"; error: string }
+  | { kind: "replica-unusable"; error: string }
   | { kind: "legacy-rejected"; repair: "running" | "failed" | "repaired";
       error: string; repairError?: string }
   | { kind: "replica-stalled"; error: string;
@@ -42,7 +42,7 @@ export type SyncEvent =
   | { type: "repair-failed"; event: PoisonEvent; error: string }
   | { type: "poison-discovery-failed"; error: string }
   | { type: "poison-intents-discarded" }
-  | { type: "replica-unavailable"; error: string }
+  | { type: "replica-unusable"; error: string }
   | { type: "poison-discovery-cleared" }
   | { type: "legacy-repair-started"; error: string }
   | { type: "legacy-repair-succeeded"; error: string }
@@ -147,23 +147,23 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
     case "poison-intents-discarded":
       // The user discarded retained poison-mark intents, so the
       // mark-failed problem reporting them is now stale. Only that exact
-      // phase clears — replica-unavailable never stomps another kind (below),
+      // phase clears — replica-unusable never stomps another kind (below),
       // so a leftover mark-failed banner would otherwise outlive its intents.
       return state.problem?.kind === "rejected-batch"
           && state.problem.repair === "mark-failed"
         ? problem(state, undefined) : { state, effects: [] };
-    case "replica-unavailable": {
+    case "replica-unusable": {
       // A background "this session is online-only" report must not stomp a
       // delivery problem the user can act on — overwriting a failed
       // legacy-rejected repair would take its Retry with it, and retryProblem
       // would no longer reach that repair at all. Same
       // precedence shape as replica-stalled below.
       const current = state.problem;
-      if (current && current.kind !== "replica-unavailable") {
+      if (current && current.kind !== "replica-unusable") {
         return { state, effects: [] };
       }
       return problem(state, {
-        kind: "replica-unavailable", error: event.error,
+        kind: "replica-unusable", error: event.error,
       });
     }
     case "poison-discovery-cleared":

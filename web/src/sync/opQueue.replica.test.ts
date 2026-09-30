@@ -6,7 +6,7 @@ import { defaultUnauthorizedHandler, setUnauthorizedHandler } from "../api/clien
 import type { BlockOp } from "../api/ops";
 import type { OpsAck } from "../api/payloads";
 import type { Replica } from "../replica/client";
-import { ReplicaError, ReplicaUnavailableError,
+import { ReplicaError, ReplicaUnusableError,
          RpcLifecycleError } from "../replica/errors";
 import { jsonResponse } from "../test-helpers";
 import { memReplica } from "./memReplica";
@@ -61,7 +61,7 @@ describe("durable batch delivery", () => {
   test("drains each persisted batch as one POST carrying its batch_id", async () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const counts: number[] = [];
     q.onPending((n) => counts.push(n));
     q.enqueue([op("u1")]);
@@ -91,7 +91,7 @@ describe("durable batch delivery", () => {
       deletes.push([id, batchId, ackedSeq]);
       return base(id, batchId);
     };
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.enqueue([op("u1")]);
     q.enqueue([op("u2")]);
     await q.settled();
@@ -105,7 +105,7 @@ describe("durable batch delivery", () => {
   test("offline: batches persist without posting; reconnect drains in order", async () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(false);
     q.enqueue([op("u1")]);
     q.enqueue([op("u2")]);
@@ -126,7 +126,7 @@ describe("durable batch delivery", () => {
       () => jsonResponse({ ok: true }),
     ]);
     const replica = memReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const poisons: PoisonEvent[] = [];
     q.onPoison((event) => poisons.push(event));
     q.enqueue([op("bad")]);
@@ -159,7 +159,7 @@ describe("durable batch delivery", () => {
         () => jsonResponse({ ok: true }),
       ]);
       const replica = memReplica();
-      const q = createOpQueue(replica, () => undefined);
+      const q = createOpQueue(replica);
       const poisons: unknown[] = [];
       q.onPoison((event) => poisons.push(event));
       q.enqueue([op("bad")]);
@@ -192,7 +192,7 @@ describe("durable batch delivery", () => {
         };
       },
     });
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     let pendingSignals = 0;
     const publicEvents: PoisonEvent[] = [];
     q.onPoisonPending(() => { pendingSignals += 1; });
@@ -229,7 +229,7 @@ describe("durable batch delivery", () => {
     const replica = memReplica();
     replica.rows.push({ id: 99, batch_id: "leftover", ops: [op("u1")],
                         poisoned: false });
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(true); // the socket's first connect after the reload
     await q.settled();
     await q.drain();
@@ -246,7 +246,7 @@ describe("durable batch delivery", () => {
       return jsonResponse({ ok: true });
     }));
     const replica = memReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.enqueue([op("u1")]);
     await q.settled();
     await q.drain();
@@ -268,7 +268,7 @@ describe("durable batch delivery", () => {
       return jsonResponse({ ok: true });
     }));
     const replica = memReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.enqueue([op("u1")]);
     await vi.waitFor(() => { expect(replica.rows.length).toBe(1); });
     q.enqueue([op("u2")]); // first POST still in flight
@@ -291,7 +291,7 @@ describe("an enqueue the replica cannot persist", () => {
         throw new ReplicaError("SQLITE_IOERR: disk I/O error");
       },
     });
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.enqueue([op("u1")]);
     await q.settled();
     await q.drain();
@@ -324,7 +324,8 @@ describe("an enqueue the replica cannot persist", () => {
       },
     });
     const desyncs: unknown[] = [];
-    const q = createOpQueue(replica, (e) => desyncs.push(e));
+    const q = createOpQueue(replica);
+    q.onDesync((e) => desyncs.push(e));
     const ticket = q.enqueue([op("u1")]);
     await q.settled();
     await q.drain();
@@ -352,7 +353,8 @@ describe("an enqueue the replica cannot persist", () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = laneOnlyReplica();
     const desyncs: unknown[] = [];
-    const q = createOpQueue(replica, (e) => desyncs.push(e));
+    const q = createOpQueue(replica);
+    q.onDesync((e) => desyncs.push(e));
     const ticket = q.enqueue([op("u1")]);
     await q.settled();
     await q.drain();
@@ -375,7 +377,8 @@ describe("an enqueue the replica cannot persist", () => {
         'unsupported reference title syntax: "a[[b]]"', { rejected: true }); },
     });
     const desyncs: unknown[] = [];
-    const q = createOpQueue(replica, (e) => desyncs.push(e));
+    const q = createOpQueue(replica);
+    q.onDesync((e) => desyncs.push(e));
     const ticket = q.enqueue([
       { op: "update_text", uid: "u1", text: "a[[b]]" },
     ]);
@@ -399,7 +402,8 @@ describe("an enqueue the replica cannot persist", () => {
       enqueue: async () => { throw new Error("worker crashed"); },
     });
     const desyncs: unknown[] = [];
-    const q = createOpQueue(replica, (e) => desyncs.push(e));
+    const q = createOpQueue(replica);
+    q.onDesync((e) => desyncs.push(e));
     const ticket = q.enqueue([op("u1")]);
     await q.settled();
     await q.drain();
@@ -420,7 +424,8 @@ describe("an enqueue the replica cannot persist", () => {
       new RpcLifecycleError("worker-error", "replica worker failed"));
     replica.nextBatch = () => Promise.reject(
       new RpcLifecycleError("worker-error", "replica worker failed"));
-    const queue = createOpQueue(replica, (e) => desyncs.push(e));
+    const queue = createOpQueue(replica);
+    queue.onDesync((e) => desyncs.push(e));
     const ticket = queue.enqueue([{ op: "delete", uid: "u1" }]);
     await ticket.settled;
     expect(desyncs).toEqual([]);
@@ -439,7 +444,7 @@ describe("an enqueue the replica cannot persist", () => {
     };
     let nextBatchCalls = 0;
     replica.nextBatch = () => { nextBatchCalls += 1; return Promise.resolve(null); };
-    const queue = createOpQueue(replica, () => undefined);
+    const queue = createOpQueue(replica);
     await queue.enqueue([{ op: "delete", uid: "u1" }]).delivered;
     await queue.drain();
     expect(enqueues).toBe(1);
@@ -458,7 +463,7 @@ describe("an enqueue the replica cannot persist", () => {
       void await persist(ops, batchId);
       throw new RpcLifecycleError("timeout", "replica RPC enqueue timed out");
     };
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     await q.enqueue([op("u1")]).delivered;
     await q.drain();
     const ids = bodies.map((b) => (b.body as { batch_id: string }).batch_id);
@@ -471,9 +476,9 @@ describe("an enqueue the replica cannot persist", () => {
     let nextBatchCalls = 0;
     replica.nextBatch = () => {
       nextBatchCalls += 1;
-      return Promise.reject(new ReplicaUnavailableError("no openable database"));
+      return Promise.reject(new ReplicaUnusableError("no openable database"));
     };
-    const queue = createOpQueue(replica, () => undefined);
+    const queue = createOpQueue(replica);
     await expect(queue.drain()).resolves.toEqual({ status: "drained" });
     await expect(queue.drain()).resolves.toEqual({ status: "drained" });
     expect(nextBatchCalls).toBe(1);
@@ -484,7 +489,7 @@ describe("write tickets", () => {
   test("offline enqueue settles as persisted while drain reports blocked", async () => {
     const { mock } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(false);
 
     const ticket = q.enqueue([op("u1")], ["page", "Page"]);
@@ -505,7 +510,7 @@ describe("write tickets", () => {
       await posted;
       return jsonResponse({ ok: true });
     }]);
-    const q = createOpQueue(memReplica(), () => undefined);
+    const q = createOpQueue(memReplica());
 
     const ticket = q.enqueue([op("u1")], ["page", "Page"]);
     await ticket.settled;
@@ -523,7 +528,7 @@ describe("write tickets", () => {
     const replica = memReplica({ enqueue: () => persisted.promise });
     const fetchMock = vi.fn(async () => jsonResponse({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const write = q.enqueue([op("slow")]);
     await Promise.resolve();
 
@@ -556,7 +561,7 @@ describe("retryable responses and RPC failures", () => {
           : jsonResponse({ ok: true });
       }));
       const replica = memReplica();
-      const q = createOpQueue(replica, () => undefined);
+      const q = createOpQueue(replica);
       await q.enqueue([op("u1")]).settled;
 
       await expect(q.drain()).resolves.toMatchObject({
@@ -585,7 +590,7 @@ describe("retryable responses and RPC failures", () => {
                               : jsonResponse({ ok: true });
         }));
         const replica = memReplica();
-        const q = createOpQueue(replica, () => undefined);
+        const q = createOpQueue(replica);
         const poisons: unknown[] = [];
         q.onPoison((event) => poisons.push(event));
         await q.enqueue([op("u1")]).settled;
@@ -610,7 +615,7 @@ describe("retryable responses and RPC failures", () => {
       const fetchMock = vi.fn(async () => jsonResponse({ detail: "busy" }, 503));
       vi.stubGlobal("fetch", fetchMock);
       const replica = memReplica();
-      const q = createOpQueue(replica, () => undefined);
+      const q = createOpQueue(replica);
       await q.enqueue([op("u1")]).settled;
       await expect(q.drain()).resolves.toMatchObject({ reason: "retryable" });
 
@@ -635,7 +640,7 @@ describe("retryable responses and RPC failures", () => {
   async (_method, status, over) => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({}, status)));
     const replica = memReplica(over);
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
 
     const write = q.enqueue([op("u1")]);
     const outcome = q.drain();
@@ -658,7 +663,8 @@ describe("poison marks and retained mark intents", () => {
       markPoisoned: async () => { throw error; },
     });
     const desync = vi.fn();
-    const q = createOpQueue(replica, desync);
+    const q = createOpQueue(replica);
+    q.onDesync(desync);
     const pending = vi.fn();
     const published = vi.fn();
     const markFailed = vi.fn();
@@ -703,7 +709,7 @@ describe("poison marks and retained mark intents", () => {
         };
       },
     });
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const markFailures: unknown[] = [];
     const poisons: PoisonEvent[] = [];
     const recovery = q as unknown as {
@@ -756,14 +762,14 @@ describe("poison marks and retained mark intents", () => {
         };
       },
     });
-    const firstPage = createOpQueue(replica, () => undefined);
+    const firstPage = createOpQueue(replica);
     firstPage.enqueue([op("bad")]);
     firstPage.enqueue([op("good")]);
     await firstPage.settled();
     await firstPage.drain();
     firstPage.dispose();
 
-    const reloaded = createOpQueue(replica, () => undefined);
+    const reloaded = createOpQueue(replica);
     const poisons: PoisonEvent[] = [];
     reloaded.onPoison((event) => poisons.push(event));
     const recovery = reloaded as unknown as {
@@ -815,7 +821,7 @@ describe("poison marks and retained mark intents", () => {
         matched: true,
       };
     };
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const published: PoisonEvent[] = [];
     q.onPoison((event) => published.push(event));
     const recovery = q as unknown as {
@@ -846,7 +852,7 @@ describe("poison marks and retained mark intents", () => {
     });
     const mark = vi.fn(async () => ({ pending: 0, matched: true }));
     replica.markPoisoned = mark;
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const recovery = q as unknown as {
       retryPoisonMarks(): Promise<readonly PoisonEvent[]>;
     };
@@ -881,7 +887,7 @@ describe("poison marks and retained mark intents", () => {
       };
     });
     (replica as unknown as { markPoisoned: typeof mark }).markPoisoned = mark;
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const published: PoisonEvent[] = [];
     q.onPoison((event) => published.push(event));
 
@@ -910,7 +916,7 @@ describe("poison marks and retained mark intents", () => {
     // No rows in the replica at all: both intents' rowId/batchId pairs match
     // nothing, so both mark calls report matched: false.
     const replica = memReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const unmatchedRounds: number[] = [];
     q.onPoisonMarkUnmatched(() => { unmatchedRounds.push(1); });
 
@@ -922,7 +928,7 @@ describe("poison marks and retained mark intents", () => {
   test("a round with no retained intents never reports an unmatched round", async () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const unmatchedRounds: number[] = [];
     q.onPoisonMarkUnmatched(() => { unmatchedRounds.push(1); });
 
@@ -946,7 +952,7 @@ describe("poison marks and retained mark intents", () => {
     const replica = memReplica();
     const mark = vi.fn(async () => { throw new Error("unopenable"); });
     (replica as unknown as { markPoisoned: typeof mark }).markPoisoned = mark;
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
 
     q.discardPoisonIntents();
 
@@ -960,7 +966,7 @@ describe("poison marks and retained mark intents", () => {
     localStorage.setItem("pkm.poison-mark-intents.v1", "{not-json");
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.enqueue([op("good")]);
     await q.settled();
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
@@ -976,7 +982,8 @@ describe("replica RPC failures and retry delays", () => {
     const replica = memReplica({
       deleteBatch: async () => { throw error; },
     });
-    const q = createOpQueue(replica, () => undefined, observed);
+    const q = createOpQueue(replica);
+    q.onDrain(observed);
 
     await q.enqueue([op("u1")]).settled;
 
@@ -999,7 +1006,7 @@ describe("replica RPC failures and retry delays", () => {
           : jsonResponse({ ok: true });
       }));
       const replica = memReplica();
-      const q = createOpQueue(replica, () => undefined);
+      const q = createOpQueue(replica);
       await q.enqueue([op("u1")]).settled;
       await q.drain();
 
@@ -1044,7 +1051,8 @@ describe("fallback lane ordering against durable batches", () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = laneOnlyReplica();
     const desyncs: unknown[] = [];
-    const q = createOpQueue(replica, (e) => desyncs.push(e));
+    const q = createOpQueue(replica);
+    q.onDesync((e) => desyncs.push(e));
     q.setOnline(false);
 
     const ticket = q.enqueue([op("u1")]);
@@ -1067,7 +1075,7 @@ describe("fallback lane ordering against durable batches", () => {
   async () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(false);
 
     q.enqueue([op("first")]);          // durable row batch-1
@@ -1094,7 +1102,7 @@ describe("fallback lane ordering against durable batches", () => {
     const replica = memReplica();
     const durableEnqueue = replica.enqueue.bind(replica);
     replica.enqueue = async () => { throw new Error(CANTOPEN); };
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(false);
 
     const retained = q.enqueue([op("older")]);
@@ -1124,7 +1132,7 @@ describe("fallback lane ordering against durable batches", () => {
     const failEnqueue = async (): Promise<never> => {
       throw new Error(CANTOPEN);
     };
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(false);
 
     replica.enqueue = failEnqueue;
@@ -1160,7 +1168,7 @@ describe("fallback lane ordering against durable batches", () => {
     ]);
     const replica = memReplica();
     const durableEnqueue = replica.enqueue.bind(replica);
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(false);
 
     q.enqueue([op("rejected")]);              // durable row, drains first
@@ -1222,7 +1230,7 @@ describe("fallback lane ordering against durable batches", () => {
       if (deleteCalls === 1) throw new Error("worker vanished mid-delete");
       return realDelete(id, ackedSeq);
     };
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(false);
 
     q.enqueue([op("x-durable")]);                 // row X, durable
@@ -1267,7 +1275,7 @@ describe("fallback lane ordering against durable batches", () => {
       id: 1, batch_id: "prev-session", ops: [op("prev")], poisoned: false,
     });
     replica.enqueued.push("prev-session");
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(false);
     replica.enqueue = async () => { throw new Error(CANTOPEN); };
     const held = q.enqueue([op("held")]);
@@ -1298,7 +1306,7 @@ describe("fallback lane ordering against durable batches", () => {
       if (nextBatchCalls === 1) throw new Error("worker RPC timeout");
       return realNextBatch();
     };
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const ticket = q.enqueue([op("u1")]);
     await q.settled();
 
@@ -1320,7 +1328,7 @@ describe("deliverLaneAhead", () => {
     const replica = memReplica();
     const durableEnqueue = replica.enqueue.bind(replica);
     const failEnqueue = async (): Promise<never> => { throw new Error(CANTOPEN); };
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(false);
 
     replica.enqueue = failEnqueue;
@@ -1348,7 +1356,7 @@ describe("deliverLaneAhead", () => {
   async () => {
     const replica = memReplica();
     const durableEnqueue = replica.enqueue.bind(replica);
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const unsent: number[] = [];
     q.onUnsentInMemory((n) => unsent.push(n));
     q.setOnline(false);
@@ -1371,7 +1379,7 @@ describe("deliverLaneAhead", () => {
   });
 
   test("deliverLaneAhead throws once the queue is disposed", async () => {
-    const q = createOpQueue(memReplica(), () => undefined);
+    const q = createOpQueue(memReplica());
     q.dispose();
     await expect(q.deliverLaneAhead("whatever")).rejects.toThrow("disposed");
   });
@@ -1386,7 +1394,7 @@ describe("deliverLaneAhead", () => {
     const replica = memReplica();
     const durableEnqueue = replica.enqueue.bind(replica);
     const failEnqueue = async (): Promise<never> => { throw new Error(CANTOPEN); };
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(false);
 
     replica.enqueue = failEnqueue;
@@ -1426,8 +1434,8 @@ describe("deliverLaneAhead", () => {
     const durableEnqueue = replica.enqueue.bind(replica);
     const failEnqueue = async (): Promise<never> => { throw new Error(CANTOPEN); };
     const skips: void[] = [];
-    const q = createOpQueue(replica, () => undefined, () => undefined,
-      () => skips.push(undefined));
+    const q = createOpQueue(replica);
+    q.onSkipped(() => skips.push(undefined));
     q.setOnline(false);
 
     replica.enqueue = failEnqueue;
@@ -1451,8 +1459,8 @@ describe("deliverLaneAhead", () => {
     const durableEnqueue = replica.enqueue.bind(replica);
     const failEnqueue = async (): Promise<never> => { throw new Error(CANTOPEN); };
     const skips: void[] = [];
-    const q = createOpQueue(replica, () => undefined, () => undefined,
-      () => skips.push(undefined));
+    const q = createOpQueue(replica);
+    q.onSkipped(() => skips.push(undefined));
     q.setOnline(false);
 
     replica.enqueue = failEnqueue;
@@ -1474,7 +1482,7 @@ describe("out-of-band flushes", () => {
   async () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(false);
 
     const flushed = q.enqueue([op("flushed")]);
@@ -1510,7 +1518,7 @@ describe("out-of-band flushes", () => {
     const failEnqueue = async (): Promise<never> => {
       throw new Error(CANTOPEN);
     };
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(false);
 
     q.enqueue([op("durable-1")]);
@@ -1564,7 +1572,7 @@ describe("fallback lane delivery outcomes", () => {
         () => jsonResponse({ ok: true }),
       ]);
       const replica = laneOnlyReplica();
-      const q = createOpQueue(replica, () => undefined);
+      const q = createOpQueue(replica);
       const ticket = q.enqueue([op("u1")]);
       await q.settled();
 
@@ -1595,7 +1603,8 @@ describe("fallback lane delivery outcomes", () => {
         ]);
         const replica = laneOnlyReplica();
         const desyncs: unknown[] = [];
-        const q = createOpQueue(replica, (e) => desyncs.push(e));
+        const q = createOpQueue(replica);
+        q.onDesync((e) => desyncs.push(e));
         const ticket = q.enqueue([op("u1")]);
         await q.settled();
 
@@ -1629,7 +1638,8 @@ describe("fallback lane delivery outcomes", () => {
     }));
     const replica = laneOnlyReplica();
     const desyncs: unknown[] = [];
-    const q = createOpQueue(replica, (e) => desyncs.push(e));
+    const q = createOpQueue(replica);
+    q.onDesync((e) => desyncs.push(e));
     const ticket = q.enqueue([op("u1")]);
     await q.settled();
 
@@ -1652,7 +1662,8 @@ describe("fallback lane delivery outcomes", () => {
     ]);
     const replica = laneOnlyReplica();
     const desyncs: unknown[] = [];
-    const q = createOpQueue(replica, (e) => desyncs.push(e));
+    const q = createOpQueue(replica);
+    q.onDesync((e) => desyncs.push(e));
     const bad = q.enqueue([op("bad")]);
     const good = q.enqueue([op("good")]);
     await q.settled();
@@ -1677,7 +1688,8 @@ describe("fallback lane delivery outcomes", () => {
       ]);
       const replica = laneOnlyReplica();
       const desyncs: unknown[] = [];
-      const q = createOpQueue(replica, (e) => desyncs.push(e));
+      const q = createOpQueue(replica);
+      q.onDesync((e) => desyncs.push(e));
       const bad = q.enqueue([op("bad")]);
       const good = q.enqueue([op("good")]);
       await q.settled();
@@ -1707,7 +1719,7 @@ describe("fallback lane delivery outcomes", () => {
     const replica = laneOnlyReplica({
       pendingCount: async () => 3,   // no rows exist, but the count claims three
     });
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const ticket = q.enqueue([op("u1")]);
     await q.settled();
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
@@ -1720,7 +1732,7 @@ describe("fallback lane delivery outcomes", () => {
     // Between retained entries the lane re-checks connectivity exactly like the
     // durable pump: one delivered entry must not license posting the next.
     const replica = laneOnlyReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const { bodies } = fetchSeq([() => {
       q.setOnline(false); // the socket drops while the first POST is in flight
       return jsonResponse({ ok: true });
@@ -1746,7 +1758,7 @@ describe("dispose", () => {
   async () => {
     fetchSeq([() => jsonResponse({ ok: true })]);
     const enqueue = vi.fn(async () => { throw new Error(CANTOPEN); });
-    const q = createOpQueue(laneOnlyReplica({ enqueue }), () => undefined);
+    const q = createOpQueue(laneOnlyReplica({ enqueue }));
     const ticket = q.enqueue([op("u1")]);
     q.dispose();          // before the persist chain's microtask even runs
 
@@ -1764,7 +1776,7 @@ describe("dispose", () => {
     const replica = laneOnlyReplica({
       enqueue: async () => { entered(); await gate; throw new Error(CANTOPEN); },
     });
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const ticket = q.enqueue([op("u1")]);
     await started;        // the write is genuinely in flight inside the replica
     q.dispose();          // teardown races a write that is already in flight
@@ -1779,7 +1791,7 @@ describe("dispose", () => {
   async () => {
     fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = laneOnlyReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const counts: number[] = [];
     q.onPending((n) => counts.push(n));
     q.setOnline(false);
@@ -1816,8 +1828,8 @@ describe("blocked drains and terminal states", () => {
       return replica.rows.filter((row) => !row.poisoned).length;
     };
     const drains: string[] = [];
-    const q = createOpQueue(replica, () => undefined,
-                            (outcome) => drains.push(outcome.status));
+    const q = createOpQueue(replica);
+    q.onDrain((outcome) => drains.push(outcome.status));
     q.setOnline(false);
 
     const ticket = q.enqueue([op("u1")]); // its own kick starts the offline drain
@@ -1856,7 +1868,7 @@ describe("blocked drains and terminal states", () => {
         matched: true,
       };
     };
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(false);
 
     q.enqueue([op("rejected")]);  // row 1: rejected, and its mark fails
@@ -1904,7 +1916,7 @@ describe("blocked drains and terminal states", () => {
       rejectPost = reject;
     })));
     const replica = memReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const write = q.enqueue([op("u1")]);
     await write.settled;
     await vi.waitFor(() => { expect(fetch).toHaveBeenCalledTimes(1); });
@@ -1930,7 +1942,7 @@ describe("pending and unsent-in-memory counts", () => {
   async () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = laneOnlyReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const unsentCounts: number[] = [];
     q.onUnsentInMemory((n) => unsentCounts.push(n));
     q.enqueue([op("u1")]);
@@ -1944,7 +1956,7 @@ describe("pending and unsent-in-memory counts", () => {
 
   test("a count that did not move is not re-emitted", async () => {
     fetchSeq([() => jsonResponse({ ok: true })]);
-    const q = createOpQueue(memReplica(), () => undefined);
+    const q = createOpQueue(memReplica());
     const pendingCounts: number[] = [];
     const unsentCounts: number[] = [];
     q.onPending((n) => pendingCounts.push(n));
@@ -1964,7 +1976,7 @@ describe("pending and unsent-in-memory counts", () => {
   test("a healthy durable enqueue reports non-zero onPending while onUnsentInMemory stays 0",
   async () => {
     const replica = memReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     const pendingCounts: number[] = [];
     const unsentCounts: number[] = [];
     q.onPending((n) => pendingCounts.push(n));
@@ -1987,8 +1999,8 @@ describe("onDesync", () => {
       () => jsonResponse({ detail: "bad op" }, 400),
       () => jsonResponse({ ok: true }),
     ]);
-    let q!: ReturnType<typeof createOpQueue>;
-    q = createOpQueue(laneOnlyReplica(), () => {
+    const q = createOpQueue(laneOnlyReplica());
+    q.onDesync(() => {
       q.enqueue([op("u9")]);
       q.resume("recovery");
     });
@@ -2009,8 +2021,8 @@ describe("onDesync", () => {
       () => jsonResponse({ detail: "bad op" }, 400),
       () => jsonResponse({ ok: true }),
     ]);
-    let q!: ReturnType<typeof createOpQueue>;
-    q = createOpQueue(laneOnlyReplica(), () => {
+    const q = createOpQueue(laneOnlyReplica());
+    q.onDesync(() => {
       void Promise.resolve().then(() => q.resume("recovery"));
     });
     q.setOnline(false);
@@ -2034,7 +2046,8 @@ describe("onDesync", () => {
       () => jsonResponse({ detail: "bad op" }, 400),
       () => jsonResponse({ ok: true }),
     ]);
-    const q = createOpQueue(laneOnlyReplica(), () => {
+    const q = createOpQueue(laneOnlyReplica());
+    q.onDesync(() => {
       throw new Error("desync handler exploded");
     });
     q.enqueue([op("u1")]);
@@ -2079,7 +2092,7 @@ describe("in-flight kicks", () => {
     const { bodies, started, release } =
       gatedFetch(() => jsonResponse({ ok: true }));
     const replica = memReplica();
-    const q = createOpQueue(replica, () => undefined);
+    const q = createOpQueue(replica);
     q.setOnline(false);
     const first = q.enqueue([op("u1")]);
     await q.settled();
@@ -2105,7 +2118,7 @@ describe("in-flight kicks", () => {
   async () => {
     const { bodies, started, release } =
       gatedFetch(() => jsonResponse({ ok: true }));
-    const q = createOpQueue(memReplica(), () => undefined);
+    const q = createOpQueue(memReplica());
     q.setOnline(false);
     const first = q.enqueue([op("u1")]);
     await q.settled();
@@ -2130,7 +2143,7 @@ describe("in-flight kicks", () => {
   test("dispose drops a missed in-flight kick without another POST", async () => {
     const { bodies, started, release } =
       gatedFetch(() => jsonResponse({ ok: true }));
-    const q = createOpQueue(memReplica(), () => undefined);
+    const q = createOpQueue(memReplica());
     q.setOnline(false);
     q.enqueue([op("u1")]);
     await q.settled();
@@ -2154,7 +2167,7 @@ describe("in-flight kicks", () => {
     try {
       const { bodies, started, release } =
         gatedFetch(() => jsonResponse({ detail: "busy" }, 503));
-      const q = createOpQueue(memReplica(), () => undefined);
+      const q = createOpQueue(memReplica());
       q.setOnline(false);
       q.enqueue([op("u1")]);
       await q.settled();
@@ -2186,7 +2199,7 @@ describe("in-flight kicks", () => {
         calls += 1;
         return jsonResponse({ detail: "busy" }, 503);
       }));
-      const q = createOpQueue(memReplica(), () => undefined);
+      const q = createOpQueue(memReplica());
       await q.enqueue([op("u1")]).settled;
       await expect(q.drain()).resolves.toMatchObject({ reason: "retryable" });
       await vi.advanceTimersByTimeAsync(250); // second failure schedules 1s
@@ -2213,14 +2226,14 @@ describe("skipped ops in an ack", () => {
   // leaves the screen, and every debounced flush lands another child under
   // its daily-note conflict header. A replica-backed tab's own feed also
   // tombstones the ghost row, but nothing else bumps resync for it, so this
-  // fires regardless of whether the queue has latched `unavailable`.
+  // fires regardless of whether the queue has latched `availability`.
 
   /** Unlike laneOnlyReplica's CANTOPEN (a local persist failure that is never
-   * session-fatal, see errors.ts::isSessionFatal), this latches `unavailable`
+   * session-fatal, see errors.ts::isSessionFatal), this latches `availability`
    * exactly as absentReplica() does for a real no-replica session -- the
    * condition deliverLaneHead's refetch is narrowed to. */
   const noReplicaAtAll = () => laneOnlyReplica({
-    enqueue: async () => { throw new ReplicaUnavailableError("no openable database"); },
+    enqueue: async () => { throw new ReplicaUnusableError("no openable database"); },
   });
 
   test("a fallback-lane ack naming a skipped op triggers the no-replica refetch",
@@ -2232,8 +2245,8 @@ describe("skipped ops in an ack", () => {
     } satisfies OpsAck)]);
     const replica = noReplicaAtAll();
     const skips: void[] = [];
-    const q = createOpQueue(replica, () => undefined, () => undefined,
-      () => skips.push(undefined));
+    const q = createOpQueue(replica);
+    q.onSkipped(() => skips.push(undefined));
     const ticket = q.enqueue([op("u1")]);
     await q.settled();
     await q.drain();
@@ -2245,8 +2258,8 @@ describe("skipped ops in an ack", () => {
     fetchSeq([() => jsonResponse({ ok: true, ts: 1, applied: 1 })]);
     const replica = noReplicaAtAll();
     const skips: void[] = [];
-    const q = createOpQueue(replica, () => undefined, () => undefined,
-      () => skips.push(undefined));
+    const q = createOpQueue(replica);
+    q.onSkipped(() => skips.push(undefined));
     q.enqueue([op("u1")]);
     await q.settled();
     await q.drain();
@@ -2257,8 +2270,8 @@ describe("skipped ops in an ack", () => {
     fetchSeq([() => jsonResponse({ ok: true, ts: 1, applied: 1, skipped: [] })]);
     const replica = noReplicaAtAll();
     const skips: void[] = [];
-    const q = createOpQueue(replica, () => undefined, () => undefined,
-      () => skips.push(undefined));
+    const q = createOpQueue(replica);
+    q.onSkipped(() => skips.push(undefined));
     q.enqueue([op("u1")]);
     await q.settled();
     await q.drain();
@@ -2269,8 +2282,8 @@ describe("skipped ops in an ack", () => {
     fetchSeq([() => jsonResponse({ ok: true, ts: 1, applied: 1, skipped: "nope" })]);
     const replica = noReplicaAtAll();
     const skips: void[] = [];
-    const q = createOpQueue(replica, () => undefined, () => undefined,
-      () => skips.push(undefined));
+    const q = createOpQueue(replica);
+    q.onSkipped(() => skips.push(undefined));
     q.enqueue([op("u1")]);
     await q.settled();
     await q.drain();
@@ -2281,7 +2294,7 @@ describe("skipped ops in an ack", () => {
   "fine still refetches (both paths read the ack's skipped list, not only " +
   "the no-replica latch)", async () => {
     // The lane also delivers ordering-only entries ahead of a durable batch
-    // while unavailable is still null -- a working replica, just a
+    // while availability is still null -- a working replica, just a
     // transient local persist failure. Its own feed will also tombstone the
     // ghost, so this refetch is a harmless extra, not a correctness gap.
     const { bodies } = fetchSeq([() => jsonResponse({
@@ -2293,8 +2306,8 @@ describe("skipped ops in an ack", () => {
       enqueue: async () => { throw new Error("worker crashed"); },
     });
     const skips: void[] = [];
-    const q = createOpQueue(replica, () => undefined, () => undefined,
-      () => skips.push(undefined));
+    const q = createOpQueue(replica);
+    q.onSkipped(() => skips.push(undefined));
     q.enqueue([op("u1")]);
     await q.settled();
     await q.drain();
@@ -2312,8 +2325,8 @@ describe("skipped ops in an ack", () => {
     } satisfies OpsAck)]);
     const replica = memReplica();
     const skips: void[] = [];
-    const q = createOpQueue(replica, () => undefined, () => undefined,
-      () => skips.push(undefined));
+    const q = createOpQueue(replica);
+    q.onSkipped(() => skips.push(undefined));
     q.enqueue([op("u1")]);
     await q.settled();
     await q.drain();
@@ -2325,8 +2338,8 @@ describe("skipped ops in an ack", () => {
     fetchSeq([() => jsonResponse({ ok: true, ts: 1, applied: 1 })]);
     const replica = memReplica();
     const skips: void[] = [];
-    const q = createOpQueue(replica, () => undefined, () => undefined,
-      () => skips.push(undefined));
+    const q = createOpQueue(replica);
+    q.onSkipped(() => skips.push(undefined));
     q.enqueue([op("u1")]);
     await q.settled();
     await q.drain();
@@ -2338,12 +2351,72 @@ describe("skipped ops in an ack", () => {
     fetchSeq([() => jsonResponse({ detail: "bad op" }, 400)]);
     const replica = memReplica();
     const skips: void[] = [];
-    const q = createOpQueue(replica, () => undefined, () => undefined,
-      () => skips.push(undefined));
+    const q = createOpQueue(replica);
+    q.onSkipped(() => skips.push(undefined));
     q.enqueue([op("u1")]);
     await q.settled();
     const outcome = await q.drain();
     expect(outcome).toMatchObject({ reason: "recovering" });
     expect(skips).toEqual([]);
+  });
+});
+
+describe("a listener subscribed in the same tick as the call still hears it", () => {
+  // SyncProvider subscribes in effects, after the commit that built the queue.
+  // That is only sound while no call emits synchronously: every emission
+  // follows at least one await (persist on persistChain, delivery on a POST).
+
+  test("enqueue's rejected-op desync reaches a listener added after the call",
+  async () => {
+    const replica = memReplica({
+      enqueue: async () => { throw new ReplicaError(
+        'unsupported reference title syntax: "a[[b]]"', { rejected: true }); },
+    });
+    const q = createOpQueue(replica);
+    q.enqueue([{ op: "update_text", uid: "u1", text: "a[[b]]" }]);
+    const spy = vi.fn();
+    q.onDesync(spy);
+    await q.settled();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  test("drain's outcome reaches a listener added after the call", async () => {
+    const q = createOpQueue(memReplica());
+    const run = q.drain();
+    const spy = vi.fn();
+    q.onDrain(spy);
+    const outcome = await run;
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(outcome);
+  });
+
+  test("the drains setOnline, pause and resume kick reach a listener added " +
+  "after the calls", async () => {
+    const q = createOpQueue(memReplica());
+    const early = vi.fn();
+    q.onDrain(early);
+    q.setOnline(false);
+    q.pause("recovery");
+    q.setOnline(true);
+    q.resume("recovery");
+    const late = vi.fn();
+    q.onDrain(late);
+    await q.drain();
+    expect(early).toHaveBeenCalled();
+    expect(late.mock.calls).toEqual(early.mock.calls);
+  });
+
+  test("an acked skip reaches a listener added after the enqueue", async () => {
+    fetchSeq([() => jsonResponse({
+      ok: true, ts: 1, applied: 1, seq: 7,
+      skipped: [{ index: 0, op: "update_text", uid: "u1",
+                  reason: "block_not_found", note_page: "2026-09-29" }],
+    } satisfies OpsAck)]);
+    const q = createOpQueue(memReplica());
+    const ticket = q.enqueue([op("u1")]);
+    const spy = vi.fn();
+    q.onSkipped(spy);
+    await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });

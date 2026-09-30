@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import { ApiError, OfflineError } from "../api/client";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { PendingBatch, Replica, ReplicaInit } from "../replica/client";
-import { ReplicaError, ReplicaUnavailableError } from "../replica/errors";
+import { ReplicaError, ReplicaUnusableError } from "../replica/errors";
 import {
   createReplicaSync, PENDING_CHANGED_CAP, ResetBlockedError, RETRY_BASE_MS,
   RETRY_MAX_MS, STALL_AFTER_FAILURES, WINDOW_STRIKES, type ReplicaState,
@@ -141,7 +141,7 @@ describe("start, bootstrap and feed pulls", () => {
 
   test("no-replica init reports mode and never fetches", async () => {
     const replica = fakeReplica({
-      init: () => Promise.reject(new ReplicaUnavailableError("OPFS is not available")),
+      init: () => Promise.reject(new ReplicaUnusableError("OPFS is not available")),
     });
     const fetchJson = vi.fn();
     const { states, onState } = collector();
@@ -159,7 +159,7 @@ describe("start, bootstrap and feed pulls", () => {
     // convention.
     const feeds: string[] = [];
     const replica = fakeReplica();
-    replica.init = () => Promise.reject(new ReplicaUnavailableError("no openable database"));
+    replica.init = () => Promise.reject(new ReplicaUnusableError("no openable database"));
     const states: ReplicaState[] = [];
     const sync = createReplicaSync({
       replica,
@@ -204,7 +204,7 @@ describe("start, bootstrap and feed pulls", () => {
     await sync.start();
     expect(sync.appliedVersion()).toBe(healthy);
 
-    failure = new ReplicaUnavailableError("no openable database");
+    failure = new ReplicaUnusableError("no openable database");
     await sync.start();
     expect(sync.appliedVersion()).toBeNull();
     sync.stop(); // the failed pulls scheduled a backoff retry
@@ -222,9 +222,9 @@ describe("start, bootstrap and feed pulls", () => {
     // reporting "no-replica" with no fetch at all.
     const feeds: string[] = [];
     const replica = fakeReplica();
-    const unavailable = new ReplicaUnavailableError("no openable database");
-    replica.init = () => Promise.reject(unavailable);
-    replica.prepareRecovery = () => Promise.reject(unavailable);
+    const unusable = new ReplicaUnusableError("no openable database");
+    replica.init = () => Promise.reject(unusable);
+    replica.prepareRecovery = () => Promise.reject(unusable);
     const sync = createReplicaSync({
       replica,
       fetchJson: async (path: string) => {
@@ -235,7 +235,7 @@ describe("start, bootstrap and feed pulls", () => {
       onState: () => undefined,
     });
     await sync.start();
-    await expect(sync.resetLocalData({ discardPending: true })).rejects.toBe(unavailable);
+    await expect(sync.resetLocalData({ discardPending: true })).rejects.toBe(unusable);
     await sync.start();
     expect(feeds).toEqual([]);
   });
@@ -624,7 +624,7 @@ describe("recovery flushes and the shared coordinator", () => {
     ]);
   });
 
-  test("a recovery flush whose ack names a skipped op calls deps.onSkipped once",
+  test("a recovery flush whose ack names a skipped op calls onSkipped once",
   async () => {
     const batches: PendingBatch[] = [
       { id: 1, batch_id: "b-1",
@@ -642,17 +642,15 @@ describe("recovery flushes and the shared coordinator", () => {
     });
     const { onState } = collector();
     const skips: void[] = [];
-    const sync = createReplicaSync({
-      replica, fetchJson, clientId: "c1", onState,
-      onSkipped: () => skips.push(undefined),
-    });
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+    sync.onSkipped(() => skips.push(undefined));
 
     await sync.start();
 
     expect(skips).toHaveLength(1);
   });
 
-  test("a recovery flush whose ack names no skipped op does not call deps.onSkipped",
+  test("a recovery flush whose ack names no skipped op does not call onSkipped",
   async () => {
     const batches: PendingBatch[] = [
       { id: 1, batch_id: "b-1", ops: [{ op: "delete", uid: "uid_a1" }], poisoned: false },
@@ -665,10 +663,8 @@ describe("recovery flushes and the shared coordinator", () => {
     });
     const { onState } = collector();
     const skips: void[] = [];
-    const sync = createReplicaSync({
-      replica, fetchJson, clientId: "c1", onState,
-      onSkipped: () => skips.push(undefined),
-    });
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+    sync.onSkipped(() => skips.push(undefined));
 
     await sync.start();
 
@@ -1117,7 +1113,7 @@ describe("pull retries and the stall report", () => {
     const states: ReplicaState[] = [];
     const replica = fakeReplica();
     replica.pendingBatches = () =>
-      Promise.reject(new ReplicaUnavailableError("no openable database"));
+      Promise.reject(new ReplicaUnusableError("no openable database"));
     const fetchJson = vi.fn(async () => feed());
     const sync = createReplicaSync({
       replica, fetchJson, clientId: "c1",

@@ -1,14 +1,14 @@
 ---
 # pkm-a4t2
 title: Sync subsystem review follow-ups (2026-09-29)
-status: todo
+status: completed
 type: epic
 priority: high
 tags:
     - review
     - sync
 created_at: 2026-09-29T13:20:16Z
-updated_at: 2026-09-29T13:21:27Z
+updated_at: 2026-09-30T16:19:34Z
 ---
 
 ## Context
@@ -32,7 +32,7 @@ comments as they are from `docs/architecture/`.
 - [x] Comments in touched code state the rule and carry no bean id
 - [x] Route or contract changes run the regen checklist before review
 - [x] `perf/check.sh` per completed fix before merge; whole-branch review on the strongest model
-- [ ] Every child reaches a terminal status or records why it was scrapped or deferred
+- [x] Every child reaches a terminal status or records why it was scrapped or deferred
 
 ## Completion
 
@@ -70,3 +70,10 @@ green on the merged tree.
 ### Draft: own brainstorm
 
 - pkm-nny8 — hash-guarded delete
+
+
+## Summary of Changes
+
+Every child is completed: F1-F9 (pkm-9xg0, pkm-gwwu, pkm-impk, pkm-jyx1, pkm-6xza, pkm-yvka, pkm-8uc9, pkm-i35e, pkm-l3cr), the typed ops ack (pkm-jk1d), composed tests (pkm-rrzq), docs corrections (pkm-xjew), the bean-id sweep (pkm-9u3y), the server tidy (pkm-87w0), the hash-guarded delete (pkm-nny8) with typed op hashes (pkm-r5ra), the sahpool hot-journal fix (pkm-87cf), the same-page move fix (pkm-sfp1), the follow-ups pkm-67j1 (stamping clones once per batch) and pkm-amw9 (pkm batch fetches per page), and the web extraction pass (pkm-xwb5). The architecture docs' 'one transaction' and 'never erases intent' claims are backed by the shipped fixes; 'feed tombstones the ghost' is gone. Combined verification on the merged tree: see pkm-xwb5.
+
+Still Arthur's call, not beans: the ack's applied count includes skipped ops; an optional reply to the SQLite forum thread on opfs-sahpool xCheckReservedLock.

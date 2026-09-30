@@ -7,7 +7,6 @@
 // dedup makes replayed flushes safe), and a failed flush keeps the old
 // database: degraded beats data loss.
 
-import { ApiError, OfflineError } from "../api/client";
 import type { ApiFetchOptions } from "../api/client";
 import type { OpsAck } from "../api/payloads";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
@@ -15,9 +14,11 @@ import type { ReplicaDiagnostics } from "../replica/client";
 import type {
   AckedBatch, PendingBatch, RecoveryCommit, RecoveryLease, Replica, ReplicaInit,
 } from "../replica/client";
-import { availabilityOf, isCorruptionError, ReplicaError } from "../replica/errors";
+import { availabilityOf } from "../replica/errors";
+import { listeners } from "./listeners";
 import type { OpQueue } from "./opQueue";
 import { readOpsAck } from "./opsAck";
+import { isFreshCorruption, isStallShaped, isWindowFailure, PullStarvedError } from "./syncFailures";
 
 export type ReplicaState =
   | { mode: "starting" }
@@ -79,6 +80,10 @@ export interface ReplicaSync {
    * doesn't leak a timer that outlives its component; an in-flight pull may
    * still finish after stop() but will not reschedule another retry. */
   stop(): void;
+  /** The recovery flush's ack named a skipped op -- the same signal as the
+   * queue's own onSkipped, for the POST path outside the queue: the active
+   * view is stale and must refetch. Never a desync: the batch committed. */
+  onSkipped(fn: () => void): () => void;
 }
 
 /** Thrown by resetLocalData when discardPending is false and the pending-batch
@@ -138,12 +143,6 @@ export interface ReplicaSyncDeps {
    * arming the timer. Defaults to "never offline" for callers (and tests)
    * that don't track connectivity. */
   isOffline?: () => boolean;
-  /** Either delivery path's ack named a skipped op (see opQueue.ts's
-   * deliverLaneHead/runDrain/deliverLaneAhead) -- the active view is stale
-   * and must refetch. Never a desync: the batch committed. Optional so
-   * callers that never surface a skip banner (tests, the recovery-only
-   * paths that don't own a view) can omit it. */
-  onSkipped?: () => void;
 }
 
 const errText = (e: unknown): string =>
@@ -190,31 +189,6 @@ interface RecoveryOptions {
   forceReadyOnSuccess: boolean;
 }
 
-/** Thrown by pullLoop when the pending-batch id list never stops changing
- * (PENDING_CHANGED_CAP retries exhausted): a real replica-side stall, not a
- * transport hiccup, so noteFailure's classifier must recognize it by type
- * rather than by message text. */
-class PullStarvedError extends Error {}
-
-/** Network-down failures (dropped connection, DNS, an offline fetch) are not
- * wedged-replica symptoms -- the offline banner already owns network-down
- * UX, and counting them here would flip a whole offline session read-only
- * via computeEditability. A raw `fetch` rejection (`TypeError`) is excluded
- * simply by not matching any branch below; `OfflineError` needs its own
- * check because it extends `ApiError` (status 0, thrown when the offline
- * gateway has no local route for a request) and would otherwise pass the
- * `instanceof ApiError` branch as if the server itself had rejected the call
- * (three offline pulls crossed STALL_AFTER_FAILURES and raised the
- * "Local sync is stuck / Reset local data" banner for a plain network
- * outage). Availability failures are excluded for the same offline-banner
- * reason and more sharply: a session that reports `stalled` on top of
- * `no-replica` is reporting a wedged replica it has already concluded does not
- * exist, and computeEditability would take editing away for the rest of the
- * session. Only failures that mean "the replica itself cannot make
- * progress" -- a rejected/failed API call, a replica-side RPC error, or pull()
- * starving on pending-batch churn -- count toward the stall threshold;
- * anything else still retries with backoff but is neither counted nor reported
- * as stalled. */
 /** Which kind of iPad context this is: a home-screen app (`standalone`) and
  * Safari hold independent replicas, and the report has to say which one
  * broke. Node (tests) has no navigator. */
@@ -228,32 +202,9 @@ const clientInfo = (): Record<string, unknown> => {
   };
 };
 
-const isStallShaped = (error: unknown): boolean =>
-  availabilityOf(error) === null &&
-  !(error instanceof OfflineError) &&
-  (error instanceof ApiError || error instanceof ReplicaError ||
-    error instanceof PullStarvedError);
-
-/** A failure of the window ITSELF: the replica rejected the rows it was given
- * (a NOT NULL/CHECK violation from a malformed feed, a bug in an upsert), so
- * refetching the identical window cannot help. Corruption is excluded because
- * its own branch runs first and takes a different repair; anything with an
- * availability verdict is a statement about the database, not the window; and
- * ApiError/OfflineError/raw fetch rejections are about the transport, where
- * the very next attempt may well succeed.
- *
- * The guarded block also reads `pendingBatches()`, so a replica RPC failure
- * from there counts too. That is deliberate: a snapshot is a valid escape from
- * any of these repeating identically, and one that cannot be taken (a broken
- * RPC answers `prepareRecovery` the same way) fails the recovery and lands on
- * the stall banner anyway. */
-const isWindowFailure = (error: unknown): boolean =>
-  error instanceof ReplicaError && availabilityOf(error) === null &&
-  !isCorruptionError(error);
-
 export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   const { replica, fetchJson, clientId, onState } = deps;
-  const onSkipped = deps.onSkipped ?? (() => undefined);
+  const skipped = listeners<void>();
   const queue = deps.queue ?? {
     pause: () => undefined,
     resume: () => undefined,
@@ -426,7 +377,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // lane and the durable drain: the view is told so it can refetch the
       // ghost this batch's skip leaves behind.
       if (reading.skipped.length > 0) {
-        try { onSkipped(); } catch { /* listener isolation */ }
+        skipped.emit(undefined);
       }
       heldAcks.push({ id: b.id, batch_id: b.batch_id, seq: reading.seq ?? null });
     }
@@ -548,16 +499,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     }
   };
 
-  /** Corruption this session has not yet rebuilt for. Once per session on
-   * purpose: a database that comes back corrupt from a fresh snapshot has a
-   * problem a second rebuild will not fix, and that is the point at which
-   * the user should see it (as an ordinary stall) rather than a rebuild loop
-   * re-downloading the graph forever. */
-  const isFreshCorruption = (error: unknown): boolean =>
-    !rebuiltForCorruption && isCorruptionError(error);
   const wouldEscalateCorruption = (
     kind: RecoveryCommit["kind"], error: unknown,
-  ): boolean => kind === "rebase" && isFreshCorruption(error);
+  ): boolean => kind === "rebase" && isFreshCorruption(error, rebuiltForCorruption);
 
   /** The one automatic rebuild. The budget is spent when a rebuild HAPPENS,
    * not when one is attempted: the snapshot fetch can fail on the same flaky
@@ -654,7 +598,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
           // Corruption first: it is the one window failure whose repair must
           // be a `reset`, and its own once-per-session budget gates it. A
           // fetch failure is not a ReplicaError and falls through unchanged.
-          if (isFreshCorruption(error)) {
+          if (isFreshCorruption(error, rebuiltForCorruption)) {
             // Same ownership rule as the needs-bootstrap branch below: a
             // poison repair holds the recovery lease; leave the corruption
             // for the pull that follows it.
@@ -858,5 +802,6 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       stopped = true;
       if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
     },
+    onSkipped: skipped.add,
   };
 }

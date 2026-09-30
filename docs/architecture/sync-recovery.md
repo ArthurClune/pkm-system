@@ -16,9 +16,9 @@ replica is a cache and the queue is the user's intent.
 |---|---|---|---|---|
 | A replica write fails: `SQLITE_CANTOPEN`, `IOERR`, a dead worker | `enqueue`'s catch in `opQueue.ts` | Op kept in the in-memory fallback lane | Only `ReplicaError.rejected` drops an op | [A local write fails](#a-local-write-fails) |
 | The replica refuses the op itself (title syntax) | `ReplicaError.rejected` | Ticket fails; `onDesync` repairs the outline | The only replica failure that discards | [A local write fails](#a-local-write-fails) |
-| Lane entries and durable rows are both waiting | `laneHeadPrecedes` | Ordered by batch identity | Every path that posts durable rows asks the queue first | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
+| Lane entries and durable rows are both waiting | `headPrecedes` (`sync/outbox.ts`) | Ordered by batch identity | Every path that posts durable rows asks the queue first | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
 | An enqueue reply is lost after the row persisted | Two copies share one `batch_id` | The second delivery replays | `batch_id` is minted before the RPC | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
-| The replica latches `unavailable` with durable rows still queued | `noteReplicaFailure`, on `isSessionFatal` evidence | The drain delivers only the lane; a later session delivers the durable rows, behind the lane's ops | A deferred `update_text` carries its `base_text_hash`, so it lands as a conflict and the newer text is kept; an op on a target the lane removed lands as a missing target | [A local write fails](#a-local-write-fails) |
+| The replica latches a non-null `availability` with durable rows still queued | `noteReplicaFailure`, on `isSessionFatal` evidence | The drain delivers only the lane; a later session delivers the durable rows, behind the lane's ops | A deferred `update_text` carries its `base_text_hash`, so it lands as a conflict and the newer text is kept; an op on a target the lane removed lands as a missing target | [A local write fails](#a-local-write-fails) |
 | The OPFS file cannot be opened | `openWithRetry`, `ensureMinimumCapacity` | Up to 6 attempts, then `unusable` for the session | `forceReinitIfPreviouslyFailed`; pool top-up before the open | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
 | The worker RPC breaks | `RpcLifecycleError`, read as `unreachable` | Ops kept; recovery barrier held | `unreachable` never lifts the barrier | [Availability: two values, one owner](#availability-two-values-one-owner) |
 | A window was fetched before an ack deleted its pending row | `pendingSetStillCovered` | Applied if the ack's `seq` is covered, else refetched | No window applies without the edits it lacks | [Windows and the pending queue](#windows-and-the-pending-queue) |
@@ -31,9 +31,9 @@ replica is a cache and the queue is the user's intent.
 | A rebuild or rebase meets page-level file damage | A corruption message from the rebuild | The file is replaced | A rebase commits the queue to the carry before unlinking | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | `ROLLBACK` fails after SQLite already rolled back | `wrapSqlite`, `rollbackToSavepoint` | The original error is raised | Corruption keeps its own message | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | An op names a block or parent the server no longer has | `ops_core.classify_skip`; `skipsOnMissingTarget` in the replica | Skipped with an ack 200, and skipped in local apply; journal rows fix the replica | Tombstones are journalled before live rows; both sides pass `missing_targets.json`'s skip-or-not cases | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
-| Any op the server skipped | Every path that posts a batch (`deliverLaneHead`, the durable batch loop in `runDrain`, `deliverLaneAhead`, and `replicaSync.flushBatches`) reads the ack's `skipped` list through `readOpsAck` | Bumps resync regardless of `unavailable`; every mounted view's guarded read refetches | A replica-backed tab's own feed tombstones the replica row; the ack refetch is what tells the view, not the feed | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
+| Any op the server skipped | Every path that posts a batch (`deliverLaneHead`, the durable batch loop in `runDrain`, `deliverLaneAhead`, and `replicaSync.flushBatches`) reads the ack's `skipped` list through `readOpsAck` | Bumps resync regardless of `availability`; every mounted view's guarded read refetches | A replica-backed tab's own feed tombstones the replica row; the ack refetch is what tells the view, not the feed | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
 | Another device moved an op's parent, or made its move a cycle | `_context_for` and `classify_skip` on the server; `applyOne` and `skipsOnMissingTarget` in the replica | Create and move follow the parent; a cycle move is skipped on both sides | A stale `page_title` is never resolved; a cycle skip journals the moved subtree | [Ops another device's tree edit overtook](#ops-another-devices-tree-edit-overtook) |
-| The replica opens, then fails every write | `unsentInMemory > 0` while `status !== "connected"` | The offline connectivity banner appends the same "exists only in memory" sentence as the unavailable-replica banner | The sentence never fires while connected, since the lane drains within a drain cycle | [What the UI shows](#what-the-ui-shows) |
+| The replica opens, then fails every write | `unsentInMemory > 0` while `status !== "connected"` | The offline connectivity banner appends the same "exists only in memory" sentence as the unusable-replica banner | The sentence never fires while connected, since the lane drains within a drain cycle | [What the UI shows](#what-the-ui-shows) |
 
 ## A local write fails
 
@@ -53,7 +53,7 @@ A full disk arrives the same way. The opfs-sahpool VFS reports
 act on, and the op is kept like any other.
 
 Kept ops join an ordered in-memory fallback lane. Once `noteReplicaFailure`
-latches `unavailable` from session-fatal evidence (see
+latches a non-null `availability` from session-fatal evidence (see
 [Availability](#availability-two-values-one-owner)), the drain stops calling
 `nextBatch()`/`markPoisoned()` and delivers only the lane.
 
@@ -71,8 +71,8 @@ lane's ops removed lands as a
 
 The lane is drained under the same connectivity, backoff and recovery-barrier
 policy as durable rows. Two outboxes feed one server, so order is decided by
-batch identity in one predicate, `laneHeadPrecedes`, never by a count of
-batches ahead:
+batch identity in one predicate, `headPrecedes` in `sync/outbox.ts`, never
+by a count of batches ahead:
 
 | Durable batch | Goes |
 |---|---|
@@ -87,8 +87,8 @@ That method only posts; a lane entry's terminal-4xx discard stays the drain's de
 A new path that posts durable rows without that call can put a move ahead of
 the create it depends on. The lane therefore waits for a `nextBatch()` read, so
 a failed read delays it through the normal backoff. A duplicate POST of one
-head from the drain and the flush is a server replay, and the head leaves the
-lane once.
+head from the drain and the flush is a server replay. `settleHead` shifts the
+head only while it is still that `batch_id`, so the head leaves the lane once.
 
 `opQueue.enqueue` mints an entry's `batch_id` *before* the persist RPC, and a
 retained entry keeps it. After a lost enqueue reply, a durable row and its lane
@@ -154,7 +154,7 @@ replica, the carry and their journals, the most a
 
 **The worker owns the answer and latches it until `close()`.** `db()` in
 `workerHandlers.ts` wraps the first `openDb()` failure in a
-`ReplicaUnavailableError` and keeps it in `unavailable`. Every later handler
+`ReplicaUnusableError` and keeps it in `unusable`. Every later handler
 call throws that same object, including an `init()` that would now succeed. Only `close()` re-arms it, because lifting the barrier starts a drain
 against a freshly reopened, unexamined database.
 
@@ -163,19 +163,19 @@ evidence:
 
 | Value | Evidence | Keep the op? | May lift the barrier? |
 |---|---|---|---|
-| `unusable` | the worker's own `openDb()` failed, so there is no database: a `ReplicaUnavailableError`, on the wire as `unavailable: true` | yes | yes |
+| `unusable` | the worker's own `openDb()` failed, so there is no database: a `ReplicaUnusableError`, on the wire as `unusable: true` | yes | yes |
 | `unreachable` | the RPC broke (`worker-error`, `message-error`, `disposed`, `timeout`), so we could not ask: an `RpcLifecycleError` on the main thread | yes | no |
 
 `unreachable` may not lift the barrier: no answer is not evidence that nothing
 is poisoned. Only `unusable` crosses the wire, as a boolean in `rpc.ts`'s
-`{message, rejected, unavailable}`. `availabilityOf()` (`replica/errors.ts`)
+`{message, rejected, unusable}`. `availabilityOf()` (`replica/errors.ts`)
 is where that boolean and the client-side `RpcLifecycleError` become one type.
 `isSessionFatal()` answers whether a consumer may latch the state, and says yes
 to everything but a bare timeout.
 
 ### What the UI shows
 
-Startup raises a `replica-unavailable` problem for an `unusable` replica, and
+Startup raises a `replica-unusable` problem for an `unusable` replica, and
 `OfflineIndicator` renders "Working online only — offline editing is
 unavailable for now." Its second sentence depends on connectivity:
 
@@ -292,8 +292,9 @@ deleted. It also never posts those rows first. Its way past a damaged file is
 the rebase's own file replacement (see
 [Reset, rebase and file replacement](#reset-rebase-and-file-replacement)).
 
-Retained mark intents live in `localStorage`, not the replica, so they survive
-an unopenable database. A `retryPoisonMarks()` that fails while intents exist
+Retained mark intents live in `localStorage` (`sync/poisonIntentStore.ts`,
+key `pkm.poison-mark-intents.v1`), not the replica, so they survive an
+unopenable database. A `retryPoisonMarks()` that fails while intents exist
 keeps its barrier and a "Saving rejected-change recovery failed: …" Retry
 banner. That banner also offers "Discard rejected change"
 (`Sync.discardProblem()`), which drops the retained intents and releases the
@@ -320,7 +321,8 @@ Retry re-marks it.
 A pull failure that escapes `pullLoop` reaches `noteFailure`, which retries
 from `RETRY_BASE_MS` (1 s) doubling to `RETRY_MAX_MS` (60 s), with no timer
 while offline. The reconnect flow restarts the pull when the socket returns.
-`isStallShaped` decides whether the failure counts towards
+`isStallShaped` (`sync/syncFailures.ts`, beside `isWindowFailure` and
+`isFreshCorruption`) decides whether the failure counts towards
 `STALL_AFTER_FAILURES` (3):
 
 | Failure | Counts? | Why |
@@ -476,7 +478,7 @@ Without the escapes, one damaged file would fail every handler for good,
 
 A replacement that keeps failing leaves the carry for the next handler, which
 replaces the file again. If the new file will not open, `db()` latches the
-session unavailable and edits go online through the
+session unusable and edits go online through the
 [fallback lane](#the-in-memory-fallback-lane). Those new edits can then reach
 the server ahead of the carried rows, which the next session delivers. That
 is the same reverse order as any latched session's durable rows
@@ -522,7 +524,7 @@ until something else bumps resync. So every path that posts a batch --
 (the lane door a recovery flush opens ahead of a leased batch), and
 `replicaSync.flushBatches` itself -- reads the ack's `skipped` list through
 `readOpsAck`. A non-empty one bumps resync (`ops-skipped`) whether or not
-`unavailable` is latched, and views refetch as for any other
+`availability` is latched, and views refetch as for any other
 [resync trigger](sync-and-offline.md#when-views-refetch). On a replica-backed
 tab the extra refetch races a feed that has already converged the row, which
 is harmless.
@@ -549,4 +551,5 @@ The journalled subtree then restores what else the local move touched:
 descendants it re-paged, and the target's children it shifted.
 `missing_targets.json` pins the whole table on both sides: the cycle skip in
 its `cases`, and the first two rows' placement, replays included, in its
-`placement_cases`.
+`placement_cases`. The replica's column is `placementFor`
+(`replica/placement.ts`), which `localOps.ts` asks before it runs the SQL.

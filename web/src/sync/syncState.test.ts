@@ -135,7 +135,7 @@ describe("transitionSync rejected-batch repair", () => {
   });
 
   it("clears a mark-failed problem when its retained intents are discarded", () => {
-    // The discard escape hatch. replica-unavailable deliberately
+    // The discard escape hatch. replica-unusable deliberately
     // never stomps another problem kind, so without this event the stale
     // mark-failed banner would outlive the intents it reports on.
     const t = transitionSync(withProblem({
@@ -190,24 +190,24 @@ describe("transitionSync poison discovery", () => {
     // This state must not be silent. The user has lost offline
     // editing for the session and needs to know, and to have a way out.
     const t = transitionSync(createSyncState(), {
-      type: "replica-unavailable", error: "Access Handles cannot be created",
+      type: "replica-unusable", error: "Access Handles cannot be created",
     });
     expect(t.state.problem).toEqual({
-      kind: "replica-unavailable",
+      kind: "replica-unusable",
       error: "Access Handles cannot be created",
     });
   });
 
   it("online-only never stomps a delivery problem the user can act on", () => {
-    // replica-unavailable needs a precedence rule: without one it would
+    // replica-unusable needs a precedence rule: without one it would
     // overwrite a failed legacy repair — and with it the Retry that reaches
-    // repairLegacyRef, stranding that repair.
+    // repairLegacy, stranding that repair.
     const failed: SyncProblem = {
       kind: "legacy-rejected", repair: "failed",
       error: "rejected", repairError: "snapshot unavailable",
     };
     const t = transitionSync(withProblem(failed), {
-      type: "replica-unavailable", error: "Access Handles cannot be created",
+      type: "replica-unusable", error: "Access Handles cannot be created",
     });
     expect(t.state.problem).toEqual(failed);
   });

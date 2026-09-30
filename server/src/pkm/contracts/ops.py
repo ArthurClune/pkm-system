@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterable
 from typing import Annotated, Literal, NewType, Union
 
 from pydantic import BaseModel, Field
@@ -73,6 +74,15 @@ class MoveOp(BaseModel):
 class DeleteOp(BaseModel):
     op: Literal["delete"]
     uid: str
+    # sha256 of the subtree this delete was based on (spec section 1):
+    # the (uid, text) pairs of the block and its descendants, as of the
+    # tree the deleting device last saw. Absent => legacy client or a uid
+    # the batch itself created, LWW-apply as always (plain delete, no
+    # conflict copy). Present => the server compares against its own
+    # current subtree; a mismatch lands a conflict copy instead of
+    # silently destroying text another device wrote.
+    base_subtree_hash: Sha256Hex | None = Field(default=None, min_length=64,
+                                                 max_length=64)
 
 
 class SetCollapsedOp(BaseModel):
@@ -118,3 +128,13 @@ class OpBatch(BaseModel):
 
 def text_hash(text: str) -> Sha256Hex:
     return Sha256Hex(hashlib.sha256(text.encode()).hexdigest())
+
+
+def subtree_hash(pairs: Iterable[tuple[str, str]]) -> Sha256Hex:
+    """Canonical hash of a subtree's (uid, text) pairs, order-independent
+    (spec section 1). Each text is hashed on its own rather than
+    JSON-encoding the pairs, because Python and JS escape JSON strings
+    differently -- text_hash / sha256Hex already agree. Uids are ASCII
+    (UID_RE), so both languages' default sorts agree too."""
+    canon = "\n".join(f"{uid} {text_hash(text)}" for uid, text in sorted(pairs))
+    return Sha256Hex(hashlib.sha256(canon.encode()).hexdigest())

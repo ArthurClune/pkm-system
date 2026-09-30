@@ -7,7 +7,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from pkm.contracts.ops import BlockOp, OpBatch, UpdateTextOp
+from pkm.contracts.ops import BlockOp, DeleteOp, OpBatch, UpdateTextOp
 
 
 def batch_request_hash(batch: OpBatch) -> str:
@@ -24,35 +24,42 @@ def _canonical_op(op: BlockOp) -> dict:
     so an op that doesn't use a field added later must hash as it did
     before the field existed: any new optional op field is left out here
     while it is unset. Only those fields -- a blanket exclude_none would
-    re-hash older fields' None, such as a hashless edit's base_text_hash."""
+    re-hash older fields' None, such as a hashless edit's base_text_hash
+    or a hashless delete's base_subtree_hash."""
     dump = op.model_dump()
     if isinstance(op, UpdateTextOp) and op.page_title is None:
         del dump["page_title"]
+    if isinstance(op, DeleteOp) and op.base_subtree_hash is None:
+        del dump["base_subtree_hash"]
     return dump
 
 
 def batch_replay_hash(batch: OpBatch) -> str:
     """Like `batch_request_hash`, but tolerant of base_text_hash and
-    page_title on update_text ops: the worker fills these
-    into the durable copy of a batch when the client omitted them,
-    but a lost enqueue reply leaves the client's in-memory fallback-lane
-    copy of the SAME batch_id with the original, unfilled ops. Both
-    copies eventually reach the server; they carry the same intent, so
-    the same batch_id replaying with only these guard/label fields
-    differing must not 409. Stored in applied_batches.request_hash for
-    rows written after this change -- see routes_ops.py for how a row
-    holding the (older) strict hash still replays."""
+    page_title on update_text ops, and base_subtree_hash on delete ops:
+    the worker fills these into the durable copy of a batch when the
+    client omitted them, but a lost enqueue reply leaves the client's
+    in-memory fallback-lane copy of the SAME batch_id with the original,
+    unfilled ops. Both copies eventually reach the server; they carry the
+    same intent, so the same batch_id replaying with only these
+    guard/label fields differing must not 409. Stored in
+    applied_batches.request_hash for rows written after this change --
+    see routes_ops.py for how a row holding the (older) strict hash still
+    replays."""
     canon = json.dumps([_canonical_replay_op(op) for op in batch.ops],
                        sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canon.encode()).hexdigest()
 
 
 def _canonical_replay_op(op: BlockOp) -> dict:
-    """`_canonical_op`, minus base_text_hash/page_title on update_text:
-    guard/label metadata that never changes which op is applied (see
-    `batch_replay_hash`)."""
+    """`_canonical_op`, minus base_text_hash/page_title on update_text
+    and base_subtree_hash on delete: guard/label metadata the worker
+    fills into the durable copy of a batch, never the fallback-lane copy,
+    and that never changes which op is applied (see `batch_replay_hash`)."""
     dump = _canonical_op(op)
     if isinstance(op, UpdateTextOp):
         dump.pop("base_text_hash", None)
         dump.pop("page_title", None)
+    if isinstance(op, DeleteOp):
+        dump.pop("base_subtree_hash", None)
     return dump

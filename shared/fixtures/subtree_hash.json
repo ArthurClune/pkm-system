@@ -1,0 +1,23 @@
+{
+  "cases": [
+    {"name": "single_block",
+     "pairs": [["zz_root", "hello world"]],
+     "hash": "bd91670179db27d253eb517a37971622ed4345397694468abe4813bfd44c37a7"},
+    {"name": "empty_text",
+     "pairs": [["zz_root", ""]],
+     "hash": "37a3df87304dee86664c4fa0deb538f3d4fc17683a0a9009a0ef3d0c5af4c541"},
+    {"name": "unicode",
+     "pairs": [["zz_root", "café — emoji 🎉\nsecond line"]],
+     "hash": "56cf34e922d5f64c9776e2237dc589fe56ded505efface041fe914ae9ae24386"},
+    {"name": "deep_nesting",
+     "pairs": [["zz_root", "root text"], ["aa_child", "first child"],
+               ["Mm_grandchild", "first grandchild"],
+               ["bb_child2", "second child"],
+               ["Nn_grandchild2", "second grandchild"]],
+     "hash": "8c6d5031bd3dd18715bd9f253a5527e6648274ef4d1b168d6ffa341eccdc63d3"},
+    {"name": "sort_differs_from_tree_order",
+     "pairs": [["zz_root", "root text"], ["aa_child", "child text"],
+               ["Mm_grandchild", "grandchild text"]],
+     "hash": "8cda5bdf1bd8232f71fb7c67a89b07153ae71bcbf7a9ba63e2b90070153aa905"}
+  ]
+}

@@ -1230,7 +1230,7 @@ describe("poison repair and startup marks", () => {
       return { pending: rows.filter((row) => !row.poisoned).length };
     };
 
-    const firstPage = createOpQueue(replica, () => undefined);
+    const firstPage = createOpQueue(replica);
     firstPage.enqueue([{ op: "delete", uid: "bad" }]);
     firstPage.enqueue([{ op: "delete", uid: "good" }]);
     await firstPage.settled();
@@ -2201,6 +2201,33 @@ describe("ownership and StrictMode lifecycle", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  test("under StrictMode, a delivered ack naming a skip bumps resync exactly once",
+  async () => {
+    // The replayed setup subscribes the queue's listeners a second time; the
+    // first mount's cleanup must have removed its own, or one skip would
+    // refetch every view twice.
+    stubFetch([["/api/ops", {
+      ok: true, ts: 1, applied: 1,
+      skipped: [{ index: 0, op: "update_text", uid: "u1",
+                  reason: "block_not_found", note_page: "2026-09-29" }],
+    } satisfies OpsAck]]);
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(
+      <StrictMode>
+        <SyncProvider replica={null}><Grab /></SyncProvider>
+      </StrictMode>);
+    act(() => lastWs().open());
+    const before = sync.resyncSeq;
+
+    await act(async () => {
+      await expect(sync.enqueue([{ op: "delete", uid: "u1" }]).delivered)
+        .resolves.toEqual({ status: "delivered" });
+    });
+
+    expect(sync.resyncSeq).toBe(before + 1);
   });
 });
 

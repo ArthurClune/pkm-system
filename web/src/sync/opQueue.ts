@@ -2,6 +2,13 @@
 // Persistence completion and HTTP delivery are deliberately separate: a
 // WriteTicket settles when the active storage accepts a write, while drain()
 // reports whether every retained write reached the server.
+//
+// Every signal is a listener added after construction, and SyncProvider adds
+// them in effects, after the commit that built the queue. No event can precede
+// those subscriptions: every emission follows at least one await (persist runs
+// on persistChain, delivery waits on a POST), and React runs a commit's
+// passive effects in one synchronous flush. So no method here may emit
+// synchronously.
 import { ApiError } from "../api/client";
 import type { BlockOp } from "../api/ops";
 import type { OpsAck } from "../api/payloads";
@@ -60,6 +67,17 @@ export interface OpQueue {
   pause(reason: "recovery"): void;
   resume(reason: "recovery"): void;
   dispose(): void;
+  /** The replica refused an op on its merits, or the server terminally
+   * rejected a lane entry: the active outline must be repaired from the
+   * server. */
+  onDesync(fn: (error: unknown) => void): () => void;
+  /** Every drain run's outcome, however it was started. */
+  onDrain(fn: (outcome: DrainOutcome) => void): () => void;
+  /** Either delivery path's ack named a skipped op (see deliverLaneHead and
+   * the durable batch loop in runDrain) -- the active view is stale and must
+   * refetch. Never a desync: the batch committed, so nothing here is retried
+   * or discarded. */
+  onSkipped(fn: () => void): () => void;
   onPending(fn: (n: number) => void): () => void;
   /** Re-read the durable count and publish it through onPending. The ONLY way
    * for an outside caller to act on "the durable table may have changed
@@ -119,10 +137,7 @@ function postOps(ops: BlockOp[], batchId: string): Promise<OpsAck> {
   });
 }
 
-function createReplicaQueue(replica: Replica,
-                            onDesync: (error: unknown) => void,
-                            onDrain: (outcome: DrainOutcome) => void,
-                            onSkipped: () => void): OpQueue {
+function createReplicaQueue(replica: Replica): OpQueue {
   let poisonMarkIntents = readPoisonMarkIntents();
   // Connectivity + retry policy lives in the queueState core; this shell owns
   // the timer handle and dispatches events into it.
@@ -132,6 +147,9 @@ function createReplicaQueue(replica: Replica,
   let drainRun: Promise<DrainOutcome> | null = null;
   let drainAgain = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  const desync = listeners<unknown>();
+  const drained = listeners<DrainOutcome>();
+  const skipped = listeners<void>();
   const pending = listeners<number>();
   const unsentInMemory = listeners<number>();
   const poisonPending = listeners<void>();
@@ -231,7 +249,7 @@ function createReplicaQueue(replica: Replica,
   const noteCommitted = (ack: OpsAck): OpsAckReading => {
     const reading = readOpsAck(ack);
     if (reading.skipped.length > 0) {
-      try { onSkipped(); } catch { /* listener isolation */ }
+      skipped.emit(undefined);
     }
     return reading;
   };
@@ -368,11 +386,11 @@ function createReplicaQueue(replica: Replica,
         // A lane entry has no durable row to poison, so terminal means
         // discarded: drop exactly the rejected entry — the only discard
         // this queue makes on its own — hold later entries behind the
-        // recovery barrier, and let onDesync run the authoritative repair
-        // that resumes it.
+        // recovery barrier, and let the onDesync listener run the
+        // authoritative repair that resumes it.
         dispatch({ type: "pause" });
         settleLaneHead(head, { status: "failed", error });
-        try { onDesync(error); } catch { /* listener isolation */ }
+        desync.emit(error);
         return blocked("recovering", error);
       }
       return failed(error);
@@ -547,7 +565,7 @@ function createReplicaQueue(replica: Replica,
     drainRun = runDrain()
       .catch(failed)
       .then((outcome) => {
-        try { onDrain(outcome); } catch { /* observer isolation */ }
+        drained.emit(outcome);
         // A kick() landing after runDrain's own final drainAgain check
         // (which loops once more only while the queue still looks empty)
         // but before drainRun is cleared below would otherwise be dropped
@@ -643,7 +661,7 @@ function createReplicaQueue(replica: Replica,
           // retrying can never help. The ONE case that still desyncs.
           if (replicaError?.rejected === true) {
             resolveDelivery({ status: "failed", error });
-            try { onDesync(error); } catch { /* listener isolation */ }
+            desync.emit(error);
             return;
           }
           // Everything else means "could not persist locally right now", which
@@ -712,6 +730,9 @@ function createReplicaQueue(replica: Replica,
       }
       laneResolvers.clear();
     },
+    onDesync: desync.add,
+    onDrain: drained.add,
+    onSkipped: skipped.add,
     onPending: pending.add,
     async refreshPending() {
       await countPending();
@@ -742,17 +763,6 @@ function createReplicaQueue(replica: Replica,
   };
 }
 
-export function createOpQueue(replica: Replica,
-                              onDesync: (error: unknown) => void,
-                              onDrain: (outcome: DrainOutcome) => void =
-                                () => undefined,
-                              /** Either delivery path's ack named a skipped
-                               * op (see deliverLaneHead and the durable batch
-                               * loop in runDrain) -- the active view is stale
-                               * and must refetch. Never a desync: the batch
-                               * committed, so nothing here is retried or
-                               * discarded. */
-                              onSkipped: () => void =
-                                () => undefined): OpQueue {
-  return createReplicaQueue(replica, onDesync, onDrain, onSkipped);
+export function createOpQueue(replica: Replica): OpQueue {
+  return createReplicaQueue(replica);
 }

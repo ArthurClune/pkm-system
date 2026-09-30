@@ -201,7 +201,7 @@ describe("transitionSync poison discovery", () => {
   it("online-only never stomps a delivery problem the user can act on", () => {
     // replica-unusable needs a precedence rule: without one it would
     // overwrite a failed legacy repair — and with it the Retry that reaches
-    // repairLegacyRef, stranding that repair.
+    // repairLegacy, stranding that repair.
     const failed: SyncProblem = {
       kind: "legacy-rejected", repair: "failed",
       error: "rejected", repairError: "snapshot unavailable",

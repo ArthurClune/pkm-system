@@ -15,6 +15,7 @@ import type {
   AckedBatch, PendingBatch, RecoveryCommit, RecoveryLease, Replica, ReplicaInit,
 } from "../replica/client";
 import { availabilityOf } from "../replica/errors";
+import { listeners } from "./listeners";
 import type { OpQueue } from "./opQueue";
 import { readOpsAck } from "./opsAck";
 import { isFreshCorruption, isStallShaped, isWindowFailure, PullStarvedError } from "./syncFailures";
@@ -79,6 +80,10 @@ export interface ReplicaSync {
    * doesn't leak a timer that outlives its component; an in-flight pull may
    * still finish after stop() but will not reschedule another retry. */
   stop(): void;
+  /** The recovery flush's ack named a skipped op -- the same signal as the
+   * queue's own onSkipped, for the POST path outside the queue: the active
+   * view is stale and must refetch. Never a desync: the batch committed. */
+  onSkipped(fn: () => void): () => void;
 }
 
 /** Thrown by resetLocalData when discardPending is false and the pending-batch
@@ -138,12 +143,6 @@ export interface ReplicaSyncDeps {
    * arming the timer. Defaults to "never offline" for callers (and tests)
    * that don't track connectivity. */
   isOffline?: () => boolean;
-  /** Either delivery path's ack named a skipped op (see opQueue.ts's
-   * deliverLaneHead/runDrain/deliverLaneAhead) -- the active view is stale
-   * and must refetch. Never a desync: the batch committed. Optional so
-   * callers that never surface a skip banner (tests, the recovery-only
-   * paths that don't own a view) can omit it. */
-  onSkipped?: () => void;
 }
 
 const errText = (e: unknown): string =>
@@ -205,7 +204,7 @@ const clientInfo = (): Record<string, unknown> => {
 
 export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   const { replica, fetchJson, clientId, onState } = deps;
-  const onSkipped = deps.onSkipped ?? (() => undefined);
+  const skipped = listeners<void>();
   const queue = deps.queue ?? {
     pause: () => undefined,
     resume: () => undefined,
@@ -378,7 +377,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // lane and the durable drain: the view is told so it can refetch the
       // ghost this batch's skip leaves behind.
       if (reading.skipped.length > 0) {
-        try { onSkipped(); } catch { /* listener isolation */ }
+        skipped.emit(undefined);
       }
       heldAcks.push({ id: b.id, batch_id: b.batch_id, seq: reading.seq ?? null });
     }
@@ -803,5 +802,6 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       stopped = true;
       if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
     },
+    onSkipped: skipped.add,
   };
 }

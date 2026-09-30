@@ -161,7 +161,8 @@ While disconnected, reads and search come from the replica through the local API
 shim, and edits keep enqueueing durably, each applied optimistically under its
 own SAVEPOINT. The header shows "Offline — N changes pending".
 
-`base_text_hash` is the sha256 of the text the edit was based on. The editor
+`base_text_hash` is the sha256 of the text the edit was based on, typed
+`Sha256Hex` and minted only by `text_hash` / `sha256Hex`. The editor
 stamps it while building the batch (`outline/baseTextHash.ts`), against the
 tree the batch was planned from, so op N leaves the text op N+1's hash matches.
 The same pass stamps `page_title`, the block's page, which labels the

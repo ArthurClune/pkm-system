@@ -12,12 +12,19 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal, NewType, Union
 
 from pydantic import BaseModel, Field
 
 UID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,32}$")
 ViewType = Literal["numbered", "document"]
+
+# A sha256 hex digest, distinct from a plain str so a text can never be
+# passed where a hash belongs. Pydantic validates and dumps a NewType as
+# its base type, so the wire format is unchanged. Minted only by
+# `text_hash` (and its web twin `sha256Hex`); a test literal standing in
+# for a hash wraps in `Sha256Hex(...)`.
+Sha256Hex = NewType("Sha256Hex", str)
 
 
 class CreateOp(BaseModel):
@@ -42,8 +49,8 @@ class UpdateTextOp(BaseModel):
     # client, LWW-apply as always. Present => conflict detection per spec
     # section 2 (text hash, not a version counter: structural changes must
     # never manufacture a text conflict).
-    base_text_hash: str | None = Field(default=None, min_length=64,
-                                       max_length=64)
+    base_text_hash: Sha256Hex | None = Field(default=None, min_length=64,
+                                              max_length=64)
     # A conflict-header label only: names the page the client believed it
     # was editing, for when the block itself is gone by the time this
     # lands (edit-vs-delete race). Never checked against the target block
@@ -109,5 +116,5 @@ class OpBatch(BaseModel):
     ops: list[BlockOp] = Field(min_length=1, max_length=500)
 
 
-def text_hash(text: str) -> str:
-    return hashlib.sha256(text.encode()).hexdigest()
+def text_hash(text: str) -> Sha256Hex:
+    return Sha256Hex(hashlib.sha256(text.encode()).hexdigest())

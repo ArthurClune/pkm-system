@@ -5,7 +5,7 @@ import { LocalOpError } from "./localOps";
 import * as queue from "./queue";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
          pendingCount } from "./queue";
-import { sha256Hex } from "./sha256";
+import { sha256Hex, type Sha256Hex } from "./sha256";
 import { openTestDb, type TestDb } from "./testDb";
 
 let t: TestDb;
@@ -74,7 +74,7 @@ describe("enqueueBatch", () => {
       op: "update_text",
       uid: "uid_q1",
       text: "linked snapshot",
-      base_text_hash: "snapshot-hash",
+      base_text_hash: "snapshot-hash" as Sha256Hex,
     }], 99, "batch-explicit");
 
     const ops = JSON.parse(t.db.select<{ ops_json: string }>(

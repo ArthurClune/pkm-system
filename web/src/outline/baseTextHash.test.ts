@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
-import { sha256Hex } from "../replica/sha256";
+import { sha256Hex, type Sha256Hex } from "../replica/sha256";
 import { block } from "../test-helpers";
 import { stampBaseTextHashes, withoutStamps } from "./baseTextHash";
 
@@ -34,7 +34,8 @@ describe("stampBaseTextHashes", () => {
 
   test("an explicitly supplied hash is preserved", () => {
     const ops: BlockOp[] = [
-      { op: "update_text", uid: "u1", text: "after", base_text_hash: "deadbeef" },
+      { op: "update_text", uid: "u1", text: "after",
+        base_text_hash: "deadbeef" as Sha256Hex },
     ];
     expect(stampBaseTextHashes([block("u1", "before")], "AI", ops)[0])
       .toMatchObject({ base_text_hash: "deadbeef" });
@@ -91,7 +92,8 @@ describe("stampBaseTextHashes", () => {
 describe("withoutStamps", () => {
   test("withoutStamps drops both stamps and keeps the op", () => {
     expect(withoutStamps({
-      op: "update_text", uid: "a", text: "t", base_text_hash: "h", page_title: "P",
+      op: "update_text", uid: "a", text: "t",
+      base_text_hash: "h" as Sha256Hex, page_title: "P",
     })).toEqual({ op: "update_text", uid: "a", text: "t" });
   });
 });

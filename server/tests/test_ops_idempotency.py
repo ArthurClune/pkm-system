@@ -2,10 +2,11 @@
 durable client queue must not double-apply (spec section 1)."""
 import json
 from pathlib import Path
+from typing import assert_type
 
 import pytest
 
-from pkm.contracts.ops import OpBatch
+from pkm.contracts.ops import OpBatch, Sha256Hex, UpdateTextOp, text_hash
 from pkm.server.db import open_db
 from pkm.server.ops_hash import batch_replay_hash
 
@@ -19,6 +20,16 @@ BATCH = {
     "ops": [{"op": "create", "uid": "uid_idem1", "page_title": "AI",
              "parent_uid": None, "order_idx": 0, "text": "queued offline"}],
 }
+
+
+def test_hash_fields_are_sha256hex():
+    """A hash and a text are both str, so nothing but a distinct type stops
+    a caller passing text where a hash belongs. pyrefly checks the
+    assert_type call statically; the annotation check is the same guarantee
+    read back at runtime."""
+    assert_type(text_hash("x"), Sha256Hex)
+    assert (UpdateTextOp.model_fields["base_text_hash"].annotation
+            == Sha256Hex | None)
 
 
 def test_replay_returns_stored_ack_and_applies_nothing(client):
@@ -199,7 +210,7 @@ def _replay_hash(ops) -> str:
 
 def test_replay_hash_ignores_worker_filled_guard_fields():
     bare = [{"op": "update_text", "uid": "uid_b1", "text": "golden"}]
-    hashed = [dict(bare[0], base_text_hash="0" * 64)]
+    hashed = [dict(bare[0], base_text_hash=Sha256Hex("0" * 64))]
     hashed_and_titled = [dict(hashed[0], page_title="AI")]
     assert (_replay_hash(bare) == _replay_hash(hashed)
             == _replay_hash(hashed_and_titled))
@@ -230,7 +241,8 @@ def test_worker_filled_then_bare_replays_with_one_effect(client):
            "ops": [{"op": "update_text", "uid": "uid_b1", "text": "v1"}]}
     r1 = client.post("/api/ops", json=bare)
     assert r1.status_code == 200
-    filled = dict(bare, ops=[dict(bare["ops"][0], base_text_hash="0" * 64,
+    filled = dict(bare, ops=[dict(bare["ops"][0],
+                                 base_text_hash=Sha256Hex("0" * 64),
                                  page_title="AI")])
     r2 = client.post("/api/ops", json=filled)
     assert r2.status_code == 200

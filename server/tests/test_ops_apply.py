@@ -4,11 +4,12 @@ from typing import get_args
 import pytest
 
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import OpBatch, text_hash
+from pkm.contracts.ops import OpBatch, Sha256Hex, subtree_hash, text_hash
 from pkm.server import ops_apply, ops_core
 from pkm.server.db import open_db
-from pkm.server.ops_apply import _parent_chain, _subtree_deepest_first, apply_batch
-from pkm.server.ops_core import OpError
+from pkm.server.ops_apply import (_parent_chain, _subtree_deepest_first,
+                                  _subtree_rows, apply_batch)
+from pkm.server.ops_core import OpError, SubtreeRow
 
 NOW = 1_800_000_000_000
 
@@ -334,6 +335,86 @@ def test_parent_chain_and_subtree_terminate_on_preexisting_cycle(db):
     subtree = _subtree_deepest_first(db, "cycle0")
     assert set(subtree) == expected
     assert len(subtree) == len(expected)
+
+
+def test_subtree_rows_is_deepest_first_with_columns(db):
+    # One query reads what both the hash and the conflict copies need:
+    # every block of the subtree with its parent, position and text,
+    # children before parents like _subtree_deepest_first.
+    apply_batch(db, _batch(
+        {"op": "create", "uid": "rows_c1", "page_title": "Machine Learning",
+         "parent_uid": "uid_b2", "order_idx": 1, "text": "second child"},
+        {"op": "create", "uid": "rows_g1", "page_title": "Machine Learning",
+         "parent_uid": "uid_b3", "order_idx": 0, "text": "grandchild"},
+    ), NOW)
+    db.commit()
+    rows = _subtree_rows(db, "uid_b2")
+    assert rows[0] == SubtreeRow("rows_g1", "uid_b3", 0, "grandchild")
+    assert set(rows[1:3]) == {
+        SubtreeRow("uid_b3", "uid_b2", 0,
+                   "[[Attention Is All You Need]] is a [[Paper]]"),
+        SubtreeRow("rows_c1", "uid_b2", 1, "second child")}
+    assert rows[3] == SubtreeRow("uid_b2", None, 1, "Papers")
+    assert (sorted(r.uid for r in rows)
+            == sorted(_subtree_deepest_first(db, "uid_b2")))
+    assert _subtree_rows(db, "no_such_uid") == ()
+
+
+def test_subtree_rows_terminates_on_preexisting_cycle(db):
+    apply_batch(db, _batch(*_linear_chain("Machine Learning", 5, prefix="cycrow")),
+                NOW)
+    db.commit()
+    db.execute("UPDATE blocks SET parent_uid = 'cycrow4' WHERE uid = 'cycrow0'")
+    db.commit()
+    rows = _subtree_rows(db, "cycrow0")
+    assert sorted(r.uid for r in rows) == [f"cycrow{i}" for i in range(5)]
+
+
+def test_diverged_delete_of_a_preexisting_cycle_copies_each_block_once(db):
+    # corrupted data must not turn a guarded delete into a crash or a
+    # runaway walk: the root is the walk's start, never its own descendant
+    apply_batch(db, _batch(*_linear_chain("Machine Learning", 3, prefix="cycdel")),
+                NOW)
+    db.commit()
+    db.execute("UPDATE blocks SET parent_uid = 'cycdel2' WHERE uid = 'cycdel0'")
+    db.commit()
+    apply_batch(db, _batch({"op": "delete", "uid": "cycdel0",
+                            "base_subtree_hash": Sha256Hex("0" * 64)}), NOW)
+    db.commit()
+    assert db.execute("SELECT count(*) FROM blocks WHERE uid LIKE 'cycdel%'"
+                      ).fetchone()[0] == 0
+    copies = db.execute(
+        "SELECT b.text FROM blocks b JOIN pages p ON p.id = b.page_id"
+        " WHERE p.title = ? AND b.text IN ('n0', 'n1', 'n2')",
+        (title_for_date(date.today()),)).fetchall()
+    assert sorted(r["text"] for r in copies) == ["n0", "n1", "n2"]
+
+
+def test_diverged_delete_mints_header_then_root_then_descendants(
+        db, monkeypatch):
+    # header and root entry come from _conflict_landing (header first, as
+    # every conflict path mints them); one uid per descendant follows, in
+    # the deepest-first order of the subtree's rows
+    apply_batch(db, _batch(
+        {"op": "create", "uid": "mint_c2", "page_title": "Machine Learning",
+         "parent_uid": "uid_b2", "order_idx": 1, "text": "second child"},
+    ), NOW)
+    db.commit()
+    minted = iter(["hdrmint00001", "rootmint0001", "descmint0001",
+                   "descmint0002"])
+    monkeypatch.setattr(ops_apply.secrets, "token_urlsafe",
+                        lambda n: next(minted))
+    op = OpBatch.model_validate({"client_id": "t", "batch_id": "mint_order",
+        "ops": [{"op": "delete", "uid": "uid_b2",
+                 "base_subtree_hash": "0" * 64}]}).ops[0]
+    ctx = ops_apply._context_for(db, op, NOW)
+    assert isinstance(ctx, ops_core.DeleteConflictContext)
+    assert isinstance(ctx.landing.header, ops_core.FreshHeader)
+    assert ctx.landing.header.uid == "hdrmint00001"
+    assert ctx.landing.entry_uid == "rootmint0001"
+    non_root = [r.uid for r in ctx.rows if r.uid != "uid_b2"]
+    assert dict(ctx.copy_uids) == dict(zip(
+        non_root, ["descmint0001", "descmint0002"], strict=True))
 
 
 def test_set_heading_updates_and_clears(db):
@@ -777,6 +858,9 @@ def test_cycle_move_journals_the_moved_subtree_and_creates_no_page(db):
 
 
 _B6_TEXT = "AI overview mentions Machine Learning in plain text"
+_B2_SUBTREE_HASH = subtree_hash([
+    ("uid_b2", "Papers"),
+    ("uid_b3", "[[Attention Is All You Need]] is a [[Paper]]")])
 _GHOST = "ghost99"
 
 
@@ -814,6 +898,10 @@ def _edit(uid, text, base=None):
     ({"op": "move", "uid": _GHOST, "parent_uid": None, "order_idx": 0},
      "LandedSkipContext", "orphan_structural"),
     ({"op": "delete", "uid": "uid_b2"}, "DeleteContext", None),
+    ({"op": "delete", "uid": "uid_b2", "base_subtree_hash": _B2_SUBTREE_HASH},
+     "DeleteContext", None),
+    ({"op": "delete", "uid": "uid_b2", "base_subtree_hash": "0" * 64},
+     "DeleteConflictContext", None),
     ({"op": "delete", "uid": _GHOST}, "SkipContext", "noop"),
     ({"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
      "BlockContext", None),

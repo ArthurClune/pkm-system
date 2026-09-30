@@ -79,8 +79,9 @@ class DeleteOp(BaseModel):
     # tree the deleting device last saw. Absent => legacy client or a uid
     # the batch itself created, LWW-apply as always (plain delete, no
     # conflict copy). Present => the server compares against its own
-    # current subtree; a mismatch lands a conflict copy instead of
-    # silently destroying text another device wrote.
+    # current subtree; on a mismatch the delete still wins, but first the
+    # subtree's texts land as a conflict copy on today's daily page, so
+    # text another device wrote is never silently destroyed.
     base_subtree_hash: Sha256Hex | None = Field(default=None, min_length=64,
                                                  max_length=64)
 

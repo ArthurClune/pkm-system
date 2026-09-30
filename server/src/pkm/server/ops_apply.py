@@ -14,7 +14,8 @@ from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
 from pkm.refs import canonicalize_title
 from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  BlockRewrite, ConflictLanding, CreateContext,
-                                 DeleteBlocks, DeleteContext, Effect,
+                                 DeleteBlocks, DeleteConflictContext,
+                                 DeleteContext, Effect,
                                  ExistingHeader, FreshHeader, InsertBlock,
                                  JournalBlock, LandedSkipContext, MoveContext,
                                  OpContext, OpError, PageContext,
@@ -22,9 +23,11 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  SetCollapsed, SetHeading, SetPageId,
                                  SetParent, SetViewType, ShiftSiblings, Skip,
                                  SkipContext, SkippedContext,
-                                 StuckMoveContext, TextConflictContext,
+                                 StuckMoveContext, SubtreeRow,
+                                 TextConflictContext,
                                  TextEditContext, TouchPage, UpdateText,
                                  classify_skip, classify_text_edit,
+                                 delete_diverged,
                                  find_op_title_violation, plan_op,
                                  skip_report)
 from pkm.server.store import (BlankTitleError, fetch_page,
@@ -136,6 +139,31 @@ def _subtree_deepest_first(db: sqlite3.Connection,
     return tuple(r["uid"] for r in rows)
 
 
+def _subtree_rows(db: sqlite3.Connection,
+                  uid: str) -> tuple[SubtreeRow, ...]:
+    """uid and every descendant with its parent, position and text, deepest
+    first -- what a guarded delete hashes and, on a divergence, copies. The
+    same recursive CTE and visited-path guard as _subtree_deepest_first, so
+    each row appears once and is reached from uid by construction: the
+    walk only ever follows parent -> child links out of rows it already
+    holds, and the guard refuses a uid already on the path. Every row
+    DeleteBlocks removes is therefore one the copies can reach."""
+    rows = db.execute(
+        """WITH RECURSIVE sub(uid, parent_uid, order_idx, text, path, depth)
+            AS (
+              SELECT uid, parent_uid, order_idx, text, ',' || uid || ',', 0
+                FROM blocks WHERE uid = ?
+              UNION ALL
+              SELECT b.uid, b.parent_uid, b.order_idx, b.text,
+                     s.path || b.uid || ',', s.depth + 1
+                FROM sub s JOIN blocks b ON b.parent_uid = s.uid
+               WHERE instr(s.path, ',' || b.uid || ',') = 0
+            ) SELECT uid, parent_uid, order_idx, text FROM sub
+               ORDER BY depth DESC""", (uid,)).fetchall()
+    return tuple(SubtreeRow(r["uid"], r["parent_uid"], r["order_idx"],
+                            r["text"]) for r in rows)
+
+
 def _conflict_header(db: sqlite3.Connection, target_uid: str, day: str,
                      daily_page_id: int) -> tuple[str, int] | None:
     """(header_uid, next child order_idx) of today's conflict header for
@@ -231,7 +259,19 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
         return MoveContext(block, parent, page_id,
                            _subtree_deepest_first(db, op.uid))
     if isinstance(op, DeleteOp):
-        return DeleteContext(block, _subtree_deepest_first(db, op.uid))
+        if op.base_subtree_hash is None:
+            return DeleteContext(block, _subtree_deepest_first(db, op.uid))
+        rows = _subtree_rows(db, op.uid)
+        if not delete_diverged(op.base_subtree_hash, rows):
+            return DeleteContext(block, tuple(r.uid for r in rows))
+        # only a divergence pays for today's daily page: the landing mints
+        # the header then the root's entry, and each other row's copy uid
+        # follows in `rows` order
+        landing = _conflict_landing(db, op.uid, now_ms)
+        copy_uids = {r.uid: _new_uid() for r in rows if r.uid != op.uid}
+        return DeleteConflictContext(
+            block, rows, _require_page_title(db, block.page_id), landing,
+            copy_uids)
     if isinstance(op, UpdateTextOp) and op.base_text_hash is not None:
         row = db.execute(
             "SELECT b.text, p.title FROM blocks b"

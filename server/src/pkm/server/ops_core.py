@@ -350,10 +350,13 @@ def descendant_copy_effects(
     goes through `conflict_entry_effects` instead), walked from `root_uid`
     in pre-order so a parent's copy always lands before its children's, and
     renumbered 0..n per parent by `(order_idx, uid)` -- fresh uids nested as
-    the subtree was, text only (spec section 3)."""
+    the subtree was, text only (spec section 3). The root is left out of
+    the child map: a corrupted tree whose root's parent lies inside the
+    subtree must not lead the walk back into its start."""
     children: dict[str | None, list[SubtreeRow]] = {}
     for row in rows:
-        children.setdefault(row.parent_uid, []).append(row)
+        if row.uid != root_uid:
+            children.setdefault(row.parent_uid, []).append(row)
     for siblings in children.values():
         siblings.sort(key=lambda row: (row.order_idx, row.uid))
 

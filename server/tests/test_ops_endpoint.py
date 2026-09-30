@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import text_hash
+from pkm.contracts.ops import Sha256Hex, subtree_hash, text_hash
 
 
 _batch_counter = 0
@@ -590,6 +590,155 @@ def test_hashless_update_on_missing_block_lands_like_a_hashed_one(client):
     assert r.status_code == 200
     assert _conflicts(client) == [("[[conflict]] [[AI]]" + ORPHAN_SUFFIX,
                                    ["x"])]
+
+
+# --- a delete guarded by the subtree it was based on --------------------------
+#
+# Page P holds r ("root") with children c1 ("one", child g "deep") and c2
+# ("two"), plus an outside top-level block x. H0 is the hash of r's subtree
+# as the deleting device saw it. A mismatch still deletes, but first lands
+# the server's texts, nested as they were, under today's conflict header.
+
+GD_PAGE = "P"
+GD_R, GD_C1, GD_C2, GD_G = "gd_r00", "gd_c01", "gd_c02", "gd_g01"
+GD_C3, GD_X = "gd_c03", "gd_x01"
+GD_SUBTREE = {GD_R, GD_C1, GD_C2, GD_G}
+GD_H0 = subtree_hash([(GD_R, "root"), (GD_C1, "one"), (GD_C2, "two"),
+                      (GD_G, "deep")])
+GD_DELETED_HEADER = f"[[conflict]] [[{GD_PAGE}]] — deleted while edited elsewhere"
+
+
+def _gd_create(uid, parent, idx, text):
+    return {"op": "create", "uid": uid, "page_title": GD_PAGE,
+            "parent_uid": parent, "order_idx": idx, "text": text}
+
+
+def _gd_seed(client):
+    r = _post(client,
+              _gd_create(GD_R, None, 0, "root"),
+              _gd_create(GD_C1, GD_R, 0, "one"),
+              _gd_create(GD_C2, GD_R, 1, "two"),
+              _gd_create(GD_G, GD_C1, 0, "deep"),
+              _gd_create(GD_X, None, 1, "outside"),
+              client_id="seed")
+    assert r.status_code == 200
+
+
+def _gd_delete(uid=GD_R, base=GD_H0):
+    op = {"op": "delete", "uid": uid}
+    if base is not None:
+        op["base_subtree_hash"] = base
+    return op
+
+
+def _gd_page_uids(client):
+    def walk(blocks):
+        for b in blocks:
+            yield b["uid"]
+            yield from walk(b["children"])
+    return set(walk(_page_blocks(client, GD_PAGE)))
+
+
+def _nested(blocks):
+    return [(b["text"], _nested(b["children"])) for b in blocks]
+
+
+def _conflict_trees(client):
+    """Like _conflicts, but each header's children as nested
+    (text, [children]) trees."""
+    r = client.get(f"/api/page/{title_for_date(date.today())}")
+    if r.status_code == 404:
+        return []
+    return [(b["text"], _nested(b["children"])) for b in r.json()["blocks"]
+            if b["text"].startswith("[[conflict]]")]
+
+
+def test_matching_guarded_delete_lands_no_copy(client):
+    _gd_seed(client)
+    assert _post(client, _gd_delete()).status_code == 200
+    assert _gd_page_uids(client) & GD_SUBTREE == set()
+    assert _conflicts(client) == []
+
+
+def test_hashless_delete_is_unchanged(client):
+    _gd_seed(client)
+    assert _post(client, {"op": "update_text", "uid": GD_G,
+                          "text": "deep, edited elsewhere"},
+                 client_id="other").status_code == 200
+    assert _post(client, _gd_delete(base=None)).status_code == 200
+    assert _gd_page_uids(client) & GD_SUBTREE == set()
+    assert _conflicts(client) == []
+
+
+_ONE = ("one", [("deep", [])])
+
+@pytest.mark.parametrize("divergence, landed", [
+    ({"op": "update_text", "uid": GD_G, "text": "deep, edited elsewhere"},
+     [("one", [("deep, edited elsewhere", [])]), ("two", [])]),
+    (_gd_create(GD_C3, GD_R, 2, "three"),
+     [_ONE, ("two", []), ("three", [])]),
+    ({"op": "move", "uid": GD_X, "parent_uid": GD_C2, "order_idx": 0},
+     [_ONE, ("two", [("outside", [])])]),
+], ids=["edit_descendant", "create_under_root", "move_in_from_outside"])
+def test_diverged_delete_lands_the_subtree_nested(client, divergence, landed):
+    _gd_seed(client)
+    assert _post(client, divergence, client_id="other").status_code == 200
+    assert _post(client, _gd_delete()).status_code == 200
+    assert _gd_page_uids(client) & (GD_SUBTREE | {GD_C3}) == set()
+    assert _conflict_trees(client) == [
+        (GD_DELETED_HEADER, [("root", landed)])]
+
+
+@pytest.mark.parametrize("restructure", [
+    {"op": "move", "uid": GD_C2, "parent_uid": GD_R, "order_idx": 0},
+    {"op": "move", "uid": GD_C2, "parent_uid": GD_C1, "order_idx": 1},
+], ids=["reorder", "indent"])
+def test_reorder_inside_the_subtree_lands_no_copy(client, restructure):
+    _gd_seed(client)
+    assert _post(client, restructure, client_id="other").status_code == 200
+    assert _post(client, _gd_delete()).status_code == 200
+    assert _gd_page_uids(client) & GD_SUBTREE == set()
+    assert _conflicts(client) == []
+
+
+def test_batch_deleting_child_then_parent_lands_no_copy(client):
+    # each delete is compared against the tree as the batch has left it
+    _gd_seed(client)
+    r = _post(client,
+              _gd_delete(GD_C1, subtree_hash([(GD_C1, "one"),
+                                              (GD_G, "deep")])),
+              _gd_delete(GD_R, subtree_hash([(GD_R, "root"),
+                                             (GD_C2, "two")])))
+    assert r.status_code == 200
+    assert _gd_page_uids(client) & GD_SUBTREE == set()
+    assert _conflicts(client) == []
+
+
+def test_diverged_delete_appends_under_todays_existing_header(client):
+    _gd_seed(client)
+    assert _post(client, {"op": "update_text", "uid": GD_R,
+                          "text": "root, edited elsewhere",
+                          "base_text_hash": text_hash("a stale base")},
+                 client_id="other").status_code == 200
+    overwritten = f"[[conflict]] [[{GD_PAGE}]] — overwritten by (({GD_R}))"
+    assert _conflicts(client) == [(overwritten, ["root"])]
+    assert _post(client, _gd_delete()).status_code == 200
+    assert _gd_page_uids(client) & GD_SUBTREE == set()
+    assert _conflict_trees(client) == [
+        (overwritten, [("root", []),
+                       ("root, edited elsewhere", [_ONE, ("two", [])])])]
+
+
+def test_diverged_delete_copies_roll_back_with_a_failing_batch(client):
+    _gd_seed(client)
+    r = _post(client,
+              _gd_delete(base=Sha256Hex("0" * 64)),
+              {"op": "create", "uid": "uid_b1", "page_title": "AI",
+               "order_idx": 0, "text": "dup"})
+    assert r.status_code == 400
+    assert r.json()["detail"]["index"] == 1
+    assert GD_SUBTREE <= _gd_page_uids(client)
+    assert _conflicts(client) == []
 
 
 # --- ops on missing blocks never reject their batch -------------------------

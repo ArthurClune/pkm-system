@@ -186,6 +186,19 @@ def test_descendant_copies_keep_blank_texts():
     )
 
 
+def test_descendant_copies_never_walk_back_into_the_root():
+    # a corrupted tree can give the root a parent inside its own subtree;
+    # the root is where the walk starts, never one of its descendants
+    rows = (SubtreeRow("c1", "r", 0, "c1 text"),
+            SubtreeRow("r", "c1", 0, "root"))
+    effects = descendant_copy_effects(rows, "r", "copy_r",
+                                      {"c1": "copy_c1"}, daily_page_id=9)
+    assert effects == (
+        InsertBlock("copy_c1", 9, "copy_r", 0, "c1 text", None),
+        ReindexRefs("copy_c1", "c1 text"),
+    )
+
+
 def test_plan_diverged_delete_lands_copies_then_deletes():
     copy_uids = {"c1": "copy_c1", "c2": "copy_c2", "g": "copy_g"}
     landing = _landing()  # FreshHeader, entry_uid "uid_ch1"

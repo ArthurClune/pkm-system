@@ -6,7 +6,8 @@ from typing import assert_type
 
 import pytest
 
-from pkm.contracts.ops import OpBatch, Sha256Hex, UpdateTextOp, text_hash
+from pkm.contracts.ops import (OpBatch, Sha256Hex, UpdateTextOp, subtree_hash,
+                               text_hash)
 from pkm.server.db import open_db
 from pkm.server.ops_hash import batch_replay_hash, batch_request_hash
 
@@ -332,10 +333,12 @@ def test_filled_delete_then_bare_replays_with_one_effect(client):
     """The worker fills base_subtree_hash into the durable copy of a
     delete batch; a lost enqueue reply can leave the client's
     fallback-lane copy of the same batch_id unfilled. Both must replay as
-    one effect, whichever arrives first."""
+    one effect, whichever arrives first. The filled hash matches the seeded
+    block, so the first post is a plain delete and no conflict copy lands."""
     filled = {"client_id": "c1", "batch_id": "batch-95ss-0005",
              "ops": [{"op": "delete", "uid": "uid_b1",
-                      "base_subtree_hash": "0" * 64}]}
+                      "base_subtree_hash": subtree_hash(
+                          [("uid_b1", "Tags:: #AI")])}]}
     r1 = client.post("/api/ops", json=filled)
     assert r1.status_code == 200
     bare = dict(filled, ops=[{"op": "delete", "uid": "uid_b1"}])

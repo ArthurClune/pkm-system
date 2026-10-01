@@ -22,8 +22,9 @@ from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
                                      TitleMigrationAuditPayload,
                                      TitleMigrationBlocker,
                                      TitleMigrationPage, walk_blocks)
+from pkm.refs import BLOCK_REF_TOKEN
 
-_REF_TOKEN = re.compile(r"\(\(([\w-]+)\)\)")
+_REF_TOKEN = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
 _SECTION_MARKER = re.compile(r"^(#{1,3}) (.*)$")
 
 RefMap = Mapping[str, BlockRefText]

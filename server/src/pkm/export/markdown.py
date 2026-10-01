@@ -11,9 +11,10 @@ import re
 from collections.abc import Mapping
 
 from pkm.filenames import truncate_utf8
+from pkm.refs import BLOCK_REF_TOKEN
 
 _ASSET_LINK_RE = re.compile(r"\]\(/assets/")
-_BLOCK_REF_RE = re.compile(r"\(\(([A-Za-z0-9_-]+)\)\)")
+_BLOCK_REF_RE = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
 _UNSAFE_RE = re.compile(r"[/\\:\x00-\x1f]")
 # APFS caps filename components at 255 bytes; leave room for " (N)" + ".md".
 _MAX_BASE_BYTES = 200

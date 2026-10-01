@@ -37,8 +37,16 @@ def test_find_query_macros_none_when_absent():
 # -- resolve_text: block refs --------------------------------------------
 
 def test_resolve_text_replaces_known_ref_with_bare_text():
-    out = resolve_text("see ((uid_a))", {"uid_a": "the target"}, {})
+    out = resolve_text("see ((uid_a1))", {"uid_a1": "the target"}, {})
     assert out == "see the target"
+
+
+def test_resolve_text_leaves_overlong_ref_raw():
+    # Bounded at 32 to match UID_RE: a 33-char token is never recognized as
+    # a ((ref)) at all, map entry or not.
+    overlong = "a" * 33
+    out = resolve_text(f"see (({overlong}))", {overlong: "the target"}, {})
+    assert out == f"see (({overlong}))"
 
 
 def test_resolve_text_leaves_unknown_ref_raw():
@@ -50,10 +58,10 @@ def test_resolve_text_resolves_refs_recursively():
     # a -> b -> c: exporting a's text should show c's actual text inlined,
     # not stop at b's raw ((uid_c)).
     uid_to_text = {
-        "uid_b": "b says ((uid_c))",
-        "uid_c": "c's own words",
+        "uid_b1": "b says ((uid_c1))",
+        "uid_c1": "c's own words",
     }
-    out = resolve_text("a points to ((uid_b))", uid_to_text, {})
+    out = resolve_text("a points to ((uid_b1))", uid_to_text, {})
     assert out == "a points to b says c's own words"
 
 
@@ -61,14 +69,14 @@ def test_resolve_text_caps_ref_recursion_depth():
     # A chain four refs deep must stop resolving at BLOCK_REF_MAX_DEPTH (3):
     # the innermost ref is left raw rather than expanded forever.
     uid_to_text = {
-        "uid_1": "one -> ((uid_2))",
-        "uid_2": "two -> ((uid_3))",
-        "uid_3": "three -> ((uid_4))",
-        "uid_4": "four (should not appear)",
+        "uid_01": "one -> ((uid_02))",
+        "uid_02": "two -> ((uid_03))",
+        "uid_03": "three -> ((uid_04))",
+        "uid_04": "four (should not appear)",
     }
-    out = resolve_text("start -> ((uid_1))", uid_to_text, {})
+    out = resolve_text("start -> ((uid_01))", uid_to_text, {})
     assert "four" not in out
-    assert "((uid_4))" in out
+    assert "((uid_04))" in out
     assert "one -> two -> three ->" in out
 
 
@@ -76,12 +84,12 @@ def test_resolve_text_cyclic_refs_terminate():
     # A <-> B: must not hang, and must eventually fall back to a raw ref
     # once the depth cap is hit.
     uid_to_text = {
-        "uid_a": "A loops to ((uid_b))",
-        "uid_b": "B loops to ((uid_a))",
+        "uid_a1": "A loops to ((uid_b1))",
+        "uid_b1": "B loops to ((uid_a1))",
     }
-    out = resolve_text("root -> ((uid_a))", uid_to_text, {})
+    out = resolve_text("root -> ((uid_a1))", uid_to_text, {})
     assert out.count("loops to") == 3  # depth cap: 3 successful hops
-    assert "((uid_a))" in out or "((uid_b))" in out  # final hop left raw
+    assert "((uid_a1))" in out or "((uid_b1))" in out  # final hop left raw
 
 
 # -- resolve_text / render_query_result: queries -------------------------
@@ -136,12 +144,12 @@ def test_resolve_text_query_item_text_is_itself_resolved():
     # A query result item whose own text contains a ((ref)) must have that
     # ref resolved too -- matching a live reader seeing the fully rendered
     # nested content.
-    result = QueryResult(total=1, groups=_groups(("Page A", [("u1", "see ((uid_x))")])))
+    result = QueryResult(total=1, groups=_groups(("Page A", [("u1", "see ((uid_x1))")])))
     out = resolve_text("{{query: {and: [[Tag]]}}}",
-                       {"uid_x": "the resolved detail"},
+                       {"uid_x1": "the resolved detail"},
                        {"{and: [[Tag]]}": result})
     assert "the resolved detail" in out
-    assert "((uid_x))" not in out
+    assert "((uid_x1))" not in out
 
 
 def test_resolve_text_caps_nested_query_depth():
@@ -170,14 +178,14 @@ def test_resolve_text_caps_nested_query_depth():
 def test_render_page_resolved_combines_refs_and_queries():
     result = QueryResult(total=1, groups=_groups(("Page A", [("u1", "hit text")])))
     tree = [node("intro"),
-            node("see ((uid_a)) and {{query: {and: [[Tag]]}}}")]
-    out = render_page_resolved("My Page", tree, {"uid_a": "the target"},
+            node("see ((uid_a1)) and {{query: {and: [[Tag]]}}}")]
+    out = render_page_resolved("My Page", tree, {"uid_a1": "the target"},
                                {"{and: [[Tag]]}": result})
     assert out.startswith("# My Page\n\n")
     assert "- intro\n" in out
     assert "the target" in out
     assert "hit text" in out
-    assert "((uid_a))" not in out
+    assert "((uid_a1))" not in out
     assert "{{query:" not in out
 
 

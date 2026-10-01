@@ -4,11 +4,13 @@ and otherwise costing one `GET /api/block/{uid}` plus one page fetch per
 page a delete's block turns out to live on, not one `get_block` per
 deleted uid. These tests pin the fetch counts a raw `pkm batch` never
 did: see `_delete_subtrees` in `pkm.client.workflows`."""
+from collections.abc import Sequence
+
 import pytest
 
 from pkm.client.core import ApiError
 from pkm.client.workflows import apply_batch
-from pkm.contracts.ops import DeleteOp, subtree_hash
+from pkm.contracts.ops import BlockUid, DeleteOp, subtree_hash
 
 
 def _spy(monkeypatch, pkm_client, name):
@@ -25,7 +27,7 @@ def _spy(monkeypatch, pkm_client, name):
     return calls
 
 
-def _seed_leaves(pkm_client, page: str, uids: list[str], batch_id: str):
+def _seed_leaves(pkm_client, page: str, uids: Sequence[str], batch_id: str):
     pkm_client.post_ops([
         {"op": "create", "uid": uid, "page_title": page, "parent_uid": None,
          "order_idx": i, "text": f"leaf text {uid}"}
@@ -63,7 +65,7 @@ def test_alias_only_deletes_fetch_nothing_extra(pkm_client, monkeypatch):
 
 def test_n_deletes_on_one_unreferenced_page_cost_one_fetch_each(
         pkm_client, monkeypatch):
-    uids = [f"delfetch0{i}" for i in range(5)]
+    uids = [BlockUid(f"delfetch0{i}") for i in range(5)]
     _seed_leaves(pkm_client, "Delete Fetch Page", uids, "seed-fetch-page")
 
     get_block_calls = _spy(monkeypatch, pkm_client, "get_block")

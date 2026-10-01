@@ -151,35 +151,60 @@ def test_render_empty_text_block():
 def test_resolve_ref_texts_inlines_and_keeps_uid():
     from pkm.render import resolve_ref_texts
     from pkm.contracts.responses import BlockRefText
-    ref_map = {"u9": BlockRefText(text="the target", page_title="P")}
-    assert resolve_ref_texts("see ((u9)) here", ref_map) == \
-        'see "the target" ((u9)) here'
+    ref_map = {"uid_u9": BlockRefText(text="the target", page_title="P")}
+    assert resolve_ref_texts("see ((uid_u9)) here", ref_map) == \
+        'see "the target" ((uid_u9)) here'
 
 
 def test_resolve_ref_texts_unknown_uid_untouched():
     from pkm.render import resolve_ref_texts
-    assert resolve_ref_texts("see ((zz)) here", {}) == "see ((zz)) here"
+    assert resolve_ref_texts("see ((uid_zz)) here", {}) == "see ((uid_zz)) here"
 
 
 def test_resolve_ref_texts_nested_and_cyclic():
     from pkm.render import resolve_ref_texts
     from pkm.contracts.responses import BlockRefText
-    ref_map = {"a": BlockRefText(text="A says ((b))", page_title="P"),
-               "b": BlockRefText(text="B says ((a))", page_title="P")}
-    out = resolve_ref_texts("root ((a))", ref_map)
+    ref_map = {"uid_a1": BlockRefText(text="A says ((uid_b1))", page_title="P"),
+               "uid_b1": BlockRefText(text="B says ((uid_a1))", page_title="P")}
+    out = resolve_ref_texts("root ((uid_a1))", ref_map)
     # a inlined; b inlined inside it; the cyclic ((a)) inside b stays bare
-    assert out == 'root "A says "B says ((a))" ((b))" ((a))'
+    assert out == 'root "A says "B says ((uid_a1))" ((uid_b1))" ((uid_a1))'
+
+
+def test_resolve_ref_texts_non_ascii_token_stays_bare():
+    # render.py's old pattern was Unicode `\w`, so a non-ASCII token used to
+    # resolve here even though refs.py's extractor never recognized it as a
+    # block ref. Sharing refs.py's ASCII-only BLOCK_REF_TOKEN closes that
+    # gap: a non-ASCII token is left bare, matching every other surface.
+    from pkm.render import resolve_ref_texts
+    from pkm.contracts.responses import BlockRefText
+    ref_map = {"uidé12": BlockRefText(text="unreachable", page_title="P")}
+    assert resolve_ref_texts("see ((uidé12)) here", ref_map) == \
+        "see ((uidé12)) here"
+
+
+def test_resolve_ref_texts_token_over_32_chars_stays_bare():
+    # Bounded at 32 to match UID_RE: a token that long can never have been
+    # minted, so it is left as plain text even when the map happens to hold
+    # a matching key.
+    from pkm.render import resolve_ref_texts
+    from pkm.contracts.responses import BlockRefText
+    overlong = "a" * 33
+    ref_map: dict[str, BlockRefText] = {
+        overlong: BlockRefText(text="unreachable", page_title="P")}
+    assert resolve_ref_texts(f"see (({overlong})) here", ref_map) == \
+        f"see (({overlong})) here"
 
 
 def test_render_page_resolve_refs():
     payload = PagePayload.model_validate(
-        {"page": PAGE.page, "blocks": [_node("u1", "see ((u9))")],
+        {"page": PAGE.page, "blocks": [_node("u1", "see ((uid_u9))")],
          "backlinks": NO_BACKLINKS,
-         "block_ref_texts": {"u9": {"text": "target", "page_title": "X"}},
+         "block_ref_texts": {"uid_u9": {"text": "target", "page_title": "X"}},
          "block_ref_counts": {}})
     out = render_page(payload, resolve_refs=True)
-    assert '- see "target" ((u9))\n' in out
-    assert "see ((u9))" in render_page(payload)  # default unchanged
+    assert '- see "target" ((uid_u9))\n' in out
+    assert "see ((uid_u9))" in render_page(payload)  # default unchanged
 
 
 def test_render_assets():

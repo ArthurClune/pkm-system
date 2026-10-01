@@ -50,6 +50,10 @@ CASES = [
     "[[Padded  Title]] keeps its double space",
     "[[\n]] references nothing",
     "skip [[   ]] but keep [[ Valid ]]",
+    # Block-ref tokens are bounded at 32 to match UID_RE: a 32-char token is
+    # a block ref, a 33-char one can never have been minted and stays text.
+    "ref ((" + "a" * 32 + ")) here",
+    "ref ((" + "a" * 33 + ")) here",
 ]
 
 

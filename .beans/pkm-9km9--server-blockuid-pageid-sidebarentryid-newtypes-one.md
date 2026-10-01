@@ -1,11 +1,11 @@
 ---
 # pkm-9km9
 title: Server BlockUid / PageId / SidebarEntryId NewTypes, one ref-token regex, importer uid validation
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T10:42:35Z
+updated_at: 2026-10-01T12:17:38Z
 parent: pkm-7uxw
 ---
 

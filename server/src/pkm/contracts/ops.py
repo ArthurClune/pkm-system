@@ -42,15 +42,28 @@ OpKind = Literal["create", "update_text", "move", "delete", "set_collapsed",
 Sha256Hex = NewType("Sha256Hex", str)
 brand(Sha256Hex)
 
+# A block's uid: validated by UID_RE below, minted only by the server
+# (ops_apply._new_uid) and the CLI/MCP client (client.api.new_uid). Not
+# brand()ed -- this bean only types the server's own signatures; reaching
+# the web through gen-types is pkm-thee. Pydantic validates and dumps a
+# NewType as its base type regardless, so the wire format is unchanged.
+BlockUid = NewType("BlockUid", str)
+# pages.id. Minted only by SQLite (an INTEGER PRIMARY KEY) and, for an
+# import, by the importer's own row-building counter.
+PageId = NewType("PageId", int)
+# sidebar_entries.id -- its own INTEGER PRIMARY KEY, distinct from PageId
+# even though a sidebar entry's title always names a page.
+SidebarEntryId = NewType("SidebarEntryId", int)
+
 
 class CreateOp(BaseModel):
     op: Literal["create"]
-    uid: str
+    uid: BlockUid
     # the page for a top-level create (created if absent). Under a live
     # parent the block lands on the parent's page and this is ignored:
     # another device may have moved the parent since the op was queued.
     page_title: str = Field(min_length=1)
-    parent_uid: str | None = None
+    parent_uid: BlockUid | None = None
     order_idx: int
     text: str
     heading: HeadingLevel | None = None
@@ -59,7 +72,7 @@ class CreateOp(BaseModel):
 
 class UpdateTextOp(BaseModel):
     op: Literal["update_text"]
-    uid: str
+    uid: BlockUid
     text: str
     # sha256 hex of the text this edit was based on. Absent => legacy
     # client, LWW-apply as always. Present => conflict detection per spec
@@ -77,8 +90,8 @@ class UpdateTextOp(BaseModel):
 
 class MoveOp(BaseModel):
     op: Literal["move"]
-    uid: str
-    parent_uid: str | None   # required but nullable: null = top level
+    uid: BlockUid
+    parent_uid: BlockUid | None   # required but nullable: null = top level
     order_idx: int
     # cross-page target when parent_uid is null; ignored when parent_uid
     # is set, since the block follows its parent to whatever page that is
@@ -88,7 +101,7 @@ class MoveOp(BaseModel):
 
 class DeleteOp(BaseModel):
     op: Literal["delete"]
-    uid: str
+    uid: BlockUid
     # sha256 of the subtree this delete was based on (spec section 1):
     # the (uid, text) pairs of the block and its descendants, as of the
     # tree the deleting device last saw. Absent => legacy client or a uid
@@ -103,19 +116,19 @@ class DeleteOp(BaseModel):
 
 class SetCollapsedOp(BaseModel):
     op: Literal["set_collapsed"]
-    uid: str
+    uid: BlockUid
     collapsed: bool
 
 
 class SetHeadingOp(BaseModel):
     op: Literal["set_heading"]
-    uid: str
+    uid: BlockUid
     heading: HeadingLevel | None = None
 
 
 class SetViewTypeOp(BaseModel):
     op: Literal["set_view_type"]
-    uid: str
+    uid: BlockUid
     view_type: ViewType
 
 

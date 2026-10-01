@@ -1,6 +1,7 @@
 import pytest
 
-from pkm.importer.parse_export import Block, Export, Page
+from pkm.edn import parse_edn
+from pkm.importer.parse_export import Block, Export, Page, parse_export
 from pkm.importer.preflight import (ImportStructureError, ImportUidError,
                                     validate_export_structure,
                                     validate_export_uids)
@@ -175,3 +176,27 @@ def test_import_uid_error_message_lists_every_offending_uid():
     message = str(exc_info.value)
     assert "'bad1'" in message and "'A'" in message
     assert "'bad2'" in message and "'B'" in message
+
+
+_NON_STRING_UID_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Tree" 1]
+  [1 :block/children 2 1]
+  [2 :block/uid 123456 1]
+  [2 :block/string "a bare EDN integer, not a string" 1]
+  [2 :block/order 0 1]
+ ]}"""
+
+
+def test_validate_export_uids_refuses_a_non_string_uid_instead_of_crashing():
+    # :block/uid is free-form EDN; a malformed export could hand parse_export
+    # an int (or any other EDN value) where every real Roam export writes a
+    # string. UID_RE.fullmatch() raises TypeError on a non-str argument, so
+    # the check must look before it leaps rather than let that escape as an
+    # unhandled crash instead of the normal whole-import refusal.
+    export = parse_export(parse_edn(_NON_STRING_UID_EXPORT))
+    with pytest.raises(ImportUidError) as exc_info:
+        validate_export_uids(export)
+    (bad,) = exc_info.value.invalid
+    assert bad.uid == 123456  # the raw EDN value, not coerced to a string
+    assert bad.page_title == "Tree"

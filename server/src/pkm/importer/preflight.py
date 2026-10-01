@@ -105,7 +105,15 @@ def validate_export_uids(export: Export) -> None:
     invalid: list[InvalidUid] = []
 
     def visit(block: Block, page_title: str) -> None:
-        if not UID_RE.fullmatch(block.uid):
+        # :block/uid is free-form EDN (Block.uid is typed str, but nothing
+        # validates a parsed export against that): UID_RE.fullmatch() raises
+        # TypeError on a non-str argument, so a malformed export handing
+        # back e.g. a bare integer must fail the isinstance check first,
+        # not reach fullmatch and crash instead of refusing cleanly. The
+        # uid is recorded as whatever it actually is -- InvalidUid.uid's
+        # `str` annotation describes the real-world case, not a guarantee
+        # this one check can't itself observe breaking.
+        if not isinstance(block.uid, str) or not UID_RE.fullmatch(block.uid):
             invalid.append(InvalidUid(block.uid, page_title))
         for child in block.children:
             visit(child, page_title)

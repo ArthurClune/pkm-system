@@ -190,6 +190,18 @@ def test_resolve_ref_texts_non_ascii_token_stays_bare():
         "see ((uidé12)) here"
 
 
+def test_resolve_ref_texts_32_char_token_resolves():
+    # The accepted side of the {6,32} boundary: a 32-char token is still a
+    # recognized ref, same as any other length within bounds.
+    from pkm.contracts.ops import BlockUid
+    from pkm.render import resolve_ref_texts
+    from pkm.contracts.responses import BlockRefText
+    uid32 = BlockUid("a" * 32)
+    ref_map = {uid32: BlockRefText(text="the target", page_title="P")}
+    assert resolve_ref_texts(f"see (({uid32})) here", ref_map) == \
+        f'see "the target" (({uid32})) here'
+
+
 def test_resolve_ref_texts_token_over_32_chars_stays_bare():
     # Bounded at 32 to match UID_RE: a token that long can never have been
     # minted, so it is left as plain text even when the map happens to hold

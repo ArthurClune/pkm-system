@@ -41,6 +41,13 @@ def test_resolve_text_replaces_known_ref_with_bare_text():
     assert out == "see the target"
 
 
+def test_resolve_text_resolves_a_32_char_ref():
+    # The accepted side of the boundary: a 32-char token still resolves.
+    uid32 = "a" * 32
+    out = resolve_text(f"see (({uid32}))", {uid32: "the target"}, {})
+    assert out == "see the target"
+
+
 def test_resolve_text_leaves_overlong_ref_raw():
     # Bounded at 32 to match UID_RE: a 33-char token is never recognized as
     # a ((ref)) at all, map entry or not.

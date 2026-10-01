@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+from pkm.contracts.ops import BlockUid, PageId
 from pkm.refs import target_canonical_title, title_syntax_reason
 from pkm.title_migration import (
     InventoryBlock,
@@ -194,7 +195,8 @@ def apply_title_migration(
         }
         block_text_by_uid = {block.uid: block.text for block in plan.blocks}
         snapshots = tuple(
-            (uid, block_text_by_uid[uid]) for uid in sorted(inbound_uids)
+            (BlockUid(uid), block_text_by_uid[uid])
+            for uid in sorted(inbound_uids)
         )
         # rewrite_snapshotted_blocks matches replacement keys against raw
         # text spans, so the map widens to plain str here -- CanonicalTitle
@@ -208,7 +210,7 @@ def apply_title_migration(
             if not group.has_clean_twin:
                 retitle_page_without_rewrite(
                     db,
-                    group.survivor.page_id,
+                    PageId(group.survivor.page_id),
                     group.survivor.title,
                     group.canonical_title,
                     now_ms,
@@ -228,7 +230,8 @@ def apply_title_migration(
         blocks_moved = 0
         for source_id, old_title, target_id, new_title in sources:
             blocks_moved += append_page_without_rewrite(
-                db, source_id, target_id, old_title, new_title, now_ms
+                db, PageId(source_id), PageId(target_id), old_title,
+                new_title, now_ms
             )
 
         blocks_rewritten = rewrite_snapshotted_blocks(

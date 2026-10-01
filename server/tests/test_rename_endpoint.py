@@ -3,6 +3,7 @@ from urllib.parse import quote
 
 import pytest
 
+from pkm.contracts.ops import BlockUid, PageId
 from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.server.db import open_db
 from pkm.server.store import (
@@ -328,7 +329,7 @@ def test_retitle_without_rewrite_changes_only_page_and_sidebar_title(seeded_conf
     )
 
     retitle_page_without_rewrite(
-        db, 1, CanonicalTitle(NormalizedTitle("Machine Learning")),
+        db, PageId(1), CanonicalTitle(NormalizedTitle("Machine Learning")),
         CanonicalTitle(NormalizedTitle("Deep Learning Notes")), 9_001
     )
 
@@ -367,7 +368,7 @@ def test_append_without_rewrite_preserves_stable_subtrees_and_target_sidebar(see
     )
 
     moved = append_page_without_rewrite(
-        db, 2, 1, CanonicalTitle(NormalizedTitle("AI")),
+        db, PageId(2), PageId(1), CanonicalTitle(NormalizedTitle("AI")),
         CanonicalTitle(NormalizedTitle("Machine Learning")), 9_002
     )
 
@@ -412,7 +413,7 @@ def test_rewrite_snapshots_updates_and_reindexes_each_block_once(seeded_config):
 
     rewritten = rewrite_snapshotted_blocks(
         db,
-        (("uid_multi", original),),
+        ((BlockUid("uid_multi"), original),),
         {"AI": "Machine Learning", "Paper": "Machine Learning"},
         9_003,
     )

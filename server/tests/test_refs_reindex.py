@@ -14,7 +14,7 @@ import sqlite3
 
 import pytest
 
-from pkm.contracts.ops import OpBatch
+from pkm.contracts.ops import BlockUid, OpBatch
 from pkm.server import ops_apply, store
 from pkm.server.db import open_db
 from pkm.server.ops_apply import apply_batch
@@ -95,8 +95,8 @@ def test_snapshot_rewriting_reindexes_through_the_shared_composition(
     calls = _spy(monkeypatch, store, "reindex_refs_for_text")
 
     rewritten = rewrite_snapshotted_blocks(
-        con, [("uid_b3", "[[Paper]] and ((uid_b1))")], {"Paper": "Papers"},
-        5150)
+        con, [(BlockUid("uid_b3"), "[[Paper]] and ((uid_b1))")],
+        {"Paper": "Papers"}, 5150)
 
     assert rewritten == 1
     # the rewritten text is what gets indexed, never the original snapshot
@@ -114,8 +114,8 @@ def test_both_call_sites_index_the_same_text_identically(con, text):
     _update_text(con, "uid_b4", text, 7000)
     # an empty replacement map leaves the snapshot text alone, so this
     # reindexes uid_b6 from exactly `text`
-    rewrite_snapshotted_blocks(con, [("uid_b6", text)], {}, 7000)
-    reindex_refs_for_text(con, "uid_b1", text, 7000)
+    rewrite_snapshotted_blocks(con, [(BlockUid("uid_b6"), text)], {}, 7000)
+    reindex_refs_for_text(con, BlockUid("uid_b1"), text, 7000)
 
     assert _ref_titles(con, "uid_b6") == _ref_titles(con, "uid_b4")
     assert _ref_titles(con, "uid_b1") == _ref_titles(con, "uid_b4")
@@ -125,7 +125,7 @@ def test_both_call_sites_index_the_same_text_identically(con, text):
 
 def test_composition_replaces_rather_than_appends(con):
     # uid_b3 seeds refs to "Attention Is All You Need" and "Paper"
-    reindex_refs_for_text(con, "uid_b3", "only [[AI]] now", 1)
+    reindex_refs_for_text(con, BlockUid("uid_b3"), "only [[AI]] now", 1)
 
     assert _ref_titles(con, "uid_b3") == {("AI", "link")}
     # uid_b5's seeded block_refs row must survive: only src_uid's rows go
@@ -133,7 +133,7 @@ def test_composition_replaces_rather_than_appends(con):
 
 
 def test_composition_skips_a_blank_ref_without_minting_a_page(con):
-    reindex_refs_for_text(con, "uid_b4", "hello [[   ]] world", 1)
+    reindex_refs_for_text(con, BlockUid("uid_b4"), "hello [[   ]] world", 1)
 
     assert _ref_titles(con, "uid_b4") == set()
     assert con.execute(
@@ -141,7 +141,7 @@ def test_composition_skips_a_blank_ref_without_minting_a_page(con):
 
 
 def test_composition_creates_a_missing_page_stamped_with_now_ms(con):
-    reindex_refs_for_text(con, "uid_b4", "[[Brand New Page]]", 9999)
+    reindex_refs_for_text(con, BlockUid("uid_b4"), "[[Brand New Page]]", 9999)
 
     row = con.execute(
         "SELECT created_at, updated_at FROM pages WHERE title = ?",
@@ -150,13 +150,13 @@ def test_composition_creates_a_missing_page_stamped_with_now_ms(con):
 
 
 def test_composition_keeps_dangling_block_refs(con):
-    reindex_refs_for_text(con, "uid_b4", "((uid_absent))", 1)
+    reindex_refs_for_text(con, BlockUid("uid_b4"), "((uid_absent))", 1)
 
     assert _block_ref_targets(con, "uid_b4") == {"uid_absent"}
 
 
 def test_composition_never_commits(con, seeded_config):
-    reindex_refs_for_text(con, "uid_b4", "[[Uncommitted Page]]", 1)
+    reindex_refs_for_text(con, BlockUid("uid_b4"), "[[Uncommitted Page]]", 1)
     con.rollback()
 
     assert con.execute(

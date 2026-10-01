@@ -14,8 +14,9 @@ from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.fts import escape_fts_query
 from pkm.server.grouping import group_by_page, group_changed
+from pkm.refs import CanonicalTitle
 from pkm.server.query import (
-    QueryNode, page_operands, plan_sql, QueryParseError)
+    CanonicalQueryNode, QueryNode, page_operands, plan_sql, QueryParseError)
 from pkm.server.query_exec import (
     count_matches, execute_plan, parse_canonical_query)
 from pkm.server.sync_meta import read_title
@@ -60,8 +61,12 @@ def run_query(expr: str, expand: bool = False,
     # counted the same way as the whole expression's total, keyed by the
     # canonical title each operand resolved to (not the raw [[...]] text),
     # so a hint for "[[ Foo ]]" reads the same as one for "[[Foo]]".
+    # page_operands(node) draws titles out of the already-canonical node, so
+    # wrapping each single-page tree built from one is a genuine mint, not a
+    # bypass of parse_canonical_query.
     ref_counts = {
-        title: count_matches(db, *plan_sql(QueryNode("page", title), expand))
+        title: count_matches(
+            db, *plan_sql(CanonicalQueryNode(QueryNode("page", title)), expand))
         for title in page_operands(node)
     }
     matches = execute_plan(db, sql, params)
@@ -90,6 +95,13 @@ def titles(q: str = "", limit: int = 10,
     return {"titles": [r["title"] for r in rows]}
 
 
+def _page_filter(title: CanonicalTitle) -> tuple[str, CanonicalTitle]:
+    """The one way `todos`/`changed` add an exact `p.title = ?` predicate: a
+    typed choke point, so a page filter can't bind a title that skipped
+    `read_title`."""
+    return " AND p.title = ?", title
+
+
 @router.get("/api/todos", response_model=GroupsPayload)
 def todos(page: str | None = None,
           db: sqlite3.Connection = Depends(get_db)) -> dict:
@@ -104,8 +116,9 @@ def todos(page: str | None = None,
            " WHERE instr(b.text, 'TODO') > 0")
     params: list[str] = []
     if page is not None:
-        sql += " AND p.title = ?"
-        params.append(read_title(db, page))
+        clause, bound = _page_filter(read_title(db, page))
+        sql += clause
+        params.append(bound)
     sql += " ORDER BY p.title, b.uid"
     rows = [r for r in db.execute(sql, params).fetchall()
             if is_todo(r["text"])]
@@ -136,8 +149,9 @@ def changed(since: str, until: str | None = None, page: str | None = None,
            " WHERE b.updated_at >= ? AND b.updated_at < ?")
     params: list = [since_ms, until_ms]
     if page is not None:
-        sql += " AND p.title = ?"
-        params.append(read_title(db, page))
+        clause, bound = _page_filter(read_title(db, page))
+        sql += clause
+        params.append(bound)
     total = db.execute(
         f"SELECT COUNT(*) FROM ({sql})", params).fetchone()[0]
     sql += " ORDER BY b.updated_at, b.uid LIMIT ?"

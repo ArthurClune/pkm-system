@@ -248,7 +248,8 @@ def test_tag_form_is_chosen_exactly_when_extract_would_read_it_back_as_a_tag():
     # disagree: the bare form is used iff extract() reports that exact title.
     for title in ("New", "a.b", "a/b", "a-b", "New Name", "a]b", "a#b", "a(b"):
         bare = rename._tag_form(title) == f"#{title}"
-        read_back = refs.Ref(title, "tag") in refs.extract(f"x #{title}").refs
+        read_back = (refs.Ref(refs.NormalizedTitle(title), "tag")
+                    in refs.extract(f"x #{title}").refs)
         assert bare == read_back, title
 
 

@@ -7,14 +7,14 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Literal, Mapping
 
-from pkm.refs import (RefKind, canonicalize_title, is_blank_title,
-                      title_syntax_reason)
+from pkm.refs import (CanonicalTitle, RefKind, is_blank_title,
+                      target_canonical_title, title_syntax_reason)
 
 
 @dataclass(frozen=True)
 class InventoryPage:
     page_id: int
-    title: str
+    title: CanonicalTitle
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,7 @@ class InventoryRef:
 @dataclass(frozen=True)
 class InventorySidebar:
     sidebar_id: int
-    title: str
+    title: CanonicalTitle
     order_idx: int
 
 
@@ -55,13 +55,13 @@ TitleMigrationBlockerReason = Literal["all_space", "forbidden_syntax"]
 @dataclass(frozen=True)
 class TitleMigrationBlocker:
     page_id: int
-    title: str
+    title: CanonicalTitle
     reason: TitleMigrationBlockerReason
 
 
 @dataclass(frozen=True)
 class TitleMigrationGroup:
-    canonical_title: str
+    canonical_title: CanonicalTitle
     survivor: InventoryPage
     sources: tuple[InventoryPage, ...]
     has_clean_twin: bool
@@ -79,7 +79,7 @@ class TitleMigrationPlan:
     sidebars: tuple[InventorySidebar, ...]
     groups: tuple[TitleMigrationGroup, ...]
     blockers: tuple[TitleMigrationBlocker, ...]
-    replacements: Mapping[str, str]
+    replacements: Mapping[CanonicalTitle, CanonicalTitle]
     page_count: int
     block_count: int
     ref_count: int
@@ -182,11 +182,11 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
     ))
     sidebars = tuple(sorted(inventory.sidebars, key=lambda sidebar: sidebar.sidebar_id))
 
-    clean_pages = {page.title: page for page in pages}
-    padded_groups: dict[str, list[InventoryPage]] = {}
+    pages_by_stored_title = {page.title: page for page in pages}
+    padded_groups: dict[CanonicalTitle, list[InventoryPage]] = {}
     blockers: list[TitleMigrationBlocker] = []
     for page in pages:
-        canonical = canonicalize_title(page.title, plain_space=True)
+        canonical = target_canonical_title(page.title)
         if is_blank_title(canonical):
             blockers.append(TitleMigrationBlocker(
                 page.page_id, page.title, "all_space"
@@ -199,9 +199,9 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
             padded_groups.setdefault(canonical, []).append(page)
 
     groups: list[TitleMigrationGroup] = []
-    replacements: dict[str, str] = {}
+    replacements: dict[CanonicalTitle, CanonicalTitle] = {}
     for canonical_title, group_pages in padded_groups.items():
-        clean_twin = clean_pages.get(canonical_title)
+        clean_twin = pages_by_stored_title.get(canonical_title)
         survivor = clean_twin or min(group_pages, key=lambda page: page.page_id)
         pages_in_group = list(group_pages)
         if clean_twin is not None:

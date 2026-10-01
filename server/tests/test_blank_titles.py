@@ -70,8 +70,18 @@ from datetime import date
 import pytest
 
 from pkm.contracts.daily import title_for_date
+from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.server import store
 from pkm.server.store import BlankTitleError, get_or_create_page, fetch_page
+
+
+def _ct(title: str) -> CanonicalTitle:
+    """fetch_page takes a CanonicalTitle; these tests probe it directly
+    with deliberately blank/padded/forbidden strings, which are never
+    minted through canonicalize_title -- cast at this one fixture point
+    rather than threading the real canonicalizer through every assertion."""
+    return CanonicalTitle(NormalizedTitle(title))
+
 
 CONTROL_ONLY = "\n\t"          # contains a control ws char
 SPACES_ONLY = "   "            # plain spaces only, no control char
@@ -125,7 +135,7 @@ def test_get_or_create_page_raises_on_control_whitespace_only_title(tmp_path):
     db = _fresh_db(tmp_path)
     with pytest.raises(BlankTitleError):
         get_or_create_page(db, CONTROL_ONLY, 123)
-    assert fetch_page(db, "") is None
+    assert fetch_page(db, _ct("")) is None
     db.close()
 
 
@@ -139,7 +149,7 @@ def test_get_or_create_page_rejects_forbidden_title_before_creating(
 
     assert type(exc.value) is store.ForbiddenTitleError
     assert exc.value.title == title
-    assert fetch_page(db, title) is None
+    assert fetch_page(db, _ct(title)) is None
     db.close()
 
 
@@ -161,8 +171,8 @@ def test_get_or_create_page_raises_on_spaces_only_title(tmp_path):
     db = _fresh_db(tmp_path)
     with pytest.raises(BlankTitleError):
         get_or_create_page(db, SPACES_ONLY, 123)
-    assert fetch_page(db, SPACES_ONLY) is None
-    assert fetch_page(db, "") is None
+    assert fetch_page(db, _ct(SPACES_ONLY)) is None
+    assert fetch_page(db, _ct("")) is None
     db.close()
 
 
@@ -426,7 +436,7 @@ def test_padded_title_is_preserved_and_reused_exactly(tmp_path):
     db.execute(
         "INSERT INTO pages(title, created_at, updated_at) VALUES (?,?,?)",
         (padded, 100, 100))
-    original = fetch_page(db, padded)
+    original = fetch_page(db, _ct(padded))
     assert original is not None
 
     # Same padded title again -> the SAME page, not a fresh duplicate.

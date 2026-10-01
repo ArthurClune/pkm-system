@@ -8,7 +8,16 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable, Iterator, Literal
+from typing import Iterable, Iterator, Literal, NewType
+
+# A title that has been through normalize_title: control whitespace
+# collapsed, no other byte changed. Not every str is one -- minted only by
+# normalize_title (and anything built from its output).
+NormalizedTitle = NewType("NormalizedTitle", str)
+# A NormalizedTitle that has also been through canonicalize_title: the exact
+# spelling a lookup against pages.title/sidebar_entries.title must use.
+# Minted only by canonicalize_title and by reading those columns back.
+CanonicalTitle = NewType("CanonicalTitle", NormalizedTitle)
 
 # A ``` run followed by a word character is a fence *opener* with an info
 # string (```css, ```mermaid), never a closer -- without the lookahead, an
@@ -41,7 +50,7 @@ _CONTROL_WS = re.compile(r"[\t\n\r\f\v]")
 _WS_RUN = re.compile(r"[ \t\n\r\f\v]+")
 
 
-def normalize_title(title: str) -> str:
+def normalize_title(title: str) -> NormalizedTitle:
     """Collapse the whitespace in a page title that holds a control char.
 
     A title containing a literal newline cannot be addressed through the
@@ -57,13 +66,37 @@ def normalize_title(title: str) -> str:
     normalizes to empty -- `[[\\n]]` references no page.
     """
     if _CONTROL_WS.search(title) is None:
-        return title
-    return _WS_RUN.sub(" ", title).strip()
+        return NormalizedTitle(title)
+    return NormalizedTitle(_WS_RUN.sub(" ", title).strip())
 
 
-def canonicalize_title(title: str, *, plain_space: bool) -> str:
+def canonicalize_title(title: str, *, plain_space: bool) -> NormalizedTitle:
+    """Canonicalize under an explicit, caller-supplied flag value.
+
+    This returns `NormalizedTitle`, not `CanonicalTitle`: `plain_space` here
+    is whatever the caller passes, not necessarily this database's live
+    `plain_space_title_canonicalization` flag, so the result is only
+    "the" canonical spelling when the caller is that flag. Everywhere a
+    lookup key is needed, go through `sync_meta.read_title`/`title_reader`
+    (which read the live flag) or `target_canonical_title` below (which
+    deliberately does not); minting `CanonicalTitle` any other way defeats
+    the type the rest of the server relies on.
+    """
     normalized = normalize_title(title)
-    return normalized.strip(" ") if plain_space else normalized
+    if plain_space:
+        normalized = NormalizedTitle(normalized.strip(" "))
+    return normalized
+
+
+def target_canonical_title(title: str) -> CanonicalTitle:
+    """The title's identity once plain-space canonicalization is active --
+    what the one-time title migration (`pkm/title_migration.py`,
+    `server/title_migration.py`) plans and applies against, independent of
+    this database's live flag. The one deliberate exception to minting
+    `CanonicalTitle` from the live flag: everywhere else, use
+    `sync_meta.read_title`/`title_reader`.
+    """
+    return CanonicalTitle(canonicalize_title(title, plain_space=True))
 
 
 TitleSyntaxReason = Literal["forbidden_syntax"]
@@ -92,7 +125,7 @@ def is_blank_title(title: str) -> bool:
 
 @dataclass(frozen=True)
 class Ref:
-    title: str
+    title: NormalizedTitle
     kind: RefKind
 
 
@@ -129,7 +162,7 @@ class AttributeSpan:
     start: int
     end: int
     raw_title: str
-    title: str
+    title: NormalizedTitle
 
 
 def attribute_title_span(text: str) -> AttributeSpan | None:

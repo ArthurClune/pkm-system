@@ -16,7 +16,8 @@ import sqlite3
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
-from pkm.server.query import QueryNode, parse_query
+from pkm.refs import CanonicalTitle
+from pkm.server.query import CanonicalQueryNode, QueryNode, parse_query
 from pkm.server.sync_meta import title_reader
 
 # Excludes a query's own matching blocks from its results: a block whose
@@ -28,17 +29,19 @@ _SOURCE_FILTER = (
 )
 
 
-def parse_canonical_query(db: sqlite3.Connection, expr: str) -> QueryNode:
+def parse_canonical_query(db: sqlite3.Connection,
+                          expr: str) -> CanonicalQueryNode:
     """`parse_query`, with every [[Page]] operand canonicalised. Operands
     are compared against `pages.title`, so `[[ Foo ]]` (spaces inside the
     brackets) must reach the plan as the canonical "Foo", the page the same
     [[ Foo ]] link resolves to. Raises `QueryParseError` like
-    `parse_query`."""
+    `parse_query`. The sole mint point for `CanonicalQueryNode` -- `plan_sql`
+    takes nothing else, so a tree that skipped this never reaches SQL."""
     node = parse_query(expr)
-    return _canonical_titles(title_reader(db), node)
+    return CanonicalQueryNode(_canonical_titles(title_reader(db), node))
 
 
-def _canonical_titles(canonical: Callable[[str], str],
+def _canonical_titles(canonical: Callable[[str], CanonicalTitle],
                       node: QueryNode) -> QueryNode:
     if node.kind == "page":
         assert node.title is not None

@@ -13,6 +13,7 @@ from pkm.refs import is_blank_title
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
+from pkm.server.store import insert_sidebar_entry
 from pkm.server.sync_meta import read_title
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -47,15 +48,13 @@ def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
         raise HTTPException(status_code=409, detail="entry already exists")
     order_idx = next_order_idx([r["order_idx"] for r in existing])
     try:
-        cur = db.execute(
-            "INSERT INTO sidebar_entries(title, order_idx) VALUES (?, ?)",
-            (title, order_idx))
+        entry_id = insert_sidebar_entry(db, title, order_idx)
     except sqlite3.IntegrityError:
         db.rollback()
         raise HTTPException(
             status_code=409, detail="entry already exists") from None
     notify.commit_and_nudge_threadpool(request, db)
-    return {"id": cur.lastrowid, "title": title}
+    return {"id": entry_id, "title": title}
 
 
 @router.delete("/api/sidebar/{entry_id}")

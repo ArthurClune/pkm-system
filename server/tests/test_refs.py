@@ -7,6 +7,7 @@ import pytest
 from pkm import refs
 from pkm.refs import (
     AttributeSpan,
+    NormalizedTitle,
     Ref,
     TagSpan,
     attribute_title_span,
@@ -108,9 +109,9 @@ def test_tag_spans_over_the_whole_text_by_default():
 def test_ref_ordering_and_types():
     parsed = extract("Tags:: [[B]] #c")
     assert parsed.refs == (
-        Ref("Tags", "attribute"),
-        Ref("B", "link"),
-        Ref("c", "tag"),
+        Ref(NormalizedTitle("Tags"), "attribute"),
+        Ref(NormalizedTitle("B"), "link"),
+        Ref(NormalizedTitle("c"), "tag"),
     )
 
 
@@ -147,7 +148,7 @@ def test_strip_code_blanks_code_without_moving_what_follows():
 
 def test_attribute_title_span_starts_at_the_title_not_at_the_indent():
     assert attribute_title_span("  Tags:: [[B]]") == AttributeSpan(
-        start=2, end=8, raw_title="Tags", title="Tags"
+        start=2, end=8, raw_title="Tags", title=NormalizedTitle("Tags")
     )
 
 
@@ -196,7 +197,7 @@ def test_extract_attribute_still_recognised_after_leading_whitespace():
     # attribute body, rather than folding it into the backtracking regex --
     # must still recognise an indented attribute line.
     parsed = extract("   Tags:: [[B]]")
-    assert parsed.refs[0] == Ref("Tags", "attribute")
+    assert parsed.refs[0] == Ref(NormalizedTitle("Tags"), "attribute")
 
 
 # A [[link]] spanning a newline must not mint a page whose title holds

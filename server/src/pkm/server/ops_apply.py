@@ -12,7 +12,7 @@ from datetime import date
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                OpBatch, UpdateTextOp)
-from pkm.refs import canonicalize_title
+from pkm.refs import CanonicalTitle
 from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  BlockRewrite, ConflictLanding, CreateContext,
                                  DeleteBlocks, DeleteConflictContext,
@@ -33,7 +33,7 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  skip_report)
 from pkm.server.store import (BlankTitleError, fetch_page,
                               get_or_create_page, reindex_refs_for_text)
-from pkm.server.sync_meta import plain_space_title_canonicalization_active
+from pkm.server.sync_meta import read_title
 
 # Fallback title for an op's page_title that normalizes to "" (e.g. a
 # whitespace-only string -- pydantic's min_length=1 lets that through). The
@@ -74,11 +74,7 @@ def _hint_page_exists(db: sqlite3.Connection, page_title: str | None) -> bool:
     referencing block, with rows only where some block referenced the page."""
     if page_title is None:
         return False
-    title = canonicalize_title(
-        page_title,
-        plain_space=plain_space_title_canonicalization_active(db),
-    )
-    return fetch_page(db, title) is not None
+    return fetch_page(db, read_title(db, page_title)) is not None
 
 
 def _block_info(db: sqlite3.Connection, uid: str) -> BlockInfo | None:
@@ -364,13 +360,13 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
         raise AssertionError(f"unhandled effect: {eff!r}")
 
 
-def _page_title(db: sqlite3.Connection, page_id: int) -> str | None:
+def _page_title(db: sqlite3.Connection, page_id: int) -> CanonicalTitle | None:
     row = db.execute("SELECT title FROM pages WHERE id = ?",
                      (page_id,)).fetchone()
     return row["title"] if row is not None else None
 
 
-def _require_page_title(db: sqlite3.Connection, page_id: int) -> str:
+def _require_page_title(db: sqlite3.Connection, page_id: int) -> CanonicalTitle:
     title = _page_title(db, page_id)
     if title is None:
         raise AssertionError(

@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pkm
 from pkm.contracts.ops import OpBatch
+from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.schema import DDL
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
@@ -123,12 +124,18 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
         # uses (rename is a route, not an op batch): leaves a block_rewrites
         # row for ops/edit-rename-replay (perfcheck.backend) to exercise
         # ops_core.replay_title_rewrites.
-        source = fetch_page(con, RENAME_SOURCE_TITLE)
+        # fixture.py's titles are fixed ASCII literals with no control
+        # whitespace or boundary padding, so they're canonical as written --
+        # cast here rather than editing fixture.py, whose source bytes feed
+        # fixture_hash.
+        rename_source_title = CanonicalTitle(NormalizedTitle(RENAME_SOURCE_TITLE))
+        rename_target_title = CanonicalTitle(NormalizedTitle(RENAME_TARGET_TITLE))
+        source = fetch_page(con, rename_source_title)
         if source is None:
             raise RuntimeError(
                 f"perf fixture: {RENAME_SOURCE_TITLE!r} missing before its seeded rename")
-        rename_page_rows(con, source["id"], RENAME_SOURCE_TITLE,
-                         RENAME_TARGET_TITLE, RENAME_APPLIED_AT_MS)
+        rename_page_rows(con, source["id"], rename_source_title,
+                         rename_target_title, RENAME_APPLIED_AT_MS)
         con.commit()
         con.executemany(
             "INSERT INTO assets(sha256, filename, mime, size, created_at, description)"

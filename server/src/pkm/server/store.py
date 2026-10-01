@@ -7,10 +7,10 @@ import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
 
 from pkm.contracts.ops import text_hash
-from pkm.refs import (canonicalize_title, extract, is_blank_title,
-                      title_syntax_reason)
+from pkm.refs import (CanonicalTitle, NormalizedTitle, extract,
+                      is_blank_title, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
-from pkm.server.sync_meta import plain_space_title_canonicalization_active
+from pkm.server.sync_meta import read_title
 
 # How long a rename/merge rewrite record stays replayable (see
 # _prune_block_rewrites).
@@ -33,7 +33,7 @@ class BlankTitleError(ValueError):
     -- substitute a fixed fallback title (see ops_apply.py)."""
 
 
-def fetch_page(db: sqlite3.Connection, title: str) -> sqlite3.Row | None:
+def fetch_page(db: sqlite3.Connection, title: CanonicalTitle) -> sqlite3.Row | None:
     return db.execute(
         "SELECT id, title, created_at, updated_at FROM pages WHERE title = ?",
         (title,)).fetchone()
@@ -53,10 +53,7 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
     refused with BlankTitleError. Interactive routes translate that to 422;
     offline-replayed ops substitute their fixed fallback rather than wedging
     the durable queue."""
-    title = canonicalize_title(
-        title,
-        plain_space=plain_space_title_canonicalization_active(db),
-    )
+    title = read_title(db, title)
     if is_blank_title(title):
         raise BlankTitleError(title)
     if title_syntax_reason(title) is not None:
@@ -75,7 +72,7 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
     return page
 
 
-def index_ref(db: sqlite3.Connection, src_uid: str, ref_title: str,
+def index_ref(db: sqlite3.Connection, src_uid: str, ref_title: NormalizedTitle,
              ref_kind: str, now_ms: int) -> None:
     """Resolve one extracted Ref onto a page and record it in `refs`.
 
@@ -124,7 +121,7 @@ def reindex_refs_for_text(db: sqlite3.Connection, src_uid: str, text: str,
 
 
 def delete_page_rows(db: sqlite3.Connection, page_id: int,
-                     title: str) -> None:
+                     title: CanonicalTitle) -> None:
     """Deletes a page, its blocks, and any sidebar entry. Never commits --
     the caller owns the transaction. Blocks are deleted explicitly (not left
     to the pages FK cascade) so the blocks_fts_ad trigger fires for every
@@ -222,15 +219,30 @@ def rewrite_snapshotted_blocks(
 
 
 def rewrite_referencing_blocks(db: sqlite3.Connection, page_id: int,
-                               old_title: str, new_title: str,
+                               old_title: CanonicalTitle,
+                               new_title: CanonicalTitle,
                                now_ms: int) -> None:
     """Preserved single-page rewrite helper. Never commits."""
     snapshots = _snapshot_referencing_blocks(db, page_id)
     rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms)
 
 
-def retitle_sidebar_entry(db: sqlite3.Connection, old_title: str,
-                          new_title: str) -> None:
+def insert_sidebar_entry(db: sqlite3.Connection, title: CanonicalTitle,
+                         order_idx: int) -> int:
+    """The one way a sidebar entry's title is written on creation -- a typed
+    choke point alongside `retitle_sidebar_entry` and `delete_page_rows`'s
+    own sidebar_entries write, so a route can't bind a raw title here.
+    Raises `sqlite3.IntegrityError` on a `UNIQUE(title)` collision; never
+    commits, the caller owns the transaction."""
+    cur = db.execute(
+        "INSERT INTO sidebar_entries(title, order_idx) VALUES (?, ?)",
+        (title, order_idx))
+    assert cur.lastrowid is not None  # INSERT always assigns one
+    return cur.lastrowid
+
+
+def retitle_sidebar_entry(db: sqlite3.Connection, old_title: CanonicalTitle,
+                          new_title: CanonicalTitle) -> None:
     """Follow a rename/merge in the title-keyed sidebar table. If an entry
     already exists under the new title (merge target pinned, or an orphan),
     the old entry is dropped instead of violating UNIQUE(title)."""
@@ -246,8 +258,8 @@ def retitle_sidebar_entry(db: sqlite3.Connection, old_title: str,
 def retitle_page_without_rewrite(
     db: sqlite3.Connection,
     page_id: int,
-    old_title: str,
-    new_title: str,
+    old_title: CanonicalTitle,
+    new_title: CanonicalTitle,
     now_ms: int,
 ) -> None:
     """Retitle a page and reconcile its sidebar entry without touching refs."""
@@ -262,8 +274,8 @@ def append_page_without_rewrite(
     db: sqlite3.Connection,
     source_id: int,
     target_id: int,
-    old_title: str,
-    new_title: str,
+    old_title: CanonicalTitle,
+    new_title: CanonicalTitle,
     now_ms: int,
 ) -> int:
     """Append a source page's stable top-level order and preserve its subtrees."""
@@ -296,8 +308,9 @@ def append_page_without_rewrite(
     return moved
 
 
-def rename_page_rows(db: sqlite3.Connection, page_id: int, old_title: str,
-                     new_title: str, now_ms: int) -> None:
+def rename_page_rows(db: sqlite3.Connection, page_id: int,
+                     old_title: CanonicalTitle, new_title: CanonicalTitle,
+                     now_ms: int) -> None:
     """Rename in place while preserving the public composed behavior."""
     snapshots = _snapshot_referencing_blocks(db, page_id)
     retitle_page_without_rewrite(db, page_id, old_title, new_title, now_ms)
@@ -305,7 +318,8 @@ def rename_page_rows(db: sqlite3.Connection, page_id: int, old_title: str,
 
 
 def merge_page_rows(db: sqlite3.Connection, source_id: int, target_id: int,
-                    old_title: str, new_title: str, now_ms: int) -> None:
+                    old_title: CanonicalTitle, new_title: CanonicalTitle,
+                    now_ms: int) -> None:
     """Merge a page while preserving stable blocks, subtrees, refs and sidebar."""
     snapshots = _snapshot_referencing_blocks(db, source_id)
     append_page_without_rewrite(

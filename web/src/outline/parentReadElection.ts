@@ -14,21 +14,21 @@
 // It owns no session state and writes none: it queries the session through
 // `ParentReadHost` and is driven by the session's own notifications.
 import type { BlockNode, PagePayload } from "../api/payloads";
-import type { ReadToken } from "./outlineState";
+import type { ReadToken, RequestId } from "./outlineState";
 
 /** What the election needs to know about its session. Queries only. */
 export interface ParentReadHost {
   /** The session's title — it names the errors waiters see. */
   readonly title: string;
   /** The newest authoritative request id the session has issued. */
-  latestRequestId(): number;
+  latestRequestId(): RequestId;
   /** A multi-title capture is activated for this request id, so a response
    * for it is already on its way and no election is needed. */
-  hasActivatedCapture(requestId: number): boolean;
+  hasActivatedCapture(requestId: RequestId): boolean;
   /** Outstanding token-based reads: any one of them may still publish. */
   manualReadCount(): number;
   /** Whether `requestId` is one of those outstanding reads. */
-  hasManualRead(requestId: number): boolean;
+  hasManualRead(requestId: RequestId): boolean;
   /** A repair epoch owns every session's reads while it runs. */
   repairActive(): boolean;
   /** The blocks an accepted payload is published with — the session's tree,
@@ -67,16 +67,16 @@ export interface ParentReadElection {
   /** A token-based read was abandoned. `current` says it was the session's
    * newest read, and only then does its error become the parent failure and
    * free the recovery slot it held. */
-  noteReadAbandoned(requestId: number, error: unknown, current: boolean): void;
+  noteReadAbandoned(requestId: RequestId, error: unknown, current: boolean): void;
   /** Reads older than `requestId` have expired. A spent recovery becomes
    * reusable only when another controller takes ownership from that still-live
    * elected request. */
-  expireRecoveryBefore(requestId: number): void;
+  expireRecoveryBefore(requestId: RequestId): void;
 }
 
 interface ParentWaiter {
   owner: symbol;
-  afterRequestId: number;
+  afterRequestId: RequestId;
   resolve: (payload: PagePayload) => void;
   reject: (error: unknown) => void;
 }
@@ -84,14 +84,14 @@ interface ParentWaiter {
 export function createParentReadElection(
   host: ParentReadHost,
 ): ParentReadElection {
-  let accepted: { requestId: number; payload: PagePayload } | null = null;
+  let accepted: { requestId: RequestId; payload: PagePayload } | null = null;
   let failure: unknown = null;
   const waiters = new Set<ParentWaiter>();
   const controllers = new Map<symbol, () => void>();
   let scheduled = false;
   let electing = false;
   let recoveryAttempted = false;
-  let recoveryRequestId: number | null = null;
+  let recoveryRequestId: RequestId | null = null;
 
   function rejectWaiters(error: unknown): void {
     for (const waiter of waiters) waiter.reject(error);

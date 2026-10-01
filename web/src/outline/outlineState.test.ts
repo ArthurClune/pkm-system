@@ -11,11 +11,19 @@ import {
   spliceUploadedMarkdown,
   transitionOutline,
   validateOutlineFocus,
+  type ReadToken,
+  type RequestId,
 } from "./outlineState";
 import { findNode } from "./tree";
 
 const update = (text: string): BlockOp => ({
   op: "update_text", uid: "u1", text,
+});
+
+it("requestId and revisionAtDispatch cannot be swapped", () => {
+  // @ts-expect-error a RequestId is not a Revision
+  const bad: ReadToken = { requestId: 1 as RequestId, revisionAtDispatch: 1 as RequestId };
+  expect(bad.revisionAtDispatch).toBe(1);
 });
 
 describe("outline causality", () => {

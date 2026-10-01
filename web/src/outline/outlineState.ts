@@ -11,9 +11,17 @@ import { applyOps, applyOpsWithChange, blocksEqual, findNode,
          insertSubtree } from "./tree";
 import { bumpedUids } from "./blockStamps";
 
+// Distinct web-only brands for ReadToken's two same-typed counters. Both are
+// plain numbers minted off OutlineState.nextRequestId/revision, so without
+// the brands a call site that swapped requestId for revisionAtDispatch (or
+// compared one against the other) would still typecheck as an ordinary
+// number mix-up.
+export type RequestId = number & { readonly __brand: "RequestId" };
+export type Revision = number & { readonly __brand: "Revision" };
+
 export interface ReadToken {
-  requestId: number;
-  revisionAtDispatch: number;
+  requestId: RequestId;
+  revisionAtDispatch: Revision;
 }
 
 export interface DeferredAuthoritative {
@@ -29,9 +37,9 @@ export type OutlineReplayAction =
 export interface OutlineState {
   title: string;
   blocks: BlockNode[];
-  revision: number;
-  nextRequestId: number;
-  latestRequestId: number;
+  revision: Revision;
+  nextRequestId: RequestId;
+  latestRequestId: RequestId;
   relevantWrites: ReadonlySet<string>;
   relevantWriteReplays: ReadonlyMap<string, readonly OutlineReplayAction[]>;
   deferredAuthoritative: DeferredAuthoritative | null;
@@ -70,9 +78,9 @@ export function createOutlineState(
   return {
     title,
     blocks,
-    revision: 0,
-    nextRequestId: 1,
-    latestRequestId: 0,
+    revision: 0 as Revision,
+    nextRequestId: 1 as RequestId,
+    latestRequestId: 0 as RequestId,
     relevantWrites: new Set(),
     relevantWriteReplays: new Map(),
     deferredAuthoritative: null,
@@ -104,7 +112,7 @@ export function reserveAuthoritativeRead(state: OutlineState): {
     token,
     state: {
       ...state,
-      nextRequestId: state.nextRequestId + 1,
+      nextRequestId: (state.nextRequestId + 1) as RequestId,
     },
   };
 }
@@ -131,7 +139,7 @@ export function scopeContainsTitle(scope: readonly string[], title: string): boo
 function withBlocks(state: OutlineState, blocks: BlockNode[],
                     changed: boolean): OutlineState {
   if (!changed) return state;
-  return { ...state, blocks, revision: state.revision + 1 };
+  return { ...state, blocks, revision: (state.revision + 1) as Revision };
 }
 
 /** For a tree that arrived whole — a drag/drop result, a server read — with

@@ -8,17 +8,18 @@
 // positions, because the server leaves gaps.
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, SetHeadingOp, SetViewTypeOp } from "../api/ops";
+import type { CaretOffset } from "./keyEdits";
 import { applyOps, findNode, locate, selectionRoots,
          visibleNeighbor } from "./tree";
 
 export interface FocusTarget {
   uid: string;
-  cursor: number;
+  cursor: CaretOffset;
 }
 
 /** Where the caret should land after adopting new text at a prior offset:
  * keep the offset, clamped to the (possibly shorter) new length. */
-export function clampCaret(offset: number, length: number): number {
+export function clampCaret(offset: CaretOffset, length: number): CaretOffset {
   return Math.max(0, Math.min(offset, length));
 }
 
@@ -78,7 +79,7 @@ function crossParentDestination(
 }
 
 export function splitBlock(blocks: BlockNode[], pageTitle: string, uid: string,
-                           cursor: number, newUid: string): EditResult {
+                           cursor: CaretOffset, newUid: string): EditResult {
   const found = locate(blocks, uid);
   if (!found) return noop(blocks);
   const { node, parent, siblings, index } = found;

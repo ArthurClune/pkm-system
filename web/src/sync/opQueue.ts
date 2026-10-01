@@ -40,8 +40,14 @@ export type DeliveryOutcome =
   | { status: "delivered" }
   | { status: "failed"; error: unknown };
 
+// A write ticket's id, distinct from a page title so a map keyed by one can
+// never be confused with a map keyed by the other (outlineSessions.ts keeps
+// both: trackedWrites/unresolvedWrites by ticket, capturedByTitle by title).
+// Minted only here, off the plain nextTicket counter.
+export type TicketId = string & { readonly __brand: "TicketId" };
+
 export interface WriteTicket {
-  id: string;
+  id: TicketId;
   scope: readonly string[];
   settled: Promise<WriteOutcome>;
   /** Resolves only when this ticket's server POST is acknowledged or reaches
@@ -130,7 +136,10 @@ let nextTicket = 1;
 function ticket(scope: readonly string[] | undefined,
                 settled: Promise<WriteOutcome>,
                 delivered: Promise<DeliveryOutcome>): WriteTicket {
-  return { id: `write-${nextTicket++}`, scope: scope ?? [], settled, delivered };
+  return {
+    id: `write-${nextTicket++}` as TicketId,
+    scope: scope ?? [], settled, delivered,
+  };
 }
 
 function postOps(ops: BlockOp[], batchId: BatchId): Promise<OpsAck> {

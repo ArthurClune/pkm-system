@@ -297,7 +297,7 @@ def test_write_tool_emits_confirm_and_blocks(tmp_path):
         ev1 = await asyncio.wait_for(anext(stream), timeout=5)  # ConfirmRequest via the queue
         assert isinstance(ev1, ConfirmRequest)
         assert "save_note" in ev1.ops_preview
-        conv.resolve_confirm(ev1.tool_use_id, True)
+        conv.resolve_confirm(ev1.confirm_id, True)
         await asyncio.wait_for(task, timeout=5)
         rest = [ev async for ev in stream]
         await conv.close()
@@ -324,7 +324,7 @@ def test_deny_returns_declined_message(tmp_path):
         stream = conv.send("go")
         ev = await asyncio.wait_for(anext(stream), timeout=5)
         assert isinstance(ev, ConfirmRequest)
-        conv.resolve_confirm(ev.tool_use_id, False)
+        conv.resolve_confirm(ev.confirm_id, False)
         decision = await asyncio.wait_for(task, timeout=5)
         _ = [e async for e in stream]
         await conv.close()
@@ -802,7 +802,7 @@ def test_stall_watchdog_suspended_while_confirm_parked(tmp_path, monkeypatch):
         await asyncio.sleep(0.2)  # 4x the stall window, parked the whole time
         assert not task.done()
         confirm = next(ev for ev in events if isinstance(ev, ConfirmRequest))
-        conv.resolve_confirm(confirm.tool_use_id, True)
+        conv.resolve_confirm(confirm.confirm_id, True)
         await decision_task
         client.feed(make_result())
         await asyncio.wait_for(task, timeout=2)

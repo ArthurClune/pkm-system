@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ApiError } from "../api/client";
+import type { GoodlinksId } from "../api/brands";
 import type { GoodlinksArticle } from "../api/payloads";
 import { apiGet } from "../api/typedClient";
 import { useEffectiveTheme } from "../useEffectiveTheme";
@@ -34,7 +35,7 @@ function readPalette(): ReaderPalette {
 }
 
 export function GoodlinksReader({ linkId, onClose, triggerRef }: {
-  linkId: string;
+  linkId: GoodlinksId;
   onClose: () => void;
   triggerRef?: RefObject<HTMLButtonElement | null>;
 }) {

@@ -29,6 +29,13 @@ export interface DropTarget {
 }
 export interface DropRow { uid: string; depth: number; collapsed: boolean }
 
+// The pointer's resolved drop location: which gap among dropRows() (the
+// boundary) and which indent level within what that gap allows (the
+// depth). The two are always produced and consumed together -- a drag's
+// candidate, the indicator it draws, and the move resolveDrop resolves it
+// to -- so a named pair keeps a caller from passing them in the wrong order.
+export interface DropPosition { boundary: number; depth: number }
+
 /** On-screen rows (collapsed children hidden), excluding every dragged
  * subtree when the drag comes from this page — boundaries behave as if the
  * blocks were already lifted out. */
@@ -82,11 +89,12 @@ function shape(blocks: BlockNode[]): string {
   return out.join("|");
 }
 
-/** Resolve (boundary, depth) to a move target. Returns null when the drop
+/** Resolve a drop position to a move target. Returns null when the drop
  * would change nothing (same page, same position). */
 export function resolveDrop(blocks: BlockNode[], pageTitle: string,
-                            drag: DragSource, boundary: number,
-                            depth: number): DropTarget | null {
+                            drag: DragSource,
+                            position: DropPosition): DropTarget | null {
+  const { boundary, depth } = position;
   const rows = dropRows(blocks, drag, pageTitle);
   let parentUid: string | null = null;
   if (depth > 0) {

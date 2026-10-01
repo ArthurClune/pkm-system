@@ -24,6 +24,7 @@ from pkm.assistant.events import (
     ToolStarted,
     TurnDone,
 )
+from pkm.contracts.responses import ConfirmId
 
 
 class FakeConversation:
@@ -33,7 +34,7 @@ class FakeConversation:
         self.closed = False
         self.healthy = True
         self.sent: list[str] = []
-        self._decisions: dict[str, asyncio.Future[bool]] = {}
+        self._decisions: dict[ConfirmId, asyncio.Future[bool]] = {}
         self._confirm_seq = 0
 
     async def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
@@ -43,11 +44,11 @@ class FakeConversation:
             return  # pragma: no cover - unreachable
         if "please write" in text:
             self._confirm_seq += 1
-            tool_use_id = f"fake-confirm-{self._confirm_seq}"
+            confirm_id = ConfirmId(f"fake-confirm-{self._confirm_seq}")
             fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
-            self._decisions[tool_use_id] = fut
+            self._decisions[confirm_id] = fut
             yield ToolStarted(name="save_note", summary="saving a note")
-            yield ConfirmRequest(tool_use_id=tool_use_id, ops_preview='save_note(title="Demo")')
+            yield ConfirmRequest(confirm_id=confirm_id, ops_preview='save_note(title="Demo")')
             allowed = await fut
             if allowed:
                 yield ToolFinished(name="save_note")
@@ -59,8 +60,8 @@ class FakeConversation:
         yield TextDelta(text=f"echo: {text}")
         yield TurnDone(usage={"input_tokens": 1})
 
-    def resolve_confirm(self, tool_use_id: str, allow: bool) -> None:
-        fut = self._decisions.get(tool_use_id)
+    def resolve_confirm(self, confirm_id: ConfirmId, allow: bool) -> None:
+        fut = self._decisions.get(confirm_id)
         if fut is not None and not fut.done():
             fut.set_result(allow)
 

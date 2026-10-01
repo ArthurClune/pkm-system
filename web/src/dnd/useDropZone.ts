@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BlockNode } from "../api/payloads";
 import { allowedDepths, depthFromX, dropRows, resolveDrop, INDENT_PX,
-         type DragSource, type DropRow } from "../outline/dnd";
+         type DragSource, type DropPosition, type DropRow } from "../outline/dnd";
 import { boundaryFromRects, cacheIsUsable, cachedRectFor,
          indicatorTopFromRects, type RectCache,
          type RowRect } from "./dropGeometry";
@@ -30,7 +30,7 @@ export function useDropZone(pageTitle: string,
   const dnd = useDnd();
   const [indicator, setIndicator] = useState<Indicator | null>(null);
   // candidate survives between dragover and drop
-  const candidateRef = useRef<{ boundary: number; depth: number } | null>(null);
+  const candidateRef = useRef<DropPosition | null>(null);
   // one drag's row rectangles, filled in as the walk asks for them
   const cacheRef = useRef<RectCache | null>(null);
   const frameRef = useRef<number | null>(null);
@@ -143,8 +143,7 @@ export function useDropZone(pageTitle: string,
     pointerRef.current = null;
     setIndicator(null);
     if (!dnd.drag || !cand) return;
-    const target = resolveDrop(getBlocks(), pageTitle, dnd.drag,
-                               cand.boundary, cand.depth);
+    const target = resolveDrop(getBlocks(), pageTitle, dnd.drag, cand);
     if (target) dnd.drop(dnd.drag, target);
     else dnd.endDrag();
   }, [dnd, getBlocks, pageTitle]);

@@ -57,18 +57,18 @@ it("depthFromX rounds by indent and clamps to the allowed range", () => {
 
 it("resolveDrop picks parent and order_idx from the chosen depth", () => {
   // boundary 3 = after c; depth 1 → child of a, after b → order_idx 1
-  expect(resolveDrop(page(), "P", OTHER, 3, 1))
+  expect(resolveDrop(page(), "P", OTHER, { boundary: 3, depth: 1 }))
     .toEqual({ parent_uid: "a", order_idx: 1, page_title: "P" });
   // boundary 3, depth 3 → first child of c
-  expect(resolveDrop(page(), "P", OTHER, 3, 3))
+  expect(resolveDrop(page(), "P", OTHER, { boundary: 3, depth: 3 }))
     .toEqual({ parent_uid: "c", order_idx: 0, page_title: "P" });
   // boundary 1 = after a (b is a's child at depth 1); depth 0 → top level.
   // First row at/after boundary with parent null (depth 0) is d with order_idx 1
   // → insert before d at top level
-  expect(resolveDrop(page(), "P", OTHER, 1, 0))
+  expect(resolveDrop(page(), "P", OTHER, { boundary: 1, depth: 0 }))
     .toEqual({ parent_uid: null, order_idx: 1, page_title: "P" });
   // boundary 5 = end of outline, after f; depth 1 → child of f (childless) → first child
-  expect(resolveDrop(page(), "P", OTHER, 5, 1))
+  expect(resolveDrop(page(), "P", OTHER, { boundary: 5, depth: 1 }))
     .toEqual({ parent_uid: "f", order_idx: 0, page_title: "P" });
 });
 
@@ -76,13 +76,13 @@ it("resolveDrop returns null for a same-position drop", () => {
   // dragging f, dropping at the very end at depth 0 = where it already is
   const drag = { uid: "f", pageTitle: "P" };
   const rows = dropRows(page(), drag, "P");
-  expect(resolveDrop(page(), "P", drag, rows.length, 0)).toBeNull();
+  expect(resolveDrop(page(), "P", drag, { boundary: rows.length, depth: 0 })).toBeNull();
   // and dropping right before its own old slot is also a no-op
-  expect(resolveDrop(page(), "P", drag, 4, 0)).toBeNull();
+  expect(resolveDrop(page(), "P", drag, { boundary: 4, depth: 0 })).toBeNull();
 });
 
 it("resolveDrop from another page never returns null (content must move)", () => {
-  const t = resolveDrop(page(), "P", OTHER, 5, 0);
+  const t = resolveDrop(page(), "P", OTHER, { boundary: 5, depth: 0 });
   expect(t).toEqual({ parent_uid: null, order_idx: 3, page_title: "P" });
 });
 
@@ -96,7 +96,7 @@ it("dropRows excludes every dragged subtree of a group drag", () => {
 it("resolveDrop resolves a group drop to the run's first slot", () => {
   // dragging [d, f] above a: insert at the top, before a
   const drag: DragSource = { uid: "d", pageTitle: "P", uids: ["d", "f"] };
-  expect(resolveDrop(page(), "P", drag, 0, 0))
+  expect(resolveDrop(page(), "P", drag, { boundary: 0, depth: 0 }))
     .toEqual({ parent_uid: null, order_idx: 0, page_title: "P" });
 });
 
@@ -104,5 +104,5 @@ it("resolveDrop returns null when a group drop changes nothing", () => {
   // [d, f] dropped right back where they already sit (after a's subtree)
   const drag: DragSource = { uid: "d", pageTitle: "P", uids: ["d", "f"] };
   const rows = dropRows(page(), drag, "P"); // [a, b, c]
-  expect(resolveDrop(page(), "P", drag, rows.length, 0)).toBeNull();
+  expect(resolveDrop(page(), "P", drag, { boundary: rows.length, depth: 0 })).toBeNull();
 });

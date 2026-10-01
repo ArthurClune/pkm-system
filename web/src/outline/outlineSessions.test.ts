@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import type { ClientId } from "../api/brands";
-import type { DeliveryOutcome, WriteOutcome, WriteTicket } from "../sync/opQueue";
+import type { DeliveryOutcome, TicketId, WriteOutcome, WriteTicket } from "../sync/opQueue";
 import { block } from "../test-helpers";
 import { acquireOutlineSession, attachActiveOutlineWriteReplay,
          isOutlineSessionActive,
@@ -18,6 +18,14 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
+
+it("a page title cannot stand in for a ticket id", () => {
+  const title = "Some page" as const;
+  // @ts-expect-error a page title is not a TicketId: the two kinds of key
+  // unresolvedWrites/trackedWrites and capturedByTitle use must not swap.
+  const id: TicketId = title;
+  expect(id).toBe(title);
+});
 
 it("shares each flushed tree with every handle of a title", () => {
   const first = acquireOutlineSession("Shared", [block("u1", "initial")]);
@@ -89,7 +97,7 @@ it("retains delivery causality across release and reacquire", async () => {
   const delivered = deferred<DeliveryOutcome>();
   const first = acquireOutlineSession("Pinned write", [block("u1", "old")]);
   first.applyLocal({
-    id: "slow-write", scope: ["page", "Pinned write"],
+    id: "slow-write" as TicketId, scope: ["page", "Pinned write"],
     settled: Promise.resolve({ status: "persisted", pending: 1 }),
     delivered: delivered.promise,
   }, [update("local")]);
@@ -211,7 +219,7 @@ it("invalidates an automatic read at final delivery settlement before replacing 
     published.push(session.getSnapshot().blocks[0]?.text ?? "empty");
   });
   session.applyLocal({
-    id: "settling", scope: ["page", "Settlement supersedes"],
+    id: "settling" as TicketId, scope: ["page", "Settlement supersedes"],
     settled: Promise.resolve({ status: "persisted", pending: 1 }),
     delivered: delivered.promise,
   }, [update("local")]);
@@ -295,7 +303,7 @@ it("an existing-session bootstrap cannot overwrite an unresolved local write", a
   const delivered = deferred<DeliveryOutcome>();
   const session = acquireOutlineSession(title, null);
   session.applyLocal({
-    id: "unresolved-create", scope: ["page", title],
+    id: "unresolved-create" as TicketId, scope: ["page", title],
     settled: Promise.resolve({ status: "persisted", pending: 1 }),
     delivered: delivered.promise,
   }, [{
@@ -369,7 +377,7 @@ it("routes a cross-page ticket to source and fallback target but not another tit
   const settled = deferred<WriteOutcome>();
   const delivered = deferred<DeliveryOutcome>();
   trackActiveOutlineWrite({
-    id: "cross-page", scope: ["page", "Source", "Target"],
+    id: "cross-page" as TicketId, scope: ["page", "Source", "Target"],
     settled: settled.promise, delivered: delivered.promise,
   }, []);
   const sourceToken = source.beginAuthoritativeRead("parent");
@@ -404,7 +412,7 @@ it("routes a cross-page ticket to source and fallback target but not another tit
 it("attaches an unresolved scoped ticket when its target session opens later", async () => {
   const delivered = deferred<DeliveryOutcome>();
   trackActiveOutlineWrite({
-    id: "move-to-closed-target", scope: ["page", "Source", "Late target"],
+    id: "move-to-closed-target" as TicketId, scope: ["page", "Source", "Late target"],
     settled: Promise.resolve({ status: "persisted", pending: 1 }),
     delivered: delivered.promise,
   }, []);
@@ -488,12 +496,12 @@ it("legacy repair adopts server state and reapplies a wholly later ticket", asyn
     block("u1", "old"), block("u2", "old other", { order_idx: 1 }),
   ]);
   session.applyLocal({
-    id: "rejected", scope: ["page", "Repair rebase"],
+    id: "rejected" as TicketId, scope: ["page", "Repair rebase"],
     settled: Promise.resolve({ status: "persisted", pending: 2 }),
     delivered: rejected.promise,
   }, [{ op: "update_text", uid: "u2", text: "rejected local" }]);
   session.applyLocal({
-    id: "later", scope: ["page", "Repair rebase"],
+    id: "later" as TicketId, scope: ["page", "Repair rebase"],
     settled: Promise.resolve({ status: "persisted", pending: 2 }),
     delivered: later.promise,
   }, [{ op: "update_text", uid: "u1", text: "later local" }]);
@@ -661,7 +669,7 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
     block("target-root", "target", { children: [] }),
   ]);
   source.applyLocal({
-    id: "rejected-before-move", scope: ["page", "Replay source"],
+    id: "rejected-before-move" as TicketId, scope: ["page", "Replay source"],
     settled: Promise.resolve({ status: "persisted", pending: 3 }),
     delivered: rejectedDelivery.promise,
   }, [{ op: "update_text", uid: "source-root", text: "rejected text" }]);
@@ -672,7 +680,7 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
     target.getSnapshot().blocks, detached.node!, "target-root", 0,
   ));
   const move = {
-    id: "later-cross-page-move",
+    id: "later-cross-page-move" as TicketId,
     scope: ["page", "Replay source", "Replay target"],
     settled: Promise.resolve({ status: "persisted", pending: 3 }),
     delivered: moveDelivery.promise,
@@ -687,7 +695,7 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
     parentUid: "target-root", orderIdx: 0,
   }]);
   target.applyLocal({
-    id: "later-child-edit", scope: ["page", "Replay target"],
+    id: "later-child-edit" as TicketId, scope: ["page", "Replay target"],
     settled: Promise.resolve({ status: "persisted", pending: 3 }),
     delivered: editDelivery.promise,
   }, [{ op: "update_text", uid: "child", text: "later child edit" }]);
@@ -736,7 +744,7 @@ it("rebases a local write tracked only through applyLocal", async () => {
     block("u1", "server"),
   ]);
   session.applyLocal({
-    id: "self-tracked", scope: ["page", "Self-tracked replay"],
+    id: "self-tracked" as TicketId, scope: ["page", "Self-tracked replay"],
     settled: Promise.resolve({ status: "persisted", pending: 1 }),
     delivered: delivered.promise,
   }, [update("local edit")]);
@@ -765,7 +773,7 @@ async function settleWriteOn(
 ): Promise<void> {
   const delivered = deferred<DeliveryOutcome>();
   session.applyLocal({
-    id, scope: ["page", title],
+    id: id as TicketId, scope: ["page", title],
     settled: Promise.resolve({ status: "persisted", pending: 1 }),
     delivered: delivered.promise,
   }, [update(`edit for ${id}`)]);

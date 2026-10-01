@@ -2203,7 +2203,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "ConversationId"
           },
           "model": {
             "type": "string",
@@ -2780,9 +2781,10 @@
       },
       "ConfirmRequestBody": {
         "properties": {
-          "tool_use_id": {
+          "confirm_id": {
             "type": "string",
-            "title": "Tool Use Id"
+            "title": "Confirm Id",
+            "x-brand": "ConfirmId"
           },
           "allow": {
             "type": "boolean",
@@ -2791,7 +2793,7 @@
         },
         "type": "object",
         "required": [
-          "tool_use_id",
+          "confirm_id",
           "allow"
         ],
         "title": "ConfirmRequestBody"
@@ -3052,7 +3054,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "GoodlinksId"
           },
           "title": {
             "type": "string",
@@ -3150,7 +3153,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "GoodlinksId"
           },
           "title": {
             "type": "string",

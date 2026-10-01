@@ -11,18 +11,27 @@ import {
   spliceUploadedMarkdown,
   transitionOutline,
   validateOutlineFocus,
+  type ReadToken,
+  type RequestId,
 } from "./outlineState";
+import type { TicketId } from "../sync/opQueue";
 import { findNode } from "./tree";
 
 const update = (text: string): BlockOp => ({
   op: "update_text", uid: "u1", text,
 });
 
+it("requestId and revisionAtDispatch cannot be swapped", () => {
+  // @ts-expect-error a RequestId is not a Revision
+  const bad: ReadToken = { requestId: 1 as RequestId, revisionAtDispatch: 1 as RequestId };
+  expect(bad.revisionAtDispatch).toBe(1);
+});
+
 describe("outline causality", () => {
   it("increments revision only for state-changing local and remote ops", () => {
     const initial = createOutlineState("Page", [block("u1", "old")]);
     const local = transitionOutline(initial, {
-      type: "local-ops", ticketId: "write-1", nowMs: 0, ops: [update("local")],
+      type: "local-ops", ticketId: "write-1" as TicketId, nowMs: 0, ops: [update("local")],
     }).state;
     const unrelated = transitionOutline(local, {
       type: "remote-ops", nowMs: 0, ops: [{ op: "delete", uid: "another-page" }],
@@ -57,7 +66,7 @@ describe("outline causality", () => {
       createOutlineState("Page", [block("u1", "old")]),
     );
     const edited = transitionOutline(started.state, {
-      type: "local-ops", ticketId: "write-1", nowMs: 0, ops: [update("local")],
+      type: "local-ops", ticketId: "write-1" as TicketId, nowMs: 0, ops: [update("local")],
     }).state;
 
     const result = transitionOutline(edited, {
@@ -95,7 +104,7 @@ describe("outline causality", () => {
     );
     const second = beginAuthoritativeRead(first.state);
     const pending = transitionOutline(second.state, {
-      type: "write-started", ticketId: "write-1", scope: ["page", "Page"],
+      type: "write-started", ticketId: "write-1" as TicketId, scope: ["page", "Page"],
       replay: [],
     }).state;
     const afterFirst = transitionOutline(pending, {
@@ -116,7 +125,7 @@ describe("outline causality", () => {
       createOutlineState("Page", [block("u1", "old")]),
     );
     const pending = transitionOutline(started.state, {
-      type: "write-started", ticketId: "write-1", scope: ["page", "Page"],
+      type: "write-started", ticketId: "write-1" as TicketId, scope: ["page", "Page"],
       replay: [],
     }).state;
     const deferred = transitionOutline(pending, {
@@ -125,7 +134,7 @@ describe("outline causality", () => {
     }).state;
 
     const result = transitionOutline(deferred, {
-      type: "write-settled", ticketId: "write-1",
+      type: "write-settled", ticketId: "write-1" as TicketId,
     });
 
     expect(result.state.blocks[0].text).toBe("old");
@@ -138,7 +147,7 @@ describe("outline causality", () => {
   it("never adopts a pre-delivery response dispatched after the local edit", () => {
     const edited = transitionOutline(
       createOutlineState("Page", [block("u1", "old")]),
-      { type: "local-ops", ticketId: "write-1", nowMs: 0,
+      { type: "local-ops", ticketId: "write-1" as TicketId, nowMs: 0,
         ops: [update("local")] },
     ).state;
     const started = beginAuthoritativeRead(edited);
@@ -148,7 +157,7 @@ describe("outline causality", () => {
     }).state;
 
     const result = transitionOutline(deferred, {
-      type: "write-settled", ticketId: "write-1",
+      type: "write-settled", ticketId: "write-1" as TicketId,
     });
 
     expect(result.state.blocks[0].text).toBe("local");
@@ -163,7 +172,7 @@ describe("outline causality", () => {
       createOutlineState("Page A", [block("u1", "old")]),
     );
     const unrelated = transitionOutline(started.state, {
-      type: "write-started", ticketId: "write-b",
+      type: "write-started", ticketId: "write-b" as TicketId,
       scope: ["page", "Page B"], replay: [],
     }).state;
 
@@ -205,7 +214,7 @@ describe("outline causality", () => {
       createOutlineState("Page", [block("u1", "old")]),
     );
     const edited = transitionOutline(started.state, {
-      type: "local-ops", ticketId: "write-1", nowMs: 0, ops: [update("local")],
+      type: "local-ops", ticketId: "write-1" as TicketId, nowMs: 0, ops: [update("local")],
     }).state;
     const deferred = transitionOutline(edited, {
       type: "authoritative", token: started.token,
@@ -213,10 +222,10 @@ describe("outline causality", () => {
     }).state;
 
     const once = transitionOutline(deferred, {
-      type: "write-settled", ticketId: "write-1",
+      type: "write-settled", ticketId: "write-1" as TicketId,
     });
     const twice = transitionOutline(once.state, {
-      type: "write-settled", ticketId: "write-1",
+      type: "write-settled", ticketId: "write-1" as TicketId,
     });
 
     expect(once.state.blocks[0].text).toBe("local");
@@ -231,15 +240,15 @@ describe("outline causality", () => {
       block("u1", "old"), block("u2", "old other", { order_idx: 1 }),
     ]);
     const rejected = transitionOutline(initial, {
-      type: "local-ops", ticketId: "rejected", nowMs: 0,
+      type: "local-ops", ticketId: "rejected" as TicketId, nowMs: 0,
       ops: [{ op: "update_text", uid: "u2", text: "rejected local" }],
     }).state;
     const later = transitionOutline(rejected, {
-      type: "local-ops", ticketId: "later", nowMs: 0,
+      type: "local-ops", ticketId: "later" as TicketId, nowMs: 0,
       ops: [{ op: "update_text", uid: "u1", text: "later local" }],
     }).state;
     const rejectedSettled = transitionOutline(later, {
-      type: "write-settled", ticketId: "rejected",
+      type: "write-settled", ticketId: "rejected" as TicketId,
     }).state;
     const started = beginAuthoritativeRead(rejectedSettled);
 
@@ -281,7 +290,7 @@ describe("outline causality", () => {
     });
     const initial = createOutlineState("Target", [targetParent]);
     const moveTracked = transitionOutline(initial, {
-      type: "write-started", ticketId: "move",
+      type: "write-started", ticketId: "move" as TicketId,
       scope: ["page", "Source", "Target"],
       replay: [{
         type: "insert-subtree", node: moved,
@@ -289,7 +298,7 @@ describe("outline causality", () => {
       }],
     }).state;
     const childEdit = transitionOutline(moveTracked, {
-      type: "local-ops", ticketId: "edit", nowMs: 0,
+      type: "local-ops", ticketId: "edit" as TicketId, nowMs: 0,
       ops: [{ op: "update_text", uid: "child", text: "later child edit" }],
     }).state;
     const started = beginAuthoritativeRead(childEdit);
@@ -313,7 +322,7 @@ describe("outline causality", () => {
     const tracked = transitionOutline(
       createOutlineState("Target", [target]),
       {
-        type: "write-started", ticketId: "move",
+        type: "write-started", ticketId: "move" as TicketId,
         scope: ["page", "Source", "Target"],
         replay: [{
           type: "insert-subtree", node: moved,
@@ -416,11 +425,11 @@ describe("outline causality", () => {
   it("keeps a recorded replay when the same ticket is announced again", () => {
     const recorded = transitionOutline(
       createOutlineState("Page", [block("u1", "old")]),
-      { type: "local-ops", ticketId: "write-1", nowMs: 0,
+      { type: "local-ops", ticketId: "write-1" as TicketId, nowMs: 0,
         ops: [update("local edit")] },
     ).state;
     const announced = transitionOutline(recorded, {
-      type: "write-started", ticketId: "write-1", scope: ["page", "Page"],
+      type: "write-started", ticketId: "write-1" as TicketId, scope: ["page", "Page"],
       replay: [],
     }).state;
     const started = beginAuthoritativeRead(announced);
@@ -438,7 +447,7 @@ describe("outline causality", () => {
     const tracked = transitionOutline(
       createOutlineState("Target", [target]),
       {
-        type: "write-started", ticketId: "move",
+        type: "write-started", ticketId: "move" as TicketId,
         scope: ["page", "Source", "Target"],
         replay: [{
           type: "insert-subtree", node: block("moved", "moved"),
@@ -447,7 +456,7 @@ describe("outline causality", () => {
       },
     ).state;
     const reannounced = transitionOutline(tracked, {
-      type: "write-started", ticketId: "move",
+      type: "write-started", ticketId: "move" as TicketId,
       scope: ["page", "Source", "Target"], replay: [],
     }).state;
     const started = beginAuthoritativeRead(reannounced);
@@ -464,7 +473,7 @@ describe("outline causality", () => {
     const tracked = transitionOutline(
       createOutlineState("Target", [target]),
       {
-        type: "write-started", ticketId: "terminal-move",
+        type: "write-started", ticketId: "terminal-move" as TicketId,
         scope: ["page", "Source", "Target"],
         replay: [{
           type: "insert-subtree", node: block("moved", "rejected"),
@@ -473,7 +482,7 @@ describe("outline causality", () => {
       },
     ).state;
     const settled = transitionOutline(tracked, {
-      type: "write-settled", ticketId: "terminal-move",
+      type: "write-settled", ticketId: "terminal-move" as TicketId,
     }).state;
     const started = beginAuthoritativeRead(settled);
 
@@ -495,7 +504,7 @@ describe("block stamps", () => {
 
   it("stamps the blocks a local batch changed and leaves the rest alone", () => {
     const state = transitionOutline(createOutlineState("Page", tree()), {
-      type: "local-ops", ticketId: "w1", nowMs: NOW,
+      type: "local-ops", ticketId: "w1" as TicketId, nowMs: NOW,
       ops: [{ op: "update_text", uid: "u2c", text: "edited" }],
     }).state;
 
@@ -506,7 +515,7 @@ describe("block stamps", () => {
 
   it("stamps a block the batch created, so a new row shows today", () => {
     const state = transitionOutline(createOutlineState("Page", tree()), {
-      type: "local-ops", ticketId: "w1", nowMs: NOW,
+      type: "local-ops", ticketId: "w1" as TicketId, nowMs: NOW,
       ops: [{ op: "create", uid: "u3", page_title: "Page", parent_uid: null,
               order_idx: 2, text: "fresh" }],
     }).state;
@@ -516,7 +525,7 @@ describe("block stamps", () => {
 
   it("does not stamp for a collapse-only batch", () => {
     const state = transitionOutline(createOutlineState("Page", tree()), {
-      type: "local-ops", ticketId: "w1", nowMs: NOW,
+      type: "local-ops", ticketId: "w1" as TicketId, nowMs: NOW,
       ops: [{ op: "set_collapsed", uid: "u2", collapsed: true }],
     }).state;
 
@@ -591,11 +600,11 @@ describe("outline change detection", () => {
     const state = createOutlineState("Page", nested());
 
     const result = transitionOutline(state, {
-      type: "local-ops", ticketId: "w1", nowMs: 9000,
+      type: "local-ops", ticketId: "w1" as TicketId, nowMs: 9000,
       ops: [{ op: "set_collapsed", uid: "u1", collapsed: false }],
     });
 
-    expect(result.state.relevantWrites.has("w1")).toBe(true);
+    expect(result.state.relevantWrites.has("w1" as TicketId)).toBe(true);
     expect(result.state.revision).toBe(0);
     expect(result.state.blocks).toBe(state.blocks);
   });
@@ -645,7 +654,7 @@ describe("outline change detection", () => {
     const spy = vi.spyOn(JSON, "stringify");
 
     let next = transitionOutline(state, {
-      type: "local-ops", ticketId: "w1", nowMs: 9000,
+      type: "local-ops", ticketId: "w1" as TicketId, nowMs: 9000,
       ops: [{ op: "update_text", uid: "u1c", text: "typed" }],
     }).state;
     next = transitionOutline(next, {
@@ -671,7 +680,7 @@ describe("outline change detection", () => {
     const state = createOutlineState("Page", watched);
 
     transitionOutline(state, {
-      type: "local-ops", ticketId: "w1", nowMs: 9000,
+      type: "local-ops", ticketId: "w1" as TicketId, nowMs: 9000,
       ops: [{ op: "update_text", uid: "u1c", text: "typed" }],
     });
 

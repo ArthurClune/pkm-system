@@ -4,7 +4,7 @@ import type { BlockOp } from "./api/ops";
 import type { Backlinks, BlockNode, PagePayload } from "./api/payloads";
 import type { WsBatch } from "./sync/socket";
 import type { Sync, SyncStatus } from "./sync/SyncProvider";
-import type { WriteTicket } from "./sync/opQueue";
+import type { TicketId, WriteTicket } from "./sync/opQueue";
 
 /** Hold the outline editor for `title` so a test's own mount cannot win the
  * lease, and return the release. Sessions are global to the module, so the
@@ -218,7 +218,7 @@ export function makeSync(status: SyncStatus = "connected",
     enqueue: (ops, scope): WriteTicket => {
       sent.push(ops);
       const write = {
-        id: `fake-write-${nextTicket++}`,
+        id: `fake-write-${nextTicket++}` as TicketId,
         scope: scope ?? [],
         settled: Promise.resolve({ status: "persisted", pending: 0 }),
         delivered: Promise.resolve({ status: "delivered" }),

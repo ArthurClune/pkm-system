@@ -39,3 +39,22 @@ export type SyncSeq = number & { readonly __brand: "SyncSeq" };
 // this type by hand at the one place that parses it.
 export type ClientId = string & { readonly __brand: "ClientId" };
 export type BatchId = string & { readonly __brand: "BatchId" };
+
+// A GoodLinks link id: exactly 32 lowercase hex characters, GoodLinks' own
+// id shape. Crosses HTTP through GoodlinksLink.id and GoodlinksArticle.id;
+// minted on the web only by `goodlinksIdFromHref` (components/goodlinks.ts),
+// the one place a parsed href's id is checked against that shape.
+export type GoodlinksId = string & { readonly __brand: "GoodlinksId" };
+
+// The embedded assistant's conversation id, minted server-side
+// (AssistantService.create) and opaque to the web, which only ever carries
+// one around (assistant/useAssistant.ts). Crosses HTTP through
+// AssistantConversation.id.
+export type ConversationId = string & { readonly __brand: "ConversationId" };
+// A pending tool confirmation's id, minted server-side per confirm
+// (ClaudeConversation.can_use_tool) -- not the Claude Agent SDK's own
+// tool_use id, a different value entirely. Crosses HTTP through the
+// confirm_request SSE event and ConfirmRequestBody.confirm_id; the SSE
+// event itself sits outside OpenAPI (see assistant/sse.ts) and is narrowed
+// to this type by hand at the one place that parses it.
+export type ConfirmId = string & { readonly __brand: "ConfirmId" };

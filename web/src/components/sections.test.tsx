@@ -4,7 +4,7 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import type { Backlinks } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
-import type { DeliveryOutcome, WriteOutcome, WriteTicket } from "../sync/opQueue";
+import type { DeliveryOutcome, TicketId, WriteOutcome, WriteTicket } from "../sync/opQueue";
 import { SyncContext } from "../sync/SyncProvider";
 import { READ_INIT, jsonResponse, makeSync, pagePayload, stubFetch } from "../test-helpers";
 import { BacklinksSection } from "./BacklinksSection";
@@ -581,7 +581,7 @@ it("renders one Link button per result and disables only the pending result", as
   sync.enqueue = vi.fn((ops, scope) => {
     sync.sent.push(ops);
     const ticket = {
-      id: "controlled-write-1",
+      id: "controlled-write-1" as TicketId,
       scope: scope ?? [],
       settled: settled.promise,
       delivered: delivered.promise,
@@ -638,7 +638,7 @@ it("hides a durably persisted item and notifies only after delivery", async () =
   sync.enqueue = vi.fn((ops, scope) => {
     sync.sent.push(ops);
     const ticket = {
-      id: "controlled-write-1",
+      id: "controlled-write-1" as TicketId,
       scope: scope ?? [],
       settled: settled.promise,
       delivered: delivered.promise,
@@ -679,7 +679,7 @@ it("retains the item when local persistence fails", async () => {
   sync.enqueue = vi.fn((ops, scope) => {
     sync.sent.push(ops);
     const ticket = {
-      id: "controlled-write-1",
+      id: "controlled-write-1" as TicketId,
       scope: scope ?? [],
       settled: settled.promise,
       delivered: delivered.promise,
@@ -718,8 +718,8 @@ it("restores the item and permits retry after delivery fails", async () => {
   const secondSettled = deferred<WriteOutcome>();
   const secondDelivered = deferred<DeliveryOutcome>();
   const pairs = [
-    { settled: firstSettled, delivered: firstDelivered, id: "controlled-write-1" },
-    { settled: secondSettled, delivered: secondDelivered, id: "controlled-write-2" },
+    { settled: firstSettled, delivered: firstDelivered, id: "controlled-write-1" as TicketId },
+    { settled: secondSettled, delivered: secondDelivered, id: "controlled-write-2" as TicketId },
   ];
   let next = 0;
   sync.enqueue = vi.fn((ops, scope) => {

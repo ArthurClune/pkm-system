@@ -10,10 +10,17 @@
 // typed", the same heuristic editors like VS Code use, rather than tracking
 // which brackets we inserted.
 
+// A UTF-16 code-unit offset into a block's text -- the unit
+// String.prototype indexing and the DOM's selectionStart/selectionEnd both
+// use. Documentation only, not branded: no code-point (Unicode scalar)
+// offset was found mixed in with these, so there is nothing for a brand to
+// catch here.
+export type CaretOffset = number;
+
 export interface TextSelection {
   text: string;
-  selStart: number;
-  selEnd: number;
+  selStart: CaretOffset;
+  selEnd: CaretOffset;
 }
 
 const OPEN_TO_CLOSE: Record<string, string> = { "[": "]", "(": ")", "{": "}" };
@@ -33,7 +40,7 @@ export const BRACKET_CHARS: ReadonlySet<string> = new Set([
  * character. Returns the resulting text+selection, or null when the keystroke
  * should be handled normally by the textarea. */
 export function autoPairBracket(
-  text: string, selStart: number, selEnd: number, char: string,
+  text: string, selStart: CaretOffset, selEnd: CaretOffset, char: string,
 ): TextSelection | null {
   const hasSelection = selStart !== selEnd;
 
@@ -72,7 +79,7 @@ export function autoPairBracket(
  * between the parens; with no selection insert an empty `[]()` with the caret
  * between the brackets, ready to type the link text. Always acts. */
 export function wrapLink(
-  text: string, selStart: number, selEnd: number,
+  text: string, selStart: CaretOffset, selEnd: CaretOffset,
 ): TextSelection {
   if (selStart !== selEnd) {
     const inner = text.slice(selStart, selEnd);
@@ -94,7 +101,7 @@ export function wrapLink(
  * wrapped literally but will not render as emphasis (the tokenizer skips emphasis
  * spanning newlines) — deliberate, matching the "user gets what they selected" stance. */
 export function toggleEmphasis(
-  text: string, selStart: number, selEnd: number, marker: "**" | "__",
+  text: string, selStart: CaretOffset, selEnd: CaretOffset, marker: "**" | "__",
 ): TextSelection {
   const m = marker.length;
   const inner = text.slice(selStart, selEnd);

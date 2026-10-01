@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from pkm.assistant import routes
 from pkm.assistant.events import SSE_COMMENT, TextDelta
+from pkm.contracts.responses import ConfirmId
 
 
 def parse_sse(body: str) -> list[tuple[str, dict]]:
@@ -186,7 +187,7 @@ def test_keepalive_frames_reach_the_wire_and_are_invisible_to_a_client(
         while time.time() < deadline and not fut.done():
             assistant_client.post(
                 f"/api/assistant/conversations/{cid}/confirm",
-                json={"tool_use_id": "fake-confirm-1", "allow": True},
+                json={"confirm_id": "fake-confirm-1", "allow": True},
             )
             if fut.done():
                 break
@@ -221,7 +222,7 @@ def test_confirm_roundtrip_over_http(assistant_client):
         while time.time() < deadline:
             resp = assistant_client.post(
                 f"/api/assistant/conversations/{cid}/confirm",
-                json={"tool_use_id": "fake-confirm-1", "allow": True},
+                json={"confirm_id": "fake-confirm-1", "allow": True},
             )
             assert resp.status_code == 200
             if fut.done():
@@ -236,7 +237,7 @@ def test_confirm_roundtrip_over_http(assistant_client):
 
 def test_confirm_unknown_conversation_404(assistant_client):
     r = assistant_client.post(
-        "/api/assistant/conversations/nope/confirm", json={"tool_use_id": "x", "allow": True}
+        "/api/assistant/conversations/nope/confirm", json={"confirm_id": "x", "allow": True}
     )
     assert r.status_code == 404
 
@@ -273,7 +274,7 @@ class ExplodingConversation:
         yield TextDelta(text="partial")
         raise RuntimeError("engine crashed")
 
-    def resolve_confirm(self, tool_use_id, allow):  # pragma: no cover - protocol stub
+    def resolve_confirm(self, confirm_id: ConfirmId, allow: bool) -> None:  # pragma: no cover - protocol stub
         pass
 
     async def close(self):

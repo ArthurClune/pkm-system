@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { BatchId } from "../api/brands";
 import type { PendingRowId } from "../replica/client";
+import type { TicketId } from "../sync/opQueue";
 import { SyncContext, type Sync, type SyncProblem } from "../sync/SyncProvider";
 import { OfflineIndicator } from "./OfflineIndicator";
 
@@ -18,7 +19,7 @@ function syncWith(overrides: Partial<Sync>): Sync {
     discardProblem: () => Promise.resolve(),
     resetReplica: () => Promise.resolve(),
     enqueue: () => ({
-      id: "test-write", scope: [],
+      id: "test-write" as TicketId, scope: [],
       settled: Promise.resolve({ status: "persisted", pending: 0 }),
       delivered: Promise.resolve({ status: "delivered" }),
     }),

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { block, title, uid } from "../test-helpers";
+import { block, ord, title, uid } from "../test-helpers";
 import { findNode } from "./tree";
 import { backspaceAtStart, clampCaret, deleteSelection, indentBlock,
          indentSelection, moveBlockDown, moveBlocksTo, moveBlockUp,
@@ -25,30 +25,30 @@ describe("clampCaret", () => {
 
 const P = title("Page");
 const tree = () => [
-  block("a", "alpha", { order_idx: 0 }),
+  block("a", "alpha", { order_idx: ord(0) }),
   block("b", "beta", {
-    order_idx: 5,
+    order_idx: ord(5),
     children: [
-      block("b1", "b-one", { order_idx: 0 }),
-      block("b2", "b-two", { order_idx: 3 }),
+      block("b1", "b-one", { order_idx: ord(0) }),
+      block("b2", "b-two", { order_idx: ord(3) }),
     ],
   }),
-  block("c", "gamma", { order_idx: 7 }),
+  block("c", "gamma", { order_idx: ord(7) }),
 ];
 
 const adoptionTree = () => [
   block("p", "parent", {
-    order_idx: 0,
+    order_idx: ord(0),
     children: [
       block("u", "u-block", {
-        order_idx: 0,
-        children: [block("u1", "u child", { order_idx: 4 })],
+        order_idx: ord(0),
+        children: [block("u1", "u child", { order_idx: ord(4) })],
       }),
-      block("s1", "sib one", { order_idx: 1 }),
-      block("s2", "sib two", { order_idx: 2 }),
+      block("s1", "sib one", { order_idx: ord(1) }),
+      block("s2", "sib two", { order_idx: ord(2) }),
     ],
   }),
-  block("z", "zed", { order_idx: 9 }),
+  block("z", "zed", { order_idx: ord(9) }),
 ];
 
 describe("splitBlock", () => {
@@ -196,51 +196,51 @@ describe("indent / outdent", () => {
 
 const selectionTree = () => [
   block("a", "A", {
-    order_idx: 0,
+    order_idx: ord(0),
     children: [
-      block("a0", "A zero", { order_idx: 0 }),
+      block("a0", "A zero", { order_idx: ord(0) }),
       block("a1", "A one", {
-        order_idx: 1,
-        children: [block("a1x", "A one child", { order_idx: 0 })],
+        order_idx: ord(1),
+        children: [block("a1x", "A one child", { order_idx: ord(0) })],
       }),
     ],
   }),
   block("b", "B", {
-    order_idx: 1,
-    children: [block("b1", "B child", { order_idx: 0 })],
+    order_idx: ord(1),
+    children: [block("b1", "B child", { order_idx: ord(0) })],
   }),
-  block("c", "C", { order_idx: 2 }),
+  block("c", "C", { order_idx: ord(2) }),
 ];
 
 const mixedOutdentTree = () => [
   block("root", "Root", {
-    order_idx: 0,
+    order_idx: ord(0),
     children: [
       block("p", "P", {
-        order_idx: 0,
+        order_idx: ord(0),
         children: [
-          block("p0", "P zero", { order_idx: 0 }),
-          block("x", "X", { order_idx: 1 }),
+          block("p0", "P zero", { order_idx: ord(0) }),
+          block("x", "X", { order_idx: ord(1) }),
         ],
       }),
       block("q", "Q", {
-        order_idx: 1,
-        children: [block("q1", "Q child", { order_idx: 0 })],
+        order_idx: ord(1),
+        children: [block("q1", "Q child", { order_idx: ord(0) })],
       }),
     ],
   }),
-  block("z", "Z", { order_idx: 1 }),
+  block("z", "Z", { order_idx: ord(1) }),
 ];
 
 const gapTree = () => [
   block("top", "top parent", {
-    order_idx: 0,
+    order_idx: ord(0),
     children: [
-      block("s1", "one", { order_idx: 0 }),
-      block("s2", "two", { order_idx: 1 }),
-      block("s3", "three", { order_idx: 2 }),
-      block("s4", "four", { order_idx: 3 }),
-      block("s5", "five", { order_idx: 4 }),
+      block("s1", "one", { order_idx: ord(0) }),
+      block("s2", "two", { order_idx: ord(1) }),
+      block("s3", "three", { order_idx: ord(2) }),
+      block("s4", "four", { order_idx: ord(3) }),
+      block("s5", "five", { order_idx: ord(4) }),
     ],
   }),
 ];
@@ -424,53 +424,53 @@ describe("moveBlockUp / moveBlockDown", () => {
 // Three levels deep so cross-parent moves and the "would become shallower"
 // no-op can both be exercised: a / b(b1(b1x) b2) / c.
 const deepTree = () => [
-  block("a", "alpha", { order_idx: 0 }),
+  block("a", "alpha", { order_idx: ord(0) }),
   block("b", "beta", {
-    order_idx: 5,
+    order_idx: ord(5),
     children: [
       block("b1", "b-one", {
-        order_idx: 0,
-        children: [block("b1x", "b-one-ex", { order_idx: 0 })],
+        order_idx: ord(0),
+        children: [block("b1x", "b-one-ex", { order_idx: ord(0) })],
       }),
-      block("b2", "b-two", { order_idx: 3 }),
+      block("b2", "b-two", { order_idx: ord(3) }),
     ],
   }),
-  block("c", "gamma", { order_idx: 7 }),
+  block("c", "gamma", { order_idx: ord(7) }),
 ];
 
 const selectedMoveTree = () => [
   block("left", "Left", {
-    order_idx: 0,
-    children: [block("left0", "Left child", { order_idx: 0 })],
+    order_idx: ord(0),
+    children: [block("left0", "Left child", { order_idx: ord(0) })],
   }),
   block("source", "Source", {
-    order_idx: 1,
+    order_idx: ord(1),
     children: [
       block("first", "First", {
-        order_idx: 0,
-        children: [block("first0", "First child", { order_idx: 0 })],
+        order_idx: ord(0),
+        children: [block("first0", "First child", { order_idx: ord(0) })],
       }),
-      block("second", "Second", { order_idx: 1 }),
+      block("second", "Second", { order_idx: ord(1) }),
     ],
   }),
   block("right", "Right", {
-    order_idx: 2,
-    children: [block("right0", "Right child", { order_idx: 0 })],
+    order_idx: ord(2),
+    children: [block("right0", "Right child", { order_idx: ord(0) })],
   }),
 ];
 
 const selectedDestinationTree = () => [
-  block("a", "A", { order_idx: 0 }),
+  block("a", "A", { order_idx: ord(0) }),
   block("b", "B", {
-    order_idx: 1,
+    order_idx: ord(1),
     collapsed: true,
-    children: [block("b0", "B child", { order_idx: 0 })],
+    children: [block("b0", "B child", { order_idx: ord(0) })],
   }),
   block("c", "C", {
-    order_idx: 2,
+    order_idx: ord(2),
     children: [
-      block("c0", "C first", { order_idx: 0 }),
-      block("c1", "C second", { order_idx: 1 }),
+      block("c0", "C first", { order_idx: ord(0) }),
+      block("c1", "C second", { order_idx: ord(1) }),
     ],
   }),
 ];
@@ -576,7 +576,7 @@ describe("moveSubtreeUp / moveSubtreeDown", () => {
   test("up: destination P already has children — the block simply joins as " +
        "the new last", () => {
     const t = deepTree();
-    findNode(t, uid("a"))!.children.push(block("ax", "a-ex", { order_idx: 0 }));
+    findNode(t, uid("a"))!.children.push(block("ax", "a-ex", { order_idx: ord(0) }));
     const r = moveSubtreeUp(t, P, uid("b1"));
     expect(r.ops).toEqual([
       { op: "move", uid: "b1", parent_uid: "a", order_idx: 1 },
@@ -587,7 +587,7 @@ describe("moveSubtreeUp / moveSubtreeDown", () => {
   test("down: destination N already has children — the block lands FIRST, " +
        "existing children shift (shiftFrom path)", () => {
     const t = deepTree();
-    findNode(t, uid("c"))!.children.push(block("cx", "c-ex", { order_idx: 0 }));
+    findNode(t, uid("c"))!.children.push(block("cx", "c-ex", { order_idx: ord(0) }));
     const r = moveSubtreeDown(t, P, uid("b2"));
     expect(r.ops).toEqual([
       { op: "move", uid: "b2", parent_uid: "c", order_idx: 0 },
@@ -717,7 +717,7 @@ describe("moveSelectionUp / moveSelectionDown", () => {
 describe("moveBlocksTo", () => {
   test("moves every uid to the target as a contiguous run, order preserved", () => {
     // drop [b, c] at the very top: one move op per block, sequential slots
-    const r = moveBlocksTo(tree(), P, [uid("b"), uid("c")], null, 0);
+    const r = moveBlocksTo(tree(), P, [uid("b"), uid("c")], null, ord(0));
     expect(r.ops).toEqual([
       { op: "move", uid: "b", parent_uid: null, order_idx: 0 },
       { op: "move", uid: "c", parent_uid: null, order_idx: 1 },
@@ -730,7 +730,7 @@ describe("moveBlocksTo", () => {
 
   test("reparents a cross-parent root run, order preserved", () => {
     // b's children dragged out to the top level
-    const r = moveBlocksTo(tree(), P, [uid("b1"), uid("b2")], null, 0);
+    const r = moveBlocksTo(tree(), P, [uid("b1"), uid("b2")], null, ord(0));
     expect(r.ops).toEqual([
       { op: "move", uid: "b1", parent_uid: null, order_idx: 0 },
       { op: "move", uid: "b2", parent_uid: null, order_idx: 1 },
@@ -740,7 +740,7 @@ describe("moveBlocksTo", () => {
   });
 
   test("a selected parent + its child moves only the parent (subtree comes along)", () => {
-    const r = moveBlocksTo(tree(), P, [uid("b"), uid("b1")], null, 0);
+    const r = moveBlocksTo(tree(), P, [uid("b"), uid("b1")], null, ord(0));
     expect(r.ops).toEqual([
       { op: "move", uid: "b", parent_uid: null, order_idx: 0 },
     ]);
@@ -750,7 +750,7 @@ describe("moveBlocksTo", () => {
   });
 
   test("moving into a new parent block", () => {
-    const r = moveBlocksTo(tree(), P, [uid("a"), uid("c")], uid("b"), 4); // after b2 (idx 3)
+    const r = moveBlocksTo(tree(), P, [uid("a"), uid("c")], uid("b"), ord(4)); // after b2 (idx 3)
     expect(r.ops).toEqual([
       { op: "move", uid: "a", parent_uid: "b", order_idx: 4 },
       { op: "move", uid: "c", parent_uid: "b", order_idx: 5 },
@@ -761,7 +761,7 @@ describe("moveBlocksTo", () => {
   });
 
   test("empty uids is a no-op", () => {
-    expect(moveBlocksTo(tree(), P, [], null, 0).ops).toEqual([]);
+    expect(moveBlocksTo(tree(), P, [], null, ord(0)).ops).toEqual([]);
   });
 });
 
@@ -796,8 +796,8 @@ describe("deleteSelection", () => {
 
 describe("backspaceAtStart", () => {
   test("merges a childless block into its childless previous sibling", () => {
-    const t = [block("x", "one", { order_idx: 0 }),
-               block("y", "two", { order_idx: 1 })];
+    const t = [block("x", "one", { order_idx: ord(0) }),
+               block("y", "two", { order_idx: ord(1) })];
     const r = backspaceAtStart(t, P, uid("y"));
     expect(r.ops).toEqual([
       { op: "update_text", uid: "x", text: "onetwo" },
@@ -809,7 +809,7 @@ describe("backspaceAtStart", () => {
   test("empty block after a structured sibling: deleted, focus on last visible descendant", () => {
     const base = tree();
     // d sits between b (has children) and c
-    const t = [base[0], base[1], block("d", "", { order_idx: 6 }), base[2]];
+    const t = [base[0], base[1], block("d", "", { order_idx: ord(6) }), base[2]];
     const r = backspaceAtStart(t, P, uid("d"));
     expect(r.ops).toEqual([{ op: "delete", uid: "d" }]);
     expect(r.focus).toEqual({ uid: "b2", cursor: 5 }); // "b-two".length
@@ -819,14 +819,14 @@ describe("backspaceAtStart", () => {
     expect(backspaceAtStart(tree(), P, uid("a")).ops).toEqual([]);
     expect(backspaceAtStart(tree(), P, uid("b1")).ops).toEqual([]); // first child, has text
     expect(backspaceAtStart(tree(), P, uid("b")).ops).toEqual([]);  // has children
-    const t = [tree()[1], block("d", "text", { order_idx: 6 })];
+    const t = [tree()[1], block("d", "text", { order_idx: ord(6) })];
     expect(backspaceAtStart(t, P, uid("d")).ops).toEqual([]); // prev structured, not empty
   });
 
   test("empty first child: deleted, focus lands on the parent", () => {
-    const t = [block("p", "parent", { order_idx: 0, children: [
-      block("k", "", { order_idx: 0 }),
-      block("k2", "sibling", { order_idx: 1 }),
+    const t = [block("p", "parent", { order_idx: ord(0), children: [
+      block("k", "", { order_idx: ord(0) }),
+      block("k2", "sibling", { order_idx: ord(1) }),
     ] })];
     const r = backspaceAtStart(t, P, uid("k"));
     expect(r.ops).toEqual([{ op: "delete", uid: "k" }]);
@@ -835,15 +835,15 @@ describe("backspaceAtStart", () => {
   });
 
   test("empty first top-level block: deleted, focus lands on the next block", () => {
-    const t = [block("x", "", { order_idx: 0 }),
-               block("y", "two", { order_idx: 1 })];
+    const t = [block("x", "", { order_idx: ord(0) }),
+               block("y", "two", { order_idx: ord(1) })];
     const r = backspaceAtStart(t, P, uid("x"));
     expect(r.ops).toEqual([{ op: "delete", uid: "x" }]);
     expect(r.focus).toEqual({ uid: "y", cursor: 0 });
   });
 
   test("sole empty block on the page: deleted, focus cleared", () => {
-    const t = [block("x", "", { order_idx: 0 })];
+    const t = [block("x", "", { order_idx: ord(0) })];
     const r = backspaceAtStart(t, P, uid("x"));
     expect(r.ops).toEqual([{ op: "delete", uid: "x" }]);
     expect(r.focus).toBeNull();

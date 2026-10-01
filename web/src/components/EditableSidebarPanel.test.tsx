@@ -9,7 +9,7 @@ import {
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
-import { READ_INIT, block, jsonResponse, makeSync, pagePayload, reserveOutlineEditor, stubFetch, title, uid } from "../test-helpers";
+import { block, jsonResponse, makeSync, ord, pagePayload, READ_INIT, reserveOutlineEditor, stubFetch, title, uid } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { EditablePage } from "../views/EditablePage";
 import { PageView } from "../views/PageView";
@@ -23,7 +23,7 @@ function deferred<T>() {
 }
 
 function mount(sync = makeSync(), title = "Paper",
-               blocks = [block("uid_s1", "a paper block", { order_idx: 0 })]) {
+               blocks = [block("uid_s1", "a paper block", { order_idx: ord(0) })]) {
   stubFetch([["/api/page/Paper", pagePayload(title, blocks)]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -107,7 +107,7 @@ test("a remote websocket batch updates the panel", async () => {
   await screen.findByText("a paper block");
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
     { op: "create", uid: uid("r1"), page_title: "Paper", parent_uid: null,
-      order_idx: 1, text: "from the iPad" },
+      order_idx: ord(1), text: "from the iPad" },
   ] }));
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
 });
@@ -121,7 +121,7 @@ test("a non-canonical requested title keys the outline by the payload's title", 
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const sync = makeSync();
   stubFetch([["/api/page/", pagePayload("Paper",
-    [block("uid_s1", "a paper block", { order_idx: 0 })])]]);
+    [block("uid_s1", "a paper block", { order_idx: ord(0) })])]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
@@ -133,7 +133,7 @@ test("a non-canonical requested title keys the outline by the payload's title", 
 
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
     { op: "create", uid: uid("r1"), page_title: "Paper", parent_uid: null,
-      order_idx: 1, text: "from the iPad" },
+      order_idx: ord(1), text: "from the iPad" },
   ] }));
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
 
@@ -159,7 +159,7 @@ test("a page already open elsewhere in this tab falls back to read-only", async 
 });
 
 test("main-first same-title mounts keep one editor and one live fallback", async () => {
-  const blocks = [block("uid_s1", "a paper block", { order_idx: 0 })];
+  const blocks = [block("uid_s1", "a paper block", { order_idx: ord(0) })];
   stubFetch([["/api/page/Paper", pagePayload("Paper", blocks)]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -176,7 +176,7 @@ test("main-first same-title mounts keep one editor and one live fallback", async
 });
 
 test("sidebar-first same-title mounts preserve its editor when main joins", async () => {
-  const blocks = [block("uid_s1", "a paper block", { order_idx: 0 })];
+  const blocks = [block("uid_s1", "a paper block", { order_idx: ord(0) })];
   stubFetch([["/api/page/Paper", pagePayload("Paper", blocks)]]);
   const sync = makeSync();
   const view = (showMain: boolean) => (
@@ -332,7 +332,7 @@ test("no uid prop: no scroll/flash side effect", async () => {
 test("a ((uid)) ref missing from the seed map resolves live in the panel", async () => {
   stubFetch([
     ["/api/page/Paper", pagePayload("Paper", [
-      block("uid_s1", "see ((ref_zz9))", { order_idx: 0 }),
+      block("uid_s1", "see ((ref_zz9))", { order_idx: ord(0) }),
     ])],
     ["/api/block-refs", {
       block_ref_texts: { ref_zz9: { text: "the target block", page_title: "Paper" } },

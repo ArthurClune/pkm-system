@@ -1,30 +1,30 @@
 import { describe, it, expect } from "vitest";
-import { block, uid } from "../test-helpers";
+import { block, ord, uid } from "../test-helpers";
 import { extendSelection, needsDeleteConfirmation, selectedUids,
          selectionDragUids, selectionText } from "./blockSelection";
 
 // a: "one", b: "two", c(collapsed): "three" with hidden child c1, d: "four"
 const BLOCKS = [
-  block("a", "one", { order_idx: 0 }),
-  block("b", "two", { order_idx: 1 }),
+  block("a", "one", { order_idx: ord(0) }),
+  block("b", "two", { order_idx: ord(1) }),
   block("c", "three", {
-    order_idx: 2, collapsed: true,
-    children: [block("c1", "hidden", { order_idx: 0 })],
+    order_idx: ord(2), collapsed: true,
+    children: [block("c1", "hidden", { order_idx: ord(0) })],
   }),
-  block("d", "four", { order_idx: 3 }),
+  block("d", "four", { order_idx: ord(3) }),
 ];
 
 const NESTED = [
   block("r", "root", {
-    order_idx: 0,
+    order_idx: ord(0),
     children: [
       block("r0", "child", {
-        order_idx: 0,
-        children: [block("r00", "grand", { order_idx: 0 })],
+        order_idx: ord(0),
+        children: [block("r00", "grand", { order_idx: ord(0) })],
       }),
     ],
   }),
-  block("s", "sibling", { order_idx: 1 }),
+  block("s", "sibling", { order_idx: ord(1) }),
 ];
 
 describe("selectedUids", () => {

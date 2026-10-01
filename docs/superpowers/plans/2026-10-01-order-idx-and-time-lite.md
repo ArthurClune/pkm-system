@@ -72,14 +72,14 @@ The two tasks touch disjoint files and run in parallel, in separate worktrees:
 - `test-helpers.ts`: add an `ord(n: number): OrderIdx` fixture helper. `block()` casts its order internally, so its call sites don't change. Fix the remaining test literals with `ord()`, or with a per-file factory that casts once, following the pkm-thee approach.
 
 **Steps:**
-- [ ] **1. Probes first.**
+- [x] **1. Probes first.**
   - In `outline/tree.test.ts` (or `edits.test.ts`): `// @ts-expect-error a dense position is not an OrderIdx` on a `shiftFrom(siblings, found.index)` call, made reachable by exporting `shiftFrom` or probing via `Parameters<typeof …>`.
   - A `MoveOp` literal with `order_idx: someLocated.index` under `@ts-expect-error`.
   - `orderIdx.test.ts` unit tests for the three helpers.
   - Run `pnpm typecheck` and record the red output (unused directives, missing module).
-- [ ] **2.** Server NewType, `brand()`, annotations and mints. Then regen, and confirm the openapi diff is `x-brand` only.
-- [ ] **3.** Web: the arithmetic module, the renames and the narrowing. Go replica → outline → dnd → components, with tsc after each directory. Fix the tests.
-- [ ] **4.** Full server and web checks. Commit `feat(pkm-la88): OrderIdx brands the sparse sibling order key`.
+- [x] **2.** Server NewType, `brand()`, annotations and mints. Then regen, and confirm the openapi diff is `x-brand` only.
+- [x] **3.** Web: the arithmetic module, the renames and the narrowing. Go replica → outline → dnd → components, with tsc after each directory. Fix the tests.
+- [x] **4.** Full server and web checks. Commit `feat(pkm-la88): OrderIdx brands the sparse sibling order key`.
 
 ### Task 2: time-lite (no brand)
 

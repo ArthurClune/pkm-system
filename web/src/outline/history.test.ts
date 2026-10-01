@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { BlockOp } from "../api/ops";
-import { block, uid } from "../test-helpers";
+import { block, ord, uid } from "../test-helpers";
 import { applyOps } from "./tree";
 import { invertOps, emptyHistory, HISTORY_CAP, recordEntry, takeRedo, takeUndo,
          type HistoryEntry } from "./history";
@@ -8,18 +8,18 @@ import { invertOps, emptyHistory, HISTORY_CAP, recordEntry, takeRedo, takeUndo,
 const PAGE = "Test Page";
 
 const tree = () => [
-  block("a", "alpha", { order_idx: 0 }),
+  block("a", "alpha", { order_idx: ord(0) }),
   block("b", "beta", {
-    order_idx: 1,
+    order_idx: ord(1),
     collapsed: true,
-    children: [block("b1", "child", { order_idx: 0, heading: 2 })],
+    children: [block("b1", "child", { order_idx: ord(0), heading: 2 })],
   }),
-  block("c", "gamma", { order_idx: 2 }),
+  block("c", "gamma", { order_idx: ord(2) }),
 ];
 
 it("inverts create to delete", () => {
   const ops: BlockOp[] = [{ op: "create", uid: uid("n"), page_title: PAGE,
-                            parent_uid: null, order_idx: 3, text: "new" }];
+                            parent_uid: null, order_idx: ord(3), text: "new" }];
   expect(invertOps(tree(), PAGE, ops)).toEqual([{ op: "delete", uid: "n" }]);
 });
 
@@ -30,14 +30,14 @@ it("inverts update_text to the pre-op text", () => {
 });
 
 it("inverts move back to the old parent and order_idx", () => {
-  const ops: BlockOp[] = [{ op: "move", uid: uid("c"), parent_uid: uid("a"), order_idx: 0 }];
+  const ops: BlockOp[] = [{ op: "move", uid: uid("c"), parent_uid: uid("a"), order_idx: ord(0) }];
   expect(invertOps(tree(), PAGE, ops))
     .toEqual([{ op: "move", uid: "c", parent_uid: null, order_idx: 2 }]);
 });
 
 it("round-trips a move: apply ops then inverse restores the shape", () => {
   const before = tree();
-  const ops: BlockOp[] = [{ op: "move", uid: uid("c"), parent_uid: uid("a"), order_idx: 0 }];
+  const ops: BlockOp[] = [{ op: "move", uid: uid("c"), parent_uid: uid("a"), order_idx: ord(0) }];
   const inverse = invertOps(before, PAGE, ops)!;
   const after = applyOps(applyOps(before, ops, PAGE), inverse, PAGE);
   // c is back at top level after b (order_idx values may differ; shape matters)
@@ -71,7 +71,7 @@ it("drops set_collapsed from inverses (collapse-only batch inverts to [])", () =
 it("drops set_collapsed riders but keeps the rest (indent auto-expand)", () => {
   const ops: BlockOp[] = [
     { op: "set_collapsed", uid: uid("b"), collapsed: false },
-    { op: "move", uid: uid("c"), parent_uid: uid("b"), order_idx: 1 },
+    { op: "move", uid: uid("c"), parent_uid: uid("b"), order_idx: ord(1) },
   ];
   expect(invertOps(tree(), PAGE, ops))
     .toEqual([{ op: "move", uid: "c", parent_uid: null, order_idx: 2 }]);
@@ -81,7 +81,7 @@ it("reverses multi-op batches op-by-op (split: update_text + create)", () => {
   const ops: BlockOp[] = [
     { op: "update_text", uid: uid("a"), text: "al" },
     { op: "create", uid: uid("n"), page_title: PAGE, parent_uid: null,
-      order_idx: 1, text: "pha" },
+      order_idx: ord(1), text: "pha" },
   ];
   expect(invertOps(tree(), PAGE, ops)).toEqual([
     { op: "delete", uid: "n" },
@@ -93,7 +93,7 @@ it("simulates sequential ops against the evolving tree", () => {
   // second op edits the block the first op created
   const ops: BlockOp[] = [
     { op: "create", uid: uid("n"), page_title: PAGE, parent_uid: null,
-      order_idx: 3, text: "first" },
+      order_idx: ord(3), text: "first" },
     { op: "update_text", uid: uid("n"), text: "second" },
   ];
   expect(invertOps(tree(), PAGE, ops)).toEqual([
@@ -117,14 +117,14 @@ it("keeps a deleted subtree's create group in parent-first order when reversed",
 
 it("returns null for ops on unknown blocks (cross-page move source)", () => {
   expect(invertOps(tree(), PAGE, [{ op: "move", uid: uid("zz"), parent_uid: null,
-                                    order_idx: 0 }])).toBeNull();
+                                    order_idx: ord(0) }])).toBeNull();
   expect(invertOps(tree(), PAGE, [{ op: "update_text", uid: uid("zz"), text: "x" }]))
     .toBeNull();
 });
 
 it("returns null for a move that leaves this page", () => {
   expect(invertOps(tree(), PAGE, [{ op: "move", uid: uid("c"), parent_uid: null,
-                                    order_idx: 0, page_title: "Other" }]))
+                                    order_idx: ord(0), page_title: "Other" }]))
     .toBeNull();
 });
 

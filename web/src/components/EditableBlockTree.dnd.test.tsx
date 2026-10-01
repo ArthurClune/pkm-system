@@ -5,7 +5,7 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider } from "../dnd/DndContext";
 import { EditablePage } from "../views/EditablePage";
-import { block, makeSync, reserveOutlineEditor, title } from "../test-helpers";
+import { block, makeSync, ord, reserveOutlineEditor, title } from "../test-helpers";
 
 // jsdom has no DataTransfer: minimal stub
 function dt() {
@@ -18,8 +18,8 @@ function dt() {
 }
 
 function renderPage(blocks = [
-  block("u1", "one", { order_idx: 0 }),
-  block("u2", "two", { order_idx: 1 }),
+  block("u1", "one", { order_idx: ord(0) }),
+  block("u2", "two", { order_idx: ord(1) }),
 ]) {
   const sync = makeSync();
   render(
@@ -53,9 +53,9 @@ it("bullets are draggable and a drop reorders via one move op", () => {
 
 it("dragging a block inside a multi-block selection moves the whole selection", () => {
   const sync = renderPage([
-    block("u1", "one", { order_idx: 0 }),
-    block("u2", "two", { order_idx: 1 }),
-    block("u3", "three", { order_idx: 2 }),
+    block("u1", "one", { order_idx: ord(0) }),
+    block("u2", "two", { order_idx: ord(1) }),
+    block("u3", "three", { order_idx: ord(2) }),
   ]);
   // select u2 + u3 through the real editor wiring (Shift+ArrowDown at edge)
   fireEvent.click(screen.getByText("two"));
@@ -82,9 +82,9 @@ it("dragging a block inside a multi-block selection moves the whole selection", 
 
 it("dragging a block outside the selection moves only that block", () => {
   const sync = renderPage([
-    block("u1", "one", { order_idx: 0 }),
-    block("u2", "two", { order_idx: 1 }),
-    block("u3", "three", { order_idx: 2 }),
+    block("u1", "one", { order_idx: ord(0) }),
+    block("u2", "two", { order_idx: ord(1) }),
+    block("u3", "three", { order_idx: ord(2) }),
   ]);
   // select u1 + u2, then drag the unselected u3
   fireEvent.click(screen.getByText("one"));
@@ -238,8 +238,8 @@ it("dragging is disabled when read-only", () => {
 it("hands DnD registration to the remaining same-title view", () => {
   const sync = makeSync();
   const blocks = [
-    block("u1", "one", { order_idx: 0 }),
-    block("u2", "two", { order_idx: 1 }),
+    block("u1", "one", { order_idx: ord(0) }),
+    block("u2", "two", { order_idx: ord(1) }),
   ];
   const view = (includeFirst: boolean) => (
     <SyncContext.Provider value={sync}>

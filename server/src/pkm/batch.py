@@ -21,7 +21,7 @@ from typing import Annotated, Literal, Union
 from pydantic import (BaseModel, ConfigDict, Field, TypeAdapter,
                       ValidationError, model_validator)
 
-from pkm.contracts.ops import (BlockOp, CreateOp, DeleteOp, MoveOp,
+from pkm.contracts.ops import (BlockOp, CreateOp, DeleteOp, MoveOp, OrderIdx,
                                Sha256Hex, UpdateTextOp, subtree_hash)
 from pkm.contracts.responses import BlockNode, walk_blocks
 from pkm.planning import (BuildError, Planner, parse_uid_spec, plan_update,
@@ -415,7 +415,8 @@ def _batch_move(cmd: MoveCommand, ctx: _BatchCtx) -> list[MoveOp]:
         off_page = False
     idx = p.index if p.index is not None \
         else ctx.planner.bump(blocks, p.page, parent, off_page)
-    return [MoveOp(op="move", uid=uid, parent_uid=parent, order_idx=idx,
+    return [MoveOp(op="move", uid=uid, parent_uid=parent,
+                   order_idx=OrderIdx(idx),
                    page_title=None if parent else p.page)]
 
 

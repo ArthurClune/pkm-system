@@ -19,8 +19,8 @@ from pydantic import BaseModel, BeforeValidator, Field
 
 from pkm.changed import ChangeStatus
 from pkm.contracts.brands import brand
-from pkm.contracts.ops import (BlockUid, HeadingLevel, OpKind, PageId,
-                               Sha256Hex, SidebarEntryId, ViewType)
+from pkm.contracts.ops import (BlockUid, HeadingLevel, OpKind, OrderIdx,
+                               PageId, Sha256Hex, SidebarEntryId, ViewType)
 from pkm.goodlinks import GoodlinksId
 from pkm.refs import CanonicalTitle, RefKind
 
@@ -54,7 +54,7 @@ class BlockNode(BaseModel):
     heading: StoredHeading
     view_type: ViewType | None
     collapsed: bool
-    order_idx: int
+    order_idx: OrderIdx
     created_at: int | None
     updated_at: int | None
     children: list[BlockNode]
@@ -346,7 +346,7 @@ class SyncBlock(BaseModel):
     uid: BlockUid
     page_id: PageId
     parent_uid: BlockUid | None
-    order_idx: int
+    order_idx: OrderIdx
     text: str
     heading: StoredHeading
     view_type: ViewType | None

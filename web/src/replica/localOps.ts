@@ -13,7 +13,7 @@
 // lands, including a re-applied batch (reapply) keeping its own effects
 // in place, is placementFor's verdict (placement.ts); this file runs it.
 
-import type { BlockUid, CanonicalTitle, PageId } from "../api/brands";
+import type { BlockUid, CanonicalTitle, OrderIdx, PageId } from "../api/brands";
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
@@ -101,15 +101,16 @@ const touchPage = (db: ReplicaDb, pageId: PageId, nowMs: number): void => {
 };
 
 const shiftSiblings = (db: ReplicaDb, pageId: PageId,
-                       parentUid: BlockUid | null, fromIdx: number): void => {
+                       parentUid: BlockUid | null,
+                       fromOrderIdx: OrderIdx): void => {
   db.exec(
     "UPDATE blocks SET order_idx = order_idx + 1" +
     " WHERE page_id = ? AND parent_uid IS ? AND order_idx >= ?",
-    [pageId, parentUid, fromIdx]);
+    [pageId, parentUid, fromOrderIdx]);
 };
 
 interface BlockInfo {
-  page_id: PageId; parent_uid: BlockUid | null; order_idx: number;
+  page_id: PageId; parent_uid: BlockUid | null; order_idx: OrderIdx;
 }
 
 const blockInfo = (db: ReplicaDb, uid: BlockUid): BlockInfo | null => {

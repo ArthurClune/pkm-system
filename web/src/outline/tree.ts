@@ -3,9 +3,10 @@
 // applying committed op semantics so local state mirrors the server's
 // ops_apply.py exactly. ShiftSiblings leaves order_idx gaps on the server;
 // everything here keys on order_idx VALUES, never array positions.
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, OrderIdx } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
+import { orderIdxAfter } from "./orderIdx";
 
 export interface Located {
   node: BlockNode;
@@ -128,11 +129,15 @@ function siblingsOf(tree: BlockNode[], parentUid: BlockUid | null): BlockNode[] 
 }
 
 /** Mirror of the server's ShiftSiblings effect: everything at or past
- * from_idx moves up one — except the block being moved, whose order_idx is
- * about to be overwritten (matching SetParent-after-ShiftSiblings). */
-function shiftFrom(siblings: BlockNode[], fromIdx: number, except?: BlockUid): void {
+ * fromOrderIdx moves up one — except the block being moved, whose order_idx
+ * is about to be overwritten (matching SetParent-after-ShiftSiblings).
+ * Exported only for orderIdx.test.ts's dense-position probe. */
+export function shiftFrom(siblings: BlockNode[], fromOrderIdx: OrderIdx,
+                          except?: BlockUid): void {
   for (const s of siblings) {
-    if (s.uid !== except && s.order_idx >= fromIdx) s.order_idx += 1;
+    if (s.uid !== except && s.order_idx >= fromOrderIdx) {
+      s.order_idx = orderIdxAfter(s.order_idx);
+    }
   }
 }
 
@@ -207,7 +212,7 @@ export function applyOps(blocks: BlockNode[], ops: BlockOp[],
 /** One sibling array as it stands, node identities plus the order_idx values
  * about to be overwritten in place — enough to tell a move that reshuffled
  * something from one that put the block back exactly where it was. */
-type Layout = { node: BlockNode; orderIdx: number }[];
+type Layout = { node: BlockNode; orderIdx: OrderIdx }[];
 
 function layoutOf(siblings: BlockNode[]): Layout {
   return siblings.map((node) => ({ node, orderIdx: node.order_idx }));
@@ -296,7 +301,7 @@ export function removeSubtree(blocks: BlockNode[], uid: BlockUid):
  * block currently at orderIdx). Unknown parentUid: returns tree unchanged. */
 export function insertSubtree(blocks: BlockNode[], node: BlockNode,
                               parentUid: BlockUid | null,
-                              orderIdx: number): BlockNode[] {
+                              orderIdx: OrderIdx): BlockNode[] {
   const tree = cloneTree(blocks);
   const siblings = siblingsOf(tree, parentUid);
   if (siblings === null) return tree;

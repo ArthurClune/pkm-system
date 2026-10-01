@@ -1,22 +1,22 @@
 import { describe, expect, test } from "vitest";
-import { block, uid } from "../test-helpers";
+import { block, ord, uid } from "../test-helpers";
 import { goodlinksAttribute, goodlinksCandidates, goodlinksNotice } from "./goodlinks";
 
 const ID = "e4966bb2483b5c78f658398c0ae7b03f";
 
 describe("goodlinksCandidates", () => {
   const tree = [
-    block("root", "Intro https://root.example/one", { order_idx: 0, children: [
-      block("prev", "[A](https://prev.example/a) and https://prev.example/b.", { order_idx: 0 }),
-      block("me", "", { order_idx: 1 }),
+    block("root", "Intro https://root.example/one", { order_idx: ord(0), children: [
+      block("prev", "[A](https://prev.example/a) and https://prev.example/b.", { order_idx: ord(0) }),
+      block("me", "", { order_idx: ord(1) }),
     ] }),
   ];
 
   test("own text first, then parent, then previous sibling, deduplicated", () => {
     const withOwn = [
-      block("root", "https://root.example/one", { order_idx: 0, children: [
-        block("prev", "https://prev.example/a", { order_idx: 0 }),
-        block("me", "see https://me.example/x and https://root.example/one", { order_idx: 1 }),
+      block("root", "https://root.example/one", { order_idx: ord(0), children: [
+        block("prev", "https://prev.example/a", { order_idx: ord(0) }),
+        block("me", "see https://me.example/x and https://root.example/one", { order_idx: ord(1) }),
       ] }),
     ];
     expect(goodlinksCandidates(withOwn, uid("me"))).toEqual([
@@ -29,14 +29,14 @@ describe("goodlinksCandidates", () => {
   });
 
   test("trailing punctuation and markdown closers are trimmed", () => {
-    const t = [block("b", "(https://x.example/p). [y](https://y.example/q)", { order_idx: 0 })];
+    const t = [block("b", "(https://x.example/p). [y](https://y.example/q)", { order_idx: ord(0) })];
     expect(goodlinksCandidates(t, uid("b"))).toEqual(["https://x.example/p", "https://y.example/q"]);
   });
 
   test("a balanced parenthesised group inside the URL is kept, not truncated", () => {
     const t = [block("b",
       "[x](https://en.wikipedia.org/wiki/Foo_(bar)) [x](https://example.com/a) (see https://example.com/a)",
-      { order_idx: 0 })];
+      { order_idx: ord(0) })];
     expect(goodlinksCandidates(t, uid("b"))).toEqual([
       "https://en.wikipedia.org/wiki/Foo_(bar)", "https://example.com/a"]);
   });
@@ -45,7 +45,7 @@ describe("goodlinksCandidates", () => {
     // its own tree: a later top-level block would see "root" as its
     // previous sibling and pick up root's URL
     const solo = [block("solo", "Local copy:: [x](/api/local/a.pdf) ftp://files.example/f",
-                        { order_idx: 0 })];
+                        { order_idx: ord(0) })];
     expect(goodlinksCandidates(solo, uid("solo"))).toEqual([]);
     expect(goodlinksCandidates(tree, uid("nope"))).toEqual([]);
   });

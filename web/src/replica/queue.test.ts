@@ -10,7 +10,7 @@ import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
 import { sha256Hex, type Sha256Hex } from "./sha256";
 import { subtreeHash } from "./subtreeHash";
 import { openTestDb, type TestDb } from "./testDb";
-import { uid } from "../test-helpers";
+import { ord, uid } from "../test-helpers";
 
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
@@ -99,7 +99,7 @@ describe("enqueueBatch", () => {
     const res = enqueueBatch(t.db, [
       { op: "update_text", uid: uid("uid_ghost"), text: "edited before hydration" },
       { op: "create", uid: uid("uid_orphan"), page_title: "AI",
-        parent_uid: uid("uid_ghost2"), order_idx: 0, text: "child of a ghost" },
+        parent_uid: uid("uid_ghost2"), order_idx: ord(0), text: "child of a ghost" },
       { op: "update_text", uid: uid("uid_q1"), text: "this one applies" },
     ], 99, bid("batch-ghost"));
     expect(res.pending).toBe(1);
@@ -129,7 +129,7 @@ describe("enqueueBatch", () => {
   test("update of a block created in the same batch carries no base hash", () => {
     enqueueBatch(t.db, [
       { op: "create", uid: uid("uid_q2"), page_title: "AI", parent_uid: null,
-        order_idx: 1, text: "brand new" },
+        order_idx: ord(1), text: "brand new" },
       { op: "update_text", uid: uid("uid_q2"), text: "edited new" },
     ], 99, bid("batch-cccc"));
     const ops = JSON.parse(t.db.select<{ ops_json: string }>(

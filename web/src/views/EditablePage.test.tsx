@@ -5,7 +5,7 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
 import type { ClientId } from "../api/brands";
 import type { TicketId } from "../sync/opQueue";
-import { block, makeSync, reserveOutlineEditor, stubFetch, title, type SyncFake, uid } from "../test-helpers";
+import { block, makeSync, ord, reserveOutlineEditor, stubFetch, type SyncFake, title, uid } from "../test-helpers";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
@@ -18,8 +18,8 @@ afterEach(() => {
 });
 
 function mount(sync = makeSync(), initial = [
-  block("u1", "first", { order_idx: 0 }),
-  block("u2", "second", { order_idx: 1 }),
+  block("u1", "first", { order_idx: ord(0) }),
+  block("u2", "second", { order_idx: ord(1) }),
 ]) {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -70,8 +70,8 @@ test("Enter splits: pending text flushes first, create follows, focus moves", ()
 test("stale initial rerender during a pending split keeps the optimistic new block focused", () => {
   stubFetch([["/api/titles", { titles: [] }]]);
   const initial = [
-    block("u1", "first", { order_idx: 0 }),
-    block("u2", "second", { order_idx: 1 }),
+    block("u1", "first", { order_idx: ord(0) }),
+    block("u2", "second", { order_idx: ord(1) }),
   ];
   const sync = makeSync("connected", { settled: () => new Promise(() => undefined) });
   const view = (
@@ -94,8 +94,8 @@ test("stale initial rerender during a pending split keeps the optimistic new blo
   // local create is still queued. That stale `initial` must not replace the
   // optimistic split and send the caret back to the previous line.
   rerender(view([
-    block("u1", "first", { order_idx: 0 }),
-    block("u2", "second", { order_idx: 1 }),
+    block("u1", "first", { order_idx: ord(0) }),
+    block("u2", "second", { order_idx: ord(1) }),
   ]));
 
   expect(screen.getByRole("textbox")).toHaveValue("");
@@ -104,7 +104,7 @@ test("stale initial rerender during a pending split keeps the optimistic new blo
 
 test("stale initial rerender while its scoped write is unsettled keeps optimistic heading", async () => {
   stubFetch([["/api/titles", { titles: [] }]]);
-  const initial = [block("u1", "first", { order_idx: 0 })];
+  const initial = [block("u1", "first", { order_idx: ord(0) })];
   let deliver!: () => void;
   const delivered = new Promise<{ status: "delivered" }>((resolve) => {
     deliver = () => resolve({ status: "delivered" });
@@ -143,7 +143,7 @@ test("stale initial rerender while its scoped write is unsettled keeps optimisti
 
   // Only this title's ticket blocks adoption; the global pending count is not
   // consulted by outline causality.
-  rerender(view([block("u1", "first", { order_idx: 0, heading: null })]));
+  rerender(view([block("u1", "first", { order_idx: ord(0), heading: null })]));
 
   expect(screen.getByText("first").closest("h1")).not.toBeNull();
   await act(async () => deliver());
@@ -188,10 +188,10 @@ test("Tab indents the second block under the first", () => {
 });
 
 test("Shift+Tab outdents a child through the real editor wiring", () => {
-  const child = block("c1", "child", { order_idx: 0 });
+  const child = block("c1", "child", { order_idx: ord(0) });
   const sync = mount(makeSync(), [
-    block("u1", "parent", { order_idx: 0, children: [child] }),
-    block("u2", "after", { order_idx: 1 }),
+    block("u1", "parent", { order_idx: ord(0), children: [child] }),
+    block("u2", "after", { order_idx: ord(1) }),
   ]);
   const ta = focusBlock("child");
   fireEvent.keyDown(ta, { key: "Tab", shiftKey: true });
@@ -204,9 +204,9 @@ test.each(["ArrowUp", "ArrowDown"])(
   "Alt+%s does not enqueue a focused block move",
   (key) => {
     const sync = mount(makeSync(), [
-      block("u1", "first", { order_idx: 0 }),
-      block("u2", "second", { order_idx: 1 }),
-      block("u3", "third", { order_idx: 2 }),
+      block("u1", "first", { order_idx: ord(0) }),
+      block("u2", "second", { order_idx: ord(1) }),
+      block("u3", "third", { order_idx: ord(2) }),
     ]);
     const ta = focusBlock("second");
 
@@ -258,8 +258,8 @@ test("boundary arrows use text end vertically and preserve horizontal entry", ()
 test("chevron click queues the collapse op through useOutline", () => {
   const sync = mount(makeSync(), [
     block("u1", "parent", {
-      order_idx: 0,
-      children: [block("c1", "child", { order_idx: 0 })],
+      order_idx: ord(0),
+      children: [block("c1", "child", { order_idx: ord(0) })],
     }),
   ]);
   const chevron = document.querySelector(
@@ -297,7 +297,7 @@ test("clicking a TODO checkbox queues the toggled text op", () => {
 test("Cmd-Enter shows the cycled TODO marker immediately and survives the next flush", () => {
   vi.useFakeTimers();
   stubFetch([["/api/titles", { titles: [] }]]);
-  const sync = mount(makeSync(), [block("u1", "first", { order_idx: 0 })]);
+  const sync = mount(makeSync(), [block("u1", "first", { order_idx: ord(0) })]);
   const ta = focusBlock("first");
 
   // A keystroke queues a debounced draft edit that has NOT flushed yet.
@@ -322,9 +322,9 @@ test("Cmd-Enter shows the cycled TODO marker immediately and survives the next f
 
 test("Shift+Arrow starts and extends a block selection; Escape clears it", () => {
   mount(makeSync(), [
-    block("u1", "first", { order_idx: 0 }),
-    block("u2", "second", { order_idx: 1 }),
-    block("u3", "third", { order_idx: 2 }),
+    block("u1", "first", { order_idx: ord(0) }),
+    block("u2", "second", { order_idx: ord(1) }),
+    block("u3", "third", { order_idx: ord(2) }),
   ]);
   const ta = focusBlock("second");
   ta.setSelectionRange(0, 0);
@@ -341,7 +341,7 @@ test("remote batches patch the tree; own-echo filtering is the provider's job", 
   const sync = mount();
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
     { op: "create", uid: uid("r1"), page_title: "Page", parent_uid: null,
-      order_idx: 2, text: "from the iPad" },
+      order_idx: ord(2), text: "from the iPad" },
   ] }));
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
 });
@@ -697,7 +697,7 @@ test("navigating away with no blur still flushes a held draft", () => {
         <Routes>
           <Route path="/" element={<>
             <EditablePage title={title("Page")}
-                          initial={[block("u1", "first", { order_idx: 0 })]} />
+                          initial={[block("u1", "first", { order_idx: ord(0) })]} />
             <NavAway />
           </>} />
           <Route path="/elsewhere" element={<p>elsewhere</p>} />
@@ -716,7 +716,7 @@ test("navigating away with no blur still flushes a held draft", () => {
 });
 
 const CROSS_PAGE_MOVE = { op: "move", uid: uid("u1"), parent_uid: null,
-                         order_idx: 0, page_title: "Elsewhere" } as const;
+                         order_idx: ord(0), page_title: "Elsewhere" } as const;
 
 function hideTab() {
   Object.defineProperty(document, "visibilityState",
@@ -826,7 +826,7 @@ test("a held draft whose block a remote cross-page move took flushes on tab hide
 // typed over, not the remounted tree's text), and puts the caret back where
 // the old textarea left it.
 const SAME_PAGE_MOVE = { op: "move", uid: uid("u1"), parent_uid: uid("u2"),
-                         order_idx: 0, page_title: "Page" } as const;
+                         order_idx: ord(0), page_title: "Page" } as const;
 
 test("a remote same-page move of the focused block keeps its draft on the remounted textarea", () => {
   vi.useFakeTimers();
@@ -914,9 +914,9 @@ test("a remote move of the focused block's parent keeps the draft on the remount
   vi.useFakeTimers();
   stubFetch([["/api/titles", { titles: [] }]]);
   const sync = mount(makeSync(), [
-    block("u1", "first", { order_idx: 0,
-      children: [block("c1", "child", { order_idx: 0 })] }),
-    block("u2", "second", { order_idx: 1 }),
+    block("u1", "first", { order_idx: ord(0),
+      children: [block("c1", "child", { order_idx: ord(0) })] }),
+    block("u2", "second", { order_idx: ord(1) }),
   ]);
   const ta = focusBlock("child");
   fireEvent.change(ta, { target: { value: "child typed" } });
@@ -1057,7 +1057,7 @@ test("the read-only fallback still reflects genuinely remote batches", () => {
     const sync = mount();
     act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
       { op: "create", uid: uid("r1"), page_title: "Page", parent_uid: null,
-        order_idx: 2, text: "from elsewhere" },
+        order_idx: ord(2), text: "from elsewhere" },
     ] }));
     expect(screen.getByText("from elsewhere")).toBeInTheDocument();
   } finally {
@@ -1070,14 +1070,14 @@ test("once the first instance unmounts, a freshly mounted one becomes editable a
   const first = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title={title("Page")} initial={[block("u1", "first", { order_idx: 0 })]} />
+        <EditablePage title={title("Page")} initial={[block("u1", "first", { order_idx: ord(0) })]} />
       </SyncContext.Provider>
     </MemoryRouter>);
   first.unmount();
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title={title("Page")} initial={[block("u1", "first", { order_idx: 0 })]} />
+        <EditablePage title={title("Page")} initial={[block("u1", "first", { order_idx: ord(0) })]} />
       </SyncContext.Provider>
     </MemoryRouter>);
   fireEvent.click(screen.getByText("first"));

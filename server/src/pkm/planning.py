@@ -20,7 +20,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from typing import cast
 
 from pkm.contracts.ops import (BlockOp, CreateOp, CreatePageOp, HeadingLevel,
-                               SetHeadingOp, UpdateTextOp, text_hash)
+                               OrderIdx, SetHeadingOp, UpdateTextOp, text_hash)
 from pkm.contracts.responses import BlockNode, walk_blocks
 from pkm.todo import TaskMark, with_state
 
@@ -139,7 +139,7 @@ def split_heading(text: str) -> tuple[str, HeadingLevel | None]:
 def _create(uid: str, page: str, parent: str | None, idx: int, text: str,
             heading: HeadingLevel | None = None) -> CreateOp:
     return CreateOp(op="create", uid=uid, page_title=page, parent_uid=parent,
-                    order_idx=idx, text=text, heading=heading)
+                    order_idx=OrderIdx(idx), text=text, heading=heading)
 
 
 class Planner:

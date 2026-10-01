@@ -2,7 +2,7 @@
 // Causality for one title's shared outline. The shell supplies ticket ids,
 // read tokens, and I/O; this module only decides whether a tree is safe to
 // adopt and whether settlement requires a fresh authoritative read.
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, OrderIdx } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
@@ -34,7 +34,7 @@ export interface DeferredAuthoritative {
 export type OutlineReplayAction =
   | { type: "ops"; ops: readonly BlockOp[] }
   | { type: "insert-subtree"; node: BlockNode;
-      parentUid: BlockUid | null; orderIdx: number };
+      parentUid: BlockUid | null; orderIdx: OrderIdx };
 
 export interface OutlineState {
   title: string;

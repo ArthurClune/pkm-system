@@ -4,7 +4,7 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { describe, expect, test, vi } from "vitest";
 import { SidebarContext } from "../contexts";
 import { titleForDate } from "../replica/daily";
-import { block, stubFetch } from "../test-helpers";
+import { block, ord, stubFetch } from "../test-helpers";
 import type { OutlineHandlers } from "../outline/handlers";
 import { BlockInput } from "./BlockInput";
 
@@ -30,7 +30,7 @@ function handlers(): OutlineHandlers {
   };
 }
 
-const NODE = block("u1", "hello [[World]]", { order_idx: 0 });
+const NODE = block("u1", "hello [[World]]", { order_idx: ord(0) });
 
 function inputElement(
   h: OutlineHandlers,
@@ -479,7 +479,7 @@ describe("caret placement after a programmatic replace", () => {
     const raf = holdFrames();
     try {
       const h = handlers();
-      mount(h, 0, false, block("u1", "", { order_idx: 0 }));
+      mount(h, 0, false, block("u1", "", { order_idx: ord(0) }));
       const ta = focusedTextarea();
       fireEvent.change(ta, { target: { value: "/h1" } });
       ta.setSelectionRange(3, 3);
@@ -500,7 +500,7 @@ describe("caret placement after a programmatic replace", () => {
   test("an auto-paired bracket puts the caret inside the pair before any frame", () => {
     const raf = holdFrames();
     try {
-      mount(handlers(), 0, false, block("u1", "", { order_idx: 0 }));
+      mount(handlers(), 0, false, block("u1", "", { order_idx: ord(0) }));
       const ta = focusedTextarea();
       fireEvent.keyDown(ta, { key: "[" });
       expect(ta).toHaveValue("[]");
@@ -513,7 +513,7 @@ describe("caret placement after a programmatic replace", () => {
   test("skipping over a closer (text unchanged) moves the caret before any frame", () => {
     const raf = holdFrames();
     try {
-      mount(handlers(), 1, false, block("u1", "[]", { order_idx: 0 }));
+      mount(handlers(), 1, false, block("u1", "[]", { order_idx: ord(0) }));
       const ta = focusedTextarea();
       ta.setSelectionRange(1, 1);
       fireEvent.keyDown(ta, { key: "]" });
@@ -527,7 +527,7 @@ describe("caret placement after a programmatic replace", () => {
 
 test("/h1 on a block that is already h1 toggles back to plain text", () => {
   const h = handlers();
-  mount(h, 0, false, block("u1", "hello [[World]]", { order_idx: 0, heading: 1 }));
+  mount(h, 0, false, block("u1", "hello [[World]]", { order_idx: ord(0), heading: 1 }));
   const ta = focusedTextarea();
   fireEvent.change(ta, { target: { value: "hello [[World]] /h1" } });
   ta.setSelectionRange(19, 19);
@@ -560,7 +560,7 @@ test("a remote update arriving mid-composition is deferred until composition end
   const view = mount(h, 0);
   const ta = focusedTextarea();
   fireEvent.compositionStart(ta);
-  const updated = block("u1", "hola [[World]]", { order_idx: 0 });
+  const updated = block("u1", "hola [[World]]", { order_idx: ord(0) });
   view.rerender(inputElement(h, updated, 0));
   expect(ta.value).toBe("hello [[World]]"); // untouched while composing
   fireEvent.compositionEnd(ta);
@@ -572,7 +572,7 @@ test("adopting a remote update preserves the caret in a focused, clean textarea"
   const view = mount(h, 0);
   const ta = focusedTextarea();
   ta.setSelectionRange(5, 5); // caret right after "hello"
-  const updated = block("u1", "hello there [[World]]", { order_idx: 0 });
+  const updated = block("u1", "hello there [[World]]", { order_idx: ord(0) });
   view.rerender(inputElement(h, updated, 0));
   expect(ta.value).toBe("hello there [[World]]");
   expect(ta.selectionStart).toBe(5);
@@ -584,7 +584,7 @@ test("adopting a remote update clamps the caret to the new (shorter) length", ()
   const view = mount(h, 0);
   const ta = focusedTextarea();
   ta.setSelectionRange(15, 15);
-  const updated = block("u1", "hi", { order_idx: 0 });
+  const updated = block("u1", "hi", { order_idx: ord(0) });
   view.rerender(inputElement(h, updated, 0));
   expect(ta.value).toBe("hi");
   expect(ta.selectionStart).toBe(2);
@@ -1119,9 +1119,9 @@ describe("/date picker", () => {
     expect(screen.getByRole("dialog", { name: "pick a date" })).toBeInTheDocument();
     // The stripped draft ("") lands on the tree — dirty clears — then a
     // remote edit to the same block arrives and is adopted.
-    const flushed = block("u1", "", { order_idx: 0 });
+    const flushed = block("u1", "", { order_idx: ord(0) });
     view.rerender(inputElement(h, flushed, 0));
-    const remote = block("u1", "remote text", { order_idx: 0 });
+    const remote = block("u1", "remote text", { order_idx: ord(0) });
     view.rerender(inputElement(h, remote, 0));
     expect(ta.value).toBe("remote text");
     expect(screen.queryByRole("dialog", { name: "pick a date" })).toBeNull();

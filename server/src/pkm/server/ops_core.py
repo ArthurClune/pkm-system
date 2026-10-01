@@ -15,9 +15,9 @@ from dataclasses import dataclass
 from typing import Literal, Union
 
 from pkm.contracts.ops import (UID_RE, BlockOp, BlockUid, CreateOp,
-                               CreatePageOp, DeleteOp, MoveOp, PageId,
-                               SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
-                               UpdateTextOp, ViewType,
+                               CreatePageOp, DeleteOp, MoveOp, OrderIdx,
+                               PageId, SetCollapsedOp, SetHeadingOp,
+                               SetViewTypeOp, UpdateTextOp, ViewType,
                                subtree_hash, text_hash)
 from pkm.contracts.responses import SkipReason
 from pkm.refs import CanonicalTitle, TitleSyntaxReason, extract, title_syntax_reason
@@ -250,7 +250,7 @@ class ExistingHeader:
     """Today's live conflict header for the target block, and the next
     child order_idx under it."""
     uid: BlockUid
-    next_idx: int
+    next_idx: OrderIdx
 
 
 @dataclass(frozen=True)
@@ -258,7 +258,7 @@ class FreshHeader:
     """A header to create at the next top-level slot of today's daily
     page, minted only when there is no ExistingHeader to append under."""
     uid: BlockUid
-    append_idx: int
+    append_idx: OrderIdx
 
 
 @dataclass(frozen=True)
@@ -317,7 +317,7 @@ class DeleteContext:
 class SubtreeRow:
     uid: BlockUid
     parent_uid: BlockUid | None
-    order_idx: int
+    order_idx: OrderIdx
     text: str
 
 
@@ -365,10 +365,13 @@ def descendant_copy_effects(
     def walk(orig_parent_uid: BlockUid, copy_parent_uid: BlockUid) -> None:
         for idx, row in enumerate(children.get(orig_parent_uid, ())):
             copy_uid = copy_uids[row.uid]
+            # The deliberate dense->order-key renumber: idx is the copy's
+            # position among its new siblings, 0..n, which IS its order_idx
+            # since the copy starts the parent's child list from scratch.
             effects.append(InsertBlock(
                 uid=copy_uid, page_id=daily_page_id,
-                parent_uid=copy_parent_uid, order_idx=idx, text=row.text,
-                heading=None))
+                parent_uid=copy_parent_uid, order_idx=OrderIdx(idx),
+                text=row.text, heading=None))
             effects.append(ReindexRefs(copy_uid, row.text))
             walk(row.uid, copy_uid)
 
@@ -465,7 +468,7 @@ def skip_report(index: int, op: BlockOp, ctx: SkippedContext) -> dict:
 class ShiftSiblings:
     page_id: PageId
     parent_uid: BlockUid | None
-    from_idx: int
+    from_order_idx: OrderIdx
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -476,7 +479,7 @@ class InsertBlock:
     uid: BlockUid
     page_id: PageId
     parent_uid: BlockUid | None
-    order_idx: int
+    order_idx: OrderIdx
     text: str
     heading: int | None
     view_type: ViewType | None = None
@@ -492,7 +495,7 @@ class UpdateText:
 class SetParent:
     uid: BlockUid
     parent_uid: BlockUid | None
-    order_idx: int
+    order_idx: OrderIdx
 
 
 @dataclass(frozen=True)
@@ -585,8 +588,8 @@ def conflict_entry_effects(
                     text=header_text, heading=None),
         ReindexRefs(header.uid, header_text),
         InsertBlock(uid=landing.entry_uid, page_id=landing.daily_page_id,
-                    parent_uid=header.uid, order_idx=0, text=lost_text,
-                    heading=None),
+                    parent_uid=header.uid, order_idx=OrderIdx(0),
+                    text=lost_text, heading=None),
         ReindexRefs(landing.entry_uid, lost_text),
         RecordConflictHeader(target_uid, landing.daily_title, header.uid),
         TouchPage(landing.daily_page_id),

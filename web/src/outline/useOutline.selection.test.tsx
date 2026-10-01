@@ -7,7 +7,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import { subtreeHash } from "../replica/subtreeHash";
-import { block, makeSync, title, type SyncFake, uid } from "../test-helpers";
+import { block, makeSync, ord, title, type SyncFake, uid } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ pageTitle, initial, onReady }: {
@@ -31,27 +31,27 @@ function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
 }
 
 const abc = () => [
-  block("a", "alpha", { order_idx: 0 }),
-  block("b", "beta", { order_idx: 1 }),
-  block("c", "gamma", { order_idx: 2 }),
+  block("a", "alpha", { order_idx: ord(0) }),
+  block("b", "beta", { order_idx: ord(1) }),
+  block("c", "gamma", { order_idx: ord(2) }),
 ];
 
 const crossParentTree = () => [
   block("a", "A", {
-    order_idx: 0,
-    children: [block("a0", "A child", { order_idx: 0 })],
+    order_idx: ord(0),
+    children: [block("a0", "A child", { order_idx: ord(0) })],
   }),
   block("b", "B", {
-    order_idx: 1,
+    order_idx: ord(1),
     children: [
       block("b0", "B first", {
-        order_idx: 0,
-        children: [block("b0x", "B grandchild", { order_idx: 0 })],
+        order_idx: ord(0),
+        children: [block("b0x", "B grandchild", { order_idx: ord(0) })],
       }),
-      block("b1", "B second", { order_idx: 1 }),
+      block("b1", "B second", { order_idx: ord(1) }),
     ],
   }),
-  block("c", "C", { order_idx: 2 }),
+  block("c", "C", { order_idx: ord(2) }),
 ];
 
 afterEach(() => {
@@ -195,7 +195,7 @@ it("deleting 20 or fewer selected blocks proceeds without confirmation", () => {
 // 21 top-level blocks: one over LARGE_DELETE_THRESHOLD.
 const MANY_UIDS = Array.from({ length: 21 }, (_, i) => `u${String(i).padStart(2, "0")}`);
 function manyBlocks() {
-  return MANY_UIDS.map((uid, i) => block(uid, uid, { order_idx: i }));
+  return MANY_UIDS.map((uid, i) => block(uid, uid, { order_idx: ord(i) }));
 }
 
 // window.confirm is suppressed by iPadOS Safari in standalone/PWA

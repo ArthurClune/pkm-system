@@ -1077,7 +1077,7 @@ export interface components {
             /** Collapsed */
             collapsed: boolean;
             /** Order Idx */
-            order_idx: number;
+            order_idx: Brands.OrderIdx;
             /** Created At */
             created_at: number | null;
             /** Updated At */
@@ -1239,7 +1239,7 @@ export interface components {
             /** Parent Uid */
             parent_uid?: Brands.BlockUid | null;
             /** Order Idx */
-            order_idx: number;
+            order_idx: Brands.OrderIdx;
             /** Text */
             text: string;
             /** Heading */
@@ -1487,7 +1487,7 @@ export interface components {
             /** Parent Uid */
             parent_uid: Brands.BlockUid | null;
             /** Order Idx */
-            order_idx: number;
+            order_idx: Brands.OrderIdx;
             /** Page Title */
             page_title?: string | null;
         };
@@ -1723,7 +1723,7 @@ export interface components {
             /** Parent Uid */
             parent_uid: Brands.BlockUid | null;
             /** Order Idx */
-            order_idx: number;
+            order_idx: Brands.OrderIdx;
             /** Text */
             text: string;
             /** Heading */

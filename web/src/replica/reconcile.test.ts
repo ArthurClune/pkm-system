@@ -9,7 +9,7 @@ import { applyLocalOps } from "./localOps";
 import { setMeta } from "./meta";
 import { remapLocalPage } from "./reconcile";
 import { openTestDb, type TestDb } from "./testDb";
-import { pageId, title, uid } from "../test-helpers";
+import { ord, pageId, title, uid } from "../test-helpers";
 
 let t: TestDb;
 let negId: number;
@@ -22,9 +22,9 @@ beforeEach(async () => {
   // offline: create a page implicitly (via a link) and explicitly add a block
   applyLocalOps(t.db, [
     { op: "create", uid: uid("uid_l1"), page_title: "Offline Page", parent_uid: null,
-      order_idx: 0, text: "links back to [[AI]]" },
+      order_idx: ord(0), text: "links back to [[AI]]" },
     { op: "create", uid: uid("uid_l2"), page_title: "Offline Page", parent_uid: uid("uid_l1"),
-      order_idx: 0, text: "a child" },
+      order_idx: ord(0), text: "a child" },
   ], 50);
   negId = t.db.select<{ id: number }>(
     "SELECT id FROM pages WHERE title = 'Offline Page'")[0].id;

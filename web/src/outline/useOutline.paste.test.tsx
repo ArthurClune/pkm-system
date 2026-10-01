@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, title, type SyncFake, uid } from "../test-helpers";
+import { block, makeSync, ord, type SyncFake, title, uid } from "../test-helpers";
 import { resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -41,7 +41,7 @@ afterEach(() => resetHistory());
 it("onPasteOutline enqueues one batch and focuses the last pasted block", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", [
-    block("a", "seed", { order_idx: 0 }),
+    block("a", "seed", { order_idx: ord(0) }),
   ]);
 
   act(() => getOutline().handlers.onPasteOutline(uid("a"), 4, 4, "!\nnext\n\tkid"));
@@ -66,7 +66,7 @@ it("onPasteOutline enqueues one batch and focuses the last pasted block", () => 
 it("a paste is one undo entry: undo restores the pre-paste tree", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", [
-    block("a", "seed", { order_idx: 0 }),
+    block("a", "seed", { order_idx: ord(0) }),
   ]);
 
   act(() => getOutline().handlers.onPasteOutline(uid("a"), 4, 4, "!\nnext\n\tkid"));
@@ -81,7 +81,7 @@ it("a paste is one undo entry: undo restores the pre-paste tree", () => {
 it("a paste that plans nothing enqueues nothing", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", [
-    block("a", "seed", { order_idx: 0 }),
+    block("a", "seed", { order_idx: ord(0) }),
   ]);
   act(() => getOutline().handlers.onPasteOutline(uid("gone"), 0, 0, "x\ny"));
   expect(sync.sent).toEqual([]);

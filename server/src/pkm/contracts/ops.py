@@ -94,6 +94,16 @@ brand(ClientId)
 BatchId = NewType("BatchId", str)
 brand(BatchId)
 
+# A block's sparse sibling order key (blocks.order_idx): where it sits
+# among its siblings under its parent (or at the page's top level), not a
+# dense array position -- a delete leaves a gap rather than renumbering, so
+# two siblings' keys are never assumed adjacent. Minted at a create/move op
+# arriving on the wire, at the CLI/MCP planner's own op construction
+# (planning.py, batch.py), at every blocks.order_idx row read that feeds a
+# typed field, and at descendant_copy_effects' dense renumber (ops_core.py).
+OrderIdx = NewType("OrderIdx", int)
+brand(OrderIdx)
+
 
 class CreateOp(BaseModel):
     op: Literal["create"]
@@ -103,7 +113,7 @@ class CreateOp(BaseModel):
     # another device may have moved the parent since the op was queued.
     page_title: str = Field(min_length=1)
     parent_uid: BlockUid | None = None
-    order_idx: int
+    order_idx: OrderIdx
     text: str
     heading: HeadingLevel | None = None
     view_type: ViewType | None = None
@@ -131,7 +141,7 @@ class MoveOp(BaseModel):
     op: Literal["move"]
     uid: BlockUid
     parent_uid: BlockUid | None   # required but nullable: null = top level
-    order_idx: int
+    order_idx: OrderIdx
     # cross-page target when parent_uid is null; ignored when parent_uid
     # is set, since the block follows its parent to whatever page that is
     # on now. None = stay on current page.

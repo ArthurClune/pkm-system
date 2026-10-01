@@ -11,7 +11,7 @@ from datetime import date
 
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp,
-                               MoveOp, OpBatch, PageId, UpdateTextOp)
+                               MoveOp, OpBatch, OrderIdx, PageId, UpdateTextOp)
 from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  BlockRewrite, ConflictLanding, CreateContext,
@@ -162,11 +162,12 @@ def _subtree_rows(db: sqlite3.Connection,
     return tuple(SubtreeRow(
         BlockUid(r["uid"]),
         BlockUid(r["parent_uid"]) if r["parent_uid"] is not None else None,
-        r["order_idx"], r["text"]) for r in rows)
+        OrderIdx(r["order_idx"]), r["text"]) for r in rows)
 
 
 def _conflict_header(db: sqlite3.Connection, target_uid: str, day: str,
-                     daily_page_id: PageId) -> tuple[BlockUid, int] | None:
+                     daily_page_id: PageId
+                     ) -> tuple[BlockUid, OrderIdx] | None:
     """(header_uid, next child order_idx) of today's conflict header for
     target_uid, or None when there is none or the user has deleted it (or
     moved it off the daily page) since it was recorded."""
@@ -177,9 +178,9 @@ def _conflict_header(db: sqlite3.Connection, target_uid: str, day: str,
         (target_uid, day, daily_page_id)).fetchone()
     if row is None:
         return None
-    idx = db.execute(
+    idx = OrderIdx(db.execute(
         "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM blocks"
-        " WHERE parent_uid = ?", (row["header_uid"],)).fetchone()[0]
+        " WHERE parent_uid = ?", (row["header_uid"],)).fetchone()[0])
     return BlockUid(row["header_uid"]), idx
 
 
@@ -200,10 +201,10 @@ def _conflict_landing(db: sqlite3.Connection, target_uid: str,
     daily_title = CanonicalTitle(NormalizedTitle(day))
     daily = get_or_create_page(db, day, now_ms)
     daily_page_id = PageId(daily["id"])
-    idx = db.execute(
+    idx = OrderIdx(db.execute(
         "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM blocks"
         " WHERE page_id = ? AND parent_uid IS NULL",
-        (daily_page_id,)).fetchone()[0]
+        (daily_page_id,)).fetchone()[0])
     existing = _conflict_header(db, target_uid, day, daily_page_id)
     if existing is not None and existing[0] in exclude:
         existing = None
@@ -311,7 +312,7 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
         db.execute(
             "UPDATE blocks SET order_idx = order_idx + 1"
             " WHERE page_id = ? AND parent_uid IS ? AND order_idx >= ?",
-            (eff.page_id, eff.parent_uid, eff.from_idx))
+            (eff.page_id, eff.parent_uid, eff.from_order_idx))
     elif isinstance(eff, InsertBlock):
         db.execute(
             "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"

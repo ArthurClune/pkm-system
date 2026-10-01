@@ -7,7 +7,7 @@ import type { DeliveryOutcome, TicketId, WriteOutcome,
               WriteTicket } from "../sync/opQueue";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
-import { READ_INIT, block, jsonResponse, makeSync, pagePayload, stubFetch, title, uid } from "../test-helpers";
+import { block, jsonResponse, makeSync, ord, pagePayload, READ_INIT, stubFetch, title, uid } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ title: pageTitle, initial, onReady }: {
@@ -44,7 +44,7 @@ it("does not let an old target refetch erase a split made after dispatch", async
   act(() => sync.emit({
     client_id: "other" as ClientId, ts: 1,
     ops: [{ op: "move", uid: uid("unknown"), parent_uid: null,
-            order_idx: 0, page_title: "Page" }],
+            order_idx: ord(0), page_title: "Page" }],
   }));
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
@@ -68,7 +68,7 @@ it("does not let an old target refetch erase a split made after dispatch", async
 
   await act(async () => {
     fresh.resolve(jsonResponse(pagePayload("Page", [
-      block("u1", "first", { order_idx: 0 }),
+      block("u1", "first", { order_idx: ord(0) }),
       block(created.uid, created.text, { order_idx: created.order_idx }),
     ])));
     await fresh.promise;
@@ -98,7 +98,7 @@ it("adopts an empty daily rather than rejecting when the cross-page-move catch-u
   // would otherwise swallow, leaving the stale "old" block behind.
   act(() => sync.emit({
     client_id: "other" as ClientId, ts: 1,
-    ops: [{ op: "move", uid: uid("incoming"), parent_uid: null, order_idx: 0,
+    ops: [{ op: "move", uid: uid("incoming"), parent_uid: null, order_idx: ord(0),
             page_title: "August 17th, 2026" }],
   }));
 

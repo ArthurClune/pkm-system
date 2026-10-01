@@ -14,7 +14,7 @@ import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider, useDnd } from "./DndContext";
 import { useDropZone, type Indicator } from "./useDropZone";
 import { EditablePage } from "../views/EditablePage";
-import { block, makeSync, title, uid } from "../test-helpers";
+import { block, makeSync, ord, title, uid } from "../test-helpers";
 
 const ROW_H = 20;
 const ROWS = 6; // u1..u6; u6 is the one dragged, leaving five candidate rows
@@ -61,7 +61,7 @@ function startDrag() {
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
           <EditablePage title={title("P")} initial={
             Array.from({ length: ROWS }, (_, i) =>
-              block(`u${i + 1}`, `row ${i + 1}`, { order_idx: i }))} />
+              block(`u${i + 1}`, `row ${i + 1}`, { order_idx: ord(i) }))} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
@@ -135,7 +135,7 @@ it("re-measures a row whose uid changed under it, count unchanged", async () => 
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
     { op: "delete", uid: uid("u1") },
     { op: "create", uid: uid("u9"), page_title: "P", parent_uid: null,
-      order_idx: 6, text: "row 9" },
+      order_idx: ord(6), text: "row 9" },
   ] }));
   over(95);
   await nextFrame();
@@ -197,8 +197,8 @@ it("does not commit a new indicator object when the position hasn't moved",
   // consumer — not the hook's own owning component — is what has to be
   // asserted on here).
   const sync = makeSync();
-  const blocks = [block("u1", "row 1", { order_idx: 0 }),
-                 block("u2", "row 2", { order_idx: 1 })];
+  const blocks = [block("u1", "row 1", { order_idx: ord(0) }),
+                 block("u2", "row 2", { order_idx: ord(1) })];
   let dnd!: ReturnType<typeof useDnd>;
   function Capture() { dnd = useDnd(); return null; }
   let consumerRenders = 0;

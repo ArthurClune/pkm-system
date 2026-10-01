@@ -4,8 +4,8 @@ from typing import get_args
 import pytest
 
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import (BlockUid, OpBatch, Sha256Hex, subtree_hash,
-                               text_hash)
+from pkm.contracts.ops import (BlockUid, OpBatch, OrderIdx, Sha256Hex,
+                               subtree_hash, text_hash)
 from pkm.server import ops_apply, ops_core
 from pkm.server.db import open_db
 from pkm.server.ops_apply import (_parent_chain, _subtree_deepest_first,
@@ -350,14 +350,14 @@ def test_subtree_rows_is_deepest_first_with_columns(db):
     ), NOW)
     db.commit()
     rows = _subtree_rows(db, "uid_b2")
-    assert rows[0] == SubtreeRow(BlockUid("rows_g1"), BlockUid("uid_b3"), 0,
+    assert rows[0] == SubtreeRow(BlockUid("rows_g1"), BlockUid("uid_b3"), OrderIdx(0),
                                  "grandchild")
     assert set(rows[1:3]) == {
-        SubtreeRow(BlockUid("uid_b3"), BlockUid("uid_b2"), 0,
+        SubtreeRow(BlockUid("uid_b3"), BlockUid("uid_b2"), OrderIdx(0),
                    "[[Attention Is All You Need]] is a [[Paper]]"),
-        SubtreeRow(BlockUid("rows_c1"), BlockUid("uid_b2"), 1,
+        SubtreeRow(BlockUid("rows_c1"), BlockUid("uid_b2"), OrderIdx(1),
                    "second child")}
-    assert rows[3] == SubtreeRow(BlockUid("uid_b2"), None, 1, "Papers")
+    assert rows[3] == SubtreeRow(BlockUid("uid_b2"), None, OrderIdx(1), "Papers")
     assert (sorted(r.uid for r in rows)
             == sorted(_subtree_deepest_first(db, "uid_b2")))
     assert _subtree_rows(db, "no_such_uid") == ()

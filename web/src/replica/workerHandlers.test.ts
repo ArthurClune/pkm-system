@@ -12,7 +12,7 @@ import { failingOnce, fakeCarryFiles, openRawTestDb, openTestDb,
          withDamagedFreelist } from "./testDb";
 import { subtreeHash } from "./subtreeHash";
 import { buildHandlers, type WorkerDeps } from "./workerHandlers";
-import { pageId, title, uid } from "../test-helpers";
+import { ord, pageId, title, uid } from "../test-helpers";
 
 const bid = (s: string): BatchId => s as BatchId;
 const pid = (n: number): PendingRowId => n as PendingRowId;
@@ -21,7 +21,7 @@ const seq = (n: number): SyncSeq => n as SyncSeq;
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (5 as SyncSeq),
   pages: [{ id: pageId(1), title: title("AI"), created_at: 1, updated_at: 1 }],
-  blocks: [{ uid: uid("uid_b1"), page_id: pageId(1), parent_uid: null, order_idx: 0,
+  blocks: [{ uid: uid("uid_b1"), page_id: pageId(1), parent_uid: null, order_idx: ord(0),
     text: "hello", heading: null, view_type: null, collapsed: 0,
     created_at: 1, updated_at: 1, refs: [] }],
   sidebar: [],
@@ -562,7 +562,7 @@ async function poisonedQueueOverDamagedFile(options: {
   await handlers.init(undefined);
   await handlers.applySnapshot(SNAP);
   await handlers.enqueue({
-    ops: [{ op: "move", uid: uid("uid_gone"), parent_uid: uid("uid_b1"), order_idx: 1 }],
+    ops: [{ op: "move", uid: uid("uid_gone"), parent_uid: uid("uid_b1"), order_idx: ord(1) }],
     batchId: bid("rejected"),
   });
   await handlers.enqueue({
@@ -1055,7 +1055,7 @@ async () => {
 const TWO: Snapshot = {
   ...SNAP,
   blocks: [SNAP.blocks[0],
-           { ...SNAP.blocks[0], uid: uid("uid_b2"), order_idx: 1, text: "b2" }],
+           { ...SNAP.blocks[0], uid: uid("uid_b2"), order_idx: ord(1), text: "b2" }],
 };
 const SERVER: Snapshot = {
   ...TWO, seq: (7 as SyncSeq),

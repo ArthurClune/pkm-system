@@ -5,6 +5,7 @@
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
+import type { TicketId } from "../sync/opQueue";
 import type { FocusTarget } from "./edits";
 import type { TextSelection } from "./keyEdits";
 import { applyOps, applyOpsWithChange, blocksEqual, findNode,
@@ -40,26 +41,26 @@ export interface OutlineState {
   revision: Revision;
   nextRequestId: RequestId;
   latestRequestId: RequestId;
-  relevantWrites: ReadonlySet<string>;
-  relevantWriteReplays: ReadonlyMap<string, readonly OutlineReplayAction[]>;
+  relevantWrites: ReadonlySet<TicketId>;
+  relevantWriteReplays: ReadonlyMap<TicketId, readonly OutlineReplayAction[]>;
   deferredAuthoritative: DeferredAuthoritative | null;
 }
 
 export type OutlineEvent =
-  | { type: "local-ops"; ticketId: string; ops: readonly BlockOp[];
+  | { type: "local-ops"; ticketId: TicketId; ops: readonly BlockOp[];
       nowMs: number }
   | { type: "local-tree"; blocks: BlockNode[] }
   | { type: "remote-ops"; ops: readonly BlockOp[]; nowMs: number }
   // The replay is what a repair rebases this write onto a fresh server tree
   // with, so every announcement must state it — `[]` only when the write
   // genuinely has nothing to reapply here.
-  | { type: "write-started"; ticketId: string; scope: readonly string[];
+  | { type: "write-started"; ticketId: TicketId; scope: readonly string[];
       replay: readonly OutlineReplayAction[] }
-  | { type: "write-replay"; ticketId: string;
+  | { type: "write-replay"; ticketId: TicketId;
       replay: readonly OutlineReplayAction[] }
   | { type: "authoritative"; token: ReadToken; blocks: BlockNode[] }
   | { type: "authoritative-repair"; token: ReadToken; blocks: BlockNode[] }
-  | { type: "write-settled"; ticketId: string };
+  | { type: "write-settled"; ticketId: TicketId };
 
 export type OutlineEffect = {
   type: "request-authoritative";

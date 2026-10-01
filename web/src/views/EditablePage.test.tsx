@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
 import type { ClientId } from "../api/brands";
+import type { TicketId } from "../sync/opQueue";
 import { block, makeSync, reserveOutlineEditor, stubFetch,
          type SyncFake } from "../test-helpers";
 import { SyncContext } from "../sync/SyncProvider";
@@ -119,7 +120,7 @@ test("stale initial rerender while its scoped write is unsettled keeps optimisti
               scope?: readonly string[]) => {
       base.sent.push(ops);
       return {
-        id: "write-page",
+        id: "write-page" as TicketId,
         scope: scope ?? [],
         settled: new Promise<never>(() => undefined),
         delivered,

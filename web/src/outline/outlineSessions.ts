@@ -11,7 +11,7 @@
 // read causality.
 import type { BlockNode, PagePayload } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
-import type { WriteTicket } from "../sync/opQueue";
+import type { TicketId, WriteTicket } from "../sync/opQueue";
 import type { WsBatch } from "../sync/socket";
 import {
   beginAuthoritativeRead as beginRead,
@@ -134,7 +134,7 @@ interface Session {
   reservations: number;
   activatedCaptures: Set<RequestId>;
   loaders: Map<symbol, RegisteredLoader>;
-  trackedWrites: Set<string>;
+  trackedWrites: Set<TicketId>;
   manualReads: Set<RequestId>;
   /** Who starts this title's next full-payload parent read. */
   election: ParentReadElection;
@@ -153,7 +153,7 @@ interface UnresolvedWrite {
   capturedByTitle: Map<string, readonly OutlineReplayAction[]>;
 }
 
-const unresolvedWrites = new Map<string, UnresolvedWrite>();
+const unresolvedWrites = new Map<TicketId, UnresolvedWrite>();
 
 /** What a repair should reapply to `title` for this still-unresolved write.
  * There is always an answer — captured optimistic metadata when the UI

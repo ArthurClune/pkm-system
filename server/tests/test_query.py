@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 
 from pkm.server.db import open_db
@@ -146,3 +148,28 @@ def test_query_endpoint_ref_counts(client):
         "/api/query", params={"expr": "{and: [[Paper]] [[AI]]}"}).json()
     assert body["total"] == 0
     assert body["ref_counts"] == {"Paper": 1, "AI": 1}
+
+
+def test_query_endpoint_operand_with_padded_spaces_matches_canonical_title(
+        client, seeded_config):
+    """[[ Foo ]] -- spaces inside the brackets, part of the operand slice
+    query.py parses -- must still resolve against refs to the canonical
+    "Paper", the same page [[Paper]] (no padding) matches, once the
+    plain-space migration is active (canonicalize_title only strips edge
+    U+0020 under that flag)."""
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "UPDATE sync_meta SET value = '1'"
+        " WHERE key = 'plain_space_title_canonicalization'"
+    )
+    con.commit()
+    con.close()
+
+    canonical = client.get("/api/query", params={"expr": "{and: [[Paper]]}"}).json()
+    padded = client.get("/api/query", params={"expr": "{and: [[ Paper ]]}"}).json()
+
+    assert padded["total"] == canonical["total"] == 1
+    assert padded["groups"] == canonical["groups"]
+    # ref_counts is keyed by the canonical title the operand resolved to,
+    # not by the raw " Paper " text between the brackets.
+    assert padded["ref_counts"] == {"Paper": 1}

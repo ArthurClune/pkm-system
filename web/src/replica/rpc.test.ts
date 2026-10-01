@@ -29,7 +29,7 @@ test("interleaved calls resolve to their own callers", async () => {
   });
   const rpc = createRpcClient(client);
   const [a, b, c] = await Promise.all(
-    [1, 2, 3].map((n) => rpc.call<number>("double", n)));
+    [1, 2, 3].map((n) => rpc.call("double", n)));
   expect([a, b, c]).toEqual([2, 4, 6]);
 });
 
@@ -140,7 +140,7 @@ test("timeouts reject and remove each pending call without poisoning the client"
     await expect(second).resolves.toMatchObject({ kind: "timeout" });
     port.reply(port.sent[0].id, "late");
     port.reply(port.sent[1].id, "late");
-    const third = rpc.call<string>("third", undefined, { timeoutMs: 10 });
+    const third = rpc.call("third", undefined, { timeoutMs: 10 });
     port.reply(port.sent[2].id, "ok");
     await expect(third).resolves.toBe("ok");
   } finally {

@@ -1,11 +1,11 @@
 ---
 # pkm-ke5j
 title: Typed method map for the replica worker RPC
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-10-01T16:45:35Z
-updated_at: 2026-10-01T16:45:35Z
+updated_at: 2026-10-01T17:16:36Z
 parent: pkm-7uxw
 ---
 
@@ -30,9 +30,9 @@ The transport (`serveRpc` / `createRpcClient`) stays generic, while the replica'
 
 ## Plan
 
-- [ ] Inventory every method: name, payload and result shape, from `client.ts` and `workerHandlers.ts`
-- [ ] Define the map, and type `call` and the handler record against it
-- [ ] Remove the per-handler payload casts, keeping one boundary assertion, and remove the per-wrapper `T` choices
-- [ ] `@ts-expect-error` probes: an unknown method name, a wrong payload shape, and a result read as the wrong type
+- [x] Inventory every method: name, payload and result shape, from `client.ts` and `workerHandlers.ts`
+- [x] Define the map, and type `call` and the handler record against it
+- [x] Remove the per-handler payload casts, keeping one boundary assertion, and remove the per-wrapper `T` choices
+- [x] `@ts-expect-error` probes: an unknown method name, a wrong payload shape, and a result read as the wrong type
 - [ ] `pnpm verify` clean; perf unchanged (types only)
-- [ ] Docs: the sync-recovery.md or frontend.md note on the worker RPC
+- [x] Docs: the sync-recovery.md or frontend.md note on the worker RPC

@@ -7,11 +7,12 @@ import type { components } from "../api/types";
 import type { Snapshot } from "./apply";
 import {
   createReplica, type AckedBatch, type PendingRowId, type Replica,
+  type ReplicaRpc,
 } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import { ReplicaUnusableError } from "./errors";
 import { setMeta } from "./meta";
-import { serveRpc, toPortLike } from "./rpc";
+import { createRpcClient, serveRpc, toPortLike, type RpcHandlers } from "./rpc";
 import { openRawTestDb, type TestDb } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
 
@@ -294,7 +295,7 @@ test("a prepare delayed past its client timeout cannot later orphan the worker l
       },
       newBatchId: () => bid("batch-after-timeout"),
     });
-    serveRpc(toPortLike(ch.port2), {
+    serveRpc<ReplicaRpc>(toPortLike(ch.port2), {
       ...base,
       prepareRecovery: async (payload) => {
         try {
@@ -372,7 +373,7 @@ test("a recovery lease gates enqueue and offline POST until the fresh database i
       return () => bid(`batch-${++id}`);
     })(),
   });
-  serveRpc(toPortLike(ch.port2), {
+  serveRpc<ReplicaRpc>(toPortLike(ch.port2), {
     ...base,
     enqueue: async (payload) => {
       enqueueDispatched.resolve();
@@ -458,4 +459,48 @@ test("markPoisoned's error/batchId brand rejects an unbranded batchId (compile-t
   // @ts-expect-error batchId takes a BatchId, not the bare error string
   void markPoisoned(rowId, error, error);
   expect(markPoisoned).toBeDefined();
+});
+
+// ReplicaRpc is the one contract createReplica's rpc.call and
+// workerHandlers.ts's buildHandlers both compile against; these four probes
+// are what a plain `Record<string, ...>` map (what rpc.ts had before) could
+// not catch, each at build time rather than at "unknown replica method: …".
+test("rpc.call rejects a method ReplicaRpc does not declare (compile-time only)", () => {
+  const rpc = createRpcClient<ReplicaRpc>(toPortLike(new MessageChannel().port1));
+  // @ts-expect-error "bogus" is not a key of ReplicaRpc
+  void rpc.call("bogus");
+  expect(rpc).toBeDefined();
+});
+
+test("rpc.call rejects a wrongly-shaped payload (compile-time only)", () => {
+  const rpc = createRpcClient<ReplicaRpc>(toPortLike(new MessageChannel().port1));
+  const rowId = 1 as PendingRowId;
+  const seq = 7 as SyncSeq;
+  // @ts-expect-error deleteBatch's batchId takes a BatchId, not a plain string
+  void rpc.call("deleteBatch", { id: rowId, batchId: "b" });
+  // @ts-expect-error deleteBatch's id takes a PendingRowId, not a SyncSeq
+  void rpc.call("deleteBatch", { id: seq, batchId: bid("b") });
+  expect(rpc).toBeDefined();
+});
+
+test("rpc.call's result is typed per method, not as a free type parameter (compile-time only)", () => {
+  const rpc = createRpcClient<ReplicaRpc>(toPortLike(new MessageChannel().port1));
+  // @ts-expect-error pendingCount resolves a number, not a string
+  const asString: Promise<string> = rpc.call("pendingCount");
+  expect(asString).toBeDefined();
+});
+
+test("RpcHandlers<ReplicaRpc> rejects an incomplete or mistyped handler record (compile-time only)", () => {
+  // @ts-expect-error missing every method but init: not every key of
+  // ReplicaRpc is covered
+  const incomplete: RpcHandlers<ReplicaRpc> = {
+    init: async () => ({
+      empty: true, cursor: 0 as SyncSeq, schemaMismatch: false, pendingBatches: [],
+    }),
+  };
+  const pendingCount: RpcHandlers<ReplicaRpc>["pendingCount"] =
+    // @ts-expect-error pendingCount must resolve a number, not a string
+    async () => "nope";
+  expect(incomplete).toBeDefined();
+  expect(pendingCount).toBeDefined();
 });

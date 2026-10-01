@@ -335,6 +335,13 @@ shell owns fetching, selection and the download. The zip export is
 submitted as a throwaway hidden `<form method="post">`, so the browser owns
 the download instead of the SPA buffering it.
 
+`refGroups` returns `AssetRefGroup`, not `BacklinkGroup`: the asset search
+payload carries no page ids, and `AssetRefGroup` has no `page_id` field at
+all rather than a synthetic one. `BacklinkGroupList` accepts either shape,
+keying each row on `page_id` when present and `page_title` otherwise. The
+missing field also keeps `AssetRefGroup` out of `mergeGroups`'s page_id
+generic, so asset refs can never be paginated into the wrong page's group.
+
 ## State management
 
 There is no Redux/Zustand; state lives in three layers:

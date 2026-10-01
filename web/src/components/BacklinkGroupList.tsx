@@ -5,11 +5,19 @@
 // growing a second renderer.
 import type { BacklinkGroup } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
+import type { AssetRefGroup } from "../views/filesCore";
 import { InlineSegments } from "./InlineSegments";
 import { PageLink } from "./PageLink";
 
+// page_id only exists on real backlink groups; asset ref groups have none
+// (see AssetRefGroup), so page_title -- unique within either list -- is the
+// one key both shapes can supply.
+function groupKey(g: BacklinkGroup | AssetRefGroup): string | number {
+  return "page_id" in g ? g.page_id : g.page_title;
+}
+
 export function BacklinkGroupList({ groups, onNavigate }: {
-  groups: BacklinkGroup[];
+  groups: (BacklinkGroup | AssetRefGroup)[];
   /** When set, each item becomes a navigation target (the popover);
    * without it, items render inertly (the backlinks section, where
    * navigation lives on the inline links themselves). */
@@ -18,7 +26,7 @@ export function BacklinkGroupList({ groups, onNavigate }: {
   return (
     <>
       {groups.map((g) => (
-        <div className="backlink-group" key={g.page_id}>
+        <div className="backlink-group" key={groupKey(g)}>
           <h3 className="group-title"><PageLink title={g.page_title} tag={false} /></h3>
           {g.items.map((item) => (
             <div className={"backlink-item" + (onNavigate ? " navigable" : "")}

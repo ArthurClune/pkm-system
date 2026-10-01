@@ -18,7 +18,8 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, BeforeValidator, Field
 
 from pkm.changed import ChangeStatus
-from pkm.contracts.ops import HeadingLevel, OpKind, ViewType
+from pkm.contracts.ops import (BlockUid, HeadingLevel, OpKind, PageId,
+                               SidebarEntryId, ViewType)
 from pkm.refs import RefKind
 
 
@@ -39,14 +40,14 @@ StoredHeading = Annotated[HeadingLevel | None,
 
 
 class PageMeta(BaseModel):
-    id: int
+    id: PageId
     title: str
     created_at: int | None
     updated_at: int | None
 
 
 class BlockNode(BaseModel):
-    uid: str
+    uid: BlockUid
     text: str
     heading: StoredHeading
     view_type: ViewType | None
@@ -68,13 +69,13 @@ def walk_blocks(nodes: Sequence[BlockNode]) -> Iterator[BlockNode]:
 
 
 class BacklinkItem(BaseModel):
-    uid: str
+    uid: BlockUid
     text: str
     breadcrumbs: list[str]
 
 
 class BacklinkGroup(BaseModel):
-    page_id: int
+    page_id: PageId
     page_title: str
     items: list[BacklinkItem]
 
@@ -100,15 +101,15 @@ class BlockRefText(BaseModel):
 
 class BlockRefsPayload(BaseModel):
     """GET /api/block-refs: on-demand ((uid)) resolution."""
-    block_ref_texts: dict[str, BlockRefText]
+    block_ref_texts: dict[BlockUid, BlockRefText]
 
 
 class PagePayload(BaseModel):
     page: PageMeta
     blocks: list[BlockNode]
     backlinks: Backlinks
-    block_ref_texts: dict[str, BlockRefText]
-    block_ref_counts: dict[str, int]
+    block_ref_texts: dict[BlockUid, BlockRefText]
+    block_ref_counts: dict[BlockUid, int]
 
 
 class RenamePageResponse(BaseModel):
@@ -120,12 +121,12 @@ class RenamePageResponse(BaseModel):
 
 
 class GroupItem(BaseModel):
-    uid: str
+    uid: BlockUid
     text: str
 
 
 class BlockGroup(BaseModel):
-    page_id: int
+    page_id: PageId
     page_title: str
     items: list[GroupItem]
 
@@ -143,7 +144,7 @@ class QueryPayload(GroupsPayload):
 
 
 class ChangedItem(BaseModel):
-    uid: str
+    uid: BlockUid
     text: str
     created_at: int | None
     updated_at: int | None
@@ -151,7 +152,7 @@ class ChangedItem(BaseModel):
 
 
 class ChangedGroup(BaseModel):
-    page_id: int
+    page_id: PageId
     page_title: str
     items: list[ChangedItem]
 
@@ -182,12 +183,12 @@ class JournalDay(BaseModel):
 
 class JournalPayload(BaseModel):
     days: list[JournalDay]
-    block_ref_texts: dict[str, BlockRefText]
-    block_ref_counts: dict[str, int]
+    block_ref_texts: dict[BlockUid, BlockRefText]
+    block_ref_counts: dict[BlockUid, int]
 
 
 class CurrentWorkPage(BaseModel):
-    id: int
+    id: PageId
     title: str
     updated_at: int
 
@@ -203,12 +204,12 @@ class CurrentWorkPayload(BaseModel):
 
 
 class SearchPageHit(BaseModel):
-    id: int
+    id: PageId
     title: str
 
 
 class SearchBlockHit(BaseModel):
-    uid: str
+    uid: BlockUid
     page_title: str
     snippet: str
 
@@ -223,7 +224,7 @@ class TitlesPayload(BaseModel):
 
 
 class SidebarNavEntry(BaseModel):
-    id: int
+    id: SidebarEntryId
     title: str
 
 
@@ -241,7 +242,7 @@ class AssetUploadResponse(BaseModel):
 
 
 class AssetRef(BaseModel):
-    uid: str
+    uid: BlockUid
     page_title: str
 
 
@@ -275,7 +276,7 @@ class ScanPayload(BaseModel):
 
 
 class LocalCheckProblem(BaseModel):
-    uid: str
+    uid: BlockUid
     page: str
     href: str
     status: Literal["missing", "evicted", "invalid"]
@@ -319,7 +320,7 @@ class GoodlinksArticle(BaseModel):
 
 
 class GoodlinksCheckProblem(BaseModel):
-    uid: str
+    uid: BlockUid
     page: str
     href: str
     status: Literal["missing", "invalid"]
@@ -335,14 +336,14 @@ class GoodlinksCheckPayload(BaseModel):
     problems: list[GoodlinksCheckProblem]
 
 class SyncRef(BaseModel):
-    target_page_id: int
+    target_page_id: PageId
     kind: RefKind
 
 
 class SyncBlock(BaseModel):
-    uid: str
-    page_id: int
-    parent_uid: str | None
+    uid: BlockUid
+    page_id: PageId
+    parent_uid: BlockUid | None
     order_idx: int
     text: str
     heading: StoredHeading
@@ -354,14 +355,14 @@ class SyncBlock(BaseModel):
 
 
 class SyncPage(BaseModel):
-    id: int
+    id: PageId
     title: str
     created_at: int | None
     updated_at: int | None
 
 
 class SyncSidebarEntry(BaseModel):
-    id: int
+    id: SidebarEntryId
     title: str
     order_idx: int
 
@@ -392,7 +393,7 @@ class BlockPayload(BaseModel):
     page: PageMeta
     block: BlockNode
     breadcrumbs: list[str]
-    block_ref_texts: dict[str, BlockRefText]
+    block_ref_texts: dict[BlockUid, BlockRefText]
 
 
 class SnapshotPayload(BaseModel):
@@ -425,12 +426,12 @@ class AssistantModels(BaseModel):
 
 
 class TitleMigrationPage(BaseModel):
-    page_id: int
+    page_id: PageId
     title: str
 
 
 class TitleMigrationBlocker(BaseModel):
-    page_id: int
+    page_id: PageId
     title: str
     reason: Literal["all_space", "forbidden_syntax"]
 
@@ -492,7 +493,7 @@ class SkippedOp(BaseModel):
     under itself or its own descendant (`ops_core.skip_report`)."""
     index: int
     op: OpKind
-    uid: str
+    uid: BlockUid
     reason: SkipReason
     # the daily page the op's note or lost text landed on; None when
     # nothing was written (a collapse/delete no-op, a blank text)

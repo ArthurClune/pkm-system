@@ -1,11 +1,11 @@
 ---
 # pkm-la88
 title: EpochMs and OrderIdx named types (optional)
-status: todo
+status: in-progress
 type: task
 priority: deferred
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T10:42:35Z
+updated_at: 2026-10-01T19:52:58Z
 parent: pkm-7uxw
 ---
 

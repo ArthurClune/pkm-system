@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 
+from pkm.contracts.responses import ConfirmId
+
 
 @dataclass(frozen=True)
 class TextDelta:
@@ -29,7 +31,7 @@ class ToolFinished:
 
 @dataclass(frozen=True)
 class ConfirmRequest:
-    tool_use_id: str
+    confirm_id: ConfirmId
     ops_preview: str
 
 

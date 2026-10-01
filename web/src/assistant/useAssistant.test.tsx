@@ -1,6 +1,7 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError } from "../api/client";
+import type { ConfirmId } from "../api/brands";
 import type { AssistantEvent } from "./sse";
 
 const mocks = vi.hoisted(() => ({
@@ -126,7 +127,7 @@ describe("useAssistant", () => {
     let release!: () => void;
     mocks.streamMessage.mockImplementation(
       async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent({ type: "confirm_request", tool_use_id: "t1", ops_preview: "save_note(...)" });
+        onEvent({ type: "confirm_request", confirm_id: "t1" as ConfirmId, ops_preview: "save_note(...)" });
         await new Promise<void>((r) => (release = r));
         onEvent({ type: "text_delta", text: "Saved." });
         onEvent({ type: "turn_done", usage: null });
@@ -140,7 +141,7 @@ describe("useAssistant", () => {
       await Promise.resolve();
     });
     expect(latest.status).toBe("confirm");
-    expect(latest.pendingConfirm).toEqual({ toolUseId: "t1", opsPreview: "save_note(...)" });
+    expect(latest.pendingConfirm).toEqual({ confirmId: "t1", opsPreview: "save_note(...)" });
     await act(async () => {
       await latest.respondConfirm(true);
       release();
@@ -155,7 +156,7 @@ describe("useAssistant", () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     mocks.streamMessage.mockImplementation(
       async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent({ type: "confirm_request", tool_use_id: "t1", ops_preview: "save_note(...)" });
+        onEvent({ type: "confirm_request", confirm_id: "t1" as ConfirmId, ops_preview: "save_note(...)" });
         await new Promise<void>(() => {}); // turn stays open awaiting the confirm decision
       },
     );
@@ -165,9 +166,9 @@ describe("useAssistant", () => {
       latest.send("please write");
       await Promise.resolve();
     });
-    expect(latest.pendingConfirm).toEqual({ toolUseId: "t1", opsPreview: "save_note(...)" });
+    expect(latest.pendingConfirm).toEqual({ confirmId: "t1", opsPreview: "save_note(...)" });
     await act(() => latest.respondConfirm(true));
-    expect(latest.pendingConfirm).toEqual({ toolUseId: "t1", opsPreview: "save_note(...)" });
+    expect(latest.pendingConfirm).toEqual({ confirmId: "t1", opsPreview: "save_note(...)" });
     expect(latest.status).toBe("confirm");
     expect(latest.error).toBe("network down");
   });
@@ -246,7 +247,7 @@ describe("useAssistant", () => {
     mocks.streamMessage.mockImplementation(
       async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
         onEvent({ type: "phase", label: "preparing save_note" });
-        onEvent({ type: "confirm_request", tool_use_id: "t1", ops_preview: "save_note(...)" });
+        onEvent({ type: "confirm_request", confirm_id: "t1" as ConfirmId, ops_preview: "save_note(...)" });
         await new Promise<void>((r) => (release = r));
         onEvent({ type: "turn_done", usage: null });
       },
@@ -490,7 +491,7 @@ describe("useAssistant", () => {
     // land in the fresh transcript
     act(() => {
       emit({ type: "text_delta", text: "y from the dead turn" });
-      emit({ type: "confirm_request", tool_use_id: "t9", ops_preview: "x" });
+      emit({ type: "confirm_request", confirm_id: "t9" as ConfirmId, ops_preview: "x" });
       emit({ type: "error", message: "stale boom" });
     });
     expect(latest.items).toEqual([]);
@@ -684,7 +685,7 @@ describe("useAssistant", () => {
     mocks.streamMessage.mockImplementation(
       async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void,
              signal?: AbortSignal) => {
-        onEvent({ type: "confirm_request", tool_use_id: "t1", ops_preview: "save_note(...)" });
+        onEvent({ type: "confirm_request", confirm_id: "t1" as ConfirmId, ops_preview: "save_note(...)" });
         await new Promise<void>((_resolve, reject) => {
           signal?.addEventListener("abort", () =>
             reject(new DOMException("aborted", "AbortError")));

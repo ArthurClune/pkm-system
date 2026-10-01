@@ -15,7 +15,7 @@ from pkm.assistant.engine import AgentEngine, ConversationHandle
 from pkm.assistant.events import AssistantEvent
 from pkm.assistant.policy import SYSTEM_PROMPT, default_model, resolve_model
 from pkm.assistant.policy import available_models as _policy_available_models
-from pkm.contracts.responses import AssistantModel
+from pkm.contracts.responses import AssistantModel, ConfirmId, ConversationId
 
 logger = logging.getLogger("pkm.assistant")
 
@@ -81,7 +81,7 @@ class AssistantService:
         self._idle_ttl = idle_ttl
         self._clock = clock
         self._create_timeout = create_timeout
-        self._entries: dict[str, _Entry] = {}
+        self._entries: dict[ConversationId, _Entry] = {}
         # Guards the whole admission path (reap + cap check + eviction +
         # engine.create_conversation + registration) so two concurrent
         # create() calls can't both observe free capacity and both proceed:
@@ -101,12 +101,12 @@ class AssistantService:
         # harness's teardown to finish before admission proceeds.
         self._admission_lock = asyncio.Lock()
 
-    async def create(self, model: str | None) -> tuple[str, AssistantModel]:
+    async def create(self, model: str | None) -> tuple[ConversationId, AssistantModel]:
         resolved = self.default_model if model is None else resolve_model(model)
         if resolved not in self.available_models:
             raise ValueError(
                 f"model {resolved!r} is not available (missing provider key?)")
-        to_close: list[tuple[str, ConversationHandle]] = []
+        to_close: list[tuple[ConversationId, ConversationHandle]] = []
         try:
             async with self._admission_lock:
                 to_close.extend(self._reap_idle())
@@ -135,7 +135,7 @@ class AssistantService:
                         resolved,
                     )
                     raise
-                cid = secrets.token_hex(8)
+                cid = ConversationId(secrets.token_hex(8))
                 self._entries[cid] = _Entry(handle=handle, model=resolved, last_used=self._clock())
                 logger.info("assistant conversation %s created (model=%s)", cid, resolved)
                 return cid, resolved
@@ -173,7 +173,7 @@ class AssistantService:
             if first_cancel is not None:
                 raise first_cancel
 
-    def send(self, conversation_id: str, text: str) -> AsyncGenerator[AssistantEvent, None]:
+    def send(self, conversation_id: ConversationId, text: str) -> AsyncGenerator[AssistantEvent, None]:
         entry = self._get(conversation_id)
         if entry.busy:
             raise BusyError("a turn is already in progress")
@@ -187,7 +187,7 @@ class AssistantService:
         return self._stream(conversation_id, entry, text)
 
     async def _stream(
-        self, cid: str, entry: _Entry, text: str
+        self, cid: ConversationId, entry: _Entry, text: str
     ) -> AsyncGenerator[AssistantEvent, None]:
         try:
             entry.last_used = self._clock()
@@ -232,10 +232,10 @@ class AssistantService:
                         "could run", cid
                     )
 
-    def confirm(self, conversation_id: str, tool_use_id: str, allow: bool) -> None:
-        self._get(conversation_id).handle.resolve_confirm(tool_use_id, allow)
+    def confirm(self, conversation_id: ConversationId, confirm_id: ConfirmId, allow: bool) -> None:
+        self._get(conversation_id).handle.resolve_confirm(confirm_id, allow)
 
-    async def delete(self, conversation_id: str) -> None:
+    async def delete(self, conversation_id: ConversationId) -> None:
         entry = self._entries.pop(conversation_id, None)
         if entry is not None:
             await entry.handle.close()
@@ -245,13 +245,13 @@ class AssistantService:
         for cid in list(self._entries):
             await self.delete(cid)
 
-    def _get(self, conversation_id: str) -> _Entry:
+    def _get(self, conversation_id: ConversationId) -> _Entry:
         entry = self._entries.get(conversation_id)
         if entry is None:
             raise UnknownConversationError(conversation_id)
         return entry
 
-    def _reap_idle(self) -> list[tuple[str, ConversationHandle]]:
+    def _reap_idle(self) -> list[tuple[ConversationId, ConversationHandle]]:
         # Synchronous: only pops from `_entries` (atomic under the admission
         # lock). Closing the harness is the caller's job, done after the
         # lock is released -- see create()'s comment on _admission_lock.
@@ -264,7 +264,7 @@ class AssistantService:
             reaped.append((cid, entry.handle))
         return reaped
 
-    def _evict_oldest_idle(self) -> tuple[str, ConversationHandle] | None:
+    def _evict_oldest_idle(self) -> tuple[ConversationId, ConversationHandle] | None:
         # Synchronous for the same reason as _reap_idle above.
         candidates = sorted(
             ((e.last_used, cid) for cid, e in self._entries.items() if not e.busy),

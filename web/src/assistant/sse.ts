@@ -1,12 +1,13 @@
 // pattern: Functional Core
 // Incremental parser for the assistant's SSE stream (event:/data: frames).
+import type { ConfirmId } from "../api/brands";
 
 export type AssistantEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_started"; name: string; summary: string }
   | { type: "tool_finished"; name: string }
   | { type: "phase"; label: string }
-  | { type: "confirm_request"; tool_use_id: string; ops_preview: string }
+  | { type: "confirm_request"; confirm_id: ConfirmId; ops_preview: string }
   | { type: "turn_done"; usage: Record<string, unknown> | null }
   | { type: "error"; message: string };
 

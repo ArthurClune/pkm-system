@@ -15,6 +15,7 @@ from pkm.assistant.service import (
     UnknownConversationError,
     _Entry,
 )
+from pkm.contracts.responses import ConfirmId, ConversationId
 
 
 class FakeClock:
@@ -51,7 +52,7 @@ class _StubHandle:
 
         return _gen()
 
-    def resolve_confirm(self, tool_use_id: str, allow: bool) -> None:
+    def resolve_confirm(self, confirm_id: ConfirmId, allow: bool) -> None:
         pass
 
     async def close(self) -> None:
@@ -234,8 +235,8 @@ def test_full_cap_raises_when_every_conversation_is_busy():
         with pytest.raises(ConversationLimitError):
             await service.create(None)
         # tidy up the parked turns
-        service.confirm(cid1, "fake-confirm-1", False)
-        service.confirm(cid2, "fake-confirm-1", False)
+        service.confirm(cid1, ConfirmId("fake-confirm-1"), False)
+        service.confirm(cid2, ConfirmId("fake-confirm-1"), False)
         _ = [ev async for ev in stream1]
         _ = [ev async for ev in stream2]
 
@@ -282,7 +283,7 @@ def test_send_streams_and_unknown_id_raises():
         cid, _ = await service.create(None)
         events = [ev async for ev in service.send(cid, "hi")]
         with pytest.raises(UnknownConversationError):
-            service.send("nope", "hi")
+            service.send(ConversationId("nope"), "hi")
         return events
 
     events = asyncio.run(scenario())
@@ -300,7 +301,7 @@ def test_send_while_busy_raises():
         assert isinstance(first[-1], ConfirmRequest)
         with pytest.raises(BusyError):
             service.send(cid, "second message")
-        service.confirm(cid, first[-1].tool_use_id, True)
+        service.confirm(cid, first[-1].confirm_id, True)
         rest = [ev async for ev in stream]
         return rest
 
@@ -311,7 +312,7 @@ def test_send_while_busy_raises():
 def test_confirm_unknown_conversation_raises():
     service = AssistantService(FakeEngine())
     with pytest.raises(UnknownConversationError):
-        service.confirm("nope", "t1", True)
+        service.confirm(ConversationId("nope"), ConfirmId("t1"), True)
 
 
 # --- an interrupt that never lands leaves the harness state uncertain --
@@ -327,10 +328,10 @@ def test_second_send_after_failed_interrupt_gets_unknown_conversation():
     engine = FakeEngine()
     service = AssistantService(engine)
     handle = _StubHandle(unhealthy_after_interrupt=True)
-    service._entries["broken"] = _Entry(handle=handle, model="sonnet", last_used=service._clock())
+    service._entries[ConversationId("broken")] = _Entry(handle=handle, model="sonnet", last_used=service._clock())
 
     async def scenario():
-        stream = service.send("broken", "hi")
+        stream = service.send(ConversationId("broken"), "hi")
         task = asyncio.create_task(_drain(stream))
         for _ in range(3):
             await asyncio.sleep(0)  # let it reach the blocking send()
@@ -338,7 +339,7 @@ def test_second_send_after_failed_interrupt_gets_unknown_conversation():
         with contextlib.suppress(asyncio.CancelledError):
             await task
         with pytest.raises(UnknownConversationError):
-            service.send("broken", "again")
+            service.send(ConversationId("broken"), "again")
 
     asyncio.run(scenario())
     assert handle.healthy is False
@@ -353,17 +354,17 @@ def test_healthy_conversation_is_reused_after_a_dropped_turn():
     engine = FakeEngine()
     service = AssistantService(engine)
     handle = _StubHandle()
-    service._entries["ok"] = _Entry(handle=handle, model="sonnet", last_used=service._clock())
+    service._entries[ConversationId("ok")] = _Entry(handle=handle, model="sonnet", last_used=service._clock())
 
     async def scenario():
-        _ = [ev async for ev in service.send("ok", "hi")]
+        _ = [ev async for ev in service.send(ConversationId("ok"), "hi")]
 
     asyncio.run(scenario())
     assert handle.healthy is True
     assert handle.closed is False
     assert "ok" in service._entries
     # the entry is usable again, not stuck busy or removed
-    assert service._entries["ok"].busy is False
+    assert service._entries[ConversationId("ok")].busy is False
 
 
 def test_concurrent_delete_during_unacknowledged_interrupt_is_not_logged_as_retired(
@@ -376,14 +377,14 @@ def test_concurrent_delete_during_unacknowledged_interrupt_is_not_logged_as_reti
     engine = FakeEngine()
     service = AssistantService(engine)
     handle = _StubHandle(unhealthy_after_interrupt=True)
-    service._entries["broken"] = _Entry(handle=handle, model="sonnet", last_used=service._clock())
+    service._entries[ConversationId("broken")] = _Entry(handle=handle, model="sonnet", last_used=service._clock())
 
     async def scenario():
-        stream = service.send("broken", "hi")
+        stream = service.send(ConversationId("broken"), "hi")
         task = asyncio.create_task(_drain(stream))
         for _ in range(3):
             await asyncio.sleep(0)  # let it reach the blocking send()
-        await service.delete("broken")  # races the interrupt-cleanup below
+        await service.delete(ConversationId("broken"))  # races the interrupt-cleanup below
         task.cancel()  # simulates the SSE consumer dropping mid-turn
         with contextlib.suppress(asyncio.CancelledError):
             await task
@@ -591,8 +592,8 @@ def test_close_loop_continues_past_a_cancelled_handle_and_reraises():
     normal = _StubHandle()
     # Seed two already-idle entries directly so a single create() reaps both
     # into to_close in one pass, in insertion order (hung first).
-    service._entries["stale-hung"] = _Entry(handle=hung, model="sonnet", last_used=0.0)
-    service._entries["stale-normal"] = _Entry(handle=normal, model="sonnet", last_used=0.0)
+    service._entries[ConversationId("stale-hung")] = _Entry(handle=hung, model="sonnet", last_used=0.0)
+    service._entries[ConversationId("stale-normal")] = _Entry(handle=normal, model="sonnet", last_used=0.0)
 
     async def scenario():
         task = asyncio.create_task(service.create(None))

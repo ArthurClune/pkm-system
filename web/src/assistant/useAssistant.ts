@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/client";
+import type { ConfirmId, ConversationId } from "../api/brands";
 import {
   closeConversationBeacon,
   confirmTool,
@@ -43,7 +44,7 @@ const BUSY_RETRY_ATTEMPTS = 5;
 const BUSY_RETRY_DELAY_MS = 60;
 
 async function streamWithBusyRetry(
-  id: string,
+  id: ConversationId,
   text: string,
   onEvent: (ev: AssistantEvent) => void,
   signal: AbortSignal,
@@ -64,7 +65,7 @@ export type ChatItem =
   | { kind: "assistant"; text: string }
   | { kind: "tool"; name: string; summary: string; done: boolean };
 
-export type PendingConfirm = { toolUseId: string; opsPreview: string };
+export type PendingConfirm = { confirmId: ConfirmId; opsPreview: string };
 
 /** What the busy line shows: the server's phase label ("reasoning",
  * "preparing save_note", "replying") or null for the unlabelled stretches
@@ -95,7 +96,7 @@ export function useAssistant() {
   }, []);
   const modelsRequested = useRef(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
-  const conversationId = useRef<string | null>(null);
+  const conversationId = useRef<ConversationId | null>(null);
   const abortController = useRef<AbortController | null>(null);
   const stopRequested = useRef(false);
 
@@ -172,7 +173,7 @@ export function useAssistant() {
         });
         break;
       case "confirm_request":
-        setPendingConfirm({ toolUseId: ev.tool_use_id, opsPreview: ev.ops_preview });
+        setPendingConfirm({ confirmId: ev.confirm_id, opsPreview: ev.ops_preview });
         setStatus("confirm");
         break;
       case "turn_done":
@@ -289,7 +290,7 @@ export function useAssistant() {
       // the busy line's clock rather than resume a stale label
       setPhase({ label: null, since: Date.now() });
       try {
-        await confirmTool(id, pending.toolUseId, allow);
+        await confirmTool(id, pending.confirmId, allow);
       } catch (err) {
         // newChat superseded this decision: the conversation it belonged to is
         // gone, and neither the reset below nor an error banner may land on the

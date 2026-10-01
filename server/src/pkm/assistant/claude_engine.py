@@ -47,6 +47,7 @@ from pkm.assistant.policy import (
     short_tool_name,
     tool_summary,
 )
+from pkm.contracts.responses import ConfirmId
 from pkm.server.auth_core import sign_session
 
 logger = logging.getLogger("pkm.assistant")
@@ -138,7 +139,7 @@ class ClaudeConversation:
         self._config_path = config_path
         self._client: Any = None
         self._queue: asyncio.Queue[AssistantEvent] = asyncio.Queue()
-        self._pending: dict[str, asyncio.Future[bool]] = {}
+        self._pending: dict[ConfirmId, asyncio.Future[bool]] = {}
         self._confirm_seq = 0
         self._pump_task: asyncio.Task[None] | None = None
         # Flips to False the moment an interrupt on this harness goes
@@ -158,23 +159,27 @@ class ClaudeConversation:
             logger.warning("assistant requested unexpected tool %s", tool_name)
             return PermissionResultDeny(message="Tool not permitted.")
         self._confirm_seq += 1
-        tool_use_id = f"confirm-{self._confirm_seq}"
+        # A local counter, not the SDK's own tool_use id (that id lives on
+        # the ToolUseBlock/ToolResultBlock pair TurnMapper reads above, a
+        # different concept entirely): this is only ever a key this process
+        # mints and resolves for one pending confirm.
+        confirm_id = ConfirmId(f"confirm-{self._confirm_seq}")
         fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
-        self._pending[tool_use_id] = fut
+        self._pending[confirm_id] = fut
         short = short_tool_name(tool_name)
         await self._queue.put(
-            ConfirmRequest(tool_use_id=tool_use_id, ops_preview=ops_preview(short, tool_input or {}))
+            ConfirmRequest(confirm_id=confirm_id, ops_preview=ops_preview(short, tool_input or {}))
         )
         try:
             allowed = await fut
         finally:
-            self._pending.pop(tool_use_id, None)
+            self._pending.pop(confirm_id, None)
         if allowed:
             return PermissionResultAllow()
         return PermissionResultDeny(message="The user declined this action.")
 
-    def resolve_confirm(self, tool_use_id: str, allow: bool) -> None:
-        fut = self._pending.get(tool_use_id)
+    def resolve_confirm(self, confirm_id: ConfirmId, allow: bool) -> None:
+        fut = self._pending.get(confirm_id)
         if fut is not None and not fut.done():
             fut.set_result(allow)
 

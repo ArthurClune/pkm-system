@@ -999,7 +999,7 @@ export interface components {
         /** AssistantConversation */
         AssistantConversation: {
             /** Id */
-            id: string;
+            id: Brands.ConversationId;
             /**
              * Model
              * @enum {string}
@@ -1215,8 +1215,8 @@ export interface components {
         };
         /** ConfirmRequestBody */
         ConfirmRequestBody: {
-            /** Tool Use Id */
-            tool_use_id: string;
+            /** Confirm Id */
+            confirm_id: Brands.ConfirmId;
             /** Allow */
             allow: boolean;
         };

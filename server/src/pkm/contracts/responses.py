@@ -421,9 +421,24 @@ class SnapshotPayload(BaseModel):
 # import it without the contracts package depending on assistant.
 AssistantModel = Literal["sonnet", "opus", "haiku", "glm"]
 
+# Both live here, not in assistant/service.py or assistant/events.py, for the
+# same reason AssistantModel does: assistant/* already depends on contracts,
+# and a NewType used by a pydantic field needs to be importable without that
+# dependency running backwards.
+#
+# ConversationId is minted once, in AssistantService.create (secrets.token_hex).
+ConversationId = NewType("ConversationId", str)
+brand(ConversationId)
+# ConfirmId is minted once per pending tool confirmation, in
+# ClaudeConversation.can_use_tool -- a local counter, not the Claude Agent
+# SDK's own tool_use id (a different value entirely, on ToolUseBlock/
+# ToolResultBlock), which the field used to be misnamed after.
+ConfirmId = NewType("ConfirmId", str)
+brand(ConfirmId)
+
 
 class AssistantConversation(BaseModel):
-    id: str
+    id: ConversationId
     model: AssistantModel
 
 

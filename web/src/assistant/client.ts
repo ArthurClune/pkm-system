@@ -3,6 +3,7 @@
 // apiFetch consumes res.json(); it replicates apiFetch's 401 handling.
 
 import { ApiError, callUnauthorizedHandler, readErrorDetail } from "../api/client";
+import type { ConfirmId, ConversationId } from "../api/brands";
 import { apiDelete, apiGet, apiPost } from "../api/typedClient";
 import type { components } from "../api/types";
 import { createSseParser, type AssistantEvent } from "./sse";
@@ -22,7 +23,7 @@ export function createConversation(
                  { body: model ? { model } : {} });
 }
 
-export async function deleteConversation(id: string): Promise<void> {
+export async function deleteConversation(id: ConversationId): Promise<void> {
   await apiDelete("/api/assistant/conversations/{conversation_id}",
                   { path: { conversation_id: id } });
 }
@@ -35,19 +36,19 @@ export async function deleteConversation(id: string): Promise<void> {
  * over its POST alias (see server routes.py). There is no response to
  * check -- if it doesn't land, the conversation is still cleaned up later
  * by idle reaping or oldest-idle eviction. */
-export function closeConversationBeacon(id: string): void {
+export function closeConversationBeacon(id: ConversationId): void {
   if (typeof navigator === "undefined" || typeof navigator.sendBeacon !== "function") return;
   navigator.sendBeacon(`/api/assistant/conversations/${id}`);
 }
 
 export async function confirmTool(
-  id: string,
-  toolUseId: string,
+  id: ConversationId,
+  confirmId: ConfirmId,
   allow: boolean,
 ): Promise<void> {
   await apiPost("/api/assistant/conversations/{conversation_id}/confirm", {
     path: { conversation_id: id },
-    body: { tool_use_id: toolUseId, allow },
+    body: { confirm_id: confirmId, allow },
   });
 }
 
@@ -78,7 +79,7 @@ async function readWithStallGuard(
 }
 
 export async function streamMessage(
-  id: string,
+  id: ConversationId,
   text: string,
   onEvent: (ev: AssistantEvent) => void,
   signal?: AbortSignal,

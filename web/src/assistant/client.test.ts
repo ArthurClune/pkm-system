@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError, defaultUnauthorizedHandler, setUnauthorizedHandler } from "../api/client";
+import type { ConversationId } from "../api/brands";
 import { closeConversationBeacon, streamMessage } from "./client";
+
+const CID = "c1" as ConversationId;
 
 function sseResponse(frames: string[]): Response {
   const encoder = new TextEncoder();
@@ -33,7 +36,7 @@ describe("streamMessage", () => {
         ]),
       );
     const seen: string[] = [];
-    await streamMessage("c1", "hi", (ev) => seen.push(ev.type));
+    await streamMessage(CID, "hi", (ev) => seen.push(ev.type));
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/assistant/conversations/c1/messages",
       expect.objectContaining({
@@ -47,14 +50,14 @@ describe("streamMessage", () => {
 
   test("throws ApiError on non-OK status", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("nope", { status: 404 }));
-    await expect(streamMessage("c1", "hi", () => {})).rejects.toBeInstanceOf(ApiError);
+    await expect(streamMessage(CID, "hi", () => {})).rejects.toBeInstanceOf(ApiError);
   });
 
   test("surfaces the server's detail on non-OK status", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ detail: "unknown conversation" }), { status: 404 }),
     );
-    const err = await streamMessage("c1", "hi", () => {}).catch((e: unknown) => e);
+    const err = await streamMessage(CID, "hi", () => {}).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).detail).toBe("unknown conversation");
   });
@@ -63,7 +66,7 @@ describe("streamMessage", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 401 }));
     const handler = vi.fn();
     setUnauthorizedHandler(handler);
-    await expect(streamMessage("c1", "hi", () => {})).rejects.toThrow("401");
+    await expect(streamMessage(CID, "hi", () => {})).rejects.toThrow("401");
     expect(handler).toHaveBeenCalledOnce();
   });
 
@@ -74,7 +77,7 @@ describe("streamMessage", () => {
     vi.useFakeTimers();
     const silent = new ReadableStream<Uint8Array>({ start() {} }); // never emits
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(silent, { status: 200 }));
-    const turn = streamMessage("c1", "hi", () => {});
+    const turn = streamMessage(CID, "hi", () => {});
     const failure = expect(turn).rejects.toThrow(/lost connection to the server/i);
     await vi.advanceTimersByTimeAsync(60_000);
     await failure;
@@ -84,7 +87,7 @@ describe("streamMessage", () => {
     vi.useFakeTimers();
     const silent = new ReadableStream<Uint8Array>({ start() {} });
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(silent, { status: 200 }));
-    const turn = streamMessage("c1", "hi", () => {}).catch((e: unknown) => e);
+    const turn = streamMessage(CID, "hi", () => {}).catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(60_000);
     const err = await turn;
     expect(err).toBeInstanceOf(Error);
@@ -98,7 +101,7 @@ describe("streamMessage", () => {
     const stream = new ReadableStream<Uint8Array>({ start(c) { controller = c; } });
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(stream, { status: 200 }));
     const seen: string[] = [];
-    const turn = streamMessage("c1", "hi", (ev) => seen.push(ev.type));
+    const turn = streamMessage(CID, "hi", (ev) => seen.push(ev.type));
     // 50s gaps: each inside the window, though the turn as a whole outlives it
     await vi.advanceTimersByTimeAsync(50_000);
     controller.enqueue(encoder.encode(": keepalive\n\n"));
@@ -114,7 +117,7 @@ describe("streamMessage", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(sseResponse(['event: turn_done\ndata: {"usage": null}\n\n']));
     const controller = new AbortController();
-    await streamMessage("c1", "hi", () => {}, controller.signal);
+    await streamMessage(CID, "hi", () => {}, controller.signal);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/assistant/conversations/c1/messages",
       expect.objectContaining({ signal: controller.signal }),
@@ -126,14 +129,14 @@ describe("closeConversationBeacon", () => {
   test("sends a beacon to the conversation's own URL", () => {
     const sendBeacon = vi.fn().mockReturnValue(true);
     vi.stubGlobal("navigator", { ...navigator, sendBeacon });
-    closeConversationBeacon("c1");
+    closeConversationBeacon(CID);
     expect(sendBeacon).toHaveBeenCalledWith("/api/assistant/conversations/c1");
     vi.unstubAllGlobals();
   });
 
   test("no-ops silently when sendBeacon isn't available", () => {
     vi.stubGlobal("navigator", {});
-    expect(() => closeConversationBeacon("c1")).not.toThrow();
+    expect(() => closeConversationBeacon(CID)).not.toThrow();
     vi.unstubAllGlobals();
   });
 });

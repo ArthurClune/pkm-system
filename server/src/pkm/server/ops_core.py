@@ -671,11 +671,12 @@ def impossible_uid_reason(op: BlockOp, skip: Skip) -> str | None:
     mint valid uids, so this never wedges a real queue; it keeps arbitrary
     strings out of the journal and conflict_headers."""
     assert not isinstance(op, CreatePageOp)  # never classified skipped
-    if not isinstance(op, CreateOp) and not UID_RE.match(op.uid):
+    if not isinstance(op, CreateOp) and not UID_RE.fullmatch(op.uid):
         return f"block not found: {op.uid}"
     if (skip.kind in ("diverted_create", "move_parent_missing")
             and isinstance(op, (CreateOp, MoveOp))
-            and op.parent_uid is not None and not UID_RE.match(op.parent_uid)):
+            and op.parent_uid is not None
+            and not UID_RE.fullmatch(op.parent_uid)):
         return f"parent not found: {op.parent_uid}"
     return None
 
@@ -685,7 +686,7 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
     chose. A context that does not fit the op is a shell bug and fails as
     an AssertionError, never as an OpError: a 400 would poison the client's
     queue over something the client did not do."""
-    if isinstance(op, CreateOp) and not UID_RE.match(op.uid):
+    if isinstance(op, CreateOp) and not UID_RE.fullmatch(op.uid):
         raise OpError(index, f"invalid uid: {op.uid!r}")
     if isinstance(ctx, SKIPPED_CONTEXTS):
         reason = impossible_uid_reason(op, ctx.skip)

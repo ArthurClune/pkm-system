@@ -79,10 +79,13 @@ class InvalidUid:
 class ImportUidError(ValueError):
     """Refuses the whole import: at least one block uid does not match
     UID_RE. No uid is ever re-minted here -- a uid an export's own
-    ((block refs)) point at must survive import unchanged, and a uid
-    short/odd enough to fail UID_RE would otherwise resolve in render and
-    export (whose ((token)) pattern is wider, BLOCK_REF_TOKEN's {6,32})
-    while the app and backlinks silently ignore it."""
+    ((block refs)) point at must survive import unchanged. Every
+    ((token))-recognizing surface (refs.py, render.py, export/*.py, the
+    web's grammar/scan.ts) shares UID_RE's {6,32} bound, so no reference
+    anyone writes to a uid outside it could ever be recognized as one, and
+    the read routes that address a block by uid (GET /api/block/{uid} and
+    friends) 422 it -- an import-time refusal is cheaper than a block that
+    survives only by walking its page."""
 
     invalid: tuple[InvalidUid, ...]
 

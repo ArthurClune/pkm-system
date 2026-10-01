@@ -18,8 +18,15 @@ from typing import Annotated, Literal, NewType, Union
 from pydantic import BaseModel, Field
 
 from pkm.contracts.brands import brand
+from pkm.refs import BLOCK_REF_TOKEN
 
-UID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,32}$")
+# `\Z` anchors to the true end of the string; a bare `$` also matches just
+# before a trailing "\n", which let a uid like "abcdef\n" slip past a
+# `.match()` call site that should have refused it. Every call site uses
+# `.fullmatch()` regardless, so the anchor is defense in depth, not the
+# only guard. Built from `refs.BLOCK_REF_TOKEN` so the wire-validation
+# shape and the ((ref))-recognition shape can't drift apart independently.
+UID_RE = re.compile(rf"^{BLOCK_REF_TOKEN}\Z")
 ViewType = Literal["numbered", "document"]
 
 # A block's heading level; None (kept separate, not part of this alias)
@@ -42,11 +49,16 @@ OpKind = Literal["create", "update_text", "move", "delete", "set_collapsed",
 Sha256Hex = NewType("Sha256Hex", str)
 brand(Sha256Hex)
 
-# A block's uid: validated by UID_RE below, minted only by the server
-# (ops_apply._new_uid) and the CLI/MCP client (client.api.new_uid). Not
-# brand()ed -- this bean only types the server's own signatures; reaching
-# the web through gen-types is pkm-thee. Pydantic validates and dumps a
-# NewType as its base type regardless, so the wire format is unchanged.
+# A block's uid: validated against UID_RE above wherever one is minted or
+# looked up, not on every value this type touches -- a BlockUid arriving
+# on the wire (CreateOp.uid etc.) is shape-checked only on a create
+# (ops_core.plan_op) or a skipped op (ops_core.impossible_uid_reason); an
+# op addressing an existing block never re-checks its uid's shape. Minted
+# by the web (web/src/uid.ts's newUid, most uids in practice), the CLI/MCP
+# client (client.api.new_uid), the server (ops_apply._new_uid), and
+# Roam's own exported uids. Not brand()ed: pydantic validates and dumps a
+# NewType as its base type regardless, so the wire format is unchanged,
+# but the generated TypeScript still sees a plain string.
 BlockUid = NewType("BlockUid", str)
 # pages.id. Minted only by SQLite (an INTEGER PRIMARY KEY) and, for an
 # import, by the importer's own row-building counter.

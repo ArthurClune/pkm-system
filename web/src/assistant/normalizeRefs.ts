@@ -6,7 +6,9 @@
 // widening the grammar. Runs on raw message text, before inline-code
 // spans are identified — a ((^uid)) inside backticks is rewritten too.
 
-const CARET_BLOCK_REF_RE = /\(\(\^([a-zA-Z0-9_-]{6,})\)\)/g;
+import { UID_TOKEN } from "../grammar/scan";
+
+const CARET_BLOCK_REF_RE = new RegExp(`\\(\\(\\^(${UID_TOKEN})\\)\\)`, "g");
 
 export function stripCaretBlockRefs(text: string): string {
   return text.replace(CARET_BLOCK_REF_RE, "(($1))");

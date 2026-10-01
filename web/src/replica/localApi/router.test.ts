@@ -93,6 +93,17 @@ describe("error statuses", () => {
     expectStatus(call("GET", "/api/block-refs?uids=bad!uid"), 422);
   });
 
+  test("block-refs rejects a uid with a trailing newline", () => {
+    // JS's $ (no /m flag) anchors to true end-of-input, unlike Python's,
+    // which also matches just before a trailing "\n" -- pinning that this
+    // surface was never exposed to the server-side bug (contracts/ops.py's
+    // UID_RE under re.match).
+    expectStatus(
+      call("GET", `/api/block-refs?uids=${encodeURIComponent("abcdef\n")}`),
+      422,
+    );
+  });
+
   test("create page with a blank title 422s", () => {
     const deps = { newBatchId: () => "b1" };
     expectStatus(call("POST", "/api/pages", { title: "   " }, deps), 422);

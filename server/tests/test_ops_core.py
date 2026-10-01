@@ -109,6 +109,16 @@ def test_plan_create_rejects_bad_uid_and_dup():
                 CreateContext(uid_taken=True, page_id=PageId(1)))
 
 
+def test_plan_create_rejects_a_uid_with_a_trailing_newline():
+    # UID_RE's $ matches just before a trailing "\n" under re.match, so
+    # "abcdef\n" used to pass here -- a block no ((ref)) can ever name and
+    # every uid-addressed route 422s.
+    with pytest.raises(OpError, match="invalid uid"):
+        plan_op(0, CreateOp(op="create", uid="abcdef\n", page_title="P",
+                            order_idx=0, text=""),
+                CreateContext(uid_taken=False, page_id=PageId(1)))
+
+
 def test_plan_create_page_executes_nothing():
     # context assembly already resolved (and created) the page
     assert plan_op(0, CreatePageOp(op="create_page", page_title="AI"),
@@ -850,6 +860,24 @@ def test_create_under_missing_parent_still_checks_its_uid():
     op = CreateOp(op="create", uid="a!", page_title="P",
                   parent_uid="ghost_p1", order_idx=0, text="t")
     with pytest.raises(OpError, match="invalid uid"):
+        plan_op(0, op, _skip_ctx(op))
+
+
+def test_create_under_missing_parent_rejects_a_parent_uid_with_a_trailing_newline():
+    # impossible_uid_reason's parent_uid check (diverted_create skip kind)
+    # has the same $-vs-trailing-newline hole as the uid check above.
+    op = CreateOp(op="create", uid="newuid1", page_title="P",
+                  parent_uid="ghost_p1\n", order_idx=0, text="t")
+    with pytest.raises(OpError, match="parent not found"):
+        plan_op(0, op, _skip_ctx(op))
+
+
+def test_orphan_edit_rejects_a_uid_with_a_trailing_newline():
+    # impossible_uid_reason's non-create uid check (orphan_edit skip kind):
+    # a malformed uid must 400 rather than land a ghost journal/conflict
+    # entry under an uid no surface can ever reference back.
+    op = UpdateTextOp(op="update_text", uid="abcdef\n", text="t")
+    with pytest.raises(OpError, match="block not found"):
         plan_op(0, op, _skip_ctx(op))
 
 

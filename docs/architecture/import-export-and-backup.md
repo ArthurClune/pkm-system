@@ -126,9 +126,12 @@ Stage notes:
   offender with its page title (`RECOVERY_PAGE_TITLE` for an orphan subtree).
   No uid is ever re-minted. Every `((uid))`-recognizing surface (`refs.py`,
   `render.py`, `export/*.py`, the web's `grammar/scan.ts`) shares that same
-  bound. A block a malformed uid landed on would be reachable only by walking
-  its page, never by a uid-addressed route, since those gate on `UID_RE` too.
-  No reference anyone writes to it could ever be recognized as one, either.
+  bound, so no reference anyone writes to a malformed uid could ever be
+  recognized as one. A block it landed on would also be reachable only by
+  walking its page: the `GET /api/block/{uid}` read routes 422 it, though a
+  write op addressing it by uid is not shape-checked once the block exists
+  (`impossible_uid_reason` only runs on `POST /api/ops`'s skip path, for a
+  uid that names nothing).
 - **Title sanitization.** `importer/titles.py` strips balanced `[[`/`]]` and
   `#` markers from every title and rewrites refs; collisions merge in stable
   source order, preferring an already-clean spelling as survivor. Malformed

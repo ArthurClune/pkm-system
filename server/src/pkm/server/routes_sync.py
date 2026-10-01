@@ -237,9 +237,10 @@ def sync_changes(since: int = 0, limit: int = 1000,
         rows = db.execute(
             "SELECT seq, kind, entity_id, deleted FROM changes WHERE seq > ?"
             " ORDER BY seq LIMIT ?", (since, limit)).fetchall()
-        win = dedupe_window([ChangeRow(SyncSeq(r["seq"]), r["kind"],
-                                       r["entity_id"], r["deleted"])
-                            for r in rows])
+        win = dedupe_window([
+            ChangeRow(seq=SyncSeq(r["seq"]), kind=r["kind"],
+                     entity_id=r["entity_id"], deleted=r["deleted"])
+            for r in rows])
         block_uids = [e for k, e in win.entities if k == "block"]
         page_ids = {int(e) for k, e in win.entities if k == "page"}
         sidebar_ids = [int(e) for k, e in win.entities if k == "sidebar"]

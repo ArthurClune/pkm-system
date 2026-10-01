@@ -166,6 +166,7 @@ Owner: [cli-and-mcp.md](architecture/cli-and-mcp.md)
 | `--section "## Notes"` returns an H3 or a plain block | A marked spec matches heading level and text together. Only a bare spec (`Notes`) matches any level | [cli-and-mcp.md § Section selection](architecture/cli-and-mcp.md#section-selection) | — |
 | A heading copied from `pkm todos`/`search`/`refs` output and written back with `pkm update` silently becomes plain text | Those verbs' response models have no `heading` field, so they print bare text (a snippet, for `search`). Only `pkm get`/`get_page`/`get_block` round-trip a heading | [cli-and-mcp.md § Heading round trip](architecture/cli-and-mcp.md#heading-round-trip) | — |
 | `pkm get -abc123` or `pkm update -abc123` fails with an unknown-option error | argparse reads a leading-`-` uid as a flag. Put `--` before the uid (`pkm get -- -abc123`), with `pkm update`'s `-D`/`-T` flags before the `--` | [cli-and-mcp.md § Writes, uids and missing pages](architecture/cli-and-mcp.md#writes-uids-and-missing-pages) | — |
+| A batch `index` inserted at the wrong place on a page with gapped `order_idx`, or an append in the same batch landed mid-list instead of last | `index` was used verbatim as an order key, and `create_at` didn't advance the append counter past it. `index` is now a position and `Planner` keeps a live sibling model instead of a counter, so every command in the batch sees earlier ones' effects | [cli-and-mcp.md § Pure planners](architecture/cli-and-mcp.md#pure-planners) | pkm-78fk |
 
 ## Performance checks
 

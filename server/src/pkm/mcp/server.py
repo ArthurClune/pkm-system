@@ -125,18 +125,22 @@ def update_block(uid: str, text: str | None = None,
 def batch(commands: list[dict]) -> str:
     """Apply several commands in ONE atomic transaction. Each item is
     {"command": ..., "params": {...}} with commands: create (page, text,
-    parent?, as?), todo (like create, {{TODO}}-prefixed), update (uid,
-    text), move (uid, page, parent?, index?), delete (uid), outline
+    parent?, index?, as?), todo (like create, {{TODO}}-prefixed), update
+    (uid, text), move (uid, page, parent?, index?), delete (uid), outline
     (page, parent?, items: nested string arrays). 'as' names a created
     block; later parents may reference it as '{{alias}}'. A '## Heading'
     parent is matched on the page or created once per batch: repeating
     the same spec across commands reuses the heading already created.
-    A create/todo/outline text beginning '# ', '## ' or '### ' becomes a
-    heading at that level; an `update` text sets or clears the level the
-    same way. An update/move/delete whose uid no longer exists, a
-    create/move whose parent no longer exists, or a move under the
-    block itself or its descendant, is skipped rather than failing the
-    batch; the result then starts with
+    'index' (create/todo/move) is a 0-based position among the parent's
+    (or move's destination's) current children, past the end appends; it
+    counts against the page as earlier commands in this same batch have
+    left it, not as originally fetched. A create/todo/outline text
+    beginning '# ', '## ' or '### ' becomes a heading at that level; an
+    `update` text sets or clears the level the same way. An
+    update/move/delete whose uid no longer exists, a create/move whose
+    parent no longer exists, or a move under the block itself or its
+    descendant, is skipped rather than failing the batch; the result then
+    starts with
     'warning:' and lists each skipped op and where its note landed, while
     the other ops were applied and committed (do not re-send the batch). A
     '((uid))' parent is checked before sending, so a mistyped one fails

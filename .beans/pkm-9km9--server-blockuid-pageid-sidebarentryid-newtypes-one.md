@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T12:17:38Z
+updated_at: 2026-10-01T13:17:16Z
 parent: pkm-7uxw
 ---
 
@@ -32,12 +32,12 @@ This is safe today only because every substituter leaves a map miss untouched an
 
 ## Plan
 
-- [ ] NewTypes `BlockUid`, `PageId`, `SidebarEntryId` (beside `Sha256Hex` in `contracts/ops.py` or a shared module), applied through contracts, store, ops and routes
-- [ ] `InsertBlock(kw_only=True)`; `dedupe_window` NamedTuple
-- [ ] Export one ref-token regex from `refs.py`; `render.py`, `export/markdown.py` and `export/resolve.py` use it. They then fall under the parity coverage `refs_parity_dump.py` already gives `refs.extract` against `scan.ts`.
-- [ ] Decide the length rule: bound ref tokens at 32 to match `UID_RE` on both sides (keep the parity dump agreeing), or record the difference as deliberate
-- [ ] Importer: check imported uids against `UID_RE` explicitly (a NewType is only a cast). Decide whether a bad uid rejects the import, or is reported and re-minted with its `((uid))` refs rewritten. Test with a short uid in a fixture export.
-- [ ] pyrefly + pytest clean
+- [x] NewTypes `BlockUid`, `PageId`, `SidebarEntryId` (beside `Sha256Hex` in `contracts/ops.py` or a shared module), applied through contracts, store, ops and routes
+- [x] `InsertBlock(kw_only=True)`; `dedupe_window` NamedTuple
+- [x] Export one ref-token regex from `refs.py`; `render.py`, `export/markdown.py` and `export/resolve.py` use it. They then fall under the parity coverage `refs_parity_dump.py` already gives `refs.extract` against `scan.ts`.
+- [x] Decide the length rule: bound ref tokens at 32 to match `UID_RE` on both sides (keep the parity dump agreeing), or record the difference as deliberate
+- [x] Importer: check imported uids against `UID_RE` explicitly (a NewType is only a cast). Decide whether a bad uid rejects the import, or is reported and re-minted with its `((uid))` refs rewritten. Test with a short uid in a fixture export.
+- [x] pyrefly + pytest clean
 
 
 ## Decisions (Arthur, 2026-10-01)

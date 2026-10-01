@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
-import type { Changes, Snapshot, SyncBlock } from "./apply";
+import type { Changes, Snapshot, SyncBlock, SyncTombstone } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import { getMeta } from "./meta";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
@@ -417,6 +417,19 @@ describe("applyChanges", () => {
       tombstones: [{ kind: "sidebar", entity_id: "1" }],
     }));
     expect(count("SELECT COUNT(*) AS n FROM sidebar_entries")).toBe(0);
+  });
+
+  // An older replica may meet a tombstone kind the server added after it
+  // shipped. Dispatch must not default to a sidebar delete for it --
+  // that would destroy an unrelated row (see applyWindow).
+  test("an unknown tombstone kind deletes nothing", () => {
+    applyChanges(t.db, emptyFeed({
+      next_since: 13, latest_seq: 13,
+      tombstones: [{ kind: "widget", entity_id: "1" } as unknown as SyncTombstone],
+    }));
+    expect(count("SELECT COUNT(*) AS n FROM sidebar_entries")).toBe(1);
+    expect(count("SELECT COUNT(*) AS n FROM pages")).toBe(2);
+    expect(count("SELECT COUNT(*) AS n FROM blocks")).toBe(3);
   });
 
   test("a child arriving before its parent in one window still applies", () => {

@@ -608,6 +608,7 @@ as `CanonicalTitle` (of `NormalizedTitle`) needs its own `brand()` call too.
 |---|---|---|
 | `Sha256Hex`, `ClientId`, `BatchId`, `BlockUid` | `contracts/ops.py` | `str` |
 | `PageId`, `SidebarEntryId` | `contracts/ops.py` | `int` |
+| `OrderIdx` | `contracts/ops.py` | `int` |
 | `SyncSeq` | `contracts/responses.py` | `int` |
 | `ConversationId`, `ConfirmId` | `contracts/responses.py` | `str` |
 | `GoodlinksId` | `goodlinks.py` | `str` |
@@ -616,7 +617,12 @@ as `CanonicalTitle` (of `NormalizedTitle`) needs its own `brand()` call too.
 
 `SidebarEntryId` is `sidebar_entries.id`, not `PageId` — that table has its
 own `INTEGER PRIMARY KEY`, distinct from `pages.id` even though every entry
-names a page. The web's own brand definitions, and where each is minted on
+names a page. `OrderIdx` is a block's sparse sibling order key
+(`blocks.order_idx`), not a position: a delete leaves a gap rather than
+renumbering, so two siblings' keys need not be adjacent.
+`sidebar_entries.order_idx` stays a plain `int` — the server assigns it and
+the web reorders sidebar entries by array position, so it never meets block
+order code. The web's own brand definitions, and where each is minted on
 that side, are in [frontend.md § API layer](frontend.md#api-layer).
 
 Every endpoint requires the session cookie unless marked public, and

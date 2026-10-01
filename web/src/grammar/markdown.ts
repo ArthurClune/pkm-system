@@ -7,6 +7,22 @@ export interface MarkdownSpan extends Span {
   destination: Span;
 }
 
+// The `)` closing a link destination that starts at `start`. Parens inside
+// it nest, as in CommonMark, so a filename like "Programme (Public).pdf"
+// stays whole. When they do not balance before the end of the line, the
+// first `)` closes, as it always has for text like `[x](a (b)`.
+function scanDestinationClose(text: string, start: number): number {
+  let depth = 0;
+  for (let i = start; i < text.length && text[i] !== "\n"; i += 1) {
+    if (text[i] === "(") depth += 1;
+    else if (text[i] === ")") {
+      if (depth === 0) return i;
+      depth -= 1;
+    }
+  }
+  return text.indexOf(")", start);
+}
+
 export function scanMarkdownLinkAt(
   text: string,
   start: number,
@@ -25,7 +41,7 @@ export function scanMarkdownLinkAt(
   }
   if (depth !== 0 || text[cursor] !== "(") return null;
 
-  const close = text.indexOf(")", cursor + 1);
+  const close = scanDestinationClose(text, cursor + 1);
   if (close === -1 || text.slice(cursor + 1, close).includes("\n")) return null;
   return {
     kind: image ? "image" : "link",

@@ -141,16 +141,6 @@ function shiftFrom(siblings: BlockNode[], fromOrderIdx: OrderIdx,
   }
 }
 
-// Type-only probe, kept here (not a test file) because shiftFrom isn't
-// exported: a dense sibling position must not satisfy its fromOrderIdx
-// parameter. Assignability is checked structurally, so this fails tsc
-// (and the @ts-expect-error below would go unused) if fromOrderIdx is ever
-// widened to plain `number`.
-// @ts-expect-error a dense position is not an OrderIdx
-const _shiftFromRejectsDensePosition: (s: BlockNode[], n: number) => void =
-  shiftFrom;
-void _shiftFromRejectsDensePosition;
-
 export interface AppliedOps {
   blocks: BlockNode[];
   /** Whether the ops altered anything. Exact rather than conservative: an op

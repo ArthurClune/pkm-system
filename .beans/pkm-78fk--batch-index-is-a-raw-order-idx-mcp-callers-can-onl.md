@@ -5,7 +5,7 @@ status: todo
 type: bug
 priority: low
 created_at: 2026-10-01T20:49:39Z
-updated_at: 2026-10-01T20:53:04Z
+updated_at: 2026-10-01T20:58:53Z
 ---
 
 The CLI/MCP batch `index` param is used as an `order_idx`, verbatim (`server/src/pkm/batch.py`: `OrderIdx(p.index)` in `_batch_create` and `_batch_move`). But `order_idx` is sparse: deletes leave gaps, and 386 of 20,454 sibling groups in prod have them.
@@ -43,7 +43,11 @@ On page `[A, B]`, the single batch `{create X index 0}, {create Y}` gives `X, A,
 
 ## Plan
 
-- [ ] Decide index semantics (Arthur)
+- [x] Decide index semantics (Arthur)
 - [ ] Red tests: the gap case and the mixed-batch case
 - [ ] Fix planner / `create_at` counter
 - [ ] Update CLI help, MCP description and `cli-and-mcp.md`
+
+## Decision (Arthur, 2026-10-01)
+
+`index` is a position: 0-based among the parent's current children, with past-the-end meaning append. The planner converts it to an order key.

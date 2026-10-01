@@ -52,16 +52,92 @@ def type_where(category: str) -> tuple[str, list[str]]:
             f" OR {doc})", list(_DOCUMENT_MIME))
 
 
+def _markdown_destination_close(text: str, start: int) -> int:
+    """Index of the ')' closing a link destination that starts at `start`.
+    Parens inside it nest, so "Programme (Public).pdf" stays whole. When
+    they do not balance before the end of the line, the first ')' closes.
+    The same rule as the web's scanDestinationClose
+    (web/src/grammar/markdown.ts), so a delete strips exactly the link the
+    web rendered."""
+    depth = 0
+    i = start
+    while i < len(text) and text[i] != "\n":
+        if text[i] == "(":
+            depth += 1
+        elif text[i] == ")":
+            if depth == 0:
+                return i
+            depth -= 1
+        i += 1
+    return text.find(")", start)
+
+
+def _markdown_link_span_at(text: str, start: int) -> tuple[int, int, str] | None:
+    """(span_start, span_end, destination) of the markdown link or image
+    opening at `start`, or None. Brackets in the label nest, and a newline
+    in the label or destination means no link, as in the web's
+    scanMarkdownLinkAt."""
+    image = text[start] == "!"
+    open_ = start + 1 if image else start
+    if (open_ >= len(text) or text[open_] != "["
+            or text.startswith("[[", open_)):
+        return None
+    depth = 1
+    cursor = open_ + 1
+    while cursor < len(text) and depth > 0:
+        if text[cursor] == "\n":
+            return None
+        if text[cursor] == "[":
+            depth += 1
+        elif text[cursor] == "]":
+            depth -= 1
+        cursor += 1
+    if depth != 0 or cursor >= len(text) or text[cursor] != "(":
+        return None
+    close = _markdown_destination_close(text, cursor + 1)
+    if close == -1 or "\n" in text[cursor + 1:close]:
+        return None
+    return start, close + 1, text[cursor + 1:close]
+
+
+def _strip_markdown_asset_links(text: str, prefix: str) -> str:
+    """Remove every "[label](url)" / "![alt](url)" span whose destination
+    starts with `prefix`, scanning left to right as the web's
+    scanMarkdownLinks does. "[[page]]" never opens a span."""
+    out: list[str] = []
+    cursor = 0
+    n = len(text)
+    while cursor < n:
+        looks_like_link = (
+            (text[cursor] == "!" and text[cursor + 1:cursor + 2] == "[")
+            or (text[cursor] == "[" and not text.startswith("[[", cursor)))
+        span = _markdown_link_span_at(text, cursor) if looks_like_link else None
+        if span is not None:
+            span_start, span_end, destination = span
+            if not destination.startswith(prefix):
+                out.append(text[span_start:span_end])
+            cursor = span_end
+        else:
+            out.append(text[cursor])
+            cursor += 1
+    return "".join(out)
+
+
 def strip_asset_tokens(text: str, sha256: str) -> str:
-    """Remove every reference to /assets/<sha256>/... from block text:
-    image/link markdown tokens, the {{[[pdf]]: url}} macro, then any
-    bare URL left over. Collapses doubled spaces and trims, so callers
-    can test emptiness with a plain falsy check."""
-    url = r"/assets/" + re.escape(sha256) + r"/[^\s)}]*"
-    for pattern in (r"!?\[[^\]]*\]\(" + url + r"\)",
-                    r"\{\{\[\[pdf\]\]:\s*" + url + r"\}\}",
-                    url):
-        text = re.sub(pattern, "", text)
+    """Remove every reference to /assets/<sha256>/... from block text.
+    Uploads write the raw filename into the URL, so it may hold spaces
+    and parens. Three passes, in order: markdown link and image tokens,
+    found with the web's scan; {{[[pdf]]: url}} and {{pdf: url}} macros,
+    whose url runs to the closing "}}" on its line; then any bare URL
+    left over, which ends at whitespace. Collapses doubled spaces and
+    trims, so callers can test emptiness with a plain falsy check."""
+    prefix = f"/assets/{sha256}/"
+    text = _strip_markdown_asset_links(text, prefix)
+    macro = (r"\{\{(?:\[\[pdf\]\]|pdf):\s*" + re.escape(prefix)
+             + r"[^\n]*?\}\}")
+    text = re.sub(macro, "", text)
+    bare_url = re.escape(prefix) + r"[^\s)}]*"
+    text = re.sub(bare_url, "", text)
     return re.sub(r" {2,}", " ", text).strip()
 
 

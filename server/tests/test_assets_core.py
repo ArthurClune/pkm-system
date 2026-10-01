@@ -54,6 +54,53 @@ def test_image_only_block_becomes_empty():
     assert strip_asset_tokens(f"![]({URL})", SHA) == ""
 
 
+def test_strips_link_with_spaces_and_balanced_parens_in_filename():
+    name = "AI for Research Day 2026 - Programme (Public) - Schedule.pdf"
+    url = f"/assets/{SHA}/{name}"
+    text = f"see [{name}]({url}) today"
+    assert strip_asset_tokens(text, SHA) == "see today"
+
+
+def test_strips_image_with_spaces_and_parens_in_filename():
+    name = "a b (c).png"
+    url = f"/assets/{SHA}/{name}"
+    text = f"![{name}]({url})"
+    assert strip_asset_tokens(text, SHA) == ""
+
+
+def test_strips_link_whose_label_contains_brackets():
+    name = "foo [draft].pdf"
+    url = f"/assets/{SHA}/{name}"
+    text = f"[{name}]({url})"
+    assert strip_asset_tokens(text, SHA) == ""
+
+
+def test_leaves_other_assets_link_with_spaces_alone():
+    other_sha = "cd" * 32
+    other_name = "keep me (please).png"
+    other_url = f"/assets/{other_sha}/{other_name}"
+    this_name = "drop me (please).png"
+    this_url = f"/assets/{SHA}/{this_name}"
+    text = f"[{other_name}]({other_url}) [{this_name}]({this_url})"
+    assert (strip_asset_tokens(text, SHA)
+            == f"[{other_name}]({other_url})")
+
+
+def test_strips_pdf_macro_bracket_spelling_with_spaces():
+    url = f"/assets/{SHA}/My File (v2).pdf"
+    assert strip_asset_tokens(f"{{{{[[pdf]]: {url}}}}}", SHA) == ""
+
+
+def test_strips_pdf_macro_bare_spelling_with_spaces():
+    url = f"/assets/{SHA}/My File.pdf"
+    assert strip_asset_tokens(f"{{{{pdf: {url}}}}}", SHA) == ""
+
+
+def test_keeps_trailing_text_after_balanced_paren_link():
+    url = f"/assets/{SHA}/a (b).pdf"
+    assert strip_asset_tokens(f"[x]({url}) tail", SHA) == "tail"
+
+
 # --- mime_category ---
 
 @pytest.mark.parametrize("mime,cat", [

@@ -6,15 +6,16 @@ import type { BlockNode, PagePayload } from "../../api/payloads";
 import type { ReplicaDb } from "../db";
 import { extractRefs } from "../refs";
 
-/** A blocks-table row, NOT a response shape: `collapsed` is sqlite's 0/1
- * and there is no children list yet. buildTree turns these into the
- * generated BlockNode the server sends. */
+/** A blocks-table row, NOT a response shape: `collapsed` is sqlite's 0/1,
+ * `heading` is the raw stored column (see storedHeading below), and there
+ * is no children list yet. buildTree turns these into the generated
+ * BlockNode the server sends. */
 export interface BlockRow {
   uid: string;
   parent_uid: string | null;
   order_idx: number;
   text: string;
-  heading: BlockNode["heading"];
+  heading: number | null;
   view_type: BlockNode["view_type"];
   collapsed: number;
   created_at: number | null;
@@ -24,6 +25,20 @@ export interface BlockRow {
 export const BLOCK_COLS =
   "uid, parent_uid, order_idx, text, heading, collapsed," +
   " created_at, updated_at, view_type";
+
+/** Roam's export writes a 0 for "no heading"; older imports stored it as-is
+ * (server/src/pkm/contracts/responses.py's StoredHeading coerces it on every
+ * fresh read, but a replica synced before that fix may still hold a stale
+ * 0 locally until that block's row changes again). 0 means the same thing
+ * null means everywhere else a heading is read, so it is normalized here
+ * too -- this is the one place a raw blocks.heading column turns into the
+ * BlockNode shape the rest of the app reads. */
+function storedHeading(value: number | null): BlockNode["heading"] {
+  // Nothing validates the column beyond this: a replica row holding
+  // anything other than 0/1/2/3/null would already be as unvalidated as
+  // it is today, upstream of this fix.
+  return value === 0 ? null : (value as BlockNode["heading"]);
+}
 
 export function buildTree(rows: BlockRow[]): BlockNode[] {
   const known = new Set(rows.map((r) => r.uid));
@@ -50,7 +65,7 @@ export function buildTree(rows: BlockRow[]): BlockNode[] {
     return children.map((r) => ({
       uid: r.uid,
       text: r.text,
-      heading: r.heading,
+      heading: storedHeading(r.heading),
       view_type: r.view_type,
       collapsed: r.collapsed !== 0,
       order_idx: r.order_idx,

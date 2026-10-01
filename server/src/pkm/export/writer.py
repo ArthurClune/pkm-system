@@ -82,6 +82,7 @@ from pathlib import Path
 
 from pkm.assets_disk import asset_on_disk_needs_repair
 from pkm.contracts.daily import date_for_title
+from pkm.contracts.ops import Sha256Hex
 from pkm.export.markdown import page_filename, render_page
 from pkm.filenames import safe_filename
 from pkm.server.tree import build_tree, collect_block_ref_uids
@@ -121,7 +122,7 @@ def _publish_dir(staged: Path, target: Path) -> None:
         shutil.rmtree(stale)
 
 
-def _stage_assets(wanted: dict[str, tuple[str, int]], *, assets_dir: Path,
+def _stage_assets(wanted: dict[Sha256Hex, tuple[str, int]], *, assets_dir: Path,
                   stage_assets: Path, live_assets_dir: Path) -> dict[str, int]:
     """Fill `stage_assets` with every wanted asset, and report how each
     one got there.
@@ -200,8 +201,8 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
             rendered["pages", page_filename(page["title"], taken)] = body
             counts["pages"] += 1
 
-    wanted: dict[str, tuple[str, int]] = {
-        row["sha256"]: (safe_filename(row["filename"]), row["size"])
+    wanted: dict[Sha256Hex, tuple[str, int]] = {
+        Sha256Hex(row["sha256"]): (safe_filename(row["filename"]), row["size"])
         for row in db.execute("SELECT sha256, filename, size FROM assets")}
     previously_present = ({d.name for d in assets_dir.iterdir() if d.is_dir()}
                           if assets_dir.is_dir() else set())

@@ -15,9 +15,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from pkm.assets_core import asset_needs_repair, sha256_hex
+from pkm.contracts.ops import Sha256Hex
 
 
-def asset_on_disk_needs_repair(path: Path, sha256: str,
+def asset_on_disk_needs_repair(path: Path, sha256: Sha256Hex,
                                expected_size: int) -> bool:
     """Whether the file at `path` must be (re)written from its
     known-good source to hold the bytes hashing to `sha256`.

@@ -6,8 +6,9 @@ import pytest
 from pkm.assets_core import (
     asset_needs_repair, export_limit_violation, mime_category, sha256_hex,
     strip_asset_tokens, type_where, zip_arcnames)
+from pkm.contracts.ops import Sha256Hex
 
-SHA = "ab" * 32
+SHA = Sha256Hex("ab" * 32)
 URL = f"/assets/{SHA}/pic.png"
 
 

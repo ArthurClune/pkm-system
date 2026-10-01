@@ -9,12 +9,13 @@
 // e.g. offline) falls back to opening the asset itself.
 import { useContext } from "react";
 import { useNavigate } from "react-router-dom";
+import type { Sha256Hex } from "../api/brands";
 import { apiGet } from "../api/typedClient";
 import { SidebarContext } from "../contexts";
 import { pagePath } from "../paths";
 
 export function AssetLink({ url, sha, filename }: {
-  url: string; sha: string; filename: string;
+  url: string; sha: Sha256Hex; filename: string;
 }) {
   const { openInSidebar } = useContext(SidebarContext);
   const navigate = useNavigate();

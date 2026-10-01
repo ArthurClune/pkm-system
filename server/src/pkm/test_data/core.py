@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Literal, cast
 from urllib.parse import quote
 
+from pkm.contracts.ops import Sha256Hex
 from pkm.importer.assets import Asset
 from pkm.importer.parse_export import Block, Export, Page
 from pkm.importer.rows import Rows, to_rows
@@ -119,7 +120,7 @@ def deduplicate_assets_by_sha(assets_by_name: Mapping[str, Asset]) -> tuple[Asse
     asset first encountered in `assets_by_name`'s iteration order wins the
     row's filename.
     """
-    by_sha: dict[str, Asset] = {}
+    by_sha: dict[Sha256Hex, Asset] = {}
     for asset in assets_by_name.values():
         by_sha.setdefault(asset.sha256, asset)
     return tuple(by_sha.values())

@@ -943,7 +943,7 @@ export interface components {
         /** AssetSearchItem */
         AssetSearchItem: {
             /** Sha256 */
-            sha256: string;
+            sha256: Brands.Sha256Hex;
             /** Filename */
             filename: string;
             /** Mime */
@@ -976,7 +976,7 @@ export interface components {
         /** AssetUploadResponse */
         AssetUploadResponse: {
             /** Sha256 */
-            sha256: string;
+            sha256: Brands.Sha256Hex;
             /** Filename */
             filename: string;
             /** Mime */
@@ -1782,12 +1782,12 @@ export interface components {
         /** TitleMigrationApplyRequest */
         TitleMigrationApplyRequest: {
             /** Audit Digest */
-            audit_digest: string;
+            audit_digest: Brands.Sha256Hex;
         };
         /** TitleMigrationApplyResponse */
         TitleMigrationApplyResponse: {
             /** Digest */
-            digest: string;
+            digest: Brands.Sha256Hex;
             /** Groups Applied */
             groups_applied: number;
             /** Pages Retitled */
@@ -1806,7 +1806,7 @@ export interface components {
             /** Active */
             active: boolean;
             /** Digest */
-            digest: string;
+            digest: Brands.Sha256Hex;
             /** Groups */
             groups: components["schemas"]["TitleMigrationGroup"][];
             /** Blockers */

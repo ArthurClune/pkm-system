@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from pkm.assets_disk import asset_on_disk_needs_repair
+from pkm.contracts.ops import Sha256Hex
 from pkm.edn import EdnError, parse_edn
 from pkm.filenames import safe_filename
 from pkm.importer.assets import UID_PREFIX_LEN, Asset, rewrite_asset_urls
@@ -31,13 +32,13 @@ from pkm.server.title_migration import (
 )
 
 
-def _index_files(files_dir: Path) -> tuple[dict[str, Asset], dict[str, Path]]:
+def _index_files(files_dir: Path) -> tuple[dict[str, Asset], dict[Sha256Hex, Path]]:
     by_name: dict[str, Asset] = {}
-    paths: dict[str, Path] = {}
+    paths: dict[Sha256Hex, Path] = {}
     all_files = sorted(p for p in files_dir.rglob("*") if p.is_file())
     for path in all_files:
         data = path.read_bytes()
-        sha = hashlib.sha256(data).hexdigest()
+        sha = Sha256Hex(hashlib.sha256(data).hexdigest())
         mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         # Lookup keys stay on the raw name (Roam's export text references
         # it); only the stored/displayed filename needs bounding, since a
@@ -53,8 +54,8 @@ def _index_files(files_dir: Path) -> tuple[dict[str, Asset], dict[str, Path]]:
     return by_name, paths
 
 
-def _copy_assets(assets_dir: Path, sources: dict[str, Path],
-                 assets: dict[str, Asset]) -> None:
+def _copy_assets(assets_dir: Path, sources: dict[Sha256Hex, Path],
+                 assets: dict[Sha256Hex, Asset]) -> None:
     """Materialise every linked file into the content-addressed store
     under `assets_dir`, keyed by sha256.
 
@@ -130,13 +131,13 @@ def main(argv: list[str] | None = None) -> int:
 
     by_name, paths = _index_files(files_dir) if files_dir else ({}, {})
     unique_assets = {a.sha256: a for a in by_name.values()}
-    used: set[str] = set()
+    used: set[Sha256Hex] = set()
     missing: set[str] = set()
 
     def transform(text: str) -> str:
-        new, u, m = rewrite_asset_urls(text, by_name)
-        used.update(u)
-        missing.update(m)
+        new, stats = rewrite_asset_urls(text, by_name)
+        used.update(stats.used)
+        missing.update(stats.missing)
         return new
 
     rows = to_rows(export, transform)

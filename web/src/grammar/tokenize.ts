@@ -9,6 +9,7 @@
 // math, and line breaks. Ref *extraction* lives in refs.ts on the same
 // scanner.
 
+import type { Sha256Hex } from "../api/brands";
 import { scanMarkdownLinkAt } from "./markdown";
 import { normalizeRefTitle, scanGrammar, type GrammarToken } from "./scan";
 
@@ -23,7 +24,7 @@ export type InlineSegment =
   | { kind: "block-ref"; uid: string }
   | { kind: "image"; alt: string; src: string }
   | { kind: "link"; text: string; href: string }
-  | { kind: "asset-link"; url: string; sha: string; filename: string }
+  | { kind: "asset-link"; url: string; sha: Sha256Hex; filename: string }
   | { kind: "math"; tex: string; display: boolean }
   | { kind: EmphasisKind; children: InlineSegment[] };
 
@@ -186,7 +187,13 @@ function tokenizeInline(
         const parts = /^\/assets\/([0-9a-f]{64})\/(.+)$/.exec(url);
         if (parts) {
           flushText();
-          out.push({ kind: "asset-link", url, sha: parts[1], filename: parts[2] });
+          // parts[1] is captured by `([0-9a-f]{64})`, so it is already
+          // exactly 64 lowercase hex characters -- minting here, not
+          // validating again.
+          out.push({
+            kind: "asset-link", url, sha: parts[1] as Sha256Hex,
+            filename: parts[2],
+          });
           i += url.length;
           continue;
         }

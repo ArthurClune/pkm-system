@@ -6,6 +6,7 @@ import pytest
 
 import pkm.assets_disk as assets_disk
 import pkm.importer.run as run_module
+from pkm.contracts.ops import Sha256Hex
 from pkm.importer.assets import Asset
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
 from pkm.importer.run import main
@@ -549,12 +550,12 @@ def test_copy_assets_repairs_only_what_is_wrong(tmp_path):
     src_dir = tmp_path / "src"
     src_dir.mkdir()
     payloads = {"good": b"GOODDATA", "bad": b"BADDDATA"}
-    sources: dict[str, Path] = {}
-    assets: dict[str, Asset] = {}
+    sources: dict[Sha256Hex, Path] = {}
+    assets: dict[Sha256Hex, Asset] = {}
     for name, payload in payloads.items():
         path = src_dir / name
         path.write_bytes(payload)
-        sha = hashlib.sha256(payload).hexdigest()
+        sha = Sha256Hex(hashlib.sha256(payload).hexdigest())
         sources[sha] = path
         assets[sha] = Asset(sha, name, "application/octet-stream", len(payload))
 

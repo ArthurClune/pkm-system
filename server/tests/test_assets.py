@@ -1,8 +1,9 @@
+from pkm.contracts.ops import Sha256Hex
 from pkm.importer.assets import Asset, rewrite_asset_urls, url_basename
 
 URL = ("https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/"
        "o/imgs%2Fapp%2Fgraph%2Fpaper-fig.png?alt=media&token=abc-123")
-INDEX = {"paper-fig.png": Asset("f" * 64, "paper-fig.png", "image/png", 7)}
+INDEX = {"paper-fig.png": Asset(Sha256Hex("f" * 64), "paper-fig.png", "image/png", 7)}
 
 
 def test_url_basename_decodes_path():
@@ -11,18 +12,18 @@ def test_url_basename_decodes_path():
 
 def test_rewrites_known_url():
     text = f"figure: ![]({URL}) end"
-    new, used, missing = rewrite_asset_urls(text, INDEX)
+    new, result = rewrite_asset_urls(text, INDEX)
     assert new == f"figure: ![](/assets/{'f' * 64}/paper-fig.png) end"
-    assert used == frozenset({"f" * 64})
-    assert missing == frozenset()
+    assert result.used == frozenset({"f" * 64})
+    assert result.missing == frozenset()
 
 
 def test_unknown_url_left_alone_and_reported():
     other = URL.replace("paper-fig", "gone")
-    new, used, missing = rewrite_asset_urls(f"see {other}", INDEX)
+    new, result = rewrite_asset_urls(f"see {other}", INDEX)
     assert other in new
-    assert used == frozenset()
-    assert missing == frozenset({other})
+    assert result.used == frozenset()
+    assert result.missing == frozenset({other})
 
 
 def test_non_firebase_urls_untouched():
@@ -31,45 +32,47 @@ def test_non_firebase_urls_untouched():
 
 
 def test_filename_needing_quoting():
-    idx = {"my file (1).pdf": Asset("a" * 64, "my file (1).pdf", "application/pdf", 9)}
+    idx = {"my file (1).pdf":
+          Asset(Sha256Hex("a" * 64), "my file (1).pdf", "application/pdf", 9)}
     url = ("https://firebasestorage.googleapis.com/v0/b/x/o/"
            "my%20file%20%281%29.pdf?alt=media")
-    new, used, _ = rewrite_asset_urls(f"[pdf]({url})", idx)
+    new, result = rewrite_asset_urls(f"[pdf]({url})", idx)
     assert f"/assets/{'a' * 64}/my%20file%20%281%29.pdf" in new
-    assert used == frozenset({"a" * 64})
+    assert result.used == frozenset({"a" * 64})
 
 
 def test_trailing_sentence_punctuation_not_swallowed():
     text = f"See {URL}."
-    new, used, missing = rewrite_asset_urls(text, INDEX)
+    new, result = rewrite_asset_urls(text, INDEX)
     assert new == f"See /assets/{'f' * 64}/paper-fig.png."
-    assert used == frozenset({"f" * 64})
-    assert missing == frozenset()
+    assert result.used == frozenset({"f" * 64})
+    assert result.missing == frozenset()
 
 
 def test_trailing_punctuation_on_unknown_url():
     other = URL.replace("paper-fig", "gone")
-    new, used, missing = rewrite_asset_urls(f"see {other}, ok", INDEX)
+    new, result = rewrite_asset_urls(f"see {other}, ok", INDEX)
     assert new == f"see {other}, ok"
-    assert missing == frozenset({other})
+    assert result.missing == frozenset({other})
 
 
 def test_uid_prefix_fallback_matches_roam_download_naming():
     # download file "-0yUy7-KXY-IMG_0659.jpeg" indexed under its 10-char uid prefix
-    idx = {"-0yuy7-kxy": Asset("b" * 64, "-0yUy7-KXY-IMG_0659.jpeg", "image/jpeg", 5)}
+    idx = {"-0yuy7-kxy":
+          Asset(Sha256Hex("b" * 64), "-0yUy7-KXY-IMG_0659.jpeg", "image/jpeg", 5)}
     url = ("https://firebasestorage.googleapis.com/v0/b/x/o/"
            "imgs%2Fapp%2Farthurclune%2F-0yUy7-KXY.jpeg?alt=media&token=t")
-    new, used, missing = rewrite_asset_urls(f"![]({url})", idx)
-    assert used == frozenset({"b" * 64})
-    assert missing == frozenset()
+    new, result = rewrite_asset_urls(f"![]({url})", idx)
+    assert result.used == frozenset({"b" * 64})
+    assert result.missing == frozenset()
     assert "/assets/" + "b" * 64 + "/" in new
 
 
 def test_exact_name_wins_over_prefix():
     idx = {
-        "paper-fig.png": Asset("c" * 64, "paper-fig.png", "image/png", 3),
-        "paper-fig.": Asset("d" * 64, "wrong.png", "image/png", 3),
+        "paper-fig.png": Asset(Sha256Hex("c" * 64), "paper-fig.png", "image/png", 3),
+        "paper-fig.": Asset(Sha256Hex("d" * 64), "wrong.png", "image/png", 3),
     }
     url = ("https://firebasestorage.googleapis.com/v0/b/x/o/paper-fig.png?alt=media")
-    _, used, _ = rewrite_asset_urls(f"![]({url})", idx)
-    assert used == frozenset({"c" * 64})
+    _, result = rewrite_asset_urls(f"![]({url})", idx)
+    assert result.used == frozenset({"c" * 64})

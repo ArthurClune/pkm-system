@@ -5,6 +5,9 @@ from __future__ import annotations
 import re
 import urllib.parse
 from dataclasses import dataclass
+from typing import NamedTuple
+
+from pkm.contracts.ops import Sha256Hex
 
 _FIREBASE_URL = re.compile(
     r"https://firebasestorage\.googleapis\.com/[^\s\)\]\}\"']+"
@@ -19,7 +22,7 @@ UID_PREFIX_LEN = 10
 
 @dataclass(frozen=True)
 class Asset:
-    sha256: str
+    sha256: Sha256Hex
     filename: str
     mime: str
     size: int
@@ -30,10 +33,20 @@ def url_basename(url: str) -> str:
     return path.rsplit("/", 1)[-1]
 
 
+class AssetUrlRewrite(NamedTuple):
+    """`rewrite_asset_urls` accumulates two frozensets of strings across
+    every block it scans, confusable with each other since both are
+    frozenset[str]-shaped: `used` names asset hashes a rewritten URL
+    actually linked, `missing` names firebase URLs no local asset
+    matched. Naming them kills the swap a plain 2-tuple invites."""
+    used: frozenset[Sha256Hex]
+    missing: frozenset[str]
+
+
 def rewrite_asset_urls(
     text: str, by_name: dict[str, Asset]
-) -> tuple[str, frozenset[str], frozenset[str]]:
-    used: set[str] = set()
+) -> tuple[str, AssetUrlRewrite]:
+    used: set[Sha256Hex] = set()
     missing: set[str] = set()
 
     def _sub(m: re.Match[str]) -> str:
@@ -53,4 +66,5 @@ def rewrite_asset_urls(
         quoted = urllib.parse.quote(asset.filename)
         return f"/assets/{asset.sha256}/{quoted}" + trailing_punct
 
-    return _FIREBASE_URL.sub(_sub, text), frozenset(used), frozenset(missing)
+    new_text = _FIREBASE_URL.sub(_sub, text)
+    return new_text, AssetUrlRewrite(frozenset(used), frozenset(missing))

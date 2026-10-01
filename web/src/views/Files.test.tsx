@@ -4,6 +4,7 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Sha256Hex } from "../api/brands";
 import type { AssetSearchItem, AssetSearchPayload } from "../api/payloads";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { makeSync } from "../test-helpers";
@@ -28,8 +29,12 @@ import { useSyncHealth } from "../sync/SyncProvider";
 const mockFetch = vi.mocked(apiFetch);
 const mockSync = vi.mocked(useSyncHealth);
 
+// AssetSearchItem.sha256 is server-branded; these fixtures stand in for a
+// real digest without computing one, so they cast.
+const sha = (s: string) => s as Sha256Hex;
+
 const item = (over: Partial<AssetSearchItem>): AssetSearchItem => ({
-  sha256: "ab".repeat(32), filename: "pic.png", mime: "image/png",
+  sha256: sha("ab".repeat(32)), filename: "pic.png", mime: "image/png",
   size: 1234, created_at: 1753000000000,
   url: `/assets/${"ab".repeat(32)}/pic.png`, description: null,
   status: "described", describe_error: null, refs: [], ...over,
@@ -83,7 +88,7 @@ describe("Files", () => {
     mockFetch.mockResolvedValue(payload([
       item({}),
       item({
-        sha256: "cd".repeat(32), filename: "notes.pdf",
+        sha256: sha("cd".repeat(32)), filename: "notes.pdf",
         mime: "application/pdf", status: "failed",
         describe_error: "too large",
         refs: [{ uid: "b1", page_title: "AI" }],
@@ -128,9 +133,9 @@ describe("Files", () => {
 
   it("loads more pages and selects all across pages", async () => {
     const first = Array.from({ length: 50 }, (_, i) =>
-      item({ sha256: String(i).padStart(64, "0"),
+      item({ sha256: sha(String(i).padStart(64, "0")),
              filename: `f${i}.png` }));
-    const second = [item({ sha256: "ee".repeat(32),
+    const second = [item({ sha256: sha("ee".repeat(32)),
                            filename: "last.png" })];
     mockFetch
       .mockResolvedValueOnce(payload(first, 51))
@@ -146,10 +151,10 @@ describe("Files", () => {
   it("discards a stale loadMore response when filters change first",
      async () => {
     const firstPage = Array.from({ length: 50 }, (_, i) =>
-      item({ sha256: String(i).padStart(64, "0"), filename: `f${i}.png` }));
+      item({ sha256: sha(String(i).padStart(64, "0")), filename: `f${i}.png` }));
     const stale = deferred<AssetSearchPayload>();
     const filtered = payload(
-      [item({ sha256: "cd".repeat(32), filename: "notes.pdf" })], 1);
+      [item({ sha256: sha("cd".repeat(32)), filename: "notes.pdf" })], 1);
     mockFetch
       .mockResolvedValueOnce(payload(firstPage, 60))   // initial reload
       .mockResolvedValueOnce(stale.promise)             // loadMore (offset=50)
@@ -177,9 +182,9 @@ describe("Files", () => {
   it("runs only one Load more request for two clicks before rerender",
      async () => {
     const first = Array.from({ length: 50 }, (_, i) =>
-      item({ sha256: String(i).padStart(64, "0"), filename: `f${i}.png` }));
+      item({ sha256: sha(String(i).padStart(64, "0")), filename: `f${i}.png` }));
     const pending = deferred<AssetSearchPayload>();
-    const last = item({ sha256: "ef".repeat(32), filename: "last.png" });
+    const last = item({ sha256: sha("ef".repeat(32)), filename: "last.png" });
     mockFetch
       .mockResolvedValueOnce(payload(first, 51))
       .mockReturnValueOnce(pending.promise);
@@ -204,10 +209,10 @@ describe("Files", () => {
   it("discards a stale selectAll response when filters change first",
      async () => {
     const firstPage = Array.from({ length: 50 }, (_, i) =>
-      item({ sha256: String(i).padStart(64, "0"), filename: `f${i}.png` }));
+      item({ sha256: sha(String(i).padStart(64, "0")), filename: `f${i}.png` }));
     const stale = deferred<AssetSearchPayload>();
     const filtered = payload(
-      [item({ sha256: "cd".repeat(32), filename: "notes.pdf" })], 1);
+      [item({ sha256: sha("cd".repeat(32)), filename: "notes.pdf" })], 1);
     mockFetch
       .mockResolvedValueOnce(payload(firstPage, 51))   // initial reload
       .mockResolvedValueOnce(stale.promise)             // selectAll (offset=50)
@@ -227,7 +232,7 @@ describe("Files", () => {
     // The stale selectAll page resolves after the filter change; it must not
     // select files outside the now-visible filter.
     stale.resolve(payload(
-      [item({ sha256: "ee".repeat(32), filename: "last.png" })], 51));
+      [item({ sha256: sha("ee".repeat(32)), filename: "last.png" })], 51));
     await act(async () => { await stale.promise; await Promise.resolve(); });
     expect(screen.queryByText(/selected/)).not.toBeInTheDocument();
     expect(screen.getByText("notes.pdf")).toBeInTheDocument();
@@ -276,7 +281,7 @@ describe("Files", () => {
      async () => {
     const linked = item({
       refs: [{ uid: "b1", page_title: "AI" }] });
-    const other = item({ sha256: "cd".repeat(32), filename: "b.png" });
+    const other = item({ sha256: sha("cd".repeat(32)), filename: "b.png" });
     mockFetch.mockResolvedValueOnce(payload([linked, other]));
     renderFiles();
     fireEvent.click(await screen.findByLabelText("Select pic.png"));
@@ -377,7 +382,7 @@ describe("Files", () => {
      async () => {
     const url = `/assets/${"cd".repeat(32)}/notes.pdf`;
     mockFetch.mockResolvedValueOnce(payload([item({
-      sha256: "cd".repeat(32), filename: "notes.pdf",
+      sha256: sha("cd".repeat(32)), filename: "notes.pdf",
       mime: "application/pdf", url,
     })]));
     renderFiles();
@@ -395,7 +400,7 @@ describe("Files", () => {
 
   it("keeps the new-tab link for document and other files", async () => {
     mockFetch.mockResolvedValueOnce(payload([item({
-      sha256: "cd".repeat(32), filename: "notes.txt",
+      sha256: sha("cd".repeat(32)), filename: "notes.txt",
       mime: "text/plain",
     })]));
     renderFiles();

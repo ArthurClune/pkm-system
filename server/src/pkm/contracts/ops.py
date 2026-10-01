@@ -43,11 +43,23 @@ OpKind = Literal["create", "update_text", "move", "delete", "set_collapsed",
 # A sha256 hex digest, distinct from a plain str so a text can never be
 # passed where a hash belongs. Pydantic validates and dumps a NewType as
 # its base type, so the wire format is unchanged; `brand` carries the name
-# to the web's generated types. Minted only by `text_hash` (and its web
-# twin `sha256Hex`); a test literal standing in for a hash wraps in
-# `Sha256Hex(...)`.
+# to the web's generated types. Minted by `text_hash`/`subtree_hash` (and
+# their web twin `sha256Hex`), by `assets_core.sha256_hex` for
+# content-addressed asset files, and by `title_migration._plan_digest`; a
+# test literal standing in for a hash wraps in `Sha256Hex(...)`.
 Sha256Hex = NewType("Sha256Hex", str)
 brand(Sha256Hex)
+
+# The shape every Sha256Hex value must have on the wire: 64 lowercase hex
+# characters, nothing else. `\Z` anchors to the true end of the string for
+# the same reason UID_RE does above; call sites use `.fullmatch()`
+# regardless. Shared so an asset sha arriving as a route param (which, unlike
+# a pydantic body field, gets no Field(pattern=...) for free) validates
+# against the same shape everywhere, rather than each route re-declaring its
+# own copy. Pydantic's own pattern validator uses a different regex engine
+# that rejects `\Z` (see TitleMigrationApplyRequest.audit_digest), so a
+# body field still spells its pattern out as a plain `$`-anchored string.
+SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}\Z")
 
 # A block's uid: validated against UID_RE above wherever one is minted or
 # looked up, not on every value this type touches -- a BlockUid arriving

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Literal, Mapping
 
+from pkm.contracts.ops import Sha256Hex
 from pkm.refs import (CanonicalTitle, RefKind, is_blank_title,
                       target_canonical_title, title_syntax_reason)
 
@@ -84,19 +85,31 @@ class TitleMigrationPlan:
     block_count: int
     ref_count: int
     sidebar_count: int
-    digest: str
+    digest: Sha256Hex
 
 
-def _plan_payload(plan: TitleMigrationPlan) -> dict[str, Any]:
+def _plan_payload(
+    *, active: bool, pages: tuple[InventoryPage, ...],
+    blocks: tuple[InventoryBlock, ...], refs: tuple[InventoryRef, ...],
+    sidebars: tuple[InventorySidebar, ...],
+    groups: tuple[TitleMigrationGroup, ...],
+    blockers: tuple[TitleMigrationBlocker, ...],
+    replacements: Mapping[CanonicalTitle, CanonicalTitle],
+    page_count: int, block_count: int, ref_count: int, sidebar_count: int,
+) -> dict[str, Any]:
+    """The pre-digest fields a `TitleMigrationPlan` is built from, taken as
+    plain arguments rather than the finished dataclass: the digest this
+    feeds is itself one of that dataclass's fields, so a caller computing
+    it can't yet have a complete instance to read from."""
     return {
-        "active": plan.active,
+        "active": active,
         "blockers": [
             {
                 "page_id": blocker.page_id,
                 "reason": blocker.reason,
                 "title": blocker.title,
             }
-            for blocker in plan.blockers
+            for blocker in blockers
         ],
         "blocks": [
             {
@@ -106,16 +119,16 @@ def _plan_payload(plan: TitleMigrationPlan) -> dict[str, Any]:
                 "text": block.text,
                 "uid": block.uid,
             }
-            for block in plan.blocks
+            for block in blocks
         ],
         "counts": {
-            "blockers": len(plan.blockers),
-            "blocks": plan.block_count,
-            "groups": len(plan.groups),
-            "pages": plan.page_count,
-            "refs": plan.ref_count,
-            "replacements": len(plan.replacements),
-            "sidebars": plan.sidebar_count,
+            "blockers": len(blockers),
+            "blocks": block_count,
+            "groups": len(groups),
+            "pages": page_count,
+            "refs": ref_count,
+            "replacements": len(replacements),
+            "sidebars": sidebar_count,
         },
         "groups": [
             {
@@ -133,11 +146,11 @@ def _plan_payload(plan: TitleMigrationPlan) -> dict[str, Any]:
                     "title": group.survivor.title,
                 },
             }
-            for group in plan.groups
+            for group in groups
         ],
         "pages": [
             {"page_id": page.page_id, "title": page.title}
-            for page in plan.pages
+            for page in pages
         ],
         "refs": [
             {
@@ -145,11 +158,11 @@ def _plan_payload(plan: TitleMigrationPlan) -> dict[str, Any]:
                 "src_block_uid": ref.src_block_uid,
                 "target_page_id": ref.target_page_id,
             }
-            for ref in plan.refs
+            for ref in refs
         ],
         "replacements": [
             {"source": source, "target": target}
-            for source, target in plan.replacements.items()
+            for source, target in replacements.items()
         ],
         "sidebars": [
             {
@@ -157,20 +170,20 @@ def _plan_payload(plan: TitleMigrationPlan) -> dict[str, Any]:
                 "sidebar_id": sidebar.sidebar_id,
                 "title": sidebar.title,
             }
-            for sidebar in plan.sidebars
+            for sidebar in sidebars
         ],
         "version": 2,
     }
 
 
-def _plan_digest(plan: TitleMigrationPlan) -> str:
+def _plan_digest(payload: dict[str, Any]) -> Sha256Hex:
     encoded = json.dumps(
-        _plan_payload(plan),
+        payload,
         ensure_ascii=True,
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
-    return hashlib.sha256(encoded).hexdigest()
+    return Sha256Hex(hashlib.sha256(encoded).hexdigest())
 
 
 def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigrationPlan:
@@ -229,33 +242,36 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
     blockers.sort(key=lambda blocker: (
         blocker.title, blocker.page_id, blocker.reason
     ))
-    plan = TitleMigrationPlan(
+    frozen_groups = tuple(groups)
+    frozen_blockers = tuple(blockers)
+    frozen_replacements: Mapping[CanonicalTitle, CanonicalTitle] = (
+        MappingProxyType(dict(sorted(replacements.items()))))
+    payload = _plan_payload(
         active=inventory.active,
         pages=pages,
         blocks=blocks,
         refs=refs,
         sidebars=sidebars,
-        groups=tuple(groups),
-        blockers=tuple(blockers),
-        replacements=MappingProxyType(dict(sorted(replacements.items()))),
+        groups=frozen_groups,
+        blockers=frozen_blockers,
+        replacements=frozen_replacements,
         page_count=len(pages),
         block_count=len(blocks),
         ref_count=len(refs),
         sidebar_count=len(sidebars),
-        digest="",
     )
     return TitleMigrationPlan(
-        active=plan.active,
-        pages=plan.pages,
-        blocks=plan.blocks,
-        refs=plan.refs,
-        sidebars=plan.sidebars,
-        groups=plan.groups,
-        blockers=plan.blockers,
-        replacements=plan.replacements,
-        page_count=plan.page_count,
-        block_count=plan.block_count,
-        ref_count=plan.ref_count,
-        sidebar_count=plan.sidebar_count,
-        digest=_plan_digest(plan),
+        active=inventory.active,
+        pages=pages,
+        blocks=blocks,
+        refs=refs,
+        sidebars=sidebars,
+        groups=frozen_groups,
+        blockers=frozen_blockers,
+        replacements=frozen_replacements,
+        page_count=len(pages),
+        block_count=len(blocks),
+        ref_count=len(refs),
+        sidebar_count=len(sidebars),
+        digest=_plan_digest(payload),
     )

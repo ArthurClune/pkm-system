@@ -9,7 +9,7 @@ import { applyLocalOps } from "./localOps";
 import { setMeta } from "./meta";
 import { remapLocalPage } from "./reconcile";
 import { openTestDb, type TestDb } from "./testDb";
-import { pageId, uid } from "../test-helpers";
+import { pageId, title, uid } from "../test-helpers";
 
 let t: TestDb;
 let negId: number;
@@ -45,7 +45,7 @@ describe("reconcile on feed page delivery", () => {
     t.db.exec("INSERT INTO refs VALUES ('uid_a1', ?, 'link')", [negId]);
 
     applyChanges(t.db, feed({
-      pages: [{ id: pageId(7), title: "Offline Page", created_at: 9, updated_at: 9 }],
+      pages: [{ id: pageId(7), title: title("Offline Page"), created_at: 9, updated_at: 9 }],
     }));
     // negative row replaced by the authoritative one
     expect(t.db.select("SELECT id FROM pages WHERE title = 'Offline Page'"))
@@ -67,7 +67,7 @@ describe("reconcile on feed page delivery", () => {
     t.db.exec("INSERT INTO refs VALUES ('uid_a1', 7, 'link')");
     t.db.exec("INSERT INTO refs VALUES ('uid_a1', ?, 'link')", [negId]);
     applyChanges(t.db, feed({
-      pages: [{ id: pageId(7), title: "Offline Page", created_at: 9, updated_at: 9 }],
+      pages: [{ id: pageId(7), title: title("Offline Page"), created_at: 9, updated_at: 9 }],
     }));
     expect(t.db.select(
       "SELECT COUNT(*) AS n FROM refs WHERE src_block_uid = 'uid_a1'" +
@@ -76,7 +76,7 @@ describe("reconcile on feed page delivery", () => {
 
   test("positive-id pages upsert without reconcile side effects", () => {
     applyChanges(t.db, feed({
-      pages: [{ id: pageId(1), title: "AI", created_at: 2, updated_at: 2 }],
+      pages: [{ id: pageId(1), title: title("AI"), created_at: 2, updated_at: 2 }],
     }));
     expect(t.db.select("SELECT COUNT(*) AS n FROM pages WHERE id < 0"))
       .toEqual([{ n: 1 }]); // untouched offline page still negative

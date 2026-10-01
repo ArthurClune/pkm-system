@@ -4,7 +4,7 @@
 // TypeScript reports an UNUSED suppression as an error of its own, so a probe
 // that stops catching its drift fails the build rather than silently passing.
 import { afterEach, expect, it, vi } from "vitest";
-import { entryId, READ_INIT } from "../test-helpers";
+import { READ_INIT, entryId, title } from "../test-helpers";
 import type { CurrentWorkPayload, JournalPayload, PageMeta,
               PagePayload } from "./payloads";
 import { setOfflineGateway } from "./client";
@@ -17,7 +17,7 @@ type RenameResponse =
   paths["/api/page/{title}/rename"]["post"]["responses"][200]["content"]["application/json"];
 
 it("types the rename response as a discriminated result", () => {
-  const renamed: RenameResponse = { result: "renamed", title: "New" };
+  const renamed: RenameResponse = { result: "renamed", title: title("New") };
   const branch: "renamed" | "merged" = renamed.result;
   expect(branch).toBe("renamed");
 });

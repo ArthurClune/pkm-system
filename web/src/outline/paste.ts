@@ -6,7 +6,7 @@
 // over-indent jump of any size is exactly one level (malformed input clamps,
 // never throws).
 
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import { clampCaret, idxAfter, type EditResult, type FocusTarget } from "./edits";
@@ -105,7 +105,7 @@ export function isOutlinePaste(text: string): boolean {
  * children; consecutive-sibling order_idx values rely on applyOps's
  * insert-before shift, exactly like splitBlock. */
 export function planOutlinePaste(
-  blocks: BlockNode[], pageTitle: string, uid: BlockUid,
+  blocks: BlockNode[], pageTitle: CanonicalTitle, uid: BlockUid,
   selStart: number, selEnd: number, text: string,
   newUid: () => BlockUid,
 ): EditResult {

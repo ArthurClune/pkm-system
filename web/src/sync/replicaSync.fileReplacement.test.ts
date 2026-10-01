@@ -15,11 +15,11 @@ import { failingOnce, fakeCarryFiles, openRawTestDb, withDamagedFreelist }
   from "../replica/testDb";
 import { buildHandlers, type WorkerDeps } from "../replica/workerHandlers";
 import { createReplicaSync } from "./replicaSync";
-import { pageId, uid } from "../test-helpers";
+import { pageId, title, uid } from "../test-helpers";
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (5 as SyncSeq),
-  pages: [{ id: pageId(1), title: "AI", created_at: 1, updated_at: 1 }],
+  pages: [{ id: pageId(1), title: title("AI"), created_at: 1, updated_at: 1 }],
   blocks: [{ uid: uid("uid_b1"), page_id: pageId(1), parent_uid: null, order_idx: 0,
     text: "hello", heading: null, view_type: null, collapsed: 0,
     created_at: 1, updated_at: 1, refs: [] }],

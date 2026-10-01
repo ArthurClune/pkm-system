@@ -7,7 +7,7 @@ import type { OpsAck } from "../api/payloads";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { acquireOutlineSession } from "../outline/outlineSessions";
 import { sha256Hex } from "../replica/sha256";
-import { FakeWebSocket, block, jsonResponse, stubFetch, uid } from "../test-helpers";
+import { FakeWebSocket, block, jsonResponse, stubFetch, title, uid } from "../test-helpers";
 import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
 import { clientId, createOpQueue } from "./opQueue";
@@ -785,7 +785,7 @@ describe("durable batches on connect", () => {
       ["/api/ops", {
         ok: true, ts: 1, applied: 1,
         skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
-                    reason: "block_not_found", note_page: "2026-09-29" }],
+                    reason: "block_not_found", note_page: title("2026-09-29") }],
       } satisfies OpsAck],
     ]);
     const replica = fakeReplicaForProvider();
@@ -2216,7 +2216,7 @@ describe("ownership and StrictMode lifecycle", () => {
     stubFetch([["/api/ops", {
       ok: true, ts: 1, applied: 1,
       skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
-                  reason: "block_not_found", note_page: "2026-09-29" }],
+                  reason: "block_not_found", note_page: title("2026-09-29") }],
     } satisfies OpsAck]]);
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }

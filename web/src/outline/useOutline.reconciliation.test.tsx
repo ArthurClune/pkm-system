@@ -7,15 +7,15 @@ import type { DeliveryOutcome, TicketId, WriteOutcome,
               WriteTicket } from "../sync/opQueue";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
-import { READ_INIT, block, jsonResponse, makeSync, pagePayload, stubFetch, uid } from "../test-helpers";
+import { READ_INIT, block, jsonResponse, makeSync, pagePayload, stubFetch, title, uid } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
-function Harness({ title, initial, onReady }: {
+function Harness({ title: pageTitle, initial, onReady }: {
   title: string;
   initial: BlockNode[];
   onReady(outline: Outline): void;
 }) {
-  const outline = useOutline(title, initial);
+  const outline = useOutline(title(pageTitle), initial);
   useEffect(() => onReady(outline));
   return null;
 }

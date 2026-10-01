@@ -14,7 +14,7 @@ import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider, useDnd } from "./DndContext";
 import { useDropZone, type Indicator } from "./useDropZone";
 import { EditablePage } from "../views/EditablePage";
-import { block, makeSync, uid } from "../test-helpers";
+import { block, makeSync, title, uid } from "../test-helpers";
 
 const ROW_H = 20;
 const ROWS = 6; // u1..u6; u6 is the one dragged, leaving five candidate rows
@@ -59,7 +59,7 @@ function startDrag() {
     <SyncContext.Provider value={sync}>
       <DndProvider>
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-          <EditablePage title="P" initial={
+          <EditablePage title={title("P")} initial={
             Array.from({ length: ROWS }, (_, i) =>
               block(`u${i + 1}`, `row ${i + 1}`, { order_idx: i }))} />
         </MemoryRouter>

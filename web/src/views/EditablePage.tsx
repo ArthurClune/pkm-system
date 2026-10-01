@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { Composer } from "../components/Composer";
 import { EditableBlockTree } from "../components/EditableBlockTree";
@@ -20,7 +20,7 @@ import { useOutline } from "../outline/useOutline";
  * flushed tree and grants exactly one editor lease after commit. */
 export function EditablePage({ title, initial, composer = false,
                               stamps = false, refCounts }: {
-  title: string;
+  title: CanonicalTitle;
   initial: BlockNode[];
   composer?: boolean;
   /** Show the last-changed margin column. Only the main-pane

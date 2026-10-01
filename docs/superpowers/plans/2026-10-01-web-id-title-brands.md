@@ -183,16 +183,16 @@ A brand is a subtype of its base type, so code that only reads a branded field i
 - Consumes `NormalizedTitle`, `CanonicalTitle`, `title` and `normTitle` from Task 1, and the Task 2 signatures, whose `pageTitle` now narrows.
 - Produces `canonicalTitle(db, title)`, `titleReader(db)` and `normalizeRefTitle(): NormalizedTitle`.
 
-- [ ] **Step 1: Write the failing probes and tests.**
+- [x] **Step 1: Write the failing probes and tests.**
   - `// @ts-expect-error a raw string is not a CanonicalTitle` on `indentBlock(blocks, "Page", someUid)`.
   - `// @ts-expect-error a NormalizedTitle is not a CanonicalTitle` on `useOutline(normTitle("Page"), …)`, in the `useOutline` test.
   - A `CanonicalTitle` passes wherever a `NormalizedTitle` is expected, shown by a plain assignment that compiles.
   - The `EditableSidebarPanel` reproduction test (Review Focus 4).
   - A `replica/apply.test.ts` case where a parked title still trips `assertNoParkedTitles` (Review Focus 2).
-- [ ] **Step 2:** `pnpm typecheck`. Expect a FAIL on the unused directives. Run the reproduction test and record whether it fails today.
-- [ ] **Step 3:** Add the brands and regenerate.
-- [ ] **Step 4:** Fix and narrow in this order: replica, grammar, outline, components, views, root. Then fix the tests. Run the full server and web unit checks.
-- [ ] **Step 5:** Commit: `feat(pkm-thee): titles reach the web as NormalizedTitle / CanonicalTitle brands`.
+- [x] **Step 2:** `pnpm typecheck`. Expect a FAIL on the unused directives. Run the reproduction test and record whether it fails today.
+- [x] **Step 3:** Add the brands and regenerate.
+- [x] **Step 4:** Fix and narrow in this order: replica, grammar, outline, components, views, root. Then fix the tests. Run the full server and web unit checks.
+- [x] **Step 5:** Commit: `feat(pkm-thee): titles reach the web as NormalizedTitle / CanonicalTitle brands`.
 
 ### Task 5: Docs, full verification, perf
 

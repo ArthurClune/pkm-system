@@ -6,7 +6,7 @@ import type { BlockRefText } from "../api/payloads";
 import { BlockRefContext, SidebarContext } from "../contexts";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { BlockRef } from "./BlockRef";
-import { uid } from "../test-helpers";
+import { title, uid } from "../test-helpers";
 
 function Probe() {
   const loc = useLocation();
@@ -28,7 +28,7 @@ function mount(refTexts: Record<string, BlockRefText>,
 }
 
 const RESOLVED: Record<string, BlockRefText> = {
-  ref_aa1: { text: "target text", page_title: "Paper" },
+  ref_aa1: { text: "target text", page_title: title("Paper") },
 };
 
 it("clicking a resolved ref navigates to its page with the uid as hash", () => {
@@ -38,7 +38,7 @@ it("clicking a resolved ref navigates to its page with the uid as hash", () => {
 });
 
 it("encodes the target page title in the path", () => {
-  mount({ ref_aa1: { text: "x", page_title: "Machine Learning" } });
+  mount({ ref_aa1: { text: "x", page_title: title("Machine Learning") } });
   fireEvent.click(screen.getByText("x"));
   expect(screen.getByTestId("loc"))
     .toHaveTextContent("/page/Machine%20Learning#ref_aa1");
@@ -59,7 +59,7 @@ it("Enter on a focused ref navigates like a click", () => {
 });
 
 it("an inner [[link]] in the resolved text navigates to ITS page, not the ref target", () => {
-  mount({ ref_aa1: { text: "see [[World]]", page_title: "Paper" } });
+  mount({ ref_aa1: { text: "see [[World]]", page_title: title("Paper") } });
   fireEvent.click(screen.getByRole("link", { name: "World" }));
   expect(screen.getByTestId("loc")).toHaveTextContent(/\/page\/World$/);
 });

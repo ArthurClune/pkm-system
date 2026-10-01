@@ -12,7 +12,7 @@ import { failingOnce, fakeCarryFiles, openRawTestDb, openTestDb,
          withDamagedFreelist } from "./testDb";
 import { subtreeHash } from "./subtreeHash";
 import { buildHandlers, type WorkerDeps } from "./workerHandlers";
-import { pageId, uid } from "../test-helpers";
+import { pageId, title, uid } from "../test-helpers";
 
 const bid = (s: string): BatchId => s as BatchId;
 const pid = (n: number): PendingRowId => n as PendingRowId;
@@ -20,7 +20,7 @@ const seq = (n: number): SyncSeq => n as SyncSeq;
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (5 as SyncSeq),
-  pages: [{ id: pageId(1), title: "AI", created_at: 1, updated_at: 1 }],
+  pages: [{ id: pageId(1), title: title("AI"), created_at: 1, updated_at: 1 }],
   blocks: [{ uid: uid("uid_b1"), page_id: pageId(1), parent_uid: null, order_idx: 0,
     text: "hello", heading: null, view_type: null, collapsed: 0,
     created_at: 1, updated_at: 1, refs: [] }],

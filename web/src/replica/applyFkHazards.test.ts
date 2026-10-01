@@ -7,7 +7,7 @@
 // "FOREIGN KEY constraint failed", and reset/repair (which re-run
 // reapplyPending) wedge the same way.
 import { beforeEach, describe, expect, test } from "vitest";
-import type { BatchId, BlockUid, PageId, SyncSeq } from "../api/brands";
+import type { BatchId, BlockUid, CanonicalTitle, PageId, SyncSeq } from "../api/brands";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import type { ReplicaDb } from "./db";
@@ -33,8 +33,8 @@ const block = (rawUid: string, rawPageId: number, over: Partial<SyncBlock> = {})
   refs: [], ...over,
 });
 
-const page = (rawId: number, title: string) =>
-  ({ id: rawId as PageId, title, created_at: 1, updated_at: 1 });
+const page = (rawId: number, rawTitle: string) =>
+  ({ id: rawId as PageId, title: rawTitle as CanonicalTitle, created_at: 1, updated_at: 1 });
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (10 as SyncSeq),

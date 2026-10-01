@@ -4,7 +4,7 @@
 // The head batch auto-creates today locally (negative id, deliberately
 // not pushed) so there is always a page to compose into.
 
-import type { BlockUid } from "../../api/brands";
+import type { BlockUid, CanonicalTitle } from "../../api/brands";
 import type { JournalDay, JournalPayload } from "../../api/payloads";
 import { dateForTitle, selectJournalDays, titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
@@ -57,10 +57,10 @@ export function journalPayload(db: ReplicaDb, before: string | null,
   // contribute one Date -- selectJournalDays takes a plain array, not a
   // set, and would otherwise double the day up in its output.
   const nonemptyTitles = new Set<string>();
-  for (const row of db.select<{ title: string }>(NONEMPTY_DAILY_SQL)) {
+  for (const row of db.select<{ title: CanonicalTitle }>(NONEMPTY_DAILY_SQL)) {
     nonemptyTitles.add(row.title);
   }
-  for (const row of db.select<{ title: string }>(REFERENCED_DAILY_SQL)) {
+  for (const row of db.select<{ title: CanonicalTitle }>(REFERENCED_DAILY_SQL)) {
     nonemptyTitles.add(row.title);
   }
   const nonempty: Date[] = [];

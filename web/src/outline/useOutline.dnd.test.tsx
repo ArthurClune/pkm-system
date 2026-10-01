@@ -5,7 +5,7 @@ import type { ClientId } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
-import { READ_INIT, block, makeSync, pagePayload, stubFetch, type SyncFake, uid } from "../test-helpers";
+import { READ_INIT, block, makeSync, pagePayload, stubFetch, title, type SyncFake, uid } from "../test-helpers";
 import { findNode } from "./tree";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -14,7 +14,7 @@ function Harness({ pageTitle, initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(pageTitle, initial);
+  const outline = useOutline(title(pageTitle), initial);
   useEffect(() => onReady(outline));
   return null;
 }

@@ -2032,7 +2032,8 @@
           },
           "page_title": {
             "type": "string",
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
           }
         },
         "type": "object",
@@ -2268,7 +2269,8 @@
           },
           "page_title": {
             "type": "string",
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
           },
           "items": {
             "items": {
@@ -2370,7 +2372,8 @@
           },
           "page_title": {
             "type": "string",
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
           },
           "items": {
             "items": {
@@ -2526,7 +2529,8 @@
           },
           "page_title": {
             "type": "string",
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
           }
         },
         "type": "object",
@@ -2593,7 +2597,8 @@
           },
           "page_title": {
             "type": "string",
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
           },
           "items": {
             "items": {
@@ -2952,7 +2957,8 @@
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           },
           "updated_at": {
             "type": "integer",
@@ -3144,7 +3150,8 @@
           },
           "page": {
             "type": "string",
-            "title": "Page"
+            "title": "Page",
+            "x-brand": "CanonicalTitle"
           },
           "href": {
             "type": "string",
@@ -3286,7 +3293,8 @@
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           },
           "exists": {
             "type": "boolean",
@@ -3393,7 +3401,8 @@
           },
           "page": {
             "type": "string",
-            "title": "Page"
+            "title": "Page",
+            "x-brand": "CanonicalTitle"
           },
           "href": {
             "type": "string",
@@ -3605,7 +3614,8 @@
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           },
           "created_at": {
             "anyOf": [
@@ -3702,6 +3712,9 @@
             "additionalProperties": {
               "type": "integer"
             },
+            "propertyNames": {
+              "x-brand": "CanonicalTitle"
+            },
             "type": "object",
             "title": "Ref Counts"
           }
@@ -3746,7 +3759,8 @@
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           }
         },
         "type": "object",
@@ -3813,7 +3827,8 @@
           },
           "page_title": {
             "type": "string",
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
           },
           "snippet": {
             "type": "string",
@@ -3837,7 +3852,8 @@
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           }
         },
         "type": "object",
@@ -3983,7 +3999,8 @@
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           }
         },
         "type": "object",
@@ -4046,7 +4063,8 @@
           "note_page": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "x-brand": "CanonicalTitle"
               },
               {
                 "type": "null"
@@ -4236,7 +4254,8 @@
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           },
           "created_at": {
             "anyOf": [
@@ -4303,7 +4322,8 @@
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           },
           "order_idx": {
             "type": "integer",
@@ -4444,7 +4464,8 @@
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           },
           "reason": {
             "type": "string",
@@ -4467,7 +4488,8 @@
         "properties": {
           "canonical_title": {
             "type": "string",
-            "title": "Canonical Title"
+            "title": "Canonical Title",
+            "x-brand": "CanonicalTitle"
           },
           "survivor": {
             "$ref": "#/components/schemas/TitleMigrationPage"
@@ -4517,7 +4539,8 @@
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           }
         },
         "type": "object",
@@ -4531,7 +4554,8 @@
         "properties": {
           "titles": {
             "items": {
-              "type": "string"
+              "type": "string",
+              "x-brand": "CanonicalTitle"
             },
             "type": "array",
             "title": "Titles"

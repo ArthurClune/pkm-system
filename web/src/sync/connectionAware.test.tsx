@@ -10,7 +10,7 @@ import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { uploadAsset } from "./assets";
 import { useOutline, type Outline } from "../outline/useOutline";
-import { FakeWebSocket, block, jsonResponse, pagePayload, uid } from "../test-helpers";
+import { FakeWebSocket, block, jsonResponse, pagePayload, title, uid } from "../test-helpers";
 import { SyncProvider } from "./SyncProvider";
 
 vi.mock("./assets", async (importOriginal) => ({
@@ -23,7 +23,7 @@ function Harness({ initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline("Page", initial);
+  const outline = useOutline(title("Page"), initial);
   useEffect(() => onReady(outline));
   return null;
 }

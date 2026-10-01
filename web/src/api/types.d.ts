@@ -938,7 +938,7 @@ export interface components {
             /** Uid */
             uid: Brands.BlockUid;
             /** Page Title */
-            page_title: string;
+            page_title: Brands.CanonicalTitle;
         };
         /** AssetSearchItem */
         AssetSearchItem: {
@@ -1021,7 +1021,7 @@ export interface components {
             /** Page Id */
             page_id: Brands.PageId;
             /** Page Title */
-            page_title: string;
+            page_title: Brands.CanonicalTitle;
             /** Items */
             items: components["schemas"]["BacklinkItem"][];
         };
@@ -1060,7 +1060,7 @@ export interface components {
             /** Page Id */
             page_id: Brands.PageId;
             /** Page Title */
-            page_title: string;
+            page_title: Brands.CanonicalTitle;
             /** Items */
             items: components["schemas"]["GroupItem"][];
         };
@@ -1104,7 +1104,7 @@ export interface components {
             /** Text */
             text: string;
             /** Page Title */
-            page_title: string;
+            page_title: Brands.CanonicalTitle;
         };
         /**
          * BlockRefsPayload
@@ -1134,7 +1134,7 @@ export interface components {
             /** Page Id */
             page_id: Brands.PageId;
             /** Page Title */
-            page_title: string;
+            page_title: Brands.CanonicalTitle;
             /** Items */
             items: components["schemas"]["ChangedItem"][];
         };
@@ -1272,7 +1272,7 @@ export interface components {
             /** Id */
             id: Brands.PageId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
             /** Updated At */
             updated_at: number;
         };
@@ -1347,7 +1347,7 @@ export interface components {
             /** Uid */
             uid: Brands.BlockUid;
             /** Page */
-            page: string;
+            page: Brands.CanonicalTitle;
             /** Href */
             href: string;
             /**
@@ -1420,7 +1420,7 @@ export interface components {
             /** Date */
             date: string;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
             /** Exists */
             exists: boolean;
             /** Blocks */
@@ -1461,7 +1461,7 @@ export interface components {
             /** Uid */
             uid: Brands.BlockUid;
             /** Page */
-            page: string;
+            page: Brands.CanonicalTitle;
             /** Href */
             href: string;
             /**
@@ -1521,7 +1521,7 @@ export interface components {
             /** Id */
             id: Brands.PageId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
             /** Created At */
             created_at: number | null;
             /** Updated At */
@@ -1580,7 +1580,7 @@ export interface components {
              */
             result: "renamed" | "merged";
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
         };
         /** ReorderSidebarEntriesRequest */
         ReorderSidebarEntriesRequest: {
@@ -1601,7 +1601,7 @@ export interface components {
             /** Uid */
             uid: Brands.BlockUid;
             /** Page Title */
-            page_title: string;
+            page_title: Brands.CanonicalTitle;
             /** Snippet */
             snippet: string;
         };
@@ -1610,7 +1610,7 @@ export interface components {
             /** Id */
             id: Brands.PageId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
         };
         /** SearchPayload */
         SearchPayload: {
@@ -1668,7 +1668,7 @@ export interface components {
             /** Id */
             id: Brands.SidebarEntryId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
         };
         /** SidebarNavPayload */
         SidebarNavPayload: {
@@ -1697,7 +1697,7 @@ export interface components {
              */
             reason: "block_not_found" | "parent_not_found" | "cycle";
             /** Note Page */
-            note_page: string | null;
+            note_page: Brands.CanonicalTitle | null;
         };
         /** SnapshotPayload */
         SnapshotPayload: {
@@ -1744,7 +1744,7 @@ export interface components {
             /** Id */
             id: Brands.PageId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
             /** Created At */
             created_at: number | null;
             /** Updated At */
@@ -1765,7 +1765,7 @@ export interface components {
             /** Id */
             id: Brands.SidebarEntryId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
             /** Order Idx */
             order_idx: number;
         };
@@ -1817,7 +1817,7 @@ export interface components {
             /** Page Id */
             page_id: Brands.PageId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
             /**
              * Reason
              * @enum {string}
@@ -1827,7 +1827,7 @@ export interface components {
         /** TitleMigrationGroup */
         TitleMigrationGroup: {
             /** Canonical Title */
-            canonical_title: string;
+            canonical_title: Brands.CanonicalTitle;
             survivor: components["schemas"]["TitleMigrationPage"];
             /** Sources */
             sources: components["schemas"]["TitleMigrationPage"][];
@@ -1845,12 +1845,12 @@ export interface components {
             /** Page Id */
             page_id: Brands.PageId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
         };
         /** TitlesPayload */
         TitlesPayload: {
             /** Titles */
-            titles: string[];
+            titles: Brands.CanonicalTitle[];
         };
         /** UpdateTextOp */
         UpdateTextOp: {

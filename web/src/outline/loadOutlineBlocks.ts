@@ -14,9 +14,9 @@ import type { MissingPagePolicy } from "./missingPage";
 export const statusOf = (error: unknown): number | null =>
   error instanceof ApiError ? error.status : null;
 
-export async function loadOutlineBlocks(
-  title: string,
-  missingPage: MissingPagePolicy,
+export async function loadOutlineBlocks<Title extends string>(
+  title: Title,
+  missingPage: MissingPagePolicy<Title>,
 ): Promise<BlockNode[]> {
   try {
     const page = await apiGet("/api/page/{title}", { path: { title } });

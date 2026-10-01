@@ -13,7 +13,7 @@
 // Poisoned batches (server terminal 4xx, see sync/rejection.ts) are set
 // aside, never retried forever (spec section 6).
 
-import type { BatchId, BlockUid } from "../api/brands";
+import type { BatchId, BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { PendingBatch, PendingRowId, PoisonedBatch } from "./client";
 import { type ReplicaDb, rollbackToSavepoint } from "./db";
@@ -28,8 +28,9 @@ const currentText = (db: ReplicaDb, uid: BlockUid): string | null => {
   return rows.length > 0 ? rows[0].text : null;
 };
 
-const currentPageTitle = (db: ReplicaDb, uid: BlockUid): string | null => {
-  const rows = db.select<{ title: string }>(
+const currentPageTitle = (db: ReplicaDb,
+                          uid: BlockUid): CanonicalTitle | null => {
+  const rows = db.select<{ title: CanonicalTitle }>(
     "SELECT p.title FROM blocks b JOIN pages p ON p.id = b.page_id" +
     " WHERE b.uid = ?", [uid]);
   return rows.length > 0 ? rows[0].title : null;

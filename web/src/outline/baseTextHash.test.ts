@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { sha256Hex, type Sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
-import { block, uid } from "../test-helpers";
+import { block, title, uid } from "../test-helpers";
 import { nodeSubtreePairs, stampBaseTextHashes, withoutStamps } from "./baseTextHash";
 import { backspaceAtStart } from "./edits";
 
@@ -133,7 +133,7 @@ describe("stampBaseTextHashes on delete", () => {
       block("a", "hello"),
       block("b", " world", { order_idx: 1 }),
     ];
-    const { ops } = backspaceAtStart(blocks, "AI", uid("b"));
+    const { ops } = backspaceAtStart(blocks, title("AI"), uid("b"));
     expect(ops.map((op) => op.op)).toEqual(["update_text", "delete"]);
     const stamped = stampBaseTextHashes(blocks, "AI", ops);
     expect(stamped[1]).toEqual({

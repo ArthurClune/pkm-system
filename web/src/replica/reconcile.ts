@@ -7,11 +7,10 @@
 // (already running with defer_foreign_keys): remap children + refs, delete
 // the negative row, and let the caller insert the authoritative row.
 
-import type { PageId } from "../api/brands";
+import type { CanonicalTitle, PageId } from "../api/brands";
 import type { SyncPage } from "./apply";
 import type { ReplicaDb } from "./db";
-import { plainSpaceTitleCanonicalizationActive } from "./meta";
-import { canonicalizeTitle } from "./titles";
+import { titleReader } from "./meta";
 
 /** A named-object parameter, not two positional PageIds: a brand alone can't
  * tell `localId` and `targetId` apart, since both are the same type. */
@@ -41,11 +40,12 @@ export function reconcilePage(db: ReplicaDb, incoming: SyncPage): void {
  * is retitled in place. Either path preserves its blocks and refs while the
  * durable pending wire operations remain untouched for normal replay. */
 export function reconcileActivationPageTitles(db: ReplicaDb): void {
-  if (!plainSpaceTitleCanonicalizationActive(db)) return;
-  const localPages = db.select<{ id: PageId; title: string }>(
+  const read = titleReader(db);
+  if (!read.plainSpaceActive) return;
+  const localPages = db.select<{ id: PageId; title: CanonicalTitle }>(
     "SELECT id, title FROM pages WHERE id < 0 ORDER BY id");
   for (const local of localPages) {
-    const title = canonicalizeTitle(local.title, true);
+    const title = read(local.title);
     if (title === local.title) continue;
     const targets = db.select<{ id: PageId }>(
       "SELECT id FROM pages WHERE title = ? AND id != ?" +

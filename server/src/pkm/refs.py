@@ -10,14 +10,20 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, Iterator, Literal, NewType
 
+from pkm.contracts.brands import brand
+
 # A title that has been through normalize_title: control whitespace
 # collapsed, no other byte changed. Not every str is one -- minted only by
 # normalize_title (and anything built from its output).
 NormalizedTitle = NewType("NormalizedTitle", str)
+brand(NormalizedTitle)
 # A NormalizedTitle that has also been through canonicalize_title: the exact
 # spelling a lookup against pages.title/sidebar_entries.title must use.
 # Minted only by canonicalize_title and by reading those columns back.
 CanonicalTitle = NewType("CanonicalTitle", NormalizedTitle)
+# Its own brand: a NewType of a branded NewType otherwise inherits
+# NormalizedTitle's marker.
+brand(CanonicalTitle)
 
 # A ``` run followed by a word character is a fence *opener* with an info
 # string (```css, ```mermaid), never a closer -- without the lookahead, an

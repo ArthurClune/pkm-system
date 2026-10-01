@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
-import type { BatchId, BlockUid, PageId, SyncSeq } from "../api/brands";
+import type { BatchId, BlockUid, CanonicalTitle, PageId, SyncSeq } from "../api/brands";
 import type { Changes, Snapshot, SyncBlock, SyncTombstone } from "./apply";
 import { applyChanges, applySnapshot, assertNoParkedTitles,
          parkTakenTitles } from "./apply";
@@ -8,7 +8,7 @@ import { getMeta } from "./meta";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
 import type { ReplicaDb } from "./db";
-import { entryId, pageId, uid } from "../test-helpers";
+import { entryId, pageId, title, uid } from "../test-helpers";
 
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
@@ -27,8 +27,8 @@ const block = (rawUid: string, rawPageId: number, over: Partial<SyncBlock> = {})
   refs: [], ...over,
 });
 
-const page = (rawId: number, title: string) =>
-  ({ id: rawId as PageId, title, created_at: 1, updated_at: 1 });
+const page = (rawId: number, rawTitle: string) =>
+  ({ id: rawId as PageId, title: rawTitle as CanonicalTitle, created_at: 1, updated_at: 1 });
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false,
@@ -39,7 +39,7 @@ const SNAP: Snapshot = {
     block("uid_b2", 1, { order_idx: 1 }),
     block("uid_b3", 1, { parent_uid: uid("uid_b2"), text: "child block searchable" }),
   ],
-  sidebar: [{ id: entryId(1), title: "AI", order_idx: 0 }],
+  sidebar: [{ id: entryId(1), title: title("AI"), order_idx: 0 }],
 };
 
 // `next_since`/`latest_seq` take a plain number here, not SyncSeq: every
@@ -73,7 +73,7 @@ describe("applySnapshot", () => {
       ...SNAP,
       pages: [page(30, "Authoritative #Page")],
       blocks: [],
-      sidebar: [{ id: entryId(30), title: "Authoritative #Page", order_idx: 0 }],
+      sidebar: [{ id: entryId(30), title: title("Authoritative #Page"), order_idx: 0 }],
     });
 
     expect(t.db.select("SELECT id, title FROM pages")).toEqual([
@@ -252,7 +252,7 @@ describe("applyChanges", () => {
       next_since: 11,
       latest_seq: 11,
       pages: [page(31, "Authoritative [[Feed]]")],
-      sidebar: [{ id: entryId(31), title: "Authoritative [[Feed]]", order_idx: 0 }],
+      sidebar: [{ id: entryId(31), title: title("Authoritative [[Feed]]"), order_idx: 0 }],
     }))).toEqual({ status: "applied", cursor: 11 });
 
     expect(t.db.select("SELECT id, title FROM pages WHERE id = 31")).toEqual([
@@ -452,10 +452,19 @@ describe("applyChanges", () => {
   test("parkTakenTitles/assertNoParkedTitles tie the parked ids to their own table", () => {
     // a title nothing holds: parks nothing, so assertNoParkedTitles is a no-op
     const parkedPages = parkTakenTitles(t.db, "pages",
-      [{ id: pageId(2), title: "a title nothing holds" }]);
+      [{ id: pageId(2), title: title("a title nothing holds") }]);
     assertNoParkedTitles(t.db, "pages", parkedPages);
     // @ts-expect-error a pages table's parked ids aren't a sidebar entry's
     assertNoParkedTitles(t.db, "sidebar_entries", parkedPages);
+  });
+
+  test("a title still parked once the upserts ran trips assertNoParkedTitles", () => {
+    // page 3 arrives holding page 2's "AI": page 2 is parked, and nothing
+    // in this (simulated) window gives it a real title back
+    const parked = parkTakenTitles(t.db, "pages", [{ id: pageId(3), title: title("AI") }]);
+    expect(parked).toEqual([2]);
+    expect(() => assertNoParkedTitles(t.db, "pages", parked))
+      .toThrow(/pages rows 2 hold titles/);
   });
 
   // An older replica may meet a tombstone kind the server added after it
@@ -573,7 +582,7 @@ describe("applyChanges: a title moving between ids inside one window", () => {
   test("a sidebar entry deleted and re-created under a new id in one window", () => {
     const feed = emptyFeed({
       next_since: 20, latest_seq: 20,
-      sidebar: [{ id: entryId(7), title: "AI", order_idx: 0 }],
+      sidebar: [{ id: entryId(7), title: title("AI"), order_idx: 0 }],
       tombstones: [{ kind: "sidebar", entity_id: "1" }],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
@@ -584,12 +593,12 @@ describe("applyChanges: a title moving between ids inside one window", () => {
   test("two sidebar entries swapping titles in one window", () => {
     applyChanges(t.db, emptyFeed({
       next_since: 15, latest_seq: 15,
-      sidebar: [{ id: entryId(2), title: "Machine Learning", order_idx: 1 }],
+      sidebar: [{ id: entryId(2), title: title("Machine Learning"), order_idx: 1 }],
     }));
     const feed = emptyFeed({
       next_since: 20, latest_seq: 20,
-      sidebar: [{ id: entryId(1), title: "Machine Learning", order_idx: 0 },
-                { id: entryId(2), title: "AI", order_idx: 1 }],
+      sidebar: [{ id: entryId(1), title: title("Machine Learning"), order_idx: 0 },
+                { id: entryId(2), title: title("AI"), order_idx: 1 }],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
     expect(t.db.select("SELECT id, title FROM sidebar_entries ORDER BY id")).toEqual([

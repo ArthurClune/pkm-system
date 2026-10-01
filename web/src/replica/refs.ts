@@ -7,11 +7,11 @@
 // renderer; this adapter only renames block_refs to the replica's
 // camelCase shape and drops the embed count it does not store.
 
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, NormalizedTitle } from "../api/brands";
 import { extractRefs as extractParsedRefs, type RefKind } from "../grammar/refs";
 
 export interface ExtractedRef {
-  title: string;
+  title: NormalizedTitle;
   kind: RefKind;
 }
 

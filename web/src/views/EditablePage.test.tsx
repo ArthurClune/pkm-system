@@ -5,7 +5,7 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
 import type { ClientId } from "../api/brands";
 import type { TicketId } from "../sync/opQueue";
-import { block, makeSync, reserveOutlineEditor, stubFetch, type SyncFake, uid } from "../test-helpers";
+import { block, makeSync, reserveOutlineEditor, stubFetch, title, type SyncFake, uid } from "../test-helpers";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
@@ -24,7 +24,7 @@ function mount(sync = makeSync(), initial = [
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title="Page" initial={initial} />
+        <EditablePage title={title("Page")} initial={initial} />
       </SyncContext.Provider>
     </MemoryRouter>);
   return sync;
@@ -79,7 +79,7 @@ test("stale initial rerender during a pending split keeps the optimistic new blo
   ) => (
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title="Page" initial={blocks} />
+        <EditablePage title={title("Page")} initial={blocks} />
       </SyncContext.Provider>
     </MemoryRouter>
   );
@@ -129,7 +129,7 @@ test("stale initial rerender while its scoped write is unsettled keeps optimisti
   const view = (blocks: typeof initial) => (
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title="Page" initial={blocks} />
+        <EditablePage title={title("Page")} initial={blocks} />
       </SyncContext.Provider>
     </MemoryRouter>
   );
@@ -696,7 +696,7 @@ test("navigating away with no blur still flushes a held draft", () => {
       <SyncContext.Provider value={sync}>
         <Routes>
           <Route path="/" element={<>
-            <EditablePage title="Page"
+            <EditablePage title={title("Page")}
                           initial={[block("u1", "first", { order_idx: 0 })]} />
             <NavAway />
           </>} />
@@ -975,8 +975,8 @@ test("two same-title instances mounted in one commit expose exactly one editor",
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title="Page" initial={[block("u1", "first")]} />
-        <EditablePage title="Page" initial={[block("u1", "first")]} />
+        <EditablePage title={title("Page")} initial={[block("u1", "first")]} />
+        <EditablePage title={title("Page")} initial={[block("u1", "first")]} />
       </SyncContext.Provider>
     </MemoryRouter>);
 
@@ -993,8 +993,8 @@ test("StrictMode same-title mount cleanup never exposes duplicate editors", () =
     <StrictMode>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
         <SyncContext.Provider value={makeSync()}>
-          <EditablePage title="Strict Page" initial={[block("u1", "first")]} />
-          <EditablePage title="Strict Page" initial={[block("u1", "first")]} />
+          <EditablePage title={title("Strict Page")} initial={[block("u1", "first")]} />
+          <EditablePage title={title("Strict Page")} initial={[block("u1", "first")]} />
         </SyncContext.Provider>
       </MemoryRouter>
     </StrictMode>);
@@ -1008,8 +1008,8 @@ test("same-title fallback observes the owner's flushed optimistic tree", () => {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title="Page" initial={[block("u1", "first")]} />
-        <EditablePage title="Page" initial={[block("u1", "first")]} />
+        <EditablePage title={title("Page")} initial={[block("u1", "first")]} />
+        <EditablePage title={title("Page")} initial={[block("u1", "first")]} />
       </SyncContext.Provider>
     </MemoryRouter>);
 
@@ -1035,9 +1035,9 @@ test("a remaining same-title fallback atomically takes over after owner unmount"
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
         {includeFirst && (
-          <EditablePage key="first" title="Page" initial={[block("u1", "first")]} />
+          <EditablePage key="first" title={title("Page")} initial={[block("u1", "first")]} />
         )}
-        <EditablePage key="second" title="Page" initial={[block("u1", "first")]} />
+        <EditablePage key="second" title={title("Page")} initial={[block("u1", "first")]} />
       </SyncContext.Provider>
     </MemoryRouter>
   );
@@ -1070,14 +1070,14 @@ test("once the first instance unmounts, a freshly mounted one becomes editable a
   const first = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title="Page" initial={[block("u1", "first", { order_idx: 0 })]} />
+        <EditablePage title={title("Page")} initial={[block("u1", "first", { order_idx: 0 })]} />
       </SyncContext.Provider>
     </MemoryRouter>);
   first.unmount();
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title="Page" initial={[block("u1", "first", { order_idx: 0 })]} />
+        <EditablePage title={title("Page")} initial={[block("u1", "first", { order_idx: 0 })]} />
       </SyncContext.Provider>
     </MemoryRouter>);
   fireEvent.click(screen.getByText("first"));

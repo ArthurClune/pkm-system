@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { block, uid } from "../test-helpers";
+import { block, title, uid } from "../test-helpers";
 import { findNode } from "./tree";
 import { backspaceAtStart, clampCaret, deleteSelection, indentBlock,
          indentSelection, moveBlockDown, moveBlocksTo, moveBlockUp,
@@ -23,7 +23,7 @@ describe("clampCaret", () => {
   });
 });
 
-const P = "Page";
+const P = title("Page");
 const tree = () => [
   block("a", "alpha", { order_idx: 0 }),
   block("b", "beta", {
@@ -101,6 +101,12 @@ describe("splitBlock", () => {
 test("pageTitle and uid can't be swapped", () => {
   // @ts-expect-error (title, uid) swapped
   const r = indentBlock(tree(), someUid, "Page");
+  expect(r.ops).toEqual([]);
+});
+
+test("a raw string can't stand in for the page's title", () => {
+  // @ts-expect-error a raw string is not a CanonicalTitle
+  const r = indentBlock(tree(), "Page", someUid);
   expect(r.ops).toEqual([]);
 });
 

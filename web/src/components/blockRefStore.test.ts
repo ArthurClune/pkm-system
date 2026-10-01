@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
 import { createBlockRefStore } from "./blockRefStore";
-import { uid } from "../test-helpers";
+import { title, uid } from "../test-helpers";
 
-const text = (t: string) => ({ text: t, page_title: "P" });
+const text = (t: string) => ({ text: t, page_title: title("P") });
 
 describe("createBlockRefStore", () => {
   test("returns undefined for a uid nobody has resolved", () => {

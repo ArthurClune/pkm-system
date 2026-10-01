@@ -5,15 +5,14 @@
 // online visit, and a daily page with content pushes via its block ops'
 // page_title anyway (spec section 1).
 
-import type { BlockUid, PageId } from "../../api/brands";
+import type { BlockUid, CanonicalTitle, PageId } from "../../api/brands";
 import type { BacklinkGroup, BlockBacklinksPayload, BlockGroup, CurrentWorkPage,
               CurrentWorkPayload, GroupsPayload, PageMeta,
               PagePayload } from "../../api/payloads";
 import { titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
-import { plainSpaceTitleCanonicalizationActive } from "../meta";
-import { canonicalizeTitle } from "../titles";
+import { canonicalTitle } from "../meta";
 import { phraseQuery } from "./fts";
 import { BLOCK_COLS, type BlockRow, blockRefCounts, blockRefTexts, buildTree,
          fetchAncestors } from "./tree";
@@ -22,22 +21,19 @@ import { BLOCK_COLS, type BlockRow, blockRefCounts, blockRefTexts, buildTree,
 // handing it a generated model would check nothing. Every query that feeds a
 // response therefore names a local row type and maps into a checked object
 // literal: that map is what turns a renamed or added server-side field into
-// a compile error here.
+// a compile error here. A row's `pages.title` column is a CanonicalTitle:
+// every write to it stores the canonical form.
 interface PageRow {
   id: PageId;
-  title: string;
+  title: CanonicalTitle;
   created_at: number | null;
   updated_at: number | null;
 }
 
-const localTitle = (db: ReplicaDb, title: string): string =>
-  canonicalizeTitle(title, plainSpaceTitleCanonicalizationActive(db));
-
-const fetchPage = (db: ReplicaDb, title: string): PageMeta | null => {
-  title = localTitle(db, title);
+const fetchPage = (db: ReplicaDb, requested: string): PageMeta | null => {
   const rows = db.select<PageRow>(
     "SELECT id, title, created_at, updated_at FROM pages WHERE title = ?",
-    [title]);
+    [canonicalTitle(db, requested)]);
   if (rows.length === 0) return null;
   const row = rows[0];
   return { id: row.id, title: row.title, created_at: row.created_at,
@@ -48,7 +44,7 @@ interface BacklinkRow {
   uid: BlockUid;
   text: string;
   src_page_id: PageId;
-  src_page_title: string;
+  src_page_title: CanonicalTitle;
 }
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -131,9 +127,9 @@ export function blockBacklinks(db: ReplicaDb,
 }
 
 /** null = page not found (and not a daily title): the caller 404s. */
-export function pagePayload(db: ReplicaDb, title: string, blOffset: number,
+export function pagePayload(db: ReplicaDb, requested: string, blOffset: number,
                             blLimit: number, nowMs: number): PagePayload | null {
-  title = localTitle(db, title);
+  const title = canonicalTitle(db, requested);
   const limit = Math.max(1, Math.min(blLimit, 100));
   let page = fetchPage(db, title);
   if (page === null) {
@@ -158,9 +154,9 @@ export function pagePayload(db: ReplicaDb, title: string, blOffset: number,
   };
 }
 
-export function unlinked(db: ReplicaDb, title: string, limit: number,
+export function unlinked(db: ReplicaDb, requested: string, limit: number,
                          offset: number): GroupsPayload | null {
-  title = localTitle(db, title);
+  const title = canonicalTitle(db, requested);
   const lim = Math.max(1, Math.min(limit, 100));
   const page = fetchPage(db, title);
   if (page === null) return null;
@@ -175,7 +171,7 @@ export function unlinked(db: ReplicaDb, title: string, limit: number,
   const total = Number(db.select<{ n: number }>(
     `SELECT count(*) AS n ${where}`, params)[0].n);
   const rows = db.select<{ uid: BlockUid; text: string; page_id: PageId;
-                           page_title: string }>(
+                           page_title: CanonicalTitle }>(
     `SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
      ${where} ORDER BY p.title, b.uid LIMIT ? OFFSET ?`,
     [...params, lim, offset]);
@@ -204,7 +200,8 @@ export function currentWorkPayload(db: ReplicaDb,
         id: section.id,
         title: section.title,
         // the WHERE clause is what makes updated_at non-null here
-        pages: db.select<{ id: PageId; title: string; updated_at: number }>(
+        pages: db.select<{ id: PageId; title: CanonicalTitle;
+                           updated_at: number }>(
           `SELECT id, title, updated_at FROM pages
              WHERE updated_at IS NOT NULL
                AND updated_at ${lowerOperator} ?

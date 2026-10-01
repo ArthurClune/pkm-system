@@ -2,7 +2,7 @@
 // Ports of server tree.py (flat rows -> nested tree, ((ref)) collection)
 // and the transitive block-ref resolver from routes_pages.py.
 
-import type { BlockUid } from "../../api/brands";
+import type { BlockUid, CanonicalTitle } from "../../api/brands";
 import type { BlockNode, PagePayload } from "../../api/payloads";
 import type { ReplicaDb } from "../db";
 import { extractRefs } from "../refs";
@@ -105,7 +105,8 @@ export function resolveRefUids(db: ReplicaDb, uids: BlockUid[]): BlockRefTexts {
     if (fresh.length === 0) return out;
     fresh.forEach((u) => seen.add(u));
     const marks = fresh.map(() => "?").join(",");
-    const rows = db.select<{ uid: BlockUid; text: string; page_title: string }>(
+    const rows = db.select<{ uid: BlockUid; text: string;
+                             page_title: CanonicalTitle }>(
       `SELECT b.uid, b.text, p.title AS page_title FROM blocks b
         JOIN pages p ON p.id = b.page_id WHERE b.uid IN (${marks})`, fresh);
     for (const r of rows) {

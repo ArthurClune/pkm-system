@@ -5,13 +5,13 @@
 // adapter only regroups tokens into refs.py's output shape and order:
 // attribute first, then page refs (outer before inner), then hashtags.
 
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, NormalizedTitle } from "../api/brands";
 import { scanGrammar } from "./scan";
 
 export type RefKind = "link" | "tag" | "attribute";
 
 export interface Ref {
-  title: string;
+  title: NormalizedTitle;
   kind: RefKind;
 }
 

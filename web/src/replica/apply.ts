@@ -21,7 +21,8 @@
 //     applySnapshot still throws -- a snapshot ships the whole graph, so a
 //     dangling row in one means something is genuinely wrong.
 
-import type { BlockUid, PageId, SidebarEntryId, SyncSeq } from "../api/brands";
+import type { BlockUid, CanonicalTitle, PageId, SidebarEntryId,
+              SyncSeq } from "../api/brands";
 import type { components } from "../api/types";
 import { reindexBlockRefs } from "./blockRefs";
 import { type ReplicaDb, rollbackToSavepoint, type SqlValue } from "./db";
@@ -267,8 +268,13 @@ class StaleTitleHolderError extends Error {
  * exactly this shape would collide, and that is accepted. Parked rows exist
  * only inside the window transaction -- either their own upsert overwrites
  * the title, or the transaction rolls back (StaleTitleHolderError). U+0001,
- * not NUL: SQLite's string functions treat an embedded NUL as a terminator. */
-const parkedTitle = (id: number): string => `parked:${String(id)}`;
+ * not NUL: SQLite's string functions treat an embedded NUL as a terminator.
+ * Its own type, never a CanonicalTitle: it is no title the server holds, so
+ * no row read that types `title` canonical may run while one is parked. */
+type ParkedTitle = string & { readonly __brand: "ParkedTitle" };
+
+const parkedTitle = (id: PageId | SidebarEntryId): ParkedTitle =>
+  `parked:${String(id)}` as ParkedTitle;
 
 /** Ties an id type to its own table, so a pages call and a sidebar call
  * below can't take each other's table literal: `Id` is inferred from the
@@ -289,7 +295,7 @@ type TitledTableFor<Id extends PageId | SidebarEntryId> =
  * upsert has run are not a swap -- see the check in applyWindow. */
 export function parkTakenTitles<Id extends PageId | SidebarEntryId>(
     db: ReplicaDb, table: TitledTableFor<Id>,
-    incoming: readonly { id: Id; title: string }[]): Id[] {
+    incoming: readonly { id: Id; title: CanonicalTitle }[]): Id[] {
   const parked: Id[] = [];
   for (const row of incoming) {
     const holders = db.select<{ id: Id }>(

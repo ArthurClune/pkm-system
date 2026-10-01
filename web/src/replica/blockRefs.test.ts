@@ -13,7 +13,7 @@ import { applyChanges, applySnapshot } from "./apply";
 import { reindexBlockRefs } from "./blockRefs";
 import { applyLocalOps } from "./localOps";
 import { openTestDb, type TestDb } from "./testDb";
-import { pageId, uid } from "../test-helpers";
+import { pageId, title, uid } from "../test-helpers";
 
 vi.mock("./blockRefs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./blockRefs")>();
@@ -42,7 +42,7 @@ const block = (rawUid: string, over: Partial<SyncBlock> = {}): SyncBlock => ({
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (10 as SyncSeq),
-  pages: [{ id: pageId(1), title: "AI", created_at: 1, updated_at: 1 }],
+  pages: [{ id: pageId(1), title: title("AI"), created_at: 1, updated_at: 1 }],
   blocks: [block("uid_b1"), block("uid_b2", { order_idx: 1 })],
   sidebar: [],
 };

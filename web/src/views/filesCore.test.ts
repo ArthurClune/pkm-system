@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { Sha256Hex } from "../api/brands";
 import type { AssetSearchItem } from "../api/payloads";
-import { uid } from "../test-helpers";
+import { title, uid } from "../test-helpers";
 import {
   EMPTY_FILTERS, PAGE_SIZE, clipboardToken, deleteConfirm, formatSize,
   mimeCategory, searchQuery, summarizeDeletes,
@@ -79,9 +79,9 @@ describe("deleteConfirm", () => {
   it("is loud and lists pages when linked", () => {
     const linked = item({
       filename: "used.png",
-      refs: [{ uid: uid("b1"), page_title: "AI" },
-             { uid: uid("b2"), page_title: "AI" },
-             { uid: uid("b3"), page_title: "Paper" }],
+      refs: [{ uid: uid("b1"), page_title: title("AI") },
+             { uid: uid("b2"), page_title: title("AI") },
+             { uid: uid("b3"), page_title: title("Paper") }],
     });
     const { message, loud } = deleteConfirm([linked, item({})]);
     expect(loud).toBe(true);

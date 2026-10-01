@@ -73,16 +73,17 @@ export type PageId = number & { readonly __brand: "PageId" };
 // id can never swap at a call site even though both are plain numbers.
 export type SidebarEntryId = number & { readonly __brand: "SidebarEntryId" };
 
-// A title that has been through normalize_title / normalizeRefTitle: no
-// control whitespace, no leading/trailing or doubled-up runs of plain
-// whitespace. Minted at the ref-grammar token (grammar/scan.ts) and at the
-// replica's title-normalization mirror (replica/titles.ts).
+// A title that has been through normalize_title / normalizeRefTitle: one
+// holding control whitespace has had every whitespace run collapsed to a
+// space and been trimmed; any other is unchanged. Minted by
+// `normalizeRefTitle` and the hashtag token (grammar/scan.ts) and by
+// `canonicalizeTitle` (replica/titles.ts), which knows no live flag.
 export type NormalizedTitle = string & { readonly __brand: "NormalizedTitle" };
 
 // A title as stored in `pages.title` / `sidebar_entries.title`: normalized,
 // and additionally canonical under the live plain-space-title flag. A
 // CanonicalTitle passes wherever a NormalizedTitle is expected, not the
-// reverse. Minted at every genuine read of a title row, at
-// `canonicalizeTitle`/`canonicalTitle` (replica/titles.ts) and at
-// `titleForDate` (replica/daily.ts).
+// reverse. Minted by the row types of every read of a title column, by
+// `canonicalTitle`/`titleReader` (replica/meta.ts, which read the flag) and
+// by `titleForDate`/`dailyTitle` (replica/daily.ts, canonical by format).
 export type CanonicalTitle = NormalizedTitle & { readonly __canonical: true };

@@ -8,14 +8,14 @@ import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, type SyncFake, uid } from "../test-helpers";
+import { block, makeSync, normTitle, title, type SyncFake, uid } from "../test-helpers";
 import { recordHistory, resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ pageTitle, initial, onReady }: {
   pageTitle: string; initial: BlockNode[]; onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(pageTitle, initial);
+  const outline = useOutline(title(pageTitle), initial);
   useEffect(() => onReady(outline));
   return null;
 }
@@ -28,6 +28,14 @@ function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
                onReady={(o) => { outline = o; }} />
     </SyncContext.Provider>);
   return () => outline;
+}
+
+// Never rendered: a type-only probe that useOutline's title is the stored
+// (canonical) form, not one only normalized.
+export function NormalizedTitleProbe() {
+  // @ts-expect-error a NormalizedTitle is not a CanonicalTitle
+  useOutline(normTitle("Page"), []);
+  return null;
 }
 
 afterEach(() => resetHistory());

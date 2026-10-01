@@ -5,7 +5,7 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider } from "../dnd/DndContext";
 import { EditablePage } from "../views/EditablePage";
-import { block, makeSync, reserveOutlineEditor } from "../test-helpers";
+import { block, makeSync, reserveOutlineEditor, title } from "../test-helpers";
 
 // jsdom has no DataTransfer: minimal stub
 function dt() {
@@ -25,7 +25,7 @@ function renderPage(blocks = [
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}><EditablePage title="P" initial={blocks} /></MemoryRouter>
+        <MemoryRouter future={ROUTER_FUTURE_FLAGS}><EditablePage title={title("P")} initial={blocks} /></MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
   return sync;
@@ -111,8 +111,8 @@ it("an empty page accepts a top-level drop from another page", () => {
     <SyncContext.Provider value={sync}>
       <DndProvider>
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-          <EditablePage title="Src" initial={[block("s1", "from src")]} />
-          <EditablePage title="Empty" initial={[]} />
+          <EditablePage title={title("Src")} initial={[block("s1", "from src")]} />
+          <EditablePage title={title("Empty")} initial={[]} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
@@ -194,8 +194,8 @@ it("a fallback panel (title already active elsewhere) is excluded from DnD both 
       <SyncContext.Provider value={sync}>
         <DndProvider>
           <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-            <EditablePage title="Src" initial={[block("s1", "from src")]} />
-            <EditablePage title="P" initial={[block("u1", "fallback block")]} />
+            <EditablePage title={title("Src")} initial={[block("s1", "from src")]} />
+            <EditablePage title={title("P")} initial={[block("u1", "fallback block")]} />
           </MemoryRouter>
         </DndProvider>
       </SyncContext.Provider>);
@@ -229,7 +229,7 @@ it("dragging is disabled when read-only", () => {
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}><EditablePage title="P" initial={[block("u1", "x")]} /></MemoryRouter>
+        <MemoryRouter future={ROUTER_FUTURE_FLAGS}><EditablePage title={title("P")} initial={[block("u1", "x")]} /></MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
   expect(document.querySelector(".bullet")).toHaveAttribute("draggable", "false");
@@ -246,9 +246,9 @@ it("hands DnD registration to the remaining same-title view", () => {
       <DndProvider>
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
           {includeFirst && (
-            <EditablePage key="first" title="P" initial={blocks} />
+            <EditablePage key="first" title={title("P")} initial={blocks} />
           )}
-          <EditablePage key="second" title="P" initial={blocks} />
+          <EditablePage key="second" title={title("P")} initial={blocks} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>

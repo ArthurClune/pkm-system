@@ -9,7 +9,7 @@ import type { OpsAck } from "../api/payloads";
 import type { PendingRowId, Replica } from "../replica/client";
 import { ReplicaError, ReplicaUnusableError,
          RpcLifecycleError } from "../replica/errors";
-import { jsonResponse, uid } from "../test-helpers";
+import { jsonResponse, title, uid } from "../test-helpers";
 import { memReplica } from "./memReplica";
 import { clientId, createOpQueue, type PoisonEvent } from "./opQueue";
 
@@ -1432,7 +1432,7 @@ describe("deliverLaneAhead", () => {
     fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1,
       skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
-                  reason: "block_not_found", note_page: "2026-09-29" }],
+                  reason: "block_not_found", note_page: title("2026-09-29") }],
     } satisfies OpsAck)]);
     const replica = memReplica();
     const durableEnqueue = replica.enqueue.bind(replica);
@@ -2245,7 +2245,7 @@ describe("skipped ops in an ack", () => {
     fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1,
       skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
-                  reason: "block_not_found", note_page: "2026-09-29" }],
+                  reason: "block_not_found", note_page: title("2026-09-29") }],
     } satisfies OpsAck)]);
     const replica = noReplicaAtAll();
     const skips: void[] = [];
@@ -2304,7 +2304,7 @@ describe("skipped ops in an ack", () => {
     const { bodies } = fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1,
       skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
-                  reason: "block_not_found", note_page: "2026-09-29" }],
+                  reason: "block_not_found", note_page: title("2026-09-29") }],
     } satisfies OpsAck)]);
     const replica = memReplica({
       enqueue: async () => { throw new Error("worker crashed"); },
@@ -2325,7 +2325,7 @@ describe("skipped ops in an ack", () => {
     fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1, seq: (7 as SyncSeq),
       skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
-                  reason: "block_not_found", note_page: "2026-09-29" }],
+                  reason: "block_not_found", note_page: title("2026-09-29") }],
     } satisfies OpsAck)]);
     const replica = memReplica();
     const skips: void[] = [];
@@ -2414,7 +2414,7 @@ describe("a listener subscribed in the same tick as the call still hears it", ()
     fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1, seq: (7 as SyncSeq),
       skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
-                  reason: "block_not_found", note_page: "2026-09-29" }],
+                  reason: "block_not_found", note_page: title("2026-09-29") }],
     } satisfies OpsAck)]);
     const q = createOpQueue(memReplica());
     const ticket = q.enqueue([op("u1")]);

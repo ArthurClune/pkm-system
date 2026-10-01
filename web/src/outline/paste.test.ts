@@ -3,7 +3,7 @@ import type { BlockUid } from "../api/brands";
 import { isOutlinePaste, isOutlinePasteChord, parseOutlineForest,
          planOutlinePaste } from "./paste";
 import type { PastedNode } from "./paste";
-import { block, uid } from "../test-helpers";
+import { block, title, uid } from "../test-helpers";
 
 const node = (text: string, children: PastedNode[] = []): PastedNode =>
   ({ text, children });
@@ -137,7 +137,7 @@ describe("isOutlinePasteChord", () => {
   });
 });
 
-const PAGE = "Page";
+const PAGE = title("Page");
 
 describe("planOutlinePaste", () => {
   it("splices the first root at the caret and creates the rest as siblings", () => {

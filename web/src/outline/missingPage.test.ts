@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { substituteMissingDaily, substituteMissingDay } from "./missingPage";
+import { title } from "../test-helpers";
 
 it("substitutes an empty editable page for a 404 on a daily title", () => {
   const page = substituteMissingDaily("July 8th, 2026", 404);
@@ -15,7 +16,7 @@ it("leaves any other missing page an error", () => {
 });
 
 it("treats a 404 on a journal day as empty whatever the title looks like", () => {
-  expect(substituteMissingDay("Not A Date", 404)?.blocks).toEqual([]);
-  expect(substituteMissingDay("Not A Date", 500)).toBeNull();
-  expect(substituteMissingDay("Not A Date", null)).toBeNull();
+  expect(substituteMissingDay(title("Not A Date"), 404)?.blocks).toEqual([]);
+  expect(substituteMissingDay(title("Not A Date"), 500)).toBeNull();
+  expect(substituteMissingDay(title("Not A Date"), null)).toBeNull();
 });

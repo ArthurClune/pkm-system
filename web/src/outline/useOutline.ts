@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
          useState, type ReactNode } from "react";
 import { ApiError } from "../api/client";
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { apiPost } from "../api/typedClient";
@@ -66,7 +66,7 @@ export interface Outline {
 }
 
 export function useOutline(
-  pageTitle: string,
+  pageTitle: CanonicalTitle,
   initial: BlockNode[],
   editorOwner?: symbol,
 ): Outline {

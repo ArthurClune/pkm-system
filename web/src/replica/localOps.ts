@@ -13,15 +13,15 @@
 // lands, including a re-applied batch (reapply) keeping its own effects
 // in place, is placementFor's verdict (placement.ts); this file runs it.
 
-import type { BlockUid, PageId } from "../api/brands";
+import type { BlockUid, CanonicalTitle, PageId } from "../api/brands";
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
-import { plainSpaceTitleCanonicalizationActive } from "./meta";
+import { titleReader } from "./meta";
 import { skipsOnMissingTarget } from "./missingTarget";
 import { type Placement, type PlacementFacts, placementFor } from "./placement";
-import { canonicalizeTitle, findOpTitleViolation,
-         type OpTitleViolation, titleSyntaxReason } from "./titles";
+import { findOpTitleViolation, type OpTitleViolation,
+         titleSyntaxReason } from "./titles";
 
 export class LocalOpError extends Error {
   /** Read by serveRpc onto the wire error: this is the replica refusing the OP,
@@ -50,13 +50,13 @@ const titleViolationError = (violation: OpTitleViolation): LocalOpError =>
   );
 
 /** The title a page is stored under: canonicalised, blank as "Untitled". */
-const localPageTitle = (db: ReplicaDb, title: string): string => {
-  const canonical = canonicalizeTitle(
-    title, plainSpaceTitleCanonicalizationActive(db));
-  return canonical.trim().length === 0 ? "Untitled" : canonical;
+const localPageTitle = (db: ReplicaDb, title: string): CanonicalTitle => {
+  const read = titleReader(db);
+  const canonical = read(title);
+  return canonical.trim().length === 0 ? read("Untitled") : canonical;
 };
 
-const pageIdByTitle = (db: ReplicaDb, title: string): PageId | null => {
+const pageIdByTitle = (db: ReplicaDb, title: CanonicalTitle): PageId | null => {
   const rows = db.select<{ id: PageId }>(
     "SELECT id FROM pages WHERE title = ?", [title]);
   return rows.length > 0 ? rows[0].id : null;
@@ -67,9 +67,9 @@ const pageIdByTitle = (db: ReplicaDb, title: string): PageId | null => {
 const existingLocalPageId = (db: ReplicaDb, title: string):
   PageId | null => pageIdByTitle(db, localPageTitle(db, title));
 
-export function getOrCreateLocalPage(db: ReplicaDb, title: string,
+export function getOrCreateLocalPage(db: ReplicaDb, requested: string,
                                      nowMs: number): PageId {
-  title = localPageTitle(db, title);
+  const title = localPageTitle(db, requested);
   if (titleSyntaxReason(title) !== null) {
     throw new LocalOpError(`unsupported page title syntax: ${JSON.stringify(title)}`);
   }

@@ -7,7 +7,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import { subtreeHash } from "../replica/subtreeHash";
-import { block, makeSync, type SyncFake, uid } from "../test-helpers";
+import { block, makeSync, title, type SyncFake, uid } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ pageTitle, initial, onReady }: {
@@ -15,7 +15,7 @@ function Harness({ pageTitle, initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(pageTitle, initial);
+  const outline = useOutline(title(pageTitle), initial);
   useEffect(() => onReady(outline));
   return <>{outline.dialog}</>;
 }

@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { canonicalizeTitle, findOpTitleViolation, titleSyntaxReason } from "./titles";
-import { uid } from "../test-helpers";
+import type { CanonicalTitle, NormalizedTitle } from "../api/brands";
+import type { components } from "../api/types";
+import { normTitle, title, uid } from "../test-helpers";
 
 interface TitleSyntaxCase {
   name: string;
@@ -82,5 +84,26 @@ describe("canonicalizeTitle", () => {
     expect(canonicalizeTitle("  A  ", true)).toBe("A");
     expect(canonicalizeTitle("A  B", true)).toBe("A  B");
     expect(canonicalizeTitle("\u00a0 A \u00a0", true)).toBe("\u00a0 A \u00a0");
+  });
+});
+
+describe("title brands", () => {
+  test("a CanonicalTitle passes where a NormalizedTitle is expected, not the reverse", () => {
+    const canonical: CanonicalTitle = title("Page");
+    const normalized: NormalizedTitle = canonical;
+    // @ts-expect-error a NormalizedTitle is not a CanonicalTitle
+    const back: CanonicalTitle = normTitle("Page");
+    expect([normalized, back]).toEqual(["Page", "Page"]);
+  });
+
+  test("a generated response title is the CanonicalTitle brand", () => {
+    type PageMetaTitle = components["schemas"]["PageMeta"]["title"];
+    const fromWire: PageMetaTitle = title("Page");
+    const normalized: NormalizedTitle = fromWire;
+    // @ts-expect-error a NormalizedTitle is not a generated CanonicalTitle field
+    const back: PageMetaTitle = normTitle("Page");
+    // @ts-expect-error a raw string is not a generated CanonicalTitle field
+    const raw: PageMetaTitle = "Page";
+    expect([normalized, back, raw]).toEqual(["Page", "Page", "Page"]);
   });
 });

@@ -4,15 +4,16 @@
 // shapes the server returns. Unmatched routes report handled:false — the
 // caller surfaces a clear online-only error. Runs inside the worker.
 
-import type { BatchId, BlockUid, SidebarEntryId } from "../../api/brands";
+import type { BatchId, BlockUid, CanonicalTitle,
+              SidebarEntryId } from "../../api/brands";
 import type { BlockRefsPayload, SidebarNavEntry, SidebarNavPayload,
               TitlesPayload } from "../../api/payloads";
 import { parseBlockUid } from "../../ids";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
-import { plainSpaceTitleCanonicalizationActive } from "../meta";
+import { canonicalTitle } from "../meta";
 import { enqueueBatch } from "../queue";
-import { canonicalizeTitle, titleSyntaxReason } from "../titles";
+import { titleSyntaxReason } from "../titles";
 import { journalPayload } from "./journal";
 import { blockBacklinks, currentWorkPayload, fetchPage, pagePayload,
          unlinked } from "./pages";
@@ -92,10 +93,8 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
                             Number(q.get("limit") ?? 20), exact));
   }
   if (method === "POST" && path === "/api/pages") {
-    const title = canonicalizeTitle(
-      String((req.body as { title?: unknown })?.title ?? ""),
-      plainSpaceTitleCanonicalizationActive(db),
-    );
+    const title = canonicalTitle(
+      db, String((req.body as { title?: unknown })?.title ?? ""));
     if (title.trim().length === 0) return err(422, "title must not be blank");
     if (titleSyntaxReason(title) !== null) {
       return err(422, `unsupported page-title syntax: ${JSON.stringify(title)}`);
@@ -125,7 +124,7 @@ export function blockRefsPayload(db: ReplicaDb,
 
 export function sidebarPayload(db: ReplicaDb): SidebarNavPayload {
   // mapped, not asserted -- see the note on PageRow in pages.ts
-  const rows = db.select<{ id: SidebarEntryId; title: string }>(
+  const rows = db.select<{ id: SidebarEntryId; title: CanonicalTitle }>(
     "SELECT id, title FROM sidebar_entries ORDER BY order_idx");
   return { entries: rows.map((row): SidebarNavEntry => ({
     id: row.id, title: row.title })) };
@@ -138,7 +137,7 @@ export function titlesPayload(db: ReplicaDb, qStr: string,
   if (needle.length === 0) return { titles: [] };
   const esc = needle.replaceAll("\\", "\\\\").replaceAll("%", "\\%")
     .replaceAll("_", "\\_");
-  const rows = db.select<{ title: string }>(
+  const rows = db.select<{ title: CanonicalTitle }>(
     `SELECT title FROM pages
       WHERE title LIKE ? ESCAPE '\\'
       ORDER BY (CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END),

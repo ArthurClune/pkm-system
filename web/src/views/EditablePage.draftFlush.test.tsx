@@ -10,7 +10,7 @@ import type { BlockOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, stubFetch, uid } from "../test-helpers";
+import { block, makeSync, stubFetch, title, uid } from "../test-helpers";
 import { EditablePage } from "./EditablePage";
 
 // Imported, not read with node:fs: this test needs the jsdom environment,
@@ -33,7 +33,7 @@ function typeDraftUnder(remoteOps: BlockOp[]) {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title={fixture.page_title}
+        <EditablePage title={title(fixture.page_title)}
                       initial={[block(fixture.uid, fixture.base)]} />
       </SyncContext.Provider>
     </MemoryRouter>);

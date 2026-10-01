@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { dateForTitle, titleForDate } from "./daily";
+import { dailyTitle, dateForTitle, titleForDate } from "./daily";
 
 describe("titleForDate", () => {
   test("matches Roam's ordinal format (daily.py parity)", () => {
@@ -26,5 +26,13 @@ describe("dateForTitle", () => {
     expect(dateForTitle("Machine Learning")).toBeNull();
     expect(dateForTitle("July 13, 2026")).toBeNull();
     expect(dateForTitle("Smarch 13th, 2026")).toBeNull();
+  });
+});
+
+describe("dailyTitle", () => {
+  test("is the title itself for a daily title, null for any other", () => {
+    expect(dailyTitle("July 13th, 2026")).toBe("July 13th, 2026");
+    expect(dailyTitle(" July 13th, 2026")).toBeNull();
+    expect(dailyTitle("Machine Learning")).toBeNull();
   });
 });

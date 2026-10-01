@@ -20,7 +20,7 @@
 // - The TODO marker is only recognized at offset 0 and keeps each lenient
 //   bracket side ({{[[TODO}} etc.) so togglers can echo the spelling back.
 
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, NormalizedTitle } from "../api/brands";
 
 export interface Span {
   start: number;
@@ -28,11 +28,11 @@ export interface Span {
 }
 
 export type GrammarToken =
-  | ({ kind: "page-ref"; content: Span; title: string; tag: boolean;
+  | ({ kind: "page-ref"; content: Span; title: NormalizedTitle; tag: boolean;
        depth: number; parentStart: number | null } & Span)
   | ({ kind: "block-ref"; uid: BlockUid } & Span)
-  | ({ kind: "hashtag"; title: string } & Span)
-  | ({ kind: "attribute"; title: string } & Span)
+  | ({ kind: "hashtag"; title: NormalizedTitle } & Span)
+  | ({ kind: "attribute"; title: NormalizedTitle } & Span)
   | ({ kind: "embed" } & Span)
   | ({ kind: "todo"; state: "TODO" | "DONE";
        openBrackets: boolean; closeBrackets: boolean;
@@ -49,9 +49,9 @@ export type GrammarToken =
 const CONTROL_WS_RE = /[\t\n\r\f\v]/;
 const WS_RUN_RE = /[ \t\n\r\f\v]+/g;
 
-export function normalizeRefTitle(title: string): string {
-  if (!CONTROL_WS_RE.test(title)) return title;
-  return title.replace(WS_RUN_RE, " ").trim();
+export function normalizeRefTitle(title: string): NormalizedTitle {
+  if (!CONTROL_WS_RE.test(title)) return title as NormalizedTitle;
+  return title.replace(WS_RUN_RE, " ").trim() as NormalizedTitle;
 }
 
 const TODO_RE = /^\{\{(\[\[)?(TODO|DONE)(\]\])?\}\}/;
@@ -198,7 +198,10 @@ function scanFlatTokens(clean: string): GrammarToken[] {
       TAG_CHARS_RE.lastIndex = i + 1;
       const m = TAG_CHARS_RE.exec(clean);
       if (m) {
-        tokens.push({ kind: "hashtag", title: m[0], start: i, end: i + 1 + m[0].length });
+        // TAG_CHARS_RE admits no whitespace, so a hashtag's title is
+        // normalized by construction.
+        tokens.push({ kind: "hashtag", title: m[0] as NormalizedTitle,
+                      start: i, end: i + 1 + m[0].length });
         i += 1 + m[0].length;
         continue;
       }

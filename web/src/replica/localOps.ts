@@ -13,7 +13,7 @@
 // lands, including a re-applied batch (reapply) keeping its own effects
 // in place, is placementFor's verdict (placement.ts); this file runs it.
 
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, PageId } from "../api/brands";
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
@@ -56,8 +56,8 @@ const localPageTitle = (db: ReplicaDb, title: string): string => {
   return canonical.trim().length === 0 ? "Untitled" : canonical;
 };
 
-const pageIdByTitle = (db: ReplicaDb, title: string): number | null => {
-  const rows = db.select<{ id: number }>(
+const pageIdByTitle = (db: ReplicaDb, title: string): PageId | null => {
+  const rows = db.select<{ id: PageId }>(
     "SELECT id FROM pages WHERE title = ?", [title]);
   return rows.length > 0 ? rows[0].id : null;
 };
@@ -65,17 +65,17 @@ const pageIdByTitle = (db: ReplicaDb, title: string): number | null => {
 /** The page getOrCreateLocalPage would return for `title`, if it exists
  * already; never creates one. */
 const existingLocalPageId = (db: ReplicaDb, title: string):
-  number | null => pageIdByTitle(db, localPageTitle(db, title));
+  PageId | null => pageIdByTitle(db, localPageTitle(db, title));
 
 export function getOrCreateLocalPage(db: ReplicaDb, title: string,
-                                     nowMs: number): number {
+                                     nowMs: number): PageId {
   title = localPageTitle(db, title);
   if (titleSyntaxReason(title) !== null) {
     throw new LocalOpError(`unsupported page title syntax: ${JSON.stringify(title)}`);
   }
   const existing = pageIdByTitle(db, title);
   if (existing !== null) return existing;
-  const next = db.select<{ id: number }>(
+  const next = db.select<{ id: PageId }>(
     "SELECT MIN(0, COALESCE((SELECT MIN(id) FROM pages), 0)) - 1 AS id")[0].id;
   db.exec(
     "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
@@ -96,11 +96,11 @@ const reindexRefs = (db: ReplicaDb, uid: BlockUid, text: string,
   }
 };
 
-const touchPage = (db: ReplicaDb, pageId: number, nowMs: number): void => {
+const touchPage = (db: ReplicaDb, pageId: PageId, nowMs: number): void => {
   db.exec("UPDATE pages SET updated_at = ? WHERE id = ?", [nowMs, pageId]);
 };
 
-const shiftSiblings = (db: ReplicaDb, pageId: number,
+const shiftSiblings = (db: ReplicaDb, pageId: PageId,
                        parentUid: BlockUid | null, fromIdx: number): void => {
   db.exec(
     "UPDATE blocks SET order_idx = order_idx + 1" +
@@ -109,7 +109,7 @@ const shiftSiblings = (db: ReplicaDb, pageId: number,
 };
 
 interface BlockInfo {
-  page_id: number; parent_uid: BlockUid | null; order_idx: number;
+  page_id: PageId; parent_uid: BlockUid | null; order_idx: number;
 }
 
 const blockInfo = (db: ReplicaDb, uid: BlockUid): BlockInfo | null => {

@@ -1,8 +1,13 @@
 // pattern: Functional Core
 // The missing-page policy every outline-loading surface shares: given a page
 // read that failed, is there a stand-in payload to display instead?
+import type { PageId } from "../api/brands";
 import type { PagePayload } from "../api/payloads";
 import { dateForTitle } from "../replica/daily";
+
+/** No real page has a negative id outside an offline replica, so this
+ * stand-in payload's id can never collide with one actually fetched. */
+const MISSING_PAGE_ID = -1 as PageId;
 
 /** Decides what a failed page read means. `status` is the HTTP status the
  * read failed with, or null when the failure was not an HTTP error at all
@@ -14,7 +19,7 @@ export type MissingPagePolicy = (
 ) => PagePayload | null;
 
 const emptyPagePayload = (title: string): PagePayload => ({
-  page: { id: -1, title, created_at: 0, updated_at: 0 },
+  page: { id: MISSING_PAGE_ID, title, created_at: 0, updated_at: 0 },
   blocks: [],
   backlinks: { groups: [], total_pages: 0, offset: 0, limit: 20 },
   block_ref_texts: {},

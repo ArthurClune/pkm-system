@@ -5,7 +5,7 @@
 // online visit, and a daily page with content pushes via its block ops'
 // page_title anyway (spec section 1).
 
-import type { BlockUid } from "../../api/brands";
+import type { BlockUid, PageId } from "../../api/brands";
 import type { BacklinkGroup, BlockBacklinksPayload, BlockGroup, CurrentWorkPage,
               CurrentWorkPayload, GroupsPayload, PageMeta,
               PagePayload } from "../../api/payloads";
@@ -24,7 +24,7 @@ import { BLOCK_COLS, type BlockRow, blockRefCounts, blockRefTexts, buildTree,
 // literal: that map is what turns a renamed or added server-side field into
 // a compile error here.
 interface PageRow {
-  id: number;
+  id: PageId;
   title: string;
   created_at: number | null;
   updated_at: number | null;
@@ -47,7 +47,7 @@ const fetchPage = (db: ReplicaDb, title: string): PageMeta | null => {
 interface BacklinkRow {
   uid: BlockUid;
   text: string;
-  src_page_id: number;
+  src_page_id: PageId;
   src_page_title: string;
 }
 
@@ -65,14 +65,14 @@ const CURRENT_WORK_SECTIONS = [
  * the same query rather than a page read per day. A page's own
  * blocks are excluded even when they reference it, as the server's
  * `_backlinks` and unlinked references do. */
-export function backlinks(db: ReplicaDb, pageId: number, offset: number,
+export function backlinks(db: ReplicaDb, pageId: PageId, offset: number,
                           limit: number):
     { groups: BacklinkGroup[]; total: number; texts: string[] } {
   const total = Number(db.select<{ n: number }>(
     `SELECT count(DISTINCT b.page_id) AS n FROM refs r
       JOIN blocks b ON b.uid = r.src_block_uid
      WHERE r.target_page_id = ? AND b.page_id != ?`, [pageId, pageId])[0].n);
-  const pageIds = db.select<{ page_id: number }>(
+  const pageIds = db.select<{ page_id: PageId }>(
     `SELECT DISTINCT b.page_id FROM refs r
       JOIN blocks b ON b.uid = r.src_block_uid
       JOIN pages p ON p.id = b.page_id
@@ -98,7 +98,7 @@ export function backlinks(db: ReplicaDb, pageId: number, offset: number,
 function groupBacklinkRows(rows: BacklinkRow[],
                            ancestors: Map<BlockUid, string[]>): BacklinkGroup[] {
   const groups: BacklinkGroup[] = [];
-  const index = new Map<number, BacklinkGroup>();
+  const index = new Map<PageId, BacklinkGroup>();
   for (const r of rows) {
     let group = index.get(r.src_page_id);
     if (!group) {
@@ -174,13 +174,13 @@ export function unlinked(db: ReplicaDb, title: string, limit: number,
   const params = [phraseQuery(title), page.id, page.id];
   const total = Number(db.select<{ n: number }>(
     `SELECT count(*) AS n ${where}`, params)[0].n);
-  const rows = db.select<{ uid: BlockUid; text: string; page_id: number;
+  const rows = db.select<{ uid: BlockUid; text: string; page_id: PageId;
                            page_title: string }>(
     `SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
      ${where} ORDER BY p.title, b.uid LIMIT ? OFFSET ?`,
     [...params, lim, offset]);
   const groups: BlockGroup[] = [];
-  const index = new Map<number, BlockGroup>();
+  const index = new Map<PageId, BlockGroup>();
   for (const r of rows) {
     let group = index.get(r.page_id);
     if (!group) {
@@ -204,7 +204,7 @@ export function currentWorkPayload(db: ReplicaDb,
         id: section.id,
         title: section.title,
         // the WHERE clause is what makes updated_at non-null here
-        pages: db.select<{ id: number; title: string; updated_at: number }>(
+        pages: db.select<{ id: PageId; title: string; updated_at: number }>(
           `SELECT id, title, updated_at FROM pages
              WHERE updated_at IS NOT NULL
                AND updated_at ${lowerOperator} ?

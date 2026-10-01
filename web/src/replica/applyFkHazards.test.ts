@@ -7,7 +7,7 @@
 // "FOREIGN KEY constraint failed", and reset/repair (which re-run
 // reapplyPending) wedge the same way.
 import { beforeEach, describe, expect, test } from "vitest";
-import type { BatchId, BlockUid, SyncSeq } from "../api/brands";
+import type { BatchId, BlockUid, PageId, SyncSeq } from "../api/brands";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import type { ReplicaDb } from "./db";
@@ -26,15 +26,15 @@ const ackNext = (db: ReplicaDb): void => {
   deleteBatch(db, b.id, b.batch_id);
 };
 
-const block = (rawUid: string, pageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid: rawUid as BlockUid, page_id: pageId, parent_uid: null, order_idx: 0,
+const block = (rawUid: string, rawPageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
+  uid: rawUid as BlockUid, page_id: rawPageId as PageId, parent_uid: null, order_idx: 0,
   text: `text of ${rawUid}`,
   heading: null, view_type: null, collapsed: 0, created_at: 1, updated_at: 1,
   refs: [], ...over,
 });
 
-const page = (id: number, title: string) =>
-  ({ id, title, created_at: 1, updated_at: 1 });
+const page = (rawId: number, title: string) =>
+  ({ id: rawId as PageId, title, created_at: 1, updated_at: 1 });
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (10 as SyncSeq),

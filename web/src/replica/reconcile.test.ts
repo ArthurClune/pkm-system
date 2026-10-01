@@ -7,8 +7,9 @@ import type { SyncSeq } from "../api/brands";
 import { applyChanges, type Changes } from "./apply";
 import { applyLocalOps } from "./localOps";
 import { setMeta } from "./meta";
+import { remapLocalPage } from "./reconcile";
 import { openTestDb, type TestDb } from "./testDb";
-import { uid } from "../test-helpers";
+import { pageId, uid } from "../test-helpers";
 
 let t: TestDb;
 let negId: number;
@@ -44,7 +45,7 @@ describe("reconcile on feed page delivery", () => {
     t.db.exec("INSERT INTO refs VALUES ('uid_a1', ?, 'link')", [negId]);
 
     applyChanges(t.db, feed({
-      pages: [{ id: 7, title: "Offline Page", created_at: 9, updated_at: 9 }],
+      pages: [{ id: pageId(7), title: "Offline Page", created_at: 9, updated_at: 9 }],
     }));
     // negative row replaced by the authoritative one
     expect(t.db.select("SELECT id FROM pages WHERE title = 'Offline Page'"))
@@ -66,7 +67,7 @@ describe("reconcile on feed page delivery", () => {
     t.db.exec("INSERT INTO refs VALUES ('uid_a1', 7, 'link')");
     t.db.exec("INSERT INTO refs VALUES ('uid_a1', ?, 'link')", [negId]);
     applyChanges(t.db, feed({
-      pages: [{ id: 7, title: "Offline Page", created_at: 9, updated_at: 9 }],
+      pages: [{ id: pageId(7), title: "Offline Page", created_at: 9, updated_at: 9 }],
     }));
     expect(t.db.select(
       "SELECT COUNT(*) AS n FROM refs WHERE src_block_uid = 'uid_a1'" +
@@ -75,9 +76,32 @@ describe("reconcile on feed page delivery", () => {
 
   test("positive-id pages upsert without reconcile side effects", () => {
     applyChanges(t.db, feed({
-      pages: [{ id: 1, title: "AI", created_at: 2, updated_at: 2 }],
+      pages: [{ id: pageId(1), title: "AI", created_at: 2, updated_at: 2 }],
     }));
     expect(t.db.select("SELECT COUNT(*) AS n FROM pages WHERE id < 0"))
       .toEqual([{ n: 1 }]); // untouched offline page still negative
+  });
+
+  test("remapLocalPage moves a negative PageId's blocks and refs to the target, then drops it", () => {
+    t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
+              " VALUES ('uid_a1', 1, NULL, 0, 'see [[Offline Page]]')");
+    t.db.exec("INSERT INTO refs VALUES ('uid_a1', ?, 'link')", [negId]);
+
+    // remapLocalPage runs inside the caller's deferred-FK window transaction
+    // (applyWindow/applySnapshot); a direct call needs the same deferral,
+    // since it moves rows onto the target id before that row exists.
+    t.db.transaction(() => {
+      t.db.exec("PRAGMA defer_foreign_keys = ON");
+      remapLocalPage(t.db, { localId: pageId(negId), targetId: pageId(7) });
+      t.db.exec("INSERT INTO pages(id, title) VALUES (7, 'Offline Page')");
+    });
+
+    expect(t.db.select("SELECT id FROM pages WHERE id = ?", [negId])).toEqual([]);
+    expect(t.db.select(
+      "SELECT uid FROM blocks WHERE page_id = 7 ORDER BY uid"))
+      .toEqual([{ uid: "uid_l1" }, { uid: "uid_l2" }]);
+    expect(t.db.select(
+      "SELECT target_page_id FROM refs WHERE src_block_uid = 'uid_a1'"))
+      .toEqual([{ target_page_id: 7 }]);
   });
 });

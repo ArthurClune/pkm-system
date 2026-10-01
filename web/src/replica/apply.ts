@@ -21,7 +21,7 @@
 //     applySnapshot still throws -- a snapshot ships the whole graph, so a
 //     dangling row in one means something is genuinely wrong.
 
-import type { BlockUid, SyncSeq } from "../api/brands";
+import type { BlockUid, PageId, SidebarEntryId, SyncSeq } from "../api/brands";
 import type { components } from "../api/types";
 import { reindexBlockRefs } from "./blockRefs";
 import { type ReplicaDb, rollbackToSavepoint, type SqlValue } from "./db";
@@ -270,7 +270,12 @@ class StaleTitleHolderError extends Error {
  * not NUL: SQLite's string functions treat an embedded NUL as a terminator. */
 const parkedTitle = (id: number): string => `parked:${String(id)}`;
 
-type TitledTable = "pages" | "sidebar_entries";
+/** Ties an id type to its own table, so a pages call and a sidebar call
+ * below can't take each other's table literal: `Id` is inferred from the
+ * `incoming`/`parked` rows, and the conditional type then checks `table`
+ * against it, where a plain `"pages" | "sidebar_entries"` union could not. */
+type TitledTableFor<Id extends PageId | SidebarEntryId> =
+  Id extends PageId ? "pages" : "sidebar_entries";
 
 /** `pages.title` and `sidebar_entries.title` are UNIQUE, and a window is a
  * set of CURRENT rows: it can carry two rows that traded titles, or a
@@ -282,11 +287,12 @@ type TitledTable = "pages" | "sidebar_entries";
  * restores its real title. Negative ids are offline-created pages, which
  * reconcilePage remaps rather than retitles. Rows still parked once every
  * upsert has run are not a swap -- see the check in applyWindow. */
-function parkTakenTitles(db: ReplicaDb, table: TitledTable,
-                         incoming: readonly { id: number; title: string }[]): number[] {
-  const parked: number[] = [];
+export function parkTakenTitles<Id extends PageId | SidebarEntryId>(
+    db: ReplicaDb, table: TitledTableFor<Id>,
+    incoming: readonly { id: Id; title: string }[]): Id[] {
+  const parked: Id[] = [];
   for (const row of incoming) {
-    const holders = db.select<{ id: number }>(
+    const holders = db.select<{ id: Id }>(
       `SELECT id FROM ${table} WHERE title = ? AND id != ? AND id >= 0`,
       [row.title, row.id]);
     for (const holder of holders) {
@@ -298,8 +304,8 @@ function parkTakenTitles(db: ReplicaDb, table: TitledTable,
   return parked;
 }
 
-function assertNoParkedTitles(db: ReplicaDb, table: TitledTable,
-                              parked: readonly number[]): void {
+export function assertNoParkedTitles<Id extends PageId | SidebarEntryId>(
+    db: ReplicaDb, table: TitledTableFor<Id>, parked: readonly Id[]): void {
   const still = parked.filter((id) => db.select(
     `SELECT 1 AS x FROM ${table} WHERE id = ? AND title = ?`,
     [id, parkedTitle(id)]).length > 0);
@@ -331,10 +337,11 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number): void {
         db.exec("DELETE FROM blocks WHERE uid = ?",
                 [tomb.entity_id as BlockUid]);
       } else if (tomb.kind === "page") {
-        db.exec("DELETE FROM pages WHERE id = ?", [Number(tomb.entity_id)]);
+        db.exec("DELETE FROM pages WHERE id = ?",
+                [Number(tomb.entity_id) as PageId]);
       } else if (tomb.kind === "sidebar") {
         db.exec("DELETE FROM sidebar_entries WHERE id = ?",
-                [Number(tomb.entity_id)]);
+                [Number(tomb.entity_id) as SidebarEntryId]);
       } else {
         // A kind this build doesn't know (an older replica meeting a kind a
         // newer server added): skip it rather than fall through to a

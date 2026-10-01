@@ -2,10 +2,19 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/client";
 import { apiDelete, apiGet, apiPost, apiPut } from "../api/typedClient";
+import type { SidebarEntryId } from "../api/brands";
 import type { SidebarNavEntry } from "../api/payloads";
 import { NavPageLink } from "./NavPageLink";
 
 type MutationState = "idle" | "running" | "failed";
+
+/** The DELETE call a removed entry's id drives, pulled out of the component
+ * so a swapped-brand call is a type error reachable from a plain test. */
+export function deleteSidebarEntry(id: SidebarEntryId): Promise<void> {
+  return apiDelete("/api/sidebar/{entry_id}", {
+    path: { entry_id: id },
+  }).then(() => undefined);
+}
 
 /** Left-nav shortcuts to pinned pages, with an edit mode to add, remove, and
  * reorder them. Writes refetch the list rather than updating optimistically,
@@ -86,10 +95,8 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
     });
   }
 
-  function removeEntry(id: number) {
-    void runMutation(() => apiDelete("/api/sidebar/{entry_id}", {
-      path: { entry_id: id },
-    }).then(() => undefined));
+  function removeEntry(id: SidebarEntryId) {
+    void runMutation(() => deleteSidebarEntry(id));
   }
 
   function moveEntry(index: number, direction: -1 | 1) {

@@ -8,7 +8,7 @@ import {
   repairActiveOutlineSessions,
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
-import { READ_INIT, block, journalBacklinks, jsonResponse, makeSync, pagePayload,
+import { READ_INIT, block, journalBacklinks, jsonResponse, makeSync, pageId, pagePayload,
          stubFetch, uid } from "../test-helpers";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
 import { BlockStampsContext } from "../contexts";
@@ -74,7 +74,7 @@ it("keeps literal slashes in namespace titles", async () => {
 it("links with the canonical payload title and refreshes backlinks", async () => {
   const sync = makeSync();
   const refreshed = pagePayload("ACME", [], { backlinks: {
-    groups: [{ page_id: 9, page_title: "Source", items: [{
+    groups: [{ page_id: pageId(9), page_title: "Source", items: [{
       uid: uid("uid_unlinked"), text: "[[ACME]] mention", breadcrumbs: [],
     }] }],
     total_pages: 1, offset: 0, limit: 20,

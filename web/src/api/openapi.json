@@ -1007,6 +1007,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "x-brand": "SidebarEntryId",
               "title": "Entry Id"
             }
           }
@@ -2262,7 +2263,8 @@
         "properties": {
           "page_id": {
             "type": "integer",
-            "title": "Page Id"
+            "title": "Page Id",
+            "x-brand": "PageId"
           },
           "page_title": {
             "type": "string",
@@ -2363,7 +2365,8 @@
         "properties": {
           "page_id": {
             "type": "integer",
-            "title": "Page Id"
+            "title": "Page Id",
+            "x-brand": "PageId"
           },
           "page_title": {
             "type": "string",
@@ -2585,7 +2588,8 @@
         "properties": {
           "page_id": {
             "type": "integer",
-            "title": "Page Id"
+            "title": "Page Id",
+            "x-brand": "PageId"
           },
           "page_title": {
             "type": "string",
@@ -2943,7 +2947,8 @@
         "properties": {
           "id": {
             "type": "integer",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "PageId"
           },
           "title": {
             "type": "string",
@@ -3595,7 +3600,8 @@
         "properties": {
           "id": {
             "type": "integer",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "PageId"
           },
           "title": {
             "type": "string",
@@ -3755,7 +3761,8 @@
         "properties": {
           "order": {
             "items": {
-              "type": "integer"
+              "type": "integer",
+              "x-brand": "SidebarEntryId"
             },
             "type": "array",
             "title": "Order"
@@ -3825,7 +3832,8 @@
         "properties": {
           "id": {
             "type": "integer",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "PageId"
           },
           "title": {
             "type": "string",
@@ -3970,7 +3978,8 @@
         "properties": {
           "id": {
             "type": "integer",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "SidebarEntryId"
           },
           "title": {
             "type": "string",
@@ -4114,7 +4123,8 @@
           },
           "page_id": {
             "type": "integer",
-            "title": "Page Id"
+            "title": "Page Id",
+            "x-brand": "PageId"
           },
           "parent_uid": {
             "anyOf": [
@@ -4221,7 +4231,8 @@
         "properties": {
           "id": {
             "type": "integer",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "PageId"
           },
           "title": {
             "type": "string",
@@ -4263,7 +4274,8 @@
         "properties": {
           "target_page_id": {
             "type": "integer",
-            "title": "Target Page Id"
+            "title": "Target Page Id",
+            "x-brand": "PageId"
           },
           "kind": {
             "type": "string",
@@ -4286,7 +4298,8 @@
         "properties": {
           "id": {
             "type": "integer",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "SidebarEntryId"
           },
           "title": {
             "type": "string",
@@ -4426,7 +4439,8 @@
         "properties": {
           "page_id": {
             "type": "integer",
-            "title": "Page Id"
+            "title": "Page Id",
+            "x-brand": "PageId"
           },
           "title": {
             "type": "string",
@@ -4498,7 +4512,8 @@
         "properties": {
           "page_id": {
             "type": "integer",
-            "title": "Page Id"
+            "title": "Page Id",
+            "x-brand": "PageId"
           },
           "title": {
             "type": "string",

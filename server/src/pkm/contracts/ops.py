@@ -74,9 +74,11 @@ brand(BlockUid)
 # pages.id. Minted only by SQLite (an INTEGER PRIMARY KEY) and, for an
 # import, by the importer's own row-building counter.
 PageId = NewType("PageId", int)
+brand(PageId)
 # sidebar_entries.id -- its own INTEGER PRIMARY KEY, distinct from PageId
 # even though a sidebar entry's title always names a page.
 SidebarEntryId = NewType("SidebarEntryId", int)
+brand(SidebarEntryId)
 
 # The per-tab sync identity (web's sync/opQueue.ts `clientId`, minted once
 # per tab) and the replay-dedup key shared by an OpBatch and the pending_ops

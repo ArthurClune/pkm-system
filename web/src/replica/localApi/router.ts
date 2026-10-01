@@ -4,7 +4,7 @@
 // shapes the server returns. Unmatched routes report handled:false — the
 // caller surfaces a clear online-only error. Runs inside the worker.
 
-import type { BatchId, BlockUid } from "../../api/brands";
+import type { BatchId, BlockUid, SidebarEntryId } from "../../api/brands";
 import type { BlockRefsPayload, SidebarNavEntry, SidebarNavPayload,
               TitlesPayload } from "../../api/payloads";
 import { parseBlockUid } from "../../ids";
@@ -125,7 +125,7 @@ export function blockRefsPayload(db: ReplicaDb,
 
 export function sidebarPayload(db: ReplicaDb): SidebarNavPayload {
   // mapped, not asserted -- see the note on PageRow in pages.ts
-  const rows = db.select<{ id: number; title: string }>(
+  const rows = db.select<{ id: SidebarEntryId; title: string }>(
     "SELECT id, title FROM sidebar_entries ORDER BY order_idx");
   return { entries: rows.map((row): SidebarNavEntry => ({
     id: row.id, title: row.title })) };

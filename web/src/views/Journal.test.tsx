@@ -9,7 +9,7 @@ import {
   repairActiveOutlineSessions,
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
-import { READ_INIT, block, journalBacklinks, jsonResponse, makeSync, stubFetch, uid } from "../test-helpers";
+import { READ_INIT, block, journalBacklinks, jsonResponse, makeSync, pageId, stubFetch, uid } from "../test-helpers";
 import { Journal } from "./Journal";
 
 class FakeIntersectionObserver {
@@ -574,7 +574,7 @@ it("shows a day's linked references from the journal payload, but not for a " +
     ["/api/journal/cleanup", { deleted: [] }],
     ["/api/journal?days=5", { days: [
       day("2026-07-08", "July 8th, 2026", undefined, true, journalBacklinks([
-        { page_id: 9, page_title: "Plans", items: [
+        { page_id: pageId(9), page_title: "Plans", items: [
           { uid: uid("uid_p1"), text: "Remind me on [[July 8th, 2026]]",
             breadcrumbs: [] }] },
       ], { limit: 5 })),
@@ -607,7 +607,7 @@ async () => {
     ["/api/journal/cleanup", { deleted: [] }],
     ["/api/journal?days=5", {
       days: [day("2026-07-08", "July 8th, 2026", undefined, true, journalBacklinks([
-        { page_id: 9, page_title: "Plans", items: [
+        { page_id: pageId(9), page_title: "Plans", items: [
           { uid: uid("uid_p1"), text: "see ((ref_cccc))", breadcrumbs: [] }] },
       ], { limit: 5 }))],
       block_ref_texts: {

@@ -102,7 +102,7 @@ export function journalBacklinks(groups: Backlinks["groups"] = [],
 export function pagePayload(pageTitle: string, blocks: BlockNode[],
                             over: Partial<PagePayload> = {}): PagePayload {
   return {
-    page: { id: 1, title: pageTitle as CanonicalTitle,
+    page: { id: pageId(1), title: pageTitle as CanonicalTitle,
             created_at: 1000, updated_at: 2000 },
     blocks,
     backlinks: backlinks(),

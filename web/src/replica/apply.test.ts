@@ -1,13 +1,14 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
-import type { BatchId, BlockUid, SyncSeq } from "../api/brands";
+import type { BatchId, BlockUid, PageId, SyncSeq } from "../api/brands";
 import type { Changes, Snapshot, SyncBlock, SyncTombstone } from "./apply";
-import { applyChanges, applySnapshot } from "./apply";
+import { applyChanges, applySnapshot, assertNoParkedTitles,
+         parkTakenTitles } from "./apply";
 import { getMeta } from "./meta";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
 import type { ReplicaDb } from "./db";
-import { uid } from "../test-helpers";
+import { entryId, pageId, uid } from "../test-helpers";
 
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
@@ -19,26 +20,26 @@ const ackNext = (db: ReplicaDb): void => {
   deleteBatch(db, b.id, b.batch_id);
 };
 
-const block = (rawUid: string, pageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid: rawUid as BlockUid, page_id: pageId, parent_uid: null, order_idx: 0,
+const block = (rawUid: string, rawPageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
+  uid: rawUid as BlockUid, page_id: rawPageId as PageId, parent_uid: null, order_idx: 0,
   text: `text of ${rawUid}`,
   heading: null, view_type: null, collapsed: 0, created_at: 1, updated_at: 1,
   refs: [], ...over,
 });
 
-const page = (id: number, title: string) =>
-  ({ id, title, created_at: 1, updated_at: 1 });
+const page = (rawId: number, title: string) =>
+  ({ id: rawId as PageId, title, created_at: 1, updated_at: 1 });
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false,
   seq: 10 as SyncSeq,
   pages: [page(1, "Machine Learning"), page(2, "AI")],
   blocks: [
-    block("uid_b1", 1, { text: "links [[AI]]", refs: [{ target_page_id: 2, kind: "link" }] }),
+    block("uid_b1", 1, { text: "links [[AI]]", refs: [{ target_page_id: pageId(2), kind: "link" }] }),
     block("uid_b2", 1, { order_idx: 1 }),
     block("uid_b3", 1, { parent_uid: uid("uid_b2"), text: "child block searchable" }),
   ],
-  sidebar: [{ id: 1, title: "AI", order_idx: 0 }],
+  sidebar: [{ id: entryId(1), title: "AI", order_idx: 0 }],
 };
 
 // `next_since`/`latest_seq` take a plain number here, not SyncSeq: every
@@ -72,7 +73,7 @@ describe("applySnapshot", () => {
       ...SNAP,
       pages: [page(30, "Authoritative #Page")],
       blocks: [],
-      sidebar: [{ id: 30, title: "Authoritative #Page", order_idx: 0 }],
+      sidebar: [{ id: entryId(30), title: "Authoritative #Page", order_idx: 0 }],
     });
 
     expect(t.db.select("SELECT id, title FROM pages")).toEqual([
@@ -251,7 +252,7 @@ describe("applyChanges", () => {
       next_since: 11,
       latest_seq: 11,
       pages: [page(31, "Authoritative [[Feed]]")],
-      sidebar: [{ id: 31, title: "Authoritative [[Feed]]", order_idx: 0 }],
+      sidebar: [{ id: entryId(31), title: "Authoritative [[Feed]]", order_idx: 0 }],
     }))).toEqual({ status: "applied", cursor: 11 });
 
     expect(t.db.select("SELECT id, title FROM pages WHERE id = 31")).toEqual([
@@ -351,7 +352,7 @@ describe("applyChanges", () => {
       pages: [page(3, "Paper")],
       blocks: [block("uid_b9", 3, {
         text: "cites [[Machine Learning]]",
-        refs: [{ target_page_id: 1, kind: "link" }],
+        refs: [{ target_page_id: pageId(1), kind: "link" }],
       })],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 15 });
@@ -396,7 +397,7 @@ describe("applyChanges", () => {
     const feed = emptyFeed({
       next_since: 12, latest_seq: 12,
       blocks: [block("uid_b1", 1, {
-        text: "still [[AI]]", refs: [{ target_page_id: 2, kind: "link" }] })],
+        text: "still [[AI]]", refs: [{ target_page_id: pageId(2), kind: "link" }] })],
     });
     applyChanges(t.db, feed);
     applyChanges(t.db, feed);
@@ -430,6 +431,31 @@ describe("applyChanges", () => {
       tombstones: [{ kind: "sidebar", entity_id: "1" }],
     }));
     expect(count("SELECT COUNT(*) AS n FROM sidebar_entries")).toBe(0);
+  });
+
+  test("a page tombstone and a sidebar tombstone with the same numeric id" +
+       " each delete only their own row", () => {
+    applyChanges(t.db, emptyFeed({
+      next_since: 13, latest_seq: 13,
+      tombstones: [{ kind: "page", entity_id: "1" }],
+    }));
+    expect(count("SELECT COUNT(*) AS n FROM pages WHERE id = 1")).toBe(0);
+    expect(count("SELECT COUNT(*) AS n FROM sidebar_entries WHERE id = 1")).toBe(1);
+
+    applyChanges(t.db, emptyFeed({
+      next_since: 14, latest_seq: 14,
+      tombstones: [{ kind: "sidebar", entity_id: "1" }],
+    }));
+    expect(count("SELECT COUNT(*) AS n FROM sidebar_entries WHERE id = 1")).toBe(0);
+  });
+
+  test("parkTakenTitles/assertNoParkedTitles tie the parked ids to their own table", () => {
+    // a title nothing holds: parks nothing, so assertNoParkedTitles is a no-op
+    const parkedPages = parkTakenTitles(t.db, "pages",
+      [{ id: pageId(2), title: "a title nothing holds" }]);
+    assertNoParkedTitles(t.db, "pages", parkedPages);
+    // @ts-expect-error a pages table's parked ids aren't a sidebar entry's
+    assertNoParkedTitles(t.db, "sidebar_entries", parkedPages);
   });
 
   // An older replica may meet a tombstone kind the server added after it
@@ -547,7 +573,7 @@ describe("applyChanges: a title moving between ids inside one window", () => {
   test("a sidebar entry deleted and re-created under a new id in one window", () => {
     const feed = emptyFeed({
       next_since: 20, latest_seq: 20,
-      sidebar: [{ id: 7, title: "AI", order_idx: 0 }],
+      sidebar: [{ id: entryId(7), title: "AI", order_idx: 0 }],
       tombstones: [{ kind: "sidebar", entity_id: "1" }],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
@@ -558,12 +584,12 @@ describe("applyChanges: a title moving between ids inside one window", () => {
   test("two sidebar entries swapping titles in one window", () => {
     applyChanges(t.db, emptyFeed({
       next_since: 15, latest_seq: 15,
-      sidebar: [{ id: 2, title: "Machine Learning", order_idx: 1 }],
+      sidebar: [{ id: entryId(2), title: "Machine Learning", order_idx: 1 }],
     }));
     const feed = emptyFeed({
       next_since: 20, latest_seq: 20,
-      sidebar: [{ id: 1, title: "Machine Learning", order_idx: 0 },
-                { id: 2, title: "AI", order_idx: 1 }],
+      sidebar: [{ id: entryId(1), title: "Machine Learning", order_idx: 0 },
+                { id: entryId(2), title: "AI", order_idx: 1 }],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
     expect(t.db.select("SELECT id, title FROM sidebar_entries ORDER BY id")).toEqual([
@@ -604,7 +630,7 @@ describe("applyChanges: a page id deleted and reused inside one window", () => {
       blocks: [
         block("uid_new", 2),
         block("uid_b1", 1, { text: "links [[Reborn]]",
-                             refs: [{ target_page_id: 2, kind: "link" }] }),
+                             refs: [{ target_page_id: pageId(2), kind: "link" }] }),
       ],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 12 });
@@ -675,7 +701,7 @@ describe("applySnapshot and applyChanges: a create under a ghost parent keeps th
       next_since: 11, latest_seq: 11,
       tombstones: [{ kind: "block", entity_id: "uid_ghost1" }],
       blocks: [block("uid_b1", 1, {
-        text: "links [[AI]]", refs: [{ target_page_id: 2, kind: "link" }],
+        text: "links [[AI]]", refs: [{ target_page_id: pageId(2), kind: "link" }],
       })],
     }), 6);
 
@@ -847,7 +873,7 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     // rows after it must open it again.
     block("uid_b2", 1, { parent_uid: uid("uid_b1") }),
     block("uid_b1", 1, { text: "links [[AI]]",
-                         refs: [{ target_page_id: 2, kind: "link" }] }),
+                         refs: [{ target_page_id: pageId(2), kind: "link" }] }),
     block("uid_b3", 1, { parent_uid: uid("uid_b2"), text: "mine" }),
   ];
   const enqueueCycleMove = () => enqueueBatch(t.db, [
@@ -878,7 +904,7 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
       next_since: 11, latest_seq: 11,
       blocks: [block("uid_b2", 1, { parent_uid: uid("uid_b1") }),
                block("uid_b1", 1, { text: "links [[AI]]",
-                                    refs: [{ target_page_id: 2, kind: "link" }] })],
+                                    refs: [{ target_page_id: pageId(2), kind: "link" }] })],
     }), 6);
     // no loop survives the window: the replay skips the move as a cycle,
     // and the batch's other op survives it
@@ -903,7 +929,7 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
 
     applySnapshot(t.db, { ...SNAP, seq: 11 as SyncSeq, blocks: [
       block("uid_b1", 1, { text: "links [[AI]]",
-                           refs: [{ target_page_id: 2, kind: "link" }] }),
+                           refs: [{ target_page_id: pageId(2), kind: "link" }] }),
       block("uid_b2", 1, { parent_uid: uid("uid_b1") }),
       block("uid_b3", 1, { parent_uid: uid("uid_b2"), text: "child block searchable" }),
     ] }, 6);

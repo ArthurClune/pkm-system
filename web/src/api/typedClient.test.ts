@@ -4,7 +4,7 @@
 // TypeScript reports an UNUSED suppression as an error of its own, so a probe
 // that stops catching its drift fails the build rather than silently passing.
 import { afterEach, expect, it, vi } from "vitest";
-import { READ_INIT } from "../test-helpers";
+import { entryId, READ_INIT } from "../test-helpers";
 import type { CurrentWorkPayload, JournalPayload, PageMeta,
               PagePayload } from "./payloads";
 import { setOfflineGateway } from "./client";
@@ -161,7 +161,7 @@ it("sends a JSON body with the method the path declares", async () => {
 
 it("sends a PUT with the body its schema declares", async () => {
   const fetchMock = stubFetch();
-  await apiPut("/api/sidebar", { body: { order: [3, 1] } });
+  await apiPut("/api/sidebar", { body: { order: [entryId(3), entryId(1)] } });
   expect(fetchMock.mock.calls[0]).toEqual(["/api/sidebar", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

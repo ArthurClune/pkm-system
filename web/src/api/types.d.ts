@@ -1019,7 +1019,7 @@ export interface components {
         /** BacklinkGroup */
         BacklinkGroup: {
             /** Page Id */
-            page_id: number;
+            page_id: Brands.PageId;
             /** Page Title */
             page_title: string;
             /** Items */
@@ -1058,7 +1058,7 @@ export interface components {
         /** BlockGroup */
         BlockGroup: {
             /** Page Id */
-            page_id: number;
+            page_id: Brands.PageId;
             /** Page Title */
             page_title: string;
             /** Items */
@@ -1132,7 +1132,7 @@ export interface components {
         /** ChangedGroup */
         ChangedGroup: {
             /** Page Id */
-            page_id: number;
+            page_id: Brands.PageId;
             /** Page Title */
             page_title: string;
             /** Items */
@@ -1270,7 +1270,7 @@ export interface components {
         /** CurrentWorkPage */
         CurrentWorkPage: {
             /** Id */
-            id: number;
+            id: Brands.PageId;
             /** Title */
             title: string;
             /** Updated At */
@@ -1519,7 +1519,7 @@ export interface components {
         /** PageMeta */
         PageMeta: {
             /** Id */
-            id: number;
+            id: Brands.PageId;
             /** Title */
             title: string;
             /** Created At */
@@ -1585,7 +1585,7 @@ export interface components {
         /** ReorderSidebarEntriesRequest */
         ReorderSidebarEntriesRequest: {
             /** Order */
-            order: number[];
+            order: Brands.SidebarEntryId[];
         };
         /** ScanPayload */
         ScanPayload: {
@@ -1608,7 +1608,7 @@ export interface components {
         /** SearchPageHit */
         SearchPageHit: {
             /** Id */
-            id: number;
+            id: Brands.PageId;
             /** Title */
             title: string;
         };
@@ -1666,7 +1666,7 @@ export interface components {
         /** SidebarNavEntry */
         SidebarNavEntry: {
             /** Id */
-            id: number;
+            id: Brands.SidebarEntryId;
             /** Title */
             title: string;
         };
@@ -1719,7 +1719,7 @@ export interface components {
             /** Uid */
             uid: Brands.BlockUid;
             /** Page Id */
-            page_id: number;
+            page_id: Brands.PageId;
             /** Parent Uid */
             parent_uid: Brands.BlockUid | null;
             /** Order Idx */
@@ -1742,7 +1742,7 @@ export interface components {
         /** SyncPage */
         SyncPage: {
             /** Id */
-            id: number;
+            id: Brands.PageId;
             /** Title */
             title: string;
             /** Created At */
@@ -1753,7 +1753,7 @@ export interface components {
         /** SyncRef */
         SyncRef: {
             /** Target Page Id */
-            target_page_id: number;
+            target_page_id: Brands.PageId;
             /**
              * Kind
              * @enum {string}
@@ -1763,7 +1763,7 @@ export interface components {
         /** SyncSidebarEntry */
         SyncSidebarEntry: {
             /** Id */
-            id: number;
+            id: Brands.SidebarEntryId;
             /** Title */
             title: string;
             /** Order Idx */
@@ -1815,7 +1815,7 @@ export interface components {
         /** TitleMigrationBlocker */
         TitleMigrationBlocker: {
             /** Page Id */
-            page_id: number;
+            page_id: Brands.PageId;
             /** Title */
             title: string;
             /**
@@ -1843,7 +1843,7 @@ export interface components {
         /** TitleMigrationPage */
         TitleMigrationPage: {
             /** Page Id */
-            page_id: number;
+            page_id: Brands.PageId;
             /** Title */
             title: string;
         };
@@ -2603,7 +2603,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                entry_id: number;
+                entry_id: Brands.SidebarEntryId;
             };
             cookie?: never;
         };

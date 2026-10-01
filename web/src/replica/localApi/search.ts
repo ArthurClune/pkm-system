@@ -3,7 +3,7 @@
 // ordering and snippet() call as routes_search.py, over the replica's
 // self-maintaining local index.
 
-import type { BlockUid } from "../../api/brands";
+import type { BlockUid, PageId } from "../../api/brands";
 import type { SearchBlockHit, SearchPageHit,
               SearchPayload } from "../../api/payloads";
 import type { ReplicaDb } from "../db";
@@ -15,7 +15,7 @@ export function searchPayload(db: ReplicaDb, q: string,
   if (q.trim().length === 0) return { pages: [], blocks: [] };
   const match = escapeFtsQuery(q, exact);
   // mapped, not asserted -- see the note on PageRow in pages.ts
-  const pages = db.select<{ id: number; title: string }>(
+  const pages = db.select<{ id: PageId; title: string }>(
     `SELECT p.id, p.title FROM pages_fts f
       JOIN pages p ON p.id = f.rowid
      WHERE pages_fts MATCH ? ORDER BY rank LIMIT ?`, [match, lim]);

@@ -5,13 +5,13 @@ import { expect, it, vi } from "vitest";
 import type { BacklinkGroup } from "../api/payloads";
 import { SidebarContext } from "../contexts";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { uid } from "../test-helpers";
+import { pageId, uid } from "../test-helpers";
 import { BacklinkGroupList } from "./BacklinkGroupList";
 
 type OnNavigate = NonNullable<ComponentProps<typeof BacklinkGroupList>["onNavigate"]>;
 
 const group: BacklinkGroup = {
-  page_id: 1, page_title: "Source",
+  page_id: pageId(1), page_title: "Source",
   items: [{ uid: uid("uid_a"), text: "text", breadcrumbs: [] }],
 };
 

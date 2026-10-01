@@ -80,6 +80,7 @@ Owner: [frontend-rendering.md](architecture/frontend-rendering.md)
 | Symptom | Cause | Where | Ref |
 |---|---|---|---|
 | Two mermaid diagrams on one page clobber each other's rendered SVG | Stock mermaid's `render()` looks up its render id in `document`, so two fallback diagrams mounting in the same commit need distinct real ids. Only the cached copy is normalised to `MERMAID_CACHE_RENDER_ID`; `withRenderId` restores each instance's own id | [frontend-rendering.md § Mermaid](architecture/frontend-rendering.md#mermaid) | pkm-pekk |
+| An uploaded PDF whose filename contains parentheses shows as a plain link with `…).pdf)` trailing it, and no preview; the link still opens | `scanMarkdownLinkAt` closed the destination at the first `)`, cutting the href at `(Public`, so `isPdfHref` no longer saw `.pdf`. The asset route looks up by sha alone, which is why the link still worked. Destination parentheses now nest | [frontend-rendering.md § The pipeline](architecture/frontend-rendering.md#the-pipeline) | pkm-3jpg |
 | The references popover renders clipped off the right window edge, with no scrollbar to reach it | Its fixed position used the badge anchor as-is. The popover clamps its measured rect into the viewport (`popoverPosition.ts`) | [frontend.md § Popovers and menus](architecture/frontend.md#popovers-and-menus) | pkm-7iv7 |
 
 ## Styling

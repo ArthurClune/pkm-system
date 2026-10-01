@@ -26,6 +26,11 @@ slash commands adapt its token stream rather than scanning privately.
 `tokenize.ts` adds the grammar the scanner does not model: markdown links and
 images, bare-URL autolinking (including bare `/assets/<sha256>/`), emphasis,
 `{{query}}` and `{{pdf}}` macros, `$$` math, and line breaks.
+Markdown links and images are scanned by `grammar/markdown.ts`. A link
+destination may contain spaces and nested parentheses, because uploads write
+the raw filename into the URL. The destination closes at the first `)` that
+is not matched on its line, and at the first `)` of all when the parentheses
+never balance.
 
 ## Segment dispatch
 

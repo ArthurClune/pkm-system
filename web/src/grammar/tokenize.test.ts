@@ -130,6 +130,20 @@ describe("tokenizeBlock", () => {
     ]);
   });
 
+  it("keeps a balanced paren in an uploaded filename inside the link destination", () => {
+    const href =
+      "/assets/be57c0b41cdc99c9ee257037ab4caa043bef7ed6926b6aac2f7233f388f0c3e9/" +
+      "AI for Research Day 2026 - Programme (Public) - Schedule.pdf";
+    const text = `[AI for Research Day 2026 - Programme (Public) - Schedule.pdf](${href})`;
+    expect(tokenizeBlock(text)).toEqual([
+      {
+        kind: "link",
+        text: "AI for Research Day 2026 - Programme (Public) - Schedule.pdf",
+        href,
+      },
+    ]);
+  });
+
   it("parses TODO/DONE prefixes as read-only checkboxes", () => {
     expect(tokenizeBlock("{{[[TODO]]}} buy milk")).toEqual([
       { kind: "todo", done: false },

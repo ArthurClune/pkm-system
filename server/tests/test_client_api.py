@@ -157,6 +157,35 @@ def test_changed_bad_window_raises_api_error(pkm_client):
         pkm_client.changed(since="not-a-date")
 
 
+def test_todos_normalizes_page_argument(pkm_client, monkeypatch):
+    """Matches get_page: a page title the caller holds pre-normalization
+    (e.g. from a batch that embedded a literal newline) must still filter
+    by the title the page actually landed under."""
+    calls: list[dict] = []
+    orig_request = pkm_client._http.request
+
+    def spy(method, url, **kw):
+        calls.append(kw.get("params", {}))
+        return orig_request(method, url, **kw)
+
+    monkeypatch.setattr(pkm_client._http, "request", spy)
+    pkm_client.todos(page="\nAI\t")
+    assert calls[0]["page"] == "AI"
+
+
+def test_changed_normalizes_page_argument(pkm_client, monkeypatch):
+    calls: list[dict] = []
+    orig_request = pkm_client._http.request
+
+    def spy(method, url, **kw):
+        calls.append(kw.get("params", {}))
+        return orig_request(method, url, **kw)
+
+    monkeypatch.setattr(pkm_client._http, "request", spy)
+    pkm_client.changed(since="2000-01-01", page="\nAI\t")
+    assert calls[0]["page"] == "AI"
+
+
 def test_post_ops_creates_block(pkm_client):
     uid = new_uid()
     ack = pkm_client.post_ops(

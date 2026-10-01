@@ -269,7 +269,7 @@ class PkmClient:
         return self._request("GET", "/api/query", QueryPayload, params=params)
 
     def todos(self, page: str | None = None) -> GroupsPayload:
-        params = {} if page is None else {"page": page}
+        params = {} if page is None else {"page": normalize_title(page)}
         return self._request("GET", "/api/todos", GroupsPayload,
                              params=params)
 
@@ -279,7 +279,7 @@ class PkmClient:
         if until is not None:
             params["until"] = until
         if page is not None:
-            params["page"] = page
+            params["page"] = normalize_title(page)
         return self._request("GET", "/api/changed", ChangedPayload,
                              params=params)
 

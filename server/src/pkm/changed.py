@@ -62,7 +62,7 @@ def parse_window(since: str, until: str | None, now: datetime,
     return since_ms, until_ms
 
 
-def classify(created_at: int | None, since_ms: int,
+def classify(created_at: int | None, *, since_ms: int,
             until_ms: int) -> ChangeStatus:
     """'new' when `created_at` falls inside [since_ms, until_ms), else
     'edited' (including a null created_at -- an imported/pre-existing

@@ -157,6 +157,6 @@ def changed(since: str, until: str | None = None, page: str | None = None,
     sql += " ORDER BY b.updated_at, b.uid LIMIT ?"
     rows = [dict(r) for r in db.execute(sql, [*params, limit]).fetchall()]
     for r in rows:
-        r["status"] = classify(r["created_at"], since_ms, until_ms)
+        r["status"] = classify(r["created_at"], since_ms=since_ms, until_ms=until_ms)
     return {"groups": group_changed(rows), "total": total,
             "since": since_ms, "until": until_ms}

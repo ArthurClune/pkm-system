@@ -94,30 +94,30 @@ def test_login_fails_fast_instead_of_hanging_when_scrypt_slots_are_saturated(
 
 class TestLoginThrottle:
     """Unit tests against the shell class directly: all state transitions
-    take an explicit now_ms (never reads the wall clock itself), so no
-    real waiting or timing races are involved."""
+    take an explicit monotonic clock reading (`mono_ms`, never reads the
+    wall clock itself), so no real waiting or timing races are involved."""
 
     def test_fresh_source_is_not_throttled(self):
         throttle = LoginThrottle()
-        assert not throttle.is_throttled("1.2.3.4", now_ms=0)
+        assert not throttle.is_throttled("1.2.3.4", mono_ms=0)
 
     def test_failure_throttles_the_source_until_backoff_elapses(self):
         throttle = LoginThrottle()
-        throttle.record_failure("1.2.3.4", now_ms=0)
-        assert throttle.is_throttled("1.2.3.4", now_ms=500)
-        assert not throttle.is_throttled("1.2.3.4", now_ms=1_000)
+        throttle.record_failure("1.2.3.4", mono_ms=0)
+        assert throttle.is_throttled("1.2.3.4", mono_ms=500)
+        assert not throttle.is_throttled("1.2.3.4", mono_ms=1_000)
 
     def test_failures_are_tracked_per_source(self):
         throttle = LoginThrottle()
-        throttle.record_failure("1.2.3.4", now_ms=0)
-        assert throttle.is_throttled("1.2.3.4", now_ms=500)
-        assert not throttle.is_throttled("5.6.7.8", now_ms=500)
+        throttle.record_failure("1.2.3.4", mono_ms=0)
+        assert throttle.is_throttled("1.2.3.4", mono_ms=500)
+        assert not throttle.is_throttled("5.6.7.8", mono_ms=500)
 
     def test_success_clears_the_source_history(self):
         throttle = LoginThrottle()
-        throttle.record_failure("1.2.3.4", now_ms=0)
+        throttle.record_failure("1.2.3.4", mono_ms=0)
         throttle.record_success("1.2.3.4")
-        assert not throttle.is_throttled("1.2.3.4", now_ms=0)
+        assert not throttle.is_throttled("1.2.3.4", mono_ms=0)
 
     def test_bounds_concurrent_scrypt_slots(self):
         throttle = LoginThrottle(max_concurrent=2)
@@ -129,11 +129,11 @@ class TestLoginThrottle:
             self, monkeypatch):
         monkeypatch.setattr("pkm.server.auth.MAX_TRACKED_SOURCES", 1)
         throttle = LoginThrottle()
-        throttle.record_failure("lapsed", now_ms=0)  # blocks until 1_000
+        throttle.record_failure("lapsed", mono_ms=0)  # blocks until 1_000
         # now=2_000: "lapsed"'s backoff has already elapsed and the store
         # is over cap, so recording a new failure prunes "lapsed" out
         # first -- the store stays at size 1 instead of growing unbounded.
-        throttle.record_failure("still-live", now_ms=2_000)
+        throttle.record_failure("still-live", mono_ms=2_000)
         assert len(throttle._attempts) == 1
         assert "lapsed" not in throttle._attempts
 
@@ -146,9 +146,9 @@ class TestLoginThrottle:
         # recorded -- prune_expired alone would leave all three in the
         # store, exceeding the cap. The store must still stay at 2 by
         # evicting the least-recently-touched source ("a").
-        throttle.record_failure("a", now_ms=0)
-        throttle.record_failure("b", now_ms=0)
-        throttle.record_failure("c", now_ms=0)
+        throttle.record_failure("a", mono_ms=0)
+        throttle.record_failure("b", mono_ms=0)
+        throttle.record_failure("c", mono_ms=0)
         assert len(throttle._attempts) == 2
         assert "a" not in throttle._attempts
         assert "b" in throttle._attempts

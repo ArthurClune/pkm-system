@@ -112,7 +112,7 @@ A brand is a subtype of its base type, so code that only reads a branded field i
 - [x] **Step 3:** Add `brand(BlockUid)`, regenerate, and confirm `git diff --no-ext-diff web/src/api/openapi.json` shows only `"x-brand": "BlockUid"` additions.
 - [x] **Step 4:** Fix production write sites and narrow signatures as listed, directory by directory, in this order: replica, grammar/assistant, outline, dnd, components, views, root. Run `pnpm typecheck` after each directory, and keep a running count of errors that only ever goes down.
 - [x] **Step 5:** Fix the test files. Then run `cd server && uv run pytest -q && uv run pyrefly check && uv run ruff check` and `cd web && pnpm typecheck && pnpm test:unit`. Everything must pass, and the probes must now be used.
-- [ ] **Step 6:** Commit: `feat(pkm-thee): BlockUid reaches the web as a brand; outline commands take BlockUid`.
+- [x] **Step 6:** Commit: `feat(pkm-thee): BlockUid reaches the web as a brand; outline commands take BlockUid`.
 
 ### Task 3: PageId and SidebarEntryId flip
 
@@ -204,7 +204,7 @@ A brand is a subtype of its base type, so code that only reads a branded field i
 - `web/src/api/brands.ts` header: drop the "add the title types later" wording.
 
 - [x] **Step 1:** Make the edits. Invoke the `architecture-docs` skill and run `node .claude/skills/architecture-docs/check-docs.mjs <files>`.
-- [ ] **Step 2:** Run the full verification:
+- [x] **Step 2:** Run the full verification:
   - server: `uv run pytest -q && uv run pyrefly check && uv run ruff check`;
   - web: `pnpm build && CI=true pnpm verify`, with the e2e port assigned by the orchestrator.
 - [x] **Step 3:** Tick the pkm-thee bean checklist and commit: `docs(pkm-thee): document the web id and title brands`.

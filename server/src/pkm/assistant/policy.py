@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from typing import Literal, cast
+from typing import Literal
 
 from pkm.contracts.responses import AssistantModel
 
@@ -87,7 +87,7 @@ def default_model(available: Sequence[AssistantModel]) -> AssistantModel:
 def resolve_model(name: str) -> AssistantModel:
     if name not in MODELS:
         raise ValueError(f"unknown model {name!r}; expected one of {', '.join(MODELS)}")
-    return cast(AssistantModel, name)
+    return name
 
 
 def _clip(value: object, limit: int = _MAX_VALUE_CHARS) -> str:

@@ -24,12 +24,12 @@ def _block_node(**over):
 
 
 def test_block_node_reads_stored_heading_zero_as_none():
-    assert BlockNode(**_block_node(heading=0)).heading is None  # pyrefly: ignore[bad-argument-type] (a raw stored int, not a HeadingLevel: exactly what StoredHeading exists to coerce)
+    assert BlockNode.model_validate(_block_node(heading=0)).heading is None
 
 
 def test_block_node_still_rejects_an_out_of_range_heading():
     with pytest.raises(ValidationError):
-        BlockNode(**_block_node(heading=4))  # pyrefly: ignore[bad-argument-type] (deliberately out of range: asserting ValidationError)
+        BlockNode.model_validate(_block_node(heading=4))
 
 
 def _sync_block(**over):
@@ -41,12 +41,12 @@ def _sync_block(**over):
 
 
 def test_sync_block_reads_stored_heading_zero_as_none():
-    assert SyncBlock(**_sync_block(heading=0)).heading is None  # pyrefly: ignore[bad-argument-type] (a raw stored int, not a HeadingLevel: exactly what StoredHeading exists to coerce)
+    assert SyncBlock.model_validate(_sync_block(heading=0)).heading is None
 
 
 def test_sync_block_still_rejects_an_out_of_range_heading():
     with pytest.raises(ValidationError):
-        SyncBlock(**_sync_block(heading=-1))  # pyrefly: ignore[bad-argument-type] (deliberately out of range: asserting ValidationError)
+        SyncBlock.model_validate(_sync_block(heading=-1))
 
 
 def _insert_legacy_heading_zero_block(seeded_config) -> None:

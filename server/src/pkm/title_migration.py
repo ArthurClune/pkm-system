@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Literal, Mapping
 
-from pkm.refs import canonicalize_title, is_blank_title, title_syntax_reason
+from pkm.refs import (RefKind, canonicalize_title, is_blank_title,
+                      title_syntax_reason)
 
 
 @dataclass(frozen=True)
@@ -29,7 +30,7 @@ class InventoryBlock:
 class InventoryRef:
     src_block_uid: str
     target_page_id: int
-    kind: str
+    kind: RefKind
 
 
 @dataclass(frozen=True)

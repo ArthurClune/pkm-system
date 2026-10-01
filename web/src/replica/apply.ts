@@ -33,6 +33,7 @@ export type Changes = components["schemas"]["ChangesPayload"];
 export type Snapshot = components["schemas"]["SnapshotPayload"];
 export type SyncBlock = components["schemas"]["SyncBlock"];
 export type SyncPage = components["schemas"]["SyncPage"];
+export type SyncTombstone = components["schemas"]["SyncTombstone"];
 
 export type ApplyResult =
   | { status: "applied"; cursor: number }
@@ -327,9 +328,17 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number): void {
         db.exec("DELETE FROM blocks WHERE uid = ?", [tomb.entity_id]);
       } else if (tomb.kind === "page") {
         db.exec("DELETE FROM pages WHERE id = ?", [Number(tomb.entity_id)]);
-      } else {
+      } else if (tomb.kind === "sidebar") {
         db.exec("DELETE FROM sidebar_entries WHERE id = ?",
                 [Number(tomb.entity_id)]);
+      } else {
+        // A kind this build doesn't know (an older replica meeting a kind a
+        // newer server added): skip it rather than fall through to a
+        // sidebar delete, which would destroy an unrelated row. The `never`
+        // assignment makes an unhandled EntityKind a compile error here.
+        const unhandled: never = tomb.kind;
+        console.warn("applyWindow: unknown tombstone kind, skipping",
+                     unhandled);
       }
     }
     const parkedPages = parkTakenTitles(db, "pages", feed.pages);

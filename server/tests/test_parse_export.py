@@ -251,3 +251,11 @@ def test_document_children_view_type_is_imported():
                          ":children/view-type :document")
     export = parse_export(parse_edn(raw))
     assert export.pages[0].children[0].view_type == "document"
+
+
+def test_block_heading_zero_parses_as_no_heading():
+    """Roam's :block/heading 0 means "no heading" -- the same thing the
+    attribute being absent means everywhere else in this app."""
+    raw = EXPORT.replace(":block/heading 2", ":block/heading 0")
+    export = parse_export(parse_edn(raw))
+    assert export.pages[0].children[0].heading is None

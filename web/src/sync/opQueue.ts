@@ -25,7 +25,8 @@ import { readPoisonMarkIntents,
          writePoisonMarkIntents } from "./poisonIntentStore";
 import { withIntent, type PoisonEvent } from "./poisonIntents";
 import { createQueueState, terminalReason, transitionQueue,
-         type QueueEffect, type QueueEvent } from "./queueState";
+         type QueueBlockReason, type QueueEffect,
+         type QueueEvent } from "./queueState";
 import { isTerminalRejection } from "./rejection";
 
 export const clientId = newUid();
@@ -56,8 +57,8 @@ export interface PoisonMarkFailure {
 
 export type DrainOutcome =
   | { status: "drained" }
-  | { status: "blocked"; reason: "offline" | "retryable" |
-      "recovering" | "disposed"; pending: number; error?: unknown };
+  | { status: "blocked"; reason: QueueBlockReason; pending: number;
+      error?: unknown };
 
 export interface OpQueue {
   enqueue(ops: BlockOp[], scope?: readonly string[]): WriteTicket;
@@ -305,7 +306,7 @@ export function createOpQueue(replica: Replica): OpQueue {
   };
 
   const blocked = async (
-    reason: "offline" | "retryable" | "recovering" | "disposed",
+    reason: QueueBlockReason,
     error?: unknown,
   ): Promise<DrainOutcome> => {
     await countPending();

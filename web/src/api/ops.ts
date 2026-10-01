@@ -21,6 +21,12 @@ export type SetHeadingOp = components["schemas"]["SetHeadingOp"];
 export type SetViewTypeOp = components["schemas"]["SetViewTypeOp"];
 export type CreatePageOp = components["schemas"]["CreatePageOp"];
 
+// A block's heading level with "plain text" (null) excluded, for call
+// sites that always have a concrete level in hand (keyboard shortcuts,
+// slash commands). Derived from the generated schema rather than
+// hand-copied so a server-side level added later can't drift out of sync.
+export type HeadingLevel = Exclude<SetHeadingOp["heading"], null | undefined>;
+
 export type BlockOp =
   | CreateOp | UpdateTextOp | MoveOp | DeleteOp | SetCollapsedOp
   | SetHeadingOp | SetViewTypeOp | CreatePageOp;

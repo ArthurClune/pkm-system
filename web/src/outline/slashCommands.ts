@@ -11,16 +11,12 @@
 // which CodeBlock renders unhighlighted — that's the plain/verbatim text
 // block. If the content is already a whole fence (any language, e.g. a
 // Python block), /text unwraps it first so the result isn't double-fenced.
+import type { HeadingLevel } from "../api/ops";
 import { hasTodoMarker } from "../grammar/todo";
 import { titleForDate } from "../replica/daily";
 import type { AcContext } from "./autocomplete";
 
-export interface SlashCommand {
-  name: string;
-  label: string;
-}
-
-export const SLASH_COMMANDS: SlashCommand[] = [
+export const SLASH_COMMANDS = [
   { name: "text", label: "text" },
   { name: "todo", label: "to-do" },
   { name: "table", label: "table" },
@@ -56,23 +52,37 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   // the block like /upload, and asks useOutline to resolve the nearest URL
   // against GoodLinks (saving it there if absent) and splice the attribute.
   { name: "goodlinks", label: "link to goodlinks copy" },
-];
+] as const;
+
+/** Every command name SLASH_COMMANDS lists, derived so a renamed, added or
+ * removed command can't drift out of sync with the places that switch on
+ * a name by hand (HEADING_COMMANDS below, applySlashCommand's cases). */
+export type SlashCommandName = (typeof SLASH_COMMANDS)[number]["name"];
+
+export interface SlashCommand {
+  name: SlashCommandName;
+  label: string;
+}
 
 /** Commands that set a block's heading field (a SetHeadingOp) rather than
  * transforming its text. `null` ("normal") always clears the heading; 1-3
  * are resolved through resolveHeading so picking the block's current
  * heading again toggles it back to plain text. */
-const HEADING_COMMANDS: Partial<Record<string, number | null>> = {
+const HEADING_COMMANDS: Partial<Record<SlashCommandName, HeadingLevel | null>> = {
   h1: 1, h2: 2, h3: 3, normal: null,
 };
 
 /** What heading a /hN or /normal pick should set, given the block's current
  * heading. Returns undefined for commands that aren't heading commands (the
- * caller should fall back to a plain text transform). */
-export function resolveHeading(command: string,
-                               current: number | null): number | null | undefined {
+ * caller should fall back to a plain text transform). `command` is a bare
+ * string, not SlashCommandName: it comes from the generic autocomplete row
+ * (AcRow.command), shared with ref/tag rows that aren't slash commands at
+ * all. */
+export function resolveHeading(
+  command: string, current: HeadingLevel | null,
+): HeadingLevel | null | undefined {
   if (!(command in HEADING_COMMANDS)) return undefined;
-  const target = HEADING_COMMANDS[command] as number | null;
+  const target = HEADING_COMMANDS[command as SlashCommandName] as HeadingLevel | null;
   return target === null ? null : current === target ? null : target;
 }
 

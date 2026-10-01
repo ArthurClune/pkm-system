@@ -7,6 +7,7 @@
 // semantic decision. All DOM effects (preventDefault, blur, navigation,
 // setState) stay in the shells. Ordering mirrors the former inline onKeyDown
 // chains exactly, so behaviour is unchanged.
+import type { HeadingLevel } from "../api/ops";
 import { cycleTodo } from "../grammar/todo";
 import { autoPairBracket, BRACKET_CHARS, toggleEmphasis, wrapLink,
          type TextSelection } from "./keyEdits";
@@ -54,7 +55,7 @@ export type KeyDecision =
   | { type: "select-range"; selStart: number; selEnd: number;
       direction: "backward" | "forward" }
   | { type: "select-whole-block" }
-  | { type: "set-heading"; heading: number | null }
+  | { type: "set-heading"; heading: HeadingLevel | null }
   | { type: "key-edit"; edit: TextSelection }
   | { type: "split"; cursor: number }
   | { type: "indent" }
@@ -247,7 +248,10 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   if (i.metaKey && i.altKey && !i.ctrlKey && !i.shiftKey && headingDigit !== null) {
     return {
       type: "set-heading",
-      heading: headingDigit === "0" ? null : Number(headingDigit),
+      // headingDigit matched /[0-3]/ above, so the non-"0" case is always
+      // 1-3.
+      heading: headingDigit === "0"
+        ? null : (Number(headingDigit) as HeadingLevel),
     };
   }
   const wrapEdit = META_WRAP_EDITS[i.key.toLowerCase()];

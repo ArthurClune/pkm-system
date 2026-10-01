@@ -7,6 +7,8 @@ import { apiDelete, apiGet, apiPost } from "../api/typedClient";
 import type { components } from "../api/types";
 import { createSseParser, type AssistantEvent } from "./sse";
 
+export type AssistantModel = components["schemas"]["AssistantModels"]["default"];
+
 /** Models the server offers the picker; glm appears only when the server
  * has a z.ai key configured. */
 export function fetchModels(): Promise<components["schemas"]["AssistantModels"]> {

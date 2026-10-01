@@ -17,9 +17,10 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from pkm.contracts.responses import (ChangesPayload, SnapshotPayload,
-                                        SyncBlock, SyncPage, SyncRef,
-                                        SyncSidebarEntry, SyncTombstone)
+from pkm.contracts.responses import (ChangesPayload, EntityKind,
+                                        SnapshotPayload, SyncBlock, SyncPage,
+                                        SyncRef, SyncSidebarEntry,
+                                        SyncTombstone)
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.sync_core import (chunk_ids, dedupe_window,
@@ -272,9 +273,10 @@ def sync_changes(since: int = 0, limit: int = 1000,
         sidebar = _sidebar_payloads(db, sidebar_ids)
 
         # a reused page or sidebar id ships as a tombstone AND a live row
-        present = {"block": {b.uid for b in blocks},
-                   "page": {str(p.id) for p in pages},
-                   "sidebar": {str(s.id) for s in sidebar}}
+        present: dict[EntityKind, set[str]] = {
+            "block": {b.uid for b in blocks},
+            "page": {str(p.id) for p in pages},
+            "sidebar": {str(s.id) for s in sidebar}}
         tombstones = [SyncTombstone(kind=k, entity_id=e)
                       for k, e in tombstone_entities(win, present)]
         return ChangesPayload(

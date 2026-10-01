@@ -1,7 +1,27 @@
 // @vitest-environment node
 import { afterEach, describe, expect, test } from "vitest";
 import { openTestDb, type TestDb } from "../testDb";
-import { fetchAncestors } from "./tree";
+import { buildTree, fetchAncestors, type BlockRow } from "./tree";
+
+function blockRow(over: Partial<BlockRow> = {}): BlockRow {
+  return {
+    uid: "u1", parent_uid: null, order_idx: 0, text: "hi", heading: null,
+    view_type: null, collapsed: 0, created_at: null, updated_at: null,
+    ...over,
+  };
+}
+
+describe("buildTree", () => {
+  // A replica synced before the server started reading a stored 0 as no
+  // heading may still hold a 0 locally (the server only coerces it on
+  // response, never rewrites the stored row). buildTree must read it the
+  // same way, or the heading UI (which compares against 1/2/3 and null)
+  // disagrees with what the server now reports for the same block.
+  test("a legacy stored heading of 0 reads as no heading, same as null", () => {
+    const [node] = buildTree([blockRow({ heading: 0 })]);
+    expect(node.heading).toBeNull();
+  });
+});
 
 let t: TestDb;
 

@@ -7,6 +7,7 @@
 // port (implemented by useOutline).
 import { memo, useCallback, useEffect, useMemo, useRef,
          useState } from "react";
+import type { HeadingLevel } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import type { FocusTarget } from "../outline/edits";
 import type { OutlineHandlers } from "../outline/handlers";
@@ -228,12 +229,12 @@ const EMPTY_SET: ReadonlySet<string> = new Set();
 
 function blockMenuItems(
   uid: string,
-  heading: number | null,
+  heading: HeadingLevel | null,
   viewMode: EffectiveBlockView,
   handlers: OutlineHandlers,
   readOnly: boolean,
 ) {
-  const headingItem = (label: string, value: number | null) => ({
+  const headingItem = (label: string, value: HeadingLevel | null) => ({
     label,
     group: "Text style",
     checked: heading === value,

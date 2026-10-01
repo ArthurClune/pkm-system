@@ -1,11 +1,11 @@
 ---
 # pkm-38w9
 title: Closed-set strings become Literals across OpenAPI; tombstone dispatch stops defaulting to sidebar delete
-status: todo
+status: completed
 type: task
 priority: normal
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T07:44:38Z
+updated_at: 2026-10-01T11:32:41Z
 parent: pkm-7uxw
 ---
 
@@ -34,9 +34,71 @@ This bean also fixes one latent bug that a type alone can't close (the tombstone
 
 ## Plan
 
-- [ ] Py Literals above; regen `openapi.json` + `pnpm gen-types` (see the regen and parity checklist)
-- [ ] Web: import the generated unions and delete the copies (`replica/refs.ts:14`, `assistant/useAssistant.ts:82`, `opQueue.ts` `QueueBlockReason` copies)
-- [ ] Failing test: a tombstone with an unknown kind deletes nothing
-- [ ] Tombstone dispatch: explicit `kind === "sidebar"` branch; the default skips (and logs) behind a compile-time `never` check
-- [ ] Optional: discriminated `SyncTombstone` (kind → `entity_id` type) to drop the `Number(...)` casts
-- [ ] `SlashCommandName` derived from the array (`as const`)
+- [x] Py Literals above; regen `openapi.json` + `pnpm gen-types` (see the regen and parity checklist)
+- [x] Web: import the generated unions and delete the copies (`replica/refs.ts:14`, `assistant/useAssistant.ts:82`, `opQueue.ts` `QueueBlockReason` copies)
+- [x] Failing test: a tombstone with an unknown kind deletes nothing
+- [x] Tombstone dispatch: explicit `kind === "sidebar"` branch; the default skips (and logs) behind a compile-time `never` check
+- [x] Optional: discriminated `SyncTombstone` (kind → `entity_id` type) to drop the `Number(...)` casts -- evaluated and skipped, see summary
+- [x] `SlashCommandName` derived from the array (`as const`)
+
+## Summary of Changes
+
+All ten Literals landed (`RefKind` in `refs.py`; `EntityKind`, `AssistantModel`,
+`ChangeStatus`, `OpKind` reused in `SkippedOp.op` in `contracts/responses.py`;
+`HeadingLevel`, `OpKind` in `contracts/ops.py`; `TaskMark` in `todo.py`;
+`AssetCategory` in `assets_core.py`), threaded through every call site the
+table named plus a few the regen/typecheck loop surfaced (`planning.py`'s
+`split_heading`/`resolve_parent`/`Planner.heading`/`plan_mark`, `batch.py`'s
+caller of `planner.heading`, `assistant/service.py`'s `create()`/
+`available_models`, `mcp/server.py`'s `update_block`). `openapi.json` +
+`types.d.ts` regenerated; web imports the generated unions in
+`replica/refs.ts` (RefKind), `assistant/client.ts`+`useAssistant.ts`
+(AssistantModel), `opQueue.ts` (QueueBlockReason), and `outline/edits.ts`/
+`handlers.ts`/`keyboardPolicy.ts`/`slashCommands.ts`/
+`EditableBlockTree.tsx`/`replica/localApi/tree.ts` (HeadingLevel, since
+`SetHeadingOp.heading` narrowing to `1|2|3|null` forced the whole heading
+chain off bare `number`).
+
+Tombstone dispatch: `apply.ts`'s `applyWindow` now has an explicit
+`kind === "sidebar"` branch; the final `else` assigns `tomb.kind` to a
+`const x: never`, so an `EntityKind` added without updating this dispatch
+is a compile error, and at runtime an unrecognised kind deletes nothing
+(just logs). Test-first: `apply.test.ts` "an unknown tombstone kind deletes
+nothing" failed against the old fallthrough (sidebar row count 1 -> 0)
+before the fix, now passes.
+
+Discriminated `SyncTombstone` skipped: `entity_id` is `str` on the wire for
+every kind alike (a block uid and a stringified page/sidebar id both arrive
+as plain strings), so splitting one model into three by `kind` would not
+give `entity_id` a different type per kind and would not drop the
+`Number(...)` casts in `apply.ts` -- that needs the `PageId`/
+`SidebarEntryId` NewTypes pkm-9km9 is scoped to mint first. Not clean yet,
+so not done here.
+
+Docs: `backend.md`'s HTTP API reference intro names the new Literals
+alongside `ViewType`/`SkipReason`; `sync-and-offline.md` § The changes feed
+gets a clause on the per-kind dispatch invariant; `troubleshooting.md` gets
+one row for the tombstone-dispatch latent bug (`pkm-38w9`).
+
+Verification: `uv run pytest -q` (2242 passed), `uv run pyrefly check` (0
+errors), `uv run ruff check` (clean); `pnpm build` and
+`CI=true E2E_PORT=8976 pnpm verify` (typecheck + lint + fcis check +
+3028 unit tests + coverage gate + 72 Playwright tests, exit 0).
+
+
+Review fix (heading 0): prod holds 81 Roam-imported blocks with `heading = 0`
+(Roam's "no heading"), which the new `HeadingLevel` response type would have
+rejected with a 500 on those pages and on the sync snapshot. `StoredHeading`
+(a `BeforeValidator` on `BlockNode.heading` and `SyncBlock.heading`) reads a
+stored 0 as `None`. The importer normalises 0 to `None` at parse time, and the
+web `buildTree` reads a stale replica 0 as `null`. No prod data was written.
+The test fixtures had no 0, which is why the first pass missed it.
+
+Version skew: response Literals (`SyncRef.kind`, `SyncTombstone.kind`,
+`SkippedOp.op`, `AssistantModel`, `heading`) mean an older CLI talking to a
+newer server would reject a value added to one of these sets later. That is
+accepted, because the CLI and server ship together.
+
+Final checks: pyrefly 0 errors, with the suppressed count unchanged from main
+(11) and no new ignore comments. pytest: 2250 passed. `pnpm verify` green.
+`perf/check.sh`: no changes against the baseline, backend and frontend.

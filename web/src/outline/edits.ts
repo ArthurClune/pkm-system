@@ -7,7 +7,7 @@
 // note) — order_idx values are always read off the tree, never array
 // positions, because the server leaves gaps.
 import type { BlockNode } from "../api/payloads";
-import type { BlockOp, SetViewTypeOp } from "../api/ops";
+import type { BlockOp, SetHeadingOp, SetViewTypeOp } from "../api/ops";
 import { applyOps, findNode, locate, selectionRoots,
          visibleNeighbor } from "./tree";
 
@@ -494,8 +494,8 @@ export function setCollapsed(blocks: BlockNode[], pageTitle: string,
               [{ op: "set_collapsed", uid, collapsed }], null);
 }
 
-export function setHeading(blocks: BlockNode[], pageTitle: string,
-                           uid: string, heading: number | null): EditResult {
+export function setHeading(blocks: BlockNode[], pageTitle: string, uid: string,
+                           heading: SetHeadingOp["heading"]): EditResult {
   if (!findNode(blocks, uid)) return noop(blocks);
   return done(blocks, pageTitle, [{ op: "set_heading", uid, heading }], null);
 }

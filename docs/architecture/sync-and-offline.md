@@ -123,6 +123,12 @@ transaction:
   apply returns `needs-bootstrap` or throws, and
   [sync-recovery.md § Rebootstrap triggers](sync-recovery.md#rebootstrap-triggers)
   says what follows.
+- Each tombstone `kind` (`EntityKind`: `block`, `page` or `sidebar`) dispatches
+  through its own `if`/`else if` branch to the table it deletes from; the
+  final `else` is an unrecognised kind, which deletes nothing and logs,
+  behind a `const x: never = tomb.kind` exhaustiveness check. It must never
+  default to one of the three deletes -- an older replica meeting a kind a
+  newer server added would otherwise destroy an unrelated row.
 
 ## Post-commit nudges
 

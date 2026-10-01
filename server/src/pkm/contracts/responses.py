@@ -13,11 +13,29 @@ optionality here would surface as `?:` in the generated TypeScript."""
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
 
-from pkm.contracts.ops import ViewType
+from pkm.changed import ChangeStatus
+from pkm.contracts.ops import HeadingLevel, OpKind, ViewType
+from pkm.refs import RefKind
+
+
+def _roam_heading_zero_as_none(value: object) -> object:
+    """Roam's export writes :block/heading 0 for "no heading"; older
+    imports stored it as-is, and some of those rows are still live. 0
+    means the same thing a null heading means everywhere else, so a
+    stored 0 reads as None rather than failing Literal[1,2,3] validation.
+    Nothing on the write path can produce a 0 (CreateOp/SetHeadingOp.heading
+    only accepts 1-3 or null), so this is a read-side-only accommodation."""
+    return None if value == 0 else value
+
+
+# Only for a field read back out of SQLite, never for a client-supplied
+# write (CreateOp/SetHeadingOp keep plain HeadingLevel | None).
+StoredHeading = Annotated[HeadingLevel | None,
+                         BeforeValidator(_roam_heading_zero_as_none)]
 
 
 class PageMeta(BaseModel):
@@ -30,7 +48,7 @@ class PageMeta(BaseModel):
 class BlockNode(BaseModel):
     uid: str
     text: str
-    heading: int | None
+    heading: StoredHeading
     view_type: ViewType | None
     collapsed: bool
     order_idx: int
@@ -129,7 +147,7 @@ class ChangedItem(BaseModel):
     text: str
     created_at: int | None
     updated_at: int | None
-    status: Literal["new", "edited"]
+    status: ChangeStatus
 
 
 class ChangedGroup(BaseModel):
@@ -318,7 +336,7 @@ class GoodlinksCheckPayload(BaseModel):
 
 class SyncRef(BaseModel):
     target_page_id: int
-    kind: str
+    kind: RefKind
 
 
 class SyncBlock(BaseModel):
@@ -327,7 +345,7 @@ class SyncBlock(BaseModel):
     parent_uid: str | None
     order_idx: int
     text: str
-    heading: int | None
+    heading: StoredHeading
     view_type: ViewType | None
     collapsed: int
     created_at: int | None
@@ -348,8 +366,12 @@ class SyncSidebarEntry(BaseModel):
     order_idx: int
 
 
+# Matches the changes table's CHECK(kind IN (...)) in schema.py.
+EntityKind = Literal["block", "page", "sidebar"]
+
+
 class SyncTombstone(BaseModel):
-    kind: str
+    kind: EntityKind
     entity_id: str
 
 
@@ -382,9 +404,15 @@ class SnapshotPayload(BaseModel):
     sidebar: list[SyncSidebarEntry]
 
 
+# The three Claude aliases plus z.ai's GLM. Lives here (not
+# assistant/policy.py) so the policy module -- which also needs it -- can
+# import it without the contracts package depending on assistant.
+AssistantModel = Literal["sonnet", "opus", "haiku", "glm"]
+
+
 class AssistantConversation(BaseModel):
     id: str
-    model: str
+    model: AssistantModel
 
 
 class AssistantAck(BaseModel):
@@ -392,8 +420,8 @@ class AssistantAck(BaseModel):
 
 
 class AssistantModels(BaseModel):
-    models: list[str]
-    default: str
+    models: list[AssistantModel]
+    default: AssistantModel
 
 
 class TitleMigrationPage(BaseModel):
@@ -463,7 +491,7 @@ class SkippedOp(BaseModel):
     its parent) no longer exists, or because a move would nest the block
     under itself or its own descendant (`ops_core.skip_report`)."""
     index: int
-    op: str
+    op: OpKind
     uid: str
     reason: SkipReason
     # the daily page the op's note or lost text landed on; None when

@@ -20,7 +20,8 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Upl
 from fastapi.responses import FileResponse
 
 from pkm.assets_core import (
-    export_limit_violation, strip_asset_tokens, type_where, zip_arcnames)
+    AssetCategory, export_limit_violation, strip_asset_tokens, type_where,
+    zip_arcnames)
 from pkm.contracts.responses import AssetSearchPayload, AssetUploadResponse
 from pkm.describe.core import derive_status
 from pkm.filenames import safe_filename
@@ -94,7 +95,7 @@ def referencing_blocks(db: sqlite3.Connection,
 
 @router.get("/api/assets/search", response_model=AssetSearchPayload)
 def search_assets(q: str = "", limit: int = 50, offset: int = 0,
-                  type_: Literal["", "image", "pdf", "document", "other"]
+                  type_: Literal[""] | AssetCategory
                   = Query("", alias="type"),
                   from_ms: int | None = None, to_ms: int | None = None,
                   linked: Literal["all", "linked", "orphan"] = "all",

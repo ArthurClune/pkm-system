@@ -9,6 +9,8 @@
 // union + dispatcher: every member is already a distinct, named,
 // individually-typed operation, and the union would add a second name and a
 // switch for each one without removing a single case.
+import type { HeadingLevel } from "../api/ops";
+
 export interface OutlineHandlers {
   onFocusBlock(uid: string, cursor: number): void;
   /** Blur reports WHICH block blurred: when a structural op has already
@@ -47,7 +49,7 @@ export interface OutlineHandlers {
   onBackspaceAtStart(uid: string): void;
   onArrow(uid: string, dir: "up" | "down" | "left" | "right"): void;
   onToggleCollapsed(uid: string, collapsed: boolean): void;
-  onSetHeading(uid: string, heading: number | null): void;
+  onSetHeading(uid: string, heading: HeadingLevel | null): void;
   onSetViewType(uid: string, viewType: "numbered" | "document"): void;
   onToggleTodo(uid: string): void;
   /** Resolves once the uploads have finished: true when their markdown was

@@ -999,15 +999,21 @@ export interface components {
         AssistantConversation: {
             /** Id */
             id: string;
-            /** Model */
-            model: string;
+            /**
+             * Model
+             * @enum {string}
+             */
+            model: "sonnet" | "opus" | "haiku" | "glm";
         };
         /** AssistantModels */
         AssistantModels: {
             /** Models */
-            models: string[];
-            /** Default */
-            default: string;
+            models: ("sonnet" | "opus" | "haiku" | "glm")[];
+            /**
+             * Default
+             * @enum {string}
+             */
+            default: "sonnet" | "opus" | "haiku" | "glm";
         };
         /** BacklinkGroup */
         BacklinkGroup: {
@@ -1064,7 +1070,7 @@ export interface components {
             /** Text */
             text: string;
             /** Heading */
-            heading: number | null;
+            heading: (1 | 2 | 3) | null;
             /** View Type */
             view_type: ("numbered" | "document") | null;
             /** Collapsed */
@@ -1236,7 +1242,7 @@ export interface components {
             /** Text */
             text: string;
             /** Heading */
-            heading?: number | null;
+            heading?: (1 | 2 | 3) | null;
             /** View Type */
             view_type?: ("numbered" | "document") | null;
         };
@@ -1639,7 +1645,7 @@ export interface components {
             /** Uid */
             uid: string;
             /** Heading */
-            heading?: number | null;
+            heading?: (1 | 2 | 3) | null;
         };
         /** SetViewTypeOp */
         SetViewTypeOp: {
@@ -1677,8 +1683,11 @@ export interface components {
         SkippedOp: {
             /** Index */
             index: number;
-            /** Op */
-            op: string;
+            /**
+             * Op
+             * @enum {string}
+             */
+            op: "create" | "update_text" | "move" | "delete" | "set_collapsed" | "set_heading" | "set_view_type" | "create_page";
             /** Uid */
             uid: string;
             /**
@@ -1717,7 +1726,7 @@ export interface components {
             /** Text */
             text: string;
             /** Heading */
-            heading: number | null;
+            heading: (1 | 2 | 3) | null;
             /** View Type */
             view_type: ("numbered" | "document") | null;
             /** Collapsed */
@@ -1744,8 +1753,11 @@ export interface components {
         SyncRef: {
             /** Target Page Id */
             target_page_id: number;
-            /** Kind */
-            kind: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "link" | "tag" | "attribute";
         };
         /** SyncSidebarEntry */
         SyncSidebarEntry: {
@@ -1758,8 +1770,11 @@ export interface components {
         };
         /** SyncTombstone */
         SyncTombstone: {
-            /** Kind */
-            kind: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "block" | "page" | "sidebar";
             /** Entity Id */
             entity_id: string;
         };
@@ -2708,7 +2723,7 @@ export interface operations {
                 q?: string;
                 limit?: number;
                 offset?: number;
-                type?: "" | "image" | "pdf" | "document" | "other";
+                type?: "" | ("image" | "pdf" | "document" | "other");
                 from_ms?: number | null;
                 to_ms?: number | null;
                 linked?: "all" | "linked" | "orphan";

@@ -29,6 +29,7 @@ from pkm.contracts.ops import BlockOp, CreateOp
 from pkm.contracts.responses import BlockNode, OpsAck
 from pkm.planning import (asset_block_text, create_page_ops, find_block,
                           plan_mark, plan_save, plan_update, resolve_parent)
+from pkm.todo import TaskMark
 
 
 def _uids():
@@ -72,7 +73,7 @@ def save_blocks(client: PkmClient, text: str, page: str | None = None,
 
 
 def edit_block(client: PkmClient, uid: str, text: str | None = None,
-               mark: str | None = None) -> None:
+               mark: TaskMark | None = None) -> None:
     """Replace a block's text, or set its task marker. Exactly one of
     `text`/`mark`.
 

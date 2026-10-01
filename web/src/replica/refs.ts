@@ -7,11 +7,11 @@
 // renderer; this adapter only renames block_refs to the replica's
 // camelCase shape and drops the embed count it does not store.
 
-import { extractRefs as extractParsedRefs } from "../grammar/refs";
+import { extractRefs as extractParsedRefs, type RefKind } from "../grammar/refs";
 
 export interface ExtractedRef {
   title: string;
-  kind: "link" | "tag" | "attribute";
+  kind: RefKind;
 }
 
 export interface ExtractedRefs {

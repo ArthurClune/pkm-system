@@ -10,6 +10,7 @@ import {
   deleteConversation,
   fetchModels,
   streamMessage,
+  type AssistantModel,
 } from "./client";
 import type { AssistantEvent } from "./sse";
 
@@ -76,18 +77,21 @@ export function useAssistant() {
   const [status, setStatus] = useState<"idle" | "busy" | "confirm">("idle");
   const [phase, setPhase] = useState<PhaseInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [model, setModelState] = useState("sonnet");
+  const [model, setModelState] = useState<AssistantModel>("sonnet");
   // The claude trio is always servable, so it doubles as the offline/failed
   // fallback; the server list adds glm only when a z.ai key is configured.
-  const [models, setModels] = useState(["sonnet", "opus", "haiku"]);
+  const [models, setModels] = useState<AssistantModel[]>(
+    ["sonnet", "opus", "haiku"]);
   const [modelLocked, setModelLocked] = useState(false);
   // distinguishes the user's own picker choice from the initial state, so
   // the fetched server default can fill the latter without clobbering the
   // former
   const modelTouched = useRef(false);
+  // `m` comes from the <select> this feeds (AssistantPanel), whose options
+  // are always rendered from `models` -- never free text.
   const setModel = useCallback((m: string) => {
     modelTouched.current = true;
-    setModelState(m);
+    setModelState(m as AssistantModel);
   }, []);
   const modelsRequested = useRef(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);

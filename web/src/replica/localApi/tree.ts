@@ -14,7 +14,7 @@ export interface BlockRow {
   parent_uid: string | null;
   order_idx: number;
   text: string;
-  heading: number | null;
+  heading: BlockNode["heading"];
   view_type: BlockNode["view_type"];
   collapsed: number;
   created_at: number | null;

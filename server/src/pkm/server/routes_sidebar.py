@@ -9,9 +9,11 @@ from pydantic import BaseModel, Field
 
 from pkm.contracts.responses import SidebarNavPayload
 from pkm.importer.sidebar_rows import next_order_idx, reorder_is_valid
+from pkm.refs import is_blank_title
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
+from pkm.server.sync_meta import read_title
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -34,8 +36,8 @@ def get_sidebar(db: sqlite3.Connection = Depends(get_db)) -> dict:
 @router.post("/api/sidebar")
 def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
                       db: sqlite3.Connection = Depends(get_db)) -> dict:
-    title = body.title.strip()
-    if not title:
+    title = read_title(db, body.title)
+    if is_blank_title(title):
         raise HTTPException(status_code=422, detail="title must not be blank")
     db.execute("BEGIN IMMEDIATE")
     existing = db.execute(

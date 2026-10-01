@@ -7,10 +7,10 @@ import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
 
 from pkm.contracts.ops import text_hash
-from pkm.refs import (CanonicalTitle, NormalizedTitle, canonicalize_title,
-                      extract, is_blank_title, title_syntax_reason)
+from pkm.refs import (CanonicalTitle, NormalizedTitle, extract,
+                      is_blank_title, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
-from pkm.server.sync_meta import plain_space_title_canonicalization_active
+from pkm.server.sync_meta import read_title
 
 # How long a rename/merge rewrite record stays replayable (see
 # _prune_block_rewrites).
@@ -53,10 +53,7 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
     refused with BlankTitleError. Interactive routes translate that to 422;
     offline-replayed ops substitute their fixed fallback rather than wedging
     the durable queue."""
-    title = canonicalize_title(
-        title,
-        plain_space=plain_space_title_canonicalization_active(db),
-    )
+    title = read_title(db, title)
     if is_blank_title(title):
         raise BlankTitleError(title)
     if title_syntax_reason(title) is not None:
@@ -228,6 +225,20 @@ def rewrite_referencing_blocks(db: sqlite3.Connection, page_id: int,
     """Preserved single-page rewrite helper. Never commits."""
     snapshots = _snapshot_referencing_blocks(db, page_id)
     rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms)
+
+
+def insert_sidebar_entry(db: sqlite3.Connection, title: CanonicalTitle,
+                         order_idx: int) -> int:
+    """The one way a sidebar entry's title is written on creation -- a typed
+    choke point alongside `retitle_sidebar_entry` and `delete_page_rows`'s
+    own sidebar_entries write, so a route can't bind a raw title here.
+    Raises `sqlite3.IntegrityError` on a `UNIQUE(title)` collision; never
+    commits, the caller owns the transaction."""
+    cur = db.execute(
+        "INSERT INTO sidebar_entries(title, order_idx) VALUES (?, ?)",
+        (title, order_idx))
+    assert cur.lastrowid is not None  # INSERT always assigns one
+    return cur.lastrowid
 
 
 def retitle_sidebar_entry(db: sqlite3.Connection, old_title: CanonicalTitle,

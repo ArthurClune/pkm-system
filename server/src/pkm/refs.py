@@ -70,11 +70,33 @@ def normalize_title(title: str) -> NormalizedTitle:
     return NormalizedTitle(_WS_RUN.sub(" ", title).strip())
 
 
-def canonicalize_title(title: str, *, plain_space: bool) -> CanonicalTitle:
+def canonicalize_title(title: str, *, plain_space: bool) -> NormalizedTitle:
+    """Canonicalize under an explicit, caller-supplied flag value.
+
+    This returns `NormalizedTitle`, not `CanonicalTitle`: `plain_space` here
+    is whatever the caller passes, not necessarily this database's live
+    `plain_space_title_canonicalization` flag, so the result is only
+    "the" canonical spelling when the caller is that flag. Everywhere a
+    lookup key is needed, go through `sync_meta.read_title`/`title_reader`
+    (which read the live flag) or `target_canonical_title` below (which
+    deliberately does not); minting `CanonicalTitle` any other way defeats
+    the type the rest of the server relies on.
+    """
     normalized = normalize_title(title)
     if plain_space:
         normalized = NormalizedTitle(normalized.strip(" "))
-    return CanonicalTitle(normalized)
+    return normalized
+
+
+def target_canonical_title(title: str) -> CanonicalTitle:
+    """The title's identity once plain-space canonicalization is active --
+    what the one-time title migration (`pkm/title_migration.py`,
+    `server/title_migration.py`) plans and applies against, independent of
+    this database's live flag. The one deliberate exception to minting
+    `CanonicalTitle` from the live flag: everywhere else, use
+    `sync_meta.read_title`/`title_reader`.
+    """
+    return CanonicalTitle(canonicalize_title(title, plain_space=True))
 
 
 TitleSyntaxReason = Literal["forbidden_syntax"]

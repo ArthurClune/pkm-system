@@ -24,9 +24,12 @@ def read_title(db: sqlite3.Connection, title: str) -> CanonicalTitle:
 
 def title_reader(db: sqlite3.Connection) -> Callable[[str], CanonicalTitle]:
     """`read_title` for a request that canonicalises several titles: the
-    flag is read once, not once per title."""
+    flag is read once, not once per title. The sole general mint point for
+    `CanonicalTitle` -- `canonicalize_title` alone only produces
+    `NormalizedTitle`, since it doesn't know this database's live flag."""
     plain_space = plain_space_title_canonicalization_active(db)
-    return lambda title: canonicalize_title(title, plain_space=plain_space)
+    return lambda title: CanonicalTitle(
+        canonicalize_title(title, plain_space=plain_space))
 
 
 def set_plain_space_title_canonicalization(

@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Literal, Mapping
 
-from pkm.refs import (CanonicalTitle, RefKind, canonicalize_title,
-                      is_blank_title, title_syntax_reason)
+from pkm.refs import (CanonicalTitle, RefKind, is_blank_title,
+                      target_canonical_title, title_syntax_reason)
 
 
 @dataclass(frozen=True)
@@ -186,7 +186,7 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
     padded_groups: dict[CanonicalTitle, list[InventoryPage]] = {}
     blockers: list[TitleMigrationBlocker] = []
     for page in pages:
-        canonical = canonicalize_title(page.title, plain_space=True)
+        canonical = target_canonical_title(page.title)
         if is_blank_title(canonical):
             blockers.append(TitleMigrationBlocker(
                 page.page_id, page.title, "all_space"

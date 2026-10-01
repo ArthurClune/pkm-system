@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import NewType
 
 _OP_RE = re.compile(r"\{\s*([a-zA-Z-]+)\s*:")
 
@@ -22,6 +23,13 @@ class QueryNode:
     kind: str  # 'and' | 'or' | 'not' | 'page'
     title: str | None = None
     children: tuple["QueryNode", ...] = ()
+
+
+# A tree whose every "page" node's title has been through
+# query_exec.parse_canonical_query -- the only thing that mints one. plan_sql
+# takes this, not a plain QueryNode, so a tree straight from parse_query (or
+# built by hand with an uncanonicalised title) does not type-check there.
+CanonicalQueryNode = NewType("CanonicalQueryNode", QueryNode)
 
 
 def parse_query(expr: str) -> QueryNode:
@@ -115,19 +123,24 @@ def page_operands(node: QueryNode) -> list[str]:
     return out
 
 
-def plan_sql(node: QueryNode, expand: bool = False) -> tuple[str, list[str]]:
+def plan_sql(node: CanonicalQueryNode,
+            expand: bool = False) -> tuple[str, list[str]]:
+    return _plan_sql(node, expand)
+
+
+def _plan_sql(node: QueryNode, expand: bool = False) -> tuple[str, list[str]]:
     if node.kind == "page":
         assert node.title is not None  # page nodes always carry a title
         if expand:
             return _PAGE_SQL_EXPANDED, [node.title, node.title]
         return _PAGE_SQL, [node.title]
     if node.kind == "not":  # only reachable nested inside and
-        return plan_sql(node.children[0], expand)
+        return _plan_sql(node.children[0], expand)
     wrap = "SELECT uid FROM ({})"
     if node.kind == "or":
         parts, params = [], []
         for c in node.children:
-            sql, p = plan_sql(c, expand)
+            sql, p = _plan_sql(c, expand)
             parts.append(wrap.format(sql))
             params.extend(p)
         return " UNION ".join(parts), params
@@ -138,12 +151,12 @@ def plan_sql(node: QueryNode, expand: bool = False) -> tuple[str, list[str]]:
         raise QueryParseError("and needs at least one non-negated operand")
     parts, params = [], []
     for c in positives:
-        sql, p = plan_sql(c, expand)
+        sql, p = _plan_sql(c, expand)
         parts.append(wrap.format(sql))
         params.extend(p)
     sql = " INTERSECT ".join(parts)
     for c in negatives:
-        nsql, p = plan_sql(c, expand)
+        nsql, p = _plan_sql(c, expand)
         sql += " EXCEPT " + wrap.format(nsql)
         params.extend(p)
     return sql, params

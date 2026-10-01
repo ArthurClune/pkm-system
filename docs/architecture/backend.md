@@ -448,15 +448,24 @@ durable `plain_space_title_canonicalization` flag selects the second:
 | inactive (default) | a control character makes ASCII-whitespace runs collapse to one space and trims their boundary; plain-space padding stays byte-exact, so legacy rows still resolve |
 | active | the above, plus stripping leading and trailing U+0020; internal ordinary spaces and NBSP are unchanged |
 
-`refs.normalize_title` and `refs.canonicalize_title` return the `NewType`s
-`NormalizedTitle` and `CanonicalTitle` (a subtype of it), so pyrefly flags a
-title reaching a `pages.title`/`sidebar_entries.title` lookup without going
-through one of them. `store.fetch_page`, the rename/merge/retitle helpers in
-`store.py`, and the row-mapped `InventoryPage`/`InventorySidebar` in
+`refs.normalize_title` and `refs.canonicalize_title` both return the
+`NewType` `NormalizedTitle`. `canonicalize_title` takes `plain_space` as a
+caller-supplied bool, not this database's live flag, so its result is the
+canonical spelling only when the caller passes that flag's current value.
+`CanonicalTitle` (a subtype of `NormalizedTitle`) is minted in exactly two
+places: `sync_meta.read_title`/`title_reader`, which read the live flag, and
+`refs.target_canonical_title`, the deliberate exception the title migration
+uses to plan and apply against the post-activation state before the flag
+flips. `store.fetch_page`, the rename/merge/retitle/sidebar-insert helpers
+in `store.py`, `routes_search.py`'s todos/changed page filter, `query.py`'s
+`plan_sql` (via a `CanonicalQueryNode` wrapper only `parse_canonical_query`
+mints), and the row-mapped `InventoryPage`/`InventorySidebar` in
 `pkm/title_migration.py` all take `CanonicalTitle`; `refs.Ref.title` is
-`NormalizedTitle`. The types are compile-time only — a `NewType` is still a
-plain string at runtime and on the wire, so this changes nothing a client
-sees.
+`NormalizedTitle`. pyrefly therefore flags a title reaching any of those
+without going through a mint point. Two things it cannot catch: an
+`Any`-typed value (an unchecked `json.loads(...)` result, say), and a raw
+SQL statement that bypasses the typed helper entirely. The types are compile-time only — a `NewType` is still a plain
+string at runtime and on the wire, so this changes nothing a client sees.
 
 **A title that arrives as a lookup key goes through `sync_meta.read_title`
 before it meets `pages.title` or `sidebar_entries.title`.** Both are exact

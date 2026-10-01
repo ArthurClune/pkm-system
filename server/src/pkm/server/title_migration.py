@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-from pkm.refs import canonicalize_title, title_syntax_reason
+from pkm.refs import target_canonical_title, title_syntax_reason
 from pkm.title_migration import (
     InventoryBlock,
     InventoryPage,
@@ -66,18 +66,18 @@ def _inventory_title_migration(db: sqlite3.Connection) -> TitleMigrationInventor
     candidate_rows = [
         row
         for row in page_rows
-        if row["title"] != canonicalize_title(row["title"], plain_space=True)
+        if row["title"] != target_canonical_title(row["title"])
     ]
     canonical_titles = {
-        canonicalize_title(row["title"], plain_space=True)
+        target_canonical_title(row["title"])
         for row in candidate_rows
-        if canonicalize_title(row["title"], plain_space=True) != ""
+        if target_canonical_title(row["title"]) != ""
     }
     forbidden_rows = [
         row
         for row in page_rows
         if title_syntax_reason(
-            canonicalize_title(row["title"], plain_space=True)
+            target_canonical_title(row["title"])
         ) is not None
     ]
     selected_rows = [

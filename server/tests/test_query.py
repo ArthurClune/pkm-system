@@ -122,8 +122,9 @@ def test_query_endpoint_bad_expr_400(client):
 
 
 def test_plan_sql_expand_duplicates_params():
-    from pkm.server.query import QueryNode, plan_sql
-    sql, params = plan_sql(QueryNode("page", "AI"), expand=True)
+    from pkm.server.query import CanonicalQueryNode, QueryNode, plan_sql
+    sql, params = plan_sql(
+        CanonicalQueryNode(QueryNode("page", "AI")), expand=True)
     assert params == ["AI", "AI"]
     assert "UNION" in sql
 

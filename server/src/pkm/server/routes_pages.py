@@ -25,7 +25,7 @@ from pkm.server.fts import phrase_query
 from pkm.server.store import (BlankTitleError, ForbiddenTitleError,
                               delete_page_rows, fetch_page, get_or_create_page,
                               merge_page_rows, rename_page_rows)
-from pkm.server.sync_meta import read_title
+from pkm.server.sync_meta import read_title, title_reader
 from pkm.server.tree import build_tree, collect_block_ref_uids, find_node
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -280,11 +280,12 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
     rewritten to the target, source page row dropped) -- a confirm-gated
     merge, not a silent overwrite. Case-sensitive throughout, like
     pages.title itself."""
-    title = read_title(db, title)
+    canonical = title_reader(db)
+    title = canonical(title)
     # normalized here as well as in get_or_create_page: the merge branch
     # below compares and reports new_title directly, so it has to be the
     # title that actually lands in the row.
-    new_title = read_title(db, body.new_title)
+    new_title = canonical(body.new_title)
     if is_blank_title(new_title):
         raise HTTPException(status_code=422,
                             detail="title must not be blank")

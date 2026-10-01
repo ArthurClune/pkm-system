@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 
 from pkm.refs import canonicalize_title
 
@@ -18,8 +19,14 @@ def read_title(db: sqlite3.Connection, title: str) -> str:
     param, request body). Every title used to key a `pages` row goes
     through this, so routes never compare a raw/normalized title against
     the canonical form stored in `pages.title`."""
-    return canonicalize_title(
-        title, plain_space=plain_space_title_canonicalization_active(db))
+    return title_reader(db)(title)
+
+
+def title_reader(db: sqlite3.Connection) -> Callable[[str], str]:
+    """`read_title` for a request that canonicalises several titles: the
+    flag is read once, not once per title."""
+    plain_space = plain_space_title_canonicalization_active(db)
+    return lambda title: canonicalize_title(title, plain_space=plain_space)
 
 
 def set_plain_space_title_canonicalization(

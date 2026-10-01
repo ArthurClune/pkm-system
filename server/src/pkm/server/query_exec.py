@@ -13,11 +13,11 @@ its own typed groups.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from pkm.server.query import QueryNode, parse_query
-from pkm.server.sync_meta import read_title
+from pkm.server.sync_meta import title_reader
 
 # Excludes a query's own matching blocks from its results: a block whose
 # text IS a {{query: ...}} macro, not one it merely returned. Both bracket
@@ -34,15 +34,18 @@ def parse_canonical_query(db: sqlite3.Connection, expr: str) -> QueryNode:
     brackets) must reach the plan as the canonical "Foo", the page the same
     [[ Foo ]] link resolves to. Raises `QueryParseError` like
     `parse_query`."""
-    return _canonical_titles(db, parse_query(expr))
+    node = parse_query(expr)
+    return _canonical_titles(title_reader(db), node)
 
 
-def _canonical_titles(db: sqlite3.Connection, node: QueryNode) -> QueryNode:
+def _canonical_titles(canonical: Callable[[str], str],
+                      node: QueryNode) -> QueryNode:
     if node.kind == "page":
         assert node.title is not None
-        return QueryNode("page", read_title(db, node.title))
+        return QueryNode("page", canonical(node.title))
     return QueryNode(node.kind, None,
-                     tuple(_canonical_titles(db, c) for c in node.children))
+                     tuple(_canonical_titles(canonical, c)
+                           for c in node.children))
 
 
 @dataclass(frozen=True)

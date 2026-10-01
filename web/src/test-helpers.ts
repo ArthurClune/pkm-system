@@ -2,9 +2,20 @@ import { expect, vi } from "vitest";
 import { acquireOutlineSession } from "./outline/outlineSessions";
 import type { BlockOp } from "./api/ops";
 import type { Backlinks, BlockNode, PagePayload } from "./api/payloads";
+import type { BlockUid, CanonicalTitle, NormalizedTitle, PageId,
+             SidebarEntryId } from "./api/brands";
 import type { WsBatch } from "./sync/socket";
 import type { Sync, SyncStatus } from "./sync/SyncProvider";
 import type { TicketId, WriteTicket } from "./sync/opQueue";
+
+/** Fixture casts for brand-typed ids and titles: a test stands in a
+ * plain literal for a value the production code only ever mints, so the
+ * cast belongs here rather than at each test's call site. */
+export function uid(s: string): BlockUid { return s as BlockUid; }
+export function pageId(n: number): PageId { return n as PageId; }
+export function entryId(n: number): SidebarEntryId { return n as SidebarEntryId; }
+export function normTitle(s: string): NormalizedTitle { return s as NormalizedTitle; }
+export function title(s: string): CanonicalTitle { return s as CanonicalTitle; }
 
 /** Hold the outline editor for `title` so a test's own mount cannot win the
  * lease, and return the release. Sessions are global to the module, so the
@@ -63,10 +74,11 @@ export function stubFetch(handlers: [string, unknown][]) {
   return mock;
 }
 
-export function block(uid: string, text: string,
+export function block(blockUid: string, text: string,
                       over: Partial<BlockNode> = {}): BlockNode {
-  return { uid, text, heading: null, view_type: null, collapsed: false, order_idx: 0,
-           created_at: 1000, updated_at: 2000, children: [], ...over };
+  return { uid: blockUid as BlockUid, text, heading: null, view_type: null,
+           collapsed: false, order_idx: 0, created_at: 1000, updated_at: 2000,
+           children: [], ...over };
 }
 
 /** A backlinks page, empty by default: what /api/page carries for a page
@@ -87,10 +99,11 @@ export function journalBacklinks(groups: Backlinks["groups"] = [],
   return backlinks(groups, { limit: 5, ...over });
 }
 
-export function pagePayload(title: string, blocks: BlockNode[],
+export function pagePayload(pageTitle: string, blocks: BlockNode[],
                             over: Partial<PagePayload> = {}): PagePayload {
   return {
-    page: { id: 1, title, created_at: 1000, updated_at: 2000 },
+    page: { id: pageId(1), title: pageTitle as CanonicalTitle,
+            created_at: 1000, updated_at: 2000 },
     blocks,
     backlinks: backlinks(),
     block_ref_texts: {},

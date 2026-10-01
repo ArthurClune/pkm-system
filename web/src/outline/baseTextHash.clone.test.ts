@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
-import { block } from "../test-helpers";
+import { block, uid } from "../test-helpers";
 import { stampBaseTextHashes } from "./baseTextHash";
 import * as treeModule from "./tree";
 
@@ -38,7 +38,7 @@ describe("stampBaseTextHashes clones the tree at most once per batch", () => {
 
   test("a batch with a single op needing a stamp clones zero times", () => {
     const tree = flatTree(2);
-    const ops: BlockOp[] = [{ op: "delete", uid: "n0" }];
+    const ops: BlockOp[] = [{ op: "delete", uid: uid("n0") }];
 
     stampBaseTextHashes(tree, "AI", ops);
 
@@ -48,8 +48,8 @@ describe("stampBaseTextHashes clones the tree at most once per batch", () => {
   test("a batch needing no stamps clones zero times", () => {
     const tree = flatTree(2);
     const ops: BlockOp[] = [
-      { op: "move", uid: "n0", parent_uid: null, order_idx: 1 },
-      { op: "set_collapsed", uid: "n1", collapsed: true },
+      { op: "move", uid: uid("n0"), parent_uid: null, order_idx: 1 },
+      { op: "set_collapsed", uid: uid("n1"), collapsed: true },
     ];
 
     stampBaseTextHashes(tree, "AI", ops);
@@ -63,9 +63,9 @@ describe("stampBaseTextHashes leaves the caller's tree untouched", () => {
     const tree = flatTree(5);
     const before = structuredClone(tree);
     const ops: BlockOp[] = [
-      { op: "delete", uid: "n0" },
-      { op: "delete", uid: "n1" },
-      { op: "delete", uid: "n2" },
+      { op: "delete", uid: uid("n0") },
+      { op: "delete", uid: uid("n1") },
+      { op: "delete", uid: uid("n2") },
     ];
 
     stampBaseTextHashes(tree, "AI", ops);

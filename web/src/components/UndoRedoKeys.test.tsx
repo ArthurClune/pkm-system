@@ -4,7 +4,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it } from "vitest";
 import { SyncContext } from "../sync/SyncProvider";
-import { makeSync } from "../test-helpers";
+import { makeSync, uid } from "../test-helpers";
 import { recordHistory, resetHistory } from "../outline/undoManager";
 import { UndoRedoKeys } from "./UndoRedoKeys";
 
@@ -12,8 +12,8 @@ afterEach(() => resetHistory());
 
 const entry = () => ({
   pageTitle: "Keys Page",
-  ops: [{ op: "update_text" as const, uid: "a", text: "after" }],
-  inverse: [{ op: "update_text" as const, uid: "a", text: "before" }],
+  ops: [{ op: "update_text" as const, uid: uid("a"), text: "after" }],
+  inverse: [{ op: "update_text" as const, uid: uid("a"), text: "before" }],
   focusBefore: null,
   focusAfter: null,
 });

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
-import { block } from "../test-helpers";
+import { block, uid } from "../test-helpers";
 import {
   beginAuthoritativeRead,
   captureDraft,
@@ -18,7 +18,7 @@ import type { TicketId } from "../sync/opQueue";
 import { findNode } from "./tree";
 
 const update = (text: string): BlockOp => ({
-  op: "update_text", uid: "u1", text,
+  op: "update_text", uid: uid("u1"), text,
 });
 
 it("requestId and revisionAtDispatch cannot be swapped", () => {
@@ -34,7 +34,7 @@ describe("outline causality", () => {
       type: "local-ops", ticketId: "write-1" as TicketId, nowMs: 0, ops: [update("local")],
     }).state;
     const unrelated = transitionOutline(local, {
-      type: "remote-ops", nowMs: 0, ops: [{ op: "delete", uid: "another-page" }],
+      type: "remote-ops", nowMs: 0, ops: [{ op: "delete", uid: uid("another-page") }],
     }).state;
     const remote = transitionOutline(unrelated, {
       type: "remote-ops", nowMs: 0, ops: [update("remote")],
@@ -202,10 +202,10 @@ describe("outline causality", () => {
 
   it("invalidates focus when an adopted tree no longer contains its uid", () => {
     expect(validateOutlineFocus(
-      { uid: "gone", cursor: 2 }, [block("kept", "text")],
+      { uid: uid("gone"), cursor: 2 }, [block("kept", "text")],
     )).toBeNull();
     expect(validateOutlineFocus(
-      { uid: "kept", cursor: 2 }, [block("kept", "text")],
+      { uid: uid("kept"), cursor: 2 }, [block("kept", "text")],
     )).toEqual({ uid: "kept", cursor: 2 });
   });
 
@@ -241,11 +241,11 @@ describe("outline causality", () => {
     ]);
     const rejected = transitionOutline(initial, {
       type: "local-ops", ticketId: "rejected" as TicketId, nowMs: 0,
-      ops: [{ op: "update_text", uid: "u2", text: "rejected local" }],
+      ops: [{ op: "update_text", uid: uid("u2"), text: "rejected local" }],
     }).state;
     const later = transitionOutline(rejected, {
       type: "local-ops", ticketId: "later" as TicketId, nowMs: 0,
-      ops: [{ op: "update_text", uid: "u1", text: "later local" }],
+      ops: [{ op: "update_text", uid: uid("u1"), text: "later local" }],
     }).state;
     const rejectedSettled = transitionOutline(later, {
       type: "write-settled", ticketId: "rejected" as TicketId,
@@ -294,12 +294,12 @@ describe("outline causality", () => {
       scope: ["page", "Source", "Target"],
       replay: [{
         type: "insert-subtree", node: moved,
-        parentUid: "target", orderIdx: 0,
+        parentUid: uid("target"), orderIdx: 0,
       }],
     }).state;
     const childEdit = transitionOutline(moveTracked, {
       type: "local-ops", ticketId: "edit" as TicketId, nowMs: 0,
-      ops: [{ op: "update_text", uid: "child", text: "later child edit" }],
+      ops: [{ op: "update_text", uid: uid("child"), text: "later child edit" }],
     }).state;
     const started = beginAuthoritativeRead(childEdit);
 
@@ -326,7 +326,7 @@ describe("outline causality", () => {
         scope: ["page", "Source", "Target"],
         replay: [{
           type: "insert-subtree", node: moved,
-          parentUid: "target", orderIdx: 0,
+          parentUid: uid("target"), orderIdx: 0,
         }],
       },
     ).state;
@@ -344,7 +344,7 @@ describe("outline causality", () => {
 
   it("flushes a changed pending draft before a structural op", () => {
     const ops = pendingTextOps(
-      { uid: "u1", text: "typed", base: "old" }, [block("u1", "old")], "Page",
+      { uid: uid("u1"), text: "typed", base: "old" }, [block("u1", "old")], "Page",
     );
     expect(ops).toEqual([{
       op: "update_text", uid: "u1", text: "typed",
@@ -354,13 +354,13 @@ describe("outline causality", () => {
 
   it("drops a no-op pending draft whose text is unchanged", () => {
     expect(pendingTextOps(
-      { uid: "u1", text: "same", base: "same" }, [block("u1", "same")], "Page",
+      { uid: uid("u1"), text: "same", base: "same" }, [block("u1", "same")], "Page",
     )).toEqual([]);
   });
 
   it("flushes a draft whose block a remote batch deleted, stamped with its base", () => {
     expect(pendingTextOps(
-      { uid: "gone", text: "typed", base: "old" }, [block("u1", "old")], "Page",
+      { uid: uid("gone"), text: "typed", base: "old" }, [block("u1", "old")], "Page",
     )).toEqual([{
       op: "update_text", uid: "gone", text: "typed",
       base_text_hash: sha256Hex("old"), page_title: "Page",
@@ -373,7 +373,7 @@ describe("outline causality", () => {
 
   it("stamps the base, not the tree, when a remote edit landed under the draft", () => {
     const ops = pendingTextOps(
-      { uid: "u1", text: "typed", base: "old" }, [block("u1", "remote")], "Page",
+      { uid: uid("u1"), text: "typed", base: "old" }, [block("u1", "remote")], "Page",
     );
     expect(ops).toEqual([{
       op: "update_text", uid: "u1", text: "typed",
@@ -383,19 +383,19 @@ describe("outline causality", () => {
 
   it("drops a draft typed back to its base, even over a remote edit", () => {
     expect(pendingTextOps(
-      { uid: "u1", text: "old", base: "old" }, [block("u1", "remote")], "Page",
+      { uid: uid("u1"), text: "old", base: "old" }, [block("u1", "remote")], "Page",
     )).toEqual([]);
   });
 
   it("drops a draft a remote edit already made", () => {
     expect(pendingTextOps(
-      { uid: "u1", text: "same", base: "old" }, [block("u1", "same")], "Page",
+      { uid: uid("u1"), text: "same", base: "old" }, [block("u1", "same")], "Page",
     )).toEqual([]);
   });
 
   it("a draft with no captured base carries page_title and no hash", () => {
     const ops = pendingTextOps(
-      { uid: "gone", text: "typed", base: null }, [], "Page",
+      { uid: uid("gone"), text: "typed", base: null }, [], "Page",
     );
     expect(ops).toEqual([
       { op: "update_text", uid: "gone", text: "typed", page_title: "Page" },
@@ -451,7 +451,7 @@ describe("outline causality", () => {
         scope: ["page", "Source", "Target"],
         replay: [{
           type: "insert-subtree", node: block("moved", "moved"),
-          parentUid: "target", orderIdx: 0,
+          parentUid: uid("target"), orderIdx: 0,
         }],
       },
     ).state;
@@ -465,7 +465,7 @@ describe("outline causality", () => {
       type: "authoritative-repair", token: started.token, blocks: [target],
     });
 
-    expect(findNode(repaired.state.blocks, "moved")).not.toBeNull();
+    expect(findNode(repaired.state.blocks, uid("moved"))).not.toBeNull();
   });
 
   it("does not replay explicit subtree metadata after its ticket settles", () => {
@@ -477,7 +477,7 @@ describe("outline causality", () => {
         scope: ["page", "Source", "Target"],
         replay: [{
           type: "insert-subtree", node: block("moved", "rejected"),
-          parentUid: "target", orderIdx: 0,
+          parentUid: uid("target"), orderIdx: 0,
         }],
       },
     ).state;
@@ -490,7 +490,7 @@ describe("outline causality", () => {
       type: "authoritative-repair", token: started.token, blocks: [target],
     });
 
-    expect(findNode(repaired.state.blocks, "moved")).toBeNull();
+    expect(findNode(repaired.state.blocks, uid("moved"))).toBeNull();
   });
 });
 
@@ -505,53 +505,53 @@ describe("block stamps", () => {
   it("stamps the blocks a local batch changed and leaves the rest alone", () => {
     const state = transitionOutline(createOutlineState("Page", tree()), {
       type: "local-ops", ticketId: "w1" as TicketId, nowMs: NOW,
-      ops: [{ op: "update_text", uid: "u2c", text: "edited" }],
+      ops: [{ op: "update_text", uid: uid("u2c"), text: "edited" }],
     }).state;
 
-    expect(findNode(state.blocks, "u2c")?.updated_at).toBe(NOW);
-    expect(findNode(state.blocks, "u1")?.updated_at).toBe(200);
-    expect(findNode(state.blocks, "u2")?.updated_at).toBe(200);
+    expect(findNode(state.blocks, uid("u2c"))?.updated_at).toBe(NOW);
+    expect(findNode(state.blocks, uid("u1"))?.updated_at).toBe(200);
+    expect(findNode(state.blocks, uid("u2"))?.updated_at).toBe(200);
   });
 
   it("stamps a block the batch created, so a new row shows today", () => {
     const state = transitionOutline(createOutlineState("Page", tree()), {
       type: "local-ops", ticketId: "w1" as TicketId, nowMs: NOW,
-      ops: [{ op: "create", uid: "u3", page_title: "Page", parent_uid: null,
+      ops: [{ op: "create", uid: uid("u3"), page_title: "Page", parent_uid: null,
               order_idx: 2, text: "fresh" }],
     }).state;
 
-    expect(findNode(state.blocks, "u3")?.updated_at).toBe(NOW);
+    expect(findNode(state.blocks, uid("u3"))?.updated_at).toBe(NOW);
   });
 
   it("does not stamp for a collapse-only batch", () => {
     const state = transitionOutline(createOutlineState("Page", tree()), {
       type: "local-ops", ticketId: "w1" as TicketId, nowMs: NOW,
-      ops: [{ op: "set_collapsed", uid: "u2", collapsed: true }],
+      ops: [{ op: "set_collapsed", uid: uid("u2"), collapsed: true }],
     }).state;
 
-    expect(findNode(state.blocks, "u2")?.updated_at).toBe(200);
-    expect(findNode(state.blocks, "u2")?.collapsed).toBe(true);
+    expect(findNode(state.blocks, uid("u2"))?.updated_at).toBe(200);
+    expect(findNode(state.blocks, uid("u2"))?.collapsed).toBe(true);
   });
 
   it("stamps remote batches exactly as local ones", () => {
     const state = transitionOutline(createOutlineState("Page", tree()), {
       type: "remote-ops", nowMs: NOW,
-      ops: [{ op: "set_heading", uid: "u1", heading: 2 }],
+      ops: [{ op: "set_heading", uid: uid("u1"), heading: 2 }],
     }).state;
 
-    expect(findNode(state.blocks, "u1")?.updated_at).toBe(NOW);
+    expect(findNode(state.blocks, uid("u1"))?.updated_at).toBe(NOW);
   });
 
   it("ignores ops for blocks that are not on this page or were deleted", () => {
     const state = transitionOutline(createOutlineState("Page", tree()), {
       type: "remote-ops", nowMs: NOW,
       ops: [
-        { op: "update_text", uid: "elsewhere", text: "other page" },
-        { op: "delete", uid: "u1" },
+        { op: "update_text", uid: uid("elsewhere"), text: "other page" },
+        { op: "delete", uid: uid("u1") },
       ],
     }).state;
 
-    expect(findNode(state.blocks, "u1")).toBeNull();
+    expect(findNode(state.blocks, uid("u1"))).toBeNull();
     expect(state.blocks.map((b) => b.uid)).toEqual(["u2"]);
   });
 });
@@ -567,7 +567,7 @@ describe("outline change detection", () => {
 
     const result = transitionOutline(state, {
       type: "remote-ops", nowMs: 9000,
-      ops: [{ op: "set_collapsed", uid: "u1", collapsed: false }],
+      ops: [{ op: "set_collapsed", uid: uid("u1"), collapsed: false }],
     });
 
     expect(result.state).toBe(state); // React re-renders on identity
@@ -601,7 +601,7 @@ describe("outline change detection", () => {
 
     const result = transitionOutline(state, {
       type: "local-ops", ticketId: "w1" as TicketId, nowMs: 9000,
-      ops: [{ op: "set_collapsed", uid: "u1", collapsed: false }],
+      ops: [{ op: "set_collapsed", uid: uid("u1"), collapsed: false }],
     });
 
     expect(result.state.relevantWrites.has("w1" as TicketId)).toBe(true);
@@ -618,7 +618,7 @@ describe("outline change detection", () => {
 
     const result = transitionOutline(state, {
       type: "remote-ops", nowMs: 9000,
-      ops: [{ op: "update_text", uid: "u1", text: "same" }],
+      ops: [{ op: "update_text", uid: uid("u1"), text: "same" }],
     });
 
     expect(result.state.blocks[0].updated_at).toBe(9000);
@@ -631,7 +631,7 @@ describe("outline change detection", () => {
 
     const result = transitionOutline(state, {
       type: "remote-ops", nowMs: 9000,
-      ops: [{ op: "update_text", uid: "u1", text: "same" }],
+      ops: [{ op: "update_text", uid: uid("u1"), text: "same" }],
     });
 
     expect(result.state).toBe(state);
@@ -655,11 +655,11 @@ describe("outline change detection", () => {
 
     let next = transitionOutline(state, {
       type: "local-ops", ticketId: "w1" as TicketId, nowMs: 9000,
-      ops: [{ op: "update_text", uid: "u1c", text: "typed" }],
+      ops: [{ op: "update_text", uid: uid("u1c"), text: "typed" }],
     }).state;
     next = transitionOutline(next, {
       type: "remote-ops", nowMs: 9000,
-      ops: [{ op: "update_text", uid: "elsewhere", text: "other page" }],
+      ops: [{ op: "update_text", uid: uid("elsewhere"), text: "other page" }],
     }).state;
     next = transitionOutline(next, { type: "local-tree", blocks: nested() })
       .state;
@@ -681,7 +681,7 @@ describe("outline change detection", () => {
 
     transitionOutline(state, {
       type: "local-ops", ticketId: "w1" as TicketId, nowMs: 9000,
-      ops: [{ op: "update_text", uid: "u1c", text: "typed" }],
+      ops: [{ op: "update_text", uid: uid("u1c"), text: "typed" }],
     });
 
     expect(reads).toBeLessThanOrEqual(nodes);
@@ -706,43 +706,43 @@ function watchFieldReads(nodes: BlockNode[], onRead: () => void): BlockNode[] {
 
 describe("captureDraft", () => {
   it("captures the tree text as base on the first change", () => {
-    expect(captureDraft(null, "u1", "a", [block("u1", "old")]))
+    expect(captureDraft(null, uid("u1"), "a", [block("u1", "old")]))
       .toEqual({ uid: "u1", text: "a", base: "old" });
   });
 
   it("keeps the base across later changes even when the tree moved on", () => {
     expect(captureDraft(
-      { uid: "u1", text: "a", base: "old" }, "u1", "ab", [block("u1", "remote")],
+      { uid: uid("u1"), text: "a", base: "old" }, uid("u1"), "ab", [block("u1", "remote")],
     )).toEqual({ uid: "u1", text: "ab", base: "old" });
   });
 
   it("recaptures for a different block", () => {
     expect(captureDraft(
-      { uid: "u1", text: "a", base: "old" }, "u2", "x",
+      { uid: uid("u1"), text: "a", base: "old" }, uid("u2"), "x",
       [block("u1", "old"), block("u2", "two")],
     )).toEqual({ uid: "u2", text: "x", base: "two" });
   });
 
   it("starts from the text the editor showed, not the tree, when given one", () => {
-    expect(captureDraft(null, "u1", "firstX", [block("u1", "remote")],
-                        { uid: "u1", base: "first" }))
+    expect(captureDraft(null, uid("u1"), "firstX", [block("u1", "remote")],
+                        { uid: uid("u1"), base: "first" }))
       .toEqual({ uid: "u1", text: "firstX", base: "first" });
   });
 
   it("ignores a shown text recorded for another block", () => {
-    expect(captureDraft(null, "u2", "x", [block("u2", "two")],
-                        { uid: "u1", base: "first" }))
+    expect(captureDraft(null, uid("u2"), "x", [block("u2", "two")],
+                        { uid: uid("u1"), base: "first" }))
       .toEqual({ uid: "u2", text: "x", base: "two" });
   });
 
   it("keeps the draft's own base over a later shown text", () => {
-    expect(captureDraft({ uid: "u1", text: "a", base: "old" }, "u1", "ab",
-                        [block("u1", "old")], { uid: "u1", base: "a" }))
+    expect(captureDraft({ uid: uid("u1"), text: "a", base: "old" }, uid("u1"), "ab",
+                        [block("u1", "old")], { uid: uid("u1"), base: "a" }))
       .toEqual({ uid: "u1", text: "ab", base: "old" });
   });
 
   it("records a null base for a block the tree lacks", () => {
-    expect(captureDraft(null, "gone", "x", []))
+    expect(captureDraft(null, uid("gone"), "x", []))
       .toEqual({ uid: "gone", text: "x", base: null });
   });
 });

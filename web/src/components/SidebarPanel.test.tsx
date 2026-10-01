@@ -5,7 +5,7 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, pagePayload, stubFetch } from "../test-helpers";
+import { block, makeSync, pageId, pagePayload, stubFetch, title, uid } from "../test-helpers";
 import { SidebarPanel } from "./SidebarPanel";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -41,8 +41,8 @@ function renderPanel(title: string) {
 
 it("fetches its page and renders title plus block tree, no backlinks", async () => {
   stubFetch([["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "a paper block")], {
-    backlinks: { groups: [{ page_id: 1, page_title: "Machine Learning", items: [
-      { uid: "uid_b3", text: "should not render", breadcrumbs: [] }] }],
+    backlinks: { groups: [{ page_id: pageId(1), page_title: title("Machine Learning"), items: [
+      { uid: uid("uid_b3"), text: "should not render", breadcrumbs: [] }] }],
       total_pages: 1, offset: 0, limit: 20 },
   })]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarPanel title="Paper" onClose={() => undefined} /></MemoryRouter>);

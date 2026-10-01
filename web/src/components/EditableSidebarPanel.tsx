@@ -6,7 +6,10 @@
 // one-shot read-only fetch. (EditablePage itself handles the case where
 // this title is already open elsewhere in the tab, falling back to
 // read-only there.) All that is left here is presentation: the panel's own
-// error/loading text and the scoped scroll below.
+// error/loading text and the scoped scroll below. The outline is the
+// payload's page title, not the requested one: a sidebar can be opened with
+// a title the server stores in another form, and the stored form is what
+// keys the outline and what remote ops carry.
 //
 // An optional uid (a block ref or asset link opened with
 // shift-click) is scrolled to and flashed once the page has rendered --
@@ -14,13 +17,14 @@
 // document-wide query: the same page can be open in the main window at
 // the same time, with its own element carrying that data-uid.
 import { useRef } from "react";
+import type { BlockUid } from "../api/brands";
 import { BlockRefProvider } from "./BlockRefProvider";
 import { substituteMissingDaily } from "../outline/missingPage";
 import { useOutlinePageLoad } from "../outline/useOutlinePageLoad";
 import { useScrollFlashTarget } from "../useScrollFlashTarget";
 import { EditablePage } from "../views/EditablePage";
 
-export function EditableSidebarPanel({ title, uid }: { title: string; uid?: string }) {
+export function EditableSidebarPanel({ title, uid }: { title: string; uid?: BlockUid }) {
   const { payload, error } = useOutlinePageLoad(title, substituteMissingDaily);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -31,7 +35,7 @@ export function EditableSidebarPanel({ title, uid }: { title: string; uid?: stri
   return (
     <div ref={containerRef}>
       <BlockRefProvider seed={payload.block_ref_texts}>
-        <EditablePage title={title} initial={payload.blocks} />
+        <EditablePage title={payload.page.title} initial={payload.blocks} />
       </BlockRefProvider>
     </div>
   );

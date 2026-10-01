@@ -13,14 +13,15 @@
 // lands, including a re-applied batch (reapply) keeping its own effects
 // in place, is placementFor's verdict (placement.ts); this file runs it.
 
+import type { BlockUid, CanonicalTitle, PageId } from "../api/brands";
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
-import { plainSpaceTitleCanonicalizationActive } from "./meta";
+import { titleReader } from "./meta";
 import { skipsOnMissingTarget } from "./missingTarget";
 import { type Placement, type PlacementFacts, placementFor } from "./placement";
-import { canonicalizeTitle, findOpTitleViolation,
-         type OpTitleViolation, titleSyntaxReason } from "./titles";
+import { findOpTitleViolation, type OpTitleViolation,
+         titleSyntaxReason } from "./titles";
 
 export class LocalOpError extends Error {
   /** Read by serveRpc onto the wire error: this is the replica refusing the OP,
@@ -49,14 +50,14 @@ const titleViolationError = (violation: OpTitleViolation): LocalOpError =>
   );
 
 /** The title a page is stored under: canonicalised, blank as "Untitled". */
-const localPageTitle = (db: ReplicaDb, title: string): string => {
-  const canonical = canonicalizeTitle(
-    title, plainSpaceTitleCanonicalizationActive(db));
-  return canonical.trim().length === 0 ? "Untitled" : canonical;
+const localPageTitle = (db: ReplicaDb, title: string): CanonicalTitle => {
+  const read = titleReader(db);
+  const canonical = read(title);
+  return canonical.trim().length === 0 ? read("Untitled") : canonical;
 };
 
-const pageIdByTitle = (db: ReplicaDb, title: string): number | null => {
-  const rows = db.select<{ id: number }>(
+const pageIdByTitle = (db: ReplicaDb, title: CanonicalTitle): PageId | null => {
+  const rows = db.select<{ id: PageId }>(
     "SELECT id FROM pages WHERE title = ?", [title]);
   return rows.length > 0 ? rows[0].id : null;
 };
@@ -64,17 +65,17 @@ const pageIdByTitle = (db: ReplicaDb, title: string): number | null => {
 /** The page getOrCreateLocalPage would return for `title`, if it exists
  * already; never creates one. */
 const existingLocalPageId = (db: ReplicaDb, title: string):
-  number | null => pageIdByTitle(db, localPageTitle(db, title));
+  PageId | null => pageIdByTitle(db, localPageTitle(db, title));
 
-export function getOrCreateLocalPage(db: ReplicaDb, title: string,
-                                     nowMs: number): number {
-  title = localPageTitle(db, title);
+export function getOrCreateLocalPage(db: ReplicaDb, requested: string,
+                                     nowMs: number): PageId {
+  const title = localPageTitle(db, requested);
   if (titleSyntaxReason(title) !== null) {
     throw new LocalOpError(`unsupported page title syntax: ${JSON.stringify(title)}`);
   }
   const existing = pageIdByTitle(db, title);
   if (existing !== null) return existing;
-  const next = db.select<{ id: number }>(
+  const next = db.select<{ id: PageId }>(
     "SELECT MIN(0, COALESCE((SELECT MIN(id) FROM pages), 0)) - 1 AS id")[0].id;
   db.exec(
     "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
@@ -82,7 +83,7 @@ export function getOrCreateLocalPage(db: ReplicaDb, title: string,
   return next;
 }
 
-const reindexRefs = (db: ReplicaDb, uid: string, text: string,
+const reindexRefs = (db: ReplicaDb, uid: BlockUid, text: string,
                      nowMs: number): void => {
   // The block-level index is the composition apply.ts
   // shares; it hands back the parse so the page-level refs below reuse it.
@@ -95,12 +96,12 @@ const reindexRefs = (db: ReplicaDb, uid: string, text: string,
   }
 };
 
-const touchPage = (db: ReplicaDb, pageId: number, nowMs: number): void => {
+const touchPage = (db: ReplicaDb, pageId: PageId, nowMs: number): void => {
   db.exec("UPDATE pages SET updated_at = ? WHERE id = ?", [nowMs, pageId]);
 };
 
-const shiftSiblings = (db: ReplicaDb, pageId: number,
-                       parentUid: string | null, fromIdx: number): void => {
+const shiftSiblings = (db: ReplicaDb, pageId: PageId,
+                       parentUid: BlockUid | null, fromIdx: number): void => {
   db.exec(
     "UPDATE blocks SET order_idx = order_idx + 1" +
     " WHERE page_id = ? AND parent_uid IS ? AND order_idx >= ?",
@@ -108,10 +109,10 @@ const shiftSiblings = (db: ReplicaDb, pageId: number,
 };
 
 interface BlockInfo {
-  page_id: number; parent_uid: string | null; order_idx: number;
+  page_id: PageId; parent_uid: BlockUid | null; order_idx: number;
 }
 
-const blockInfo = (db: ReplicaDb, uid: string): BlockInfo | null => {
+const blockInfo = (db: ReplicaDb, uid: BlockUid): BlockInfo | null => {
   const rows = db.select<BlockInfo>(
     "SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid = ?", [uid]);
   return rows.length > 0 ? rows[0] : null;
@@ -121,7 +122,7 @@ const blockInfo = (db: ReplicaDb, uid: string): BlockInfo | null => {
  * every later sibling's order_idx on each feed window, until a sibling the
  * feed re-ships at its server index overtakes one that drifted. Shift only
  * when a sibling the window re-shipped now shares this block's slot. */
-const keepSlot = (db: ReplicaDb, uid: string, at: BlockInfo): void => {
+const keepSlot = (db: ReplicaDb, uid: BlockUid, at: BlockInfo): void => {
   const clash = db.select(
     "SELECT 1 AS x FROM blocks WHERE page_id = ? AND parent_uid IS ?" +
     " AND order_idx = ? AND uid != ? LIMIT 1",
@@ -135,8 +136,8 @@ const keepSlot = (db: ReplicaDb, uid: string, at: BlockInfo): void => {
 
 /** uid and every ancestor above it; the visited-path guard stops on a
  * loop already in the replica, as ops_apply._parent_chain does. */
-const parentChain = (db: ReplicaDb, uid: string): string[] =>
-  db.select<{ uid: string }>(
+const parentChain = (db: ReplicaDb, uid: BlockUid): BlockUid[] =>
+  db.select<{ uid: BlockUid }>(
     `WITH RECURSIVE chain(uid, parent_uid, path) AS (
        SELECT uid, parent_uid, ',' || uid || ',' FROM blocks WHERE uid = ?
        UNION ALL
@@ -146,8 +147,8 @@ const parentChain = (db: ReplicaDb, uid: string): string[] =>
      )
      SELECT uid FROM chain`, [uid]).map((r) => r.uid);
 
-export const subtreeUids = (db: ReplicaDb, uid: string): string[] =>
-  db.select<{ uid: string }>(
+export const subtreeUids = (db: ReplicaDb, uid: BlockUid): BlockUid[] =>
+  db.select<{ uid: BlockUid }>(
     `WITH RECURSIVE sub(uid, path, depth) AS (
        SELECT uid, ',' || uid || ',', 0 FROM blocks WHERE uid = ?
        UNION ALL

@@ -6,7 +6,7 @@ import type { Backlinks } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import type { DeliveryOutcome, TicketId, WriteOutcome, WriteTicket } from "../sync/opQueue";
 import { SyncContext } from "../sync/SyncProvider";
-import { READ_INIT, jsonResponse, makeSync, pagePayload, stubFetch } from "../test-helpers";
+import { READ_INIT, jsonResponse, makeSync, pageId, pagePayload, stubFetch, title, uid } from "../test-helpers";
 import { BacklinksSection } from "./BacklinksSection";
 import { mergeGroups } from "./groups";
 import { UnlinkedSection } from "./UnlinkedSection";
@@ -21,7 +21,7 @@ function deferred<T>() {
 
 function unlinkedPayload() {
   return {
-    groups: [{ page_id: 2, page_title: "Source", items: [
+    groups: [{ page_id: pageId(2), page_title: "Source", items: [
       { uid: "uid_u1", text: "Acme created it" },
       { uid: "uid_u2", text: "Acme reviewed it" },
     ] }],
@@ -31,9 +31,9 @@ function unlinkedPayload() {
 
 const initial: Backlinks = {
   groups: [{
-    page_id: 3,
-    page_title: "July 7th, 2026",
-    items: [{ uid: "uid_b4", text: "Studying [[Machine Learning]] today",
+    page_id: pageId(3),
+    page_title: title("July 7th, 2026"),
+    items: [{ uid: uid("uid_b4"), text: "Studying [[Machine Learning]] today",
               breadcrumbs: ["Morning", "Reading"] }],
   }],
   total_pages: 2,
@@ -43,21 +43,21 @@ const initial: Backlinks = {
 
 it("mergeGroups merges batches by page_id and dedupes items", () => {
   const merged = mergeGroups(
-    [{ page_id: 1, page_title: "A", items: [{ uid: "u1", text: "one" }] }],
-    [{ page_id: 1, page_title: "A", items: [{ uid: "u1", text: "one" }, { uid: "u2", text: "two" }] },
-     { page_id: 2, page_title: "B", items: [{ uid: "u3", text: "three" }] }],
+    [{ page_id: pageId(1), page_title: "A", items: [{ uid: "u1", text: "one" }] }],
+    [{ page_id: pageId(1), page_title: "A", items: [{ uid: "u1", text: "one" }, { uid: "u2", text: "two" }] },
+     { page_id: pageId(2), page_title: "B", items: [{ uid: "u3", text: "three" }] }],
   );
   expect(merged).toEqual([
-    { page_id: 1, page_title: "A", items: [{ uid: "u1", text: "one" }, { uid: "u2", text: "two" }] },
-    { page_id: 2, page_title: "B", items: [{ uid: "u3", text: "three" }] },
+    { page_id: pageId(1), page_title: "A", items: [{ uid: "u1", text: "one" }, { uid: "u2", text: "two" }] },
+    { page_id: pageId(2), page_title: "B", items: [{ uid: "u3", text: "three" }] },
   ]);
 });
 
 it("renders backlink groups with breadcrumbs and loads more on demand", async () => {
   const more = pagePayload("Machine Learning", [], {
     backlinks: {
-      groups: [{ page_id: 9, page_title: "AI", items: [
-        { uid: "uid_b9", text: "more [[Machine Learning]]", breadcrumbs: [] }] }],
+      groups: [{ page_id: pageId(9), page_title: title("AI"), items: [
+        { uid: uid("uid_b9"), text: "more [[Machine Learning]]", breadcrumbs: [] }] }],
       total_pages: 2, offset: 1, limit: 20,
     },
   });
@@ -80,12 +80,12 @@ it("renders backlink groups with breadcrumbs and loads more on demand", async ()
 
 it("backlinks show-more merges batches from the same source page", async () => {
   const groupA = {
-    page_id: 9, page_title: "Src",
-    items: [{ uid: "s1", text: "one", breadcrumbs: [] }],
+    page_id: pageId(9), page_title: title("Src"),
+    items: [{ uid: uid("s1"), text: "one", breadcrumbs: [] }],
   };
   const groupAmore = {
-    page_id: 9, page_title: "Src",
-    items: [{ uid: "s2", text: "two", breadcrumbs: [] }],
+    page_id: pageId(9), page_title: title("Src"),
+    items: [{ uid: uid("s2"), text: "two", breadcrumbs: [] }],
   };
   const backlinksInitial: Backlinks =
     { groups: [groupA], total_pages: 2, offset: 0, limit: 1 };
@@ -120,8 +120,8 @@ it("shows an error and re-enables the button when show-more fails", async () => 
 it("refresh generation replaces the first backlink batch", async () => {
   const refreshed = pagePayload("ACME", [], {
     backlinks: {
-      groups: [{ page_id: 8, page_title: "Fresh Source", items: [
-        { uid: "fresh", text: "[[ACME]] now linked", breadcrumbs: [] },
+      groups: [{ page_id: pageId(8), page_title: title("Fresh Source"), items: [
+        { uid: uid("fresh"), text: "[[ACME]] now linked", breadcrumbs: [] },
       ] }],
       total_pages: 1, offset: 0, limit: 20,
     },
@@ -145,16 +145,16 @@ it("refresh with an open filter panel refetches from offset 0 at limit 100 until
   const fetchMock = stubFetch([
     ["/api/page/Claude?bl_offset=1&bl_limit=100", pagePayload("Claude", [], {
       backlinks: {
-        groups: [{ page_id: 12, page_title: "Fresh B", items: [
-          { uid: "fresh-b", text: "beta [[Claude]] #Idea", breadcrumbs: [] },
+        groups: [{ page_id: pageId(12), page_title: title("Fresh B"), items: [
+          { uid: uid("fresh-b"), text: "beta [[Claude]] #Idea", breadcrumbs: [] },
         ] }],
         total_pages: 2, offset: 1, limit: 100,
       },
     })],
     ["/api/page/Claude?bl_offset=0&bl_limit=100", pagePayload("Claude", [], {
       backlinks: {
-        groups: [{ page_id: 11, page_title: "Fresh A", items: [
-          { uid: "fresh-a", text: "alpha [[Claude]] #Paper", breadcrumbs: [] },
+        groups: [{ page_id: pageId(11), page_title: title("Fresh A"), items: [
+          { uid: uid("fresh-a"), text: "alpha [[Claude]] #Paper", breadcrumbs: [] },
         ] }],
         total_pages: 2, offset: 0, limit: 100,
       },
@@ -188,11 +188,11 @@ it("refresh preserves filter selections and panel state while replacing groups",
   const refreshed = pagePayload("Claude", [], {
     backlinks: {
       groups: [
-        { page_id: 11, page_title: "Fresh Visible", items: [
-          { uid: "fresh-visible", text: "clean [[Claude]] #Idea", breadcrumbs: [] },
+        { page_id: pageId(11), page_title: title("Fresh Visible"), items: [
+          { uid: uid("fresh-visible"), text: "clean [[Claude]] #Idea", breadcrumbs: [] },
         ] },
-        { page_id: 12, page_title: "Fresh Hidden", items: [
-          { uid: "fresh-hidden", text: "blocked [[Claude]] #Paper #Idea", breadcrumbs: [] },
+        { page_id: pageId(12), page_title: title("Fresh Hidden"), items: [
+          { uid: uid("fresh-hidden"), text: "blocked [[Claude]] #Paper #Idea", breadcrumbs: [] },
         ] },
       ],
       total_pages: 2, offset: 0, limit: 100,
@@ -233,8 +233,8 @@ it("failed refresh keeps old groups and offers retry refresh", async () => {
       }
       return jsonResponse(pagePayload("ACME", [], {
         backlinks: {
-          groups: [{ page_id: 10, page_title: "Recovered Source", items: [
-            { uid: "recovered", text: "[[ACME]] linked", breadcrumbs: [] },
+          groups: [{ page_id: pageId(10), page_title: title("Recovered Source"), items: [
+            { uid: uid("recovered"), text: "[[ACME]] linked", breadcrumbs: [] },
           ] }],
           total_pages: 1, offset: 0, limit: 20,
         },
@@ -289,8 +289,8 @@ it("ignores an older refresh response that resolves after a newer generation", a
   await act(async () => {
     newer.resolve(jsonResponse(pagePayload("ACME", [], {
       backlinks: {
-        groups: [{ page_id: 11, page_title: "Newest Source", items: [
-          { uid: "newest", text: "[[ACME]] newest", breadcrumbs: [] },
+        groups: [{ page_id: pageId(11), page_title: title("Newest Source"), items: [
+          { uid: uid("newest"), text: "[[ACME]] newest", breadcrumbs: [] },
         ] }],
         total_pages: 1, offset: 0, limit: 20,
       },
@@ -302,8 +302,8 @@ it("ignores an older refresh response that resolves after a newer generation", a
   await act(async () => {
     older.resolve(jsonResponse(pagePayload("ACME", [], {
       backlinks: {
-        groups: [{ page_id: 12, page_title: "Stale Source", items: [
-          { uid: "stale", text: "[[ACME]] stale", breadcrumbs: [] },
+        groups: [{ page_id: pageId(12), page_title: title("Stale Source"), items: [
+          { uid: uid("stale"), text: "[[ACME]] stale", breadcrumbs: [] },
         ] }],
         total_pages: 1, offset: 0, limit: 20,
       },
@@ -323,8 +323,8 @@ it("disables show-more during refresh so stale pagination cannot start", async (
     if (url === "/api/page/ACME?bl_offset=1&bl_limit=20") {
       return Promise.resolve(jsonResponse(pagePayload("ACME", [], {
         backlinks: {
-          groups: [{ page_id: 11, page_title: "Stale Page", items: [
-            { uid: "stale-more", text: "[[ACME]] stale page", breadcrumbs: [] },
+          groups: [{ page_id: pageId(11), page_title: title("Stale Page"), items: [
+            { uid: uid("stale-more"), text: "[[ACME]] stale page", breadcrumbs: [] },
           ] }],
           total_pages: 2, offset: 1, limit: 20,
         },
@@ -352,8 +352,8 @@ it("disables show-more during refresh so stale pagination cannot start", async (
   await act(async () => {
     refresh.resolve(jsonResponse(pagePayload("ACME", [], {
       backlinks: {
-        groups: [{ page_id: 10, page_title: "Fresh Source", items: [
-          { uid: "fresh", text: "[[ACME]] refreshed", breadcrumbs: [] },
+        groups: [{ page_id: pageId(10), page_title: title("Fresh Source"), items: [
+          { uid: uid("fresh"), text: "[[ACME]] refreshed", breadcrumbs: [] },
         ] }],
         total_pages: 1, offset: 0, limit: 20,
       },
@@ -378,8 +378,8 @@ it("a concurrent loadAll's groups survive a loadMore that started from a stale s
       return Promise.resolve(jsonResponse(pagePayload("T", [], {
         backlinks: {
           groups: [
-            { page_id: 2, page_title: "B", items: [{ uid: "b1", text: "b", breadcrumbs: [] }] },
-            { page_id: 3, page_title: "C", items: [{ uid: "c1", text: "c", breadcrumbs: [] }] },
+            { page_id: pageId(2), page_title: title("B"), items: [{ uid: uid("b1"), text: "b", breadcrumbs: [] }] },
+            { page_id: pageId(3), page_title: title("C"), items: [{ uid: uid("c1"), text: "c", breadcrumbs: [] }] },
           ],
           total_pages: 3, offset: 1, limit: 100,
         },
@@ -390,7 +390,7 @@ it("a concurrent loadAll's groups survive a loadMore that started from a stale s
   vi.stubGlobal("fetch", fetchMock);
 
   const raceInitial: Backlinks = {
-    groups: [{ page_id: 1, page_title: "A", items: [{ uid: "a1", text: "a", breadcrumbs: [] }] }],
+    groups: [{ page_id: pageId(1), page_title: title("A"), items: [{ uid: uid("a1"), text: "a", breadcrumbs: [] }] }],
     total_pages: 3, offset: 0, limit: 1,
   };
   render(
@@ -411,7 +411,7 @@ it("a concurrent loadAll's groups survive a loadMore that started from a stale s
   await act(async () => {
     loadMoreBatch.resolve(jsonResponse(pagePayload("T", [], {
       backlinks: {
-        groups: [{ page_id: 2, page_title: "B", items: [{ uid: "b1", text: "b", breadcrumbs: [] }] }],
+        groups: [{ page_id: pageId(2), page_title: title("B"), items: [{ uid: uid("b1"), text: "b", breadcrumbs: [] }] }],
         total_pages: 3, offset: 1, limit: 1,
       },
     })));
@@ -437,8 +437,8 @@ it("prevents opening the filter panel during refresh so stale load-all cannot st
     if (url === "/api/page/Claude?bl_offset=1&bl_limit=100") {
       return Promise.resolve(jsonResponse(pagePayload("Claude", [], {
         backlinks: {
-          groups: [{ page_id: 2, page_title: "Daily B", items: [
-            { uid: "stale-load-all", text: "gamma [[Claude]]", breadcrumbs: ["reading #Paper"] },
+          groups: [{ page_id: pageId(2), page_title: title("Daily B"), items: [
+            { uid: uid("stale-load-all"), text: "gamma [[Claude]]", breadcrumbs: ["reading #Paper"] },
           ] }],
           total_pages: 2, offset: 1, limit: 100,
         },
@@ -471,8 +471,8 @@ it("prevents opening the filter panel during refresh so stale load-all cannot st
   await act(async () => {
     refresh.resolve(jsonResponse(pagePayload("Claude", [], {
       backlinks: {
-        groups: [{ page_id: 10, page_title: "Fresh Visible", items: [
-          { uid: "fresh-visible", text: "clean [[Claude]] #Idea", breadcrumbs: [] },
+        groups: [{ page_id: pageId(10), page_title: title("Fresh Visible"), items: [
+          { uid: uid("fresh-visible"), text: "clean [[Claude]] #Idea", breadcrumbs: [] },
         ] }],
         total_pages: 1, offset: 0, limit: 20,
       },
@@ -527,12 +527,12 @@ it("changing filter-panel state does not issue a second refresh for the same gen
 it("unlinked references fetch lazily on first open and paginate", async () => {
   const fetchMock = stubFetch([
     ["/api/unlinked?title=Machine+Learning&limit=20&offset=1", {
-      groups: [{ page_id: 5, page_title: "AGI", items: [
+      groups: [{ page_id: pageId(5), page_title: "AGI", items: [
         { uid: "uid_u2", text: "machine learning épilogue" }] }],
       total: 2,
     }],
     ["/api/unlinked?title=Machine+Learning", {
-      groups: [{ page_id: 2, page_title: "AI", items: [
+      groups: [{ page_id: pageId(2), page_title: "AI", items: [
         { uid: "uid_u1", text: "AI overview mentions Machine Learning in plain text" }] }],
       total: 2,
     }],
@@ -626,7 +626,7 @@ it("disables Link with the read-only reason as its tooltip", async () => {
 
 it("hides a durably persisted item and notifies only after delivery", async () => {
   stubFetch([["/api/unlinked?title=ACME", {
-    groups: [{ page_id: 2, page_title: "Source", items: [
+    groups: [{ page_id: pageId(2), page_title: "Source", items: [
       { uid: "uid_u1", text: "Acme created it" },
     ] }],
     total: 1,
@@ -707,7 +707,7 @@ it("retains the item when local persistence fails", async () => {
 
 it("restores the item and permits retry after delivery fails", async () => {
   stubFetch([["/api/unlinked?title=ACME", {
-    groups: [{ page_id: 2, page_title: "Source", items: [
+    groups: [{ page_id: pageId(2), page_title: "Source", items: [
       { uid: "uid_u1", text: "Acme created it" },
     ] }],
     total: 1,
@@ -761,7 +761,7 @@ it("restores the item and permits retry after delivery fails", async () => {
 
 it("reports no-safe-match without enqueueing", async () => {
   stubFetch([["/api/unlinked?title=ACME", {
-    groups: [{ page_id: 2, page_title: "Source", items: [
+    groups: [{ page_id: pageId(2), page_title: "Source", items: [
       { uid: "uid_u1", text: "`ACME`" },
     ] }],
     total: 1,
@@ -788,7 +788,7 @@ it("shows an error and re-enables the button when unlinked show-more fails", asy
     calls += 1;
     if (calls === 1) {
       return new Response(JSON.stringify({
-        groups: [{ page_id: 2, page_title: "AI", items: [
+        groups: [{ page_id: pageId(2), page_title: "AI", items: [
           { uid: "uid_u1", text: "AI overview mentions Machine Learning" }] }],
         total: 2,
       }), { status: 200 });
@@ -818,11 +818,11 @@ it("show-more buttons carry the shared secondary-button style", () => {
 
 const filterInitial: Backlinks = {
   groups: [
-    { page_id: 1, page_title: "Daily A", items: [
-      { uid: "f1", text: "alpha [[Claude]] #Paper", breadcrumbs: [] },
-      { uid: "f2", text: "beta [[Claude]] #Idea", breadcrumbs: [] }] },
-    { page_id: 2, page_title: "Daily B", items: [
-      { uid: "f3", text: "gamma [[Claude]]", breadcrumbs: ["reading #Paper"] }] },
+    { page_id: pageId(1), page_title: title("Daily A"), items: [
+      { uid: uid("f1"), text: "alpha [[Claude]] #Paper", breadcrumbs: [] },
+      { uid: uid("f2"), text: "beta [[Claude]] #Idea", breadcrumbs: [] }] },
+    { page_id: pageId(2), page_title: title("Daily B"), items: [
+      { uid: uid("f3"), text: "gamma [[Claude]]", breadcrumbs: ["reading #Paper"] }] },
   ],
   total_pages: 2, offset: 0, limit: 20,
 };
@@ -865,8 +865,8 @@ it("filter panel: include, exclude via shift-click, clear", () => {
 it("opening the filter panel loads all remaining backlinks first", async () => {
   const rest = pagePayload("Claude", [], {
     backlinks: {
-      groups: [{ page_id: 5, page_title: "Daily C", items: [
-        { uid: "f9", text: "delta [[Claude]] #Paper", breadcrumbs: [] }] }],
+      groups: [{ page_id: pageId(5), page_title: title("Daily C"), items: [
+        { uid: uid("f9"), text: "delta [[Claude]] #Paper", breadcrumbs: [] }] }],
       total_pages: 2, offset: 1, limit: 100,
     },
   });
@@ -888,8 +888,8 @@ it("opening the filter panel loads all remaining backlinks first", async () => {
 
 it("filter panel reaches loaded state when the backlink total shrinks server-side", async () => {
   const shrinkInitial: Backlinks = {
-    groups: [{ page_id: 1, page_title: "Daily A", items: [
-      { uid: "f1", text: "alpha", breadcrumbs: [] }] }],
+    groups: [{ page_id: pageId(1), page_title: title("Daily A"), items: [
+      { uid: uid("f1"), text: "alpha", breadcrumbs: [] }] }],
     // stale total_pages=3 frozen at mount; server now only has 1 page.
     total_pages: 3, offset: 0, limit: 20,
   };

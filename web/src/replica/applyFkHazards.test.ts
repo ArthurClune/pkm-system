@@ -7,7 +7,7 @@
 // "FOREIGN KEY constraint failed", and reset/repair (which re-run
 // reapplyPending) wedge the same way.
 import { beforeEach, describe, expect, test } from "vitest";
-import type { BatchId, SyncSeq } from "../api/brands";
+import type { BatchId, BlockUid, CanonicalTitle, PageId, SyncSeq } from "../api/brands";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import type { ReplicaDb } from "./db";
@@ -18,6 +18,7 @@ import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 // production mint; this mints the brand once rather than at every call.
 const bid = (s: string): BatchId => s as BatchId;
 import { openTestDb, type TestDb } from "./testDb";
+import { uid } from "../test-helpers";
 
 /** The drain's delete of the batch at the head of the queue, on its ack. */
 const ackNext = (db: ReplicaDb): void => {
@@ -25,14 +26,15 @@ const ackNext = (db: ReplicaDb): void => {
   deleteBatch(db, b.id, b.batch_id);
 };
 
-const block = (uid: string, pageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid, page_id: pageId, parent_uid: null, order_idx: 0, text: `text of ${uid}`,
+const block = (rawUid: string, rawPageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
+  uid: rawUid as BlockUid, page_id: rawPageId as PageId, parent_uid: null, order_idx: 0,
+  text: `text of ${rawUid}`,
   heading: null, view_type: null, collapsed: 0, created_at: 1, updated_at: 1,
   refs: [], ...over,
 });
 
-const page = (id: number, title: string) =>
-  ({ id, title, created_at: 1, updated_at: 1 });
+const page = (rawId: number, rawTitle: string) =>
+  ({ id: rawId as PageId, title: rawTitle as CanonicalTitle, created_at: 1, updated_at: 1 });
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (10 as SyncSeq),
@@ -40,7 +42,7 @@ const SNAP: Snapshot = {
   blocks: [
     block("uid_b1", 1),
     block("uid_b2", 1, { order_idx: 1 }),
-    block("uid_b3", 1, { parent_uid: "uid_b2" }),
+    block("uid_b3", 1, { parent_uid: uid("uid_b2") }),
   ],
   sidebar: [],
 };
@@ -85,7 +87,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // refetch the same unappliable window forever.
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (20 as SyncSeq),
-      blocks: [block("uid_child", 1, { parent_uid: "uid_future_parent" })],
+      blocks: [block("uid_child", 1, { parent_uid: uid("uid_future_parent") })],
     }));
     expect(res).toEqual({ status: "needs-bootstrap" });
     // the failed COMMIT must leave the replica exactly as it was: a partially
@@ -101,8 +103,8 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // now-missing parent — a dangling insert the savepoint does NOT catch
     // under deferred FKs.
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_child", page_title: "Machine Learning",
-        parent_uid: "uid_b2", order_idx: 0, text: "typed offline" },
+      { op: "create", uid: uid("uid_child"), page_title: "Machine Learning",
+        parent_uid: uid("uid_b2"), order_idx: 0, text: "typed offline" },
     ], 5, bid("batch-child"));
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
@@ -124,13 +126,13 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // uid_never_seen is a journalled uid this replica never had (the
     // missing parent of a diverted create) -- a DELETE that matches no row.
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_ghost", page_title: "Machine Learning",
+      { op: "create", uid: uid("uid_ghost"), page_title: "Machine Learning",
         parent_uid: null, order_idx: 5, text: "diverted server-side" },
     ], 5, bid("batch-ghost"));
     ackNext(t.db); // the ack
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_ghost_child", page_title: "Machine Learning",
-        parent_uid: "uid_ghost", order_idx: 0, text: "typed under it" },
+      { op: "create", uid: uid("uid_ghost_child"), page_title: "Machine Learning",
+        parent_uid: uid("uid_ghost"), order_idx: 0, text: "typed under it" },
     ], 6, bid("batch-child"));
     expect(uids(t.db)).toContain("uid_ghost_child");
     const res = applyChanges(t.db, emptyFeed({
@@ -153,19 +155,19 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // subtree. The tombstone cascades uid_b2 and uid_b3 away locally; the
     // upserts that follow must bring both back at their real position.
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_ghost_p", page_title: "Machine Learning",
+      { op: "create", uid: uid("uid_ghost_p"), page_title: "Machine Learning",
         parent_uid: null, order_idx: 5, text: "ghost parent" },
     ], 5, bid("batch-ghost-p"));
     ackNext(t.db);
     enqueueBatch(t.db, [
-      { op: "move", uid: "uid_b2", parent_uid: "uid_ghost_p", order_idx: 0 },
+      { op: "move", uid: uid("uid_b2"), parent_uid: uid("uid_ghost_p"), order_idx: 0 },
     ], 6, bid("batch-move"));
     ackNext(t.db);
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
       tombstones: [{ kind: "block", entity_id: "uid_ghost_p" }],
       blocks: [block("uid_b2", 1, { order_idx: 1 }),
-               block("uid_b3", 1, { parent_uid: "uid_b2" })],
+               block("uid_b3", 1, { parent_uid: uid("uid_b2") })],
     }));
     expect(res).toEqual({ status: "applied", cursor: 11 });
     expect(t.db.select("SELECT uid, parent_uid FROM blocks ORDER BY uid"))
@@ -194,10 +196,10 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
 
     // Two batches queue clean at enqueue time: one deletes uid_b3 (rowid 3),
     // the other creates uid_y under uid_b2 (rowid 2).
-    enqueueBatch(t.db, [{ op: "delete", uid: "uid_b3" }], 5, bid("batch-del-b3"));
+    enqueueBatch(t.db, [{ op: "delete", uid: uid("uid_b3") }], 5, bid("batch-del-b3"));
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_y", page_title: "Machine Learning",
-        parent_uid: "uid_b2", order_idx: 0, text: "typed offline" },
+      { op: "create", uid: uid("uid_y"), page_title: "Machine Learning",
+        parent_uid: uid("uid_b2"), order_idx: 0, text: "typed offline" },
     ], 6, bid("batch-create-y"));
     // The window tombstones uid_b2 -- cascading uid_y away -- and re-hydrates
     // uid_b3 moved under a parent beyond the window (dependency-incomplete,
@@ -208,7 +210,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
       tombstones: [{ kind: "block", entity_id: "uid_b2" }],
-      blocks: [block("uid_b3", 1, { parent_uid: "uid_far_parent" })],
+      blocks: [block("uid_b3", 1, { parent_uid: uid("uid_far_parent") })],
     }));
     // batch-del-b3 deletes uid_b3 (rowid 2), shrinking the baseline to {} --
     // the tightening under test. batch-create-y then inserts uid_y, which
@@ -232,7 +234,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // parent_uid that fails the snapshot COMMIT — that makes repair/reset
     // churn forever.
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_opt_parent", page_title: "AI",
+      { op: "create", uid: uid("uid_opt_parent"), page_title: "AI",
         parent_uid: null, order_idx: 0, text: "rejected parent" },
     ], 5, bid("batch-parent"));
     const rejected = nextBatch(t.db)!;
@@ -240,13 +242,13 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
       status: 400, message: "request failed: 400 /api/ops",
     }), bid("batch-parent"));
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_opt_child", page_title: "AI",
-        parent_uid: "uid_opt_parent", order_idx: 0, text: "child" },
+      { op: "create", uid: uid("uid_opt_child"), page_title: "AI",
+        parent_uid: uid("uid_opt_parent"), order_idx: 0, text: "child" },
     ], 6, bid("batch-child"));
     // a batch that still applies cleanly must survive the skip of the one
     // before it: skipping is per-batch, not a bail-out of the whole reapply
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_opt_ok", page_title: "AI",
+      { op: "create", uid: uid("uid_opt_ok"), page_title: "AI",
         parent_uid: null, order_idx: 1, text: "still valid" },
     ], 6, bid("batch-ok"));
     applySnapshot(t.db, SNAP, 7);
@@ -263,8 +265,8 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // there. The guard reads PRAGMA foreign_key_check, which ignores the
     // enforcement pragmas, so it still catches it.
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_opt_child", page_title: "AI",
-        parent_uid: "uid_never_existed", order_idx: 0, text: "child" },
+      { op: "create", uid: uid("uid_opt_child"), page_title: "AI",
+        parent_uid: uid("uid_never_existed"), order_idx: 0, text: "child" },
     ], 5, bid("batch-child"));
     t.db.exec("PRAGMA foreign_keys=OFF");
     try {
@@ -295,7 +297,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // is wrong, and swallowing it would loop bootstrap forever.
     expect(() => applySnapshot(t.db, {
       ...SNAP, seq: (12 as SyncSeq),
-      blocks: [...SNAP.blocks, block("uid_orphan", 1, { parent_uid: "uid_gone" })],
+      blocks: [...SNAP.blocks, block("uid_orphan", 1, { parent_uid: uid("uid_gone") })],
     })).toThrow(/FOREIGN KEY constraint failed/);
     expect(getMeta(t.db, "cursor")).toBe("10");
   });

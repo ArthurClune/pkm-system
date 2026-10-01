@@ -4,6 +4,7 @@
 // context here exists purely to carry mutable app state/callbacks across
 // the tree -- there's no pure decision to extract.
 import { createContext } from "react";
+import type { BlockUid } from "./api/brands";
 import type { BlockNode, BlockRefText } from "./api/payloads";
 import { createBlockRefStore } from "./components/blockRefStore";
 
@@ -12,7 +13,7 @@ export interface SidebarApi {
    * page has rendered -- scoped to that panel's own container,
    * never a document-wide lookup (the same page may be open in the main
    * window at the same time). */
-  openInSidebar: (title: string, uid?: string) => void;
+  openInSidebar: (title: string, uid?: BlockUid) => void;
 }
 
 export const SidebarContext = createContext<SidebarApi>({
@@ -35,7 +36,7 @@ export const BlockRefStoreContext = createContext(createBlockRefStore());
  * (a ref pasted after the payload loaded). No-op default keeps plain
  * BlockRefContext render sites (and their tests) working unchanged. */
 export const BlockRefRequestContext =
-  createContext<(uid: string) => void>(() => undefined);
+  createContext<(uid: BlockUid) => void>(() => undefined);
 
 /** Present only inside the editable outline: lets deep segment renders
  * (TODO checkboxes) reach the block's edit handlers. */

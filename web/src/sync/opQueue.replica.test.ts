@@ -9,11 +9,11 @@ import type { OpsAck } from "../api/payloads";
 import type { PendingRowId, Replica } from "../replica/client";
 import { ReplicaError, ReplicaUnusableError,
          RpcLifecycleError } from "../replica/errors";
-import { jsonResponse } from "../test-helpers";
+import { jsonResponse, title, uid } from "../test-helpers";
 import { memReplica } from "./memReplica";
 import { clientId, createOpQueue, type PoisonEvent } from "./opQueue";
 
-const op = (uid: string): BlockOp => ({ op: "delete", uid });
+const op = (rawUid: string): BlockOp => ({ op: "delete", uid: uid(rawUid) });
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
 const bid = (s: string): BatchId => s as BatchId;
@@ -384,7 +384,7 @@ describe("an enqueue the replica cannot persist", () => {
     const q = createOpQueue(replica);
     q.onDesync((e) => desyncs.push(e));
     const ticket = q.enqueue([
-      { op: "update_text", uid: "u1", text: "a[[b]]" },
+      { op: "update_text", uid: uid("u1"), text: "a[[b]]" },
     ]);
 
     await expect(ticket.settled).resolves.toMatchObject({ status: "failed" });
@@ -430,7 +430,7 @@ describe("an enqueue the replica cannot persist", () => {
       new RpcLifecycleError("worker-error", "replica worker failed"));
     const queue = createOpQueue(replica);
     queue.onDesync((e) => desyncs.push(e));
-    const ticket = queue.enqueue([{ op: "delete", uid: "u1" }]);
+    const ticket = queue.enqueue([{ op: "delete", uid: uid("u1") }]);
     await ticket.settled;
     expect(desyncs).toEqual([]);
     await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
@@ -449,7 +449,7 @@ describe("an enqueue the replica cannot persist", () => {
     let nextBatchCalls = 0;
     replica.nextBatch = () => { nextBatchCalls += 1; return Promise.resolve(null); };
     const queue = createOpQueue(replica);
-    await queue.enqueue([{ op: "delete", uid: "u1" }]).delivered;
+    await queue.enqueue([{ op: "delete", uid: uid("u1") }]).delivered;
     await queue.drain();
     expect(enqueues).toBe(1);
     expect(nextBatchCalls).toBeGreaterThan(0);
@@ -1431,8 +1431,8 @@ describe("deliverLaneAhead", () => {
   async () => {
     fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1,
-      skipped: [{ index: 0, op: "update_text", uid: "u1",
-                  reason: "block_not_found", note_page: "2026-09-29" }],
+      skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
+                  reason: "block_not_found", note_page: title("2026-09-29") }],
     } satisfies OpsAck)]);
     const replica = memReplica();
     const durableEnqueue = replica.enqueue.bind(replica);
@@ -2244,8 +2244,8 @@ describe("skipped ops in an ack", () => {
   async () => {
     fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1,
-      skipped: [{ index: 0, op: "update_text", uid: "u1",
-                  reason: "block_not_found", note_page: "2026-09-29" }],
+      skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
+                  reason: "block_not_found", note_page: title("2026-09-29") }],
     } satisfies OpsAck)]);
     const replica = noReplicaAtAll();
     const skips: void[] = [];
@@ -2303,8 +2303,8 @@ describe("skipped ops in an ack", () => {
     // ghost, so this refetch is a harmless extra, not a correctness gap.
     const { bodies } = fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1,
-      skipped: [{ index: 0, op: "update_text", uid: "u1",
-                  reason: "block_not_found", note_page: "2026-09-29" }],
+      skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
+                  reason: "block_not_found", note_page: title("2026-09-29") }],
     } satisfies OpsAck)]);
     const replica = memReplica({
       enqueue: async () => { throw new Error("worker crashed"); },
@@ -2324,8 +2324,8 @@ describe("skipped ops in an ack", () => {
   "it)", async () => {
     fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1, seq: (7 as SyncSeq),
-      skipped: [{ index: 0, op: "update_text", uid: "u1",
-                  reason: "block_not_found", note_page: "2026-09-29" }],
+      skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
+                  reason: "block_not_found", note_page: title("2026-09-29") }],
     } satisfies OpsAck)]);
     const replica = memReplica();
     const skips: void[] = [];
@@ -2377,7 +2377,7 @@ describe("a listener subscribed in the same tick as the call still hears it", ()
         'unsupported reference title syntax: "a[[b]]"', { rejected: true }); },
     });
     const q = createOpQueue(replica);
-    q.enqueue([{ op: "update_text", uid: "u1", text: "a[[b]]" }]);
+    q.enqueue([{ op: "update_text", uid: uid("u1"), text: "a[[b]]" }]);
     const spy = vi.fn();
     q.onDesync(spy);
     await q.settled();
@@ -2413,8 +2413,8 @@ describe("a listener subscribed in the same tick as the call still hears it", ()
   test("an acked skip reaches a listener added after the enqueue", async () => {
     fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1, seq: (7 as SyncSeq),
-      skipped: [{ index: 0, op: "update_text", uid: "u1",
-                  reason: "block_not_found", note_page: "2026-09-29" }],
+      skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
+                  reason: "block_not_found", note_page: title("2026-09-29") }],
     } satisfies OpsAck)]);
     const q = createOpQueue(memReplica());
     const ticket = q.enqueue([op("u1")]);

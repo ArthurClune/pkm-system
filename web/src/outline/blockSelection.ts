@@ -3,17 +3,18 @@
 // anchor (where it started) and a head (the moving end). All ordering is read
 // off visibleUids so a collapsed subtree's hidden children are never part of a
 // selection. Used for "select several blocks and copy their text out".
+import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { findNode, selectionRoots, visibleUids } from "./tree";
 
 export interface BlockSelection {
-  anchor: string; // block the selection started on
-  head: string; // the end that Shift+Arrow moves
+  anchor: BlockUid; // block the selection started on
+  head: BlockUid; // the end that Shift+Arrow moves
 }
 
 /** The visible uids the selection covers, in document order (inclusive of both
  * ends). Empty if either end is no longer visible (e.g. a subtree collapsed). */
-export function selectedUids(blocks: BlockNode[], sel: BlockSelection): string[] {
+export function selectedUids(blocks: BlockNode[], sel: BlockSelection): BlockUid[] {
   const order = visibleUids(blocks);
   const a = order.indexOf(sel.anchor);
   const h = order.indexOf(sel.head);
@@ -40,7 +41,7 @@ export function extendSelection(
  * is copied, and what parseOutlineForest round-trips back into structure. */
 export function selectionText(blocks: BlockNode[], sel: BlockSelection): string {
   const uids = selectedUids(blocks, sel);
-  const depths = new Map<string, number>();
+  const depths = new Map<BlockUid, number>();
   const walk = (nodes: BlockNode[], depth: number): void => {
     for (const n of nodes) {
       depths.set(n.uid, depth);
@@ -60,7 +61,7 @@ export function selectionText(blocks: BlockNode[], sel: BlockSelection): string 
  * of the selection (a selected descendant travels inside its parent), or null
  * when it isn't — that drag is a plain single-block drag. */
 export function selectionDragUids(blocks: BlockNode[], sel: BlockSelection,
-                                  grabbed: string): string[] | null {
+                                  grabbed: BlockUid): BlockUid[] | null {
   const uids = selectedUids(blocks, sel);
   if (!uids.includes(grabbed)) return null;
   return selectionRoots(blocks, uids);

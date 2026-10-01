@@ -2,7 +2,7 @@ import { act, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, expect, test, vi } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { block, FakeWebSocket, stubFetch } from "../test-helpers";
+import { FakeWebSocket, block, stubFetch, title, uid } from "../test-helpers";
 import * as tokenize from "../grammar/tokenize";
 import { SyncProvider, useSyncActions,
          type SyncActions } from "../sync/SyncProvider";
@@ -38,7 +38,7 @@ test("an enqueue's pending count re-renders no block row", async () => {
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncProvider replica={null}>
         <Grab />
-        <EditablePage title="Page" initial={[
+        <EditablePage title={title("Page")} initial={[
           block("u1", "first", { order_idx: 0 }),
           block("u2", "second", { order_idx: 1 }),
           block("u3", "third", { order_idx: 2 }),
@@ -50,7 +50,7 @@ test("an enqueue's pending count re-renders no block row", async () => {
   expect(settled).toBeGreaterThanOrEqual(3);
 
   // 0 -> 1 -> 0 pending, i.e. what every flushed edit does to the queue.
-  await act(async () => { actions.enqueue([{ op: "delete", uid: "gone" }]); });
+  await act(async () => { actions.enqueue([{ op: "delete", uid: uid("gone") }]); });
 
   expect(tokenizeCalls()).toBe(settled);
 });

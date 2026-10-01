@@ -10,7 +10,7 @@ import type { BlockOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, stubFetch } from "../test-helpers";
+import { block, makeSync, stubFetch, title, uid } from "../test-helpers";
 import { EditablePage } from "./EditablePage";
 
 // Imported, not read with node:fs: this test needs the jsdom environment,
@@ -33,7 +33,7 @@ function typeDraftUnder(remoteOps: BlockOp[]) {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title={fixture.page_title}
+        <EditablePage title={title(fixture.page_title)}
                       initial={[block(fixture.uid, fixture.base)]} />
       </SyncContext.Provider>
     </MemoryRouter>);
@@ -47,12 +47,12 @@ function typeDraftUnder(remoteOps: BlockOp[]) {
 
 test("a remote update under a draft ships the fixture's wire op", () => {
   const sync = typeDraftUnder([
-    { op: "update_text", uid: fixture.uid, text: fixture.remote },
+    { op: "update_text", uid: uid(fixture.uid), text: fixture.remote },
   ]);
   expect(sync.sent).toEqual([[wireOp]]);
 });
 
 test("a remote delete under a draft ships the same wire op", () => {
-  const sync = typeDraftUnder([{ op: "delete", uid: fixture.uid }]);
+  const sync = typeDraftUnder([{ op: "delete", uid: uid(fixture.uid) }]);
   expect(sync.sent).toEqual([[wireOp]]);
 });

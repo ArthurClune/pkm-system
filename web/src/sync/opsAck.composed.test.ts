@@ -6,7 +6,7 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import fixture from "../../../shared/fixtures/ops_acks.json";
 import type { BlockOp } from "../api/ops";
-import { jsonResponse } from "../test-helpers";
+import { jsonResponse, uid } from "../test-helpers";
 import { memReplica } from "./memReplica";
 import { createOpQueue } from "./opQueue";
 
@@ -25,7 +25,7 @@ function fetchSeq(responses: Array<() => Response | Promise<Response>>) {
   return { mock };
 }
 
-const op: BlockOp = { op: "delete", uid: "u1" };
+const op: BlockOp = { op: "delete", uid: uid("u1") };
 
 test.each(fixture.cases)("the $name ack the route replays drives the drain",
 async ({ wire }) => {

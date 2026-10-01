@@ -2,6 +2,12 @@
 // TS port of server daily.py title helpers: Roam's ordinal daily-page
 // titles ("July 13th, 2026"). Local daily auto-create offline needs the
 // exact same format the server generates.
+//
+// A daily title is a CanonicalTitle by format: single U+0020 separators, no
+// control or boundary whitespace, so it is the same under either setting
+// of the plain-space flag (the server's routes_pages._daily_title).
+
+import type { CanonicalTitle } from "../api/brands";
 
 export const MONTHS = ["January", "February", "March", "April", "May", "June",
                 "July", "August", "September", "October", "November",
@@ -15,9 +21,9 @@ function suffix(day: number): string {
   return { 1: "st", 2: "nd", 3: "rd" }[day % 10] ?? "th";
 }
 
-export function titleForDate(d: Date): string {
-  return `${MONTHS[d.getMonth()]} ${d.getDate()}${suffix(d.getDate())},` +
-    ` ${d.getFullYear()}`;
+export function titleForDate(d: Date): CanonicalTitle {
+  return (`${MONTHS[d.getMonth()]} ${d.getDate()}${suffix(d.getDate())},` +
+    ` ${d.getFullYear()}`) as CanonicalTitle;
 }
 
 export function dateForTitle(title: string): Date | null {
@@ -26,6 +32,12 @@ export function dateForTitle(title: string): Date | null {
   const day = Number(m[2]);
   if (suffix(day) !== m[3]) return null;
   return new Date(Number(m[4]), MONTHS.indexOf(m[1]), day);
+}
+
+/** `title` itself when it is a daily title (dateForTitle accepts it), which
+ * makes it canonical by format; null otherwise. */
+export function dailyTitle(title: string): CanonicalTitle | null {
+  return dateForTitle(title) === null ? null : title as CanonicalTitle;
 }
 
 // TS port of daily.py select_journal_days: the dates a journal

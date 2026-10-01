@@ -1,6 +1,7 @@
 // pattern: Imperative Shell
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import type { CanonicalTitle } from "../api/brands";
 import { apiGet, apiPost } from "../api/typedClient";
 import type { BlockRefText, JournalDay, PagePayload } from "../api/payloads";
 import { BlockRefProvider } from "../components/BlockRefProvider";
@@ -24,7 +25,7 @@ const SERVER_MAX_DAYS = 31; // get_journal clamps `days`; asking for more is moo
 // created) underneath us — an empty-daily prune, or the server's
 // today-only auto-create declining a non-today title. Either
 // way that's an empty day, not a failed load (substituteMissingDay).
-const fetchDayBlocks = (title: string): Promise<PagePayload["blocks"]> =>
+const fetchDayBlocks = (title: CanonicalTitle): Promise<PagePayload["blocks"]> =>
   loadOutlineBlocks(title, substituteMissingDay);
 
 export function Journal() {
@@ -52,7 +53,7 @@ export function Journal() {
   const sessionsRef = useRef(new Map<string, OutlineSessionHandle>());
   const sessionLoaderCleanupRef = useRef(new Map<string, () => void>());
 
-  const sessionFor = useCallback((title: string) => {
+  const sessionFor = useCallback((title: CanonicalTitle) => {
     let session = sessionsRef.current.get(title);
     if (!session) {
       session = acquireOutlineSession(title, null);

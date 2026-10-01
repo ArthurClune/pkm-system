@@ -7,7 +7,7 @@ import type { OpsAck } from "../api/payloads";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { acquireOutlineSession } from "../outline/outlineSessions";
 import { sha256Hex } from "../replica/sha256";
-import { block, FakeWebSocket, jsonResponse, stubFetch } from "../test-helpers";
+import { FakeWebSocket, block, jsonResponse, stubFetch, title, uid } from "../test-helpers";
 import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
 import { clientId, createOpQueue } from "./opQueue";
@@ -85,7 +85,7 @@ describe("the socket and remote batches", () => {
     render(<SyncProvider><Grab /></SyncProvider>);
     act(() => lastWs().open());  // first connect
     act(() => lastWs().drop());  // offline: queue paused
-    act(() => sync.enqueue([{ op: "delete", uid: "u1" }])); // preserved, not sent
+    act(() => sync.enqueue([{ op: "delete", uid: uid("u1") }])); // preserved, not sent
     act(() => { vi.advanceTimersByTime(2000); }); // socket reconnect timer
     await act(async () => { lastWs().open(); }); // reconnect: flush starts (gated)
 
@@ -101,7 +101,7 @@ describe("the socket and remote batches", () => {
     render(<SyncProvider><Probe onBatch={onBatch} /></SyncProvider>);
     act(() => lastWs().open());
     const remote = { client_id: "someone-else", ts: 1,
-                     ops: [{ op: "delete", uid: "u1" }] };
+                     ops: [{ op: "delete", uid: uid("u1") }] };
     act(() => lastWs().message(remote));
     act(() => lastWs().message({ client_id: clientId, ts: 2, ops: [] }));
     expect(onBatch).toHaveBeenCalledTimes(1);
@@ -115,7 +115,7 @@ describe("the socket and remote batches", () => {
     act(() => lastWs().message({ type: "seq", seq: 42 }));
     expect(onBatch).not.toHaveBeenCalled();
     const remote = { client_id: "someone-else", ts: 1,
-                     ops: [{ op: "delete", uid: "u1" }] };
+                     ops: [{ op: "delete", uid: uid("u1") }] };
     act(() => lastWs().message(remote));
     expect(onBatch).toHaveBeenCalledTimes(1);
     expect(onBatch).toHaveBeenCalledWith(remote);
@@ -364,9 +364,9 @@ describe("legacy repair of a rejected batch", () => {
     let later: ReturnType<Sync["enqueue"]> | undefined;
     try {
       const rejected = sync.enqueue(Array.from(
-        { length: 500 }, (_, i) => ({ op: "delete" as const, uid: `bad-${i}` }),
+        { length: 500 }, (_, i) => ({ op: "delete" as const, uid: uid(`bad-${i}`) }),
       ));
-      later = sync.enqueue([{ op: "delete", uid: "later" }]);
+      later = sync.enqueue([{ op: "delete", uid: uid("later") }]);
 
       await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
       await vi.waitFor(() => expect(postCount).toBe(2));
@@ -432,11 +432,11 @@ describe("legacy repair of a rejected batch", () => {
     const sourceRegistration = dnd.registerOutline(sourceTitle, sourceDnd);
     try {
       const rejected = sync.enqueue(Array.from(
-        { length: 500 }, (_, i) => ({ op: "delete" as const, uid: `bad-${i}` }),
+        { length: 500 }, (_, i) => ({ op: "delete" as const, uid: uid(`bad-${i}`) }),
       ), ["page", sourceTitle]);
       dnd.drop(
-        { uid: "moved", pageTitle: sourceTitle },
-        { parent_uid: "target-root", order_idx: 1, page_title: targetTitle },
+        { uid: uid("moved"), pageTitle: sourceTitle },
+        { parent_uid: uid("target-root"), order_idx: 1, page_title: targetTitle },
       );
 
       await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
@@ -498,13 +498,13 @@ describe("legacy repair of a rejected batch", () => {
     const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
     const rejected = sync.enqueue(
-      [{ op: "delete", uid: "bad" }], ["page", "Legacy repair target"],
+      [{ op: "delete", uid: uid("bad") }], ["page", "Legacy repair target"],
     );
-    session.applyLocal(rejected, [{ op: "delete", uid: "bad" }]);
+    session.applyLocal(rejected, [{ op: "delete", uid: uid("bad") }]);
     await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
     await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
 
-    const later = sync.enqueue([{ op: "delete", uid: "later" }]);
+    const later = sync.enqueue([{ op: "delete", uid: uid("later") }]);
     await Promise.resolve();
     expect(postCount).toBe(1);
     expect(screen.getByTestId("legacy-resync")).toHaveTextContent("0");
@@ -561,13 +561,13 @@ describe("legacy repair of a rejected batch", () => {
     try {
       await act(async () => { lastWs().open(); });
       const rejected = sync.enqueue(
-        [{ op: "delete", uid: "bad" }], ["page", "Legacy forced target"],
+        [{ op: "delete", uid: uid("bad") }], ["page", "Legacy forced target"],
       );
       session.applyLocal(rejected, []);
       const existing = session.requestAuthoritative(() => stale.promise);
       await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
       later = sync.enqueue(
-        [{ op: "delete", uid: "later" }], ["page", "Legacy forced target"],
+        [{ op: "delete", uid: uid("later") }], ["page", "Legacy forced target"],
       );
       session.applyLocal(later, []);
 
@@ -619,7 +619,7 @@ describe("legacy repair of a rejected batch", () => {
     try {
       await act(async () => { lastWs().open(); });
       const rejected = sync.enqueue(
-        [{ op: "delete", uid: "bad" }], ["page", "Dynamic repair first"],
+        [{ op: "delete", uid: uid("bad") }], ["page", "Dynamic repair first"],
       );
       first.applyLocal(rejected, []);
       await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
@@ -631,7 +631,7 @@ describe("legacy repair of a rejected batch", () => {
         return [];
       });
       removeSecondLoader = second.setAuthoritativeLoader("editable", secondLoad);
-      const later = sync.enqueue([{ op: "delete", uid: "later" }]);
+      const later = sync.enqueue([{ op: "delete", uid: uid("later") }]);
       expect(postCount).toBe(1);
 
       releaseFirst();
@@ -673,7 +673,7 @@ describe("legacy repair of a rejected batch", () => {
     try {
       await act(async () => { lastWs().open(); });
       const ticket = sync.enqueue(
-        [{ op: "move", uid: "u1", parent_uid: null, order_idx: 0 }],
+        [{ op: "move", uid: uid("u1"), parent_uid: null, order_idx: 0 }],
         ["page", targetTitle],
       );
       await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(
@@ -731,13 +731,13 @@ describe("legacy repair of a rejected batch", () => {
 
     const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
-    const rejected = sync.enqueue([{ op: "delete", uid: "bad" }]);
+    const rejected = sync.enqueue([{ op: "delete", uid: uid("bad") }]);
     await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
     await vi.waitFor(() => {
       expect(screen.getByTestId("legacy-problem")).toHaveTextContent("failed");
     });
 
-    const later = sync.enqueue([{ op: "delete", uid: "later" }]);
+    const later = sync.enqueue([{ op: "delete", uid: uid("later") }]);
     expect(postCount).toBe(1);
     await act(async () => { await sync.retryProblem(); });
     await expect(later.delivered).resolves.toEqual({ status: "delivered" });
@@ -764,7 +764,7 @@ describe("durable batches on connect", () => {
     ]);
     const replica = fakeReplicaForProvider();
     const rows = [{ id: 1 as PendingRowId, batch_id: bid("leftover"),
-                    ops: [{ op: "delete", uid: "u1" } as const], poisoned: false }];
+                    ops: [{ op: "delete", uid: uid("u1") } as const], poisoned: false }];
     replica.pendingCount = async () => rows.length;
     replica.nextBatch = async () => rows[0] ?? null;
     replica.deleteBatch = async () => { rows.pop(); return { pending: 0 }; };
@@ -784,8 +784,8 @@ describe("durable batches on connect", () => {
       ["/api/sync/changes", EMPTY_FEED],
       ["/api/ops", {
         ok: true, ts: 1, applied: 1,
-        skipped: [{ index: 0, op: "update_text", uid: "u1",
-                    reason: "block_not_found", note_page: "2026-09-29" }],
+        skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
+                    reason: "block_not_found", note_page: title("2026-09-29") }],
       } satisfies OpsAck],
     ]);
     const replica = fakeReplicaForProvider();
@@ -809,7 +809,7 @@ describe("durable batches on connect", () => {
     await act(async () => { lastWs().open(); }); // first connect settles
     const before = sync.resyncGeneration;
     await act(async () => {
-      await sync.enqueue([{ op: "delete", uid: "u1" }]).delivered;
+      await sync.enqueue([{ op: "delete", uid: uid("u1") }]).delivered;
     });
     expect(sync.resyncGeneration).toBeGreaterThan(before);
     expect(rows).toEqual([]); // delivered normally alongside the resync bump
@@ -864,7 +864,7 @@ describe("poison repair and startup marks", () => {
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
     await act(async () => {
-      await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
+      await sync.enqueue([{ op: "delete", uid: uid("bad") }]).settled;
     });
     await vi.waitFor(() => { expect(sync.problem).toMatchObject({
       kind: "rejected-batch", repair: "repaired",
@@ -940,8 +940,8 @@ describe("poison repair and startup marks", () => {
     await act(async () => { lastWs().open(); });
     const baselineResync = sync.resyncGeneration;
     await act(async () => {
-      await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
-      await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
+      await sync.enqueue([{ op: "delete", uid: uid("bad") }]).settled;
+      await sync.enqueue([{ op: "delete", uid: uid("good") }]).settled;
       await Promise.resolve();
     });
     await vi.waitFor(() => { expect(snapshotHasStarted).toBe(true); });
@@ -1015,7 +1015,7 @@ describe("poison repair and startup marks", () => {
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
     await act(async () => {
-      await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
+      await sync.enqueue([{ op: "delete", uid: uid("bad") }]).settled;
       await Promise.resolve();
     });
     await vi.waitFor(() => {
@@ -1105,8 +1105,8 @@ describe("poison repair and startup marks", () => {
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
     await act(async () => {
-      await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
-      await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
+      await sync.enqueue([{ op: "delete", uid: uid("bad") }]).settled;
+      await sync.enqueue([{ op: "delete", uid: uid("good") }]).settled;
       await Promise.resolve();
     });
     await vi.waitFor(() => { expect(posts).toEqual(["bad-batch", "good-batch"]); });
@@ -1141,8 +1141,8 @@ describe("poison repair and startup marks", () => {
       return jsonResponse({ detail: "not found" }, 404);
     }));
 
-    const rejectedOp = { op: "delete", uid: "rejected" } as const;
-    const goodOp = { op: "delete", uid: "good" } as const;
+    const rejectedOp = { op: "delete", uid: uid("rejected") } as const;
+    const goodOp = { op: "delete", uid: uid("good") } as const;
     const rows = [
       { id: 1 as PendingRowId, batch_id: bid("old-poison"), ops: [rejectedOp], poisoned: true },
       { id: 2 as PendingRowId, batch_id: bid("later-good"), ops: [goodOp], poisoned: false },
@@ -1236,8 +1236,8 @@ describe("poison repair and startup marks", () => {
     };
 
     const firstPage = createOpQueue(replica);
-    firstPage.enqueue([{ op: "delete", uid: "bad" }]);
-    firstPage.enqueue([{ op: "delete", uid: "good" }]);
+    firstPage.enqueue([{ op: "delete", uid: uid("bad") }]);
+    firstPage.enqueue([{ op: "delete", uid: uid("good") }]);
     await firstPage.settled();
     await firstPage.drain();
     firstPage.dispose();
@@ -1275,7 +1275,7 @@ describe("poison repair and startup marks", () => {
   test("startup repairs returned marks even when poison discovery fails", async () => {
     const event = {
       id: 1 as PendingRowId, batch_id: "bad-batch",
-      ops: [{ op: "delete", uid: "bad" } as const],
+      ops: [{ op: "delete", uid: uid("bad") } as const],
       status: 400, message: "request failed: 400 /api/ops",
     };
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
@@ -1303,7 +1303,7 @@ describe("poison repair and startup marks", () => {
     const rows = [
       { id: 1 as PendingRowId, batch_id: bid("bad-batch"), ops: [...event.ops], poisoned: false },
       { id: 2 as PendingRowId, batch_id: bid("later-good"),
-        ops: [{ op: "delete", uid: "good" } as const], poisoned: false },
+        ops: [{ op: "delete", uid: uid("good") } as const], poisoned: false },
     ];
     const replica = fakeReplicaForProvider();
     let discoveryCalls = 0;
@@ -1429,7 +1429,7 @@ describe("an unopenable replica", () => {
     await act(async () => { lastWs().open(); await Promise.resolve(); });
 
     await act(async () => {
-      sync.enqueue([{ op: "delete", uid: "typed-while-dead" }]);
+      sync.enqueue([{ op: "delete", uid: uid("typed-while-dead") }]);
     });
 
     await vi.waitFor(() => { expect(posts).toHaveLength(1); });
@@ -1456,7 +1456,7 @@ describe("an unopenable replica", () => {
     await act(async () => { lastWs().open(); await Promise.resolve(); });
     await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
     await act(async () => {
-      sync.enqueue([{ op: "update_text", uid: "u1", text: "typed while dead" }]);
+      sync.enqueue([{ op: "update_text", uid: uid("u1"), text: "typed while dead" }]);
     });
     await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
     return { posts, sync: () => sync };
@@ -1506,7 +1506,7 @@ describe("an unopenable replica", () => {
     await act(async () => { lastWs().open(); await Promise.resolve(); });
     await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
     await act(async () => {
-      sync.enqueue([{ op: "update_text", uid: "block-1", text: "edited online-only",
+      sync.enqueue([{ op: "update_text", uid: uid("block-1"), text: "edited online-only",
                       base_text_hash: sha256Hex("hello") }]);
     });
     await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
@@ -1609,11 +1609,11 @@ describe("the poison gate and repair problems", () => {
       if (contended) { contended = false; state = "failed"; throw sah(); }
       state = "open";
     };
-    const rejected = { op: "delete", uid: "rejected" } as const;
+    const rejected = { op: "delete", uid: uid("rejected") } as const;
     const rows = [
       { id: 7 as PendingRowId, batch_id: bid("rejected-last-session"), ops: [rejected], poisoned: true },
       { id: 8 as PendingRowId, batch_id: bid("queued-behind-poison"),
-        ops: [{ op: "delete", uid: "behind" } as const], poisoned: false },
+        ops: [{ op: "delete", uid: uid("behind") } as const], poisoned: false },
     ];
     const replica = fakeReplicaForProvider();
     replica.init = async () => {
@@ -1694,7 +1694,7 @@ describe("the poison gate and repair problems", () => {
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
       version: 1,
       intents: [{ id: 1, batch_id: "bad-batch",
-                  ops: [{ op: "delete", uid: "bad" }],
+                  ops: [{ op: "delete", uid: uid("bad") }],
                   status: 400, message: "request failed: 400 /api/ops" }],
     }));
     const posts: string[] = [];
@@ -1719,7 +1719,7 @@ describe("the poison gate and repair problems", () => {
     await act(async () => { lastWs().open(); await Promise.resolve(); });
 
     await act(async () => {
-      sync.enqueue([{ op: "delete", uid: "typed-while-wedged" }]);
+      sync.enqueue([{ op: "delete", uid: uid("typed-while-wedged") }]);
     });
     await act(async () => { await Promise.resolve(); });
 
@@ -1738,7 +1738,7 @@ describe("the poison gate and repair problems", () => {
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
       version: 1,
       intents: [{ id: 1, batch_id: "bad-batch",
-                  ops: [{ op: "delete", uid: "bad" }],
+                  ops: [{ op: "delete", uid: uid("bad") }],
                   status: 400, message: "request failed: 400 /api/ops" }],
     }));
     const posts: string[] = [];
@@ -1762,7 +1762,7 @@ describe("the poison gate and repair problems", () => {
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); await Promise.resolve(); });
     await act(async () => {
-      sync.enqueue([{ op: "delete", uid: "typed-while-wedged" }]);
+      sync.enqueue([{ op: "delete", uid: uid("typed-while-wedged") }]);
     });
     await act(async () => { await Promise.resolve(); });
     expect(sync.problem).toMatchObject({
@@ -1840,8 +1840,8 @@ describe("the poison gate and repair problems", () => {
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
     await act(async () => {
-      await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
-      await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
+      await sync.enqueue([{ op: "delete", uid: uid("bad") }]).settled;
+      await sync.enqueue([{ op: "delete", uid: uid("good") }]).settled;
     });
     await vi.waitFor(() => { expect(sync.problem).toMatchObject({
       kind: "rejected-batch", repair: "failed",
@@ -1947,8 +1947,8 @@ describe("the poison gate and repair problems", () => {
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
     await act(async () => {
-      await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
-      await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
+      await sync.enqueue([{ op: "delete", uid: uid("bad") }]).settled;
+      await sync.enqueue([{ op: "delete", uid: uid("good") }]).settled;
     });
     await vi.waitFor(() => { expect(sync.problem).toMatchObject({
       kind: "rejected-batch", repair: "failed",
@@ -1967,7 +1967,7 @@ describe("the poison gate and repair problems", () => {
     // problem (now "running"), not the stale "repaired" snapshot from before
     // this tick -- otherwise it wrongly dismisses the live repair.
     await act(async () => {
-      sync.enqueue([{ op: "delete", uid: "bad2" }]);
+      sync.enqueue([{ op: "delete", uid: uid("bad2") }]);
       await thirdRebase;
       sync.dismissProblem();
     });
@@ -2028,7 +2028,7 @@ describe("offline and cold start", () => {
     expect(sync.canEdit).toBe(true); // replica ready: editing continues
     expect(sync.pending).toBe(2);    // durable queue from a previous session
     await act(async () => {
-      const write = sync.enqueue([{ op: "delete", uid: "u1" }]);
+      const write = sync.enqueue([{ op: "delete", uid: uid("u1") }]);
       await write.settled;
     });
     expect(sync.pending).toBe(3);
@@ -2065,7 +2065,7 @@ describe("offline and cold start", () => {
     await act(async () => { lastWs().open(); });
 
     await act(async () => {
-      await sync.enqueue([{ op: "delete", uid: "u1" }]).settled;
+      await sync.enqueue([{ op: "delete", uid: uid("u1") }]).settled;
     });
     expect(sync.pending).toBe(1);
 
@@ -2073,7 +2073,7 @@ describe("offline and cold start", () => {
     await act(async () => { answerCount(0); await durableRead; });
 
     await act(async () => {
-      await sync.enqueue([{ op: "delete", uid: "u2" }]).settled;
+      await sync.enqueue([{ op: "delete", uid: uid("u2") }]).settled;
     });
     expect(sync.pending).toBe(1); // one durable row again, and it must show
   });
@@ -2166,7 +2166,7 @@ describe("ownership and StrictMode lifecycle", () => {
       </StrictMode>);
     act(() => lastWs().open());
 
-    const write = sync.enqueue([{ op: "delete", uid: "u1" }]);
+    const write = sync.enqueue([{ op: "delete", uid: uid("u1") }]);
     // With no replica there is nothing to persist into, so the op rides the
     // in-memory lane; liveness is that the queue still delivers it after
     // StrictMode has replayed the mount effects.
@@ -2215,8 +2215,8 @@ describe("ownership and StrictMode lifecycle", () => {
     // refetch every view twice.
     stubFetch([["/api/ops", {
       ok: true, ts: 1, applied: 1,
-      skipped: [{ index: 0, op: "update_text", uid: "u1",
-                  reason: "block_not_found", note_page: "2026-09-29" }],
+      skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
+                  reason: "block_not_found", note_page: title("2026-09-29") }],
     } satisfies OpsAck]]);
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }
@@ -2228,7 +2228,7 @@ describe("ownership and StrictMode lifecycle", () => {
     const before = sync.resyncGeneration;
 
     await act(async () => {
-      await expect(sync.enqueue([{ op: "delete", uid: "u1" }]).delivered)
+      await expect(sync.enqueue([{ op: "delete", uid: uid("u1") }]).delivered)
         .resolves.toEqual({ status: "delivered" });
     });
 
@@ -2256,7 +2256,7 @@ describe("reconnect pulls and resync", () => {
       render(<SyncProvider replica={null}><Grab /></SyncProvider>);
       act(() => lastWs().open());
       act(() => lastWs().drop());
-      act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
+      act(() => { sync.enqueue([{ op: "delete", uid: uid("u1") }]); });
       act(() => { vi.advanceTimersByTime(2_000); });
       await act(async () => { lastWs().open(); await Promise.resolve(); });
 
@@ -2314,7 +2314,7 @@ describe("reconnect pulls and resync", () => {
       const baselineChanges = changeCalls;
       act(() => lastWs().drop());
       await act(async () => {
-        await sync.enqueue([{ op: "delete", uid: "u1" }]).settled;
+        await sync.enqueue([{ op: "delete", uid: uid("u1") }]).settled;
       });
       act(() => { vi.advanceTimersByTime(2_000); });
       await act(async () => { lastWs().open(); await Promise.resolve(); });
@@ -2387,7 +2387,7 @@ describe("reconnect pulls and resync", () => {
       expect(sync.resyncGeneration).toBe(baselineResync + 1);
 
       await act(async () => {
-        await sync.enqueue([{ op: "delete", uid: "unrelated" }]).settled;
+        await sync.enqueue([{ op: "delete", uid: uid("unrelated") }]).settled;
         await Promise.resolve();
       });
       expect(changeCalls).toBe(baselineChanges + 1);
@@ -2673,7 +2673,7 @@ describe("resetReplica", () => {
     const replica = fakeReplicaForProvider();
     const pendingBatch: { id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                           poisoned: boolean } =
-      { id: 1 as PendingRowId, batch_id: bid("b1"), ops: [{ op: "delete", uid: "u1" }], poisoned: false };
+      { id: 1 as PendingRowId, batch_id: bid("b1"), ops: [{ op: "delete", uid: uid("u1") }], poisoned: false };
     replica.prepareRecovery = async () =>
       ({ token: "lease-1", batches: [pendingBatch] });
     let sync!: Sync;
@@ -2700,7 +2700,7 @@ describe("resetReplica", () => {
     const replica = fakeReplicaForProvider();
     const pendingBatch: { id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                           poisoned: boolean } =
-      { id: 1 as PendingRowId, batch_id: bid("b1"), ops: [{ op: "delete", uid: "u1" }], poisoned: false };
+      { id: 1 as PendingRowId, batch_id: bid("b1"), ops: [{ op: "delete", uid: uid("u1") }], poisoned: false };
     replica.prepareRecovery = async () =>
       ({ token: "lease-1", batches: [pendingBatch] });
     let sync!: Sync;
@@ -2756,7 +2756,7 @@ describe("unmount cleanup", () => {
       const { unmount } = render(
         <SyncProvider replica={null}><Grab /></SyncProvider>);
       act(() => lastWs().open());
-      act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
+      act(() => { sync.enqueue([{ op: "delete", uid: uid("u1") }]); });
       await act(async () => { await Promise.resolve(); });
       unmount();
 
@@ -2794,7 +2794,7 @@ describe("the unload guard", () => {
     // The socket stays closed: a connected queue would deliver the lane entry
     // immediately and there would be nothing left to lose.
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-    act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
+    act(() => { sync.enqueue([{ op: "delete", uid: uid("u1") }]); });
     await act(async () => { await sync.settled(); });
 
     expect(sync.unsentInMemory).toBe(1);
@@ -2810,7 +2810,7 @@ describe("the unload guard", () => {
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
-    act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
+    act(() => { sync.enqueue([{ op: "delete", uid: uid("u1") }]); });
     await act(async () => { await sync.settled(); });
 
     // Undelivered, so it shows in the offline banner's count — but it is on disk

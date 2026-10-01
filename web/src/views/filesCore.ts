@@ -1,6 +1,7 @@
 // pattern: Functional Core
 // Pure logic for the /files asset browser. The Files view is
 // the imperative shell; everything testable without I/O lives here.
+import type { BlockUid } from "../api/brands";
 import type { AssetSearchItem, BacklinkItem } from "../api/payloads";
 
 export interface FileFilters {
@@ -107,15 +108,15 @@ export function formatSize(bytes: number): string {
 }
 
 export interface AssetRef {
-  uid: string;
+  uid: BlockUid;
   page_title: string;
 }
 
 // GET /api/block-refs rejects more than 50 uids per call.
 const BLOCK_REFS_CAP = 50;
 
-export function refUidChunks(refs: readonly AssetRef[]): string[][] {
-  const chunks: string[][] = [];
+export function refUidChunks(refs: readonly AssetRef[]): BlockUid[][] {
+  const chunks: BlockUid[][] = [];
   for (let i = 0; i < refs.length; i += BLOCK_REFS_CAP) {
     chunks.push(refs.slice(i, i + BLOCK_REFS_CAP).map((r) => r.uid));
   }

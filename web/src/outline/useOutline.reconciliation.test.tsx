@@ -7,16 +7,15 @@ import type { DeliveryOutcome, TicketId, WriteOutcome,
               WriteTicket } from "../sync/opQueue";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
-import { READ_INIT, block, jsonResponse, makeSync, pagePayload,
-         stubFetch } from "../test-helpers";
+import { READ_INIT, block, jsonResponse, makeSync, pagePayload, stubFetch, title, uid } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
-function Harness({ title, initial, onReady }: {
+function Harness({ title: pageTitle, initial, onReady }: {
   title: string;
   initial: BlockNode[];
   onReady(outline: Outline): void;
 }) {
-  const outline = useOutline(title, initial);
+  const outline = useOutline(title(pageTitle), initial);
   useEffect(() => onReady(outline));
   return null;
 }
@@ -44,14 +43,14 @@ it("does not let an old target refetch erase a split made after dispatch", async
 
   act(() => sync.emit({
     client_id: "other" as ClientId, ts: 1,
-    ops: [{ op: "move", uid: "unknown", parent_uid: null,
+    ops: [{ op: "move", uid: uid("unknown"), parent_uid: null,
             order_idx: 0, page_title: "Page" }],
   }));
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
   act(() => {
-    outline.handlers.onFocusBlock("u1", 5);
-    outline.handlers.onSplit("u1", 5);
+    outline.handlers.onFocusBlock(uid("u1"), 5);
+    outline.handlers.onSplit(uid("u1"), 5);
   });
   const created = sync.sent[0].find((op) => op.op === "create");
   if (!created || created.op !== "create") throw new Error("missing create op");
@@ -99,7 +98,7 @@ it("adopts an empty daily rather than rejecting when the cross-page-move catch-u
   // would otherwise swallow, leaving the stale "old" block behind.
   act(() => sync.emit({
     client_id: "other" as ClientId, ts: 1,
-    ops: [{ op: "move", uid: "incoming", parent_uid: null, order_idx: 0,
+    ops: [{ op: "move", uid: uid("incoming"), parent_uid: null, order_idx: 0,
             page_title: "August 17th, 2026" }],
   }));
 
@@ -121,7 +120,7 @@ it("adopts Page A while only Page B has an unsettled write", () => {
   );
   const { rerender } = render(renderViews([block("a", "old A")]));
 
-  act(() => pageB.handlers.onSetHeading("b", 1));
+  act(() => pageB.handlers.onSetHeading(uid("b"), 1));
   rerender(renderViews([block("a", "server A")]));
 
   expect(pageA.blocks[0].text).toBe("server A");
@@ -152,7 +151,7 @@ it("delivery replaces a blocked pre-delivery response with exactly one fresh rea
     </SyncContext.Provider>,
   );
 
-  act(() => outline.handlers.onSetHeading("u1", 1));
+  act(() => outline.handlers.onSetHeading(uid("u1"), 1));
   expect(sent[0].scope).toEqual(["page", "Page"]);
   const token = outline.session!.beginAuthoritativeRead("parent");
   act(() => outline.session!.receiveAuthoritative(
@@ -189,9 +188,9 @@ it("a new parent tree flushes a live draft before adopting it", () => {
   );
   const { rerender } = render(view([block("a", "old A")]));
   act(() => {
-    outline.handlers.onFocusBlock("a", 0);
+    outline.handlers.onFocusBlock(uid("a"), 0);
     // Held, so no debounce timer is involved.
-    outline.handlers.onDraftChange("a", "typed", true);
+    outline.handlers.onDraftChange(uid("a"), "typed", true);
   });
 
   rerender(view([block("a", "server A")]));
@@ -202,7 +201,7 @@ it("a new parent tree flushes a live draft before adopting it", () => {
   }]]);
   // The flushed draft is an unsettled relevant write, so the parent tree waits.
   expect(outline.blocks[0].text).toBe("typed");
-  act(() => outline.handlers.onBlurBlock("a"));
+  act(() => outline.handlers.onBlurBlock(uid("a")));
   // The draft was consumed by that flush, not duplicated by the blur.
   expect(sync.sent).toHaveLength(1);
 });

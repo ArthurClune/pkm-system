@@ -2,21 +2,22 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
+import type { BlockRefText } from "../api/payloads";
 import { BlockRefProvider } from "./BlockRefProvider";
-import { journalBacklinks } from "../test-helpers";
+import { journalBacklinks, pageId, title, uid } from "../test-helpers";
 import { JournalDayReferences } from "./JournalDayReferences";
 
 afterEach(() => vi.unstubAllGlobals());
 
 const PLANS = [{
-  page_id: 9,
-  page_title: "Plans",
-  items: [{ uid: "uid_p1", text: "Remind me on [[July 7th, 2026]]",
+  page_id: pageId(9),
+  page_title: title("Plans"),
+  items: [{ uid: uid("uid_p1"), text: "Remind me on [[July 7th, 2026]]",
             breadcrumbs: [] }],
 }];
 
 function show(refs: Parameters<typeof journalBacklinks>[0],
-              seed: Record<string, { text: string; page_title: string }> = {}) {
+              seed: Record<string, BlockRefText> = {}) {
   const fetchMock = vi.fn(() =>
     Promise.reject(new Error("no request may be made for a rendered day")));
   vi.stubGlobal("fetch", fetchMock);
@@ -52,10 +53,10 @@ it("resolves ((block refs)) in a reference's text from the journal-wide map",
   // The server merges the backlink items' own ((refs)) into the journal
   // payload's block_ref_texts, which the Journal seeds for every day.
   show(
-    [{ page_id: 9, page_title: "Plans",
-       items: [{ uid: "uid_p1", text: "see ((ref_local)) for details",
+    [{ page_id: pageId(9), page_title: title("Plans"),
+       items: [{ uid: uid("uid_p1"), text: "see ((ref_local)) for details",
                  breadcrumbs: [] }] }],
-    { ref_local: { text: "resolved locally", page_title: "Elsewhere" } },
+    { ref_local: { text: "resolved locally", page_title: title("Elsewhere") } },
   );
   expect(screen.getByText("resolved locally")).toBeInTheDocument();
 });

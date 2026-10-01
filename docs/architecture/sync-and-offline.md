@@ -119,8 +119,12 @@ transaction:
   transaction: tombstones, then pages, blocks and sidebar. The UNIQUE `title`
   columns are why tombstones lead; deferred FKs make the order irrelevant for
   references. Titles two rows swapped are parked under a placeholder
-  (`parkTakenTitles`) and restored by their own upserts. A window that cannot
-  apply returns `needs-bootstrap` or throws, and
+  (`parkTakenTitles`) and restored by their own upserts. `parkTakenTitles` and
+  `assertNoParkedTitles` take the id type as a type parameter and the table
+  name as a type depending on it (`TitledTableFor<Id>`). A plain
+  `"pages" | "sidebar_entries"` union could not stop a pages call being
+  passed the sidebar table, or a sidebar id array; the dependent type does. A
+  window that cannot apply returns `needs-bootstrap` or throws, and
   [sync-recovery.md § Rebootstrap triggers](sync-recovery.md#rebootstrap-triggers)
   says what follows.
 - Each tombstone `kind` (`EntityKind`: `block`, `page` or `sidebar`) dispatches
@@ -128,7 +132,9 @@ transaction:
   final `else` is an unrecognised kind, which deletes nothing and logs,
   behind a `const x: never = tomb.kind` exhaustiveness check. It must never
   default to one of the three deletes -- an older replica meeting a kind a
-  newer server added would otherwise destroy an unrelated row.
+  newer server added would otherwise destroy an unrelated row. The one TEXT
+  `entity_id` is minted into `BlockUid`, `PageId` or `SidebarEntryId` per
+  branch, never before the dispatch picks the kind.
 
 ## Post-commit nudges
 
@@ -234,7 +240,8 @@ Why a replay must agree with the server is in
 `refs` rows arrive hydrated, their target being a page id only the server mints,
 so `apply.ts` writes what the payload says. `localOps.ts` derives `refs` itself
 only for its own optimistic writes, resolving titles to negative local page ids
-that `reconcile.ts` remaps later. `block_refs` never ships, so both replica
+-- still a `PageId`, the sign alone carrying "not yet reconciled" -- that
+`reconcile.ts`'s `remapLocalPage` remaps later. `block_refs` never ships, so both replica
 paths derive it through `reindexBlockRefs` (`replica/blockRefs.ts`), the
 counterpart of the server's `store.reindex_refs_for_text`. Neither opens a
 transaction: the caller owns one, because the delete and re-insert must land

@@ -22,7 +22,7 @@ from pkm.contracts.brands import brand
 from pkm.contracts.ops import (BlockUid, HeadingLevel, OpKind, PageId,
                                Sha256Hex, SidebarEntryId, ViewType)
 from pkm.goodlinks import GoodlinksId
-from pkm.refs import RefKind
+from pkm.refs import CanonicalTitle, RefKind
 
 
 def _roam_heading_zero_as_none(value: object) -> object:
@@ -43,7 +43,7 @@ StoredHeading = Annotated[HeadingLevel | None,
 
 class PageMeta(BaseModel):
     id: PageId
-    title: str
+    title: CanonicalTitle
     created_at: int | None
     updated_at: int | None
 
@@ -78,7 +78,7 @@ class BacklinkItem(BaseModel):
 
 class BacklinkGroup(BaseModel):
     page_id: PageId
-    page_title: str
+    page_title: CanonicalTitle
     items: list[BacklinkItem]
 
 
@@ -98,7 +98,7 @@ class BlockBacklinksPayload(BaseModel):
 
 class BlockRefText(BaseModel):
     text: str
-    page_title: str
+    page_title: CanonicalTitle
 
 
 class BlockRefsPayload(BaseModel):
@@ -119,7 +119,7 @@ class RenamePageResponse(BaseModel):
     page now lives under (normalized, so it can differ from the requested
     one). `result` is a Literal so the web client can switch on it."""
     result: Literal["renamed", "merged"]
-    title: str
+    title: CanonicalTitle
 
 
 class GroupItem(BaseModel):
@@ -129,7 +129,7 @@ class GroupItem(BaseModel):
 
 class BlockGroup(BaseModel):
     page_id: PageId
-    page_title: str
+    page_title: CanonicalTitle
     items: list[GroupItem]
 
 
@@ -142,7 +142,7 @@ class GroupsPayload(BaseModel):
 class QueryPayload(GroupsPayload):
     """GET /api/query: groups plus per-operand match counts so an empty
     result is steerable (bad query shape vs genuinely nothing)."""
-    ref_counts: dict[str, int]
+    ref_counts: dict[CanonicalTitle, int]
 
 
 class ChangedItem(BaseModel):
@@ -155,7 +155,7 @@ class ChangedItem(BaseModel):
 
 class ChangedGroup(BaseModel):
     page_id: PageId
-    page_title: str
+    page_title: CanonicalTitle
     items: list[ChangedItem]
 
 
@@ -177,7 +177,7 @@ class JournalDay(BaseModel):
     of N days into N page reads."""
 
     date: str
-    title: str
+    title: CanonicalTitle
     exists: bool
     blocks: list[BlockNode]
     backlinks: Backlinks
@@ -191,7 +191,7 @@ class JournalPayload(BaseModel):
 
 class CurrentWorkPage(BaseModel):
     id: PageId
-    title: str
+    title: CanonicalTitle
     updated_at: int
 
 
@@ -207,12 +207,12 @@ class CurrentWorkPayload(BaseModel):
 
 class SearchPageHit(BaseModel):
     id: PageId
-    title: str
+    title: CanonicalTitle
 
 
 class SearchBlockHit(BaseModel):
     uid: BlockUid
-    page_title: str
+    page_title: CanonicalTitle
     snippet: str
 
 
@@ -222,12 +222,12 @@ class SearchPayload(BaseModel):
 
 
 class TitlesPayload(BaseModel):
-    titles: list[str]
+    titles: list[CanonicalTitle]
 
 
 class SidebarNavEntry(BaseModel):
     id: SidebarEntryId
-    title: str
+    title: CanonicalTitle
 
 
 class SidebarNavPayload(BaseModel):
@@ -245,7 +245,7 @@ class AssetUploadResponse(BaseModel):
 
 class AssetRef(BaseModel):
     uid: BlockUid
-    page_title: str
+    page_title: CanonicalTitle
 
 
 class AssetSearchItem(BaseModel):
@@ -279,7 +279,7 @@ class ScanPayload(BaseModel):
 
 class LocalCheckProblem(BaseModel):
     uid: BlockUid
-    page: str
+    page: CanonicalTitle
     href: str
     status: Literal["missing", "evicted", "invalid"]
 
@@ -323,7 +323,7 @@ class GoodlinksArticle(BaseModel):
 
 class GoodlinksCheckProblem(BaseModel):
     uid: BlockUid
-    page: str
+    page: CanonicalTitle
     href: str
     status: Literal["missing", "invalid"]
 
@@ -358,14 +358,14 @@ class SyncBlock(BaseModel):
 
 class SyncPage(BaseModel):
     id: PageId
-    title: str
+    title: CanonicalTitle
     created_at: int | None
     updated_at: int | None
 
 
 class SyncSidebarEntry(BaseModel):
     id: SidebarEntryId
-    title: str
+    title: CanonicalTitle
     order_idx: int
 
 
@@ -454,17 +454,17 @@ class AssistantModels(BaseModel):
 
 class TitleMigrationPage(BaseModel):
     page_id: PageId
-    title: str
+    title: CanonicalTitle
 
 
 class TitleMigrationBlocker(BaseModel):
     page_id: PageId
-    title: str
+    title: CanonicalTitle
     reason: Literal["all_space", "forbidden_syntax"]
 
 
 class TitleMigrationGroup(BaseModel):
-    canonical_title: str
+    canonical_title: CanonicalTitle
     survivor: TitleMigrationPage
     sources: list[TitleMigrationPage]
     has_clean_twin: bool
@@ -528,7 +528,7 @@ class SkippedOp(BaseModel):
     reason: SkipReason
     # the daily page the op's note or lost text landed on; None when
     # nothing was written (a collapse/delete no-op, a blank text)
-    note_page: str | None
+    note_page: CanonicalTitle | None
 
 
 class OpsAck(BaseModel):

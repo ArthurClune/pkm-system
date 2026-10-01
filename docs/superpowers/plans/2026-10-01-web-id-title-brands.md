@@ -72,15 +72,15 @@ A brand is a subtype of its base type, so code that only reads a branded field i
 
   Later tasks import exactly these names.
 
-- [ ] **Step 1: Write the failing tests** in `ids.test.ts`:
+- [x] **Step 1: Write the failing tests** in `ids.test.ts`:
   - `parseBlockUid("abcdef")` is `"abcdef"`;
   - a 32-character uid parses, and a 33-character one is `null`;
   - `"abcde"` is `null`; `"abcdef\n"` is `null`; `"((abcdef))"` is `null`;
   - a type probe: `// @ts-expect-error a plain string is not a BlockUid` on `const u: BlockUid = "abcdef";`.
-- [ ] **Step 2:** `cd web && pnpm vitest run src/ids.test.ts`. Expect a FAIL because the module isn't found.
-- [ ] **Step 3: Implement** brands.ts, ids.ts, the uid.ts split, the opQueue casts and the test-helpers.
-- [ ] **Step 4:** `pnpm typecheck && pnpm test:unit`. Expect a PASS: no generated type changed, so nothing else moves.
-- [ ] **Step 5:** Commit: `feat(pkm-thee): web brand types, uid mint helpers and fixture helpers`.
+- [x] **Step 2:** `cd web && pnpm vitest run src/ids.test.ts`. Expect a FAIL because the module isn't found.
+- [x] **Step 3: Implement** brands.ts, ids.ts, the uid.ts split, the opQueue casts and the test-helpers.
+- [x] **Step 4:** `pnpm typecheck && pnpm test:unit`. Expect a PASS: no generated type changed, so nothing else moves.
+- [x] **Step 5:** Commit: `feat(pkm-thee): web brand types, uid mint helpers and fixture helpers`.
 
 ### Task 2: BlockUid flip
 
@@ -104,15 +104,15 @@ A brand is a subtype of its base type, so code that only reads a branded field i
 - Consumes `BlockUid`, `newUid`, `parseBlockUid` and `uid` from Task 1.
 - Produces: every outline command takes `(pageTitle: string, uid: BlockUid, …)`. Titles are still `string` until Task 4.
 
-- [ ] **Step 1: Write the failing probes.**
+- [x] **Step 1: Write the failing probes.**
   - In `outline/edits.test.ts`: `// @ts-expect-error (title, uid) swapped` on `indentBlock(blocks, someUid, "Page")`, where `someUid = uid("abcdef")`.
   - In `components/BacklinkGroupList.test.tsx`: the same idea for `onNavigate`.
   - In `views/PageView.test.tsx`: a URL hash `#not a uid` flashes nothing, and `#abcdef` flashes block `abcdef`.
-- [ ] **Step 2:** `pnpm typecheck`. Expect it to FAIL on the unused `@ts-expect-error` directives, because the parameters are still `string`.
-- [ ] **Step 3:** Add `brand(BlockUid)`, regenerate, and confirm `git diff --no-ext-diff web/src/api/openapi.json` shows only `"x-brand": "BlockUid"` additions.
-- [ ] **Step 4:** Fix production write sites and narrow signatures as listed, directory by directory, in this order: replica, grammar/assistant, outline, dnd, components, views, root. Run `pnpm typecheck` after each directory, and keep a running count of errors that only ever goes down.
-- [ ] **Step 5:** Fix the test files. Then run `cd server && uv run pytest -q && uv run pyrefly check && uv run ruff check` and `cd web && pnpm typecheck && pnpm test:unit`. Everything must pass, and the probes must now be used.
-- [ ] **Step 6:** Commit: `feat(pkm-thee): BlockUid reaches the web as a brand; outline commands take BlockUid`.
+- [x] **Step 2:** `pnpm typecheck`. Expect it to FAIL on the unused `@ts-expect-error` directives, because the parameters are still `string`.
+- [x] **Step 3:** Add `brand(BlockUid)`, regenerate, and confirm `git diff --no-ext-diff web/src/api/openapi.json` shows only `"x-brand": "BlockUid"` additions.
+- [x] **Step 4:** Fix production write sites and narrow signatures as listed, directory by directory, in this order: replica, grammar/assistant, outline, dnd, components, views, root. Run `pnpm typecheck` after each directory, and keep a running count of errors that only ever goes down.
+- [x] **Step 5:** Fix the test files. Then run `cd server && uv run pytest -q && uv run pyrefly check && uv run ruff check` and `cd web && pnpm typecheck && pnpm test:unit`. Everything must pass, and the probes must now be used.
+- [x] **Step 6:** Commit: `feat(pkm-thee): BlockUid reaches the web as a brand; outline commands take BlockUid`.
 
 ### Task 3: PageId and SidebarEntryId flip
 
@@ -133,14 +133,14 @@ A brand is a subtype of its base type, so code that only reads a branded field i
 - Consumes `PageId`, `SidebarEntryId`, `pageId` and `entryId` from Task 1.
 - Produces `remapLocalPage(db, { localId, targetId })`, which Task 4's title work leaves alone.
 
-- [ ] **Step 1: Write the failing probes and tests.**
+- [x] **Step 1: Write the failing probes and tests.**
   - In `components/SidebarNav.test.tsx`: `// @ts-expect-error a PageId is not a SidebarEntryId` on `removeEntry(pageId(3))`.
   - In `replica/reconcile.test.ts`: a negative local `PageId` remaps to its server id (Review Focus 1).
   - In `replica/apply.test.ts`: one tombstone per kind deletes exactly its own row (Review Focus 3).
-- [ ] **Step 2:** `pnpm typecheck`. Expect a FAIL on the unused directive.
-- [ ] **Step 3:** Add the brands and regenerate. The openapi diff should show only `x-brand` additions.
-- [ ] **Step 4:** Fix and narrow, replica first. Then run the full server and web unit checks, as in Task 2's Step 5.
-- [ ] **Step 5:** Commit: `feat(pkm-thee): PageId and SidebarEntryId reach the web as brands`.
+- [x] **Step 2:** `pnpm typecheck`. Expect a FAIL on the unused directive.
+- [x] **Step 3:** Add the brands and regenerate. The openapi diff should show only `x-brand` additions.
+- [x] **Step 4:** Fix and narrow, replica first. Then run the full server and web unit checks, as in Task 2's Step 5.
+- [x] **Step 5:** Commit: `feat(pkm-thee): PageId and SidebarEntryId reach the web as brands`.
 
 ### Task 4a: Server title annotations (no brand yet)
 
@@ -155,9 +155,9 @@ A brand is a subtype of its base type, so code that only reads a branded field i
   Leave request bodies and op `page_title` as `str`.
 - Server producers that pyrefly then flags: mint only at genuine sources, meaning row reads, `read_title` / `title_reader`, the daily-title helpers, and `target_canonical_title` for the migration group. If pyrefly flags a raw title reaching one of these fields, that is a bug. Write a failing test first and report it.
 
-- [ ] **Step 1:** Change the annotations, then run `uv run pyrefly check` and list every new error.
-- [ ] **Step 2:** Resolve each error at its mint point, never by wrapping at the call site. Then run `uv run pytest -q && uv run pyrefly check && uv run ruff check`. Expect a PASS, with `openapi.json` unchanged because nothing is branded yet.
-- [ ] **Step 3:** Commit: `feat(pkm-thee): server response titles are CanonicalTitle`.
+- [x] **Step 1:** Change the annotations, then run `uv run pyrefly check` and list every new error.
+- [x] **Step 2:** Resolve each error at its mint point, never by wrapping at the call site. Then run `uv run pytest -q && uv run pyrefly check && uv run ruff check`. Expect a PASS, with `openapi.json` unchanged because nothing is branded yet.
+- [x] **Step 3:** Commit: `feat(pkm-thee): server response titles are CanonicalTitle`.
 
 ### Task 4b: Title flip on the web
 
@@ -183,16 +183,16 @@ A brand is a subtype of its base type, so code that only reads a branded field i
 - Consumes `NormalizedTitle`, `CanonicalTitle`, `title` and `normTitle` from Task 1, and the Task 2 signatures, whose `pageTitle` now narrows.
 - Produces `canonicalTitle(db, title)`, `titleReader(db)` and `normalizeRefTitle(): NormalizedTitle`.
 
-- [ ] **Step 1: Write the failing probes and tests.**
+- [x] **Step 1: Write the failing probes and tests.**
   - `// @ts-expect-error a raw string is not a CanonicalTitle` on `indentBlock(blocks, "Page", someUid)`.
   - `// @ts-expect-error a NormalizedTitle is not a CanonicalTitle` on `useOutline(normTitle("Page"), …)`, in the `useOutline` test.
   - A `CanonicalTitle` passes wherever a `NormalizedTitle` is expected, shown by a plain assignment that compiles.
   - The `EditableSidebarPanel` reproduction test (Review Focus 4).
   - A `replica/apply.test.ts` case where a parked title still trips `assertNoParkedTitles` (Review Focus 2).
-- [ ] **Step 2:** `pnpm typecheck`. Expect a FAIL on the unused directives. Run the reproduction test and record whether it fails today.
-- [ ] **Step 3:** Add the brands and regenerate.
-- [ ] **Step 4:** Fix and narrow in this order: replica, grammar, outline, components, views, root. Then fix the tests. Run the full server and web unit checks.
-- [ ] **Step 5:** Commit: `feat(pkm-thee): titles reach the web as NormalizedTitle / CanonicalTitle brands`.
+- [x] **Step 2:** `pnpm typecheck`. Expect a FAIL on the unused directives. Run the reproduction test and record whether it fails today.
+- [x] **Step 3:** Add the brands and regenerate.
+- [x] **Step 4:** Fix and narrow in this order: replica, grammar, outline, components, views, root. Then fix the tests. Run the full server and web unit checks.
+- [x] **Step 5:** Commit: `feat(pkm-thee): titles reach the web as NormalizedTitle / CanonicalTitle brands`.
 
 ### Task 5: Docs, full verification, perf
 
@@ -203,10 +203,10 @@ A brand is a subtype of its base type, so code that only reads a branded field i
 - `docs/troubleshooting.md`: a row only if Review Focus 4 reproduced.
 - `web/src/api/brands.ts` header: drop the "add the title types later" wording.
 
-- [ ] **Step 1:** Make the edits. Invoke the `architecture-docs` skill and run `node .claude/skills/architecture-docs/check-docs.mjs <files>`.
-- [ ] **Step 2:** Run the full verification:
+- [x] **Step 1:** Make the edits. Invoke the `architecture-docs` skill and run `node .claude/skills/architecture-docs/check-docs.mjs <files>`.
+- [x] **Step 2:** Run the full verification:
   - server: `uv run pytest -q && uv run pyrefly check && uv run ruff check`;
   - web: `pnpm build && CI=true pnpm verify`, with the e2e port assigned by the orchestrator.
-- [ ] **Step 3:** Tick the pkm-thee bean checklist and commit: `docs(pkm-thee): document the web id and title brands`.
+- [x] **Step 3:** Tick the pkm-thee bean checklist and commit: `docs(pkm-thee): document the web id and title brands`.
 
 The orchestrator then runs `perf/check.sh` on a quiet machine, and dispatches an Opus whole-branch review before merge.

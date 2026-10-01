@@ -8,14 +8,14 @@ import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, type SyncFake } from "../test-helpers";
+import { block, makeSync, normTitle, title, type SyncFake, uid } from "../test-helpers";
 import { recordHistory, resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ pageTitle, initial, onReady }: {
   pageTitle: string; initial: BlockNode[]; onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(pageTitle, initial);
+  const outline = useOutline(title(pageTitle), initial);
   useEffect(() => onReady(outline));
   return null;
 }
@@ -30,6 +30,14 @@ function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
   return () => outline;
 }
 
+// Never rendered: a type-only probe that useOutline's title is the stored
+// (canonical) form, not one only normalized.
+export function NormalizedTitleProbe() {
+  // @ts-expect-error a NormalizedTitle is not a CanonicalTitle
+  useOutline(normTitle("Page"), []);
+  return null;
+}
+
 afterEach(() => resetHistory());
 
 const PAGE = "Undo Wire";
@@ -41,7 +49,7 @@ const ab = () => [
 it("undo reverses a structural edit and redo replays it", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
-  act(() => outline().handlers.onIndent("b"));
+  act(() => outline().handlers.onIndent(uid("b")));
   expect(outline().blocks[0].children.map((n) => n.uid)).toEqual(["b"]);
 
   act(() => outline().handlers.onUndo());
@@ -59,7 +67,7 @@ it("undo reverses a whole selection indent in one step", () => {
     block("b", "beta", { order_idx: 1 }),
     block("c", "gamma", { order_idx: 2 }),
   ]);
-  act(() => outline().handlers.onStartBlockSelection("b", "down"));
+  act(() => outline().handlers.onStartBlockSelection(uid("b"), "down"));
   act(() => outline().handlers.onIndentSelection());
   expect(outline().blocks[0].children.map((n) => n.uid))
     .toEqual(["b", "c"]);
@@ -90,7 +98,7 @@ it("undo reverses a whole cross-parent selection move in one step", () => {
     }),
     block("c", "C", { order_idx: 2 }),
   ]);
-  act(() => outline().handlers.onStartBlockSelection("b0", "down"));
+  act(() => outline().handlers.onStartBlockSelection(uid("b0"), "down"));
   act(() => outline().handlers.onMoveSelectionUp());
   expect(outline().blocks[0].children.map((n) => n.uid))
     .toEqual(["a0", "b0", "b1"]);
@@ -110,10 +118,10 @@ it("undo reverses a whole cross-parent selection move in one step", () => {
 it("undo restores a deleted block's text via subtree recreate", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
-  act(() => outline().handlers.onFocusBlock("b", 0));
+  act(() => outline().handlers.onFocusBlock(uid("b"), 0));
   act(() => {
-    outline().handlers.onDraftChange("b", "");
-    outline().handlers.onBackspaceAtStart("b");
+    outline().handlers.onDraftChange(uid("b"), "");
+    outline().handlers.onBackspaceAtStart(uid("b"));
   });
   expect(outline().blocks).toHaveLength(1);
   act(() => outline().handlers.onUndo());
@@ -126,9 +134,9 @@ it("a flushed draft posts update_text with the pre-edit text's hash", () => {
   // stamps here, against the pre-flush tree the batch grew from.
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
-  act(() => outline().handlers.onFocusBlock("a", 5));
-  act(() => outline().handlers.onDraftChange("a", "alpha edited"));
-  act(() => outline().handlers.onBlurBlock("a"));
+  act(() => outline().handlers.onFocusBlock(uid("a"), 5));
+  act(() => outline().handlers.onDraftChange(uid("a"), "alpha edited"));
+  act(() => outline().handlers.onBlurBlock(uid("a")));
   expect(sync.sent[0][0]).toMatchObject({
     op: "update_text", uid: "a", text: "alpha edited",
     base_text_hash: sha256Hex("alpha"),
@@ -147,15 +155,15 @@ it("run() records UNSTAMPED ops, so a redo hashes the current text", () => {
   // calling recordHistory() directly would prove nothing here.
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
-  act(() => outline().handlers.onFocusBlock("a", 5));
-  act(() => outline().handlers.onDraftChange("a", "one"));
-  act(() => outline().handlers.onBlurBlock("a")); // flush: records the entry
+  act(() => outline().handlers.onFocusBlock(uid("a"), 5));
+  act(() => outline().handlers.onDraftChange(uid("a"), "one"));
+  act(() => outline().handlers.onBlurBlock(uid("a"))); // flush: records the entry
   act(() => outline().handlers.onUndo());         // back to "alpha"
 
   // Another tab edits the same block between the undo and the redo. A local
   // edit would not do: recording one clears the redo stack.
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: "a", text: "two" },
+    { op: "update_text", uid: uid("a"), text: "two" },
   ] }));
   expect(outline().blocks[0].text).toBe("two");
 
@@ -173,11 +181,11 @@ it("undo stamps page_title on the enqueued op, though the recorded entry carries
   // replay time against the mounted session's own tree.
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
-  const inverse: BlockOp[] = [{ op: "update_text", uid: "a", text: "alpha" }];
+  const inverse: BlockOp[] = [{ op: "update_text", uid: uid("a"), text: "alpha" }];
   expect(inverse[0]).not.toHaveProperty("page_title");
   recordHistory({
     pageTitle: PAGE,
-    ops: [{ op: "update_text", uid: "a", text: "one" }],
+    ops: [{ op: "update_text", uid: uid("a"), text: "one" }],
     inverse,
     focusBefore: null,
     focusAfter: null,
@@ -191,8 +199,8 @@ it("undo stamps page_title on the enqueued op, though the recorded entry carries
 it("a pending draft flushes and becomes the first undo step", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
-  act(() => outline().handlers.onFocusBlock("a", 5));
-  act(() => outline().handlers.onDraftChange("a", "alpha edited"));
+  act(() => outline().handlers.onFocusBlock(uid("a"), 5));
+  act(() => outline().handlers.onDraftChange(uid("a"), "alpha edited"));
   act(() => outline().handlers.onUndo()); // flush-then-undo
   expect(outline().blocks[0].text).toBe("alpha");
 });
@@ -200,8 +208,8 @@ it("a pending draft flushes and becomes the first undo step", () => {
 it("undo restores focus to where it was before the edit", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
-  act(() => outline().handlers.onFocusBlock("a", 5));
-  act(() => outline().handlers.onSplit("a", 5));
+  act(() => outline().handlers.onFocusBlock(uid("a"), 5));
+  act(() => outline().handlers.onSplit(uid("a"), 5));
   act(() => outline().handlers.onUndo());
   expect(outline().focus).toEqual({ uid: "a", cursor: 5 });
 });
@@ -213,8 +221,8 @@ it("collapse toggles are not undo steps", () => {
      block("b", "beta", { order_idx: 1 })]);
   // onToggleTodo on plain text returns null from toggleTodo (grammar/todo.ts)
   // and records nothing; onSetHeading always produces an op.
-  act(() => outline().handlers.onSetHeading("b", 2)); // recorded entry
-  act(() => outline().handlers.onToggleCollapsed("a", true)); // not recorded
+  act(() => outline().handlers.onSetHeading(uid("b"), 2)); // recorded entry
+  act(() => outline().handlers.onToggleCollapsed(uid("a"), true)); // not recorded
   act(() => outline().handlers.onUndo());
   // undo skipped the collapse and reverted the heading; collapse persists
   expect(outline().blocks[1].heading).toBeNull();
@@ -224,9 +232,9 @@ it("collapse toggles are not undo steps", () => {
 it("a fresh edit after undo clears redo", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
-  act(() => outline().handlers.onSetHeading("a", 2));
+  act(() => outline().handlers.onSetHeading(uid("a"), 2));
   act(() => outline().handlers.onUndo());
-  act(() => outline().handlers.onSetHeading("b", 2));
+  act(() => outline().handlers.onSetHeading(uid("b"), 2));
   const sent = sync.sent.length;
   act(() => outline().handlers.onRedo()); // nothing to redo
   expect(sync.sent).toHaveLength(sent);
@@ -239,13 +247,13 @@ it("a batch carrying a draft for a remotely deleted block stays undoable", () =>
     block("b", "beta", { order_idx: 1 }),
     block("c", "gamma", { order_idx: 2 }),
   ]);
-  act(() => outline().handlers.onDraftChange("a", "see [[Held", true));
+  act(() => outline().handlers.onDraftChange(uid("a"), "see [[Held", true));
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "delete", uid: "a" },
+    { op: "delete", uid: uid("a") },
   ] }));
   // The indent's batch flushes the held draft first: its text op targets a
   // block this tree no longer has, and the indent must still be undoable.
-  act(() => outline().handlers.onIndent("c"));
+  act(() => outline().handlers.onIndent(uid("c")));
   expect(sync.sent[0].map((op) => op.op)).toEqual(["update_text", "move"]);
   expect(outline().blocks[0].children.map((n) => n.uid)).toEqual(["c"]);
 

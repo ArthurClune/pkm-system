@@ -5,6 +5,7 @@ import { apiGet } from "../api/typedClient";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { MISSING_BLOCK_TEXT } from "./filesCore";
 import { FileDescriptionPopover, FileRefsPopover } from "./FileCardPopovers";
+import { uid } from "../test-helpers";
 
 vi.mock("../api/typedClient", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/typedClient")>();
@@ -33,8 +34,8 @@ afterEach(() => {
 });
 
 const REFS = [
-  { uid: "a1", page_title: "Alpha" },
-  { uid: "b1", page_title: "Beta" },
+  { uid: uid("a1"), page_title: "Alpha" },
+  { uid: uid("b1"), page_title: "Beta" },
 ];
 
 it("fetches block text and renders refs grouped by page", async () => {
@@ -101,7 +102,7 @@ it("navigates from a row whose block embeds the image (media inert)", async () =
     a1: { text: "![pic](/assets/aa/pic.png)", page_title: "Alpha" },
   } });
   const onClose = vi.fn();
-  render(<FileRefsPopover refs={[{ uid: "a1", page_title: "Alpha" }]}
+  render(<FileRefsPopover refs={[{ uid: uid("a1"), page_title: "Alpha" }]}
                           x={0} y={0} onClose={onClose} />, { wrapper });
   const img = await screen.findByRole("img");
   expect(screen.queryByRole("button", { name: /Expand image/ }))

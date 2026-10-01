@@ -6,6 +6,7 @@ import { BlockRefProvider } from "../components/BlockRefProvider";
 import { PageTitle } from "../components/PageTitle";
 import { UnlinkedSection } from "../components/UnlinkedSection";
 import { BlockStampsContext } from "../contexts";
+import { parseBlockUid } from "../ids";
 import { titleFromPathname } from "../paths";
 import { useResync } from "../sync/SyncProvider";
 import { substituteMissingDaily } from "../outline/missingPage";
@@ -30,9 +31,10 @@ export function PageView() {
 
   // A block ref navigated here with the target uid as the hash:
   // once the payload has rendered, scroll to that block and flash it. A bare
-  // "#" carries no target; a uid not on the page (deleted, or inside a
+  // "#", a malformed hash, or a uid not on the page (deleted, or inside a
   // collapsed subtree) is a no-op inside the hook.
-  useScrollFlashTarget(hash.length > 1 ? hash.slice(1) : null, payload);
+  useScrollFlashTarget(
+    hash.length > 1 ? parseBlockUid(hash.slice(1)) : null, payload);
 
   if (error) return <p className="error">Could not load "{title}": {error}</p>;
   if (!payload) return <p className="loading">Loading…</p>;

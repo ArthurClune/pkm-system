@@ -1,11 +1,11 @@
 ---
 # pkm-thee
 title: Web title, BlockUid and PageId brands
-status: todo
+status: completed
 type: task
 priority: normal
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T07:44:52Z
+updated_at: 2026-10-01T19:39:24Z
 parent: pkm-7uxw
 blocked_by:
     - pkm-1v8b
@@ -30,8 +30,34 @@ Brand titles, block uids and page ids across `web/src`. This is the largest step
 
 ## Plan
 
-- [ ] Agree how a raw title is promoted: one function per form, no casts at call sites
-- [ ] Titles, by directory
-- [ ] `BlockUid`, by directory
-- [ ] `PageId` / `SidebarEntryId`
-- [ ] `pnpm verify` clean per directory slice
+- [x] Agree how a raw title is promoted: one function per form, no casts at call sites
+- [x] Titles, by directory
+- [x] `BlockUid`, by directory
+- [x] `PageId` / `SidebarEntryId`
+- [x] `pnpm verify` clean per directory slice
+
+## Summary of Changes
+
+- **Brands.** `BlockUid`, `PageId`, `SidebarEntryId`, `NormalizedTitle` and `CanonicalTitle` are now `brand()`ed on the server, so they reach the web as branded generated types. `CanonicalTitle` has its own `brand()`. The wire format is unchanged: the openapi diff adds only `x-brand` markers.
+- **Web mints:**
+  - `newUid` (with `newRawUid` for `ClientId` / `BatchId`) and `ids.ts` `parseBlockUid`, which the URL hash and the local API's uid parameters go through;
+  - the block-ref and hashtag tokens, and `normalizeRefTitle`;
+  - `replica/meta.ts` `canonicalTitle` / `titleReader`, which mirror the server's `sync_meta` and read the flag once per reader;
+  - `titleForDate` / `dailyTitle`;
+  - the SQLite row mappers;
+  - the tombstone dispatch, per kind.
+- **Signatures narrowed:**
+  - outline commands take `(pageTitle: CanonicalTitle, uid: BlockUid)`, as do `useOutline` and `EditablePage`;
+  - `remapLocalPage` takes a named `{ localId, targetId }`;
+  - `parkTakenTitles` / `assertNoParkedTitles` tie their table to the id type through `TitledTableFor<Id>`;
+  - a parked placeholder is its own `ParkedTitle` type.
+- **Bug fixed (reproduced first).** `EditableSidebarPanel` keyed `<EditablePage>` by the requested title. A sidebar opened under a non-canonical title therefore missed remote ops and sent its own ops with the raw title. It now uses `payload.page.title`. There is a troubleshooting row for it.
+- **Deviations:**
+  - outline session keys stay `string`, because the page loader opens a session before any payload exists;
+  - server response title annotations are mostly generator-only, because routes return plain dicts.
+- **Verification:**
+  - server: pytest 2287 passed; pyrefly 0 errors, 11 suppressed, 7 warnings; ruff clean;
+  - web: `pnpm verify` green, with 3092 unit and 72 e2e tests;
+  - perf: no changes on backend or frontend.
+- **Final Opus review:** merge after minors. 18 production swap probes are rejected, and all mint points are honest. The minor findings are fixed.
+- **Follow-up:** pkm-z2qa (low priority). A non-canonical requested title runs two outline sessions, so the resync causality guard is bypassed. This predates the branch on PageView.

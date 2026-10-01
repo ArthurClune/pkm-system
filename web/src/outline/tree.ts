@@ -3,6 +3,7 @@
 // applying committed op semantics so local state mirrors the server's
 // ops_apply.py exactly. ShiftSiblings leaves order_idx gaps on the server;
 // everything here keys on order_idx VALUES, never array positions.
+import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 
@@ -13,7 +14,7 @@ export interface Located {
   index: number;            // node's position within siblings
 }
 
-export function locate(blocks: BlockNode[], uid: string): Located | null {
+export function locate(blocks: BlockNode[], uid: BlockUid): Located | null {
   const walk = (siblings: BlockNode[], parent: BlockNode | null): Located | null => {
     for (let i = 0; i < siblings.length; i++) {
       const node = siblings[i];
@@ -26,13 +27,13 @@ export function locate(blocks: BlockNode[], uid: string): Located | null {
   return walk(blocks, null);
 }
 
-export function findNode(blocks: BlockNode[], uid: string): BlockNode | null {
+export function findNode(blocks: BlockNode[], uid: BlockUid): BlockNode | null {
   return locate(blocks, uid)?.node ?? null;
 }
 
 /** Depth-first uids in on-screen order; children of collapsed blocks hidden. */
-export function visibleUids(blocks: BlockNode[]): string[] {
-  const out: string[] = [];
+export function visibleUids(blocks: BlockNode[]): BlockUid[] {
+  const out: BlockUid[] = [];
   const walk = (nodes: BlockNode[]) => {
     for (const n of nodes) {
       out.push(n.uid);
@@ -47,8 +48,8 @@ export function visibleUids(blocks: BlockNode[]): string[] {
  * when the uid is not in this tree. One depth-first pass, so a renderer that
  * needs a per-row "is the focus inside my subtree?" test builds a Set from
  * this once at the root instead of re-walking every row's own subtree. */
-export function ancestorChain(blocks: BlockNode[], uid: string): string[] {
-  const path: string[] = [];
+export function ancestorChain(blocks: BlockNode[], uid: BlockUid): BlockUid[] {
+  const path: BlockUid[] = [];
   const walk = (nodes: BlockNode[]): boolean => {
     for (const node of nodes) {
       path.push(node.uid);
@@ -92,7 +93,7 @@ function nodeEqual(a: BlockNode, b: BlockNode): boolean {
 /** Reduce a uid set to its "roots": the uids with no ancestor also in the
  * set, in the given order. Acting on a root (move, delete) carries its whole
  * subtree along, so a listed descendant needs no op of its own. */
-export function selectionRoots(blocks: BlockNode[], uids: string[]): string[] {
+export function selectionRoots(blocks: BlockNode[], uids: BlockUid[]): BlockUid[] {
   const set = new Set(uids);
   return uids.filter((uid) => {
     for (let p = locate(blocks, uid)?.parent; p; p = locate(blocks, p.uid)?.parent) {
@@ -102,8 +103,8 @@ export function selectionRoots(blocks: BlockNode[], uids: string[]): string[] {
   });
 }
 
-export function visibleNeighbor(blocks: BlockNode[], uid: string,
-                                dir: "up" | "down"): string | null {
+export function visibleNeighbor(blocks: BlockNode[], uid: BlockUid,
+                                dir: "up" | "down"): BlockUid | null {
   const order = visibleUids(blocks);
   const i = order.indexOf(uid);
   if (i < 0) return null;
@@ -121,7 +122,7 @@ function sortSiblings(siblings: BlockNode[]): void {
   siblings.sort((a, b) => a.order_idx - b.order_idx);
 }
 
-function siblingsOf(tree: BlockNode[], parentUid: string | null): BlockNode[] | null {
+function siblingsOf(tree: BlockNode[], parentUid: BlockUid | null): BlockNode[] | null {
   if (parentUid === null) return tree;
   return locate(tree, parentUid)?.node.children ?? null;
 }
@@ -129,7 +130,7 @@ function siblingsOf(tree: BlockNode[], parentUid: string | null): BlockNode[] | 
 /** Mirror of the server's ShiftSiblings effect: everything at or past
  * from_idx moves up one — except the block being moved, whose order_idx is
  * about to be overwritten (matching SetParent-after-ShiftSiblings). */
-function shiftFrom(siblings: BlockNode[], fromIdx: number, except?: string): void {
+function shiftFrom(siblings: BlockNode[], fromIdx: number, except?: BlockUid): void {
   for (const s of siblings) {
     if (s.uid !== except && s.order_idx >= fromIdx) s.order_idx += 1;
   }
@@ -156,7 +157,7 @@ export interface AppliedOps {
  * the set this is asking about. */
 function opsTouchPage(blocks: BlockNode[], ops: BlockOp[],
                       pageTitle: string): boolean {
-  const uids = new Set<string>();
+  const uids = new Set<BlockUid>();
   for (const op of ops) {
     if (op.op === "create_page") continue;
     if (op.op === "create") {
@@ -169,7 +170,7 @@ function opsTouchPage(blocks: BlockNode[], ops: BlockOp[],
 }
 
 /** One depth-first pass, stopping at the first uid the batch names. */
-function holdsAny(nodes: BlockNode[], uids: ReadonlySet<string>): boolean {
+function holdsAny(nodes: BlockNode[], uids: ReadonlySet<BlockUid>): boolean {
   for (const n of nodes) {
     if (uids.has(n.uid) || holdsAny(n.children, uids)) return true;
   }
@@ -282,7 +283,7 @@ export function applyOpInPlace(tree: BlockNode[], op: BlockOp, pageTitle: string
 
 /** Detach uid's subtree. Returns the new tree and the detached node
  * (null = uid not found; tree returned unchanged). Pure: clones. */
-export function removeSubtree(blocks: BlockNode[], uid: string):
+export function removeSubtree(blocks: BlockNode[], uid: BlockUid):
     { tree: BlockNode[]; node: BlockNode | null } {
   const tree = cloneTree(blocks);
   const found = locate(tree, uid);
@@ -294,7 +295,7 @@ export function removeSubtree(blocks: BlockNode[], uid: string):
 /** Insert a detached subtree per the move contract (insert before the
  * block currently at orderIdx). Unknown parentUid: returns tree unchanged. */
 export function insertSubtree(blocks: BlockNode[], node: BlockNode,
-                              parentUid: string | null,
+                              parentUid: BlockUid | null,
                               orderIdx: number): BlockNode[] {
   const tree = cloneTree(blocks);
   const siblings = siblingsOf(tree, parentUid);

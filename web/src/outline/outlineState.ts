@@ -2,6 +2,7 @@
 // Causality for one title's shared outline. The shell supplies ticket ids,
 // read tokens, and I/O; this module only decides whether a tree is safe to
 // adopt and whether settlement requires a fresh authoritative read.
+import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
@@ -33,7 +34,7 @@ export interface DeferredAuthoritative {
 export type OutlineReplayAction =
   | { type: "ops"; ops: readonly BlockOp[] }
   | { type: "insert-subtree"; node: BlockNode;
-      parentUid: string | null; orderIdx: number };
+      parentUid: BlockUid | null; orderIdx: number };
 
 export interface OutlineState {
   title: string;
@@ -348,7 +349,7 @@ export function validateOutlineFocus(
 /** An editor draft: the text typed into one block, and the text that block
  * held when typing started (`null` when the tree lacked the block then). */
 export interface PendingDraft {
-  uid: string;
+  uid: BlockUid;
   text: string;
   base: string | null;
 }
@@ -357,7 +358,7 @@ export interface PendingDraft {
  * differ from the tree's text: a remote batch reaches the tree before the
  * textarea adopts it, and a dirty textarea never adopts it at all. */
 export interface ShownText {
-  uid: string;
+  uid: BlockUid;
   base: string;
 }
 
@@ -369,7 +370,7 @@ export interface ShownText {
  * fallback. */
 export function captureDraft(
   prev: PendingDraft | null,
-  uid: string,
+  uid: BlockUid,
   text: string,
   blocks: BlockNode[],
   shown: ShownText | null = null,

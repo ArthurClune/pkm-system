@@ -68,16 +68,17 @@ SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}\Z")
 # op addressing an existing block never re-checks its uid's shape. Minted
 # by the web (web/src/uid.ts's newUid, most uids in practice), the CLI/MCP
 # client (client.api.new_uid), the server (ops_apply._new_uid), and
-# Roam's own exported uids. Not brand()ed: pydantic validates and dumps a
-# NewType as its base type regardless, so the wire format is unchanged,
-# but the generated TypeScript still sees a plain string.
+# Roam's own exported uids.
 BlockUid = NewType("BlockUid", str)
+brand(BlockUid)
 # pages.id. Minted only by SQLite (an INTEGER PRIMARY KEY) and, for an
 # import, by the importer's own row-building counter.
 PageId = NewType("PageId", int)
+brand(PageId)
 # sidebar_entries.id -- its own INTEGER PRIMARY KEY, distinct from PageId
 # even though a sidebar entry's title always names a page.
 SidebarEntryId = NewType("SidebarEntryId", int)
+brand(SidebarEntryId)
 
 # The per-tab sync identity (web's sync/opQueue.ts `clientId`, minted once
 # per tab) and the replay-dedup key shared by an OpBatch and the pending_ops

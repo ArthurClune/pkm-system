@@ -1007,6 +1007,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "x-brand": "SidebarEntryId",
               "title": "Entry Id"
             }
           }
@@ -2026,11 +2027,13 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "page_title": {
             "type": "string",
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
           }
         },
         "type": "object",
@@ -2261,11 +2264,13 @@
         "properties": {
           "page_id": {
             "type": "integer",
-            "title": "Page Id"
+            "title": "Page Id",
+            "x-brand": "PageId"
           },
           "page_title": {
             "type": "string",
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
           },
           "items": {
             "items": {
@@ -2287,7 +2292,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "text": {
             "type": "string",
@@ -2361,11 +2367,13 @@
         "properties": {
           "page_id": {
             "type": "integer",
-            "title": "Page Id"
+            "title": "Page Id",
+            "x-brand": "PageId"
           },
           "page_title": {
             "type": "string",
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
           },
           "items": {
             "items": {
@@ -2387,7 +2395,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "text": {
             "type": "string",
@@ -2495,6 +2504,9 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/BlockRefText"
             },
+            "propertyNames": {
+              "x-brand": "BlockUid"
+            },
             "type": "object",
             "title": "Block Ref Texts"
           }
@@ -2517,7 +2529,8 @@
           },
           "page_title": {
             "type": "string",
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
           }
         },
         "type": "object",
@@ -2532,6 +2545,9 @@
           "block_ref_texts": {
             "additionalProperties": {
               "$ref": "#/components/schemas/BlockRefText"
+            },
+            "propertyNames": {
+              "x-brand": "BlockUid"
             },
             "type": "object",
             "title": "Block Ref Texts"
@@ -2576,11 +2592,13 @@
         "properties": {
           "page_id": {
             "type": "integer",
-            "title": "Page Id"
+            "title": "Page Id",
+            "x-brand": "PageId"
           },
           "page_title": {
             "type": "string",
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
           },
           "items": {
             "items": {
@@ -2602,7 +2620,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "text": {
             "type": "string",
@@ -2824,7 +2843,8 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "page_title": {
             "type": "string",
@@ -2834,7 +2854,8 @@
           "parent_uid": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "x-brand": "BlockUid"
               },
               {
                 "type": "null"
@@ -2931,11 +2952,13 @@
         "properties": {
           "id": {
             "type": "integer",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "PageId"
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           },
           "updated_at": {
             "type": "integer",
@@ -3001,7 +3024,8 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "base_subtree_hash": {
             "anyOf": [
@@ -3121,11 +3145,13 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "page": {
             "type": "string",
-            "title": "Page"
+            "title": "Page",
+            "x-brand": "CanonicalTitle"
           },
           "href": {
             "type": "string",
@@ -3209,7 +3235,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "text": {
             "type": "string",
@@ -3266,7 +3293,8 @@
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           },
           "exists": {
             "type": "boolean",
@@ -3307,12 +3335,18 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/BlockRefText"
             },
+            "propertyNames": {
+              "x-brand": "BlockUid"
+            },
             "type": "object",
             "title": "Block Ref Texts"
           },
           "block_ref_counts": {
             "additionalProperties": {
               "type": "integer"
+            },
+            "propertyNames": {
+              "x-brand": "BlockUid"
             },
             "type": "object",
             "title": "Block Ref Counts"
@@ -3362,11 +3396,13 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "page": {
             "type": "string",
-            "title": "Page"
+            "title": "Page",
+            "x-brand": "CanonicalTitle"
           },
           "href": {
             "type": "string",
@@ -3413,12 +3449,14 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "parent_uid": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "x-brand": "BlockUid"
               },
               {
                 "type": "null"
@@ -3571,11 +3609,13 @@
         "properties": {
           "id": {
             "type": "integer",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "PageId"
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           },
           "created_at": {
             "anyOf": [
@@ -3628,12 +3668,18 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/BlockRefText"
             },
+            "propertyNames": {
+              "x-brand": "BlockUid"
+            },
             "type": "object",
             "title": "Block Ref Texts"
           },
           "block_ref_counts": {
             "additionalProperties": {
               "type": "integer"
+            },
+            "propertyNames": {
+              "x-brand": "BlockUid"
             },
             "type": "object",
             "title": "Block Ref Counts"
@@ -3665,6 +3711,9 @@
           "ref_counts": {
             "additionalProperties": {
               "type": "integer"
+            },
+            "propertyNames": {
+              "x-brand": "CanonicalTitle"
             },
             "type": "object",
             "title": "Ref Counts"
@@ -3710,7 +3759,8 @@
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           }
         },
         "type": "object",
@@ -3725,7 +3775,8 @@
         "properties": {
           "order": {
             "items": {
-              "type": "integer"
+              "type": "integer",
+              "x-brand": "SidebarEntryId"
             },
             "type": "array",
             "title": "Order"
@@ -3771,11 +3822,13 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "page_title": {
             "type": "string",
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
           },
           "snippet": {
             "type": "string",
@@ -3794,11 +3847,13 @@
         "properties": {
           "id": {
             "type": "integer",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "PageId"
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           }
         },
         "type": "object",
@@ -3854,7 +3909,8 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "collapsed": {
             "type": "boolean",
@@ -3878,7 +3934,8 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "heading": {
             "anyOf": [
@@ -3913,7 +3970,8 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "view_type": {
             "type": "string",
@@ -3936,11 +3994,13 @@
         "properties": {
           "id": {
             "type": "integer",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "SidebarEntryId"
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           }
         },
         "type": "object",
@@ -3988,7 +4048,8 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "reason": {
             "type": "string",
@@ -4002,7 +4063,8 @@
           "note_page": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "x-brand": "CanonicalTitle"
               },
               {
                 "type": "null"
@@ -4074,16 +4136,19 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "page_id": {
             "type": "integer",
-            "title": "Page Id"
+            "title": "Page Id",
+            "x-brand": "PageId"
           },
           "parent_uid": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "x-brand": "BlockUid"
               },
               {
                 "type": "null"
@@ -4184,11 +4249,13 @@
         "properties": {
           "id": {
             "type": "integer",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "PageId"
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           },
           "created_at": {
             "anyOf": [
@@ -4226,7 +4293,8 @@
         "properties": {
           "target_page_id": {
             "type": "integer",
-            "title": "Target Page Id"
+            "title": "Target Page Id",
+            "x-brand": "PageId"
           },
           "kind": {
             "type": "string",
@@ -4249,11 +4317,13 @@
         "properties": {
           "id": {
             "type": "integer",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "SidebarEntryId"
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           },
           "order_idx": {
             "type": "integer",
@@ -4389,11 +4459,13 @@
         "properties": {
           "page_id": {
             "type": "integer",
-            "title": "Page Id"
+            "title": "Page Id",
+            "x-brand": "PageId"
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           },
           "reason": {
             "type": "string",
@@ -4416,7 +4488,8 @@
         "properties": {
           "canonical_title": {
             "type": "string",
-            "title": "Canonical Title"
+            "title": "Canonical Title",
+            "x-brand": "CanonicalTitle"
           },
           "survivor": {
             "$ref": "#/components/schemas/TitleMigrationPage"
@@ -4461,11 +4534,13 @@
         "properties": {
           "page_id": {
             "type": "integer",
-            "title": "Page Id"
+            "title": "Page Id",
+            "x-brand": "PageId"
           },
           "title": {
             "type": "string",
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
           }
         },
         "type": "object",
@@ -4479,7 +4554,8 @@
         "properties": {
           "titles": {
             "items": {
-              "type": "string"
+              "type": "string",
+              "x-brand": "CanonicalTitle"
             },
             "type": "array",
             "title": "Titles"
@@ -4500,7 +4576,8 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "text": {
             "type": "string",

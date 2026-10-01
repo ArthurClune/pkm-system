@@ -8,8 +8,7 @@ import {
   repairActiveOutlineSessions,
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
-import { READ_INIT, block, journalBacklinks, jsonResponse, makeSync, pagePayload,
-         stubFetch } from "../test-helpers";
+import { READ_INIT, block, journalBacklinks, jsonResponse, makeSync, pageId, pagePayload, stubFetch, title, uid } from "../test-helpers";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
 import { BlockStampsContext } from "../contexts";
 import { Journal } from "./Journal";
@@ -53,7 +52,7 @@ it("fetches and renders a page, resolving block refs from the payload", async ()
     ["/api/page/Generative%20Models", pagePayload("Generative Models", [
       block("uid_p1", "intro [[Paper]]"),
       block("uid_p2", "See ((uid_r1))"),
-    ], { block_ref_texts: { uid_r1: { text: "the referenced text", page_title: "Paper" } } })],
+    ], { block_ref_texts: { uid_r1: { text: "the referenced text", page_title: title("Paper") } } })],
   ]);
   renderAt("/page/Generative%20Models");
   expect(await screen.findByRole("heading", { name: "Generative Models" })).toBeInTheDocument();
@@ -74,8 +73,8 @@ it("keeps literal slashes in namespace titles", async () => {
 it("links with the canonical payload title and refreshes backlinks", async () => {
   const sync = makeSync();
   const refreshed = pagePayload("ACME", [], { backlinks: {
-    groups: [{ page_id: 9, page_title: "Source", items: [{
-      uid: "uid_unlinked", text: "[[ACME]] mention", breadcrumbs: [],
+    groups: [{ page_id: pageId(9), page_title: title("Source"), items: [{
+      uid: uid("uid_unlinked"), text: "[[ACME]] mention", breadcrumbs: [],
     }] }],
     total_pages: 1, offset: 0, limit: 20,
   } });
@@ -226,7 +225,7 @@ it("a losing failed parent renders the accepted same-title winner without error"
         block("winner-ref", "((winner_ref))"),
       ], {
         block_ref_texts: {
-          winner_ref: { text: "shared payload metadata", page_title: "Source" },
+          winner_ref: { text: "shared payload metadata", page_title: title("Source") },
         },
       })));
       await newer.promise;
@@ -410,7 +409,7 @@ it("unmounting the newer parent recovers while the older transport still hangs",
         block("survivor-ref", "((hung_ref))"),
       ], {
         block_ref_texts: {
-          hung_ref: { text: "hung-parent metadata", page_title: "Source" },
+          hung_ref: { text: "hung-parent metadata", page_title: title("Source") },
         },
       })));
       await recovery.promise;
@@ -502,7 +501,7 @@ it("an automatic read superseding elected recovery permits one replacement paren
         block_ref_texts: {
           replacement_ref: {
             text: "post-automatic metadata",
-            page_title: "Source",
+            page_title: title("Source"),
           },
         },
       })));
@@ -543,7 +542,7 @@ it("an automatic read superseding elected recovery permits one replacement paren
 });
 
 it("a hung automatic read cannot strand eager full-parent readiness", async () => {
-  const title = "Hung Automatic Paper";
+  const pageTitle = "Hung Automatic Paper";
   const older = deferred<Response>();
   const current = deferred<Response>();
   const recovery = deferred<Response>();
@@ -567,11 +566,11 @@ it("a hung automatic read cannot strand eager full-parent readiness", async () =
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title={title} />
+        <EditableSidebarPanel title={pageTitle} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
-  const automaticHandle = acquireOutlineSession(title, null);
+  const automaticHandle = acquireOutlineSession(pageTitle, null);
   let copies = 0;
   let metadataCopies = 0;
   let staleCopies = 0;
@@ -584,14 +583,14 @@ it("a hung automatic read cannot strand eager full-parent readiness", async () =
     await vi.waitFor(() => expect(parentCalls).toBe(3));
 
     await act(async () => {
-      recovery.resolve(jsonResponse(pagePayload(title, [
+      recovery.resolve(jsonResponse(pagePayload(pageTitle, [
         block("recovery", "hung-automatic recovery"),
         block("recovery-ref", "((automatic_ref))"),
       ], {
         block_ref_texts: {
           automatic_ref: {
             text: "hung-automatic metadata",
-            page_title: "Source",
+            page_title: title("Source"),
           },
         },
       })));
@@ -603,10 +602,10 @@ it("a hung automatic read cannot strand eager full-parent readiness", async () =
     await act(async () => {
       automatic.resolve([block("stale-automatic", "late automatic blocks")]);
       await automaticRead;
-      older.resolve(jsonResponse(pagePayload(title, [
+      older.resolve(jsonResponse(pagePayload(pageTitle, [
         block("late-older", "late automatic older parent"),
       ])));
-      current.resolve(jsonResponse(pagePayload(title, [
+      current.resolve(jsonResponse(pagePayload(pageTitle, [
         block("late-current", "late automatic current parent"),
       ])));
       await older.promise;
@@ -621,9 +620,9 @@ it("a hung automatic read cannot strand eager full-parent readiness", async () =
     ).length;
     errors = document.querySelectorAll(".error").length;
   } finally {
-    older.resolve(jsonResponse(pagePayload(title, [])));
-    current.resolve(jsonResponse(pagePayload(title, [])));
-    recovery.resolve(jsonResponse(pagePayload(title, [])));
+    older.resolve(jsonResponse(pagePayload(pageTitle, [])));
+    current.resolve(jsonResponse(pagePayload(pageTitle, [])));
+    recovery.resolve(jsonResponse(pagePayload(pageTitle, [])));
     automatic.resolve([]);
     automaticHandle.release();
     view.unmount();
@@ -634,7 +633,7 @@ it("a hung automatic read cannot strand eager full-parent readiness", async () =
   expect(metadataCopies).toBe(2);
   expect(staleCopies).toBe(0);
   expect(errors).toBe(0);
-  expect(isOutlineSessionActive(title)).toBe(false);
+  expect(isOutlineSessionActive(pageTitle)).toBe(false);
 });
 
 it("a repair superseding elected recovery permits one post-repair parent", async () => {
@@ -700,7 +699,7 @@ it("a repair superseding elected recovery permits one post-repair parent", async
         block_ref_texts: {
           repair_ref: {
             text: "post-repair metadata",
-            page_title: "Source",
+            page_title: title("Source"),
           },
         },
       })));
@@ -807,7 +806,7 @@ it("canceling elected recovery does not start a second recovery", async () => {
 });
 
 it("a captured Journal response superseding recovery elects one full parent", async () => {
-  const title = "Captured Paper";
+  const pageTitle = "Captured Paper";
   const older = deferred<Response>();
   const newer = deferred<Response>();
   const elected = deferred<Response>();
@@ -840,7 +839,7 @@ it("a captured Journal response superseding recovery elects one full parent", as
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title={title} />
+        <EditableSidebarPanel title={pageTitle} />
         {showJournal && <Journal />}
       </MemoryRouter>
     </SyncContext.Provider>
@@ -853,7 +852,7 @@ it("a captured Journal response superseding recovery elects one full parent", as
   try {
     await vi.waitFor(() => expect(parentCalls).toBe(2));
     await act(async () => {
-      older.resolve(jsonResponse(pagePayload(title, [])));
+      older.resolve(jsonResponse(pagePayload(pageTitle, [])));
       await older.promise;
       newer.reject(new Error("newest initial parent failed"));
       await newer.promise.catch(() => undefined);
@@ -870,7 +869,7 @@ it("a captured Journal response superseding recovery elects one full parent", as
       journal.resolve(jsonResponse({
         days: [{
           date: "2026-07-08",
-          title,
+          title: pageTitle,
           exists: true,
           blocks: [block("journal", "captured block-only response")],
           backlinks: journalBacklinks(),
@@ -884,14 +883,14 @@ it("a captured Journal response superseding recovery elects one full parent", as
     await vi.waitFor(() => expect(parentCalls).toBe(4));
 
     await act(async () => {
-      replacement.resolve(jsonResponse(pagePayload(title, [
+      replacement.resolve(jsonResponse(pagePayload(pageTitle, [
         block("replacement", "post-capture winner"),
         block("replacement-ref", "((capture_ref))"),
       ], {
         block_ref_texts: {
           capture_ref: {
             text: "post-capture metadata",
-            page_title: "Source",
+            page_title: title("Source"),
           },
         },
       })));
@@ -902,7 +901,7 @@ it("a captured Journal response superseding recovery elects one full parent", as
     expect(parentCalls).toBe(4);
 
     await act(async () => {
-      elected.resolve(jsonResponse(pagePayload(title, [
+      elected.resolve(jsonResponse(pagePayload(pageTitle, [
         block("stale-elected", "stale elected response"),
       ])));
       await elected.promise;
@@ -917,11 +916,11 @@ it("a captured Journal response superseding recovery elects one full parent", as
     staleCopies = screen.queryAllByText("stale elected response").length;
     errors = document.querySelectorAll(".error").length;
   } finally {
-    older.resolve(jsonResponse(pagePayload(title, [])));
-    newer.resolve(jsonResponse(pagePayload(title, [])));
-    elected.resolve(jsonResponse(pagePayload(title, [])));
+    older.resolve(jsonResponse(pagePayload(pageTitle, [])));
+    newer.resolve(jsonResponse(pagePayload(pageTitle, [])));
+    elected.resolve(jsonResponse(pagePayload(pageTitle, [])));
     journal.resolve(jsonResponse({ days: [], block_ref_texts: {} }));
-    replacement.resolve(jsonResponse(pagePayload(title, [])));
+    replacement.resolve(jsonResponse(pagePayload(pageTitle, [])));
     view.unmount();
   }
 
@@ -930,11 +929,11 @@ it("a captured Journal response superseding recovery elects one full parent", as
   expect(metadataCopies).toBe(2);
   expect(staleCopies).toBe(0);
   expect(errors).toBe(0);
-  expect(isOutlineSessionActive(title)).toBe(false);
+  expect(isOutlineSessionActive(pageTitle)).toBe(false);
 });
 
 it("a dormant Journal capture cannot strand parent recovery", async () => {
-  const title = "Dormant Capture Paper";
+  const pageTitle = "Dormant Capture Paper";
   const older = deferred<Response>();
   const current = deferred<Response>();
   const recovery = deferred<Response>();
@@ -965,7 +964,7 @@ it("a dormant Journal capture cannot strand parent recovery", async () => {
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title={title} />
+        <EditableSidebarPanel title={pageTitle} />
         {showJournal && <Journal />}
       </MemoryRouter>
     </SyncContext.Provider>
@@ -994,14 +993,14 @@ it("a dormant Journal capture cannot strand parent recovery", async () => {
     await vi.waitFor(() => expect(parentCalls).toBe(3));
 
     await act(async () => {
-      recovery.resolve(jsonResponse(pagePayload(title, [
+      recovery.resolve(jsonResponse(pagePayload(pageTitle, [
         block("recovery", "dormant-capture recovery"),
         block("recovery-ref", "((dormant_ref))"),
       ], {
         block_ref_texts: {
           dormant_ref: {
             text: "dormant-capture metadata",
-            page_title: "Source",
+            page_title: title("Source"),
           },
         },
       })));
@@ -1017,7 +1016,7 @@ it("a dormant Journal capture cannot strand parent recovery", async () => {
       journal.resolve(jsonResponse({
         days: [{
           date: "2026-07-09",
-          title,
+          title: pageTitle,
           exists: true,
           blocks: [block("late-journal", "late dormant capture")],
           backlinks: journalBacklinks(),
@@ -1025,7 +1024,7 @@ it("a dormant Journal capture cannot strand parent recovery", async () => {
         block_ref_texts: {},
       }));
       await journal.promise;
-      older.resolve(jsonResponse(pagePayload(title, [
+      older.resolve(jsonResponse(pagePayload(pageTitle, [
         block("late-older", "late older parent"),
       ])));
       await older.promise;
@@ -1043,9 +1042,9 @@ it("a dormant Journal capture cannot strand parent recovery", async () => {
     ).length;
     errors = document.querySelectorAll(".error").length;
   } finally {
-    older.resolve(jsonResponse(pagePayload(title, [])));
-    current.resolve(jsonResponse(pagePayload(title, [])));
-    recovery.resolve(jsonResponse(pagePayload(title, [])));
+    older.resolve(jsonResponse(pagePayload(pageTitle, [])));
+    current.resolve(jsonResponse(pagePayload(pageTitle, [])));
+    recovery.resolve(jsonResponse(pagePayload(pageTitle, [])));
     journal.resolve(jsonResponse({ days: [], block_ref_texts: {} }));
     view.unmount();
   }
@@ -1056,11 +1055,11 @@ it("a dormant Journal capture cannot strand parent recovery", async () => {
   expect(metadataCopies).toBe(2);
   expect(staleCopies).toBe(0);
   expect(errors).toBe(0);
-  expect(isOutlineSessionActive(title)).toBe(false);
+  expect(isOutlineSessionActive(pageTitle)).toBe(false);
 });
 
 it("unmounting Journal releases a hung capture before parent recovery", async () => {
-  const title = "Unmount Capture Paper";
+  const pageTitle = "Unmount Capture Paper";
   const lateTitle = "Late Journal Inactive";
   const older = deferred<Response>();
   const current = deferred<Response>();
@@ -1092,7 +1091,7 @@ it("unmounting Journal releases a hung capture before parent recovery", async ()
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title={title} />
+        <EditableSidebarPanel title={pageTitle} />
         {showJournal && <Journal />}
       </MemoryRouter>
     </SyncContext.Provider>
@@ -1119,14 +1118,14 @@ it("unmounting Journal releases a hung capture before parent recovery", async ()
     await vi.waitFor(() => expect(parentCalls).toBe(3));
 
     await act(async () => {
-      recovery.resolve(jsonResponse(pagePayload(title, [
+      recovery.resolve(jsonResponse(pagePayload(pageTitle, [
         block("recovery", "post-unmount recovery"),
         block("recovery-ref", "((unmount_ref))"),
       ], {
         block_ref_texts: {
           unmount_ref: {
             text: "post-unmount metadata",
-            page_title: "Source",
+            page_title: title("Source"),
           },
         },
       })));
@@ -1142,7 +1141,7 @@ it("unmounting Journal releases a hung capture before parent recovery", async ()
         block_ref_texts: {},
       }));
       await journal.promise;
-      older.resolve(jsonResponse(pagePayload(title, [
+      older.resolve(jsonResponse(pagePayload(pageTitle, [
         block("late-older", "late unmount older"),
       ])));
       await older.promise;
@@ -1156,9 +1155,9 @@ it("unmounting Journal releases a hung capture before parent recovery", async ()
     ).length;
     errors = document.querySelectorAll(".error").length;
   } finally {
-    older.resolve(jsonResponse(pagePayload(title, [])));
-    current.resolve(jsonResponse(pagePayload(title, [])));
-    recovery.resolve(jsonResponse(pagePayload(title, [])));
+    older.resolve(jsonResponse(pagePayload(pageTitle, [])));
+    current.resolve(jsonResponse(pagePayload(pageTitle, [])));
+    recovery.resolve(jsonResponse(pagePayload(pageTitle, [])));
     journal.resolve(jsonResponse({ days: [], block_ref_texts: {} }));
     view.unmount();
   }
@@ -1169,7 +1168,7 @@ it("unmounting Journal releases a hung capture before parent recovery", async ()
   expect(staleCopies).toBe(0);
   expect(errors).toBe(0);
   expect(isOutlineSessionActive(lateTitle)).toBe(false);
-  expect(isOutlineSessionActive(title)).toBe(false);
+  expect(isOutlineSessionActive(pageTitle)).toBe(false);
 });
 
 it("a superseded resync failure cannot replace a newer parent winner with error", async () => {
@@ -1270,6 +1269,19 @@ it("a hash naming no block on the page is a no-op", async () => {
   ]);
   renderAt("/page/Paper#uid_gone");
   await screen.findByRole("heading", { name: "Paper" });
+  expect(scrollIntoView).not.toHaveBeenCalled();
+});
+
+it("a hash that isn't a well-formed uid flashes nothing", async () => {
+  const scrollIntoView = vi.fn();
+  window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [block("abcde", "a block")])],
+  ]);
+  const { container } = renderAt("/page/Paper#abcde");
+  await screen.findByRole("heading", { name: "Paper" });
+  const row = container.querySelector('[data-uid="abcde"]');
+  expect(row).not.toBeNull();
   expect(scrollIntoView).not.toHaveBeenCalled();
 });
 

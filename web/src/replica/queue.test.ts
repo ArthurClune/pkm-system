@@ -10,6 +10,7 @@ import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
 import { sha256Hex, type Sha256Hex } from "./sha256";
 import { subtreeHash } from "./subtreeHash";
 import { openTestDb, type TestDb } from "./testDb";
+import { uid } from "../test-helpers";
 
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
@@ -48,7 +49,7 @@ describe("enqueueBatch", () => {
 
       try {
         enqueueBatch(t.db, [
-          { op: "update_text", uid: "uid_q1", text: "would partially apply" },
+          { op: "update_text", uid: uid("uid_q1"), text: "would partially apply" },
           invalidOp as BlockOp,
         ], 99, bid("batch-invalid"));
       } catch (error) {
@@ -63,7 +64,7 @@ describe("enqueueBatch", () => {
 
   test("persists wire JSON with batch_id and captures base_text_hash", () => {
     const res = enqueueBatch(t.db, [
-      { op: "update_text", uid: "uid_q1", text: "edited once" },
+      { op: "update_text", uid: uid("uid_q1"), text: "edited once" },
     ], 99, bid("batch-aaaa"));
     expect(res.pending).toBe(1);
     const row = t.db.select<{ batch_id: string; ops_json: string }>(
@@ -79,7 +80,7 @@ describe("enqueueBatch", () => {
   test("preserves an explicit base_text_hash", () => {
     enqueueBatch(t.db, [{
       op: "update_text",
-      uid: "uid_q1",
+      uid: uid("uid_q1"),
       text: "linked snapshot",
       base_text_hash: "snapshot-hash" as Sha256Hex,
     }], 99, bid("batch-explicit"));
@@ -96,10 +97,10 @@ describe("enqueueBatch", () => {
     // replica hasn't hydrated yet: the local apply is best-effort, but the
     // batch MUST persist — dropping it loses the edit
     const res = enqueueBatch(t.db, [
-      { op: "update_text", uid: "uid_ghost", text: "edited before hydration" },
-      { op: "create", uid: "uid_orphan", page_title: "AI",
-        parent_uid: "uid_ghost2", order_idx: 0, text: "child of a ghost" },
-      { op: "update_text", uid: "uid_q1", text: "this one applies" },
+      { op: "update_text", uid: uid("uid_ghost"), text: "edited before hydration" },
+      { op: "create", uid: uid("uid_orphan"), page_title: "AI",
+        parent_uid: uid("uid_ghost2"), order_idx: 0, text: "child of a ghost" },
+      { op: "update_text", uid: uid("uid_q1"), text: "this one applies" },
     ], 99, bid("batch-ghost"));
     expect(res.pending).toBe(1);
     const batch = nextBatch(t.db)!;
@@ -116,8 +117,8 @@ describe("enqueueBatch", () => {
 
   test("chained edits hash against the previous local text, not the base", () => {
     enqueueBatch(t.db, [
-      { op: "update_text", uid: "uid_q1", text: "v2" },
-      { op: "update_text", uid: "uid_q1", text: "v3" },
+      { op: "update_text", uid: uid("uid_q1"), text: "v2" },
+      { op: "update_text", uid: uid("uid_q1"), text: "v3" },
     ], 99, bid("batch-bbbb"));
     const ops = JSON.parse(t.db.select<{ ops_json: string }>(
       "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
@@ -127,9 +128,9 @@ describe("enqueueBatch", () => {
 
   test("update of a block created in the same batch carries no base hash", () => {
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_q2", page_title: "AI", parent_uid: null,
+      { op: "create", uid: uid("uid_q2"), page_title: "AI", parent_uid: null,
         order_idx: 1, text: "brand new" },
-      { op: "update_text", uid: "uid_q2", text: "edited new" },
+      { op: "update_text", uid: uid("uid_q2"), text: "edited new" },
     ], 99, bid("batch-cccc"));
     const ops = JSON.parse(t.db.select<{ ops_json: string }>(
       "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
@@ -143,7 +144,7 @@ describe("enqueueBatch", () => {
 
   test("enqueueBatch fills page_title from the replica when absent", () => {
     enqueueBatch(t.db, [
-      { op: "update_text", uid: "uid_q1", text: "edited once" },
+      { op: "update_text", uid: uid("uid_q1"), text: "edited once" },
     ], 99, bid("batch-title"));
     const ops = JSON.parse(t.db.select<{ ops_json: string }>(
       "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
@@ -152,7 +153,7 @@ describe("enqueueBatch", () => {
 
   test("leaves an unknown block's op without a page_title", () => {
     enqueueBatch(t.db, [
-      { op: "update_text", uid: "uid_ghost", text: "edited before hydration" },
+      { op: "update_text", uid: uid("uid_ghost"), text: "edited before hydration" },
     ], 99, bid("batch-title-ghost"));
     const ops = JSON.parse(t.db.select<{ ops_json: string }>(
       "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
@@ -161,7 +162,7 @@ describe("enqueueBatch", () => {
 
   test("preserves an explicit page_title", () => {
     enqueueBatch(t.db, [{
-      op: "update_text", uid: "uid_q1", text: "edited",
+      op: "update_text", uid: uid("uid_q1"), text: "edited",
       page_title: "Explicit Page",
     }], 99, bid("batch-title-explicit"));
     const ops = JSON.parse(t.db.select<{ ops_json: string }>(
@@ -175,7 +176,7 @@ describe("enqueueBatch", () => {
     // enqueue reply leaves need not match the stored one: the server's
     // replay hash ignores base_text_hash and page_title on update_text.
     const ops: BlockOp[] = [{
-      op: "update_text", uid: "uid_q1", text: "linked",
+      op: "update_text", uid: uid("uid_q1"), text: "linked",
       base_text_hash: sha256Hex("original text"),
     }];
     enqueueBatch(t.db, ops, 99, bid("batch-lane-copy"));
@@ -200,7 +201,7 @@ describe("enqueueBatch on delete", () => {
 
   test("fills a delete's subtree hash from the replica before the optimistic apply", () => {
     seedSubtree();
-    enqueueBatch(t.db, [{ op: "delete", uid: "uid_r" }], 99, bid("batch-del"));
+    enqueueBatch(t.db, [{ op: "delete", uid: uid("uid_r") }], 99, bid("batch-del"));
     expect(storedOps()[0].base_subtree_hash).toBe(subtreeHash([
       ["uid_r", "root"], ["uid_c1", "child one"], ["uid_g", "grandchild"],
       ["uid_c2", ""],
@@ -213,8 +214,8 @@ describe("enqueueBatch on delete", () => {
   test("a parent delete after its child's delete hashes what the child's delete left", () => {
     seedSubtree();
     enqueueBatch(t.db, [
-      { op: "delete", uid: "uid_c1" },
-      { op: "delete", uid: "uid_r" },
+      { op: "delete", uid: uid("uid_c1") },
+      { op: "delete", uid: uid("uid_r") },
     ], 99, bid("batch-del-chain"));
     const ops = storedOps();
     expect(ops[0].base_subtree_hash).toBe(subtreeHash([
@@ -226,7 +227,7 @@ describe("enqueueBatch on delete", () => {
   test("stores a caller-hashed delete as sent", () => {
     seedSubtree();
     const ops: BlockOp[] = [
-      { op: "delete", uid: "uid_r", base_subtree_hash: "feedface" as Sha256Hex },
+      { op: "delete", uid: uid("uid_r"), base_subtree_hash: "feedface" as Sha256Hex },
     ];
     enqueueBatch(t.db, ops, 99, bid("batch-del-hashed"));
     expect(t.db.select<{ ops_json: string }>(
@@ -235,7 +236,7 @@ describe("enqueueBatch on delete", () => {
   });
 
   test("leaves a delete of a block the replica lacks unhashed", () => {
-    enqueueBatch(t.db, [{ op: "delete", uid: "uid_ghost" }], 99, bid("batch-del-ghost"));
+    enqueueBatch(t.db, [{ op: "delete", uid: uid("uid_ghost") }], 99, bid("batch-del-ghost"));
     expect(storedOps()[0]).not.toHaveProperty("base_subtree_hash");
   });
 
@@ -245,7 +246,7 @@ describe("enqueueBatch on delete", () => {
     t.db.exec(
       "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text) VALUES" +
       " ('uid_x', 1, 'uid_y', 0, 'x'), ('uid_y', 1, 'uid_x', 0, 'y')");
-    enqueueBatch(t.db, [{ op: "delete", uid: "uid_x" }], 99, bid("batch-del-cycle"));
+    enqueueBatch(t.db, [{ op: "delete", uid: uid("uid_x") }], 99, bid("batch-del-cycle"));
     expect(storedOps()[0].base_subtree_hash).toBe(subtreeHash([
       ["uid_x", "x"], ["uid_y", "y"]]));
   });
@@ -253,9 +254,9 @@ describe("enqueueBatch on delete", () => {
 
 describe("queue reads and lifecycle", () => {
   test("nextBatch is oldest-first and skips poisoned rows", () => {
-    enqueueBatch(t.db, [{ op: "set_collapsed", uid: "uid_q1", collapsed: true }],
+    enqueueBatch(t.db, [{ op: "set_collapsed", uid: uid("uid_q1"), collapsed: true }],
                  99, bid("batch-1"));
-    enqueueBatch(t.db, [{ op: "set_heading", uid: "uid_q1", heading: 1 }],
+    enqueueBatch(t.db, [{ op: "set_heading", uid: uid("uid_q1"), heading: 1 }],
                  99, bid("batch-2"));
     expect(nextBatch(t.db)?.batch_id).toBe(bid("batch-1"));
     const first = nextBatch(t.db)!;
@@ -267,21 +268,21 @@ describe("queue reads and lifecycle", () => {
   });
 
   test("deleteBatch removes the row its id and batch id both match", () => {
-    enqueueBatch(t.db, [{ op: "delete", uid: "uid_q1" }], 99, bid("batch-1"));
+    enqueueBatch(t.db, [{ op: "delete", uid: uid("uid_q1") }], 99, bid("batch-1"));
     const b = nextBatch(t.db)!;
     expect(deleteBatch(t.db, b.id, b.batch_id)).toBe(true);
     expect(nextBatch(t.db)).toBeNull();
   });
 
   test("deleteBatch leaves a row whose batch id differs", () => {
-    enqueueBatch(t.db, [{ op: "delete", uid: "uid_q1" }], 99, bid("batch-1"));
+    enqueueBatch(t.db, [{ op: "delete", uid: uid("uid_q1") }], 99, bid("batch-1"));
     const b = nextBatch(t.db)!;
     expect(deleteBatch(t.db, b.id, bid("another-batch"))).toBe(false);
     expect(nextBatch(t.db)).toMatchObject({ id: b.id, batch_id: bid("batch-1") });
   });
 
   test("durable poison details can be discovered after startup", () => {
-    enqueueBatch(t.db, [{ op: "update_text", uid: "uid_q1", text: "bad" }],
+    enqueueBatch(t.db, [{ op: "update_text", uid: uid("uid_q1"), text: "bad" }],
                  99, bid("batch-rejected"));
     const rejected = nextBatch(t.db)!;
     markPoisoned(t.db, rejected.id, JSON.stringify({
@@ -325,7 +326,7 @@ describe("importPendingRows", () => {
     ];
     queue.importPendingRows(t.db, rows);
     expect(readRows()).toEqual(rows);
-    enqueueBatch(t.db, [{ op: "delete", uid: "uid_x" }], 10, bid("after"));
+    enqueueBatch(t.db, [{ op: "delete", uid: uid("uid_x") }], 10, bid("after"));
     expect(t.db.select<{ id: number }>(
       "SELECT id FROM pending_ops WHERE batch_id = 'after'")).toEqual([{ id: 8 }]);
   });

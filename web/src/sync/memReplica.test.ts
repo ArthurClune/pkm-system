@@ -1,10 +1,11 @@
 import { expect, test } from "vitest";
-import type { BatchId } from "../api/brands";
+import type { BatchId, BlockUid } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { PendingRowId } from "../replica/client";
 import { memReplica } from "./memReplica";
 
-const op = (uid: string): BlockOp => ({ op: "delete", uid });
+const op = (rawUid: string): BlockOp =>
+  ({ op: "delete", uid: rawUid as BlockUid });
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
 const bid = (s: string): BatchId => s as BatchId;

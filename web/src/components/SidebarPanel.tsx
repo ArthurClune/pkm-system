@@ -1,9 +1,10 @@
 // pattern: Imperative Shell
+import type { BlockUid } from "../api/brands";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { PageLink } from "./PageLink";
 
 export function SidebarPanel({ title, uid, onClose }:
-    { title: string; uid?: string; onClose: () => void }) {
+    { title: string; uid?: BlockUid; onClose: () => void }) {
   return (
     <section className="sidebar-panel" aria-label={`sidebar: ${title}`}>
       <header className="sidebar-panel-header">

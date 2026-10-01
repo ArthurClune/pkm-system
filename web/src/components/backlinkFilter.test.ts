@@ -1,16 +1,18 @@
 import { describe, expect, it } from "vitest";
+import type { BlockUid } from "../api/brands";
 import type { BacklinkGroup } from "../api/payloads";
 import { applyFilter, chipCounts, EMPTY_FILTER, isFiltering, itemRefTitles,
          toggleChip } from "./backlinkFilter";
+import { pageId, title } from "../test-helpers";
 
-const item = (uid: string, text: string, breadcrumbs: string[] = []) =>
-  ({ uid, text, breadcrumbs });
+const item = (rawUid: string, text: string, breadcrumbs: string[] = []) =>
+  ({ uid: rawUid as BlockUid, text, breadcrumbs });
 
 const groups: BacklinkGroup[] = [
-  { page_id: 1, page_title: "Daily A", items: [
+  { page_id: pageId(1), page_title: title("Daily A"), items: [
     item("u1", "alpha [[Claude]] #Paper"),
     item("u2", "beta [[Claude]] #Idea")] },
-  { page_id: 2, page_title: "Daily B", items: [
+  { page_id: pageId(2), page_title: title("Daily B"), items: [
     item("u3", "gamma [[Claude]]", ["reading list #Paper"])] },
 ];
 
@@ -55,7 +57,7 @@ describe("chipCounts", () => {
   });
 
   it("ties break alphabetically", () => {
-    const g: BacklinkGroup[] = [{ page_id: 1, page_title: "X", items: [
+    const g: BacklinkGroup[] = [{ page_id: pageId(1), page_title: title("X"), items: [
       item("u1", "#zebra #apple")] }];
     expect(chipCounts(g, [])).toEqual([
       { title: "apple", count: 1 }, { title: "zebra", count: 1 }]);

@@ -6,6 +6,7 @@ import type { BlockRefText } from "../api/payloads";
 import { BlockRefContext, SidebarContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
+import { title } from "../test-helpers";
 
 // See MermaidDiagram.test.tsx: vi.mock factories are hoisted, so any
 // closed-over variable must be named "mock*" for Vitest to rewire it safely.
@@ -70,7 +71,7 @@ it("renders a mermaid fence as a diagram, not a plain code block", async () => {
 
 it("resolves block refs from context and falls back to the literal", () => {
   renderText("See ((abc123XYZ))",
-    { abc123XYZ: { text: "resolved [[Paper]]", page_title: "Papers" } });
+    { abc123XYZ: { text: "resolved [[Paper]]", page_title: title("Papers") } });
   expect(screen.getByText(/resolved/)).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Paper" })).toBeInTheDocument();
 });

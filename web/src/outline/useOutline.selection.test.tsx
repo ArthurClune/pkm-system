@@ -7,7 +7,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import { subtreeHash } from "../replica/subtreeHash";
-import { block, makeSync, type SyncFake } from "../test-helpers";
+import { block, makeSync, title, type SyncFake, uid } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ pageTitle, initial, onReady }: {
@@ -15,7 +15,7 @@ function Harness({ pageTitle, initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(pageTitle, initial);
+  const outline = useOutline(title(pageTitle), initial);
   useEffect(() => onReady(outline));
   return <>{outline.dialog}</>;
 }
@@ -61,7 +61,7 @@ afterEach(() => {
 it("onMoveSelectionUp moves every selected block as a group, not just one", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
-  act(() => getOutline().handlers.onStartBlockSelection("b", "down")); // anchor b, head c
+  act(() => getOutline().handlers.onStartBlockSelection(uid("b"), "down")); // anchor b, head c
   expect(getOutline().selection).toEqual({ anchor: "b", head: "c" });
 
   act(() => getOutline().handlers.onMoveSelectionUp());
@@ -77,7 +77,7 @@ it("onMoveSelectionUp moves every selected block as a group, not just one", () =
 it("onMoveSelectionDown moves every selected block as a group", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
-  act(() => getOutline().handlers.onStartBlockSelection("a", "down")); // anchor a, head b
+  act(() => getOutline().handlers.onStartBlockSelection(uid("a"), "down")); // anchor a, head b
 
   act(() => getOutline().handlers.onMoveSelectionDown());
 
@@ -90,7 +90,7 @@ it("onMoveSelectionDown moves every selected block as a group", () => {
 it("queues and applies one cross-parent selection move batch", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", crossParentTree());
-  act(() => getOutline().handlers.onStartBlockSelection("b0", "down"));
+  act(() => getOutline().handlers.onStartBlockSelection(uid("b0"), "down"));
   act(() => getOutline().handlers.onExtendBlockSelection("down"));
   expect(getOutline().selection).toEqual({ anchor: "b0", head: "b1" });
 
@@ -111,7 +111,7 @@ it("queues and applies one cross-parent selection move batch", () => {
 it("does not enqueue when one selected movement run is ineligible", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", crossParentTree());
-  act(() => getOutline().handlers.onStartBlockSelection("a0", "down"));
+  act(() => getOutline().handlers.onStartBlockSelection(uid("a0"), "down"));
   expect(getOutline().selection).toEqual({ anchor: "a0", head: "b" });
 
   act(() => getOutline().handlers.onMoveSelectionUp());
@@ -124,7 +124,7 @@ it("does not enqueue when one selected movement run is ineligible", () => {
 it("indents and outdents the selected run as one batch without clearing it", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
-  act(() => getOutline().handlers.onStartBlockSelection("b", "down"));
+  act(() => getOutline().handlers.onStartBlockSelection(uid("b"), "down"));
 
   act(() => getOutline().handlers.onIndentSelection());
 
@@ -150,7 +150,7 @@ it("indents and outdents the selected run as one batch without clearing it", () 
 it("keeps the whole selection unchanged when one indent run is ineligible", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
-  act(() => getOutline().handlers.onStartBlockSelection("a", "down"));
+  act(() => getOutline().handlers.onStartBlockSelection(uid("a"), "down"));
 
   act(() => getOutline().handlers.onIndentSelection());
 
@@ -162,9 +162,9 @@ it("keeps the whole selection unchanged when one indent run is ineligible", () =
 it("onSelectBlock selects exactly that block and ends editing", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
-  act(() => getOutline().handlers.onFocusBlock("b", 2));
+  act(() => getOutline().handlers.onFocusBlock(uid("b"), 2));
 
-  act(() => getOutline().handlers.onSelectBlock("b"));
+  act(() => getOutline().handlers.onSelectBlock(uid("b")));
 
   expect(getOutline().selection).toEqual({ anchor: "b", head: "b" });
   expect(getOutline().focus).toBeNull();
@@ -178,7 +178,7 @@ it("deleting 20 or fewer selected blocks proceeds without confirmation", () => {
   const confirmSpy = vi.spyOn(window, "confirm"); // if this got called, the test should fail below
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
-  act(() => getOutline().handlers.onStartBlockSelection("a", "down")); // a, b selected
+  act(() => getOutline().handlers.onStartBlockSelection(uid("a"), "down")); // a, b selected
 
   act(() => getOutline().handlers.onDeleteBlockSelection());
 
@@ -205,7 +205,7 @@ it("deleting more than 20 selected blocks requires confirmation via the in-app d
   const confirmSpy = vi.spyOn(window, "confirm");
   const sync = makeSync();
   const getOutline = setup(sync, "Page", manyBlocks());
-  act(() => getOutline().handlers.onStartBlockSelection("u00", "down"));
+  act(() => getOutline().handlers.onStartBlockSelection(uid("u00"), "down"));
   for (let i = 0; i < MANY_UIDS.length - 2; i++) {
     act(() => getOutline().handlers.onExtendBlockSelection("down"));
   }
@@ -233,7 +233,7 @@ it("deleting more than 20 selected blocks requires confirmation via the in-app d
 it("deleting more than 20 selected blocks proceeds once confirmed in the dialog", async () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", manyBlocks());
-  act(() => getOutline().handlers.onStartBlockSelection("u00", "down"));
+  act(() => getOutline().handlers.onStartBlockSelection(uid("u00"), "down"));
   for (let i = 0; i < MANY_UIDS.length - 2; i++) {
     act(() => getOutline().handlers.onExtendBlockSelection("down"));
   }

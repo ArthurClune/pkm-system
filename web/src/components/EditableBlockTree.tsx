@@ -7,6 +7,7 @@
 // port (implemented by useOutline).
 import { memo, useCallback, useEffect, useMemo, useRef,
          useState } from "react";
+import type { BlockUid } from "../api/brands";
 import type { HeadingLevel } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import type { FocusTarget } from "../outline/edits";
@@ -73,8 +74,8 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   // change event would never dispatch. This one input is shared across every
   // block, with the pending target recorded here.
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const uploadTargetRef = useRef<{ uid: string; at: number } | null>(null);
-  const requestUpload = useCallback((uid: string, at: number) => {
+  const uploadTargetRef = useRef<{ uid: BlockUid; at: number } | null>(null);
+  const requestUpload = useCallback((uid: BlockUid, at: number) => {
     uploadTargetRef.current = { uid, at };
     fileInputRef.current?.click();
   }, []);
@@ -88,7 +89,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   };
   // Bullet context menu; one per tree, anchored at the pointer.
   const [menu, setMenu] = useState<{
-    uid: string;
+    uid: BlockUid;
     x: number;
     y: number;
     viewMode: EffectiveBlockView;
@@ -98,7 +99,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   // the badge that opened it. Renders in fallback trees too -- read-only
   // navigation to a referencing block is fine even where editing isn't.
   const [refPopover, setRefPopover] = useState<{
-    uid: string; x: number; y: number;
+    uid: BlockUid; x: number; y: number;
   } | null>(null);
   // Both sets are memoised on what they are derived from, not rebuilt per
   // render: they are props of every row, so a fresh Set would re-render the
@@ -119,11 +120,11 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     setMenu(null);
   };
   // Row props, so they must survive a re-render like the sets above.
-  const openMenu = useCallback((uid: string, x: number, y: number,
+  const openMenu = useCallback((uid: BlockUid, x: number, y: number,
                                 viewMode: EffectiveBlockView,
                                 trigger: HTMLElement) =>
     setMenu({ uid, x, y, viewMode, trigger }), []);
-  const openRefPopover = useCallback((uid: string, x: number, y: number) =>
+  const openRefPopover = useCallback((uid: BlockUid, x: number, y: number) =>
     setRefPopover({ uid, x, y }), []);
 
   // When a block selection is active there is no focused textarea, so the tree
@@ -225,10 +226,10 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   );
 }
 
-const EMPTY_SET: ReadonlySet<string> = new Set();
+const EMPTY_SET: ReadonlySet<BlockUid> = new Set();
 
 function blockMenuItems(
-  uid: string,
+  uid: BlockUid,
   heading: HeadingLevel | null,
   viewMode: EffectiveBlockView,
   handlers: OutlineHandlers,
@@ -282,8 +283,8 @@ function BlockStamp({ node, nowMs }: { node: BlockNode; nowMs: number }) {
  * needs no empty placeholder; it borrows width from the flexible text cell
  * on exactly the rows where it appears. */
 function RefCountBadge({ uid, count, onOpen }: {
-  uid: string; count: number;
-  onOpen: (uid: string, x: number, y: number) => void;
+  uid: BlockUid; count: number;
+  onOpen: (uid: BlockUid, x: number, y: number) => void;
 }) {
   const label = count === 1 ? "1 reference" : `${count} references`;
   return (
@@ -313,25 +314,25 @@ const EditableBlock = memo(function EditableBlock(
                           openMenuUid, stamps, nowMs, refCounts, onOpenMenu,
                           onOpenRefPopover }: {
   node: BlockNode; focus: FocusTarget | null;
-  selected: ReadonlySet<string>;
+  selected: ReadonlySet<BlockUid>;
   /** The focused block plus its ancestors, from the tree root:
    * membership is this block's constant-time "focus is in my subtree" test.
    * Empty in a fallback tree, which never reveals a table's raw rows. */
-  focusChain: ReadonlySet<string>;
+  focusChain: ReadonlySet<BlockUid>;
   handlers: OutlineHandlers; readOnly: boolean; fallback: boolean;
   /** Click the tree-owned upload input for `uid`, splicing at offset `at`
    * once files are chosen — see EditableBlockTree for why the
    * input can't live in BlockInput itself. */
-  onRequestUpload: (uid: string, at: number) => void;
+  onRequestUpload: (uid: BlockUid, at: number) => void;
   viewMode: EffectiveBlockView;
   number: number;
   openMenuUid: string | null;
   stamps: boolean;
   nowMs: number;
   refCounts?: Record<string, number>;
-  onOpenMenu: (uid: string, x: number, y: number,
+  onOpenMenu: (uid: BlockUid, x: number, y: number,
                viewMode: EffectiveBlockView, trigger: HTMLElement) => void;
-  onOpenRefPopover: (uid: string, x: number, y: number) => void;
+  onOpenRefPopover: (uid: BlockUid, x: number, y: number) => void;
 }) {
   const focused = !fallback && focus?.uid === node.uid;
   const isSelected = selected.has(node.uid);

@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, jsonResponse, makeSync } from "../test-helpers";
+import { block, jsonResponse, makeSync, title } from "../test-helpers";
 import { useOutline } from "../outline/useOutline";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { EditableBlockTree } from "./EditableBlockTree";
@@ -15,7 +15,7 @@ const LINK = { id: ID, title: "UML", url: "https://tratt.net/uml.html", added_at
 const RESOLVE = "/api/goodlinks/resolve";
 
 function Page({ initial }: { initial: BlockNode[] }) {
-  const o = useOutline("Page", initial);
+  const o = useOutline(title("Page"), initial);
   return (
     <>
       {o.goodlinksNotice && <p role="status">{o.goodlinksNotice}</p>}

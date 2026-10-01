@@ -2,7 +2,7 @@ import { afterEach, expect, it } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
-import { block, makeSync } from "../test-helpers";
+import { block, makeSync, uid } from "../test-helpers";
 import { acquireOutlineSession } from "./outlineSessions";
 import { performRedo, performUndo, recordHistory, registerOutlineHistory,
          resetHistory, setHistoryNavigator } from "./undoManager";
@@ -12,10 +12,10 @@ const PAGE = "Undo Page";
 
 const entry = (): HistoryEntry => ({
   pageTitle: PAGE,
-  ops: [{ op: "update_text", uid: "a", text: "after" }],
-  inverse: [{ op: "update_text", uid: "a", text: "before" }],
-  focusBefore: { uid: "a", cursor: 6 },
-  focusAfter: { uid: "a", cursor: 5 },
+  ops: [{ op: "update_text", uid: uid("a"), text: "after" }],
+  inverse: [{ op: "update_text", uid: uid("a"), text: "before" }],
+  focusBefore: { uid: uid("a"), cursor: 6 },
+  focusAfter: { uid: uid("a"), cursor: 5 },
 });
 
 afterEach(() => resetHistory());
@@ -117,14 +117,14 @@ it("redo stamps against the current tree, not the recorded one", () => {
   const handle = acquireOutlineSession(PAGE, [block("a", "one", { order_idx: 0 })]);
   recordHistory({
     pageTitle: PAGE,
-    ops: [{ op: "update_text", uid: "a", text: "one" }],
-    inverse: [{ op: "update_text", uid: "a", text: "zero" }],
+    ops: [{ op: "update_text", uid: uid("a"), text: "one" }],
+    inverse: [{ op: "update_text", uid: uid("a"), text: "zero" }],
     focusBefore: null,
     focusAfter: null,
   });
   performUndo(sync);
   // A later edit of the user's own moves the block on before the redo.
-  const later: BlockOp[] = [{ op: "update_text", uid: "a", text: "two" }];
+  const later: BlockOp[] = [{ op: "update_text", uid: uid("a"), text: "two" }];
   handle.applyLocal(sync.enqueue(later, ["page", PAGE]), later);
   expect(handle.getSnapshot().blocks[0].text).toBe("two");
 
@@ -143,7 +143,7 @@ it("an undo that deletes is stamped against the tree at replay time", () => {
   // block the user has since typed into would land a spurious conflict copy.
   const sync = makeSync();
   const before = [block("a", "first", { order_idx: 0 })];
-  const create: BlockOp[] = [{ op: "create", uid: "n", page_title: PAGE,
+  const create: BlockOp[] = [{ op: "create", uid: uid("n"), page_title: PAGE,
                                parent_uid: null, order_idx: 1, text: "" }];
   const inverse = invertOps(before, PAGE, create);
   expect(inverse).toEqual([{ op: "delete", uid: "n" }]);
@@ -151,7 +151,7 @@ it("an undo that deletes is stamped against the tree at replay time", () => {
     ...before, block("n", "", { order_idx: 1 })]);
   recordHistory({ pageTitle: PAGE, ops: create, inverse: inverse!,
                   focusBefore: null, focusAfter: null });
-  const typed: BlockOp[] = [{ op: "update_text", uid: "n", text: "typed later" }];
+  const typed: BlockOp[] = [{ op: "update_text", uid: uid("n"), text: "typed later" }];
   handle.applyLocal(sync.enqueue(typed, ["page", PAGE]), typed);
 
   expect(performUndo(sync)).toBe(true);

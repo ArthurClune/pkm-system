@@ -1,13 +1,15 @@
 // @vitest-environment node
 import { afterEach, describe, expect, test } from "vitest";
+import type { BlockUid } from "../../api/brands";
+import { uid } from "../../test-helpers";
 import { openTestDb, type TestDb } from "../testDb";
 import { buildTree, fetchAncestors, type BlockRow } from "./tree";
 
 function blockRow(over: Partial<BlockRow> = {}): BlockRow {
   return {
-    uid: "u1", parent_uid: null, order_idx: 0, text: "hi", heading: null,
-    view_type: null, collapsed: 0, created_at: null, updated_at: null,
-    ...over,
+    uid: uid("u1"), parent_uid: null, order_idx: 0, text: "hi",
+    heading: null, view_type: null, collapsed: 0, created_at: null,
+    updated_at: null, ...over,
   };
 }
 
@@ -33,7 +35,7 @@ function insertPage(pageId: number, title: string) {
   t.db.exec("INSERT INTO pages(id, title) VALUES (?, ?)", [pageId, title]);
 }
 
-function seedLinearChain(prefix: string, ancestors: number): string {
+function seedLinearChain(prefix: string, ancestors: number): BlockUid {
   insertPage(1, `${prefix} page`);
   let parentUid: string | null = null;
   for (let i = 0; i <= ancestors; i += 1) {
@@ -46,10 +48,10 @@ function seedLinearChain(prefix: string, ancestors: number): string {
     );
     parentUid = uid;
   }
-  return `${prefix}-${ancestors}`;
+  return `${prefix}-${ancestors}` as BlockUid;
 }
 
-function seedFiveNodeCycle(prefix: string): string {
+function seedFiveNodeCycle(prefix: string): BlockUid {
   insertPage(1, `${prefix} page`);
   const uids = Array.from({ length: 5 }, (_, i) => `${prefix}-${i}`);
   for (let i = 0; i < uids.length; i += 1) {
@@ -66,7 +68,7 @@ function seedFiveNodeCycle(prefix: string): string {
       [uids[(i + 1) % uids.length], uids[i]],
     );
   }
-  return uids[0];
+  return uids[0] as BlockUid;
 }
 
 describe("fetchAncestors", () => {

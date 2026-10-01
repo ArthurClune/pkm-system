@@ -65,8 +65,8 @@ web/src/
 ├── api/                      The typed HTTP layer (see API layer)
 │   ├── client.ts             Shell        apiFetch: JSON, 401 → /login, offline gateway
 │   ├── typedClient.ts        Shell        apiGet/apiPost/…, typed by the OpenAPI paths
-│   ├── brands.ts             —            The one definition of each web brand (Sha256Hex,
-│   │                                      SyncSeq, ClientId, BatchId)
+│   ├── brands.ts             —            The one definition of each web brand (see
+│   │                                      API layer)
 │   └── openapi.json, types.d.ts (generated); ops.ts, payloads.ts (type-only re-exports)
 │
 ├── grammar/                  Roam-markdown parsing (see frontend-rendering.md)
@@ -409,6 +409,31 @@ silently to `any`. `pnpm typecheck` therefore runs a second pass,
 `tooling/genTypes.drift.test.ts` fails when the committed `types.d.ts` is not
 what `pnpm gen-types` writes, since regenerating with the stock
 openapi-typescript CLI would turn every brand back into `string`.
+
+| Brand | Minted at |
+|---|---|
+| `BlockUid` | `uid.ts`'s `newUid`, `ids.ts`'s `parseBlockUid`, the block-ref token (`grammar/scan.ts`); row mappers in `replica/localApi/*`, `localOps.ts`, `queue.ts`; `apply.ts`'s tombstone mint |
+| `PageId` | row mappers reading a page id column (`replica/localOps.ts`, `localApi/pages.ts`, `localApi/search.ts`, `reconcile.ts`); `localOps.ts`'s `getOrCreateLocalPage` mints a negative id for an offline page, the sign carrying that meaning; `apply.ts`'s tombstone mint; `outline/missingPage.ts`'s `MISSING_PAGE_ID` sentinel |
+| `SidebarEntryId` | row mappers reading `sidebar_entries.id` (`localApi/router.ts`'s `sidebarPayload`); `apply.ts`'s tombstone mint |
+| `NormalizedTitle` | `grammar/scan.ts`'s `normalizeRefTitle` and hashtag token, `replica/titles.ts`'s `canonicalizeTitle` |
+| `CanonicalTitle` | row mappers reading `pages.title` / `sidebar_entries.title`, `replica/meta.ts`'s `canonicalTitle`/`titleReader` (which read the live plain-space flag), `replica/daily.ts`'s `titleForDate`/`dailyTitle` |
+| `Sha256Hex` | `replica/sha256.ts`'s `sha256Hex`, `replica/subtreeHash.ts`'s `subtreeHash`; the asset-link token (`grammar/tokenize.ts`) |
+| `SyncSeq` | carried from generated response types; narrowed by hand parsing the WS seq frame (`sync/socket.ts`), an ack (`sync/opsAck.ts`), the stored cursor (`replica/workerHandlers.ts`), and the sync loop's cursor (`sync/replicaSync.ts`) |
+| `ClientId` / `BatchId` | `sync/opQueue.ts` (from `newRawUid()`), `replica/workerHandlers.ts`'s `newBatchId` |
+| `GoodlinksId` | `components/goodlinks.ts`'s `goodlinksIdFromHref` |
+| `ConversationId` / `ConfirmId` | minted server-side; the web only carries them (`ConfirmId` is narrowed by hand at the SSE `confirm_request` parse, `assistant/sse.ts`) |
+
+A raw or navigational title stays a plain `string`, never a brand: request
+bodies (`CreatePageRequest.title`, `RenamePageRequest.new_title`,
+`AddSidebarEntryRequest.title`), URL path params, `paths.ts`'s
+`titleFromPathname`/`encodeTitle`/`pagePath`, and `openInSidebar`'s `title`
+parameter, since it navigates rather than reading a stored row. Op
+`page_title` stays `string` too: it is raw inbound and only canonical on the
+server's WS echo, so a `CanonicalTitle` is assignable either way.
+`replica/apply.ts`'s `parkedTitle` — the placeholder a window transaction
+writes into `pages.title` while two rows swap titles — is its own
+`ParkedTitle` brand, not `CanonicalTitle`: it is
+never a title a reader should treat as canonical.
 
 Concrete JSON requests must use `api/typedClient.ts`'s `apiGet`/`apiPost`/
 `apiPut`/`apiDelete`, which ESLint's `no-restricted-imports` enforces by

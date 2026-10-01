@@ -14,13 +14,14 @@
 // must not scroll the other one. A root that has not mounted yet (current
 // null) is therefore a no-op, not a document-wide search.
 import { useEffect, type RefObject } from "react";
+import type { BlockUid } from "./api/brands";
 
 /** Matches the .flash-target animation in styles.css; the class has to
  * outlive the animation or it stops part-way through. */
 export const FLASH_MS = 1600;
 
 export function useScrollFlashTarget(
-  uid: string | null | undefined,
+  uid: BlockUid | null | undefined,
   ready: unknown,
   root?: RefObject<HTMLElement | null>,
 ): void {

@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
          useState, type ReactNode } from "react";
 import { ApiError } from "../api/client";
+import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { apiPost } from "../api/typedClient";
@@ -65,7 +66,7 @@ export interface Outline {
 }
 
 export function useOutline(
-  pageTitle: string,
+  pageTitle: CanonicalTitle,
   initial: BlockNode[],
   editorOwner?: symbol,
 ): Outline {
@@ -108,7 +109,7 @@ export function useOutline(
   // without a flush; a textarea remounted over the draft restores it. Only
   // meaningful while that draft is pending, so every flush drops it.
   const draftSelectionRef =
-    useRef<{ uid: string; start: number; end: number } | null>(null);
+    useRef<{ uid: BlockUid; start: number; end: number } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useLayoutEffect(() => {
@@ -308,7 +309,7 @@ export function useOutline(
   // A draft on another block is flushed before this block's focus or draft
   // takes over. Its textarea may have unmounted with no blur (a remote batch
   // removed the block), and replacing the draft would drop its text.
-  const flushOtherDraft = useCallback((uid: string) => {
+  const flushOtherDraft = useCallback((uid: BlockUid) => {
     if (pendingRef.current && pendingRef.current.uid !== uid) flushNow();
   }, [flushNow]);
 

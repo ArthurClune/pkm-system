@@ -1,5 +1,6 @@
 from datetime import timedelta, timezone
 
+from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.render import (clip_depth, render_assets, render_backlinks,
                         render_block, render_changed, render_groups,
                         render_page, render_search,
@@ -102,7 +103,8 @@ def test_render_groups_with_uids_and_total():
 
 def test_render_groups_empty_with_ref_counts_hint():
     payload = QueryPayload(groups=[], total=0,
-                           ref_counts={"Meeting": 312, "Databases": 51})
+                           ref_counts={CanonicalTitle(NormalizedTitle("Meeting")): 312,
+                                       CanonicalTitle(NormalizedTitle("Databases")): 51})
     out = render_groups(payload)
     assert out == ("(0 total)\n"
                    "per-ref block counts: [[Meeting]] 312, [[Databases]] 51\n")

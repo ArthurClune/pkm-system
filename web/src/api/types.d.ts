@@ -936,9 +936,9 @@ export interface components {
         /** AssetRef */
         AssetRef: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Page Title */
-            page_title: string;
+            page_title: Brands.CanonicalTitle;
         };
         /** AssetSearchItem */
         AssetSearchItem: {
@@ -1019,16 +1019,16 @@ export interface components {
         /** BacklinkGroup */
         BacklinkGroup: {
             /** Page Id */
-            page_id: number;
+            page_id: Brands.PageId;
             /** Page Title */
-            page_title: string;
+            page_title: Brands.CanonicalTitle;
             /** Items */
             items: components["schemas"]["BacklinkItem"][];
         };
         /** BacklinkItem */
         BacklinkItem: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Text */
             text: string;
             /** Breadcrumbs */
@@ -1058,16 +1058,16 @@ export interface components {
         /** BlockGroup */
         BlockGroup: {
             /** Page Id */
-            page_id: number;
+            page_id: Brands.PageId;
             /** Page Title */
-            page_title: string;
+            page_title: Brands.CanonicalTitle;
             /** Items */
             items: components["schemas"]["GroupItem"][];
         };
         /** BlockNode */
         BlockNode: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Text */
             text: string;
             /** Heading */
@@ -1104,7 +1104,7 @@ export interface components {
             /** Text */
             text: string;
             /** Page Title */
-            page_title: string;
+            page_title: Brands.CanonicalTitle;
         };
         /**
          * BlockRefsPayload
@@ -1132,16 +1132,16 @@ export interface components {
         /** ChangedGroup */
         ChangedGroup: {
             /** Page Id */
-            page_id: number;
+            page_id: Brands.PageId;
             /** Page Title */
-            page_title: string;
+            page_title: Brands.CanonicalTitle;
             /** Items */
             items: components["schemas"]["ChangedItem"][];
         };
         /** ChangedItem */
         ChangedItem: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Text */
             text: string;
             /** Created At */
@@ -1233,11 +1233,11 @@ export interface components {
              */
             op: "create";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Page Title */
             page_title: string;
             /** Parent Uid */
-            parent_uid?: string | null;
+            parent_uid?: Brands.BlockUid | null;
             /** Order Idx */
             order_idx: number;
             /** Text */
@@ -1270,9 +1270,9 @@ export interface components {
         /** CurrentWorkPage */
         CurrentWorkPage: {
             /** Id */
-            id: number;
+            id: Brands.PageId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
             /** Updated At */
             updated_at: number;
         };
@@ -1298,7 +1298,7 @@ export interface components {
              */
             op: "delete";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Base Subtree Hash */
             base_subtree_hash?: Brands.Sha256Hex | null;
         };
@@ -1345,9 +1345,9 @@ export interface components {
         /** GoodlinksCheckProblem */
         GoodlinksCheckProblem: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Page */
-            page: string;
+            page: Brands.CanonicalTitle;
             /** Href */
             href: string;
             /**
@@ -1390,7 +1390,7 @@ export interface components {
         /** GroupItem */
         GroupItem: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Text */
             text: string;
         };
@@ -1420,7 +1420,7 @@ export interface components {
             /** Date */
             date: string;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
             /** Exists */
             exists: boolean;
             /** Blocks */
@@ -1459,9 +1459,9 @@ export interface components {
         /** LocalCheckProblem */
         LocalCheckProblem: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Page */
-            page: string;
+            page: Brands.CanonicalTitle;
             /** Href */
             href: string;
             /**
@@ -1483,9 +1483,9 @@ export interface components {
              */
             op: "move";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Parent Uid */
-            parent_uid: string | null;
+            parent_uid: Brands.BlockUid | null;
             /** Order Idx */
             order_idx: number;
             /** Page Title */
@@ -1519,9 +1519,9 @@ export interface components {
         /** PageMeta */
         PageMeta: {
             /** Id */
-            id: number;
+            id: Brands.PageId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
             /** Created At */
             created_at: number | null;
             /** Updated At */
@@ -1580,12 +1580,12 @@ export interface components {
              */
             result: "renamed" | "merged";
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
         };
         /** ReorderSidebarEntriesRequest */
         ReorderSidebarEntriesRequest: {
             /** Order */
-            order: number[];
+            order: Brands.SidebarEntryId[];
         };
         /** ScanPayload */
         ScanPayload: {
@@ -1599,18 +1599,18 @@ export interface components {
         /** SearchBlockHit */
         SearchBlockHit: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Page Title */
-            page_title: string;
+            page_title: Brands.CanonicalTitle;
             /** Snippet */
             snippet: string;
         };
         /** SearchPageHit */
         SearchPageHit: {
             /** Id */
-            id: number;
+            id: Brands.PageId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
         };
         /** SearchPayload */
         SearchPayload: {
@@ -1632,7 +1632,7 @@ export interface components {
              */
             op: "set_collapsed";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Collapsed */
             collapsed: boolean;
         };
@@ -1644,7 +1644,7 @@ export interface components {
              */
             op: "set_heading";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Heading */
             heading?: (1 | 2 | 3) | null;
         };
@@ -1656,7 +1656,7 @@ export interface components {
              */
             op: "set_view_type";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /**
              * View Type
              * @enum {string}
@@ -1666,9 +1666,9 @@ export interface components {
         /** SidebarNavEntry */
         SidebarNavEntry: {
             /** Id */
-            id: number;
+            id: Brands.SidebarEntryId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
         };
         /** SidebarNavPayload */
         SidebarNavPayload: {
@@ -1690,14 +1690,14 @@ export interface components {
              */
             op: "create" | "update_text" | "move" | "delete" | "set_collapsed" | "set_heading" | "set_view_type" | "create_page";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /**
              * Reason
              * @enum {string}
              */
             reason: "block_not_found" | "parent_not_found" | "cycle";
             /** Note Page */
-            note_page: string | null;
+            note_page: Brands.CanonicalTitle | null;
         };
         /** SnapshotPayload */
         SnapshotPayload: {
@@ -1717,11 +1717,11 @@ export interface components {
         /** SyncBlock */
         SyncBlock: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Page Id */
-            page_id: number;
+            page_id: Brands.PageId;
             /** Parent Uid */
-            parent_uid: string | null;
+            parent_uid: Brands.BlockUid | null;
             /** Order Idx */
             order_idx: number;
             /** Text */
@@ -1742,9 +1742,9 @@ export interface components {
         /** SyncPage */
         SyncPage: {
             /** Id */
-            id: number;
+            id: Brands.PageId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
             /** Created At */
             created_at: number | null;
             /** Updated At */
@@ -1753,7 +1753,7 @@ export interface components {
         /** SyncRef */
         SyncRef: {
             /** Target Page Id */
-            target_page_id: number;
+            target_page_id: Brands.PageId;
             /**
              * Kind
              * @enum {string}
@@ -1763,9 +1763,9 @@ export interface components {
         /** SyncSidebarEntry */
         SyncSidebarEntry: {
             /** Id */
-            id: number;
+            id: Brands.SidebarEntryId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
             /** Order Idx */
             order_idx: number;
         };
@@ -1815,9 +1815,9 @@ export interface components {
         /** TitleMigrationBlocker */
         TitleMigrationBlocker: {
             /** Page Id */
-            page_id: number;
+            page_id: Brands.PageId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
             /**
              * Reason
              * @enum {string}
@@ -1827,7 +1827,7 @@ export interface components {
         /** TitleMigrationGroup */
         TitleMigrationGroup: {
             /** Canonical Title */
-            canonical_title: string;
+            canonical_title: Brands.CanonicalTitle;
             survivor: components["schemas"]["TitleMigrationPage"];
             /** Sources */
             sources: components["schemas"]["TitleMigrationPage"][];
@@ -1843,14 +1843,14 @@ export interface components {
         /** TitleMigrationPage */
         TitleMigrationPage: {
             /** Page Id */
-            page_id: number;
+            page_id: Brands.PageId;
             /** Title */
-            title: string;
+            title: Brands.CanonicalTitle;
         };
         /** TitlesPayload */
         TitlesPayload: {
             /** Titles */
-            titles: string[];
+            titles: Brands.CanonicalTitle[];
         };
         /** UpdateTextOp */
         UpdateTextOp: {
@@ -1860,7 +1860,7 @@ export interface components {
              */
             op: "update_text";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Text */
             text: string;
             /** Base Text Hash */
@@ -2603,7 +2603,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                entry_id: number;
+                entry_id: Brands.SidebarEntryId;
             };
             cookie?: never;
         };

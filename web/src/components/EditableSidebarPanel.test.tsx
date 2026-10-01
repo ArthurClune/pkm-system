@@ -9,7 +9,7 @@ import {
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
-import { READ_INIT, block, jsonResponse, makeSync, pagePayload, reserveOutlineEditor, stubFetch } from "../test-helpers";
+import { READ_INIT, block, jsonResponse, makeSync, pagePayload, reserveOutlineEditor, stubFetch, title, uid } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { EditablePage } from "../views/EditablePage";
 import { PageView } from "../views/PageView";
@@ -106,10 +106,45 @@ test("a remote websocket batch updates the panel", async () => {
   const sync = mount();
   await screen.findByText("a paper block");
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "create", uid: "r1", page_title: "Paper", parent_uid: null,
+    { op: "create", uid: uid("r1"), page_title: "Paper", parent_uid: null,
       order_idx: 1, text: "from the iPad" },
   ] }));
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
+});
+
+// A sidebar can be opened with a title the server stores under another form
+// (a shift-clicked `[[  Paper  ]]` once boundary spaces are canonicalised
+// away). The outline belongs to the stored title the payload carries, not
+// the requested one: that is the key the main pane uses, the title the
+// server echoes on remote ops, and the title the panel's own ops carry.
+test("a non-canonical requested title keys the outline by the payload's title", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const sync = makeSync();
+  stubFetch([["/api/page/", pagePayload("Paper",
+    [block("uid_s1", "a paper block", { order_idx: 0 })])]]);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={sync}>
+        <EditableSidebarPanel title="  Paper  " />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+  await screen.findByText("a paper block");
+  expect(isOutlineEditorActive("Paper")).toBe(true);
+
+  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
+    { op: "create", uid: uid("r1"), page_title: "Paper", parent_uid: null,
+      order_idx: 1, text: "from the iPad" },
+  ] }));
+  expect(screen.getByText("from the iPad")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByText("a paper block"));
+  const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+  fireEvent.change(ta, { target: { value: "edited in panel" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "uid_s1", text: "edited in panel",
+      base_text_hash: sha256Hex("a paper block"), page_title: "Paper" }],
+  ]);
 });
 
 test("a page already open elsewhere in this tab falls back to read-only", async () => {
@@ -129,7 +164,7 @@ test("main-first same-title mounts keep one editor and one live fallback", async
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditablePage title="Paper" initial={blocks} />
+        <EditablePage title={title("Paper")} initial={blocks} />
         <EditableSidebarPanel title="Paper" />
       </SyncContext.Provider>
     </MemoryRouter>);
@@ -148,7 +183,7 @@ test("sidebar-first same-title mounts preserve its editor when main joins", asyn
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
         <EditableSidebarPanel title="Paper" />
-        {showMain && <EditablePage title="Paper" initial={blocks} />}
+        {showMain && <EditablePage title={title("Paper")} initial={blocks} />}
       </SyncContext.Provider>
     </MemoryRouter>
   );
@@ -267,7 +302,7 @@ test("a uid prop scrolls to and flashes that block within the panel's own contai
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditableSidebarPanel title="Paper" uid="uid_s1" />
+        <EditableSidebarPanel title="Paper" uid={uid("uid_s1")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   await screen.findByText("target block");

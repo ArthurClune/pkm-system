@@ -15,6 +15,7 @@ import { setMeta } from "./meta";
 import { createRpcClient, serveRpc, toPortLike, type RpcHandlers } from "./rpc";
 import { openRawTestDb, type TestDb } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
+import { pageId, title, uid } from "../test-helpers";
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -29,8 +30,8 @@ const bid = (s: string): BatchId => s as BatchId;
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (5 as SyncSeq),
-  pages: [{ id: 1, title: "AI", created_at: 1, updated_at: 1 }],
-  blocks: [{ uid: "uid_b1", page_id: 1, parent_uid: null, order_idx: 0,
+  pages: [{ id: pageId(1), title: title("AI"), created_at: 1, updated_at: 1 }],
+  blocks: [{ uid: uid("uid_b1"), page_id: pageId(1), parent_uid: null, order_idx: 0,
              text: "hello", heading: null, view_type: null, collapsed: 0, created_at: 1,
              updated_at: 1, refs: [] }],
   sidebar: [],
@@ -85,7 +86,7 @@ test("a feed fetched before an acknowledged batch deletion cannot overwrite it",
   await replica.init();
   await replica.applySnapshot(SNAP);
   await replica.enqueue([
-    { op: "update_text", uid: "uid_b1", text: "acknowledged local text" },
+    { op: "update_text", uid: uid("uid_b1"), text: "acknowledged local text" },
   ], bid("batch-ack"));
 
   // The request was dispatched while this optimistic batch still existed.
@@ -114,7 +115,7 @@ test("a window whose latest_seq covers the acked batch applies despite the stale
   await replica.init();
   await replica.applySnapshot(SNAP);
   await replica.enqueue([
-    { op: "update_text", uid: "uid_b1", text: "acknowledged local text" },
+    { op: "update_text", uid: uid("uid_b1"), text: "acknowledged local text" },
   ], bid("batch-ack"));
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
@@ -137,7 +138,7 @@ test("a window read before the acked batch committed is still refused", async ()
   await replica.init();
   await replica.applySnapshot(SNAP);
   await replica.enqueue([
-    { op: "update_text", uid: "uid_b1", text: "acknowledged local text" },
+    { op: "update_text", uid: uid("uid_b1"), text: "acknowledged local text" },
   ], bid("batch-ack"));
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
@@ -159,7 +160,7 @@ test("a later seq-less delete of the same id forgets the recorded acked seq", as
   const { replica } = await setup();
   await replica.init();
   await replica.applySnapshot(SNAP);
-  await replica.enqueue([{ op: "delete", uid: "uid_b1" }], bid("batch-1"));
+  await replica.enqueue([{ op: "delete", uid: uid("uid_b1") }], bid("batch-1"));
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
   await replica.deleteBatch(batch.id, batch.batch_id, (6 as SyncSeq));
@@ -222,7 +223,7 @@ test("an edit arriving before init persists (schema installs on demand)", async 
   // durability must not depend on that ordering
   const { replica } = await setup();
   const { pending } = await replica.enqueue([
-    { op: "create", uid: "uid_pre", page_title: "Today",
+    { op: "create", uid: uid("uid_pre"), page_title: "Today",
       parent_uid: null, order_idx: 0, text: "typed before init" },
   ], bid("batch-pre"));
   expect(pending).toBe(1);
@@ -321,7 +322,7 @@ test("a prepare delayed past its client timeout cannot later orphan the worker l
     releaseOpen.resolve(t.db);
     await workerPrepareFinished.promise;
     expect(workerPrepareOutcome).toBe("rejected");
-    await expect(replica.enqueue([{ op: "delete", uid: "uid_after" }], bid("batch-after")))
+    await expect(replica.enqueue([{ op: "delete", uid: uid("uid_after") }], bid("batch-after")))
       .resolves.toMatchObject({ pending: 1, batchId: expect.any(String) });
     await earlier;
   } finally {
@@ -334,7 +335,7 @@ test("enqueue round-trips: persisted, optimistic, drainable", async () => {
   await replica.init();
   await replica.applySnapshot(SNAP);
   const { pending } = await replica.enqueue([
-    { op: "update_text", uid: "uid_b1", text: "offline edit" },
+    { op: "update_text", uid: uid("uid_b1"), text: "offline edit" },
   ], bid("batch-offline"));
   expect(pending).toBe(1);
   expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'"))
@@ -392,7 +393,7 @@ test("a recovery lease gates enqueue and offline POST until the fresh database i
   let enqueueSettled = false;
   let localPostSettled = false;
   const enqueue = replica.enqueue([
-    { op: "update_text", uid: "uid_b1", text: "after recovery" },
+    { op: "update_text", uid: uid("uid_b1"), text: "after recovery" },
   ], bid("batch-after-recovery")).finally(() => { enqueueSettled = true; });
   const localPost = replica.localApi({
     method: "POST", path: "/api/pages", body: { title: "Offline Page" }, nowMs: 10,

@@ -3,6 +3,7 @@
 // always normalized by the reference-title rule; migration activation adds
 // removal of boundary U+0020 only, preserving NBSP and internal spaces.
 
+import type { NormalizedTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { normalizeRefTitle } from "../grammar/scan";
 import { extractRefs } from "./refs";
@@ -49,8 +50,13 @@ export function findOpTitleViolation(
   return null;
 }
 
+/** Normalized, not canonical: only the caller knows whether
+ * `plainSpaceActive` is this replica's live flag. A CanonicalTitle comes from
+ * meta.ts's `canonicalTitle` / `titleReader`, which read the flag. */
 export function canonicalizeTitle(title: string,
-                                  plainSpaceActive: boolean): string {
+                                  plainSpaceActive: boolean): NormalizedTitle {
   const normalized = normalizeRefTitle(title);
-  return plainSpaceActive ? normalized.replace(/^ +| +$/g, "") : normalized;
+  return plainSpaceActive
+    ? normalized.replace(/^ +| +$/g, "") as NormalizedTitle
+    : normalized;
 }

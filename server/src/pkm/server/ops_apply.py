@@ -12,7 +12,7 @@ from datetime import date
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp,
                                MoveOp, OpBatch, PageId, UpdateTextOp)
-from pkm.refs import CanonicalTitle
+from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  BlockRewrite, ConflictLanding, CreateContext,
                                  DeleteBlocks, DeleteConflictContext,
@@ -195,6 +195,9 @@ def _conflict_landing(db: sqlite3.Connection, target_uid: str,
     subtree would take the copies down with it. The fresh header is then
     recorded in its place."""
     day = title_for_date(date.today())
+    # title_for_date's fixed format is already canonical under either
+    # plain_space setting, the same argument _daily_title makes.
+    daily_title = CanonicalTitle(NormalizedTitle(day))
     daily = get_or_create_page(db, day, now_ms)
     daily_page_id = PageId(daily["id"])
     idx = db.execute(
@@ -209,7 +212,7 @@ def _conflict_landing(db: sqlite3.Connection, target_uid: str,
     # any later one ever uses. It is minted before the entry uid.
     header = (FreshHeader(_new_uid(), idx) if existing is None
               else ExistingHeader(*existing))
-    return ConflictLanding(daily_page_id=daily_page_id, daily_title=day,
+    return ConflictLanding(daily_page_id=daily_page_id, daily_title=daily_title,
                            entry_uid=_new_uid(), header=header)
 
 

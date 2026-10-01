@@ -5,7 +5,7 @@
 // rather than on the DOM.
 import { act, render, screen } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
-import { FakeWebSocket, stubFetch } from "../test-helpers";
+import { FakeWebSocket, stubFetch, uid } from "../test-helpers";
 import { SyncProvider, useSyncActions, useSyncEditability, useSyncHealth,
          type SyncActions } from "./SyncProvider";
 
@@ -63,7 +63,7 @@ test("an op-queue tick re-renders the banner, not the editor", async () => {
   const editor = counts.editor;
   const health = counts.health;
 
-  await act(async () => { actions.enqueue([{ op: "delete", uid: "u1" }]); });
+  await act(async () => { actions.enqueue([{ op: "delete", uid: uid("u1") }]); });
 
   expect(screen.getByText("connected:1")).toBeTruthy();
   expect(counts.health).toBeGreaterThan(health); // it shows `pending`
@@ -87,7 +87,7 @@ test("the actions value is one object for the provider's lifetime", async () => 
   const first = actions;
 
   act(() => lastWs().drop());
-  await act(async () => { actions.enqueue([{ op: "delete", uid: "u2" }]); });
+  await act(async () => { actions.enqueue([{ op: "delete", uid: uid("u2") }]); });
 
   expect(actions).toBe(first);
 });

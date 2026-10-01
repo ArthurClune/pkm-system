@@ -1,5 +1,6 @@
 // pattern: Imperative Shell
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { Composer } from "../components/Composer";
 import { EditableBlockTree } from "../components/EditableBlockTree";
@@ -19,7 +20,7 @@ import { useOutline } from "../outline/useOutline";
  * flushed tree and grants exactly one editor lease after commit. */
 export function EditablePage({ title, initial, composer = false,
                               stamps = false, refCounts }: {
-  title: string;
+  title: CanonicalTitle;
   initial: BlockNode[];
   composer?: boolean;
   /** Show the last-changed margin column. Only the main-pane
@@ -52,7 +53,7 @@ export function EditablePage({ title, initial, composer = false,
     return registration.accepted ? registration.unregister : undefined;
   }, [dnd, title, outline.dnd, ownsEditor]);
 
-  const onDragStartBlock = useCallback((uid: string) => {
+  const onDragStartBlock = useCallback((uid: BlockUid) => {
     if (!ownsEditor || outline.readOnly) return;
     // Grabbing a block inside an active multi-block selection drags the
     // whole selection; grabbing any other block drags just it.

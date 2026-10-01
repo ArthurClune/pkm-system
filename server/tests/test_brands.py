@@ -3,12 +3,15 @@ which gen-types turns into a web brand, and leaves validation and
 serialisation exactly as the unbranded type's."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import NewType
 
 import pytest
 from pydantic import BaseModel, Field, ValidationError
 
 from pkm.contracts.brands import brand
+from pkm.server.app import create_app
+from pkm.server.config import Config
 
 Tagged = NewType("Tagged", str)
 brand(Tagged)
@@ -50,3 +53,21 @@ def test_validation_unchanged():
 
 def test_brand_name_is_newtype_name():
     assert "x-brand" not in Unbranded.model_json_schema()["properties"]["p"]
+
+
+def test_openapi_marks_op_hashes(tmp_path: Path):
+    config = Config(db_path=tmp_path / "pkm.sqlite3",
+                    assets_dir=tmp_path / "assets",
+                    password_salt="00" * 16, password_hash="ab" * 32,
+                    session_secret="cd" * 32, cookie_secure=False)
+    schemas = create_app(config).openapi()["components"]["schemas"]
+    # FastAPI may split a model into -Input and -Output components; every
+    # copy must carry the brand.
+    hashed = {"UpdateTextOp": "base_text_hash", "DeleteOp": "base_subtree_hash"}
+    for prefix, field in hashed.items():
+        names = [n for n in schemas if n.startswith(prefix)]
+        assert names, prefix
+        for name in names:
+            branch = schemas[name]["properties"][field]["anyOf"][0]
+            assert branch["x-brand"] == "Sha256Hex", name
+            assert branch["minLength"] == branch["maxLength"] == 64, name

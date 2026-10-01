@@ -3002,7 +3002,8 @@
               {
                 "type": "string",
                 "maxLength": 64,
-                "minLength": 64
+                "minLength": 64,
+                "x-brand": "Sha256Hex"
               },
               {
                 "type": "null"
@@ -4495,7 +4496,8 @@
               {
                 "type": "string",
                 "maxLength": 64,
-                "minLength": 64
+                "minLength": 64,
+                "x-brand": "Sha256Hex"
               },
               {
                 "type": "null"

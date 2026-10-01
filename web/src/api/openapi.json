@@ -1187,14 +1187,21 @@
             "in": "query",
             "required": false,
             "schema": {
-              "enum": [
-                "",
-                "image",
-                "pdf",
-                "document",
-                "other"
+              "anyOf": [
+                {
+                  "const": "",
+                  "type": "string"
+                },
+                {
+                  "enum": [
+                    "image",
+                    "pdf",
+                    "document",
+                    "other"
+                  ],
+                  "type": "string"
+                }
               ],
-              "type": "string",
               "default": "",
               "title": "Type"
             }
@@ -2198,6 +2205,12 @@
           },
           "model": {
             "type": "string",
+            "enum": [
+              "sonnet",
+              "opus",
+              "haiku",
+              "glm"
+            ],
             "title": "Model"
           }
         },
@@ -2212,13 +2225,25 @@
         "properties": {
           "models": {
             "items": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "sonnet",
+                "opus",
+                "haiku",
+                "glm"
+              ]
             },
             "type": "array",
             "title": "Models"
           },
           "default": {
             "type": "string",
+            "enum": [
+              "sonnet",
+              "opus",
+              "haiku",
+              "glm"
+            ],
             "title": "Default"
           }
         },
@@ -2368,7 +2393,12 @@
           "heading": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "enum": [
+                  1,
+                  2,
+                  3
+                ]
               },
               {
                 "type": "null"
@@ -2818,8 +2848,11 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 3.0,
-                "minimum": 1.0
+                "enum": [
+                  1,
+                  2,
+                  3
+                ]
               },
               {
                 "type": "null"
@@ -3839,8 +3872,11 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 3.0,
-                "minimum": 1.0
+                "enum": [
+                  1,
+                  2,
+                  3
+                ]
               },
               {
                 "type": "null"
@@ -3926,6 +3962,16 @@
           },
           "op": {
             "type": "string",
+            "enum": [
+              "create",
+              "update_text",
+              "move",
+              "delete",
+              "set_collapsed",
+              "set_heading",
+              "set_view_type",
+              "create_page"
+            ],
             "title": "Op"
           },
           "uid": {
@@ -4043,7 +4089,12 @@
           "heading": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "enum": [
+                  1,
+                  2,
+                  3
+                ]
               },
               {
                 "type": "null"
@@ -4166,6 +4217,11 @@
           },
           "kind": {
             "type": "string",
+            "enum": [
+              "link",
+              "tag",
+              "attribute"
+            ],
             "title": "Kind"
           }
         },
@@ -4203,6 +4259,11 @@
         "properties": {
           "kind": {
             "type": "string",
+            "enum": [
+              "block",
+              "page",
+              "sidebar"
+            ],
             "title": "Kind"
           },
           "entity_id": {

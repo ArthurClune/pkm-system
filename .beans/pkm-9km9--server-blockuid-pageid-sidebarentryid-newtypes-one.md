@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T07:44:38Z
+updated_at: 2026-10-01T10:42:35Z
 parent: pkm-7uxw
 ---
 
@@ -38,3 +38,9 @@ This is safe today only because every substituter leaves a map miss untouched an
 - [ ] Decide the length rule: bound ref tokens at 32 to match `UID_RE` on both sides (keep the parity dump agreeing), or record the difference as deliberate
 - [ ] Importer: check imported uids against `UID_RE` explicitly (a NewType is only a cast). Decide whether a bad uid rejects the import, or is reported and re-minted with its `((uid))` refs rewritten. Test with a short uid in a fixture export.
 - [ ] pyrefly + pytest clean
+
+
+## Decisions (Arthur, 2026-10-01)
+
+- Bad imported uid: **reject the whole import**, listing every offending uid with its page. No re-minting.
+- Length rule: **bound ref tokens at 32 on both sides** (\`{6,32}\`, matching \`UID_RE\`). This changes ref-grammar parity: regenerate all three surfaces (see the regen checklist).

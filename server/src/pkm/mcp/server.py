@@ -139,12 +139,11 @@ def batch(commands: list[dict]) -> str:
     `update` text sets or clears the level the same way. An
     update/move/delete whose uid no longer exists, a create/move whose
     parent no longer exists, or a move under the block itself or its
-    descendant, is skipped rather than failing the batch; the result then
-    starts with
-    'warning:' and lists each skipped op and where its note landed, while
-    the other ops were applied and committed (do not re-send the batch). A
-    '((uid))' parent is checked before sending, so a mistyped one fails
-    the whole batch."""
+    descendant, is skipped rather than failing the batch; the result
+    then starts with 'warning:' and lists each skipped op and where its
+    note landed, while the other ops were applied and committed (do not
+    re-send the batch). A '((uid))' parent is checked before sending, so
+    a mistyped one fails the whole batch."""
     return render_ops_ack(apply_batch(_client(), commands))
 
 

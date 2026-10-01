@@ -138,10 +138,10 @@ parents. `plan_batch` threads a `_BatchCtx` through the commands — the shared
 
 | Parent spec | Resolved by | First child's `order_idx` |
 |---|---|---|
-| `((uid))` on the fetched page | `resolve_parent`, which walks fetched blocks | `next_child_order_idx`, one past the parent's last child's `order_idx` |
+| `((uid))` on the fetched page | `resolve_parent`, which walks fetched blocks | `order_idx_at_position`, one past the parent's last child's `order_idx` |
 | `((uid))` created earlier in this batch | `_in_batch_uid`, ahead of `resolve_parent`, which cannot see it | 0 |
 | `{{alias}}` | `_resolve_alias`, to the `((uid))` an earlier `as` recorded | 0 |
-| `## Heading` on the fetched page | `resolve_parent`, on level and text together, first in document order | `next_child_order_idx`, one past the parent's last child's `order_idx` |
+| `## Heading` on the fetched page | `resolve_parent`, on level and text together, first in document order | `order_idx_at_position`, one past the parent's last child's `order_idx` |
 | `## Heading` not there yet | `Planner.heading`, memoized per (page, level, text) | 0 |
 
 A `_SubtreeModel` follows its block through every op the batch plans, so a
@@ -149,7 +149,7 @@ later `delete` hashes the tree the server will hold when it applies. A block
 moved in from outside the subtree sends the delete hashless, since no fetch
 describes the newcomer's own subtree.
 
-`next_child_order_idx` never counts siblings: `order_idx` is sparse (a
+`order_idx_at_position` never counts siblings: `order_idx` is sparse (a
 delete leaves a gap; nothing renumbers), so an append lands one past the
 last sibling's own key, not at the dense position a count would give.
 `Planner` keeps the same rule as a live per-(page, parent) sibling list
@@ -161,7 +161,7 @@ position, not an order key — can convert against it anywhere in the batch:
 | What it means | 0-based position among the parent's (move: the destination's) current children |
 | "Current" | as earlier commands in the batch have left them — later commands see earlier ones' creates, moves and deletes |
 | Past the end | appends |
-| Minted by | `Planner.create_at`/`Planner.move`, via `order_idx_at_position(siblings, position)` -- the one place a position becomes an `OrderIdx` |
+| Minted by | `Planner.create_at`/`Planner.move`, via `order_idx_at_position(siblings, position)` — the one place a position becomes an `OrderIdx` |
 | Indexed move | lands at its final position, among the destination's children without the moving block itself |
 
 `outline` and `plan_save` only ever append, through the same model.

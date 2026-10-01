@@ -611,7 +611,7 @@ for every branded field on `CreateOp`, `MoveOp`, `BlockNode` and
 `SyncBlock` alike, not just `OrderIdx`. The guarantee a brand gives on the
 server comes from the effect dataclasses and helper signatures that
 consume the value afterward (`ShiftSiblings`, `SetParent`, `InsertBlock`,
-`next_child_order_idx`, `Planner.bump`), not from op construction itself.
+`order_idx_at_position`, `Planner._land`), not from op construction itself.
 
 | Brand(s) | Declared in | Base |
 |---|---|---|

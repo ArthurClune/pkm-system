@@ -9,9 +9,9 @@ from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                subtree_hash, text_hash)
 from pkm.contracts.responses import BlockNode, PagePayload
 from pkm.planning import (BuildError, asset_block_text, create_page_ops,
-                          next_child_order_idx, order_idx_at_position,
-                          parse_outline, plan_mark, plan_save, plan_update,
-                          resolve_parent, split_heading)
+                          order_idx_at_position, parse_outline, plan_mark,
+                          plan_save, plan_update, resolve_parent,
+                          split_heading)
 from pkm.render import render_page
 
 
@@ -74,24 +74,6 @@ def test_parse_outline_tabs_and_blank_lines():
 
 def test_parse_outline_clamps_depth_jumps():
     assert parse_outline("a\n      too deep") == [(0, "a"), (1, "too deep")]
-
-
-def test_next_child_order_idx():
-    assert next_child_order_idx(BLOCKS, None) == 2
-    assert next_child_order_idx(BLOCKS, "u2") == 1
-
-
-def test_next_child_order_idx_lands_after_the_last_sibling_when_keys_have_a_gap():
-    # Top level holds order_idx 0 and 5 (a delete left the gap): the append
-    # must get 6, one past the last real key -- not 2, the dense count,
-    # which `ShiftSiblings` would then splice between the existing siblings
-    # instead of after them.
-    assert next_child_order_idx(BLOCKS_WITH_GAP, None) == 6
-
-
-def test_next_child_order_idx_lands_after_the_last_child_when_keys_have_a_gap():
-    # Same bug, one level down: g2's children hold order_idx 0 and 5.
-    assert next_child_order_idx(BLOCKS_WITH_GAP, "g2") == 6
 
 
 def _siblings(*pairs: tuple[str, int]) -> list[tuple[str, OrderIdx]]:

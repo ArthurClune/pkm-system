@@ -67,9 +67,9 @@ def _alias_uid(value: str, aliases: dict[str, str]) -> str:
 def _in_batch_uid(spec: str | None, created: set[str]) -> str | None:
     """The uid of a `((uid))` spec naming a block created earlier in this
     batch, else None. Those uids are on none of the fetched pages, so
-    `resolve_parent` would reject the spec and `next_child_order_idx` could
-    not find its children's order keys -- both consult the fetched blocks,
-    which predate the batch."""
+    `resolve_parent` would reject the spec and `Planner` could not seed its
+    children's order keys from a fetched page -- both consult the fetched
+    blocks, which predate the batch."""
     uid = parse_uid_spec(spec)
     return uid if uid is not None and uid in created else None
 
@@ -136,8 +136,8 @@ class MoveParams(_Strict):
     page: str = Field(min_length=1)
     parent: str | None = None
     # See CreateParams.index -- same position, not order_idx, reasoning.
-    # The excluded block is the move's own, not a sibling: see
-    # `Planner.move`.
+    # position counts the destination's children without the moving
+    # block; see `Planner.move`.
     index: int | None = Field(default=None, ge=0)
 
 
@@ -447,7 +447,7 @@ def plan_batch(commands: Sequence[object], pages: PageBlocks,
     `create`/`todo` accept an `as` alias so later commands in the same
     batch can reference the block just created via `parent: "{{alias}}"`.
     Those in-batch uids live in `_BatchCtx.created`, since they don't exist
-    on the fetched pages that `resolve_parent`/`next_child_order_idx` consult.
+    on the fetched pages that `resolve_parent`/`Planner.seed_page` consult.
 
     `subtrees` maps each `delete` uid the shell fetched (see `delete_uids`)
     to that block's subtree, or None when the fetch found no block. A

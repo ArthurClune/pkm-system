@@ -26,7 +26,7 @@ class AttemptState:
     """One source's login-failure history. A source with no entry in the
     store is equivalent to `AttemptState()` -- never throttled."""
     failures: int = 0
-    blocked_until_ms: int = 0
+    blocked_until_mono_ms: int = 0
 
 
 def backoff_ms(failures: int) -> int:
@@ -37,23 +37,23 @@ def backoff_ms(failures: int) -> int:
     return min(BASE_BACKOFF_MS * (2 ** (capped - 1)), MAX_BACKOFF_MS)
 
 
-def is_throttled(state: AttemptState, now_ms: int) -> bool:
-    return now_ms < state.blocked_until_ms
+def is_throttled(state: AttemptState, mono_ms: int) -> bool:
+    return mono_ms < state.blocked_until_mono_ms
 
 
-def after_failure(state: AttemptState, now_ms: int) -> AttemptState:
+def after_failure(state: AttemptState, mono_ms: int) -> AttemptState:
     failures = state.failures + 1
     return AttemptState(failures=failures,
-                        blocked_until_ms=now_ms + backoff_ms(failures))
+                        blocked_until_mono_ms=mono_ms + backoff_ms(failures))
 
 
 def prune_expired(attempts: dict[str, AttemptState],
-                  now_ms: int) -> dict[str, AttemptState]:
+                  mono_ms: int) -> dict[str, AttemptState]:
     """Drop sources whose backoff has already lapsed. This alone is only a
     best-effort trim -- it does nothing if every tracked source is still
     inside its backoff window -- so the caller must pair it with
     `evict_oldest` for an actual hard cap on the store's size."""
-    return {src: st for src, st in attempts.items() if st.blocked_until_ms > now_ms}
+    return {src: st for src, st in attempts.items() if st.blocked_until_mono_ms > mono_ms}
 
 
 def evict_oldest(attempts: dict[str, AttemptState]) -> dict[str, AttemptState]:

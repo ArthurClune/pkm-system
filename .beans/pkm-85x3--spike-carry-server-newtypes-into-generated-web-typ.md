@@ -1,11 +1,11 @@
 ---
 # pkm-85x3
 title: 'Spike: carry server NewTypes into generated web types as brands (x-brand gen-types transform)'
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T07:44:38Z
+updated_at: 2026-10-01T11:35:00Z
 parent: pkm-7uxw
 ---
 

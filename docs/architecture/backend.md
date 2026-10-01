@@ -91,7 +91,7 @@ Inside `pkm/server/`:
 | `auth.py` / `auth_core.py` / `throttle_core.py` | Shell / Core / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens; per-source login backoff policy (see [Auth](#auth)) |
 | `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_local.py`, `routes_goodlinks.py`, `routes_export.py`, `routes_migrations.py` | Shell | The HTTP surface (table below) |
 | `goodlinks_gateway.py` | Shell | httpx2 edge to the GoodLinks local API |
-| `title_migration.py` / `sync_meta.py` | Shell / Shell | Transaction-owned title inventory/apply; durable activation/generation accessors, and `read_title`, which canonicalises a title arriving as a lookup key |
+| `title_migration.py` / `sync_meta.py` | Shell / Shell | Transaction-owned title inventory/apply; durable activation/generation accessors, and `read_title`, which canonicalises a title arriving as a lookup key (`title_reader` reads the flag once for several) |
 | `ops_core.py` | Core | Pure `plan_op()` → effect tuples, over the op models in `pkm/contracts/ops.py`; the op classifiers (`classify_skip`, `classify_text_edit`) and one context type per way an op plans |
 | `ops_hash.py` / `conflict_notes.py` | Core / Core | The `applied_batches` request hashes; the text of `[[conflict]]` headers and skip notes |
 | `ops_apply.py` | Shell | Reads SQLite, classifies each op once, builds its per-kind context, executes planned effects |

@@ -1,11 +1,11 @@
 ---
 # pkm-dapm
 title: 'Page title lookups bypass canonicalize_title: delete, rename, todos/changed filter, query operands, sidebar add'
-status: in-progress
+status: completed
 type: bug
 priority: high
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T08:10:31Z
+updated_at: 2026-10-01T08:52:43Z
 parent: pkm-7uxw
 ---
 
@@ -31,3 +31,13 @@ Paths below are relative to `server/src/pkm/` and `web/src/`.
 - [x] CLI client normalises the `todos`/`changed` page argument, like `get_page`
 - [x] Row in `docs/troubleshooting.md` (symptom: delete/filter/query 404s or empties for a padded title)
 - [x] Note the invariant ("every title used as a key goes through canonicalize_title") where `backend.md` covers titles
+
+## Summary of Changes
+
+- `sync_meta.read_title` (and `title_reader`, which reads the flag once per request) is the one way a title arriving as a lookup key is canonicalised. It replaced `routes_pages._read_title` and the copy in the export route.
+- `delete_page` and `rename_page` canonicalise the path title; the todos/changed `page` filter canonicalises.
+- `{{query}}` operands canonicalise through `query_exec.parse_canonical_query`, used by both `/api/query` and the resolved Markdown export; the export wasn't in the original findings and turned up in review. `QueryPayload.ref_counts` is now keyed by the canonical title; only the CLI/MCP renderer reads it.
+- `POST /api/sidebar` canonicalises and checks blankness with `is_blank_title` instead of `str.strip()`; the web form sends its input untrimmed. On a flag-off database, a padded title typed into the sidebar now keeps its padding, the same as a link would.
+- The CLI client normalises the todos/changed `page` argument.
+- Docs: the backend.md Title integrity invariant, module map entries, import-export query path, and a troubleshooting row.
+- perf: query/and-not statements 4 -> 5 (the single flag read the fix needs), accepted by Arthur and re-baselined with `--bootstrap`.

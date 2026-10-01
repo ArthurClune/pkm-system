@@ -91,12 +91,12 @@ Inside `pkm/server/`:
 | `auth.py` / `auth_core.py` / `throttle_core.py` | Shell / Core / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens; per-source login backoff policy (see [Auth](#auth)) |
 | `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_local.py`, `routes_goodlinks.py`, `routes_export.py`, `routes_migrations.py` | Shell | The HTTP surface (table below) |
 | `goodlinks_gateway.py` | Shell | httpx2 edge to the GoodLinks local API |
-| `title_migration.py` / `sync_meta.py` | Shell / Shell | Transaction-owned title inventory/apply; durable activation/generation accessors |
+| `title_migration.py` / `sync_meta.py` | Shell / Shell | Transaction-owned title inventory/apply; durable activation/generation accessors, and `read_title`, which canonicalises a title arriving as a lookup key |
 | `ops_core.py` | Core | Pure `plan_op()` → effect tuples, over the op models in `pkm/contracts/ops.py`; the op classifiers (`classify_skip`, `classify_text_edit`) and one context type per way an op plans |
 | `ops_hash.py` / `conflict_notes.py` | Core / Core | The `applied_batches` request hashes; the text of `[[conflict]]` headers and skip notes |
 | `ops_apply.py` | Shell | Reads SQLite, classifies each op once, builds its per-kind context, executes planned effects |
 | `store.py` | Shell | Reusable page mutations (create/delete/rename/merge); never commits |
-| `query_exec.py` | Shell | Runs a `query.py` plan (`count_matches`, `execute_plan`); owns the filter keeping a `{{query}}` block out of its own results, and the row order, for both plan surfaces (`/api/query`, the resolved page export) |
+| `query_exec.py` | Shell | Parses an expression with canonical `[[Page]]` operands (`parse_canonical_query`) and runs a `query.py` plan (`count_matches`, `execute_plan`); owns the filter keeping a `{{query}}` block out of its own results, and the row order, for both plan surfaces (`/api/query`, the resolved page export) |
 | `tree.py`, `grouping.py`, `daily.py`, `fts.py`, `query.py`, `sync_core.py`, `mime_sniff.py` | Core | Pure helpers: tree building; `{page_id, page_title, items}` group shaping (`group_by_page`, `group_backlinks`, `group_changed`); journal-day selection + empty-daily test; FTS queries; `{{[[query]]}}` parsing and SQL planning; sync windowing and hydration ordering; MIME sniffing |
 | `ws.py` / `notify.py` | Shell | WebSocket hub + broadcast nudges |
 | `tempfile_response.py` | Shell | `CleanupFileResponse`: a `FileResponse` whose cleanup callback runs even on a missing file or a send-time error (used by the zip export routes; see [files-and-assets.md](files-and-assets.md)) |
@@ -447,6 +447,19 @@ durable `plain_space_title_canonicalization` flag selects the second:
 |---|---|
 | inactive (default) | a control character makes ASCII-whitespace runs collapse to one space and trims their boundary; plain-space padding stays byte-exact, so legacy rows still resolve |
 | active | the above, plus stripping leading and trailing U+0020; internal ordinary spaces and NBSP are unchanged |
+
+**A title that arrives as a lookup key goes through `sync_meta.read_title`
+before it meets `pages.title` or `sidebar_entries.title`.** Both are exact
+matches. A raw title, or a link's normalized one, therefore misses its page
+once the flag is active. The entry points are:
+
+- a `{title:path}` route parameter
+- the `page` filter on `/api/todos` and `/api/changed`
+- a `[[Page]]` operand in `{{query}}`, via `query_exec.parse_canonical_query`
+- the `POST /api/sidebar` title
+
+The web's sidebar form sends its input untrimmed. `trim()` would also strip
+NBSP, which canonicalisation keeps.
 
 The flag defaults to `"0"` for every database, and startup never audits or
 applies the existing-data migration. Activation is an operator action:

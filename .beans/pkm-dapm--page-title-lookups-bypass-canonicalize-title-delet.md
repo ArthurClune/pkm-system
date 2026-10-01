@@ -5,7 +5,7 @@ status: in-progress
 type: bug
 priority: high
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T08:02:23Z
+updated_at: 2026-10-01T08:10:31Z
 parent: pkm-7uxw
 ---
 
@@ -29,5 +29,5 @@ Paths below are relative to `server/src/pkm/` and `web/src/`.
 - [x] query operand titles canonicalise before `_PAGE_SQL`
 - [x] sidebar add uses `canonicalize_title` (server), and the web stops pre-trimming differently
 - [x] CLI client normalises the `todos`/`changed` page argument, like `get_page`
-- [ ] Row in `docs/troubleshooting.md` (symptom: delete/filter/query 404s or empties for a padded title)
-- [ ] Note the invariant ("every title used as a key goes through canonicalize_title") where `backend.md` covers titles
+- [x] Row in `docs/troubleshooting.md` (symptom: delete/filter/query 404s or empties for a padded title)
+- [x] Note the invariant ("every title used as a key goes through canonicalize_title") where `backend.md` covers titles

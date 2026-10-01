@@ -79,7 +79,8 @@ live page would see.
   rather than wrapped in parens.
 - `{{query: ...}}` and `{{[[query]]: ...}}` macros execute and render as a
   results list grouped by page. The path is the one live `/api/query` takes:
-  `query.py`'s `parse_query`/`plan_sql`, then `query_exec.execute_plan`. Only
+  `query_exec.parse_canonical_query`, `query.py`'s `plan_sql`, then
+  `query_exec.execute_plan`. Only
   the result shape differs: the export's own immutable types name pages by
   title alone.
 - Depth caps match the live UI: `BlockRef.tsx`'s `MAX_DEPTH = 3` for refs,

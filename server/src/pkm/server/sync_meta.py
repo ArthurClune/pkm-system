@@ -3,12 +3,23 @@ from __future__ import annotations
 
 import sqlite3
 
+from pkm.refs import canonicalize_title
+
 
 def plain_space_title_canonicalization_active(db: sqlite3.Connection) -> bool:
     row = db.execute(
         "SELECT value FROM sync_meta WHERE key = 'plain_space_title_canonicalization'"
     ).fetchone()
     return row is not None and row[0] == "1"
+
+
+def read_title(db: sqlite3.Connection, title: str) -> str:
+    """Canonicalize a title arriving as a lookup key (URL path, query
+    param, request body). Every title used to key a `pages` row goes
+    through this, so routes never compare a raw/normalized title against
+    the canonical form stored in `pages.title`."""
+    return canonicalize_title(
+        title, plain_space=plain_space_title_canonicalization_active(db))
 
 
 def set_plain_space_title_canonicalization(

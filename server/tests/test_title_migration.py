@@ -2,6 +2,7 @@ import sqlite3
 
 import pytest
 
+from pkm.contracts.ops import Sha256Hex
 from pkm.schema import DDL
 from pkm.server.sync_meta import (
     database_generation,
@@ -348,7 +349,7 @@ def test_apply_rejects_stale_digest_without_mutation():
     before = _state(db)
 
     with pytest.raises(StaleTitleMigration) as raised:
-        apply_title_migration(db, "0" * 64, now_ms=10_001)
+        apply_title_migration(db, Sha256Hex("0" * 64), now_ms=10_001)
 
     assert raised.value.expected_digest == "0" * 64
     assert raised.value.actual_digest == audit_title_migration(db).digest

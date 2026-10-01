@@ -1,5 +1,6 @@
 // pattern: Functional Core
 import { describe, expect, it } from "vitest";
+import type { Sha256Hex } from "../api/brands";
 import type { AssetSearchItem } from "../api/payloads";
 import {
   EMPTY_FILTERS, PAGE_SIZE, clipboardToken, deleteConfirm, formatSize,
@@ -8,7 +9,7 @@ import {
 } from "./filesCore";
 
 const item = (over: Partial<AssetSearchItem>): AssetSearchItem => ({
-  sha256: "ab".repeat(32), filename: "pic.png", mime: "image/png",
+  sha256: "ab".repeat(32) as Sha256Hex, filename: "pic.png", mime: "image/png",
   size: 1234, created_at: 1753000000000,
   url: `/assets/${"ab".repeat(32)}/pic.png`, description: null,
   status: "pending", describe_error: null, refs: [], ...over,

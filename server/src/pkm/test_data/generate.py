@@ -13,6 +13,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from pkm.contracts.ops import Sha256Hex
 from pkm.filenames import safe_filename
 from pkm.importer.assets import Asset
 from pkm.server.db import init_db, open_db
@@ -35,15 +36,15 @@ class _OutputClaim:
     absent_output: _AbsentOutputClaim | None = None
 
 
-def _index_assets(asset_dir: Path) -> tuple[dict[str, Asset], dict[str, Path]]:
+def _index_assets(asset_dir: Path) -> tuple[dict[str, Asset], dict[Sha256Hex, Path]]:
     """Index regular asset files by source name and content hash."""
     assets: dict[str, Asset] = {}
-    paths: dict[str, Path] = {}
+    paths: dict[Sha256Hex, Path] = {}
     for path in sorted(asset_dir.iterdir()):
         if not path.is_file() or path.is_symlink():
             raise ValueError(f"asset is not a regular file: {path}")
         data = path.read_bytes()
-        sha = hashlib.sha256(data).hexdigest()
+        sha = Sha256Hex(hashlib.sha256(data).hexdigest())
         sniffed = sniff_mime(data[:4096])
         mime = sniffed or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         asset = Asset(sha, safe_filename(path.name), mime, len(data))

@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import re
 import shutil
 import sqlite3
 import tempfile
@@ -22,6 +21,7 @@ from fastapi.responses import FileResponse
 from pkm.assets_core import (
     AssetCategory, export_limit_violation, strip_asset_tokens, type_where,
     zip_arcnames)
+from pkm.contracts.ops import SHA256_HEX_RE, Sha256Hex
 from pkm.contracts.responses import AssetSearchPayload, AssetUploadResponse
 from pkm.describe.core import derive_status
 from pkm.filenames import safe_filename
@@ -36,8 +36,6 @@ from pkm.server.tempfile_response import CleanupFileResponse
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 logger = logging.getLogger("pkm.assets")
-
-_SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
 # Read/write in bounded chunks rather than slurping the whole upload (up
 # to max_upload_bytes) into one bytes object.
@@ -75,7 +73,7 @@ MAX_EXPORT_TOTAL_BYTES = 1024 ** 3  # 1 GiB
 
 
 def referencing_blocks(db: sqlite3.Connection,
-                       sha256: str) -> list[dict[str, str]]:
+                       sha256: Sha256Hex) -> list[dict[str, str]]:
     """All blocks whose text contains the asset's sha, with their page
     titles. FTS5 unicode61 keeps a 64-hex sha as one token, so an
     exact-phrase MATCH on the sha finds every block embedding the
@@ -138,10 +136,12 @@ def search_assets(q: str = "", limit: int = 50, offset: int = 0,
                            params).fetchone()[0]
         rows = db.execute(select + where + order + "LIMIT ? OFFSET ?",
                           (*params, limit, offset)).fetchall()
-        hits = [(r, referencing_blocks(db, r["sha256"])) for r in rows]
+        hits = [(r, referencing_blocks(db, Sha256Hex(r["sha256"])))
+                for r in rows]
     else:
         rows = db.execute(select + where + order, params).fetchall()
-        pairs = [(r, referencing_blocks(db, r["sha256"])) for r in rows]
+        pairs = [(r, referencing_blocks(db, Sha256Hex(r["sha256"])))
+                for r in rows]
         want_linked = linked == "linked"
         wanted = [(r, refs) for r, refs in pairs
                   if bool(refs) == want_linked]
@@ -176,20 +176,21 @@ def delete_asset(request: Request, sha256: str,
     `block_refs` needs no reindex either, for the same reason:
     `strip_asset_tokens` removes only asset-embed tokens, a syntax disjoint
     from `((uid))`."""
-    if not _SHA_RE.match(sha256):
+    if not SHA256_HEX_RE.fullmatch(sha256):
         raise HTTPException(status_code=404, detail="asset not found")
+    sha = Sha256Hex(sha256)
     row = db.execute("SELECT sha256 FROM assets WHERE sha256 = ?",
-                     (sha256,)).fetchone()
+                     (sha,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="asset not found")
     now_ms = int(time.time() * 1000)
     refs_removed = 0
-    for ref in referencing_blocks(db, sha256):
+    for ref in referencing_blocks(db, sha):
         block = db.execute("SELECT text FROM blocks WHERE uid = ?",
                            (ref["uid"],)).fetchone()
         if block is None:
             continue
-        new_text = strip_asset_tokens(block["text"], sha256)
+        new_text = strip_asset_tokens(block["text"], sha)
         if new_text == block["text"]:
             continue
         refs_removed += 1
@@ -201,9 +202,9 @@ def delete_asset(request: Request, sha256: str,
         else:
             db.execute("UPDATE blocks SET text = ?, updated_at = ?"
                        " WHERE uid = ?", (new_text, now_ms, ref["uid"]))
-    db.execute("DELETE FROM assets WHERE sha256 = ?", (sha256,))
+    db.execute("DELETE FROM assets WHERE sha256 = ?", (sha,))
     db.commit()
-    path = config.assets_dir / sha256[:2] / sha256
+    path = config.assets_dir / sha[:2] / sha
     try:
         path.unlink(missing_ok=True)
     except OSError:
@@ -231,11 +232,12 @@ def export_assets(sha256s: list[str] = Form(default=[]),
     and streamed back via FileResponse (not buffered whole in memory),
     with the directory removed once the response finishes, errors, or is
     interrupted (CleanupFileResponse)."""
-    chosen: list[tuple[str, str, Path]] = []
+    chosen: list[tuple[Sha256Hex, str, Path]] = []
     total_bytes = 0
-    for sha in dict.fromkeys(sha256s):
-        if not _SHA_RE.match(sha):
+    for candidate in dict.fromkeys(sha256s):
+        if not SHA256_HEX_RE.fullmatch(candidate):
             continue
+        sha = Sha256Hex(candidate)
         row = db.execute("SELECT filename, size FROM assets WHERE sha256 = ?",
                          (sha,)).fetchone()
         if row is None:
@@ -274,11 +276,12 @@ def export_assets(sha256s: list[str] = Form(default=[]),
 def get_asset(sha256: str, filename: str,
               db: sqlite3.Connection = Depends(get_db),
               config: Config = Depends(get_config)) -> FileResponse:
-    if not _SHA_RE.match(sha256):
+    if not SHA256_HEX_RE.fullmatch(sha256):
         raise HTTPException(status_code=404, detail="asset not found")
+    sha = Sha256Hex(sha256)
     row = db.execute("SELECT mime, filename FROM assets WHERE sha256 = ?",
-                     (sha256,)).fetchone()
-    path = config.assets_dir / sha256[:2] / sha256
+                     (sha,)).fetchone()
+    path = config.assets_dir / sha[:2] / sha
     if row is None or not path.is_file():
         raise HTTPException(status_code=404, detail="asset not found")
     kind = "inline" if row["mime"] in INLINE_MIME else "attachment"
@@ -298,7 +301,7 @@ class _ChunkReadable(Protocol):
 
 
 async def _stream_to_temp(file: _ChunkReadable, tmp_path: Path,
-                          max_bytes: int) -> tuple[str, int, bytes]:
+                          max_bytes: int) -> tuple[Sha256Hex, int, bytes]:
     """Stream `file` into `tmp_path` in bounded chunks, hashing as it goes.
 
     Raises HTTPException(413) as soon as the running total exceeds
@@ -321,7 +324,7 @@ async def _stream_to_temp(file: _ChunkReadable, tmp_path: Path,
                 raise HTTPException(status_code=413, detail="upload too large")
             out.write(chunk)
             hasher.update(chunk)
-    return hasher.hexdigest(), total, first_chunk
+    return Sha256Hex(hasher.hexdigest()), total, first_chunk
 
 
 @router.post("/api/assets", response_model=AssetUploadResponse)

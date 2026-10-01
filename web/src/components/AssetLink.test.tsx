@@ -5,12 +5,25 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
+import type { Sha256Hex } from "../api/brands";
 import { SidebarContext } from "../contexts";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { AssetLink } from "./AssetLink";
 
-const SHA = "492d80a8b6a72a7c4615c69a9a7def6fac0e019d452f9c88bb61ca8a671dbfd7";
+const SHA = "492d80a8b6a72a7c4615c69a9a7def6fac0e019d452f9c88bb61ca8a671dbfd7" as Sha256Hex;
 const URL = `/assets/${SHA}/IMG_0868.jpeg`;
+
+// Brand probe (compile-time): `pnpm typecheck` runs this file, and an
+// unused @ts-expect-error directive is an error of its own, so a probe
+// that stops catching a plain string fails the build rather than
+// silently passing.
+const plainSha: string = SHA;
+// @ts-expect-error a plain string is not a Sha256Hex
+const badAssetLink = <AssetLink url={URL} sha={plainSha} filename="x" />;
+
+it("carries a branded Sha256Hex through the AssetLink prop", () => {
+  expect(badAssetLink).toBeTruthy();
+});
 
 function Probe() {
   const loc = useLocation();

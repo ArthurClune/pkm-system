@@ -310,6 +310,15 @@ describe("tokenizeBlock", () => {
     ]);
   });
 
+  it("treats an external URL that merely contains /assets/ as a plain link, not an asset-link", () => {
+    const url = "https://www.ofcom.org.uk/__data/assets/pdf_file/0022/12345/report.pdf";
+    expect(tokenizeBlock(`see ${url} for the data`)).toEqual([
+      { kind: "text", text: "see " },
+      { kind: "link", text: url, href: url },
+      { kind: "text", text: " for the data" },
+    ]);
+  });
+
   it("does not autolink mid-word, short hashes, or asset URLs already inside markdown links/images", () => {
     const sha = "cd".repeat(32);
     expect(tokenizeBlock(`x/assets/${sha}/pic.jpeg`)).toEqual([

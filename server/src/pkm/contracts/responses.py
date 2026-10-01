@@ -20,7 +20,7 @@ from pydantic import BaseModel, BeforeValidator, Field
 from pkm.changed import ChangeStatus
 from pkm.contracts.brands import brand
 from pkm.contracts.ops import (BlockUid, HeadingLevel, OpKind, PageId,
-                               SidebarEntryId, ViewType)
+                               Sha256Hex, SidebarEntryId, ViewType)
 from pkm.refs import RefKind
 
 
@@ -234,7 +234,7 @@ class SidebarNavPayload(BaseModel):
 
 
 class AssetUploadResponse(BaseModel):
-    sha256: str
+    sha256: Sha256Hex
     filename: str
     mime: str
     size: int
@@ -248,7 +248,7 @@ class AssetRef(BaseModel):
 
 
 class AssetSearchItem(BaseModel):
-    sha256: str
+    sha256: Sha256Hex
     filename: str
     mime: str
     size: int
@@ -459,17 +459,21 @@ class TitleMigrationGroup(BaseModel):
 
 class TitleMigrationAuditPayload(BaseModel):
     active: bool
-    digest: str
+    digest: Sha256Hex
     groups: list[TitleMigrationGroup]
     blockers: list[TitleMigrationBlocker]
 
 
 class TitleMigrationApplyRequest(BaseModel):
-    audit_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    # Same 64-lowercase-hex shape as contracts.ops.SHA256_HEX_RE, spelled
+    # out again rather than shared: pydantic's pattern validator uses a
+    # regex engine that rejects SHA256_HEX_RE's `\Z` anchor, so a body
+    # field's pattern stays a plain `$`-anchored string.
+    audit_digest: Sha256Hex = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class TitleMigrationApplyResponse(BaseModel):
-    digest: str
+    digest: Sha256Hex
     groups_applied: int
     pages_retitled: int
     pages_merged: int

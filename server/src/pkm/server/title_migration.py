@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-from pkm.contracts.ops import BlockUid, PageId
+from pkm.contracts.ops import BlockUid, PageId, Sha256Hex
 from pkm.refs import target_canonical_title, title_syntax_reason
 from pkm.title_migration import (
     InventoryBlock,
@@ -31,7 +31,7 @@ from pkm.server.sync_meta import (
 
 @dataclass(frozen=True)
 class TitleMigrationOutcome:
-    digest: str
+    digest: Sha256Hex
     groups_applied: int
     pages_retitled: int
     pages_merged: int
@@ -41,7 +41,8 @@ class TitleMigrationOutcome:
 
 
 class StaleTitleMigration(RuntimeError):
-    def __init__(self, expected_digest: str, actual_digest: str) -> None:
+    def __init__(self, expected_digest: Sha256Hex,
+                actual_digest: Sha256Hex) -> None:
         super().__init__("title migration audit digest is stale")
         self.expected_digest = expected_digest
         self.actual_digest = actual_digest
@@ -163,7 +164,7 @@ def audit_title_migration(db: sqlite3.Connection) -> TitleMigrationPlan:
 
 
 def apply_title_migration(
-    db: sqlite3.Connection, expected_digest: str, now_ms: int
+    db: sqlite3.Connection, expected_digest: Sha256Hex, now_ms: int
 ) -> TitleMigrationOutcome:
     """Re-audit, migrate, activate, and rotate generation in one write transaction."""
     if db.in_transaction:

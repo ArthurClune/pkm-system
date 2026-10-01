@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import pkm.assets_disk as assets_disk
+from pkm.contracts.ops import Sha256Hex
 from pkm.export.writer import _stage_assets, export_graph
 from pkm.schema import DDL
 
@@ -414,7 +415,7 @@ def test_existing_asset_verified_through_the_shared_boundary(
 def test_stage_assets_stands_alone(tmp_path):
     # The extracted staging phase is usable without an export run: no
     # database, no publish, no staging-directory lifecycle.
-    sha = hashlib.sha256(b"png").hexdigest()
+    sha = Sha256Hex(hashlib.sha256(b"png").hexdigest())
     live, previous, stage = (tmp_path / "live", tmp_path / "prev",
                             tmp_path / "stage")
     (live / sha[:2]).mkdir(parents=True)

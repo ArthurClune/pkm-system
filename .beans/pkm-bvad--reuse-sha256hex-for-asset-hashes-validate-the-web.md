@@ -1,11 +1,11 @@
 ---
 # pkm-bvad
 title: Reuse Sha256Hex for asset hashes; validate the web asset sha
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T07:44:38Z
+updated_at: 2026-10-01T13:45:57Z
 parent: pkm-7uxw
 ---
 

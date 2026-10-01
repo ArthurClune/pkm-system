@@ -17,6 +17,18 @@ row keeps the display filename, MIME and size. Raster images and PDFs serve
 inline (`INLINE_MIME`). Everything else, including SVG, which can script, is
 forced to download with `nosniff`.
 
+An asset's sha256 is `Sha256Hex` (`contracts/ops.py`, shared with the op hash
+fields in [sync-and-offline.md](sync-and-offline.md#offline-editing-and-reconnect)),
+not a plain string, so a text can never reach an asset route or wire field
+where a digest belongs. `routes_assets.py` validates every sha256 path
+param against the shared `SHA256_HEX_RE` before minting it; `assets_core.py`'s
+hashing functions mint it directly from `hashlib`. On the web, the only mint
+point is `grammar/tokenize.ts`'s `/assets/<sha>/<name>` autolink rule, whose
+regex capture group already guarantees the shape. A sha failing that match —
+too short, uppercase, or merely a substring of some other URL, e.g. an
+external link containing `/assets/` — renders as plain text or a generic
+link, never as an asset reference.
+
 The upload response's `existing` bool records whether the `assets` row was
 already there before this call (a dedup hit) or is brand new. The CLI/MCP upload
 workflow keys its failure compensation on it — see

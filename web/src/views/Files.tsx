@@ -1,5 +1,6 @@
 // pattern: Imperative Shell
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Sha256Hex } from "../api/brands";
 import { apiDelete, apiGet, apiPost } from "../api/typedClient";
 import type { AssetSearchItem } from "../api/payloads";
 import { useConfirm } from "../components/ConfirmDialog";
@@ -39,7 +40,7 @@ function isStale(gen: { current: number }, at: number): boolean {
   return gen.current !== at;
 }
 
-function submitExportForm(sha256s: string[]) {
+function submitExportForm(sha256s: Sha256Hex[]) {
   const form = document.createElement("form");
   form.method = "post";
   form.action = "/api/assets/export.zip";
@@ -176,7 +177,7 @@ export function Files() {
   const [state, setState] =
     useState<"loading" | "ready" | "error">("loading");
   const [selected, setSelected] =
-    useState<ReadonlySet<string>>(new Set());
+    useState<ReadonlySet<Sha256Hex>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const loadMoreInFlight = useRef(false);
@@ -257,7 +258,7 @@ export function Files() {
     }
   };
 
-  const toggle = (sha: string) =>
+  const toggle = (sha: Sha256Hex) =>
     setSelected((cur) => {
       const next = new Set(cur);
       if (next.has(sha)) next.delete(sha); else next.add(sha);

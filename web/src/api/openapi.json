@@ -2044,7 +2044,8 @@
         "properties": {
           "sha256": {
             "type": "string",
-            "title": "Sha256"
+            "title": "Sha256",
+            "x-brand": "Sha256Hex"
           },
           "filename": {
             "type": "string",
@@ -2152,7 +2153,8 @@
         "properties": {
           "sha256": {
             "type": "string",
-            "title": "Sha256"
+            "title": "Sha256",
+            "x-brand": "Sha256Hex"
           },
           "filename": {
             "type": "string",
@@ -4290,7 +4292,8 @@
           "audit_digest": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
-            "title": "Audit Digest"
+            "title": "Audit Digest",
+            "x-brand": "Sha256Hex"
           }
         },
         "type": "object",
@@ -4303,7 +4306,8 @@
         "properties": {
           "digest": {
             "type": "string",
-            "title": "Digest"
+            "title": "Digest",
+            "x-brand": "Sha256Hex"
           },
           "groups_applied": {
             "type": "integer",
@@ -4350,7 +4354,8 @@
           },
           "digest": {
             "type": "string",
-            "title": "Digest"
+            "title": "Digest",
+            "x-brand": "Sha256Hex"
           },
           "groups": {
             "items": {

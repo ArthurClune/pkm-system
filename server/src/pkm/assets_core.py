@@ -12,6 +12,8 @@ import re
 from pathlib import PurePosixPath
 from typing import Literal
 
+from pkm.contracts.ops import Sha256Hex
+
 AssetCategory = Literal["image", "pdf", "document", "other"]
 
 # Office + JSON mimes that count as "document" alongside text/*. Keep in
@@ -126,7 +128,7 @@ def _strip_markdown_asset_links(text: str, prefix: str) -> str:
     return "".join(out)
 
 
-def strip_asset_tokens(text: str, sha256: str) -> str:
+def strip_asset_tokens(text: str, sha256: Sha256Hex) -> str:
     """Remove every reference to /assets/<sha256>/... from block text.
     Uploads write the raw filename into the URL, so it may hold spaces
     and parens. Three passes, in order: markdown link and image tokens,
@@ -144,14 +146,15 @@ def strip_asset_tokens(text: str, sha256: str) -> str:
     return re.sub(r" {2,}", " ", text).strip()
 
 
-def sha256_hex(data: bytes) -> str:
+def sha256_hex(data: bytes) -> Sha256Hex:
     """The digest callers compare against a content-addressed asset's
     known sha256."""
-    return hashlib.sha256(data).hexdigest()
+    return Sha256Hex(hashlib.sha256(data).hexdigest())
 
 
-def asset_needs_repair(expected_sha256: str, expected_size: int,
-                       actual_size: int, actual_sha256: str | None) -> bool:
+def asset_needs_repair(expected_sha256: Sha256Hex, expected_size: int,
+                       actual_size: int,
+                       actual_sha256: Sha256Hex | None) -> bool:
     """Whether a content-addressed asset file on disk must be rewritten
     from its known-good source.
 

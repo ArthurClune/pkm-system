@@ -1,8 +1,9 @@
 import { expect, test, vi } from "vitest";
+import type { Sha256Hex } from "../api/brands";
 import { jsonResponse } from "../test-helpers";
 import { assetMarkdown, uploadAsset } from "./assets";
 
-const INFO = { sha256: "ab".repeat(32), filename: "cat.png",
+const INFO = { sha256: "ab".repeat(32) as Sha256Hex, filename: "cat.png",
                mime: "image/png", size: 3, url: `/assets/${"ab".repeat(32)}/cat.png`,
                existing: false };
 

@@ -96,7 +96,9 @@ option. Use `--` to end option parsing, flags before it: `pkm get --
   needed.
 - `batch` reads a JSON array of `{command, params}` — `create`, `todo`,
   `update`, `move`, `delete`, `outline`. `create`/`todo`/`move` accept an
-  `"index"` param to insert at a specific position. `"as": "name"` labels a
+  `"index"` param to insert at a specific position (0-based among the
+  parent's/destination's current children as earlier commands in the same
+  batch leave them; past the end appends). `"as": "name"` labels a
   created block so later commands can target it as `"parent": "{{name}}"`
   or, for `update`/`move`/`delete`, as `"uid": "{{name}}"`; repeated
   `"## Heading"` parents on the same page resolve to one heading. An

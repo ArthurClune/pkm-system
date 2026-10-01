@@ -123,8 +123,8 @@ markdown.
   plus a `base_text_hash` guard, and never `set_heading`
 - `split_heading` — strips `#`/`##`/`###` off a line into a heading level 1-3
 - `asset_block_text` — MIME → image embed / `{{[[pdf]]: <url>}}` macro / link
-- `Planner` — the append counter per (page, parent) and the heading memo that
-  consecutive commands share
+- `Planner` — a live per-(page, parent) sibling model (uid, order_idx pairs)
+  and the heading memo that consecutive commands share
 
 Every `Planner` method takes a parent *uid*, already resolved; turning a *spec*
 into one is `batch.py`'s job, since aliases and in-batch uids are batch
@@ -138,10 +138,10 @@ parents. `plan_batch` threads a `_BatchCtx` through the commands — the shared
 
 | Parent spec | Resolved by | First child's `order_idx` |
 |---|---|---|
-| `((uid))` on the fetched page | `resolve_parent`, which walks fetched blocks | `next_child_order_idx`, one past the parent's last child's `order_idx` |
+| `((uid))` on the fetched page | `resolve_parent`, which walks fetched blocks | `order_idx_at_position`, one past the parent's last child's `order_idx` |
 | `((uid))` created earlier in this batch | `_in_batch_uid`, ahead of `resolve_parent`, which cannot see it | 0 |
 | `{{alias}}` | `_resolve_alias`, to the `((uid))` an earlier `as` recorded | 0 |
-| `## Heading` on the fetched page | `resolve_parent`, on level and text together, first in document order | `next_child_order_idx`, one past the parent's last child's `order_idx` |
+| `## Heading` on the fetched page | `resolve_parent`, on level and text together, first in document order | `order_idx_at_position`, one past the parent's last child's `order_idx` |
 | `## Heading` not there yet | `Planner.heading`, memoized per (page, level, text) | 0 |
 
 A `_SubtreeModel` follows its block through every op the batch plans, so a
@@ -149,13 +149,22 @@ later `delete` hashes the tree the server will hold when it applies. A block
 moved in from outside the subtree sends the delete hashless, since no fetch
 describes the newcomer's own subtree.
 
-`next_child_order_idx` never counts siblings: `order_idx` is sparse (a
+`order_idx_at_position` never counts siblings: `order_idx` is sparse (a
 delete leaves a gap; nothing renumbers), so an append lands one past the
 last sibling's own key, not at the dense position a count would give.
-`Planner.create_at` is the one create that skips the append counter, taking
-the batch `index` param as `order_idx` verbatim. Appends keep counting from
-the page's original last `order_idx`, so an indexed create and plain appends
-under one parent can interleave.
+`Planner` keeps the same rule as a live per-(page, parent) sibling list
+rather than a single append counter, so the batch `index` param — a
+position, not an order key — can convert against it anywhere in the batch:
+
+| `index` (`create`/`todo`/`move`) | Detail |
+|---|---|
+| What it means | 0-based position among the parent's (move: the destination's) current children |
+| "Current" | as earlier commands in the batch have left them — later commands see earlier ones' creates, moves and deletes |
+| Past the end | appends |
+| Minted by | `Planner.create_at`/`Planner.move`, via `order_idx_at_position(siblings, position)` — the one place a position becomes an `OrderIdx` |
+| Indexed move | lands at its final position, among the destination's children without the moving block itself |
+
+`outline` and `plan_save` only ever append, through the same model.
 
 `validate_batch` parses the envelope against a discriminated-union command schema
 with strict (`extra="forbid"`) params models, reporting the first bad item as one

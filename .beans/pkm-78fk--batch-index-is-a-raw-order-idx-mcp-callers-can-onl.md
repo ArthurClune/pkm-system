@@ -1,11 +1,11 @@
 ---
 # pkm-78fk
 title: Batch index is a raw order_idx; MCP callers can only know positions
-status: todo
+status: completed
 type: bug
 priority: low
 created_at: 2026-10-01T20:49:39Z
-updated_at: 2026-10-01T20:58:53Z
+updated_at: 2026-10-01T21:58:16Z
 ---
 
 The CLI/MCP batch `index` param is used as an `order_idx`, verbatim (`server/src/pkm/batch.py`: `OrderIdx(p.index)` in `_batch_create` and `_batch_move`). But `order_idx` is sparse: deletes leave gaps, and 386 of 20,454 sibling groups in prod have them.
@@ -44,10 +44,35 @@ On page `[A, B]`, the single batch `{create X index 0}, {create Y}` gives `X, A,
 ## Plan
 
 - [x] Decide index semantics (Arthur)
-- [ ] Red tests: the gap case and the mixed-batch case
-- [ ] Fix planner / `create_at` counter
-- [ ] Update CLI help, MCP description and `cli-and-mcp.md`
+- [x] Red tests: the gap case and the mixed-batch case
+- [x] Fix planner / `create_at` counter
+- [x] Update CLI help, MCP description and `cli-and-mcp.md`
 
 ## Decision (Arthur, 2026-10-01)
 
 `index` is a position: 0-based among the parent's current children, with past-the-end meaning append. The planner converts it to an order key.
+
+
+## Design (approved by Arthur, 2026-10-01)
+
+- Positions count against the page as the batch has left it so far: commands apply in order. The Planner keeps a per-(page, parent) sibling model of (uid, order_idx), seeded lazily from the fetched blocks (empty for an off-page parent). Creates, moves and deletes advance it with the server's ShiftSiblings arithmetic. Append is last key + 1 from the model, and the separate append counter goes away.
+- order_idx_at_position(siblings, k) is the only OrderIdx mint: siblings[k].order_idx, or last + 1 past the end.
+- An indexed move puts the block at its final position: it becomes child k of the destination, measured among the destination's children without the moving block.
+- Known limit: the model does not simulate the server skipping a cycle move.
+- Extra red tests: index 0 twice composes; delete then indexed create; indexed move within a parent (forwards, backwards, onto its own slot) and across parents; an index past the end appends.
+
+
+## Summary of Changes
+
+- **Contract:** batch `index` (create/todo/move) is a 0-based position among the parent's current children; past the end appends.
+  - It counts against the page as earlier commands in the batch have left it.
+  - An indexed move lands at its final position, among the destination's children without the moving block.
+  - This is a behaviour change for anyone who passed a raw order_idx. No caller in the repo did.
+- **Mechanism:** `Planner` replaced its append counter with a live sibling model that mirrors ShiftSiblings/SetParent.
+  - Child groups are keyed by parent uid, top-level groups by page.
+  - Creates, moves and deletes all advance it.
+  - `order_idx_at_position` is the only place a position becomes an OrderIdx. Both `OrderIdx(p.index)` casts are gone.
+- **Removed:** `next_child_order_idx`, which had no production caller left.
+- **Docs:** CLI batch help, MCP batch description, cli-and-mcp.md (index table), backend.md brand note, pkm skill, and one troubleshooting row.
+- **Tests:** integration tests against the real server (gap, mixed, composing, delete then create, moves) plus plan-level tests for each composition path. Every mutation probe (M1-M8, M10) turns tests red.
+- **Known limit:** the model doesn't simulate an op the server skips (a cycle, a missing uid or parent).

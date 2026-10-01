@@ -5,11 +5,11 @@ import pytest
 from pkm.batch import (delete_uids, plan_batch, referenced_pages,
                        validate_batch)
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
-                               SetHeadingOp, UpdateTextOp, subtree_hash,
-                               text_hash)
+                               OrderIdx, SetHeadingOp, UpdateTextOp,
+                               subtree_hash, text_hash)
 from pkm.contracts.responses import BlockNode, PagePayload
 from pkm.planning import (BuildError, asset_block_text, create_page_ops,
-                          next_child_order_idx, parse_outline, plan_mark,
+                          order_idx_at_position, parse_outline, plan_mark,
                           plan_save, plan_update, resolve_parent,
                           split_heading)
 from pkm.render import render_page
@@ -76,22 +76,26 @@ def test_parse_outline_clamps_depth_jumps():
     assert parse_outline("a\n      too deep") == [(0, "a"), (1, "too deep")]
 
 
-def test_next_child_order_idx():
-    assert next_child_order_idx(BLOCKS, None) == 2
-    assert next_child_order_idx(BLOCKS, "u2") == 1
+def _siblings(*pairs: tuple[str, int]) -> list[tuple[str, OrderIdx]]:
+    return [(uid, OrderIdx(idx)) for uid, idx in pairs]
 
 
-def test_next_child_order_idx_lands_after_the_last_sibling_when_keys_have_a_gap():
-    # Top level holds order_idx 0 and 5 (a delete left the gap): the append
-    # must get 6, one past the last real key -- not 2, the dense count,
-    # which `ShiftSiblings` would then splice between the existing siblings
-    # instead of after them.
-    assert next_child_order_idx(BLOCKS_WITH_GAP, None) == 6
+def test_order_idx_at_position_returns_the_sibling_at_that_slot():
+    siblings = _siblings(("u1", 0), ("u2", 5), ("u3", 6))
+    assert order_idx_at_position(siblings, 0) == 0
+    assert order_idx_at_position(siblings, 1) == 5
+    assert order_idx_at_position(siblings, 2) == 6
 
 
-def test_next_child_order_idx_lands_after_the_last_child_when_keys_have_a_gap():
-    # Same bug, one level down: g2's children hold order_idx 0 and 5.
-    assert next_child_order_idx(BLOCKS_WITH_GAP, "g2") == 6
+def test_order_idx_at_position_past_the_end_appends_after_the_last_key():
+    siblings = _siblings(("u1", 0), ("u2", 5))
+    assert order_idx_at_position(siblings, 2) == 6
+    assert order_idx_at_position(siblings, 50) == 6
+
+
+def test_order_idx_at_position_with_no_siblings_is_zero():
+    assert order_idx_at_position([], 0) == 0
+    assert order_idx_at_position([], 3) == 0
 
 
 def test_resolve_parent_forms():
@@ -315,6 +319,37 @@ def test_plan_batch_move_under_a_block_created_in_the_same_batch():
                             order_idx=0, page_title=None)
 
 
+def test_plan_batch_indexed_creates_under_an_off_page_parent_compose():
+    # "home" is created earlier in this same batch, so it's on no fetched
+    # page -- its children still have to compose like any other parent's:
+    # an index counts against what this batch has put under it so far, not
+    # an empty group reset on every call.
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "Home", "as": "home"}},
+        {"command": "create",
+         "params": {"page": "Machine Learning", "parent": "{{home}}",
+                    "text": "second", "index": 0}},
+        {"command": "create",
+         "params": {"page": "Machine Learning", "parent": "{{home}}",
+                    "text": "appended"}},
+        {"command": "create",
+         "params": {"page": "Machine Learning", "parent": "{{home}}",
+                    "text": "first", "index": 0}},
+    ]
+    ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
+    home = ops[0].uid
+    assert [o.parent_uid for o in ops[1:]] == [home, home, home]
+    # The plain append counts the earlier indexed create as a real child --
+    # order_idx 1, not 0 as it would if the off-page group reset to empty
+    # for this call.
+    assert ops[2].order_idx == 1
+    # The second indexed create, also at position 0, lands on whatever key
+    # is there now (the first indexed create's) rather than restarting
+    # from an empty group.
+    assert ops[3].order_idx == ops[1].order_idx
+
+
 def test_plan_batch_create_with_index():
     cmds = [{"command": "create",
              "params": {"page": "Machine Learning", "text": "top",
@@ -334,15 +369,11 @@ def test_plan_batch_todo_with_index_under_parent():
     assert ops[0].text == "{{TODO}} urgent"
 
 
-def test_plan_batch_indexed_create_leaves_later_appends_counting_from_the_page():
-    # `pkm batch --help` warns against mixing an indexed create with plain
-    # appending creates under the same parent, because the plain ones count
-    # from the parent's ORIGINAL child count and can interleave with the
-    # indexed block instead of landing after it. That warning is only honest
-    # while `create_at` leaves the append counter alone: the appends here
-    # must be 2 and 3, the page's two existing top-level blocks and one
-    # more, not 3 and 4 as they would be if the indexed create had bumped
-    # the counter on its way past.
+def test_plan_batch_indexed_create_composes_with_later_appends():
+    # `index` is a position counted against the page as the batch has left
+    # it so far: an indexed create's shift is part of that state, so a
+    # plain append right after it still lands last -- after the spliced-in
+    # block too, not interleaved with it (the old order-key-verbatim bug).
     cmds = [
         {"command": "create",
          "params": {"page": "Machine Learning", "text": "spliced in",
@@ -354,7 +385,9 @@ def test_plan_batch_indexed_create_leaves_later_appends_counting_from_the_page()
     ]
     ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
     assert [o.parent_uid for o in ops] == [None, None, None]
-    assert [o.order_idx for o in ops] == [0, 2, 3]
+    # The spliced-in block shifts the page's two blocks (0, 1) to 1, 2, so
+    # the appends land at 3 and 4 -- not 2 and 3, mid-list.
+    assert [o.order_idx for o in ops] == [0, 3, 4]
 
 
 def test_plan_batch_create_appends_after_the_last_sibling_when_keys_have_a_gap():
@@ -373,6 +406,180 @@ def test_plan_batch_move_append_lands_after_the_last_sibling_when_keys_have_a_ga
     ops = plan_batch(cmds, {"Machine Learning": BLOCKS_WITH_GAP}, uid_gen())
     assert ops[0] == MoveOp(op="move", uid="g3", parent_uid="g2",
                             order_idx=6, page_title=None)
+
+
+def test_plan_batch_indexed_move_lands_on_the_real_key_not_the_position_when_gapped():
+    # Every other move test seeds dense keys, where a position and the
+    # sibling's real order_idx happen to be the same number -- this one
+    # catches order_idx_at_position minting the raw position (1) instead
+    # of looking up g2's gapped second child's real key (5).
+    cmds = [{"command": "move",
+             "params": {"uid": "g1", "page": "Machine Learning",
+                        "parent": "((g2))", "index": 1}}]
+    ops = plan_batch(cmds, {"Machine Learning": BLOCKS_WITH_GAP}, uid_gen())
+    assert ops[0] == MoveOp(op="move", uid="g1", parent_uid="g2",
+                            order_idx=5, page_title=None)
+
+
+# -- composition: a position/append reads the page as the batch has left
+# it so far, not as fetched -- so a move/delete/heading-create earlier in
+# the same batch must be fully reflected (both its removal from the old
+# group and its landing in the new one) before a later command counts
+# siblings there.
+
+def test_plan_batch_move_out_of_a_parent_then_indexed_create_in_the_source():
+    # The moved block must stop counting towards its OLD group's
+    # positions, not just gain an entry in the new one.
+    blocks = [
+        _node("m7a", "A", order_idx=0), _node("m7b", "B", order_idx=1),
+        _node("m7c", "C", order_idx=2), _node("m7p", "P", order_idx=3),
+    ]
+    cmds = [
+        {"command": "move", "params": {"uid": "m7a", "page": "Machine Learning",
+                                       "parent": "((m7p))"}},
+        {"command": "create", "params": {"page": "Machine Learning", "text": "X",
+                                         "index": 1}},
+    ]
+    ops = plan_batch(cmds, {"Machine Learning": blocks}, uid_gen())
+    # Top level without A is [B@1, C@2]: an indexed create at position 1
+    # (after B) lands on C's key -- B, X, C -- not on A's stale key 0,
+    # which would still be there if the move's old entry were never
+    # dropped.
+    assert as_create(ops[1]).order_idx == 2
+
+
+def test_plan_batch_move_to_index_in_same_parent_then_plain_append():
+    blocks = [
+        _node("m8a", "A", order_idx=0), _node("m8b", "B", order_idx=1),
+        _node("m8c", "C", order_idx=2), _node("m8d", "D", order_idx=3),
+    ]
+    cmds = [
+        {"command": "move", "params": {"uid": "m8d", "page": "Machine Learning",
+                                       "index": 0}},
+        {"command": "create", "params": {"page": "Machine Learning",
+                                         "text": "appended"}},
+    ]
+    ops = plan_batch(cmds, {"Machine Learning": blocks}, uid_gen())
+    # D lands at key 0, shifting A, B, C up to 1, 2, 3 -- the plain append
+    # must land at 4, one past C's shifted key, not 3 (C's key before the
+    # move's shift ran).
+    assert as_create(ops[1]).order_idx == 4
+
+
+def test_plan_batch_cross_parent_move_to_index_then_appends_in_the_destination():
+    blocks = [
+        _node("m8xa", "A", order_idx=0),
+        _node("m8xp", "P", order_idx=1,
+              children=[_node("m8xe", "E", order_idx=0)]),
+    ]
+    cmds = [
+        {"command": "move", "params": {"uid": "m8xa", "page": "Machine Learning",
+                                       "parent": "((m8xp))", "index": 0}},
+        {"command": "create", "params": {"page": "Machine Learning",
+                                         "parent": "((m8xp))",
+                                         "text": "appended"}},
+        {"command": "create", "params": {"page": "Machine Learning",
+                                         "parent": "((m8xp))",
+                                         "text": "spliced", "index": 1}},
+    ]
+    ops = plan_batch(cmds, {"Machine Learning": blocks}, uid_gen())
+    appended = as_create(ops[1])
+    spliced = as_create(ops[2])
+    # A lands at key 0 under P, shifting E to key 1 -- the plain append
+    # must see that shift (key 2), not E's original key (0).
+    assert appended.order_idx == 2
+    # The indexed create at position 1 (after A, before E) lands on E's
+    # shifted key.
+    assert spliced.order_idx == 1
+
+
+def test_plan_batch_missing_heading_composes_with_later_top_level_appends():
+    # A missing "## Heading" this batch creates still occupies a slot in
+    # the top-level list, so a later top-level append must land after it,
+    # not land on top of it.
+    blocks = [_node("m10a", "A", order_idx=0), _node("m10b", "B", order_idx=1)]
+    cmds = [
+        {"command": "create", "params": {"page": "Machine Learning",
+                                         "parent": "## Notes", "text": "x"}},
+        {"command": "create", "params": {"page": "Machine Learning", "text": "y"}},
+    ]
+    ops = creates(plan_batch(cmds, {"Machine Learning": blocks}, uid_gen()))
+    heading_op, _x_op, y_op = ops
+    assert heading_op.order_idx == 2
+    assert y_op.order_idx == 3
+
+
+def test_plan_batch_move_forward_among_siblings_excludes_the_mover():
+    # A's own old slot must not count towards the destination position
+    # when it moves within the same top-level list.
+    blocks = [
+        _node("m3a", "A", order_idx=0), _node("m3b", "B", order_idx=1),
+        _node("m3c", "C", order_idx=2), _node("m3d", "D", order_idx=3),
+    ]
+    cmds = [{"command": "move", "params": {"uid": "m3a",
+                                           "page": "Machine Learning",
+                                           "index": 2}}]
+    ops = plan_batch(cmds, {"Machine Learning": blocks}, uid_gen())
+    # Among [B, C, D] (A excluded), position 2 is D's key (3): A lands
+    # just before D -- B, C, A, D.
+    assert ops[0] == MoveOp(op="move", uid="m3a", parent_uid=None,
+                            order_idx=3, page_title="Machine Learning")
+
+
+def test_plan_batch_delete_then_indexed_create_counts_remaining_siblings():
+    blocks = [
+        _node("m4a", "A", order_idx=0), _node("m4b", "B", order_idx=1),
+        _node("m4c", "C", order_idx=2),
+    ]
+    cmds = [
+        {"command": "delete", "params": {"uid": "m4b"}},
+        {"command": "create", "params": {"page": "Machine Learning",
+                                         "text": "X", "index": 1}},
+    ]
+    ops = plan_batch(cmds, {"Machine Learning": blocks}, uid_gen())
+    # Position 1 among the survivors [A, C] is C's key (2), not B's old
+    # key (1) -- the delete must be reflected before this create counts.
+    assert as_create(ops[1]).order_idx == 2
+
+
+def test_plan_batch_delete_before_the_page_is_otherwise_touched_still_hides_it():
+    # A delete that runs before any create/move references the same page
+    # must still keep that block out of the model once the page IS
+    # touched -- not resurrect it from the fetched snapshot (plan_batch's
+    # eager seed_page pass over every fetched page is what makes this so).
+    blocks = [_node("m6a", "A", order_idx=0), _node("m6b", "B", order_idx=1)]
+    cmds = [
+        {"command": "delete", "params": {"uid": "m6b"}},
+        {"command": "create", "params": {"page": "Machine Learning",
+                                         "text": "appended"}},
+    ]
+    ops = plan_batch(cmds, {"Machine Learning": blocks}, uid_gen())
+    assert as_create(ops[1]).order_idx == 1
+
+
+def test_plan_batch_child_group_follows_its_parent_across_a_page_move():
+    # A child group is keyed by its parent's uid alone, matching the
+    # server's ShiftSiblings -- it must not fork into a second, empty
+    # group when a later command names the parent's new page instead of
+    # the one it was created on.
+    q_blocks = [_node("q1", "Other", order_idx=0),
+                _node("q2", "Stuff", order_idx=1)]
+    cmds = [
+        {"command": "create", "params": {"page": "P", "text": "home",
+                                         "as": "c0"}},
+        {"command": "create", "params": {"page": "P", "parent": "{{c0}}",
+                                         "text": "c1"}},
+        {"command": "move", "params": {"uid": "{{c0}}", "page": "Q"}},
+        {"command": "create", "params": {"page": "Q", "parent": "{{c0}}",
+                                         "text": "c2"}},
+    ]
+    ops = plan_batch(cmds, {"P": [], "Q": q_blocks}, uid_gen())
+    c1_op = as_create(ops[1])
+    c2_op = as_create(ops[3])
+    # c2 must land after c1 (key 1), not reset to key 0 as if c0's child
+    # group were empty under the page it now sits on.
+    assert c2_op.order_idx == 1
+    assert c2_op.order_idx > c1_op.order_idx
 
 
 def test_plan_batch_alias_as_uid():

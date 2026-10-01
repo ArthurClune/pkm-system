@@ -1276,10 +1276,12 @@ it("a hash that isn't a well-formed uid flashes nothing", async () => {
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("abcdef", "a block")])],
+    ["/api/page/Paper", pagePayload("Paper", [block("abcde", "a block")])],
   ]);
-  renderAt("/page/Paper#not%20a%20uid");
+  const { container } = renderAt("/page/Paper#abcde");
   await screen.findByRole("heading", { name: "Paper" });
+  const row = container.querySelector('[data-uid="abcde"]');
+  expect(row).not.toBeNull();
   expect(scrollIntoView).not.toHaveBeenCalled();
 });
 

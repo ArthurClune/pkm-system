@@ -5,8 +5,9 @@ import type { CanonicalTitle, PageId } from "../api/brands";
 import type { PagePayload } from "../api/payloads";
 import { dailyTitle } from "../replica/daily";
 
-/** No real page has a negative id outside an offline replica, so this
- * stand-in payload's id can never collide with one actually fetched. */
+/** A sentinel, not a real page id: an offline replica mints its own
+ * negative ids (`getOrCreateLocalPage`), so this can collide with one.
+ * No consumer keys on a stand-in payload's `page.id`. */
 const MISSING_PAGE_ID = -1 as PageId;
 
 /** Decides what a failed page read means. `status` is the HTTP status the

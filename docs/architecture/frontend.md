@@ -412,13 +412,13 @@ openapi-typescript CLI would turn every brand back into `string`.
 
 | Brand | Minted at |
 |---|---|
-| `BlockUid` | `uid.ts`'s `newUid`, `ids.ts`'s `parseBlockUid`, the block-ref token (`grammar/scan.ts`) |
-| `PageId` | row mappers reading a page id column (`replica/localOps.ts`, `localApi/pages.ts`, `localApi/search.ts`, `localApi/router.ts`); `localOps.ts`'s `getOrCreateLocalPage` mints a negative id for an offline page, the sign carrying that meaning |
-| `SidebarEntryId` | row mappers reading `sidebar_entries.id` (`localApi/router.ts`'s `sidebarPayload`, `components/SidebarNav.tsx`) |
+| `BlockUid` | `uid.ts`'s `newUid`, `ids.ts`'s `parseBlockUid`, the block-ref token (`grammar/scan.ts`); row mappers in `replica/localApi/*`, `localOps.ts`, `queue.ts`; `apply.ts`'s tombstone mint |
+| `PageId` | row mappers reading a page id column (`replica/localOps.ts`, `localApi/pages.ts`, `localApi/search.ts`, `reconcile.ts`); `localOps.ts`'s `getOrCreateLocalPage` mints a negative id for an offline page, the sign carrying that meaning; `apply.ts`'s tombstone mint; `outline/missingPage.ts`'s `MISSING_PAGE_ID` sentinel |
+| `SidebarEntryId` | row mappers reading `sidebar_entries.id` (`localApi/router.ts`'s `sidebarPayload`); `apply.ts`'s tombstone mint |
 | `NormalizedTitle` | `grammar/scan.ts`'s `normalizeRefTitle` and hashtag token, `replica/titles.ts`'s `canonicalizeTitle` |
 | `CanonicalTitle` | row mappers reading `pages.title` / `sidebar_entries.title`, `replica/meta.ts`'s `canonicalTitle`/`titleReader` (which read the live plain-space flag), `replica/daily.ts`'s `titleForDate`/`dailyTitle` |
-| `Sha256Hex` | `replica/sha256.ts`'s `sha256Hex`/`subtreeHash` |
-| `SyncSeq` | carried from generated response types; narrowed by hand at the one place that parses the WS seq frame (`sync/socket.ts`) |
+| `Sha256Hex` | `replica/sha256.ts`'s `sha256Hex`, `replica/subtreeHash.ts`'s `subtreeHash`; the asset-link token (`grammar/tokenize.ts`) |
+| `SyncSeq` | carried from generated response types; narrowed by hand parsing the WS seq frame (`sync/socket.ts`), an ack (`sync/opsAck.ts`), the stored cursor (`replica/workerHandlers.ts`), and the sync loop's cursor (`sync/replicaSync.ts`) |
 | `ClientId` / `BatchId` | `sync/opQueue.ts` (from `newRawUid()`), `replica/workerHandlers.ts`'s `newBatchId` |
 | `GoodlinksId` | `components/goodlinks.ts`'s `goodlinksIdFromHref` |
 | `ConversationId` / `ConfirmId` | minted server-side; the web only carries them (`ConfirmId` is narrowed by hand at the SSE `confirm_request` parse, `assistant/sse.ts`) |

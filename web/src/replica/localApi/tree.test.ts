@@ -1,12 +1,13 @@
 // @vitest-environment node
 import { afterEach, describe, expect, test } from "vitest";
 import type { BlockUid } from "../../api/brands";
+import { uid } from "../../test-helpers";
 import { openTestDb, type TestDb } from "../testDb";
 import { buildTree, fetchAncestors, type BlockRow } from "./tree";
 
 function blockRow(over: Partial<BlockRow> = {}): BlockRow {
   return {
-    uid: "u1" as BlockUid, parent_uid: null, order_idx: 0, text: "hi",
+    uid: uid("u1"), parent_uid: null, order_idx: 0, text: "hi",
     heading: null, view_type: null, collapsed: 0, created_at: null,
     updated_at: null, ...over,
   };

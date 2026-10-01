@@ -568,9 +568,19 @@ this way. A Literal this strict can reject a value the write path itself
 never produces but an old import left behind: `BlockNode.heading` and
 `SyncBlock.heading` use `StoredHeading`, which reads a stored 0 (Roam's own
 "no heading" level) as `None` before the `HeadingLevel` check runs, rather
-than 500ing on a Roam-imported block. Every endpoint
-requires the session cookie unless marked public, and FastAPI's `/docs` and
-`/redoc` are disabled.
+than 500ing on a Roam-imported block.
+
+A `NewType` the web must also keep distinct from its base type, such as
+`Sha256Hex` in `contracts/ops.py`, is tagged with `brand()` from
+`contracts/brands.py`. `brand()` leaves validation and dumping as the
+supertype's and adds an `x-brand: "<Name>"` marker to the schema, which
+`pnpm gen-types` turns into a reference to the web brand of the same name
+(see [frontend.md](frontend.md#api-layer)). Call it in its own statement
+after the `NewType(...)` line: pyrefly stops treating the result as a type
+when the `NewType` call is wrapped in another call.
+
+Every endpoint requires the session cookie unless marked public, and
+FastAPI's `/docs` and `/redoc` are disabled.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -683,7 +693,7 @@ with the change that invalidates them.
 
 | Artifact | Generator | Guarded by | Consumed by |
 |---|---|---|---|
-| `web/src/api/openapi.json` (→ `types.d.ts` via `pnpm gen-types`) | `pkm.server.openapi_dump` | `tests/test_openapi_sync.py` | Web API layer — Pydantic models are the single source of API types |
+| `web/src/api/openapi.json` (→ `types.d.ts` via `pnpm gen-types`) | `pkm.server.openapi_dump` | `tests/test_openapi_sync.py`; `web/tooling/genTypes.drift.test.ts` for `types.d.ts` | Web API layer — Pydantic models are the single source of API types |
 | `web/src/replica/baseSchema.gen.ts` | `pkm.schema_dump` | `tests/test_schema_artifact.py` | Browser sqlite-wasm replica (BASE_DDL only, never SERVER_DDL) |
 | `shared/fixtures/ref_grammar.json` | hand-maintained cases | both parsers' test suites | Pins Python `refs.py` and the TS grammar scanner to identical behaviour |
 | `shared/fixtures/title_syntax.json` | hand-maintained cases | `tests/test_refs.py` | Pins `refs.title_syntax_reason` and the replica's `titleSyntaxReason` to the same verdicts (`web/src/replica/titles.test.ts`, `localApi/router.test.ts`) |

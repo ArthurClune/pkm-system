@@ -181,7 +181,7 @@ Other web scripts:
 ```bash
 pnpm test          # Vitest unit tests
 pnpm test:coverage # unit tests with enforced coverage thresholds
-pnpm typecheck     # tsc
+pnpm typecheck     # tsc, then a second pass over the generated API types
 pnpm e2e           # build, then Playwright end-to-end tests
 pnpm verify        # typecheck + lint + FCIS check + coverage + Playwright
 pnpm build         # production build to web/dist

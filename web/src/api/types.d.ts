@@ -3,6 +3,7 @@
  * Do not make direct changes to the file.
  */
 
+import type * as Brands from "./brands";
 export interface paths {
     "/login": {
         parameters: {
@@ -1299,7 +1300,7 @@ export interface components {
             /** Uid */
             uid: string;
             /** Base Subtree Hash */
-            base_subtree_hash?: string | null;
+            base_subtree_hash?: Brands.Sha256Hex | null;
         };
         /** DescribeStatusPayload */
         DescribeStatusPayload: {
@@ -1863,7 +1864,7 @@ export interface components {
             /** Text */
             text: string;
             /** Base Text Hash */
-            base_text_hash?: string | null;
+            base_text_hash?: Brands.Sha256Hex | null;
             /** Page Title */
             page_title?: string | null;
         };

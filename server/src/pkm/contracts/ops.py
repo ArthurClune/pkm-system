@@ -17,6 +17,8 @@ from typing import Annotated, Literal, NewType, Union
 
 from pydantic import BaseModel, Field
 
+from pkm.contracts.brands import brand
+
 UID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,32}$")
 ViewType = Literal["numbered", "document"]
 
@@ -33,10 +35,12 @@ OpKind = Literal["create", "update_text", "move", "delete", "set_collapsed",
 
 # A sha256 hex digest, distinct from a plain str so a text can never be
 # passed where a hash belongs. Pydantic validates and dumps a NewType as
-# its base type, so the wire format is unchanged. Minted only by
-# `text_hash` (and its web twin `sha256Hex`); a test literal standing in
-# for a hash wraps in `Sha256Hex(...)`.
+# its base type, so the wire format is unchanged; `brand` carries the name
+# to the web's generated types. Minted only by `text_hash` (and its web
+# twin `sha256Hex`); a test literal standing in for a hash wraps in
+# `Sha256Hex(...)`.
 Sha256Hex = NewType("Sha256Hex", str)
+brand(Sha256Hex)
 
 
 class CreateOp(BaseModel):

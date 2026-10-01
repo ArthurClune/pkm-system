@@ -564,7 +564,11 @@ into a TS union for free instead of the web hand-copying the set. `RefKind`
 (`refs.py`), `EntityKind` and `AssistantModel` (`contracts/responses.py`),
 `OpKind` and `HeadingLevel` (`contracts/ops.py`), `TaskMark` (`todo.py`) and
 `AssetCategory` (`assets_core.py`) follow `ViewType` and `SkipReason`'s lead
-this way. Every endpoint
+this way. A Literal this strict can reject a value the write path itself
+never produces but an old import left behind: `BlockNode.heading` and
+`SyncBlock.heading` use `StoredHeading`, which reads a stored 0 (Roam's own
+"no heading" level) as `None` before the `HeadingLevel` check runs, rather
+than 500ing on a Roam-imported block. Every endpoint
 requires the session cookie unless marked public, and FastAPI's `/docs` and
 `/redoc` are disabled.
 

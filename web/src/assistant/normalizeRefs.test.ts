@@ -37,4 +37,13 @@ describe("stripCaretBlockRefs", () => {
   test("leaves ((^uid with spaces)) alone", () => {
     expect(stripCaretBlockRefs("((^not a uid))")).toBe("((^not a uid))");
   });
+
+  test("rewrites a 32-char uid and leaves a 33-char one alone", () => {
+    // Bounded to match the shared UID_TOKEN ({6,32}): narrows what used to
+    // rewrite without widening the standing ((^ rejection.
+    const uid32 = "a".repeat(32);
+    const uid33 = "a".repeat(33);
+    expect(stripCaretBlockRefs(`((^${uid32}))`)).toBe(`((${uid32}))`);
+    expect(stripCaretBlockRefs(`((^${uid33}))`)).toBe(`((^${uid33}))`);
+  });
 });

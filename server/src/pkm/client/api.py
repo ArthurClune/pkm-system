@@ -27,7 +27,7 @@ from pkm.client.core import (ApiError, CliConfig, ConfigError,
                              ResponseSchemaError, cookie_header,
                              friendly_error, parse_config, serialize_config,
                              validation_detail)
-from pkm.contracts.ops import BatchId, BlockOp, ClientId, OpBatch
+from pkm.contracts.ops import BatchId, BlockOp, BlockUid, ClientId, OpBatch
 from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      AssetUploadResponse, Backlinks,
                                      BlockNode, BlockPayload, ChangedPayload,
@@ -78,14 +78,14 @@ def save_config(cfg: CliConfig) -> None:
     os.replace(tmp, path)
 
 
-def new_uid() -> str:
+def new_uid() -> BlockUid:
     # 12 urlsafe chars, matches UID_RE. token_urlsafe's alphabet includes
     # '-' and '_', which argparse would treat as an option prefix in a bare
     # CLI argument; retry until the first char is alphanumeric.
     while True:
         uid = secrets.token_urlsafe(9)
         if uid[0].isalnum():
-            return uid
+            return BlockUid(uid)
 
 
 def login(url: str, password: str,

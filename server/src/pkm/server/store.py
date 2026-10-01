@@ -6,7 +6,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
 
-from pkm.contracts.ops import text_hash
+from pkm.contracts.ops import BlockUid, PageId, SidebarEntryId, text_hash
 from pkm.refs import (CanonicalTitle, NormalizedTitle, extract,
                       is_blank_title, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
@@ -72,8 +72,8 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
     return page
 
 
-def index_ref(db: sqlite3.Connection, src_uid: str, ref_title: NormalizedTitle,
-             ref_kind: str, now_ms: int) -> None:
+def index_ref(db: sqlite3.Connection, src_uid: BlockUid,
+             ref_title: NormalizedTitle, ref_kind: str, now_ms: int) -> None:
     """Resolve one extracted Ref onto a page and record it in `refs`.
 
     refs.extract() now filters blank titles itself, including plain-space
@@ -90,7 +90,7 @@ def index_ref(db: sqlite3.Connection, src_uid: str, ref_title: NormalizedTitle,
               (src_uid, page["id"], ref_kind))
 
 
-def reindex_block_refs(db: sqlite3.Connection, src_uid: str,
+def reindex_block_refs(db: sqlite3.Connection, src_uid: BlockUid,
                        targets: Iterable[str]) -> None:
     """Replace one block's outgoing ((uid)) rows. Targets may
     dangle -- an unresolved ((uid)) is a legal state -- so no existence
@@ -100,7 +100,7 @@ def reindex_block_refs(db: sqlite3.Connection, src_uid: str,
                    [(src_uid, t) for t in targets])
 
 
-def reindex_refs_for_text(db: sqlite3.Connection, src_uid: str, text: str,
+def reindex_refs_for_text(db: sqlite3.Connection, src_uid: BlockUid, text: str,
                           now_ms: int) -> None:
     """Rebuild one block's whole outgoing ref index from its text.
 
@@ -120,7 +120,7 @@ def reindex_refs_for_text(db: sqlite3.Connection, src_uid: str, text: str,
     reindex_block_refs(db, src_uid, parsed.block_refs)
 
 
-def delete_page_rows(db: sqlite3.Connection, page_id: int,
+def delete_page_rows(db: sqlite3.Connection, page_id: PageId,
                      title: CanonicalTitle) -> None:
     """Deletes a page, its blocks, and any sidebar entry. Never commits --
     the caller owns the transaction. Blocks are deleted explicitly (not left
@@ -132,8 +132,8 @@ def delete_page_rows(db: sqlite3.Connection, page_id: int,
 
 
 def _snapshot_referencing_blocks(
-    db: sqlite3.Connection, page_id: int
-) -> tuple[tuple[str, str], ...]:
+    db: sqlite3.Connection, page_id: PageId
+) -> tuple[tuple[BlockUid, str], ...]:
     rows = db.execute(
         """SELECT DISTINCT b.uid, b.text FROM refs r
              JOIN blocks b ON b.uid = r.src_block_uid
@@ -146,7 +146,7 @@ def _snapshot_referencing_blocks(
 
 def _record_block_rewrite(
     db: sqlite3.Connection,
-    uid: str,
+    uid: BlockUid,
     original_text: str,
     new_text: str,
     replacements: Mapping[str, str],
@@ -185,7 +185,7 @@ def _prune_block_rewrites(db: sqlite3.Connection, now_ms: int) -> None:
 
 def rewrite_snapshotted_blocks(
     db: sqlite3.Connection,
-    snapshots: Sequence[tuple[str, str]],
+    snapshots: Sequence[tuple[BlockUid, str]],
     replacements: Mapping[str, str],
     now_ms: int,
 ) -> int:
@@ -218,7 +218,7 @@ def rewrite_snapshotted_blocks(
     return rewritten
 
 
-def rewrite_referencing_blocks(db: sqlite3.Connection, page_id: int,
+def rewrite_referencing_blocks(db: sqlite3.Connection, page_id: PageId,
                                old_title: CanonicalTitle,
                                new_title: CanonicalTitle,
                                now_ms: int) -> None:
@@ -228,7 +228,7 @@ def rewrite_referencing_blocks(db: sqlite3.Connection, page_id: int,
 
 
 def insert_sidebar_entry(db: sqlite3.Connection, title: CanonicalTitle,
-                         order_idx: int) -> int:
+                         order_idx: int) -> SidebarEntryId:
     """The one way a sidebar entry's title is written on creation -- a typed
     choke point alongside `retitle_sidebar_entry` and `delete_page_rows`'s
     own sidebar_entries write, so a route can't bind a raw title here.
@@ -238,7 +238,7 @@ def insert_sidebar_entry(db: sqlite3.Connection, title: CanonicalTitle,
         "INSERT INTO sidebar_entries(title, order_idx) VALUES (?, ?)",
         (title, order_idx))
     assert cur.lastrowid is not None  # INSERT always assigns one
-    return cur.lastrowid
+    return SidebarEntryId(cur.lastrowid)
 
 
 def retitle_sidebar_entry(db: sqlite3.Connection, old_title: CanonicalTitle,
@@ -257,7 +257,7 @@ def retitle_sidebar_entry(db: sqlite3.Connection, old_title: CanonicalTitle,
 
 def retitle_page_without_rewrite(
     db: sqlite3.Connection,
-    page_id: int,
+    page_id: PageId,
     old_title: CanonicalTitle,
     new_title: CanonicalTitle,
     now_ms: int,
@@ -272,8 +272,8 @@ def retitle_page_without_rewrite(
 
 def append_page_without_rewrite(
     db: sqlite3.Connection,
-    source_id: int,
-    target_id: int,
+    source_id: PageId,
+    target_id: PageId,
     old_title: CanonicalTitle,
     new_title: CanonicalTitle,
     now_ms: int,
@@ -308,7 +308,7 @@ def append_page_without_rewrite(
     return moved
 
 
-def rename_page_rows(db: sqlite3.Connection, page_id: int,
+def rename_page_rows(db: sqlite3.Connection, page_id: PageId,
                      old_title: CanonicalTitle, new_title: CanonicalTitle,
                      now_ms: int) -> None:
     """Rename in place while preserving the public composed behavior."""
@@ -317,7 +317,8 @@ def rename_page_rows(db: sqlite3.Connection, page_id: int,
     rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms)
 
 
-def merge_page_rows(db: sqlite3.Connection, source_id: int, target_id: int,
+def merge_page_rows(db: sqlite3.Connection, source_id: PageId,
+                    target_id: PageId,
                     old_title: CanonicalTitle, new_title: CanonicalTitle,
                     now_ms: int) -> None:
     """Merge a page while preserving stable blocks, subtrees, refs and sidebar."""

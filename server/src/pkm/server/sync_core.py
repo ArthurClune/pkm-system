@@ -34,7 +34,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import NamedTuple, TypeVar
 
 from pkm.contracts.responses import EntityKind, SyncSeq
 
@@ -78,8 +78,18 @@ def missing_parent_uids(parent_uids: Iterable[str | None],
     return {p for p in parent_uids if p is not None and p not in known}
 
 
-def dedupe_window(rows: Sequence[tuple[SyncSeq, EntityKind, str, int]]) -> Window:
-    """Rows are (seq, kind, entity_id, deleted) in seq order."""
+class ChangeRow(NamedTuple):
+    """One `changes` table row. Named rather than a bare 4-tuple -- two
+    adjacent `int` fields either side of the `str` made a positional
+    mis-order (e.g. `deleted` and `seq` swapped) silently well-typed."""
+    seq: SyncSeq
+    kind: EntityKind
+    entity_id: str
+    deleted: int
+
+
+def dedupe_window(rows: Sequence[ChangeRow]) -> Window:
+    """Rows are seq order."""
     seen: dict[tuple[EntityKind, str], None] = {}  # insertion-ordered set
     deleted_keys: set[tuple[EntityKind, str]] = set()
     last_seq = SyncSeq(0)

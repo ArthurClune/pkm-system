@@ -2,9 +2,12 @@
 """Pure structural validation for parsed importer exports."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
 
+from pkm.contracts.ops import UID_RE
 from pkm.importer.parse_export import Block, Export
+from pkm.importer.rows import RECOVERY_PAGE_TITLE
 
 StructureReason = Literal["duplicate_uid", "multi_parent"]
 
@@ -61,3 +64,65 @@ def validate_export_structure(export: Export) -> None:
         if reason is not None:
             locations = tuple(sorted(location for location, _ in occurrences))
             raise ImportStructureError(reason, uid, locations)
+
+
+@dataclass(frozen=True)
+class InvalidUid:
+    """One imported uid that fails UID_RE, and the page it was found on
+    (RECOVERY_PAGE_TITLE for a block unreachable from any page -- the
+    title it would land under if the import proceeded)."""
+
+    uid: str
+    page_title: str
+
+
+class ImportUidError(ValueError):
+    """Refuses the whole import: at least one block uid does not match
+    UID_RE. No uid is ever re-minted here -- a uid an export's own
+    ((block refs)) point at must survive import unchanged. Every
+    ((token))-recognizing surface (refs.py, render.py, export/*.py, the
+    web's grammar/scan.ts) shares UID_RE's {6,32} bound, so no reference
+    anyone writes to a uid outside it could ever be recognized as one, and
+    the read routes that address a block by uid (GET /api/block/{uid} and
+    friends) 422 it -- an import-time refusal is cheaper than a block that
+    survives only by walking its page."""
+
+    invalid: tuple[InvalidUid, ...]
+
+    def __init__(self, invalid: tuple[InvalidUid, ...]) -> None:
+        self.invalid = invalid
+        listing = "; ".join(
+            f"{bad.uid!r} on {bad.page_title!r}" for bad in invalid
+        )
+        super().__init__(f"invalid block uid(s): {listing}")
+
+
+def validate_export_uids(export: Export) -> None:
+    """Reject the whole import if any block uid fails UID_RE, naming every
+    offender and its page. Runs over every block including orphan
+    subtrees, which are otherwise invisible until to_rows assigns them to
+    RECOVERY_PAGE_TITLE."""
+    invalid: list[InvalidUid] = []
+
+    def visit(block: Block, page_title: str) -> None:
+        # :block/uid is free-form EDN (Block.uid is typed str, but nothing
+        # validates a parsed export against that): UID_RE.fullmatch() raises
+        # TypeError on a non-str argument, so a malformed export handing
+        # back e.g. a bare integer must fail the isinstance check first,
+        # not reach fullmatch and crash instead of refusing cleanly. The
+        # uid is recorded as whatever it actually is -- InvalidUid.uid's
+        # `str` annotation describes the real-world case, not a guarantee
+        # this one check can't itself observe breaking.
+        if not isinstance(block.uid, str) or not UID_RE.fullmatch(block.uid):
+            invalid.append(InvalidUid(block.uid, page_title))
+        for child in block.children:
+            visit(child, page_title)
+
+    for page in export.pages:
+        for child in page.children:
+            visit(child, page.title)
+    for orphan in export.orphan_blocks:
+        visit(orphan, RECOVERY_PAGE_TITLE)
+
+    if invalid:
+        raise ImportUidError(tuple(invalid))

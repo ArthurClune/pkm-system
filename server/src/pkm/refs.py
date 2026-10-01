@@ -40,7 +40,13 @@ _ATTRIBUTE = re.compile(r"([^\[\]{}:\n]+?)::")
 _TAG_NAME = r"[\w/.\-]+"
 _BARE_TAG = re.compile(_TAG_NAME)
 _HASHTAG = re.compile(rf"(?:^|(?<=[\s(]))#({_TAG_NAME})")
-_BLOCK_REF = re.compile(r"\(\(([a-zA-Z0-9_-]{6,})\)\)")
+# A block uid's shape, matching contracts.ops.UID_RE's {6,32} bound: a run
+# outside it can never have been minted, so render.py, export/markdown.py
+# and export/resolve.py import this rather than keeping their own ((token))
+# pattern -- a token too long to be a real uid is then plain text on every
+# surface, not just here. Web's grammar/scan.ts mirrors it by hand.
+BLOCK_REF_TOKEN = r"[a-zA-Z0-9_-]{6,32}"
+_BLOCK_REF = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
 _EMBED = re.compile(r"\{\{\s*(?:\[\[)?embed(?:\]\])?\s*[:}]")
 # Control whitespace in a page title makes the page unreachable.
 # Both classes are plain character classes with a single quantifier -- no

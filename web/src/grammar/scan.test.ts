@@ -122,6 +122,18 @@ describe("scanGrammar: block refs", () => {
     expect(tokens("((abc))")).toEqual([]);
     expect(tokens("((not a uid))")).toEqual([]);
   });
+
+  it("accepts a 32-char uid and rejects one 33 chars long", () => {
+    // Bounded to match server/src/pkm/refs.py's BLOCK_REF_TOKEN and
+    // replica/localApi/router.ts's UID_RE: a token outside {6,32} can never
+    // have been minted.
+    const uid32 = "a".repeat(32);
+    const uid33 = "a".repeat(33);
+    expect(tokens(`((${uid32}))`)).toEqual([
+      { kind: "block-ref", start: 0, end: uid32.length + 4, uid: uid32 },
+    ]);
+    expect(tokens(`((${uid33}))`)).toEqual([]);
+  });
 });
 
 describe("scanGrammar: TODO markers", () => {

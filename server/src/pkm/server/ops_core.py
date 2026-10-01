@@ -14,10 +14,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, Union
 
-from pkm.contracts.ops import (UID_RE, BlockOp, CreateOp, CreatePageOp,
-                               DeleteOp, MoveOp, SetCollapsedOp,
-                               SetHeadingOp, SetViewTypeOp, UpdateTextOp,
-                               ViewType,
+from pkm.contracts.ops import (UID_RE, BlockOp, BlockUid, CreateOp,
+                               CreatePageOp, DeleteOp, MoveOp, PageId,
+                               SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
+                               UpdateTextOp, ViewType,
                                subtree_hash, text_hash)
 from pkm.contracts.responses import SkipReason
 from pkm.refs import TitleSyntaxReason, extract, title_syntax_reason
@@ -201,7 +201,7 @@ class Skip:
     planner in one of the SkippedContext types, so the shell pays for the
     daily page only when an entry lands on it."""
     kind: SkipKind
-    landing_uid: str | None
+    landing_uid: BlockUid | None
 
 
 def classify_skip(
@@ -237,9 +237,9 @@ def classify_skip(
 
 @dataclass(frozen=True)
 class BlockInfo:
-    uid: str
-    page_id: int
-    parent_uid: str | None
+    uid: BlockUid
+    page_id: PageId
+    parent_uid: BlockUid | None
 
 
 # --- where lost text lands -------------------------------------------------
@@ -249,7 +249,7 @@ class BlockInfo:
 class ExistingHeader:
     """Today's live conflict header for the target block, and the next
     child order_idx under it."""
-    uid: str
+    uid: BlockUid
     next_idx: int
 
 
@@ -257,7 +257,7 @@ class ExistingHeader:
 class FreshHeader:
     """A header to create at the next top-level slot of today's daily
     page, minted only when there is no ExistingHeader to append under."""
-    uid: str
+    uid: BlockUid
     append_idx: int
 
 
@@ -266,9 +266,9 @@ class ConflictLanding:
     """Where text an op could not apply lands (spec section 2): the entry
     `entry_uid` under today's header for the target block, or under a fresh
     one. `daily_title` is the day key conflict_headers records."""
-    daily_page_id: int
+    daily_page_id: PageId
     daily_title: str
-    entry_uid: str
+    entry_uid: BlockUid
     header: ExistingHeader | FreshHeader
 
 
@@ -282,7 +282,7 @@ class ConflictLanding:
 @dataclass(frozen=True)
 class PageContext:
     """create_page: the page context assembly resolved (and created)."""
-    page_id: int
+    page_id: PageId
 
 
 @dataclass(frozen=True)
@@ -291,7 +291,7 @@ class CreateContext:
     the block lands: its live parent's page, or op.page_title's for a
     top-level create."""
     uid_taken: bool
-    page_id: int
+    page_id: PageId
 
 
 @dataclass(frozen=True)
@@ -302,21 +302,21 @@ class MoveContext:
     deepest first."""
     block: BlockInfo
     parent: BlockInfo | None
-    page_id: int | None
-    subtree: tuple[str, ...]
+    page_id: PageId | None
+    subtree: tuple[BlockUid, ...]
 
 
 @dataclass(frozen=True)
 class DeleteContext:
     """A delete of a live block; `subtree` deepest first."""
     block: BlockInfo
-    subtree: tuple[str, ...]
+    subtree: tuple[BlockUid, ...]
 
 
 @dataclass(frozen=True)
 class SubtreeRow:
-    uid: str
-    parent_uid: str | None
+    uid: BlockUid
+    parent_uid: BlockUid | None
     order_idx: int
     text: str
 
@@ -331,7 +331,7 @@ class DeleteConflictContext:
     rows: tuple[SubtreeRow, ...]
     page_title: str
     landing: ConflictLanding
-    copy_uids: Mapping[str, str]
+    copy_uids: Mapping[BlockUid, BlockUid]
 
 
 def delete_diverged(base_subtree_hash: str, rows: Sequence[SubtreeRow]) -> bool:
@@ -343,8 +343,8 @@ def delete_diverged(base_subtree_hash: str, rows: Sequence[SubtreeRow]) -> bool:
 
 
 def descendant_copy_effects(
-    rows: Sequence[SubtreeRow], root_uid: str, root_copy_uid: str,
-    copy_uids: Mapping[str, str], daily_page_id: int,
+    rows: Sequence[SubtreeRow], root_uid: BlockUid, root_copy_uid: BlockUid,
+    copy_uids: Mapping[BlockUid, BlockUid], daily_page_id: PageId,
 ) -> tuple[Effect, ...]:
     """InsertBlock + ReindexRefs for every row but the root (the root's copy
     goes through `conflict_entry_effects` instead), walked from `root_uid`
@@ -353,7 +353,7 @@ def descendant_copy_effects(
     the subtree was, text only (spec section 3). The root is left out of
     the child map: a corrupted tree whose root's parent lies inside the
     subtree must not lead the walk back into its start."""
-    children: dict[str | None, list[SubtreeRow]] = {}
+    children: dict[BlockUid | None, list[SubtreeRow]] = {}
     for row in rows:
         if row.uid != root_uid:
             children.setdefault(row.parent_uid, []).append(row)
@@ -362,11 +362,13 @@ def descendant_copy_effects(
 
     effects: list[Effect] = []
 
-    def walk(orig_parent_uid: str, copy_parent_uid: str) -> None:
+    def walk(orig_parent_uid: BlockUid, copy_parent_uid: BlockUid) -> None:
         for idx, row in enumerate(children.get(orig_parent_uid, ())):
             copy_uid = copy_uids[row.uid]
-            effects.append(InsertBlock(copy_uid, daily_page_id,
-                                       copy_parent_uid, idx, row.text, None))
+            effects.append(InsertBlock(
+                uid=copy_uid, page_id=daily_page_id,
+                parent_uid=copy_parent_uid, order_idx=idx, text=row.text,
+                heading=None))
             effects.append(ReindexRefs(copy_uid, row.text))
             walk(row.uid, copy_uid)
 
@@ -428,7 +430,7 @@ class StuckMoveContext:
     skip: Skip
     landing: ConflictLanding
     page_title: str
-    subtree: tuple[str, ...]
+    subtree: tuple[BlockUid, ...]
 
 
 SkippedContext = Union[SkipContext, LandedSkipContext, StuckMoveContext]
@@ -461,16 +463,19 @@ def skip_report(index: int, op: BlockOp, ctx: SkippedContext) -> dict:
 
 @dataclass(frozen=True)
 class ShiftSiblings:
-    page_id: int
-    parent_uid: str | None
+    page_id: PageId
+    parent_uid: BlockUid | None
     from_idx: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class InsertBlock:
-    uid: str
-    page_id: int
-    parent_uid: str | None
+    """kw_only: two BlockUid fields (uid, parent_uid) and three ints
+    (page_id, order_idx, heading) make a positional call silently
+    transposable, with nothing in the types to catch it."""
+    uid: BlockUid
+    page_id: PageId
+    parent_uid: BlockUid | None
     order_idx: int
     text: str
     heading: int | None
@@ -479,55 +484,55 @@ class InsertBlock:
 
 @dataclass(frozen=True)
 class UpdateText:
-    uid: str
+    uid: BlockUid
     text: str
 
 
 @dataclass(frozen=True)
 class SetParent:
-    uid: str
-    parent_uid: str | None
+    uid: BlockUid
+    parent_uid: BlockUid | None
     order_idx: int
 
 
 @dataclass(frozen=True)
 class DeleteBlocks:
-    uids: tuple[str, ...]  # deepest first: children always before parents
+    uids: tuple[BlockUid, ...]  # deepest first: children always before parents
 
 
 @dataclass(frozen=True)
 class SetCollapsed:
-    uid: str
+    uid: BlockUid
     collapsed: bool
 
 
 @dataclass(frozen=True)
 class SetHeading:
-    uid: str
+    uid: BlockUid
     heading: int | None
 
 
 @dataclass(frozen=True)
 class SetViewType:
-    uid: str
+    uid: BlockUid
     view_type: ViewType
 
 
 @dataclass(frozen=True)
 class ReindexRefs:
-    uid: str
+    uid: BlockUid
     text: str
 
 
 @dataclass(frozen=True)
 class TouchPage:
-    page_id: int
+    page_id: PageId
 
 
 @dataclass(frozen=True)
 class SetPageId:
-    uids: tuple[str, ...]
-    page_id: int
+    uids: tuple[BlockUid, ...]
+    page_id: PageId
 
 
 @dataclass(frozen=True)
@@ -535,9 +540,9 @@ class RecordConflictHeader:
     """A fresh conflict header was created for target_uid on day: later
     conflicts on the same block that land the same day append under it
     instead of creating another header (spec section 2)."""
-    target_uid: str
+    target_uid: BlockUid
     day: str
-    header_uid: str
+    header_uid: BlockUid
 
 
 @dataclass(frozen=True)
@@ -548,7 +553,7 @@ class JournalBlock:
     replica drops the ghost of an op the server skipped (a block it never
     created, or a move it never made) without an authoritative repair.
     `deleted` fills the journal's informational column."""
-    uid: str
+    uid: BlockUid
     deleted: bool
 
 
@@ -558,7 +563,7 @@ Effect = Union[ShiftSiblings, InsertBlock, UpdateText, SetParent,
                JournalBlock]
 
 def conflict_entry_effects(
-    target_uid: str, lost_text: str, header_text: str,
+    target_uid: BlockUid, lost_text: str, header_text: str,
     landing: ConflictLanding,
 ) -> tuple[Effect, ...]:
     """Lost text landing in today's daily note (spec section 2): appended
@@ -568,17 +573,20 @@ def conflict_entry_effects(
     header = landing.header
     if isinstance(header, ExistingHeader):
         return (
-            InsertBlock(landing.entry_uid, landing.daily_page_id, header.uid,
-                        header.next_idx, lost_text, None),
+            InsertBlock(uid=landing.entry_uid, page_id=landing.daily_page_id,
+                        parent_uid=header.uid, order_idx=header.next_idx,
+                        text=lost_text, heading=None),
             ReindexRefs(landing.entry_uid, lost_text),
             TouchPage(landing.daily_page_id),
         )
     return (
-        InsertBlock(header.uid, landing.daily_page_id, None,
-                    header.append_idx, header_text, None),
+        InsertBlock(uid=header.uid, page_id=landing.daily_page_id,
+                    parent_uid=None, order_idx=header.append_idx,
+                    text=header_text, heading=None),
         ReindexRefs(header.uid, header_text),
-        InsertBlock(landing.entry_uid, landing.daily_page_id, header.uid,
-                    0, lost_text, None),
+        InsertBlock(uid=landing.entry_uid, page_id=landing.daily_page_id,
+                    parent_uid=header.uid, order_idx=0, text=lost_text,
+                    heading=None),
         ReindexRefs(landing.entry_uid, lost_text),
         RecordConflictHeader(target_uid, landing.daily_title, header.uid),
         TouchPage(landing.daily_page_id),
@@ -663,11 +671,12 @@ def impossible_uid_reason(op: BlockOp, skip: Skip) -> str | None:
     mint valid uids, so this never wedges a real queue; it keeps arbitrary
     strings out of the journal and conflict_headers."""
     assert not isinstance(op, CreatePageOp)  # never classified skipped
-    if not isinstance(op, CreateOp) and not UID_RE.match(op.uid):
+    if not isinstance(op, CreateOp) and not UID_RE.fullmatch(op.uid):
         return f"block not found: {op.uid}"
     if (skip.kind in ("diverted_create", "move_parent_missing")
             and isinstance(op, (CreateOp, MoveOp))
-            and op.parent_uid is not None and not UID_RE.match(op.parent_uid)):
+            and op.parent_uid is not None
+            and not UID_RE.fullmatch(op.parent_uid)):
         return f"parent not found: {op.parent_uid}"
     return None
 
@@ -677,7 +686,7 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
     chose. A context that does not fit the op is a shell bug and fails as
     an AssertionError, never as an OpError: a 400 would poison the client's
     queue over something the client did not do."""
-    if isinstance(op, CreateOp) and not UID_RE.match(op.uid):
+    if isinstance(op, CreateOp) and not UID_RE.fullmatch(op.uid):
         raise OpError(index, f"invalid uid: {op.uid!r}")
     if isinstance(ctx, SKIPPED_CONTEXTS):
         reason = impossible_uid_reason(op, ctx.skip)
@@ -694,8 +703,10 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
         if ctx.uid_taken:
             raise OpError(index, f"uid already exists: {op.uid}")
         return (ShiftSiblings(ctx.page_id, op.parent_uid, op.order_idx),
-                InsertBlock(op.uid, ctx.page_id, op.parent_uid, op.order_idx,
-                            op.text, op.heading, op.view_type),
+                InsertBlock(uid=op.uid, page_id=ctx.page_id,
+                            parent_uid=op.parent_uid, order_idx=op.order_idx,
+                            text=op.text, heading=op.heading,
+                            view_type=op.view_type),
                 ReindexRefs(op.uid, op.text),
                 TouchPage(ctx.page_id))
     if isinstance(ctx, TextEditContext):

@@ -24,9 +24,24 @@ def test_render_multiline_block_continuation():
 
 
 def test_block_refs_resolve_and_unknown_stay():
-    text = "see ((uid_a)) and ((uid_gone))"
-    out = resolve_block_refs(text, {"uid_a": "the target"})
+    text = "see ((uid_a1)) and ((uid_gone))"
+    out = resolve_block_refs(text, {"uid_a1": "the target"})
     assert out == "see ((the target)) and ((uid_gone))"
+
+
+def test_block_refs_32_chars_resolves():
+    # The accepted side of the boundary: a 32-char token still resolves.
+    uid32 = "a" * 32
+    out = resolve_block_refs(f"see (({uid32}))", {uid32: "the target"})
+    assert out == "see ((the target))"
+
+
+def test_block_refs_over_32_chars_stay_bare():
+    # Bounded at 32 to match UID_RE: present in the map or not, a token
+    # outside the bound is never recognized as a ((ref)) at all.
+    overlong = "a" * 33
+    out = resolve_block_refs(f"see (({overlong}))", {overlong: "the target"})
+    assert out == f"see (({overlong}))"
 
 
 def test_asset_links_become_relative():

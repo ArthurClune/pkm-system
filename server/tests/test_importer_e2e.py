@@ -126,6 +126,24 @@ MULTI_PARENT_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinali
   [4 :block/order 0 1]
  ]}"""
 
+SHORT_UID_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Tree" 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "short" 1]
+  [2 :block/string "too short" 1]
+  [2 :block/order 0 1]
+ ]}"""
+
+DISALLOWED_CHAR_UID_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Tree" 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "has a space" 1]
+  [2 :block/string "disallowed char" 1]
+  [2 :block/order 0 1]
+ ]}"""
+
 
 def _setup_files(tmp_path: Path) -> Path:
     files = tmp_path / "files"
@@ -917,6 +935,50 @@ def test_invalid_tree_refuses_before_sanitization_or_linked_file_work(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == f"error: invalid export structure: {detail}\n"
+    assert database.read_bytes() == b"database-sentinel"
+    assert report.read_text(encoding="utf-8") == "report-sentinel"
+    assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
+
+
+@pytest.mark.parametrize(
+    ("raw", "bad_uid"),
+    [
+        (SHORT_UID_EXPORT, "short"),
+        (DISALLOWED_CHAR_UID_EXPORT, "has a space"),
+    ],
+)
+def test_bad_uid_refuses_before_sanitization_or_linked_file_work(
+    tmp_path, monkeypatch, capsys, raw, bad_uid
+):
+    # A uid failing UID_RE is never re-minted: the whole import is
+    # refused, before title sanitization or asset work even start, and
+    # nothing already published is touched.
+    export_file = _write_export(tmp_path, "bad-uid.edn", raw)
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    out.mkdir()
+    database = out / "pkm.sqlite3"
+    report = out / "import-report.txt"
+    database.write_bytes(b"database-sentinel")
+    report.write_text("report-sentinel", encoding="utf-8")
+
+    def unexpected_work(*_args, **_kwargs):
+        raise AssertionError("uid refusal happened too late")
+
+    monkeypatch.setattr(run_module, "sanitize_export_titles", unexpected_work)
+    monkeypatch.setattr(run_module, "_index_files", unexpected_work)
+
+    rc = main(
+        [str(export_file), "--files", str(files), "--out", str(out)]
+    )
+
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        f"error: import refused: invalid block uid(s): {bad_uid!r} on 'Tree'\n"
+    )
     assert database.read_bytes() == b"database-sentinel"
     assert report.read_text(encoding="utf-8") == "report-sentinel"
     assert not (out / "pkm.sqlite3.tmp").exists()

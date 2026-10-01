@@ -7,6 +7,7 @@
 import type { BatchId } from "../../api/brands";
 import type { BlockRefsPayload, SidebarNavEntry, SidebarNavPayload,
               TitlesPayload } from "../../api/payloads";
+import { UID_TOKEN } from "../../grammar/scan";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
 import { plainSpaceTitleCanonicalizationActive } from "../meta";
@@ -29,7 +30,7 @@ export type LocalApiResult =
   | { handled: false }
   | { handled: true; status: number; body: unknown };
 
-const UID_RE = /^[a-zA-Z0-9_-]{6,32}$/;
+const UID_RE = new RegExp(`^${UID_TOKEN}$`);
 
 const ok = (body: unknown): LocalApiResult =>
   ({ handled: true, status: 200, body });

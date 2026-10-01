@@ -1,5 +1,14 @@
+from pkm.contracts.ops import SidebarEntryId
 from pkm.importer.sidebar_rows import (missing_entry_rows, next_order_idx,
                                        reorder_is_valid)
+
+
+def _ids(*ids: int) -> set[SidebarEntryId]:
+    return {SidebarEntryId(i) for i in ids}
+
+
+def _order(*ids: int) -> list[SidebarEntryId]:
+    return [SidebarEntryId(i) for i in ids]
 
 
 def test_missing_entry_rows_skips_existing_preserves_order():
@@ -30,16 +39,16 @@ def test_next_order_idx_zero_when_empty():
 
 
 def test_reorder_is_valid_accepts_a_permutation_of_existing_ids():
-    assert reorder_is_valid(existing_ids={1, 2, 3}, new_order=[3, 1, 2])
+    assert reorder_is_valid(existing_ids=_ids(1, 2, 3), new_order=_order(3, 1, 2))
 
 
 def test_reorder_is_valid_rejects_missing_id():
-    assert not reorder_is_valid(existing_ids={1, 2, 3}, new_order=[1, 2])
+    assert not reorder_is_valid(existing_ids=_ids(1, 2, 3), new_order=_order(1, 2))
 
 
 def test_reorder_is_valid_rejects_unknown_id():
-    assert not reorder_is_valid(existing_ids={1, 2}, new_order=[1, 2, 99])
+    assert not reorder_is_valid(existing_ids=_ids(1, 2), new_order=_order(1, 2, 99))
 
 
 def test_reorder_is_valid_rejects_duplicate_id():
-    assert not reorder_is_valid(existing_ids={1, 2}, new_order=[1, 1])
+    assert not reorder_is_valid(existing_ids=_ids(1, 2), new_order=_order(1, 1))

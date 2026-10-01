@@ -10,8 +10,8 @@ from collections.abc import Collection
 from datetime import date
 
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
-                               OpBatch, UpdateTextOp)
+from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp,
+                               MoveOp, OpBatch, PageId, UpdateTextOp)
 from pkm.refs import CanonicalTitle
 from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  BlockRewrite, ConflictLanding, CreateContext,
@@ -45,14 +45,14 @@ from pkm.server.sync_meta import read_title
 UNTITLED_PAGE_TITLE = "Untitled"
 
 
-def _new_uid() -> str:
+def _new_uid() -> BlockUid:
     # 12 chars of [A-Za-z0-9_-]: fits UID_RE. Retry until the first char is
     # alphanumeric so a conflict header/child uid is never unaddressable
     # via a bare CLI argument the same way a client-minted uid could be.
     while True:
         uid = secrets.token_urlsafe(9)
         if uid[0].isalnum():
-            return uid
+            return BlockUid(uid)
 
 
 def _resolve_page(db: sqlite3.Connection, title: str,
@@ -83,7 +83,9 @@ def _block_info(db: sqlite3.Connection, uid: str) -> BlockInfo | None:
         (uid,)).fetchone()
     if row is None:
         return None
-    return BlockInfo(row["uid"], row["page_id"], row["parent_uid"])
+    return BlockInfo(BlockUid(row["uid"]), PageId(row["page_id"]),
+                     BlockUid(row["parent_uid"])
+                     if row["parent_uid"] is not None else None)
 
 
 def _block_rewrites(db: sqlite3.Connection,
@@ -99,7 +101,7 @@ def _block_rewrites(db: sqlite3.Connection,
                  for row in rows)
 
 
-def _parent_chain(db: sqlite3.Connection, uid: str) -> tuple[str, ...]:
+def _parent_chain(db: sqlite3.Connection, uid: str) -> tuple[BlockUid, ...]:
     """uid and every ancestor above it, root last. Each block has exactly one
     parent, so this is a single path -- but a corrupted DB could already
     contain a cycle, so recursion is guarded by a visited-path check (`path`)
@@ -116,11 +118,11 @@ def _parent_chain(db: sqlite3.Connection, uid: str) -> tuple[str, ...]:
                 FROM chain c JOIN blocks b ON b.uid = c.parent_uid
                WHERE instr(c.path, ',' || b.uid || ',') = 0
             ) SELECT uid FROM chain""", (uid,)).fetchall()
-    return tuple(r["uid"] for r in rows)
+    return tuple(BlockUid(r["uid"]) for r in rows)
 
 
 def _subtree_deepest_first(db: sqlite3.Connection,
-                           uid: str) -> tuple[str, ...]:
+                           uid: str) -> tuple[BlockUid, ...]:
     """uid and every descendant, deepest first (children before parents, as
     DeleteBlocks and SetPageId both require). Same visited-path guard as
     _parent_chain: a proper tree can't revisit a uid, so the guard only ever
@@ -133,7 +135,7 @@ def _subtree_deepest_first(db: sqlite3.Connection,
                 FROM sub s JOIN blocks b ON b.parent_uid = s.uid
                WHERE instr(s.path, ',' || b.uid || ',') = 0
             ) SELECT uid FROM sub ORDER BY depth DESC""", (uid,)).fetchall()
-    return tuple(r["uid"] for r in rows)
+    return tuple(BlockUid(r["uid"]) for r in rows)
 
 
 def _subtree_rows(db: sqlite3.Connection,
@@ -157,12 +159,14 @@ def _subtree_rows(db: sqlite3.Connection,
                WHERE instr(s.path, ',' || b.uid || ',') = 0
             ) SELECT uid, parent_uid, order_idx, text FROM sub
                ORDER BY depth DESC""", (uid,)).fetchall()
-    return tuple(SubtreeRow(r["uid"], r["parent_uid"], r["order_idx"],
-                            r["text"]) for r in rows)
+    return tuple(SubtreeRow(
+        BlockUid(r["uid"]),
+        BlockUid(r["parent_uid"]) if r["parent_uid"] is not None else None,
+        r["order_idx"], r["text"]) for r in rows)
 
 
 def _conflict_header(db: sqlite3.Connection, target_uid: str, day: str,
-                     daily_page_id: int) -> tuple[str, int] | None:
+                     daily_page_id: PageId) -> tuple[BlockUid, int] | None:
     """(header_uid, next child order_idx) of today's conflict header for
     target_uid, or None when there is none or the user has deleted it (or
     moved it off the daily page) since it was recorded."""
@@ -176,7 +180,7 @@ def _conflict_header(db: sqlite3.Connection, target_uid: str, day: str,
     idx = db.execute(
         "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM blocks"
         " WHERE parent_uid = ?", (row["header_uid"],)).fetchone()[0]
-    return row["header_uid"], idx
+    return BlockUid(row["header_uid"]), idx
 
 
 def _conflict_landing(db: sqlite3.Connection, target_uid: str,
@@ -192,11 +196,12 @@ def _conflict_landing(db: sqlite3.Connection, target_uid: str,
     recorded in its place."""
     day = title_for_date(date.today())
     daily = get_or_create_page(db, day, now_ms)
+    daily_page_id = PageId(daily["id"])
     idx = db.execute(
         "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM blocks"
         " WHERE page_id = ? AND parent_uid IS NULL",
-        (daily["id"],)).fetchone()[0]
-    existing = _conflict_header(db, target_uid, day, daily["id"])
+        (daily_page_id,)).fetchone()[0]
+    existing = _conflict_header(db, target_uid, day, daily_page_id)
     if existing is not None and existing[0] in exclude:
         existing = None
     # A fresh header uid is minted only when there's no existing header to
@@ -204,7 +209,7 @@ def _conflict_landing(db: sqlite3.Connection, target_uid: str,
     # any later one ever uses. It is minted before the entry uid.
     header = (FreshHeader(_new_uid(), idx) if existing is None
               else ExistingHeader(*existing))
-    return ConflictLanding(daily_page_id=daily["id"], daily_title=day,
+    return ConflictLanding(daily_page_id=daily_page_id, daily_title=day,
                            entry_uid=_new_uid(), header=header)
 
 
@@ -235,7 +240,7 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
     that classification calls for."""
     if isinstance(op, CreatePageOp):
         page = _resolve_page(db, op.page_title, now_ms)
-        return PageContext(page["id"])
+        return PageContext(PageId(page["id"]))
     block = _block_info(db, op.uid)
     parent_uid = (op.parent_uid if isinstance(op, (CreateOp, MoveOp))
                   else None)
@@ -253,12 +258,12 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
         # another device moved the parent would get_or_create an empty
         # page. It places only a top-level create.
         page_id = (parent.page_id if parent is not None
-                   else _resolve_page(db, op.page_title, now_ms)["id"])
+                   else PageId(_resolve_page(db, op.page_title, now_ms)["id"]))
         return CreateContext(uid_taken=block is not None, page_id=page_id)
     assert block is not None  # classify_skip covered its absence
     if isinstance(op, MoveOp):
         # same rule as create: page_title places only a top-level move
-        page_id = (_resolve_page(db, op.page_title, now_ms)["id"]
+        page_id = (PageId(_resolve_page(db, op.page_title, now_ms)["id"])
                    if op.page_title is not None and parent is None
                    else None)
         return MoveContext(block, parent, page_id,
@@ -360,13 +365,13 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
         raise AssertionError(f"unhandled effect: {eff!r}")
 
 
-def _page_title(db: sqlite3.Connection, page_id: int) -> CanonicalTitle | None:
+def _page_title(db: sqlite3.Connection, page_id: PageId) -> CanonicalTitle | None:
     row = db.execute("SELECT title FROM pages WHERE id = ?",
                      (page_id,)).fetchone()
     return row["title"] if row is not None else None
 
 
-def _require_page_title(db: sqlite3.Connection, page_id: int) -> CanonicalTitle:
+def _require_page_title(db: sqlite3.Connection, page_id: PageId) -> CanonicalTitle:
     title = _page_title(db, page_id)
     if title is None:
         raise AssertionError(
@@ -390,7 +395,7 @@ def _broadcast_page_title(db: sqlite3.Connection, op,
         )
     if op.page_title is None and row["page_id"] == ctx.block.page_id:
         return None
-    return _require_page_title(db, row["page_id"])
+    return _require_page_title(db, PageId(row["page_id"]))
 
 
 def _broadcast_op(db: sqlite3.Connection, op, ctx: OpContext) -> dict:

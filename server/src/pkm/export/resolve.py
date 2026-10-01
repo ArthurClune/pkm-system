@@ -27,11 +27,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from pkm.export.markdown import rewrite_asset_links
+from pkm.refs import BLOCK_REF_TOKEN
 
 BLOCK_REF_MAX_DEPTH = 3
 QUERY_MAX_DEPTH = 2
 
-_BLOCK_REF_RE = re.compile(r"\(\(([A-Za-z0-9_-]+)\)\)")
+_BLOCK_REF_RE = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
 # Mirrors web/src/grammar/tokenize.ts's QUERY_PREFIX (no case-insensitivity,
 # same optional-bracket shape on each side of "query").
 _QUERY_PREFIX_RE = re.compile(r"\{\{(?:\[\[)?query(?:\]\])?:\s*")

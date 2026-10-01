@@ -54,7 +54,13 @@ export function normalizeRefTitle(title: string): string {
 
 const TODO_RE = /^\{\{(\[\[)?(TODO|DONE)(\]\])?\}\}/;
 const ATTRIBUTE_RE = /^\s*([^\[\]{}:\n]+?)::/;
-const BLOCK_REF_RE = /\(\(([a-zA-Z0-9_-]{6,})\)\)/y;
+// A uid's shape, matching server/src/pkm/refs.py's BLOCK_REF_TOKEN (itself
+// built from contracts/ops.py's UID_RE): a token outside {6,32} can never
+// have been minted. replica/localApi/router.ts's UID_RE and
+// assistant/normalizeRefs.ts's caret-ref pattern import this rather than
+// keeping their own copy, so the three web definitions can't drift apart.
+export const UID_TOKEN = "[a-zA-Z0-9_-]{6,32}";
+const BLOCK_REF_RE = new RegExp(`\\(\\((${UID_TOKEN})\\)\\)`, "y");
 const EMBED_RE = /\{\{\s*(?:\[\[)?embed(?:\]\])?\s*[:}]/y;
 // [\p{L}\p{N}_] mirrors Python's unicode-aware \w closely enough for titles.
 const TAG_CHARS_RE = /[\p{L}\p{N}_./\-]+/uy;

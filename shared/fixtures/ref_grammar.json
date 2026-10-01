@@ -100,6 +100,12 @@
     {"name": "punctuation after a closing fence still closes it",
      "text": "run ```#ff0000```. done #Real",
      "refs": [{"title": "Real", "kind": "tag"}],
-     "block_refs": [], "embeds": 0}
+     "block_refs": [], "embeds": 0},
+    {"name": "32-char block ref token is recognized",
+     "text": "ref ((aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)) here",
+     "refs": [], "block_refs": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], "embeds": 0},
+    {"name": "33-char token exceeds the bound and stays plain text",
+     "text": "ref ((aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)) here",
+     "refs": [], "block_refs": [], "embeds": 0}
   ]
 }

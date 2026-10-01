@@ -18,8 +18,15 @@ from typing import Annotated, Literal, NewType, Union
 from pydantic import BaseModel, Field
 
 from pkm.contracts.brands import brand
+from pkm.refs import BLOCK_REF_TOKEN
 
-UID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,32}$")
+# `\Z` anchors to the true end of the string; a bare `$` also matches just
+# before a trailing "\n", which let a uid like "abcdef\n" slip past a
+# `.match()` call site that should have refused it. Every call site uses
+# `.fullmatch()` regardless, so the anchor is defense in depth, not the
+# only guard. Built from `refs.BLOCK_REF_TOKEN` so the wire-validation
+# shape and the ((ref))-recognition shape can't drift apart independently.
+UID_RE = re.compile(rf"^{BLOCK_REF_TOKEN}\Z")
 ViewType = Literal["numbered", "document"]
 
 # A block's heading level; None (kept separate, not part of this alias)
@@ -42,6 +49,24 @@ OpKind = Literal["create", "update_text", "move", "delete", "set_collapsed",
 Sha256Hex = NewType("Sha256Hex", str)
 brand(Sha256Hex)
 
+# A block's uid: validated against UID_RE above wherever one is minted or
+# looked up, not on every value this type touches -- a BlockUid arriving
+# on the wire (CreateOp.uid etc.) is shape-checked only on a create
+# (ops_core.plan_op) or a skipped op (ops_core.impossible_uid_reason); an
+# op addressing an existing block never re-checks its uid's shape. Minted
+# by the web (web/src/uid.ts's newUid, most uids in practice), the CLI/MCP
+# client (client.api.new_uid), the server (ops_apply._new_uid), and
+# Roam's own exported uids. Not brand()ed: pydantic validates and dumps a
+# NewType as its base type regardless, so the wire format is unchanged,
+# but the generated TypeScript still sees a plain string.
+BlockUid = NewType("BlockUid", str)
+# pages.id. Minted only by SQLite (an INTEGER PRIMARY KEY) and, for an
+# import, by the importer's own row-building counter.
+PageId = NewType("PageId", int)
+# sidebar_entries.id -- its own INTEGER PRIMARY KEY, distinct from PageId
+# even though a sidebar entry's title always names a page.
+SidebarEntryId = NewType("SidebarEntryId", int)
+
 # The per-tab sync identity (web's sync/opQueue.ts `clientId`, minted once
 # per tab) and the replay-dedup key shared by an OpBatch and the pending_ops
 # row it came from (web's `batchId`, the CLI/MCP's `_batch_id`). Both are
@@ -59,12 +84,12 @@ brand(BatchId)
 
 class CreateOp(BaseModel):
     op: Literal["create"]
-    uid: str
+    uid: BlockUid
     # the page for a top-level create (created if absent). Under a live
     # parent the block lands on the parent's page and this is ignored:
     # another device may have moved the parent since the op was queued.
     page_title: str = Field(min_length=1)
-    parent_uid: str | None = None
+    parent_uid: BlockUid | None = None
     order_idx: int
     text: str
     heading: HeadingLevel | None = None
@@ -73,7 +98,7 @@ class CreateOp(BaseModel):
 
 class UpdateTextOp(BaseModel):
     op: Literal["update_text"]
-    uid: str
+    uid: BlockUid
     text: str
     # sha256 hex of the text this edit was based on. Absent => legacy
     # client, LWW-apply as always. Present => conflict detection per spec
@@ -91,8 +116,8 @@ class UpdateTextOp(BaseModel):
 
 class MoveOp(BaseModel):
     op: Literal["move"]
-    uid: str
-    parent_uid: str | None   # required but nullable: null = top level
+    uid: BlockUid
+    parent_uid: BlockUid | None   # required but nullable: null = top level
     order_idx: int
     # cross-page target when parent_uid is null; ignored when parent_uid
     # is set, since the block follows its parent to whatever page that is
@@ -102,7 +127,7 @@ class MoveOp(BaseModel):
 
 class DeleteOp(BaseModel):
     op: Literal["delete"]
-    uid: str
+    uid: BlockUid
     # sha256 of the subtree this delete was based on (spec section 1):
     # the (uid, text) pairs of the block and its descendants, as of the
     # tree the deleting device last saw. Absent => legacy client or a uid
@@ -117,19 +142,19 @@ class DeleteOp(BaseModel):
 
 class SetCollapsedOp(BaseModel):
     op: Literal["set_collapsed"]
-    uid: str
+    uid: BlockUid
     collapsed: bool
 
 
 class SetHeadingOp(BaseModel):
     op: Literal["set_heading"]
-    uid: str
+    uid: BlockUid
     heading: HeadingLevel | None = None
 
 
 class SetViewTypeOp(BaseModel):
     op: Literal["set_view_type"]
-    uid: str
+    uid: BlockUid
     view_type: ViewType
 
 

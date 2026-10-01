@@ -115,3 +115,17 @@ def test_delete_strips_pdf_macro_and_bare_url(client, seeded_config):
     r = client.delete(f"/api/assets/{a['sha256']}")
     assert r.json()["refs_removed"] == 1
     assert _block_text(seeded_config, "del005") == "see also"
+
+
+def test_delete_strips_link_with_spaces_and_parens_in_filename(
+        client, seeded_config):
+    # _upload always names the file "pic.png" -- the server only matches
+    # on sha256, so build the link text from the real sha but a made-up
+    # raw filename, the way an upload of a real-world PDF would.
+    a = _upload(client)
+    name = "AI for Research Day 2026 - Programme (Public) - Schedule.pdf"
+    url = f"/assets/{a['sha256']}/{name}"
+    _create_block(client, "del006", "AI", f"before [{name}]({url}) after")
+    r = client.delete(f"/api/assets/{a['sha256']}")
+    assert r.json()["refs_removed"] == 1
+    assert _block_text(seeded_config, "del006") == "before after"

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from collections.abc import Sequence
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from pkm.contracts.daily import date_for_title, title_for_date
+from pkm.contracts.ops import BlockUid
 from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
     BlockBacklinksPayload, BlockPayload, BlockRefsPayload, CurrentWorkPayload,
@@ -69,7 +71,7 @@ def _block_ref_counts(db: sqlite3.Connection,
              GROUP BY target_block_uid""", uids)}
 
 
-def _resolve_ref_uids(db: sqlite3.Connection, uids: list[str]) -> dict:
+def _resolve_ref_uids(db: sqlite3.Connection, uids: Sequence[str]) -> dict:
     """Resolve ((refs)) transitively: a referenced block's text may itself
     contain ((refs)) the client renders nested, so follow the chain. The
     seen set makes cycles (and repeated missing uids) terminate."""
@@ -160,7 +162,9 @@ def get_block_refs(uids: str,
         if not _UID_RE.fullmatch(uid):
             raise HTTPException(status_code=422,
                                 detail=f"malformed uid: {uid!r}")
-    return {"block_ref_texts": _resolve_ref_uids(db, wanted)}
+    # Every entry just matched UID_RE's shape.
+    checked = [BlockUid(u) for u in wanted]
+    return {"block_ref_texts": _resolve_ref_uids(db, checked)}
 
 
 @router.get("/api/block/{uid}/backlinks", response_model=BlockBacklinksPayload)

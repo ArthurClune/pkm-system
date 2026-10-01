@@ -7,6 +7,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from pkm.contracts.ops import SidebarEntryId
 from pkm.contracts.responses import SidebarNavPayload
 from pkm.importer.sidebar_rows import next_order_idx, reorder_is_valid
 from pkm.refs import is_blank_title
@@ -24,7 +25,7 @@ class AddSidebarEntryRequest(BaseModel):
 
 
 class ReorderSidebarEntriesRequest(BaseModel):
-    order: list[int]
+    order: list[SidebarEntryId]
 
 
 @router.get("/api/sidebar", response_model=SidebarNavPayload)
@@ -58,7 +59,7 @@ def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
 
 
 @router.delete("/api/sidebar/{entry_id}")
-def delete_sidebar_entry(request: Request, entry_id: int,
+def delete_sidebar_entry(request: Request, entry_id: SidebarEntryId,
                          db: sqlite3.Connection = Depends(get_db)) -> dict:
     cur = db.execute("DELETE FROM sidebar_entries WHERE id = ?", (entry_id,))
     if cur.rowcount == 0:
@@ -71,7 +72,7 @@ def delete_sidebar_entry(request: Request, entry_id: int,
 @router.put("/api/sidebar")
 def reorder_sidebar_entries(request: Request, body: ReorderSidebarEntriesRequest,
                             db: sqlite3.Connection = Depends(get_db)) -> dict:
-    existing_ids = {r["id"] for r in
+    existing_ids = {SidebarEntryId(r["id"]) for r in
                     db.execute("SELECT id FROM sidebar_entries").fetchall()}
     if not reorder_is_valid(existing_ids, body.order):
         raise HTTPException(

@@ -56,6 +56,17 @@ def _view_type(value: Any) -> Literal["numbered", "document"] | None:
     return None
 
 
+def _heading(value: Any) -> int | None:
+    """Roam's own API has a zero heading level meaning "no heading",
+    distinct from the attribute being absent; some exports write it
+    either way. 0 means the same thing absent means everywhere else this
+    app stores a heading, so it is normalized at parse time rather than
+    carried through as a value no heading-producing path here ever
+    writes itself (CreateOp/SetHeadingOp.heading only accept 1-3 or
+    null)."""
+    return None if value == 0 else value
+
+
 def parse_export(db: object) -> Export:
     if not (isinstance(db, Tagged) and db.tag == "datascript/DB"
             and isinstance(db.value, dict)):
@@ -92,7 +103,7 @@ def parse_export(db: object) -> Export:
         block = Block(
             uid=ent[":block/uid"],
             text=ent[":block/string"],
-            heading=ent.get(":block/heading"),
+            heading=_heading(ent.get(":block/heading")),
             view_type=_view_type(ent.get(":children/view-type")),
             open=bool(ent.get(":block/open", True)),
             created_at=ent.get(":create/time"),

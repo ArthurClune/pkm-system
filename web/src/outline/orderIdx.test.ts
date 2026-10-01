@@ -3,16 +3,9 @@ import { block, ord, uid } from "../test-helpers";
 import type { MoveOp } from "../api/ops";
 import { FIRST_ORDER_IDX, orderIdxAfter, orderIdxAfterLast,
          orderIdxPlus } from "./orderIdx";
-import { locate, shiftFrom } from "./tree";
+import { locate } from "./tree";
 
 describe("OrderIdx narrowing", () => {
-  test("a dense sibling position is not an OrderIdx", () => {
-    const siblings = [block("a", "A"), block("b", "B")];
-    const found = locate(siblings, uid("b"))!;
-    // @ts-expect-error a dense position is not an OrderIdx
-    shiftFrom(siblings, found.index);
-  });
-
   test("a MoveOp's order_idx cannot be a dense sibling position", () => {
     const siblings = [block("a", "A"), block("b", "B")];
     const found = locate(siblings, uid("b"))!;

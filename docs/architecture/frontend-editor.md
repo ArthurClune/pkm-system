@@ -86,8 +86,12 @@ server.
 
 `order_idx` is a sparse `OrderIdx` sibling key, not a position, and
 `outline/orderIdx.ts` is the only module that does order-key arithmetic.
-`edits.ts`'s `orderIdxAfterPosition` is the one place a dense array position
-(`Located.index`, deliberately left unbranded) converts to an order key.
+A dense array position (`Located.index`, deliberately left unbranded)
+converts to an order key in exactly two places: `edits.ts`'s
+`orderIdxAfterPosition`, and `orderIdx.ts`'s `freshChildOrderIdx`, used
+only to number the children of a block created earlier in the same plan
+(whose sibling list is dense from 0 because nothing else has touched it
+yet).
 
 `applyOpsWithChange` adds a verdict: `changed: false` means the result is
 `blocksEqual` to the input, and only a changed batch advances

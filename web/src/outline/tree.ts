@@ -130,16 +130,26 @@ function siblingsOf(tree: BlockNode[], parentUid: BlockUid | null): BlockNode[] 
 
 /** Mirror of the server's ShiftSiblings effect: everything at or past
  * fromOrderIdx moves up one — except the block being moved, whose order_idx
- * is about to be overwritten (matching SetParent-after-ShiftSiblings).
- * Exported only for orderIdx.test.ts's dense-position probe. */
-export function shiftFrom(siblings: BlockNode[], fromOrderIdx: OrderIdx,
-                          except?: BlockUid): void {
+ * is about to be overwritten (matching SetParent-after-ShiftSiblings). Not
+ * exported: nothing outside this module calls it. */
+function shiftFrom(siblings: BlockNode[], fromOrderIdx: OrderIdx,
+                   except?: BlockUid): void {
   for (const s of siblings) {
     if (s.uid !== except && s.order_idx >= fromOrderIdx) {
       s.order_idx = orderIdxAfter(s.order_idx);
     }
   }
 }
+
+// Type-only probe, kept here (not a test file) because shiftFrom isn't
+// exported: a dense sibling position must not satisfy its fromOrderIdx
+// parameter. Assignability is checked structurally, so this fails tsc
+// (and the @ts-expect-error below would go unused) if fromOrderIdx is ever
+// widened to plain `number`.
+// @ts-expect-error a dense position is not an OrderIdx
+const _shiftFromRejectsDensePosition: (s: BlockNode[], n: number) => void =
+  shiftFrom;
+void _shiftFromRejectsDensePosition;
 
 export interface AppliedOps {
   blocks: BlockNode[];

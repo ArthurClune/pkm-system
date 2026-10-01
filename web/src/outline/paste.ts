@@ -11,7 +11,7 @@ import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import { clampCaret, orderIdxAfterPosition, type EditResult,
          type FocusTarget } from "./edits";
-import { FIRST_ORDER_IDX, orderIdxPlus } from "./orderIdx";
+import { FIRST_ORDER_IDX, freshChildOrderIdx, orderIdxPlus } from "./orderIdx";
 import { applyOps, locate } from "./tree";
 
 export interface PastedNode {
@@ -134,11 +134,12 @@ export function planOutlinePaste(
     ops.push({ op: "create", uid: createdUid, page_title: pageTitle,
                parent_uid: parentUid, order_idx: orderIdx, text: n.text });
     focus = { uid: createdUid, cursor: n.text.length };
-    // Fresh children of a block this same call just created: 0..n IS their
-    // order_idx, the same deliberate dense->order-key renumber as the
-    // server's descendant_copy_effects.
+    // Fresh children of a block this same call just created: freshChildOrderIdx
+    // applies here because createdUid has no children yet of its own, the
+    // same deliberate dense->order-key renumber as the server's
+    // descendant_copy_effects.
     n.children.forEach((child, i) =>
-      createSubtree(child, createdUid, orderIdxPlus(FIRST_ORDER_IDX, i)));
+      createSubtree(child, createdUid, freshChildOrderIdx(i)));
   };
 
   const childBase = node.children[0]?.order_idx ?? FIRST_ORDER_IDX;

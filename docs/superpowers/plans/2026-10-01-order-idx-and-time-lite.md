@@ -90,8 +90,8 @@ The two tasks touch disjoint files and run in parallel, in separate worktrees:
   - the login throttle's own parameters (`LoginThrottle.is_throttled` / `record_failure`, and `throttle_core.py`'s `is_throttled` / `after_failure` / `prune_expired`, plus their state field names if they hold that clock) are renamed to say monotonic, **if** that clock is the only one fed to them. Check every caller first; if an epoch value is ever passed in, stop and report.
   - After the change, nothing named `now_ms` holds a non-epoch value.
 - Tests first where behaviour exists. The renames are type and name only.
-- [ ] **1.** Make the changes and run the full server and web checks.
-- [ ] **2.** Commit `refactor(pkm-la88): keyword/named timestamp args; monotonic login clock named as such`.
+- [x] **1.** Make the changes and run the full server and web checks.
+- [x] **2.** Commit `refactor(pkm-la88): keyword/named timestamp args; monotonic login clock named as such`.
 
 ### Task 3: docs, verification, perf (orchestrator)
 

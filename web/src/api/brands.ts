@@ -87,3 +87,13 @@ export type NormalizedTitle = string & { readonly __brand: "NormalizedTitle" };
 // `canonicalTitle`/`titleReader` (replica/meta.ts, which read the flag) and
 // by `titleForDate`/`dailyTitle` (replica/daily.ts, canonical by format).
 export type CanonicalTitle = NormalizedTitle & { readonly __canonical: true };
+
+// A block's sparse sibling order key (blocks.order_idx): where it sits
+// among its siblings under its parent (or at the page's top level), not a
+// dense array position -- a delete leaves a gap rather than renumbering, so
+// two siblings' keys are never assumed adjacent. `sidebar_entries.order_idx`
+// is a plain number, not this brand: the server assigns it and the web
+// reorders by array position, so it never meets block order code. Every
+// arithmetic site goes through outline/orderIdx.ts; a test literal standing
+// in for one casts `as OrderIdx` inside a fixture helper.
+export type OrderIdx = number & { readonly __brand: "OrderIdx" };

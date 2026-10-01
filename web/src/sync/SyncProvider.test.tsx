@@ -7,7 +7,7 @@ import type { OpsAck } from "../api/payloads";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { acquireOutlineSession } from "../outline/outlineSessions";
 import { sha256Hex } from "../replica/sha256";
-import { FakeWebSocket, block, jsonResponse, stubFetch, title, uid } from "../test-helpers";
+import { block, FakeWebSocket, jsonResponse, ord, stubFetch, title, uid } from "../test-helpers";
 import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
 import { clientId, createOpQueue } from "./opQueue";
@@ -436,7 +436,7 @@ describe("legacy repair of a rejected batch", () => {
       ), ["page", sourceTitle]);
       dnd.drop(
         { uid: uid("moved"), pageTitle: sourceTitle },
-        { parent_uid: uid("target-root"), order_idx: 1, page_title: targetTitle },
+        { parent_uid: uid("target-root"), order_idx: ord(1), page_title: targetTitle },
       );
 
       await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
@@ -673,7 +673,7 @@ describe("legacy repair of a rejected batch", () => {
     try {
       await act(async () => { lastWs().open(); });
       const ticket = sync.enqueue(
-        [{ op: "move", uid: uid("u1"), parent_uid: null, order_idx: 0 }],
+        [{ op: "move", uid: uid("u1"), parent_uid: null, order_idx: ord(0) }],
         ["page", targetTitle],
       );
       await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(

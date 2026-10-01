@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
-import { block, uid } from "../test-helpers";
+import { block, ord, uid } from "../test-helpers";
 import { stampBaseTextHashes } from "./baseTextHash";
 import * as treeModule from "./tree";
 
@@ -22,7 +22,7 @@ beforeEach(() => {
 function flatTree(count: number): BlockNode[] {
   return Array.from(
     { length: count },
-    (_, i) => block(`n${i}`, `text${i}`, { order_idx: i }),
+    (_, i) => block(`n${i}`, `text${i}`, { order_idx: ord(i) }),
   );
 }
 
@@ -48,7 +48,7 @@ describe("stampBaseTextHashes clones the tree at most once per batch", () => {
   test("a batch needing no stamps clones zero times", () => {
     const tree = flatTree(2);
     const ops: BlockOp[] = [
-      { op: "move", uid: uid("n0"), parent_uid: null, order_idx: 1 },
+      { op: "move", uid: uid("n0"), parent_uid: null, order_idx: ord(1) },
       { op: "set_collapsed", uid: uid("n1"), collapsed: true },
     ];
 

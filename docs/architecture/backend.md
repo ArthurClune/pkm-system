@@ -604,10 +604,20 @@ when the `NewType` call is wrapped in another call. A `NewType` of an
 already-branded `NewType` inherits its parent's marker, so a subtype such
 as `CanonicalTitle` (of `NormalizedTitle`) needs its own `brand()` call too.
 
+None of this guards a pydantic model's constructor: pyrefly treats
+`BaseModel.__init__` permissively, so `CreateOp(..., order_idx=len(page))`
+or a plain `str` where a `BlockUid` belongs both pass with 0 errors,
+for every branded field on `CreateOp`, `MoveOp`, `BlockNode` and
+`SyncBlock` alike, not just `OrderIdx`. The guarantee a brand gives on the
+server comes from the effect dataclasses and helper signatures that
+consume the value afterward (`ShiftSiblings`, `SetParent`, `InsertBlock`,
+`next_child_order_idx`, `Planner.bump`), not from op construction itself.
+
 | Brand(s) | Declared in | Base |
 |---|---|---|
 | `Sha256Hex`, `ClientId`, `BatchId`, `BlockUid` | `contracts/ops.py` | `str` |
 | `PageId`, `SidebarEntryId` | `contracts/ops.py` | `int` |
+| `OrderIdx` | `contracts/ops.py` | `int` |
 | `SyncSeq` | `contracts/responses.py` | `int` |
 | `ConversationId`, `ConfirmId` | `contracts/responses.py` | `str` |
 | `GoodlinksId` | `goodlinks.py` | `str` |
@@ -616,7 +626,12 @@ as `CanonicalTitle` (of `NormalizedTitle`) needs its own `brand()` call too.
 
 `SidebarEntryId` is `sidebar_entries.id`, not `PageId` — that table has its
 own `INTEGER PRIMARY KEY`, distinct from `pages.id` even though every entry
-names a page. The web's own brand definitions, and where each is minted on
+names a page. `OrderIdx` is a block's sparse sibling order key
+(`blocks.order_idx`), not a position: a delete leaves a gap rather than
+renumbering, so two siblings' keys need not be adjacent.
+`sidebar_entries.order_idx` stays a plain `int` — the server assigns it and
+the web reorders sidebar entries by array position, so it never meets block
+order code. The web's own brand definitions, and where each is minted on
 that side, are in [frontend.md § API layer](frontend.md#api-layer).
 
 Every endpoint requires the session cookie unless marked public, and

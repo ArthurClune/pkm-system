@@ -84,6 +84,15 @@ mutations go through the pure `applyOps` (`outline/tree.ts`), which mirrors the
 server's op semantics; the same ops drive the screen, the replica and the
 server.
 
+`order_idx` is a sparse `OrderIdx` sibling key, not a position, and
+`outline/orderIdx.ts` is the only module that does order-key arithmetic.
+A dense array position (`Located.index`, deliberately left unbranded)
+converts to an order key in exactly two places: `edits.ts`'s
+`orderIdxAfterPosition`, and `orderIdx.ts`'s `freshChildOrderIdx`, used
+only to number the children of a block created earlier in the same plan
+(whose sibling list is dense from 0 because nothing else has touched it
+yet).
+
 `applyOpsWithChange` adds a verdict: `changed: false` means the result is
 `blocksEqual` to the input, and only a changed batch advances
 `transitionOutline`'s `revision`, the key a re-render and a dispatched read's

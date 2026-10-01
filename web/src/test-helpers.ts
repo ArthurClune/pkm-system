@@ -2,7 +2,7 @@ import { expect, vi } from "vitest";
 import { acquireOutlineSession } from "./outline/outlineSessions";
 import type { BlockOp } from "./api/ops";
 import type { Backlinks, BlockNode, PagePayload } from "./api/payloads";
-import type { BlockUid, CanonicalTitle, NormalizedTitle, PageId,
+import type { BlockUid, CanonicalTitle, NormalizedTitle, OrderIdx, PageId,
              SidebarEntryId } from "./api/brands";
 import type { WsBatch } from "./sync/socket";
 import type { Sync, SyncStatus } from "./sync/SyncProvider";
@@ -16,6 +16,7 @@ export function pageId(n: number): PageId { return n as PageId; }
 export function entryId(n: number): SidebarEntryId { return n as SidebarEntryId; }
 export function normTitle(s: string): NormalizedTitle { return s as NormalizedTitle; }
 export function title(s: string): CanonicalTitle { return s as CanonicalTitle; }
+export function ord(n: number): OrderIdx { return n as OrderIdx; }
 
 /** Hold the outline editor for `title` so a test's own mount cannot win the
  * lease, and return the release. Sessions are global to the module, so the
@@ -77,8 +78,8 @@ export function stubFetch(handlers: [string, unknown][]) {
 export function block(blockUid: string, text: string,
                       over: Partial<BlockNode> = {}): BlockNode {
   return { uid: blockUid as BlockUid, text, heading: null, view_type: null,
-           collapsed: false, order_idx: 0, created_at: 1000, updated_at: 2000,
-           children: [], ...over };
+           collapsed: false, order_idx: ord(0), created_at: 1000,
+           updated_at: 2000, children: [], ...over };
 }
 
 /** A backlinks page, empty by default: what /api/page carries for a page

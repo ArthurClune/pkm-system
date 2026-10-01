@@ -16,6 +16,7 @@ import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { stampBaseTextHashes, withoutStamps } from "./baseTextHash";
+import { FIRST_ORDER_IDX, orderIdxAfterLast } from "./orderIdx";
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          moveBlocksTo, moveSelectionDown, moveSelectionUp, moveSubtreeDown,
          moveSubtreeUp, outdentBlock, outdentSelection, setCollapsed,
@@ -561,7 +562,8 @@ export function useOutline(
       if (b.length > 0) return { blocks: b, ops: [], focus: null };
       const uid = newUid();
       const ops: BlockOp[] = [{ op: "create", uid, page_title: pageTitle,
-                                parent_uid: null, order_idx: 0, text: "" }];
+                                parent_uid: null, order_idx: FIRST_ORDER_IDX,
+                                text: "" }];
       return { blocks: applyOps(b, ops, pageTitle), ops,
                focus: { uid, cursor: 0 } };
     });
@@ -570,10 +572,9 @@ export function useOutline(
   const appendBlock = useCallback((text: string) => {
     run((b) => {
       const uid = newUid();
-      const last = b[b.length - 1];
       const ops: BlockOp[] = [{ op: "create", uid, page_title: pageTitle,
                                 parent_uid: null,
-                                order_idx: last ? last.order_idx + 1 : 0,
+                                order_idx: orderIdxAfterLast(b),
                                 text }];
       return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
     });

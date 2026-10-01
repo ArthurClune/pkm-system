@@ -8,7 +8,7 @@ import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, normTitle, title, type SyncFake, uid } from "../test-helpers";
+import { block, makeSync, normTitle, ord, type SyncFake, title, uid } from "../test-helpers";
 import { recordHistory, resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -42,8 +42,8 @@ afterEach(() => resetHistory());
 
 const PAGE = "Undo Wire";
 const ab = () => [
-  block("a", "alpha", { order_idx: 0 }),
-  block("b", "beta", { order_idx: 1 }),
+  block("a", "alpha", { order_idx: ord(0) }),
+  block("b", "beta", { order_idx: ord(1) }),
 ];
 
 it("undo reverses a structural edit and redo replays it", () => {
@@ -63,9 +63,9 @@ it("undo reverses a structural edit and redo replays it", () => {
 it("undo reverses a whole selection indent in one step", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, [
-    block("a", "alpha", { order_idx: 0 }),
-    block("b", "beta", { order_idx: 1 }),
-    block("c", "gamma", { order_idx: 2 }),
+    block("a", "alpha", { order_idx: ord(0) }),
+    block("b", "beta", { order_idx: ord(1) }),
+    block("c", "gamma", { order_idx: ord(2) }),
   ]);
   act(() => outline().handlers.onStartBlockSelection(uid("b"), "down"));
   act(() => outline().handlers.onIndentSelection());
@@ -86,17 +86,17 @@ it("undo reverses a whole cross-parent selection move in one step", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, [
     block("a", "A", {
-      order_idx: 0,
-      children: [block("a0", "A child", { order_idx: 0 })],
+      order_idx: ord(0),
+      children: [block("a0", "A child", { order_idx: ord(0) })],
     }),
     block("b", "B", {
-      order_idx: 1,
+      order_idx: ord(1),
       children: [
-        block("b0", "B first", { order_idx: 0 }),
-        block("b1", "B second", { order_idx: 1 }),
+        block("b0", "B first", { order_idx: ord(0) }),
+        block("b1", "B second", { order_idx: ord(1) }),
       ],
     }),
-    block("c", "C", { order_idx: 2 }),
+    block("c", "C", { order_idx: ord(2) }),
   ]);
   act(() => outline().handlers.onStartBlockSelection(uid("b0"), "down"));
   act(() => outline().handlers.onMoveSelectionUp());
@@ -217,8 +217,8 @@ it("undo restores focus to where it was before the edit", () => {
 it("collapse toggles are not undo steps", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE,
-    [block("a", "alpha", { order_idx: 0, children: [block("a1", "kid", { order_idx: 0 })] }),
-     block("b", "beta", { order_idx: 1 })]);
+    [block("a", "alpha", { order_idx: ord(0), children: [block("a1", "kid", { order_idx: ord(0) })] }),
+     block("b", "beta", { order_idx: ord(1) })]);
   // onToggleTodo on plain text returns null from toggleTodo (grammar/todo.ts)
   // and records nothing; onSetHeading always produces an op.
   act(() => outline().handlers.onSetHeading(uid("b"), 2)); // recorded entry
@@ -243,9 +243,9 @@ it("a fresh edit after undo clears redo", () => {
 it("a batch carrying a draft for a remotely deleted block stays undoable", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, [
-    block("a", "alpha", { order_idx: 0 }),
-    block("b", "beta", { order_idx: 1 }),
-    block("c", "gamma", { order_idx: 2 }),
+    block("a", "alpha", { order_idx: ord(0) }),
+    block("b", "beta", { order_idx: ord(1) }),
+    block("c", "gamma", { order_idx: ord(2) }),
   ]);
   act(() => outline().handlers.onDraftChange(uid("a"), "see [[Held", true));
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [

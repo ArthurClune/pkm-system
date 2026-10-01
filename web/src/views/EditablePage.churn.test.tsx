@@ -2,7 +2,7 @@ import { act, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, expect, test, vi } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { FakeWebSocket, block, stubFetch, title, uid } from "../test-helpers";
+import { block, FakeWebSocket, ord, stubFetch, title, uid } from "../test-helpers";
 import * as tokenize from "../grammar/tokenize";
 import { SyncProvider, useSyncActions,
          type SyncActions } from "../sync/SyncProvider";
@@ -39,9 +39,9 @@ test("an enqueue's pending count re-renders no block row", async () => {
       <SyncProvider replica={null}>
         <Grab />
         <EditablePage title={title("Page")} initial={[
-          block("u1", "first", { order_idx: 0 }),
-          block("u2", "second", { order_idx: 1 }),
-          block("u3", "third", { order_idx: 2 }),
+          block("u1", "first", { order_idx: ord(0) }),
+          block("u2", "second", { order_idx: ord(1) }),
+          block("u3", "third", { order_idx: ord(2) }),
         ]} />
       </SyncProvider>
     </MemoryRouter>);

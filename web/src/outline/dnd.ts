@@ -2,9 +2,10 @@
 // Drop-semantics for block drag-and-drop: which boundaries and depths are
 // legal, and what move op a (boundary, depth) resolves to. The DOM shell
 // (useDropZone) only measures pixels and calls in here.
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, OrderIdx } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { groupMoveOps } from "./edits";
+import { FIRST_ORDER_IDX, orderIdxAfter } from "./orderIdx";
 import { applyOps, locate } from "./tree";
 
 export const INDENT_PX = 30; // .block-children: 22px margin-left + 8px padding
@@ -25,7 +26,7 @@ export function dragUids(drag: DragSource): BlockUid[] {
 }
 export interface DropTarget {
   parent_uid: BlockUid | null;
-  order_idx: number;
+  order_idx: OrderIdx;
   page_title: string;
 }
 export interface DropRow { uid: BlockUid; depth: number; collapsed: boolean }
@@ -107,7 +108,7 @@ export function resolveDrop(blocks: BlockNode[], pageTitle: string,
   }
   // first row at/after the boundary that is a visible child of parentUid:
   // insert before it. Walk until the parent's subtree region ends.
-  let orderIdx: number | null = null;
+  let orderIdx: OrderIdx | null = null;
   for (let i = boundary; i < rows.length; i++) {
     if (rows[i].depth < depth) break;      // left the parent's region
     if (rows[i].depth === depth) {
@@ -120,7 +121,7 @@ export function resolveDrop(blocks: BlockNode[], pageTitle: string,
     const siblings = parentUid === null
       ? blocks : locate(blocks, parentUid)?.node.children ?? [];
     const last = siblings[siblings.length - 1];
-    orderIdx = last ? last.order_idx + 1 : 0;
+    orderIdx = last ? orderIdxAfter(last.order_idx) : FIRST_ORDER_IDX;
   }
   const target: DropTarget =
     { parent_uid: parentUid, order_idx: orderIdx, page_title: pageTitle };

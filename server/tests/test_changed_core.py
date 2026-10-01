@@ -62,23 +62,23 @@ def test_since_after_until_raises():
 
 
 def test_classify_new_when_created_in_window():
-    assert classify(1_000, 500, 1_500) == "new"
+    assert classify(1_000, since_ms=500, until_ms=1_500) == "new"
 
 
 def test_classify_new_is_inclusive_of_since():
-    assert classify(500, 500, 1_500) == "new"
+    assert classify(500, since_ms=500, until_ms=1_500) == "new"
 
 
 def test_classify_edited_when_created_at_or_after_until():
-    assert classify(1_500, 500, 1_500) == "edited"
+    assert classify(1_500, since_ms=500, until_ms=1_500) == "edited"
 
 
 def test_classify_edited_when_created_before_since():
-    assert classify(100, 500, 1_500) == "edited"
+    assert classify(100, since_ms=500, until_ms=1_500) == "edited"
 
 
 def test_classify_edited_when_created_at_is_none():
-    assert classify(None, 500, 1_500) == "edited"
+    assert classify(None, since_ms=500, until_ms=1_500) == "edited"
 
 
 def test_resolve_day_today():

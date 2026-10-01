@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { expect, it } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, stubFetch, title } from "../test-helpers";
+import { block, makeSync, ord, stubFetch, title } from "../test-helpers";
 import { useOutline } from "../outline/useOutline";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { EditableBlockTree } from "./EditableBlockTree";
@@ -30,7 +30,7 @@ it("the /upload pick gives up the block itself, so the uploaded image "
   const view = render(
     <SyncContext.Provider value={makeSync()}>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-        <Page initial={[block("u1", "hello", { order_idx: 0 })]} />
+        <Page initial={[block("u1", "hello", { order_idx: ord(0) })]} />
       </MemoryRouter>
     </SyncContext.Provider>);
 

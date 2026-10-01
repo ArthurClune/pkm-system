@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
-import { block, uid } from "../test-helpers";
+import { block, ord, uid } from "../test-helpers";
 import { ancestorChain, applyOps, applyOpsWithChange, blocksEqual, findNode,
          insertSubtree, locate, removeSubtree, visibleNeighbor,
          visibleUids } from "./tree";
@@ -9,16 +9,16 @@ import { ancestorChain, applyOps, applyOpsWithChange, blocksEqual, findNode,
 // Siblings with order_idx GAPS (0, 5, 7) — the server leaves gaps after
 // shifts; every helper must key on order_idx values, never array positions.
 const tree = () => [
-  block("a", "A", { order_idx: 0 }),
+  block("a", "A", { order_idx: ord(0) }),
   block("b", "B", {
-    order_idx: 5,
+    order_idx: ord(5),
     children: [
-      block("b1", "B1", { order_idx: 0 }),
-      block("b2", "B2", { order_idx: 3 }),
+      block("b1", "B1", { order_idx: ord(0) }),
+      block("b2", "B2", { order_idx: ord(3) }),
     ],
   }),
-  block("c", "C", { order_idx: 7, collapsed: true,
-                    children: [block("c1", "C1", { order_idx: 0 })] }),
+  block("c", "C", { order_idx: ord(7), collapsed: true,
+                    children: [block("c1", "C1", { order_idx: ord(0) })] }),
 ];
 
 describe("locate / visibility", () => {
@@ -46,7 +46,7 @@ describe("locate / visibility", () => {
 describe("applyOps mirrors ops_apply.py", () => {
   test("create shifts later siblings and inserts sorted", () => {
     const op: BlockOp = { op: "create", uid: uid("n1"), page_title: "P",
-                          parent_uid: null, order_idx: 5, text: "new",
+                          parent_uid: null, order_idx: ord(5), text: "new",
                           view_type: "numbered" };
     const out = applyOps(tree(), [op], "P");
     expect(out.map((n) => [n.uid, n.order_idx])).toEqual(
@@ -56,22 +56,22 @@ describe("applyOps mirrors ops_apply.py", () => {
 
   test("create for another page is skipped", () => {
     const op: BlockOp = { op: "create", uid: uid("n1"), page_title: "Other",
-                          parent_uid: null, order_idx: 0, text: "x" };
+                          parent_uid: null, order_idx: ord(0), text: "x" };
     expect(applyOps(tree(), [op], "P").map((n) => n.uid)).toEqual(["a", "b", "c"]);
   });
 
   test("move follows insert-before-pre-removal semantics ([A,B,C] A->2 = [B,A,C])", () => {
-    const abc = [block("a", "A", { order_idx: 0 }),
-                 block("b", "B", { order_idx: 1 }),
-                 block("c", "C", { order_idx: 2 })];
-    const op: BlockOp = { op: "move", uid: uid("a"), parent_uid: null, order_idx: 2 };
+    const abc = [block("a", "A", { order_idx: ord(0) }),
+                 block("b", "B", { order_idx: ord(1) }),
+                 block("c", "C", { order_idx: ord(2) })];
+    const op: BlockOp = { op: "move", uid: uid("a"), parent_uid: null, order_idx: ord(2) };
     const out = applyOps(abc, [op], "P");
     expect(out.map((n) => n.uid)).toEqual(["b", "a", "c"]);
     expect(out.map((n) => n.order_idx)).toEqual([1, 2, 3]);
   });
 
   test("move reparents into a nested target", () => {
-    const op: BlockOp = { op: "move", uid: uid("a"), parent_uid: uid("b"), order_idx: 3 };
+    const op: BlockOp = { op: "move", uid: uid("a"), parent_uid: uid("b"), order_idx: ord(3) };
     const out = applyOps(tree(), [op], "P");
     expect(out.map((n) => n.uid)).toEqual(["b", "c"]);
     expect(findNode(out, uid("b"))!.children.map((n) => [n.uid, n.order_idx]))
@@ -117,7 +117,7 @@ describe("applyOps mirrors ops_apply.py", () => {
     const out = applyOps(tree(), [
       { op: "update_text", uid: uid("zz"), text: "x" },
       { op: "delete", uid: uid("zz") },
-      { op: "move", uid: uid("zz"), parent_uid: null, order_idx: 0 },
+      { op: "move", uid: uid("zz"), parent_uid: null, order_idx: ord(0) },
       { op: "set_collapsed", uid: uid("zz"), collapsed: true },
       { op: "set_heading", uid: uid("zz"), heading: 1 },
       { op: "set_view_type", uid: uid("zz"), view_type: "numbered" },
@@ -134,15 +134,15 @@ describe("applyOps mirrors ops_apply.py", () => {
   test("applyOps removes the subtree when a move targets another page", () => {
     const tree = [block("a", "A"), { ...block("b", "B"), children: [block("c", "C")] }];
     const next = applyOps(tree, [
-      { op: "move", uid: uid("b"), parent_uid: null, order_idx: 0,
+      { op: "move", uid: uid("b"), parent_uid: null, order_idx: ord(0),
         page_title: "Elsewhere" }], "Here");
     expect(next.map((n) => n.uid)).toEqual(["a"]);
   });
 
   test("applyOps still applies a move whose page_title names this page", () => {
-    const tree = [block("a", "A", { order_idx: 0 }), block("b", "B", { order_idx: 1 })];
+    const tree = [block("a", "A", { order_idx: ord(0) }), block("b", "B", { order_idx: ord(1) })];
     const next = applyOps(tree, [
-      { op: "move", uid: uid("b"), parent_uid: null, order_idx: 0,
+      { op: "move", uid: uid("b"), parent_uid: null, order_idx: ord(0),
         page_title: "Here" }], "Here");
     expect(next.map((n) => n.uid)).toEqual(["b", "a"]);
   });
@@ -158,15 +158,15 @@ describe("applyOps mirrors ops_apply.py", () => {
   });
 
   test("insertSubtree inserts before the sibling at order_idx", () => {
-    const tree = [block("x", "X", { order_idx: 0 }), block("y", "Y", { order_idx: 1 })];
+    const tree = [block("x", "X", { order_idx: ord(0) }), block("y", "Y", { order_idx: ord(1) })];
     const node = block("n", "N");
-    const next = insertSubtree(tree, node, null, 1);
+    const next = insertSubtree(tree, node, null, ord(1));
     expect(next.map((n) => n.uid)).toEqual(["x", "n", "y"]);
   });
 
   test("insertSubtree returns the tree unchanged for an unknown parentUid", () => {
     const before = tree();
-    const next = insertSubtree(before, block("n", "N"), uid("nope"), 0);
+    const next = insertSubtree(before, block("n", "N"), uid("nope"), ord(0));
     expect(next).toEqual(before);      // value-equal (a fresh clone)
     expect(findNode(next, uid("n"))).toBeNull();
   });
@@ -174,16 +174,16 @@ describe("applyOps mirrors ops_apply.py", () => {
   test("insertSubtree inserts under a nested (non-null) parent", () => {
     // b has children b1(0), b2(3); insert at order_idx 3 → before b2, which
     // shifts up. Positions key on order_idx, never array index.
-    const next = insertSubtree(tree(), block("n", "N"), uid("b"), 3);
+    const next = insertSubtree(tree(), block("n", "N"), uid("b"), ord(3));
     const parent = findNode(next, uid("b"))!;
     expect(parent.children.map((c) => c.uid)).toEqual(["b1", "n", "b2"]);
     expect(parent.children.map((c) => c.order_idx)).toEqual([0, 3, 4]);
   });
 
   test("insertSubtree deep-clones the inserted node's children", () => {
-    const tree = [block("x", "X", { order_idx: 0 }), block("y", "Y", { order_idx: 1 })];
+    const tree = [block("x", "X", { order_idx: ord(0) }), block("y", "Y", { order_idx: ord(1) })];
     const node = { ...block("n", "N"), children: [block("c1", "C1")] };
-    const next = insertSubtree(tree, node, null, 1);
+    const next = insertSubtree(tree, node, null, ord(1));
     // Mutate the original node's children
     node.children.push(block("c2", "C2"));
     // The returned tree should still have only the original child
@@ -217,8 +217,8 @@ describe("blocksEqual", () => {
   });
 
   test("fails on sibling count and on sibling order", () => {
-    const a = [block("x", "X", { order_idx: 0 }),
-               block("y", "Y", { order_idx: 1 })];
+    const a = [block("x", "X", { order_idx: ord(0) }),
+               block("y", "Y", { order_idx: ord(1) })];
     expect(blocksEqual(a, [a[0]])).toBe(false);
     expect(blocksEqual(a, [a[1], a[0]])).toBe(false);
   });
@@ -227,7 +227,7 @@ describe("blocksEqual", () => {
     // A field this compare forgets would be a silently missed change, so the
     // sweep is over the node's real keys: a new payload field fails here.
     const base = block("u1", "text", {
-      heading: 2, view_type: "numbered", collapsed: true, order_idx: 3,
+      heading: 2, view_type: "numbered", collapsed: true, order_idx: ord(3),
       created_at: 1, updated_at: 2, children: [block("kid", "K")],
     });
     for (const field of Object.keys(base)) {
@@ -249,16 +249,16 @@ describe("applyOpsWithChange reports exactly what a serialize-compare would", ()
   // nothing, and a real change reported as none would strand the edit.
   const cases: [string, BlockOp][] = [
     ["a create for this page", { op: "create", uid: uid("n1"), page_title: "P",
-                                 parent_uid: null, order_idx: 5, text: "new" }],
+                                 parent_uid: null, order_idx: ord(5), text: "new" }],
     ["a create for another page", { op: "create", uid: uid("n1"),
                                     page_title: "Other", parent_uid: null,
-                                    order_idx: 0, text: "new" }],
+                                    order_idx: ord(0), text: "new" }],
     ["a create replaying a uid already here", {
       op: "create", uid: uid("b"), page_title: "P", parent_uid: null,
-      order_idx: 5, text: "B" }],
+      order_idx: ord(5), text: "B" }],
     ["a create under a parent this tree does not hold", {
       op: "create", uid: uid("n1"), page_title: "P", parent_uid: uid("zz"),
-      order_idx: 0, text: "new" }],
+      order_idx: ord(0), text: "new" }],
     ["a page creation", { op: "create_page", page_title: "Other" }],
     ["update_text to a different text", {
       op: "update_text", uid: uid("a"), text: "A!" }],
@@ -276,20 +276,20 @@ describe("applyOpsWithChange reports exactly what a serialize-compare would", ()
     ["a delete", { op: "delete", uid: uid("b") }],
     ["a delete of a uid not here", { op: "delete", uid: uid("zz") }],
     ["a move that shifts a later sibling", {
-      op: "move", uid: uid("a"), parent_uid: null, order_idx: 5 }],
+      op: "move", uid: uid("a"), parent_uid: null, order_idx: ord(5) }],
     ["a move that lands a top-level block back where it was", {
-      op: "move", uid: uid("c"), parent_uid: null, order_idx: 7 }],
+      op: "move", uid: uid("c"), parent_uid: null, order_idx: ord(7) }],
     ["a move that lands a nested block back where it was", {
-      op: "move", uid: uid("b2"), parent_uid: uid("b"), order_idx: 3 }],
+      op: "move", uid: uid("b2"), parent_uid: uid("b"), order_idx: ord(3) }],
     ["a move that reparents", {
-      op: "move", uid: uid("a"), parent_uid: uid("b"), order_idx: 3 }],
+      op: "move", uid: uid("a"), parent_uid: uid("b"), order_idx: ord(3) }],
     ["a move whose page_title names another page", {
-      op: "move", uid: uid("b"), parent_uid: null, order_idx: 0,
+      op: "move", uid: uid("b"), parent_uid: null, order_idx: ord(0),
       page_title: "Elsewhere" }],
     ["a move under a parent this tree does not hold", {
-      op: "move", uid: uid("a"), parent_uid: uid("zz"), order_idx: 0 }],
+      op: "move", uid: uid("a"), parent_uid: uid("zz"), order_idx: ord(0) }],
     ["a move of a uid not here", {
-      op: "move", uid: uid("zz"), parent_uid: null, order_idx: 0 }],
+      op: "move", uid: uid("zz"), parent_uid: null, order_idx: ord(0) }],
   ];
 
   for (const [name, op] of cases) {
@@ -339,14 +339,14 @@ describe("applyOpsWithChange allocates nothing for a batch that misses this page
   // remote batch; these tests fail the moment the clone comes back.
   const elsewhere: BlockOp[] = [
     { op: "create", uid: uid("n1"), page_title: "Other", parent_uid: null,
-      order_idx: 0, text: "new" },
+      order_idx: ord(0), text: "new" },
     { op: "create_page", page_title: "Other" },
     { op: "update_text", uid: uid("zz"), text: "x" },
     { op: "set_collapsed", uid: uid("zz"), collapsed: true },
     { op: "set_heading", uid: uid("zz"), heading: 1 },
     { op: "set_view_type", uid: uid("zz"), view_type: "numbered" },
-    { op: "move", uid: uid("zz"), parent_uid: null, order_idx: 0 },
-    { op: "move", uid: uid("zz"), parent_uid: null, order_idx: 0,
+    { op: "move", uid: uid("zz"), parent_uid: null, order_idx: ord(0) },
+    { op: "move", uid: uid("zz"), parent_uid: null, order_idx: ord(0),
       page_title: "Other" },
     { op: "delete", uid: uid("zz") },
   ];
@@ -387,9 +387,9 @@ describe("applyOpsWithChange allocates nothing for a batch that misses this page
     // the outcome, or the change flag would start disagreeing with the tree.
     for (const op of [
       { op: "create", uid: uid("b"), page_title: "P", parent_uid: null,
-        order_idx: 5, text: "B" },
+        order_idx: ord(5), text: "B" },
       { op: "create", uid: uid("n1"), page_title: "P", parent_uid: uid("zz"),
-        order_idx: 0, text: "new" },
+        order_idx: ord(0), text: "new" },
     ] satisfies BlockOp[]) {
       const before = tree();
       const applied = applyOpsWithChange(before, [op], "P");

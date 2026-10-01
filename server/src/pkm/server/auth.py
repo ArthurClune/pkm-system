@@ -51,9 +51,9 @@ class LoginThrottle:
 
     Lives on `app.state`, so every app -- including each test's -- gets
     its own isolated instance. All state transitions take an explicit
-    `now_ms` rather than reading a clock themselves, matching
-    `auth_core.verify_session`'s style and keeping this unit-testable
-    without real waiting."""
+    monotonic clock reading (`mono_ms`) rather than reading a clock
+    themselves, matching `auth_core.verify_session`'s style (there with
+    an epoch clock) and keeping this unit-testable without real waiting."""
 
     def __init__(self, max_concurrent: int = MAX_CONCURRENT_SCRYPT,
                 acquire_timeout_s: float = SCRYPT_ACQUIRE_TIMEOUT_S) -> None:
@@ -76,11 +76,11 @@ class LoginThrottle:
             if acquired:
                 self.scrypt_slots.release()
 
-    def is_throttled(self, source: str, now_ms: int) -> bool:
+    def is_throttled(self, source: str, mono_ms: int) -> bool:
         with self._lock:
-            return is_throttled(self._attempts.get(source, AttemptState()), now_ms)
+            return is_throttled(self._attempts.get(source, AttemptState()), mono_ms)
 
-    def record_failure(self, source: str, now_ms: int) -> None:
+    def record_failure(self, source: str, mono_ms: int) -> None:
         with self._lock:
             # Pop first: this both fetches the source's prior state (to
             # keep its failure count growing) and, if present, removes it
@@ -89,10 +89,10 @@ class LoginThrottle:
             # oldest entry and get evicted first despite being live.
             state = self._attempts.pop(source, AttemptState())
             if len(self._attempts) >= MAX_TRACKED_SOURCES:
-                self._attempts = prune_expired(self._attempts, now_ms)
+                self._attempts = prune_expired(self._attempts, mono_ms)
             if len(self._attempts) >= MAX_TRACKED_SOURCES:
                 self._attempts = evict_oldest(self._attempts)
-            self._attempts[source] = after_failure(state, now_ms)
+            self._attempts[source] = after_failure(state, mono_ms)
 
     def record_success(self, source: str) -> None:
         with self._lock:
@@ -129,12 +129,12 @@ def login(body: LoginBody, request: Request, response: Response,
           config: Config = Depends(get_config)) -> dict:
     throttle: LoginThrottle = request.app.state.login_throttle
     source = request.client.host if request.client else "unknown"
-    now_ms = int(time.monotonic() * 1000)
+    mono_ms = int(time.monotonic() * 1000)
     # Throttled sources are rejected with the *same* 401 a wrong password
     # gets, before any scrypt work runs -- an attacker can't distinguish
     # "throttled" from "wrong password" except by the timing difference
     # (fast reject vs. a real scrypt computation), which this design accepts.
-    if throttle.is_throttled(source, now_ms):
+    if throttle.is_throttled(source, mono_ms):
         raise HTTPException(status_code=401, detail="wrong password")
     with throttle.scrypt_slot() as acquired:
         # Every slot busy past the timeout also gets the uniform 401 --

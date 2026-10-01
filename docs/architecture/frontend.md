@@ -79,6 +79,7 @@ web/src/
 │   ├── handlers.ts           —            OutlineHandlers, the command port (types only)
 │   ├── outlineState.ts       Core         transitionOutline — the session reducer
 │   ├── tree.ts               Core         applyOps; mirrors the server's op semantics
+│   ├── orderIdx.ts           Core         The one order-key arithmetic module (OrderIdx)
 │   ├── edits.ts / keyEdits.ts  Core       Structural and in-block edit planning
 │   ├── keyboardPolicy.ts     Core         Keystroke → semantic KeyDecision
 │   ├── autocomplete.ts / refAtCaret.ts  Core  Completion contexts; live-caret rules
@@ -415,6 +416,7 @@ openapi-typescript CLI would turn every brand back into `string`.
 | `BlockUid` | `uid.ts`'s `newUid`, `ids.ts`'s `parseBlockUid`, the block-ref token (`grammar/scan.ts`); row mappers in `replica/localApi/*`, `localOps.ts`, `queue.ts`; `apply.ts`'s tombstone mint |
 | `PageId` | row mappers reading a page id column (`replica/localOps.ts`, `localApi/pages.ts`, `localApi/search.ts`, `reconcile.ts`); `localOps.ts`'s `getOrCreateLocalPage` mints a negative id for an offline page, the sign carrying that meaning; `apply.ts`'s tombstone mint; `outline/missingPage.ts`'s `MISSING_PAGE_ID` sentinel |
 | `SidebarEntryId` | row mappers reading `sidebar_entries.id` (`localApi/router.ts`'s `sidebarPayload`); `apply.ts`'s tombstone mint |
+| `OrderIdx` | `outline/orderIdx.ts` (`FIRST_ORDER_IDX`, `orderIdxAfter`, `orderIdxAfterLast`, `orderIdxPlus`, `freshChildOrderIdx` — the one order-key arithmetic in the web); `outline/edits.ts`'s `orderIdxAfterPosition`, the dense position→order-key conversion; row mappers reading `blocks.order_idx` (`replica/localApi/tree.ts`'s `BlockRow`, `replica/localOps.ts`) |
 | `NormalizedTitle` | `grammar/scan.ts`'s `normalizeRefTitle` and hashtag token, `replica/titles.ts`'s `canonicalizeTitle` |
 | `CanonicalTitle` | row mappers reading `pages.title` / `sidebar_entries.title`, `replica/meta.ts`'s `canonicalTitle`/`titleReader` (which read the live plain-space flag), `replica/daily.ts`'s `titleForDate`/`dailyTitle` |
 | `Sha256Hex` | `replica/sha256.ts`'s `sha256Hex`, `replica/subtreeHash.ts`'s `subtreeHash`; the asset-link token (`grammar/tokenize.ts`) |

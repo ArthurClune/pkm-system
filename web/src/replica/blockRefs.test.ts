@@ -13,7 +13,7 @@ import { applyChanges, applySnapshot } from "./apply";
 import { reindexBlockRefs } from "./blockRefs";
 import { applyLocalOps } from "./localOps";
 import { openTestDb, type TestDb } from "./testDb";
-import { pageId, title, uid } from "../test-helpers";
+import { ord, pageId, title, uid } from "../test-helpers";
 
 vi.mock("./blockRefs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./blockRefs")>();
@@ -34,7 +34,7 @@ const REF_TEXTS = [
 ];
 
 const block = (rawUid: string, over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid: rawUid as BlockUid, page_id: pageId(1), parent_uid: null, order_idx: 0,
+  uid: rawUid as BlockUid, page_id: pageId(1), parent_uid: null, order_idx: ord(0),
   text: `text of ${rawUid}`,
   heading: null, view_type: null, collapsed: 0, created_at: 1, updated_at: 1,
   refs: [], ...over,
@@ -43,7 +43,7 @@ const block = (rawUid: string, over: Partial<SyncBlock> = {}): SyncBlock => ({
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (10 as SyncSeq),
   pages: [{ id: pageId(1), title: title("AI"), created_at: 1, updated_at: 1 }],
-  blocks: [block("uid_b1"), block("uid_b2", { order_idx: 1 })],
+  blocks: [block("uid_b1"), block("uid_b2", { order_idx: ord(1) })],
   sidebar: [],
 };
 

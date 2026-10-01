@@ -8,7 +8,7 @@ import {
   repairActiveOutlineSessions,
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
-import { READ_INIT, block, journalBacklinks, jsonResponse, makeSync, pageId, pagePayload, stubFetch, title, uid } from "../test-helpers";
+import { block, journalBacklinks, jsonResponse, makeSync, ord, pageId, pagePayload, READ_INIT, stubFetch, title, uid } from "../test-helpers";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
 import { BlockStampsContext } from "../contexts";
 import { Journal } from "./Journal";
@@ -1333,7 +1333,7 @@ it("a parent resync response dispatched before a local split cannot erase it", a
 
   await act(async () => {
     resolveFresh(jsonResponse(pagePayload("Paper", [
-      block("u1", "first", { order_idx: 0 }),
+      block("u1", "first", { order_idx: ord(0) }),
       block(created.uid, created.text, { order_idx: created.order_idx }),
     ])));
     await fresh;

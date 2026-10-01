@@ -15,7 +15,7 @@ import { setMeta } from "./meta";
 import { createRpcClient, serveRpc, toPortLike, type RpcHandlers } from "./rpc";
 import { openRawTestDb, type TestDb } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
-import { pageId, title, uid } from "../test-helpers";
+import { ord, pageId, title, uid } from "../test-helpers";
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -31,7 +31,7 @@ const bid = (s: string): BatchId => s as BatchId;
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (5 as SyncSeq),
   pages: [{ id: pageId(1), title: title("AI"), created_at: 1, updated_at: 1 }],
-  blocks: [{ uid: uid("uid_b1"), page_id: pageId(1), parent_uid: null, order_idx: 0,
+  blocks: [{ uid: uid("uid_b1"), page_id: pageId(1), parent_uid: null, order_idx: ord(0),
              text: "hello", heading: null, view_type: null, collapsed: 0, created_at: 1,
              updated_at: 1, refs: [] }],
   sidebar: [],
@@ -224,7 +224,7 @@ test("an edit arriving before init persists (schema installs on demand)", async 
   const { replica } = await setup();
   const { pending } = await replica.enqueue([
     { op: "create", uid: uid("uid_pre"), page_title: "Today",
-      parent_uid: null, order_idx: 0, text: "typed before init" },
+      parent_uid: null, order_idx: ord(0), text: "typed before init" },
   ], bid("batch-pre"));
   expect(pending).toBe(1);
   const init = await replica.init();

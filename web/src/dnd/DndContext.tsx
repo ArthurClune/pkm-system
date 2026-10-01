@@ -10,6 +10,7 @@ import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import { dragUids, type DragSource, type DropTarget } from "../outline/dnd";
 import { groupMoveOps } from "../outline/edits";
+import { orderIdxPlus } from "../outline/orderIdx";
 import { useSyncActions } from "../sync/SyncProvider";
 
 export interface OutlineDndApi {
@@ -94,7 +95,7 @@ export function DndProvider({ children }: { children: ReactNode }) {
         const moves = uids.map((uid, k) => ({
           uid,
           node: src?.removeSubtreeLocal(uid) ?? null,
-          orderIdx: target.order_idx + k,
+          orderIdx: orderIdxPlus(target.order_idx, k),
         }));
         for (const m of moves) {
           if (dst && m.node) {

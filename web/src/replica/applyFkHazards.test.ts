@@ -18,7 +18,7 @@ import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 // production mint; this mints the brand once rather than at every call.
 const bid = (s: string): BatchId => s as BatchId;
 import { openTestDb, type TestDb } from "./testDb";
-import { uid } from "../test-helpers";
+import { ord, uid } from "../test-helpers";
 
 /** The drain's delete of the batch at the head of the queue, on its ack. */
 const ackNext = (db: ReplicaDb): void => {
@@ -27,7 +27,7 @@ const ackNext = (db: ReplicaDb): void => {
 };
 
 const block = (rawUid: string, rawPageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid: rawUid as BlockUid, page_id: rawPageId as PageId, parent_uid: null, order_idx: 0,
+  uid: rawUid as BlockUid, page_id: rawPageId as PageId, parent_uid: null, order_idx: ord(0),
   text: `text of ${rawUid}`,
   heading: null, view_type: null, collapsed: 0, created_at: 1, updated_at: 1,
   refs: [], ...over,
@@ -41,7 +41,7 @@ const SNAP: Snapshot = {
   pages: [page(1, "Machine Learning"), page(2, "AI")],
   blocks: [
     block("uid_b1", 1),
-    block("uid_b2", 1, { order_idx: 1 }),
+    block("uid_b2", 1, { order_idx: ord(1) }),
     block("uid_b3", 1, { parent_uid: uid("uid_b2") }),
   ],
   sidebar: [],
@@ -104,7 +104,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // under deferred FKs.
     enqueueBatch(t.db, [
       { op: "create", uid: uid("uid_child"), page_title: "Machine Learning",
-        parent_uid: uid("uid_b2"), order_idx: 0, text: "typed offline" },
+        parent_uid: uid("uid_b2"), order_idx: ord(0), text: "typed offline" },
     ], 5, bid("batch-child"));
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
@@ -127,12 +127,12 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // missing parent of a diverted create) -- a DELETE that matches no row.
     enqueueBatch(t.db, [
       { op: "create", uid: uid("uid_ghost"), page_title: "Machine Learning",
-        parent_uid: null, order_idx: 5, text: "diverted server-side" },
+        parent_uid: null, order_idx: ord(5), text: "diverted server-side" },
     ], 5, bid("batch-ghost"));
     ackNext(t.db); // the ack
     enqueueBatch(t.db, [
       { op: "create", uid: uid("uid_ghost_child"), page_title: "Machine Learning",
-        parent_uid: uid("uid_ghost"), order_idx: 0, text: "typed under it" },
+        parent_uid: uid("uid_ghost"), order_idx: ord(0), text: "typed under it" },
     ], 6, bid("batch-child"));
     expect(uids(t.db)).toContain("uid_ghost_child");
     const res = applyChanges(t.db, emptyFeed({
@@ -156,17 +156,17 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // upserts that follow must bring both back at their real position.
     enqueueBatch(t.db, [
       { op: "create", uid: uid("uid_ghost_p"), page_title: "Machine Learning",
-        parent_uid: null, order_idx: 5, text: "ghost parent" },
+        parent_uid: null, order_idx: ord(5), text: "ghost parent" },
     ], 5, bid("batch-ghost-p"));
     ackNext(t.db);
     enqueueBatch(t.db, [
-      { op: "move", uid: uid("uid_b2"), parent_uid: uid("uid_ghost_p"), order_idx: 0 },
+      { op: "move", uid: uid("uid_b2"), parent_uid: uid("uid_ghost_p"), order_idx: ord(0) },
     ], 6, bid("batch-move"));
     ackNext(t.db);
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
       tombstones: [{ kind: "block", entity_id: "uid_ghost_p" }],
-      blocks: [block("uid_b2", 1, { order_idx: 1 }),
+      blocks: [block("uid_b2", 1, { order_idx: ord(1) }),
                block("uid_b3", 1, { parent_uid: uid("uid_b2") })],
     }));
     expect(res).toEqual({ status: "applied", cursor: 11 });
@@ -199,7 +199,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     enqueueBatch(t.db, [{ op: "delete", uid: uid("uid_b3") }], 5, bid("batch-del-b3"));
     enqueueBatch(t.db, [
       { op: "create", uid: uid("uid_y"), page_title: "Machine Learning",
-        parent_uid: uid("uid_b2"), order_idx: 0, text: "typed offline" },
+        parent_uid: uid("uid_b2"), order_idx: ord(0), text: "typed offline" },
     ], 6, bid("batch-create-y"));
     // The window tombstones uid_b2 -- cascading uid_y away -- and re-hydrates
     // uid_b3 moved under a parent beyond the window (dependency-incomplete,
@@ -235,7 +235,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // churn forever.
     enqueueBatch(t.db, [
       { op: "create", uid: uid("uid_opt_parent"), page_title: "AI",
-        parent_uid: null, order_idx: 0, text: "rejected parent" },
+        parent_uid: null, order_idx: ord(0), text: "rejected parent" },
     ], 5, bid("batch-parent"));
     const rejected = nextBatch(t.db)!;
     markPoisoned(t.db, rejected.id, JSON.stringify({
@@ -243,13 +243,13 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     }), bid("batch-parent"));
     enqueueBatch(t.db, [
       { op: "create", uid: uid("uid_opt_child"), page_title: "AI",
-        parent_uid: uid("uid_opt_parent"), order_idx: 0, text: "child" },
+        parent_uid: uid("uid_opt_parent"), order_idx: ord(0), text: "child" },
     ], 6, bid("batch-child"));
     // a batch that still applies cleanly must survive the skip of the one
     // before it: skipping is per-batch, not a bail-out of the whole reapply
     enqueueBatch(t.db, [
       { op: "create", uid: uid("uid_opt_ok"), page_title: "AI",
-        parent_uid: null, order_idx: 1, text: "still valid" },
+        parent_uid: null, order_idx: ord(1), text: "still valid" },
     ], 6, bid("batch-ok"));
     applySnapshot(t.db, SNAP, 7);
     expect(uids(t.db))
@@ -266,7 +266,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // enforcement pragmas, so it still catches it.
     enqueueBatch(t.db, [
       { op: "create", uid: uid("uid_opt_child"), page_title: "AI",
-        parent_uid: uid("uid_never_existed"), order_idx: 0, text: "child" },
+        parent_uid: uid("uid_never_existed"), order_idx: ord(0), text: "child" },
     ], 5, bid("batch-child"));
     t.db.exec("PRAGMA foreign_keys=OFF");
     try {

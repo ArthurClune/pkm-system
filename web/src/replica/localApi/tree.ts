@@ -2,7 +2,7 @@
 // Ports of server tree.py (flat rows -> nested tree, ((ref)) collection)
 // and the transitive block-ref resolver from routes_pages.py.
 
-import type { BlockUid, CanonicalTitle } from "../../api/brands";
+import type { BlockUid, CanonicalTitle, OrderIdx } from "../../api/brands";
 import type { BlockNode, PagePayload } from "../../api/payloads";
 import type { ReplicaDb } from "../db";
 import { extractRefs } from "../refs";
@@ -14,7 +14,7 @@ import { extractRefs } from "../refs";
 export interface BlockRow {
   uid: BlockUid;
   parent_uid: BlockUid | null;
-  order_idx: number;
+  order_idx: OrderIdx;
   text: string;
   heading: number | null;
   view_type: BlockNode["view_type"];

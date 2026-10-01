@@ -6,10 +6,12 @@
 // over-indent jump of any size is exactly one level (malformed input clamps,
 // never throws).
 
-import type { BlockUid, CanonicalTitle } from "../api/brands";
+import type { BlockUid, CanonicalTitle, OrderIdx } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
-import { clampCaret, idxAfter, type EditResult, type FocusTarget } from "./edits";
+import { clampCaret, orderIdxAfterPosition, type EditResult,
+         type FocusTarget } from "./edits";
+import { FIRST_ORDER_IDX, freshChildOrderIdx, orderIdxPlus } from "./orderIdx";
 import { applyOps, locate } from "./tree";
 
 export interface PastedNode {
@@ -127,19 +129,25 @@ export function planOutlinePaste(
 
   let focus: FocusTarget = { uid, cursor: start + first.text.length };
   const createSubtree = (n: PastedNode, parentUid: BlockUid | null,
-                         orderIdx: number): void => {
+                         orderIdx: OrderIdx): void => {
     const createdUid = newUid();
     ops.push({ op: "create", uid: createdUid, page_title: pageTitle,
                parent_uid: parentUid, order_idx: orderIdx, text: n.text });
     focus = { uid: createdUid, cursor: n.text.length };
-    n.children.forEach((child, i) => createSubtree(child, createdUid, i));
+    // Fresh children of a block this same call just created: freshChildOrderIdx
+    // applies here because createdUid has no children yet of its own, the
+    // same deliberate dense->order-key renumber as the server's
+    // descendant_copy_effects.
+    n.children.forEach((child, i) =>
+      createSubtree(child, createdUid, freshChildOrderIdx(i)));
   };
 
-  const childBase = node.children[0]?.order_idx ?? 0;
-  first.children.forEach((child, i) => createSubtree(child, uid, childBase + i));
-  const rootBase = idxAfter(siblings, index);
+  const childBase = node.children[0]?.order_idx ?? FIRST_ORDER_IDX;
+  first.children.forEach((child, i) =>
+    createSubtree(child, uid, orderIdxPlus(childBase, i)));
+  const rootBase = orderIdxAfterPosition(siblings, index);
   rest.forEach((root, i) => createSubtree(root, parent?.uid ?? null,
-                                          rootBase + i));
+                                          orderIdxPlus(rootBase, i)));
 
   if (ops.length === 0) return { blocks, ops: [], focus: null };
   return { blocks: applyOps(blocks, ops, pageTitle), ops, focus };

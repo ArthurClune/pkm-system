@@ -278,7 +278,7 @@ except where noted:
 server shifts existing siblings at/after it down to make room. Avoid
 mixing an indexed create/todo with plain (appending) creates/todos
 under the same parent within one batch: the plain ones count from the
-parent's original child count and can interleave with the indexed one
+parent's original last order_idx and can interleave with the indexed one
 instead of landing after it.
 
 An update, move or delete whose uid no longer exists, a create or move

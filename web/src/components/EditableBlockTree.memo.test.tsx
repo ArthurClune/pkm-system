@@ -3,7 +3,7 @@ import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, expect, test, vi } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { block } from "../test-helpers";
+import { block, ord } from "../test-helpers";
 import type { BlockNode } from "../api/payloads";
 import type { OutlineHandlers } from "../outline/handlers";
 import * as tokenize from "../grammar/tokenize";
@@ -23,7 +23,7 @@ const handlers = () =>
 
 const rows = (n: number): BlockNode[] =>
   Array.from({ length: n }, (_, i) =>
-    block(`u${i}`, `row ${i}`, { order_idx: i }));
+    block(`u${i}`, `row ${i}`, { order_idx: ord(i) }));
 
 /** A parent that re-renders the tree on demand with byte-identical props. */
 function Harness({ blocks }: { blocks: BlockNode[] }) {

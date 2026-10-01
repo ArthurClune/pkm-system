@@ -9,24 +9,38 @@ from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                text_hash)
 from pkm.contracts.responses import BlockNode, PagePayload
 from pkm.planning import (BuildError, asset_block_text, create_page_ops,
-                          next_child_idx, parse_outline, plan_mark,
+                          next_child_order_idx, parse_outline, plan_mark,
                           plan_save, plan_update, resolve_parent,
                           split_heading)
 from pkm.render import render_page
 
 
-def _node(uid, text, children=(), heading=None) -> BlockNode:
+def _node(uid, text, children=(), heading=None, order_idx=0) -> BlockNode:
     return BlockNode(uid=uid, text=text, heading=heading, view_type=None,
-                     collapsed=False, order_idx=0, created_at=None,
+                     collapsed=False, order_idx=order_idx, created_at=None,
                      updated_at=None, children=list(children))
 
 
 # The planners take a page's blocks, not a whole payload -- blocks are all
 # they read, and a page that doesn't exist yet has nothing else to offer.
+# order_idx values are sequential (no gaps), so an append landing one past
+# the last sibling's order_idx agrees with the older dense-count numbers
+# these tests already assert.
 BLOCKS = [
-    _node("u1", "Tags:: #AI"),
-    _node("u2", "Papers", heading=2,
-          children=[_node("u3", "existing child")]),
+    _node("u1", "Tags:: #AI", order_idx=0),
+    _node("u2", "Papers", heading=2, order_idx=1,
+          children=[_node("u3", "existing child", order_idx=0)]),
+]
+
+# Same shape as BLOCKS, but with a gap in both the top-level and the child
+# order keys -- as a delete leaves behind (ShiftSiblings never renumbers).
+# An append must land after the last real order_idx, not at the dense
+# position a count would give.
+BLOCKS_WITH_GAP = [
+    _node("g1", "Tags:: #AI", order_idx=0),
+    _node("g2", "Papers", heading=2, order_idx=5,
+          children=[_node("g3", "existing child", order_idx=0),
+                    _node("g4", "second child", order_idx=5)]),
 ]
 
 
@@ -62,9 +76,22 @@ def test_parse_outline_clamps_depth_jumps():
     assert parse_outline("a\n      too deep") == [(0, "a"), (1, "too deep")]
 
 
-def test_next_child_idx():
-    assert next_child_idx(BLOCKS, None) == 2
-    assert next_child_idx(BLOCKS, "u2") == 1
+def test_next_child_order_idx():
+    assert next_child_order_idx(BLOCKS, None) == 2
+    assert next_child_order_idx(BLOCKS, "u2") == 1
+
+
+def test_next_child_order_idx_lands_after_the_last_sibling_when_keys_have_a_gap():
+    # Top level holds order_idx 0 and 5 (a delete left the gap): the append
+    # must get 6, one past the last real key -- not 2, the dense count,
+    # which `ShiftSiblings` would then splice between the existing siblings
+    # instead of after them.
+    assert next_child_order_idx(BLOCKS_WITH_GAP, None) == 6
+
+
+def test_next_child_order_idx_lands_after_the_last_child_when_keys_have_a_gap():
+    # Same bug, one level down: g2's children hold order_idx 0 and 5.
+    assert next_child_order_idx(BLOCKS_WITH_GAP, "g2") == 6
 
 
 def test_resolve_parent_forms():
@@ -145,6 +172,12 @@ def test_plan_save_multiple_appends_increment_order():
     ops = plan_save(BLOCKS, "Machine Learning", None, "a\nb",
                     todo=False, uids=uid_gen())
     assert [o.order_idx for o in ops] == [2, 3]
+
+
+def test_plan_save_appends_after_the_last_sibling_when_keys_have_a_gap():
+    ops = plan_save(BLOCKS_WITH_GAP, "Machine Learning", None, "new note",
+                    todo=False, uids=uid_gen())
+    assert ops[0].order_idx == 6
 
 
 def test_create_page_ops():
@@ -322,6 +355,24 @@ def test_plan_batch_indexed_create_leaves_later_appends_counting_from_the_page()
     ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
     assert [o.parent_uid for o in ops] == [None, None, None]
     assert [o.order_idx for o in ops] == [0, 2, 3]
+
+
+def test_plan_batch_create_appends_after_the_last_sibling_when_keys_have_a_gap():
+    cmds = [{"command": "create",
+             "params": {"page": "Machine Learning", "text": "appended"}}]
+    ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS_WITH_GAP},
+                             uid_gen()))
+    assert ops[0].order_idx == 6
+    assert ops[0].order_idx > max(n.order_idx for n in BLOCKS_WITH_GAP)
+
+
+def test_plan_batch_move_append_lands_after_the_last_sibling_when_keys_have_a_gap():
+    cmds = [{"command": "move",
+             "params": {"uid": "g3", "page": "Machine Learning",
+                        "parent": "((g2))"}}]
+    ops = plan_batch(cmds, {"Machine Learning": BLOCKS_WITH_GAP}, uid_gen())
+    assert ops[0] == MoveOp(op="move", uid="g3", parent_uid="g2",
+                            order_idx=6, page_title=None)
 
 
 def test_plan_batch_alias_as_uid():

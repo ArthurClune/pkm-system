@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { block, uid } from "../test-helpers";
+import { block, ord, uid } from "../test-helpers";
 import type { BlockNode } from "../api/payloads";
 import { allowedDepths, depthFromX, dropRows, resolveDrop,
          INDENT_PX, type DragSource } from "./dnd";
@@ -7,12 +7,12 @@ import { allowedDepths, depthFromX, dropRows, resolveDrop,
 // Page "P":  a(0) [ b(0) [ c(0) ] ]  d(1, collapsed) [ e(0) ]  f(2)
 function page(): BlockNode[] {
   return [
-    { ...block("a", "A", { order_idx: 0 }), children: [
-      { ...block("b", "B", { order_idx: 0 }), children: [
-        block("c", "C", { order_idx: 0 })] }] },
-    { ...block("d", "D", { order_idx: 1, collapsed: true }), children: [
-      block("e", "E", { order_idx: 0 })] },
-    block("f", "F", { order_idx: 2 }),
+    { ...block("a", "A", { order_idx: ord(0) }), children: [
+      { ...block("b", "B", { order_idx: ord(0) }), children: [
+        block("c", "C", { order_idx: ord(0) })] }] },
+    { ...block("d", "D", { order_idx: ord(1), collapsed: true }), children: [
+      block("e", "E", { order_idx: ord(0) })] },
+    block("f", "F", { order_idx: ord(2) }),
   ];
 }
 const OTHER: DragSource = { uid: uid("zz"), pageTitle: "Elsewhere" };

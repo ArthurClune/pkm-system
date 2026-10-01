@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, test, vi } from "vitest";
-import { block, uid } from "../test-helpers";
+import { block, ord, uid } from "../test-helpers";
 import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { OutlineHandlers } from "../outline/handlers";
@@ -32,8 +32,8 @@ function handlers(): OutlineHandlers {
 }
 
 const BLOCKS = [
-  block("u1", "hello [[World]]", { order_idx: 0 }),
-  block("u2", "{{[[TODO]]}} task", { order_idx: 1 }),
+  block("u1", "hello [[World]]", { order_idx: ord(0) }),
+  block("u2", "{{[[TODO]]}} task", { order_idx: ord(1) }),
 ];
 
 function mount(h: OutlineHandlers, focus: { uid: BlockUid; cursor: number } | null,
@@ -108,9 +108,9 @@ test("removing the quote prefix removes quote presentation", () => {
 
 test("bullet shows the closed ring only when collapsed with children", () => {
   const blocks = [
-    block("p1", "parent", { collapsed: true, order_idx: 0,
+    block("p1", "parent", { collapsed: true, order_idx: ord(0),
                             children: [block("c1", "child")] }),
-    block("p2", "collapsed leaf", { collapsed: true, order_idx: 1 }),
+    block("p2", "collapsed leaf", { collapsed: true, order_idx: ord(1) }),
   ];
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -124,7 +124,7 @@ test("bullet shows the closed ring only when collapsed with children", () => {
 test("chevron toggles collapse via handler; todo checkbox toggles via handler", () => {
   const h = handlers();
   const withKids = [block("p", "parent", {
-    order_idx: 0, children: [block("k", "kid", { order_idx: 0 })],
+    order_idx: ord(0), children: [block("k", "kid", { order_idx: ord(0) })],
   })];
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -150,7 +150,7 @@ test("todo checkbox is enabled in the editable tree and reports its uid", () => 
 test("chevron is disabled on a childless block; enabled on a block with children", () => {
   const h = handlers();
   const t = [block("p", "parent", {
-    order_idx: 0, children: [block("k", "kid", { order_idx: 0 })],
+    order_idx: ord(0), children: [block("k", "kid", { order_idx: ord(0) })],
   })];
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -168,9 +168,9 @@ test("readOnly disables the chevron (even with children) and the todo checkbox",
   const h = handlers();
   const t = [
     block("p", "parent", {
-      order_idx: 0, children: [block("k", "kid", { order_idx: 0 })],
+      order_idx: ord(0), children: [block("k", "kid", { order_idx: ord(0) })],
     }),
-    block("u2", "{{[[TODO]]}} task", { order_idx: 1 }),
+    block("u2", "{{[[TODO]]}} task", { order_idx: ord(1) }),
   ];
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -218,7 +218,7 @@ test("fallback renders nested rich text but exposes no editor controls", () => {
 
 test("an emptied (previously-written) block still renders a clickable, focusable block-text", () => {
   const h = handlers();
-  const emptied = [block("u1", "", { order_idx: 0 })];
+  const emptied = [block("u1", "", { order_idx: ord(0) })];
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={emptied} focus={null} handlers={h}
@@ -235,8 +235,8 @@ test("an emptied (previously-written) block still renders a clickable, focusable
 test("collapsed children are hidden", () => {
   const h = handlers();
   const t = [block("p", "parent", {
-    order_idx: 0, collapsed: true,
-    children: [block("k", "hidden kid", { order_idx: 0 })],
+    order_idx: ord(0), collapsed: true,
+    children: [block("k", "hidden kid", { order_idx: ord(0) })],
   })];
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -664,8 +664,8 @@ test("read-only block menus show but disable mutation controls", () => {
 test("editable rendering numbers direct children only", () => {
   const h = handlers();
   const blocks = [block("root", "root", { view_type: "numbered", children: [
-    block("a", "A", { order_idx: 0, children: [block("a1", "A1")] }),
-    block("b", "B", { order_idx: 1, view_type: "numbered",
+    block("a", "A", { order_idx: ord(0), children: [block("a1", "A1")] }),
+    block("b", "B", { order_idx: ord(1), view_type: "numbered",
       children: [block("b1", "B1")] }),
   ] })];
   const view = render(
@@ -789,10 +789,10 @@ test("renders no stamp column unless asked (journal and sidebar mounts)", () => 
 test("renders the stamp cell with the age band of updated_at", () => {
   const now = Date.now();
   const view = mountStamped([
-    block("s1", "this week", { updated_at: now - 2 * DAY, order_idx: 0 }),
-    block("s2", "this month", { updated_at: now - 20 * DAY, order_idx: 1 }),
-    block("s3", "this year", { updated_at: now - 200 * DAY, order_idx: 2 }),
-    block("s4", "ancient", { updated_at: now - 900 * DAY, order_idx: 3 }),
+    block("s1", "this week", { updated_at: now - 2 * DAY, order_idx: ord(0) }),
+    block("s2", "this month", { updated_at: now - 20 * DAY, order_idx: ord(1) }),
+    block("s3", "this year", { updated_at: now - 200 * DAY, order_idx: ord(2) }),
+    block("s4", "ancient", { updated_at: now - 900 * DAY, order_idx: ord(3) }),
   ], true);
   const bandOf = (uid: string) =>
     view.container.querySelector(`[data-uid="${uid}"] .block-stamp`)?.className;

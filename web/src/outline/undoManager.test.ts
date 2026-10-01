@@ -2,7 +2,7 @@ import { afterEach, expect, it } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
-import { block, makeSync, uid } from "../test-helpers";
+import { block, makeSync, ord, uid } from "../test-helpers";
 import { acquireOutlineSession } from "./outlineSessions";
 import { performRedo, performUndo, recordHistory, registerOutlineHistory,
          resetHistory, setHistoryNavigator } from "./undoManager";
@@ -30,7 +30,7 @@ it("undo enqueues the inverse batch scoped to the entry's page", () => {
 
 it("undo applies to a mounted session and restores focusBefore", () => {
   const sync = makeSync();
-  const handle = acquireOutlineSession(PAGE, [block("a", "after", { order_idx: 0 })]);
+  const handle = acquireOutlineSession(PAGE, [block("a", "after", { order_idx: ord(0) })]);
   const focused: (unknown)[] = [];
   const unregister = registerOutlineHistory(PAGE, {
     flushPending: () => undefined,
@@ -83,7 +83,7 @@ it("navigates on undo when the page's session lingers with no mounted hooks (off
   // so the fix must still navigate — while also applying to the session so
   // its data stays fresh for when it's next mounted.
   const sync = makeSync();
-  const handle = acquireOutlineSession(PAGE, [block("a", "after", { order_idx: 0 })]);
+  const handle = acquireOutlineSession(PAGE, [block("a", "after", { order_idx: ord(0) })]);
   const paths: string[] = [];
   const clear = setHistoryNavigator((p) => paths.push(p));
   recordHistory(entry());
@@ -114,7 +114,7 @@ it("redo stamps against the current tree, not the recorded one", () => {
   // replacing —
   // not of "one", the text the entry was recorded against.
   const sync = makeSync();
-  const handle = acquireOutlineSession(PAGE, [block("a", "one", { order_idx: 0 })]);
+  const handle = acquireOutlineSession(PAGE, [block("a", "one", { order_idx: ord(0) })]);
   recordHistory({
     pageTitle: PAGE,
     ops: [{ op: "update_text", uid: uid("a"), text: "one" }],
@@ -142,13 +142,13 @@ it("an undo that deletes is stamped against the tree at replay time", () => {
   // must cover the block's text as it is when the undo replays, or undoing a
   // block the user has since typed into would land a spurious conflict copy.
   const sync = makeSync();
-  const before = [block("a", "first", { order_idx: 0 })];
+  const before = [block("a", "first", { order_idx: ord(0) })];
   const create: BlockOp[] = [{ op: "create", uid: uid("n"), page_title: PAGE,
-                               parent_uid: null, order_idx: 1, text: "" }];
+                               parent_uid: null, order_idx: ord(1), text: "" }];
   const inverse = invertOps(before, PAGE, create);
   expect(inverse).toEqual([{ op: "delete", uid: "n" }]);
   const handle = acquireOutlineSession(PAGE, [
-    ...before, block("n", "", { order_idx: 1 })]);
+    ...before, block("n", "", { order_idx: ord(1) })]);
   recordHistory({ pageTitle: PAGE, ops: create, inverse: inverse!,
                   focusBefore: null, focusAfter: null });
   const typed: BlockOp[] = [{ op: "update_text", uid: uid("n"), text: "typed later" }];

@@ -20,7 +20,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from typing import cast
 
 from pkm.contracts.ops import (BlockOp, CreateOp, CreatePageOp, HeadingLevel,
-                               SetHeadingOp, UpdateTextOp, text_hash)
+                               OrderIdx, SetHeadingOp, UpdateTextOp, text_hash)
 from pkm.contracts.responses import BlockNode, walk_blocks
 from pkm.todo import TaskMark, with_state
 
@@ -48,15 +48,23 @@ def parse_outline(text: str) -> list[tuple[int, str]]:
     return items
 
 
-def next_child_idx(blocks: Sequence[BlockNode],
-                   parent_uid: str | None) -> int:
-    """Append position under `parent_uid` in a page's `blocks` tree;
-    `None` means top level of the page."""
+def next_child_order_idx(blocks: Sequence[BlockNode],
+                         parent_uid: str | None) -> OrderIdx:
+    """Append `order_idx` under `parent_uid` in a page's `blocks` tree: one
+    past the last sibling's `order_idx`, or 0 with none -- never a sibling
+    COUNT. `order_idx` is sparse (a delete leaves a gap; nothing
+    renumbers), so counting siblings can land inside existing gaps instead
+    of after every one of them, and the server's `ShiftSiblings` only
+    moves siblings at/after the new key into place. `None` means top level
+    of the page."""
+    def _after(siblings: Sequence[BlockNode]) -> OrderIdx:
+        last = max((n.order_idx for n in siblings), default=None)
+        return OrderIdx(0) if last is None else OrderIdx(last + 1)
     if parent_uid is None:
-        return len(blocks)
+        return _after(blocks)
     for n in walk_blocks(blocks):
         if n.uid == parent_uid:
-            return len(n.children)
+            return _after(n.children)
     raise BuildError(f"parent block not on page: {parent_uid}")
 
 
@@ -136,7 +144,7 @@ def split_heading(text: str) -> tuple[str, HeadingLevel | None]:
         else (text, None)
 
 
-def _create(uid: str, page: str, parent: str | None, idx: int, text: str,
+def _create(uid: str, page: str, parent: str | None, idx: OrderIdx, text: str,
             heading: HeadingLevel | None = None) -> CreateOp:
     return CreateOp(op="create", uid=uid, page_title=page, parent_uid=parent,
                     order_idx=idx, text=text, heading=heading)
@@ -157,28 +165,29 @@ class Planner:
 
     def __init__(self, uids: Iterator[str]):
         self._uids = uids
-        self._next_idx: dict[tuple[str, str | None], int] = {}
+        self._next_idx: dict[tuple[str, str | None], OrderIdx] = {}
         self._headings: dict[tuple[str, HeadingLevel, str], str] = {}
 
     def next_uid(self) -> str:
         return next(self._uids)
 
     def bump(self, blocks: Sequence[BlockNode], page: str,
-             parent: str | None, parent_off_page: bool = False) -> int:
-        """The next append order_idx under (page, parent), counting up from
-        the parent's current child count.
+             parent: str | None, parent_off_page: bool = False) -> OrderIdx:
+        """The next append order_idx under (page, parent): one past the
+        last sibling already planned or on the page, 0 with none.
 
         `parent_off_page` says `parent` was created earlier in this run of
         planning rather than fetched: it is not among `blocks`, so its
-        first child starts at 0 instead of consulting `next_child_idx`,
-        which would raise. Only a real uid can be off-page -- page top
-        level (`parent=None`) is always countable from `blocks`."""
+        first child starts at 0 instead of consulting
+        `next_child_order_idx`, which would raise. Only a real uid can be
+        off-page -- page top level (`parent=None`) is always among
+        `blocks`."""
         key = (page, parent)
         if key not in self._next_idx:
-            self._next_idx[key] = 0 if parent_off_page \
-                else next_child_idx(blocks, parent)
+            self._next_idx[key] = OrderIdx(0) if parent_off_page \
+                else next_child_order_idx(blocks, parent)
         idx = self._next_idx[key]
-        self._next_idx[key] = idx + 1
+        self._next_idx[key] = OrderIdx(idx + 1)
         return idx
 
     def heading(self, blocks: Sequence[BlockNode], page: str,
@@ -197,7 +206,7 @@ class Planner:
         return uid, [_create(uid, page, None, self.bump(blocks, page, None),
                              text, level)]
 
-    def _one(self, page: str, parent: str | None, idx: int, text: str,
+    def _one(self, page: str, parent: str | None, idx: OrderIdx, text: str,
              todo: bool) -> CreateOp:
         """One create op at a decided position: heading marker split off the
         text, task marker applied when asked.
@@ -247,8 +256,8 @@ class Planner:
                 stack[depth + 1] = op.uid
         return ops
 
-    def create_at(self, page: str, parent: str | None, index: int, text: str,
-                  todo: bool) -> CreateOp:
+    def create_at(self, page: str, parent: str | None, index: OrderIdx,
+                  text: str, todo: bool) -> CreateOp:
         """One create whose `order_idx` is `index` verbatim -- the server
         splices siblings at/after it on insert. Only single-item
         `create`/`todo` batch commands ask for this; `outline` and
@@ -257,7 +266,7 @@ class Planner:
         Deliberately leaves the append counter alone: mixing an indexed
         create with plain appends under the same parent in one batch may
         interleave, since the appends keep counting from the page's
-        original child count rather than accounting for the index. See
+        original last order_idx rather than accounting for the index. See
         `pkm batch --help`."""
         return self._one(page, parent, index, text, todo)
 
@@ -376,7 +385,7 @@ def create_page_ops(titles: Iterable[str]) -> list[CreatePageOp]:
 
 
 __all__ = [
-    "BuildError", "Planner", "parse_outline", "next_child_idx",
+    "BuildError", "Planner", "parse_outline", "next_child_order_idx",
     "resolve_parent", "parse_uid_spec", "split_heading", "plan_save",
     "plan_update", "plan_mark", "asset_block_text", "create_page_ops",
 ]

@@ -5,9 +5,10 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
-                               DeleteOp, MoveOp, OpBatch, PageId, Sha256Hex,
-                               SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
-                               UpdateTextOp, subtree_hash, text_hash)
+                               DeleteOp, MoveOp, OpBatch, OrderIdx, PageId,
+                               Sha256Hex, SetCollapsedOp, SetHeadingOp,
+                               SetViewTypeOp, UpdateTextOp, subtree_hash,
+                               text_hash)
 from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.server.conflict_notes import deleted_header_text
 from pkm.server.db import init_db, open_db
@@ -33,7 +34,7 @@ B = BlockInfo(uid=BlockUid("uid_b3"), page_id=PageId(1),
              parent_uid=BlockUid("uid_b2"))
 _DAY = CanonicalTitle(NormalizedTitle("September 28th, 2026"))
 # today's header for the target already exists: entries append under it
-_EXISTING = ExistingHeader(BlockUid("uid_old"), 3)
+_EXISTING = ExistingHeader(BlockUid("uid_old"), OrderIdx(3))
 
 
 def _landing(header: ExistingHeader | FreshHeader | None = None
@@ -42,7 +43,7 @@ def _landing(header: ExistingHeader | FreshHeader | None = None
     exists already; the entry is uid_ch1."""
     return ConflictLanding(PageId(9), _DAY, BlockUid("uid_ch1"),
                            header if header is not None
-                           else FreshHeader(BlockUid("uid_hd1"), 4))
+                           else FreshHeader(BlockUid("uid_hd1"), OrderIdx(4)))
 
 
 def _skip_ctx(op: BlockOp, *, block_exists: bool = False,
@@ -90,9 +91,9 @@ def test_plan_create():
     effects = plan_op(0, op, CreateContext(uid_taken=False,
                                            page_id=PageId(1)))
     assert effects == (
-        ShiftSiblings(PageId(1), BlockUid("uid_b2"), 1),
+        ShiftSiblings(PageId(1), BlockUid("uid_b2"), OrderIdx(1)),
         InsertBlock(uid=BlockUid("newuid1"), page_id=PageId(1),
-                   parent_uid=BlockUid("uid_b2"), order_idx=1,
+                   parent_uid=BlockUid("uid_b2"), order_idx=OrderIdx(1),
                    text="t [[X]]", heading=None, view_type="numbered"),
         ReindexRefs(BlockUid("newuid1"), "t [[X]]"),
         TouchPage(PageId(1)),
@@ -139,15 +140,15 @@ def test_plan_move():
                       None, (BlockUid("uid_b3"),))
     assert plan_op(0, MoveOp(op="move", uid="uid_b3", parent_uid="uid_b1",
                              order_idx=0), ctx) == (
-        ShiftSiblings(PageId(1), BlockUid("uid_b1"), 0),
-        SetParent(BlockUid("uid_b3"), BlockUid("uid_b1"), 0),
+        ShiftSiblings(PageId(1), BlockUid("uid_b1"), OrderIdx(0)),
+        SetParent(BlockUid("uid_b3"), BlockUid("uid_b1"), OrderIdx(0)),
         TouchPage(PageId(1)))
     # to top level
     assert plan_op(0, MoveOp(op="move", uid="uid_b3", parent_uid=None,
                              order_idx=2),
                    MoveContext(B, None, None, (BlockUid("uid_b3"),))) == (
-        ShiftSiblings(PageId(1), None, 2),
-        SetParent(BlockUid("uid_b3"), None, 2), TouchPage(PageId(1)))
+        ShiftSiblings(PageId(1), None, OrderIdx(2)),
+        SetParent(BlockUid("uid_b3"), None, OrderIdx(2)), TouchPage(PageId(1)))
 
 
 def test_plan_delete_and_collapse():
@@ -171,10 +172,10 @@ def test_plan_delete_and_collapse():
 
 # root r has children c2 (order_idx 5) and c1 (order_idx 2); c1 has child g
 # (order_idx 0). Deepest first: g, then c1/c2, then r.
-_ROOT = SubtreeRow(BlockUid("r"), None, 0, "root text")
-_C1 = SubtreeRow(BlockUid("c1"), BlockUid("r"), 2, "c1 text")
-_C2 = SubtreeRow(BlockUid("c2"), BlockUid("r"), 5, "c2 text")
-_G = SubtreeRow(BlockUid("g"), BlockUid("c1"), 0, "g text")
+_ROOT = SubtreeRow(BlockUid("r"), None, OrderIdx(0), "root text")
+_C1 = SubtreeRow(BlockUid("c1"), BlockUid("r"), OrderIdx(2), "c1 text")
+_C2 = SubtreeRow(BlockUid("c2"), BlockUid("r"), OrderIdx(5), "c2 text")
+_G = SubtreeRow(BlockUid("g"), BlockUid("c1"), OrderIdx(0), "g text")
 _SUBTREE_ROWS = (_G, _C1, _C2, _ROOT)
 
 
@@ -182,7 +183,7 @@ def test_delete_diverged_compares_the_subtree_hash():
     base = subtree_hash((row.uid, row.text) for row in _SUBTREE_ROWS)
     assert delete_diverged(base, _SUBTREE_ROWS) is False
     changed = (_G, _C1, _C2,
-              SubtreeRow(BlockUid("r"), None, 0, "edited elsewhere"))
+              SubtreeRow(BlockUid("r"), None, OrderIdx(0), "edited elsewhere"))
     assert delete_diverged(base, changed) is True
 
 
@@ -195,29 +196,29 @@ def test_descendant_copies_nest_and_renumber():
                                       daily_page_id=PageId(9))
     assert effects == (
         InsertBlock(uid=BlockUid("copy_c1"), page_id=PageId(9),
-                   parent_uid=BlockUid("copy_r"), order_idx=0,
+                   parent_uid=BlockUid("copy_r"), order_idx=OrderIdx(0),
                    text="c1 text", heading=None),
         ReindexRefs(BlockUid("copy_c1"), "c1 text"),
         InsertBlock(uid=BlockUid("copy_g"), page_id=PageId(9),
-                   parent_uid=BlockUid("copy_c1"), order_idx=0,
+                   parent_uid=BlockUid("copy_c1"), order_idx=OrderIdx(0),
                    text="g text", heading=None),
         ReindexRefs(BlockUid("copy_g"), "g text"),
         InsertBlock(uid=BlockUid("copy_c2"), page_id=PageId(9),
-                   parent_uid=BlockUid("copy_r"), order_idx=1,
+                   parent_uid=BlockUid("copy_r"), order_idx=OrderIdx(1),
                    text="c2 text", heading=None),
         ReindexRefs(BlockUid("copy_c2"), "c2 text"),
     )
 
 
 def test_descendant_copies_keep_blank_texts():
-    rows = (SubtreeRow(BlockUid("c1"), BlockUid("r"), 0, ""),
-            SubtreeRow(BlockUid("r"), None, 0, "root"))
+    rows = (SubtreeRow(BlockUid("c1"), BlockUid("r"), OrderIdx(0), ""),
+            SubtreeRow(BlockUid("r"), None, OrderIdx(0), "root"))
     effects = descendant_copy_effects(
         rows, BlockUid("r"), BlockUid("copy_r"),
         {BlockUid("c1"): BlockUid("copy_c1")}, daily_page_id=PageId(9))
     assert effects == (
         InsertBlock(uid=BlockUid("copy_c1"), page_id=PageId(9),
-                   parent_uid=BlockUid("copy_r"), order_idx=0,
+                   parent_uid=BlockUid("copy_r"), order_idx=OrderIdx(0),
                    text="", heading=None),
         ReindexRefs(BlockUid("copy_c1"), ""),
     )
@@ -226,14 +227,14 @@ def test_descendant_copies_keep_blank_texts():
 def test_descendant_copies_never_walk_back_into_the_root():
     # a corrupted tree can give the root a parent inside its own subtree;
     # the root is where the walk starts, never one of its descendants
-    rows = (SubtreeRow(BlockUid("c1"), BlockUid("r"), 0, "c1 text"),
-            SubtreeRow(BlockUid("r"), BlockUid("c1"), 0, "root"))
+    rows = (SubtreeRow(BlockUid("c1"), BlockUid("r"), OrderIdx(0), "c1 text"),
+            SubtreeRow(BlockUid("r"), BlockUid("c1"), OrderIdx(0), "root"))
     effects = descendant_copy_effects(
         rows, BlockUid("r"), BlockUid("copy_r"),
         {BlockUid("c1"): BlockUid("copy_c1")}, daily_page_id=PageId(9))
     assert effects == (
         InsertBlock(uid=BlockUid("copy_c1"), page_id=PageId(9),
-                   parent_uid=BlockUid("copy_r"), order_idx=0,
+                   parent_uid=BlockUid("copy_r"), order_idx=OrderIdx(0),
                    text="c1 text", heading=None),
         ReindexRefs(BlockUid("copy_c1"), "c1 text"),
     )
@@ -348,8 +349,8 @@ def test_move_cross_page_under_parent_reassigns_subtree():
     op = MoveOp(op="move", uid="u_child", parent_uid="u_parent", order_idx=0)
     effects = plan_op(0, op, _move_ctx(block_page=1, parent_page=2))
     assert effects == (
-        ShiftSiblings(PageId(2), BlockUid("u_parent"), 0),
-        SetParent(BlockUid("u_child"), BlockUid("u_parent"), 0),
+        ShiftSiblings(PageId(2), BlockUid("u_parent"), OrderIdx(0)),
+        SetParent(BlockUid("u_child"), BlockUid("u_parent"), OrderIdx(0)),
         SetPageId((BlockUid("u_gc"), BlockUid("u_child")), PageId(2)),
         TouchPage(PageId(1)),
         TouchPage(PageId(2)))
@@ -363,8 +364,8 @@ def test_move_top_level_to_named_page():
         None, PageId(7), (BlockUid("u_child"),))
     effects = plan_op(0, op, ctx)
     assert effects == (
-        ShiftSiblings(PageId(7), None, 0),
-        SetParent(BlockUid("u_child"), None, 0),
+        ShiftSiblings(PageId(7), None, OrderIdx(0)),
+        SetParent(BlockUid("u_child"), None, OrderIdx(0)),
         SetPageId((BlockUid("u_child"),), PageId(7)),
         TouchPage(PageId(1)),
         TouchPage(PageId(7)))
@@ -375,8 +376,8 @@ def test_move_same_page_unchanged_shape():
     op = MoveOp(op="move", uid="u_child", parent_uid="u_parent", order_idx=3)
     effects = plan_op(0, op, _move_ctx(block_page=1, parent_page=1))
     assert effects == (
-        ShiftSiblings(PageId(1), BlockUid("u_parent"), 3),
-        SetParent(BlockUid("u_child"), BlockUid("u_parent"), 3),
+        ShiftSiblings(PageId(1), BlockUid("u_parent"), OrderIdx(3)),
+        SetParent(BlockUid("u_child"), BlockUid("u_parent"), OrderIdx(3)),
         TouchPage(PageId(1)))
 
 
@@ -388,8 +389,8 @@ def test_move_follows_its_parent_whatever_page_title_says(page_id):
     op = MoveOp(op="move", uid="u_child", parent_uid="u_parent", order_idx=0,
                 page_title="Somewhere Else")
     assert plan_op(0, op, _move_ctx(parent_page=2, page_id=page_id)) == (
-        ShiftSiblings(PageId(2), BlockUid("u_parent"), 0),
-        SetParent(BlockUid("u_child"), BlockUid("u_parent"), 0),
+        ShiftSiblings(PageId(2), BlockUid("u_parent"), OrderIdx(0)),
+        SetParent(BlockUid("u_child"), BlockUid("u_parent"), OrderIdx(0)),
         SetPageId((BlockUid("u_gc"), BlockUid("u_child")), PageId(2)),
         TouchPage(PageId(1)),
         TouchPage(PageId(2)))
@@ -477,7 +478,7 @@ def test_missing_block_appends_under_todays_header():
     inserts = [e for e in effs if isinstance(e, InsertBlock)]
     assert inserts == [InsertBlock(
         uid=BlockUid("uid_ch1"), page_id=PageId(9),
-        parent_uid=BlockUid("uid_old"), order_idx=3, text="new text",
+        parent_uid=BlockUid("uid_old"), order_idx=OrderIdx(3), text="new text",
         heading=None)]
     assert not any(isinstance(e, RecordConflictHeader) for e in effs)
 
@@ -527,7 +528,7 @@ def test_check_5_appends_under_todays_header():
     inserts = [e for e in effs if isinstance(e, InsertBlock)]
     assert inserts == [InsertBlock(
         uid=BlockUid("uid_ch1"), page_id=PageId(9),
-        parent_uid=BlockUid("uid_old"), order_idx=3,
+        parent_uid=BlockUid("uid_old"), order_idx=OrderIdx(3),
         text="server text meanwhile", heading=None)]
     assert any(isinstance(e, UpdateText) for e in effs)
 
@@ -759,11 +760,11 @@ def test_skipped_op_on_missing_block_lands_a_note_under_the_orphan_header(
     assert effs == (
         JournalBlock(BlockUid("ghost99"), deleted=True),
         InsertBlock(uid=BlockUid("uid_hd1"), page_id=PageId(9),
-                   parent_uid=None, order_idx=4, text=_ORPHAN_HEADER,
+                   parent_uid=None, order_idx=OrderIdx(4), text=_ORPHAN_HEADER,
                    heading=None),
         ReindexRefs(BlockUid("uid_hd1"), _ORPHAN_HEADER),
         InsertBlock(uid=BlockUid("uid_ch1"), page_id=PageId(9),
-                   parent_uid=BlockUid("uid_hd1"), order_idx=0, text=note,
+                   parent_uid=BlockUid("uid_hd1"), order_idx=OrderIdx(0), text=note,
                    heading=None),
         ReindexRefs(BlockUid("uid_ch1"), note),
         RecordConflictHeader(BlockUid("ghost99"), _DAY, BlockUid("uid_hd1")),
@@ -773,10 +774,10 @@ def test_skipped_op_on_missing_block_lands_a_note_under_the_orphan_header(
 
 def test_skipped_op_appends_under_an_existing_header_for_the_block():
     effs = plan_op(0, _MOVE, _skip_ctx(
-        _MOVE, header=ExistingHeader(BlockUid("uid_old"), 2)))
+        _MOVE, header=ExistingHeader(BlockUid("uid_old"), OrderIdx(2))))
     assert [e for e in effs if isinstance(e, InsertBlock)] == [
         InsertBlock(uid=BlockUid("uid_ch1"), page_id=PageId(9),
-                   parent_uid=BlockUid("uid_old"), order_idx=2,
+                   parent_uid=BlockUid("uid_old"), order_idx=OrderIdx(2),
                    text="move skipped: block ghost99 not found",
                    heading=None)]
 
@@ -830,10 +831,10 @@ def test_create_under_missing_parent_lands_its_text_under_the_parent():
         JournalBlock(BlockUid("newuid1"), deleted=True),
         JournalBlock(BlockUid("ghost_p1"), deleted=True),
         InsertBlock(uid=BlockUid("uid_hd1"), page_id=PageId(9),
-                   parent_uid=None, order_idx=4, text=header, heading=None),
+                   parent_uid=None, order_idx=OrderIdx(4), text=header, heading=None),
         ReindexRefs(BlockUid("uid_hd1"), header),
         InsertBlock(uid=BlockUid("uid_ch1"), page_id=PageId(9),
-                   parent_uid=BlockUid("uid_hd1"), order_idx=0,
+                   parent_uid=BlockUid("uid_hd1"), order_idx=OrderIdx(0),
                    text="lost child", heading=None),
         ReindexRefs(BlockUid("uid_ch1"), "lost child"),
         RecordConflictHeader(BlockUid("ghost_p1"), _DAY, BlockUid("uid_hd1")),
@@ -895,10 +896,10 @@ def test_move_to_missing_parent_leaves_the_block_and_notes_why():
     assert effs == (
         JournalBlock(BlockUid("ghost_p1"), deleted=True),
         InsertBlock(uid=BlockUid("uid_hd1"), page_id=PageId(9),
-                   parent_uid=None, order_idx=4, text=header, heading=None),
+                   parent_uid=None, order_idx=OrderIdx(4), text=header, heading=None),
         ReindexRefs(BlockUid("uid_hd1"), header),
         InsertBlock(uid=BlockUid("uid_ch1"), page_id=PageId(9),
-                   parent_uid=BlockUid("uid_hd1"), order_idx=0, text=note,
+                   parent_uid=BlockUid("uid_hd1"), order_idx=OrderIdx(0), text=note,
                    heading=None),
         ReindexRefs(BlockUid("uid_ch1"), note),
         RecordConflictHeader(BlockUid("uid_b3"), _DAY, BlockUid("uid_hd1")),
@@ -961,10 +962,10 @@ def test_move_that_would_make_a_cycle_leaves_the_block_and_notes_why():
     # Nothing is gone, so nothing is tombstoned.
     assert effs == (
         InsertBlock(uid=BlockUid("uid_hd1"), page_id=PageId(9),
-                   parent_uid=None, order_idx=4, text=header, heading=None),
+                   parent_uid=None, order_idx=OrderIdx(4), text=header, heading=None),
         ReindexRefs(BlockUid("uid_hd1"), header),
         InsertBlock(uid=BlockUid("uid_ch1"), page_id=PageId(9),
-                   parent_uid=BlockUid("uid_hd1"), order_idx=0, text=note,
+                   parent_uid=BlockUid("uid_hd1"), order_idx=OrderIdx(0), text=note,
                    heading=None),
         ReindexRefs(BlockUid("uid_ch1"), note),
         RecordConflictHeader(BlockUid("uid_b2"), _DAY, BlockUid("uid_hd1")),
@@ -984,10 +985,10 @@ def test_move_under_itself_is_skipped_like_any_cycle():
 
 def test_cycle_note_appends_under_an_existing_header_for_the_block():
     effs = plan_op(0, _CYCLE_MOVE, _cycle_ctx(
-        header=ExistingHeader(BlockUid("uid_old"), 2)))
+        header=ExistingHeader(BlockUid("uid_old"), OrderIdx(2))))
     assert [e for e in effs if isinstance(e, InsertBlock)] == [
         InsertBlock(uid=BlockUid("uid_ch1"), page_id=PageId(9),
-                   parent_uid=BlockUid("uid_old"), order_idx=2,
+                   parent_uid=BlockUid("uid_old"), order_idx=OrderIdx(2),
                    text="move skipped: would create a cycle",
                    heading=None)]
 

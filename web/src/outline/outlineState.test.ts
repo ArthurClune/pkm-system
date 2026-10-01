@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
-import { block, uid } from "../test-helpers";
+import { block, ord, uid } from "../test-helpers";
 import {
   beginAuthoritativeRead,
   captureDraft,
@@ -237,7 +237,7 @@ describe("outline causality", () => {
 
   it("authoritative repair adopts server state and reapplies only unresolved ops", () => {
     const initial = createOutlineState("Page", [
-      block("u1", "old"), block("u2", "old other", { order_idx: 1 }),
+      block("u1", "old"), block("u2", "old other", { order_idx: ord(1) }),
     ]);
     const rejected = transitionOutline(initial, {
       type: "local-ops", ticketId: "rejected" as TicketId, nowMs: 0,
@@ -256,7 +256,7 @@ describe("outline causality", () => {
       type: "authoritative-repair", token: started.token,
       blocks: [
         block("u1", "server before later"),
-        block("u2", "server repaired", { order_idx: 1 }),
+        block("u2", "server repaired", { order_idx: ord(1) }),
       ],
     });
 
@@ -294,7 +294,7 @@ describe("outline causality", () => {
       scope: ["page", "Source", "Target"],
       replay: [{
         type: "insert-subtree", node: moved,
-        parentUid: uid("target"), orderIdx: 0,
+        parentUid: uid("target"), orderIdx: ord(0),
       }],
     }).state;
     const childEdit = transitionOutline(moveTracked, {
@@ -326,7 +326,7 @@ describe("outline causality", () => {
         scope: ["page", "Source", "Target"],
         replay: [{
           type: "insert-subtree", node: moved,
-          parentUid: uid("target"), orderIdx: 0,
+          parentUid: uid("target"), orderIdx: ord(0),
         }],
       },
     ).state;
@@ -451,7 +451,7 @@ describe("outline causality", () => {
         scope: ["page", "Source", "Target"],
         replay: [{
           type: "insert-subtree", node: block("moved", "moved"),
-          parentUid: uid("target"), orderIdx: 0,
+          parentUid: uid("target"), orderIdx: ord(0),
         }],
       },
     ).state;
@@ -477,7 +477,7 @@ describe("outline causality", () => {
         scope: ["page", "Source", "Target"],
         replay: [{
           type: "insert-subtree", node: block("moved", "rejected"),
-          parentUid: uid("target"), orderIdx: 0,
+          parentUid: uid("target"), orderIdx: ord(0),
         }],
       },
     ).state;
@@ -496,8 +496,8 @@ describe("outline causality", () => {
 
 describe("block stamps", () => {
   const tree = () => [
-    block("u1", "one", { order_idx: 0, created_at: 100, updated_at: 200 }),
-    block("u2", "two", { order_idx: 1, created_at: 100, updated_at: 200,
+    block("u1", "one", { order_idx: ord(0), created_at: 100, updated_at: 200 }),
+    block("u2", "two", { order_idx: ord(1), created_at: 100, updated_at: 200,
       children: [block("u2c", "child", { created_at: 100, updated_at: 200 })] }),
   ];
   const NOW = 9_000_000;
@@ -517,7 +517,7 @@ describe("block stamps", () => {
     const state = transitionOutline(createOutlineState("Page", tree()), {
       type: "local-ops", ticketId: "w1" as TicketId, nowMs: NOW,
       ops: [{ op: "create", uid: uid("u3"), page_title: "Page", parent_uid: null,
-              order_idx: 2, text: "fresh" }],
+              order_idx: ord(2), text: "fresh" }],
     }).state;
 
     expect(findNode(state.blocks, uid("u3"))?.updated_at).toBe(NOW);
@@ -558,8 +558,8 @@ describe("block stamps", () => {
 
 describe("outline change detection", () => {
   const nested = () => [
-    block("u1", "one", { order_idx: 0, children: [block("u1c", "child")] }),
-    block("u2", "two", { order_idx: 1 }),
+    block("u1", "one", { order_idx: ord(0), children: [block("u1c", "child")] }),
+    block("u2", "two", { order_idx: ord(1) }),
   ];
 
   it("returns the identical state for a remote op that changes nothing", () => {

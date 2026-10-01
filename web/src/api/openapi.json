@@ -2439,7 +2439,8 @@
           },
           "order_idx": {
             "type": "integer",
-            "title": "Order Idx"
+            "title": "Order Idx",
+            "x-brand": "OrderIdx"
           },
           "created_at": {
             "anyOf": [
@@ -2865,7 +2866,8 @@
           },
           "order_idx": {
             "type": "integer",
-            "title": "Order Idx"
+            "title": "Order Idx",
+            "x-brand": "OrderIdx"
           },
           "text": {
             "type": "string",
@@ -3466,7 +3468,8 @@
           },
           "order_idx": {
             "type": "integer",
-            "title": "Order Idx"
+            "title": "Order Idx",
+            "x-brand": "OrderIdx"
           },
           "page_title": {
             "anyOf": [
@@ -4158,7 +4161,8 @@
           },
           "order_idx": {
             "type": "integer",
-            "title": "Order Idx"
+            "title": "Order Idx",
+            "x-brand": "OrderIdx"
           },
           "text": {
             "type": "string",

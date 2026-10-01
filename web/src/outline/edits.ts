@@ -6,10 +6,12 @@
 // order_idx, counted BEFORE the moved block is removed" (plan-3 contract
 // note) — order_idx values are always read off the tree, never array
 // positions, because the server leaves gaps.
-import type { BlockUid, CanonicalTitle } from "../api/brands";
+import type { BlockUid, CanonicalTitle, OrderIdx } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, SetHeadingOp, SetViewTypeOp } from "../api/ops";
 import type { CaretOffset } from "./keyEdits";
+import { FIRST_ORDER_IDX, orderIdxAfter, orderIdxAfterLast,
+         orderIdxPlus } from "./orderIdx";
 import { applyOps, findNode, locate, selectionRoots,
          visibleNeighbor } from "./tree";
 
@@ -39,18 +41,20 @@ function done(blocks: BlockNode[], pageTitle: CanonicalTitle, ops: BlockOp[],
   return { blocks: applyOps(blocks, ops, pageTitle), ops, focus };
 }
 
-/** order_idx that inserts immediately after siblings[index]: the next
- * sibling's order_idx (insert before it), or last + 1. */
-export function idxAfter(siblings: BlockNode[], index: number): number {
-  const next = siblings[index + 1];
-  return next ? next.order_idx : siblings[index].order_idx + 1;
+/** The order key that inserts immediately after siblings[position]: the
+ * next sibling's order_idx (insert before it), or one past it when it's
+ * last. The one place a dense sibling position converts to an order key. */
+export function orderIdxAfterPosition(siblings: BlockNode[],
+                                      position: number): OrderIdx {
+  const next = siblings[position + 1];
+  return next ? next.order_idx : orderIdxAfter(siblings[position].order_idx);
 }
 
 type MoveDirection = "up" | "down";
 
 interface CrossParentDestination {
   parentUid: BlockUid;
-  orderIdx: number;
+  orderIdx: OrderIdx;
   expandUid: BlockUid | null;
 }
 
@@ -70,8 +74,8 @@ function crossParentDestination(
   const target = parentLoc.siblings[targetIndex];
   if (!target) return null;
   const orderIdx = direction === "up"
-    ? (target.children[target.children.length - 1]?.order_idx ?? -1) + 1
-    : target.children[0]?.order_idx ?? 0;
+    ? orderIdxAfterLast(target.children)
+    : target.children[0]?.order_idx ?? FIRST_ORDER_IDX;
   return {
     parentUid: target.uid,
     orderIdx,
@@ -101,7 +105,7 @@ export function splitBlock(blocks: BlockNode[], pageTitle: CanonicalTitle, uid: 
     op: "create", uid: newUid, page_title: pageTitle,
     parent_uid: intoChildren ? uid : parent?.uid ?? null,
     order_idx: intoChildren ? node.children[0].order_idx
-                            : idxAfter(siblings, index),
+                            : orderIdxAfterPosition(siblings, index),
     text: after,
   });
   return done(blocks, pageTitle, ops, { uid: newUid, cursor: 0 });
@@ -151,12 +155,11 @@ export function indentSelection(blocks: BlockNode[], pageTitle: CanonicalTitle,
   const ops: BlockOp[] = [];
   for (const run of runs) {
     const target = run.siblings[run.first - 1];
-    const lastChild = target.children[target.children.length - 1];
     if (target.collapsed) {
       ops.push({ op: "set_collapsed", uid: target.uid, collapsed: false });
     }
     ops.push(...groupMoveOps(
-      run.uids, target.uid, lastChild ? lastChild.order_idx + 1 : 0,
+      run.uids, target.uid, orderIdxAfterLast(target.children),
     ));
   }
   return done(blocks, pageTitle, ops, null);
@@ -179,7 +182,7 @@ export function outdentSelection(blocks: BlockNode[], pageTitle: CanonicalTitle,
     const parentLoc = locate(blocks, run.parent.uid);
     if (!parentLoc) return noop(blocks);
     ops.push(...groupMoveOps(run.uids, parentLoc.parent?.uid ?? null,
-                             idxAfter(parentLoc.siblings, parentLoc.index)));
+                             orderIdxAfterPosition(parentLoc.siblings, parentLoc.index)));
     const end = run.first + run.uids.length;
     const next = runs[i + 1];
     ops.push(...adoptTrailingOps(
@@ -195,13 +198,12 @@ export function indentBlock(blocks: BlockNode[], pageTitle: CanonicalTitle,
   const found = locate(blocks, uid);
   if (!found || found.index === 0) return noop(blocks);
   const prev = found.siblings[found.index - 1];
-  const last = prev.children[prev.children.length - 1];
   const ops: BlockOp[] = [];
   if (prev.collapsed) {
     ops.push({ op: "set_collapsed", uid: prev.uid, collapsed: false });
   }
   ops.push({ op: "move", uid, parent_uid: prev.uid,
-             order_idx: last ? last.order_idx + 1 : 0 });
+             order_idx: orderIdxAfterLast(prev.children) });
   return done(blocks, pageTitle, ops, null);
 }
 
@@ -218,9 +220,8 @@ function adoptTrailingOps(adopter: BlockNode, siblings: BlockNode[],
   if (adopter.collapsed) {
     ops.push({ op: "set_collapsed", uid: adopter.uid, collapsed: false });
   }
-  const last = adopter.children[adopter.children.length - 1];
   ops.push(...groupMoveOps(adopted.map((n) => n.uid), adopter.uid,
-                           last ? last.order_idx + 1 : 0));
+                           orderIdxAfterLast(adopter.children)));
   return ops;
 }
 
@@ -234,7 +235,7 @@ export function outdentBlock(blocks: BlockNode[], pageTitle: CanonicalTitle,
   if (!parentLoc) return noop(blocks);
   const ops: BlockOp[] = [{
     op: "move", uid, parent_uid: parentLoc.parent?.uid ?? null,
-    order_idx: idxAfter(parentLoc.siblings, parentLoc.index),
+    order_idx: orderIdxAfterPosition(parentLoc.siblings, parentLoc.index),
   }];
   ops.push(...adoptTrailingOps(found.node, found.siblings,
                                found.index + 1, found.siblings.length));
@@ -263,7 +264,7 @@ export function moveBlockDown(blocks: BlockNode[], pageTitle: CanonicalTitle,
   if (!found || found.index === found.siblings.length - 1) return noop(blocks);
   const ops: BlockOp[] = [{ op: "move", uid,
                             parent_uid: found.parent?.uid ?? null,
-                            order_idx: idxAfter(found.siblings, found.index + 1) }];
+                            order_idx: orderIdxAfterPosition(found.siblings, found.index + 1) }];
   return done(blocks, pageTitle, ops, null);
 }
 
@@ -339,7 +340,7 @@ function planSelectionRunMove(
       ops: [{
         op: "move", uid: previous.uid,
         parent_uid: run.parent?.uid ?? null,
-        order_idx: idxAfter(run.siblings, last),
+        order_idx: orderIdxAfterPosition(run.siblings, last),
       }],
     };
   }
@@ -415,9 +416,10 @@ export function moveSelectionDown(blocks: BlockNode[], pageTitle: CanonicalTitle
  * siblings right while already-placed group members stay put, so the run
  * lands contiguously in its original order. */
 export function groupMoveOps(uids: BlockUid[], parentUid: BlockUid | null,
-                             orderIdx: number): BlockOp[] {
+                             orderIdx: OrderIdx): BlockOp[] {
   return uids.map((uid, k) => (
-    { op: "move", uid, parent_uid: parentUid, order_idx: orderIdx + k }));
+    { op: "move", uid, parent_uid: parentUid,
+      order_idx: orderIdxPlus(orderIdx, k) }));
 }
 
 /** Move every listed block (a multi-block selection) to the drop target as
@@ -425,7 +427,7 @@ export function groupMoveOps(uids: BlockUid[], parentUid: BlockUid | null,
  * get a move op — a selected descendant travels inside its parent's subtree. */
 export function moveBlocksTo(blocks: BlockNode[], pageTitle: CanonicalTitle,
                              uids: BlockUid[], parentUid: BlockUid | null,
-                             orderIdx: number): EditResult {
+                             orderIdx: OrderIdx): EditResult {
   const roots = selectionRoots(blocks, uids);
   if (roots.length === 0) return noop(blocks);
   return done(blocks, pageTitle, groupMoveOps(roots, parentUid, orderIdx), null);

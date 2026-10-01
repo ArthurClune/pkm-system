@@ -1,11 +1,11 @@
 ---
 # pkm-7uxw
 title: Named types for bare primitives (2026-10-01 review)
-status: todo
+status: completed
 type: epic
 priority: normal
 created_at: 2026-10-01T07:44:26Z
-updated_at: 2026-10-01T07:44:52Z
+updated_at: 2026-10-01T20:55:22Z
 ---
 
 ## Context
@@ -46,3 +46,20 @@ Today the only named primitive is `Sha256Hex`: `NewType` in `server/src/pkm/cont
 ## Considered and rejected
 
 `MimeType` (an open set; the closed parts are already runtime frozensets), `IsoDate`/`JournalDay` (`since`/`until` accept two formats by design), `Generation`, `RecoveryToken`, hex-secret NewTypes on `Config`, Bluesky `Did`, `HttpStatusCode`, pagination offset/limit, separate self/parent uid types (use keyword args instead), a brand on raw titles (they are free text), pixel x/y.
+
+## Summary of Changes
+
+All 13 children are complete.
+
+- **Bugs fixed:**
+  - title lookups that skipped canonicalisation (pkm-dapm);
+  - the tombstone fallback, which no longer deletes anything for an unknown kind (pkm-38w9);
+  - the synthetic `page_id` in asset ref groups (pkm-izm4);
+  - importer uid validation and one ref-token regex (pkm-9km9);
+  - the sidebar panel keyed by the requested title (pkm-thee);
+  - CLI/MCP appends landing mid-list under gapped order keys (pkm-la88).
+- **Named types:**
+  - on the server: `NormalizedTitle` / `CanonicalTitle`, `BlockUid` / `PageId` / `SidebarEntryId`, `SyncSeq`, `BatchId` / `ClientId`, `Sha256Hex`, `OrderIdx` and the slice-local ids, plus Literals for closed-set strings;
+  - carried to the web as brands by the x-brand gen-types pipeline (pkm-85x3), plus web-only `PendingRowId` and the typed replica worker RPC map (pkm-ke5j);
+  - EpochMs was not branded: keyword-only and named arguments plus the `mono_ms` rename instead.
+- **Follow-ups outside the epic:** pkm-z2qa (two outline sessions for a non-canonical title; deferred), pkm-78fk (batch `index` meaning), pkm-c1hj (perf harness under load).

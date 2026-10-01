@@ -5,7 +5,7 @@ import type { ClientId } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
-import { READ_INIT, block, makeSync, pagePayload, stubFetch, title, type SyncFake, uid } from "../test-helpers";
+import { block, makeSync, ord, pagePayload, READ_INIT, stubFetch, type SyncFake, title, uid } from "../test-helpers";
 import { findNode } from "./tree";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -32,13 +32,13 @@ function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
 it("dnd.moveTo enqueues one move op with no page_title and reorders optimistically", () => {
   const sync = makeSync();
   const initial = [
-    block("u1", "first", { order_idx: 0 }),
-    block("u2", "second", { order_idx: 1 }),
+    block("u1", "first", { order_idx: ord(0) }),
+    block("u2", "second", { order_idx: ord(1) }),
   ];
   const getOutline = setup(sync, "Page", initial);
   act(() => {
     getOutline().dnd.moveTo([uid("u2")],
-      { parent_uid: null, order_idx: 0, page_title: "Page" });
+      { parent_uid: null, order_idx: ord(0), page_title: "Page" });
   });
   expect(sync.sent).toEqual([
     [{ op: "move", uid: "u2", parent_uid: null, order_idx: 0 }],
@@ -49,14 +49,14 @@ it("dnd.moveTo enqueues one move op with no page_title and reorders optimistical
 it("dnd.moveTo with a group moves every block, order preserved", () => {
   const sync = makeSync();
   const initial = [
-    block("u1", "first", { order_idx: 0 }),
-    block("u2", "second", { order_idx: 1 }),
-    block("u3", "third", { order_idx: 2 }),
+    block("u1", "first", { order_idx: ord(0) }),
+    block("u2", "second", { order_idx: ord(1) }),
+    block("u3", "third", { order_idx: ord(2) }),
   ];
   const getOutline = setup(sync, "Page", initial);
   act(() => {
     getOutline().dnd.moveTo([uid("u2"), uid("u3")],
-      { parent_uid: null, order_idx: 0, page_title: "Page" });
+      { parent_uid: null, order_idx: ord(0), page_title: "Page" });
   });
   expect(sync.sent).toEqual([[
     { op: "move", uid: "u2", parent_uid: null, order_idx: 0 },
@@ -89,9 +89,9 @@ it("remote set_view_type batches update the same tree path", () => {
 it("applies one remote move exactly once across two same-title views", () => {
   const sync = makeSync();
   const initial = [
-    block("u1", "first", { order_idx: 0 }),
-    block("u2", "second", { order_idx: 1 }),
-    block("u3", "third", { order_idx: 2 }),
+    block("u1", "first", { order_idx: ord(0) }),
+    block("u2", "second", { order_idx: ord(1) }),
+    block("u3", "third", { order_idx: ord(2) }),
   ];
   const outlines: Outline[] = [];
   render(
@@ -105,7 +105,7 @@ it("applies one remote move exactly once across two same-title views", () => {
   act(() => sync.emit({
     client_id: "other" as ClientId,
     ts: 1,
-    ops: [{ op: "move", uid: uid("u3"), parent_uid: null, order_idx: 0 }],
+    ops: [{ op: "move", uid: uid("u3"), parent_uid: null, order_idx: ord(0) }],
   }));
 
   for (const outline of outlines) {
@@ -118,17 +118,17 @@ it("starts one target refetch for one remote batch across same-title views", asy
   const sync = makeSync();
   const fetchMock = stubFetch([
     ["/api/page/Page", pagePayload("Page", [
-      block("known", "known", { order_idx: 0 }),
-      block("moved", "moved", { order_idx: 1 }),
+      block("known", "known", { order_idx: ord(0) }),
+      block("moved", "moved", { order_idx: ord(1) }),
     ])],
   ]);
   render(
     <SyncContext.Provider value={sync}>
       <Harness pageTitle="Page"
-        initial={[block("known", "known", { order_idx: 0 })]}
+        initial={[block("known", "known", { order_idx: ord(0) })]}
         onReady={() => undefined} />
       <Harness pageTitle="Page"
-        initial={[block("known", "known", { order_idx: 0 })]}
+        initial={[block("known", "known", { order_idx: ord(0) })]}
         onReady={() => undefined} />
     </SyncContext.Provider>);
 
@@ -137,7 +137,7 @@ it("starts one target refetch for one remote batch across same-title views", asy
       client_id: "other" as ClientId,
       ts: 1,
       ops: [{ op: "move", uid: uid("moved"), parent_uid: null,
-              order_idx: 1, page_title: "Page" }],
+              order_idx: ord(1), page_title: "Page" }],
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -166,8 +166,8 @@ it("quoted TODO controls preserve the quote prefix and update optimistically", (
 it("dnd.removeSubtreeLocal detaches the subtree, sends no ops, and clears focus inside it", () => {
   const sync = makeSync();
   const initial = [
-    { ...block("p1", "parent", { order_idx: 0 }),
-      children: [block("c1", "child", { order_idx: 0 })] },
+    { ...block("p1", "parent", { order_idx: ord(0) }),
+      children: [block("c1", "child", { order_idx: ord(0) })] },
   ];
   const getOutline = setup(sync, "Page", initial);
   act(() => { getOutline().handlers.onFocusBlock(uid("c1"), 0); });
@@ -186,12 +186,12 @@ it("dnd.removeSubtreeLocal detaches the subtree, sends no ops, and clears focus 
 
 it("dnd.insertSubtreeLocal inserts at the target and sends no ops", () => {
   const sync = makeSync();
-  const initial = [block("u1", "only", { order_idx: 0 })];
+  const initial = [block("u1", "only", { order_idx: ord(0) })];
   const getOutline = setup(sync, "Page", initial);
-  const node: BlockNode = block("new", "inserted", { order_idx: 0 });
+  const node: BlockNode = block("new", "inserted", { order_idx: ord(0) });
   act(() => {
     getOutline().dnd.insertSubtreeLocal(node,
-      { parent_uid: null, order_idx: 0, page_title: "Page" });
+      { parent_uid: null, order_idx: ord(0), page_title: "Page" });
   });
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(["new", "u1"]);
   expect(sync.sent).toEqual([]);
@@ -205,8 +205,8 @@ it("a remote parent-based cross-page move (server-resolved page_title) removes f
   const sync = makeSync();
   const fetchMock = stubFetch([
     ["/api/page/Dst", pagePayload("Dst", [
-      block("tp", "target parent", { order_idx: 0 }),
-      block("moved", "moved here", { order_idx: 1 }),
+      block("tp", "target parent", { order_idx: ord(0) }),
+      block("moved", "moved here", { order_idx: ord(1) }),
     ])],
   ]);
   let src!: Outline;
@@ -214,18 +214,18 @@ it("a remote parent-based cross-page move (server-resolved page_title) removes f
   render(
     <SyncContext.Provider value={sync}>
       <Harness pageTitle="Src"
-        initial={[{ ...block("p", "parent", { order_idx: 0 }),
-                    children: [block("moved", "moved here", { order_idx: 0 })] }]}
+        initial={[{ ...block("p", "parent", { order_idx: ord(0) }),
+                    children: [block("moved", "moved here", { order_idx: ord(0) })] }]}
         onReady={(o) => { src = o; }} />
       <Harness pageTitle="Dst"
-        initial={[block("tp", "target parent", { order_idx: 0 })]}
+        initial={[block("tp", "target parent", { order_idx: ord(0) })]}
         onReady={(o) => { dst = o; }} />
     </SyncContext.Provider>);
 
   await act(async () => {
     sync.emit({
       client_id: "other" as ClientId, ts: 1,
-      ops: [{ op: "move", uid: uid("moved"), parent_uid: uid("tp"), order_idx: 0,
+      ops: [{ op: "move", uid: uid("moved"), parent_uid: uid("tp"), order_idx: ord(0),
                page_title: "Dst" }],
     });
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
@@ -244,19 +244,19 @@ it("target-side refetch ignores global settlement and adopts a safe response", a
   const sync = makeSync("connected", {
     settled: () => new Promise(() => undefined),
   });
-  const serverBlocks = [block("srv", "from server", { order_idx: 0 })];
+  const serverBlocks = [block("srv", "from server", { order_idx: ord(0) })];
   const fetchMock = stubFetch([
     ["/api/page/Page", pagePayload("Page", serverBlocks)],
   ]);
   const getOutline = setup(sync, "Page",
-    [block("u1", "first", { order_idx: 0 })]);
+    [block("u1", "first", { order_idx: ord(0) })]);
   act(() => { getOutline().handlers.onFocusBlock(uid("u1"), 0); });
 
   act(() => {
     sync.emit({
       client_id: "other" as ClientId, ts: 1,
       ops: [{ op: "move", uid: uid("unknown"), parent_uid: null,
-               order_idx: 0, page_title: "Page" }],
+               order_idx: ord(0), page_title: "Page" }],
     });
   });
 

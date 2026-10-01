@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { sha256Hex, type Sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
-import { block, title, uid } from "../test-helpers";
+import { block, ord, title, uid } from "../test-helpers";
 import { nodeSubtreePairs, stampBaseTextHashes, withoutStamps } from "./baseTextHash";
 import { backspaceAtStart } from "./edits";
 
@@ -51,12 +51,12 @@ describe("stampBaseTextHashes", () => {
 
   test("ops that carry no hash pass through untouched and in order", () => {
     const ops: BlockOp[] = [
-      { op: "move", uid: uid("u2"), parent_uid: null, order_idx: 0 },
+      { op: "move", uid: uid("u2"), parent_uid: null, order_idx: ord(0) },
       { op: "update_text", uid: uid("u1"), text: "after" },
       { op: "set_collapsed", uid: uid("u1"), collapsed: true },
     ];
     const stamped = stampBaseTextHashes(
-      [block("u1", "before"), block("u2", "x", { order_idx: 1 })], "AI", ops);
+      [block("u1", "before"), block("u2", "x", { order_idx: ord(1) })], "AI", ops);
     expect(stamped[0]).toBe(ops[0]);
     expect(stamped[2]).toBe(ops[2]);
     expect(stamped[1]).toMatchObject({ base_text_hash: sha256Hex("before") });
@@ -97,7 +97,7 @@ describe("stampBaseTextHashes on delete", () => {
     block("r", "root", {
       children: [
         block("c1", "child one", { children: [block("g", "grandchild")] }),
-        block("c2", "child two", { order_idx: 1 }),
+        block("c2", "child two", { order_idx: ord(1) }),
       ],
     }),
   ];
@@ -131,7 +131,7 @@ describe("stampBaseTextHashes on delete", () => {
     // stood before the merge, not the merged text on prev.
     const blocks = [
       block("a", "hello"),
-      block("b", " world", { order_idx: 1 }),
+      block("b", " world", { order_idx: ord(1) }),
     ];
     const { ops } = backspaceAtStart(blocks, title("AI"), uid("b"));
     expect(ops.map((op) => op.op)).toEqual(["update_text", "delete"]);
@@ -147,8 +147,8 @@ describe("stampBaseTextHashes on delete", () => {
     // block's children out and then deletes it, but the walk must still hash
     // the tree the earlier ops in the batch left behind.
     const ops: BlockOp[] = [
-      { op: "move", uid: uid("c1"), parent_uid: null, order_idx: 1 },
-      { op: "move", uid: uid("c2"), parent_uid: null, order_idx: 2 },
+      { op: "move", uid: uid("c1"), parent_uid: null, order_idx: ord(1) },
+      { op: "move", uid: uid("c2"), parent_uid: null, order_idx: ord(2) },
       { op: "delete", uid: uid("r") },
     ];
     expect(stampBaseTextHashes(tree(), "AI", ops)[2]).toEqual({

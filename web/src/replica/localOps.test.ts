@@ -5,7 +5,7 @@ import { opBumpsUpdatedAt } from "../outline/blockStamps";
 import { applyLocalOps, getOrCreateLocalPage, LocalOpError, subtreeUids } from "./localOps";
 import { setPlainSpaceTitleCanonicalization } from "./meta";
 import { openTestDb, type TestDb } from "./testDb";
-import { uid } from "../test-helpers";
+import { ord, uid } from "../test-helpers";
 
 let t: TestDb;
 beforeEach(async () => {
@@ -163,7 +163,7 @@ describe("applyLocalOps", () => {
   test("create shifts following siblings and reindexes refs", () => {
     applyLocalOps(t.db, [{
       op: "create", uid: uid("uid_new1"), page_title: "AI", parent_uid: null,
-      order_idx: 1, text: "links [[ML]] and [[Brand New]]", view_type: "numbered",
+      order_idx: ord(1), text: "links [[ML]] and [[Brand New]]", view_type: "numbered",
     }], 99);
     expect(blockRow("uid_new1").order_idx).toBe(1);
     expect(blockRow("uid_new1").view_type).toBe("numbered");
@@ -182,7 +182,7 @@ describe("applyLocalOps", () => {
   test("create skips blank refs while still indexing nonblank refs in the same block", () => {
     applyLocalOps(t.db, [{
       op: "create", uid: uid("uid_blank_ref"), page_title: "AI", parent_uid: null,
-      order_idx: 1, text: "skip [[   ]] but keep [[Valid Page]]",
+      order_idx: ord(1), text: "skip [[   ]] but keep [[Valid Page]]",
     }], 99);
 
     expect(rows("SELECT title FROM pages WHERE title = 'Untitled'")).toEqual([]);
@@ -210,7 +210,7 @@ describe("applyLocalOps", () => {
   test("create and update_text maintain block_refs", () => {
     applyLocalOps(t.db, [{
       op: "create", uid: uid("uid_src1"), page_title: "P", parent_uid: null,
-      order_idx: 0, text: "see ((uid_tgt1)) and ((uid_tgt1))",
+      order_idx: ord(0), text: "see ((uid_tgt1)) and ((uid_tgt1))",
     }], 99);
     expect(rows("SELECT * FROM block_refs")).toEqual([
       { src_block_uid: "uid_src1", target_block_uid: "uid_tgt1" }]);
@@ -225,7 +225,7 @@ describe("applyLocalOps", () => {
   test("delete cascades block_refs with the block", () => {
     applyLocalOps(t.db, [{
       op: "create", uid: uid("uid_src2"), page_title: "P", parent_uid: null,
-      order_idx: 0, text: "see ((uid_tgt1))",
+      order_idx: ord(0), text: "see ((uid_tgt1))",
     }], 99);
 
     applyLocalOps(t.db, [{ op: "delete", uid: uid("uid_src2") }], 99);
@@ -236,7 +236,7 @@ describe("applyLocalOps", () => {
 
   test("cross-page move rewrites the whole subtree's page_id", () => {
     applyLocalOps(t.db, [{
-      op: "move", uid: uid("uid_r2"), parent_uid: null, order_idx: 0,
+      op: "move", uid: uid("uid_r2"), parent_uid: null, order_idx: ord(0),
       page_title: "ML",
     }], 99);
     expect(blockRow("uid_r2").page_id).toBe(2);
@@ -247,7 +247,7 @@ describe("applyLocalOps", () => {
     const uids = makeChain(150, "move_150");
 
     applyLocalOps(t.db, [{
-      op: "move", uid: uid(uids[0]), parent_uid: null, order_idx: 0,
+      op: "move", uid: uid(uids[0]), parent_uid: null, order_idx: ord(0),
       page_title: "ML",
     }], 99);
 
@@ -258,7 +258,7 @@ describe("applyLocalOps", () => {
 
   test("move under a parent on the same page shifts siblings at the target", () => {
     applyLocalOps(t.db, [{
-      op: "move", uid: uid("uid_r1"), parent_uid: uid("uid_r2"), order_idx: 0,
+      op: "move", uid: uid("uid_r1"), parent_uid: uid("uid_r2"), order_idx: ord(0),
       page_title: null,
     }], 99);
     expect(blockRow("uid_r1").parent_uid).toBe("uid_r2");
@@ -320,7 +320,7 @@ describe("applyLocalOps", () => {
     applyLocalOps(t.db, [
       { op: "create_page", page_title: "   " },
       { op: "create", uid: uid("uid_blank"), page_title: "\n\t",
-        parent_uid: null, order_idx: 0, text: "fallback" },
+        parent_uid: null, order_idx: ord(0), text: "fallback" },
     ], 99);
 
     expect(rows("SELECT title FROM pages WHERE trim(title) = ''")).toEqual([]);
@@ -335,8 +335,8 @@ describe("applyLocalOps", () => {
     applyLocalOps(t.db, [
       { op: "create_page", page_title: "  Shared Target  " },
       { op: "create", uid: uid("uid_active"), page_title: " Shared Target ",
-        parent_uid: null, order_idx: 0, text: "active" },
-      { op: "move", uid: uid("uid_r2"), parent_uid: null, order_idx: 1,
+        parent_uid: null, order_idx: ord(0), text: "active" },
+      { op: "move", uid: uid("uid_r2"), parent_uid: null, order_idx: ord(1),
         page_title: "  Shared Target " },
     ], 99);
 
@@ -365,7 +365,7 @@ describe("applyLocalOps", () => {
     expect(() => applyLocalOps(t.db, [
       { op: "update_text", uid: uid("uid_r1"), text: "changed" },
       { op: "create", uid: uid("uid_r2"), page_title: "AI", parent_uid: null,
-        order_idx: 0, text: "collides" },
+        order_idx: ord(0), text: "collides" },
     ], 99)).toThrow();
     expect(blockRow("uid_r1").text).toBe("first"); // rolled back
   });
@@ -394,7 +394,7 @@ describe("applyLocalOps", () => {
          " update_text to it in the same batch is skipped too", () => {
       applyLocalOps(t.db, [
         { op: "create", uid: uid("uid_orphan"), page_title: "AI",
-          parent_uid: uid("uid_ghost_parent"), order_idx: 0, text: "lost child" },
+          parent_uid: uid("uid_ghost_parent"), order_idx: ord(0), text: "lost child" },
         { op: "update_text", uid: uid("uid_orphan"), text: "still lost" },
         { op: "update_text", uid: uid("uid_r1"), text: "sibling applied" },
       ], 99);
@@ -407,7 +407,7 @@ describe("applyLocalOps", () => {
       const before = blockRow("uid_r1");
 
       applyLocalOps(t.db, [
-        { op: "move", uid: uid("uid_r1"), parent_uid: uid("uid_ghost_parent"), order_idx: 0 },
+        { op: "move", uid: uid("uid_r1"), parent_uid: uid("uid_ghost_parent"), order_idx: ord(0) },
         { op: "update_text", uid: uid("uid_r2"), text: "sibling applied" },
       ], 99);
 
@@ -428,7 +428,7 @@ describe("applyLocalOps", () => {
     test("a create under a parent on another page follows the parent", () => {
       applyLocalOps(t.db, [
         { op: "create", uid: uid("uid_new1"), page_title: "AI",
-          parent_uid: uid("uid_m1"), order_idx: 0, text: "typed child" },
+          parent_uid: uid("uid_m1"), order_idx: ord(0), text: "typed child" },
       ], 99);
 
       expect(blockRow("uid_new1")).toMatchObject(
@@ -438,7 +438,7 @@ describe("applyLocalOps", () => {
     test("a create under a live parent resolves no page for its stale title", () => {
       applyLocalOps(t.db, [
         { op: "create", uid: uid("uid_new1"), page_title: "Never Seen Here",
-          parent_uid: uid("uid_m1"), order_idx: 0, text: "typed child" },
+          parent_uid: uid("uid_m1"), order_idx: ord(0), text: "typed child" },
       ], 99);
 
       expect(blockRow("uid_new1").page_id).toBe(2);
@@ -448,7 +448,7 @@ describe("applyLocalOps", () => {
 
     test("a move whose page_title no longer names the parent's page follows the parent", () => {
       applyLocalOps(t.db, [
-        { op: "move", uid: uid("uid_r2"), parent_uid: uid("uid_m1"), order_idx: 0,
+        { op: "move", uid: uid("uid_r2"), parent_uid: uid("uid_m1"), order_idx: ord(0),
           page_title: "Never Seen Here" },
       ], 99);
 
@@ -466,7 +466,7 @@ describe("applyLocalOps", () => {
       const before = replicaState().blocks;
 
       applyLocalOps(t.db, [
-        { op: "move", uid: uid("uid_r2"), parent_uid: uid(parent), order_idx: 0 },
+        { op: "move", uid: uid("uid_r2"), parent_uid: uid(parent), order_idx: ord(0) },
         { op: "update_text", uid: uid("uid_m1"), text: "sibling applied" },
       ], 99);
 
@@ -481,7 +481,7 @@ describe("applyLocalOps", () => {
       const [root, , , leaf] = makeChain(4, "deep");
 
       applyLocalOps(t.db, [
-        { op: "move", uid: uid(root), parent_uid: uid(leaf), order_idx: 0 },
+        { op: "move", uid: uid(root), parent_uid: uid(leaf), order_idx: ord(0) },
       ], 99);
 
       expect(blockRow(root).parent_uid).toBeNull();
@@ -500,7 +500,7 @@ describe("applyLocalOps", () => {
 describe("opBumpsUpdatedAt agrees with what the replica actually writes", () => {
   const ops: Array<[string, BlockOp]> = [
     ["update_text", { op: "update_text", uid: uid("uid_r1"), text: "changed" }],
-    ["move", { op: "move", uid: uid("uid_r1"), parent_uid: null, order_idx: 5 }],
+    ["move", { op: "move", uid: uid("uid_r1"), parent_uid: null, order_idx: ord(5) }],
     ["set_heading", { op: "set_heading", uid: uid("uid_r1"), heading: 2 }],
     ["set_view_type",
      { op: "set_view_type", uid: uid("uid_r1"), view_type: "numbered" }],

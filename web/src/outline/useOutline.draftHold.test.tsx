@@ -8,7 +8,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
-import { block, makeSync, title, type SyncFake, uid } from "../test-helpers";
+import { block, makeSync, ord, type SyncFake, title, uid } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ pageTitle, initial, onReady }: {
@@ -37,7 +37,7 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 const PAGE = "Draft Hold";
-const one = () => [block("a", "", { order_idx: 0 })];
+const one = () => [block("a", "", { order_idx: ord(0) })];
 
 it("a held draft does not flush when the debounce elapses", () => {
   const sync = makeSync();

@@ -21,7 +21,7 @@ from typing import Annotated, Literal, Union
 from pydantic import (BaseModel, ConfigDict, Field, TypeAdapter,
                       ValidationError, model_validator)
 
-from pkm.contracts.ops import (BlockOp, CreateOp, DeleteOp, MoveOp,
+from pkm.contracts.ops import (BlockOp, CreateOp, DeleteOp, MoveOp, OrderIdx,
                                Sha256Hex, UpdateTextOp, subtree_hash)
 from pkm.contracts.responses import BlockNode, walk_blocks
 from pkm.planning import (BuildError, Planner, parse_uid_spec, plan_update,
@@ -67,9 +67,9 @@ def _alias_uid(value: str, aliases: dict[str, str]) -> str:
 def _in_batch_uid(spec: str | None, created: set[str]) -> str | None:
     """The uid of a `((uid))` spec naming a block created earlier in this
     batch, else None. Those uids are on none of the fetched pages, so
-    `resolve_parent` would reject the spec and `next_child_idx` could not
-    count the block's children -- both consult the fetched blocks, which
-    predate the batch."""
+    `resolve_parent` would reject the spec and `next_child_order_idx` could
+    not find its children's order keys -- both consult the fetched blocks,
+    which predate the batch."""
     uid = parse_uid_spec(spec)
     return uid if uid is not None and uid in created else None
 
@@ -103,6 +103,9 @@ class CreateParams(_Strict):
     page: str = Field(min_length=1)
     text: str
     parent: str | None = None
+    # A user-supplied order_idx, taken verbatim -- not minted here:
+    # pyrefly rejects `Field(ge=0)` against a NewType field, so this stays
+    # plain int and the caller mints OrderIdx once it reads `index`.
     index: int | None = Field(default=None, ge=0)
     as_: str | None = Field(default=None, alias="as")
 
@@ -132,6 +135,7 @@ class MoveParams(_Strict):
     uid: str = Field(min_length=1)
     page: str = Field(min_length=1)
     parent: str | None = None
+    # See CreateParams.index -- same plain-int, mint-on-read reasoning.
     index: int | None = Field(default=None, ge=0)
 
 
@@ -373,8 +377,10 @@ def _batch_create(cmd: CreateCommand | TodoCommand,
         ops = [*ops, *ctx.planner.creates(blocks, p.page, parent,
                                           [(0, p.text)], todo, off_page)]
     else:
-        ops = [*ops, ctx.planner.create_at(p.page, parent, p.index, p.text,
-                                           todo)]
+        # Minted here, the one place this command reads `p.index`: a
+        # user-supplied order_idx, taken verbatim.
+        ops = [*ops, ctx.planner.create_at(p.page, parent, OrderIdx(p.index),
+                                           p.text, todo)]
     if p.as_:
         # The content block, never a heading this command had to create
         # first: the alias names what the caller asked for.
@@ -413,9 +419,12 @@ def _batch_move(cmd: MoveCommand, ctx: _BatchCtx) -> list[MoveOp]:
         if missing is not None:
             raise BuildError("move target heading does not exist")
         off_page = False
-    idx = p.index if p.index is not None \
+    # Minted here, the one place this command reads `p.index`: a
+    # user-supplied order_idx, taken verbatim.
+    idx = OrderIdx(p.index) if p.index is not None \
         else ctx.planner.bump(blocks, p.page, parent, off_page)
-    return [MoveOp(op="move", uid=uid, parent_uid=parent, order_idx=idx,
+    return [MoveOp(op="move", uid=uid, parent_uid=parent,
+                   order_idx=idx,
                    page_title=None if parent else p.page)]
 
 
@@ -440,7 +449,7 @@ def plan_batch(commands: Sequence[object], pages: PageBlocks,
     `create`/`todo` accept an `as` alias so later commands in the same
     batch can reference the block just created via `parent: "{{alias}}"`.
     Those in-batch uids live in `_BatchCtx.created`, since they don't exist
-    on the fetched pages that `resolve_parent`/`next_child_idx` consult.
+    on the fetched pages that `resolve_parent`/`next_child_order_idx` consult.
 
     `subtrees` maps each `delete` uid the shell fetched (see `delete_uids`)
     to that block's subtree, or None when the fetch found no block. A

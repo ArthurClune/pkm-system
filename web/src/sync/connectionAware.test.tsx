@@ -10,7 +10,7 @@ import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { uploadAsset } from "./assets";
 import { useOutline, type Outline } from "../outline/useOutline";
-import { FakeWebSocket, block, jsonResponse, pagePayload, title, uid } from "../test-helpers";
+import { block, FakeWebSocket, jsonResponse, ord, pagePayload, title, uid } from "../test-helpers";
 import { SyncProvider } from "./SyncProvider";
 
 vi.mock("./assets", async (importOriginal) => ({
@@ -51,7 +51,7 @@ beforeEach(() => {
     const url = String(input);
     if (url.startsWith("/api/page/Page")) {
       return jsonResponse(pagePayload("Page",
-        [block("u1", "server text", { order_idx: 0 })]));
+        [block("u1", "server text", { order_idx: ord(0) })]));
     }
     return jsonResponse({ ok: true });
   });
@@ -74,7 +74,7 @@ function renderOutline(initial: BlockNode[]): () => Outline {
 
 test("(a) a text draft whose debounce fires after disconnect posts no op", () => {
   vi.useFakeTimers();
-  const getOutline = renderOutline([block("u1", "", { order_idx: 0 })]);
+  const getOutline = renderOutline([block("u1", "", { order_idx: ord(0) })]);
   act(() => lastWs().open()); // connected
 
   act(() => getOutline().handlers.onFocusBlock(uid("u1"), 0));
@@ -94,7 +94,7 @@ test("(b) an image upload completing after disconnect is preserved and flushes o
       size: 1, url: "/assets/abc/pic.png", existing: false,
     });
   }));
-  const getOutline = renderOutline([block("u1", "", { order_idx: 0 })]);
+  const getOutline = renderOutline([block("u1", "", { order_idx: ord(0) })]);
   act(() => lastWs().open()); // connected
 
   const file = new File(["x"], "pic.png", { type: "image/png" });
@@ -119,7 +119,7 @@ test("(b) an image upload completing after disconnect is preserved and flushes o
 
 test("(c) reconnect flushes the ops preserved while offline, in order", async () => {
   vi.useFakeTimers();
-  const getOutline = renderOutline([block("u1", "", { order_idx: 0 })]);
+  const getOutline = renderOutline([block("u1", "", { order_idx: ord(0) })]);
   act(() => lastWs().open()); // first connect
 
   act(() => getOutline().handlers.onFocusBlock(uid("u1"), 0));

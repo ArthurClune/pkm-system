@@ -14,7 +14,7 @@
 // aside, never retried forever (spec section 6).
 
 import type { BlockOp } from "../api/ops";
-import type { PendingBatch, PoisonedBatch } from "./client";
+import type { PendingBatch, PendingRowId, PoisonedBatch } from "./client";
 import { type ReplicaDb, rollbackToSavepoint } from "./db";
 import { applyLocalOps, LocalOpError } from "./localOps";
 import { sha256Hex } from "./sha256";
@@ -118,7 +118,7 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
 
 const toBatch = (r: { id: number; batch_id: string; ops_json: string;
                       poisoned: number }): PendingBatch => ({
-  id: r.id,
+  id: r.id as PendingRowId,
   batch_id: r.batch_id,
   ops: JSON.parse(r.ops_json) as BlockOp[],
   poisoned: r.poisoned !== 0,
@@ -165,8 +165,8 @@ export function poisonedBatches(db: ReplicaDb): PoisonedBatch[] {
     "SELECT id, batch_id, ops_json, error FROM pending_ops" +
     " WHERE poisoned != 0 ORDER BY id",
   ).map((row) => ({
-    rowId: row.id,
-    batchId: row.batch_id,
+    id: row.id as PendingRowId,
+    batch_id: row.batch_id,
     ops: JSON.parse(row.ops_json) as BlockOp[],
     ...poisonDetails(row.error),
   }));
@@ -181,7 +181,7 @@ export function pendingCount(db: ReplicaDb): number {
  * A row id alone is not an identity: a reset or a file replacement restarts
  * the AUTOINCREMENT ids, so a delete that was queued for a batch the
  * rebuild dropped would otherwise remove the new batch that took its id. */
-export function deleteBatch(db: ReplicaDb, id: number, batchId: string): boolean {
+export function deleteBatch(db: ReplicaDb, id: PendingRowId, batchId: string): boolean {
   const matches = db.select<{ id: number }>(
     "SELECT id FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
   if (matches.length === 0) return false;
@@ -189,7 +189,7 @@ export function deleteBatch(db: ReplicaDb, id: number, batchId: string): boolean
   return true;
 }
 
-export function markPoisoned(db: ReplicaDb, id: number, error: string,
+export function markPoisoned(db: ReplicaDb, id: PendingRowId, error: string,
                              batchId: string): boolean {
   const matches = db.select<{ id: number }>(
     "SELECT id FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
@@ -202,7 +202,7 @@ export function markPoisoned(db: ReplicaDb, id: number, error: string,
 
 /** A pending_ops row exactly as stored, for moving the queue between files. */
 export interface DurablePendingRow {
-  id: number;
+  id: PendingRowId;
   batch_id: string;
   ops_json: string;
   poisoned: number;

@@ -34,7 +34,7 @@ preservation resolves collisions at push time.
 | WS hub | `server/.../ws.py`, `notify.py` | Post-commit `{type:"seq",seq}`; generation rotation adds `force:true,generation`; applied-op echoes; drops a client at `QUEUE_SIZE` (64) or a `SEND_TIMEOUT` (10 s) send |
 | Replica | `web/src/replica/` (worker, OPFS) | sqlite-wasm copy of the graph (BASE_DDL only) on the OPFS SAHPool VFS |
 | Op queue | `web/src/sync/opQueue.ts`, `web/src/replica/queue.ts` | Durable `pending_ops` rows; optimistic local apply; drain-on-reconnect. Its pure rules: lane ordering in `outbox.ts`, poison-mark intents in `poisonIntents.ts` (stored by `poisonIntentStore.ts`) |
-| Sync orchestration | `web/src/sync/SyncProvider.tsx`, `useSocketLifecycle.ts`, `reconnectFlow.ts`, `replicaSync.ts` | Connect/reconnect ordering, cursor pull loop, recovery, view refetch (`resyncSeq`). `syncFailures.ts` classifies pull failures |
+| Sync orchestration | `web/src/sync/SyncProvider.tsx`, `useSocketLifecycle.ts`, `reconnectFlow.ts`, `replicaSync.ts` | Connect/reconnect ordering, cursor pull loop, recovery, view refetch (`resyncGeneration`). `syncFailures.ts` classifies pull failures |
 | Offline API shim | `web/src/replica/localApi/` | Serves the read API's JSON shapes from the replica, pinned by `shared/fixtures/shim_parity.json` and by generated return types |
 
 `createOpQueue(replica)` takes no callbacks. Every `OpQueue` signal
@@ -71,7 +71,7 @@ Success is the 2xx, and the client's own state arrives through the same changes
 pull every other client uses. The client reads the ack's `seq` and
 `skipped`. `seq` goes to the pending-row delete, so a pull already in flight can accept its window (see
 [sync-recovery.md § Windows and the pending queue](sync-recovery.md#windows-and-the-pending-queue)).
-A non-empty `skipped` bumps `resyncSeq` regardless of replica state (see
+A non-empty `skipped` bumps `resyncGeneration` regardless of replica state (see
 [When views refetch](#when-views-refetch)): a replica-backed tab's own feed
 tombstones the row, but nothing else refetches the view for it.
 State flows down one way. Incoming WS op echoes are never written to the
@@ -191,6 +191,19 @@ fills a missing `page_title` only alongside a text hash it fills. Undo history
 records unstamped ops and `undoManager.dispatch` stamps at replay time,
 because an entry-time hash is stale and lands a spurious `[[conflict]]` entry.
 
+The journal seq (`changes.seq`) is typed `SyncSeq` on both sides, the same
+`brand()`/x-brand path as `Sha256Hex` (see
+[backend.md § HTTP API reference](backend.md#http-api-reference) and
+[frontend.md § API layer](frontend.md#api-layer)): `ChangesPayload.next_since`/
+`latest_seq`, `SnapshotPayload.seq` and `OpsAck.seq` all carry it, and the WS
+nudge frame's `seq` (`server/.../notify.py SeqFrame`, `sync/socket.ts WsSeq`)
+is narrowed to it by hand, since WS messages sit outside OpenAPI. The
+replica's own `pending_ops` row id is `PendingRowId` instead — web-only,
+never on the wire, and not stable across a reset or a file replacement
+(`AUTOINCREMENT` restarts): `PendingBatch`, `AckedBatch` and `PoisonedBatch`
+(`replica/client.ts`) all name the pair `id`/`batch_id`, so a value built
+from one shape needs no translation to flow into another.
+
 The optimistic apply mirrors the server's timestamp rules as well as its row
 contents: `localOps.ts` leaves `blocks.updated_at` and `pages.updated_at` alone
 for `set_collapsed` (see [backend.md](backend.md#the-write-path)). It also
@@ -253,7 +266,7 @@ sequenceDiagram
         end
     end
     Q->>S: pull changes feed to latest seq
-    Q->>U: bump resyncSeq if the pull moved data → views refetch
+    Q->>U: bump resyncGeneration if the pull moved data → views refetch
 ```
 
 Reconnect ordering in `reconnectFlow.ts` is fixed: **drain the queue first, then
@@ -267,8 +280,10 @@ are in
 
 ### When views refetch
 
-`resyncSeq` is the React counter that makes visible views refetch, separate
-from the replica's persisted cursor. Views subscribe through `useResyncSeq()`
+`resyncGeneration` is the React counter that makes visible views refetch,
+separate from the replica's persisted cursor and named for what it is, not
+`SyncSeq`: it never carries a journal seq, only a count of bumps. Views
+subscribe through `useResyncGeneration()`
 and read through the guarded read every trigger shares, not the outline
 repair epoch, so pending edits elsewhere on a page survive a bump. Every bump
 comes from one of these:

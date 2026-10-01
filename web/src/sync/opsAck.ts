@@ -1,5 +1,6 @@
 // pattern: Functional Core
 // Reading an /api/ops ack.
+import type { SyncSeq } from "../api/brands";
 import type { OpsAck, SkippedOp } from "../api/payloads";
 
 export type SkipReason = SkippedOp["reason"];
@@ -7,7 +8,7 @@ export type SkipReason = SkippedOp["reason"];
 export interface OpsAckReading {
   /** The journal seq of the batch's commit; undefined when the ack names none
    * (null, absent, or not a finite number). */
-  seq: number | undefined;
+  seq: SyncSeq | undefined;
   /** Every op the server skipped; empty when absent or not an array. */
   skipped: readonly SkippedOp[];
 }
@@ -23,7 +24,8 @@ export function readOpsAck(ack: OpsAck): OpsAckReading {
   const seq = (ack as { seq?: unknown }).seq;
   const skipped = (ack as { skipped?: unknown }).skipped;
   return {
-    seq: typeof seq === "number" && Number.isFinite(seq) ? seq : undefined,
+    seq: typeof seq === "number" && Number.isFinite(seq)
+      ? seq as SyncSeq : undefined,
     skipped: Array.isArray(skipped) ? skipped as SkippedOp[] : [],
   };
 }

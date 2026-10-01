@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
+import type { SyncSeq } from "../api/brands";
 import type { Changes, Snapshot, SyncBlock, SyncTombstone } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import { getMeta } from "./meta";
@@ -23,7 +24,8 @@ const page = (id: number, title: string) =>
   ({ id, title, created_at: 1, updated_at: 1 });
 
 const SNAP: Snapshot = {
-  generation: "gen-1", plain_space_title_canonicalization: false, seq: 10,
+  generation: "gen-1", plain_space_title_canonicalization: false,
+  seq: 10 as SyncSeq,
   pages: [page(1, "Machine Learning"), page(2, "AI")],
   blocks: [
     block("uid_b1", 1, { text: "links [[AI]]", refs: [{ target_page_id: 2, kind: "link" }] }),
@@ -33,11 +35,15 @@ const SNAP: Snapshot = {
   sidebar: [{ id: 1, title: "AI", order_idx: 0 }],
 };
 
-const emptyFeed = (over: Partial<Changes> = {}): Changes => ({
+// `next_since`/`latest_seq` take a plain number here, not SyncSeq: every
+// caller in this file picks arbitrary small test cursors, and casting each
+// one individually would bury the fixture building in brand noise.
+const emptyFeed = (over: Omit<Partial<Changes>, "next_since" | "latest_seq"> &
+  { next_since?: number; latest_seq?: number } = {}): Changes => ({
   reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
   next_since: 10, latest_seq: 10,
   pages: [], blocks: [], sidebar: [], tombstones: [], ...over,
-});
+} as Changes);
 
 let t: TestDb;
 beforeEach(async () => {
@@ -211,7 +217,8 @@ describe("applySnapshot", () => {
 
   test("re-bootstrap wipes stale rows first", () => {
     applySnapshot(t.db, {
-      generation: "gen-2", plain_space_title_canonicalization: true, seq: 4,
+      generation: "gen-2", plain_space_title_canonicalization: true,
+      seq: 4 as SyncSeq,
       pages: [page(7, "Fresh")], blocks: [block("uid_new1", 7)],
       sidebar: [],
     });
@@ -888,7 +895,7 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     // vanish from the page until the ack. Local apply skips it instead.
     enqueueCycleMove();
 
-    applySnapshot(t.db, { ...SNAP, seq: 11, blocks: [
+    applySnapshot(t.db, { ...SNAP, seq: 11 as SyncSeq, blocks: [
       block("uid_b1", 1, { text: "links [[AI]]",
                            refs: [{ target_page_id: 2, kind: "link" }] }),
       block("uid_b2", 1, { parent_uid: "uid_b1" }),

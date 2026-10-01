@@ -7,15 +7,15 @@ import {
   type PoisonEvent,
 } from "./poisonIntents";
 
-const event = (rowId: number, batchId: string, message = "m"): PoisonEvent => ({
-  rowId, batchId, ops: [], status: 400, message,
+const event = (id: number, batchId: string, message = "m"): PoisonEvent => ({
+  id: id as PoisonEvent["id"], batch_id: batchId, ops: [], status: 400, message,
 });
 
 describe("parseStoredIntents", () => {
-  it("reads what the current build writes, sorted by rowId", () => {
+  it("reads what the current build writes, sorted by id", () => {
     const raw = JSON.stringify({ version: 1, intents: [
-      { rowId: 2, batchId: "b", ops: [], status: 400, message: "m" },
-      { rowId: 1, batchId: "a", ops: [], status: 400, message: "m" },
+      { id: 2, batch_id: "b", ops: [], status: 400, message: "m" },
+      { id: 1, batch_id: "a", ops: [], status: 400, message: "m" },
     ] });
     expect(parseStoredIntents(raw)).toEqual([event(1, "a"), event(2, "b")]);
   });
@@ -43,8 +43,8 @@ describe("parseStoredIntents", () => {
   it("drops invalid entries and keeps the valid ones", () => {
     const raw = JSON.stringify({ version: 1, intents: [
       event(1, "a"),
-      { rowId: 1.5, batchId: "x", ops: [], status: 400, message: "m" },
-      { rowId: 3, batchId: 7, ops: [], status: 400, message: "m" },
+      { id: 1.5, batch_id: "x", ops: [], status: 400, message: "m" },
+      { id: 3, batch_id: 7, ops: [], status: 400, message: "m" },
       null,
       "text",
     ] });
@@ -62,7 +62,7 @@ describe("parseStoredIntents", () => {
     const raw = JSON.stringify({ version: 1, intents: [
       event(1, "b"), event(1, "a"),
     ] });
-    expect(parseStoredIntents(raw).map((e) => e.batchId)).toEqual(["a", "b"]);
+    expect(parseStoredIntents(raw).map((e) => e.batch_id)).toEqual(["a", "b"]);
   });
 });
 
@@ -85,7 +85,7 @@ describe("withIntent", () => {
 
   it("inserts a new event in order", () => {
     const next = withIntent([event(1, "a"), event(3, "c")], event(2, "b"));
-    expect(next.map((e) => e.rowId)).toEqual([1, 2, 3]);
+    expect(next.map((e) => e.id)).toEqual([1, 2, 3]);
   });
 
   it("does not mutate its input", () => {

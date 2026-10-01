@@ -1,9 +1,9 @@
 // pattern: Imperative Shell
 // Ties the websocket, the op queue and the replica together, and publishes
 // them as four contexts split by rate of change (see SyncContext below).
-// status drives connectivity UI; resyncSeq bumps whenever local state may have
-// diverged (rejected batch, or reconnect after a gap): views refetch
-// authoritative state via useResync. The replica is kept warm
+// status drives connectivity UI; resyncGeneration bumps whenever local
+// state may have diverged (rejected batch, or reconnect after a gap):
+// views refetch authoritative state via useResync. The replica is kept warm
 // from the changes feed via WS seq nudges; reconnect ordering is flush
 // pending ops -> pull feed -> resync bump (spec sections 3/6).
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef,
@@ -33,10 +33,10 @@ const mergePoisonEvents = (
 ): PoisonEvent[] => {
   const merged = new Map<string, PoisonEvent>();
   groups.flat().forEach((event) => {
-    merged.set(`${event.rowId}\u0000${event.batchId}`, event);
+    merged.set(`${event.id}\u0000${event.batch_id}`, event);
   });
   return [...merged.values()].sort((a, b) =>
-    a.rowId - b.rowId || a.batchId.localeCompare(b.batchId));
+    a.id - b.id || a.batch_id.localeCompare(b.batch_id));
 };
 
 /** Connectivity and delivery health: the half that churns. `pending` moves at
@@ -104,7 +104,7 @@ export interface SyncActions {
  * slice it needs through the hooks below — but a test fake supplies it
  * wholesale through SyncContext, and that fake has to satisfy every slice. */
 export interface Sync extends SyncActions, SyncHealth, SyncEditability {
-  resyncSeq: number;
+  resyncGeneration: number;
 }
 
 const DEFAULT_ACTIONS: SyncActions = {
@@ -159,22 +159,22 @@ export function useSyncEditability(): SyncEditability {
   return whole ?? editability;
 }
 
-export function useResyncSeq(): number {
+export function useResyncGeneration(): number {
   const whole = useContext(SyncContext);
   const seq = useContext(ResyncContext);
-  return whole?.resyncSeq ?? seq;
+  return whole?.resyncGeneration ?? seq;
 }
 
-/** Run fn whenever resyncSeq changes (not on mount). */
+/** Run fn whenever resyncGeneration changes (not on mount). */
 export function useResync(fn: () => void): void {
-  const resyncSeq = useResyncSeq();
-  const seen = useRef(resyncSeq);
+  const resyncGeneration = useResyncGeneration();
+  const seen = useRef(resyncGeneration);
   useEffect(() => {
-    if (resyncSeq !== seen.current) {
-      seen.current = resyncSeq;
+    if (resyncGeneration !== seen.current) {
+      seen.current = resyncGeneration;
       fn();
     }
-  }, [resyncSeq, fn]);
+  }, [resyncGeneration, fn]);
 }
 
 /** The real worker-backed replica; null where Workers don't exist (jsdom). */
@@ -220,7 +220,7 @@ export function SyncProvider({ children, replica }: {
   replica?: Replica | null;
 }) {
   const [status, setStatus] = useState<SyncStatus>("connecting");
-  const [resyncSeq, setResyncSeq] = useState(0);
+  const [resyncGeneration, setResyncGeneration] = useState(0);
   const [replicaState, setReplicaState] =
     useState<ReplicaState>({ mode: "starting" });
   const [pending, setPending] = useState(0);
@@ -271,7 +271,7 @@ export function SyncProvider({ children, replica }: {
       setProblem(transition.state.problem);
     }
     for (const effect of transition.effects) {
-      if (effect.type === "bump-resync") setResyncSeq((n) => n + 1);
+      if (effect.type === "bump-resync") setResyncGeneration((n) => n + 1);
     }
   }, []);
 
@@ -403,7 +403,7 @@ export function SyncProvider({ children, replica }: {
       try {
         await replicaSync!.rebaseAuthoritative("poison");
         for (const poisonEvent of repairTargetsRef.current) {
-          await replicaRef.current!.deleteBatch(poisonEvent.rowId, poisonEvent.batchId);
+          await replicaRef.current!.deleteBatch(poisonEvent.id, poisonEvent.batch_id);
         }
         if (mountedRef.current) {
           // setPending has exactly one caller (queue.onPending, above);
@@ -540,7 +540,7 @@ export function SyncProvider({ children, replica }: {
       // only a DROPPED socket means offline. "connecting" (initial load,
       // reload) must reach the network: the socket handshake lags the first
       // fetches, and shimming those would serve stale local state that
-      // nothing refetches (the first connect does not bump resyncSeq). A
+      // nothing refetches (the first connect does not bump resyncGeneration). A
       // cold start that is truly offline is caught by apiFetch's
       // fetch-failure fallback instead.
       offline: () => statusRef.current === "reconnecting",
@@ -587,7 +587,7 @@ export function SyncProvider({ children, replica }: {
     },
     onSeq: (frame) => replicaSync?.onSeq(frame.seq, frame.force === true),
     onStatus: setStatus,
-    onResync: () => setResyncSeq((n) => n + 1),
+    onResync: () => setResyncGeneration((n) => n + 1),
     disposeOwned: () => {
       const owned = ownedReplicaRef.current;
       ownedReplicaRef.current = null;
@@ -734,7 +734,7 @@ export function SyncProvider({ children, replica }: {
   // either way, so React skips the subtree it does not need.
   return (
     <SyncActionsContext.Provider value={actions}>
-      <ResyncContext.Provider value={resyncSeq}>
+      <ResyncContext.Provider value={resyncGeneration}>
         <SyncEditabilityContext.Provider value={editability}>
           <SyncHealthContext.Provider value={health}>
             {children}

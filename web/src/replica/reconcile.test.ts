@@ -3,6 +3,7 @@
 // the authoritative row for a page created offline, children and refs are
 // remapped inside the window transaction — never a cascade delete.
 import { beforeEach, describe, expect, test } from "vitest";
+import type { SyncSeq } from "../api/brands";
 import { applyChanges, type Changes } from "./apply";
 import { applyLocalOps } from "./localOps";
 import { setMeta } from "./meta";
@@ -30,7 +31,7 @@ beforeEach(async () => {
 
 const feed = (over: Partial<Changes>): Changes => ({
   reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-  next_since: 11, latest_seq: 11,
+  next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
   pages: [], blocks: [], sidebar: [], tombstones: [], ...over,
 });
 

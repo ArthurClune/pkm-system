@@ -1,9 +1,10 @@
 import { expect, test } from "vitest";
+import type { PendingRowId } from "./client";
 import { mergeCarriedRows } from "./carryMerge";
 import type { DurablePendingRow } from "./queue";
 
 const row = (id: number, batch_id: string, error: string | null = null):
-  DurablePendingRow => ({ id, batch_id, ops_json: "[]", poisoned: error ? 1 : 0, error });
+  DurablePendingRow => ({ id: id as PendingRowId, batch_id, ops_json: "[]", poisoned: error ? 1 : 0, error });
 
 test("the rows either file holds, by id, oldest first", () => {
   expect(mergeCarriedRows([row(3, "c")], [row(1, "a"), row(2, "b")]))

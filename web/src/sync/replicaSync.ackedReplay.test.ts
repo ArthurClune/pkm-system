@@ -5,6 +5,7 @@
 // the wire text, and the snapshot carries the saved text. Recovery must keep
 // the server's result rather than replay the acknowledged batch over it.
 import { expect, test } from "vitest";
+import type { SyncSeq } from "../api/brands";
 import type { Changes, Snapshot } from "../replica/apply";
 import { createReplica } from "../replica/client";
 import { serveRpc, toPortLike } from "../replica/rpc";
@@ -13,7 +14,7 @@ import { buildHandlers } from "../replica/workerHandlers";
 import { createReplicaSync } from "./replicaSync";
 
 const BEFORE: Snapshot = {
-  generation: "gen-1", plain_space_title_canonicalization: false, seq: 5,
+  generation: "gen-1", plain_space_title_canonicalization: false, seq: (5 as SyncSeq),
   pages: [{ id: 1, title: "AI", created_at: 1, updated_at: 1 }],
   blocks: [{ uid: "uid_b1", page_id: 1, parent_uid: null, order_idx: 0,
     text: "hello", heading: null, view_type: null, collapsed: 0,
@@ -21,14 +22,14 @@ const BEFORE: Snapshot = {
   sidebar: [],
 };
 const AFTER: Snapshot = {
-  ...BEFORE, generation: "gen-2", seq: 7,
+  ...BEFORE, generation: "gen-2", seq: (7 as SyncSeq),
   blocks: [{ ...BEFORE.blocks[0], text: "[[New]] edited" }],
 };
 // Its generation differs from the replica's, so the first pull answers
 // needs-bootstrap and rebases with a preemptible flush.
 const FEED: Changes = {
   reset: false, generation: "gen-2", plain_space_title_canonicalization: false,
-  next_since: 7, latest_seq: 7, pages: [], blocks: [], sidebar: [],
+  next_since: (7 as SyncSeq), latest_seq: (7 as SyncSeq), pages: [], blocks: [], sidebar: [],
   tombstones: [],
 };
 

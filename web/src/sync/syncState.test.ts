@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { PendingRowId } from "../replica/client";
 import type { PoisonEvent } from "./opQueue";
 import {
   computeEditability,
@@ -14,8 +15,8 @@ import {
 const createSyncState = (): SyncState => ({ problem: undefined });
 
 const poison = (over: Partial<PoisonEvent> = {}): PoisonEvent => ({
-  rowId: 1,
-  batchId: "b1",
+  id: 1 as PendingRowId,
+  batch_id: "b1",
   ops: [],
   status: 409,
   message: "conflict",

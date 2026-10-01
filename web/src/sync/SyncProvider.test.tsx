@@ -1,6 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { StrictMode, useEffect, useMemo } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { OpsAck } from "../api/payloads";
 import { DndProvider, useDnd } from "../dnd/DndContext";
@@ -11,7 +12,7 @@ import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
 import { clientId, createOpQueue } from "./opQueue";
 import { RETRY_BASE_MS } from "./replicaSync";
-import { SyncProvider, useResyncSeq, useSyncActions, useSyncEditability,
+import { SyncProvider, useResyncGeneration, useSyncActions, useSyncEditability,
          useSyncHealth, type Sync } from "./SyncProvider";
 
 /** Every slice at once. The app has no such consumer — a component that only
@@ -22,17 +23,17 @@ function useSyncWhole(): Sync {
   const actions = useSyncActions();
   const health = useSyncHealth();
   const editability = useSyncEditability();
-  const resyncSeq = useResyncSeq();
+  const resyncGeneration = useResyncGeneration();
   // Stable while its parts are: a probe subscribing in an effect keyed on the
   // whole value must not resubscribe on every unrelated render.
-  return useMemo(() => ({ ...health, ...editability, resyncSeq, ...actions }),
-                 [health, editability, resyncSeq, actions]);
+  return useMemo(() => ({ ...health, ...editability, resyncGeneration, ...actions }),
+                 [health, editability, resyncGeneration, actions]);
 }
 
 function Probe({ onBatch }: { onBatch: (b: WsBatch) => void }) {
   const sync = useSyncWhole();
   useEffect(() => sync.subscribe(onBatch), [sync, onBatch]);
-  return <div data-testid="status">{sync.status}:{sync.resyncSeq}</div>;
+  return <div data-testid="status">{sync.status}:{sync.resyncGeneration}</div>;
 }
 
 beforeEach(() => {
@@ -57,12 +58,12 @@ describe("the socket and remote batches", () => {
     act(() => { vi.advanceTimersByTime(2000); }); // reconnect timer -> new socket
     // the resync bump is deferred until the preserved queue has drained
     await act(async () => { lastWs().open(); });
-    // re-established after a gap: views must refetch (resyncSeq bumped)
+    // re-established after a gap: views must refetch (resyncGeneration bumped)
     expect(screen.getByTestId("status").textContent).toBe("connected:1");
     vi.useRealTimers();
   });
 
-  test("on reconnect, resyncSeq bumps only after the preserved queue has flushed", async () => {
+  test("on reconnect, resyncGeneration bumps only after the preserved queue has flushed", async () => {
     vi.useFakeTimers();
     let releasePost!: () => void;
     const postGate = new Promise<void>((r) => { releasePost = r; });
@@ -75,7 +76,7 @@ describe("the socket and remote batches", () => {
     let sync!: Sync;
     function Grab() {
       sync = useSyncWhole();
-      return <div data-testid="status">{sync.status}:{sync.resyncSeq}</div>;
+      return <div data-testid="status">{sync.status}:{sync.resyncGeneration}</div>;
     }
     render(<SyncProvider><Grab /></SyncProvider>);
     act(() => lastWs().open());  // first connect
@@ -134,7 +135,7 @@ describe("the socket and remote batches", () => {
 
 // --- replica lifecycle ---
 
-import type { Replica } from "../replica/client";
+import type { PendingRowId, Replica } from "../replica/client";
 import { ReplicaUnusableError } from "../replica/errors";
 
 function fakeReplicaForProvider(): Replica & { log: string[] } {
@@ -143,7 +144,7 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
     log,
     init: async () => {
       log.push("init");
-      return { empty: true, cursor: 0, schemaMismatch: false,
+      return { empty: true, cursor: 0 as SyncSeq, schemaMismatch: false,
                pendingBatches: [] };
     },
     applySnapshot: async () => { log.push("applySnapshot"); },
@@ -181,7 +182,7 @@ const EMPTY_FEED = { reset: false, generation: "g1", next_since: 5,
 
 /** A fake server journal: a seq that advances when something is written to the
  * server, and the changes window a pull then reads. Needed because a reconnect
- * bumps resyncSeq only when its pull actually advances the replica's cursor —
+ * bumps resyncGeneration only when its pull actually advances the replica's cursor —
  * EMPTY_FEED is a server with nothing to say, which is exactly the case no
  * view has to refetch for, so a test about a reconnect that MUST refetch has
  * to give the server something new. */
@@ -234,7 +235,7 @@ describe("replica bootstrap and nudges", () => {
   test("a forced equal-cursor generation nudge immediately reboots an active replica without moving its cursor", async () => {
     let localGeneration = "g1";
     let localActivation = false;
-    let localCursor = 9;
+    let localCursor = 9 as SyncSeq;
     let committedSnapshot: {
       generation: string;
       plain_space_title_canonicalization: boolean;
@@ -487,7 +488,7 @@ describe("legacy repair of a rejected batch", () => {
     let sync!: Sync;
     function Grab() {
       sync = useSyncWhole();
-      return <div data-testid="legacy-resync">{sync.resyncSeq}</div>;
+      return <div data-testid="legacy-resync">{sync.resyncGeneration}</div>;
     }
 
     const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
@@ -758,7 +759,7 @@ describe("durable batches on connect", () => {
       ["/api/ops", { ok: true }],
     ]);
     const replica = fakeReplicaForProvider();
-    const rows = [{ id: 1, batch_id: "leftover",
+    const rows = [{ id: 1 as PendingRowId, batch_id: "leftover",
                     ops: [{ op: "delete", uid: "u1" } as const], poisoned: false }];
     replica.pendingCount = async () => rows.length;
     replica.nextBatch = async () => rows[0] ?? null;
@@ -771,7 +772,7 @@ describe("durable batches on connect", () => {
     expect(screen.getByTestId("status").textContent).toBe("connected:1"); // resync
   });
 
-  test("a durable batch's ack naming a skipped op bumps resyncSeq (a " +
+  test("a durable batch's ack naming a skipped op bumps resyncGeneration (a " +
   "replica-backed tab's own feed tombstones the row, but nothing else " +
   "resyncs the view for it)", async () => {
     stubFetch([
@@ -784,11 +785,11 @@ describe("durable batches on connect", () => {
       } satisfies OpsAck],
     ]);
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: number; batch_id: string;
+    const rows: Array<{ id: PendingRowId; batch_id: string;
                        ops: BlockOp[]; poisoned: boolean }> = [];
     let nextId = 1;
     replica.enqueue = async (ops, batchId) => {
-      rows.push({ id: nextId++, batch_id: batchId, ops, poisoned: false });
+      rows.push({ id: nextId++ as PendingRowId, batch_id: batchId, ops, poisoned: false });
       return { pending: rows.length, batchId };
     };
     replica.nextBatch = async () => rows.find((r) => !r.poisoned) ?? null;
@@ -802,11 +803,11 @@ describe("durable batches on connect", () => {
     function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); }); // first connect settles
-    const before = sync.resyncSeq;
+    const before = sync.resyncGeneration;
     await act(async () => {
       await sync.enqueue([{ op: "delete", uid: "u1" }]).delivered;
     });
-    expect(sync.resyncSeq).toBeGreaterThan(before);
+    expect(sync.resyncGeneration).toBeGreaterThan(before);
     expect(rows).toEqual([]); // delivered normally alongside the resync bump
   });
 });
@@ -830,10 +831,10 @@ describe("poison repair and startup marks", () => {
       return jsonResponse({ detail: "not found" }, 404);
     }));
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+    const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
                        poisoned: boolean }> = [];
     replica.enqueue = async (ops, batchId) => {
-      rows.push({ id: 1, batch_id: batchId, ops, poisoned: false });
+      rows.push({ id: 1 as PendingRowId, batch_id: batchId, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId };
     };
     replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
@@ -896,16 +897,16 @@ describe("poison repair and startup marks", () => {
     }));
 
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+    const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
                        poisoned: boolean }> = [];
     let nextId = 1;
     const trace: string[] = [];
     replica.init = async () => ({
-      empty: false, cursor: 5, schemaMismatch: false,
+      empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
       pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
-      const id = nextId++;
+      const id = nextId++ as PendingRowId;
       const batch_id = id === 1 ? "bad-batch" : "good-batch";
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
@@ -933,7 +934,7 @@ describe("poison repair and startup marks", () => {
     function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
-    const baselineResync = sync.resyncSeq;
+    const baselineResync = sync.resyncGeneration;
     await act(async () => {
       await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
       await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
@@ -943,7 +944,7 @@ describe("poison repair and startup marks", () => {
 
     expect(posts).toEqual(["bad-batch"]);
     expect(trace).toEqual(["mark poison", "prepare repair"]);
-    expect(sync.resyncSeq).toBe(baselineResync);
+    expect(sync.resyncGeneration).toBe(baselineResync);
 
     await act(async () => { releaseSnapshot(); await snapshotGate; });
     await vi.waitFor(() => { expect(posts).toEqual(["bad-batch", "good-batch"]); });
@@ -952,7 +953,7 @@ describe("poison repair and startup marks", () => {
       "mark poison", "prepare repair", "commit repair",
       "delete 1 bad-batch", "delete 2 good-batch",
     ]);
-    expect(sync.resyncSeq).toBe(baselineResync + 1);
+    expect(sync.resyncGeneration).toBe(baselineResync + 1);
   });
 
   test("discardProblem releases ownership before resuming, not only after the re-POST heals",
@@ -983,14 +984,14 @@ describe("poison repair and startup marks", () => {
     }));
 
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+    const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
                        poisoned: boolean }> = [];
     let nextId = 1;
     replica.init = async () => ({
-      empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
+      empty: false, cursor: 5 as SyncSeq, schemaMismatch: false, pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
-      const id = nextId++;
+      const id = nextId++ as PendingRowId;
       const batch_id = id === 1 ? "bad-batch" : "good-batch";
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
@@ -1063,14 +1064,14 @@ describe("poison repair and startup marks", () => {
     }));
 
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+    const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
                        poisoned: boolean }> = [];
     let nextId = 1;
     replica.init = async () => ({
-      empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
+      empty: false, cursor: 5 as SyncSeq, schemaMismatch: false, pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
-      const id = nextId++;
+      const id = nextId++ as PendingRowId;
       const batch_id = id === 1 ? "bad-batch" : "good-batch";
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
@@ -1139,16 +1140,16 @@ describe("poison repair and startup marks", () => {
     const rejectedOp = { op: "delete", uid: "rejected" } as const;
     const goodOp = { op: "delete", uid: "good" } as const;
     const rows = [
-      { id: 1, batch_id: "old-poison", ops: [rejectedOp], poisoned: true },
-      { id: 2, batch_id: "later-good", ops: [goodOp], poisoned: false },
+      { id: 1 as PendingRowId, batch_id: "old-poison", ops: [rejectedOp], poisoned: true },
+      { id: 2 as PendingRowId, batch_id: "later-good", ops: [goodOp], poisoned: false },
     ];
     const replica = fakeReplicaForProvider();
     replica.init = async () => ({
-      empty: false, cursor: 5, schemaMismatch: false,
+      empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
       pendingBatches: [...rows],
     });
     replica.poisonedBatches = async () => [{
-      rowId: 1, batchId: "old-poison", ops: [rejectedOp], status: 400,
+      id: 1 as PendingRowId, batch_id: "old-poison", ops: [rejectedOp], status: 400,
       message: "request failed: 400 /api/ops",
     }];
     replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
@@ -1190,14 +1191,14 @@ describe("poison repair and startup marks", () => {
     }));
 
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+    const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
                        poisoned: boolean }> = [];
     let nextId = 1;
     let markAttempts = 0;
     let poisonDiscoveryCalls = 0;
     let initCalls = 0;
     replica.enqueue = async (ops) => {
-      const id = nextId++;
+      const id = nextId++ as PendingRowId;
       const batch_id = id === 1 ? "bad-batch" : "later-good";
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
@@ -1214,13 +1215,13 @@ describe("poison repair and startup marks", () => {
     replica.poisonedBatches = async () => {
       poisonDiscoveryCalls += 1;
       return rows.filter((row) => row.poisoned).map((row) => ({
-        rowId: row.id, batchId: row.batch_id, ops: row.ops,
+        id: row.id, batch_id: row.batch_id, ops: row.ops,
         status: 400, message: "request failed: 400 /api/ops",
       }));
     };
     replica.init = async () => {
       initCalls += 1;
-      return { empty: false, cursor: 5, schemaMismatch: false,
+      return { empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
                pendingBatches: [...rows] };
     };
     replica.prepareRecovery = async () => ({ token: "reload-poison", batches: [...rows] });
@@ -1249,7 +1250,7 @@ describe("poison repair and startup marks", () => {
 
     expect(sync.problem).toMatchObject({
       kind: "rejected-batch", repair: "mark-failed",
-      event: { batchId: "bad-batch" }, error: "mark unavailable 2",
+      event: { batch_id: "bad-batch" }, error: "mark unavailable 2",
     });
     expect(posts).toEqual(["bad-batch"]); // reload never redelivered either row
     expect(markAttempts).toBe(2); // startup performed mark-only retry
@@ -1269,7 +1270,7 @@ describe("poison repair and startup marks", () => {
 
   test("startup repairs returned marks even when poison discovery fails", async () => {
     const event = {
-      rowId: 1, batchId: "bad-batch",
+      id: 1 as PendingRowId, batch_id: "bad-batch",
       ops: [{ op: "delete", uid: "bad" } as const],
       status: 400, message: "request failed: 400 /api/ops",
     };
@@ -1296,8 +1297,8 @@ describe("poison repair and startup marks", () => {
       return jsonResponse({ detail: "not found" }, 404);
     }));
     const rows = [
-      { id: 1, batch_id: "bad-batch", ops: [...event.ops], poisoned: false },
-      { id: 2, batch_id: "later-good",
+      { id: 1 as PendingRowId, batch_id: "bad-batch", ops: [...event.ops], poisoned: false },
+      { id: 2 as PendingRowId, batch_id: "later-good",
         ops: [{ op: "delete", uid: "good" } as const], poisoned: false },
     ];
     const replica = fakeReplicaForProvider();
@@ -1316,7 +1317,7 @@ describe("poison repair and startup marks", () => {
     replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
     replica.init = async () => {
       initCalls += 1;
-      return { empty: false, cursor: 5, schemaMismatch: false,
+      return { empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
                pendingBatches: [...rows] };
     };
     replica.prepareRecovery = async () => ({ token: "returned-mark", batches: [...rows] });
@@ -1349,7 +1350,7 @@ describe("poison repair and startup marks", () => {
     };
     replica.init = async () => {
       initCalls += 1;
-      return { empty: false, cursor: 5, schemaMismatch: false,
+      return { empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
                pendingBatches: [] };
     };
     let sync!: Sync;
@@ -1510,7 +1511,7 @@ describe("an unopenable replica", () => {
     expect(bodies[0].ops[0].base_text_hash).toEqual(sha256Hex("hello"));
   });
 
-  test("a reconnect in a no-replica session still bumps resyncSeq", async () => {
+  test("a reconnect in a no-replica session still bumps resyncGeneration", async () => {
     // A no-replica session's drain must not fall through to replica.nextBatch()
     // on a replica already known dead — that would end every drain in failed()
     // (a ~5s backoff, forever), so drain() never returns "drained",
@@ -1530,12 +1531,12 @@ describe("an unopenable replica", () => {
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); await Promise.resolve(); });
     await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
-    const before = sync.resyncSeq;
+    const before = sync.resyncGeneration;
 
     await act(async () => { lastWs().drop(); await Promise.resolve(); });
     await act(async () => { lastWs().open(); await Promise.resolve(); });
 
-    await vi.waitFor(() => { expect(sync.resyncSeq).toBeGreaterThan(before); });
+    await vi.waitFor(() => { expect(sync.resyncGeneration).toBeGreaterThan(before); });
   });
 
   test("a replica that cannot be opened never starts syncing", async () => {
@@ -1606,8 +1607,8 @@ describe("the poison gate and repair problems", () => {
     };
     const rejected = { op: "delete", uid: "rejected" } as const;
     const rows = [
-      { id: 7, batch_id: "rejected-last-session", ops: [rejected], poisoned: true },
-      { id: 8, batch_id: "queued-behind-poison",
+      { id: 7 as PendingRowId, batch_id: "rejected-last-session", ops: [rejected], poisoned: true },
+      { id: 8 as PendingRowId, batch_id: "queued-behind-poison",
         ops: [{ op: "delete", uid: "behind" } as const], poisoned: false },
     ];
     const replica = fakeReplicaForProvider();
@@ -1618,17 +1619,17 @@ describe("the poison gate and repair problems", () => {
       } catch {
         // Deliberately does NOT reset `state`: the real worker leaves its
         // memoised rejection in place so the database stays latched shut.
-        return { empty: true, cursor: 0, schemaMismatch: false,
+        return { empty: true, cursor: 0 as SyncSeq, schemaMismatch: false,
                  pendingBatches: [] };
       }
-      return { empty: false, cursor: 5, schemaMismatch: false,
+      return { empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
                pendingBatches: [...rows] };
     };
     replica.poisonedBatches = async () => {
       log.push("poisonedBatches");
       await db();
       return rows.filter((row) => row.poisoned).map((row) => ({
-        rowId: row.id, batchId: row.batch_id, ops: [...row.ops],
+        id: row.id, batch_id: row.batch_id, ops: [...row.ops],
         status: 400, message: "request failed: 400 /api/ops",
       }));
     };
@@ -1688,7 +1689,7 @@ describe("the poison gate and repair problems", () => {
     // server already rejected. This path keeps its gate and its Retry banner.
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
       version: 1,
-      intents: [{ rowId: 1, batchId: "bad-batch",
+      intents: [{ id: 1, batch_id: "bad-batch",
                   ops: [{ op: "delete", uid: "bad" }],
                   status: 400, message: "request failed: 400 /api/ops" }],
     }));
@@ -1732,7 +1733,7 @@ describe("the poison gate and repair problems", () => {
     // and the server rejects it into the normal poison → repair flow.
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
       version: 1,
-      intents: [{ rowId: 1, batchId: "bad-batch",
+      intents: [{ id: 1, batch_id: "bad-batch",
                   ops: [{ op: "delete", uid: "bad" }],
                   status: 400, message: "request failed: 400 /api/ops" }],
     }));
@@ -1802,15 +1803,15 @@ describe("the poison gate and repair problems", () => {
     }));
 
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+    const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
                        poisoned: boolean }> = [];
     let nextId = 1;
     replica.init = async () => ({
-      empty: false, cursor: 5, schemaMismatch: false,
+      empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
       pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
-      const id = nextId++;
+      const id = nextId++ as PendingRowId;
       const batch_id = id === 1 ? "bad-batch" : "good-batch";
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
@@ -1844,7 +1845,7 @@ describe("the poison gate and repair problems", () => {
     expect(sync.status).toBe("connected");
     expect(sync.problem).toMatchObject({
       kind: "rejected-batch", repair: "failed",
-      event: { batchId: "bad-batch", status: 400 },
+      event: { batch_id: "bad-batch", status: 400 },
       error: "request failed: 503 /api/sync/snapshot: snapshot unavailable",
     });
     expect(posts).toEqual(["bad-batch"]);
@@ -1898,15 +1899,15 @@ describe("the poison gate and repair problems", () => {
     }));
 
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+    const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
                        poisoned: boolean }> = [];
     let nextId = 1;
     replica.init = async () => ({
-      empty: false, cursor: 5, schemaMismatch: false,
+      empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
       pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
-      const id = nextId++;
+      const id = nextId++ as PendingRowId;
       const batchId = id === 1 ? "bad-batch" : id === 2 ? "good-batch" : "bad-batch-2";
       rows.push({ id, batch_id: batchId, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId };
@@ -1968,7 +1969,7 @@ describe("the poison gate and repair problems", () => {
     });
 
     expect(sync.problem).toMatchObject({
-      kind: "rejected-batch", repair: "running", event: { batchId: "bad-batch-2" },
+      kind: "rejected-batch", repair: "running", event: { batch_id: "bad-batch-2" },
     });
   });
 });
@@ -2078,11 +2079,11 @@ describe("offline and cold start", () => {
     // replica was starting must be told to refetch (through the shim)
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
     const replica = fakeReplicaForProvider();
-    replica.init = async () => ({ empty: false, cursor: 5,
+    replica.init = async () => ({ empty: false, cursor: 5 as SyncSeq,
                                   schemaMismatch: false, pendingBatches: [] });
     function Grab() {
       const sync = useSyncWhole();
-      return <div data-testid="s">{sync.replicaMode}:{sync.resyncSeq}:{String(sync.canEdit)}</div>;
+      return <div data-testid="s">{sync.replicaMode}:{sync.resyncGeneration}:{String(sync.canEdit)}</div>;
     }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { await Promise.resolve(); });
@@ -2128,7 +2129,7 @@ describe("ownership and StrictMode lifecycle", () => {
         const req = message as { id: number; method: string };
         if (req.method === "close") events.push("close-db");
         const result = req.method === "init"
-          ? { empty: true, cursor: 0, schemaMismatch: false,
+          ? { empty: true, cursor: 0 as SyncSeq, schemaMismatch: false,
               pendingBatches: [] }
           : req.method === "pendingCount" ? 0 : null;
         queueMicrotask(() => this.onmessage?.({ data: { id: req.id, result } }));
@@ -2176,7 +2177,7 @@ describe("ownership and StrictMode lifecycle", () => {
     // The replayed setup builds a second socket and a second reconnect flow; the
     // first mount's cleanup must have detached its own (mountedRef false, drain
     // observer cleared, socket closed) or a reconnect would finish twice and bump
-    // resyncSeq twice. Deliberately paired with "StrictMode effect replay keeps
+    // resyncGeneration twice. Deliberately paired with "StrictMode effect replay keeps
     // the queue live": that one pins what replay must NOT tear down, this one
     // pins what it must not leave running.
     vi.useFakeTimers();
@@ -2184,7 +2185,7 @@ describe("ownership and StrictMode lifecycle", () => {
       let sync!: Sync;
       function Grab() {
         sync = useSyncWhole();
-        return <div data-testid="strict-lifecycle">{sync.status}:{sync.resyncSeq}</div>;
+        return <div data-testid="strict-lifecycle">{sync.status}:{sync.resyncGeneration}</div>;
       }
       render(
         <StrictMode>
@@ -2220,14 +2221,14 @@ describe("ownership and StrictMode lifecycle", () => {
         <SyncProvider replica={null}><Grab /></SyncProvider>
       </StrictMode>);
     act(() => lastWs().open());
-    const before = sync.resyncSeq;
+    const before = sync.resyncGeneration;
 
     await act(async () => {
       await expect(sync.enqueue([{ op: "delete", uid: "u1" }]).delivered)
         .resolves.toEqual({ status: "delivered" });
     });
 
-    expect(sync.resyncSeq).toBe(before + 1);
+    expect(sync.resyncGeneration).toBe(before + 1);
   });
 });
 
@@ -2246,7 +2247,7 @@ describe("reconnect pulls and resync", () => {
       let sync!: Sync;
       function Grab() {
         sync = useSyncWhole();
-        return <div data-testid="blocked-status">{sync.resyncSeq}</div>;
+        return <div data-testid="blocked-status">{sync.resyncGeneration}</div>;
       }
       render(<SyncProvider replica={null}><Grab /></SyncProvider>);
       act(() => lastWs().open());
@@ -2282,14 +2283,14 @@ describe("reconnect pulls and resync", () => {
         return jsonResponse({ ok: true });
       }));
       const replica = fakeReplicaForProvider();
-      const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+      const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
                          poisoned: boolean }> = [];
       replica.init = async () => ({
-        empty: false, cursor: 5, schemaMismatch: false,
+        empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
         pendingBatches: [],
       });
       replica.enqueue = async (ops) => {
-        rows.push({ id: 1, batch_id: "retry-me", ops, poisoned: false });
+        rows.push({ id: 1 as PendingRowId, batch_id: "retry-me", ops, poisoned: false });
         return { pending: rows.length, batchId: "retry-me" };
       };
       replica.nextBatch = async () => rows[0] ?? null;
@@ -2301,11 +2302,11 @@ describe("reconnect pulls and resync", () => {
       let sync!: Sync;
       function Grab() {
         sync = useSyncWhole();
-        return <div data-testid="retry-status">{sync.resyncSeq}</div>;
+        return <div data-testid="retry-status">{sync.resyncGeneration}</div>;
       }
       render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
       await act(async () => { lastWs().open(); });
-      const baselineResync = sync.resyncSeq;
+      const baselineResync = sync.resyncGeneration;
       const baselineChanges = changeCalls;
       act(() => lastWs().drop());
       await act(async () => {
@@ -2313,16 +2314,16 @@ describe("reconnect pulls and resync", () => {
       });
       act(() => { vi.advanceTimersByTime(2_000); });
       await act(async () => { lastWs().open(); await Promise.resolve(); });
-      expect(sync.resyncSeq).toBe(baselineResync);
+      expect(sync.resyncGeneration).toBe(baselineResync);
 
       await act(async () => { await vi.advanceTimersByTimeAsync(250); });
 
       expect(rows).toEqual([]);
       expect(changeCalls).toBe(baselineChanges + 1);
-      expect(sync.resyncSeq).toBe(baselineResync + 1);
+      expect(sync.resyncGeneration).toBe(baselineResync + 1);
       await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
       expect(changeCalls).toBe(baselineChanges + 1);
-      expect(sync.resyncSeq).toBe(baselineResync + 1);
+      expect(sync.resyncGeneration).toBe(baselineResync + 1);
     } finally {
       vi.useRealTimers();
     }
@@ -2353,7 +2354,7 @@ describe("reconnect pulls and resync", () => {
       }));
       const replica = fakeReplicaForProvider();
       replica.init = async () => ({
-        empty: false, cursor: 5, schemaMismatch: false,
+        empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
         pendingBatches: [],
       });
       let sync!: Sync;
@@ -2361,7 +2362,7 @@ describe("reconnect pulls and resync", () => {
       render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
       await act(async () => { lastWs().open(); });
       const baselineChanges = changeCalls;
-      const baselineResync = sync.resyncSeq;
+      const baselineResync = sync.resyncGeneration;
 
       // Another tab edited while this one was away, so the reconnect's single
       // completion has a real change to carry into the views.
@@ -2375,18 +2376,18 @@ describe("reconnect pulls and resync", () => {
       act(() => { vi.advanceTimersByTime(2_000); });
       await act(async () => { lastWs().open(); await Promise.resolve(); });
       expect(changeCalls).toBe(baselineChanges + 1);
-      expect(sync.resyncSeq).toBe(baselineResync);
+      expect(sync.resyncGeneration).toBe(baselineResync);
 
       await act(async () => { releaseFeed(); await feedGate; });
       expect(changeCalls).toBe(baselineChanges + 1);
-      expect(sync.resyncSeq).toBe(baselineResync + 1);
+      expect(sync.resyncGeneration).toBe(baselineResync + 1);
 
       await act(async () => {
         await sync.enqueue([{ op: "delete", uid: "unrelated" }]).settled;
         await Promise.resolve();
       });
       expect(changeCalls).toBe(baselineChanges + 1);
-      expect(sync.resyncSeq).toBe(baselineResync + 1);
+      expect(sync.resyncGeneration).toBe(baselineResync + 1);
     } finally {
       vi.useRealTimers();
     }
@@ -2410,14 +2411,14 @@ describe("reconnect pulls and resync", () => {
       }));
       const replica = fakeReplicaForProvider();
       replica.init = async () => ({
-        empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
+        empty: false, cursor: 5 as SyncSeq, schemaMismatch: false, pendingBatches: [],
       });
       let sync!: Sync;
       function Grab() { sync = useSyncWhole(); return null; }
       render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
       await act(async () => { lastWs().open(); });
       const baselineChanges = changeCalls;
-      const baselineResync = sync.resyncSeq;
+      const baselineResync = sync.resyncGeneration;
 
       for (let flap = 0; flap < 3; flap += 1) {
         act(() => lastWs().drop());
@@ -2427,7 +2428,7 @@ describe("reconnect pulls and resync", () => {
       }
 
       expect(changeCalls).toBe(baselineChanges + 3);
-      expect(sync.resyncSeq).toBe(baselineResync);
+      expect(sync.resyncGeneration).toBe(baselineResync);
     } finally {
       vi.useRealTimers();
     }
@@ -2449,13 +2450,13 @@ describe("reconnect pulls and resync", () => {
       }));
       const replica = fakeReplicaForProvider();
       replica.init = async () => ({
-        empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
+        empty: false, cursor: 5 as SyncSeq, schemaMismatch: false, pendingBatches: [],
       });
       let sync!: Sync;
       function Grab() { sync = useSyncWhole(); return null; }
       render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
       await act(async () => { lastWs().open(); });
-      const baselineResync = sync.resyncSeq;
+      const baselineResync = sync.resyncGeneration;
 
       journal.wrote(); // another tab edited while this one was away
       act(() => lastWs().drop());
@@ -2463,7 +2464,7 @@ describe("reconnect pulls and resync", () => {
       await act(async () => { lastWs().open(); await Promise.resolve(); });
       await act(async () => { await vi.advanceTimersByTimeAsync(250); });
 
-      expect(sync.resyncSeq).toBe(baselineResync + 1);
+      expect(sync.resyncGeneration).toBe(baselineResync + 1);
     } finally {
       vi.useRealTimers();
     }
@@ -2580,7 +2581,7 @@ describe("the replica-stalled problem", () => {
       return jsonResponse({ ok: true });
     }));
     const replica = fakeReplicaForProvider();
-    replica.init = async () => ({ empty: false, cursor: 0,
+    replica.init = async () => ({ empty: false, cursor: 0 as SyncSeq,
                                   schemaMismatch: true, pendingBatches: [] });
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }
@@ -2607,7 +2608,7 @@ describe("the replica-stalled problem", () => {
       return jsonResponse({ ok: true });
     }));
     const replica = fakeReplicaForProvider();
-    replica.init = async () => ({ empty: false, cursor: 0,
+    replica.init = async () => ({ empty: false, cursor: 0 as SyncSeq,
                                   schemaMismatch: true, pendingBatches: [] });
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }
@@ -2645,13 +2646,13 @@ describe("resetReplica", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); });
       await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); });
       expect(sync.problem).toMatchObject({ kind: "replica-stalled" });
-      const baselineResync = sync.resyncSeq;
+      const baselineResync = sync.resyncGeneration;
 
       failing = false; // resetReplica's own feed pull succeeds
       await act(async () => { await sync.resetReplica(); });
 
       expect(sync.problem).toBeUndefined();
-      expect(sync.resyncSeq).toBeGreaterThan(baselineResync);
+      expect(sync.resyncGeneration).toBeGreaterThan(baselineResync);
     } finally {
       vi.useRealTimers();
     }
@@ -2666,9 +2667,9 @@ describe("resetReplica", () => {
       return jsonResponse({ ok: true });
     }));
     const replica = fakeReplicaForProvider();
-    const pendingBatch: { id: number; batch_id: string; ops: BlockOp[];
+    const pendingBatch: { id: PendingRowId; batch_id: string; ops: BlockOp[];
                           poisoned: boolean } =
-      { id: 1, batch_id: "b1", ops: [{ op: "delete", uid: "u1" }], poisoned: false };
+      { id: 1 as PendingRowId, batch_id: "b1", ops: [{ op: "delete", uid: "u1" }], poisoned: false };
     replica.prepareRecovery = async () =>
       ({ token: "lease-1", batches: [pendingBatch] });
     let sync!: Sync;
@@ -2693,9 +2694,9 @@ describe("resetReplica", () => {
       return jsonResponse({ ok: true });
     }));
     const replica = fakeReplicaForProvider();
-    const pendingBatch: { id: number; batch_id: string; ops: BlockOp[];
+    const pendingBatch: { id: PendingRowId; batch_id: string; ops: BlockOp[];
                           poisoned: boolean } =
-      { id: 1, batch_id: "b1", ops: [{ op: "delete", uid: "u1" }], poisoned: false };
+      { id: 1 as PendingRowId, batch_id: "b1", ops: [{ op: "delete", uid: "u1" }], poisoned: false };
     replica.prepareRecovery = async () =>
       ({ token: "lease-1", batches: [pendingBatch] });
     let sync!: Sync;

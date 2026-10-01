@@ -347,9 +347,9 @@ export function createOpQueue(replica: Replica): OpQueue {
     const matchedIntents: PoisonEvent[] = [];
     for (const event of intents) {
       try {
-        result = await replica.markPoisoned(event.rowId, JSON.stringify({
+        result = await replica.markPoisoned(event.id, JSON.stringify({
           status: event.status, message: event.message,
-        }), event.batchId);
+        }), event.batch_id);
         if (result.matched) matchedIntents.push(event);
       } catch (error: unknown) {
         // Same fact, learned from a different call. An unmarkable intent still
@@ -411,8 +411,8 @@ export function createOpQueue(replica: Replica): OpQueue {
     batch: PendingBatch, error: ApiError,
   ): Promise<DrainOutcome> => {
     const event: PoisonEvent = {
-      rowId: batch.id,
-      batchId: batch.batch_id,
+      id: batch.id,
+      batch_id: batch.batch_id,
       ops: batch.ops,
       status: error.status,
       message: error.message,

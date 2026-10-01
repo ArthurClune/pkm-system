@@ -9,7 +9,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from pkm.contracts.ops import OpBatch
-from pkm.contracts.responses import OpsAck
+from pkm.contracts.responses import OpsAck, SyncSeq
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
@@ -76,7 +76,8 @@ async def post_ops(request: Request,
     # sync window's latest_seq: a window whose latest_seq has reached it
     # already carries this batch. Acks stored before this field
     # existed replay without it; clients treat a missing seq as unknown.
-    seq = db.execute("SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
+    seq = SyncSeq(db.execute(
+        "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0])
     # `applied` counts every op processed, skipped ones included; `skipped`
     # lists every op whose target no longer exists (ops_core.skip_report),
     # and is empty for a clean batch.

@@ -7,6 +7,7 @@
 // "FOREIGN KEY constraint failed", and reset/repair (which re-run
 // reapplyPending) wedge the same way.
 import { beforeEach, describe, expect, test } from "vitest";
+import type { SyncSeq } from "../api/brands";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import type { ReplicaDb } from "./db";
@@ -30,7 +31,7 @@ const page = (id: number, title: string) =>
   ({ id, title, created_at: 1, updated_at: 1 });
 
 const SNAP: Snapshot = {
-  generation: "gen-1", plain_space_title_canonicalization: false, seq: 10,
+  generation: "gen-1", plain_space_title_canonicalization: false, seq: (10 as SyncSeq),
   pages: [page(1, "Machine Learning"), page(2, "AI")],
   blocks: [
     block("uid_b1", 1),
@@ -42,7 +43,7 @@ const SNAP: Snapshot = {
 
 const emptyFeed = (over: Partial<Changes> = {}): Changes => ({
   reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-  next_since: 10, latest_seq: 10,
+  next_since: (10 as SyncSeq), latest_seq: (10 as SyncSeq),
   pages: [], blocks: [], sidebar: [], tombstones: [], ...over,
 });
 
@@ -79,7 +80,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // server that doesn't, and it must degrade to a rebootstrap rather than
     // refetch the same unappliable window forever.
     const res = applyChanges(t.db, emptyFeed({
-      next_since: 11, latest_seq: 20,
+      next_since: (11 as SyncSeq), latest_seq: (20 as SyncSeq),
       blocks: [block("uid_child", 1, { parent_uid: "uid_future_parent" })],
     }));
     expect(res).toEqual({ status: "needs-bootstrap" });
@@ -100,7 +101,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
         parent_uid: "uid_b2", order_idx: 0, text: "typed offline" },
     ], 5, "batch-child");
     const res = applyChanges(t.db, emptyFeed({
-      next_since: 11, latest_seq: 11,
+      next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
       tombstones: [{ kind: "block", entity_id: "uid_b2" }],
     }));
     expect(res).toEqual({ status: "applied", cursor: 11 });
@@ -129,7 +130,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     ], 6, "batch-child");
     expect(uids(t.db)).toContain("uid_ghost_child");
     const res = applyChanges(t.db, emptyFeed({
-      next_since: 11, latest_seq: 11,
+      next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
       tombstones: [{ kind: "block", entity_id: "uid_ghost" },
                    { kind: "block", entity_id: "uid_never_seen" }],
     }));
@@ -157,7 +158,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     ], 6, "batch-move");
     ackNext(t.db);
     const res = applyChanges(t.db, emptyFeed({
-      next_since: 11, latest_seq: 11,
+      next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
       tombstones: [{ kind: "block", entity_id: "uid_ghost_p" }],
       blocks: [block("uid_b2", 1, { order_idx: 1 }),
                block("uid_b3", 1, { parent_uid: "uid_b2" })],
@@ -201,7 +202,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // on rowid 2, the lowest free slot: the window's own baseline is
     // {[blocks,2,blocks,0]}.
     const res = applyChanges(t.db, emptyFeed({
-      next_since: 11, latest_seq: 11,
+      next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
       tombstones: [{ kind: "block", entity_id: "uid_b2" }],
       blocks: [block("uid_b3", 1, { parent_uid: "uid_far_parent" })],
     }));
@@ -278,7 +279,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // failure is a genuine bug or a corrupt replica, and bootstrapping past
     // it would hide it behind an endless resync.
     expect(() => applyChanges(t.db, emptyFeed({
-      next_since: 11, latest_seq: 11,
+      next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
       pages: [page(3, null as unknown as string)], // pages.title is NOT NULL
     }))).toThrow(/NOT NULL constraint failed/);
     expect(getMeta(t.db, "cursor")).toBe("10");
@@ -289,7 +290,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // one is not a windowing artefact to rebootstrap past — it means the feed
     // is wrong, and swallowing it would loop bootstrap forever.
     expect(() => applySnapshot(t.db, {
-      ...SNAP, seq: 12,
+      ...SNAP, seq: (12 as SyncSeq),
       blocks: [...SNAP.blocks, block("uid_orphan", 1, { parent_uid: "uid_gone" })],
     })).toThrow(/FOREIGN KEY constraint failed/);
     expect(getMeta(t.db, "cursor")).toBe("10");

@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 from pkm.contracts.responses import (ChangesPayload, EntityKind,
                                         SnapshotPayload, SyncBlock, SyncPage,
-                                        SyncRef, SyncSidebarEntry,
+                                        SyncRef, SyncSeq, SyncSidebarEntry,
                                         SyncTombstone)
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
@@ -218,8 +218,8 @@ def sync_changes(since: int = 0, limit: int = 1000,
     try:
         generation = database_generation(db)
         plain_space_active = plain_space_title_canonicalization_active(db)
-        latest = db.execute(
-            "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
+        latest = SyncSeq(db.execute(
+            "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0])
         if since > latest:
             # cursor from a different/rebuilt database (importer swap):
             # the client must re-bootstrap from the snapshot
@@ -282,7 +282,7 @@ def sync_changes(since: int = 0, limit: int = 1000,
         return ChangesPayload(
             generation=generation,
             plain_space_title_canonicalization=plain_space_active,
-            next_since=win.next_since if rows else since,
+            next_since=win.next_since if rows else SyncSeq(since),
             latest_seq=latest, pages=pages, blocks=blocks, sidebar=sidebar,
             tombstones=tombstones)
     finally:
@@ -294,8 +294,8 @@ def sync_snapshot(db: sqlite3.Connection = Depends(get_db)
                   ) -> SnapshotPayload:
     db.execute("BEGIN")
     try:
-        seq = db.execute(
-            "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
+        seq = SyncSeq(db.execute(
+            "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0])
         uids = [r["uid"] for r in db.execute("SELECT uid FROM blocks")]
         blocks, _ = _block_payloads(db, uids)
         pages = [SyncPage(**dict(r)) for r in db.execute(

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
 import type { BlockOp, DeleteOp, UpdateTextOp } from "../api/ops";
+import type { PendingRowId } from "./client";
 import { LocalOpError } from "./localOps";
 import * as queue from "./queue";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
@@ -287,8 +288,8 @@ describe("queue reads and lifecycle", () => {
       poisonedBatches(db: typeof t.db): unknown[];
     }).poisonedBatches;
     expect(poisonedBatches(t.db)).toEqual([{
-      rowId: rejected.id,
-      batchId: "batch-rejected",
+      id: rejected.id,
+      batch_id: "batch-rejected",
       ops: rejected.ops,
       status: 422,
       message: "request failed: 422 /api/ops",
@@ -310,9 +311,11 @@ describe("importPendingRows", () => {
 
   test("importPendingRows keeps ids verbatim and later enqueues number past them", () => {
     const rows = [
-      { id: 4, batch_id: "b4", ops_json: JSON.stringify([{ op: "delete", uid: "uid_a" }]),
+      { id: 4 as PendingRowId, batch_id: "b4",
+        ops_json: JSON.stringify([{ op: "delete", uid: "uid_a" }]),
         poisoned: 1, error: "HTTP 400" },
-      { id: 7, batch_id: "b7", ops_json: JSON.stringify([{ op: "delete", uid: "uid_b" }]),
+      { id: 7 as PendingRowId, batch_id: "b7",
+        ops_json: JSON.stringify([{ op: "delete", uid: "uid_b" }]),
         poisoned: 0, error: null },
     ];
     queue.importPendingRows(t.db, rows);
@@ -325,7 +328,7 @@ describe("importPendingRows", () => {
   test("importPendingRows ignores a row whose id is already present", () => {
     t.db.exec("INSERT INTO pending_ops(id, batch_id, ops_json) VALUES (1, 'kept', '[]')");
     queue.importPendingRows(t.db, [
-      { id: 1, batch_id: "other", ops_json: "[]", poisoned: 0, error: null },
+      { id: (1 as PendingRowId), batch_id: "other", ops_json: "[]", poisoned: 0, error: null },
     ]);
     expect(t.db.select("SELECT batch_id FROM pending_ops WHERE id = 1"))
       .toEqual([{ batch_id: "kept" }]);

@@ -1,11 +1,11 @@
 ---
 # pkm-he87
 title: 'Web worker brands: SyncSeq and PendingRowId'
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T07:44:38Z
+updated_at: 2026-10-01T12:07:17Z
 parent: pkm-7uxw
 ---
 
@@ -28,3 +28,8 @@ Brand the worker-side numeric ids in `web/src/replica/` and the sync layer. Neit
 - [ ] Rename the local `seq` counters (lane seq, `resyncSeq`) so the name `SyncSeq` is unambiguous
 - [ ] Optional: a typed method map for the worker RPC (`ReplicaRpcMethod`). Today `call(method: string)` (`replica/rpc.ts:39,44-47,62-64`, handlers at `replica/workerHandlers.ts:413`) fails only at runtime, and brands survive structured clone only because both sides re-assert them (`prepareRecovery`/`commitRecovery` cast to plain shapes).
 - [ ] `pnpm verify` clean
+
+
+## Decision (2026-10-01)
+
+pkm-85x3 has landed. **SyncSeq goes through the x-brand pipeline**, not a hand alias in api/ops.ts: a server NewType `SyncSeq` in contracts, tagged with `brand()`, applied to the changes.seq wire fields (`ChangesPayload.next_since`/`latest_seq`, `SnapshotPayload.seq`, `OpsAck.seq`, and the WS notify seq if it has a pydantic model), with `SyncSeq` defined in `web/src/api/brands.ts`. PendingRowId stays web-only (replica SQLite, never on the wire).

@@ -15,6 +15,9 @@
 // give. pending_ops ids are AUTOINCREMENT, so a removed id never comes back as
 // a different batch.
 
+import type { SyncSeq } from "../api/brands";
+import type { PendingRowId } from "./client";
+
 /**
  * True when `current` is `expected` with zero or more ids removed (order
  * preserved) and every removed id has an acked seq in `ackedSeqs` that the
@@ -23,10 +26,10 @@
  * caller refetches.
  */
 export function pendingSetStillCovered(
-  expected: readonly number[],
-  current: readonly number[],
-  ackedSeqs: ReadonlyMap<number, number>,
-  latestSeq: number,
+  expected: readonly PendingRowId[],
+  current: readonly PendingRowId[],
+  ackedSeqs: ReadonlyMap<PendingRowId, SyncSeq>,
+  latestSeq: SyncSeq,
 ): boolean {
   let at = 0;
   for (const id of expected) {

@@ -153,7 +153,7 @@ it("discards a stale in-flight load when a resync resets the journal", async () 
   );
   const { rerender } = render(inSync(sync));
   // resync arrives while the initial fetch is still in flight
-  rerender(inSync({ ...sync, resyncSeq: 1 }));
+  rerender(inSync({ ...sync, resyncGeneration: 1 }));
   expect(await screen.findByRole("link", { name: "Fresh day" })).toBeInTheDocument();
 
   // the superseded response lands late: dropped, not rendered
@@ -197,7 +197,7 @@ it("keeps day sections mounted across a resync (no remount churn)", async () => 
   const section = document.querySelector(".journal-day");
   expect(section).not.toBeNull();
 
-  rerender(inSync({ ...sync, resyncSeq: 1 }));
+  rerender(inSync({ ...sync, resyncGeneration: 1 }));
   // the authoritative refetch replaces the content...
   expect(await screen.findByText("after resync")).toBeInTheDocument();
   expect(screen.queryByText("before resync")).not.toBeInTheDocument();
@@ -417,7 +417,7 @@ it("a resync reloads the whole scrolled window, not just the head batch",
   intersect();
   await screen.findByRole("link", { name: "June 20th, 2026" });
 
-  rerender(inSync({ ...sync, resyncSeq: 1 }));
+  rerender(inSync({ ...sync, resyncGeneration: 1 }));
   // ten days were on screen, so the reload asks for all ten in one batch
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
     "/api/journal?days=10", READ_INIT));
@@ -470,7 +470,7 @@ async () => {
   await screen.findByRole("link", { name: "Day 2026-07-22" });
   const before = fetchMock.mock.calls.length;
 
-  rerender(inSync({ ...sync, resyncSeq: 1 }));
+  rerender(inSync({ ...sync, resyncGeneration: 1 }));
   await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(before));
   // The whole on-screen window comes back as one batch, and the
   // five days it replaces add nothing of their own.

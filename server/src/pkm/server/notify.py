@@ -13,10 +13,15 @@ import anyio.from_thread
 from fastapi import Request
 from pydantic import BaseModel
 
+from pkm.contracts.responses import SyncSeq
+
 
 class SeqFrame(BaseModel):
     """The WS nudge frame. WS messages sit outside OpenAPI, so this model
-    is their schema.
+    is their schema -- `SyncSeq` is tagged with `brand()` for consistency
+    with the HTTP wire fields, but gen-types never sees this model, so the
+    web's `WsSeq.seq` (sync/socket.ts) is narrowed to `Brands.SyncSeq` by
+    hand.
 
     ``force`` is reserved for committed metadata/generation changes that do
     not necessarily advance ``changes.seq``. Its seq is always the real
@@ -25,7 +30,7 @@ class SeqFrame(BaseModel):
     with a future journal row.
     """
     type: Literal["seq"] = "seq"
-    seq: int
+    seq: SyncSeq
     force: bool = False
     generation: str | None = None
 
@@ -38,7 +43,8 @@ def seq_frame(
 ) -> dict:
     if force and generation is None:
         raise ValueError("forced seq frame requires a generation")
-    seq = db.execute("SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
+    seq = SyncSeq(db.execute(
+        "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0])
     return SeqFrame(
         seq=seq, force=force, generation=generation
     ).model_dump(

@@ -21,7 +21,7 @@ const withEntries = (...batchIds: string[]): OutboxState =>
 describe("append", () => {
   it("assigns seq 0, 1, 2 in append order and advances the counter", () => {
     const s = withEntries("a", "b", "c");
-    expect(s.entries.map((e) => [e.batchId, e.seq])).toEqual([
+    expect(s.entries.map((e) => [e.batchId, e.laneSeq])).toEqual([
       ["a", 0], ["b", 1], ["c", 2],
     ]);
     expect(s.appended).toBe(3);
@@ -32,7 +32,7 @@ describe("append", () => {
     let s = withEntries("a");
     s = settleHead(s, "a");
     s = append(s, "b", [op("b")]);
-    expect(s.entries[0]?.seq).toBe(1);
+    expect(s.entries[0]?.laneSeq).toBe(1);
     expect(s.appended).toBe(2);
   });
 });

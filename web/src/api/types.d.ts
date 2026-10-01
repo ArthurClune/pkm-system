@@ -1183,9 +1183,9 @@ export interface components {
             /** Plain Space Title Canonicalization */
             plain_space_title_canonicalization: boolean;
             /** Next Since */
-            next_since: number;
+            next_since: Brands.SyncSeq;
             /** Latest Seq */
-            latest_seq: number;
+            latest_seq: Brands.SyncSeq;
             /** Pages */
             pages: components["schemas"]["SyncPage"][];
             /** Blocks */
@@ -1512,7 +1512,7 @@ export interface components {
             /** Applied */
             applied: number;
             /** Seq */
-            seq?: number | null;
+            seq?: Brands.SyncSeq | null;
             /** Skipped */
             skipped?: components["schemas"]["SkippedOp"][];
         };
@@ -1706,7 +1706,7 @@ export interface components {
             /** Plain Space Title Canonicalization */
             plain_space_title_canonicalization: boolean;
             /** Seq */
-            seq: number;
+            seq: Brands.SyncSeq;
             /** Pages */
             pages: components["schemas"]["SyncPage"][];
             /** Blocks */

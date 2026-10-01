@@ -36,7 +36,7 @@ from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from typing import TypeVar
 
-from pkm.contracts.responses import EntityKind
+from pkm.contracts.responses import EntityKind, SyncSeq
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -63,7 +63,7 @@ def hydrate_in_order(order: Sequence[K], present: Mapping[K, V]) -> list[V]:
 
 @dataclass(frozen=True)
 class Window:
-    next_since: int
+    next_since: SyncSeq
     entities: tuple[tuple[EntityKind, str], ...]  # unique (kind, entity_id)
     # every (kind, entity_id) with at least one delete row in the window
     tombstoned: frozenset[tuple[EntityKind, str]]
@@ -78,11 +78,11 @@ def missing_parent_uids(parent_uids: Iterable[str | None],
     return {p for p in parent_uids if p is not None and p not in known}
 
 
-def dedupe_window(rows: Sequence[tuple[int, EntityKind, str, int]]) -> Window:
+def dedupe_window(rows: Sequence[tuple[SyncSeq, EntityKind, str, int]]) -> Window:
     """Rows are (seq, kind, entity_id, deleted) in seq order."""
     seen: dict[tuple[EntityKind, str], None] = {}  # insertion-ordered set
     deleted_keys: set[tuple[EntityKind, str]] = set()
-    last_seq = 0
+    last_seq = SyncSeq(0)
     for seq, kind, entity_id, deleted in rows:
         last_seq = seq
         seen.setdefault((kind, entity_id), None)

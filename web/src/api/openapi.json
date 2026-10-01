@@ -2695,11 +2695,13 @@
           },
           "next_since": {
             "type": "integer",
-            "title": "Next Since"
+            "title": "Next Since",
+            "x-brand": "SyncSeq"
           },
           "latest_seq": {
             "type": "integer",
-            "title": "Latest Seq"
+            "title": "Latest Seq",
+            "x-brand": "SyncSeq"
           },
           "pages": {
             "items": {
@@ -3531,7 +3533,8 @@
           "seq": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "x-brand": "SyncSeq"
               },
               {
                 "type": "null"
@@ -4023,7 +4026,8 @@
           },
           "seq": {
             "type": "integer",
-            "title": "Seq"
+            "title": "Seq",
+            "x-brand": "SyncSeq"
           },
           "pages": {
             "items": {

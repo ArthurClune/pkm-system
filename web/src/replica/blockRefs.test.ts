@@ -6,6 +6,7 @@
 // re-inlines it; the equivalence test fails if the two paths ever derive
 // different rows from the same text, whatever code they run.
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
@@ -38,7 +39,7 @@ const block = (uid: string, over: Partial<SyncBlock> = {}): SyncBlock => ({
 });
 
 const SNAP: Snapshot = {
-  generation: "gen-1", plain_space_title_canonicalization: false, seq: 10,
+  generation: "gen-1", plain_space_title_canonicalization: false, seq: (10 as SyncSeq),
   pages: [{ id: 1, title: "AI", created_at: 1, updated_at: 1 }],
   blocks: [block("uid_b1"), block("uid_b2", { order_idx: 1 })],
   sidebar: [],
@@ -46,7 +47,7 @@ const SNAP: Snapshot = {
 
 const feed = (blocks: SyncBlock[]): Changes => ({
   reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-  next_since: 11, latest_seq: 11,
+  next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
   pages: [], blocks, sidebar: [], tombstones: [],
 });
 

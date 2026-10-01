@@ -2,8 +2,11 @@
 // End-to-end over a MessageChannel: the typed Replica facade on one side,
 // buildHandlers over a real in-memory sqlite-wasm database on the other.
 import { expect, test, vi } from "vitest";
+import type { SyncSeq } from "../api/brands";
 import type { Snapshot } from "./apply";
-import { createReplica, type Replica } from "./client";
+import {
+  createReplica, type AckedBatch, type PendingRowId, type Replica,
+} from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import { ReplicaUnusableError } from "./errors";
 import { setMeta } from "./meta";
@@ -18,7 +21,7 @@ function deferred<T = void>() {
 }
 
 const SNAP: Snapshot = {
-  generation: "gen-1", plain_space_title_canonicalization: false, seq: 5,
+  generation: "gen-1", plain_space_title_canonicalization: false, seq: (5 as SyncSeq),
   pages: [{ id: 1, title: "AI", created_at: 1, updated_at: 1 }],
   blocks: [{ uid: "uid_b1", page_id: 1, parent_uid: null, order_idx: 0,
              text: "hello", heading: null, view_type: null, collapsed: 0, created_at: 1,
@@ -58,13 +61,13 @@ test("applyChanges round-trips through the port", async () => {
   await replica.applySnapshot(SNAP);
   const result = await replica.applyChanges({
     reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-    next_since: 6, latest_seq: 6, pages: [], blocks: [], sidebar: [],
+    next_since: (6 as SyncSeq), latest_seq: (6 as SyncSeq), pages: [], blocks: [], sidebar: [],
     tombstones: [{ kind: "block", entity_id: "uid_b1" }],
   });
   expect(result).toEqual({ status: "applied", cursor: 6 });
   const gone = await replica.applyChanges({
     reset: false, generation: "gen-2", plain_space_title_canonicalization: false,
-    next_since: 0, latest_seq: 0,
+    next_since: (0 as SyncSeq), latest_seq: (0 as SyncSeq),
     pages: [], blocks: [], sidebar: [], tombstones: [],
   });
   expect(gone).toEqual({ status: "needs-bootstrap" });
@@ -85,7 +88,7 @@ test("a feed fetched before an acknowledged batch deletion cannot overwrite it",
 
   const result = await replica.applyChanges({
     reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-    next_since: 6, latest_seq: 6, pages: [],
+    next_since: (6 as SyncSeq), latest_seq: (6 as SyncSeq), pages: [],
     blocks: [{ ...SNAP.blocks[0], text: "hello" }],
     sidebar: [], tombstones: [],
   }, pendingAtDispatch);
@@ -108,11 +111,11 @@ test("a window whose latest_seq covers the acked batch applies despite the stale
   ], "batch-ack");
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
-  await replica.deleteBatch(batch.id, batch.batch_id, 6);
+  await replica.deleteBatch(batch.id, batch.batch_id, (6 as SyncSeq));
 
   const result = await replica.applyChanges({
     reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-    next_since: 6, latest_seq: 6, pages: [],
+    next_since: (6 as SyncSeq), latest_seq: (6 as SyncSeq), pages: [],
     blocks: [{ ...SNAP.blocks[0], text: "acknowledged local text" }],
     sidebar: [], tombstones: [],
   }, pendingAtDispatch);
@@ -131,11 +134,11 @@ test("a window read before the acked batch committed is still refused", async ()
   ], "batch-ack");
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
-  await replica.deleteBatch(batch.id, batch.batch_id, 7); // committed after the window's read
+  await replica.deleteBatch(batch.id, batch.batch_id, (7 as SyncSeq)); // committed after the window's read
 
   const result = await replica.applyChanges({
     reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-    next_since: 6, latest_seq: 6, pages: [],
+    next_since: (6 as SyncSeq), latest_seq: (6 as SyncSeq), pages: [],
     blocks: [{ ...SNAP.blocks[0], text: "hello" }],
     sidebar: [], tombstones: [],
   }, pendingAtDispatch);
@@ -152,12 +155,12 @@ test("a later seq-less delete of the same id forgets the recorded acked seq", as
   await replica.enqueue([{ op: "delete", uid: "uid_b1" }], "batch-1");
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
-  await replica.deleteBatch(batch.id, batch.batch_id, 6);
+  await replica.deleteBatch(batch.id, batch.batch_id, (6 as SyncSeq));
   await replica.deleteBatch(batch.id, batch.batch_id);
 
   await expect(replica.applyChanges({
     reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-    next_since: 6, latest_seq: 6, pages: [], blocks: [], sidebar: [],
+    next_since: (6 as SyncSeq), latest_seq: (6 as SyncSeq), pages: [], blocks: [], sidebar: [],
     tombstones: [],
   }, pendingAtDispatch)).resolves.toEqual({ status: "pending-changed" });
 });
@@ -337,15 +340,15 @@ test("enqueue round-trips: persisted, optimistic, drainable", async () => {
     status: 422, message: "request failed: 422 /api/ops",
   }), batch.batch_id);
   await expect(replica.poisonedBatches()).resolves.toEqual([{
-    rowId: batch.id,
-    batchId: batch.batch_id,
+    id: batch.id,
+    batch_id: batch.batch_id,
     ops: batch.ops,
     status: 422,
     message: "request failed: 422 /api/ops",
   }]);
   await replica.deleteBatch(batch.id, batch.batch_id);
   expect(await replica.pendingCount()).toBe(0);
-  await expect(replica.markPoisoned(99, "gone", "gone-batch")).resolves.toEqual({
+  await expect(replica.markPoisoned((99 as PendingRowId), "gone", "gone-batch")).resolves.toEqual({
     pending: 0, matched: false,
   });
 });
@@ -402,4 +405,21 @@ test("a recovery lease gates enqueue and offline POST until the fresh database i
   expect(t.db.select("SELECT title FROM pages WHERE title='Offline Page'"))
     .toEqual([{ title: "Offline Page" }]);
   expect(await replica.pendingCount()).toBe(2);
+});
+
+// Replica.deleteBatch's `id`/`ackedSeq` pair is the public shape of the
+// worker's noteAck(id, seq): both are plain numbers at runtime, so the
+// brands are the only thing stopping a caller from swapping them.
+test("deleteBatch's id/ackedSeq brands reject a swapped call (compile-time only)", () => {
+  const rowId = 1 as PendingRowId;
+  const seq = 7 as SyncSeq;
+  const deleteBatch: Replica["deleteBatch"] = async () => ({ pending: 0 });
+  // @ts-expect-error ackedSeq takes a SyncSeq, not a PendingRowId
+  void deleteBatch(rowId, "b", rowId);
+  // @ts-expect-error id takes a PendingRowId, not a SyncSeq
+  void deleteBatch(seq, "b", seq);
+  // @ts-expect-error same pair, swapped: AckedBatch.id is a PendingRowId
+  // and AckedBatch.seq is a SyncSeq | null, not the reverse
+  const swapped: AckedBatch = { id: seq, batch_id: "b", seq: rowId };
+  expect(swapped).toBeDefined();
 });

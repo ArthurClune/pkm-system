@@ -1,4 +1,4 @@
-from pkm.contracts.responses import EntityKind
+from pkm.contracts.responses import EntityKind, SyncSeq
 from pkm.server.sync_core import (CHUNK_SIZE, chunk_ids, dedupe_window,
                                     hydrate_in_order, missing_parent_uids,
                                     tombstone_entities, tombstoned_ids)
@@ -7,20 +7,20 @@ from pkm.server.sync_core import (CHUNK_SIZE, chunk_ids, dedupe_window,
 def test_next_since_is_last_scanned_row_not_last_distinct_entity():
     # The A@1/B@2/A@100 case from the spec: with the window cut at seq 2,
     # next_since must be 2 (B's row), never 100 -- or B is skipped forever.
-    win = dedupe_window([(1, "block", "A", 0), (2, "block", "B", 0)])
+    win = dedupe_window([(SyncSeq(1), "block", "A", 0), (SyncSeq(2), "block", "B", 0)])
     assert win.next_since == 2
     assert set(win.entities) == {("block", "A"), ("block", "B")}
 
 
 def test_dedupes_within_window_only():
     win = dedupe_window(
-        [(1, "block", "A", 0), (2, "block", "B", 0), (3, "block", "A", 0)])
+        [(SyncSeq(1), "block", "A", 0), (SyncSeq(2), "block", "B", 0), (SyncSeq(3), "block", "A", 0)])
     assert win.next_since == 3
     assert win.entities == (("block", "A"), ("block", "B"))
 
 
 def test_same_id_different_kind_not_merged():
-    win = dedupe_window([(1, "page", "7", 0), (2, "sidebar", "7", 0)])
+    win = dedupe_window([(SyncSeq(1), "page", "7", 0), (SyncSeq(2), "sidebar", "7", 0)])
     assert set(win.entities) == {("page", "7"), ("sidebar", "7")}
 
 
@@ -32,31 +32,31 @@ def test_empty_window():
 
 
 def test_dedupe_window_flags_an_entity_with_a_delete_row():
-    win = dedupe_window([(1, "page", "7", 1), (2, "page", "7", 0),
-                         (3, "block", "A", 0)])
+    win = dedupe_window([(SyncSeq(1), "page", "7", 1), (SyncSeq(2), "page", "7", 0),
+                         (SyncSeq(3), "block", "A", 0)])
     assert win.entities == (("page", "7"), ("block", "A"))
     assert win.tombstoned == frozenset({("page", "7")})
 
 
 def test_dedupe_window_flag_ignores_row_order():
-    win = dedupe_window([(1, "page", "7", 0), (2, "page", "7", 1)])
+    win = dedupe_window([(SyncSeq(1), "page", "7", 0), (SyncSeq(2), "page", "7", 1)])
     assert win.tombstoned == frozenset({("page", "7")})
 
 
 def test_tombstone_entities_absent_entity():
-    win = dedupe_window([(1, "block", "A", 0), (2, "page", "7", 0)])
+    win = dedupe_window([(SyncSeq(1), "block", "A", 0), (SyncSeq(2), "page", "7", 0)])
     assert tombstone_entities(
         win, {"block": set(), "page": {"7"}}) == [("block", "A")]
 
 
 def test_tombstone_entities_missing_kind_counts_as_empty():
-    win = dedupe_window([(1, "sidebar", "3", 0)])
+    win = dedupe_window([(SyncSeq(1), "sidebar", "3", 0)])
     assert tombstone_entities(win, {}) == [("sidebar", "3")]
 
 
 def test_tombstone_entities_reused_page_and_sidebar_even_when_present():
-    win = dedupe_window([(1, "page", "7", 1), (2, "page", "7", 0),
-                         (3, "sidebar", "3", 1), (4, "sidebar", "3", 0)])
+    win = dedupe_window([(SyncSeq(1), "page", "7", 1), (SyncSeq(2), "page", "7", 0),
+                         (SyncSeq(3), "sidebar", "3", 1), (SyncSeq(4), "sidebar", "3", 0)])
     present: dict[EntityKind, set[str]] = {
         "block": set(), "page": {"7"}, "sidebar": {"3"}}
     assert tombstone_entities(win, present) == [("page", "7"),
@@ -66,13 +66,13 @@ def test_tombstone_entities_reused_page_and_sidebar_even_when_present():
 def test_tombstone_entities_block_keeps_presence_rule():
     # block uids are never reused by the database; one recreated under its
     # old uid is the same block and ships as a live row only
-    win = dedupe_window([(1, "block", "A", 1), (2, "block", "A", 0)])
+    win = dedupe_window([(SyncSeq(1), "block", "A", 1), (SyncSeq(2), "block", "A", 0)])
     assert tombstone_entities(win, {"block": {"A"}}) == []
 
 
 def test_tombstoned_ids_by_kind_in_window_order():
-    win = dedupe_window([(1, "page", "9", 1), (2, "sidebar", "9", 1),
-                         (3, "page", "4", 1), (4, "page", "5", 0)])
+    win = dedupe_window([(SyncSeq(1), "page", "9", 1), (SyncSeq(2), "sidebar", "9", 1),
+                         (SyncSeq(3), "page", "4", 1), (SyncSeq(4), "page", "5", 0)])
     assert tombstoned_ids(win, "page") == ["9", "4"]
 
 

@@ -21,6 +21,7 @@
 //     applySnapshot still throws -- a snapshot ships the whole graph, so a
 //     dangling row in one means something is genuinely wrong.
 
+import type { SyncSeq } from "../api/brands";
 import type { components } from "../api/types";
 import { reindexBlockRefs } from "./blockRefs";
 import { type ReplicaDb, rollbackToSavepoint, type SqlValue } from "./db";
@@ -36,7 +37,7 @@ export type SyncPage = components["schemas"]["SyncPage"];
 export type SyncTombstone = components["schemas"]["SyncTombstone"];
 
 export type ApplyResult =
-  | { status: "applied"; cursor: number }
+  | { status: "applied"; cursor: SyncSeq }
   | { status: "needs-bootstrap" }
   | { status: "pending-changed" };
 

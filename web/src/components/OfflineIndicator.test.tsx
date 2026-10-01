@@ -1,12 +1,13 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
+import type { PendingRowId } from "../replica/client";
 import { SyncContext, type Sync, type SyncProblem } from "../sync/SyncProvider";
 import { OfflineIndicator } from "./OfflineIndicator";
 
 function syncWith(overrides: Partial<Sync>): Sync {
   return {
     status: "connected",
-    resyncSeq: 0,
+    resyncGeneration: 0,
     replicaMode: "ready",
     canEdit: true,
     pending: 0,
@@ -138,7 +139,7 @@ it("does not double a full stop when the read-only reason already ends with one"
 const rejected = {
   kind: "rejected-batch" as const,
   event: {
-    rowId: 7, batchId: "batch-rejected",
+    id: 7 as PendingRowId, batch_id: "batch-rejected",
     ops: [{ op: "delete" as const, uid: "uid_bad" }],
     status: 400, message: "request failed: 400 /api/ops",
   },

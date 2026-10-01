@@ -2,7 +2,7 @@
 // Main-thread facade over the replica worker. All methods are thin typed
 // RPC wrappers; the worker owns the database.
 
-import type { SyncSeq } from "../api/brands";
+import type { BatchId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { ApplyResult, Changes, Snapshot } from "./apply";
 import type { LocalApiRequest, LocalApiResult } from "./localApi/router";
@@ -16,17 +16,17 @@ const RECOVERY_TIMEOUT_MS = 120_000;
 /** A `pending_ops` row id (SQLite AUTOINCREMENT), web-only: it never
  * crosses the wire, and it is not stable across a reset or a file
  * replacement (AUTOINCREMENT restarts, see workerHandlers.ts
- * rebuildSchema). Distinct from `SyncSeq` so the two can never swap at a
- * call like `deleteBatch(id, batchId, ackedSeq)`. Minted only at the
- * SQLite row mappers in replica/queue.ts (toBatch, poisonedBatches) and at
- * the RPC boundary in replica/workerHandlers.ts, which re-asserts it on
- * every payload read out of `unknown` (structured clone carries the
- * runtime number, not the brand). */
+ * rebuildSchema). Distinct from `SyncSeq` and `BatchId` so none of the
+ * three can swap at a call like `deleteBatch(id, batchId, ackedSeq)`.
+ * Minted only at the SQLite row mappers in replica/queue.ts (toBatch,
+ * poisonedBatches) and at the RPC boundary in replica/workerHandlers.ts,
+ * which re-asserts it on every payload read out of `unknown` (structured
+ * clone carries the runtime number, not the brand). */
 export type PendingRowId = number & { readonly __brand: "PendingRowId" };
 
 export interface PendingBatch {
   id: PendingRowId;
-  batch_id: string;
+  batch_id: BatchId;
   ops: BlockOp[];
   poisoned: boolean;
 }
@@ -39,7 +39,7 @@ export interface PendingBatch {
  * (sync/opQueue.ts) builds one of these directly from a PendingBatch. */
 export interface PoisonedBatch {
   id: PendingRowId;
-  batch_id: string;
+  batch_id: BatchId;
   ops: readonly BlockOp[];
   status: number;
   message: string;
@@ -66,7 +66,7 @@ export interface RecoveryLease {
  * field. */
 export interface AckedBatch {
   id: PendingRowId;
-  batch_id: string;
+  batch_id: BatchId;
   seq: SyncSeq | null;
 }
 
@@ -110,7 +110,7 @@ export interface Replica {
    * a duplicate delivery hits the server's replay dedup instead of a
    * create-collision 400. */
   enqueue(ops: BlockOp[],
-          batchId: string): Promise<{ pending: number; batchId: string }>;
+          batchId: BatchId): Promise<{ pending: number; batchId: BatchId }>;
   nextBatch(): Promise<PendingBatch | null>;
   /** All queued batches, oldest first (recovery flush reads). */
   pendingBatches(): Promise<PendingBatch[]>;
@@ -125,9 +125,9 @@ export interface Replica {
    * ack (a rebase settle, a poison discard) omit it. A rebase commit deletes
    * the rows its flush got acks for itself, and records their seqs the same
    * way. */
-  deleteBatch(id: PendingRowId, batchId: string,
+  deleteBatch(id: PendingRowId, batchId: BatchId,
               ackedSeq?: SyncSeq): Promise<{ pending: number }>;
-  markPoisoned(id: PendingRowId, error: string, batchId: string): Promise<{
+  markPoisoned(id: PendingRowId, error: string, batchId: BatchId): Promise<{
     pending: number; matched: boolean;
   }>;
   pendingCount(): Promise<number>;

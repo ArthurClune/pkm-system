@@ -26,3 +26,16 @@ export type Sha256Hex = string & { readonly __brand: "Sha256Hex" };
 // the WS notify frame (sync/socket.ts WsSeq.seq) sits outside OpenAPI and
 // is narrowed to this type by hand at the one place that parses it.
 export type SyncSeq = number & { readonly __brand: "SyncSeq" };
+
+// The per-tab sync identity (sync/opQueue.ts `clientId`, minted once per
+// tab with newUid()) and the replay-dedup key an OpBatch shares with the
+// pending_ops row it came from (minted at sync/opQueue.ts,
+// replica/workerHandlers.ts's newBatchId, and the server's
+// client/workflows.py `_batch_id`). Both are bare uid-shaped strings placed
+// next to each other in one request body (OpBatch.client_id/batch_id) --
+// distinct brands so the two, or a batch id and a row id, can never swap at
+// a call site. Crosses HTTP through OpBatch; the WS notify frame
+// (sync/socket.ts WsBatch.client_id) sits outside OpenAPI and is narrowed to
+// this type by hand at the one place that parses it.
+export type ClientId = string & { readonly __brand: "ClientId" };
+export type BatchId = string & { readonly __brand: "BatchId" };

@@ -1,12 +1,16 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
-import type { SyncSeq } from "../api/brands";
+import type { BatchId, SyncSeq } from "../api/brands";
 import type { Changes, Snapshot, SyncBlock, SyncTombstone } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import { getMeta } from "./meta";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
 import type { ReplicaDb } from "./db";
+
+// Every test here picks an arbitrary batch-id string, same shape as the
+// production mint; this mints the brand once rather than at every call.
+const bid = (s: string): BatchId => s as BatchId;
 
 /** The drain's delete of the batch at the head of the queue, on its ack. */
 const ackNext = (db: ReplicaDb): void => {
@@ -113,7 +117,7 @@ describe("applySnapshot", () => {
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_opt", page_title: "Machine Learning",
         parent_uid: null, order_idx: 0, text: "typed during bootstrap" },
-    ], 5, "batch-opt");
+    ], 5, bid("batch-opt"));
     applySnapshot(t.db, SNAP, 6);
     expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_opt'"))
       .toEqual([{ text: "typed during bootstrap" }]);
@@ -126,7 +130,7 @@ describe("applySnapshot", () => {
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_keep", page_title: "AI",
         parent_uid: null, order_idx: 0, text: "kept" },
-    ], 5, "batch-keep");
+    ], 5, bid("batch-keep"));
     // references a block that exists now but is not in the snapshot and
     // is created by no queued batch: unappliable after the wipe
     t.db.exec(
@@ -135,7 +139,7 @@ describe("applySnapshot", () => {
       " VALUES ('uid_gone_after_wipe', 1, NULL, 9, 'x', NULL, 0, 5, 5)");
     enqueueBatch(t.db, [
       { op: "set_heading", uid: "uid_gone_after_wipe", heading: 1 },
-    ], 5, "batch-doomed");
+    ], 5, bid("batch-doomed"));
     applySnapshot(t.db, SNAP, 6);
     expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_keep'"))
       .toEqual([{ text: "kept" }]);
@@ -151,14 +155,14 @@ describe("applySnapshot", () => {
       { op: "update_text", uid: "uid_b1", text: "rejected text" },
       { op: "move", uid: "uid_b2", page_title: "Machine Learning",
         parent_uid: "uid_b1", order_idx: 0 },
-    ], 5, "batch-rejected");
+    ], 5, bid("batch-rejected"));
     const rejected = nextBatch(t.db)!;
     markPoisoned(t.db, rejected.id, JSON.stringify({
       status: 400, message: "request failed: 400 /api/ops",
-    }), "batch-rejected");
+    }), bid("batch-rejected"));
     enqueueBatch(t.db, [
       { op: "set_heading", uid: "uid_b3", heading: 2 },
-    ], 5, "batch-valid");
+    ], 5, bid("batch-valid"));
 
     applySnapshot(t.db, SNAP, 6);
     expect(t.db.select(
@@ -176,7 +180,7 @@ describe("applySnapshot", () => {
     deleteBatch(t.db, rejected.id, rejected.batch_id);
     enqueueBatch(t.db, [
       { op: "update_text", uid: "uid_b1", text: "later valid text" },
-    ], 7, "batch-later-valid");
+    ], 7, bid("batch-later-valid"));
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
       blocks: [block("uid_b1", 1, { text: "authoritative feed text" })],
@@ -258,15 +262,15 @@ describe("applyChanges", () => {
   test("activation reconciles already-applied pending page targets before replay", () => {
     enqueueBatch(t.db, [
       { op: "create_page", page_title: "  New Page Target  " },
-    ], 5, "pending-create-page");
+    ], 5, bid("pending-create-page"));
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_pending1", page_title: "  Created Block Target  ",
         parent_uid: null, order_idx: 0, text: "pending create" },
-    ], 5, "pending-create");
+    ], 5, bid("pending-create"));
     enqueueBatch(t.db, [
       { op: "move", uid: "uid_b2", parent_uid: null, order_idx: 0,
         page_title: "  Moved Block Target  " },
-    ], 5, "pending-move");
+    ], 5, bid("pending-move"));
 
     expect(t.db.select(
       "SELECT id, title FROM pages WHERE id < 0 ORDER BY title"))
@@ -330,7 +334,7 @@ describe("applyChanges", () => {
     // spurious daily-note conflict header
     enqueueBatch(t.db, [
       { op: "update_text", uid: "uid_b1", text: "local newer text" },
-    ], 5, "b-opt");
+    ], 5, bid("b-opt"));
     applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12,
       blocks: [block("uid_b1", 1, { text: "older server text" })],
@@ -517,7 +521,7 @@ describe("applyChanges: a title moving between ids inside one window", () => {
     // Negative ids belong to reconcilePage (blocks and refs move onto the
     // authoritative row); parking one would break its title match.
     enqueueBatch(t.db, [{ op: "create", uid: "uid_new1", page_title: "New",
-                          parent_uid: null, order_idx: 0, text: "hi" }], 5, "batch-n");
+                          parent_uid: null, order_idx: 0, text: "hi" }], 5, bid("batch-n"));
     expect(t.db.select("SELECT id FROM pages WHERE title = 'New'")).toEqual([{ id: -1 }]);
     const feed = emptyFeed({ next_since: 20, latest_seq: 20, pages: [page(9, "New")] });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
@@ -631,7 +635,7 @@ describe("applySnapshot and applyChanges: a create under a ghost parent keeps th
   // nothing wrong with it. The fix skips the create (its parent is
   // missing) instead of inserting the dangling row, so L's update
   // survives the replay.
-  const enqueueGhostBatch = (batchId: string) => {
+  const enqueueGhostBatch = (batchId: BatchId) => {
     t.db.exec(
       "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
       " heading, collapsed, created_at, updated_at)" +
@@ -647,7 +651,7 @@ describe("applySnapshot and applyChanges: a create under a ghost parent keeps th
   };
 
   test("snapshot lacking the ghost parent", () => {
-    enqueueGhostBatch("batch-ghost-snap");
+    enqueueGhostBatch(bid("batch-ghost-snap"));
 
     applySnapshot(t.db, SNAP, 6); // SNAP has no uid_ghost1; uid_b1 at server text
 
@@ -658,12 +662,12 @@ describe("applySnapshot and applyChanges: a create under a ghost parent keeps th
     const batches = allBatches(t.db);
     expect(batches).toHaveLength(1);
     expect(batches[0]).toMatchObject({
-      batch_id: "batch-ghost-snap", poisoned: false,
+      batch_id: bid("batch-ghost-snap"), poisoned: false,
     });
   });
 
   test("windowed applyChanges tombstoning the ghost parent and re-shipping the sibling", () => {
-    enqueueGhostBatch("batch-ghost-window");
+    enqueueGhostBatch(bid("batch-ghost-window"));
 
     const result = applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
@@ -681,7 +685,7 @@ describe("applySnapshot and applyChanges: a create under a ghost parent keeps th
     const batches = allBatches(t.db);
     expect(batches).toHaveLength(1);
     expect(batches[0]).toMatchObject({
-      batch_id: "batch-ghost-window", poisoned: false,
+      batch_id: bid("batch-ghost-window"), poisoned: false,
     });
   });
 });
@@ -697,12 +701,12 @@ describe("applyChanges: a windowed reapply keeps a batch whose create already ap
     { op: "create", uid: "uid_new1", page_title: "Machine Learning",
       parent_uid: null, order_idx: 1, text: "fresh" },
     { op: "update_text", uid: "uid_b1", text: "mine" },
-  ], 5, "batch-create");
+  ], 5, bid("batch-create"));
   const expectStillPending = () => {
     const batches = allBatches(t.db);
     expect(batches).toHaveLength(1);
     expect(batches[0]).toMatchObject({
-      batch_id: "batch-create", poisoned: false,
+      batch_id: bid("batch-create"), poisoned: false,
     });
   };
 
@@ -785,7 +789,7 @@ describe("applyChanges: a replayed move does not re-shift siblings it already ma
   test("sibling order_idx is stable across windows", () => {
     enqueueBatch(t.db, [
       { op: "move", uid: "uid_b3", parent_uid: null, order_idx: 1 },
-    ], 5, "batch-move");
+    ], 5, bid("batch-move"));
     for (const seq of [11, 12, 13]) {
       applyChanges(t.db, emptyFeed({ next_since: seq, latest_seq: seq }), 6);
     }
@@ -804,7 +808,7 @@ describe("applyChanges: a replayed move does not re-shift siblings it already ma
       " VALUES ('uid_b4', 1, NULL, 2, 'fourth', NULL, 0, 1, 1)");
     enqueueBatch(t.db, [
       { op: "move", uid: "uid_b3", parent_uid: null, order_idx: 1 },
-    ], 5, "batch-move");
+    ], 5, bid("batch-move"));
     for (const seq of [11, 12]) {
       applyChanges(t.db, emptyFeed({ next_since: seq, latest_seq: seq }), 6);
     }
@@ -847,7 +851,7 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
   const enqueueCycleMove = () => enqueueBatch(t.db, [
     { op: "move", uid: "uid_b1", parent_uid: "uid_b3", order_idx: 0 },
     { op: "update_text", uid: "uid_b3", text: "mine" },
-  ], 5, "batch-cycle");
+  ], 5, bid("batch-cycle"));
 
   test("an acked cycle move is undone by the rows the server journals for it", () => {
     enqueueCycleMove();
@@ -915,7 +919,7 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_new1", page_title: "Machine Learning",
         parent_uid: "uid_b2", order_idx: 1, text: "typed child" },
-    ], 5, "batch-create");
+    ], 5, bid("batch-create"));
 
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
@@ -948,10 +952,10 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_new1", page_title: "Machine Learning",
         parent_uid: "uid_b2", order_idx: 1, text: "typed child" },
-    ], 5, "batch-create");
+    ], 5, bid("batch-create"));
     enqueueBatch(t.db, [
       { op: "move", uid: "uid_new1", parent_uid: "uid_b1", order_idx: 0 },
-    ], 5, "batch-move");
+    ], 5, bid("batch-move"));
     const settled = [
       { uid: "uid_new1", page_id: 1, parent_uid: "uid_b1", order_idx: 0 },
       { uid: "uid_q1", page_id: 1, parent_uid: "uid_b1", order_idx: 1 },

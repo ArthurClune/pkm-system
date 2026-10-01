@@ -2,7 +2,7 @@
 // The worker's RPC handler map, built over an injected database opener so
 // the whole surface is testable without a real Worker or OPFS.
 
-import type { SyncSeq } from "../api/brands";
+import type { BatchId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { Changes, Snapshot } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
@@ -48,7 +48,7 @@ export interface WorkerDeps {
    * deadlines, and vice versa. */
   nowMs?: () => number;
   clockMs?: () => number;
-  newBatchId?: () => string;
+  newBatchId?: () => BatchId;
   newRecoveryToken?: () => string;
   applySnapshot?: (db: ReplicaDb, snapshot: Snapshot, nowMs: number) => void;
 }
@@ -258,7 +258,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   };
   const nowMs = deps.nowMs ?? (() => Date.now());
   const clockMs = deps.clockMs ?? (() => Date.now());
-  const newBatchId = deps.newBatchId ?? (() => crypto.randomUUID());
+  const newBatchId = deps.newBatchId ?? (() => crypto.randomUUID() as BatchId);
   const applySnapshotToDb = deps.applySnapshot ?? applySnapshot;
   const gate = createRecoveryGate(
     deps.newRecoveryToken ?? (() => crypto.randomUUID()));
@@ -423,8 +423,10 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         if (!tableExists(d, "sync_client_meta")) installSchema(d);
         // The object shape always carries the caller-minted batch id: worker
         // and main bundle ship from one hashed build, so no version skew
-        // between caller and handler is possible.
-        const { ops, batchId } = payload as { ops: BlockOp[]; batchId: string };
+        // between caller and handler is possible. structured clone carries
+        // the runtime string, not the brand, so this re-asserts it the same
+        // way the row mappers in queue.ts do for a value read from SQLite.
+        const { ops, batchId } = payload as { ops: BlockOp[]; batchId: BatchId };
         return enqueueBatch(d, ops, nowMs(), batchId);
       });
     },
@@ -441,15 +443,16 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         if (typeof id !== "number" || typeof batchId !== "string") {
           throw new Error("deleteBatch needs the row's id and batch id");
         }
-        // The RPC payload crossed structured clone as a plain number; this
-        // re-mints the brand on the main thread's say-so the same way
+        // The RPC payload crossed structured clone as plain number/string;
+        // this re-mints the brands on the main thread's say-so the same way
         // queue.ts's row mappers do for a value read straight from SQLite.
         const rowId = id as PendingRowId;
+        const batch = batchId as BatchId;
         // A delete that matched nothing cannot say which batch its seq was
         // for, so it records none and forgets any seq held for the id:
         // forgetting costs at most one refetch, vouching wrongly would let a
         // window apply over a batch it does not carry.
-        const matched = deleteBatch(d, rowId, batchId);
+        const matched = deleteBatch(d, rowId, batch);
         noteAck(rowId, matched ? ackedSeq : undefined);
         return { pending: pendingCount(d) };
       });
@@ -457,7 +460,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     async markPoisoned(payload) {
       return gate.run(async () => {
         const { id, error, batchId } = payload as {
-          id: PendingRowId; error: string; batchId: string;
+          id: PendingRowId; error: string; batchId: BatchId;
         };
         const d = await queueDb();
         const matched = markPoisoned(d, id, error, batchId);

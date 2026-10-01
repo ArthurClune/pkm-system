@@ -5,7 +5,7 @@
 // when its file is discarded, so the queue survives only if it was made
 // durable somewhere else first.
 import { expect, test } from "vitest";
-import type { SyncSeq } from "../api/brands";
+import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { Snapshot } from "../replica/apply";
 import { createCarryStore } from "../replica/carryStore";
 import { createReplica, type PendingRowId } from "../replica/client";
@@ -59,16 +59,18 @@ test("a poison repair whose file replacement fails keeps every queued row for it
       if (path === "/api/sync/snapshot") return SNAP;
       throw new Error(`unexpected fetch ${path}`);
     },
-    clientId: "c1",
+    clientId: "c1" as ClientId,
     onState: () => {},
   });
 
   await replica.init();
   await replica.applySnapshot(SNAP);
   await replica.enqueue(
-    [{ op: "move", uid: "uid_gone", parent_uid: "uid_b1", order_idx: 1 }], "rejected");
-  await replica.enqueue([{ op: "update_text", uid: "uid_b1", text: "edited" }], "valid");
-  await replica.markPoisoned((1 as PendingRowId), "HTTP 400", "rejected");
+    [{ op: "move", uid: "uid_gone", parent_uid: "uid_b1", order_idx: 1 }],
+    "rejected" as BatchId);
+  await replica.enqueue([{ op: "update_text", uid: "uid_b1", text: "edited" }],
+                        "valid" as BatchId);
+  await replica.markPoisoned((1 as PendingRowId), "HTTP 400", "rejected" as BatchId);
   isDamaged = true;
 
   await expect(sync.rebaseAuthoritative("poison")).rejects.toThrow(/SQLITE_FULL/);

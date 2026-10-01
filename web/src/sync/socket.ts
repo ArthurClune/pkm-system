@@ -19,12 +19,12 @@
 // old fixed 2 s loop retried a dead link 30 times a minute for as long as the
 // tab was open, foreground or not, which is what keeps a mobile radio out of
 // low power.
-import type { SyncSeq } from "../api/brands";
+import type { ClientId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { reconnectDelayMs } from "./reconnectBackoff";
 
 export interface WsBatch {
-  client_id: string;
+  client_id: ClientId;
   ts: number;
   ops: BlockOp[];
 }

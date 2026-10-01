@@ -42,6 +42,20 @@ OpKind = Literal["create", "update_text", "move", "delete", "set_collapsed",
 Sha256Hex = NewType("Sha256Hex", str)
 brand(Sha256Hex)
 
+# The per-tab sync identity (web's sync/opQueue.ts `clientId`, minted once
+# per tab) and the replay-dedup key shared by an OpBatch and the pending_ops
+# row it came from (web's `batchId`, the CLI/MCP's `_batch_id`). Both are
+# bare uid-shaped strings minted by the same web newUid() and placed next to
+# each other in one request body -- distinct NewTypes so the two can never
+# swap at a call site. batch_id is also the primary key of applied_batches
+# (schema.py), read back there as a plain str dedupe lookup, never
+# re-validated as this type.
+ClientId = NewType("ClientId", str)
+brand(ClientId)
+
+BatchId = NewType("BatchId", str)
+brand(BatchId)
+
 
 class CreateOp(BaseModel):
     op: Literal["create"]
@@ -134,11 +148,11 @@ BlockOp = Annotated[Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
 
 
 class OpBatch(BaseModel):
-    client_id: str = Field(min_length=1, max_length=64)
+    client_id: ClientId = Field(min_length=1, max_length=64)
     # Required: id-less batches cannot be
     # deduplicated, so any retry or replay re-applies. Pre-offline clients
     # now fail loudly (422) instead of corrupting silently.
-    batch_id: str = Field(min_length=8, max_length=64)
+    batch_id: BatchId = Field(min_length=8, max_length=64)
     ops: list[BlockOp] = Field(min_length=1, max_length=500)
 
 

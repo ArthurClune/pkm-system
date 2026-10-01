@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "vitest";
+import type { BatchId } from "../../api/brands";
 import { openTestDb, type TestDb } from "../testDb";
 import { handleLocalApi } from "./router";
 
@@ -25,7 +26,7 @@ const fixture = JSON.parse(readFileSync(
 ) as Fixture;
 
 const IMPLEMENTED = (_name: string) => true; // search included
-const DEPS = { newBatchId: () => "parity-batch" };
+const DEPS = { newBatchId: () => "parity-batch" as BatchId };
 
 let t: TestDb;
 beforeAll(async () => {

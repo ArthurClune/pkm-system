@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { BatchId } from "../api/brands";
 import {
   parseStoredIntents,
   serialiseIntents,
@@ -8,7 +9,7 @@ import {
 } from "./poisonIntents";
 
 const event = (id: number, batchId: string, message = "m"): PoisonEvent => ({
-  id: id as PoisonEvent["id"], batch_id: batchId, ops: [], status: 400, message,
+  id: id as PoisonEvent["id"], batch_id: batchId as BatchId, ops: [], status: 400, message,
 });
 
 describe("parseStoredIntents", () => {

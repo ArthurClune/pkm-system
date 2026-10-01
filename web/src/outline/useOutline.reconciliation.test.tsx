@@ -1,6 +1,7 @@
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { expect, it, vi } from "vitest";
+import type { ClientId } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { DeliveryOutcome, WriteOutcome,
               WriteTicket } from "../sync/opQueue";
@@ -42,7 +43,7 @@ it("does not let an old target refetch erase a split made after dispatch", async
   );
 
   act(() => sync.emit({
-    client_id: "other", ts: 1,
+    client_id: "other" as ClientId, ts: 1,
     ops: [{ op: "move", uid: "unknown", parent_uid: null,
             order_idx: 0, page_title: "Page" }],
   }));
@@ -97,7 +98,7 @@ it("adopts an empty daily rather than rejecting when the cross-page-move catch-u
   // page instead of a rejection that refetch's own catch(() => undefined)
   // would otherwise swallow, leaving the stale "old" block behind.
   act(() => sync.emit({
-    client_id: "other", ts: 1,
+    client_id: "other" as ClientId, ts: 1,
     ops: [{ op: "move", uid: "incoming", parent_uid: null, order_idx: 0,
             page_title: "August 17th, 2026" }],
   }));

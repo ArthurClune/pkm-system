@@ -3,13 +3,14 @@
 // replica could not persist an enqueue, and the ordering rules that decide
 // when a lane entry must be delivered before a durable batch. The queue
 // shell owns the delivery promises and the POSTs; this module only decides.
+import type { BatchId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 
 export interface LaneEntry {
   /** Minted once, at append time: a retry must re-POST a byte-identical
    * payload under the same id, since the server binds batch_id to a
    * sha256 of the ops. */
-  readonly batchId: string;
+  readonly batchId: BatchId;
   readonly ops: BlockOp[];
   /** This entry's position in lane-append order, assigned once at append
    * time from `appended`. Compared against a durable batch's boundary in
@@ -38,7 +39,7 @@ export interface OutboxState {
    * map is cleared once the lane empties (settleHead) or nextBatch()
    * observes the durable queue empty (clearMarks), which catches batches
    * flushed out of band. */
-  readonly follows: ReadonlyMap<string, number>;
+  readonly follows: ReadonlyMap<BatchId, number>;
 }
 
 export function createOutbox(): OutboxState {
@@ -49,7 +50,7 @@ export function createOutbox(): OutboxState {
  * already persisted is simply unmarked in `follows`, which headPrecedes
  * treats as ahead of this entry regardless. */
 export function append(
-  s: OutboxState, batchId: string, ops: BlockOp[],
+  s: OutboxState, batchId: BatchId, ops: BlockOp[],
 ): OutboxState {
   return {
     ...s,
@@ -62,7 +63,7 @@ export function append(
  * of them was appended before this batch existed, so it follows all of
  * them. Nothing to mark when the lane is empty — there is nothing for this
  * batch to wait behind. */
-export function markFollows(s: OutboxState, batchId: string): OutboxState {
+export function markFollows(s: OutboxState, batchId: BatchId): OutboxState {
   if (s.entries.length === 0) return s;
   const follows = new Map(s.follows);
   follows.set(batchId, s.appended);
@@ -82,7 +83,7 @@ export function laneHead(s: OutboxState): LaneEntry | undefined {
  * predicate both the drain and deliverLaneAhead consult — ordering is
  * decided here, once, by batch identity. */
 export function headPrecedes(
-  s: OutboxState, batchId: string | null,
+  s: OutboxState, batchId: BatchId | null,
 ): boolean {
   const head = s.entries[0];
   if (head === undefined) return false;
@@ -98,7 +99,7 @@ export function headPrecedes(
  * Clearing `follows` here (rather than per removed mark) is what keeps an
  * emptied lane from leaving a boundary behind for the next entry appended
  * to inherit. */
-export function settleHead(s: OutboxState, batchId: string): OutboxState {
+export function settleHead(s: OutboxState, batchId: BatchId): OutboxState {
   if (s.entries[0]?.batchId !== batchId) return s;
   const entries = s.entries.slice(1);
   return {
@@ -110,7 +111,7 @@ export function settleHead(s: OutboxState, batchId: string): OutboxState {
 
 /** This durable batch was delivered or rejected, so its mark (if it had
  * one) no longer needs to hold any lane head behind it. */
-export function forget(s: OutboxState, batchId: string): OutboxState {
+export function forget(s: OutboxState, batchId: BatchId): OutboxState {
   if (!s.follows.has(batchId)) return s;
   const follows = new Map(s.follows);
   follows.delete(batchId);

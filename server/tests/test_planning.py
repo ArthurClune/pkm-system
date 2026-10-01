@@ -403,9 +403,9 @@ def test_plan_batch_indexed_create_composes_with_later_appends():
     ]
     ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
     assert [o.parent_uid for o in ops] == [None, None, None]
-    ordered = sorted(ops, key=lambda o: o.order_idx)
-    assert [o.text for o in ordered] == [
-        "spliced in", "appended first", "appended second"]
+    # The spliced-in block shifts the page's two blocks (0, 1) to 1, 2, so
+    # the appends land at 3 and 4 -- not 2 and 3, mid-list.
+    assert [o.order_idx for o in ops] == [0, 3, 4]
 
 
 def test_plan_batch_create_appends_after_the_last_sibling_when_keys_have_a_gap():

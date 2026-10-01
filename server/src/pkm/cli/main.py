@@ -274,14 +274,14 @@ except where noted:
   "((uid))"      an existing block's uid
   "{{alias}}"    a block created earlier in this same batch via "as"
 
-"index" (create/todo/move only) is a 0-based POSITION among the parent's
+"index" (create/todo/move only) is a 0-based position among the parent's
 (or, for move, the destination's) current children; past the end
-appends. It counts against the page as the REST OF THIS BATCH has left
-it so far, not the page as originally fetched: earlier commands' creates,
-moves and deletes all count. "index": 0 twice in one batch puts the
-second create first; a delete then an indexed create counts against the
-survivors. An indexed move lands at its final position, measured among
-the destination's children without the moving block itself.
+appends. It counts against the page as earlier commands in this batch
+have left it, not as originally fetched: their creates, moves and
+deletes all count. "index": 0 twice in one batch puts the second create
+first; a delete then an indexed create counts against the survivors. An
+indexed move lands at its final position, measured among the
+destination's children without the moving block itself.
 
 An update, move or delete whose uid no longer exists, a create or move
 whose parent no longer exists, or a move under the block itself or one

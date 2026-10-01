@@ -76,7 +76,7 @@ def next_child_order_idx(blocks: Sequence[BlockNode],
 def order_idx_at_position(siblings: Sequence[tuple[str, OrderIdx]],
                           position: int) -> OrderIdx:
     """The order key of 0-based `position` among `siblings` (uid,
-    order_idx pairs, already sorted ascending by order_idx) -- the ONE
+    order_idx pairs, already sorted ascending by order_idx) -- the one
     place a user-supplied position becomes a minted `OrderIdx`. A
     `position` at or past the end means append: one past the last
     sibling's key, or 0 with none. Never a sibling COUNT -- see
@@ -179,8 +179,8 @@ class Planner:
     order_idx pairs, ascending), a uid -> its current (page, parent) for
     finding a moved/deleted block's own list, and the uid of every
     '## Heading' the run has created. All three exist so that several
-    batch commands compose: a position counts against the page AS THE
-    BATCH HAS LEFT IT SO FAR, so consecutive creates/moves/deletes have to
+    batch commands compose: a position counts against the page as the
+    batch has left it so far, so consecutive creates/moves/deletes have to
     see each other's effects, and a heading spec repeated across commands
     reuses the heading already planned instead of duplicating it.
 
@@ -203,9 +203,8 @@ class Planner:
 
     Known limit: this model does not simulate the server skipping a move
     under the block's own descendant (a cycle) -- it applies the shift and
-    the relocation as asked. That skip is rare and only ever changes what
-    the move ops *contain*, never silently corrupts a position elsewhere,
-    so it's left unmodeled.
+    the relocation as asked, so a later position in the same batch can be
+    off by the skipped move. The server reports that skip as a warning.
 
     Every method takes an already-resolved parent uid. Turning a parent
     *spec* into one -- aliases, in-batch uids, a page that was never
@@ -355,7 +354,7 @@ class Planner:
                   parent: str | None, position: int, text: str, todo: bool,
                   parent_off_page: bool = False) -> CreateOp:
         """One create landing at `position`: 0-based among (page, parent)'s
-        current children AS THE BATCH HAS LEFT THEM SO FAR -- past the end
+        current children as the batch has left them so far -- past the end
         means append, same as a plain create. Only single-item
         `create`/`todo` batch commands ask for an explicit position;
         `outline` and `plan_save` always append."""
@@ -369,7 +368,7 @@ class Planner:
             parent: str | None, uid: str, position: int | None,
             parent_off_page: bool = False) -> OrderIdx:
         """Mint the order key for moving `uid` to (page, parent), landing
-        at `position` -- 0-based among the destination's children WITHOUT
+        at `position` -- 0-based among the destination's children without
         `uid` itself, past the end or `None` meaning append -- and advance
         the model: remove `uid` from wherever it currently sits (a same-
         parent move's own old entry does not count towards `position`

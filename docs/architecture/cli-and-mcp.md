@@ -154,15 +154,15 @@ delete leaves a gap; nothing renumbers), so an append lands one past the
 last sibling's own key, not at the dense position a count would give.
 `Planner` keeps the same rule as a live per-(page, parent) sibling list
 rather than a single append counter, so the batch `index` param — a
-POSITION, not an order key — can convert against it anywhere in the batch:
+position, not an order key — can convert against it anywhere in the batch:
 
 | `index` (`create`/`todo`/`move`) | Detail |
 |---|---|
 | What it means | 0-based position among the parent's (move: the destination's) current children |
-| "Current" | as the REST OF THE BATCH has left them so far — later commands see earlier ones' creates, moves and deletes |
+| "Current" | as earlier commands in the batch have left them — later commands see earlier ones' creates, moves and deletes |
 | Past the end | appends |
 | Minted by | `Planner.create_at`/`Planner.move`, via `order_idx_at_position(siblings, position)` -- the one place a position becomes an `OrderIdx` |
-| Indexed move | lands at its final position, among the destination's children WITHOUT the moving block itself |
+| Indexed move | lands at its final position, among the destination's children without the moving block itself |
 
 `outline` and `plan_save` only ever append, through the same model.
 

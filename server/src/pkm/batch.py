@@ -322,7 +322,7 @@ class _SubtreeModel:
 @dataclass
 class _BatchCtx:
     """The state `plan_batch` threads through its per-command planners: the
-    one `Planner` they share (append counters and heading memo), the pages
+    one `Planner` they share (sibling model and heading memo), the pages
     the shell fetched, the `{{alias}}` -> uid map that `as` params fill in,
     and the uids created so far in this batch -- which are on none of those
     fetched pages; and, per `delete` uid the shell fetched, that block's

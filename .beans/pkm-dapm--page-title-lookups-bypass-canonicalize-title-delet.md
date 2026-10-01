@@ -1,11 +1,11 @@
 ---
 # pkm-dapm
 title: 'Page title lookups bypass canonicalize_title: delete, rename, todos/changed filter, query operands, sidebar add'
-status: todo
+status: in-progress
 type: bug
 priority: high
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T07:44:38Z
+updated_at: 2026-10-01T08:02:23Z
 parent: pkm-7uxw
 ---
 
@@ -23,11 +23,11 @@ Paths below are relative to `server/src/pkm/` and `web/src/`.
 
 ## Plan
 
-- [ ] Failing test per route first: delete, rename (CLI-shaped padded title), todos `page`, changed `page`, query operand, sidebar add with an NBSP edge
-- [ ] `delete_page` and `rename_page` go through `_read_title`
-- [ ] todos/changed `page` filter canonicalises
-- [ ] query operand titles canonicalise before `_PAGE_SQL`
-- [ ] sidebar add uses `canonicalize_title` (server), and the web stops pre-trimming differently
-- [ ] CLI client normalises the `todos`/`changed` page argument, like `get_page`
+- [x] Failing test per route first: delete, rename (CLI-shaped padded title), todos `page`, changed `page`, query operand, sidebar add with an NBSP edge
+- [x] `delete_page` and `rename_page` go through `_read_title`
+- [x] todos/changed `page` filter canonicalises
+- [x] query operand titles canonicalise before `_PAGE_SQL`
+- [x] sidebar add uses `canonicalize_title` (server), and the web stops pre-trimming differently
+- [x] CLI client normalises the `todos`/`changed` page argument, like `get_page`
 - [ ] Row in `docs/troubleshooting.md` (symptom: delete/filter/query 404s or empties for a padded title)
 - [ ] Note the invariant ("every title used as a key goes through canonicalize_title") where `backend.md` covers titles

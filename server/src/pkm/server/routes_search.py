@@ -15,8 +15,9 @@ from pkm.server.db import get_db
 from pkm.server.fts import escape_fts_query
 from pkm.server.grouping import group_by_page, group_changed
 from pkm.server.query import (
-    QueryNode, page_operands, parse_query, plan_sql, QueryParseError)
-from pkm.server.query_exec import count_matches, execute_plan
+    QueryNode, page_operands, plan_sql, QueryParseError)
+from pkm.server.query_exec import (
+    count_matches, execute_plan, parse_canonical_query)
 from pkm.server.sync_meta import read_title
 from pkm.todo import is_todo
 
@@ -47,24 +48,11 @@ def search(q: str = "", limit: int = 20, exact: bool = False,
     return {"pages": pages, "blocks": blocks}
 
 
-def _canonicalize_node_titles(node: QueryNode, db: sqlite3.Connection) -> QueryNode:
-    """[[Page Title]] operands are compared against pages.title, so they
-    need the same canonicalization as any other title-shaped lookup key
-    before they reach plan_sql -- otherwise `[[ Foo ]]` (spaces inside the
-    brackets) never matches a ref to the canonical "Foo". query.py stays
-    pure (it has no DB flag), so this walk is the route's job."""
-    if node.kind == "page":
-        assert node.title is not None
-        return QueryNode("page", read_title(db, node.title))
-    return QueryNode(node.kind, None,
-                     tuple(_canonicalize_node_titles(c, db) for c in node.children))
-
-
 @router.get("/api/query", response_model=QueryPayload)
 def run_query(expr: str, expand: bool = False,
               db: sqlite3.Connection = Depends(get_db)) -> dict:
     try:
-        node = _canonicalize_node_titles(parse_query(expr), db)
+        node = parse_canonical_query(db, expr)
         sql, params = plan_sql(node, expand)
     except QueryParseError as e:
         raise HTTPException(status_code=400, detail=str(e))

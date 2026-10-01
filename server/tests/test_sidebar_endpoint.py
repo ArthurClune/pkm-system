@@ -61,7 +61,7 @@ def test_add_entry_keeps_nbsp_edges(client):
     """canonicalize_title only ever strips plain U+0020 -- an NBSP-edged
     title must survive untouched, unlike web's old .trim() (which strips
     all Unicode whitespace, including NBSP)."""
-    nbsp_title = " Foo "
+    nbsp_title = "\u00a0Foo\u00a0"
     r = client.post("/api/sidebar", json={"title": nbsp_title})
     assert r.status_code == 200
     assert r.json()["title"] == nbsp_title

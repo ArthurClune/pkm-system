@@ -17,6 +17,7 @@ import pytest
 from app_seed import seeded_client
 
 from pkm.server import routes_export
+from pkm.server.sync_meta import set_plain_space_title_canonicalization
 
 
 def test_export_page_markdown_returns_rendered_page(client):
@@ -176,6 +177,31 @@ def test_export_page_markdown_resolves_query_block(tmp_path):
     assert "{{query:" not in r.text  # the raw command is gone
     assert "1 result" in r.text
     assert "Matched Page" in r.text
+    assert "the matched block text" in r.text
+
+
+def test_export_page_markdown_query_operand_is_canonicalised(tmp_path):
+    """[[ Tag ]] in an exported {{query}} macro resolves against the
+    canonical "Tag" once the plain-space flag is on, the same as the live
+    /api/query endpoint and as the [[ Tag ]] link itself."""
+    tc = seeded_client(
+        tmp_path,
+        pages=[(1, "Source", None, None), (2, "Tag", None, None),
+              (3, "Matched Page", None, None)],
+        blocks=[
+            ("uid_q1", 1, None, 0, "notes {{query: {and: [[ Tag ]]}}}",
+             None, 0, None, None),
+            ("uid_m1", 3, None, 0, "the matched block text",
+             None, 0, None, None),
+        ],
+        refs=[("uid_m1", 2, "tag")])
+    con = sqlite3.connect(tmp_path / "pkm.sqlite3")
+    set_plain_space_title_canonicalization(con, True)
+    con.commit()
+    con.close()
+    r = tc.get("/api/export/page/Source")
+    assert r.status_code == 200
+    assert "1 result" in r.text
     assert "the matched block text" in r.text
 
 

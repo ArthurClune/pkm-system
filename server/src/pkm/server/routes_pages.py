@@ -280,10 +280,10 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
     rewritten to the target, source page row dropped) -- a confirm-gated
     merge, not a silent overwrite. Case-sensitive throughout, like
     pages.title itself."""
+    title = read_title(db, title)
     # normalized here as well as in get_or_create_page: the merge branch
     # below compares and reports new_title directly, so it has to be the
     # title that actually lands in the row.
-    title = read_title(db, title)
     new_title = read_title(db, body.new_title)
     if is_blank_title(new_title):
         raise HTTPException(status_code=422,

@@ -218,22 +218,39 @@ def test_batch_atomic_create_with_alias(run, pkm_client):
     assert [c.text for c in mtg.children] == ["Attendees", "Actions"]
 
 
-def test_batch_append_lands_last_on_a_page_whose_order_keys_have_a_gap(
-        run, pkm_client):
-    # Two indexed creates leave order_idx 0 and 5 on "Gappy" -- the gap a
-    # delete would leave in practice (nothing ever renumbers order_idx).
-    # A later plain append (no index) must land after both, not between
-    # them: the server's ShiftSiblings only moves siblings at/after the
-    # append's own order_idx, so an append key chosen by sibling COUNT
-    # (2, here) would land second instead of last.
-    seed = [
-        {"command": "create",
-         "params": {"page": "Gappy", "text": "first", "index": 0}},
-        {"command": "create",
-         "params": {"page": "Gappy", "text": "gap-second", "index": 5}},
-    ]
+def _gap_seed(run, pkm_client, page, order, drop):
+    """Seed `page` with plain (dense) appends in `order`, then batch-delete
+    the `drop` texts by uid -- a delete leaves a gap in order_idx (nothing
+    ever renumbers), the same gap a real edit history would, wherever
+    `drop` falls between two kept texts in `order`. Returns the surviving
+    blocks' order_idx, keyed by text, so a caller can assert the gap is
+    really there before testing against it."""
+    seed = [{"command": "create", "params": {"page": page, "text": t}}
+            for t in order]
     code, _, _ = run("batch", stdin=json.dumps(seed))
     assert code == 0
+    page_blocks = pkm_client.get_page(page).blocks
+    drop_uids = [n.uid for n in page_blocks if n.text in drop]
+    code, _, _ = run("batch", stdin=json.dumps(
+        [{"command": "delete", "params": {"uid": u}} for u in drop_uids]))
+    assert code == 0
+    return {n.text: n.order_idx for n in pkm_client.get_page(page).blocks}
+
+
+def test_batch_append_lands_last_on_a_page_whose_order_keys_have_a_gap(
+        run, pkm_client):
+    # "first" and "gap-second" land on order_idx 0 and 5 once the three
+    # blocks between them are deleted -- the gap a real edit history
+    # leaves (nothing ever renumbers order_idx). A later plain append (no
+    # index) must land after both, not between them: the server's
+    # ShiftSiblings only moves siblings at/after the append's own
+    # order_idx, so an append key chosen by sibling COUNT (2, here) would
+    # land second instead of last.
+    order = _gap_seed(
+        run, pkm_client, "Gappy",
+        order=["first", "t1", "t2", "t3", "t4", "gap-second"],
+        drop={"t1", "t2", "t3", "t4"})
+    assert order == {"first": 0, "gap-second": 5}
 
     code, _, _ = run("batch", stdin=json.dumps(
         [{"command": "create", "params": {"page": "Gappy", "text": "appended"}}]))
@@ -241,6 +258,171 @@ def test_batch_append_lands_last_on_a_page_whose_order_keys_have_a_gap(
 
     assert _page_texts(pkm_client, "Gappy") == [
         "first", "gap-second", "appended"]
+
+
+def test_batch_create_at_position_lands_correctly_on_a_page_with_gaps(
+        run, pkm_client):
+    # Same gap as above (A@0, B@5, C@6): a position-2 create must land
+    # before the page's THIRD child (C), not at raw order_idx 2 (which
+    # would splice it between A and B instead -- the bug this bean fixes).
+    order = _gap_seed(
+        run, pkm_client, "Gappy2",
+        order=["A", "t1", "t2", "t3", "t4", "B", "C"],
+        drop={"t1", "t2", "t3", "t4"})
+    assert order == {"A": 0, "B": 5, "C": 6}
+
+    code, _, _ = run("batch", stdin=json.dumps(
+        [{"command": "create",
+          "params": {"page": "Gappy2", "text": "X", "index": 2}}]))
+    assert code == 0
+    assert _page_texts(pkm_client, "Gappy2") == ["A", "B", "X", "C"]
+
+
+def test_batch_mixed_indexed_and_appended_create_compose_in_order(
+        run, pkm_client):
+    run("batch", stdin=json.dumps(
+        [{"command": "create", "params": {"page": "Mixed1", "text": t}}
+         for t in ["A", "B"]]))
+    code, _, _ = run("batch", stdin=json.dumps([
+        {"command": "create",
+         "params": {"page": "Mixed1", "text": "X", "index": 0}},
+        {"command": "create", "params": {"page": "Mixed1", "text": "Y"}},
+    ]))
+    assert code == 0
+    assert _page_texts(pkm_client, "Mixed1") == ["X", "A", "B", "Y"]
+
+
+def test_batch_two_indexed_creates_at_index_zero_compose_second_first(
+        run, pkm_client):
+    run("batch", stdin=json.dumps(
+        [{"command": "create", "params": {"page": "Compose1", "text": t}}
+         for t in ["A", "B"]]))
+    code, _, _ = run("batch", stdin=json.dumps([
+        {"command": "create",
+         "params": {"page": "Compose1", "text": "X", "index": 0}},
+        {"command": "create",
+         "params": {"page": "Compose1", "text": "Y", "index": 0}},
+    ]))
+    assert code == 0
+    assert _page_texts(pkm_client, "Compose1") == ["Y", "X", "A", "B"]
+
+
+def test_batch_two_indexed_creates_at_index_one_compose(run, pkm_client):
+    run("batch", stdin=json.dumps(
+        [{"command": "create", "params": {"page": "Compose2", "text": t}}
+         for t in ["A", "B"]]))
+    code, _, _ = run("batch", stdin=json.dumps([
+        {"command": "create",
+         "params": {"page": "Compose2", "text": "Z", "index": 1}},
+        {"command": "create",
+         "params": {"page": "Compose2", "text": "W", "index": 1}},
+    ]))
+    assert code == 0
+    assert _page_texts(pkm_client, "Compose2") == ["A", "W", "Z", "B"]
+
+
+def test_batch_delete_then_indexed_create_counts_against_remaining_siblings(
+        run, pkm_client):
+    run("batch", stdin=json.dumps(
+        [{"command": "create", "params": {"page": "DelCreate1", "text": t}}
+         for t in ["A", "B", "C"]]))
+    page = pkm_client.get_page("DelCreate1")
+    a_uid = next(n.uid for n in page.blocks if n.text == "A")
+    code, _, _ = run("batch", stdin=json.dumps([
+        {"command": "delete", "params": {"uid": a_uid}},
+        {"command": "create",
+         "params": {"page": "DelCreate1", "text": "X", "index": 1}},
+    ]))
+    assert code == 0
+    assert _page_texts(pkm_client, "DelCreate1") == ["B", "X", "C"]
+
+
+def test_batch_indexed_move_within_parent_forwards(run, pkm_client):
+    run("batch", stdin=json.dumps(
+        [{"command": "create", "params": {"page": "MoveF1", "text": t}}
+         for t in ["A", "B", "C", "D"]]))
+    page = pkm_client.get_page("MoveF1")
+    a_uid = next(n.uid for n in page.blocks if n.text == "A")
+    code, _, _ = run("batch", stdin=json.dumps(
+        [{"command": "move",
+          "params": {"uid": a_uid, "page": "MoveF1", "index": 2}}]))
+    assert code == 0
+    assert _page_texts(pkm_client, "MoveF1") == ["B", "C", "A", "D"]
+
+
+def test_batch_indexed_move_within_parent_backwards(run, pkm_client):
+    run("batch", stdin=json.dumps(
+        [{"command": "create", "params": {"page": "MoveB1", "text": t}}
+         for t in ["A", "B", "C", "D"]]))
+    page = pkm_client.get_page("MoveB1")
+    d_uid = next(n.uid for n in page.blocks if n.text == "D")
+    code, _, _ = run("batch", stdin=json.dumps(
+        [{"command": "move",
+          "params": {"uid": d_uid, "page": "MoveB1", "index": 0}}]))
+    assert code == 0
+    assert _page_texts(pkm_client, "MoveB1") == ["D", "A", "B", "C"]
+
+
+def test_batch_indexed_move_onto_its_own_slot_is_a_no_op(run, pkm_client):
+    run("batch", stdin=json.dumps(
+        [{"command": "create", "params": {"page": "MoveSame1", "text": t}}
+         for t in ["A", "B", "C", "D"]]))
+    page = pkm_client.get_page("MoveSame1")
+    b_uid = next(n.uid for n in page.blocks if n.text == "B")
+    code, _, _ = run("batch", stdin=json.dumps(
+        [{"command": "move",
+          "params": {"uid": b_uid, "page": "MoveSame1", "index": 1}}]))
+    assert code == 0
+    assert _page_texts(pkm_client, "MoveSame1") == ["A", "B", "C", "D"]
+
+
+def test_batch_indexed_move_across_parents_lands_at_position(run, pkm_client):
+    seed = [
+        {"command": "create",
+         "params": {"page": "MoveX1", "text": "Home", "as": "home"}},
+        {"command": "outline",
+         "params": {"page": "MoveX1", "parent": "{{home}}",
+                    "items": ["P", "Q"]}},
+        {"command": "create", "params": {"page": "MoveX1", "text": "Mover"}},
+    ]
+    code, _, _ = run("batch", stdin=json.dumps(seed))
+    assert code == 0
+    page = pkm_client.get_page("MoveX1")
+    home = next(n for n in page.blocks if n.text == "Home")
+    mover_uid = next(n.uid for n in page.blocks if n.text == "Mover")
+    code, _, _ = run("batch", stdin=json.dumps([
+        {"command": "move",
+         "params": {"uid": mover_uid, "page": "MoveX1",
+                    "parent": f"(({home.uid}))", "index": 1}},
+    ]))
+    assert code == 0
+    home = next(n for n in pkm_client.get_page("MoveX1").blocks
+               if n.text == "Home")
+    assert [c.text for c in home.children] == ["P", "Mover", "Q"]
+
+
+def test_batch_index_past_the_end_appends_for_create(run, pkm_client):
+    run("batch", stdin=json.dumps(
+        [{"command": "create", "params": {"page": "PastEnd1", "text": t}}
+         for t in ["A", "B"]]))
+    code, _, _ = run("batch", stdin=json.dumps(
+        [{"command": "create",
+          "params": {"page": "PastEnd1", "text": "C", "index": 50}}]))
+    assert code == 0
+    assert _page_texts(pkm_client, "PastEnd1") == ["A", "B", "C"]
+
+
+def test_batch_index_past_the_end_appends_for_move(run, pkm_client):
+    run("batch", stdin=json.dumps(
+        [{"command": "create", "params": {"page": "PastEnd2", "text": t}}
+         for t in ["A", "B", "C"]]))
+    page = pkm_client.get_page("PastEnd2")
+    a_uid = next(n.uid for n in page.blocks if n.text == "A")
+    code, _, _ = run("batch", stdin=json.dumps(
+        [{"command": "move",
+          "params": {"uid": a_uid, "page": "PastEnd2", "index": 50}}]))
+    assert code == 0
+    assert _page_texts(pkm_client, "PastEnd2") == ["B", "C", "A"]
 
 
 def test_batch_propagates_indexed_forbidden_reference_server_error(

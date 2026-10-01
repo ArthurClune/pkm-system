@@ -5,13 +5,13 @@ import pytest
 from pkm.batch import (delete_uids, plan_batch, referenced_pages,
                        validate_batch)
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
-                               SetHeadingOp, UpdateTextOp, subtree_hash,
-                               text_hash)
+                               OrderIdx, SetHeadingOp, UpdateTextOp,
+                               subtree_hash, text_hash)
 from pkm.contracts.responses import BlockNode, PagePayload
 from pkm.planning import (BuildError, asset_block_text, create_page_ops,
-                          next_child_order_idx, parse_outline, plan_mark,
-                          plan_save, plan_update, resolve_parent,
-                          split_heading)
+                          next_child_order_idx, order_idx_at_position,
+                          parse_outline, plan_mark, plan_save, plan_update,
+                          resolve_parent, split_heading)
 from pkm.render import render_page
 
 
@@ -92,6 +92,28 @@ def test_next_child_order_idx_lands_after_the_last_sibling_when_keys_have_a_gap(
 def test_next_child_order_idx_lands_after_the_last_child_when_keys_have_a_gap():
     # Same bug, one level down: g2's children hold order_idx 0 and 5.
     assert next_child_order_idx(BLOCKS_WITH_GAP, "g2") == 6
+
+
+def _siblings(*pairs: tuple[str, int]) -> list[tuple[str, OrderIdx]]:
+    return [(uid, OrderIdx(idx)) for uid, idx in pairs]
+
+
+def test_order_idx_at_position_returns_the_sibling_at_that_slot():
+    siblings = _siblings(("u1", 0), ("u2", 5), ("u3", 6))
+    assert order_idx_at_position(siblings, 0) == 0
+    assert order_idx_at_position(siblings, 1) == 5
+    assert order_idx_at_position(siblings, 2) == 6
+
+
+def test_order_idx_at_position_past_the_end_appends_after_the_last_key():
+    siblings = _siblings(("u1", 0), ("u2", 5))
+    assert order_idx_at_position(siblings, 2) == 6
+    assert order_idx_at_position(siblings, 50) == 6
+
+
+def test_order_idx_at_position_with_no_siblings_is_zero():
+    assert order_idx_at_position([], 0) == 0
+    assert order_idx_at_position([], 3) == 0
 
 
 def test_resolve_parent_forms():
@@ -315,6 +337,37 @@ def test_plan_batch_move_under_a_block_created_in_the_same_batch():
                             order_idx=0, page_title=None)
 
 
+def test_plan_batch_indexed_creates_under_an_off_page_parent_compose():
+    # "home" is created earlier in this same batch, so it's on no fetched
+    # page -- its children still have to compose like any other parent's:
+    # an index counts against what this batch has put under it so far, not
+    # an empty group reset on every call.
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "Home", "as": "home"}},
+        {"command": "create",
+         "params": {"page": "Machine Learning", "parent": "{{home}}",
+                    "text": "second", "index": 0}},
+        {"command": "create",
+         "params": {"page": "Machine Learning", "parent": "{{home}}",
+                    "text": "appended"}},
+        {"command": "create",
+         "params": {"page": "Machine Learning", "parent": "{{home}}",
+                    "text": "first", "index": 0}},
+    ]
+    ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
+    home = ops[0].uid
+    assert [o.parent_uid for o in ops[1:]] == [home, home, home]
+    # The plain append counts the earlier indexed create as a real child --
+    # order_idx 1, not 0 as it would if the off-page group reset to empty
+    # for this call.
+    assert ops[2].order_idx == 1
+    # The second indexed create, also at position 0, lands on whatever key
+    # is there now (the first indexed create's) rather than restarting
+    # from an empty group.
+    assert ops[3].order_idx == ops[1].order_idx
+
+
 def test_plan_batch_create_with_index():
     cmds = [{"command": "create",
              "params": {"page": "Machine Learning", "text": "top",
@@ -334,15 +387,11 @@ def test_plan_batch_todo_with_index_under_parent():
     assert ops[0].text == "{{TODO}} urgent"
 
 
-def test_plan_batch_indexed_create_leaves_later_appends_counting_from_the_page():
-    # `pkm batch --help` warns against mixing an indexed create with plain
-    # appending creates under the same parent, because the plain ones count
-    # from the parent's ORIGINAL child count and can interleave with the
-    # indexed block instead of landing after it. That warning is only honest
-    # while `create_at` leaves the append counter alone: the appends here
-    # must be 2 and 3, the page's two existing top-level blocks and one
-    # more, not 3 and 4 as they would be if the indexed create had bumped
-    # the counter on its way past.
+def test_plan_batch_indexed_create_composes_with_later_appends():
+    # `index` is a position counted against the page as the batch has left
+    # it so far: an indexed create's shift is part of that state, so a
+    # plain append right after it still lands last -- after the spliced-in
+    # block too, not interleaved with it (the old order-key-verbatim bug).
     cmds = [
         {"command": "create",
          "params": {"page": "Machine Learning", "text": "spliced in",
@@ -354,7 +403,9 @@ def test_plan_batch_indexed_create_leaves_later_appends_counting_from_the_page()
     ]
     ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
     assert [o.parent_uid for o in ops] == [None, None, None]
-    assert [o.order_idx for o in ops] == [0, 2, 3]
+    ordered = sorted(ops, key=lambda o: o.order_idx)
+    assert [o.text for o in ordered] == [
+        "spliced in", "appended first", "appended second"]
 
 
 def test_plan_batch_create_appends_after_the_last_sibling_when_keys_have_a_gap():

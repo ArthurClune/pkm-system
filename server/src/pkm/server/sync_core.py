@@ -36,7 +36,7 @@ from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from typing import NamedTuple, TypeVar
 
-from pkm.contracts.responses import EntityKind
+from pkm.contracts.responses import EntityKind, SyncSeq
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -63,7 +63,7 @@ def hydrate_in_order(order: Sequence[K], present: Mapping[K, V]) -> list[V]:
 
 @dataclass(frozen=True)
 class Window:
-    next_since: int
+    next_since: SyncSeq
     entities: tuple[tuple[EntityKind, str], ...]  # unique (kind, entity_id)
     # every (kind, entity_id) with at least one delete row in the window
     tombstoned: frozenset[tuple[EntityKind, str]]
@@ -82,7 +82,7 @@ class ChangeRow(NamedTuple):
     """One `changes` table row. Named rather than a bare 4-tuple -- two
     adjacent `int` fields either side of the `str` made a positional
     mis-order (e.g. `deleted` and `seq` swapped) silently well-typed."""
-    seq: int
+    seq: SyncSeq
     kind: EntityKind
     entity_id: str
     deleted: int
@@ -92,7 +92,7 @@ def dedupe_window(rows: Sequence[ChangeRow]) -> Window:
     """Rows are seq order."""
     seen: dict[tuple[EntityKind, str], None] = {}  # insertion-ordered set
     deleted_keys: set[tuple[EntityKind, str]] = set()
-    last_seq = 0
+    last_seq = SyncSeq(0)
     for seq, kind, entity_id, deleted in rows:
         last_seq = seq
         seen.setdefault((kind, entity_id), None)

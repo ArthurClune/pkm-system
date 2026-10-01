@@ -358,7 +358,7 @@ There is no Redux/Zustand; state lives in three layers:
    | Hook | Value | New identity when |
    |---|---|---|
    | `useSyncActions()` | `enqueue`, `subscribe`, `settled`, `attachOutlineReplay`, `retryProblem`, `dismissProblem`, `discardProblem`, `resetReplica` | never: one object per provider, because each method reads current state through a ref |
-   | `useResyncSeq()` | `resyncSeq` | server state may have diverged (reconnect after a gap, repair finished) |
+   | `useResyncGeneration()` | `resyncGeneration` | server state may have diverged (reconnect after a gap, repair finished) |
    | `useSyncEditability()` | `canEdit`, `readOnlyReason` | editing becomes allowed or blocked; a flap with a ready replica changes neither |
    | `useSyncHealth()` | `status`, `replicaMode`, `pending`, `unsentInMemory`, `problem` | the socket flaps, or an op is queued or acknowledged |
 

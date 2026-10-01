@@ -8,6 +8,7 @@
 // database: degraded beats data loss.
 
 import type { ApiFetchOptions } from "../api/client";
+import type { SyncSeq } from "../api/brands";
 import type { OpsAck } from "../api/payloads";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { ReplicaDiagnostics } from "../replica/client";
@@ -33,7 +34,7 @@ export interface ReplicaSync {
   start(): Promise<void>;
   /** WS nudge: pull if the journal moved past our cursor, or unconditionally
    * for a committed metadata/generation frame whose real seq may be equal. */
-  onSeq(seq: number, force?: boolean): void;
+  onSeq(seq: SyncSeq, force?: boolean): void;
   /** Resolves when no pull is in flight (tests, reconnect ordering). */
   idle(): Promise<void>;
   /** Monotonic count of the moments local data actually moved: a changes
@@ -210,7 +211,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     resume: () => undefined,
   };
   const isOffline = deps.isOffline ?? (() => false);
-  let cursor = 0;
+  let cursor = 0 as SyncSeq;
   // See appliedVersion(): bumped only through adoptCursor, so a new place that
   // moves the replica forward has to state whether views must refetch.
   let appliedVersion = 0;
@@ -222,7 +223,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // The one automatic rebase an unappliable window gets per session, and the
   // run of identical failures that earns it; see noteWindowFailure.
   let rebasedForUnappliableWindow = false;
-  let windowFailure: { cursor: number; message: string; count: number } | null
+  let windowFailure: { cursor: SyncSeq; message: string; count: number } | null
     = null;
   let pulling: Promise<void> | null = null;
   let again = false;
@@ -317,7 +318,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   /** Local data now reflects `seq`. A `"snapshot"` always replaced the
    * database; a `"window"` only moved it if the feed had rows to apply, which
    * is exactly when `next_since` advances past the cursor we asked from. */
-  const adoptCursor = (seq: number, source: "window" | "snapshot"): void => {
+  const adoptCursor = (seq: SyncSeq, source: "window" | "snapshot"): void => {
     if (source === "snapshot" || seq > cursor) appliedVersion += 1;
     cursor = seq;
     // Whatever window was failing, it is not the one we will ask for next.

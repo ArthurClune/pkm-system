@@ -14,8 +14,10 @@ export interface LaneEntry {
   /** This entry's position in lane-append order, assigned once at append
    * time from `appended`. Compared against a durable batch's boundary in
    * `follows` to decide whether that batch may overtake it (see
-   * headPrecedes) — ordering by identity, never by a count. */
-  readonly seq: number;
+   * headPrecedes) — ordering by identity, never by a count. Named
+   * `laneSeq`, not `seq`: this is a purely local append counter, never the
+   * server's `SyncSeq`. */
+  readonly laneSeq: number;
 }
 
 export interface OutboxState {
@@ -51,7 +53,7 @@ export function append(
 ): OutboxState {
   return {
     ...s,
-    entries: [...s.entries, { batchId, ops, seq: s.appended }],
+    entries: [...s.entries, { batchId, ops, laneSeq: s.appended }],
     appended: s.appended + 1,
   };
 }
@@ -85,7 +87,7 @@ export function headPrecedes(
   const head = s.entries[0];
   if (head === undefined) return false;
   if (batchId === null) return true;
-  return head.seq < (s.follows.get(batchId) ?? -1);
+  return head.laneSeq < (s.follows.get(batchId) ?? -1);
 }
 
 /** Shift the lane head out ONLY if it is still the entry named `batchId`.

@@ -206,7 +206,7 @@ export function makeSync(status: SyncStatus = "connected",
   let nextTicket = 1;
   return {
     status,
-    resyncSeq: 0,
+    resyncGeneration: 0,
     replicaMode: "ready",
     canEdit: status === "connected",
     pending: 0,

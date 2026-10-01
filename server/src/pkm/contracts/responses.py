@@ -13,11 +13,12 @@ optionality here would surface as `?:` in the generated TypeScript."""
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
-from typing import Annotated, Literal
+from typing import Annotated, Literal, NewType
 
 from pydantic import BaseModel, BeforeValidator, Field
 
 from pkm.changed import ChangeStatus
+from pkm.contracts.brands import brand
 from pkm.contracts.ops import (BlockUid, HeadingLevel, OpKind, PageId,
                                SidebarEntryId, ViewType)
 from pkm.refs import RefKind
@@ -367,6 +368,16 @@ class SyncSidebarEntry(BaseModel):
     order_idx: int
 
 
+# The changes-journal sequence number (`changes.seq`), distinct from a
+# plain int so a reset counter or a local lane seq can never pass as a
+# sync cursor. Minted only where a route reads MAX(seq) from the changes
+# table (routes_sync.py, routes_ops.py, sync_core.dedupe_window,
+# notify.seq_frame); the web's twin brand is `SyncSeq` in
+# web/src/api/brands.ts.
+SyncSeq = NewType("SyncSeq", int)
+brand(SyncSeq)
+
+
 # Matches the changes table's CHECK(kind IN (...)) in schema.py.
 EntityKind = Literal["block", "page", "sidebar"]
 
@@ -380,8 +391,8 @@ class ChangesPayload(BaseModel):
     reset: bool = False
     generation: str
     plain_space_title_canonicalization: bool
-    next_since: int
-    latest_seq: int
+    next_since: SyncSeq
+    latest_seq: SyncSeq
     pages: list[SyncPage]
     blocks: list[SyncBlock]
     sidebar: list[SyncSidebarEntry]
@@ -399,7 +410,7 @@ class BlockPayload(BaseModel):
 class SnapshotPayload(BaseModel):
     generation: str
     plain_space_title_canonicalization: bool
-    seq: int
+    seq: SyncSeq
     pages: list[SyncPage]
     blocks: list[SyncBlock]
     sidebar: list[SyncSidebarEntry]
@@ -512,7 +523,7 @@ class OpsAck(BaseModel):
     # acks stored before they existed have to validate, so the generated
     # TypeScript marks them optional, and the web reader tolerates their
     # absence.
-    seq: int | None = None
+    seq: SyncSeq | None = None
     # Empty for an ack stored before the field existed, same as for a batch
     # that skipped nothing.
     skipped: list[SkippedOp] = Field(default_factory=list)

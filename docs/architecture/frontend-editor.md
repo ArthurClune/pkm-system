@@ -34,7 +34,7 @@ generation per mount, the parent readiness promise a `"parent"` read publishes
 through, the loader and parent read controller registered on the session, and
 the unmount cleanup order, and returns `{payload, error, reload}`. Both
 surfaces must wrap their content in `BlockRefProvider`, not the bare
-`BlockRefContext.Provider`. `PageView` answers a `resyncSeq` bump with
+`BlockRefContext.Provider`. `PageView` answers a `resyncGeneration` bump with
 `reload("resync")`; the sidebar does not subscribe to resync.
 
 The Journal is the third editable surface and bypasses the hook: it loads many

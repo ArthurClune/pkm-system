@@ -2,14 +2,16 @@
 // The worker's RPC handler map, built over an injected database opener so
 // the whole surface is testable without a real Worker or OPFS.
 
+import type { SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { Changes, Snapshot } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import { splitAckedRows } from "./ackedRows";
 import { mergeCarriedRows } from "./carryMerge";
 import type { CarryStore } from "./carryStore";
-import type { AckedBatch, PendingBatch, RecoveryCommit, ReplicaDiagnostics }
-  from "./client";
+import type {
+  AckedBatch, PendingBatch, PendingRowId, RecoveryCommit, ReplicaDiagnostics,
+} from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
 import { isCorruptionMessage, isUnreadableFileMessage,
@@ -244,10 +246,10 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   // on an ack. applyChanges consults it to accept a window fetched while such
   // a batch was still pending (see pendingGuard.ts). In memory only: a worker
   // restart starts a fresh pull with a fresh pending snapshot.
-  const ackedSeqs = new Map<number, number>();
+  const ackedSeqs = new Map<PendingRowId, SyncSeq>();
   /** Record the seq an ack named for a deleted row, or forget the row when
    * the ack named none. */
-  const noteAck = (id: number, seq: number | null | undefined): void => {
+  const noteAck = (id: PendingRowId, seq: SyncSeq | null | undefined): void => {
     if (typeof seq === "number" && Number.isFinite(seq)) {
       ackedSeqs.set(id, seq);
     } else {
@@ -433,25 +435,29 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       // The batch id is required: see queue.ts deleteBatch. The worker and
       // its callers ship in one build, so no older payload shape arrives.
       const { id, batchId, ackedSeq } = (typeof payload === "object" && payload !== null
-        ? payload : {}) as { id?: number; batchId?: unknown; ackedSeq?: number };
+        ? payload : {}) as { id?: number; batchId?: unknown; ackedSeq?: SyncSeq };
       return gate.run(async () => {
         const d = await queueDb();
         if (typeof id !== "number" || typeof batchId !== "string") {
           throw new Error("deleteBatch needs the row's id and batch id");
         }
+        // The RPC payload crossed structured clone as a plain number; this
+        // re-mints the brand on the main thread's say-so the same way
+        // queue.ts's row mappers do for a value read straight from SQLite.
+        const rowId = id as PendingRowId;
         // A delete that matched nothing cannot say which batch its seq was
         // for, so it records none and forgets any seq held for the id:
         // forgetting costs at most one refetch, vouching wrongly would let a
         // window apply over a batch it does not carry.
-        const matched = deleteBatch(d, id, batchId);
-        noteAck(id, matched ? ackedSeq : undefined);
+        const matched = deleteBatch(d, rowId, batchId);
+        noteAck(rowId, matched ? ackedSeq : undefined);
         return { pending: pendingCount(d) };
       });
     },
     async markPoisoned(payload) {
       return gate.run(async () => {
         const { id, error, batchId } = payload as {
-          id: number; error: string; batchId: string;
+          id: PendingRowId; error: string; batchId: string;
         };
         const d = await queueDb();
         const matched = markPoisoned(d, id, error, batchId);
@@ -469,7 +475,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         if (fresh) installSchema(d);
         return {
           empty: getMeta(d, "generation") === null,
-          cursor: Number(getMeta(d, "cursor") ?? 0),
+          cursor: Number(getMeta(d, "cursor") ?? 0) as SyncSeq,
           schemaMismatch: getMeta(d, "schema_version") !== SCHEMA_VERSION,
           pendingBatches,
         };
@@ -486,7 +492,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         const d = await queueDb();
         const { feed, expectedPendingIds } = payload as {
           feed: Changes;
-          expectedPendingIds: number[];
+          expectedPendingIds: PendingRowId[];
         };
         const currentPendingIds = allBatches(d).map((batch) => batch.id);
         const covered = pendingSetStillCovered(

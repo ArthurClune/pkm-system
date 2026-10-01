@@ -1191,8 +1191,8 @@ it("a superseded resync failure cannot replace a newer parent winner with error"
   });
   vi.stubGlobal("fetch", fetchMock);
   const sync = makeSync();
-  const tree = (resyncSeq: number, showSidebar: boolean) => (
-    <SyncContext.Provider value={{ ...sync, resyncSeq }}>
+  const tree = (resyncGeneration: number, showSidebar: boolean) => (
+    <SyncContext.Provider value={{ ...sync, resyncGeneration }}>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}
                     initialEntries={["/page/Resync%20Paper"]}>
         <Routes>
@@ -1287,8 +1287,8 @@ it("a parent resync response dispatched before a local split cannot erase it", a
   });
   vi.stubGlobal("fetch", fetchMock);
   const sync = makeSync();
-  const view = (resyncSeq: number) => (
-    <SyncContext.Provider value={{ ...sync, resyncSeq }}>
+  const view = (resyncGeneration: number) => (
+    <SyncContext.Provider value={{ ...sync, resyncGeneration }}>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}
                     initialEntries={["/page/Paper"]}>
         <Routes>

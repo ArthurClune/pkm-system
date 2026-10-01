@@ -18,3 +18,11 @@
 // replica/sha256.ts (and its server twin `text_hash`); a test literal
 // standing in for a hash casts `as Sha256Hex`.
 export type Sha256Hex = string & { readonly __brand: "Sha256Hex" };
+
+// The changes-journal sequence number (server `changes.seq`), distinct
+// from a plain number so a local lane seq or resync generation counter
+// can never pass as a sync cursor. Crosses HTTP through this brand
+// (ChangesPayload.next_since/latest_seq, SnapshotPayload.seq, OpsAck.seq);
+// the WS notify frame (sync/socket.ts WsSeq.seq) sits outside OpenAPI and
+// is narrowed to this type by hand at the one place that parses it.
+export type SyncSeq = number & { readonly __brand: "SyncSeq" };

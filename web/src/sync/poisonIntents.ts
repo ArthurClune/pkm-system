@@ -1,7 +1,7 @@
 // pattern: Functional Core
 // Poison-mark intents: the server-rejected durable batches still waiting to
 // be marked poisoned in the replica, and their stored form. One intent per
-// (rowId, batchId), the last write winning, kept in rowId then batchId order.
+// (id, batch_id), the last write winning, kept in id then batch_id order.
 import type { PoisonedBatch } from "../replica/client";
 
 export interface PoisonEvent extends PoisonedBatch {}
@@ -9,19 +9,19 @@ export interface PoisonEvent extends PoisonedBatch {}
 export function validPoisonEvent(value: unknown): value is PoisonEvent {
   if (typeof value !== "object" || value === null) return false;
   const event = value as Partial<PoisonEvent>;
-  return Number.isInteger(event.rowId) && typeof event.batchId === "string" &&
+  return Number.isInteger(event.id) && typeof event.batch_id === "string" &&
     Array.isArray(event.ops) && typeof event.status === "number" &&
     typeof event.message === "string";
 }
 
 const keyOf = (event: PoisonEvent): string =>
-  `${event.rowId}\u0000${event.batchId}`;
+  `${event.id}\u0000${event.batch_id}`;
 
 function ordered(events: Iterable<PoisonEvent>): PoisonEvent[] {
   const unique = new Map<string, PoisonEvent>();
   for (const event of events) unique.set(keyOf(event), event);
   return [...unique.values()].sort((a, b) =>
-    a.rowId - b.rowId || a.batchId.localeCompare(b.batchId));
+    a.id - b.id || a.batch_id.localeCompare(b.batch_id));
 }
 
 /** Reads the stored `{ version: 1, intents }` envelope. Anything else — an

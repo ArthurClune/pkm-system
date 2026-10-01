@@ -1,21 +1,22 @@
 // @vitest-environment node
 import { expect, test } from "vitest";
 import { createCarryStore } from "./carryStore";
+import type { PendingRowId } from "./client";
 import type { DurablePendingRow } from "./queue";
 import { failingOnce, fakeCarryFiles, openRawTestDb } from "./testDb";
 
 const row1: DurablePendingRow = {
-  id: 1, batch_id: "rejected",
+  id: (1 as PendingRowId), batch_id: "rejected",
   ops_json: JSON.stringify([{ op: "delete", uid: "uid_a" }]),
   poisoned: 1, error: "HTTP 400",
 };
 const row2: DurablePendingRow = {
-  id: 2, batch_id: "valid",
+  id: (2 as PendingRowId), batch_id: "valid",
   ops_json: JSON.stringify([{ op: "delete", uid: "uid_b" }]),
   poisoned: 0, error: null,
 };
 const row3: DurablePendingRow = {
-  id: 5, batch_id: "later", ops_json: "[]", poisoned: 0, error: null,
+  id: (5 as PendingRowId), batch_id: "later", ops_json: "[]", poisoned: 0, error: null,
 };
 const SQLITE_FULL = "SQLITE_FULL: sqlite3 result code 13: database or disk is full";
 

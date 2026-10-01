@@ -185,7 +185,7 @@ function RejectedBatchBanner({ problem, actions }: {
       <RejectedBatchMessage problem={problem} actions={actions} />
       <details>
         <summary>Details</summary>
-        <div>Batch {problem.event.batchId}</div>
+        <div>Batch {problem.event.batch_id}</div>
         <pre>{JSON.stringify(problem.event.ops, null, 2)}</pre>
       </details>
     </div>

@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest";
+import type { SyncSeq } from "../api/brands";
 import type { Changes } from "../replica/apply";
 import { ReplicaUnusableError } from "../replica/errors";
 import { memReplica } from "./memReplica";
@@ -10,7 +11,7 @@ import type { DrainOutcome } from "./opQueue";
  * cursor the replica already holds is the latest the server has. */
 const QUIET_FEED: Changes = {
   reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-  next_since: 0, latest_seq: 0,
+  next_since: (0 as SyncSeq), latest_seq: (0 as SyncSeq),
   pages: [], blocks: [], sidebar: [], tombstones: [],
 };
 

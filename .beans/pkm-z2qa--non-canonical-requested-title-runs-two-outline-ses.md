@@ -3,9 +3,9 @@
 title: Non-canonical requested title runs two outline sessions; resync causality guard bypassed
 status: todo
 type: bug
-priority: low
+priority: deferred
 created_at: 2026-10-01T19:35:45Z
-updated_at: 2026-10-01T19:35:45Z
+updated_at: 2026-10-01T19:44:13Z
 ---
 
 A page opened under a non-canonical title runs two outline sessions: one for the loader, one for the editor. This happens on PageView via a URL like `/page/%20%20Paper%20%20` (from clicking a `[[  Paper  ]]` ref), and in a sidebar panel opened with such a title.

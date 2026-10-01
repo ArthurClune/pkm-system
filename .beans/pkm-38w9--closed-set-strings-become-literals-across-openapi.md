@@ -1,11 +1,11 @@
 ---
 # pkm-38w9
 title: Closed-set strings become Literals across OpenAPI; tombstone dispatch stops defaulting to sidebar delete
-status: todo
+status: completed
 type: task
 priority: normal
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T07:44:38Z
+updated_at: 2026-10-01T11:32:41Z
 parent: pkm-7uxw
 ---
 
@@ -38,10 +38,10 @@ This bean also fixes one latent bug that a type alone can't close (the tombstone
 - [x] Web: import the generated unions and delete the copies (`replica/refs.ts:14`, `assistant/useAssistant.ts:82`, `opQueue.ts` `QueueBlockReason` copies)
 - [x] Failing test: a tombstone with an unknown kind deletes nothing
 - [x] Tombstone dispatch: explicit `kind === "sidebar"` branch; the default skips (and logs) behind a compile-time `never` check
-- [ ] Optional: discriminated `SyncTombstone` (kind → `entity_id` type) to drop the `Number(...)` casts -- skipped, see summary
+- [x] Optional: discriminated `SyncTombstone` (kind → `entity_id` type) to drop the `Number(...)` casts -- evaluated and skipped, see summary
 - [x] `SlashCommandName` derived from the array (`as const`)
 
-## Summary of changes
+## Summary of Changes
 
 All ten Literals landed (`RefKind` in `refs.py`; `EntityKind`, `AssistantModel`,
 `ChangeStatus`, `OpKind` reused in `SkippedOp.op` in `contracts/responses.py`;
@@ -85,4 +85,20 @@ errors), `uv run ruff check` (clean); `pnpm build` and
 `CI=true E2E_PORT=8976 pnpm verify` (typecheck + lint + fcis check +
 3028 unit tests + coverage gate + 72 Playwright tests, exit 0).
 
-No open questions.
+
+Review fix (heading 0): prod holds 81 Roam-imported blocks with `heading = 0`
+(Roam's "no heading"), which the new `HeadingLevel` response type would have
+rejected with a 500 on those pages and on the sync snapshot. `StoredHeading`
+(a `BeforeValidator` on `BlockNode.heading` and `SyncBlock.heading`) reads a
+stored 0 as `None`. The importer normalises 0 to `None` at parse time, and the
+web `buildTree` reads a stale replica 0 as `null`. No prod data was written.
+The test fixtures had no 0, which is why the first pass missed it.
+
+Version skew: response Literals (`SyncRef.kind`, `SyncTombstone.kind`,
+`SkippedOp.op`, `AssistantModel`, `heading`) mean an older CLI talking to a
+newer server would reject a value added to one of these sets later. That is
+accepted, because the CLI and server ship together.
+
+Final checks: pyrefly 0 errors, with the suppressed count unchanged from main
+(11) and no new ignore comments. pytest: 2250 passed. `pnpm verify` green.
+`perf/check.sh`: no changes against the baseline, backend and frontend.

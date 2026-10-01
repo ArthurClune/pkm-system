@@ -20,7 +20,7 @@ from pkm.contracts.ops import (UID_RE, BlockOp, BlockUid, CreateOp,
                                UpdateTextOp, ViewType,
                                subtree_hash, text_hash)
 from pkm.contracts.responses import SkipReason
-from pkm.refs import TitleSyntaxReason, extract, title_syntax_reason
+from pkm.refs import CanonicalTitle, TitleSyntaxReason, extract, title_syntax_reason
 from pkm.rename import rewrite_title_refs_map
 from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        deleted_header_text,
@@ -267,7 +267,7 @@ class ConflictLanding:
     `entry_uid` under today's header for the target block, or under a fresh
     one. `daily_title` is the day key conflict_headers records."""
     daily_page_id: PageId
-    daily_title: str
+    daily_title: CanonicalTitle
     entry_uid: BlockUid
     header: ExistingHeader | FreshHeader
 

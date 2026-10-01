@@ -133,14 +133,14 @@ A brand is a subtype of its base type, so code that only reads a branded field i
 - Consumes `PageId`, `SidebarEntryId`, `pageId` and `entryId` from Task 1.
 - Produces `remapLocalPage(db, { localId, targetId })`, which Task 4's title work leaves alone.
 
-- [ ] **Step 1: Write the failing probes and tests.**
+- [x] **Step 1: Write the failing probes and tests.**
   - In `components/SidebarNav.test.tsx`: `// @ts-expect-error a PageId is not a SidebarEntryId` on `removeEntry(pageId(3))`.
   - In `replica/reconcile.test.ts`: a negative local `PageId` remaps to its server id (Review Focus 1).
   - In `replica/apply.test.ts`: one tombstone per kind deletes exactly its own row (Review Focus 3).
-- [ ] **Step 2:** `pnpm typecheck`. Expect a FAIL on the unused directive.
-- [ ] **Step 3:** Add the brands and regenerate. The openapi diff should show only `x-brand` additions.
-- [ ] **Step 4:** Fix and narrow, replica first. Then run the full server and web unit checks, as in Task 2's Step 5.
-- [ ] **Step 5:** Commit: `feat(pkm-thee): PageId and SidebarEntryId reach the web as brands`.
+- [x] **Step 2:** `pnpm typecheck`. Expect a FAIL on the unused directive.
+- [x] **Step 3:** Add the brands and regenerate. The openapi diff should show only `x-brand` additions.
+- [x] **Step 4:** Fix and narrow, replica first. Then run the full server and web unit checks, as in Task 2's Step 5.
+- [x] **Step 5:** Commit: `feat(pkm-thee): PageId and SidebarEntryId reach the web as brands`.
 
 ### Task 4a: Server title annotations (no brand yet)
 
@@ -155,9 +155,9 @@ A brand is a subtype of its base type, so code that only reads a branded field i
   Leave request bodies and op `page_title` as `str`.
 - Server producers that pyrefly then flags: mint only at genuine sources, meaning row reads, `read_title` / `title_reader`, the daily-title helpers, and `target_canonical_title` for the migration group. If pyrefly flags a raw title reaching one of these fields, that is a bug. Write a failing test first and report it.
 
-- [ ] **Step 1:** Change the annotations, then run `uv run pyrefly check` and list every new error.
-- [ ] **Step 2:** Resolve each error at its mint point, never by wrapping at the call site. Then run `uv run pytest -q && uv run pyrefly check && uv run ruff check`. Expect a PASS, with `openapi.json` unchanged because nothing is branded yet.
-- [ ] **Step 3:** Commit: `feat(pkm-thee): server response titles are CanonicalTitle`.
+- [x] **Step 1:** Change the annotations, then run `uv run pyrefly check` and list every new error.
+- [x] **Step 2:** Resolve each error at its mint point, never by wrapping at the call site. Then run `uv run pytest -q && uv run pyrefly check && uv run ruff check`. Expect a PASS, with `openapi.json` unchanged because nothing is branded yet.
+- [x] **Step 3:** Commit: `feat(pkm-thee): server response titles are CanonicalTitle`.
 
 ### Task 4b: Title flip on the web
 

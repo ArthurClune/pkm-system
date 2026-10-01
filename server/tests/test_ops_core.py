@@ -8,6 +8,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                DeleteOp, MoveOp, OpBatch, PageId, Sha256Hex,
                                SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
                                UpdateTextOp, subtree_hash, text_hash)
+from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.server.conflict_notes import deleted_header_text
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
@@ -30,7 +31,7 @@ from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
 
 B = BlockInfo(uid=BlockUid("uid_b3"), page_id=PageId(1),
              parent_uid=BlockUid("uid_b2"))
-_DAY = "September 28th, 2026"
+_DAY = CanonicalTitle(NormalizedTitle("September 28th, 2026"))
 # today's header for the target already exists: entries append under it
 _EXISTING = ExistingHeader(BlockUid("uid_old"), 3)
 

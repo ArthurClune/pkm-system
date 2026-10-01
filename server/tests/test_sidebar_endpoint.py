@@ -57,6 +57,36 @@ def test_add_entry_rejects_duplicate_title(client, seeded_config):
     assert r.status_code == 409
 
 
+def test_add_entry_keeps_nbsp_edges(client):
+    """canonicalize_title only ever strips plain U+0020 -- an NBSP-edged
+    title must survive untouched, unlike web's old .trim() (which strips
+    all Unicode whitespace, including NBSP)."""
+    nbsp_title = "\u00a0Foo\u00a0"
+    r = client.post("/api/sidebar", json={"title": nbsp_title})
+    assert r.status_code == 200
+    assert r.json()["title"] == nbsp_title
+    assert client.get("/api/sidebar").json()["entries"] == [
+        {"id": r.json()["id"], "title": nbsp_title}]
+
+
+def test_add_entry_canonicalizes_padded_title_when_plain_space_migration_is_active(
+        client, seeded_config):
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "UPDATE sync_meta SET value = '1'"
+        " WHERE key = 'plain_space_title_canonicalization'"
+    )
+    con.commit()
+    con.close()
+
+    r = client.post("/api/sidebar", json={"title": "  Foo  "})
+
+    assert r.status_code == 200
+    assert r.json()["title"] == "Foo"
+    assert client.get("/api/sidebar").json()["entries"] == [
+        {"id": r.json()["id"], "title": "Foo"}]
+
+
 _SNAPSHOT_SQL = "SELECT title, order_idx FROM sidebar_entries"
 _RENDEZVOUS_TIMEOUT_SECONDS = 5
 

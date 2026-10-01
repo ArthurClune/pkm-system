@@ -1,4 +1,5 @@
 import sqlite3
+from urllib.parse import quote
 
 import pytest
 
@@ -114,6 +115,32 @@ def test_rename_to_date_shaped_title_allowed(client):
     r = _rename(client, "AI", "March 3rd, 2031")
     assert r.status_code == 200
     assert client.get("/api/page/March 3rd, 2031").status_code == 200
+
+
+def test_rename_from_padded_path_title_when_plain_space_migration_is_active(
+        client, seeded_config):
+    """Matches the CLI client's old-title lookup, which only
+    normalize_title()s (control whitespace), not canonicalize_title()
+    (plain-space edges) -- a padded path title must still 404 the lookup
+    without this fix."""
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "UPDATE sync_meta SET value = '1'"
+        " WHERE key = 'plain_space_title_canonicalization'"
+    )
+    con.commit()
+    con.close()
+    created = client.post("/api/pages", json={"title": "CLI Rename Target"})
+    assert created.status_code == 200
+
+    r = client.post(
+        f"/api/page/{quote(' CLI Rename Target ', safe='/')}/rename",
+        json={"new_title": "CLI Rename Target 2", "allow_merge": False})
+
+    assert r.status_code == 200
+    assert r.json() == {"result": "renamed", "title": "CLI Rename Target 2"}
+    assert client.get("/api/page/CLI Rename Target").status_code == 404
+    assert client.get("/api/page/CLI Rename Target 2").status_code == 200
 
 
 def test_rename_requires_auth(anon_client):

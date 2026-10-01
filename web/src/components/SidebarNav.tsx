@@ -68,12 +68,15 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 
   async function addEntry(e: FormEvent) {
     e.preventDefault();
-    const title = newTitle.trim();
-    if (!title) return;
+    // trim() only gates the empty-input case: it strips all Unicode
+    // whitespace, including NBSP, which the server's canonicalization
+    // deliberately does not. The untrimmed value is sent as-is so the
+    // server's canonicalize_title decides what survives.
+    if (!newTitle.trim()) return;
     setAddError(null);
     await runMutation(async () => {
       try {
-        await apiPost("/api/sidebar", { body: { title } });
+        await apiPost("/api/sidebar", { body: { title: newTitle } });
         setNewTitle("");
       } catch (err) {
         setAddError(err instanceof ApiError && err.status === 409

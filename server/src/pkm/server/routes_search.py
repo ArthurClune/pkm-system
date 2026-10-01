@@ -15,8 +15,10 @@ from pkm.server.db import get_db
 from pkm.server.fts import escape_fts_query
 from pkm.server.grouping import group_by_page, group_changed
 from pkm.server.query import (
-    QueryNode, page_operands, parse_query, plan_sql, QueryParseError)
-from pkm.server.query_exec import count_matches, execute_plan
+    QueryNode, page_operands, plan_sql, QueryParseError)
+from pkm.server.query_exec import (
+    count_matches, execute_plan, parse_canonical_query)
+from pkm.server.sync_meta import read_title
 from pkm.todo import is_todo
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -50,12 +52,14 @@ def search(q: str = "", limit: int = 20, exact: bool = False,
 def run_query(expr: str, expand: bool = False,
               db: sqlite3.Connection = Depends(get_db)) -> dict:
     try:
-        node = parse_query(expr)
+        node = parse_canonical_query(db, expr)
         sql, params = plan_sql(node, expand)
     except QueryParseError as e:
         raise HTTPException(status_code=400, detail=str(e))
     # QueryPayload.ref_counts: each operand re-planned on its own and
-    # counted the same way as the whole expression's total.
+    # counted the same way as the whole expression's total, keyed by the
+    # canonical title each operand resolved to (not the raw [[...]] text),
+    # so a hint for "[[ Foo ]]" reads the same as one for "[[Foo]]".
     ref_counts = {
         title: count_matches(db, *plan_sql(QueryNode("page", title), expand))
         for title in page_operands(node)
@@ -101,7 +105,7 @@ def todos(page: str | None = None,
     params: list[str] = []
     if page is not None:
         sql += " AND p.title = ?"
-        params.append(page)
+        params.append(read_title(db, page))
     sql += " ORDER BY p.title, b.uid"
     rows = [r for r in db.execute(sql, params).fetchall()
             if is_todo(r["text"])]
@@ -133,7 +137,7 @@ def changed(since: str, until: str | None = None, page: str | None = None,
     params: list = [since_ms, until_ms]
     if page is not None:
         sql += " AND p.title = ?"
-        params.append(page)
+        params.append(read_title(db, page))
     total = db.execute(
         f"SELECT COUNT(*) FROM ({sql})", params).fetchone()[0]
     sql += " ORDER BY b.updated_at, b.uid LIMIT ?"

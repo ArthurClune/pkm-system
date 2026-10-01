@@ -14,7 +14,7 @@ from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
     BlockBacklinksPayload, BlockPayload, BlockRefsPayload, CurrentWorkPayload,
     GroupsPayload, JournalPayload, PageMeta, PagePayload, RenamePageResponse)
-from pkm.refs import canonicalize_title, is_blank_title, title_syntax_reason
+from pkm.refs import is_blank_title, title_syntax_reason
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.grouping import group_backlinks, group_by_page
@@ -25,20 +25,13 @@ from pkm.server.fts import phrase_query
 from pkm.server.store import (BlankTitleError, ForbiddenTitleError,
                               delete_page_rows, fetch_page, get_or_create_page,
                               merge_page_rows, rename_page_rows)
-from pkm.server.sync_meta import plain_space_title_canonicalization_active
+from pkm.server.sync_meta import read_title, title_reader
 from pkm.server.tree import build_tree, collect_block_ref_uids, find_node
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
                " created_at, updated_at, view_type")
-
-
-def _read_title(db: sqlite3.Connection, title: str) -> str:
-    return canonicalize_title(
-        title,
-        plain_space=plain_space_title_canonicalization_active(db),
-    )
 
 
 class CreatePageRequest(BaseModel):
@@ -217,7 +210,7 @@ def get_block(uid: str, db: sqlite3.Connection = Depends(get_db)) -> dict:
 def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 20,
              db: sqlite3.Connection = Depends(get_db)) -> dict:
     bl_limit = max(1, min(bl_limit, 100))
-    title = _read_title(db, title)
+    title = read_title(db, title)
     page = fetch_page(db, title)
     if page is None:
         # Only TODAY auto-creates on read (journal semantics). Auto-creating
@@ -268,6 +261,7 @@ def delete_page(request: Request, title: str,
     """Deletes the page, its blocks, and any sidebar entry for it. Inbound
     [[links]] from other pages' block text are left as-is -- only the refs
     rows pointing at this page disappear (via target_page_id CASCADE)."""
+    title = read_title(db, title)
     page = fetch_page(db, title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")
@@ -286,13 +280,12 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
     rewritten to the target, source page row dropped) -- a confirm-gated
     merge, not a silent overwrite. Case-sensitive throughout, like
     pages.title itself."""
+    canonical = title_reader(db)
+    title = canonical(title)
     # normalized here as well as in get_or_create_page: the merge branch
     # below compares and reports new_title directly, so it has to be the
     # title that actually lands in the row.
-    new_title = canonicalize_title(
-        body.new_title,
-        plain_space=plain_space_title_canonicalization_active(db),
-    )
+    new_title = canonical(body.new_title)
     if is_blank_title(new_title):
         raise HTTPException(status_code=422,
                             detail="title must not be blank")
@@ -342,7 +335,7 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
 def get_unlinked(title: str, limit: int = 20, offset: int = 0,
                  db: sqlite3.Connection = Depends(get_db)) -> dict:
     limit = max(1, min(limit, 100))
-    title = _read_title(db, title)
+    title = read_title(db, title)
     page = fetch_page(db, title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")

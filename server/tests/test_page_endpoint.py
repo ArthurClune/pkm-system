@@ -264,6 +264,42 @@ def test_delete_page_removes_sidebar_entry(client):
     assert not any(e["id"] == entry_id for e in entries)
 
 
+def test_delete_page_with_padded_path_title_when_plain_space_migration_is_active(
+        client, seeded_config):
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "UPDATE sync_meta SET value = '1'"
+        " WHERE key = 'plain_space_title_canonicalization'"
+    )
+    con.commit()
+    con.close()
+    add = client.post("/api/sidebar", json={"title": "Machine Learning"})
+    assert add.status_code == 200
+    entry_id = add.json()["id"]
+
+    r = client.delete(f"/api/page/{quote(' Machine Learning ', safe='/')}")
+
+    assert r.status_code == 200
+    assert client.get("/api/page/Machine Learning").status_code == 404
+    entries = client.get("/api/sidebar").json()["entries"]
+    assert not any(e["id"] == entry_id for e in entries)
+
+
+def test_delete_page_with_control_whitespace_path_title(client, seeded_config):
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+        (99, "Ctrl Title", 100, 100),
+    )
+    con.commit()
+    con.close()
+
+    r = client.delete(f"/api/page/{quote('Ctrl\tTitle', safe='/')}")
+
+    assert r.status_code == 200
+    assert client.get("/api/page/Ctrl Title").status_code == 404
+
+
 def test_delete_missing_page_404(client):
     assert client.delete("/api/page/No Such Page").status_code == 404
 

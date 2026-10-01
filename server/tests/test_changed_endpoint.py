@@ -1,4 +1,5 @@
 """GET /api/changed: block edit-time listing."""
+import sqlite3
 import time
 from datetime import datetime, timezone
 
@@ -102,6 +103,33 @@ def test_new_vs_edited_status(changed_client):
 def test_page_filter(changed_client):
     r = changed_client.get("/api/changed", params={
         "since": SINCE, "until": UNTIL, "page": "Paper"})
+    body = r.json()
+    uids = {i["uid"] for g in body["groups"] for i in g["items"]}
+    assert uids == {"paper_blk1"}
+    assert body["total"] == 1
+
+
+def test_page_filter_canonicalizes_padded_title_when_active(
+        changed_client, seeded_config):
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "UPDATE sync_meta SET value = '1'"
+        " WHERE key = 'plain_space_title_canonicalization'"
+    )
+    con.commit()
+    con.close()
+
+    r = changed_client.get("/api/changed", params={
+        "since": SINCE, "until": UNTIL, "page": "  Paper  "})
+    body = r.json()
+    uids = {i["uid"] for g in body["groups"] for i in g["items"]}
+    assert uids == {"paper_blk1"}
+    assert body["total"] == 1
+
+
+def test_page_filter_canonicalizes_control_whitespace(changed_client):
+    r = changed_client.get("/api/changed", params={
+        "since": SINCE, "until": UNTIL, "page": "\nPaper\t"})
     body = r.json()
     uids = {i["uid"] for g in body["groups"] for i in g["items"]}
     assert uids == {"paper_blk1"}

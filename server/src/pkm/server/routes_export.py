@@ -32,15 +32,14 @@ from pkm.export.resolve import (
     BLOCK_REF_MAX_DEPTH, QUERY_MAX_DEPTH, QueryResult, QueryResultGroup,
     QueryResultItem, find_query_macros, render_page_resolved)
 from pkm.export.writer import export_graph
-from pkm.refs import canonicalize_title
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
 from pkm.server.grouping import group_by_page
-from pkm.server.query import parse_query, plan_sql, QueryParseError
-from pkm.server.query_exec import execute_plan
+from pkm.server.query import plan_sql, QueryParseError
+from pkm.server.query_exec import execute_plan, parse_canonical_query
 from pkm.server.store import fetch_page
-from pkm.server.sync_meta import plain_space_title_canonicalization_active
+from pkm.server.sync_meta import read_title
 from pkm.server.tempfile_response import CleanupFileResponse
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
@@ -63,7 +62,7 @@ def _run_query(db: sqlite3.Connection, expr: str) -> QueryResult | None:
     then leaves the macro's raw text in place, the same fallback as an
     unresolved ((ref))."""
     try:
-        sql, params = plan_sql(parse_query(expr))
+        sql, params = plan_sql(parse_canonical_query(db, expr))
     except QueryParseError:
         return None
     matches = execute_plan(db, sql, params)
@@ -126,10 +125,7 @@ def _gather_resolution_data(
 @router.get("/api/export/page/{title:path}")
 def export_page_markdown(title: str,
                          db: sqlite3.Connection = Depends(get_db)) -> Response:
-    title = canonicalize_title(
-        title,
-        plain_space=plain_space_title_canonicalization_active(db),
-    )
+    title = read_title(db, title)
     page = fetch_page(db, title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")

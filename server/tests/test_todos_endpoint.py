@@ -1,4 +1,6 @@
 """GET /api/todos: {{TODO}}-marker listing."""
+import sqlite3
+
 import pytest
 
 
@@ -43,6 +45,30 @@ def test_todos_page_filter(todo_client):
 def test_todos_unknown_page_is_empty_not_404(todo_client):
     body = todo_client.get("/api/todos", params={"page": "Nope"}).json()
     assert body == {"groups": [], "total": 0}
+
+
+def test_todos_page_filter_canonicalizes_padded_title_when_active(
+        todo_client, seeded_config):
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "UPDATE sync_meta SET value = '1'"
+        " WHERE key = 'plain_space_title_canonicalization'"
+    )
+    con.commit()
+    con.close()
+
+    r = todo_client.get("/api/todos", params={"page": "  Paper  "})
+
+    body = r.json()
+    assert body["total"] == 1
+    assert body["groups"][0]["items"][0]["uid"] == "todo_p1"
+
+
+def test_todos_page_filter_canonicalizes_control_whitespace(todo_client):
+    r = todo_client.get("/api/todos", params={"page": "\nPaper\t"})
+    body = r.json()
+    assert body["total"] == 1
+    assert body["groups"][0]["items"][0]["uid"] == "todo_p1"
 
 
 def test_todos_requires_auth(anon_client):

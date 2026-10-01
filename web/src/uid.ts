@@ -5,9 +5,9 @@
 import { UID_BYTE_LENGTH, bytesToUid, isAlphanumericByte } from "./uidCore";
 import type { BlockUid } from "./api/brands";
 
-// The raw, unbranded minter. `ClientId` and `BatchId` (sync/opQueue.ts,
-// replica/workerHandlers.ts) are uid-shaped but not block uids, so they
-// mint from this rather than casting a BlockUid to a different brand.
+// The raw, unbranded minter. `ClientId` and `BatchId` (sync/opQueue.ts)
+// are uid-shaped but not block uids, so they mint from this rather than
+// casting a BlockUid to a different brand.
 export function newRawUid(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(UID_BYTE_LENGTH));
   // Resample only the first byte until it lands on an alphanumeric

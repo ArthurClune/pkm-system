@@ -196,7 +196,12 @@ def apply_title_migration(
         snapshots = tuple(
             (uid, block_text_by_uid[uid]) for uid in sorted(inbound_uids)
         )
-        replacements = dict(plan.replacements)
+        # rewrite_snapshotted_blocks matches replacement keys against raw
+        # text spans, so the map widens to plain str here -- CanonicalTitle
+        # only matters up to the lookup that minted plan.replacements.
+        replacements: dict[str, str] = {
+            old: new for old, new in plan.replacements.items()
+        }
 
         pages_retitled = 0
         for group in plan.groups:

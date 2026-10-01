@@ -8,7 +8,16 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable, Iterator, Literal
+from typing import Iterable, Iterator, Literal, NewType
+
+# A title that has been through normalize_title: control whitespace
+# collapsed, no other byte changed. Not every str is one -- minted only by
+# normalize_title (and anything built from its output).
+NormalizedTitle = NewType("NormalizedTitle", str)
+# A NormalizedTitle that has also been through canonicalize_title: the exact
+# spelling a lookup against pages.title/sidebar_entries.title must use.
+# Minted only by canonicalize_title and by reading those columns back.
+CanonicalTitle = NewType("CanonicalTitle", NormalizedTitle)
 
 # A ``` run followed by a word character is a fence *opener* with an info
 # string (```css, ```mermaid), never a closer -- without the lookahead, an
@@ -41,7 +50,7 @@ _CONTROL_WS = re.compile(r"[\t\n\r\f\v]")
 _WS_RUN = re.compile(r"[ \t\n\r\f\v]+")
 
 
-def normalize_title(title: str) -> str:
+def normalize_title(title: str) -> NormalizedTitle:
     """Collapse the whitespace in a page title that holds a control char.
 
     A title containing a literal newline cannot be addressed through the
@@ -57,13 +66,15 @@ def normalize_title(title: str) -> str:
     normalizes to empty -- `[[\\n]]` references no page.
     """
     if _CONTROL_WS.search(title) is None:
-        return title
-    return _WS_RUN.sub(" ", title).strip()
+        return NormalizedTitle(title)
+    return NormalizedTitle(_WS_RUN.sub(" ", title).strip())
 
 
-def canonicalize_title(title: str, *, plain_space: bool) -> str:
+def canonicalize_title(title: str, *, plain_space: bool) -> CanonicalTitle:
     normalized = normalize_title(title)
-    return normalized.strip(" ") if plain_space else normalized
+    if plain_space:
+        normalized = NormalizedTitle(normalized.strip(" "))
+    return CanonicalTitle(normalized)
 
 
 TitleSyntaxReason = Literal["forbidden_syntax"]
@@ -92,7 +103,7 @@ def is_blank_title(title: str) -> bool:
 
 @dataclass(frozen=True)
 class Ref:
-    title: str
+    title: NormalizedTitle
     kind: RefKind
 
 
@@ -129,7 +140,7 @@ class AttributeSpan:
     start: int
     end: int
     raw_title: str
-    title: str
+    title: NormalizedTitle
 
 
 def attribute_title_span(text: str) -> AttributeSpan | None:

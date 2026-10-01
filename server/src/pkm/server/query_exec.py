@@ -16,6 +16,7 @@ import sqlite3
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
+from pkm.refs import CanonicalTitle
 from pkm.server.query import QueryNode, parse_query
 from pkm.server.sync_meta import title_reader
 
@@ -38,7 +39,7 @@ def parse_canonical_query(db: sqlite3.Connection, expr: str) -> QueryNode:
     return _canonical_titles(title_reader(db), node)
 
 
-def _canonical_titles(canonical: Callable[[str], str],
+def _canonical_titles(canonical: Callable[[str], CanonicalTitle],
                       node: QueryNode) -> QueryNode:
     if node.kind == "page":
         assert node.title is not None

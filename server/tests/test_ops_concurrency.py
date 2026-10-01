@@ -9,6 +9,8 @@ import sqlite3
 
 import pytest
 
+from pkm.refs import CanonicalTitle, NormalizedTitle
+
 
 def test_concurrent_page_delete_cannot_land_inside_the_batch(
         client, seeded_config, monkeypatch):
@@ -17,15 +19,16 @@ def test_concurrent_page_delete_cannot_land_inside_the_batch(
     from pkm.server.store import delete_page_rows, fetch_page
 
     real_context_for = ops_apply._context_for
+    ai_title = CanonicalTitle(NormalizedTitle("AI"))
 
     def racing(db, op, now_ms):
         ctx = real_context_for(db, op, now_ms)  # sees uid_b6 still on "AI"
         con2 = open_db(seeded_config.db_path)
         con2.execute("PRAGMA busy_timeout=50")
         with pytest.raises(sqlite3.OperationalError, match="locked"):
-            page = fetch_page(con2, "AI")
+            page = fetch_page(con2, ai_title)
             assert page is not None
-            delete_page_rows(con2, page["id"], "AI")
+            delete_page_rows(con2, page["id"], ai_title)
         con2.close()
         return ctx
 
@@ -46,16 +49,18 @@ def test_concurrent_rename_cannot_resurrect_the_old_title(
     from pkm.server.store import fetch_page, rename_page_rows
 
     real_hint_page_exists = ops_apply._hint_page_exists
+    ml_title = CanonicalTitle(NormalizedTitle("Machine Learning"))
+    ml_renamed_title = CanonicalTitle(NormalizedTitle("ML Renamed"))
 
     def racing(db, page_title):
         exists = real_hint_page_exists(db, page_title)  # True: not renamed yet
         con2 = open_db(seeded_config.db_path)
         con2.execute("PRAGMA busy_timeout=50")
-        page = fetch_page(con2, "Machine Learning")
+        page = fetch_page(con2, ml_title)
         assert page is not None
         with pytest.raises(sqlite3.OperationalError, match="locked"):
-            rename_page_rows(con2, page["id"], "Machine Learning",
-                             "ML Renamed", 1_800_000_000_000)
+            rename_page_rows(con2, page["id"], ml_title,
+                             ml_renamed_title, 1_800_000_000_000)
         con2.close()
         return exists
 

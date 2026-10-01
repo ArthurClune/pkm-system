@@ -14,7 +14,8 @@ from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
     BlockBacklinksPayload, BlockPayload, BlockRefsPayload, CurrentWorkPayload,
     GroupsPayload, JournalPayload, PageMeta, PagePayload, RenamePageResponse)
-from pkm.refs import is_blank_title, title_syntax_reason
+from pkm.refs import (CanonicalTitle, NormalizedTitle, is_blank_title,
+                      title_syntax_reason)
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.grouping import group_backlinks, group_by_page
@@ -41,6 +42,13 @@ class CreatePageRequest(BaseModel):
 class RenamePageRequest(BaseModel):
     new_title: str = Field(min_length=1)
     allow_merge: bool = False
+
+
+def _daily_title(d: date) -> CanonicalTitle:
+    """title_for_date's fixed format never has control whitespace or
+    boundary padding -- all canonicalize_title ever changes -- so it is
+    already canonical under either plain_space setting."""
+    return CanonicalTitle(NormalizedTitle(title_for_date(d)))
 
 
 def _block_ref_texts(db: sqlite3.Connection, texts: list[str]) -> dict:
@@ -436,7 +444,7 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
         except ValueError:
             raise HTTPException(status_code=400, detail="invalid before date")
     today = date.today()
-    if cursor is None and fetch_page(db, title_for_date(today)) is None:
+    if cursor is None and fetch_page(db, _daily_title(today)) is None:
         get_or_create_page(db, title_for_date(today), int(time.time() * 1000))
         notify.commit_and_nudge_threadpool(request, db)
     nonempty: set[date] = set()
@@ -452,7 +460,7 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
     texts: list[str] = []
     uids: list[str] = []
     for d in select_journal_days(nonempty, today, cursor, days):
-        page = fetch_page(db, title_for_date(d))
+        page = fetch_page(db, _daily_title(d))
         if page is None:  # pragma: no cover - selected days exist
             continue
         blocks = db.execute(
@@ -493,7 +501,7 @@ def cleanup_journal(request: Request,
     the reference dangling."""
     deleted: list[str] = []
     for d in past_week_dates(date.today()):
-        title = title_for_date(d)
+        title = _daily_title(d)
         page = fetch_page(db, title)
         if page is None:
             continue

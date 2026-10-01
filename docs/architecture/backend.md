@@ -448,6 +448,16 @@ durable `plain_space_title_canonicalization` flag selects the second:
 | inactive (default) | a control character makes ASCII-whitespace runs collapse to one space and trims their boundary; plain-space padding stays byte-exact, so legacy rows still resolve |
 | active | the above, plus stripping leading and trailing U+0020; internal ordinary spaces and NBSP are unchanged |
 
+`refs.normalize_title` and `refs.canonicalize_title` return the `NewType`s
+`NormalizedTitle` and `CanonicalTitle` (a subtype of it), so pyrefly flags a
+title reaching a `pages.title`/`sidebar_entries.title` lookup without going
+through one of them. `store.fetch_page`, the rename/merge/retitle helpers in
+`store.py`, and the row-mapped `InventoryPage`/`InventorySidebar` in
+`pkm/title_migration.py` all take `CanonicalTitle`; `refs.Ref.title` is
+`NormalizedTitle`. The types are compile-time only — a `NewType` is still a
+plain string at runtime and on the wire, so this changes nothing a client
+sees.
+
 **A title that arrives as a lookup key goes through `sync_meta.read_title`
 before it meets `pages.title` or `sidebar_entries.title`.** Both are exact
 matches. A raw title, or a link's normalized one, therefore misses its page

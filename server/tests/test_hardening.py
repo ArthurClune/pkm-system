@@ -1,6 +1,7 @@
 import sqlite3
 
 import pytest
+from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.schema import DDL
 from pkm.server.auth_core import YEAR_MS, sign_session, verify_session
 from pkm.server.db import init_db, open_db
@@ -37,7 +38,8 @@ def test_get_or_create_page(tmp_path):
     assert again["id"] == page["id"] and again["created_at"] == 123
     assert db.in_transaction  # helper must NOT have committed
     db.rollback()
-    assert fetch_page(db, "New Page") is None  # rollback undid the create
+    new_page_title = CanonicalTitle(NormalizedTitle("New Page"))
+    assert fetch_page(db, new_page_title) is None  # rollback undid the create
     db.close()
 
 

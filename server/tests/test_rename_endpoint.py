@@ -3,6 +3,7 @@ from urllib.parse import quote
 
 import pytest
 
+from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.server.db import open_db
 from pkm.server.store import (
     append_page_without_rewrite,
@@ -327,7 +328,8 @@ def test_retitle_without_rewrite_changes_only_page_and_sidebar_title(seeded_conf
     )
 
     retitle_page_without_rewrite(
-        db, 1, "Machine Learning", "Deep Learning Notes", 9_001
+        db, 1, CanonicalTitle(NormalizedTitle("Machine Learning")),
+        CanonicalTitle(NormalizedTitle("Deep Learning Notes")), 9_001
     )
 
     assert tuple(db.execute("SELECT title, updated_at FROM pages WHERE id=1").fetchone()) == (
@@ -365,7 +367,8 @@ def test_append_without_rewrite_preserves_stable_subtrees_and_target_sidebar(see
     )
 
     moved = append_page_without_rewrite(
-        db, 2, 1, "AI", "Machine Learning", 9_002
+        db, 2, 1, CanonicalTitle(NormalizedTitle("AI")),
+        CanonicalTitle(NormalizedTitle("Machine Learning")), 9_002
     )
 
     assert moved == 3

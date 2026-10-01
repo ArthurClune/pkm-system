@@ -5,6 +5,7 @@
 // adapter only regroups tokens into refs.py's output shape and order:
 // attribute first, then page refs (outer before inner), then hashtags.
 
+import type { BlockUid } from "../api/brands";
 import { scanGrammar } from "./scan";
 
 export type RefKind = "link" | "tag" | "attribute";
@@ -16,7 +17,7 @@ export interface Ref {
 
 export interface ParsedRefs {
   refs: Ref[];
-  block_refs: string[];
+  block_refs: BlockUid[];
   embeds: number;
 }
 
@@ -25,7 +26,7 @@ export function extractRefs(text: string): ParsedRefs {
   const attributes: Ref[] = [];
   const pageRefs: Ref[] = [];
   const hashtags: Ref[] = [];
-  const block_refs: string[] = [];
+  const block_refs: BlockUid[] = [];
   let embeds = 0;
   for (const t of tokens) {
     if (t.kind === "attribute") attributes.push({ title: t.title, kind: "attribute" });

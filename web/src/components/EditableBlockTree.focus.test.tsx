@@ -2,7 +2,8 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, expect, test, vi } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { block } from "../test-helpers";
+import { block, uid } from "../test-helpers";
+import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { OutlineHandlers } from "../outline/handlers";
 import * as tree from "../outline/tree";
@@ -35,7 +36,7 @@ function table(uid: string): BlockNode {
   ] });
 }
 
-function mount(blocks: BlockNode[], focus: { uid: string; cursor: number } | null) {
+function mount(blocks: BlockNode[], focus: { uid: BlockUid; cursor: number } | null) {
   return render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={blocks} focus={focus} handlers={handlers()}
@@ -48,7 +49,7 @@ beforeEach(() => { vi.mocked(tree.ancestorChain).mockClear(); });
 
 test("walks for the focused block's ancestors once per render, not once per row",
      () => {
-  mount(spine(12), { uid: "b11", cursor: 0 });
+  mount(spine(12), { uid: uid("b11"), cursor: 0 });
 
   // Twelve rendered rows, one walk: the per-row "is the focus inside me?"
   // test is a lookup in the chain the root computed. A walk per row is the
@@ -64,7 +65,7 @@ test("does not walk at all when no block is focused", () => {
 });
 
 test("focus inside one table subtree leaves a sibling table rendered", () => {
-  mount([table("t1"), table("t2")], { uid: "t1-cell", cursor: 0 });
+  mount([table("t1"), table("t2")], { uid: uid("t1-cell"), cursor: 0 });
 
   // t1 is in raw editable rows; t2 is untouched by t1's focus.
   expect(screen.getAllByRole("table")).toHaveLength(1);

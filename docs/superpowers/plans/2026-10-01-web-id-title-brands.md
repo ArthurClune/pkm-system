@@ -104,14 +104,14 @@ A brand is a subtype of its base type, so code that only reads a branded field i
 - Consumes `BlockUid`, `newUid`, `parseBlockUid` and `uid` from Task 1.
 - Produces: every outline command takes `(pageTitle: string, uid: BlockUid, …)`. Titles are still `string` until Task 4.
 
-- [ ] **Step 1: Write the failing probes.**
+- [x] **Step 1: Write the failing probes.**
   - In `outline/edits.test.ts`: `// @ts-expect-error (title, uid) swapped` on `indentBlock(blocks, someUid, "Page")`, where `someUid = uid("abcdef")`.
   - In `components/BacklinkGroupList.test.tsx`: the same idea for `onNavigate`.
   - In `views/PageView.test.tsx`: a URL hash `#not a uid` flashes nothing, and `#abcdef` flashes block `abcdef`.
-- [ ] **Step 2:** `pnpm typecheck`. Expect it to FAIL on the unused `@ts-expect-error` directives, because the parameters are still `string`.
-- [ ] **Step 3:** Add `brand(BlockUid)`, regenerate, and confirm `git diff --no-ext-diff web/src/api/openapi.json` shows only `"x-brand": "BlockUid"` additions.
-- [ ] **Step 4:** Fix production write sites and narrow signatures as listed, directory by directory, in this order: replica, grammar/assistant, outline, dnd, components, views, root. Run `pnpm typecheck` after each directory, and keep a running count of errors that only ever goes down.
-- [ ] **Step 5:** Fix the test files. Then run `cd server && uv run pytest -q && uv run pyrefly check && uv run ruff check` and `cd web && pnpm typecheck && pnpm test:unit`. Everything must pass, and the probes must now be used.
+- [x] **Step 2:** `pnpm typecheck`. Expect it to FAIL on the unused `@ts-expect-error` directives, because the parameters are still `string`.
+- [x] **Step 3:** Add `brand(BlockUid)`, regenerate, and confirm `git diff --no-ext-diff web/src/api/openapi.json` shows only `"x-brand": "BlockUid"` additions.
+- [x] **Step 4:** Fix production write sites and narrow signatures as listed, directory by directory, in this order: replica, grammar/assistant, outline, dnd, components, views, root. Run `pnpm typecheck` after each directory, and keep a running count of errors that only ever goes down.
+- [x] **Step 5:** Fix the test files. Then run `cd server && uv run pytest -q && uv run pyrefly check && uv run ruff check` and `cd web && pnpm typecheck && pnpm test:unit`. Everything must pass, and the probes must now be used.
 - [ ] **Step 6:** Commit: `feat(pkm-thee): BlockUid reaches the web as a brand; outline commands take BlockUid`.
 
 ### Task 3: PageId and SidebarEntryId flip

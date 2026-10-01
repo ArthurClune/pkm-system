@@ -5,6 +5,7 @@
 // online visit, and a daily page with content pushes via its block ops'
 // page_title anyway (spec section 1).
 
+import type { BlockUid } from "../../api/brands";
 import type { BacklinkGroup, BlockBacklinksPayload, BlockGroup, CurrentWorkPage,
               CurrentWorkPayload, GroupsPayload, PageMeta,
               PagePayload } from "../../api/payloads";
@@ -44,7 +45,7 @@ const fetchPage = (db: ReplicaDb, title: string): PageMeta | null => {
 };
 
 interface BacklinkRow {
-  uid: string;
+  uid: BlockUid;
   text: string;
   src_page_id: number;
   src_page_title: string;
@@ -95,7 +96,7 @@ export function backlinks(db: ReplicaDb, pageId: number, offset: number,
 
 /** Rows arrive already ordered; grouping preserves first-seen page order. */
 function groupBacklinkRows(rows: BacklinkRow[],
-                           ancestors: Map<string, string[]>): BacklinkGroup[] {
+                           ancestors: Map<BlockUid, string[]>): BacklinkGroup[] {
   const groups: BacklinkGroup[] = [];
   const index = new Map<number, BacklinkGroup>();
   for (const r of rows) {
@@ -114,7 +115,7 @@ function groupBacklinkRows(rows: BacklinkRow[],
 
 /** null = block not found: the router 404s. */
 export function blockBacklinks(db: ReplicaDb,
-                               uid: string): BlockBacklinksPayload | null {
+                               uid: BlockUid): BlockBacklinksPayload | null {
   const exists = db.select<{ one: number }>(
     "SELECT 1 AS one FROM blocks WHERE uid = ?", [uid]);
   if (exists.length === 0) return null;
@@ -173,7 +174,7 @@ export function unlinked(db: ReplicaDb, title: string, limit: number,
   const params = [phraseQuery(title), page.id, page.id];
   const total = Number(db.select<{ n: number }>(
     `SELECT count(*) AS n ${where}`, params)[0].n);
-  const rows = db.select<{ uid: string; text: string; page_id: number;
+  const rows = db.select<{ uid: BlockUid; text: string; page_id: number;
                            page_title: string }>(
     `SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
      ${where} ORDER BY p.title, b.uid LIMIT ? OFFSET ?`,

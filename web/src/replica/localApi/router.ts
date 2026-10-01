@@ -4,10 +4,10 @@
 // shapes the server returns. Unmatched routes report handled:false — the
 // caller surfaces a clear online-only error. Runs inside the worker.
 
-import type { BatchId } from "../../api/brands";
+import type { BatchId, BlockUid } from "../../api/brands";
 import type { BlockRefsPayload, SidebarNavEntry, SidebarNavPayload,
               TitlesPayload } from "../../api/payloads";
-import { UID_TOKEN } from "../../grammar/scan";
+import { parseBlockUid } from "../../ids";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
 import { plainSpaceTitleCanonicalizationActive } from "../meta";
@@ -29,8 +29,6 @@ export interface LocalApiRequest {
 export type LocalApiResult =
   | { handled: false }
   | { handled: true; status: number; body: unknown };
-
-const UID_RE = new RegExp(`^${UID_TOKEN}$`);
 
 const ok = (body: unknown): LocalApiResult =>
   ({ handled: true, status: 200, body });
@@ -75,10 +73,13 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
     return ok(titlesPayload(db, q.get("q") ?? "", Number(q.get("limit") ?? 10)));
   }
   if (method === "GET" && path === "/api/block-refs") {
-    const wanted = (q.get("uids") ?? "").split(",").filter((u) => u.length > 0);
-    if (wanted.length > 50) return err(422, "too many uids");
-    for (const uid of wanted) {
-      if (!UID_RE.test(uid)) return err(422, `malformed uid: '${uid}'`);
+    const requested = (q.get("uids") ?? "").split(",").filter((u) => u.length > 0);
+    if (requested.length > 50) return err(422, "too many uids");
+    const wanted: BlockUid[] = [];
+    for (const raw of requested) {
+      const uid = parseBlockUid(raw);
+      if (uid === null) return err(422, `malformed uid: '${raw}'`);
+      wanted.push(uid);
     }
     return ok(blockRefsPayload(db, wanted));
   }
@@ -108,8 +109,9 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
   }
   const blockBacklinksMatch = /^\/api\/block\/([^/]+)\/backlinks$/.exec(path);
   if (method === "GET" && blockBacklinksMatch) {
-    const uid = decodeURIComponent(blockBacklinksMatch[1]);
-    if (!UID_RE.test(uid)) return err(422, `malformed uid: '${uid}'`);
+    const raw = decodeURIComponent(blockBacklinksMatch[1]);
+    const uid = parseBlockUid(raw);
+    if (uid === null) return err(422, `malformed uid: '${raw}'`);
     const body = blockBacklinks(db, uid);
     return body === null ? err(404, "block not found") : ok(body);
   }
@@ -117,7 +119,7 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
 }
 
 export function blockRefsPayload(db: ReplicaDb,
-                                 uids: string[]): BlockRefsPayload {
+                                 uids: BlockUid[]): BlockRefsPayload {
   return { block_ref_texts: resolveRefUids(db, uids) };
 }
 

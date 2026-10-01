@@ -2,7 +2,7 @@ import { act, fireEvent, render, renderHook, screen } from "@testing-library/rea
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, test, vi } from "vitest";
-import { block, jsonResponse, stubFetch } from "../test-helpers";
+import { block, jsonResponse, stubFetch, uid } from "../test-helpers";
 import type { OutlineHandlers } from "../outline/handlers";
 import { useTitleOptions } from "./AutocompletePopup";
 import { EditableBlockTree } from "./EditableBlockTree";
@@ -37,7 +37,7 @@ function mount(h: OutlineHandlers) {
   return render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={[block("u1", "", { order_idx: 0 })]}
-                         focus={{ uid: "u1", cursor: 0 }} handlers={h}
+                         focus={{ uid: uid("u1"), cursor: 0 }} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
 }

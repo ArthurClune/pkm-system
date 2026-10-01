@@ -6,6 +6,7 @@
 // order_idx, counted BEFORE the moved block is removed" (plan-3 contract
 // note) — order_idx values are always read off the tree, never array
 // positions, because the server leaves gaps.
+import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, SetHeadingOp, SetViewTypeOp } from "../api/ops";
 import type { CaretOffset } from "./keyEdits";
@@ -13,7 +14,7 @@ import { applyOps, findNode, locate, selectionRoots,
          visibleNeighbor } from "./tree";
 
 export interface FocusTarget {
-  uid: string;
+  uid: BlockUid;
   cursor: CaretOffset;
 }
 
@@ -48,9 +49,9 @@ export function idxAfter(siblings: BlockNode[], index: number): number {
 type MoveDirection = "up" | "down";
 
 interface CrossParentDestination {
-  parentUid: string;
+  parentUid: BlockUid;
   orderIdx: number;
-  expandUid: string | null;
+  expandUid: BlockUid | null;
 }
 
 /** At a sibling-list edge, preserve absolute depth by moving into the
@@ -78,8 +79,8 @@ function crossParentDestination(
   };
 }
 
-export function splitBlock(blocks: BlockNode[], pageTitle: string, uid: string,
-                           cursor: CaretOffset, newUid: string): EditResult {
+export function splitBlock(blocks: BlockNode[], pageTitle: string, uid: BlockUid,
+                           cursor: CaretOffset, newUid: BlockUid): EditResult {
   const found = locate(blocks, uid);
   if (!found) return noop(blocks);
   const { node, parent, siblings, index } = found;
@@ -107,7 +108,7 @@ export function splitBlock(blocks: BlockNode[], pageTitle: string, uid: string,
 }
 
 interface SelectionSiblingRun {
-  uids: string[];
+  uids: BlockUid[];
   parent: BlockNode | null;
   siblings: BlockNode[];
   first: number;
@@ -116,7 +117,7 @@ interface SelectionSiblingRun {
 /** Reduce selected descendants to roots, then group consecutive roots that
  * shared a parent in the original tree. All destinations are derived from
  * these original runs before any move is applied. */
-function selectionSiblingRuns(blocks: BlockNode[], uids: string[]):
+function selectionSiblingRuns(blocks: BlockNode[], uids: BlockUid[]):
     SelectionSiblingRun[] | null {
   if (uids.length === 0) return [];
   if (uids.some((uid) => !locate(blocks, uid))) return null;
@@ -142,7 +143,7 @@ function selectionSiblingRuns(blocks: BlockNode[], uids: string[]):
  * generation, so one first-sibling run aborts the whole gesture and selected
  * siblings can never become one another's parent. */
 export function indentSelection(blocks: BlockNode[], pageTitle: string,
-                                uids: string[]): EditResult {
+                                uids: BlockUid[]): EditResult {
   const runs = selectionSiblingRuns(blocks, uids);
   if (!runs || runs.length === 0 || runs.some((run) => run.first === 0)) {
     return noop(blocks);
@@ -166,7 +167,7 @@ export function indentSelection(blocks: BlockNode[], pageTitle: string,
  * adopts the unselected siblings between it and the next run (or the end of
  * its sibling list) as children of its last block. */
 export function outdentSelection(blocks: BlockNode[], pageTitle: string,
-                                 uids: string[]): EditResult {
+                                 uids: BlockUid[]): EditResult {
   const runs = selectionSiblingRuns(blocks, uids);
   if (!runs || runs.length === 0
       || runs.some((run) => run.parent === null)) {
@@ -190,7 +191,7 @@ export function outdentSelection(blocks: BlockNode[], pageTitle: string,
 }
 
 export function indentBlock(blocks: BlockNode[], pageTitle: string,
-                            uid: string): EditResult {
+                            uid: BlockUid): EditResult {
   const found = locate(blocks, uid);
   if (!found || found.index === 0) return noop(blocks);
   const prev = found.siblings[found.index - 1];
@@ -226,7 +227,7 @@ function adoptTrailingOps(adopter: BlockNode, siblings: BlockNode[],
 /** Outdent lands right after its old parent and adopts its former following
  * siblings as children — the page reads identically top-to-bottom. */
 export function outdentBlock(blocks: BlockNode[], pageTitle: string,
-                             uid: string): EditResult {
+                             uid: BlockUid): EditResult {
   const found = locate(blocks, uid);
   if (!found || found.parent === null) return noop(blocks);
   const parentLoc = locate(blocks, found.parent.uid);
@@ -244,7 +245,7 @@ export function outdentBlock(blocks: BlockNode[], pageTitle: string,
  * plain-swap primitive moveSubtreeUp delegates to when there is a previous
  * sibling to swap with, in addition to being exercised directly by tests. */
 export function moveBlockUp(blocks: BlockNode[], pageTitle: string,
-                            uid: string): EditResult {
+                            uid: BlockUid): EditResult {
   const found = locate(blocks, uid);
   if (!found || found.index === 0) return noop(blocks);
   const prev = found.siblings[found.index - 1];
@@ -257,7 +258,7 @@ export function moveBlockUp(blocks: BlockNode[], pageTitle: string,
 /** Mirror of moveBlockUp: swap `uid` with its next sibling. Exported (not
  * test-only) for the same reason — moveSubtreeDown delegates to it. */
 export function moveBlockDown(blocks: BlockNode[], pageTitle: string,
-                              uid: string): EditResult {
+                              uid: BlockUid): EditResult {
   const found = locate(blocks, uid);
   if (!found || found.index === found.siblings.length - 1) return noop(blocks);
   const ops: BlockOp[] = [{ op: "move", uid,
@@ -275,7 +276,7 @@ export function moveBlockDown(blocks: BlockNode[], pageTitle: string,
  * expanded first (mirrors indentBlock) — otherwise the moved block would be
  * hidden and, since it stays focused, focus would be lost with it. */
 export function moveSubtreeUp(blocks: BlockNode[], pageTitle: string,
-                              uid: string): EditResult {
+                              uid: BlockUid): EditResult {
   const found = locate(blocks, uid);
   if (!found) return noop(blocks);
   if (found.index > 0) return moveBlockUp(blocks, pageTitle, uid);
@@ -299,7 +300,7 @@ export function moveSubtreeUp(blocks: BlockNode[], pageTitle: string,
  * parent's next sibling N, same depth. No-op when N doesn't exist. A
  * collapsed N is expanded first, for the same reason as moveSubtreeUp's P. */
 export function moveSubtreeDown(blocks: BlockNode[], pageTitle: string,
-                                uid: string): EditResult {
+                                uid: BlockUid): EditResult {
   const found = locate(blocks, uid);
   if (!found) return noop(blocks);
   if (found.index < found.siblings.length - 1) {
@@ -321,7 +322,7 @@ export function moveSubtreeDown(blocks: BlockNode[], pageTitle: string,
 }
 
 interface SelectionRunMovePlan {
-  expandUid: string | null;
+  expandUid: BlockUid | null;
   ops: BlockOp[];
 }
 
@@ -368,7 +369,7 @@ function planSelectionRunMove(
 function moveSelection(
   blocks: BlockNode[],
   pageTitle: string,
-  uids: string[],
+  uids: BlockUid[],
   direction: MoveDirection,
 ): EditResult {
   const runs = selectionSiblingRuns(blocks, uids);
@@ -381,7 +382,7 @@ function moveSelection(
   }
 
   const selectedRoots = new Set(runs.flatMap((run) => run.uids));
-  const expanded = new Set<string>();
+  const expanded = new Set<BlockUid>();
   const ops: BlockOp[] = [];
   for (const plan of plans) {
     if (plan.expandUid
@@ -398,12 +399,12 @@ function moveSelection(
 }
 
 export function moveSelectionUp(blocks: BlockNode[], pageTitle: string,
-                                uids: string[]): EditResult {
+                                uids: BlockUid[]): EditResult {
   return moveSelection(blocks, pageTitle, uids, "up");
 }
 
 export function moveSelectionDown(blocks: BlockNode[], pageTitle: string,
-                                  uids: string[]): EditResult {
+                                  uids: BlockUid[]): EditResult {
   return moveSelection(blocks, pageTitle, uids, "down");
 }
 
@@ -413,7 +414,7 @@ export function moveSelectionDown(blocks: BlockNode[], pageTitle: string,
  * applyOps and server ops_apply share the semantics) shifts non-group
  * siblings right while already-placed group members stay put, so the run
  * lands contiguously in its original order. */
-export function groupMoveOps(uids: string[], parentUid: string | null,
+export function groupMoveOps(uids: BlockUid[], parentUid: BlockUid | null,
                              orderIdx: number): BlockOp[] {
   return uids.map((uid, k) => (
     { op: "move", uid, parent_uid: parentUid, order_idx: orderIdx + k }));
@@ -423,7 +424,7 @@ export function groupMoveOps(uids: string[], parentUid: string | null,
  * one contiguous run, preserving their relative order. Only selection roots
  * get a move op — a selected descendant travels inside its parent's subtree. */
 export function moveBlocksTo(blocks: BlockNode[], pageTitle: string,
-                             uids: string[], parentUid: string | null,
+                             uids: BlockUid[], parentUid: BlockUid | null,
                              orderIdx: number): EditResult {
   const roots = selectionRoots(blocks, uids);
   if (roots.length === 0) return noop(blocks);
@@ -437,7 +438,7 @@ export function moveBlocksTo(blocks: BlockNode[], pageTitle: string,
  * before the run, then the sibling right after the last deleted root, else
  * null (nothing left to focus). */
 export function deleteSelection(blocks: BlockNode[], pageTitle: string,
-                                uids: string[]): EditResult {
+                                uids: BlockUid[]): EditResult {
   const roots = selectionRoots(blocks, uids);
   if (roots.length === 0) return noop(blocks);
   const ops: BlockOp[] = roots.map((uid) => ({ op: "delete", uid }));
@@ -452,7 +453,7 @@ export function deleteSelection(blocks: BlockNode[], pageTitle: string,
 }
 
 export function backspaceAtStart(blocks: BlockNode[], pageTitle: string,
-                                 uid: string): EditResult {
+                                 uid: BlockUid): EditResult {
   const found = locate(blocks, uid);
   if (!found || found.node.children.length > 0) return noop(blocks);
   if (found.index === 0) {
@@ -489,20 +490,20 @@ export function backspaceAtStart(blocks: BlockNode[], pageTitle: string,
 }
 
 export function setCollapsed(blocks: BlockNode[], pageTitle: string,
-                             uid: string, collapsed: boolean): EditResult {
+                             uid: BlockUid, collapsed: boolean): EditResult {
   if (!findNode(blocks, uid)) return noop(blocks);
   return done(blocks, pageTitle,
               [{ op: "set_collapsed", uid, collapsed }], null);
 }
 
-export function setHeading(blocks: BlockNode[], pageTitle: string, uid: string,
+export function setHeading(blocks: BlockNode[], pageTitle: string, uid: BlockUid,
                            heading: SetHeadingOp["heading"]): EditResult {
   if (!findNode(blocks, uid)) return noop(blocks);
   return done(blocks, pageTitle, [{ op: "set_heading", uid, heading }], null);
 }
 
 export function setViewType(blocks: BlockNode[], pageTitle: string,
-                            uid: string,
+                            uid: BlockUid,
                             viewType: SetViewTypeOp["view_type"]): EditResult {
   if (!findNode(blocks, uid)) return noop(blocks);
   return done(blocks, pageTitle,

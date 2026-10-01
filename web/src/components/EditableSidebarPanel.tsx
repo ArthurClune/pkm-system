@@ -14,13 +14,14 @@
 // document-wide query: the same page can be open in the main window at
 // the same time, with its own element carrying that data-uid.
 import { useRef } from "react";
+import type { BlockUid } from "../api/brands";
 import { BlockRefProvider } from "./BlockRefProvider";
 import { substituteMissingDaily } from "../outline/missingPage";
 import { useOutlinePageLoad } from "../outline/useOutlinePageLoad";
 import { useScrollFlashTarget } from "../useScrollFlashTarget";
 import { EditablePage } from "../views/EditablePage";
 
-export function EditableSidebarPanel({ title, uid }: { title: string; uid?: string }) {
+export function EditableSidebarPanel({ title, uid }: { title: string; uid?: BlockUid }) {
   const { payload, error } = useOutlinePageLoad(title, substituteMissingDaily);
   const containerRef = useRef<HTMLDivElement>(null);
 

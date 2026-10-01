@@ -5,6 +5,7 @@
 // source/target outlines and enqueued as a move op.
 import { createContext, useContext, useMemo, useRef, useState,
          type ReactNode } from "react";
+import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import { dragUids, type DragSource, type DropTarget } from "../outline/dnd";
@@ -14,8 +15,8 @@ import { useSyncActions } from "../sync/SyncProvider";
 export interface OutlineDndApi {
   /** Move a group of blocks (a multi-block selection's roots, document
    * order; a plain drag passes one uid) to the target as a contiguous run. */
-  moveTo(uids: string[], target: DropTarget): void;
-  removeSubtreeLocal(uid: string): BlockNode | null;
+  moveTo(uids: BlockUid[], target: DropTarget): void;
+  removeSubtreeLocal(uid: BlockUid): BlockNode | null;
   insertSubtreeLocal(node: BlockNode, target: DropTarget): void;
 }
 

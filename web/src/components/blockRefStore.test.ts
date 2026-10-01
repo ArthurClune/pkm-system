@@ -1,28 +1,29 @@
 import { describe, expect, test, vi } from "vitest";
 import { createBlockRefStore } from "./blockRefStore";
+import { uid } from "../test-helpers";
 
 const text = (t: string) => ({ text: t, page_title: "P" });
 
 describe("createBlockRefStore", () => {
   test("returns undefined for a uid nobody has resolved", () => {
-    expect(createBlockRefStore().get("ref_aa1")).toBeUndefined();
+    expect(createBlockRefStore().get(uid("ref_aa1"))).toBeUndefined();
   });
 
   test("serves a resolved entry, by stable identity", () => {
     const store = createBlockRefStore();
     store.resolve({ ref_aa1: text("alpha") });
-    expect(store.get("ref_aa1")).toEqual(text("alpha"));
+    expect(store.get(uid("ref_aa1"))).toEqual(text("alpha"));
     // getSnapshot is called on every render: an unchanged entry must come
     // back as the same object or useSyncExternalStore re-renders forever.
-    expect(store.get("ref_aa1")).toBe(store.get("ref_aa1"));
+    expect(store.get(uid("ref_aa1"))).toBe(store.get(uid("ref_aa1")));
   });
 
   test("notifies only the subscribers of the uids a batch resolved", () => {
     const store = createBlockRefStore();
     const onAa1 = vi.fn();
     const onBb2 = vi.fn();
-    store.subscribe("ref_aa1", onAa1);
-    store.subscribe("ref_bb2", onBb2);
+    store.subscribe(uid("ref_aa1"), onAa1);
+    store.subscribe(uid("ref_bb2"), onBb2);
 
     store.resolve({ ref_aa1: text("alpha") });
 
@@ -34,8 +35,8 @@ describe("createBlockRefStore", () => {
     const store = createBlockRefStore();
     const first = vi.fn();
     const second = vi.fn();
-    store.subscribe("ref_aa1", first);
-    store.subscribe("ref_aa1", second);
+    store.subscribe(uid("ref_aa1"), first);
+    store.subscribe(uid("ref_aa1"), second);
 
     store.resolve({ ref_aa1: text("alpha") });
 
@@ -46,7 +47,7 @@ describe("createBlockRefStore", () => {
   test("stops notifying an unsubscribed listener", () => {
     const store = createBlockRefStore();
     const onAa1 = vi.fn();
-    const unsubscribe = store.subscribe("ref_aa1", onAa1);
+    const unsubscribe = store.subscribe(uid("ref_aa1"), onAa1);
 
     unsubscribe();
     store.resolve({ ref_aa1: text("alpha") });
@@ -58,25 +59,25 @@ describe("createBlockRefStore", () => {
     const store = createBlockRefStore();
     store.resolve({ ref_aa1: text("alpha") });
     const onAa1 = vi.fn();
-    store.subscribe("ref_aa1", onAa1);
+    store.subscribe(uid("ref_aa1"), onAa1);
 
     store.resolve({ ref_aa1: text("beta") });
 
     expect(onAa1).toHaveBeenCalledTimes(1);
-    expect(store.get("ref_aa1")).toEqual(text("beta"));
+    expect(store.get(uid("ref_aa1"))).toEqual(text("beta"));
   });
 
   test("claims a uid for fetching exactly once", () => {
     const store = createBlockRefStore();
-    expect(store.claimRequest("ref_aa1")).toBe(true);
-    expect(store.claimRequest("ref_aa1")).toBe(false);
-    expect(store.claimRequest("ref_aa1")).toBe(false);
+    expect(store.claimRequest(uid("ref_aa1"))).toBe(true);
+    expect(store.claimRequest(uid("ref_aa1"))).toBe(false);
+    expect(store.claimRequest(uid("ref_aa1"))).toBe(false);
   });
 
   test("keeps claims only for uids still unresolved, bounding the set", () => {
     const store = createBlockRefStore();
-    store.claimRequest("ref_aa1");
-    store.claimRequest("ref_gone");
+    store.claimRequest(uid("ref_aa1"));
+    store.claimRequest(uid("ref_gone"));
     expect(store.claimCount()).toBe(2);
 
     // A resolved uid can never be re-requested (its consumer stops asking),
@@ -85,29 +86,29 @@ describe("createBlockRefStore", () => {
     store.resolve({ ref_aa1: text("alpha") });
 
     expect(store.claimCount()).toBe(1);
-    expect(store.claimRequest("ref_gone")).toBe(false);
+    expect(store.claimRequest(uid("ref_gone"))).toBe(false);
   });
 
   test("forgetting an entry notifies its subscribers and reopens the claim", () => {
     const store = createBlockRefStore();
-    store.claimRequest("ref_aa1");
+    store.claimRequest(uid("ref_aa1"));
     store.resolve({ ref_aa1: text("alpha") });
     const onAa1 = vi.fn();
-    store.subscribe("ref_aa1", onAa1);
+    store.subscribe(uid("ref_aa1"), onAa1);
 
-    store.forget("ref_aa1");
+    store.forget(uid("ref_aa1"));
 
-    expect(store.get("ref_aa1")).toBeUndefined();
+    expect(store.get(uid("ref_aa1"))).toBeUndefined();
     expect(onAa1).toHaveBeenCalledTimes(1);
-    expect(store.claimRequest("ref_aa1")).toBe(true);
+    expect(store.claimRequest(uid("ref_aa1"))).toBe(true);
   });
 
   test("forgetting a uid it never held notifies nobody", () => {
     const store = createBlockRefStore();
     const onAa1 = vi.fn();
-    store.subscribe("ref_aa1", onAa1);
+    store.subscribe(uid("ref_aa1"), onAa1);
 
-    store.forget("ref_aa1");
+    store.forget(uid("ref_aa1"));
 
     expect(onAa1).not.toHaveBeenCalled();
   });

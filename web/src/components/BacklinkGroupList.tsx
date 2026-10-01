@@ -3,6 +3,7 @@
 // and the block-reference popover both render through here — same
 // precedent as JournalDayReferences reusing BacklinksSection rather than
 // growing a second renderer.
+import type { BlockUid } from "../api/brands";
 import type { BacklinkGroup } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
 import type { AssetRefGroup } from "../views/filesCore";
@@ -21,7 +22,7 @@ export function BacklinkGroupList({ groups, onNavigate }: {
   /** When set, each item becomes a navigation target (the popover);
    * without it, items render inertly (the backlinks section, where
    * navigation lives on the inline links themselves). */
-  onNavigate?: (pageTitle: string, uid: string) => void;
+  onNavigate?: (pageTitle: string, uid: BlockUid) => void;
 }) {
   return (
     <>

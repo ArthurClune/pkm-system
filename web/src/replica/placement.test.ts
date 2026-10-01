@@ -1,14 +1,15 @@
 import { describe, expect, test } from "vitest";
 import type { CreateOp, MoveOp } from "../api/ops";
 import { type PlacementFacts, placementFor } from "./placement";
+import { uid } from "../test-helpers";
 
 const create = (over: Partial<CreateOp> = {}): CreateOp => ({
-  op: "create", uid: "n1", page_title: "Home", parent_uid: "p1",
+  op: "create", uid: uid("n1"), page_title: "Home", parent_uid: uid("p1"),
   order_idx: 0, text: "typed", ...over,
 });
 
 const move = (over: Partial<MoveOp> = {}): MoveOp => ({
-  op: "move", uid: "b1", parent_uid: "p1", order_idx: 0, ...over,
+  op: "move", uid: uid("b1"), parent_uid: uid("p1"), order_idx: 0, ...over,
 });
 
 const facts = (over: Partial<PlacementFacts> = {}): PlacementFacts => ({
@@ -29,7 +30,7 @@ describe("skip", () => {
     expect(placementFor(move(), facts({
       block: { page_id: 1, parent_uid: null, order_idx: 0 },
       parent: { page_id: 1 },
-      parentChain: ["p1", "b1"],
+      parentChain: [uid("p1"), uid("b1")],
     }), false)).toEqual({ kind: "skip" });
   });
 });
@@ -37,14 +38,14 @@ describe("skip", () => {
 describe("create", () => {
   test("a replayed create whose row exists keeps it where it is", () => {
     expect(placementFor(create(), facts({
-      block: { page_id: 1, parent_uid: "p1", order_idx: 0 },
+      block: { page_id: 1, parent_uid: uid("p1"), order_idx: 0 },
       parent: { page_id: 1 },
     }), true)).toEqual({ kind: "keep", repageTo: null });
   });
 
   test("a replayed create under a parent on another page follows the parent's page", () => {
     expect(placementFor(create(), facts({
-      block: { page_id: 1, parent_uid: "p1", order_idx: 0 },
+      block: { page_id: 1, parent_uid: uid("p1"), order_idx: 0 },
       parent: { page_id: 2 },
     }), true)).toEqual({ kind: "keep", repageTo: 2 });
   });
@@ -70,7 +71,7 @@ describe("create", () => {
 
   test("a create onto an existing uid outside a replay is still placed, so the INSERT fails", () => {
     expect(placementFor(create(), facts({
-      block: { page_id: 1, parent_uid: "p1", order_idx: 0 },
+      block: { page_id: 1, parent_uid: uid("p1"), order_idx: 0 },
       parent: { page_id: 1 },
     }), false)).toEqual({ kind: "place", page: { id: 1 }, parentUid: "p1",
                           orderIdx: 0, repage: false });
@@ -78,7 +79,7 @@ describe("create", () => {
 });
 
 describe("move", () => {
-  const block = { page_id: 1, parent_uid: "p1", order_idx: 0 };
+  const block = { page_id: 1, parent_uid: uid("p1"), order_idx: 0 };
 
   test("a replayed move already at its target keeps its slot", () => {
     expect(placementFor(move(), facts({ block, parent: { page_id: 1 } }), true))

@@ -3,6 +3,7 @@
 // worth asking GoodLinks about (this block, its parent, its previous
 // sibling, in that order), the attribute text the command inserts, and the
 // notice for each failure. useOutline does the network and the splice.
+import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { UNAUTHORIZED_DETAIL } from "../components/goodlinks";
 import { locate } from "./tree";
@@ -13,7 +14,7 @@ function urlsIn(text: string): string[] {
   return (text.match(URL_RE) ?? []).map((u) => u.replace(/[.,;:!?]+$/, ""));
 }
 
-export function goodlinksCandidates(blocks: BlockNode[], uid: string): string[] {
+export function goodlinksCandidates(blocks: BlockNode[], uid: BlockUid): string[] {
   const loc = locate(blocks, uid);
   if (!loc) return [];
   const previous = loc.index > 0 ? loc.siblings[loc.index - 1] : null;

@@ -13,7 +13,7 @@
 // Poisoned batches (server terminal 4xx, see sync/rejection.ts) are set
 // aside, never retried forever (spec section 6).
 
-import type { BatchId } from "../api/brands";
+import type { BatchId, BlockUid } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { PendingBatch, PendingRowId, PoisonedBatch } from "./client";
 import { type ReplicaDb, rollbackToSavepoint } from "./db";
@@ -22,13 +22,13 @@ import { sha256Hex } from "./sha256";
 import { subtreeHash } from "./subtreeHash";
 import { findOpTitleViolation } from "./titles";
 
-const currentText = (db: ReplicaDb, uid: string): string | null => {
+const currentText = (db: ReplicaDb, uid: BlockUid): string | null => {
   const rows = db.select<{ text: string }>(
     "SELECT text FROM blocks WHERE uid = ?", [uid]);
   return rows.length > 0 ? rows[0].text : null;
 };
 
-const currentPageTitle = (db: ReplicaDb, uid: string): string | null => {
+const currentPageTitle = (db: ReplicaDb, uid: BlockUid): string | null => {
   const rows = db.select<{ title: string }>(
     "SELECT p.title FROM blocks b JOIN pages p ON p.id = b.page_id" +
     " WHERE b.uid = ?", [uid]);
@@ -40,8 +40,8 @@ const currentPageTitle = (db: ReplicaDb, uid: string): string | null => {
  * (ops_apply._subtree_deepest_first): a proper tree never revisits a uid, so
  * the guard only ever ends the walk on already-corrupted parent links. */
 const currentSubtreePairs = (db: ReplicaDb,
-                             uid: string): [string, string][] | null => {
-  const rows = db.select<{ uid: string; text: string }>(
+                             uid: BlockUid): [BlockUid, string][] | null => {
+  const rows = db.select<{ uid: BlockUid; text: string }>(
     `WITH RECURSIVE sub(uid, text, path) AS (
        SELECT uid, text, ',' || uid || ',' FROM blocks WHERE uid = ?
        UNION ALL

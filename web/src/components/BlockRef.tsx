@@ -5,6 +5,7 @@
 // decision.
 import { useContext, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import type { BlockUid } from "../api/brands";
 import { BlockRefRequestContext, SidebarContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { pagePath } from "../paths";
@@ -15,7 +16,7 @@ import { useBlockRefText } from "./useBlockRefText";
 // forever (A's text embeds B's, whose text embeds A's, ...).
 const MAX_DEPTH = 3;
 
-export function BlockRef({ uid, depth }: { uid: string; depth: number }) {
+export function BlockRef({ uid, depth }: { uid: BlockUid; depth: number }) {
   const resolved = useBlockRefText(uid);
   const requestRef = useContext(BlockRefRequestContext);
   const { openInSidebar } = useContext(SidebarContext);

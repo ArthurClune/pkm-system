@@ -7,10 +7,11 @@
 // The second channel is subscribed per uid, so a resolved batch re-renders
 // only the refs it resolved.
 import { useCallback, useContext, useSyncExternalStore } from "react";
+import type { BlockUid } from "../api/brands";
 import type { BlockRefText } from "../api/payloads";
 import { BlockRefContext, BlockRefStoreContext } from "../contexts";
 
-export function useBlockRefText(uid: string): BlockRefText | undefined {
+export function useBlockRefText(uid: BlockUid): BlockRefText | undefined {
   const payload = useContext(BlockRefContext);
   const store = useContext(BlockRefStoreContext);
   const subscribe = useCallback(

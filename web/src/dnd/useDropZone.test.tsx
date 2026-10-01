@@ -14,7 +14,7 @@ import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider, useDnd } from "./DndContext";
 import { useDropZone, type Indicator } from "./useDropZone";
 import { EditablePage } from "../views/EditablePage";
-import { block, makeSync } from "../test-helpers";
+import { block, makeSync, uid } from "../test-helpers";
 
 const ROW_H = 20;
 const ROWS = 6; // u1..u6; u6 is the one dragged, leaving five candidate rows
@@ -133,8 +133,8 @@ it("re-measures a row whose uid changed under it, count unchanged", async () => 
   // every uid has slid up one index, and index 4 is now a row 60px further
   // down the page than the one measured there.
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "delete", uid: "u1" },
-    { op: "create", uid: "u9", page_title: "P", parent_uid: null,
+    { op: "delete", uid: uid("u1") },
+    { op: "create", uid: uid("u9"), page_title: "P", parent_uid: null,
       order_idx: 6, text: "row 9" },
   ] }));
   over(95);
@@ -221,7 +221,7 @@ it("does not commit a new indicator object when the position hasn't moved",
       <DndProvider><Capture /><Harness /></DndProvider>
     </SyncContext.Provider>);
   stubRects();
-  act(() => { dnd.startDrag({ uid: "u2", pageTitle: "P" }); });
+  act(() => { dnd.startDrag({ uid: uid("u2"), pageTitle: "P" }); });
 
   const zone = document.querySelector('[data-testid="zone"]')!;
   const transfer = dt();

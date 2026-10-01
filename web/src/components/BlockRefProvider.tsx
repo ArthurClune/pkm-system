@@ -12,6 +12,7 @@
 // separate, near-static context value for the same reason.
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { apiGet } from "../api/typedClient";
+import type { BlockUid } from "../api/brands";
 import type { BlockRefText } from "../api/payloads";
 import { BlockRefContext, BlockRefRequestContext,
          BlockRefStoreContext } from "../contexts";
@@ -24,10 +25,10 @@ export function BlockRefProvider({ seed, children }: {
   seed: Record<string, BlockRefText>; children: ReactNode;
 }) {
   const [store] = useState(createBlockRefStore);
-  const pendingRef = useRef(new Set<string>());
+  const pendingRef = useRef(new Set<BlockUid>());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const request = useCallback((uid: string) => {
+  const request = useCallback((uid: BlockUid) => {
     if (!store.claimRequest(uid)) return;
     pendingRef.current.add(uid);
     if (timerRef.current !== null) return;

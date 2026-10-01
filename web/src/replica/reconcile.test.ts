@@ -8,6 +8,7 @@ import { applyChanges, type Changes } from "./apply";
 import { applyLocalOps } from "./localOps";
 import { setMeta } from "./meta";
 import { openTestDb, type TestDb } from "./testDb";
+import { uid } from "../test-helpers";
 
 let t: TestDb;
 let negId: number;
@@ -19,9 +20,9 @@ beforeEach(async () => {
   t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
   // offline: create a page implicitly (via a link) and explicitly add a block
   applyLocalOps(t.db, [
-    { op: "create", uid: "uid_l1", page_title: "Offline Page", parent_uid: null,
+    { op: "create", uid: uid("uid_l1"), page_title: "Offline Page", parent_uid: null,
       order_idx: 0, text: "links back to [[AI]]" },
-    { op: "create", uid: "uid_l2", page_title: "Offline Page", parent_uid: "uid_l1",
+    { op: "create", uid: uid("uid_l2"), page_title: "Offline Page", parent_uid: uid("uid_l1"),
       order_idx: 0, text: "a child" },
   ], 50);
   negId = t.db.select<{ id: number }>(

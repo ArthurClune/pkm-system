@@ -9,24 +9,25 @@
 // pasted ref resolving re-rendered every ((uid)) on the page (and, on the
 // Journal, every loaded day). Here a batch wakes only the consumers of the
 // uids it actually resolved.
+import type { BlockUid } from "../api/brands";
 import type { BlockRefText } from "../api/payloads";
 
 export interface BlockRefStore {
   /** The resolved entry, or undefined. Stable identity while unchanged, as
    * useSyncExternalStore's getSnapshot requires. */
-  get(uid: string): BlockRefText | undefined;
+  get(uid: BlockUid): BlockRefText | undefined;
   /** Listen for changes to ONE uid. Returns the unsubscribe function. */
-  subscribe(uid: string, onChange: () => void): () => void;
+  subscribe(uid: BlockUid, onChange: () => void): () => void;
   /** Merge a fetched batch, waking only the uids it changed. */
   resolve(entries: Record<string, BlockRefText>): void;
   /** Drop an entry and wake its consumers, so the next reader re-requests
    * it. This is the whole shape an invalidation needs: resolved
    * texts currently never expire, and the fix is a `forget` per edited uid
    * rather than any change to how consumers read. */
-  forget(uid: string): void;
+  forget(uid: BlockUid): void;
   /** Claim a uid for fetching. True the first time, false afterwards, so a
    * uid the server doesn't know is asked for once and never in a loop. */
-  claimRequest(uid: string): boolean;
+  claimRequest(uid: BlockUid): boolean;
   /** Live claims — for the test that pins the bound below. */
   claimCount(): number;
 }

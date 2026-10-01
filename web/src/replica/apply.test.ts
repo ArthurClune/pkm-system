@@ -1,12 +1,13 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
-import type { BatchId, SyncSeq } from "../api/brands";
+import type { BatchId, BlockUid, SyncSeq } from "../api/brands";
 import type { Changes, Snapshot, SyncBlock, SyncTombstone } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import { getMeta } from "./meta";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
 import type { ReplicaDb } from "./db";
+import { uid } from "../test-helpers";
 
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
@@ -18,8 +19,9 @@ const ackNext = (db: ReplicaDb): void => {
   deleteBatch(db, b.id, b.batch_id);
 };
 
-const block = (uid: string, pageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid, page_id: pageId, parent_uid: null, order_idx: 0, text: `text of ${uid}`,
+const block = (rawUid: string, pageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
+  uid: rawUid as BlockUid, page_id: pageId, parent_uid: null, order_idx: 0,
+  text: `text of ${rawUid}`,
   heading: null, view_type: null, collapsed: 0, created_at: 1, updated_at: 1,
   refs: [], ...over,
 });
@@ -34,7 +36,7 @@ const SNAP: Snapshot = {
   blocks: [
     block("uid_b1", 1, { text: "links [[AI]]", refs: [{ target_page_id: 2, kind: "link" }] }),
     block("uid_b2", 1, { order_idx: 1 }),
-    block("uid_b3", 1, { parent_uid: "uid_b2", text: "child block searchable" }),
+    block("uid_b3", 1, { parent_uid: uid("uid_b2"), text: "child block searchable" }),
   ],
   sidebar: [{ id: 1, title: "AI", order_idx: 0 }],
 };
@@ -115,7 +117,7 @@ describe("applySnapshot", () => {
     // pre-snapshot database and sit in pending_ops. The wipe must not lose
     // that state, or later ops on those blocks throw "block not found".
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_opt", page_title: "Machine Learning",
+      { op: "create", uid: uid("uid_opt"), page_title: "Machine Learning",
         parent_uid: null, order_idx: 0, text: "typed during bootstrap" },
     ], 5, bid("batch-opt"));
     applySnapshot(t.db, SNAP, 6);
@@ -128,7 +130,7 @@ describe("applySnapshot", () => {
 
   test("a queued batch that no longer applies is skipped, not fatal", () => {
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_keep", page_title: "AI",
+      { op: "create", uid: uid("uid_keep"), page_title: "AI",
         parent_uid: null, order_idx: 0, text: "kept" },
     ], 5, bid("batch-keep"));
     // references a block that exists now but is not in the snapshot and
@@ -138,7 +140,7 @@ describe("applySnapshot", () => {
       " heading, collapsed, created_at, updated_at)" +
       " VALUES ('uid_gone_after_wipe', 1, NULL, 9, 'x', NULL, 0, 5, 5)");
     enqueueBatch(t.db, [
-      { op: "set_heading", uid: "uid_gone_after_wipe", heading: 1 },
+      { op: "set_heading", uid: uid("uid_gone_after_wipe"), heading: 1 },
     ], 5, bid("batch-doomed"));
     applySnapshot(t.db, SNAP, 6);
     expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_keep'"))
@@ -152,16 +154,16 @@ describe("applySnapshot", () => {
 
   test("repair removes rejected text and structure without losing valid work", () => {
     enqueueBatch(t.db, [
-      { op: "update_text", uid: "uid_b1", text: "rejected text" },
-      { op: "move", uid: "uid_b2", page_title: "Machine Learning",
-        parent_uid: "uid_b1", order_idx: 0 },
+      { op: "update_text", uid: uid("uid_b1"), text: "rejected text" },
+      { op: "move", uid: uid("uid_b2"), page_title: "Machine Learning",
+        parent_uid: uid("uid_b1"), order_idx: 0 },
     ], 5, bid("batch-rejected"));
     const rejected = nextBatch(t.db)!;
     markPoisoned(t.db, rejected.id, JSON.stringify({
       status: 400, message: "request failed: 400 /api/ops",
     }), bid("batch-rejected"));
     enqueueBatch(t.db, [
-      { op: "set_heading", uid: "uid_b3", heading: 2 },
+      { op: "set_heading", uid: uid("uid_b3"), heading: 2 },
     ], 5, bid("batch-valid"));
 
     applySnapshot(t.db, SNAP, 6);
@@ -179,7 +181,7 @@ describe("applySnapshot", () => {
     // the same block remains optimistic across both feeds and snapshots.
     deleteBatch(t.db, rejected.id, rejected.batch_id);
     enqueueBatch(t.db, [
-      { op: "update_text", uid: "uid_b1", text: "later valid text" },
+      { op: "update_text", uid: uid("uid_b1"), text: "later valid text" },
     ], 7, bid("batch-later-valid"));
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
@@ -264,11 +266,11 @@ describe("applyChanges", () => {
       { op: "create_page", page_title: "  New Page Target  " },
     ], 5, bid("pending-create-page"));
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_pending1", page_title: "  Created Block Target  ",
+      { op: "create", uid: uid("uid_pending1"), page_title: "  Created Block Target  ",
         parent_uid: null, order_idx: 0, text: "pending create" },
     ], 5, bid("pending-create"));
     enqueueBatch(t.db, [
-      { op: "move", uid: "uid_b2", parent_uid: null, order_idx: 0,
+      { op: "move", uid: uid("uid_b2"), parent_uid: null, order_idx: 0,
         page_title: "  Moved Block Target  " },
     ], 5, bid("pending-move"));
 
@@ -333,7 +335,7 @@ describe("applyChanges", () => {
     // the visible text AND poison the next op's base_text_hash into a
     // spurious daily-note conflict header
     enqueueBatch(t.db, [
-      { op: "update_text", uid: "uid_b1", text: "local newer text" },
+      { op: "update_text", uid: uid("uid_b1"), text: "local newer text" },
     ], 5, bid("b-opt"));
     applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12,
@@ -447,7 +449,7 @@ describe("applyChanges", () => {
     const feed = emptyFeed({
       next_since: 14, latest_seq: 14,
       blocks: [
-        block("uid_kid1", 2, { parent_uid: "uid_mum1" }),
+        block("uid_kid1", 2, { parent_uid: uid("uid_mum1") }),
         block("uid_mum1", 2, { order_idx: 3 }),
       ],
     });
@@ -520,7 +522,7 @@ describe("applyChanges: a title moving between ids inside one window", () => {
   test("an offline-created page taking an incoming title is remapped, not parked", () => {
     // Negative ids belong to reconcilePage (blocks and refs move onto the
     // authoritative row); parking one would break its title match.
-    enqueueBatch(t.db, [{ op: "create", uid: "uid_new1", page_title: "New",
+    enqueueBatch(t.db, [{ op: "create", uid: uid("uid_new1"), page_title: "New",
                           parent_uid: null, order_idx: 0, text: "hi" }], 5, bid("batch-n"));
     expect(t.db.select("SELECT id FROM pages WHERE title = 'New'")).toEqual([{ id: -1 }]);
     const feed = emptyFeed({ next_since: 20, latest_seq: 20, pages: [page(9, "New")] });
@@ -641,9 +643,9 @@ describe("applySnapshot and applyChanges: a create under a ghost parent keeps th
       " heading, collapsed, created_at, updated_at)" +
       " VALUES ('uid_ghost1', 1, NULL, 9, 'ghost parent', NULL, 0, 5, 5)");
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_child1", page_title: "Machine Learning",
-        parent_uid: "uid_ghost1", order_idx: 0, text: "lost child" },
-      { op: "update_text", uid: "uid_b1", text: "mine" },
+      { op: "create", uid: uid("uid_child1"), page_title: "Machine Learning",
+        parent_uid: uid("uid_ghost1"), order_idx: 0, text: "lost child" },
+      { op: "update_text", uid: uid("uid_b1"), text: "mine" },
     ], 5, batchId);
     // optimistic apply landed both ops while the ghost parent still existed
     expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
@@ -698,9 +700,9 @@ describe("applyChanges: a windowed reapply keeps a batch whose create already ap
     "SELECT uid, order_idx FROM blocks WHERE page_id = 1" +
     " AND parent_uid IS NULL ORDER BY order_idx, uid");
   const enqueueCreateAndEdit = () => enqueueBatch(t.db, [
-    { op: "create", uid: "uid_new1", page_title: "Machine Learning",
+    { op: "create", uid: uid("uid_new1"), page_title: "Machine Learning",
       parent_uid: null, order_idx: 1, text: "fresh" },
-    { op: "update_text", uid: "uid_b1", text: "mine" },
+    { op: "update_text", uid: uid("uid_b1"), text: "mine" },
   ], 5, bid("batch-create"));
   const expectStillPending = () => {
     const batches = allBatches(t.db);
@@ -788,7 +790,7 @@ describe("applyChanges: a replayed move does not re-shift siblings it already ma
 
   test("sibling order_idx is stable across windows", () => {
     enqueueBatch(t.db, [
-      { op: "move", uid: "uid_b3", parent_uid: null, order_idx: 1 },
+      { op: "move", uid: uid("uid_b3"), parent_uid: null, order_idx: 1 },
     ], 5, bid("batch-move"));
     for (const seq of [11, 12, 13]) {
       applyChanges(t.db, emptyFeed({ next_since: seq, latest_seq: seq }), 6);
@@ -807,7 +809,7 @@ describe("applyChanges: a replayed move does not re-shift siblings it already ma
       " heading, collapsed, created_at, updated_at)" +
       " VALUES ('uid_b4', 1, NULL, 2, 'fourth', NULL, 0, 1, 1)");
     enqueueBatch(t.db, [
-      { op: "move", uid: "uid_b3", parent_uid: null, order_idx: 1 },
+      { op: "move", uid: uid("uid_b3"), parent_uid: null, order_idx: 1 },
     ], 5, bid("batch-move"));
     for (const seq of [11, 12]) {
       applyChanges(t.db, emptyFeed({ next_since: seq, latest_seq: seq }), 6);
@@ -843,14 +845,14 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     // first, then the skipped move's re-shipped subtree, root first. The
     // first row closes a loop over our optimistic uid_b1 -> uid_b3; the
     // rows after it must open it again.
-    block("uid_b2", 1, { parent_uid: "uid_b1" }),
+    block("uid_b2", 1, { parent_uid: uid("uid_b1") }),
     block("uid_b1", 1, { text: "links [[AI]]",
                          refs: [{ target_page_id: 2, kind: "link" }] }),
-    block("uid_b3", 1, { parent_uid: "uid_b2", text: "mine" }),
+    block("uid_b3", 1, { parent_uid: uid("uid_b2"), text: "mine" }),
   ];
   const enqueueCycleMove = () => enqueueBatch(t.db, [
-    { op: "move", uid: "uid_b1", parent_uid: "uid_b3", order_idx: 0 },
-    { op: "update_text", uid: "uid_b3", text: "mine" },
+    { op: "move", uid: uid("uid_b1"), parent_uid: uid("uid_b3"), order_idx: 0 },
+    { op: "update_text", uid: uid("uid_b3"), text: "mine" },
   ], 5, bid("batch-cycle"));
 
   test("an acked cycle move is undone by the rows the server journals for it", () => {
@@ -874,7 +876,7 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     // moved uid_b1 is one of them, so its real row lands in the same window.
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
-      blocks: [block("uid_b2", 1, { parent_uid: "uid_b1" }),
+      blocks: [block("uid_b2", 1, { parent_uid: uid("uid_b1") }),
                block("uid_b1", 1, { text: "links [[AI]]",
                                     refs: [{ target_page_id: 2, kind: "link" }] })],
     }), 6);
@@ -902,8 +904,8 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     applySnapshot(t.db, { ...SNAP, seq: 11 as SyncSeq, blocks: [
       block("uid_b1", 1, { text: "links [[AI]]",
                            refs: [{ target_page_id: 2, kind: "link" }] }),
-      block("uid_b2", 1, { parent_uid: "uid_b1" }),
-      block("uid_b3", 1, { parent_uid: "uid_b2", text: "child block searchable" }),
+      block("uid_b2", 1, { parent_uid: uid("uid_b1") }),
+      block("uid_b3", 1, { parent_uid: uid("uid_b2"), text: "child block searchable" }),
     ] }, 6);
 
     expect(tree()).toEqual(SERVER_AFTER_CYCLE);
@@ -917,13 +919,13 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     // (with uid_b3) to AI. The server will create our block on AI, beside
     // its parent, so the replay puts it there too.
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_new1", page_title: "Machine Learning",
-        parent_uid: "uid_b2", order_idx: 1, text: "typed child" },
+      { op: "create", uid: uid("uid_new1"), page_title: "Machine Learning",
+        parent_uid: uid("uid_b2"), order_idx: 1, text: "typed child" },
     ], 5, bid("batch-create"));
 
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
-      blocks: [block("uid_b2", 2), block("uid_b3", 2, { parent_uid: "uid_b2" })],
+      blocks: [block("uid_b2", 2), block("uid_b3", 2, { parent_uid: uid("uid_b2") })],
     }), 6);
 
     expect(tree().find((r) => r.uid === "uid_new1")).toEqual(
@@ -933,7 +935,7 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     ackNext(t.db);
     applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12,
-      blocks: [block("uid_new1", 2, { parent_uid: "uid_b2", order_idx: 1,
+      blocks: [block("uid_new1", 2, { parent_uid: uid("uid_b2"), order_idx: 1,
                                       text: "typed child" })],
     }), 7);
     expect(tree().find((r) => r.uid === "uid_new1")).toEqual(
@@ -950,11 +952,11 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
       " heading, collapsed, created_at, updated_at)" +
       " VALUES ('uid_q1', 1, 'uid_b1', 0, 'under b1', NULL, 0, 1, 1)");
     enqueueBatch(t.db, [
-      { op: "create", uid: "uid_new1", page_title: "Machine Learning",
-        parent_uid: "uid_b2", order_idx: 1, text: "typed child" },
+      { op: "create", uid: uid("uid_new1"), page_title: "Machine Learning",
+        parent_uid: uid("uid_b2"), order_idx: 1, text: "typed child" },
     ], 5, bid("batch-create"));
     enqueueBatch(t.db, [
-      { op: "move", uid: "uid_new1", parent_uid: "uid_b1", order_idx: 0 },
+      { op: "move", uid: uid("uid_new1"), parent_uid: uid("uid_b1"), order_idx: 0 },
     ], 5, bid("batch-move"));
     const settled = [
       { uid: "uid_new1", page_id: 1, parent_uid: "uid_b1", order_idx: 0 },
@@ -965,11 +967,11 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
 
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
-      blocks: [block("uid_b2", 2), block("uid_b3", 2, { parent_uid: "uid_b2" })],
+      blocks: [block("uid_b2", 2), block("uid_b3", 2, { parent_uid: uid("uid_b2") })],
     }), 6);
     applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12,
-      blocks: [block("uid_b3", 2, { parent_uid: "uid_b2", text: "edited" })],
+      blocks: [block("uid_b3", 2, { parent_uid: uid("uid_b2"), text: "edited" })],
     }), 7);
 
     expect(underB1()).toEqual(settled);

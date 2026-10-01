@@ -8,7 +8,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
-import { block, makeSync, type SyncFake } from "../test-helpers";
+import { block, makeSync, type SyncFake, uid } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ pageTitle, initial, onReady }: {
@@ -42,8 +42,8 @@ const one = () => [block("a", "", { order_idx: 0 })];
 it("a held draft does not flush when the debounce elapses", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, one());
-  act(() => outline().handlers.onFocusBlock("a", 0));
-  act(() => outline().handlers.onDraftChange("a", "[[How LLM]]", true));
+  act(() => outline().handlers.onFocusBlock(uid("a"), 0));
+  act(() => outline().handlers.onDraftChange(uid("a"), "[[How LLM]]", true));
   act(() => { vi.advanceTimersByTime(5000); });
   expect(sync.sent).toHaveLength(0);
 });
@@ -51,9 +51,9 @@ it("a held draft does not flush when the debounce elapses", () => {
 it("a held draft cancels an already-armed debounce for the same block", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, one());
-  act(() => outline().handlers.onFocusBlock("a", 0));
-  act(() => outline().handlers.onDraftChange("a", "see ")); // arms the timer
-  act(() => outline().handlers.onDraftChange("a", "see [[How LLM]]", true));
+  act(() => outline().handlers.onFocusBlock(uid("a"), 0));
+  act(() => outline().handlers.onDraftChange(uid("a"), "see ")); // arms the timer
+  act(() => outline().handlers.onDraftChange(uid("a"), "see [[How LLM]]", true));
   act(() => { vi.advanceTimersByTime(5000); });
   expect(sync.sent).toHaveLength(0);
 });
@@ -61,11 +61,11 @@ it("a held draft cancels an already-armed debounce for the same block", () => {
 it("a later unheld draft resumes the normal debounce with the final text", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, one());
-  act(() => outline().handlers.onFocusBlock("a", 0));
-  act(() => outline().handlers.onDraftChange("a", "[[How LLM]]", true));
+  act(() => outline().handlers.onFocusBlock(uid("a"), 0));
+  act(() => outline().handlers.onDraftChange(uid("a"), "[[How LLM]]", true));
   act(() => { vi.advanceTimersByTime(5000); });
   // completion picked: caret lands after the closer, no longer held
-  act(() => outline().handlers.onDraftChange("a", "[[How LLMs Work]] "));
+  act(() => outline().handlers.onDraftChange(uid("a"), "[[How LLMs Work]] "));
   act(() => { vi.advanceTimersByTime(600); });
   expect(sync.sent).toEqual([
     [{ op: "update_text", uid: "a", text: "[[How LLMs Work]] ",
@@ -76,9 +76,9 @@ it("a later unheld draft resumes the normal debounce with the final text", () =>
 it("blur still flushes a held draft (explicit commit point)", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, one());
-  act(() => outline().handlers.onFocusBlock("a", 0));
-  act(() => outline().handlers.onDraftChange("a", "[[How LLM]]", true));
-  act(() => outline().handlers.onBlurBlock("a"));
+  act(() => outline().handlers.onFocusBlock(uid("a"), 0));
+  act(() => outline().handlers.onDraftChange(uid("a"), "[[How LLM]]", true));
+  act(() => outline().handlers.onBlurBlock(uid("a")));
   expect(sync.sent).toEqual([
     [{ op: "update_text", uid: "a", text: "[[How LLM]]",
       base_text_hash: sha256Hex(""), page_title: PAGE }],
@@ -90,8 +90,8 @@ it("blur still flushes a held draft (explicit commit point)", () => {
 it("an explicit draft flush commits a held draft (navigation)", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, one());
-  act(() => outline().handlers.onFocusBlock("a", 0));
-  act(() => outline().handlers.onDraftChange("a", "[[How LLM]]", true));
+  act(() => outline().handlers.onFocusBlock(uid("a"), 0));
+  act(() => outline().handlers.onDraftChange(uid("a"), "[[How LLM]]", true));
   act(() => outline().handlers.onFlushDraft());
   expect(sync.sent).toEqual([
     [{ op: "update_text", uid: "a", text: "[[How LLM]]",
@@ -106,8 +106,8 @@ it("an explicit draft flush commits a held draft (navigation)", () => {
 it("unmounting flushes a held draft (navigation with no blur)", () => {
   const sync = makeSync();
   const h = mountOutline(sync, PAGE, one());
-  act(() => h.outline().handlers.onFocusBlock("a", 0));
-  act(() => h.outline().handlers.onDraftChange("a", "[[How LLM]]", true));
+  act(() => h.outline().handlers.onFocusBlock(uid("a"), 0));
+  act(() => h.outline().handlers.onDraftChange(uid("a"), "[[How LLM]]", true));
   act(() => h.unmount());
   expect(sync.sent).toEqual([
     [{ op: "update_text", uid: "a", text: "[[How LLM]]",
@@ -125,9 +125,9 @@ it("unmounting an untouched outline sends nothing", () => {
 it("a structural edit still flushes a held draft first", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, one());
-  act(() => outline().handlers.onFocusBlock("a", 0));
-  act(() => outline().handlers.onDraftChange("a", "[[How LLM]]", true));
-  act(() => outline().handlers.onIndent("a")); // no-op move, but flushes
+  act(() => outline().handlers.onFocusBlock(uid("a"), 0));
+  act(() => outline().handlers.onDraftChange(uid("a"), "[[How LLM]]", true));
+  act(() => outline().handlers.onIndent(uid("a"))); // no-op move, but flushes
   expect(sync.sent.flat()).toContainEqual(
     { op: "update_text", uid: "a", text: "[[How LLM]]",
       base_text_hash: sha256Hex(""), page_title: PAGE });

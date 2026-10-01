@@ -11,6 +11,7 @@
 import { useContext, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiPost } from "../api/typedClient";
+import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { SidebarContext } from "../contexts";
 import { applyCompletion, holdsDraftFlush } from "../outline/autocomplete";
@@ -33,7 +34,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
                              onRequestUpload }: {
   node: BlockNode; cursor: CaretOffset;
   handlers: OutlineHandlers; readOnly: boolean;
-  onRequestUpload: (uid: string, at: CaretOffset) => void;
+  onRequestUpload: (uid: BlockUid, at: CaretOffset) => void;
 }) {
   const headingClass =
     node.heading === 1 ? " heading-1" :

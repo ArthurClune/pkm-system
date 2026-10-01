@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { BlockUid } from "../api/brands";
 import type { BacklinkGroup } from "../api/payloads";
 import { applyFilter, chipCounts, EMPTY_FILTER, isFiltering, itemRefTitles,
          toggleChip } from "./backlinkFilter";
 
-const item = (uid: string, text: string, breadcrumbs: string[] = []) =>
-  ({ uid, text, breadcrumbs });
+const item = (rawUid: string, text: string, breadcrumbs: string[] = []) =>
+  ({ uid: rawUid as BlockUid, text, breadcrumbs });
 
 const groups: BacklinkGroup[] = [
   { page_id: 1, page_title: "Daily A", items: [

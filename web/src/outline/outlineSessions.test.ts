@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import type { ClientId } from "../api/brands";
 import type { DeliveryOutcome, TicketId, WriteOutcome, WriteTicket } from "../sync/opQueue";
-import { block } from "../test-helpers";
+import { block, uid } from "../test-helpers";
 import { acquireOutlineSession, attachActiveOutlineWriteReplay,
          isOutlineSessionActive,
          peekOutlineSession,
@@ -10,7 +10,7 @@ import { acquireOutlineSession, attachActiveOutlineWriteReplay,
 import { findNode, insertSubtree, removeSubtree } from "./tree";
 
 const update = (text: string) => ({
-  op: "update_text" as const, uid: "u1", text,
+  op: "update_text" as const, uid: uid("u1"), text,
 });
 
 function deferred<T>() {
@@ -307,7 +307,7 @@ it("an existing-session bootstrap cannot overwrite an unresolved local write", a
     settled: Promise.resolve({ status: "persisted", pending: 1 }),
     delivered: delivered.promise,
   }, [{
-    op: "create", uid: "local", page_title: title,
+    op: "create", uid: uid("local"), page_title: title,
     parent_uid: null, order_idx: 0, text: "local write",
   }]);
 
@@ -499,12 +499,12 @@ it("legacy repair adopts server state and reapplies a wholly later ticket", asyn
     id: "rejected" as TicketId, scope: ["page", "Repair rebase"],
     settled: Promise.resolve({ status: "persisted", pending: 2 }),
     delivered: rejected.promise,
-  }, [{ op: "update_text", uid: "u2", text: "rejected local" }]);
+  }, [{ op: "update_text", uid: uid("u2"), text: "rejected local" }]);
   session.applyLocal({
     id: "later" as TicketId, scope: ["page", "Repair rebase"],
     settled: Promise.resolve({ status: "persisted", pending: 2 }),
     delivered: later.promise,
-  }, [{ op: "update_text", uid: "u1", text: "later local" }]);
+  }, [{ op: "update_text", uid: uid("u1"), text: "later local" }]);
   const load = vi.fn(async () => load.mock.calls.length === 1 ? [
     block("u1", "server before later"),
     block("u2", "server repaired", { order_idx: 1 }),
@@ -672,12 +672,12 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
     id: "rejected-before-move" as TicketId, scope: ["page", "Replay source"],
     settled: Promise.resolve({ status: "persisted", pending: 3 }),
     delivered: rejectedDelivery.promise,
-  }, [{ op: "update_text", uid: "source-root", text: "rejected text" }]);
+  }, [{ op: "update_text", uid: uid("source-root"), text: "rejected text" }]);
 
-  const detached = removeSubtree(source.getSnapshot().blocks, "moved");
+  const detached = removeSubtree(source.getSnapshot().blocks, uid("moved"));
   source.applyOptimistic(detached.tree);
   target.applyOptimistic(insertSubtree(
-    target.getSnapshot().blocks, detached.node!, "target-root", 0,
+    target.getSnapshot().blocks, detached.node!, uid("target-root"), 0,
   ));
   const move = {
     id: "later-cross-page-move" as TicketId,
@@ -686,19 +686,19 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
     delivered: moveDelivery.promise,
   } satisfies WriteTicket;
   const moveOps = [{
-    op: "move" as const, uid: "moved", parent_uid: "target-root",
+    op: "move" as const, uid: uid("moved"), parent_uid: uid("target-root"),
     order_idx: 0, page_title: "Replay target",
   }];
   trackActiveOutlineWrite(move, moveOps);
   attachActiveOutlineWriteReplay(move, "Replay target", [{
     type: "insert-subtree", node: detached.node!,
-    parentUid: "target-root", orderIdx: 0,
+    parentUid: uid("target-root"), orderIdx: 0,
   }]);
   target.applyLocal({
     id: "later-child-edit" as TicketId, scope: ["page", "Replay target"],
     settled: Promise.resolve({ status: "persisted", pending: 3 }),
     delivered: editDelivery.promise,
-  }, [{ op: "update_text", uid: "child", text: "later child edit" }]);
+  }, [{ op: "update_text", uid: uid("child"), text: "later child edit" }]);
 
   const removeSourceLoader = source.setAuthoritativeLoader("editable", async () => [
     block("source-root", "server repaired", { children: [moved] }),
@@ -715,13 +715,13 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
     await repairActiveOutlineSessions();
 
     expect(source.getSnapshot().blocks[0].text).toBe("server repaired");
-    expect(findNode(source.getSnapshot().blocks, "moved")).toBeNull();
-    expect(findNode(target.getSnapshot().blocks, "moved")).toMatchObject({
+    expect(findNode(source.getSnapshot().blocks, uid("moved"))).toBeNull();
+    expect(findNode(target.getSnapshot().blocks, uid("moved"))).toMatchObject({
       children: [expect.objectContaining({
         uid: "child", text: "later child edit",
       })],
     });
-    expect(findNode(target.getSnapshot().blocks, "moved")?.order_idx).toBe(0);
+    expect(findNode(target.getSnapshot().blocks, uid("moved"))?.order_idx).toBe(0);
   } finally {
     removeSourceLoader();
     removeTargetLoader();

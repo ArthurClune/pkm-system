@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, type SyncFake } from "../test-helpers";
+import { block, makeSync, type SyncFake, uid } from "../test-helpers";
 import { resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -44,7 +44,7 @@ it("onPasteOutline enqueues one batch and focuses the last pasted block", () => 
     block("a", "seed", { order_idx: 0 }),
   ]);
 
-  act(() => getOutline().handlers.onPasteOutline("a", 4, 4, "!\nnext\n\tkid"));
+  act(() => getOutline().handlers.onPasteOutline(uid("a"), 4, 4, "!\nnext\n\tkid"));
 
   expect(sync.sent).toEqual([[
     { op: "update_text", uid: "a", text: "seed!",
@@ -69,7 +69,7 @@ it("a paste is one undo entry: undo restores the pre-paste tree", () => {
     block("a", "seed", { order_idx: 0 }),
   ]);
 
-  act(() => getOutline().handlers.onPasteOutline("a", 4, 4, "!\nnext\n\tkid"));
+  act(() => getOutline().handlers.onPasteOutline(uid("a"), 4, 4, "!\nnext\n\tkid"));
   expect(getOutline().blocks.map((b) => b.text)).toEqual(["seed!", "next"]);
 
   act(() => getOutline().handlers.onUndo());
@@ -83,6 +83,6 @@ it("a paste that plans nothing enqueues nothing", () => {
   const getOutline = setup(sync, "Page", [
     block("a", "seed", { order_idx: 0 }),
   ]);
-  act(() => getOutline().handlers.onPasteOutline("gone", 0, 0, "x\ny"));
+  act(() => getOutline().handlers.onPasteOutline(uid("gone"), 0, 0, "x\ny"));
   expect(sync.sent).toEqual([]);
 });

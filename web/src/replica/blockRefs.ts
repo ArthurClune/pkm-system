@@ -7,6 +7,7 @@
 // and change windows) and localOps.ts on optimistic local apply. One
 // composition so those two can't drift.
 
+import type { BlockUid } from "../api/brands";
 import type { ReplicaDb } from "./db";
 import { extractRefs, type ExtractedRefs } from "./refs";
 
@@ -22,7 +23,7 @@ import { extractRefs, type ExtractedRefs } from "./refs";
  * tables are independent -- no FK between them, no triggers on either -- so
  * the order in which a caller writes them is not observable.
  */
-export function reindexBlockRefs(db: ReplicaDb, uid: string,
+export function reindexBlockRefs(db: ReplicaDb, uid: BlockUid,
                                  text: string): ExtractedRefs {
   const parsed = extractRefs(text);
   db.exec("DELETE FROM block_refs WHERE src_block_uid = ?", [uid]);

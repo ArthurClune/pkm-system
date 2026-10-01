@@ -9,7 +9,7 @@ import {
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
-import { READ_INIT, block, jsonResponse, makeSync, pagePayload, reserveOutlineEditor, stubFetch } from "../test-helpers";
+import { READ_INIT, block, jsonResponse, makeSync, pagePayload, reserveOutlineEditor, stubFetch, uid } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { EditablePage } from "../views/EditablePage";
 import { PageView } from "../views/PageView";
@@ -106,7 +106,7 @@ test("a remote websocket batch updates the panel", async () => {
   const sync = mount();
   await screen.findByText("a paper block");
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "create", uid: "r1", page_title: "Paper", parent_uid: null,
+    { op: "create", uid: uid("r1"), page_title: "Paper", parent_uid: null,
       order_idx: 1, text: "from the iPad" },
   ] }));
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
@@ -267,7 +267,7 @@ test("a uid prop scrolls to and flashes that block within the panel's own contai
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditableSidebarPanel title="Paper" uid="uid_s1" />
+        <EditableSidebarPanel title="Paper" uid={uid("uid_s1")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   await screen.findByText("target block");

@@ -9,7 +9,7 @@
 // math, and line breaks. Ref *extraction* lives in refs.ts on the same
 // scanner.
 
-import type { Sha256Hex } from "../api/brands";
+import type { BlockUid, Sha256Hex } from "../api/brands";
 import { scanMarkdownLinkAt } from "./markdown";
 import { normalizeRefTitle, scanGrammar, type GrammarToken } from "./scan";
 
@@ -21,7 +21,7 @@ export type InlineSegment =
   | { kind: "inline-code"; code: string }
   | { kind: "page-ref"; title: string; tag: boolean }
   | { kind: "attribute"; name: string }
-  | { kind: "block-ref"; uid: string }
+  | { kind: "block-ref"; uid: BlockUid }
   | { kind: "image"; alt: string; src: string }
   | { kind: "link"; text: string; href: string }
   | { kind: "asset-link"; url: string; sha: Sha256Hex; filename: string }

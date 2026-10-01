@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { block } from "../test-helpers";
+import { block, uid } from "../test-helpers";
 import type { BlockNode } from "../api/payloads";
 import { allowedDepths, depthFromX, dropRows, resolveDrop,
          INDENT_PX, type DragSource } from "./dnd";
@@ -15,12 +15,12 @@ function page(): BlockNode[] {
     block("f", "F", { order_idx: 2 }),
   ];
 }
-const OTHER: DragSource = { uid: "zz", pageTitle: "Elsewhere" };
+const OTHER: DragSource = { uid: uid("zz"), pageTitle: "Elsewhere" };
 
 it("dropRows hides collapsed children and excludes the dragged subtree", () => {
   expect(dropRows(page(), OTHER, "P").map((r) => r.uid))
     .toEqual(["a", "b", "c", "d", "f"]); // e hidden under collapsed d
-  expect(dropRows(page(), { uid: "b", pageTitle: "P" }, "P").map((r) => r.uid))
+  expect(dropRows(page(), { uid: uid("b"), pageTitle: "P" }, "P").map((r) => r.uid))
     .toEqual(["a", "d", "f"]);           // b and c lifted out
 });
 
@@ -74,7 +74,7 @@ it("resolveDrop picks parent and order_idx from the chosen depth", () => {
 
 it("resolveDrop returns null for a same-position drop", () => {
   // dragging f, dropping at the very end at depth 0 = where it already is
-  const drag = { uid: "f", pageTitle: "P" };
+  const drag = { uid: uid("f"), pageTitle: "P" };
   const rows = dropRows(page(), drag, "P");
   expect(resolveDrop(page(), "P", drag, { boundary: rows.length, depth: 0 })).toBeNull();
   // and dropping right before its own old slot is also a no-op
@@ -89,20 +89,20 @@ it("resolveDrop from another page never returns null (content must move)", () =>
 // --- group drag: a drag that carries a multi-block selection ---
 
 it("dropRows excludes every dragged subtree of a group drag", () => {
-  const drag: DragSource = { uid: "a", pageTitle: "P", uids: ["a", "d"] };
+  const drag: DragSource = { uid: uid("a"), pageTitle: "P", uids: [uid("a"), uid("d")] };
   expect(dropRows(page(), drag, "P").map((r) => r.uid)).toEqual(["f"]);
 });
 
 it("resolveDrop resolves a group drop to the run's first slot", () => {
   // dragging [d, f] above a: insert at the top, before a
-  const drag: DragSource = { uid: "d", pageTitle: "P", uids: ["d", "f"] };
+  const drag: DragSource = { uid: uid("d"), pageTitle: "P", uids: [uid("d"), uid("f")] };
   expect(resolveDrop(page(), "P", drag, { boundary: 0, depth: 0 }))
     .toEqual({ parent_uid: null, order_idx: 0, page_title: "P" });
 });
 
 it("resolveDrop returns null when a group drop changes nothing", () => {
   // [d, f] dropped right back where they already sit (after a's subtree)
-  const drag: DragSource = { uid: "d", pageTitle: "P", uids: ["d", "f"] };
+  const drag: DragSource = { uid: uid("d"), pageTitle: "P", uids: [uid("d"), uid("f")] };
   const rows = dropRows(page(), drag, "P"); // [a, b, c]
   expect(resolveDrop(page(), "P", drag, { boundary: rows.length, depth: 0 })).toBeNull();
 });

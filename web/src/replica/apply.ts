@@ -21,7 +21,7 @@
 //     applySnapshot still throws -- a snapshot ships the whole graph, so a
 //     dangling row in one means something is genuinely wrong.
 
-import type { SyncSeq } from "../api/brands";
+import type { BlockUid, SyncSeq } from "../api/brands";
 import type { components } from "../api/types";
 import { reindexBlockRefs } from "./blockRefs";
 import { type ReplicaDb, rollbackToSavepoint, type SqlValue } from "./db";
@@ -326,7 +326,10 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number): void {
     db.exec("PRAGMA defer_foreign_keys = ON");
     for (const tomb of feed.tombstones) {
       if (tomb.kind === "block") {
-        db.exec("DELETE FROM blocks WHERE uid = ?", [tomb.entity_id]);
+        // entity_id is one TEXT wire field for three kinds; a block
+        // tombstone's value is a block uid.
+        db.exec("DELETE FROM blocks WHERE uid = ?",
+                [tomb.entity_id as BlockUid]);
       } else if (tomb.kind === "page") {
         db.exec("DELETE FROM pages WHERE id = ?", [Number(tomb.entity_id)]);
       } else if (tomb.kind === "sidebar") {

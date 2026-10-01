@@ -7,6 +7,7 @@
 // subtree restores collapsed flags, which is content fidelity, not a view
 // toggle. A null return means "not invertible from this tree" (e.g. a
 // cross-page move); callers record nothing.
+import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { FocusTarget } from "./edits";
@@ -74,7 +75,7 @@ function invertOne(tree: BlockNode[], pageTitle: string,
       if (!found) return null;
       const creates: BlockOp[] = [];
       const collapses: BlockOp[] = [];
-      const walk = (node: BlockNode, parentUid: string | null): void => {
+      const walk = (node: BlockNode, parentUid: BlockUid | null): void => {
         creates.push({ op: "create", uid: node.uid, page_title: pageTitle,
                        parent_uid: parentUid, order_idx: node.order_idx,
                        text: node.text, heading: node.heading,

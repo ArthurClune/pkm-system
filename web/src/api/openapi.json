@@ -2026,7 +2026,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "page_title": {
             "type": "string",
@@ -2287,7 +2288,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "text": {
             "type": "string",
@@ -2387,7 +2389,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "text": {
             "type": "string",
@@ -2495,6 +2498,9 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/BlockRefText"
             },
+            "propertyNames": {
+              "x-brand": "BlockUid"
+            },
             "type": "object",
             "title": "Block Ref Texts"
           }
@@ -2532,6 +2538,9 @@
           "block_ref_texts": {
             "additionalProperties": {
               "$ref": "#/components/schemas/BlockRefText"
+            },
+            "propertyNames": {
+              "x-brand": "BlockUid"
             },
             "type": "object",
             "title": "Block Ref Texts"
@@ -2602,7 +2611,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "text": {
             "type": "string",
@@ -2824,7 +2834,8 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "page_title": {
             "type": "string",
@@ -2834,7 +2845,8 @@
           "parent_uid": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "x-brand": "BlockUid"
               },
               {
                 "type": "null"
@@ -3001,7 +3013,8 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "base_subtree_hash": {
             "anyOf": [
@@ -3121,7 +3134,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "page": {
             "type": "string",
@@ -3209,7 +3223,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "text": {
             "type": "string",
@@ -3307,12 +3322,18 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/BlockRefText"
             },
+            "propertyNames": {
+              "x-brand": "BlockUid"
+            },
             "type": "object",
             "title": "Block Ref Texts"
           },
           "block_ref_counts": {
             "additionalProperties": {
               "type": "integer"
+            },
+            "propertyNames": {
+              "x-brand": "BlockUid"
             },
             "type": "object",
             "title": "Block Ref Counts"
@@ -3362,7 +3383,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "page": {
             "type": "string",
@@ -3413,12 +3435,14 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "parent_uid": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "x-brand": "BlockUid"
               },
               {
                 "type": "null"
@@ -3628,12 +3652,18 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/BlockRefText"
             },
+            "propertyNames": {
+              "x-brand": "BlockUid"
+            },
             "type": "object",
             "title": "Block Ref Texts"
           },
           "block_ref_counts": {
             "additionalProperties": {
               "type": "integer"
+            },
+            "propertyNames": {
+              "x-brand": "BlockUid"
             },
             "type": "object",
             "title": "Block Ref Counts"
@@ -3771,7 +3801,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "page_title": {
             "type": "string",
@@ -3854,7 +3885,8 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "collapsed": {
             "type": "boolean",
@@ -3878,7 +3910,8 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "heading": {
             "anyOf": [
@@ -3913,7 +3946,8 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "view_type": {
             "type": "string",
@@ -3988,7 +4022,8 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "reason": {
             "type": "string",
@@ -4074,7 +4109,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "page_id": {
             "type": "integer",
@@ -4083,7 +4119,8 @@
           "parent_uid": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "x-brand": "BlockUid"
               },
               {
                 "type": "null"
@@ -4500,7 +4537,8 @@
           },
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "text": {
             "type": "string",

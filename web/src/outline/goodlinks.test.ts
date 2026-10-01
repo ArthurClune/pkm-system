@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { block } from "../test-helpers";
+import { block, uid } from "../test-helpers";
 import { goodlinksAttribute, goodlinksCandidates, goodlinksNotice } from "./goodlinks";
 
 const ID = "e4966bb2483b5c78f658398c0ae7b03f";
@@ -19,25 +19,25 @@ describe("goodlinksCandidates", () => {
         block("me", "see https://me.example/x and https://root.example/one", { order_idx: 1 }),
       ] }),
     ];
-    expect(goodlinksCandidates(withOwn, "me")).toEqual([
+    expect(goodlinksCandidates(withOwn, uid("me"))).toEqual([
       "https://me.example/x", "https://root.example/one", "https://prev.example/a"]);
   });
 
   test("empty child block takes the parent URL before the sibling's", () => {
-    expect(goodlinksCandidates(tree, "me")).toEqual([
+    expect(goodlinksCandidates(tree, uid("me"))).toEqual([
       "https://root.example/one", "https://prev.example/a", "https://prev.example/b"]);
   });
 
   test("trailing punctuation and markdown closers are trimmed", () => {
     const t = [block("b", "(https://x.example/p). [y](https://y.example/q)", { order_idx: 0 })];
-    expect(goodlinksCandidates(t, "b")).toEqual(["https://x.example/p", "https://y.example/q"]);
+    expect(goodlinksCandidates(t, uid("b"))).toEqual(["https://x.example/p", "https://y.example/q"]);
   });
 
   test("a balanced parenthesised group inside the URL is kept, not truncated", () => {
     const t = [block("b",
       "[x](https://en.wikipedia.org/wiki/Foo_(bar)) [x](https://example.com/a) (see https://example.com/a)",
       { order_idx: 0 })];
-    expect(goodlinksCandidates(t, "b")).toEqual([
+    expect(goodlinksCandidates(t, uid("b"))).toEqual([
       "https://en.wikipedia.org/wiki/Foo_(bar)", "https://example.com/a"]);
   });
 
@@ -46,8 +46,8 @@ describe("goodlinksCandidates", () => {
     // previous sibling and pick up root's URL
     const solo = [block("solo", "Local copy:: [x](/api/local/a.pdf) ftp://files.example/f",
                         { order_idx: 0 })];
-    expect(goodlinksCandidates(solo, "solo")).toEqual([]);
-    expect(goodlinksCandidates(tree, "nope")).toEqual([]);
+    expect(goodlinksCandidates(solo, uid("solo"))).toEqual([]);
+    expect(goodlinksCandidates(tree, uid("nope"))).toEqual([]);
   });
 });
 

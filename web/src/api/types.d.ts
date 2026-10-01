@@ -936,7 +936,7 @@ export interface components {
         /** AssetRef */
         AssetRef: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Page Title */
             page_title: string;
         };
@@ -1028,7 +1028,7 @@ export interface components {
         /** BacklinkItem */
         BacklinkItem: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Text */
             text: string;
             /** Breadcrumbs */
@@ -1067,7 +1067,7 @@ export interface components {
         /** BlockNode */
         BlockNode: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Text */
             text: string;
             /** Heading */
@@ -1141,7 +1141,7 @@ export interface components {
         /** ChangedItem */
         ChangedItem: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Text */
             text: string;
             /** Created At */
@@ -1233,11 +1233,11 @@ export interface components {
              */
             op: "create";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Page Title */
             page_title: string;
             /** Parent Uid */
-            parent_uid?: string | null;
+            parent_uid?: Brands.BlockUid | null;
             /** Order Idx */
             order_idx: number;
             /** Text */
@@ -1298,7 +1298,7 @@ export interface components {
              */
             op: "delete";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Base Subtree Hash */
             base_subtree_hash?: Brands.Sha256Hex | null;
         };
@@ -1345,7 +1345,7 @@ export interface components {
         /** GoodlinksCheckProblem */
         GoodlinksCheckProblem: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Page */
             page: string;
             /** Href */
@@ -1390,7 +1390,7 @@ export interface components {
         /** GroupItem */
         GroupItem: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Text */
             text: string;
         };
@@ -1459,7 +1459,7 @@ export interface components {
         /** LocalCheckProblem */
         LocalCheckProblem: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Page */
             page: string;
             /** Href */
@@ -1483,9 +1483,9 @@ export interface components {
              */
             op: "move";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Parent Uid */
-            parent_uid: string | null;
+            parent_uid: Brands.BlockUid | null;
             /** Order Idx */
             order_idx: number;
             /** Page Title */
@@ -1599,7 +1599,7 @@ export interface components {
         /** SearchBlockHit */
         SearchBlockHit: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Page Title */
             page_title: string;
             /** Snippet */
@@ -1632,7 +1632,7 @@ export interface components {
              */
             op: "set_collapsed";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Collapsed */
             collapsed: boolean;
         };
@@ -1644,7 +1644,7 @@ export interface components {
              */
             op: "set_heading";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Heading */
             heading?: (1 | 2 | 3) | null;
         };
@@ -1656,7 +1656,7 @@ export interface components {
              */
             op: "set_view_type";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /**
              * View Type
              * @enum {string}
@@ -1690,7 +1690,7 @@ export interface components {
              */
             op: "create" | "update_text" | "move" | "delete" | "set_collapsed" | "set_heading" | "set_view_type" | "create_page";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /**
              * Reason
              * @enum {string}
@@ -1717,11 +1717,11 @@ export interface components {
         /** SyncBlock */
         SyncBlock: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Page Id */
             page_id: number;
             /** Parent Uid */
-            parent_uid: string | null;
+            parent_uid: Brands.BlockUid | null;
             /** Order Idx */
             order_idx: number;
             /** Text */
@@ -1860,7 +1860,7 @@ export interface components {
              */
             op: "update_text";
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Text */
             text: string;
             /** Base Text Hash */

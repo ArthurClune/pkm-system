@@ -9,7 +9,7 @@ import {
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { READ_INIT, block, journalBacklinks, jsonResponse, makeSync, pagePayload,
-         stubFetch } from "../test-helpers";
+         stubFetch, uid } from "../test-helpers";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
 import { BlockStampsContext } from "../contexts";
 import { Journal } from "./Journal";
@@ -75,7 +75,7 @@ it("links with the canonical payload title and refreshes backlinks", async () =>
   const sync = makeSync();
   const refreshed = pagePayload("ACME", [], { backlinks: {
     groups: [{ page_id: 9, page_title: "Source", items: [{
-      uid: "uid_unlinked", text: "[[ACME]] mention", breadcrumbs: [],
+      uid: uid("uid_unlinked"), text: "[[ACME]] mention", breadcrumbs: [],
     }] }],
     total_pages: 1, offset: 0, limit: 20,
   } });
@@ -1269,6 +1269,17 @@ it("a hash naming no block on the page is a no-op", async () => {
     ["/api/page/Paper", pagePayload("Paper", [block("uid_t0", "only block")])],
   ]);
   renderAt("/page/Paper#uid_gone");
+  await screen.findByRole("heading", { name: "Paper" });
+  expect(scrollIntoView).not.toHaveBeenCalled();
+});
+
+it("a hash that isn't a well-formed uid flashes nothing", async () => {
+  const scrollIntoView = vi.fn();
+  window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [block("abcdef", "a block")])],
+  ]);
+  renderAt("/page/Paper#not%20a%20uid");
   await screen.findByRole("heading", { name: "Paper" });
   expect(scrollIntoView).not.toHaveBeenCalled();
 });

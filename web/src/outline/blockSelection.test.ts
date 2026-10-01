@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { block } from "../test-helpers";
+import { block, uid } from "../test-helpers";
 import { extendSelection, needsDeleteConfirmation, selectedUids,
          selectionDragUids, selectionText } from "./blockSelection";
 
@@ -29,70 +29,70 @@ const NESTED = [
 
 describe("selectedUids", () => {
   it("returns the inclusive run in document order (anchor before head)", () => {
-    expect(selectedUids(BLOCKS, { anchor: "a", head: "c" })).toEqual(["a", "b", "c"]);
+    expect(selectedUids(BLOCKS, { anchor: uid("a"), head: uid("c") })).toEqual(["a", "b", "c"]);
   });
 
   it("normalises a head-before-anchor selection to document order", () => {
-    expect(selectedUids(BLOCKS, { anchor: "c", head: "a" })).toEqual(["a", "b", "c"]);
+    expect(selectedUids(BLOCKS, { anchor: uid("c"), head: uid("a") })).toEqual(["a", "b", "c"]);
   });
 
   it("a single-block selection is just that block", () => {
-    expect(selectedUids(BLOCKS, { anchor: "b", head: "b" })).toEqual(["b"]);
+    expect(selectedUids(BLOCKS, { anchor: uid("b"), head: uid("b") })).toEqual(["b"]);
   });
 
   it("never includes a collapsed subtree's hidden children", () => {
-    expect(selectedUids(BLOCKS, { anchor: "a", head: "d" })).toEqual(["a", "b", "c", "d"]);
+    expect(selectedUids(BLOCKS, { anchor: uid("a"), head: uid("d") })).toEqual(["a", "b", "c", "d"]);
   });
 
   it("is empty when an end is not visible", () => {
-    expect(selectedUids(BLOCKS, { anchor: "a", head: "c1" })).toEqual([]);
+    expect(selectedUids(BLOCKS, { anchor: uid("a"), head: uid("c1") })).toEqual([]);
   });
 });
 
 describe("extendSelection", () => {
   it("moves the head down one visible block, anchor fixed", () => {
-    expect(extendSelection(BLOCKS, { anchor: "a", head: "a" }, "down"))
+    expect(extendSelection(BLOCKS, { anchor: uid("a"), head: uid("a") }, "down"))
       .toEqual({ anchor: "a", head: "b" });
   });
 
   it("moves the head up one visible block", () => {
-    expect(extendSelection(BLOCKS, { anchor: "d", head: "c" }, "up"))
+    expect(extendSelection(BLOCKS, { anchor: uid("d"), head: uid("c") }, "up"))
       .toEqual({ anchor: "d", head: "b" });
   });
 
   it("skips a collapsed subtree's hidden children", () => {
-    expect(extendSelection(BLOCKS, { anchor: "a", head: "c" }, "down"))
+    expect(extendSelection(BLOCKS, { anchor: uid("a"), head: uid("c") }, "down"))
       .toEqual({ anchor: "a", head: "d" });
   });
 
   it("clamps at the bottom edge", () => {
-    expect(extendSelection(BLOCKS, { anchor: "a", head: "d" }, "down"))
+    expect(extendSelection(BLOCKS, { anchor: uid("a"), head: uid("d") }, "down"))
       .toEqual({ anchor: "a", head: "d" });
   });
 
   it("clamps at the top edge", () => {
-    expect(extendSelection(BLOCKS, { anchor: "d", head: "a" }, "up"))
+    expect(extendSelection(BLOCKS, { anchor: uid("d"), head: uid("a") }, "up"))
       .toEqual({ anchor: "d", head: "a" });
   });
 });
 
 describe("selectionDragUids", () => {
   it("returns the selection's uids when the grabbed block is part of it", () => {
-    expect(selectionDragUids(BLOCKS, { anchor: "a", head: "b" }, "a"))
+    expect(selectionDragUids(BLOCKS, { anchor: uid("a"), head: uid("b") }, uid("a")))
       .toEqual(["a", "b"]);
-    expect(selectionDragUids(BLOCKS, { anchor: "a", head: "b" }, "b"))
+    expect(selectionDragUids(BLOCKS, { anchor: uid("a"), head: uid("b") }, uid("b")))
       .toEqual(["a", "b"]);
   });
 
   it("returns null when the grabbed block is outside the selection", () => {
-    expect(selectionDragUids(BLOCKS, { anchor: "a", head: "b" }, "d")).toBeNull();
+    expect(selectionDragUids(BLOCKS, { anchor: uid("a"), head: uid("b") }, uid("d"))).toBeNull();
   });
 
   it("reduces a parent + selected descendant to the parent (root uids only)", () => {
     // expand c so its child c1 is visible and selectable
     const expanded = BLOCKS.map((b) =>
       b.uid === "c" ? { ...b, collapsed: false } : b);
-    expect(selectionDragUids(expanded, { anchor: "c", head: "d" }, "c"))
+    expect(selectionDragUids(expanded, { anchor: uid("c"), head: uid("d") }, uid("c")))
       .toEqual(["c", "d"]); // c1 folded into c's subtree
   });
 });
@@ -113,18 +113,18 @@ describe("needsDeleteConfirmation", () => {
 
 describe("selectionText", () => {
   it("joins the selected blocks' text with newlines in document order", () => {
-    expect(selectionText(BLOCKS, { anchor: "a", head: "c" })).toBe("one\ntwo\nthree");
+    expect(selectionText(BLOCKS, { anchor: uid("a"), head: uid("c") })).toBe("one\ntwo\nthree");
   });
 
   it("orders by the document even when head precedes anchor", () => {
-    expect(selectionText(BLOCKS, { anchor: "c", head: "a" })).toBe("one\ntwo\nthree");
+    expect(selectionText(BLOCKS, { anchor: uid("c"), head: uid("a") })).toBe("one\ntwo\nthree");
   });
 
   it("indents by depth relative to the shallowest selected block", () => {
-    expect(selectionText(NESTED, { anchor: "r", head: "s" }))
+    expect(selectionText(NESTED, { anchor: uid("r"), head: uid("s") }))
       .toBe("root\n\tchild\n\t\tgrand\nsibling");
     // selection entirely below the top level re-bases at zero tabs
-    expect(selectionText(NESTED, { anchor: "r0", head: "r00" }))
+    expect(selectionText(NESTED, { anchor: uid("r0"), head: uid("r00") }))
       .toBe("child\n\tgrand");
   });
 });

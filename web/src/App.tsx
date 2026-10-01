@@ -1,6 +1,7 @@
 // pattern: Imperative Shell
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, Route, Routes, useNavigate } from "react-router-dom";
+import type { BlockUid } from "./api/brands";
 import { AssistantPanel } from "./assistant/AssistantPanel";
 import { ExternalLinkInterceptor } from "./components/ExternalLinkInterceptor";
 import { MenuIcon } from "./components/icons";
@@ -31,7 +32,7 @@ interface SidebarEntry {
   title: string;
   // The block to scroll to and flash within this panel, e.g. a
   // shift-clicked block ref or assistant asset link.
-  uid?: string;
+  uid?: BlockUid;
 }
 
 function NotFound() {
@@ -69,7 +70,7 @@ export function App() {
   const rightSidebarOpen = stack.length > 0 && !sidebarHidden;
 
   const sidebarApi = useMemo(() => ({
-    openInSidebar: (title: string, uid?: string) => {
+    openInSidebar: (title: string, uid?: BlockUid) => {
       const id = idRef.current;
       idRef.current += 1;
       setStack((s) => [{ id, title, uid }, ...s]); // newest on top

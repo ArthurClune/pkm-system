@@ -4,6 +4,7 @@
 // The head batch auto-creates today locally (negative id, deliberately
 // not pushed) so there is always a page to compose into.
 
+import type { BlockUid } from "../../api/brands";
 import type { JournalDay, JournalPayload } from "../../api/payloads";
 import { dateForTitle, selectJournalDays, titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
@@ -69,7 +70,7 @@ export function journalPayload(db: ReplicaDb, before: string | null,
   }
   const out: JournalDay[] = [];
   const texts: string[] = [];
-  const uids: string[] = [];
+  const uids: BlockUid[] = [];
   for (const d of selectJournalDays(nonempty, today, cursor, window)) {
     const page = fetchPage(db, titleForDate(d));
     if (page === null) continue; // unreachable: selected days exist

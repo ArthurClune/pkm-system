@@ -6,13 +6,14 @@
 // re-inlines it; the equivalence test fails if the two paths ever derive
 // different rows from the same text, whatever code they run.
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { SyncSeq } from "../api/brands";
+import type { BlockUid, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import { reindexBlockRefs } from "./blockRefs";
 import { applyLocalOps } from "./localOps";
 import { openTestDb, type TestDb } from "./testDb";
+import { uid } from "../test-helpers";
 
 vi.mock("./blockRefs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./blockRefs")>();
@@ -32,8 +33,9 @@ const REF_TEXTS = [
   "```\n((uid_b1)) is quoted\n```",
 ];
 
-const block = (uid: string, over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid, page_id: 1, parent_uid: null, order_idx: 0, text: `text of ${uid}`,
+const block = (rawUid: string, over: Partial<SyncBlock> = {}): SyncBlock => ({
+  uid: rawUid as BlockUid, page_id: 1, parent_uid: null, order_idx: 0,
+  text: `text of ${rawUid}`,
   heading: null, view_type: null, collapsed: 0, created_at: 1, updated_at: 1,
   refs: [], ...over,
 });
@@ -69,22 +71,22 @@ const updateText = (uid: string, text: string): void =>
 
 describe("reindexBlockRefs", () => {
   test("replaces the block's rows and leaves other blocks alone", () => {
-    reindexBlockRefs(t.db, "uid_b2", "((uid_b1))");
-    reindexBlockRefs(t.db, "uid_b1", "((uid_b2))");
-    reindexBlockRefs(t.db, "uid_b1", "no refs any more");
+    reindexBlockRefs(t.db, uid("uid_b2"), "((uid_b1))");
+    reindexBlockRefs(t.db, uid("uid_b1"), "((uid_b2))");
+    reindexBlockRefs(t.db, uid("uid_b1"), "no refs any more");
 
     expect(targets("uid_b1")).toEqual([]);
     expect(targets("uid_b2")).toEqual(["uid_b1"]);
   });
 
   test("keeps a dangling target and collapses duplicates", () => {
-    reindexBlockRefs(t.db, "uid_b1", "((uid_absent)) ((uid_absent)) ((uid_b2))");
+    reindexBlockRefs(t.db, uid("uid_b1"), "((uid_absent)) ((uid_absent)) ((uid_b2))");
 
     expect(targets("uid_b1")).toEqual(["uid_absent", "uid_b2"]);
   });
 
   test("returns the parse so a caller can reuse it for refs", () => {
-    const parsed = reindexBlockRefs(t.db, "uid_b1", "[[AI]] and ((uid_b2))");
+    const parsed = reindexBlockRefs(t.db, uid("uid_b1"), "[[AI]] and ((uid_b2))");
 
     expect(parsed.refs).toEqual([{ title: "AI", kind: "link" }]);
     expect(parsed.blockRefs).toEqual(["uid_b2"]);

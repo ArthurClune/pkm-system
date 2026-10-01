@@ -7,6 +7,7 @@
 // and keeps them rather than failing or shifting again. localOps.ts
 // gathers the facts and runs the SQL for the verdict.
 
+import type { BlockUid } from "../api/brands";
 import type { CreateOp, MoveOp } from "../api/ops";
 import { skipsOnMissingTarget } from "./missingTarget";
 
@@ -16,9 +17,9 @@ import { skipsOnMissingTarget } from "./missingTarget";
  * existing page titled a top-level move's page_title, looked up without
  * creating it; null when there is no such page. */
 export interface PlacementFacts {
-  block: { page_id: number; parent_uid: string | null; order_idx: number } | null;
+  block: { page_id: number; parent_uid: BlockUid | null; order_idx: number } | null;
   parent: { page_id: number } | null;
-  parentChain: readonly string[];
+  parentChain: readonly BlockUid[];
   titlePageId: number | null;
 }
 
@@ -30,7 +31,7 @@ export type Placement =
   | { kind: "skip" }
   | { kind: "keep"; repageTo: number | null }
   | { kind: "place"; page: { id: number } | { title: string };
-      parentUid: string | null; orderIdx: number; repage: boolean };
+      parentUid: BlockUid | null; orderIdx: number; repage: boolean };
 
 export function placementFor(op: CreateOp | MoveOp, facts: PlacementFacts,
                              reapply: boolean): Placement {

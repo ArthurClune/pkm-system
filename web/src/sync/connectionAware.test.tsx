@@ -10,7 +10,7 @@ import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { uploadAsset } from "./assets";
 import { useOutline, type Outline } from "../outline/useOutline";
-import { block, FakeWebSocket, jsonResponse, pagePayload } from "../test-helpers";
+import { FakeWebSocket, block, jsonResponse, pagePayload, uid } from "../test-helpers";
 import { SyncProvider } from "./SyncProvider";
 
 vi.mock("./assets", async (importOriginal) => ({
@@ -77,8 +77,8 @@ test("(a) a text draft whose debounce fires after disconnect posts no op", () =>
   const getOutline = renderOutline([block("u1", "", { order_idx: 0 })]);
   act(() => lastWs().open()); // connected
 
-  act(() => getOutline().handlers.onFocusBlock("u1", 0));
-  act(() => getOutline().handlers.onDraftChange("u1", "hello")); // 500ms timer
+  act(() => getOutline().handlers.onFocusBlock(uid("u1"), 0));
+  act(() => getOutline().handlers.onDraftChange(uid("u1"), "hello")); // 500ms timer
   act(() => lastWs().drop()); // disconnect before the debounce fires
   act(() => { vi.advanceTimersByTime(600); }); // debounce -> flush -> enqueue
 
@@ -99,7 +99,7 @@ test("(b) an image upload completing after disconnect is preserved and flushes o
 
   const file = new File(["x"], "pic.png", { type: "image/png" });
   // upload starts
-  act(() => { void getOutline().handlers.onFiles("u1", 0, [file]); });
+  act(() => { void getOutline().handlers.onFiles(uid("u1"), 0, [file]); });
   act(() => lastWs().drop()); // disconnect while the upload is outstanding
 
   await act(async () => { finishUpload(); await Promise.resolve(); });
@@ -122,8 +122,8 @@ test("(c) reconnect flushes the ops preserved while offline, in order", async ()
   const getOutline = renderOutline([block("u1", "", { order_idx: 0 })]);
   act(() => lastWs().open()); // first connect
 
-  act(() => getOutline().handlers.onFocusBlock("u1", 0));
-  act(() => getOutline().handlers.onDraftChange("u1", "offline edit"));
+  act(() => getOutline().handlers.onFocusBlock(uid("u1"), 0));
+  act(() => getOutline().handlers.onDraftChange(uid("u1"), "offline edit"));
   act(() => lastWs().drop());
   act(() => { vi.advanceTimersByTime(600); }); // debounce enqueues while offline
   expect(opsPosts()).toHaveLength(0); // preserved, not sent

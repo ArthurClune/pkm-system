@@ -5,8 +5,7 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
 import type { ClientId } from "../api/brands";
 import type { TicketId } from "../sync/opQueue";
-import { block, makeSync, reserveOutlineEditor, stubFetch,
-         type SyncFake } from "../test-helpers";
+import { block, makeSync, reserveOutlineEditor, stubFetch, type SyncFake, uid } from "../test-helpers";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
@@ -341,7 +340,7 @@ test("Shift+Arrow starts and extends a block selection; Escape clears it", () =>
 test("remote batches patch the tree; own-echo filtering is the provider's job", () => {
   const sync = mount();
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "create", uid: "r1", page_title: "Page", parent_uid: null,
+    { op: "create", uid: uid("r1"), page_title: "Page", parent_uid: null,
       order_idx: 2, text: "from the iPad" },
   ] }));
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
@@ -351,8 +350,8 @@ test("remote update_text for a focused block with no draft is adopted", () => {
   const sync = mount();
   focusBlock("first");
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: "u1", text: "remote first" },
-    { op: "update_text", uid: "u2", text: "second remote" },
+    { op: "update_text", uid: uid("u1"), text: "remote first" },
+    { op: "update_text", uid: uid("u2"), text: "second remote" },
   ] }));
   // No local draft exists, so the focused textarea must adopt the remote text
   // rather than keep the stale value.
@@ -369,7 +368,7 @@ test("a remote update under a debounced draft: the flush carries the draft's bas
   fireEvent.change(ta, { target: { value: "typed" } });
   // The tree takes the remote text; the textarea keeps showing the draft.
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: "u1", text: "remote" },
+    { op: "update_text", uid: uid("u1"), text: "remote" },
   ] }));
   expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("typed");
   act(() => { vi.advanceTimersByTime(500); });
@@ -388,7 +387,7 @@ test("keystrokes after a remote update keep the draft's first base", () => {
   const ta = focusBlock("first");
   fireEvent.change(ta, { target: { value: "t1" } });
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: "u1", text: "remote" },
+    { op: "update_text", uid: uid("u1"), text: "remote" },
   ] }));
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "t12" } });
   act(() => { vi.advanceTimersByTime(500); });
@@ -405,7 +404,7 @@ test("typing back to the base under a remote edit, then typing on, still bases o
   const ta = focusBlock("first");
   fireEvent.change(ta, { target: { value: "firstX" } });
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: "u1", text: "remote" },
+    { op: "update_text", uid: uid("u1"), text: "remote" },
   ] }));
   // Back to the base: the flush has nothing to send, but the textarea is
   // still showing text typed over "first", not the "remote" in the tree.
@@ -429,7 +428,7 @@ test("a first keystroke after a remote edit reached the tree but not the textare
   // adopted it, and the keystroke is typed over the "first" still shown.
   act(() => {
     sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-      { op: "update_text", uid: "u1", text: "remote" },
+      { op: "update_text", uid: uid("u1"), text: "remote" },
     ] });
     fireEvent.change(ta, { target: { value: "firstX" } });
   });
@@ -537,7 +536,7 @@ test("Enter after a remote update under a draft stamps the split batch with the 
   const ta = focusBlock("first");
   fireEvent.change(ta, { target: { value: "first!" } });
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: "u1", text: "remote" },
+    { op: "update_text", uid: uid("u1"), text: "remote" },
   ] }));
   const live = screen.getByRole("textbox") as HTMLTextAreaElement;
   live.setSelectionRange(6, 6);
@@ -554,7 +553,7 @@ test("focus then blur without editing after a remote update stays consistent", (
   const sync = mount();
   const ta = focusBlock("first");
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: "u1", text: "remote" },
+    { op: "update_text", uid: uid("u1"), text: "remote" },
   ] }));
   fireEvent.blur(ta);
   // Blurring without typing must not enqueue a stale-value op, and the block
@@ -716,7 +715,7 @@ test("navigating away with no blur still flushes a held draft", () => {
   expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
 });
 
-const CROSS_PAGE_MOVE = { op: "move", uid: "u1", parent_uid: null,
+const CROSS_PAGE_MOVE = { op: "move", uid: uid("u1"), parent_uid: null,
                          order_idx: 0, page_title: "Elsewhere" } as const;
 
 function hideTab() {
@@ -734,7 +733,7 @@ test("a debounced draft whose block a remote batch deleted still flushes", () =>
   const ta = focusBlock("first");
   fireEvent.change(ta, { target: { value: "kept draft" } });
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "delete", uid: "u1" },
+    { op: "delete", uid: uid("u1") },
   ] }));
   act(() => { vi.advanceTimersByTime(500); });
   // The server lands an edit to a missing block on today's daily note.
@@ -765,7 +764,7 @@ test("a debounced draft on a remotely deleted block flushes when another block's
   const ta = focusBlock("first");
   fireEvent.change(ta, { target: { value: "kept draft" } });
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "delete", uid: "u1" },
+    { op: "delete", uid: uid("u1") },
   ] }));
   // The textarea unmounted with the block, and no blur was delivered.
   expect(screen.queryByRole("textbox")).toBeNull();
@@ -783,7 +782,7 @@ test("a held draft on a remotely deleted block flushes when another block's draf
   const sync = makeSync();
   heldRefDraft(sync);
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "delete", uid: "u1" },
+    { op: "delete", uid: uid("u1") },
   ] }));
   fireEvent.change(focusBlock("second"), { target: { value: "second!" } });
   act(() => { vi.advanceTimersByTime(500); });
@@ -795,7 +794,7 @@ test("a held draft under a remote update flushes on blur with its base hash", ()
   const sync = makeSync();
   const ta = heldRefDraft(sync);
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: "u1", text: "remote" },
+    { op: "update_text", uid: uid("u1"), text: "remote" },
   ] }));
   fireEvent.blur(ta);
   expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
@@ -806,7 +805,7 @@ test("a held draft whose block a remote batch deleted flushes on tab hide", () =
   const sync = makeSync();
   heldRefDraft(sync);
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "delete", uid: "u1" },
+    { op: "delete", uid: uid("u1") },
   ] }));
   hideTab();
   expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
@@ -826,7 +825,7 @@ test("a held draft whose block a remote cross-page move took flushes on tab hide
 // The new textarea resumes that draft, keeps the draft's base (the text first
 // typed over, not the remounted tree's text), and puts the caret back where
 // the old textarea left it.
-const SAME_PAGE_MOVE = { op: "move", uid: "u1", parent_uid: "u2",
+const SAME_PAGE_MOVE = { op: "move", uid: uid("u1"), parent_uid: uid("u2"),
                          order_idx: 0, page_title: "Page" } as const;
 
 test("a remote same-page move of the focused block keeps its draft on the remounted textarea", () => {
@@ -890,7 +889,7 @@ test("a resumed draft goes clean once it flushes, and later remote text is adopt
        base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 2, ops: [
-    { op: "update_text", uid: "u1", text: "remote" },
+    { op: "update_text", uid: uid("u1"), text: "remote" },
   ] }));
   expect(textbox().value).toBe("remote");
 });
@@ -901,7 +900,7 @@ test("a remote batch that moves and edits the focused block keeps the draft and 
   const sync = mount();
   fireEvent.change(focusBlock("first"), { target: { value: "typed" } });
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    SAME_PAGE_MOVE, { op: "update_text", uid: "u1", text: "remote" },
+    SAME_PAGE_MOVE, { op: "update_text", uid: uid("u1"), text: "remote" },
   ] }));
   expect(textbox().value).toBe("typed");
   act(() => { vi.advanceTimersByTime(500); });
@@ -1057,7 +1056,7 @@ test("the read-only fallback still reflects genuinely remote batches", () => {
   try {
     const sync = mount();
     act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-      { op: "create", uid: "r1", page_title: "Page", parent_uid: null,
+      { op: "create", uid: uid("r1"), page_title: "Page", parent_uid: null,
         order_idx: 2, text: "from elsewhere" },
     ] }));
     expect(screen.getByText("from elsewhere")).toBeInTheDocument();

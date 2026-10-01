@@ -4,9 +4,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { useContext, useEffect } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { expect, test, vi } from "vitest";
+import type { BlockUid } from "../api/brands";
 import { BlockRefRequestContext } from "../contexts";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { stubFetch } from "../test-helpers";
+import { stubFetch, uid } from "../test-helpers";
 import { BlockRef } from "./BlockRef";
 import { BlockRefProvider } from "./BlockRefProvider";
 import { useBlockRefText } from "./useBlockRefText";
@@ -15,7 +16,7 @@ test("resolves refs from the seed map without fetching", () => {
   const fetchMock = stubFetch([]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockRefProvider seed={{ ref_aa1: { text: "seeded", page_title: "P" } }}>
-      <BlockRef uid="ref_aa1" depth={0} />
+      <BlockRef uid={uid("ref_aa1")} depth={0} />
     </BlockRefProvider></MemoryRouter>);
   expect(screen.getByText("seeded")).toBeInTheDocument();
   expect(fetchMock).not.toHaveBeenCalled();
@@ -27,7 +28,7 @@ test("fetches an unknown uid and resolves it live", async () => {
   }]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockRefProvider seed={{}}>
-      <BlockRef uid="ref_bb2" depth={0} />
+      <BlockRef uid={uid("ref_bb2")} depth={0} />
     </BlockRefProvider></MemoryRouter>);
   expect(screen.getByText("((ref_bb2))")).toBeInTheDocument();
   await waitFor(() => {
@@ -44,8 +45,8 @@ test("batches several unknown uids into one request", async () => {
   }]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockRefProvider seed={{}}>
-      <BlockRef uid="ref_cc3" depth={0} />
-      <BlockRef uid="ref_dd4" depth={0} />
+      <BlockRef uid={uid("ref_cc3")} depth={0} />
+      <BlockRef uid={uid("ref_dd4")} depth={0} />
     </BlockRefProvider></MemoryRouter>);
   await waitFor(() => {
     expect(screen.getByText("gamma")).toBeInTheDocument();
@@ -60,12 +61,12 @@ test("a uid the server doesn't know is fetched once, not in a loop", async () =>
   const fetchMock = stubFetch([["/api/block-refs", { block_ref_texts: {} }]]);
   const { rerender } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockRefProvider seed={{}}>
-      <BlockRef uid="ref_gone1" depth={0} />
+      <BlockRef uid={uid("ref_gone1")} depth={0} />
     </BlockRefProvider></MemoryRouter>);
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   rerender(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockRefProvider seed={{}}>
-      <BlockRef uid="ref_gone1" depth={0} />
+      <BlockRef uid={uid("ref_gone1")} depth={0} />
     </BlockRefProvider></MemoryRouter>);
   await new Promise((r) => setTimeout(r, 20));
   expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -78,12 +79,12 @@ test("the seed map wins over stale fetched entries", async () => {
   }]]);
   const { rerender } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockRefProvider seed={{}}>
-      <BlockRef uid="ref_ee5" depth={0} />
+      <BlockRef uid={uid("ref_ee5")} depth={0} />
     </BlockRefProvider></MemoryRouter>);
   await waitFor(() => expect(screen.getByText("old text")).toBeInTheDocument());
   rerender(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockRefProvider seed={{ ref_ee5: { text: "payload text", page_title: "P" } }}>
-      <BlockRef uid="ref_ee5" depth={0} />
+      <BlockRef uid={uid("ref_ee5")} depth={0} />
     </BlockRefProvider></MemoryRouter>);
   expect(screen.getByText("payload text")).toBeInTheDocument();
 });
@@ -96,7 +97,7 @@ test("a resolved batch wakes only the consumers of the uids it resolved", async 
   const renders = new Map<string, number>();
   // The same two hooks BlockRef uses, so a useBlockRefText that subscribed
   // to anything other than its own uid would fail here.
-  const Probe = ({ uid }: { uid: string }) => {
+  const Probe = ({ uid }: { uid: BlockUid }) => {
     const resolved = useBlockRefText(uid);
     const requestRef = useContext(BlockRefRequestContext);
     renders.set(uid, (renders.get(uid) ?? 0) + 1);
@@ -107,8 +108,8 @@ test("a resolved batch wakes only the consumers of the uids it resolved", async 
   };
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockRefProvider seed={{}}>
-      <Probe uid="ref_gg7" />
-      <Probe uid="ref_hh8" />
+      <Probe uid={uid("ref_gg7")} />
+      <Probe uid={uid("ref_hh8")} />
     </BlockRefProvider></MemoryRouter>);
   expect(renders.get("ref_gg7")).toBe(1);
   expect(renders.get("ref_hh8")).toBe(1);
@@ -129,7 +130,7 @@ test("a fetch failure leaves the ref unresolved without retry storms", async () 
   vi.stubGlobal("fetch", fetchMock);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockRefProvider seed={{}}>
-      <BlockRef uid="ref_ff6" depth={0} />
+      <BlockRef uid={uid("ref_ff6")} depth={0} />
     </BlockRefProvider></MemoryRouter>);
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   await new Promise((r) => setTimeout(r, 20));

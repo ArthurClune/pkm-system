@@ -20,6 +20,8 @@
 // - The TODO marker is only recognized at offset 0 and keeps each lenient
 //   bracket side ({{[[TODO}} etc.) so togglers can echo the spelling back.
 
+import type { BlockUid } from "../api/brands";
+
 export interface Span {
   start: number;
   end: number;
@@ -28,7 +30,7 @@ export interface Span {
 export type GrammarToken =
   | ({ kind: "page-ref"; content: Span; title: string; tag: boolean;
        depth: number; parentStart: number | null } & Span)
-  | ({ kind: "block-ref"; uid: string } & Span)
+  | ({ kind: "block-ref"; uid: BlockUid } & Span)
   | ({ kind: "hashtag"; title: string } & Span)
   | ({ kind: "attribute"; title: string } & Span)
   | ({ kind: "embed" } & Span)
@@ -177,7 +179,10 @@ function scanFlatTokens(clean: string): GrammarToken[] {
       BLOCK_REF_RE.lastIndex = i;
       const m = BLOCK_REF_RE.exec(clean);
       if (m) {
-        tokens.push({ kind: "block-ref", uid: m[1], start: i, end: i + m[0].length });
+        // A full match of BLOCK_REF_RE's capture group is UID_TOKEN-shaped
+        // by construction.
+        tokens.push({ kind: "block-ref", uid: m[1] as BlockUid,
+                      start: i, end: i + m[0].length });
         i += m[0].length;
         continue;
       }

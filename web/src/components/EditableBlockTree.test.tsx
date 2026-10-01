@@ -2,7 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, test, vi } from "vitest";
-import { block } from "../test-helpers";
+import { block, uid } from "../test-helpers";
+import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { OutlineHandlers } from "../outline/handlers";
 import { EditableBlockTree } from "./EditableBlockTree";
@@ -35,7 +36,7 @@ const BLOCKS = [
   block("u2", "{{[[TODO]]}} task", { order_idx: 1 }),
 ];
 
-function mount(h: OutlineHandlers, focus: { uid: string; cursor: number } | null,
+function mount(h: OutlineHandlers, focus: { uid: BlockUid; cursor: number } | null,
                readOnly = false) {
   return render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -72,7 +73,7 @@ test("quoted display hides the prefix while editing exposes the raw source", () 
 
   view.rerender(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <EditableBlockTree blocks={quoted} focus={{ uid: "q1", cursor: 0 }}
+      <EditableBlockTree blocks={quoted} focus={{ uid: uid("q1"), cursor: 0 }}
                          handlers={h} readOnly={false} />
     </MemoryRouter>);
   expect(focusedTextarea()).toHaveValue("> **hello** [[World]]");
@@ -246,7 +247,7 @@ test("collapsed children are hidden", () => {
 
 test("/upload strips the trigger and hands picked files to onFiles", () => {
   const h = handlers();
-  mount(h, { uid: "u1", cursor: 0 });
+  mount(h, { uid: uid("u1"), cursor: 0 });
   const ta = focusedTextarea();
   fireEvent.change(ta, { target: { value: "/upload" } });
   ta.setSelectionRange(7, 7);
@@ -269,7 +270,7 @@ test("/upload strips the trigger and hands picked files to onFiles", () => {
 test("the upload input survives the block blurring while the native picker is "
      + "open, so a late file choice still reaches onFiles", () => {
   const h = handlers();
-  const view = mount(h, { uid: "u1", cursor: 0 });
+  const view = mount(h, { uid: uid("u1"), cursor: 0 });
   const ta = focusedTextarea();
   fireEvent.change(ta, { target: { value: "/upload" } });
   ta.setSelectionRange(7, 7);
@@ -292,7 +293,7 @@ test("the upload input survives the block blurring while the native picker is "
 });
 
 test("only one upload input exists in the tree regardless of block count", () => {
-  mount(handlers(), { uid: "u1", cursor: 0 });
+  mount(handlers(), { uid: uid("u1"), cursor: 0 });
   expect(screen.getAllByLabelText("Upload file")).toHaveLength(1);
 });
 
@@ -303,7 +304,7 @@ test("a readOnly tree renders no upload input", () => {
 
 function mountSelected(
   h: OutlineHandlers,
-  selection: { anchor: string; head: string },
+  selection: { anchor: BlockUid; head: BlockUid },
   readOnly = false,
 ) {
   return render(
@@ -314,14 +315,14 @@ function mountSelected(
 }
 
 test("selected block rows get the selected class", () => {
-  const { container } = mountSelected(handlers(), { anchor: "u1", head: "u2" });
+  const { container } = mountSelected(handlers(), { anchor: uid("u1"), head: uid("u2") });
   expect(container.querySelector('.block-row.selected[data-uid="u1"]')).not.toBeNull();
   expect(container.querySelector('.block-row.selected[data-uid="u2"]')).not.toBeNull();
 });
 
 test("Shift+Arrow on the selection extends it; Escape clears it", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: "u1", head: "u1" });
+  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u1") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
   fireEvent.keyDown(tree, { key: "ArrowDown", shiftKey: true });
   expect(h.onExtendBlockSelection).toHaveBeenCalledWith("down");
@@ -331,7 +332,7 @@ test("Shift+Arrow on the selection extends it; Escape clears it", () => {
 
 test("Tab and Shift-Tab indent and outdent an editable selection", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
+  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u2") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
 
   expect(fireEvent.keyDown(tree, { key: "Tab" })).toBe(false);
@@ -343,7 +344,7 @@ test("Tab and Shift-Tab indent and outdent an editable selection", () => {
 test("Tab does not mutate a read-only selection", () => {
   const h = handlers();
   const { container } = mountSelected(
-    h, { anchor: "u1", head: "u2" }, true,
+    h, { anchor: uid("u1"), head: uid("u2") }, true,
   );
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
 
@@ -355,7 +356,7 @@ test("Tab does not mutate a read-only selection", () => {
 
 test("a plain arrow collapses the selection back to editing the head", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
+  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u2") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
   fireEvent.keyDown(tree, { key: "ArrowDown" });
   expect(h.onFocusBlock).toHaveBeenCalledWith("u2", 0);
@@ -367,7 +368,7 @@ test("Cmd-C copies the selected blocks' text in document order", () => {
     value: { writeText }, configurable: true,
   });
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
+  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u2") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
   fireEvent.keyDown(tree, { key: "c", metaKey: true });
   expect(writeText).toHaveBeenCalledWith("hello [[World]]\n{{[[TODO]]}} task");
@@ -375,7 +376,7 @@ test("Cmd-C copies the selected blocks' text in document order", () => {
 
 test("Ctrl+Cmd+Arrow extends an active selection block-by-block", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: "u1", head: "u1" });
+  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u1") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
   expect(fireEvent.keyDown(tree, {
     key: "ArrowDown", ctrlKey: true, metaKey: true,
@@ -391,7 +392,7 @@ test("Ctrl+Cmd+Arrow extends an active selection block-by-block", () => {
 
 test("Shift+Cmd+Arrow moves a selection before plain Shift handling", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
+  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u2") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
 
   expect(fireEvent.keyDown(tree, {
@@ -407,7 +408,7 @@ test("Shift+Cmd+Arrow moves a selection before plain Shift handling", () => {
 
 test("selected Option+Arrow remains unhandled", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
+  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u2") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
 
   expect(fireEvent.keyDown(tree, { key: "ArrowUp", altKey: true })).toBe(true);
@@ -421,7 +422,7 @@ test("selected Option+Arrow remains unhandled", () => {
 test("read-only Shift+Cmd does not move or extend a selection", () => {
   const h = handlers();
   const { container } = mountSelected(
-    h, { anchor: "u1", head: "u2" }, true,
+    h, { anchor: uid("u1"), head: uid("u2") }, true,
   );
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
 
@@ -434,7 +435,7 @@ test("read-only Shift+Cmd does not move or extend a selection", () => {
 
 test("Backspace/Delete on a selection deletes the whole group", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
+  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u2") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
   fireEvent.keyDown(tree, { key: "Backspace" });
   expect(h.onDeleteBlockSelection).toHaveBeenCalledTimes(1);
@@ -444,7 +445,7 @@ test("Backspace/Delete on a selection deletes the whole group", () => {
 
 test("read-only Backspace/Delete cannot destroy a selection", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: "u1", head: "u2" }, true);
+  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u2") }, true);
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
 
   // not handled: the event stays uncancelled, exactly like read-only
@@ -461,7 +462,7 @@ test("read-only Backspace/Delete cannot destroy a selection", () => {
 
 test("a selection made while editable is safe once sync turns the outline read-only", () => {
   const h = handlers();
-  const selection = { anchor: "u1", head: "u2" };
+  const selection = { anchor: uid("u1"), head: uid("u2") };
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={BLOCKS} focus={null} selection={selection}
@@ -695,7 +696,7 @@ test("a rendered Roam table focuses its macro and reveals raw editable blocks", 
 
   view.rerender(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <EditableBlockTree blocks={[macro]} focus={{ uid: "table", cursor: 0 }}
+      <EditableBlockTree blocks={[macro]} focus={{ uid: uid("table"), cursor: 0 }}
                          handlers={h} readOnly={false} />
     </MemoryRouter>,
   );
@@ -721,7 +722,7 @@ test("a rendered Roam table stays in raw mode when focus moves to a revealed des
   fireEvent.click(screen.getByRole("table"));
   view.rerender(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <EditableBlockTree blocks={[macro]} focus={{ uid: "table", cursor: 0 }}
+      <EditableBlockTree blocks={[macro]} focus={{ uid: uid("table"), cursor: 0 }}
                          handlers={h} readOnly={false} />
     </MemoryRouter>,
   );
@@ -729,7 +730,7 @@ test("a rendered Roam table stays in raw mode when focus moves to a revealed des
 
   view.rerender(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <EditableBlockTree blocks={[macro]} focus={{ uid: "row-2", cursor: 1 }}
+      <EditableBlockTree blocks={[macro]} focus={{ uid: uid("row-2"), cursor: 1 }}
                          handlers={h} readOnly={false} />
     </MemoryRouter>,
   );
@@ -842,7 +843,7 @@ test("the stamp stays the row's last child while the block is focused", () => {
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={[block("s1", "text", { updated_at: now })]}
-                         focus={{ uid: "s1", cursor: 0 }} handlers={handlers()}
+                         focus={{ uid: uid("s1"), cursor: 0 }} handlers={handlers()}
                          readOnly={false} stamps />
     </MemoryRouter>);
   const row = view.container.querySelector('[data-uid="s1"]')!;
@@ -891,7 +892,7 @@ const TOC_TREE: BlockNode[] = [
 ];
 
 function mountToc(blocks: BlockNode[], h: OutlineHandlers,
-                  focus: { uid: string; cursor: number } | null = null,
+                  focus: { uid: BlockUid; cursor: number } | null = null,
                   fallback = false) {
   return render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -934,7 +935,7 @@ test("the toc follows heading edits and additions on the next render", () => {
 });
 
 test("focusing the toc block exposes the raw macro instead of the list", () => {
-  const { container } = mountToc(TOC_TREE, handlers(), { uid: "toc", cursor: 0 });
+  const { container } = mountToc(TOC_TREE, handlers(), { uid: uid("toc"), cursor: 0 });
   expect(container.querySelector("nav.toc")).toBeNull();
   expect(focusedTextarea()).toHaveValue("{{toc}}");
 });

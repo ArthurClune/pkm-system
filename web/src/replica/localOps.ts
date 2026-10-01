@@ -13,6 +13,7 @@
 // lands, including a re-applied batch (reapply) keeping its own effects
 // in place, is placementFor's verdict (placement.ts); this file runs it.
 
+import type { BlockUid } from "../api/brands";
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
@@ -82,7 +83,7 @@ export function getOrCreateLocalPage(db: ReplicaDb, title: string,
   return next;
 }
 
-const reindexRefs = (db: ReplicaDb, uid: string, text: string,
+const reindexRefs = (db: ReplicaDb, uid: BlockUid, text: string,
                      nowMs: number): void => {
   // The block-level index is the composition apply.ts
   // shares; it hands back the parse so the page-level refs below reuse it.
@@ -100,7 +101,7 @@ const touchPage = (db: ReplicaDb, pageId: number, nowMs: number): void => {
 };
 
 const shiftSiblings = (db: ReplicaDb, pageId: number,
-                       parentUid: string | null, fromIdx: number): void => {
+                       parentUid: BlockUid | null, fromIdx: number): void => {
   db.exec(
     "UPDATE blocks SET order_idx = order_idx + 1" +
     " WHERE page_id = ? AND parent_uid IS ? AND order_idx >= ?",
@@ -108,10 +109,10 @@ const shiftSiblings = (db: ReplicaDb, pageId: number,
 };
 
 interface BlockInfo {
-  page_id: number; parent_uid: string | null; order_idx: number;
+  page_id: number; parent_uid: BlockUid | null; order_idx: number;
 }
 
-const blockInfo = (db: ReplicaDb, uid: string): BlockInfo | null => {
+const blockInfo = (db: ReplicaDb, uid: BlockUid): BlockInfo | null => {
   const rows = db.select<BlockInfo>(
     "SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid = ?", [uid]);
   return rows.length > 0 ? rows[0] : null;
@@ -121,7 +122,7 @@ const blockInfo = (db: ReplicaDb, uid: string): BlockInfo | null => {
  * every later sibling's order_idx on each feed window, until a sibling the
  * feed re-ships at its server index overtakes one that drifted. Shift only
  * when a sibling the window re-shipped now shares this block's slot. */
-const keepSlot = (db: ReplicaDb, uid: string, at: BlockInfo): void => {
+const keepSlot = (db: ReplicaDb, uid: BlockUid, at: BlockInfo): void => {
   const clash = db.select(
     "SELECT 1 AS x FROM blocks WHERE page_id = ? AND parent_uid IS ?" +
     " AND order_idx = ? AND uid != ? LIMIT 1",
@@ -135,8 +136,8 @@ const keepSlot = (db: ReplicaDb, uid: string, at: BlockInfo): void => {
 
 /** uid and every ancestor above it; the visited-path guard stops on a
  * loop already in the replica, as ops_apply._parent_chain does. */
-const parentChain = (db: ReplicaDb, uid: string): string[] =>
-  db.select<{ uid: string }>(
+const parentChain = (db: ReplicaDb, uid: BlockUid): BlockUid[] =>
+  db.select<{ uid: BlockUid }>(
     `WITH RECURSIVE chain(uid, parent_uid, path) AS (
        SELECT uid, parent_uid, ',' || uid || ',' FROM blocks WHERE uid = ?
        UNION ALL
@@ -146,8 +147,8 @@ const parentChain = (db: ReplicaDb, uid: string): string[] =>
      )
      SELECT uid FROM chain`, [uid]).map((r) => r.uid);
 
-export const subtreeUids = (db: ReplicaDb, uid: string): string[] =>
-  db.select<{ uid: string }>(
+export const subtreeUids = (db: ReplicaDb, uid: BlockUid): BlockUid[] =>
+  db.select<{ uid: BlockUid }>(
     `WITH RECURSIVE sub(uid, path, depth) AS (
        SELECT uid, ',' || uid || ',', 0 FROM blocks WHERE uid = ?
        UNION ALL

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { canonicalizeTitle, findOpTitleViolation, titleSyntaxReason } from "./titles";
+import { uid } from "../test-helpers";
 
 interface TitleSyntaxCase {
   name: string;
@@ -41,7 +42,7 @@ describe("findOpTitleViolation", () => {
 
   test("returns the first violation in operation, explicit-field, reference order", () => {
     const ops: BlockOp[] = [
-      { op: "create", uid: "syntax03", page_title: "Bad #Page",
+      { op: "create", uid: uid("syntax03"), page_title: "Bad #Page",
         parent_uid: null, order_idx: 0, text: "[[Bad #Ref]]" },
       { op: "create_page", page_title: "Later #Page" },
     ];
@@ -54,7 +55,7 @@ describe("findOpTitleViolation", () => {
 
   test("returns the outer nested reference first", () => {
     expect(findOpTitleViolation([{
-      op: "create", uid: "syntax04", page_title: "AI", parent_uid: null,
+      op: "create", uid: uid("syntax04"), page_title: "AI", parent_uid: null,
       order_idx: 0, text: "[[Outer [[New #Old]]]]",
     }])).toEqual({
       opIndex: 0, source: "reference", title: "Outer [[New #Old]]",

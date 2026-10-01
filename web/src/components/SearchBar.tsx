@@ -2,6 +2,7 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiGet, apiPost } from "../api/typedClient";
+import type { BlockUid } from "../api/brands";
 import type { SearchPayload } from "../api/payloads";
 import { SidebarContext } from "../contexts";
 import { parseSnippet } from "../grammar/snippet";
@@ -15,7 +16,7 @@ interface ResultRow {
   title: string;          // navigation target (page title)
   label: string;
   snippet: string | null; // block hits only
-  uid?: string;           // block hits only: jump-to-block target on the page
+  uid?: BlockUid;         // block hits only: jump-to-block target on the page
 }
 
 function toRows(p: SearchPayload): ResultRow[] {

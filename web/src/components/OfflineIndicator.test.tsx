@@ -5,6 +5,7 @@ import type { PendingRowId } from "../replica/client";
 import type { TicketId } from "../sync/opQueue";
 import { SyncContext, type Sync, type SyncProblem } from "../sync/SyncProvider";
 import { OfflineIndicator } from "./OfflineIndicator";
+import { uid } from "../test-helpers";
 
 function syncWith(overrides: Partial<Sync>): Sync {
   return {
@@ -142,7 +143,7 @@ const rejected = {
   kind: "rejected-batch" as const,
   event: {
     id: 7 as PendingRowId, batch_id: "batch-rejected" as BatchId,
-    ops: [{ op: "delete" as const, uid: "uid_bad" }],
+    ops: [{ op: "delete" as const, uid: uid("uid_bad") }],
     status: 400, message: "request failed: 400 /api/ops",
   },
 };

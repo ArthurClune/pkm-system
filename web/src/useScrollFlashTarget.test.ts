@@ -1,6 +1,7 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { FLASH_MS, useScrollFlashTarget } from "./useScrollFlashTarget";
+import { uid } from "./test-helpers";
 
 // jsdom implements neither scrollIntoView nor layout; a spy is enough to
 // pin that the block is centred rather than scrolled to its top edge.
@@ -28,14 +29,14 @@ function block(uid: string, parent: HTMLElement = document.body): HTMLElement {
 
 it("scrolls the block into the centre and flashes it", () => {
   const el = block("abc123");
-  renderHook(() => useScrollFlashTarget("abc123", true));
+  renderHook(() => useScrollFlashTarget(uid("abc123"), true));
   expect(scrolled).toEqual({ block: "center" });
   expect(el.classList.contains("flash-target")).toBe(true);
 });
 
 it("clears the flash once the animation window has passed", () => {
   const el = block("abc123");
-  renderHook(() => useScrollFlashTarget("abc123", true));
+  renderHook(() => useScrollFlashTarget(uid("abc123"), true));
   vi.advanceTimersByTime(FLASH_MS - 1);
   expect(el.classList.contains("flash-target")).toBe(true);
   vi.advanceTimersByTime(1);
@@ -44,7 +45,7 @@ it("clears the flash once the animation window has passed", () => {
 
 it("cancels the pending clear on unmount instead of firing it later", () => {
   const el = block("abc123");
-  const { unmount } = renderHook(() => useScrollFlashTarget("abc123", true));
+  const { unmount } = renderHook(() => useScrollFlashTarget(uid("abc123"), true));
   unmount();
   vi.advanceTimersByTime(FLASH_MS * 2);
   // The timer was cleared, so nothing touched the (now detached) element.
@@ -54,7 +55,7 @@ it("cancels the pending clear on unmount instead of firing it later", () => {
 it("does nothing until the readiness token is truthy", () => {
   const el = block("abc123");
   const { rerender } = renderHook(
-    ({ ready }: { ready: unknown }) => useScrollFlashTarget("abc123", ready),
+    ({ ready }: { ready: unknown }) => useScrollFlashTarget(uid("abc123"), ready),
     { initialProps: { ready: null as unknown } });
   expect(el.classList.contains("flash-target")).toBe(false);
   expect(scrolled).toBeUndefined();
@@ -67,7 +68,7 @@ it("re-flashes when the readiness token is replaced by a fresh one", () => {
   const el = block("abc123");
   const payload = { n: 1 };
   const { rerender } = renderHook(
-    ({ ready }: { ready: unknown }) => useScrollFlashTarget("abc123", ready),
+    ({ ready }: { ready: unknown }) => useScrollFlashTarget(uid("abc123"), ready),
     { initialProps: { ready: payload as unknown } });
   vi.advanceTimersByTime(FLASH_MS);
   expect(el.classList.contains("flash-target")).toBe(false);
@@ -81,13 +82,13 @@ it("does nothing without a uid, or when no block carries it", () => {
   renderHook(() => useScrollFlashTarget(null, true));
   expect(scrolled).toBeUndefined();
 
-  renderHook(() => useScrollFlashTarget("not-on-this-page", true));
+  renderHook(() => useScrollFlashTarget(uid("not-on-this-page"), true));
   expect(scrolled).toBeUndefined();
 });
 
 it("escapes the uid rather than injecting it into the selector", () => {
   const el = block('a"b');
-  renderHook(() => useScrollFlashTarget('a"b', true));
+  renderHook(() => useScrollFlashTarget(uid('a"b'), true));
   expect(el.classList.contains("flash-target")).toBe(true);
 });
 
@@ -98,7 +99,7 @@ it("searches only inside the given root, never the whole document", () => {
   const inside = block("shared-uid", panel);
 
   const root = { current: panel };
-  renderHook(() => useScrollFlashTarget("shared-uid", true, root));
+  renderHook(() => useScrollFlashTarget(uid("shared-uid"), true, root));
 
   expect(inside.classList.contains("flash-target")).toBe(true);
   expect(outside.classList.contains("flash-target")).toBe(false);
@@ -107,7 +108,7 @@ it("searches only inside the given root, never the whole document", () => {
 it("does nothing when a root was given but has not mounted yet", () => {
   const el = block("abc123");
   const root: { current: HTMLElement | null } = { current: null };
-  renderHook(() => useScrollFlashTarget("abc123", true, root));
+  renderHook(() => useScrollFlashTarget(uid("abc123"), true, root));
   expect(el.classList.contains("flash-target")).toBe(false);
   expect(scrolled).toBeUndefined();
 });

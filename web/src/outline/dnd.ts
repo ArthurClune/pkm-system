@@ -2,6 +2,7 @@
 // Drop-semantics for block drag-and-drop: which boundaries and depths are
 // legal, and what move op a (boundary, depth) resolves to. The DOM shell
 // (useDropZone) only measures pixels and calls in here.
+import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { groupMoveOps } from "./edits";
 import { applyOps, locate } from "./tree";
@@ -10,24 +11,24 @@ export const INDENT_PX = 30; // .block-children: 22px margin-left + 8px padding
 
 export interface DragSource {
   /** The grabbed block (the drag handle). */
-  uid: string;
+  uid: BlockUid;
   pageTitle: string;
   /** When the grabbed block is part of a multi-block selection, the whole
    * group being dragged: the selection's root uids in document order,
    * including `uid`. Absent for a plain single-block drag. */
-  uids?: string[];
+  uids?: BlockUid[];
 }
 
 /** Every uid a drag carries (the group when present, else the grab handle). */
-export function dragUids(drag: DragSource): string[] {
+export function dragUids(drag: DragSource): BlockUid[] {
   return drag.uids ?? [drag.uid];
 }
 export interface DropTarget {
-  parent_uid: string | null;
+  parent_uid: BlockUid | null;
   order_idx: number;
   page_title: string;
 }
-export interface DropRow { uid: string; depth: number; collapsed: boolean }
+export interface DropRow { uid: BlockUid; depth: number; collapsed: boolean }
 
 // The pointer's resolved drop location: which gap among dropRows() (the
 // boundary) and which indent level within what that gap allows (the
@@ -43,7 +44,7 @@ export function dropRows(blocks: BlockNode[], drag: DragSource,
                          pageTitle: string): DropRow[] {
   const out: DropRow[] = [];
   const skip = drag.pageTitle === pageTitle
-    ? new Set(dragUids(drag)) : new Set<string>();
+    ? new Set(dragUids(drag)) : new Set<BlockUid>();
   const walk = (nodes: BlockNode[], depth: number) => {
     for (const n of nodes) {
       if (skip.has(n.uid)) continue;
@@ -79,7 +80,7 @@ export function depthFromX(allowed: number[], offsetX: number): number {
  * same-position drop leaves unchanged. */
 function shape(blocks: BlockNode[]): string {
   const out: string[] = [];
-  const walk = (nodes: BlockNode[], parent: string | null) => {
+  const walk = (nodes: BlockNode[], parent: BlockUid | null) => {
     for (const n of nodes) {
       out.push(`${n.uid}:${parent}`);
       walk(n.children, n.uid);
@@ -96,7 +97,7 @@ export function resolveDrop(blocks: BlockNode[], pageTitle: string,
                             position: DropPosition): DropTarget | null {
   const { boundary, depth } = position;
   const rows = dropRows(blocks, drag, pageTitle);
-  let parentUid: string | null = null;
+  let parentUid: BlockUid | null = null;
   if (depth > 0) {
     for (let i = boundary - 1; i >= 0; i--) {
       if (rows[i].depth === depth - 1) { parentUid = rows[i].uid; break; }

@@ -72,15 +72,15 @@ A brand is a subtype of its base type, so code that only reads a branded field i
 
   Later tasks import exactly these names.
 
-- [ ] **Step 1: Write the failing tests** in `ids.test.ts`:
+- [x] **Step 1: Write the failing tests** in `ids.test.ts`:
   - `parseBlockUid("abcdef")` is `"abcdef"`;
   - a 32-character uid parses, and a 33-character one is `null`;
   - `"abcde"` is `null`; `"abcdef\n"` is `null`; `"((abcdef))"` is `null`;
   - a type probe: `// @ts-expect-error a plain string is not a BlockUid` on `const u: BlockUid = "abcdef";`.
-- [ ] **Step 2:** `cd web && pnpm vitest run src/ids.test.ts`. Expect a FAIL because the module isn't found.
-- [ ] **Step 3: Implement** brands.ts, ids.ts, the uid.ts split, the opQueue casts and the test-helpers.
-- [ ] **Step 4:** `pnpm typecheck && pnpm test:unit`. Expect a PASS: no generated type changed, so nothing else moves.
-- [ ] **Step 5:** Commit: `feat(pkm-thee): web brand types, uid mint helpers and fixture helpers`.
+- [x] **Step 2:** `cd web && pnpm vitest run src/ids.test.ts`. Expect a FAIL because the module isn't found.
+- [x] **Step 3: Implement** brands.ts, ids.ts, the uid.ts split, the opQueue casts and the test-helpers.
+- [x] **Step 4:** `pnpm typecheck && pnpm test:unit`. Expect a PASS: no generated type changed, so nothing else moves.
+- [x] **Step 5:** Commit: `feat(pkm-thee): web brand types, uid mint helpers and fixture helpers`.
 
 ### Task 2: BlockUid flip
 

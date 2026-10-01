@@ -17,7 +17,7 @@ import { apiPost } from "../api/typedClient";
 import type { PendingBatch, Replica } from "../replica/client";
 import { availabilityOf, isSessionFatal, ReplicaError,
          type ReplicaAvailability } from "../replica/errors";
-import { newUid } from "../uid";
+import { newRawUid } from "../uid";
 import { listeners } from "./listeners";
 import { readOpsAck, type OpsAckReading } from "./opsAck";
 import { append, clearMarks, createOutbox, forget, headPrecedes, laneHead,
@@ -30,7 +30,7 @@ import { createQueueState, terminalReason, transitionQueue,
          type QueueEvent } from "./queueState";
 import { isTerminalRejection } from "./rejection";
 
-export const clientId = newUid() as ClientId;
+export const clientId = newRawUid() as ClientId;
 
 export type WriteOutcome =
   | { status: "persisted"; pending: number }
@@ -648,7 +648,7 @@ export function createOpQueue(replica: Replica): OpQueue {
         // the catch below still carries the row's id, and whichever copy
         // delivers second lands on the server's applied_batches replay
         // instead of a create-collision 400.
-        const batchId = newUid() as BatchId;
+        const batchId = newRawUid() as BatchId;
         try {
           const result = await replica.enqueue(ops, batchId);
           // Persisted durably: marked behind every lane entry appended

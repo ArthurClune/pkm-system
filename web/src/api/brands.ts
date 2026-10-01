@@ -58,3 +58,31 @@ export type ConversationId = string & { readonly __brand: "ConversationId" };
 // event itself sits outside OpenAPI (see assistant/sse.ts) and is narrowed
 // to this type by hand at the one place that parses it.
 export type ConfirmId = string & { readonly __brand: "ConfirmId" };
+
+// A block's uid, matching server/src/pkm/refs.py's BLOCK_REF_TOKEN shape.
+// Minted by `newUid` (uid.ts) and `parseBlockUid` (ids.ts); a test literal
+// standing in for a uid casts `as BlockUid` inside a fixture helper.
+export type BlockUid = string & { readonly __brand: "BlockUid" };
+
+// A page's row id. Offline pages mint a negative id (replica/localOps.ts)
+// before reconciling with the server's row; the sign carries that meaning,
+// not a separate type.
+export type PageId = number & { readonly __brand: "PageId" };
+
+// A sidebar entry's row id, distinct from PageId so the two kinds of row
+// id can never swap at a call site even though both are plain numbers.
+export type SidebarEntryId = number & { readonly __brand: "SidebarEntryId" };
+
+// A title that has been through normalize_title / normalizeRefTitle: no
+// control whitespace, no leading/trailing or doubled-up runs of plain
+// whitespace. Minted at the ref-grammar token (grammar/scan.ts) and at the
+// replica's title-normalization mirror (replica/titles.ts).
+export type NormalizedTitle = string & { readonly __brand: "NormalizedTitle" };
+
+// A title as stored in `pages.title` / `sidebar_entries.title`: normalized,
+// and additionally canonical under the live plain-space-title flag. A
+// CanonicalTitle passes wherever a NormalizedTitle is expected, not the
+// reverse. Minted at every genuine read of a title row, at
+// `canonicalizeTitle`/`canonicalTitle` (replica/titles.ts) and at
+// `titleForDate` (replica/daily.ts).
+export type CanonicalTitle = NormalizedTitle & { readonly __canonical: true };

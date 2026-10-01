@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, test, vi } from "vitest";
-import type { SyncSeq } from "../api/brands";
+import type { BatchId, SyncSeq } from "../api/brands";
 import { applySnapshot, type Snapshot } from "./apply";
 import type { AckedBatch, PendingRowId, ReplicaDiagnostics } from "./client";
 import { SCHEMA_VERSION } from "./clientSchema";
@@ -12,6 +12,8 @@ import { failingOnce, fakeCarryFiles, openRawTestDb, openTestDb,
          withDamagedFreelist } from "./testDb";
 import { subtreeHash } from "./subtreeHash";
 import { buildHandlers, type WorkerDeps } from "./workerHandlers";
+
+const bid = (s: string): BatchId => s as BatchId;
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (5 as SyncSeq),
@@ -27,7 +29,7 @@ test("commit refuses changed durable rows and releases the recovery lease", asyn
   const handlers = buildHandlers({
     openDb: async () => t.db,
     nowMs: () => 10,
-    newBatchId: () => "batch-new",
+    newBatchId: () => bid("batch-new"),
   });
   await handlers.init(undefined);
   await handlers.applySnapshot(SNAP);
@@ -101,7 +103,7 @@ test("rebase preserves and reapplies stable pending rows, then rejects token reu
   const handlers = buildHandlers({
     openDb: async () => t.db,
     nowMs: () => 10,
-    newBatchId: () => "batch-local",
+    newBatchId: () => bid("batch-local"),
     newRecoveryToken: () => "lease-rebase",
   });
   await handlers.init(undefined);
@@ -140,7 +142,7 @@ test("a reset commit rolls back schema rebuild when snapshot application fails",
   const handlers = buildHandlers({
     openDb: async () => t.db,
     nowMs: () => 10,
-    newBatchId: () => "batch-retained",
+    newBatchId: () => bid("batch-retained"),
     applySnapshot: (db, snapshot, nowMs) => {
       if (failSnapshot) {
         db.exec("INSERT INTO pages(id, title) VALUES (999, 'partial')");
@@ -178,7 +180,7 @@ test("commit detects an error-only durable row mutation hidden from the public l
   const t = await openRawTestDb();
   const handlers = buildHandlers({
     openDb: async () => t.db,
-    newBatchId: () => "batch-error",
+    newBatchId: () => bid("batch-error"),
   });
   await handlers.init(undefined);
   await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_error" }], batchId: "batch-error" });
@@ -201,7 +203,7 @@ test("markPoisoned validates batch identity and remains idempotent", async () =>
   const t = await openRawTestDb();
   const handlers = buildHandlers({
     openDb: async () => t.db,
-    newBatchId: () => "replacement-batch",
+    newBatchId: () => bid("replacement-batch"),
   });
   await handlers.init(undefined);
   await handlers.enqueue({
@@ -253,7 +255,7 @@ test("an acquired recovery lease expires if its client forgets the token", async
     const handlers = buildHandlers({
       openDb: async () => t.db,
       clockMs: () => clock,
-      newBatchId: () => "batch-after-expiry",
+      newBatchId: () => bid("batch-after-expiry"),
     });
     await handlers.init(undefined);
     const lease = await handlers.prepareRecovery({ expiresAtMs: 100 }) as {
@@ -414,7 +416,7 @@ test("enqueue persists a caller-provided batch id instead of minting one", async
   const handlers = buildHandlers({
     openDb: async () => t.db,
     nowMs: () => 10,
-    newBatchId: () => "batch-minted",
+    newBatchId: () => bid("batch-minted"),
   });
   await handlers.init(undefined);
   await handlers.applySnapshot(SNAP);
@@ -797,8 +799,8 @@ const SQLITE_NOTADB =
   "SQLITE_NOTADB: sqlite3 result code 26: file is not a database";
 const IMPORT_ROW = /^INSERT OR IGNORE INTO pending_ops/;
 const CARRIED: DurablePendingRow[] = [
-  { id: (1 as PendingRowId), batch_id: "rejected", ops_json: "[]", poisoned: 1, error: "HTTP 400" },
-  { id: (2 as PendingRowId), batch_id: "valid", ops_json: "[]", poisoned: 0, error: null },
+  { id: (1 as PendingRowId), batch_id: bid("rejected"), ops_json: "[]", poisoned: 1, error: "HTTP 400" },
+  { id: (2 as PendingRowId), batch_id: bid("valid"), ops_json: "[]", poisoned: 0, error: null },
 ];
 
 /** A committed carry beside a replica file that cannot take its rows, as a
@@ -1091,7 +1093,7 @@ async function leasedAckedAndOpen(
 
 test("a rebase commit deletes the acked rows and replays only the rest", async () => {
   const { t, commit } = await leasedAckedAndOpen();
-  await expect(commit([{ id: (1 as PendingRowId), batch_id: "acked", seq: (7 as SyncSeq) }])).resolves.toBeNull();
+  await expect(commit([{ id: (1 as PendingRowId), batch_id: bid("acked"), seq: (7 as SyncSeq) }])).resolves.toBeNull();
   expect(textOf(t.db, "uid_b1")).toBe("[[New]] edited");
   expect(textOf(t.db, "uid_b2")).toBe("local pending");
   expect(pendingIds(t.db)).toEqual([{ batch_id: "open" }]);
@@ -1099,7 +1101,7 @@ test("a rebase commit deletes the acked rows and replays only the rest", async (
 
 test("a rebase commit records an acked row's seq as deleteBatch does", async () => {
   const { handlers, commit } = await leasedAckedAndOpen();
-  await commit([{ id: (1 as PendingRowId), batch_id: "acked", seq: (7 as SyncSeq) }]);
+  await commit([{ id: (1 as PendingRowId), batch_id: bid("acked"), seq: (7 as SyncSeq) }]);
   await expect(handlers.applyChanges({
     feed: EMPTY_GEN1_FEED, expectedPendingIds: [1, 2],
   })).resolves.toEqual({ status: "applied", cursor: 7 });
@@ -1107,7 +1109,7 @@ test("a rebase commit records an acked row's seq as deleteBatch does", async () 
 
 test("an acked row without a seq vouches for no window", async () => {
   const { handlers, commit } = await leasedAckedAndOpen();
-  await commit([{ id: (1 as PendingRowId), batch_id: "acked", seq: null }]);
+  await commit([{ id: (1 as PendingRowId), batch_id: bid("acked"), seq: null }]);
   await expect(handlers.applyChanges({
     feed: EMPTY_GEN1_FEED, expectedPendingIds: [1, 2],
   })).resolves.toEqual({ status: "pending-changed" });
@@ -1116,7 +1118,7 @@ test("an acked row without a seq vouches for no window", async () => {
 test("an ack that matches no row by id and batch id deletes nothing", async () => {
   const { t, commit } = await leasedAckedAndOpen();
   await expect(commit([
-    { id: (1 as PendingRowId), batch_id: "open", seq: (7 as SyncSeq) }, { id: (9 as PendingRowId), batch_id: "acked", seq: (7 as SyncSeq) },
+    { id: (1 as PendingRowId), batch_id: bid("open"), seq: (7 as SyncSeq) }, { id: (9 as PendingRowId), batch_id: bid("acked"), seq: (7 as SyncSeq) },
   ])).resolves.toBeNull();
   expect(pendingIds(t.db)).toEqual([{ batch_id: "acked" }, { batch_id: "open" }]);
   expect(textOf(t.db, "uid_b1")).toBe("[[Old]] edited");
@@ -1131,7 +1133,7 @@ test("a rebase commit whose snapshot fails keeps the acked rows", async () => {
     },
   });
   failSnapshot = true;
-  await expect(commit([{ id: (1 as PendingRowId), batch_id: "acked", seq: (7 as SyncSeq) }]))
+  await expect(commit([{ id: (1 as PendingRowId), batch_id: bid("acked"), seq: (7 as SyncSeq) }]))
     .rejects.toThrow("snapshot apply failed");
   expect(pendingIds(t.db)).toEqual([{ batch_id: "acked" }, { batch_id: "open" }]);
 });
@@ -1143,7 +1145,7 @@ test("a commit with acked rows still refuses changed durable rows and deletes no
     "INSERT INTO pending_ops(batch_id, ops_json) VALUES (?, ?)",
     ["bypassed", JSON.stringify([{ op: "delete", uid: "uid_x1" }])],
   );
-  await expect(commit([{ id: (1 as PendingRowId), batch_id: "acked", seq: (7 as SyncSeq) }]))
+  await expect(commit([{ id: (1 as PendingRowId), batch_id: bid("acked"), seq: (7 as SyncSeq) }]))
     .rejects.toThrow("pending rows changed during recovery");
   expect(t.db.select("SELECT id FROM pending_ops WHERE id = 1")).toEqual([{ id: 1 }]);
 });
@@ -1151,7 +1153,7 @@ test("a commit with acked rows still refuses changed durable rows and deletes no
 test("a rebase that replaces the file carries only the rows no ack covers", async () => {
   const { handlers, commit, rowsBefore, carry, fresh, carriedAtDiscard } =
     await poisonedQueueOverDamagedFile();
-  await expect(commit([{ id: (2 as PendingRowId), batch_id: "valid", seq: (7 as SyncSeq) }])).resolves.toBeNull();
+  await expect(commit([{ id: (2 as PendingRowId), batch_id: bid("valid"), seq: (7 as SyncSeq) }])).resolves.toBeNull();
   expect(carriedAtDiscard()).toEqual([rowsBefore[0]]);
   expect(fresh.db.select(DURABLE_ROWS)).toEqual([rowsBefore[0]]);
   // the snapshot's text, with the acked edit not replayed over it

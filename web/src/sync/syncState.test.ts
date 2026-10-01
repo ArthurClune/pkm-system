@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { BatchId } from "../api/brands";
 import type { PendingRowId } from "../replica/client";
 import type { PoisonEvent } from "./opQueue";
 import {
@@ -16,7 +17,7 @@ const createSyncState = (): SyncState => ({ problem: undefined });
 
 const poison = (over: Partial<PoisonEvent> = {}): PoisonEvent => ({
   id: 1 as PendingRowId,
-  batch_id: "b1",
+  batch_id: "b1" as BatchId,
   ops: [],
   status: 409,
   message: "conflict",

@@ -13,6 +13,7 @@
 // Poisoned batches (server terminal 4xx, see sync/rejection.ts) are set
 // aside, never retried forever (spec section 6).
 
+import type { BatchId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { PendingBatch, PendingRowId, PoisonedBatch } from "./client";
 import { type ReplicaDb, rollbackToSavepoint } from "./db";
@@ -52,9 +53,9 @@ const currentSubtreePairs = (db: ReplicaDb,
 };
 
 export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
-                             batchId: string): {
+                             batchId: BatchId): {
   pending: number;
-  batchId: string;
+  batchId: BatchId;
 } {
   const violation = findOpTitleViolation(ops);
   if (violation !== null) {
@@ -119,7 +120,7 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
 const toBatch = (r: { id: number; batch_id: string; ops_json: string;
                       poisoned: number }): PendingBatch => ({
   id: r.id as PendingRowId,
-  batch_id: r.batch_id,
+  batch_id: r.batch_id as BatchId,
   ops: JSON.parse(r.ops_json) as BlockOp[],
   poisoned: r.poisoned !== 0,
 });
@@ -166,7 +167,7 @@ export function poisonedBatches(db: ReplicaDb): PoisonedBatch[] {
     " WHERE poisoned != 0 ORDER BY id",
   ).map((row) => ({
     id: row.id as PendingRowId,
-    batch_id: row.batch_id,
+    batch_id: row.batch_id as BatchId,
     ops: JSON.parse(row.ops_json) as BlockOp[],
     ...poisonDetails(row.error),
   }));
@@ -181,7 +182,7 @@ export function pendingCount(db: ReplicaDb): number {
  * A row id alone is not an identity: a reset or a file replacement restarts
  * the AUTOINCREMENT ids, so a delete that was queued for a batch the
  * rebuild dropped would otherwise remove the new batch that took its id. */
-export function deleteBatch(db: ReplicaDb, id: PendingRowId, batchId: string): boolean {
+export function deleteBatch(db: ReplicaDb, id: PendingRowId, batchId: BatchId): boolean {
   const matches = db.select<{ id: number }>(
     "SELECT id FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
   if (matches.length === 0) return false;
@@ -190,7 +191,7 @@ export function deleteBatch(db: ReplicaDb, id: PendingRowId, batchId: string): b
 }
 
 export function markPoisoned(db: ReplicaDb, id: PendingRowId, error: string,
-                             batchId: string): boolean {
+                             batchId: BatchId): boolean {
   const matches = db.select<{ id: number }>(
     "SELECT id FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
   if (matches.length === 0) return false;
@@ -203,7 +204,7 @@ export function markPoisoned(db: ReplicaDb, id: PendingRowId, error: string,
 /** A pending_ops row exactly as stored, for moving the queue between files. */
 export interface DurablePendingRow {
   id: PendingRowId;
-  batch_id: string;
+  batch_id: BatchId;
   ops_json: string;
   poisoned: number;
   error: string | null;

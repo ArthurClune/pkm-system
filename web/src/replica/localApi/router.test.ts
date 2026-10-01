@@ -4,6 +4,7 @@
 // enqueued op, and unmatched routes reporting handled:false.
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, test } from "vitest";
+import type { BatchId } from "../../api/brands";
 import { titleForDate } from "../daily";
 import { setPlainSpaceTitleCanonicalization } from "../meta";
 import { openTestDb, type TestDb } from "../testDb";
@@ -28,8 +29,8 @@ beforeEach(async () => {
 });
 
 function call(method: string, path: string, body?: unknown,
-              deps: { newBatchId(): string } =
-                { newBatchId: () => "batch-test-1" }): LocalApiResult {
+              deps: { newBatchId(): BatchId } =
+                { newBatchId: () => "batch-test-1" as BatchId }): LocalApiResult {
   return handleLocalApi(t.db, { method, path, body, nowMs: NOW }, deps);
 }
 
@@ -105,7 +106,7 @@ describe("error statuses", () => {
   });
 
   test("create page with a blank title 422s", () => {
-    const deps = { newBatchId: () => "b1" };
+    const deps = { newBatchId: () => "b1" as BatchId };
     expectStatus(call("POST", "/api/pages", { title: "   " }, deps), 422);
     expectStatus(call("POST", "/api/pages", {}, deps), 422);
     // whitespace-only stays a 422 rather than normalizing to ""
@@ -351,7 +352,7 @@ describe("create page", () => {
     "rejects shared forbidden title case $name before local or durable creation",
     ({ title }) => {
       const result = call("POST", "/api/pages", { title }, {
-        newBatchId: () => "batch-forbidden",
+        newBatchId: () => "batch-forbidden" as BatchId,
       });
 
       expectStatus(result, 422);
@@ -363,7 +364,7 @@ describe("create page", () => {
   test("preserves exact boundary U+0020 while inactive", () => {
     const body = expectStatus(
       call("POST", "/api/pages", { title: "  Fresh Page  " },
-           { newBatchId: () => "batch-1" }), 200,
+           { newBatchId: () => "batch-1" as BatchId }), 200,
     ) as { id: number; title: string };
     expect(body.title).toBe("  Fresh Page  ");
     expect(body.id).toBeLessThan(0);
@@ -380,7 +381,7 @@ describe("create page", () => {
 
     const body = expectStatus(
       call("POST", "/api/pages", { title: "  Active Post  " },
-           { newBatchId: () => "batch-active" }), 200,
+           { newBatchId: () => "batch-active" as BatchId }), 200,
     ) as { id: number; title: string };
     expect(body.title).toBe("Active Post");
     expect(body.id).toBeLessThan(0);
@@ -397,7 +398,7 @@ describe("create page", () => {
     // title would be unreachable through /api/page/<title> anyway.
     const body = expectStatus(
       call("POST", "/api/pages", { title: "Levels of AGI:\nthe Path" },
-           { newBatchId: () => "batch-nl" }), 200,
+           { newBatchId: () => "batch-nl" as BatchId }), 200,
     ) as { id: number; title: string };
     expect(body.title).toBe("Levels of AGI: the Path");
     expect(t.db.select<{ title: string }>(

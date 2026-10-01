@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { StrictMode, useEffect, useMemo } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { SyncSeq } from "../api/brands";
+import type { BatchId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { OpsAck } from "../api/payloads";
 import { DndProvider, useDnd } from "../dnd/DndContext";
@@ -44,6 +44,10 @@ beforeEach(() => {
 function lastWs(): FakeWebSocket {
   return FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
 }
+
+// Every test here picks an arbitrary batch-id string, same shape as the
+// production mint; this mints the brand once rather than at every call.
+const bid = (s: string): BatchId => s as BatchId;
 
 describe("the socket and remote batches", () => {
   test("status: connecting -> connected -> reconnecting -> connected, resync bump on re-open", async () => {
@@ -759,7 +763,7 @@ describe("durable batches on connect", () => {
       ["/api/ops", { ok: true }],
     ]);
     const replica = fakeReplicaForProvider();
-    const rows = [{ id: 1 as PendingRowId, batch_id: "leftover",
+    const rows = [{ id: 1 as PendingRowId, batch_id: bid("leftover"),
                     ops: [{ op: "delete", uid: "u1" } as const], poisoned: false }];
     replica.pendingCount = async () => rows.length;
     replica.nextBatch = async () => rows[0] ?? null;
@@ -785,7 +789,7 @@ describe("durable batches on connect", () => {
       } satisfies OpsAck],
     ]);
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: PendingRowId; batch_id: string;
+    const rows: Array<{ id: PendingRowId; batch_id: BatchId;
                        ops: BlockOp[]; poisoned: boolean }> = [];
     let nextId = 1;
     replica.enqueue = async (ops, batchId) => {
@@ -831,7 +835,7 @@ describe("poison repair and startup marks", () => {
       return jsonResponse({ detail: "not found" }, 404);
     }));
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
+    const rows: Array<{ id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                        poisoned: boolean }> = [];
     replica.enqueue = async (ops, batchId) => {
       rows.push({ id: 1 as PendingRowId, batch_id: batchId, ops, poisoned: false });
@@ -897,7 +901,7 @@ describe("poison repair and startup marks", () => {
     }));
 
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
+    const rows: Array<{ id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                        poisoned: boolean }> = [];
     let nextId = 1;
     const trace: string[] = [];
@@ -907,7 +911,7 @@ describe("poison repair and startup marks", () => {
     });
     replica.enqueue = async (ops) => {
       const id = nextId++ as PendingRowId;
-      const batch_id = id === 1 ? "bad-batch" : "good-batch";
+      const batch_id = bid(id === 1 ? "bad-batch" : "good-batch");
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
     };
@@ -984,7 +988,7 @@ describe("poison repair and startup marks", () => {
     }));
 
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
+    const rows: Array<{ id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                        poisoned: boolean }> = [];
     let nextId = 1;
     replica.init = async () => ({
@@ -992,7 +996,7 @@ describe("poison repair and startup marks", () => {
     });
     replica.enqueue = async (ops) => {
       const id = nextId++ as PendingRowId;
-      const batch_id = id === 1 ? "bad-batch" : "good-batch";
+      const batch_id = bid(id === 1 ? "bad-batch" : "good-batch");
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
     };
@@ -1064,7 +1068,7 @@ describe("poison repair and startup marks", () => {
     }));
 
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
+    const rows: Array<{ id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                        poisoned: boolean }> = [];
     let nextId = 1;
     replica.init = async () => ({
@@ -1072,7 +1076,7 @@ describe("poison repair and startup marks", () => {
     });
     replica.enqueue = async (ops) => {
       const id = nextId++ as PendingRowId;
-      const batch_id = id === 1 ? "bad-batch" : "good-batch";
+      const batch_id = bid(id === 1 ? "bad-batch" : "good-batch");
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
     };
@@ -1140,8 +1144,8 @@ describe("poison repair and startup marks", () => {
     const rejectedOp = { op: "delete", uid: "rejected" } as const;
     const goodOp = { op: "delete", uid: "good" } as const;
     const rows = [
-      { id: 1 as PendingRowId, batch_id: "old-poison", ops: [rejectedOp], poisoned: true },
-      { id: 2 as PendingRowId, batch_id: "later-good", ops: [goodOp], poisoned: false },
+      { id: 1 as PendingRowId, batch_id: bid("old-poison"), ops: [rejectedOp], poisoned: true },
+      { id: 2 as PendingRowId, batch_id: bid("later-good"), ops: [goodOp], poisoned: false },
     ];
     const replica = fakeReplicaForProvider();
     replica.init = async () => ({
@@ -1149,7 +1153,7 @@ describe("poison repair and startup marks", () => {
       pendingBatches: [...rows],
     });
     replica.poisonedBatches = async () => [{
-      id: 1 as PendingRowId, batch_id: "old-poison", ops: [rejectedOp], status: 400,
+      id: 1 as PendingRowId, batch_id: bid("old-poison"), ops: [rejectedOp], status: 400,
       message: "request failed: 400 /api/ops",
     }];
     replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
@@ -1191,7 +1195,7 @@ describe("poison repair and startup marks", () => {
     }));
 
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
+    const rows: Array<{ id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                        poisoned: boolean }> = [];
     let nextId = 1;
     let markAttempts = 0;
@@ -1199,7 +1203,7 @@ describe("poison repair and startup marks", () => {
     let initCalls = 0;
     replica.enqueue = async (ops) => {
       const id = nextId++ as PendingRowId;
-      const batch_id = id === 1 ? "bad-batch" : "later-good";
+      const batch_id = bid(id === 1 ? "bad-batch" : "later-good");
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
     };
@@ -1297,8 +1301,8 @@ describe("poison repair and startup marks", () => {
       return jsonResponse({ detail: "not found" }, 404);
     }));
     const rows = [
-      { id: 1 as PendingRowId, batch_id: "bad-batch", ops: [...event.ops], poisoned: false },
-      { id: 2 as PendingRowId, batch_id: "later-good",
+      { id: 1 as PendingRowId, batch_id: bid("bad-batch"), ops: [...event.ops], poisoned: false },
+      { id: 2 as PendingRowId, batch_id: bid("later-good"),
         ops: [{ op: "delete", uid: "good" } as const], poisoned: false },
     ];
     const replica = fakeReplicaForProvider();
@@ -1607,8 +1611,8 @@ describe("the poison gate and repair problems", () => {
     };
     const rejected = { op: "delete", uid: "rejected" } as const;
     const rows = [
-      { id: 7 as PendingRowId, batch_id: "rejected-last-session", ops: [rejected], poisoned: true },
-      { id: 8 as PendingRowId, batch_id: "queued-behind-poison",
+      { id: 7 as PendingRowId, batch_id: bid("rejected-last-session"), ops: [rejected], poisoned: true },
+      { id: 8 as PendingRowId, batch_id: bid("queued-behind-poison"),
         ops: [{ op: "delete", uid: "behind" } as const], poisoned: false },
     ];
     const replica = fakeReplicaForProvider();
@@ -1803,7 +1807,7 @@ describe("the poison gate and repair problems", () => {
     }));
 
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
+    const rows: Array<{ id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                        poisoned: boolean }> = [];
     let nextId = 1;
     replica.init = async () => ({
@@ -1812,7 +1816,7 @@ describe("the poison gate and repair problems", () => {
     });
     replica.enqueue = async (ops) => {
       const id = nextId++ as PendingRowId;
-      const batch_id = id === 1 ? "bad-batch" : "good-batch";
+      const batch_id = bid(id === 1 ? "bad-batch" : "good-batch");
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
     };
@@ -1899,7 +1903,7 @@ describe("the poison gate and repair problems", () => {
     }));
 
     const replica = fakeReplicaForProvider();
-    const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
+    const rows: Array<{ id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                        poisoned: boolean }> = [];
     let nextId = 1;
     replica.init = async () => ({
@@ -1908,7 +1912,7 @@ describe("the poison gate and repair problems", () => {
     });
     replica.enqueue = async (ops) => {
       const id = nextId++ as PendingRowId;
-      const batchId = id === 1 ? "bad-batch" : id === 2 ? "good-batch" : "bad-batch-2";
+      const batchId = bid(id === 1 ? "bad-batch" : id === 2 ? "good-batch" : "bad-batch-2");
       rows.push({ id, batch_id: batchId, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId };
     };
@@ -2283,15 +2287,15 @@ describe("reconnect pulls and resync", () => {
         return jsonResponse({ ok: true });
       }));
       const replica = fakeReplicaForProvider();
-      const rows: Array<{ id: PendingRowId; batch_id: string; ops: BlockOp[];
+      const rows: Array<{ id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                          poisoned: boolean }> = [];
       replica.init = async () => ({
         empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
         pendingBatches: [],
       });
       replica.enqueue = async (ops) => {
-        rows.push({ id: 1 as PendingRowId, batch_id: "retry-me", ops, poisoned: false });
-        return { pending: rows.length, batchId: "retry-me" };
+        rows.push({ id: 1 as PendingRowId, batch_id: bid("retry-me"), ops, poisoned: false });
+        return { pending: rows.length, batchId: bid("retry-me") };
       };
       replica.nextBatch = async () => rows[0] ?? null;
       replica.deleteBatch = async () => {
@@ -2667,9 +2671,9 @@ describe("resetReplica", () => {
       return jsonResponse({ ok: true });
     }));
     const replica = fakeReplicaForProvider();
-    const pendingBatch: { id: PendingRowId; batch_id: string; ops: BlockOp[];
+    const pendingBatch: { id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                           poisoned: boolean } =
-      { id: 1 as PendingRowId, batch_id: "b1", ops: [{ op: "delete", uid: "u1" }], poisoned: false };
+      { id: 1 as PendingRowId, batch_id: bid("b1"), ops: [{ op: "delete", uid: "u1" }], poisoned: false };
     replica.prepareRecovery = async () =>
       ({ token: "lease-1", batches: [pendingBatch] });
     let sync!: Sync;
@@ -2694,9 +2698,9 @@ describe("resetReplica", () => {
       return jsonResponse({ ok: true });
     }));
     const replica = fakeReplicaForProvider();
-    const pendingBatch: { id: PendingRowId; batch_id: string; ops: BlockOp[];
+    const pendingBatch: { id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                           poisoned: boolean } =
-      { id: 1 as PendingRowId, batch_id: "b1", ops: [{ op: "delete", uid: "u1" }], poisoned: false };
+      { id: 1 as PendingRowId, batch_id: bid("b1"), ops: [{ op: "delete", uid: "u1" }], poisoned: false };
     replica.prepareRecovery = async () =>
       ({ token: "lease-1", batches: [pendingBatch] });
     let sync!: Sync;
@@ -2800,7 +2804,7 @@ describe("the unload guard", () => {
   test("a durable pending row leaves the unload guard disarmed", async () => {
     const replica = {
       ...fakeReplicaForProvider(),
-      enqueue: async (_ops: BlockOp[], batchId: string) => ({ pending: 1, batchId }),
+      enqueue: async (_ops: BlockOp[], batchId: BatchId) => ({ pending: 1, batchId }),
       pendingCount: async () => 1,
     };
     let sync!: Sync;

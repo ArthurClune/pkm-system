@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest";
+import type { ClientId } from "../api/brands";
 import type { DeliveryOutcome, WriteOutcome, WriteTicket } from "../sync/opQueue";
 import { block } from "../test-helpers";
 import { acquireOutlineSession, attachActiveOutlineWriteReplay,
@@ -547,7 +548,7 @@ it("keeps repair pending when a remote revision advances during its GET", async 
   try {
     await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
     session.applyRemote({
-      client_id: "remote", ts: 1, ops: [update("remote advance")],
+      client_id: "remote" as ClientId, ts: 1, ops: [update("remote advance")],
     });
 
     stale.resolve([block("u1", "stale forced response")]);

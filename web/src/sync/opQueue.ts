@@ -10,6 +10,7 @@
 // passive effects in one synchronous flush. So no method here may emit
 // synchronously.
 import { ApiError } from "../api/client";
+import type { BatchId, ClientId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { OpsAck } from "../api/payloads";
 import { apiPost } from "../api/typedClient";
@@ -29,7 +30,7 @@ import { createQueueState, terminalReason, transitionQueue,
          type QueueEvent } from "./queueState";
 import { isTerminalRejection } from "./rejection";
 
-export const clientId = newUid();
+export const clientId = newUid() as ClientId;
 
 export type WriteOutcome =
   | { status: "persisted"; pending: number }
@@ -121,7 +122,7 @@ export interface OpQueue {
    * precedes `batchId`. Throws, and leaves the entry retained, on a POST
    * failure — a discard is the drain's decision alone, never this door's —
    * and throws if the queue is disposed. */
-  deliverLaneAhead(batchId: string): Promise<void>;
+  deliverLaneAhead(batchId: BatchId): Promise<void>;
 }
 
 let nextTicket = 1;
@@ -132,7 +133,7 @@ function ticket(scope: readonly string[] | undefined,
   return { id: `write-${nextTicket++}`, scope: scope ?? [], settled, delivered };
 }
 
-function postOps(ops: BlockOp[], batchId: string): Promise<OpsAck> {
+function postOps(ops: BlockOp[], batchId: BatchId): Promise<OpsAck> {
   return apiPost("/api/ops", {
     body: { client_id: clientId, batch_id: batchId, ops },
   });
@@ -157,7 +158,7 @@ export function createOpQueue(replica: Replica): OpQueue {
   const poisonMarkFailed = listeners<PoisonMarkFailure>();
   const poison = listeners<PoisonEvent>();
   const poisonMarkUnmatched = listeners<void>();
-  const deliveries = new Map<string, (outcome: DeliveryOutcome) => void>();
+  const deliveries = new Map<BatchId, (outcome: DeliveryOutcome) => void>();
   // The in-memory lane: enqueues whose ops could not be persisted locally (a
   // full disk, OPFS access-handle contention, an exhausted SAH pool),
   // retained in FIFO order and delivered by drain() under the same
@@ -165,7 +166,7 @@ export function createOpQueue(replica: Replica): OpQueue {
   // enqueue(). Its ordering against durable batches lives in the outbox core;
   // each entry's delivery resolver lives beside it, keyed by batch id.
   let outbox = createOutbox();
-  const laneResolvers = new Map<string, (outcome: DeliveryOutcome) => void>();
+  const laneResolvers = new Map<BatchId, (outcome: DeliveryOutcome) => void>();
   // Whether the replica can be used at all, DERIVED from this queue's own
   // failed RPCs and latched only on evidence that is itself permanent (the
   // worker's latched open, or a terminally failed RPC client — never a
@@ -255,7 +256,7 @@ export function createOpQueue(replica: Replica): OpQueue {
     return reading;
   };
 
-  const finishDelivery = (batchId: string, outcome: DeliveryOutcome): void => {
+  const finishDelivery = (batchId: BatchId, outcome: DeliveryOutcome): void => {
     const resolve = deliveries.get(batchId);
     if (!resolve) return;
     deliveries.delete(batchId);
@@ -638,7 +639,7 @@ export function createOpQueue(replica: Replica): OpQueue {
         // the catch below still carries the row's id, and whichever copy
         // delivers second lands on the server's applied_batches replay
         // instead of a create-collision 400.
-        const batchId = newUid();
+        const batchId = newUid() as BatchId;
         try {
           const result = await replica.enqueue(ops, batchId);
           // Persisted durably: marked behind every lane entry appended

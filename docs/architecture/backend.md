@@ -594,10 +594,11 @@ never produces but an old import left behind: `BlockNode.heading` and
 than 500ing on a Roam-imported block.
 
 A `NewType` the web must also keep distinct from its base type, such as
-`Sha256Hex` in `contracts/ops.py`, is tagged with `brand()` from
-`contracts/brands.py`. `brand()` leaves validation and dumping as the
-supertype's and adds an `x-brand: "<Name>"` marker to the schema, which
-`pnpm gen-types` turns into a reference to the web brand of the same name
+`Sha256Hex`, `ClientId` and `BatchId` in `contracts/ops.py`, is tagged with
+`brand()` from `contracts/brands.py`. `brand()` leaves validation and
+dumping as the supertype's and adds an `x-brand: "<Name>"` marker to the
+schema, which `pnpm gen-types` turns into a reference to the web brand
+of the same name
 (see [frontend.md](frontend.md#api-layer)). Call it in its own statement
 after the `NewType(...)` line: pyrefly stops treating the result as a type
 when the `NewType` call is wrapped in another call.

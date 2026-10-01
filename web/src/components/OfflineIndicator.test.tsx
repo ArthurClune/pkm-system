@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
+import type { BatchId } from "../api/brands";
 import type { PendingRowId } from "../replica/client";
 import { SyncContext, type Sync, type SyncProblem } from "../sync/SyncProvider";
 import { OfflineIndicator } from "./OfflineIndicator";
@@ -139,7 +140,7 @@ it("does not double a full stop when the read-only reason already ends with one"
 const rejected = {
   kind: "rejected-batch" as const,
   event: {
-    id: 7 as PendingRowId, batch_id: "batch-rejected",
+    id: 7 as PendingRowId, batch_id: "batch-rejected" as BatchId,
     ops: [{ op: "delete" as const, uid: "uid_bad" }],
     status: 400, message: "request failed: 400 /api/ops",
   },

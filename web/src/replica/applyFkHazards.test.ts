@@ -7,12 +7,16 @@
 // "FOREIGN KEY constraint failed", and reset/repair (which re-run
 // reapplyPending) wedge the same way.
 import { beforeEach, describe, expect, test } from "vitest";
-import type { SyncSeq } from "../api/brands";
+import type { BatchId, SyncSeq } from "../api/brands";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import type { ReplicaDb } from "./db";
 import { getMeta } from "./meta";
 import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
+
+// Every test here picks an arbitrary batch-id string, same shape as the
+// production mint; this mints the brand once rather than at every call.
+const bid = (s: string): BatchId => s as BatchId;
 import { openTestDb, type TestDb } from "./testDb";
 
 /** The drain's delete of the batch at the head of the queue, on its ack. */
@@ -99,7 +103,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_child", page_title: "Machine Learning",
         parent_uid: "uid_b2", order_idx: 0, text: "typed offline" },
-    ], 5, "batch-child");
+    ], 5, bid("batch-child"));
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
       tombstones: [{ kind: "block", entity_id: "uid_b2" }],
@@ -109,7 +113,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // the unappliable batch is skipped locally, not deleted — push-time
     // resolution still owns it
     expect(uids(t.db)).toEqual(["uid_b1"]);
-    expect(queuedBatchIds(t.db)).toEqual(["batch-child"]);
+    expect(queuedBatchIds(t.db)).toEqual([bid("batch-child")]);
   });
 
   test("tombstones the server journals for a skipped op drop a ghost and its local-only child", () => {
@@ -122,12 +126,12 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_ghost", page_title: "Machine Learning",
         parent_uid: null, order_idx: 5, text: "diverted server-side" },
-    ], 5, "batch-ghost");
+    ], 5, bid("batch-ghost"));
     ackNext(t.db); // the ack
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_ghost_child", page_title: "Machine Learning",
         parent_uid: "uid_ghost", order_idx: 0, text: "typed under it" },
-    ], 6, "batch-child");
+    ], 6, bid("batch-child"));
     expect(uids(t.db)).toContain("uid_ghost_child");
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
@@ -138,7 +142,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     expect(uids(t.db)).toEqual(["uid_b1", "uid_b2", "uid_b3"]);
     // the child's batch is skipped locally, not deleted: its push lands it
     // under the missing parent's daily-note header
-    expect(queuedBatchIds(t.db)).toEqual(["batch-child"]);
+    expect(queuedBatchIds(t.db)).toEqual([bid("batch-child")]);
     expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
   });
 
@@ -151,11 +155,11 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_ghost_p", page_title: "Machine Learning",
         parent_uid: null, order_idx: 5, text: "ghost parent" },
-    ], 5, "batch-ghost-p");
+    ], 5, bid("batch-ghost-p"));
     ackNext(t.db);
     enqueueBatch(t.db, [
       { op: "move", uid: "uid_b2", parent_uid: "uid_ghost_p", order_idx: 0 },
-    ], 6, "batch-move");
+    ], 6, bid("batch-move"));
     ackNext(t.db);
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
@@ -190,11 +194,11 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
 
     // Two batches queue clean at enqueue time: one deletes uid_b3 (rowid 3),
     // the other creates uid_y under uid_b2 (rowid 2).
-    enqueueBatch(t.db, [{ op: "delete", uid: "uid_b3" }], 5, "batch-del-b3");
+    enqueueBatch(t.db, [{ op: "delete", uid: "uid_b3" }], 5, bid("batch-del-b3"));
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_y", page_title: "Machine Learning",
         parent_uid: "uid_b2", order_idx: 0, text: "typed offline" },
-    ], 6, "batch-create-y");
+    ], 6, bid("batch-create-y"));
     // The window tombstones uid_b2 -- cascading uid_y away -- and re-hydrates
     // uid_b3 moved under a parent beyond the window (dependency-incomplete,
     // same shape as the first test above). uid_b3 is a fresh INSERT (the
@@ -217,7 +221,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     expect(res).toEqual({ status: "applied", cursor: 11 });
     expect(getMeta(t.db, "cursor")).toBe("11");
     expect(uids(t.db)).toEqual(["uid_b1"]);
-    expect(queuedBatchIds(t.db)).toEqual(["batch-del-b3", "batch-create-y"]);
+    expect(queuedBatchIds(t.db)).toEqual([bid("batch-del-b3"), bid("batch-create-y")]);
     expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
   });
 
@@ -230,26 +234,26 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_opt_parent", page_title: "AI",
         parent_uid: null, order_idx: 0, text: "rejected parent" },
-    ], 5, "batch-parent");
+    ], 5, bid("batch-parent"));
     const rejected = nextBatch(t.db)!;
     markPoisoned(t.db, rejected.id, JSON.stringify({
       status: 400, message: "request failed: 400 /api/ops",
-    }), "batch-parent");
+    }), bid("batch-parent"));
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_opt_child", page_title: "AI",
         parent_uid: "uid_opt_parent", order_idx: 0, text: "child" },
-    ], 6, "batch-child");
+    ], 6, bid("batch-child"));
     // a batch that still applies cleanly must survive the skip of the one
     // before it: skipping is per-batch, not a bail-out of the whole reapply
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_opt_ok", page_title: "AI",
         parent_uid: null, order_idx: 1, text: "still valid" },
-    ], 6, "batch-ok");
+    ], 6, bid("batch-ok"));
     applySnapshot(t.db, SNAP, 7);
     expect(uids(t.db))
       .toEqual(["uid_b1", "uid_b2", "uid_b3", "uid_opt_ok"]);
     expect(queuedBatchIds(t.db))
-      .toEqual(["batch-parent", "batch-child", "batch-ok"]);
+      .toEqual([bid("batch-parent"), bid("batch-child"), bid("batch-ok")]);
   });
 
   test("the reset rebuild's foreign_keys=OFF does not let a dangling batch through", () => {
@@ -261,7 +265,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     enqueueBatch(t.db, [
       { op: "create", uid: "uid_opt_child", page_title: "AI",
         parent_uid: "uid_never_existed", order_idx: 0, text: "child" },
-    ], 5, "batch-child");
+    ], 5, bid("batch-child"));
     t.db.exec("PRAGMA foreign_keys=OFF");
     try {
       applySnapshot(t.db, SNAP, 7);
@@ -270,7 +274,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     }
     expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
     expect(uids(t.db)).toEqual(["uid_b1", "uid_b2", "uid_b3"]);
-    expect(queuedBatchIds(t.db)).toEqual(["batch-child"]);
+    expect(queuedBatchIds(t.db)).toEqual([bid("batch-child")]);
   });
 
   test("a window failing on anything other than an FK still throws", () => {

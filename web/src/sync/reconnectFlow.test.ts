@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import type { SyncSeq } from "../api/brands";
+import type { ClientId, SyncSeq } from "../api/brands";
 import type { Changes } from "../replica/apply";
 import { ReplicaUnusableError } from "../replica/errors";
 import { memReplica } from "./memReplica";
@@ -252,7 +252,7 @@ test("a reconnect resyncs once a pull reports the replica has become unusable",
   const sync = createReplicaSync({
     replica,
     fetchJson: async () => QUIET_FEED,
-    clientId: "c1",
+    clientId: "c1" as ClientId,
     onState: () => undefined,
   });
   const { flow, trace } = harness({

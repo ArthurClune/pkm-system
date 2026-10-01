@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { BatchId } from "../api/brands";
 import type { PendingRowId } from "../replica/client";
 import { planRetry, type RetryPlan } from "./retryPolicy";
 import type { SyncProblem } from "./syncState";
 
 const event = {
-  id: 7 as PendingRowId, batch_id: "bad-batch",
+  id: 7 as PendingRowId, batch_id: "bad-batch" as BatchId,
   ops: [{ op: "delete" as const, uid: "uid_bad" }],
   status: 400, message: "request failed: 400 /api/ops",
 };

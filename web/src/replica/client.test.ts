@@ -2,7 +2,8 @@
 // End-to-end over a MessageChannel: the typed Replica facade on one side,
 // buildHandlers over a real in-memory sqlite-wasm database on the other.
 import { expect, test, vi } from "vitest";
-import type { SyncSeq } from "../api/brands";
+import type { BatchId, ClientId, SyncSeq } from "../api/brands";
+import type { components } from "../api/types";
 import type { Snapshot } from "./apply";
 import {
   createReplica, type AckedBatch, type PendingRowId, type Replica,
@@ -19,6 +20,11 @@ function deferred<T = void>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
+
+// Every test here picks an arbitrary batch-id string, same shape as the
+// production mint (newUid()/crypto.randomUUID()); this mints the brand once
+// rather than at every call.
+const bid = (s: string): BatchId => s as BatchId;
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (5 as SyncSeq),
@@ -79,7 +85,7 @@ test("a feed fetched before an acknowledged batch deletion cannot overwrite it",
   await replica.applySnapshot(SNAP);
   await replica.enqueue([
     { op: "update_text", uid: "uid_b1", text: "acknowledged local text" },
-  ], "batch-ack");
+  ], bid("batch-ack"));
 
   // The request was dispatched while this optimistic batch still existed.
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
@@ -108,7 +114,7 @@ test("a window whose latest_seq covers the acked batch applies despite the stale
   await replica.applySnapshot(SNAP);
   await replica.enqueue([
     { op: "update_text", uid: "uid_b1", text: "acknowledged local text" },
-  ], "batch-ack");
+  ], bid("batch-ack"));
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
   await replica.deleteBatch(batch.id, batch.batch_id, (6 as SyncSeq));
@@ -131,7 +137,7 @@ test("a window read before the acked batch committed is still refused", async ()
   await replica.applySnapshot(SNAP);
   await replica.enqueue([
     { op: "update_text", uid: "uid_b1", text: "acknowledged local text" },
-  ], "batch-ack");
+  ], bid("batch-ack"));
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
   await replica.deleteBatch(batch.id, batch.batch_id, (7 as SyncSeq)); // committed after the window's read
@@ -152,7 +158,7 @@ test("a later seq-less delete of the same id forgets the recorded acked seq", as
   const { replica } = await setup();
   await replica.init();
   await replica.applySnapshot(SNAP);
-  await replica.enqueue([{ op: "delete", uid: "uid_b1" }], "batch-1");
+  await replica.enqueue([{ op: "delete", uid: "uid_b1" }], bid("batch-1"));
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
   await replica.deleteBatch(batch.id, batch.batch_id, (6 as SyncSeq));
@@ -217,7 +223,7 @@ test("an edit arriving before init persists (schema installs on demand)", async 
   const { pending } = await replica.enqueue([
     { op: "create", uid: "uid_pre", page_title: "Today",
       parent_uid: null, order_idx: 0, text: "typed before init" },
-  ], "batch-pre");
+  ], bid("batch-pre"));
   expect(pending).toBe(1);
   const init = await replica.init();
   expect(init.empty).toBe(true); // still needs the snapshot bootstrap
@@ -286,7 +292,7 @@ test("a prepare delayed past its client timeout cannot later orphan the worker l
         openStarted.resolve();
         return releaseOpen.promise;
       },
-      newBatchId: () => "batch-after-timeout",
+      newBatchId: () => bid("batch-after-timeout"),
     });
     serveRpc(toPortLike(ch.port2), {
       ...base,
@@ -314,7 +320,7 @@ test("a prepare delayed past its client timeout cannot later orphan the worker l
     releaseOpen.resolve(t.db);
     await workerPrepareFinished.promise;
     expect(workerPrepareOutcome).toBe("rejected");
-    await expect(replica.enqueue([{ op: "delete", uid: "uid_after" }], "batch-after"))
+    await expect(replica.enqueue([{ op: "delete", uid: "uid_after" }], bid("batch-after")))
       .resolves.toMatchObject({ pending: 1, batchId: expect.any(String) });
     await earlier;
   } finally {
@@ -328,7 +334,7 @@ test("enqueue round-trips: persisted, optimistic, drainable", async () => {
   await replica.applySnapshot(SNAP);
   const { pending } = await replica.enqueue([
     { op: "update_text", uid: "uid_b1", text: "offline edit" },
-  ], "batch-offline");
+  ], bid("batch-offline"));
   expect(pending).toBe(1);
   expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'"))
     .toEqual([{ text: "offline edit" }]);
@@ -348,7 +354,7 @@ test("enqueue round-trips: persisted, optimistic, drainable", async () => {
   }]);
   await replica.deleteBatch(batch.id, batch.batch_id);
   expect(await replica.pendingCount()).toBe(0);
-  await expect(replica.markPoisoned((99 as PendingRowId), "gone", "gone-batch")).resolves.toEqual({
+  await expect(replica.markPoisoned((99 as PendingRowId), "gone", bid("gone-batch"))).resolves.toEqual({
     pending: 0, matched: false,
   });
 });
@@ -363,7 +369,7 @@ test("a recovery lease gates enqueue and offline POST until the fresh database i
     nowMs: () => 10,
     newBatchId: (() => {
       let id = 0;
-      return () => `batch-${++id}`;
+      return () => bid(`batch-${++id}`);
     })(),
   });
   serveRpc(toPortLike(ch.port2), {
@@ -386,7 +392,7 @@ test("a recovery lease gates enqueue and offline POST until the fresh database i
   let localPostSettled = false;
   const enqueue = replica.enqueue([
     { op: "update_text", uid: "uid_b1", text: "after recovery" },
-  ], "batch-after-recovery").finally(() => { enqueueSettled = true; });
+  ], bid("batch-after-recovery")).finally(() => { enqueueSettled = true; });
   const localPost = replica.localApi({
     method: "POST", path: "/api/pages", body: { title: "Offline Page" }, nowMs: 10,
   }).finally(() => { localPostSettled = true; });
@@ -415,11 +421,41 @@ test("deleteBatch's id/ackedSeq brands reject a swapped call (compile-time only)
   const seq = 7 as SyncSeq;
   const deleteBatch: Replica["deleteBatch"] = async () => ({ pending: 0 });
   // @ts-expect-error ackedSeq takes a SyncSeq, not a PendingRowId
-  void deleteBatch(rowId, "b", rowId);
+  void deleteBatch(rowId, bid("b"), rowId);
   // @ts-expect-error id takes a PendingRowId, not a SyncSeq
-  void deleteBatch(seq, "b", seq);
+  void deleteBatch(seq, bid("b"), seq);
   // @ts-expect-error same pair, swapped: AckedBatch.id is a PendingRowId
   // and AckedBatch.seq is a SyncSeq | null, not the reverse
-  const swapped: AckedBatch = { id: seq, batch_id: "b", seq: rowId };
+  const swapped: AckedBatch = { id: seq, batch_id: bid("b"), seq: rowId };
   expect(swapped).toBeDefined();
+});
+
+// OpBatch's client_id/batch_id look interchangeable as bare uid strings --
+// this is the swap the brands exist to block at compile time (web's
+// sync/opQueue.ts postOps builds exactly this body shape).
+test("OpBatch's client_id/batch_id brands reject a swapped body (compile-time only)", () => {
+  const clientId = "tab-1" as ClientId;
+  const batchId = bid("batch-1");
+  const swapped: components["schemas"]["OpBatch"] = {
+    // @ts-expect-error client_id takes a ClientId, not a BatchId
+    client_id: batchId,
+    // @ts-expect-error batch_id takes a BatchId, not a ClientId
+    batch_id: clientId,
+    ops: [],
+  };
+  expect(swapped).toBeDefined();
+});
+
+// markPoisoned's `error`/`batchId` pair is two bare strings at runtime
+// (JSON.stringify(...) and a uid); the brand is the only thing stopping a
+// caller from passing the error message where the batch id belongs.
+test("markPoisoned's error/batchId brand rejects an unbranded batchId (compile-time only)", () => {
+  const rowId = 1 as PendingRowId;
+  const error = "request failed: 422 /api/ops";
+  const markPoisoned: Replica["markPoisoned"] = async () => (
+    { pending: 0, matched: false }
+  );
+  // @ts-expect-error batchId takes a BatchId, not the bare error string
+  void markPoisoned(rowId, error, error);
+  expect(markPoisoned).toBeDefined();
 });

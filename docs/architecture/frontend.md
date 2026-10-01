@@ -65,7 +65,8 @@ web/src/
 ├── api/                      The typed HTTP layer (see API layer)
 │   ├── client.ts             Shell        apiFetch: JSON, 401 → /login, offline gateway
 │   ├── typedClient.ts        Shell        apiGet/apiPost/…, typed by the OpenAPI paths
-│   ├── brands.ts             —            The one definition of each web brand (Sha256Hex)
+│   ├── brands.ts             —            The one definition of each web brand (Sha256Hex,
+│   │                                      SyncSeq, ClientId, BatchId)
 │   └── openapi.json, types.d.ts (generated); ops.ts, payloads.ts (type-only re-exports)
 │
 ├── grammar/                  Roam-markdown parsing (see frontend-rendering.md)

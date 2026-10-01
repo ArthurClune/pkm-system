@@ -25,7 +25,7 @@ from pkm.batch import (BatchCommand, delete_uids, plan_batch,
 from pkm.client.api import PkmClient, new_uid
 from pkm.client.core import ApiError
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import BlockOp, CreateOp
+from pkm.contracts.ops import BatchId, BlockOp, CreateOp
 from pkm.contracts.responses import BlockNode, OpsAck
 from pkm.planning import (asset_block_text, create_page_ops, find_block,
                           plan_mark, plan_save, plan_update, resolve_parent)
@@ -36,8 +36,8 @@ def _uids():
     return iter(new_uid, None)
 
 
-def _batch_id() -> str:
-    return uuid.uuid4().hex
+def _batch_id() -> BatchId:
+    return BatchId(uuid.uuid4().hex)
 
 
 def default_page_title(page: str | None) -> str:

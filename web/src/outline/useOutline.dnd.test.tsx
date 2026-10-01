@@ -1,6 +1,7 @@
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { expect, it } from "vitest";
+import type { ClientId } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
@@ -79,7 +80,7 @@ it("remote set_view_type batches update the same tree path", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", [block("u1", "first")]);
   act(() => sync.emit({
-    client_id: "other", ts: 1,
+    client_id: "other" as ClientId, ts: 1,
     ops: [{ op: "set_view_type", uid: "u1", view_type: "numbered" }],
   }));
   expect(findNode(getOutline().blocks, "u1")!.view_type).toBe("numbered");
@@ -103,7 +104,7 @@ it("applies one remote move exactly once across two same-title views", () => {
     </SyncContext.Provider>);
 
   act(() => sync.emit({
-    client_id: "other",
+    client_id: "other" as ClientId,
     ts: 1,
     ops: [{ op: "move", uid: "u3", parent_uid: null, order_idx: 0 }],
   }));
@@ -134,7 +135,7 @@ it("starts one target refetch for one remote batch across same-title views", asy
 
   await act(async () => {
     sync.emit({
-      client_id: "other",
+      client_id: "other" as ClientId,
       ts: 1,
       ops: [{ op: "move", uid: "moved", parent_uid: null,
               order_idx: 1, page_title: "Page" }],
@@ -224,7 +225,7 @@ it("a remote parent-based cross-page move (server-resolved page_title) removes f
 
   await act(async () => {
     sync.emit({
-      client_id: "other", ts: 1,
+      client_id: "other" as ClientId, ts: 1,
       ops: [{ op: "move", uid: "moved", parent_uid: "tp", order_idx: 0,
                page_title: "Dst" }],
     });
@@ -254,7 +255,7 @@ it("target-side refetch ignores global settlement and adopts a safe response", a
 
   act(() => {
     sync.emit({
-      client_id: "other", ts: 1,
+      client_id: "other" as ClientId, ts: 1,
       ops: [{ op: "move", uid: "unknown", parent_uid: null,
                order_idx: 0, page_title: "Page" }],
     });

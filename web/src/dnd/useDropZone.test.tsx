@@ -8,6 +8,7 @@ import { act, createEvent, fireEvent, render } from "@testing-library/react";
 import { memo, useRef } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
+import type { ClientId } from "../api/brands";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider, useDnd } from "./DndContext";
@@ -131,7 +132,7 @@ it("re-measures a row whose uid changed under it, count unchanged", async () => 
   // is unchanged, so nothing about the cache as a whole looks stale -- but
   // every uid has slid up one index, and index 4 is now a row 60px further
   // down the page than the one measured there.
-  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
     { op: "delete", uid: "u1" },
     { op: "create", uid: "u9", page_title: "P", parent_uid: null,
       order_idx: 6, text: "row 9" },

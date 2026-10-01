@@ -3452,13 +3452,15 @@
             "type": "string",
             "maxLength": 64,
             "minLength": 1,
-            "title": "Client Id"
+            "title": "Client Id",
+            "x-brand": "ClientId"
           },
           "batch_id": {
             "type": "string",
             "maxLength": 64,
             "minLength": 8,
-            "title": "Batch Id"
+            "title": "Batch Id",
+            "x-brand": "BatchId"
           },
           "ops": {
             "items": {

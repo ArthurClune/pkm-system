@@ -104,7 +104,9 @@ subsequent check is reload-and-drive against the same environment:
 - `screenshot` is for visual assertions — layout, styling, drag affordances —
   where the pixels ARE the thing under test. One screenshot at the final
   verified state usually suffices; don't screenshot intermediate steps that a
-  DOM read already confirms.
+  DOM read already confirms. Always pass an absolute path: a relative one
+  resolves against the browser daemon's cwd, not the shell's, and still prints
+  "Screenshot saved" — stray `*.png` files in the repo are the tell.
 
 ## Performance
 

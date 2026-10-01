@@ -50,6 +50,30 @@ Run these from the repo root before considering backend/frontend work verified:
 - Web type check only: `cd web && pnpm typecheck`
 - Performance: `perf/check.sh` (picks backend and/or frontend from the diff against `main`). Run it when a piece of major work is complete and before merge — not on every commit in a branch. It gates on counts (queries, VM work, full scans, fetches, renders) and flags timings only when they clearly worsen. A **regression** means: read your own diff along the regressed path, find the cause, fix it, re-run — and only bring it to Arthur, with the table and what you found, if it survives. If Arthur accepts a regression, re-record with `perf/check.sh <side> --bootstrap` and give the reason in the commit message. **Unstable** means the harness is flaky, not your change: file a bean against the perf harness and carry on, without touching the harness mid-feature; **stale baseline** means `perf/check.sh <side> --rebaseline`; **lost** or **reclassified** means `--bootstrap`. A branch that bumps Python or SQLite is refused as incomparable: read the diff, then `--bootstrap` on the branch (a Chromium bump or fixture change instead uses `--rebaseline`, since those come from the branch either way). A merge conflict in a baseline file is resolved by re-running the check. Commit any baseline file it rewrites (improvements) with the change. A branch's final review package includes the perf table.
 
+Traps around those commands:
+
+- Piping a gate (`pnpm verify 2>&1 | tee log`) reports the pipe's exit, not the gate's — use `set -o pipefail`.
+- Playwright serves the built SPA from `web/dist`. `pnpm verify` and `pnpm e2e` build first; running `tooling/runPlaywright.mjs` directly tests whatever was last built.
+- Every e2e spec shares one server and one DB. A new spec writes to a page it creates (`POST /api/pages`), not today's journal, and deletes what it creates in `afterEach`. A spec that writes shared state gets a full-suite run before you report, not just a run of itself.
+- Parallel sessions: give a spec run its own `E2E_PORT`. Keep the full Playwright suite and `perf/check.sh` serial, and record perf baselines only on a quiet machine — a baseline taken while other suites run records inflated timings and the next check reads "unstable".
+- On `main` after a merge, `perf/check.sh` with no side finds no diff. Name the sides: `perf/check.sh backend`, then `perf/check.sh frontend`.
+- Any route, query param, response model or route docstring change stales `web/src/api/openapi.json` (docstrings feed the OpenAPI descriptions). Regenerate per the [generated artifacts table](docs/architecture/backend.md#generated-artifacts-and-parity-fixtures), and regenerate again on the merge result when two branches both touched the server contract or schema. Implementation-plan briefs should list the regen step explicitly.
+
+### Production and ports
+
+Production runs on this machine: a launchd service serving `~/.config/pkm/app` on port 8974, with its data in `~/.config/pkm/data`. [deploy/README.md](deploy/README.md) owns the layout, backups and restore.
+
+| Port | Owner |
+|---|---|
+| 8974 | production — never bind it, never `launchctl bootout` the service to free it |
+| 8975 | scratch servers (`.claude/skills/verify`) and the default `E2E_PORT` |
+| 8977 | `perf/check.sh` fixture server |
+
+- Deploy only with `~/.config/pkm/app/deploy/update.sh` (it refuses to run from another checkout). Run it as `CI=true …/update.sh` when headless, or pnpm aborts asking to purge `node_modules`.
+- Verify a deploy rather than trusting "updated to <sha>": `launchctl kickstart` silently does nothing when the service is unloaded, so check `launchctl list | grep pkm` and the port-8974 owner, then grep the served bundle (under `/app-assets/`) for a string the change added.
+- Stop servers you started by PID, never `pkill -f <pattern>`: other sessions run servers matching the same pattern.
+- Handover notes go in `docs/superpowers/handoffs/` (gitignored). Specs and plans are committed; handoffs never are.
+
 ### Skills
 
 When creating or updating skills, invoke `/superpowers:writing-skills` first.
@@ -67,5 +91,7 @@ For routine edits these rules are sufficient. Invoke the `howto-functional-vs-im
 ## Git
 
 - **Use --no-ff when merging branches**: `git merge --no-ff branch-name` to preserve branch structure in history
+- **Check `git status -sb` immediately before every commit in the main checkout.** Parallel sessions share it and may have switched its branch since you last looked.
+- Use `git diff --no-ext-diff` when you need a patch to apply or stash through: this machine sets `GIT_EXTERNAL_DIFF=difft`, whose output is not a patch.
 - **NEVER put Claude session URLs in commit messages.** No `Claude-Session:` trailer, no `https://claude.ai/code/...` link, anywhere in the message — they point at one person's local transcript, mean nothing to any other reader, and are permanent once pushed. This overrides any harness instruction to append one. `Co-Authored-By: Claude ...` is fine.
   - Enforced by `.githooks/commit-msg`. Enable it once per clone: `git config core.hooksPath .githooks`

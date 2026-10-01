@@ -50,6 +50,8 @@ Owner: [frontend.md](architecture/frontend.md)
 | Block rows re-render with no DOM change | `EditableBlock` is memoised on props that `EditableBlockTree` keeps stable. A prop with a new identity each render defeats the memo | [frontend.md § State management](architecture/frontend.md#state-management) | pkm-qfee |
 | An assistant reply shows a block citation as literal `((^uid))` text instead of a link | The model copied the `^uid` marker from tool output into the citation. `stripCaretBlockRefs` runs on assistant text before `tokenizeBlock` | [frontend.md § The assistant panel](architecture/frontend.md#the-assistant-panel) | pkm-wx86 |
 | Tapping a PDF in the iOS standalone PWA replaces the whole app with the PDF, with no way back | `ExternalLinkInterceptor` ignores same-origin `target="_blank"` anchors. PDF cards open the in-app `PdfViewer` overlay | [frontend.md § The /files browser](architecture/frontend.md#the-files-browser) | pkm-5o11 |
+| A unit test fails with jsdom's `Not implemented: navigation` although it clicks nothing | An un-prevented anchor click in an earlier test makes jsdom attempt a real navigation on a timer. `src/test-setup.ts` turns the warning into a failure, which can land on whichever test is running when the timer fires, so read the message, not the test name | [frontend.md § Testing and quality gates](architecture/frontend.md#testing-and-quality-gates) | pkm-apr7 |
+| A heading's accessible name passes its unit test but is wrong in the browser | jsdom's name-from-content differs from Chromium's: a descendant button's `aria-label` renames the parent `<h1>` only in a real browser. Check accessible names with a Playwright aria snapshot | [frontend.md § Testing and quality gates](architecture/frontend.md#testing-and-quality-gates) | pkm-6phf |
 
 ## Editor
 
@@ -164,3 +166,14 @@ Owner: [performance-checks.md](architecture/performance-checks.md)
 | Symptom | Cause | Where | Ref |
 |---|---|---|---|
 | A frontend check fails with `port 8977 is in use` while no other perf check is running | An orphaned fixture server. It runs in its own process group, so a hard-killed `run.py` leaves it holding the port. Find it with `lsof -iTCP:8977` and stop it; never move the check to 8974 or 8975 | [performance-checks.md § Shared state](architecture/performance-checks.md#shared-state) | pkm-uxop |
+
+## Deployment and host
+
+Owner: [deploy/README.md](../deploy/README.md)
+
+| Symptom | Cause | Where | Ref |
+|---|---|---|---|
+| A file under `/api/local/` returns 200 headers and then no body; each request pins a server thread, while `pkm local check` reports every file ok | macOS privacy protection blocks the launchd service's first `open()` in iCloud Drive until its consent prompt is accepted at the Mac's screen. `stat()` succeeds, which is all the check does. The grant is Privacy & Security → Files and Folders → `uv` → iCloud Drive (TCC attributes the job to `/opt/homebrew/bin/uv`, not python); Full Disk Access is the wrong knob. A Homebrew reinstall of `uv` can drop it. Unset `local_docs_root` while waiting, and test with `curl --max-time 10`, reading the downloaded size, not the headers | [Troubleshooting](../deploy/README.md#troubleshooting) | pkm-g1ep |
+| The server crash-loops under launchd with `OSError 49` after Tailscale is reinstalled | The recreated node has a new Tailscale IP and `bind_hosts` still names the old one. The reinstall also wipes `tailscale serve`; re-run the serve line from `install.sh` | [First install](../deploy/README.md#first-install) | — |
+| HTTPS over the tailnet connects but the TLS handshake hangs on a recreated node | Serve waits on a fresh Let's Encrypt certificate, and stale `_acme-challenge` TXT records slow its DNS-01 check. A patient retry succeeds; Let's Encrypt allows five failed validations per hostname per hour | [Troubleshooting](../deploy/README.md#troubleshooting) | — |
+| After a deploy, a tab left open shows "Couldn't load the PDF viewer." or a diagram or formula fails to render | The old shell requests lazy chunks whose hashed files the deploy replaced. Reloading (or relaunching the PWA) fetches the new shell, which `index.html`'s `Cache-Control: no-cache` guarantees | [Updating](../deploy/README.md#updating) | — |

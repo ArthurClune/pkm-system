@@ -21,7 +21,7 @@ from typing import Annotated, Literal, Union
 from pydantic import (BaseModel, ConfigDict, Field, TypeAdapter,
                       ValidationError, model_validator)
 
-from pkm.contracts.ops import (BlockOp, CreateOp, DeleteOp, MoveOp, OrderIdx,
+from pkm.contracts.ops import (BlockOp, CreateOp, DeleteOp, MoveOp,
                                Sha256Hex, UpdateTextOp, subtree_hash)
 from pkm.contracts.responses import BlockNode, walk_blocks
 from pkm.planning import (BuildError, Planner, parse_uid_spec, plan_update,
@@ -103,9 +103,9 @@ class CreateParams(_Strict):
     page: str = Field(min_length=1)
     text: str
     parent: str | None = None
-    # A user-supplied order_idx, taken verbatim -- not minted here:
-    # pyrefly rejects `Field(ge=0)` against a NewType field, so this stays
-    # plain int and the caller mints OrderIdx once it reads `index`.
+    # A 0-based position among the parent's current children (past the
+    # end appends); the planner turns it into an order_idx. Plain int, not
+    # OrderIdx -- this is a position, never itself an order key.
     index: int | None = Field(default=None, ge=0)
     as_: str | None = Field(default=None, alias="as")
 
@@ -135,7 +135,9 @@ class MoveParams(_Strict):
     uid: str = Field(min_length=1)
     page: str = Field(min_length=1)
     parent: str | None = None
-    # See CreateParams.index -- same plain-int, mint-on-read reasoning.
+    # See CreateParams.index -- same position, not order_idx, reasoning.
+    # The excluded block is the move's own, not a sibling: see
+    # `Planner.move`.
     index: int | None = Field(default=None, ge=0)
 
 
@@ -377,10 +379,8 @@ def _batch_create(cmd: CreateCommand | TodoCommand,
         ops = [*ops, *ctx.planner.creates(blocks, p.page, parent,
                                           [(0, p.text)], todo, off_page)]
     else:
-        # Minted here, the one place this command reads `p.index`: a
-        # user-supplied order_idx, taken verbatim.
-        ops = [*ops, ctx.planner.create_at(p.page, parent, OrderIdx(p.index),
-                                           p.text, todo)]
+        ops = [*ops, ctx.planner.create_at(blocks, p.page, parent, p.index,
+                                           p.text, todo, off_page)]
     if p.as_:
         # The content block, never a heading this command had to create
         # first: the alias names what the caller asked for.
@@ -419,10 +419,7 @@ def _batch_move(cmd: MoveCommand, ctx: _BatchCtx) -> list[MoveOp]:
         if missing is not None:
             raise BuildError("move target heading does not exist")
         off_page = False
-    # Minted here, the one place this command reads `p.index`: a
-    # user-supplied order_idx, taken verbatim.
-    idx = OrderIdx(p.index) if p.index is not None \
-        else ctx.planner.bump(blocks, p.page, parent, off_page)
+    idx = ctx.planner.move(blocks, p.page, parent, uid, p.index, off_page)
     return [MoveOp(op="move", uid=uid, parent_uid=parent,
                    order_idx=idx,
                    page_title=None if parent else p.page)]
@@ -430,6 +427,7 @@ def _batch_move(cmd: MoveCommand, ctx: _BatchCtx) -> list[MoveOp]:
 
 def _batch_delete(cmd: DeleteCommand, ctx: _BatchCtx) -> list[DeleteOp]:
     uid = _alias_uid(cmd.params.uid, ctx.aliases)
+    ctx.planner.delete(uid)
     model = ctx.subtrees.get(uid)
     return [DeleteOp(op="delete", uid=uid,
                      base_subtree_hash=model.hash() if model else None)]
@@ -457,9 +455,18 @@ def plan_batch(commands: Sequence[object], pages: PageBlocks,
     the texts as a conflict copy if another device edited them since the
     fetch; one without (None, never fetched, or an alias) is a plain
     delete, as is every delete when `subtrees` is omitted.
+
+    Every fetched page is seeded into the planner's sibling model up
+    front, before any command plans -- `delete` and an off-page `move`
+    target carry no `blocks` of their own to seed from, so a page only
+    some OTHER command in the batch references still has to be in the
+    model by the time a `delete`/`move` earlier in the batch needs it.
     """
     parsed = [_parse_command(cmd, i) for i, cmd in enumerate(commands)]
-    ctx = _BatchCtx(planner=Planner(uids), pages=pages,
+    planner = Planner(uids)
+    for title, blocks in pages.items():
+        planner.seed_page(title, blocks)
+    ctx = _BatchCtx(planner=planner, pages=pages,
                     subtrees={uid: _SubtreeModel.of(node)
                               for uid, node in (subtrees or {}).items()
                               if node is not None})

@@ -56,7 +56,12 @@ def next_child_order_idx(blocks: Sequence[BlockNode],
     renumbers), so counting siblings can land inside existing gaps instead
     of after every one of them, and the server's `ShiftSiblings` only
     moves siblings at/after the new key into place. `None` means top level
-    of the page."""
+    of the page.
+
+    A standalone snapshot of one page as fetched -- `Planner` keeps its
+    own running sibling model instead (it has to, to compose several
+    batch commands in sequence), but this is the simpler building block
+    `plan_save`'s single-page, single-call use doesn't need that for."""
     def _after(siblings: Sequence[BlockNode]) -> OrderIdx:
         last = max((n.order_idx for n in siblings), default=None)
         return OrderIdx(0) if last is None else OrderIdx(last + 1)
@@ -66,6 +71,21 @@ def next_child_order_idx(blocks: Sequence[BlockNode],
         if n.uid == parent_uid:
             return _after(n.children)
     raise BuildError(f"parent block not on page: {parent_uid}")
+
+
+def order_idx_at_position(siblings: Sequence[tuple[str, OrderIdx]],
+                          position: int) -> OrderIdx:
+    """The order key of 0-based `position` among `siblings` (uid,
+    order_idx pairs, already sorted ascending by order_idx) -- the ONE
+    place a user-supplied position becomes a minted `OrderIdx`. A
+    `position` at or past the end means append: one past the last
+    sibling's key, or 0 with none. Never a sibling COUNT -- see
+    `next_child_order_idx` for why that would land in a gap instead of
+    after every real key."""
+    if position < len(siblings):
+        return siblings[position][1]
+    last = siblings[-1][1] if siblings else None
+    return OrderIdx(0) if last is None else OrderIdx(last + 1)
 
 
 def parse_uid_spec(spec: str | None) -> str | None:
@@ -150,13 +170,42 @@ def _create(uid: str, page: str, parent: str | None, idx: OrderIdx, text: str,
                     order_idx=idx, text=text, heading=heading)
 
 
+SiblingKey = tuple[str, str | None]  # (page, parent uid or None for top level)
+
+
 class Planner:
-    """The state a run of create planning threads through its ops: the next
-    append order_idx per (page, parent), and the uid of every '## Heading'
-    the run has created. Both exist so that several `creates`/`create_at`
-    calls -- i.e. several batch commands -- compose: consecutive creates
-    land in consecutive positions, and a heading spec repeated across
-    commands reuses the heading already planned instead of duplicating it.
+    """The state a run of create/move/delete planning threads through its
+    ops: a per-(page, parent) model of the live sibling list (uid,
+    order_idx pairs, ascending), a uid -> its current (page, parent) for
+    finding a moved/deleted block's own list, and the uid of every
+    '## Heading' the run has created. All three exist so that several
+    batch commands compose: a position counts against the page AS THE
+    BATCH HAS LEFT IT SO FAR, so consecutive creates/moves/deletes have to
+    see each other's effects, and a heading spec repeated across commands
+    reuses the heading already planned instead of duplicating it.
+
+    The sibling model mirrors the server's own arithmetic exactly (see
+    `ops_core.plan_op`/`ops_apply._execute`'s `ShiftSiblings`): a create or
+    move landing at order key K shifts every sibling at/after K up by one
+    before the block lands at K; a move additionally removes the block
+    from wherever it was first. `order_idx_at_position` is the only place
+    a user-supplied position becomes that key.
+
+    A page is seeded into the model -- its whole tree, every parent's
+    children at once -- the first time any group on it is touched;
+    `plan_batch` seeds every fetched page up front so that a `delete` or
+    `move`, which may carry no `blocks` of their own to seed from, still
+    see a page some other command in the batch already touched. A uid the
+    model never saw (an unfetched page, or a batch command whose page was
+    never referenced elsewhere) is simply absent from `_location`: a move
+    of it still lands, a delete of it is just not tracked -- see
+    `_remove`.
+
+    Known limit: this model does not simulate the server skipping a move
+    under the block's own descendant (a cycle) -- it applies the shift and
+    the relocation as asked. That skip is rare and only ever changes what
+    the move ops *contain*, never silently corrupts a position elsewhere,
+    so it's left unmodeled.
 
     Every method takes an already-resolved parent uid. Turning a parent
     *spec* into one -- aliases, in-batch uids, a page that was never
@@ -165,30 +214,73 @@ class Planner:
 
     def __init__(self, uids: Iterator[str]):
         self._uids = uids
-        self._next_idx: dict[tuple[str, str | None], OrderIdx] = {}
+        self._siblings: dict[SiblingKey, list[tuple[str, OrderIdx]]] = {}
+        self._location: dict[str, SiblingKey] = {}
+        self._seeded_pages: set[str] = set()
         self._headings: dict[tuple[str, HeadingLevel, str], str] = {}
 
     def next_uid(self) -> str:
         return next(self._uids)
 
-    def bump(self, blocks: Sequence[BlockNode], page: str,
-             parent: str | None, parent_off_page: bool = False) -> OrderIdx:
-        """The next append order_idx under (page, parent): one past the
-        last sibling already planned or on the page, 0 with none.
+    # -- sibling model ----------------------------------------------------
 
-        `parent_off_page` says `parent` was created earlier in this run of
-        planning rather than fetched: it is not among `blocks`, so its
-        first child starts at 0 instead of consulting
-        `next_child_order_idx`, which would raise. Only a real uid can be
-        off-page -- page top level (`parent=None`) is always among
-        `blocks`."""
+    def seed_page(self, page: str, blocks: Sequence[BlockNode]) -> None:
+        """Seed every (page, parent) sibling group on `page` from its
+        fetched `blocks`, once. Idempotent, so every caller that might be
+        first to touch a page -- a batch command's own planner, or
+        `plan_batch`'s up-front pass over every fetched page -- can call it
+        freely."""
+        if page in self._seeded_pages:
+            return
+        self._seeded_pages.add(page)
+        self._seed_level(page, None, blocks)
+
+    def _seed_level(self, page: str, parent: str | None,
+                    nodes: Sequence[BlockNode]) -> None:
+        self._siblings[(page, parent)] = [(n.uid, n.order_idx) for n in nodes]
+        for n in nodes:
+            self._location[n.uid] = (page, parent)
+            self._seed_level(page, n.uid, n.children)
+
+    def _group(self, blocks: Sequence[BlockNode], page: str,
+              parent: str | None,
+              parent_off_page: bool) -> list[tuple[str, OrderIdx]]:
+        """The live (uid, order_idx) list for (page, parent), seeding
+        `page` from `blocks` first unless `parent` was created earlier in
+        this run (off-page: not among `blocks`, so it has no fetched
+        children to seed from -- it starts empty, same as a fresh heading).
+        Raises like `next_child_order_idx` did if a real `parent` turns out
+        not to be on the page at all."""
         key = (page, parent)
-        if key not in self._next_idx:
-            self._next_idx[key] = OrderIdx(0) if parent_off_page \
-                else next_child_order_idx(blocks, parent)
-        idx = self._next_idx[key]
-        self._next_idx[key] = OrderIdx(idx + 1)
-        return idx
+        if parent_off_page:
+            return self._siblings.setdefault(key, [])
+        self.seed_page(page, blocks)
+        if key not in self._siblings:
+            raise BuildError(f"parent block not on page: {parent}")
+        return self._siblings[key]
+
+    def _land(self, key: SiblingKey, uid: str, idx: OrderIdx) -> None:
+        """`ShiftSiblings` then insert: every sibling already in `key`'s
+        group at/after `idx` moves up by one, then `uid` lands at `idx`.
+        `uid` may already be one of those siblings (a same-parent move) --
+        shifting it is harmless since the caller removes it before this
+        runs."""
+        siblings = self._siblings[key]
+        for i, (u, k) in enumerate(siblings):
+            if k >= idx:
+                siblings[i] = (u, OrderIdx(k + 1))
+        siblings.append((uid, idx))
+        siblings.sort(key=lambda pair: pair[1])
+        self._location[uid] = key
+
+    def _remove(self, uid: str) -> None:
+        """Drop `uid` from wherever the model last saw it -- a no-op if the
+        model never did (its page was never fetched, or was fetched but
+        this uid wasn't on it)."""
+        loc = self._location.pop(uid, None)
+        if loc is not None:
+            self._siblings[loc] = [p for p in self._siblings[loc]
+                                   if p[0] != uid]
 
     def heading(self, blocks: Sequence[BlockNode], page: str,
                level: HeadingLevel, text: str) -> tuple[str, list[CreateOp]]:
@@ -203,13 +295,15 @@ class Planner:
             return planned, []
         uid = self.next_uid()
         self._headings[key] = uid
-        return uid, [_create(uid, page, None, self.bump(blocks, page, None),
-                             text, level)]
+        siblings = self._group(blocks, page, None, False)
+        idx = order_idx_at_position(siblings, len(siblings))
+        self._land((page, None), uid, idx)
+        return uid, [_create(uid, page, None, idx, text, level)]
 
-    def _one(self, page: str, parent: str | None, idx: OrderIdx, text: str,
-             todo: bool) -> CreateOp:
-        """One create op at a decided position: heading marker split off the
-        text, task marker applied when asked.
+    def _one(self, uid: str, page: str, parent: str | None, idx: OrderIdx,
+            text: str, todo: bool) -> CreateOp:
+        """One create op at a decided (uid, position): heading marker split
+        off the text, task marker applied when asked.
 
         A heading this creates registers in the memo, so a later
         `parent: "## Notes"` in the same batch nests under this block
@@ -220,7 +314,6 @@ class Planner:
         body, level = split_heading(text)
         if todo:
             body = with_state(body, "TODO")
-        uid = self.next_uid()
         if level is not None:
             self._headings.setdefault((page, level, body), uid)
         return _create(uid, page, parent, idx, body, level)
@@ -234,9 +327,9 @@ class Planner:
         created ancestor at the right depth. `todo` marks depth-0 items
         only.
 
-        `parent_off_page` is `bump`'s flag for `parent`. Every block this
-        call creates is off-page too, so nesting under one starts at 0; the
-        `created` set below is what tracks them."""
+        `parent_off_page` is the off-page flag for `parent` itself. Every
+        block this call creates is off-page too, so nesting under one
+        starts empty; the `created` set below is what tracks them."""
         ops: list[CreateOp] = []
         created: set[str] = set()
         stack: list[str | None] = [parent]
@@ -245,9 +338,11 @@ class Planner:
             target = stack[depth]
             off_page = target in created \
                 or (target == parent and parent_off_page)
-            op = self._one(page, target,
-                           self.bump(blocks, page, target, off_page),
-                           text, todo and depth == 0)
+            uid = self.next_uid()
+            siblings = self._group(blocks, page, target, off_page)
+            idx = order_idx_at_position(siblings, len(siblings))
+            self._land((page, target), uid, idx)
+            op = self._one(uid, page, target, idx, text, todo and depth == 0)
             ops.append(op)
             created.add(op.uid)
             if len(stack) == depth + 1:
@@ -256,19 +351,46 @@ class Planner:
                 stack[depth + 1] = op.uid
         return ops
 
-    def create_at(self, page: str, parent: str | None, index: OrderIdx,
-                  text: str, todo: bool) -> CreateOp:
-        """One create whose `order_idx` is `index` verbatim -- the server
-        splices siblings at/after it on insert. Only single-item
-        `create`/`todo` batch commands ask for this; `outline` and
-        `plan_save` always append.
+    def create_at(self, blocks: Sequence[BlockNode], page: str,
+                  parent: str | None, position: int, text: str, todo: bool,
+                  parent_off_page: bool = False) -> CreateOp:
+        """One create landing at `position`: 0-based among (page, parent)'s
+        current children AS THE BATCH HAS LEFT THEM SO FAR -- past the end
+        means append, same as a plain create. Only single-item
+        `create`/`todo` batch commands ask for an explicit position;
+        `outline` and `plan_save` always append."""
+        uid = self.next_uid()
+        siblings = self._group(blocks, page, parent, parent_off_page)
+        idx = order_idx_at_position(siblings, position)
+        self._land((page, parent), uid, idx)
+        return self._one(uid, page, parent, idx, text, todo)
 
-        Deliberately leaves the append counter alone: mixing an indexed
-        create with plain appends under the same parent in one batch may
-        interleave, since the appends keep counting from the page's
-        original last order_idx rather than accounting for the index. See
-        `pkm batch --help`."""
-        return self._one(page, parent, index, text, todo)
+    def move(self, blocks: Sequence[BlockNode], page: str,
+            parent: str | None, uid: str, position: int | None,
+            parent_off_page: bool = False) -> OrderIdx:
+        """Mint the order key for moving `uid` to (page, parent), landing
+        at `position` -- 0-based among the destination's children WITHOUT
+        `uid` itself, past the end or `None` meaning append -- and advance
+        the model: remove `uid` from wherever it currently sits (a same-
+        parent move's own old entry does not count towards `position`
+        either way), then land it at the minted key, shifting the
+        destination's remaining siblings same as a create. Mirrors the
+        server's `ShiftSiblings` then `SetParent`, in that order -- a
+        same-parent move's `ShiftSiblings` also touches `uid`'s own
+        pre-move row, but that row is about to be overwritten by
+        `SetParent` regardless, so the model never has to represent it."""
+        siblings = self._group(blocks, page, parent, parent_off_page)
+        excl = [p for p in siblings if p[0] != uid]
+        idx = order_idx_at_position(
+            excl, len(excl) if position is None else position)
+        self._remove(uid)
+        self._land((page, parent), uid, idx)
+        return idx
+
+    def delete(self, uid: str) -> None:
+        """Remove `uid` from the sibling model, wherever it currently sits
+        -- a no-op if the model never saw it."""
+        self._remove(uid)
 
 
 def plan_save(blocks: Sequence[BlockNode], page_title: str,
@@ -386,6 +508,7 @@ def create_page_ops(titles: Iterable[str]) -> list[CreatePageOp]:
 
 __all__ = [
     "BuildError", "Planner", "parse_outline", "next_child_order_idx",
-    "resolve_parent", "parse_uid_spec", "split_heading", "plan_save",
-    "plan_update", "plan_mark", "asset_block_text", "create_page_ops",
+    "order_idx_at_position", "resolve_parent", "parse_uid_spec",
+    "split_heading", "plan_save", "plan_update", "plan_mark",
+    "asset_block_text", "create_page_ops",
 ]

@@ -19,9 +19,10 @@ const RECOVERY_TIMEOUT_MS = 120_000;
  * rebuildSchema). Distinct from `SyncSeq` and `BatchId` so none of the
  * three can swap at a call like `deleteBatch(id, batchId, ackedSeq)`.
  * Minted only at the SQLite row mappers in replica/queue.ts (toBatch,
- * poisonedBatches) and at the RPC boundary in replica/workerHandlers.ts,
- * which re-asserts it on every payload read out of `unknown` (structured
- * clone carries the runtime number, not the brand). */
+ * poisonedBatches); on the RPC boundary it crosses by type, through
+ * `ReplicaRpc` below -- `rpc.ts`'s `serveRpc` is the one place that still
+ * takes a payload on trust out of `unknown` (structured clone carries the
+ * runtime number, not the brand), and that trust covers the whole map. */
 export type PendingRowId = number & { readonly __brand: "PendingRowId" };
 
 export interface PendingBatch {
@@ -148,13 +149,72 @@ export interface Replica {
   dispose(): Promise<void>;
 }
 
+/** The replica worker's whole RPC surface: one entry per method
+ * `createReplica` calls and `buildHandlers` (workerHandlers.ts) implements,
+ * naming the exact payload and result on both sides of the worker boundary.
+ * Brands (`PendingRowId`, `BatchId`, `SyncSeq`) appear here exactly as the
+ * `Replica` methods declare them, so they survive the RPC layer by type; the
+ * worker never re-mints one from a raw number or string. `close` has no
+ * `Replica` method of its own -- it is `dispose()`'s own teardown call, used
+ * nowhere else. */
+export type ReplicaRpc = {
+  init: { payload: undefined; result: ReplicaInit };
+  /** The handler resolves `null`, and a `Promise<null>` is not a
+   * `Promise<void>`: `createReplica`'s wrapper drops the value, as
+   * `memReplica.ts`'s stub does. */
+  applySnapshot: { payload: Snapshot; result: null };
+  applyChanges: {
+    payload: { feed: Changes; expectedPendingIds: readonly PendingRowId[] };
+    result: ApplyResult;
+  };
+  enqueue: {
+    payload: { ops: BlockOp[]; batchId: BatchId };
+    result: { pending: number; batchId: BatchId };
+  };
+  nextBatch: { payload: undefined; result: PendingBatch | null };
+  pendingBatches: { payload: undefined; result: PendingBatch[] };
+  poisonedBatches: { payload: undefined; result: PoisonedBatch[] };
+  deleteBatch: {
+    payload: { id: PendingRowId; batchId: BatchId; ackedSeq?: SyncSeq };
+    result: { pending: number };
+  };
+  markPoisoned: {
+    payload: { id: PendingRowId; error: string; batchId: BatchId };
+    result: { pending: number; matched: boolean };
+  };
+  pendingCount: { payload: undefined; result: number };
+  localApi: { payload: LocalApiRequest; result: LocalApiResult };
+  /** `createReplica` always sends a deadline; the handler reads a missing
+   * payload as "no deadline", which tests that ignore expiry rely on. */
+  prepareRecovery: {
+    payload: { expiresAtMs: number } | undefined;
+    result: RecoveryLease;
+  };
+  /** result: null, same reasoning as applySnapshot above. */
+  commitRecovery: {
+    payload: { token: string; input: RecoveryCommit };
+    result: null;
+  };
+  /** result: null, same reasoning as applySnapshot above. */
+  abortRecovery: { payload: string; result: null };
+  /** result: null, same reasoning as applySnapshot above. */
+  reset: { payload: undefined; result: null };
+  diagnostics: { payload: undefined; result: ReplicaDiagnostics };
+  /** result: null; nothing reads it -- `dispose()` discards it directly. */
+  close: { payload: undefined; result: null };
+};
+
 export function createReplica(port: PortLike, terminate?: () => void): Replica {
-  const rpc = createRpcClient(port);
+  const rpc = createRpcClient<ReplicaRpc>(port);
   let disposing: Promise<void> | null = null;
   return {
     init: () => rpc.call("init"),
+    // .then(() => undefined): the worker resolves with `null` (see
+    // ReplicaRpc), and this is where that becomes the `void` this interface
+    // promises -- the value itself never crosses back out of this module.
     applySnapshot: (snap) =>
-      rpc.call("applySnapshot", snap, { timeoutMs: RECOVERY_TIMEOUT_MS }),
+      rpc.call("applySnapshot", snap, { timeoutMs: RECOVERY_TIMEOUT_MS })
+        .then(() => undefined),
     applyChanges: (feed, expectedPendingIds = []) => rpc.call("applyChanges", {
       feed, expectedPendingIds,
     }),
@@ -173,9 +233,11 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
       { expiresAtMs: Date.now() + RECOVERY_TIMEOUT_MS },
       { timeoutMs: RECOVERY_TIMEOUT_MS }),
     commitRecovery: (token, input) => rpc.call(
-      "commitRecovery", { token, input }, { timeoutMs: RECOVERY_TIMEOUT_MS }),
-    abortRecovery: (token) => rpc.call("abortRecovery", token),
-    reset: () => rpc.call("reset", undefined, { timeoutMs: RECOVERY_TIMEOUT_MS }),
+      "commitRecovery", { token, input }, { timeoutMs: RECOVERY_TIMEOUT_MS },
+    ).then(() => undefined),
+    abortRecovery: (token) => rpc.call("abortRecovery", token).then(() => undefined),
+    reset: () => rpc.call("reset", undefined, { timeoutMs: RECOVERY_TIMEOUT_MS })
+      .then(() => undefined),
     diagnostics: () =>
       rpc.call("diagnostics", undefined, { timeoutMs: RECOVERY_TIMEOUT_MS }),
     dispose: () => (disposing ??= (async () => {

@@ -36,12 +36,26 @@ interface RpcResponse {
   };
 }
 
-export type RpcHandlers = Record<string, (payload: unknown) => Promise<unknown>>;
+/** One RPC surface: a method name mapped to the payload it takes and the
+ * result it resolves to. `serveRpc`/`createRpcClient` are generic over this,
+ * so a concrete map (the replica's `ReplicaRpc` in client.ts, or a test's own
+ * loose map) is the single contract both the handler record and the call
+ * sites compile against. */
+export type RpcMethodMap = Record<string, { payload: unknown; result: unknown }>;
 
-export function serveRpc(port: PortLike, handlers: RpcHandlers): void {
+export type RpcHandlers<M extends RpcMethodMap> = {
+  [K in keyof M]: (payload: M[K]["payload"]) => Promise<M[K]["result"]>;
+};
+
+export function serveRpc<M extends RpcMethodMap>(port: PortLike, handlers: RpcHandlers<M>): void {
+  // The one boundary assertion: structured clone delivers plain values, not
+  // M's brands, and a runtime method name cannot narrow to one key of M, so
+  // dispatch forgets the per-key types. M is the contract both ends compile
+  // against; nothing past this point re-derives it.
+  const dispatch = handlers as unknown as Record<string, (payload: unknown) => Promise<unknown>>;
   port.onmessage = (ev) => {
     const req = ev.data as RpcRequest;
-    const handler = handlers[req.method];
+    const handler = dispatch[req.method];
     const run = handler
       ? handler(req.payload)
       : Promise.reject(new Error(`unknown replica method: ${req.method}`));
@@ -59,13 +73,21 @@ export function serveRpc(port: PortLike, handlers: RpcHandlers): void {
   };
 }
 
-export interface RpcClient {
-  call<T>(method: string, payload?: unknown,
-          options?: { timeoutMs?: number }): Promise<T>;
+/** The arguments `call` takes for method `K`: the payload is omittable only
+ * when `M[K]["payload"]` itself admits `undefined`, so a method that takes
+ * no data can be called as `call("init")` while one that takes real data
+ * must supply it. */
+type RpcCallArgs<M extends RpcMethodMap, K extends keyof M & string> =
+  undefined extends M[K]["payload"]
+    ? [payload?: M[K]["payload"], options?: { timeoutMs?: number }]
+    : [payload: M[K]["payload"], options?: { timeoutMs?: number }];
+
+export interface RpcClient<M extends RpcMethodMap = RpcMethodMap> {
+  call<K extends keyof M & string>(method: K, ...args: RpcCallArgs<M, K>): Promise<M[K]["result"]>;
   dispose(reason?: Error): void;
 }
 
-export function createRpcClient(port: PortLike): RpcClient {
+export function createRpcClient<M extends RpcMethodMap = RpcMethodMap>(port: PortLike): RpcClient<M> {
   let nextId = 1;
   let terminal: RpcLifecycleError | null = null;
   const pending = new Map<number, {
@@ -103,11 +125,14 @@ export function createRpcClient(port: PortLike): RpcClient {
   port.onmessageerror = (ev) => failTerminal(new RpcLifecycleError(
     "message-error", "replica worker message could not be decoded", ev.data));
   return {
-    call<T>(method: string, payload?: unknown,
-            options?: { timeoutMs?: number }): Promise<T> {
+    call<K extends keyof M & string>(
+      method: K, ...args: RpcCallArgs<M, K>
+    ): Promise<M[K]["result"]> {
+      const [payload, options] = args as unknown as
+        [M[K]["payload"] | undefined, { timeoutMs?: number } | undefined];
       if (terminal) return Promise.reject(terminal);
       const id = nextId++;
-      return new Promise<T>((resolve, reject) => {
+      return new Promise<M[K]["result"]>((resolve, reject) => {
         const timeoutMs = options?.timeoutMs ?? 30_000;
         const timer = setTimeout(() => {
           if (!pending.delete(id)) return;

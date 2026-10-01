@@ -3,21 +3,20 @@
 // the whole surface is testable without a real Worker or OPFS.
 
 import type { BatchId, SyncSeq } from "../api/brands";
-import type { BlockOp } from "../api/ops";
-import type { Changes, Snapshot } from "./apply";
+import type { Snapshot } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import { splitAckedRows } from "./ackedRows";
 import { mergeCarriedRows } from "./carryMerge";
 import type { CarryStore } from "./carryStore";
 import type {
-  AckedBatch, PendingBatch, PendingRowId, RecoveryCommit, ReplicaDiagnostics,
+  AckedBatch, PendingBatch, PendingRowId, ReplicaDiagnostics, ReplicaRpc,
 } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
 import { isCorruptionMessage, isUnreadableFileMessage,
          ReplicaUnusableError } from "./errors";
 import { getMeta } from "./meta";
-import { handleLocalApi, type LocalApiRequest } from "./localApi/router";
+import { handleLocalApi } from "./localApi/router";
 import { pendingSetStillCovered } from "./pendingGuard";
 import { allBatches, deleteBatch, type DurablePendingRow, enqueueBatch,
          importPendingRows, markPoisoned, nextBatch, pendingCount,
@@ -135,7 +134,7 @@ function collectDiagnostics(db: ReplicaDb): ReplicaDiagnostics {
   };
 }
 
-export function buildHandlers(deps: WorkerDeps): RpcHandlers {
+export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
   let dbPromise: Promise<ReplicaDb> | null = null;
   // Whether the replica is usable, decided here — the worker is the only
   // party that can say "there is definitively no database" rather than "I
@@ -413,7 +412,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   };
 
   return {
-    async enqueue(payload) {
+    async enqueue({ ops, batchId }) {
       return gate.run(async () => {
         const d = await queueDb();
         // the first edit can beat the socket connect that triggers init():
@@ -421,47 +420,33 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         // An existing database (any version) is left alone — init() owns
         // schema-mismatch detection and recovery.
         if (!tableExists(d, "sync_client_meta")) installSchema(d);
-        // The object shape always carries the caller-minted batch id: worker
-        // and main bundle ship from one hashed build, so no version skew
-        // between caller and handler is possible. structured clone carries
-        // the runtime string, not the brand, so this re-asserts it the same
-        // way the row mappers in queue.ts do for a value read from SQLite.
-        const { ops, batchId } = payload as { ops: BlockOp[]; batchId: BatchId };
         return enqueueBatch(d, ops, nowMs(), batchId);
       });
     },
     async nextBatch() {
       return gate.run(async () => nextBatch(await queueDb()));
     },
-    async deleteBatch(payload) {
-      // The batch id is required: see queue.ts deleteBatch. The worker and
-      // its callers ship in one build, so no older payload shape arrives.
-      const { id, batchId, ackedSeq } = (typeof payload === "object" && payload !== null
-        ? payload : {}) as { id?: number; batchId?: unknown; ackedSeq?: SyncSeq };
+    async deleteBatch({ id, batchId, ackedSeq }) {
       return gate.run(async () => {
         const d = await queueDb();
+        // The payload is typed as requiring both fields, but a caller that
+        // bypasses the typed Replica facade (a test, or a future one) can
+        // still hand this a value that isn't really one: this is genuine
+        // runtime defense, not the brand re-mint the type now does for free.
         if (typeof id !== "number" || typeof batchId !== "string") {
           throw new Error("deleteBatch needs the row's id and batch id");
         }
-        // The RPC payload crossed structured clone as plain number/string;
-        // this re-mints the brands on the main thread's say-so the same way
-        // queue.ts's row mappers do for a value read straight from SQLite.
-        const rowId = id as PendingRowId;
-        const batch = batchId as BatchId;
         // A delete that matched nothing cannot say which batch its seq was
         // for, so it records none and forgets any seq held for the id:
         // forgetting costs at most one refetch, vouching wrongly would let a
         // window apply over a batch it does not carry.
-        const matched = deleteBatch(d, rowId, batch);
-        noteAck(rowId, matched ? ackedSeq : undefined);
+        const matched = deleteBatch(d, id, batchId);
+        noteAck(id, matched ? ackedSeq : undefined);
         return { pending: pendingCount(d) };
       });
     },
-    async markPoisoned(payload) {
+    async markPoisoned({ id, error, batchId }) {
       return gate.run(async () => {
-        const { id, error, batchId } = payload as {
-          id: PendingRowId; error: string; batchId: BatchId;
-        };
         const d = await queueDb();
         const matched = markPoisoned(d, id, error, batchId);
         return { pending: pendingCount(d), matched };
@@ -484,19 +469,15 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         };
       });
     },
-    async applySnapshot(payload) {
+    async applySnapshot(snapshot) {
       return gate.run(async () => {
-        applySnapshotToDb(await queueDb(), payload as Snapshot, nowMs());
+        applySnapshotToDb(await queueDb(), snapshot, nowMs());
         return null;
       });
     },
-    async applyChanges(payload) {
+    async applyChanges({ feed, expectedPendingIds }) {
       return gate.run(async () => {
         const d = await queueDb();
-        const { feed, expectedPendingIds } = payload as {
-          feed: Changes;
-          expectedPendingIds: PendingRowId[];
-        };
         const currentPendingIds = allBatches(d).map((batch) => batch.id);
         const covered = pendingSetStillCovered(
           expectedPendingIds, currentPendingIds, ackedSeqs, feed.latest_seq);
@@ -523,14 +504,12 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     async pendingCount() {
       return gate.run(async () => pendingCount(await queueDb()));
     },
-    async localApi(payload) {
+    async localApi(req) {
       return gate.run(async () => handleLocalApi(
-        await queueDb(), payload as LocalApiRequest, { newBatchId }));
+        await queueDb(), req, { newBatchId }));
     },
     async prepareRecovery(payload) {
-      const expiresAtMs = Number(
-        (payload as { expiresAtMs?: unknown } | undefined)?.expiresAtMs,
-      );
+      const expiresAtMs = Number(payload?.expiresAtMs);
       const hasDeadline = Number.isFinite(expiresAtMs);
       const prepared = await gate.prepare(async () => {
         const d = await queueDb();
@@ -559,11 +538,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       }
       return { token: prepared.token, batches: prepared.value.batches };
     },
-    async commitRecovery(payload) {
-      const { token, input } = payload as {
-        token: string;
-        input: RecoveryCommit;
-      };
+    async commitRecovery({ token, input }) {
       if (preparedRows?.token === token
           && preparedRows.expiryTimer !== null) {
         clearTimeout(preparedRows.expiryTimer);
@@ -589,8 +564,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         clearPrepared(token);
       }
     },
-    async abortRecovery(payload) {
-      const token = payload as string;
+    async abortRecovery(token) {
       if (preparedRows?.token === token
           && preparedRows.expiryTimer !== null) {
         clearTimeout(preparedRows.expiryTimer);

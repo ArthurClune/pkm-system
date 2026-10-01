@@ -1,11 +1,11 @@
 ---
 # pkm-ke5j
 title: Typed method map for the replica worker RPC
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-10-01T16:45:35Z
-updated_at: 2026-10-01T16:45:35Z
+updated_at: 2026-10-01T17:21:40Z
 parent: pkm-7uxw
 ---
 
@@ -30,9 +30,19 @@ The transport (`serveRpc` / `createRpcClient`) stays generic, while the replica'
 
 ## Plan
 
-- [ ] Inventory every method: name, payload and result shape, from `client.ts` and `workerHandlers.ts`
-- [ ] Define the map, and type `call` and the handler record against it
-- [ ] Remove the per-handler payload casts, keeping one boundary assertion, and remove the per-wrapper `T` choices
-- [ ] `@ts-expect-error` probes: an unknown method name, a wrong payload shape, and a result read as the wrong type
-- [ ] `pnpm verify` clean; perf unchanged (types only)
-- [ ] Docs: the sync-recovery.md or frontend.md note on the worker RPC
+- [x] Inventory every method: name, payload and result shape, from `client.ts` and `workerHandlers.ts`
+- [x] Define the map, and type `call` and the handler record against it
+- [x] Remove the per-handler payload casts, keeping one boundary assertion, and remove the per-wrapper `T` choices
+- [x] `@ts-expect-error` probes: an unknown method name, a wrong payload shape, and a result read as the wrong type
+- [x] `pnpm verify` clean; perf unchanged (types only)
+- [x] Docs: the sync-recovery.md or frontend.md note on the worker RPC
+
+## Summary of Changes
+
+- `rpc.ts`: `serveRpc` / `createRpcClient` are generic over an `RpcMethodMap`. `call(method, ...args)` takes and returns the map's payload and result, and the payload can be left out only when it admits `undefined`. The one boundary assertion sits in `serveRpc`'s dispatch. `rpc.test.ts` uses the loose default map, since nothing else uses the transport.
+- `client.ts`: `ReplicaRpc` names all 17 methods (including `close`), with `PendingRowId` / `BatchId` / `SyncSeq` carried by type. `createReplica`'s wrappers no longer choose their own `T`.
+- `workerHandlers.ts`: `buildHandlers` returns `RpcHandlers<ReplicaRpc>`. The per-handler payload casts and brand re-mints are gone. `deleteBatch` keeps its runtime shape check.
+- Finding: five handlers resolve `null` where `Replica` declares `void`. The map types them `null`, and the wrappers drop the value.
+- Four `@ts-expect-error` probes in `client.test.ts`: unknown method, wrong payload, wrong result type, incomplete or mistyped handler record. A mutation check confirmed they fail tsc under the old `Record<string, …>`.
+- Docs: `sync-and-offline.md` notes the shared map.
+- Verified: typecheck, 3073 unit tests, 72 e2e. Frontend perf unchanged.

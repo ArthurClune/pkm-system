@@ -202,7 +202,12 @@ replica's own `pending_ops` row id is `PendingRowId` instead — web-only,
 never on the wire, and not stable across a reset or a file replacement
 (`AUTOINCREMENT` restarts): `PendingBatch`, `AckedBatch` and `PoisonedBatch`
 (`replica/client.ts`) all name the pair `id`/`batch_id`, so a value built
-from one shape needs no translation to flow into another.
+from one shape needs no translation to flow into another. The worker RPC
+surface (`ReplicaRpc` in `client.ts`) names every method's payload and
+result in these same branded types, so `createReplica` and `workerHandlers.ts`'s
+`buildHandlers` compile against one shared map. `rpc.ts`'s `serveRpc` is still
+the one place that takes the wire data on trust, since structured clone
+carries the runtime values, not the brands.
 
 `OpBatch.client_id` and `OpBatch.batch_id` are branded too, as `ClientId` and
 `BatchId`, so the two bare uid strings sitting side by side in one request

@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 from typing import Protocol
 
 from pkm.assistant.events import AssistantEvent
+from pkm.contracts.responses import ConfirmId
 
 
 class ConversationHandle(Protocol):
@@ -27,7 +28,7 @@ class ConversationHandle(Protocol):
         """
         ...
 
-    def resolve_confirm(self, tool_use_id: str, allow: bool) -> None:
+    def resolve_confirm(self, confirm_id: ConfirmId, allow: bool) -> None:
         """Answer a pending ConfirmRequest. Unknown ids are ignored."""
         ...
 

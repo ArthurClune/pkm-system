@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { block, pagePayload } from "../test-helpers";
-import type { ReadToken } from "./outlineState";
+import type { ReadToken, RequestId, Revision } from "./outlineState";
 import {
   createParentReadElection,
   type ParentReadElection,
@@ -19,7 +19,7 @@ function createHost() {
   };
   const host: ParentReadHost = {
     title: "Elected",
-    latestRequestId: () => state.latest,
+    latestRequestId: () => state.latest as RequestId,
     hasActivatedCapture: (requestId) => state.captures.has(requestId),
     manualReadCount: () => state.manualReads.size,
     hasManualRead: (requestId) => state.manualReads.has(requestId),
@@ -30,7 +30,7 @@ function createHost() {
 }
 
 const token = (requestId: number): ReadToken =>
-  ({ requestId, revisionAtDispatch: 0 });
+  ({ requestId: requestId as RequestId, revisionAtDispatch: 0 as Revision });
 
 /** Let the scheduled election microtask run. */
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -187,7 +187,7 @@ it("attempts recovery once, then reports the failure it already has", async () =
 
   // The elected read dies; nothing else is outstanding.
   state.manualReads.delete(state.latest);
-  election.noteReadAbandoned(state.latest, new Error("elected read died"), true);
+  election.noteReadAbandoned(state.latest as RequestId, new Error("elected read died"), true);
   await settle();
 
   expect(controller).toHaveBeenCalledTimes(1);
@@ -208,7 +208,7 @@ it("a read this machine did not elect re-arms recovery", async () => {
   // A surface mounts and starts its own read, which then fails.
   election.noteReadBeginning();
   state.manualReads.clear();
-  election.noteReadAbandoned(state.latest, new Error("mount read failed"), true);
+  election.noteReadAbandoned(state.latest as RequestId, new Error("mount read failed"), true);
   const second = readyWaiter(election, state.latest);
   await settle();
 
@@ -229,7 +229,7 @@ it("the elected controller's own read does not re-arm recovery", async () => {
   await settle();
 
   state.manualReads.clear();
-  election.noteReadAbandoned(state.latest, new Error("elected died"), true);
+  election.noteReadAbandoned(state.latest as RequestId, new Error("elected died"), true);
   await settle();
 
   expect(controller).toHaveBeenCalledTimes(1);
@@ -248,7 +248,7 @@ it("frees a spent recovery only for a strictly older elected read", async () => 
 
   // A sweep at the elected read's own id must not hand the recovery back to
   // itself, so a waiter arriving after it is told there is nothing left.
-  election.expireRecoveryBefore(elected);
+  election.expireRecoveryBefore(elected as RequestId);
   state.manualReads.clear();
   const stillSpent = readyWaiter(election, elected);
   await settle();
@@ -258,7 +258,7 @@ it("frees a spent recovery only for a strictly older elected read", async () => 
   // Another authoritative controller takes ownership at a newer request:
   // the spent recovery becomes reusable.
   state.latest = elected + 1;
-  election.expireRecoveryBefore(state.latest);
+  election.expireRecoveryBefore(state.latest as RequestId);
   readyWaiter(election, state.latest);
   await settle();
   expect(controller).toHaveBeenCalledTimes(2);
@@ -271,7 +271,7 @@ it("an abandoned read that was not the newest changes nothing", async () => {
   const waiter = readyWaiter(election);
   state.manualReads.add(1);
 
-  election.noteReadAbandoned(1, new Error("superseded"), false);
+  election.noteReadAbandoned(1 as RequestId, new Error("superseded"), false);
   await settle();
 
   expect(controller).not.toHaveBeenCalled();

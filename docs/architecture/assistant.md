@@ -44,7 +44,7 @@ sequenceDiagram
     end
     H->>H: model calls a write tool —<br/>can_use_tool parks it on a future
     R-->>B: confirm_request (ops preview from policy.py)
-    B->>R: POST …/{id}/confirm {tool_use_id, allow}
+    B->>R: POST …/{id}/confirm {confirm_id, allow}
     R->>H: resolve future — tool runs, or "the user declined"
     H->>A: pkm-mcp verb → HTTP API (minted session token)
     H-->>R: turn ends

@@ -11,7 +11,7 @@
 // read causality.
 import type { BlockNode, PagePayload } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
-import type { WriteTicket } from "../sync/opQueue";
+import type { TicketId, WriteTicket } from "../sync/opQueue";
 import type { WsBatch } from "../sync/socket";
 import {
   beginAuthoritativeRead as beginRead,
@@ -24,6 +24,7 @@ import {
   type OutlineReplayAction,
   type OutlineState,
   type ReadToken,
+  type RequestId,
 } from "./outlineState";
 import {
   createParentReadElection,
@@ -131,10 +132,10 @@ interface Session {
   authoritativeRead: Promise<void> | null;
   authoritativeAgain: boolean;
   reservations: number;
-  activatedCaptures: Set<number>;
+  activatedCaptures: Set<RequestId>;
   loaders: Map<symbol, RegisteredLoader>;
-  trackedWrites: Set<string>;
-  manualReads: Set<number>;
+  trackedWrites: Set<TicketId>;
+  manualReads: Set<RequestId>;
   /** Who starts this title's next full-payload parent read. */
   election: ParentReadElection;
   /** This session as a repair epoch sees it; identity is stable for the
@@ -152,7 +153,7 @@ interface UnresolvedWrite {
   capturedByTitle: Map<string, readonly OutlineReplayAction[]>;
 }
 
-const unresolvedWrites = new Map<string, UnresolvedWrite>();
+const unresolvedWrites = new Map<TicketId, UnresolvedWrite>();
 
 /** What a repair should reapply to `title` for this still-unresolved write.
  * There is always an answer — captured optimistic metadata when the UI
@@ -193,7 +194,7 @@ function applyTransition(
   runEffects(session, result.effects);
 }
 
-function expireManualReadsBefore(session: Session, requestId: number): void {
+function expireManualReadsBefore(session: Session, requestId: RequestId): void {
   session.election.expireRecoveryBefore(requestId);
   let expired = 0;
   for (const id of session.manualReads) {

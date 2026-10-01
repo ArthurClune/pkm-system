@@ -144,7 +144,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
         </BlockRefProvider>
         {assistant.pendingConfirm && (
           <ConfirmCard
-            key={assistant.pendingConfirm.toolUseId}
+            key={assistant.pendingConfirm.confirmId}
             opsPreview={assistant.pendingConfirm.opsPreview}
             onAllow={() => void assistant.respondConfirm(true)}
             onDeny={() => void assistant.respondConfirm(false)}

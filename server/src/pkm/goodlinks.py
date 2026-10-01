@@ -13,13 +13,22 @@ not listed is dropped, and that is the intended behaviour."""
 from __future__ import annotations
 
 import re
+from typing import NewType
 from urllib.parse import urlsplit, urlunsplit
 
 import nh3  # pyrefly: ignore
 
+from pkm.contracts.brands import brand
+
 GOODLINKS_PREFIX = "/api/goodlinks/"
 
 _ID_RE = re.compile(r"[0-9a-f]{32}")
+
+# GoodLinks' own link id shape: exactly 32 lowercase hex characters. Minted
+# only by parse_link_id below, the one place a str is checked against
+# _ID_RE and turned into this type.
+GoodlinksId = NewType("GoodlinksId", str)
+brand(GoodlinksId)
 
 # `[text](/api/goodlinks/...)` targets and bare `/api/goodlinks/...` tokens,
 # the same two shapes local_docs.py extracts for /api/local/.
@@ -43,19 +52,24 @@ _ALLOWED_ATTRIBUTES: dict[str, set[str]] = {
 _URL_SCHEMES: set[str] = {"http", "https"}
 
 
+def parse_link_id(value: str) -> GoodlinksId | None:
+    """The one place a str becomes a GoodlinksId: `value` unchanged if it is
+    32 lowercase hex characters, None otherwise."""
+    return GoodlinksId(value) if _ID_RE.fullmatch(value) else None
+
+
 def is_link_id(value: str) -> bool:
-    return _ID_RE.fullmatch(value) is not None
+    return parse_link_id(value) is not None
 
 
 def goodlinks_href(link_id: str) -> str:
     return GOODLINKS_PREFIX + link_id
 
 
-def link_id_from_href(href: str) -> str | None:
+def link_id_from_href(href: str) -> GoodlinksId | None:
     if not href.startswith(GOODLINKS_PREFIX):
         return None
-    link_id = href[len(GOODLINKS_PREFIX):]
-    return link_id if is_link_id(link_id) else None
+    return parse_link_id(href[len(GOODLINKS_PREFIX):])
 
 
 def extract_goodlinks_hrefs(text: str) -> list[str]:

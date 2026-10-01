@@ -19,7 +19,8 @@ from pkm.assistant.service import (
     ConversationLimitError,
     UnknownConversationError,
 )
-from pkm.contracts.responses import AssistantAck, AssistantConversation, AssistantModels
+from pkm.contracts.responses import (AssistantAck, AssistantConversation, AssistantModels,
+                                     ConfirmId, ConversationId)
 from pkm.server.auth import require_auth
 
 logger = logging.getLogger("pkm.assistant")
@@ -184,7 +185,7 @@ class SendMessageRequest(BaseModel):
 
 
 class ConfirmRequestBody(BaseModel):
-    tool_use_id: str
+    confirm_id: ConfirmId
     allow: bool
 
 
@@ -223,7 +224,7 @@ async def send_message(
     service: AssistantService = Depends(get_service),
 ) -> StreamingResponse:
     try:
-        stream = service.send(conversation_id, body.text)
+        stream = service.send(ConversationId(conversation_id), body.text)
     except UnknownConversationError as exc:
         raise HTTPException(status_code=404, detail="unknown conversation") from exc
     except BusyError as exc:
@@ -243,7 +244,7 @@ async def confirm_tool(
     service: AssistantService = Depends(get_service),
 ) -> dict:
     try:
-        service.confirm(conversation_id, body.tool_use_id, body.allow)
+        service.confirm(ConversationId(conversation_id), body.confirm_id, body.allow)
     except UnknownConversationError as exc:
         raise HTTPException(status_code=404, detail="unknown conversation") from exc
     return {"ok": True}
@@ -252,7 +253,7 @@ async def confirm_tool(
 async def delete_conversation(
     conversation_id: str, service: AssistantService = Depends(get_service)
 ) -> dict:
-    await service.delete(conversation_id)
+    await service.delete(ConversationId(conversation_id))
     return {"ok": True}
 
 

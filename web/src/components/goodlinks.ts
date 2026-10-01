@@ -4,11 +4,15 @@
 // GoodlinksLink and GoodlinksReader never re-parse the href themselves.
 // Anything that is not an exact id falls through to the ordinary anchor path
 // (a typo must not become a broken button).
+import type { GoodlinksId } from "../api/brands";
+
 const GOODLINKS_HREF_RE = /^\/api\/goodlinks\/([0-9a-f]{32})$/;
 
-export function goodlinksIdFromHref(href: string): string | null {
+// The one place a web href's id is checked against GoodLinks' shape and
+// becomes a GoodlinksId.
+export function goodlinksIdFromHref(href: string): GoodlinksId | null {
   const m = GOODLINKS_HREF_RE.exec(href);
-  return m ? m[1] : null;
+  return m ? m[1] as GoodlinksId : null;
 }
 
 // The server's 503 detail for a refused API token. The reader and the

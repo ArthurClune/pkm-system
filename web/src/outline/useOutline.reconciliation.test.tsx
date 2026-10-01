@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { expect, it, vi } from "vitest";
 import type { ClientId } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
-import type { DeliveryOutcome, WriteOutcome,
+import type { DeliveryOutcome, TicketId, WriteOutcome,
               WriteTicket } from "../sync/opQueue";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
@@ -133,7 +133,7 @@ it("delivery replaces a blocked pre-delivery response with exactly one fresh rea
   const sent: WriteTicket[] = [];
   const sync = makeSync("connected", {
     enqueue: (_ops, scope) => {
-      const ticket = { id: "write-1", scope: scope ?? [],
+      const ticket = { id: "write-1" as TicketId, scope: scope ?? [],
                        settled: settled.promise,
                        delivered: delivered.promise };
       sent.push(ticket);

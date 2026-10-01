@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import type { ConfirmId } from "../api/brands";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { stubFetch } from "../test-helpers";
 import type { ChatItem, PendingConfirm, PhaseInfo } from "./useAssistant";
@@ -89,7 +90,7 @@ describe("AssistantPanel", () => {
 
   test("confirm card wires Allow and Deny", () => {
     state.current.status = "confirm";
-    state.current.pendingConfirm = { toolUseId: "t1", opsPreview: "save_note(title=Demo)" };
+    state.current.pendingConfirm = { confirmId: "t1" as ConfirmId, opsPreview: "save_note(title=Demo)" };
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByText("save_note(title=Demo)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
@@ -162,7 +163,7 @@ describe("AssistantPanel", () => {
 
   test("Stop button is not shown during a confirm pause", () => {
     state.current.status = "confirm";
-    state.current.pendingConfirm = { toolUseId: "t1", opsPreview: "save_note(title=Demo)" };
+    state.current.pendingConfirm = { confirmId: "t1" as ConfirmId, opsPreview: "save_note(title=Demo)" };
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
   });
@@ -170,7 +171,7 @@ describe("AssistantPanel", () => {
   test("long ops previews collapse with a Show full preview toggle", () => {
     const longPreview = `save_note(text=${"x".repeat(600)})`;
     state.current.status = "confirm";
-    state.current.pendingConfirm = { toolUseId: "t1", opsPreview: longPreview };
+    state.current.pendingConfirm = { confirmId: "t1" as ConfirmId, opsPreview: longPreview };
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.queryByText(longPreview)).toBeNull(); // collapsed: not the full string
     const toggle = screen.getByRole("button", { name: /show full preview/i });
@@ -181,7 +182,7 @@ describe("AssistantPanel", () => {
 
   test("short ops previews render in full with no toggle", () => {
     state.current.status = "confirm";
-    state.current.pendingConfirm = { toolUseId: "t1", opsPreview: "save_note(title=Demo)" };
+    state.current.pendingConfirm = { confirmId: "t1" as ConfirmId, opsPreview: "save_note(title=Demo)" };
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByText("save_note(title=Demo)")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /show full preview/i })).toBeNull();

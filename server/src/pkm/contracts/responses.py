@@ -21,6 +21,7 @@ from pkm.changed import ChangeStatus
 from pkm.contracts.brands import brand
 from pkm.contracts.ops import (BlockUid, HeadingLevel, OpKind, PageId,
                                SidebarEntryId, ViewType)
+from pkm.goodlinks import GoodlinksId
 from pkm.refs import RefKind
 
 
@@ -303,7 +304,7 @@ class GoodlinksResolveRequest(BaseModel):
 class GoodlinksLink(BaseModel):
     """POST /api/goodlinks/resolve: the GoodLinks link a URL resolved to.
     `created` is True when the request saved it just now."""
-    id: str
+    id: GoodlinksId
     title: str
     url: str
     added_at: str
@@ -313,7 +314,7 @@ class GoodlinksLink(BaseModel):
 class GoodlinksArticle(BaseModel):
     """GET /api/goodlinks/{link_id}: metadata plus the sanitised reader HTML
     in one payload, so the reader overlay makes a single request."""
-    id: str
+    id: GoodlinksId
     title: str
     url: str
     added_at: str
@@ -421,9 +422,24 @@ class SnapshotPayload(BaseModel):
 # import it without the contracts package depending on assistant.
 AssistantModel = Literal["sonnet", "opus", "haiku", "glm"]
 
+# Both live here, not in assistant/service.py or assistant/events.py, for the
+# same reason AssistantModel does: assistant/* already depends on contracts,
+# and a NewType used by a pydantic field needs to be importable without that
+# dependency running backwards.
+#
+# ConversationId is minted once, in AssistantService.create (secrets.token_hex).
+ConversationId = NewType("ConversationId", str)
+brand(ConversationId)
+# ConfirmId is minted once per pending tool confirmation, in
+# ClaudeConversation.can_use_tool -- a local counter, not the Claude Agent
+# SDK's own tool_use id (a different value entirely, on ToolUseBlock/
+# ToolResultBlock), which the field used to be misnamed after.
+ConfirmId = NewType("ConfirmId", str)
+brand(ConfirmId)
+
 
 class AssistantConversation(BaseModel):
-    id: str
+    id: ConversationId
     model: AssistantModel
 
 

@@ -5,15 +5,24 @@
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
+import type { TicketId } from "../sync/opQueue";
 import type { FocusTarget } from "./edits";
 import type { TextSelection } from "./keyEdits";
 import { applyOps, applyOpsWithChange, blocksEqual, findNode,
          insertSubtree } from "./tree";
 import { bumpedUids } from "./blockStamps";
 
+// Distinct web-only brands for ReadToken's two same-typed counters. Both are
+// plain numbers minted off OutlineState.nextRequestId/revision, so without
+// the brands a call site that swapped requestId for revisionAtDispatch (or
+// compared one against the other) would still typecheck as an ordinary
+// number mix-up.
+export type RequestId = number & { readonly __brand: "RequestId" };
+export type Revision = number & { readonly __brand: "Revision" };
+
 export interface ReadToken {
-  requestId: number;
-  revisionAtDispatch: number;
+  requestId: RequestId;
+  revisionAtDispatch: Revision;
 }
 
 export interface DeferredAuthoritative {
@@ -29,29 +38,29 @@ export type OutlineReplayAction =
 export interface OutlineState {
   title: string;
   blocks: BlockNode[];
-  revision: number;
-  nextRequestId: number;
-  latestRequestId: number;
-  relevantWrites: ReadonlySet<string>;
-  relevantWriteReplays: ReadonlyMap<string, readonly OutlineReplayAction[]>;
+  revision: Revision;
+  nextRequestId: RequestId;
+  latestRequestId: RequestId;
+  relevantWrites: ReadonlySet<TicketId>;
+  relevantWriteReplays: ReadonlyMap<TicketId, readonly OutlineReplayAction[]>;
   deferredAuthoritative: DeferredAuthoritative | null;
 }
 
 export type OutlineEvent =
-  | { type: "local-ops"; ticketId: string; ops: readonly BlockOp[];
+  | { type: "local-ops"; ticketId: TicketId; ops: readonly BlockOp[];
       nowMs: number }
   | { type: "local-tree"; blocks: BlockNode[] }
   | { type: "remote-ops"; ops: readonly BlockOp[]; nowMs: number }
   // The replay is what a repair rebases this write onto a fresh server tree
   // with, so every announcement must state it — `[]` only when the write
   // genuinely has nothing to reapply here.
-  | { type: "write-started"; ticketId: string; scope: readonly string[];
+  | { type: "write-started"; ticketId: TicketId; scope: readonly string[];
       replay: readonly OutlineReplayAction[] }
-  | { type: "write-replay"; ticketId: string;
+  | { type: "write-replay"; ticketId: TicketId;
       replay: readonly OutlineReplayAction[] }
   | { type: "authoritative"; token: ReadToken; blocks: BlockNode[] }
   | { type: "authoritative-repair"; token: ReadToken; blocks: BlockNode[] }
-  | { type: "write-settled"; ticketId: string };
+  | { type: "write-settled"; ticketId: TicketId };
 
 export type OutlineEffect = {
   type: "request-authoritative";
@@ -70,9 +79,9 @@ export function createOutlineState(
   return {
     title,
     blocks,
-    revision: 0,
-    nextRequestId: 1,
-    latestRequestId: 0,
+    revision: 0 as Revision,
+    nextRequestId: 1 as RequestId,
+    latestRequestId: 0 as RequestId,
     relevantWrites: new Set(),
     relevantWriteReplays: new Map(),
     deferredAuthoritative: null,
@@ -104,7 +113,7 @@ export function reserveAuthoritativeRead(state: OutlineState): {
     token,
     state: {
       ...state,
-      nextRequestId: state.nextRequestId + 1,
+      nextRequestId: (state.nextRequestId + 1) as RequestId,
     },
   };
 }
@@ -131,7 +140,7 @@ export function scopeContainsTitle(scope: readonly string[], title: string): boo
 function withBlocks(state: OutlineState, blocks: BlockNode[],
                     changed: boolean): OutlineState {
   if (!changed) return state;
-  return { ...state, blocks, revision: state.revision + 1 };
+  return { ...state, blocks, revision: (state.revision + 1) as Revision };
 }
 
 /** For a tree that arrived whole — a drag/drop result, a server read — with

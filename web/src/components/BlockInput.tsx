@@ -16,7 +16,7 @@ import { SidebarContext } from "../contexts";
 import { applyCompletion, holdsDraftFlush } from "../outline/autocomplete";
 import { measureCaretDisplayLine } from "../outline/caretDisplayLine";
 import type { OutlineHandlers } from "../outline/handlers";
-import { type TextSelection } from "../outline/keyEdits";
+import { type CaretOffset, type TextSelection } from "../outline/keyEdits";
 import { decideEditorKey } from "../outline/keyboardPolicy";
 import { isOutlinePaste, isOutlinePasteChord } from "../outline/paste";
 import { applySlashCommand, matchSlashCommands,
@@ -31,9 +31,9 @@ import { DatePickerPopup } from "./DatePickerPopup";
 
 export function BlockInput({ node, cursor, handlers, readOnly,
                              onRequestUpload }: {
-  node: BlockNode; cursor: number;
+  node: BlockNode; cursor: CaretOffset;
   handlers: OutlineHandlers; readOnly: boolean;
-  onRequestUpload: (uid: string, at: number) => void;
+  onRequestUpload: (uid: string, at: CaretOffset) => void;
 }) {
   const headingClass =
     node.heading === 1 ? " heading-1" :

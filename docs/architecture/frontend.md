@@ -398,6 +398,9 @@ header shows the pattern. The main tsconfig's `skipLibCheck` skips every
 `.d.ts`, so a `Brands.<Name>` that `brands.ts` doesn't export would degrade
 silently to `any`. `pnpm typecheck` therefore runs a second pass,
 `tsconfig.apitypes.json`, that checks `types.d.ts` with lib checking on.
+`tooling/genTypes.drift.test.ts` fails when the committed `types.d.ts` is not
+what `pnpm gen-types` writes, since regenerating with the stock
+openapi-typescript CLI would turn every brand back into `string`.
 
 Concrete JSON requests must use `api/typedClient.ts`'s `apiGet`/`apiPost`/
 `apiPut`/`apiDelete`, which ESLint's `no-restricted-imports` enforces by

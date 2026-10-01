@@ -7,7 +7,7 @@
 // (already running with defer_foreign_keys): remap children + refs, delete
 // the negative row, and let the caller insert the authoritative row.
 
-import type { CanonicalTitle, PageId } from "../api/brands";
+import type { PageId } from "../api/brands";
 import type { SyncPage } from "./apply";
 import type { ReplicaDb } from "./db";
 import { titleReader } from "./meta";
@@ -42,7 +42,9 @@ export function reconcilePage(db: ReplicaDb, incoming: SyncPage): void {
 export function reconcileActivationPageTitles(db: ReplicaDb): void {
   const read = titleReader(db);
   if (!read.plainSpaceActive) return;
-  const localPages = db.select<{ id: PageId; title: CanonicalTitle }>(
+  // Not CanonicalTitle: these rows were titled under the pre-activation
+  // rules, and finding the ones that are no longer canonical is the point.
+  const localPages = db.select<{ id: PageId; title: string }>(
     "SELECT id, title FROM pages WHERE id < 0 ORDER BY id");
   for (const local of localPages) {
     const title = read(local.title);

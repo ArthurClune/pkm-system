@@ -218,6 +218,31 @@ def test_batch_atomic_create_with_alias(run, pkm_client):
     assert [c.text for c in mtg.children] == ["Attendees", "Actions"]
 
 
+def test_batch_append_lands_last_on_a_page_whose_order_keys_have_a_gap(
+        run, pkm_client):
+    # Two indexed creates leave order_idx 0 and 5 on "Gappy" -- the gap a
+    # delete would leave in practice (nothing ever renumbers order_idx).
+    # A later plain append (no index) must land after both, not between
+    # them: the server's ShiftSiblings only moves siblings at/after the
+    # append's own order_idx, so an append key chosen by sibling COUNT
+    # (2, here) would land second instead of last.
+    seed = [
+        {"command": "create",
+         "params": {"page": "Gappy", "text": "first", "index": 0}},
+        {"command": "create",
+         "params": {"page": "Gappy", "text": "gap-second", "index": 5}},
+    ]
+    code, _, _ = run("batch", stdin=json.dumps(seed))
+    assert code == 0
+
+    code, _, _ = run("batch", stdin=json.dumps(
+        [{"command": "create", "params": {"page": "Gappy", "text": "appended"}}]))
+    assert code == 0
+
+    assert _page_texts(pkm_client, "Gappy") == [
+        "first", "gap-second", "appended"]
+
+
 def test_batch_propagates_indexed_forbidden_reference_server_error(
         run, pkm_client):
     commands = [

@@ -30,7 +30,10 @@ pkm/
 │                               + SERVER_DDL (journal, idempotency, rewrites) = DDL
 ├── refs.py              Core   Ref grammar: [[links]], #tags, attr::, ((refs)), {{embeds}}
 │                               + title normalization, and the positioned spans (bracket
-│                               tree, tags, attribute) the rewriter scans with
+│                               tree, tags, attribute) the rewriter scans with. Exports
+│                               BLOCK_REF_TOKEN, the shared ((uid)) shape ({6,32},
+│                               matching UID_RE) render.py and export/*.py build their
+│                               own pattern from
 ├── rename.py            Core   one-pass, opaque-value title-ref rewrite for page rename/merge;
 │                               callers pass the normalizer that spells their replacement keys
 ├── title_migration.py   Core   boundary-space grouping, blockers, survivor plan + digest
@@ -54,7 +57,8 @@ pkm/
 │                               file for assets_core.asset_needs_repair() to judge
 │
 ├── contracts/           Core   The wire contract, depended on by BOTH sides:
-│                               ops.py (op models + UID_RE + text_hash),
+│                               ops.py (op models + UID_RE + text_hash +
+│                               BlockUid/PageId/SidebarEntryId NewTypes),
 │                               responses.py (JSON response models),
 │                               daily.py (date <-> "July 8th, 2026" titles)
 │
@@ -597,6 +601,15 @@ supertype's and adds an `x-brand: "<Name>"` marker to the schema, which
 (see [frontend.md](frontend.md#api-layer)). Call it in its own statement
 after the `NewType(...)` line: pyrefly stops treating the result as a type
 when the `NewType` call is wrapped in another call.
+
+`BlockUid`, `PageId` and `SidebarEntryId` (`contracts/ops.py`, beside
+`Sha256Hex`) follow the same pattern through `contracts/responses.py`,
+`store.py`, `ops_core.py` and `ops_apply.py`, but are not `brand()`ed: pyrefly
+catches a bare `str`/`int` reaching a uid/page-id/sidebar-entry-id field on the
+server, but the generated TypeScript still sees a plain `string`/`number`
+until the web adopts them too. `SidebarEntryId` is `sidebar_entries.id`, not
+`PageId` — that table has its own `INTEGER PRIMARY KEY`, distinct from
+`pages.id` even though every entry names a page.
 
 Every endpoint requires the session cookie unless marked public, and
 FastAPI's `/docs` and `/redoc` are disabled.

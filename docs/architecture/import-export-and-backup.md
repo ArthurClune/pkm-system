@@ -102,7 +102,7 @@ always safe.
 flowchart TD
     A["verify export.edn exists"] --> B["edn.py — strict EDN parse (Core)"]
     B --> C["parse_export.py — datoms → page/block trees (Core)"]
-    C --> P["preflight.py — duplicate UID / multi-parent refusal (Core)"]
+    C --> P["preflight.py — duplicate UID / multi-parent /<br/>malformed UID refusal (Core)"]
     P --> T["titles.py — import-only sanitization (Core)"]
     F["linked-files dir"] --> G["index files + transform asset URLs"]
     T --> G
@@ -121,7 +121,14 @@ Stage notes:
   compatibility.
 - **Preflight.** `preflight.py` refuses duplicate block UIDs and any block
   reached through multiple parents, reporting deterministic, sorted locations,
-  before any output work happens.
+  before any output work happens. It also refuses any block uid that fails
+  `UID_RE` (`contracts/ops.py`, `{6,32}` of `[a-zA-Z0-9_-]`), listing every
+  offender with its page title (`RECOVERY_PAGE_TITLE` for an orphan subtree).
+  No uid is ever re-minted. Every `((uid))`-recognizing surface (`refs.py`,
+  `render.py`, `export/*.py`, the web's `grammar/scan.ts`) shares that same
+  bound. A block a malformed uid landed on would be reachable only by walking
+  its page, never by a uid-addressed route, since those gate on `UID_RE` too.
+  No reference anyone writes to it could ever be recognized as one, either.
 - **Title sanitization.** `importer/titles.py` strips balanced `[[`/`]]` and
   `#` markers from every title and rewrites refs; collisions merge in stable
   source order, preferring an already-clean spelling as survivor. Malformed

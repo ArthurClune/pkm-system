@@ -16,6 +16,7 @@ from pkm.client.api import PkmClient
 from pkm.changed import local_tz
 from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
                                   upload_and_link)
+from pkm.todo import TaskMark
 from pkm.render import (render_assets, render_backlinks, render_block,
                         render_changed, render_groups, render_ops_ack,
                         render_page,
@@ -109,7 +110,7 @@ def save_note(text: str, page: str | None = None,
 
 
 def update_block(uid: str, text: str | None = None,
-                 mark: str | None = None) -> str:
+                 mark: TaskMark | None = None) -> str:
     """Replace a block's text, or set its task marker (mark='TODO' or
     'DONE'). Provide exactly one of text/mark. A `text` beginning '# ',
     '## ' or '### ' makes the block a heading at that level (1-3); '#Tag'

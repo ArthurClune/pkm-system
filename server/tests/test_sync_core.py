@@ -1,3 +1,4 @@
+from pkm.contracts.responses import EntityKind
 from pkm.server.sync_core import (CHUNK_SIZE, chunk_ids, dedupe_window,
                                     hydrate_in_order, missing_parent_uids,
                                     tombstone_entities, tombstoned_ids)
@@ -56,7 +57,8 @@ def test_tombstone_entities_missing_kind_counts_as_empty():
 def test_tombstone_entities_reused_page_and_sidebar_even_when_present():
     win = dedupe_window([(1, "page", "7", 1), (2, "page", "7", 0),
                          (3, "sidebar", "3", 1), (4, "sidebar", "3", 0)])
-    present = {"block": set(), "page": {"7"}, "sidebar": {"3"}}
+    present: dict[EntityKind, set[str]] = {
+        "block": set(), "page": {"7"}, "sidebar": {"3"}}
     assert tombstone_entities(win, present) == [("page", "7"),
                                                 ("sidebar", "3")]
 

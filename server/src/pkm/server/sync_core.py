@@ -36,6 +36,8 @@ from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from typing import TypeVar
 
+from pkm.contracts.responses import EntityKind
+
 K = TypeVar("K")
 V = TypeVar("V")
 
@@ -48,7 +50,7 @@ CHUNK_SIZE = 500
 
 # Entity kinds keyed by a database-assigned integer id that a later insert
 # can take over once the row holding it is deleted.
-REUSABLE_ID_KINDS: frozenset[str] = frozenset({"page", "sidebar"})
+REUSABLE_ID_KINDS: frozenset[EntityKind] = frozenset({"page", "sidebar"})
 
 
 def chunk_ids(ids: Sequence[K], size: int = CHUNK_SIZE) -> list[list[K]]:
@@ -62,9 +64,9 @@ def hydrate_in_order(order: Sequence[K], present: Mapping[K, V]) -> list[V]:
 @dataclass(frozen=True)
 class Window:
     next_since: int
-    entities: tuple[tuple[str, str], ...]  # unique (kind, entity_id)
+    entities: tuple[tuple[EntityKind, str], ...]  # unique (kind, entity_id)
     # every (kind, entity_id) with at least one delete row in the window
-    tombstoned: frozenset[tuple[str, str]]
+    tombstoned: frozenset[tuple[EntityKind, str]]
 
 
 def missing_parent_uids(parent_uids: Iterable[str | None],
@@ -76,10 +78,10 @@ def missing_parent_uids(parent_uids: Iterable[str | None],
     return {p for p in parent_uids if p is not None and p not in known}
 
 
-def dedupe_window(rows: Sequence[tuple[int, str, str, int]]) -> Window:
+def dedupe_window(rows: Sequence[tuple[int, EntityKind, str, int]]) -> Window:
     """Rows are (seq, kind, entity_id, deleted) in seq order."""
-    seen: dict[tuple[str, str], None] = {}  # insertion-ordered set
-    deleted_keys: set[tuple[str, str]] = set()
+    seen: dict[tuple[EntityKind, str], None] = {}  # insertion-ordered set
+    deleted_keys: set[tuple[EntityKind, str]] = set()
     last_seq = 0
     for seq, kind, entity_id, deleted in rows:
         last_seq = seq
@@ -90,8 +92,9 @@ def dedupe_window(rows: Sequence[tuple[int, str, str, int]]) -> Window:
                   tombstoned=frozenset(deleted_keys))
 
 
-def tombstone_entities(win: Window, present: Mapping[str, AbstractSet[str]]
-                       ) -> list[tuple[str, str]]:
+def tombstone_entities(win: Window,
+                       present: Mapping[EntityKind, AbstractSet[str]]
+                       ) -> list[tuple[EntityKind, str]]:
     """The window's entities that ship as tombstones, in window order: an
     entity absent from current state (`present[kind]`, a missing kind
     counting as empty), or a reusable-id entity with a delete row in the
@@ -101,7 +104,7 @@ def tombstone_entities(win: Window, present: Mapping[str, AbstractSet[str]]
             or (k in REUSABLE_ID_KINDS and (k, e) in win.tombstoned)]
 
 
-def tombstoned_ids(win: Window, kind: str) -> list[str]:
+def tombstoned_ids(win: Window, kind: EntityKind) -> list[str]:
     """Ids of `kind` with a delete row in the window, in window order."""
     return [e for k, e in win.entities
             if k == kind and (k, e) in win.tombstoned]

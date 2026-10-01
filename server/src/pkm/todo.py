@@ -6,21 +6,24 @@ at block start (after an exact '> ' quote prefix) counts."""
 from __future__ import annotations
 
 import re
+from typing import Literal, cast
+
+TaskMark = Literal["TODO", "DONE"]
 
 _MARKER_RE = re.compile(
     r"^(?P<quote>> )?\{\{(?P<open>\[\[)?(?P<state>TODO|DONE)(?P<close>\]\])?\}\}")
 
 
-def marker_state(text: str) -> str | None:
+def marker_state(text: str) -> TaskMark | None:
     m = _MARKER_RE.match(text)
-    return m.group("state") if m else None
+    return cast(TaskMark, m.group("state")) if m else None
 
 
 def is_todo(text: str) -> bool:
     return marker_state(text) == "TODO"
 
 
-def with_state(text: str, state: str | None) -> str:
+def with_state(text: str, state: TaskMark | None) -> str:
     """Return `text` with its task marker set to `state` ('TODO'/'DONE'),
     or stripped when state is None. Preserves the bracket variant and
     quote prefix; adding a marker to plain text uses the bare {{TODO}}

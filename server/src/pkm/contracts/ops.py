@@ -20,6 +20,17 @@ from pydantic import BaseModel, Field
 UID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,32}$")
 ViewType = Literal["numbered", "document"]
 
+# A block's heading level; None (kept separate, not part of this alias)
+# means plain text. 1-3 only -- the editor offers no deeper levels.
+HeadingLevel = Literal[1, 2, 3]
+
+# Every BlockOp's `op` discriminator, widened back to a plain union for
+# contexts (SkippedOp.op) that report on an op without being one -- each
+# per-op class below still pins its own single-value Literal, which is
+# what the discriminated union in BlockOp actually dispatches on.
+OpKind = Literal["create", "update_text", "move", "delete", "set_collapsed",
+                 "set_heading", "set_view_type", "create_page"]
+
 # A sha256 hex digest, distinct from a plain str so a text can never be
 # passed where a hash belongs. Pydantic validates and dumps a NewType as
 # its base type, so the wire format is unchanged. Minted only by
@@ -38,7 +49,7 @@ class CreateOp(BaseModel):
     parent_uid: str | None = None
     order_idx: int
     text: str
-    heading: int | None = Field(default=None, ge=1, le=3)
+    heading: HeadingLevel | None = None
     view_type: ViewType | None = None
 
 
@@ -95,7 +106,7 @@ class SetCollapsedOp(BaseModel):
 class SetHeadingOp(BaseModel):
     op: Literal["set_heading"]
     uid: str
-    heading: int | None = Field(default=None, ge=1, le=3)
+    heading: HeadingLevel | None = None
 
 
 class SetViewTypeOp(BaseModel):

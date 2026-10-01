@@ -15,6 +15,7 @@ from pkm.assistant.engine import AgentEngine, ConversationHandle
 from pkm.assistant.events import AssistantEvent
 from pkm.assistant.policy import SYSTEM_PROMPT, default_model, resolve_model
 from pkm.assistant.policy import available_models as _policy_available_models
+from pkm.contracts.responses import AssistantModel
 
 logger = logging.getLogger("pkm.assistant")
 
@@ -64,7 +65,7 @@ class AssistantService:
         idle_ttl: float = 900.0,
         clock: Callable[[], float] = time.monotonic,
         create_timeout: float = CREATE_TIMEOUT_S,
-        available_models: list[str] | None = None,
+        available_models: list[AssistantModel] | None = None,
     ) -> None:
         # What the picker may offer AND what create() accepts: glm is only
         # in the list when the caller (create_app) resolved a z.ai key, so
@@ -100,7 +101,7 @@ class AssistantService:
         # harness's teardown to finish before admission proceeds.
         self._admission_lock = asyncio.Lock()
 
-    async def create(self, model: str | None) -> tuple[str, str]:
+    async def create(self, model: str | None) -> tuple[str, AssistantModel]:
         resolved = self.default_model if model is None else resolve_model(model)
         if resolved not in self.available_models:
             raise ValueError(

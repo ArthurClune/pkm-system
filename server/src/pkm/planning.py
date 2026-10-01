@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Iterator, Sequence
+from typing import cast
 
-from pkm.contracts.ops import (BlockOp, CreateOp, CreatePageOp, SetHeadingOp,
-                               UpdateTextOp, text_hash)
+from pkm.contracts.ops import (BlockOp, CreateOp, CreatePageOp, HeadingLevel,
+                               SetHeadingOp, UpdateTextOp, text_hash)
 from pkm.contracts.responses import BlockNode, walk_blocks
-from pkm.todo import with_state
+from pkm.todo import TaskMark, with_state
 
 _HEADING_SPEC = re.compile(r"^(#{1,3}) (.+)$")
 _UID_SPEC = re.compile(r"^\(\((.+)\)\)$")
@@ -81,7 +82,7 @@ def find_block(blocks: Sequence[BlockNode], uid: str) -> BlockNode | None:
 
 def resolve_parent(
     blocks: Sequence[BlockNode], spec: str | None
-) -> tuple[str | None, tuple[int, str] | None]:
+) -> tuple[str | None, tuple[HeadingLevel, str] | None]:
     """Resolve a parent spec against a fetched page's blocks.
 
     Returns (parent_uid, heading_to_create). `heading_to_create` is
@@ -108,7 +109,7 @@ def resolve_parent(
         return uid, None
     m = _HEADING_SPEC.match(spec)
     if m:
-        level, text = len(m.group(1)), m.group(2)
+        level, text = cast(HeadingLevel, len(m.group(1))), m.group(2)
         for n in walk_blocks(blocks):
             if n.heading == level and n.text == text:
                 return n.uid, None
@@ -119,7 +120,7 @@ def resolve_parent(
     )
 
 
-def split_heading(text: str) -> tuple[str, int | None]:
+def split_heading(text: str) -> tuple[str, HeadingLevel | None]:
     """Split a leading markdown heading marker off `text`, returning
     (body, level): '## Overview' -> ('Overview', 2).
 
@@ -131,11 +132,12 @@ def split_heading(text: str) -> tuple[str, int | None]:
     block. Same syntax as a `parent:` spec, same regex.
     """
     m = _HEADING_SPEC.match(text)
-    return (m.group(2), len(m.group(1))) if m else (text, None)
+    return (m.group(2), cast(HeadingLevel, len(m.group(1)))) if m \
+        else (text, None)
 
 
 def _create(uid: str, page: str, parent: str | None, idx: int, text: str,
-            heading: int | None = None) -> CreateOp:
+            heading: HeadingLevel | None = None) -> CreateOp:
     return CreateOp(op="create", uid=uid, page_title=page, parent_uid=parent,
                     order_idx=idx, text=text, heading=heading)
 
@@ -156,7 +158,7 @@ class Planner:
     def __init__(self, uids: Iterator[str]):
         self._uids = uids
         self._next_idx: dict[tuple[str, str | None], int] = {}
-        self._headings: dict[tuple[str, int, str], str] = {}
+        self._headings: dict[tuple[str, HeadingLevel, str], str] = {}
 
     def next_uid(self) -> str:
         return next(self._uids)
@@ -179,8 +181,8 @@ class Planner:
         self._next_idx[key] = idx + 1
         return idx
 
-    def heading(self, blocks: Sequence[BlockNode], page: str, level: int,
-                text: str) -> tuple[str, list[CreateOp]]:
+    def heading(self, blocks: Sequence[BlockNode], page: str,
+               level: HeadingLevel, text: str) -> tuple[str, list[CreateOp]]:
         """The uid of a page-top-level heading with `level` and `text`, plus
         the op creating it -- or no ops, if this run planned it already.
         Memoized per (page, level, text) so a "## Heading" parent spec
@@ -290,7 +292,7 @@ _NOT_GIVEN = _NotGiven()
 
 
 def plan_update(uid: str, text: str, base_text: str | None = None,
-                current_heading: int | None | _NotGiven = _NOT_GIVEN,
+                current_heading: HeadingLevel | None | _NotGiven = _NOT_GIVEN,
                 page_title: str | None = None
                 ) -> list[BlockOp]:
     """Ops for replacing a block's text: `update_text` plus, when the
@@ -334,7 +336,7 @@ def plan_update(uid: str, text: str, base_text: str | None = None,
     return ops
 
 
-def plan_mark(uid: str, current_text: str, mark: str,
+def plan_mark(uid: str, current_text: str, mark: TaskMark,
              page_title: str | None = None) -> list[UpdateTextOp]:
     """Ops for a task-marker change (`pkm update -D`/`-T`, `update_block
     mark=`): `update_text` with the marker applied to `current_text`, plus

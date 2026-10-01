@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from typing import Literal
+from typing import Literal, cast
+
+from pkm.contracts.responses import AssistantModel
 
 MCP_SERVER_NAME = "pkm"
 
@@ -17,12 +19,12 @@ WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch",
 
 # The Claude trio also exists as the web picker's fetch-failure fallback
 # (useAssistant.ts); a rename or addition there must stay in sync.
-MODELS: tuple[str, ...] = ("sonnet", "opus", "haiku", "glm")
+MODELS: tuple[AssistantModel, ...] = ("sonnet", "opus", "haiku", "glm")
 
 # Models that route to z.ai's Anthropic-compatible endpoint and are only
 # offered when a z.ai key is configured. The Claude models need no such
 # gate: they ride the machine's logged-in Claude subscription.
-ZAI_MODELS: tuple[str, ...] = ("glm",)
+ZAI_MODELS: tuple[AssistantModel, ...] = ("glm",)
 
 _MAX_VALUE_CHARS = 120
 
@@ -69,23 +71,23 @@ def classify_tool(full_name: str) -> Literal["read", "write", "unknown"]:
     return "unknown"
 
 
-def available_models(*, zai_configured: bool) -> list[str]:
+def available_models(*, zai_configured: bool) -> list[AssistantModel]:
     if zai_configured:
         return list(MODELS)
     return [m for m in MODELS if m not in ZAI_MODELS]
 
 
-def default_model(available: Sequence[str]) -> str:
+def default_model(available: Sequence[AssistantModel]) -> AssistantModel:
     """glm when it is servable, else sonnet. The default depends
     on availability because glm rides a z.ai key: a keyless deployment must
     fall back rather than reject every default-model create."""
     return "glm" if "glm" in available else "sonnet"
 
 
-def resolve_model(name: str) -> str:
+def resolve_model(name: str) -> AssistantModel:
     if name not in MODELS:
         raise ValueError(f"unknown model {name!r}; expected one of {', '.join(MODELS)}")
-    return name
+    return cast(AssistantModel, name)
 
 
 def _clip(value: object, limit: int = _MAX_VALUE_CHARS) -> str:

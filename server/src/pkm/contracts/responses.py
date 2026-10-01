@@ -17,7 +17,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from pkm.contracts.ops import ViewType
+from pkm.changed import ChangeStatus
+from pkm.contracts.ops import HeadingLevel, OpKind, ViewType
+from pkm.refs import RefKind
 
 
 class PageMeta(BaseModel):
@@ -30,7 +32,7 @@ class PageMeta(BaseModel):
 class BlockNode(BaseModel):
     uid: str
     text: str
-    heading: int | None
+    heading: HeadingLevel | None
     view_type: ViewType | None
     collapsed: bool
     order_idx: int
@@ -129,7 +131,7 @@ class ChangedItem(BaseModel):
     text: str
     created_at: int | None
     updated_at: int | None
-    status: Literal["new", "edited"]
+    status: ChangeStatus
 
 
 class ChangedGroup(BaseModel):
@@ -318,7 +320,7 @@ class GoodlinksCheckPayload(BaseModel):
 
 class SyncRef(BaseModel):
     target_page_id: int
-    kind: str
+    kind: RefKind
 
 
 class SyncBlock(BaseModel):
@@ -327,7 +329,7 @@ class SyncBlock(BaseModel):
     parent_uid: str | None
     order_idx: int
     text: str
-    heading: int | None
+    heading: HeadingLevel | None
     view_type: ViewType | None
     collapsed: int
     created_at: int | None
@@ -348,8 +350,12 @@ class SyncSidebarEntry(BaseModel):
     order_idx: int
 
 
+# Matches the changes table's CHECK(kind IN (...)) in schema.py.
+EntityKind = Literal["block", "page", "sidebar"]
+
+
 class SyncTombstone(BaseModel):
-    kind: str
+    kind: EntityKind
     entity_id: str
 
 
@@ -382,9 +388,15 @@ class SnapshotPayload(BaseModel):
     sidebar: list[SyncSidebarEntry]
 
 
+# The three Claude aliases plus z.ai's GLM. Lives here (not
+# assistant/policy.py) so the policy module -- which also needs it -- can
+# import it without the contracts package depending on assistant.
+AssistantModel = Literal["sonnet", "opus", "haiku", "glm"]
+
+
 class AssistantConversation(BaseModel):
     id: str
-    model: str
+    model: AssistantModel
 
 
 class AssistantAck(BaseModel):
@@ -392,8 +404,8 @@ class AssistantAck(BaseModel):
 
 
 class AssistantModels(BaseModel):
-    models: list[str]
-    default: str
+    models: list[AssistantModel]
+    default: AssistantModel
 
 
 class TitleMigrationPage(BaseModel):
@@ -463,7 +475,7 @@ class SkippedOp(BaseModel):
     its parent) no longer exists, or because a move would nest the block
     under itself or its own descendant (`ops_core.skip_report`)."""
     index: int
-    op: str
+    op: OpKind
     uid: str
     reason: SkipReason
     # the daily page the op's note or lost text landed on; None when

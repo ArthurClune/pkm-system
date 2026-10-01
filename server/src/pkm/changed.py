@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime, timedelta, timezone, tzinfo
+from typing import Literal
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+ChangeStatus = Literal["new", "edited"]
 
 
 class ChangedWindowError(ValueError):
@@ -59,7 +62,8 @@ def parse_window(since: str, until: str | None, now: datetime,
     return since_ms, until_ms
 
 
-def classify(created_at: int | None, since_ms: int, until_ms: int) -> str:
+def classify(created_at: int | None, since_ms: int,
+            until_ms: int) -> ChangeStatus:
     """'new' when `created_at` falls inside [since_ms, until_ms), else
     'edited' (including a null created_at -- an imported/pre-existing
     block whose creation time was never recorded)."""

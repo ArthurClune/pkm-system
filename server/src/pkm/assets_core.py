@@ -10,6 +10,9 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import PurePosixPath
+from typing import Literal
+
+AssetCategory = Literal["image", "pdf", "document", "other"]
 
 # Office + JSON mimes that count as "document" alongside text/*. Keep in
 # step with ALLOWED_UPLOAD_MIME in routes_assets.py.
@@ -26,7 +29,7 @@ _DOCUMENT_MIME = (
 )
 
 
-def mime_category(mime: str) -> str:
+def mime_category(mime: str) -> AssetCategory:
     """The file-browser's coarse type buckets."""
     if mime.startswith("image/"):
         return "image"
@@ -37,7 +40,7 @@ def mime_category(mime: str) -> str:
     return "other"
 
 
-def type_where(category: str) -> tuple[str, list[str]]:
+def type_where(category: AssetCategory) -> tuple[str, list[str]]:
     """SQL fragment + params selecting assets whose mime falls in
     `category`. Must agree with mime_category (tested against it)."""
     doc = ("(mime LIKE 'text/%' OR mime IN ({}))"

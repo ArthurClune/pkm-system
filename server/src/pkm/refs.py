@@ -68,6 +68,9 @@ def canonicalize_title(title: str, *, plain_space: bool) -> str:
 
 TitleSyntaxReason = Literal["forbidden_syntax"]
 
+# Matches the refs table's CHECK(kind IN (...)) in schema.py.
+RefKind = Literal["link", "tag", "attribute"]
+
 
 def title_syntax_reason(title: str) -> TitleSyntaxReason | None:
     normalized = normalize_title(title)
@@ -90,7 +93,7 @@ def is_blank_title(title: str) -> bool:
 @dataclass(frozen=True)
 class Ref:
     title: str
-    kind: str  # "link" | "tag" | "attribute"
+    kind: RefKind
 
 
 @dataclass(frozen=True)

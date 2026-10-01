@@ -3,6 +3,7 @@
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, expect, it } from "vitest";
+import type { ClientId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
@@ -153,7 +154,7 @@ it("run() records UNSTAMPED ops, so a redo hashes the current text", () => {
 
   // Another tab edits the same block between the undo and the redo. A local
   // edit would not do: recording one clears the redo stack.
-  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
     { op: "update_text", uid: "a", text: "two" },
   ] }));
   expect(outline().blocks[0].text).toBe("two");
@@ -239,7 +240,7 @@ it("a batch carrying a draft for a remotely deleted block stays undoable", () =>
     block("c", "gamma", { order_idx: 2 }),
   ]);
   act(() => outline().handlers.onDraftChange("a", "see [[Held", true));
-  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
     { op: "delete", uid: "a" },
   ] }));
   // The indent's batch flushes the held draft first: its text op targets a

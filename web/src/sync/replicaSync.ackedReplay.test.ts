@@ -5,7 +5,7 @@
 // the wire text, and the snapshot carries the saved text. Recovery must keep
 // the server's result rather than replay the acknowledged batch over it.
 import { expect, test } from "vitest";
-import type { SyncSeq } from "../api/brands";
+import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { Changes, Snapshot } from "../replica/apply";
 import { createReplica } from "../replica/client";
 import { serveRpc, toPortLike } from "../replica/rpc";
@@ -57,14 +57,14 @@ test("a batch the recovery flush got an ack for is not replayed over the snapsho
       }
       throw new Error(`unexpected fetch ${path}`);
     },
-    clientId: "c1",
+    clientId: "c1" as ClientId,
     onState: () => {},
   });
 
   await replica.init();
   await replica.applySnapshot(BEFORE);
   await replica.enqueue(
-    [{ op: "update_text", uid: "uid_b1", text: "[[Old]] edited" }], "b-rename");
+    [{ op: "update_text", uid: "uid_b1", text: "[[Old]] edited" }], "b-rename" as BatchId);
 
   await sync.start();
   expect(posted).toEqual(["b-rename"]);

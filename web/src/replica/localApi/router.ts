@@ -4,6 +4,7 @@
 // shapes the server returns. Unmatched routes report handled:false — the
 // caller surfaces a clear online-only error. Runs inside the worker.
 
+import type { BatchId } from "../../api/brands";
 import type { BlockRefsPayload, SidebarNavEntry, SidebarNavPayload,
               TitlesPayload } from "../../api/payloads";
 import type { ReplicaDb } from "../db";
@@ -38,7 +39,7 @@ const NOT_HANDLED: LocalApiResult = { handled: false };
 
 /** Fresh batch ids for shim-enqueued ops (create_page). */
 export interface LocalApiDeps {
-  newBatchId(): string;
+  newBatchId(): BatchId;
 }
 
 export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,

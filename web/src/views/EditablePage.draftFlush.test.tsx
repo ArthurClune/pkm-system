@@ -5,6 +5,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import type { ClientId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
 import { ROUTER_FUTURE_FLAGS } from "../router";
@@ -39,7 +40,7 @@ function typeDraftUnder(remoteOps: BlockOp[]) {
   fireEvent.click(screen.getByText(fixture.base));
   fireEvent.change(screen.getByRole("textbox"),
                    { target: { value: fixture.draft } });
-  act(() => sync.emit({ client_id: "other", ts: 1, ops: remoteOps }));
+  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: remoteOps }));
   act(() => { vi.advanceTimersByTime(500); });
   return sync;
 }

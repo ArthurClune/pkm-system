@@ -3,7 +3,7 @@
 // drain obeys. The fake Replica it drives lives in ./memReplica.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { defaultUnauthorizedHandler, setUnauthorizedHandler } from "../api/client";
-import type { SyncSeq } from "../api/brands";
+import type { BatchId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { OpsAck } from "../api/payloads";
 import type { PendingRowId, Replica } from "../replica/client";
@@ -14,6 +14,9 @@ import { memReplica } from "./memReplica";
 import { clientId, createOpQueue, type PoisonEvent } from "./opQueue";
 
 const op = (uid: string): BlockOp => ({ op: "delete", uid });
+// Every test here picks an arbitrary batch-id string, same shape as the
+// production mint; this mints the brand once rather than at every call.
+const bid = (s: string): BatchId => s as BatchId;
 
 beforeEach(() => { localStorage.clear(); });
 // jsdom's window.location is unforgeable: apiFetch's real 401 handler sets
@@ -228,7 +231,7 @@ describe("durable batch delivery", () => {
     // though the queue never saw a setOnline(false)
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
-    replica.rows.push({ id: 99 as PendingRowId, batch_id: "leftover", ops: [op("u1")],
+    replica.rows.push({ id: 99 as PendingRowId, batch_id: bid("leftover"), ops: [op("u1")],
                         poisoned: false });
     const q = createOpQueue(replica);
     q.setOnline(true); // the socket's first connect after the reload
@@ -525,7 +528,7 @@ describe("write tickets", () => {
   });
 
   test("dispose during replica persistence settles delivery exactly once", async () => {
-    const persisted = deferred<{ pending: number; batchId: string }>();
+    const persisted = deferred<{ pending: number; batchId: BatchId }>();
     const replica = memReplica({ enqueue: () => persisted.promise });
     const fetchMock = vi.fn(async () => jsonResponse({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);
@@ -534,7 +537,7 @@ describe("write tickets", () => {
     await Promise.resolve();
 
     q.dispose();
-    persisted.resolve({ pending: 1, batchId: "batch-slow" });
+    persisted.resolve({ pending: 1, batchId: bid("batch-slow") });
 
     await expect(write.settled).resolves.toEqual({ status: "persisted", pending: 1 });
     let delivery: unknown;
@@ -798,11 +801,11 @@ describe("poison marks and retained mark intents", () => {
 
   test("retained mark intents are deduplicated and retried oldest-first", async () => {
     const first: PoisonEvent = {
-      id: 1 as PendingRowId, batch_id: "batch-1", ops: [op("first")], status: 400,
+      id: 1 as PendingRowId, batch_id: bid("batch-1"), ops: [op("first")], status: 400,
       message: "first rejected",
     };
     const second: PoisonEvent = {
-      id: 2 as PendingRowId, batch_id: "batch-2", ops: [op("second")], status: 422,
+      id: 2 as PendingRowId, batch_id: bid("batch-2"), ops: [op("second")], status: 422,
       message: "second rejected",
     };
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
@@ -810,8 +813,8 @@ describe("poison marks and retained mark intents", () => {
     }));
     const replica = memReplica();
     replica.rows.push(
-      { id: 1 as PendingRowId, batch_id: "batch-1", ops: [op("first")], poisoned: false },
-      { id: 2 as PendingRowId, batch_id: "batch-2", ops: [op("second")], poisoned: false },
+      { id: 1 as PendingRowId, batch_id: bid("batch-1"), ops: [op("first")], poisoned: false },
+      { id: 2 as PendingRowId, batch_id: bid("batch-2"), ops: [op("second")], poisoned: false },
     );
     const marked: number[] = [];
     replica.markPoisoned = async (id) => {
@@ -840,7 +843,7 @@ describe("poison marks and retained mark intents", () => {
 
   test("a stale post-mark intent is retried idempotently without delivery", async () => {
     const event: PoisonEvent = {
-      id: 1 as PendingRowId, batch_id: "batch-1", ops: [op("bad")], status: 400,
+      id: 1 as PendingRowId, batch_id: bid("batch-1"), ops: [op("bad")], status: 400,
       message: "request failed: 400 /api/ops",
     };
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
@@ -849,7 +852,7 @@ describe("poison marks and retained mark intents", () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
     replica.rows.push({
-      id: 1 as PendingRowId, batch_id: "batch-1", ops: [op("bad")], poisoned: true,
+      id: 1 as PendingRowId, batch_id: bid("batch-1"), ops: [op("bad")], poisoned: true,
     });
     const mark = vi.fn(async () => ({ pending: 0, matched: true }));
     replica.markPoisoned = mark;
@@ -868,7 +871,7 @@ describe("poison marks and retained mark intents", () => {
   test("a retained intent cannot poison a reused row id from another batch",
   async () => {
     const stale: PoisonEvent = {
-      id: 1 as PendingRowId, batch_id: "deleted-batch", ops: [op("old")], status: 400,
+      id: 1 as PendingRowId, batch_id: bid("deleted-batch"), ops: [op("old")], status: 400,
       message: "old rejection",
     };
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
@@ -876,7 +879,7 @@ describe("poison marks and retained mark intents", () => {
     }));
     const replica = memReplica();
     replica.rows.push({
-      id: 1 as PendingRowId, batch_id: "replacement-batch", ops: [op("new")], poisoned: false,
+      id: 1 as PendingRowId, batch_id: bid("replacement-batch"), ops: [op("new")], poisoned: false,
     });
     const mark = vi.fn(async (id: number, _error: string, batchId: string) => {
       const row = replica.rows.find((candidate) =>
@@ -896,7 +899,7 @@ describe("poison marks and retained mark intents", () => {
 
     expect(mark).toHaveBeenCalledWith(1, expect.any(String), "deleted-batch");
     expect(replica.rows[0]).toMatchObject({
-      batch_id: "replacement-batch", poisoned: false,
+      batch_id: bid("replacement-batch"), poisoned: false,
     });
     expect(q.poisonMarkIntents()).toEqual([]);
     expect(published).toEqual([]);
@@ -904,11 +907,11 @@ describe("poison marks and retained mark intents", () => {
 
   test("an unmatched marking round reports itself once, not per intent", async () => {
     const staleOne: PoisonEvent = {
-      id: 1 as PendingRowId, batch_id: "deleted-batch-1", ops: [op("old1")], status: 400,
+      id: 1 as PendingRowId, batch_id: bid("deleted-batch-1"), ops: [op("old1")], status: 400,
       message: "old rejection 1",
     };
     const staleTwo: PoisonEvent = {
-      id: 2 as PendingRowId, batch_id: "deleted-batch-2", ops: [op("old2")], status: 400,
+      id: 2 as PendingRowId, batch_id: bid("deleted-batch-2"), ops: [op("old2")], status: 400,
       message: "old rejection 2",
     };
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
@@ -944,7 +947,7 @@ describe("poison marks and retained mark intents", () => {
     // The escape from a permanently-wedged profile. Discard must not
     // require an openable replica — that impossibility is the whole scenario.
     const wedged: PoisonEvent = {
-      id: 1 as PendingRowId, batch_id: "bad-batch", ops: [op("bad")], status: 400,
+      id: 1 as PendingRowId, batch_id: bid("bad-batch"), ops: [op("bad")], status: 400,
       message: "request failed: 400 /api/ops",
     };
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
@@ -1273,9 +1276,9 @@ describe("fallback lane ordering against durable batches", () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
     replica.rows.push({
-      id: 1 as PendingRowId, batch_id: "prev-session", ops: [op("prev")], poisoned: false,
+      id: 1 as PendingRowId, batch_id: bid("prev-session"), ops: [op("prev")], poisoned: false,
     });
-    replica.enqueued.push("prev-session");
+    replica.enqueued.push(bid("prev-session"));
     const q = createOpQueue(replica);
     q.setOnline(false);
     replica.enqueue = async () => { throw new Error(CANTOPEN); };
@@ -1382,7 +1385,7 @@ describe("deliverLaneAhead", () => {
   test("deliverLaneAhead throws once the queue is disposed", async () => {
     const q = createOpQueue(memReplica());
     q.dispose();
-    await expect(q.deliverLaneAhead("whatever")).rejects.toThrow("disposed");
+    await expect(q.deliverLaneAhead(bid("whatever"))).rejects.toThrow("disposed");
   });
 
   test("two concurrent deliverLaneAhead calls racing the same head shift it once and do not lose the next entry",

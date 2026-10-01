@@ -204,6 +204,15 @@ never on the wire, and not stable across a reset or a file replacement
 (`replica/client.ts`) all name the pair `id`/`batch_id`, so a value built
 from one shape needs no translation to flow into another.
 
+`OpBatch.client_id` and `OpBatch.batch_id` are branded too, as `ClientId` and
+`BatchId`, so the two bare uid strings sitting side by side in one request
+body can never swap. Both are minted by `newUid()` (web's per-tab `clientId`,
+`sync/opQueue.ts`) or `crypto.randomUUID()` (the worker's `newBatchId`,
+`replica/workerHandlers.ts`), and by `uuid4().hex` on the CLI/MCP side
+(`client/workflows.py _batch_id`). `BatchId` carries into `PendingBatch`,
+`AckedBatch` and `PoisonedBatch` too, since `batch_id` is also the replay-dedup
+key the `pending_ops` row and `applied_batches` store it under.
+
 The optimistic apply mirrors the server's timestamp rules as well as its row
 contents: `localOps.ts` leaves `blocks.updated_at` and `pages.updated_at` alone
 for `set_collapsed` (see [backend.md](backend.md#the-write-path)). It also

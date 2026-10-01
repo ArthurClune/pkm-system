@@ -1,11 +1,11 @@
 ---
 # pkm-iskx
 title: Web BatchId / ClientId brands
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T07:44:38Z
+updated_at: 2026-10-01T12:51:54Z
 parent: pkm-7uxw
 ---
 
@@ -18,7 +18,13 @@ There's a swap shape with every call site correct today: `markPoisoned(id, error
 
 ## Plan
 
-- [ ] Brands minted at the two web minters
-- [ ] Narrow `OpBatch` by hand in the `api/ops.ts` style, or use the generated brand once the gen-types spike has landed
-- [ ] Optional: Py `BatchId`/`ClientId` NewTypes on `OpBatch`/`WsBatch` (needed if the spike's `x-brand` route is used)
+- [x] Server `BatchId`/`ClientId` NewTypes (`contracts/ops.py`), each `brand()`ed, on `OpBatch.client_id`/`batch_id`; mint points typed at `client/api.py` `CLIENT_ID` and `client/workflows.py` `_batch_id`
+- [x] Regenerated `openapi.json`/`types.d.ts`; web brands defined in `web/src/api/brands.ts`
+- [x] Brands minted at the two web minters (`sync/opQueue.ts` `clientId`/`batchId`, `replica/workerHandlers.ts` `newBatchId`) and threaded through `outbox.ts`, `replica/client.ts`, `replica/queue.ts`, `replica/workerHandlers.ts`, `replica/localApi/router.ts`, `sync/socket.ts` (`WsBatch.client_id`, hand-narrowed), `sync/replicaSync.ts`, `sync/memReplica.ts`
+- [x] `@ts-expect-error` probes: OpBatch client_id/batch_id swap and markPoisoned's error/batchId swap (`replica/client.test.ts`)
 - [ ] `pnpm verify` clean
+
+
+## Decision (2026-10-01)
+
+The gen-types spike (pkm-85x3) has landed: use the x-brand route. Server NewTypes `BatchId` and `ClientId` (contracts/ops.py), each tagged with `brand()`, on `OpBatch.batch_id` / `client_id` and any WsBatch model; web brands in `web/src/api/brands.ts`. No hand narrowing in api/ops.ts.

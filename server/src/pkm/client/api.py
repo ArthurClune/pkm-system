@@ -27,7 +27,7 @@ from pkm.client.core import (ApiError, CliConfig, ConfigError,
                              ResponseSchemaError, cookie_header,
                              friendly_error, parse_config, serialize_config,
                              validation_detail)
-from pkm.contracts.ops import BlockOp, OpBatch
+from pkm.contracts.ops import BatchId, BlockOp, ClientId, OpBatch
 from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      AssetUploadResponse, Backlinks,
                                      BlockNode, BlockPayload, ChangedPayload,
@@ -40,7 +40,7 @@ from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      TitleMigrationAuditPayload)
 from pkm.refs import normalize_title
 
-CLIENT_ID = "pkm-cli"
+CLIENT_ID = ClientId("pkm-cli")
 _BACKLINK_MAX_ATTEMPTS = 5
 
 M = TypeVar("M", bound=BaseModel)
@@ -313,7 +313,7 @@ class PkmClient:
         )
 
     def post_ops(self, ops: Sequence[BlockOp | Mapping[str, Any]],
-                 batch_id: str) -> OpsAck:
+                 batch_id: BatchId) -> OpsAck:
         """Apply `ops` as one atomic batch. The planners in `pkm.planning`
         hand over contract models; raw mappings are accepted too (tests and
         one-off scripts write ops by hand) and validated identically by

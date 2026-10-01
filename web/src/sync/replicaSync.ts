@@ -8,7 +8,7 @@
 // database: degraded beats data loss.
 
 import type { ApiFetchOptions } from "../api/client";
-import type { SyncSeq } from "../api/brands";
+import type { ClientId, SyncSeq } from "../api/brands";
 import type { OpsAck } from "../api/payloads";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { ReplicaDiagnostics } from "../replica/client";
@@ -127,7 +127,7 @@ export interface ReplicaSyncDeps {
   fetchJson: (
     path: string, init?: RequestInit, opts?: ApiFetchOptions,
   ) => Promise<unknown>;
-  clientId: string;
+  clientId: ClientId;
   onState: (s: ReplicaState) => void;
   /** Delivery is paused while the worker recovery lease owns the database.
    * `deliverLaneAhead` is how the recovery flush below gets the drain's own

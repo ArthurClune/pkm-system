@@ -1494,9 +1494,9 @@ export interface components {
         /** OpBatch */
         OpBatch: {
             /** Client Id */
-            client_id: string;
+            client_id: Brands.ClientId;
             /** Batch Id */
-            batch_id: string;
+            batch_id: Brands.BatchId;
             /** Ops */
             ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"] | components["schemas"]["SetViewTypeOp"] | components["schemas"]["CreatePageOp"])[];
         };

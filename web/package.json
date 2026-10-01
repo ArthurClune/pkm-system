@@ -5,16 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "pnpm typecheck && vite build",
     "test": "vitest",
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc",
+    "typecheck": "tsc && tsc -p tsconfig.apitypes.json",
     "lint": "eslint src tooling",
     "check:fcis": "node tooling/fcis.mjs",
     "e2e": "pnpm build && node tooling/runPlaywright.mjs",
     "verify": "pnpm typecheck && pnpm lint && pnpm check:fcis && pnpm test:coverage && vite build && node tooling/runPlaywright.mjs",
-    "gen-types": "openapi-typescript src/api/openapi.json -o src/api/types.d.ts"
+    "gen-types": "node tooling/genTypes.mjs"
   },
   "dependencies": {
     "@sqlite.org/sqlite-wasm": "3.53.0-build1",

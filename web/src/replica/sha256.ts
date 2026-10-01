@@ -2,6 +2,9 @@
 // Synchronous SHA-256 (hex). Needed because base_text_hash is captured
 // inside a replica transaction, where awaiting crypto.subtle would split
 // the transaction; also hashes the schema-version stamp.
+import type { Sha256Hex } from "../api/brands";
+
+export type { Sha256Hex };
 
 const K = new Uint32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
@@ -18,12 +21,6 @@ const K = new Uint32Array([
 ]);
 
 const rotr = (x: number, n: number): number => (x >>> n) | (x << (32 - n));
-
-// A sha256 hex digest, distinct from a plain string so a text can never
-// be passed where a hash belongs. Minted only by `sha256Hex` (and its
-// server twin `text_hash`); a test literal standing in for a hash casts
-// `as Sha256Hex`.
-export type Sha256Hex = string & { readonly __brand: "Sha256Hex" };
 
 export function sha256Hex(text: string): Sha256Hex {
   const data = new TextEncoder().encode(text);

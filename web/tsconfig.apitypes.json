@@ -1,0 +1,6 @@
+{
+  "//": "Type-checks the generated src/api/types.d.ts, which the main tsconfig's skipLibCheck skips like every declaration file. Without this pass a Brands.<Name> reference that src/api/brands.ts doesn't export degrades silently to any.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "skipLibCheck": false, "types": [] },
+  "include": ["src/api/types.d.ts"]
+}

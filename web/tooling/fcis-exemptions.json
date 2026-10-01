@@ -1,4 +1,5 @@
 {
+  "src/api/brands.ts": "Type-only brand definitions that the generated OpenAPI types (src/api/types.d.ts) reference -- no runtime declarations, nothing to classify.",
   "src/api/ops.ts": "Type-only aliases over the generated OpenAPI schema (src/api/types.d.ts) -- no runtime declarations, nothing to classify.",
   "src/api/payloads.ts": "Type-only re-exports of generated OpenAPI response shapes (src/api/types.d.ts) -- no runtime declarations, nothing to classify.",
   "src/outline/handlers.ts": "Type-only declaration of the editor's command port (the interface useOutline implements and the components call) -- no runtime declarations, nothing to classify.",

@@ -3,6 +3,7 @@
  * Do not make direct changes to the file.
  */
 
+import type * as Brands from "./brands";
 export interface paths {
     "/login": {
         parameters: {

@@ -1,11 +1,11 @@
 ---
 # pkm-thee
 title: Web title, BlockUid and PageId brands
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-10-01T07:44:38Z
-updated_at: 2026-10-01T07:44:52Z
+updated_at: 2026-10-01T19:19:13Z
 parent: pkm-7uxw
 blocked_by:
     - pkm-1v8b
@@ -30,8 +30,8 @@ Brand titles, block uids and page ids across `web/src`. This is the largest step
 
 ## Plan
 
-- [ ] Agree how a raw title is promoted: one function per form, no casts at call sites
-- [ ] Titles, by directory
-- [ ] `BlockUid`, by directory
-- [ ] `PageId` / `SidebarEntryId`
+- [x] Agree how a raw title is promoted: one function per form, no casts at call sites
+- [x] Titles, by directory
+- [x] `BlockUid`, by directory
+- [x] `PageId` / `SidebarEntryId`
 - [ ] `pnpm verify` clean per directory slice

@@ -593,24 +593,31 @@ never produces but an old import left behind: `BlockNode.heading` and
 "no heading" level) as `None` before the `HeadingLevel` check runs, rather
 than 500ing on a Roam-imported block.
 
-A `NewType` the web must also keep distinct from its base type, such as
-`Sha256Hex`, `ClientId` and `BatchId` in `contracts/ops.py`, is tagged with
-`brand()` from `contracts/brands.py`. `brand()` leaves validation and
+A `NewType` the web must also keep distinct from its base type is tagged
+with `brand()` from `contracts/brands.py`. `brand()` leaves validation and
 dumping as the supertype's and adds an `x-brand: "<Name>"` marker to the
 schema, which `pnpm gen-types` turns into a reference to the web brand
 of the same name
 (see [frontend.md](frontend.md#api-layer)). Call it in its own statement
 after the `NewType(...)` line: pyrefly stops treating the result as a type
-when the `NewType` call is wrapped in another call.
+when the `NewType` call is wrapped in another call. A `NewType` of an
+already-branded `NewType` inherits its parent's marker, so a subtype such
+as `CanonicalTitle` (of `NormalizedTitle`) needs its own `brand()` call too.
 
-`BlockUid`, `PageId` and `SidebarEntryId` (`contracts/ops.py`, beside
-`Sha256Hex`) follow the same pattern through `contracts/responses.py`,
-`store.py`, `ops_core.py` and `ops_apply.py`, but are not `brand()`ed: pyrefly
-catches a bare `str`/`int` reaching a uid/page-id/sidebar-entry-id field on the
-server, but the generated TypeScript still sees a plain `string`/`number`
-until the web adopts them too. `SidebarEntryId` is `sidebar_entries.id`, not
-`PageId` — that table has its own `INTEGER PRIMARY KEY`, distinct from
-`pages.id` even though every entry names a page.
+| Brand(s) | Declared in | Base |
+|---|---|---|
+| `Sha256Hex`, `ClientId`, `BatchId`, `BlockUid` | `contracts/ops.py` | `str` |
+| `PageId`, `SidebarEntryId` | `contracts/ops.py` | `int` |
+| `SyncSeq` | `contracts/responses.py` | `int` |
+| `ConversationId`, `ConfirmId` | `contracts/responses.py` | `str` |
+| `GoodlinksId` | `goodlinks.py` | `str` |
+| `NormalizedTitle` | `refs.py` | `str` |
+| `CanonicalTitle` | `refs.py` | `NormalizedTitle` |
+
+`SidebarEntryId` is `sidebar_entries.id`, not `PageId` — that table has its
+own `INTEGER PRIMARY KEY`, distinct from `pages.id` even though every entry
+names a page. The web's own brand definitions, and where each is minted on
+that side, are in [frontend.md § API layer](frontend.md#api-layer).
 
 Every endpoint requires the session cookie unless marked public, and
 FastAPI's `/docs` and `/redoc` are disabled.

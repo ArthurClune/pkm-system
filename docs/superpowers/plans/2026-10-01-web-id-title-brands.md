@@ -203,10 +203,10 @@ A brand is a subtype of its base type, so code that only reads a branded field i
 - `docs/troubleshooting.md`: a row only if Review Focus 4 reproduced.
 - `web/src/api/brands.ts` header: drop the "add the title types later" wording.
 
-- [ ] **Step 1:** Make the edits. Invoke the `architecture-docs` skill and run `node .claude/skills/architecture-docs/check-docs.mjs <files>`.
+- [x] **Step 1:** Make the edits. Invoke the `architecture-docs` skill and run `node .claude/skills/architecture-docs/check-docs.mjs <files>`.
 - [ ] **Step 2:** Run the full verification:
   - server: `uv run pytest -q && uv run pyrefly check && uv run ruff check`;
   - web: `pnpm build && CI=true pnpm verify`, with the e2e port assigned by the orchestrator.
-- [ ] **Step 3:** Tick the pkm-thee bean checklist and commit: `docs(pkm-thee): document the web id and title brands`.
+- [x] **Step 3:** Tick the pkm-thee bean checklist and commit: `docs(pkm-thee): document the web id and title brands`.
 
 The orchestrator then runs `perf/check.sh` on a quiet machine, and dispatches an Opus whole-branch review before merge.

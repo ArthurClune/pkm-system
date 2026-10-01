@@ -5,19 +5,18 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiGet } from "../api/typedClient";
-import type { BacklinkGroup } from "../api/payloads";
 import { BacklinkGroupList } from "../components/BacklinkGroupList";
 import { InertMediaContext } from "../contexts";
 import { pagePath } from "../paths";
 import { Popover } from "../Popover";
 import { refGroups, refUidChunks } from "./filesCore";
-import type { AssetRef } from "./filesCore";
+import type { AssetRef, AssetRefGroup } from "./filesCore";
 
 export function FileRefsPopover({ refs, x, y, onClose }: {
   refs: readonly AssetRef[]; x: number; y: number; onClose: () => void;
 }) {
   const navigate = useNavigate();
-  const [groups, setGroups] = useState<BacklinkGroup[] | null>(null);
+  const [groups, setGroups] = useState<AssetRefGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

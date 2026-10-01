@@ -138,11 +138,11 @@ describe("refGroups", () => {
       a2: { text: "third", page_title: "Alpha" },
     };
     expect(refGroups(refs, texts)).toEqual([
-      { page_id: 0, page_title: "Alpha", items: [
+      { page_title: "Alpha", items: [
         { uid: "a1", text: "first", breadcrumbs: [] },
         { uid: "a2", text: "third", breadcrumbs: [] },
       ] },
-      { page_id: 1, page_title: "Beta", items: [
+      { page_title: "Beta", items: [
         { uid: "b1", text: "second", breadcrumbs: [] },
       ] },
     ]);

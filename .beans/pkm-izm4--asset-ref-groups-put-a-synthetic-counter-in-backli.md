@@ -19,6 +19,6 @@ Its comment says why: the search payload carries no page ids. The only consumer 
 
 ## Plan
 
-- [ ] Failing test shaped like the hazard (two synthetic groups collide through `mergeGroups`), or a type-level test, whichever expresses it better
-- [ ] Choose one: `refGroups` returns its own group type keyed by `page_title` (it already groups by title), with `BacklinkGroupList` accepting either; or `mergeGroups` takes its key as a parameter
-- [ ] Remove the `page_id: groups.length` assignment
+- [x] Failing test shaped like the hazard (two synthetic groups collide through `mergeGroups`), or a type-level test, whichever expresses it better
+- [x] Choose one: `refGroups` returns its own group type keyed by `page_title` (it already groups by title), with `BacklinkGroupList` accepting either; or `mergeGroups` takes its key as a parameter
+- [x] Remove the `page_id: groups.length` assignment

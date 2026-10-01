@@ -50,6 +50,7 @@ Owner: [frontend.md](architecture/frontend.md)
 | Block rows re-render with no DOM change | `EditableBlock` is memoised on props that `EditableBlockTree` keeps stable. A prop with a new identity each render defeats the memo | [frontend.md § State management](architecture/frontend.md#state-management) | pkm-qfee |
 | An assistant reply shows a block citation as literal `((^uid))` text instead of a link | The model copied the `^uid` marker from tool output into the citation. `stripCaretBlockRefs` runs on assistant text before `tokenizeBlock` | [frontend.md § The assistant panel](architecture/frontend.md#the-assistant-panel) | pkm-wx86 |
 | Tapping a PDF in the iOS standalone PWA replaces the whole app with the PDF, with no way back | `ExternalLinkInterceptor` ignores same-origin `target="_blank"` anchors. PDF cards open the in-app `PdfViewer` overlay | [frontend.md § The /files browser](architecture/frontend.md#the-files-browser) | pkm-5o11 |
+| Asset reference groups merge into unrelated pages | `refGroups` wrote a synthetic per-call counter into a `BacklinkGroup`'s `page_id`, so pagination batches reused the same ids across different pages and `mergeGroups` would dedupe them together. `refGroups` now returns `AssetRefGroup`, which has no `page_id` field and so cannot reach `mergeGroups` | [frontend.md § The /files browser](architecture/frontend.md#the-files-browser) | pkm-izm4 |
 
 ## Editor
 

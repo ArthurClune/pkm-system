@@ -1,7 +1,7 @@
 // pattern: Functional Core
 // Pure logic for the /files asset browser. The Files view is
 // the imperative shell; everything testable without I/O lives here.
-import type { AssetSearchItem, BacklinkGroup } from "../api/payloads";
+import type { AssetSearchItem, BacklinkItem } from "../api/payloads";
 
 export interface FileFilters {
   q: string;
@@ -124,20 +124,28 @@ export function refUidChunks(refs: readonly AssetRef[]): string[][] {
 
 export const MISSING_BLOCK_TEXT = "(block not found)";
 
-// Shape an asset's refs for BacklinkGroupList. page_id is a synthetic
-// key (the search payload carries no page ids) and breadcrumbs aren't
-// available here, so rows carry text only.
+// A BacklinkGroup shaped for BacklinkGroupList, minus page_id: the asset
+// search payload carries no page ids. Omitting the field (rather than
+// faking one) keeps this type structurally incompatible with mergeGroups,
+// whose page_id key dedupes real pages -- asset refs from different pages
+// must never collide through that key.
+export interface AssetRefGroup {
+  page_title: string;
+  items: BacklinkItem[];
+}
+
+// Shape an asset's refs for BacklinkGroupList, grouped by page title
+// (breadcrumbs aren't available here, so rows carry text only).
 export function refGroups(
   refs: readonly AssetRef[],
   texts: Record<string, { text: string; page_title: string }>,
-): BacklinkGroup[] {
-  const groups: BacklinkGroup[] = [];
-  const byTitle = new Map<string, BacklinkGroup>();
+): AssetRefGroup[] {
+  const groups: AssetRefGroup[] = [];
+  const byTitle = new Map<string, AssetRefGroup>();
   for (const ref of refs) {
     let group = byTitle.get(ref.page_title);
     if (group === undefined) {
-      group = { page_id: groups.length, page_title: ref.page_title,
-                items: [] };
+      group = { page_title: ref.page_title, items: [] };
       byTitle.set(ref.page_title, group);
       groups.push(group);
     }

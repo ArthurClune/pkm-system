@@ -20,6 +20,7 @@ from pydantic import BaseModel, BeforeValidator, Field
 from pkm.changed import ChangeStatus
 from pkm.contracts.brands import brand
 from pkm.contracts.ops import HeadingLevel, OpKind, ViewType
+from pkm.goodlinks import GoodlinksId
 from pkm.refs import RefKind
 
 
@@ -302,7 +303,7 @@ class GoodlinksResolveRequest(BaseModel):
 class GoodlinksLink(BaseModel):
     """POST /api/goodlinks/resolve: the GoodLinks link a URL resolved to.
     `created` is True when the request saved it just now."""
-    id: str
+    id: GoodlinksId
     title: str
     url: str
     added_at: str
@@ -312,7 +313,7 @@ class GoodlinksLink(BaseModel):
 class GoodlinksArticle(BaseModel):
     """GET /api/goodlinks/{link_id}: metadata plus the sanitised reader HTML
     in one payload, so the reader overlay makes a single request."""
-    id: str
+    id: GoodlinksId
     title: str
     url: str
     added_at: str

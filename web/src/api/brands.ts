@@ -39,3 +39,9 @@ export type SyncSeq = number & { readonly __brand: "SyncSeq" };
 // this type by hand at the one place that parses it.
 export type ClientId = string & { readonly __brand: "ClientId" };
 export type BatchId = string & { readonly __brand: "BatchId" };
+
+// A GoodLinks link id: exactly 32 lowercase hex characters, GoodLinks' own
+// id shape. Crosses HTTP through GoodlinksLink.id and GoodlinksArticle.id;
+// minted on the web only by `goodlinksIdFromHref` (components/goodlinks.ts),
+// the one place a parsed href's id is checked against that shape.
+export type GoodlinksId = string & { readonly __brand: "GoodlinksId" };

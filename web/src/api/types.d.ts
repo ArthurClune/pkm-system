@@ -1316,7 +1316,7 @@ export interface components {
          */
         GoodlinksArticle: {
             /** Id */
-            id: string;
+            id: Brands.GoodlinksId;
             /** Title */
             title: string;
             /** Url */
@@ -1363,7 +1363,7 @@ export interface components {
          */
         GoodlinksLink: {
             /** Id */
-            id: string;
+            id: Brands.GoodlinksId;
             /** Title */
             title: string;
             /** Url */

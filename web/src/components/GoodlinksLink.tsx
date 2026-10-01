@@ -4,9 +4,10 @@
 // interactive island (stopPropagation) so it does not re-enter block-edit
 // mode, then the reader overlay mounts and owns the fetch.
 import { useCallback, useRef, useState } from "react";
+import type { GoodlinksId } from "../api/brands";
 import { GoodlinksReader } from "./GoodlinksReader";
 
-export function GoodlinksLink({ linkId, label }: { linkId: string; label: string }) {
+export function GoodlinksLink({ linkId, label }: { linkId: GoodlinksId; label: string }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   // Stable so useOverlayDismiss does not tear down and re-run (bouncing

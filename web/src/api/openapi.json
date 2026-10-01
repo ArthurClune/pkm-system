@@ -3050,7 +3050,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "GoodlinksId"
           },
           "title": {
             "type": "string",
@@ -3148,7 +3149,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "title": "Id"
+            "title": "Id",
+            "x-brand": "GoodlinksId"
           },
           "title": {
             "type": "string",

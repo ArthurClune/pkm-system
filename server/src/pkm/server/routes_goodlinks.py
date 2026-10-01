@@ -21,9 +21,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pkm.contracts.responses import (GoodlinksArticle, GoodlinksCheckPayload,
                                      GoodlinksCheckProblem, GoodlinksLink,
                                      GoodlinksResolveRequest)
-from pkm.goodlinks import (GOODLINKS_PREFIX, candidate_urls, extract_goodlinks_hrefs,
-                           is_link_id, link_id_from_href, sanitize_article, search_match,
-                           search_query)
+from pkm.goodlinks import (GOODLINKS_PREFIX, GoodlinksId, candidate_urls,
+                           extract_goodlinks_hrefs, link_id_from_href, parse_link_id,
+                           sanitize_article, search_match, search_query)
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.goodlinks_gateway import (GoodlinksGateway, GoodlinksRejected,
@@ -54,7 +54,10 @@ def get_goodlinks(request: Request) -> GoodlinksGateway:
 
 
 def _link_payload(raw: dict, created: bool) -> GoodlinksLink:
-    return GoodlinksLink(id=str(raw["id"]), title=str(raw.get("title") or ""),
+    link_id = parse_link_id(str(raw["id"]))
+    if link_id is None:
+        raise GoodlinksUnavailable(f"goodlinks returned a malformed link id: {raw.get('id')!r}")
+    return GoodlinksLink(id=link_id, title=str(raw.get("title") or ""),
                          url=str(raw["url"]), added_at=str(raw.get("addedAt") or ""),
                          created=created)
 
@@ -93,7 +96,7 @@ def check_goodlinks_links(request: Request,
         " WHERE instr(b.text, ?) > 0 ORDER BY p.title, b.uid", (GOODLINKS_PREFIX,)).fetchall()
     total = ok = 0
     problems: list[GoodlinksCheckProblem] = []
-    known: dict[str, bool] = {}
+    known: dict[GoodlinksId, bool] = {}
     try:
         for uid, title, text in rows:
             for href in extract_goodlinks_hrefs(text):
@@ -118,16 +121,17 @@ def check_goodlinks_links(request: Request,
 @router.get("/api/goodlinks/{link_id}", response_model=GoodlinksArticle)
 def get_article(link_id: str, response: Response,
                 gw: GoodlinksGateway = Depends(get_goodlinks)) -> GoodlinksArticle:
-    if not is_link_id(link_id):
+    parsed_id = parse_link_id(link_id)
+    if parsed_id is None:
         raise _NOT_FOUND
     try:
-        meta = gw.link(link_id)
+        meta = gw.link(parsed_id)
         if meta is None:
             raise _NOT_FOUND
         # A known link with no reader copy (extraction failed, a paywall, a
         # PDF, a page saved seconds ago) still returns its metadata, so the
         # reader can offer the original link.
-        html = gw.content(link_id)
+        html = gw.content(parsed_id)
     except GoodlinksUnavailable as e:
         raise _unavailable("article", e) from None
     except GoodlinksUnauthorized as e:
@@ -135,6 +139,6 @@ def get_article(link_id: str, response: Response,
     # The article can change if it is re-saved, and GoodLinks is local and
     # fast, so nothing is cached.
     response.headers["Cache-Control"] = "private, no-store"
-    return GoodlinksArticle(id=link_id, title=str(meta.get("title") or ""), url=str(meta["url"]),
+    return GoodlinksArticle(id=parsed_id, title=str(meta.get("title") or ""), url=str(meta["url"]),
                             added_at=str(meta.get("addedAt") or ""),
                             html=sanitize_article(html) if html is not None else "")

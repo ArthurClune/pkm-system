@@ -26,7 +26,7 @@ Rejected alternative: a field-name mapped type in `web/src/api/typedClient.ts:25
 
 ## Plan
 
-- [ ] Brainstorm/spec when picked up (it changes the codegen pipeline)
-- [ ] Prove on `Sha256Hex` end to end: replace the `api/ops.ts` hand alias with the generated brand
-- [ ] Check that pydantic validation is unchanged and `openapi.json` still diffs cleanly
-- [ ] Update the regen instructions wherever gen-types is documented
+- [x] Brainstorm/spec when picked up (it changes the codegen pipeline)
+- [x] Prove on `Sha256Hex` end to end: replace the `api/ops.ts` hand alias with the generated brand
+- [x] Check that pydantic validation is unchanged and `openapi.json` still diffs cleanly
+- [x] Update the regen instructions wherever gen-types is documented

@@ -568,9 +568,19 @@ this way. A Literal this strict can reject a value the write path itself
 never produces but an old import left behind: `BlockNode.heading` and
 `SyncBlock.heading` use `StoredHeading`, which reads a stored 0 (Roam's own
 "no heading" level) as `None` before the `HeadingLevel` check runs, rather
-than 500ing on a Roam-imported block. Every endpoint
-requires the session cookie unless marked public, and FastAPI's `/docs` and
-`/redoc` are disabled.
+than 500ing on a Roam-imported block.
+
+A `NewType` the web must also keep distinct from its base type, such as
+`Sha256Hex` in `contracts/ops.py`, is tagged with `brand()` from
+`contracts/brands.py`. `brand()` leaves validation and dumping as the
+supertype's and adds an `x-brand: "<Name>"` marker to the schema, which
+`pnpm gen-types` turns into a reference to the web brand of the same name
+(see [frontend.md](frontend.md#api-layer)). Call it in its own statement
+after the `NewType(...)` line: pyrefly stops treating the result as a type
+when the `NewType` call is wrapped in another call.
+
+Every endpoint requires the session cookie unless marked public, and
+FastAPI's `/docs` and `/redoc` are disabled.
 
 | Method | Path | Purpose |
 |---|---|---|

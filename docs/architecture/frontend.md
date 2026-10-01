@@ -28,7 +28,7 @@ their fixes are indexed by symptom in
 | Offline | `@sqlite.org/sqlite-wasm` (replica in a Web Worker on the OPFS SAHPool VFS) |
 | Rendering extras (all lazy-loaded) | KaTeX (math), beautiful-mermaid + Mermaid fallback (diagrams), react-pdf/pdf.js (PDF viewer), highlight.js (code) |
 | Tests | Vitest + jsdom (enforced coverage), Playwright e2e, Testing Library, type-aware ESLint |
-| API types | `openapi-typescript` via `pnpm gen-types` |
+| API types | `openapi-typescript` (Node API) via `pnpm gen-types` → `web/tooling/genTypes.mjs` |
 
 ## Module map (`web/src/`)
 
@@ -65,6 +65,7 @@ web/src/
 ├── api/                      The typed HTTP layer (see API layer)
 │   ├── client.ts             Shell        apiFetch: JSON, 401 → /login, offline gateway
 │   ├── typedClient.ts        Shell        apiGet/apiPost/…, typed by the OpenAPI paths
+│   ├── brands.ts             —            The one definition of each web brand (Sha256Hex)
 │   └── openapi.json, types.d.ts (generated); ops.ts, payloads.ts (type-only re-exports)
 │
 ├── grammar/                  Roam-markdown parsing (see frontend-rendering.md)
@@ -386,6 +387,17 @@ legitimate cold-start bootstrap. Types come from the generated
 `api/types.d.ts` (`pnpm gen-types` over `api/openapi.json`); `api/ops.ts` and
 `api/payloads.ts` are type-only re-exports. **Never hand-write API types** —
 the server test suite fails on stale artifacts.
+
+A server field typed with a branded `NewType` carries an `x-brand` marker in
+`openapi.json` (see [backend.md](backend.md#http-api-reference)).
+`tooling/genTypes-core.mjs` turns it into `Brands.<Name>`, a reference to
+the export of that name in `api/brands.ts`, which is the only place a brand
+is defined. A subtype brand adds a second key rather than a second
+`__brand`, since two `__brand` literals intersect to `never`; the file's
+header shows the pattern. The main tsconfig's `skipLibCheck` skips every
+`.d.ts`, so a `Brands.<Name>` that `brands.ts` doesn't export would degrade
+silently to `any`. `pnpm typecheck` therefore runs a second pass,
+`tsconfig.apitypes.json`, that checks `types.d.ts` with lib checking on.
 
 Concrete JSON requests must use `api/typedClient.ts`'s `apiGet`/`apiPost`/
 `apiPut`/`apiDelete`, which ESLint's `no-restricted-imports` enforces by

@@ -13,7 +13,13 @@ Tag a NewType in its own statement after declaring it:
     brand(Sha256Hex)
 
 Never wrap the `NewType(...)` call itself: pyrefly stops treating the
-result as a type once the call sits inside another call."""
+result as a type once the call sits inside another call.
+
+A brand can vanish without an error on the pydantic side. A
+`PlainValidator` on the field replaces the whole schema, marker included,
+and a NewType of a branded NewType inherits its parent's marker, so brand
+every subtype explicitly. gen-types accepts a marker only on a string or
+integer schema, so a `float` NewType must not be branded."""
 from __future__ import annotations
 
 from typing import Any

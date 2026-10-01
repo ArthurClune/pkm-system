@@ -18,6 +18,10 @@ brand(Tagged)
 TaggedInt = NewType("TaggedInt", int)
 brand(TaggedInt)
 Plain = NewType("Plain", str)
+Parent = NewType("Parent", str)
+brand(Parent)
+Child = NewType("Child", Parent)
+brand(Child)
 
 
 class M(BaseModel):
@@ -28,6 +32,11 @@ class M(BaseModel):
 
 class Unbranded(BaseModel):
     p: Plain
+
+
+class Nested(BaseModel):
+    parent: Parent
+    child: Child
 
 
 def test_schema_carries_brand_beside_constraints():
@@ -51,8 +60,21 @@ def test_validation_unchanged():
     assert m.model_dump() == {"h": "abcd", "xs": ["q"], "n": 2}
 
 
-def test_brand_name_is_newtype_name():
+def test_unbranded_newtype_has_no_marker():
     assert "x-brand" not in Unbranded.model_json_schema()["properties"]["p"]
+
+
+def test_branded_subtype_carries_its_own_name():
+    props = Nested.model_json_schema()["properties"]
+    assert props["parent"] == {"title": "Parent", "type": "string",
+                               "x-brand": "Parent"}
+    assert props["child"] == {"title": "Child", "type": "string",
+                              "x-brand": "Child"}
+    with pytest.raises(ValidationError) as not_str:
+        Nested.model_validate({"parent": 1, "child": 2})
+    assert [e["type"] for e in not_str.value.errors()] == ["string_type"] * 2
+    n = Nested.model_validate({"parent": "a", "child": "b"})
+    assert n.model_dump() == {"parent": "a", "child": "b"}
 
 
 def test_openapi_marks_op_hashes(tmp_path: Path):

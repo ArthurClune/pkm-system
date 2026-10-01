@@ -64,4 +64,28 @@ describe("generateTypes", () => {
       withProperty({ type: "boolean", "x-brand": "Flag" })))
       .rejects.toThrow(/x-brand/);
   });
+
+  // Each case sits where openapi-typescript would drop the brand or the
+  // constraint without calling transform at all, so only the up-front
+  // marker check can catch it.
+  test.each([
+    ["nullable", withProperty({ type: "string", nullable: true, "x-brand": "H" })],
+    ["enum", withProperty({
+      anyOf: [{ type: "string", enum: ["a", "b"], "x-brand": "E" }, { type: "null" }],
+    })],
+    ["const", withProperty({ type: "string", const: "a", "x-brand": "C" })],
+    ["a missing type", withProperty({ type: "array", items: { "x-brand": "H" } })],
+  ])("rejects a marker beside %s", async (_label, doc) => {
+    await expect(generateTypes(doc)).rejects.toThrow(/x-brand/);
+  });
+
+  test("a dict-key marker is not branded", async () => {
+    const out = await generateTypes(withProperty({
+      type: "object",
+      additionalProperties: { type: "integer" },
+      propertyNames: { "x-brand": "K" },
+    }));
+    expect(out).toContain("[key: string]: number;");
+    expect(out).not.toMatch(/Brands\./);
+  });
 });

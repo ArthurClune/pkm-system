@@ -126,17 +126,19 @@ the doc is wrong.
   - `delete`;
   - parents created earlier in the same batch.
 
-**Run:**
-1. Seed the page.
-2. `plan_batch`.
-3. `apply_batch`.
-4. Read the page back.
+**Run:** seed the page, then drive the real CLI shell,
+`pkm.client.workflows.apply_batch(client, commands)` (fetch, `plan_batch`,
+`post_ops`), through a `PkmClient` on the in-process app, and read the page
+back. A missing target is produced the way it happens for real: a wrapper
+client applies a "concurrent" delete batch just before the CLI's `post_ops`.
+`plan_batch` keeps its Planner internal, so the property compares the
+server's result with the reference rather than reading the planner's model;
+a disagreement shrinks to a batch that names the planner anyway.
 
 **Invariants:**
 
 | Invariant | Check |
 |---|---|
-| Planner model = server | The planner's sibling model after planning gives the same per-parent child order as the DB |
 | Position semantics | That order equals a list-based reference: `index` is a 0-based position among the parent's current children as earlier commands left them; past the end appends; an indexed move lands at its final position among the destination's children without the moving block |
 | Unique sibling keys, well-formed tree | As in property 1 |
 
@@ -144,8 +146,8 @@ the doc is wrong.
 a cycle move, a missing uid or a missing parent. Those commands are still
 generated, and the test asserts the documented behaviour:
 - the server skips the op and the ack lists it;
-- the planner's model then disagrees, but only for that op's sibling
-  groups.
+- every sibling group the skipped op did not touch (its source and
+  destination parents) still matches the reference.
 
 The test doesn't filter these cases out.
 

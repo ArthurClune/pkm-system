@@ -125,16 +125,19 @@ class OpsMachine(RuleBasedStateMachine):
 
     @rule(data=st.data())
     def submit(self, data: st.DataObject) -> None:
+        assert self.app is not None
         ops = data.draw(batch_for(self.model, UIDS), label="ops")
         for label in _hash_events(self.model, ops):
             event(label)
         payload = {"client_id": CLIENT_ID, "batch_id": self._batch_id(),
                    "ops": ops}
         outcome = self.model.apply(ops)
+        before = _snapshot(self.app)
         r = self._post(payload)
         assert r.status_code == outcome.status, r.text
         event(f"status: {r.status_code}")
         if r.status_code != 200:
+            assert _snapshot(self.app) == before
             return
         ack = r.json()
         assert ack["applied"] == len(ops)
@@ -218,7 +221,9 @@ class OpsMachine(RuleBasedStateMachine):
         under_header: set[str] = set()
         for parent, text in rows.values():
             cur = parent
-            while cur is not None and cur in rows:
+            for _ in range(len(rows) + 1):
+                if cur is None or cur not in rows:
+                    break
                 if rows[cur][1].startswith(CONFLICT_PREFIX):
                     under_header.add(text)
                     break

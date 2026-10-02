@@ -181,7 +181,7 @@ def _format_validation_error(exc: ValidationError) -> str:
     for error in exc.errors():
         loc = cast(tuple[object, ...], error.get("loc", ()))
         path = ".".join(str(part) for part in loc)
-        msg = str(error["msg"])
+        msg = error["msg"]
         messages.append(f"{path}: {msg}" if path else msg)
     return "; ".join(messages)
 

@@ -16,7 +16,7 @@ import re
 from typing import NewType
 from urllib.parse import urlsplit, urlunsplit
 
-import nh3  # pyrefly: ignore
+import nh3
 
 from pkm.contracts.brands import brand
 

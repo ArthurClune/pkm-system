@@ -568,7 +568,7 @@ def test_apply_title_migration_rejects_a_malformed_digest_before_http(
         pkm_client.apply_title_migration("not-a-sha256")
 
     assert e.value.status == 422
-    assert called is False
+    assert called is False  # pyrefly: ignore[unnecessary-comparison] (pyrefly ignores the nonlocal assignment in fail_if_called)
 
 
 def test_unauthenticated_client_gets_login_hint(anon_client):

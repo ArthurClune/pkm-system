@@ -307,7 +307,7 @@ def test_app_shutdown_closes_live_conversations(seeded_config):
         c.post("/api/assistant/conversations", json={})
         assert engine.conversations[0].closed is False
     # TestClient's context manager exit runs the app's shutdown lifespan
-    assert engine.conversations[0].closed is True
+    assert engine.conversations[0].closed is True  # pyrefly: ignore[unnecessary-comparison] (narrowing from the assert above survives the lifespan shutdown that sets it)
 
 
 def test_app_shutdown_closes_assistant_when_describer_close_fails(seeded_config):

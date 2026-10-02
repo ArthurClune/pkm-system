@@ -22,6 +22,7 @@ temp-directory teardown that is guaranteed to run regardless of which of
 those paths is taken."""
 from __future__ import annotations
 
+import os
 from collections.abc import Awaitable, Callable
 
 from starlette.responses import FileResponse
@@ -33,10 +34,11 @@ class CleanupFileResponse(FileResponse):
     success, an error raised while sending, or the file being unreadable
     -- instead of only after a fully completed send."""
 
-    def __init__(self, *args: object,
-                cleanup: Callable[[], Awaitable[None]],
-                **kwargs: object) -> None:
-        super().__init__(*args, **kwargs)  # pyrefly: ignore
+    def __init__(self, path: str | os.PathLike[str], *,
+                 cleanup: Callable[[], Awaitable[None]],
+                 media_type: str | None = None,
+                 filename: str | None = None) -> None:
+        super().__init__(path, media_type=media_type, filename=filename)
         self._cleanup = cleanup
 
     async def __call__(self, scope: Scope, receive: Receive,

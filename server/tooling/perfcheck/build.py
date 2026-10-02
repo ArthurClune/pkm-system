@@ -21,7 +21,7 @@ import os
 import sys
 import tempfile
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -53,7 +53,7 @@ class CacheLockTimeout(RuntimeError):
 
 
 @contextmanager
-def cache_lock(name: str, holder: str) -> Iterator[None]:
+def cache_lock(name: str, holder: str) -> Generator[None, None, None]:
     """Exclusive flock on `cache_dir()/<name>.lock`, machine-wide. Waits,
     saying so, while another perf check holds it; the OS drops the lock if
     the holder dies."""

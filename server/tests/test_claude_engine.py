@@ -107,7 +107,7 @@ def test_create_conversation_options_and_config_file(tmp_path):
     assert cfg["token"].startswith("v1.")
     asyncio.run(conv.close())
     assert not cfg_path.exists()  # config file removed on close
-    assert client.connected is False
+    assert client.connected is False  # pyrefly: ignore[unnecessary-comparison] (narrowing from the earlier assert survives the close() that clears it)
 
 
 def test_glm_routes_to_zai_endpoint(tmp_path):

@@ -224,11 +224,11 @@ def test_staging_cleanup_treats_disappearance_as_success(graph, monkeypatch):
     abandoned.mkdir(parents=True)
     real_rmtree = shutil.rmtree
 
-    def vanish_then_report_missing(path, *args, **kwargs):
+    def vanish_then_report_missing(path, ignore_errors=False):
         if Path(path) == abandoned:
             real_rmtree(path)
             raise FileNotFoundError(path)
-        return real_rmtree(path, *args, **kwargs)
+        return real_rmtree(path, ignore_errors=ignore_errors)
 
     monkeypatch.setattr("pkm.export.writer.shutil.rmtree",
                         vanish_then_report_missing)
@@ -249,10 +249,10 @@ def test_staging_cleanup_error_precedes_last_good_mutation(graph, monkeypatch):
     before = _snapshot(export)
     real_rmtree = shutil.rmtree
 
-    def deny_abandoned_cleanup(path, *args, **kwargs):
+    def deny_abandoned_cleanup(path, ignore_errors=False):
         if Path(path) == abandoned:
             raise PermissionError(path)
-        return real_rmtree(path, *args, **kwargs)
+        return real_rmtree(path, ignore_errors=ignore_errors)
 
     monkeypatch.setattr("pkm.export.writer.shutil.rmtree",
                         deny_abandoned_cleanup)

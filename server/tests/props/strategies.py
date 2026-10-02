@@ -304,7 +304,10 @@ def cli_batch(draw: st.DrawFn, blocks: list[MBlock], page: str) -> list[dict]:
             target = _weighted(draw, [(2, "top"), (3 if outside else 0, "other"),
                                       (2, "own"), (1, "cycle")])
             if target == "cycle":
-                dest = draw(st.sampled_from(inside))
+                # An unaliased create inside the subtree has no name a
+                # command could use, so it is never a cycle's target.
+                dest = draw(st.sampled_from(
+                    [k for k in inside if not k.startswith("#")]))
                 index = _index(draw, len(children[dest]))
             elif target == "own":
                 dest = current

@@ -11,7 +11,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -25,6 +25,7 @@ from pkm.contracts.daily import title_for_date
 from pkm.server.app import create_app
 from pkm.server.config import Config
 from pkm.server.db import open_db
+from props.model import MBlock
 
 FROZEN_NOW = datetime(2026, 7, 9, 12, 0, tzinfo=ZoneInfo("Europe/London"))
 DAILY_TITLE = title_for_date(FROZEN_NOW.date())
@@ -86,6 +87,18 @@ def fresh_app(template: Path) -> FreshApp:
     r = client.post("/api/login", json={"password": TEST_PASSWORD})
     assert r.status_code == 200
     return FreshApp(client=client, config=config, root=root)
+
+
+def seed_ops(page: str, rows: Sequence[MBlock]) -> list[dict]:
+    """One `/api/ops` batch that builds `rows` (a `seed_tree` draw: parents
+    before children, gapped keys) as plain creates, led by a `create_page`
+    of `page` so the batch is never empty and the page exists even when
+    the seed has no block on it."""
+    return [{"op": "create_page", "page_title": page},
+            *({"op": "create", "uid": b.uid, "page_title": b.page,
+               "parent_uid": b.parent, "order_idx": b.order_idx,
+               "text": b.text, "heading": b.heading,
+               "view_type": b.view_type} for b in rows)]
 
 
 @contextmanager

@@ -17,7 +17,8 @@ the server writes on today's daily page are represented by
 `Outcome.kept_texts`, not as blocks."""
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+import re
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -328,3 +329,102 @@ class Model:
         for u in subtree:
             del self.blocks[u]
             self.deleted.add(u)
+
+
+# --- `pkm batch` positions ---------------------------------------------------
+
+_UID_SPEC = re.compile(r"^\(\((.+)\)\)$")
+_ALIAS_SPEC = re.compile(r"^\{\{(.+)\}\}$")
+
+Groups = dict[str | None, list[str]]
+
+
+def positions_after(groups: Mapping[str | None, Sequence[str]],
+                    commands: Sequence[Mapping[str, Any]],
+                    new_uids: Iterator[str]) -> Groups:
+    """Each parent's children, in order, after the `pkm batch` `commands`
+    run over `groups` (parent uid -> child uids, None for the page's top
+    level). Positions only, never order keys: this is the CLI contract the
+    planner's keys must realise (cli-and-mcp.md, the batch `index` row).
+
+    - create/todo: lands at `index` among the parent's children as the
+      earlier commands left them; None, or an index past the end, appends.
+      Each mints the next of `new_uids`, in command order; `as` names it
+      for a later `{{alias}}`.
+    - move: the block leaves its group first, then lands at `index` among
+      the destination's children without it; None or past the end appends.
+      Its subtree comes with it.
+    - delete: removes the block and its subtree.
+    - update: no change of place.
+
+    A command whose block or parent is not in `groups` changes nothing (a
+    create still spends its uid), and a move into the block itself or its
+    own subtree is left undone: backend.md § Missing targets and
+    § Concurrent structure edits, which the server reports as skips. Parent
+    specs are `((uid))` or `{{alias}}`; a `## Heading` spec, which the
+    planner would create, and `outline` are not modelled and raise.
+    The input is not mutated."""
+    out: Groups = {k: list(v) for k, v in groups.items()}
+    aliases: dict[str, str] = {}
+
+    def parent_of(uid: str) -> tuple[bool, str | None]:
+        for parent, kids in out.items():
+            if uid in kids:
+                return True, parent
+        return False, None
+
+    def subtree(uid: str) -> list[str]:
+        found = [uid]
+        for kid in out.get(uid, []):
+            found.extend(subtree(kid))
+        return found
+
+    def named(value: str) -> str:
+        m = _ALIAS_SPEC.match(value)
+        return aliases[m.group(1)] if m else value
+
+    def parent_spec(spec: str | None) -> str | None:
+        if spec is None:
+            return None
+        m = _UID_SPEC.match(spec)
+        if m:
+            return m.group(1)
+        if _ALIAS_SPEC.match(spec):
+            return named(spec)
+        raise ValueError(f"parent spec not modelled: {spec!r}")
+
+    def live(uid: str | None) -> bool:
+        return uid is None or parent_of(uid)[0]
+
+    def land(parent: str | None, uid: str, index: int | None) -> None:
+        group = out.setdefault(parent, [])
+        group.insert(len(group) if index is None else min(index, len(group)),
+                     uid)
+
+    for command in commands:
+        kind, params = command["command"], command["params"]
+        if kind in ("create", "todo"):
+            uid = next(new_uids)
+            if params.get("as"):
+                aliases[params["as"]] = uid
+            parent = parent_spec(params.get("parent"))
+            if live(parent):
+                land(parent, uid, params.get("index"))
+                out[uid] = []
+        elif kind == "move":
+            uid = named(params["uid"])
+            parent = parent_spec(params.get("parent"))
+            found, source = parent_of(uid)
+            if found and live(parent) and parent not in subtree(uid):
+                out[source].remove(uid)
+                land(parent, uid, params.get("index"))
+        elif kind == "delete":
+            uid = named(params["uid"])
+            found, source = parent_of(uid)
+            if found:
+                out[source].remove(uid)
+                for u in subtree(uid):
+                    out.pop(u, None)
+        elif kind != "update":
+            raise ValueError(f"command not modelled: {kind!r}")
+    return out

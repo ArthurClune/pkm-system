@@ -22,7 +22,7 @@ from pkm.refs import canonicalize_title, extract, is_blank_title
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
 from props.harness import (DAILY_TITLE, FROZEN_NOW, FreshApp,
                            assert_unique_keys, assert_well_formed, examples,
-                           fresh_app, read_db, template_db_path)
+                           fresh_app, read_db, seed_ops, template_db_path)
 from props.model import MBlock, Model
 from props.strategies import PAGES, batch_for, seed_tree, uid_pool
 
@@ -107,13 +107,8 @@ class OpsMachine(RuleBasedStateMachine):
         # is never empty: `replay` and `reuse` then have a batch to address
         # from the first step, rather than Hypothesis discarding examples
         # whose first draws pick a rule whose precondition fails.
-        ops: list[dict] = [{"op": "create_page", "page_title": PAGES[0]}]
-        ops += [{"op": "create", "uid": b.uid, "page_title": b.page,
-                 "parent_uid": b.parent, "order_idx": b.order_idx,
-                 "text": b.text, "heading": b.heading,
-                 "view_type": b.view_type} for b in rows]
         payload = {"client_id": CLIENT_ID, "batch_id": self._batch_id(),
-                   "ops": ops}
+                   "ops": seed_ops(PAGES[0], rows)}
         r = self._post(payload)
         assert r.status_code == 200, r.text
         assert r.json()["skipped"] == []

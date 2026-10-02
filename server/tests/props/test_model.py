@@ -10,7 +10,7 @@ from hypothesis import given, settings, strategies as st
 from pkm.batch import validate_batch
 from pkm.contracts.ops import UID_RE, OpBatch, subtree_hash, text_hash
 from props.harness import DAILY_TITLE
-from props.model import MBlock, Model, Outcome
+from props.model import MBlock, Model, Outcome, positions_after
 from props.strategies import (PAGES, batch_for, cli_batch, op_for, seed_tree,
                               texts, uid_pool)
 
@@ -280,6 +280,102 @@ def test_title_syntax_is_400():
     assert X not in m.blocks
 
 
+# --- cli-and-mcp.md: batch `index` is a position ------------------------------
+
+def cr(index=None, parent=None, alias=None, command="create"):
+    params = {"page": "Alpha", "text": "t", "parent": parent, "index": index}
+    if alias is not None:
+        params["as"] = alias
+    return {"command": command, "params": params}
+
+
+def mv(uid, parent=None, index=None):
+    return {"command": "move",
+            "params": {"uid": uid, "page": "Alpha", "parent": parent,
+                       "index": index}}
+
+
+def dl(uid):
+    return {"command": "delete", "params": {"uid": uid}}
+
+
+def after(groups, commands, new=(X, Y)):
+    return positions_after(groups, commands, iter(new))
+
+
+def test_positions_index_is_a_position_not_a_key():
+    # The seed's keys are A@0, B@5, C@6: a position knows nothing of them.
+    assert after({None: [A, B, C]}, [cr(index=2)]) == {
+        None: [A, B, X, C], X: []}
+
+
+def test_positions_indexed_then_appended_create():
+    assert after({None: [A, B]}, [cr(index=0), cr()])[None] == [X, A, B, Y]
+
+
+def test_positions_index_zero_twice_composes():
+    assert after({None: [A, B]}, [cr(index=0), cr(index=0)])[None] == [
+        Y, X, A, B]
+
+
+def test_positions_delete_then_indexed_create():
+    out = after({None: [A, B, C], B: [P]}, [dl(B), cr(index=1)])
+    assert out == {None: [A, X, C], X: []}
+
+
+def test_positions_move_within_parent_forwards():
+    assert after({None: [A, B, C]}, [mv(A, index=1)])[None] == [B, A, C]
+
+
+def test_positions_move_within_parent_backwards():
+    assert after({None: [A, B, C]}, [mv(C, index=0)])[None] == [C, A, B]
+
+
+def test_positions_move_onto_own_slot():
+    assert after({None: [A, B, C]}, [mv(B, index=1)])[None] == [A, B, C]
+
+
+def test_positions_move_counts_destination_without_the_block():
+    # Index 2 among [B, C] is the end, not "before C".
+    assert after({None: [A, B, C]}, [mv(A, index=2)])[None] == [B, C, A]
+
+
+def test_positions_index_past_the_end_appends():
+    out = after({None: [A, B]}, [cr(index=9), mv(A, index=9)])
+    assert out[None] == [B, X, A]
+
+
+def test_positions_move_across_parents_carries_its_subtree():
+    out = after({None: [A, B], A: [C], C: [P]},
+                [mv(C, parent=f"(({B}))", index=0)])
+    assert out == {None: [A, B], A: [], B: [C], C: [P]}
+
+
+def test_positions_alias_names_an_earlier_create():
+    out = after({None: [A]}, [cr(alias="n"), cr(parent="{{n}}"),
+                              mv("{{n}}", index=0)])
+    assert out == {None: [X, A], X: [Y], Y: []}
+
+
+def test_positions_cycle_move_leaves_the_block_in_place():
+    groups = {None: [A, B], A: [C]}
+    assert after(groups, [mv(A, parent=f"(({C}))", index=0),
+                          mv(A, parent=f"(({A}))")]) == groups
+
+
+def test_positions_missing_targets_are_skipped():
+    # The create under a gone parent still mints its uid: X is spent.
+    out = after({None: [A]}, [cr(parent=f"(({B}))"), mv(B, index=0),
+                              mv(A, parent=f"(({C}))"), dl(C), cr(index=0)])
+    assert out == {None: [Y, A], Y: []}
+
+
+def test_positions_todo_is_a_create_and_input_is_untouched():
+    groups = {None: [A]}
+    assert after(groups, [cr(index=0, command="todo")])[None] == [X, A]
+    assert groups == {None: [A]}
+
+
 # --- isolation from the code under test --------------------------------------
 
 def test_model_imports_no_server_code():
@@ -290,7 +386,8 @@ def test_model_imports_no_server_code():
               if isinstance(n, ast.ImportFrom)]
     assert names, "model.py should import something"
     for name in names:
-        assert not name.startswith(("pkm.server", "pkm.planning")), name
+        assert not name.startswith(
+            ("pkm.server", "pkm.planning", "pkm.batch")), name
 
 
 # --- strategies --------------------------------------------------------------
@@ -374,3 +471,10 @@ def test_cli_batches_pass_the_command_schema(data):
     commands = data.draw(cli_batch(rows, PAGES[0]))
     assert commands
     validate_batch(commands)
+    # Every block a command names is a seeded uid or an alias: never the
+    # internal key of an unaliased create.
+    seeded = {r.uid for r in rows}
+    for c in commands:
+        for value in (c["params"].get("uid"), c["params"].get("parent")):
+            if value is not None and not value.startswith("{{"):
+                assert value.strip("()") in seeded, c

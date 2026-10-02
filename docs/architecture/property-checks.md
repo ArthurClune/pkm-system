@@ -32,9 +32,10 @@ later sub-project adds one. `--seed N` reproduces a specific run
 | `server/tests/props/conftest.py` | test | Hypothesis profiles (`merge`, `dev`), the `template_db` fixture |
 | `server/tests/props/harness.py` | test | non-fixture helpers every property needs: `template_db_path`, `fresh_app`, `FROZEN_NOW`, `MERGE_EXAMPLES`, `assert_unique_keys`/`assert_well_formed` |
 | `server/tests/props/strategies.py` | Functional Core | uid pools, trees with gapped keys, op and CLI-command strategies |
-| `server/tests/props/model.py` | test | the reference model (below) |
+| `server/tests/props/model.py` | Functional Core | the reference model (below) |
 | `server/tests/props/test_ops_state.py`, `test_planner_props.py` | test | the two properties |
 | `server/tests/props/test_model.py` | test | unmarked, runs in the normal suite: pins the model's own behaviour |
+| `server/tests/props/test_smoke_props.py` | test | pins per-example `template_db` isolation across Hypothesis examples |
 
 The suite lives under `server/tests/props/` so it shares `tests/conftest.py`
 fixtures and pyrefly/ruff cover it, but a registered `proptest` marker
@@ -70,12 +71,16 @@ model would agree by construction.
 
 ## Reading a failure
 
-Hypothesis shrinks a failure to the smallest batch that reproduces it, then
-prints it with `print_blob=True`'s `@reproduce_failure(...)` decorator. Paste
-that decorator onto the failing test and re-run it under `HYPOTHESIS_PROFILE=merge`
-to replay exactly that example without re-exploring. The example database at
-`server/.hypothesis/` (gitignored) also means a bare re-run of the same test
-tries that recent failure first, decorator or not.
+Hypothesis shrinks a failure toward the smallest batch that reproduces it,
+then prints it with `print_blob=True`'s `@reproduce_failure(...)` decorator.
+Shrinking can stop early at Hypothesis's 5-minute cap, so the printed example
+is not guaranteed minimal. Paste the decorator onto the failing test
+(`test_planner_props.py`'s `@given` test), or onto `OpsMachine` itself or its
+`TestOps = OpsMachine.TestCase` (`test_ops_state.py`). Re-run it under
+`HYPOTHESIS_PROFILE=merge` to replay exactly that example without
+re-exploring; past the cap, this also resumes shrinking from where it left off.
+The example database at `server/.hypothesis/` (gitignored) also means a bare
+re-run of the same test tries that recent failure first, decorator or not.
 
 A property failure blocks the merge:
 

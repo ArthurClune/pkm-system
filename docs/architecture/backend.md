@@ -257,7 +257,8 @@ Key mechanics:
 
 - **Ordering.** Siblings hold integer `order_idx`. An insert or move emits a
   `ShiftSiblings` effect — bump every sibling ≥ the target index — before
-  placing the block. When a move's destination is the block's own group,
+  placing the block. When a move's destination is the block's own group and
+  its current `order_idx` is already at or above the target index,
   `ShiftSiblings` bumps the moving block's own row too. The `SetParent` that
   follows then overwrites that row with the move's own target index, so only
   the *other* siblings at or after the target index end up moved. The old
@@ -418,10 +419,15 @@ the server ignore it for placement
 ([Concurrent structure edits](#concurrent-structure-edits), first row) — the
 syntax check runs first, before any op's targets are read. An
 `update_text`'s own `page_title` is
-only a conflict-header label and is never checked. A create's own uid always
-fails `UID_RE` as a 400 the same way. A missing *parent* uid only fails
-`UID_RE` as a 400 for a `create` or a `move` whose block exists
-(`diverted_create` / `move_parent_missing`): `ops_core.impossible_uid_reason`
+only a conflict-header label and is never checked. A create's own uid is
+checked in `plan_op` for every `create`, skipped or not: an invalid one is
+a 400 before the op is classified at all. Every other op's own uid is
+checked only once it is classified as skipped: `ops_core.impossible_uid_reason`
+still fails it as a 400 (`block not found`) rather than the 200 skip, when
+its uid fails `UID_RE`. A missing *parent* uid only fails `UID_RE` as a 400
+for a `create` whose own block doesn't exist, so it diverts, or a `move`
+whose block exists but its target parent doesn't
+(`diverted_create` / `move_parent_missing`): `impossible_uid_reason`
 checks the parent only for those two skip kinds. So a `move` of a block that
 is *also* gone never shape-checks its
 `parent_uid`: it is a 200 `block_not_found` skip whatever the parent uid

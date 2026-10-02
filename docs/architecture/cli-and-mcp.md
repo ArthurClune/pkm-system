@@ -159,10 +159,11 @@ position, not an order key — can convert against it anywhere in the batch:
 | `index` (`create`/`todo`/`move`) | Detail |
 |---|---|
 | What it means | 0-based position among the parent's (move: the destination's) current children |
-| "Current" | as earlier commands in the batch have left them — later commands see earlier ones' creates, moves and deletes |
+| "Current" | as the CLI *fetched* the page, then as earlier commands in the batch have left it — a sibling another device deletes between the fetch and the post still counts: `index` 2 on a fetched `[A, U, B]` with `U` deleted meanwhile lands before `B`, not third |
 | Past the end | appends |
 | Minted by | `Planner.create_at`/`Planner.move`, via `order_idx_at_position(siblings, position)` — the one place a position becomes an `OrderIdx` |
 | Indexed move | lands at its final position, among the destination's children without the moving block itself |
+| Known limit | the model never simulates an op the server will skip (a cycle move, a missing uid or parent): it shifts and relocates as asked regardless, so a later command's position can be off in that skipped op's source and destination groups (`Planner`'s docstring) |
 
 `outline` and `plan_save` only ever append, through the same model.
 

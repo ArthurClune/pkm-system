@@ -249,7 +249,7 @@ def test_cli_batch_positions(data: st.DataObject) -> None:
     commands = data.draw(cli_batch(rows, PAGE), label="commands")
     named = _named_seed_uids(commands, rows)
     concurrent = None
-    if named and data.draw(st.integers(0, 5), label="race") == 5:
+    if named and data.draw(st.integers(0, 2), label="race") == 2:
         concurrent = data.draw(st.sampled_from(named),
                                label="concurrent delete")
         event("concurrent delete")

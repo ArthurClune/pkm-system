@@ -139,12 +139,12 @@ def _subtree_hash_field(draw: st.DrawFn, model: Model, uid: str) -> dict:
 
 
 def _create_op(draw: st.DrawFn, model: Model, uids: Sequence[str]) -> dict:
-    """A create of a uid that is not live (1 in 20 is live, a 400), at top
+    """A create of a uid that is not live (1 in 40 is live, a 400), at top
     level or under a live, deleted or never-existed parent."""
     free = [u for u in uids if u not in model.blocks]
     taken = [u for u in uids if u in model.blocks]
     uid = draw(st.sampled_from(_weighted(
-        draw, [(19 if free else 0, free), (1 if taken else 0, taken)])))
+        draw, [(39 if free else 0, free), (1 if taken else 0, taken)])))
     parent = _weighted(draw, [(3, None), (7, "target")])
     return {"op": "create", "uid": uid,
             "page_title": draw(st.sampled_from(PAGES)),
@@ -171,9 +171,12 @@ def _move_parent(draw: st.DrawFn, model: Model, uids: Sequence[str],
 @st.composite
 def op_for(draw: st.DrawFn, model: Model, uids: list[str]) -> dict:
     """One op of the eight kinds, in the wire shape of pkm.contracts.ops,
-    drawn against `model` as it stands. About 1 in 50 carries an invalid
-    uid, so the 400 path is reached."""
-    kind = draw(st.sampled_from(_KINDS))
+    drawn against `model` as it stands. `create` is drawn less often than
+    the rest: the uid pool is only 8-12 wide, so a uniform draw exhausts
+    it (every later create hits an already-live uid, a 400) well before a
+    batch runs out of ops. About 1 in 150 ops carries an invalid uid, so
+    the 400 path is reached that way too."""
+    kind = _weighted(draw, [*((4, k) for k in _KINDS[1:]), (1, "create")])
     if kind == "create_page":
         return {"op": "create_page", "page_title": draw(st.sampled_from(PAGES))}
     if kind == "create":
@@ -201,7 +204,7 @@ def op_for(draw: st.DrawFn, model: Model, uids: list[str]) -> dict:
             op["heading"] = draw(_HEADINGS)
         else:
             op["view_type"] = draw(st.sampled_from(("numbered", "document")))
-    if draw(st.integers(0, 49)) == 49:
+    if draw(st.integers(0, 149)) == 149:
         op["uid"] = INVALID_UID
     return op
 

@@ -30,10 +30,9 @@ from props.model import MBlock
 FROZEN_NOW = datetime(2026, 7, 9, 12, 0, tzinfo=ZoneInfo("Europe/London"))
 DAILY_TITLE = title_for_date(FROZEN_NOW.date())
 
-# Provisional per-test example counts under the `merge` profile; Task 5
-# calibrates these against what each generator actually needs to reach its
-# interesting cases.
-MERGE_EXAMPLES: dict[str, int] = {"smoke": 4, "ops_state": 200, "planner": 500}
+# Per-test example counts under the `merge` profile, sized so
+# `proptest/check.sh server` runs in about 3 minutes.
+MERGE_EXAMPLES: dict[str, int] = {"smoke": 4, "ops_state": 420, "planner": 1050}
 
 
 def examples(key: str) -> int:

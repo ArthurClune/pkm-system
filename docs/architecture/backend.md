@@ -420,8 +420,8 @@ the server ignore it for placement
 syntax check runs first, before any op's targets are read. An
 `update_text`'s own `page_title` is
 only a conflict-header label and is never checked. A create's own uid is
-checked in `plan_op` for every `create`, skipped or not: an invalid one is
-a 400 before the op is classified at all. Every other op's own uid is
+checked in `plan_op` for every `create`: an invalid one is a 400 whatever
+the op's classification, skipped or not. Every other op's own uid is
 checked only once it is classified as skipped: `ops_core.impossible_uid_reason`
 still fails it as a 400 (`block not found`) rather than the 200 skip, when
 its uid fails `UID_RE`. A missing *parent* uid only fails `UID_RE` as a 400

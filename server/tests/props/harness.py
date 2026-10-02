@@ -9,7 +9,10 @@ import atexit
 import functools
 import os
 import shutil
+import sqlite3
 import tempfile
+from collections.abc import Generator
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -83,3 +86,43 @@ def fresh_app(template: Path) -> FreshApp:
     r = client.post("/api/login", json={"password": TEST_PASSWORD})
     assert r.status_code == 200
     return FreshApp(client=client, config=config, root=root)
+
+
+@contextmanager
+def read_db(db_path: Path) -> Generator[sqlite3.Connection]:
+    """A read-only connection to an app's database, for invariants: a
+    check that could write would hide the very drift it looks for."""
+    with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as con:
+        yield con
+
+
+def assert_unique_keys(db_path: Path) -> None:
+    """No two siblings (same page, same parent) share an order_idx: the
+    write path's shift-then-place keeps keys unique, never contiguous."""
+    with read_db(db_path) as con:
+        dupes = con.execute(
+            "SELECT page_id, parent_uid, order_idx, COUNT(*) FROM blocks"
+            " GROUP BY page_id, parent_uid, order_idx"
+            " HAVING COUNT(*) > 1").fetchall()
+    assert dupes == [], f"duplicate sibling keys: {dupes}"
+
+
+def assert_well_formed(db_path: Path) -> None:
+    """Every parent exists on its child's page, and walking up from any
+    block reaches a top-level block: no cycle, no dangling parent."""
+    with read_db(db_path) as con:
+        rows = {uid: (page_id, parent) for uid, page_id, parent in
+                con.execute("SELECT uid, page_id, parent_uid FROM blocks")}
+    for uid, (page_id, parent) in rows.items():
+        if parent is None:
+            continue
+        assert parent in rows, f"{uid}: parent {parent} does not exist"
+        assert rows[parent][0] == page_id, (
+            f"{uid}: parent {parent} is on another page")
+    for uid in rows:
+        cur: str | None = uid
+        for _ in range(len(rows) + 1):
+            if cur is None:
+                break
+            cur = rows[cur][1]
+        assert cur is None, f"{uid}: parent chain does not terminate"

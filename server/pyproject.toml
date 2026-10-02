@@ -25,6 +25,7 @@ dev = [
     "ruff>=0.15.20",
     "pytest-cov>=7.1.0",
     "time-machine>=3.5.1",
+    "hypothesis>=6.168.2",
 ]
 
 [build-system]
@@ -36,8 +37,9 @@ packages = ["src/pkm"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=pkm --cov-branch --cov-report=term-missing --cov-fail-under=95"
+addopts = "-m 'not proptest' --cov=pkm --cov-branch --cov-report=term-missing --cov-fail-under=95"
 pythonpath = ["tooling"]
+markers = ["proptest: heavyweight property checks, run by proptest/check.sh only"]
 
 [tool.ruff]
 line-length = 120

@@ -29,3 +29,7 @@ docs/superpowers/handoffs/
 
 # perf check outputs (baselines in perf/ are committed)
 perf/out/
+
+# property-check scratch
+server/.hypothesis/
+server/tests/props/DOC_GAPS.md

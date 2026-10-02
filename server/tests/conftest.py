@@ -41,9 +41,22 @@ SEED_BLOCK_REFS = [
 ]
 
 
-@pytest.fixture()
-def seeded_config(tmp_path) -> Config:
-    db_path = tmp_path / "pkm.sqlite3"
+def make_config(root: Path) -> Config:
+    (root / "assets").mkdir(exist_ok=True)
+    return Config(
+        db_path=root / "pkm.sqlite3",
+        assets_dir=root / "assets",
+        password_salt=TEST_SALT.hex(),
+        password_hash=hash_password(TEST_PASSWORD, TEST_SALT),
+        session_secret="cd" * 32,
+        cookie_secure=False,
+        openai_api_key_file=root / "openai_key",
+        zai_api_key_file=root / "zai_key",
+        goodlinks_api_key_file=root / "goodlinks_key",
+    )
+
+
+def seed_db(db_path: Path) -> None:
     init_db(db_path)  # WAL mode + base schema, once, before any open_db() call
     con = open_db(db_path)
     con.executemany("INSERT INTO pages VALUES (?,?,?,?)", SEED_PAGES)
@@ -55,18 +68,13 @@ def seeded_config(tmp_path) -> Config:
     con.executemany("INSERT INTO block_refs VALUES (?,?)", SEED_BLOCK_REFS)
     con.commit()
     con.close()
-    (tmp_path / "assets").mkdir()
-    return Config(
-        db_path=db_path,
-        assets_dir=tmp_path / "assets",
-        password_salt=TEST_SALT.hex(),
-        password_hash=hash_password(TEST_PASSWORD, TEST_SALT),
-        session_secret="cd" * 32,
-        cookie_secure=False,
-        openai_api_key_file=tmp_path / "openai_key",
-        zai_api_key_file=tmp_path / "zai_key",
-        goodlinks_api_key_file=tmp_path / "goodlinks_key",
-    )
+
+
+@pytest.fixture()
+def seeded_config(tmp_path) -> Config:
+    config = make_config(tmp_path)
+    seed_db(config.db_path)
+    return config
 
 
 @pytest.fixture()

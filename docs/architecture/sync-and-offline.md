@@ -326,13 +326,16 @@ leaving the comparison nothing to report.
 ### Conflicts at push time
 
 Conflict resolution happens server-side at push time (`ops_core.plan_op`), per
-block:
+block. For a hashed `update_text` on a live block, the first four rows are
+checked in this order (`ops_core.classify_text_edit`). In particular, an
+incoming text identical to the current text is always a no-op, even with a
+stale `base_text_hash`, rather than a conflict:
 
 | Situation | Outcome |
 |---|---|
 | `base_text_hash` matches a pre-rename snapshot of this block | The rename or merge is replayed over the incoming text, which then meets the rows below as an edit of the rewritten text |
+| Incoming text equals current | No-op, whatever the hash |
 | `hash(current) == base_text_hash` | Clean apply |
-| Incoming text equals current | No-op |
 | Hashes differ (concurrent edit) | Incoming wins; the overwritten text lands under a `[[conflict]]` header block on today's daily page |
 | Block was deleted meanwhile (hash sent or not) | Edit lands the same way, under a `[[conflict]] … — edit to a block the server no longer has` header labelled from the op's `page_title` |
 | No hash sent, block exists (legacy/CLI callers) | Unconditional last-write-wins |

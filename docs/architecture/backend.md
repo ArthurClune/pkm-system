@@ -216,7 +216,7 @@ an id-less batch cannot be deduplicated, so any retry or replay re-applies it.
 
 | Op | Does |
 |---|---|
-| `create` | insert a block; `page_title` places (and may create) the page of a top-level create, while a child lands on its parent's page |
+| `create` | insert a block with its given `heading` and `view_type`, always uncollapsed (`ops_core.plan_op`'s `InsertBlock`, `ops_apply._execute` hardcodes `collapsed = 0`); `page_title` places (and may create) the page of a top-level create, while a child lands on its parent's page |
 | `update_text` | replace a block's text; optional `base_text_hash` rides the conflict path, optional `page_title` labels a missing block's conflict header |
 | `move` | reposition or reparent; cross-page moves re-page the whole subtree. `page_title` places a top-level move; a reparented block follows its parent's page |
 | `delete` | remove a block and its subtree; optional `base_subtree_hash` rides the conflict path |
@@ -257,7 +257,16 @@ Key mechanics:
 
 - **Ordering.** Siblings hold integer `order_idx`. An insert or move emits a
   `ShiftSiblings` effect — bump every sibling ≥ the target index — before
-  placing the block. Cross-page moves re-page the whole subtree and touch both
+  placing the block. When a move's destination is the block's own group and
+  its current `order_idx` is already at or above the target index,
+  `ShiftSiblings` bumps the moving block's own row too. The `SetParent` that
+  follows then overwrites that row with the move's own target index, so only
+  the *other* siblings at or after the target index end up moved. The old
+  neighbours below the target are left exactly where they were, in a gap
+  nothing renumbers. A move onto its own current slot (same parent, same
+  key) still bumps every later sibling by one: `ShiftSiblings` cannot tell
+  "staying put" from "moving here". Cross-page
+  moves re-page the whole subtree and touch both
   pages. A parent-chain check skips a move that would make a cycle (see
   [Concurrent structure edits](#concurrent-structure-edits)).
 - **Refs re-derivation.** Every text change emits `ReindexRefs`, and
@@ -296,7 +305,11 @@ batch.
 
 ### Conflicts
 
-Conflicts resolve per block: last write wins, and the losing text is kept.
+Conflicts resolve per block: last write wins, and the losing text is kept,
+blank or not — unlike the orphan-edit and diverted-create rows in
+[Missing targets](#missing-targets), which skip a blank text rather than
+land an empty conflict child. A diverged delete's descendant copies
+(below) are the same: every descendant's text lands, blank included.
 `update_text` carries an optional `base_text_hash`, the sha256 of the text the
 edit was based on. It is a text hash rather than a version counter, so
 structural changes don't manufacture conflicts. On a mismatch, or on an edit
@@ -361,21 +374,25 @@ down with a 400 and wedge the client's queue.
 `ops_core.classify_skip` sorts such an op before its context is read, so
 the daily page is resolved only when an entry lands:
 
-| Op, situation | Outcome | Entry grouped under | Journalled |
-|---|---|---|---|
-| `set_collapsed`, block gone | no-op, but journalled: a replica that collapsed the block holds a ghost of it | — | the uid |
-| `delete`, block gone | no-op | — | — |
-| `move` / `set_heading` / `set_view_type`, block gone | skipped; child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under the `(page unknown)` header | the block's uid | the uid |
-| `update_text`, block gone, hashed or not | text lands (header table above); a blank text lands nothing | the block's uid | the uid |
-| `create`, parent gone | block not created; its text lands, header labelled from the op's `page_title`; a blank text lands nothing | the parent's uid | created uid and parent uid |
-| `move`, block exists, parent gone | block stays put; child `move skipped: target parent <uid> not found` | the block's uid | the parent uid, then every block of the moved subtree |
+| Op, situation | Outcome | `skipped` reason | Entry grouped under | Journalled |
+|---|---|---|---|---|
+| `set_collapsed`, block gone | no-op, but journalled: a replica that collapsed the block holds a ghost of it | `block_not_found` | — | the uid |
+| `delete`, block gone | no-op | `block_not_found` | — | — |
+| `move` / `set_heading` / `set_view_type`, block gone | skipped; child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under the `(page unknown)` header | `block_not_found` | the block's uid | the uid |
+| `update_text`, block gone, hashed or not | text lands (header table above); a blank text lands nothing | `block_not_found` | the block's uid | the uid |
+| `create`, parent gone | block not created; its text lands, header labelled from the op's `page_title`; a blank text lands nothing | `parent_not_found` | the parent's uid | created uid and parent uid |
+| `move`, block exists, parent gone | block stays put; child `move skipped: target parent <uid> not found` | `parent_not_found` | the block's uid | the parent uid, then every block of the moved subtree |
 
 Grouping by uid means an orphaned edit and a skipped op on the same block
 share one header, whichever landed first. Notes name uids as plain text,
 since a `((ref))` to a missing block renders broken. A skipped op resolves
 no op `page_title`, since `get_or_create_page` would create a page for an
-op that never applied. Each skipped op is left out of the broadcast and
-reported in the ack's `skipped` list (`ops_core.skip_report`).
+op that never applied. Every row above, including the no-ops, is reported in
+the ack's `skipped` list (`ops_core.skip_report`), with `note_page` null
+where nothing landed. `uid` is always the op's own uid, so a diverted
+create's entry names its new uid, not the missing parent's. A move's cycle
+skip (`move_cycle`) reports `cycle` instead; see
+[Concurrent structure edits](#concurrent-structure-edits).
 
 A follow-on op in the same batch sees a diverted create's block as missing
 too, so it lands rather than 400s. Only text survives a diversion. A
@@ -394,10 +411,34 @@ boundary can never put a tombstone after the rows that restore what it
 cascades away.
 
 Every other planning error is still a 400: invalid uid, uid already exists,
-title syntax. So is an op on a missing target whose uid (or missing parent
-uid) fails `UID_RE` (`ops_core.impossible_uid_reason`). No client mints such
-a uid, and it keeps arbitrary strings out of the journal and
-`conflict_headers`.
+title syntax. `find_op_title_violation` checks the whole batch before any op
+applies: a `create`'s, `create_page`'s or `move`'s `page_title`, and every
+`[[ref]]`/`#tag` title inside a `create`'s or `update_text`'s text. A
+`move`'s or `create`'s `page_title` is checked even when a live parent makes
+the server ignore it for placement
+([Concurrent structure edits](#concurrent-structure-edits), first row) — the
+syntax check runs first, before any op's targets are read. An
+`update_text`'s own `page_title` is
+only a conflict-header label and is never checked. A create's own uid is
+checked in `plan_op` for every `create`: an invalid one is a 400 whatever
+the op's classification, skipped or not. Every other op's own uid is
+checked only once it is classified as skipped: `ops_core.impossible_uid_reason`
+still fails it as a 400 (`block not found`) rather than the 200 skip, when
+its uid fails `UID_RE`. A missing *parent* uid only fails `UID_RE` as a 400
+for a `create` whose own block doesn't exist, so it diverts, or a `move`
+whose block exists but its target parent doesn't
+(`diverted_create` / `move_parent_missing`): `impossible_uid_reason`
+checks the parent only for those two skip kinds. So a `move` of a block that
+is *also* gone never shape-checks its
+`parent_uid`: it is a 200 `block_not_found` skip whatever the parent uid
+looks like. No client mints such a uid, and the check keeps arbitrary
+strings out of the journal and `conflict_headers`.
+
+Uid-taken outranks a gone parent: a `create` whose uid already exists is a
+400 even when its `parent_uid` is also missing (`ops_core.classify_skip`
+returns `None` — "plans normally" — the moment the uid is live, before it
+looks at the parent). The "parent gone" row above only applies when the
+uid is free.
 
 ### Concurrent structure edits
 

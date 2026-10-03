@@ -186,9 +186,11 @@ Around that base model:
     route code, so any new write path is journalled automatically. Cascade
     deletes journal only because `recursive_triggers=ON`. The one direct
     writer is the `JournalBlock` effect for an op on a missing target
-    (below). `page_id` is set only on a block's delete row, by
-    `blocks_chg_ad`: it is the server's only record of the page a deleted
-    block was on ([Missing targets](#missing-targets)). It is never shipped,
+    (below). `page_id` is set only on a block tombstone: on a delete row, by
+    `blocks_chg_ad`, it is the page the deleted block was on; on a diverted
+    create's row, by `JournalBlock`, the page the client placed the block
+    on. It is the server's only record of either
+    ([Missing targets](#missing-targets)). It is never shipped,
     and has no index, since every journal insert would pay for one.
     `db._ensure_schema_migrations` adds the column to an older journal
     (existing rows stay NULL) and re-creates the trigger.
@@ -386,7 +388,7 @@ the daily page is resolved only when an entry lands:
 | `delete`, block gone | no-op | `block_not_found` | — | — |
 | `move` / `set_heading` / `set_view_type`, block gone | skipped; child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under the `(page unknown)` header | `block_not_found` | the block's uid | the uid; a move also its destination siblings (below) |
 | `update_text`, block gone, hashed or not | text lands (header table above); a blank text lands nothing | `block_not_found` | the block's uid | the uid |
-| `create`, parent gone | block not created; its text lands, header labelled from the op's `page_title`; a blank text lands nothing | `parent_not_found` | the parent's uid | created uid and parent uid |
+| `create`, parent gone | block not created; its text lands, header labelled from the op's `page_title`; a blank text lands nothing | `parent_not_found` | the parent's uid | created uid, with the page the client placed it on (below), and parent uid |
 | `move`, block exists, parent gone | block stays put; child `move skipped: target parent <uid> not found` | `parent_not_found` | the block's uid | the parent uid, then every block of the moved subtree |
 
 Grouping by uid means an orphaned edit and a skipped op on the same block
@@ -424,13 +426,20 @@ re-ships them, the skip journals them (`ops_apply._destination_siblings`):
 |---|---|---|
 | move of a gone block | a live `parent_uid` | its children |
 | move of a gone block | top level, `page_title` naming a page | that page's top-level blocks (looked up, never created) |
-| move of a gone block | top level, no `page_title` | the top level of the block's own page, read from its latest delete row (`changes.page_id`) |
+| move of a gone block | top level, no `page_title` | the top level of the block's own page, read from its latest tombstone with a `changes.page_id` |
 | any | a gone `parent_uid` | none: the parent's tombstone cascades the replica's shifted copies |
 | `move_cycle` | the target's children | none extra: they lie inside the journalled subtree |
 
-The `page_id` lookup scans the journal newest first. The delete a skip races
-is recent, so the scan stops early; only a uid never deleted, or deleted
-before the column existed, reads the whole journal and journals no siblings.
+A block the server never created has no delete row, so a diverted create
+writes the page on its own tombstone (`ops_apply._diverted_create_page`).
+The client placed the block on its parent's page. The op's `page_title`
+names the page whose outline showed that parent, so a page by that title
+comes first. A title that names no page falls back to the page on the
+parent's own tombstone.
+
+The `page_id` lookup scans the journal newest first. The tombstone a skip
+races is recent, so the scan stops early. Only a uid with no page-bearing
+tombstone reads the whole journal, and it journals no siblings.
 `JournalBlock` inserts into `changes` directly, so no `blocks` trigger fires
 and `updated_at`, FTS, `refs` and `block_refs` stay as they were. The rows
 are written in the batch's transaction, so the window that carries the batch

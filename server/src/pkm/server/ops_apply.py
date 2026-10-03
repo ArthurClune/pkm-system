@@ -228,10 +228,10 @@ def _existing_page_id(db: sqlite3.Connection, title: str) -> PageId | None:
 
 
 def _deleted_block_page(db: sqlite3.Connection, uid: str) -> PageId | None:
-    """The page a deleted block was on, from its latest delete row in the
-    journal (schema.BLOCKS_CHG_AD_TRIGGER). A newest-first scan: the delete
-    a skip races is recent, and only a uid never deleted reads the whole
-    journal."""
+    """The page a gone block was on, from its latest page-bearing tombstone
+    in the journal: its delete row (schema.BLOCKS_CHG_AD_TRIGGER), or a
+    diverted create's tombstone. A newest-first scan: the tombstone a skip
+    races is recent, and only a uid with none reads the whole journal."""
     row = db.execute(
         "SELECT page_id FROM changes WHERE entity_id = ?"
         " AND page_id IS NOT NULL ORDER BY seq DESC LIMIT 1",
@@ -251,9 +251,9 @@ def _destination_siblings(db: sqlite3.Connection, op, skip: Skip,
 
     The group is the children of a live parent_uid, or the top level of
     the page a top-level move's page_title names. With no page_title the
-    move targets the block's own page, the one its delete row in the
-    journal recorded. A uid never deleted, or deleted before the journal
-    recorded pages, has none."""
+    move targets the block's own page, the one its tombstone in the
+    journal recorded (`_deleted_block_page`). A uid with no page-bearing
+    tombstone has none."""
     if skip.kind != "orphan_structural" or not isinstance(op, MoveOp):
         return ()
     if op.parent_uid is not None:
@@ -274,28 +274,46 @@ def _destination_siblings(db: sqlite3.Connection, op, skip: Skip,
     return tuple(BlockUid(r["uid"]) for r in rows)
 
 
+def _diverted_create_page(db: sqlite3.Connection,
+                          op: CreateOp) -> tuple[bool, PageId | None]:
+    """(whether op.page_title names a page now, the page the client placed
+    the diverted block on). The client placed it on its parent's page
+    (placement.ts), and page_title is the page its outline showed that
+    parent on, so an existing page by that title comes first. A title that
+    names no page (renamed since, or blank) falls back to the page the
+    parent's own delete row recorded; None when neither is known."""
+    hint = fetch_page(db, read_title(db, op.page_title))
+    if hint is not None:
+        return True, PageId(hint["id"])
+    assert op.parent_uid is not None  # a diverted create names its parent
+    return False, _deleted_block_page(db, op.parent_uid)
+
+
 def _skip_context(db: sqlite3.Connection, op, skip: Skip,
                   block: BlockInfo | None, parent_exists: bool,
                   now_ms: int) -> SkippedContext:
     """Context for an op classify_skip flagged. Resolves no op page_title
     (get_or_create would create a page for an op that isn't applied), and
     pays for today's daily page only when an entry lands."""
-    siblings = _destination_siblings(db, op, skip, parent_exists)
+    hint_page_exists = False
+    ghost_page: PageId | None = None
+    if skip.kind == "diverted_create":
+        hint_page_exists, ghost_page = _diverted_create_page(db, op)
     if skip.landing_uid is None:
-        return SkipContext(skip, siblings)
+        return SkipContext(skip, ghost_page)
+    if isinstance(op, UpdateTextOp):
+        hint_page_exists = _hint_page_exists(db, op.page_title)
     if skip.kind in ("move_parent_missing", "move_cycle"):
         assert block is not None  # the block exists; its target does not fit
         page_title = _require_page_title(db, block.page_id)
         subtree = _subtree_deepest_first(db, op.uid)
         return StuckMoveContext(
             skip, _conflict_landing(db, skip.landing_uid, now_ms),
-            page_title, subtree, siblings)
-    hint_page_exists = (isinstance(op, (CreateOp, UpdateTextOp))
-                        and _hint_page_exists(db, op.page_title))
+            page_title, subtree)
     return LandedSkipContext(
         skip, _conflict_landing(db, skip.landing_uid, now_ms),
-        hint_page_exists, siblings)
-
+        hint_page_exists, _destination_siblings(db, op, skip, parent_exists),
+        ghost_page)
 
 def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
     """Read what `op` needs, classify it once (classify_skip, then
@@ -423,8 +441,9 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
     elif isinstance(eff, JournalBlock):
         # the same row the blocks triggers write (schema.py SERVER_DDL)
         db.execute(
-            "INSERT INTO changes(kind, entity_id, deleted)"
-            " VALUES ('block', ?, ?)", (eff.uid, int(eff.deleted)))
+            "INSERT INTO changes(kind, entity_id, deleted, page_id)"
+            " VALUES ('block', ?, ?, ?)",
+            (eff.uid, int(eff.deleted), eff.page_id))
     else:
         raise AssertionError(f"unhandled effect: {eff!r}")
 

@@ -134,8 +134,10 @@ BASE_DDL += SIDEBAR_ENTRIES_DDL
 # affected row on every write path, current and future. Cascade deletes
 # fire these triggers only when PRAGMA recursive_triggers=ON (db.py).
 #
-# A block's delete row also records the page the block was on (page_id;
-# NULL on every other row). A skipped top-level move with no page_title
+# A block's delete row also records the page the block was on (page_id),
+# and so does the tombstone a diverted create writes for the block the
+# server never created (ops_core.JournalBlock); every other row leaves it
+# NULL. A skipped top-level move with no page_title
 # shifted the top level of the block's own page on the client, and once
 # the block is gone this is the server's only record of that page
 # (ops_apply._destination_siblings). A database that predates the column

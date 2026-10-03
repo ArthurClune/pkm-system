@@ -232,3 +232,67 @@ def test_orphan_move_under_a_gone_parent_reships_nothing(client, seeded_config):
     assert [s["reason"] for s in ack["skipped"]] == ["block_not_found"]
     journalled = {u for u, _ in _journalled_since(seeded_config, since)}
     assert journalled & {"sib_s1", "sib_s3", "sib_s4", "sib_k3"} == set()
+
+
+def _page_id(seeded_config, title):
+    con = open_db(seeded_config.db_path)
+    try:
+        return con.execute("SELECT id FROM pages WHERE title = ?",
+                           (title,)).fetchone()["id"]
+    finally:
+        con.close()
+
+
+def _tombstone_pages(seeded_config, uid):
+    con = open_db(seeded_config.db_path)
+    try:
+        return [r["page_id"] for r in con.execute(
+            "SELECT page_id FROM changes WHERE entity_id = ? AND deleted = 1"
+            " ORDER BY seq", (uid,))]
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("text", ["typed under a gone parent", ""],
+                         ids=["landed", "blank"])
+def test_skipped_move_of_a_diverted_create_reships_siblings(
+        client, seeded_config, text):
+    # The client created sib_new2 under sib_s1, which another device had
+    # deleted, so the server diverted it and sib_new2 never existed there.
+    # The client then moved it to the top level of the page it placed it
+    # on, shifting that page's top level.
+    _seed_top_level(client)
+    _post(client, {"op": "delete", "uid": "sib_s1"})
+    _post(client, {"op": "create", "uid": "sib_new2", "page_title": PAGE,
+                   "parent_uid": "sib_s1", "order_idx": 0, "text": text})
+    assert _tombstone_pages(seeded_config, "sib_new2") == [
+        _page_id(seeded_config, PAGE)]
+    since = _latest_seq(client)
+    ack = _post(client, {"op": "move", "uid": "sib_new2", "parent_uid": None,
+                         "order_idx": 0})
+    assert [s["reason"] for s in ack["skipped"]] == ["block_not_found"]
+    blocks, _ = _feed_since(client, since)
+    assert {u: blocks[u]["order_idx"] for u in ("sib_s2", "sib_s3", "sib_s4")
+            if u in blocks} == {"sib_s2": 10, "sib_s3": 20, "sib_s4": 30}
+
+
+def test_diverted_create_with_a_stale_title_takes_its_parents_page(
+        client, seeded_config):
+    # page_title no longer names a page (renamed on another device): the
+    # client placed the block on its parent's page, which the parent's own
+    # delete row recorded
+    _seed_top_level(client)
+    _post(client, {"op": "delete", "uid": "sib_s1"})
+    _post(client, {"op": "create", "uid": "sib_new3",
+                   "page_title": "Title Since Renamed", "parent_uid": "sib_s1",
+                   "order_idx": 0, "text": "x"})
+    assert _tombstone_pages(seeded_config, "sib_new3") == [
+        _page_id(seeded_config, PAGE)]
+
+
+def test_diverted_create_with_no_known_page_records_none(
+        client, seeded_config):
+    _post(client, {"op": "create", "uid": "sib_new4",
+                   "page_title": "Never A Page", "parent_uid": "sib_never2",
+                   "order_idx": 0, "text": "x"})
+    assert _tombstone_pages(seeded_config, "sib_new4") == [None]

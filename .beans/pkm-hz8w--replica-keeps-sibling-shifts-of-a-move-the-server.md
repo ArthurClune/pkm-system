@@ -13,4 +13,5 @@ Found by the sync protocol property (pkm-yxcs). A client moves a block another d
 - [x] Shrunk case as a failing server unit test (tests/test_skip_reships_siblings.py)
 - [x] Journal-touch the destination sibling group on a skipped create/move, where the server can name it (live parent; top level of a page_title that names a page)
 - [x] A top-level move with no page_title of a gone block: the block's delete row in `changes` records its page (`page_id`), and the skip re-ships that page's top level
+- [x] A diverted create's tombstone records the page the client placed the block on (page_title's page, else the parent's tombstone page), so a later untitled top-level skip of that uid re-ships it (F4)
 - [x] Docs: sync-recovery.md / backend.md missing targets, troubleshooting row

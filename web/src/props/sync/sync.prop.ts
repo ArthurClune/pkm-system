@@ -8,12 +8,13 @@
 //
 // A failure prints the seed, the path, the shrunk command list, what each
 // command did in the failing run, the oracle's findings and a replay line.
-// How often each command and fault ran is printed once, after the file.
+// How often each command ran or was skipped by its precondition, and how
+// often each fault was armed and fired, is printed once, after the file.
 import fc from "fast-check";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { EDIT_TARGETS, type OpDraft } from "./arbitraries";
-import { allCommands, BadBatch, Edit, Fault, NAMES, Nudge, Offline, Pull, Reload,
-         SyncCommand, type World } from "./commands";
+import { allCommands, BadBatch, countSkipsWith, Edit, Fault, type FaultKind, NAMES,
+         Nudge, Offline, Pull, Reload, SyncCommand, type World } from "./commands";
 import { PATH, REPLAY_PATH, SEED } from "./env";
 import { startClient, type HarnessClient } from "./harnessClient";
 import { initialModel, type SyncModel } from "./model";
@@ -42,7 +43,24 @@ const REPRO_WAIT_MS = 5_000;
 type Commands = Iterable<fc.AsyncCommand<SyncModel, World, boolean>>;
 
 const tally = new Map<string, number>();
-const count = (key: string): void => { tally.set(key, (tally.get(key) ?? 0) + 1); };
+const count = (key: string, n = 1): void => { tally.set(key, (tally.get(key) ?? 0) + n); };
+countSkipsWith(count);
+
+const FAULT_KINDS: readonly FaultKind[] = ["dropAck", "duplicate", "lostPull", "writeFails"];
+
+/** How many of each fault kind fired across these clients: transport faults
+ * that met a request, and failed local writes that pushed a batch into the
+ * lane. */
+const firedFaults = (clients: Iterable<HarnessClient>): Record<FaultKind, number> => {
+  const fired: Record<FaultKind, number> = { dropAck: 0, duplicate: 0, lostPull: 0, writeFails: 0 };
+  for (const c of clients) {
+    fired.dropAck += c.transport.fired("dropAck");
+    fired.duplicate += c.transport.fired("duplicate");
+    fired.lostPull += c.transport.fired("lostPull");
+    fired.writeFails += c.lanePushes();
+  }
+  return fired;
+};
 
 let server: ServerControl;
 
@@ -50,11 +68,18 @@ beforeAll(async () => {
   server = await connectServer();
 });
 
+/** Fault rows read armed and fired side by side; everything else is one
+ * count per key. */
 afterAll(() => {
-  const width = Math.max(0, ...[...tally.keys()].map((k) => k.length));
+  const isFault = (k: string): boolean => /^Fault \S+( fired)?$/.test(k);
+  const rest = [...tally].filter(([k]) => !isFault(k));
+  const width = Math.max(0, ...rest.map(([k]) => k.length));
+  const faults = FAULT_KINDS.map((kind) =>
+    `  Fault ${kind.padEnd(10)}  armed ${String(tally.get(`Fault ${kind}`) ?? 0).padStart(6)}` +
+    `  fired ${String(tally.get(`Fault ${kind} fired`) ?? 0).padStart(6)}`);
   console.log(`sync property tally (every run, shrinks included):\n${
-    [...tally].sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, n]) => `  ${k.padEnd(width)}  ${n}`).join("\n")}`);
+    rest.sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, n]) => `  ${k.padEnd(width)}  ${n}`).join("\n")}\n${faults.join("\n")}`);
 });
 
 interface ExampleOptions {
@@ -97,6 +122,10 @@ async function runExample(names: readonly string[], cmds: Commands,
     world.watch.observe(all());
     await fc.asyncModelRun(() => ({ model, real: world }), cmds);
     await opts.beforeQuiesce?.(world);
+    const fired = Object.entries(firedFaults(all())).filter(([, n]) => n > 0);
+    if (fired.length > 0) {
+      transcript.push(`faults fired: ${fired.map(([k, n]) => `${k} ${n}`).join(", ")}`);
+    }
     transcript.push("quiesce");
     await quiesce(all(), server, QUIESCE_LIMIT_MS);
     world.watch.observe(all());
@@ -119,6 +148,9 @@ async function runExample(names: readonly string[], cmds: Commands,
     throw new Error(`${message}\n-- what each command did --\n${transcript.join("\n")}`,
                     { cause: error });
   } finally {
+    for (const [kind, n] of Object.entries(firedFaults(clients.values()))) {
+      if (n > 0) count(`Fault ${kind} fired`, n);
+    }
     const disposed = Promise.all([...clients.values()].map((c) => c.dispose()));
     disposed.catch(() => undefined);
     await within(disposed, DISPOSE_LIMIT_MS);
@@ -211,10 +243,11 @@ test("lost ack, own nudge pulls before the redelivery", async () => {
 /** Waits for a client's queue to drain: every batch it holds is acked. A
  * fixed scenario's step, never drawn by the property. */
 class Drained extends SyncCommand {
+  protected readonly kindName = "Drained";
   constructor(readonly client: string) { super(); }
 
-  check(m: Readonly<SyncModel>): boolean {
-    return m.clients.includes(this.client);
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return m.clients.includes(this.client) ? null : "client not in this example";
   }
 
   protected async act(_m: SyncModel, w: World): Promise<string> {

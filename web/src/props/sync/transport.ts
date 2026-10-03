@@ -42,6 +42,9 @@ export interface Transport extends TransportLife {
   /** How many times a POST /api/ops for this batch id actually went out on
    * the network (whatever became of the answer). */
   sends(batchId: BatchId): number;
+  /** How many armed faults of this kind have fired: met a request and done
+   * their damage (sent twice, or sent with the reply dropped). */
+  fired(fault: Fault): number;
   /** Test-only: every request whose path starts with `pathPrefix` ("" for
    * all) waits, before it is sent, until the returned release is called. A
    * stall is not a fault: clearFaults leaves it in place. Never released, it
@@ -104,6 +107,7 @@ export function createTransport(server: ServerControl, broken?: Broken,
                                 { windowLimit }: TransportOptions = {}): Transport {
   let offline = false;
   let faults: Fault[] = [];
+  const firedCounts: Record<Fault, number> = { dropAck: 0, duplicate: 0, lostPull: 0 };
   let generation = 0;
   let brokenUsed = false;
   let lastSeq = 0 as SyncSeq;
@@ -226,6 +230,7 @@ export function createTransport(server: ServerControl, broken?: Broken,
     const sentPath = method === "GET" ? withWindowLimit(path, windowLimit) : path;
     let answer = await exchange(sentPath, fullInit, kind);
     if (fault === "duplicate") answer = await exchange(sentPath, fullInit, kind);
+    if (fault !== null) firedCounts[fault] += 1;
     if (fault === "dropAck" || fault === "lostPull" || !live()) {
       throw networkError();
     }
@@ -263,6 +268,7 @@ export function createTransport(server: ServerControl, broken?: Broken,
     },
     committed,
     sends: (batchId) => sent.get(batchId) ?? 0,
+    fired: (fault) => firedCounts[fault],
     newLife: () => {
       generation += 1;
       return doors(generation);

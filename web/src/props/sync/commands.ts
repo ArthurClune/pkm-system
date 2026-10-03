@@ -5,8 +5,10 @@
 // Every command's run ends the same way (SyncCommand.run): the cursor watch
 // looks at every client, and the model's armedWriteFails is brought up to
 // date from the clients, since only they know when a lane has drained.
-// Preconditions read the model only; Reload and BadBatch re-check the real
-// client in run and record a no-op rather than break their precondition.
+// Preconditions read the model only, and every rejection is counted (see
+// countSkipsWith). The model is never less cautious than the clients, so
+// Reload and BadBatch assert in run that the real client agrees with it: a
+// drift between the two fails the example instead of passing unnoticed.
 //
 // fc.commands draws the commands before the run, so their arguments name
 // clients and op drafts; an Edit resolves its drafts against the model when
@@ -45,9 +47,42 @@ const clientOf = (w: World, name: string): HarnessClient => {
   return c;
 };
 
+let noteSkip: (key: string) => void = () => undefined;
+
+/** Where check() rejections are counted, as `<kind> skipped: <reason>`.
+ * fc.asyncModelRun hands check the model alone, so the count goes here. */
+export function countSkipsWith(count: (key: string) => void): void {
+  noteSkip = count;
+}
+
+const NOT_STARTED = "client not in this example";
+const LANE_BUSY = "write failure armed or lane unsent";
+
+/** Why `client` cannot take a command that needs it, or null. */
+const notStarted = (m: Readonly<SyncModel>, client: string): string | null =>
+  m.clients.includes(client) ? null : NOT_STARTED;
+
+/** Throws when the real client has a lane or an armed write failure that the
+ * model says it has not. */
+const assertNoLane = (cmd: SyncCommand, c: HarnessClient): void => {
+  if (c.writeFailArmed() || c.unsentInMemory() > 0) {
+    throw new Error(`model drift: ${cmd.toString()} passed its check, but the client` +
+      ` has write failure armed ${c.writeFailArmed()}, lane ${c.unsentInMemory()}`);
+  }
+};
+
 export abstract class SyncCommand implements fc.AsyncCommand<SyncModel, World> {
-  abstract check(m: Readonly<SyncModel>): boolean;
+  /** The tally's name for this command: its kind, without the client. */
+  protected abstract readonly kindName: string;
+  /** Why this command cannot run on `m`, or null when it can. */
+  protected abstract blocked(m: Readonly<SyncModel>): string | null;
   abstract toString(): string;
+
+  check(m: Readonly<SyncModel>): boolean {
+    const why = this.blocked(m);
+    if (why !== null) noteSkip(`${this.kindName} skipped: ${why}`);
+    return why === null;
+  }
   /** What the command does; returns its transcript line. */
   protected abstract act(m: SyncModel, w: World): Promise<string>;
 
@@ -63,10 +98,11 @@ export abstract class SyncCommand implements fc.AsyncCommand<SyncModel, World> {
 }
 
 export class Edit extends SyncCommand {
+  protected readonly kindName = "Edit";
   constructor(readonly client: string, readonly drafts: readonly OpDraft[]) { super(); }
 
-  check(m: Readonly<SyncModel>): boolean {
-    return m.clients.includes(this.client);
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return notStarted(m, this.client);
   }
 
   protected async act(m: SyncModel, w: World): Promise<string> {
@@ -90,18 +126,17 @@ export class Edit extends SyncCommand {
  * keeps it as a replay, the server rejects it with a 400. Only on the
  * durable path: no armed write failure and nothing unsent in memory. */
 export class BadBatch extends SyncCommand {
+  protected readonly kindName = "BadBatch";
   constructor(readonly client: string) { super(); }
 
-  check(m: Readonly<SyncModel>): boolean {
-    return m.clients.includes(this.client) && !m.armedWriteFails[this.client];
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return notStarted(m, this.client) ??
+      (m.armedWriteFails[this.client] ? LANE_BUSY : null);
   }
 
   protected async act(m: SyncModel, w: World): Promise<string> {
     const c = clientOf(w, this.client);
-    if (c.writeFailArmed() || c.unsentInMemory() > 0) {
-      w.count("BadBatch no-op");
-      return `BadBatch(${this.client}) no-op: lane ${c.unsentInMemory()}`;
-    }
+    assertNoLane(this, c);
     const ops: BlockOp[] = [{
       op: "create", uid: BAD_UID as BlockUid, page_title: SEED_PAGE,
       parent_uid: null, order_idx: 60 as OrderIdx, text: "a create of a live uid",
@@ -116,10 +151,11 @@ export class BadBatch extends SyncCommand {
 }
 
 export class Offline extends SyncCommand {
+  protected readonly kindName = "Offline";
   constructor(readonly client: string) { super(); }
 
-  check(m: Readonly<SyncModel>): boolean {
-    return m.clients.includes(this.client) && m.online[this.client];
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return notStarted(m, this.client) ?? (m.online[this.client] ? null : "already offline");
   }
 
   protected act(m: SyncModel, w: World): Promise<string> {
@@ -133,10 +169,11 @@ export class Offline extends SyncCommand {
 }
 
 export class Online extends SyncCommand {
+  protected readonly kindName = "Online";
   constructor(readonly client: string) { super(); }
 
-  check(m: Readonly<SyncModel>): boolean {
-    return m.clients.includes(this.client) && !m.online[this.client];
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return notStarted(m, this.client) ?? (m.online[this.client] ? "already online" : null);
   }
 
   protected async act(m: SyncModel, w: World): Promise<string> {
@@ -152,9 +189,11 @@ export class Online extends SyncCommand {
 export class Fault extends SyncCommand {
   constructor(readonly client: string, readonly kind: FaultKind) { super(); }
 
-  check(m: Readonly<SyncModel>): boolean {
-    return m.clients.includes(this.client) &&
-      (this.kind !== "writeFails" || !m.armedWriteFails[this.client]);
+  protected get kindName(): string { return `Fault ${this.kind}`; }
+
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return notStarted(m, this.client) ??
+      (this.kind === "writeFails" && m.armedWriteFails[this.client] ? LANE_BUSY : null);
   }
 
   protected act(m: SyncModel, w: World): Promise<string> {
@@ -175,9 +214,11 @@ export class Fault extends SyncCommand {
 export class Pull extends SyncCommand {
   constructor(readonly client: string) { super(); }
 
+  protected readonly kindName = "Pull";
+
   /** A pull needs the network; offline, the socket that prompts one is down. */
-  check(m: Readonly<SyncModel>): boolean {
-    return m.clients.includes(this.client) && m.online[this.client];
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return notStarted(m, this.client) ?? (m.online[this.client] ? null : "offline");
   }
 
   protected async act(_m: SyncModel, w: World): Promise<string> {
@@ -195,8 +236,10 @@ export class Pull extends SyncCommand {
 export class Nudge extends SyncCommand {
   constructor(readonly client: string, readonly kind: NudgeKind) { super(); }
 
-  check(m: Readonly<SyncModel>): boolean {
-    return m.clients.includes(this.client) && m.online[this.client];
+  protected get kindName(): string { return `Nudge ${this.kind}`; }
+
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return notStarted(m, this.client) ?? (m.online[this.client] ? null : "offline");
   }
 
   protected async act(_m: SyncModel, w: World): Promise<string> {
@@ -221,18 +264,17 @@ export class Nudge extends SyncCommand {
  * design (the beforeunload guard's job), so it needs an empty lane and no
  * write failure armed to put anything there. */
 export class Reload extends SyncCommand {
+  protected readonly kindName = "Reload";
   constructor(readonly client: string) { super(); }
 
-  check(m: Readonly<SyncModel>): boolean {
-    return m.clients.includes(this.client) && !m.armedWriteFails[this.client];
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return notStarted(m, this.client) ??
+      (m.armedWriteFails[this.client] ? LANE_BUSY : null);
   }
 
   protected async act(_m: SyncModel, w: World): Promise<string> {
     const c = clientOf(w, this.client);
-    if (c.writeFailArmed() || c.unsentInMemory() > 0) {
-      w.count("Reload no-op");
-      return `Reload(${this.client}) no-op: lane ${c.unsentInMemory()}`;
-    }
+    assertNoLane(this, c);
     w.count("Reload");
     await c.reload();
     return this.toString();
@@ -243,7 +285,8 @@ export class Reload extends SyncCommand {
 
 /** Every client's next pull runs rebase recovery. */
 export class RotateGeneration extends SyncCommand {
-  check(): boolean { return true; }
+  protected readonly kindName = "RotateGeneration";
+  protected blocked(): string | null { return null; }
 
   protected async act(_m: SyncModel, w: World): Promise<string> {
     w.count("RotateGeneration");
@@ -256,9 +299,10 @@ export class RotateGeneration extends SyncCommand {
 
 /** The server clock to 23:59:55 local, then ten seconds on. */
 export class CrossMidnight extends SyncCommand {
+  protected readonly kindName = "CrossMidnight";
   constructor(readonly day: MidnightDay) { super(); }
 
-  check(): boolean { return true; }
+  protected blocked(): string | null { return null; }
 
   protected async act(m: SyncModel, w: World): Promise<string> {
     const crossing = midnightCrossing(m.clockMs, this.day);

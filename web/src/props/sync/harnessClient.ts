@@ -63,6 +63,9 @@ export interface HarnessClient {
   failNextWrite(): void;
   /** A failNextWrite whose INSERT has not yet come. */
   writeFailArmed(): boolean;
+  /** Batches a failed local write has pushed into the lane, across lives:
+   * how often writeFails fired. */
+  lanePushes(): number;
   reload(): Promise<void>;
   /** sync_client_meta "cursor", 0 before the first bootstrap. */
   cursor(): SyncSeq;
@@ -143,6 +146,7 @@ export async function startClient(
   // failingOnce over the shared handle while a write failure is armed.
   let writeDb: ReplicaDb = db;
   let writeArmed = false;
+  let lanePushes = 0;
 
   const buildLife = (doors: TransportLife): Life => {
     lives += 1;
@@ -226,7 +230,10 @@ export async function startClient(
         });
       }),
       queue.onPoison((event) => { poisoned.push(event.batch_id); }),
-      queue.onUnsentInMemory((n) => { state.unsentInMemory = n; }),
+      queue.onUnsentInMemory((n) => {
+        if (n > state.unsentInMemory) lanePushes += n - state.unsentInMemory;
+        state.unsentInMemory = n;
+      }),
       queue.onDrain((outcome) => reconnect.observeDrain(outcome)),
     ];
     return {
@@ -358,6 +365,7 @@ export async function startClient(
       };
     },
     writeFailArmed: () => writeArmed,
+    lanePushes: () => lanePushes,
     async reload() {
       // Severed first: the old life's fetches fail now rather than after
       // the network answers, which also releases any recovery lease it holds.

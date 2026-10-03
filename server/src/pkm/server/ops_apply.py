@@ -316,6 +316,7 @@ def _skip_context(db: sqlite3.Connection, op, skip: Skip,
         hint_page_exists, _destination_siblings(db, op, skip, parent_exists),
         ghost_page)
 
+
 def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
     """Read what `op` needs, classify it once (classify_skip, then
     classify_text_edit for a hashed edit), and return the context type

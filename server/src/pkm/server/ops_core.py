@@ -570,9 +570,11 @@ class JournalBlock:
     skipped (a block it never created, or a move it never made) without an
     authoritative repair. `deleted` must be true exactly when the uid has no
     block row: the feed ships a block tombstone only from a delete row
-    (sync_core.tombstone_entities). `page_id`, on a
-    tombstone, is the page the uid's block was on, as the delete trigger
-    records it (schema.BLOCKS_CHG_AD_TRIGGER); the feed never ships it."""
+    (sync_core.tombstone_entities). `page_id`, on a tombstone, is the page
+    the uid's block was on, as the delete trigger records it
+    (schema.BLOCKS_CHG_AD_TRIGGER); for a diverted create it is the page the
+    client placed the block on (the create's `page_title` page, else its
+    parent's last page). The feed never ships it."""
     uid: BlockUid
     deleted: bool
     page_id: PageId | None = None

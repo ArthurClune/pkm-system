@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 // The sync protocol property: 2-3 clients running the real web sync stack
 // against the real server take a random sequence of edits and faults, then
-// are brought to rest and checked by the oracle. Four fixed scenarios run
+// are brought to rest and checked by the oracle. Five fixed scenarios run
 // first, through the same commands.
 //
 // A failure prints the seed, the path, the shrunk command list, what each
@@ -9,8 +9,9 @@
 // How often each command and fault ran is printed once, after the file.
 import fc from "fast-check";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { allCommands, BadBatch, Edit, Fault, NAMES, Nudge, Offline, Reload,
-         type World } from "./commands";
+import type { OpDraft } from "./arbitraries";
+import { allCommands, BadBatch, Edit, Fault, NAMES, Nudge, Offline, Pull, Reload,
+         SyncCommand, type World } from "./commands";
 import { PATH, REPLAY_PATH, SEED } from "./env";
 import { startClient, type HarnessClient } from "./harnessClient";
 import { initialModel, type SyncModel } from "./model";
@@ -186,6 +187,53 @@ test("lost ack, own nudge pulls before the redelivery", async () => {
       await a.pull();
     },
   });
+});
+
+/** Waits for a client's queue to drain: every batch it holds is acked. A
+ * fixed scenario's step, never drawn by the property. */
+class Drained extends SyncCommand {
+  constructor(readonly client: string) { super(); }
+
+  check(m: Readonly<SyncModel>): boolean {
+    return m.clients.includes(this.client);
+  }
+
+  protected async act(_m: SyncModel, w: World): Promise<string> {
+    const c = w.clients.get(this.client);
+    if (!c) throw new Error(`no client ${this.client}`);
+    const pending = (): number => c.db.select<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM pending_ops")[0].n;
+    const drained = await within((async () => {
+      while (pending() > 0 || c.unsentInMemory() > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    })(), REPRO_WAIT_MS);
+    if (drained === TIMED_OUT) throw new Error(`${this.client} never drained`);
+    return this.toString();
+  }
+
+  toString(): string { return `Drained(${this.client})`; }
+}
+
+const draft = (d: Partial<OpDraft> & Pick<OpDraft, "kind">): OpDraft =>
+  ({ target: 0, parent: null, orderIdx: 0, text: "", collapsed: false, ...d });
+
+// The pool's #3 is pt_seed_4 and #4 is pt_seed_5. A moves pt_seed_5 under
+// pt_seed_4, gives it a child, then moves it back out and deletes
+// pt_seed_4 in one batch; B pulls after each. B's last window carries
+// pt_seed_4's tombstone and pt_seed_5's row but not the child's, whose row
+// did not change: it has to survive pt_seed_4's local cascade.
+test("moved-out child survives its old parent's deletion on another device", async () => {
+  await runExample(["A", "B"], [
+    new Edit("A", [draft({ kind: "move", target: 4, parent: 3 })]),
+    new Drained("A"), new Pull("B"),
+    new Edit("A", [draft({ kind: "create", parent: 4, text: "child" })]),
+    new Drained("A"), new Pull("B"),
+    new Edit("A", [draft({ kind: "move", target: 4 }),
+                   draft({ kind: "create", text: "sibling" }),
+                   draft({ kind: "delete", target: 3 })]),
+    new Drained("A"), new Pull("B"),
+  ]);
 });
 
 /** The failure report: everything needed to read and replay it. */

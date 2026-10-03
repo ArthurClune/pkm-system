@@ -594,10 +594,11 @@ Known gaps, where the replica keeps its shifted keys:
 | A top-level move whose `page_title` names a page another device renamed, of a block the server no longer has | The stale title names no page, so the skip finds no siblings to re-ship |
 | An op the server applies, not skips, on another page than the replica's: a top-level move with no `page_title` of a block another device moved, or a top-level create or move whose `page_title` page another device renamed | The server shifts and journals its own page's siblings; the replica's page is never re-shipped ([troubleshooting](../troubleshooting.md#sync-and-offline)) |
 
-A replica applies tombstones first, and a block tombstone cascades its local
-subtree. The server orders its journal rows so that a window boundary never
-puts a tombstone after the rows that restore what it cascades away (same
-section of backend.md). The ghost goes without a snapshot repair.
+A block tombstone cascades its local subtree, and a replica applies it after
+the window's upserts ([sync-and-offline.md § The changes feed](sync-and-offline.md#the-changes-feed)).
+The server orders its journal rows so that a window boundary never puts a
+tombstone after the rows that restore what it cascades away (same section of
+backend.md). The ghost goes without a snapshot repair.
 
 The replica's local apply skips the same ops. `skipsOnMissingTarget`
 (`replica/missingTarget.ts`) mirrors `classify_skip`, and

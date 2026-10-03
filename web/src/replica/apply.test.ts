@@ -612,7 +612,7 @@ describe("applyChanges: a title moving between ids inside one window", () => {
 describe("applyChanges: a page id deleted and reused inside one window", () => {
   // SQLite gives the next insert max(id)+1, so deleting the highest page id
   // frees it for reuse, and the server ships
-  // such an id as a tombstone and a live row in one window. Tombstones lead:
+  // such an id as a tombstone and a live row in one window. Page tombstones lead:
   // the page's cascade clears what hung off the old page, then the upserts
   // bring back everything the window ships for the new one.
   test("the tombstone clears the old page's blocks and other blocks' refs before the new page lands", () => {
@@ -661,6 +661,124 @@ describe("applyChanges: a page id deleted and reused inside one window", () => {
     expect(t.db.select("SELECT id, title FROM pages WHERE id = 2"))
       .toEqual([{ id: 2, title: "AI" }]);
     expect(count("SELECT COUNT(*) AS n FROM refs WHERE target_page_id = 2")).toBe(0);
+  });
+});
+
+describe("applyChanges: a block tombstone's cascade reaches only blocks the server deleted", () => {
+  // The server journals every block it deletes, cascaded rows included, so
+  // each one arrives as its own tombstone. A descendant that moved out of a
+  // deleted subtree with its parent changed no row of its own, so only its
+  // parent's row ships: the window's upserts have to take the subtree out
+  // from under the tombstoned block before its local cascade runs.
+  const tree = () => t.db.select<{ uid: string; page_id: number;
+                                   parent_uid: string | null }>(
+    "SELECT uid, page_id, parent_uid FROM blocks ORDER BY uid");
+  beforeEach(() => {
+    // uid_p > uid_c > uid_g on Machine Learning, and a page that will go
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      pages: [page(3, "Doomed")],
+      blocks: [
+        block("uid_p", 1, { order_idx: ord(2) }),
+        block("uid_c", 1, { parent_uid: uid("uid_p") }),
+        block("uid_g", 1, { parent_uid: uid("uid_c"), text: "grandchild searchable" }),
+        block("uid_x", 3),
+        block("uid_y", 3, { parent_uid: uid("uid_x") }),
+      ],
+    }));
+  });
+
+  test("a block moved out from under a parent deleted in the same window keeps its subtree", () => {
+    const result = applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      tombstones: [{ kind: "block", entity_id: "uid_p" }],
+      blocks: [block("uid_c", 1, { order_idx: ord(3) })],
+    }));
+    expect(result).toEqual({ status: "applied", cursor: 12 });
+    expect(tree().filter((r) => ["uid_p", "uid_c", "uid_g"].includes(r.uid)))
+      .toEqual([
+        { uid: "uid_c", page_id: 1, parent_uid: null },
+        { uid: "uid_g", page_id: 1, parent_uid: "uid_c" },
+      ]);
+    expect(ftsHits("grandchild")).toEqual(["uid_g"]);
+  });
+
+  test("a block moved off a page deleted in the same window keeps its subtree", () => {
+    // leaving a page rewrites every block of the moved subtree (page_id),
+    // so the server ships the child's row too
+    const result = applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      tombstones: [{ kind: "page", entity_id: "3" }],
+      blocks: [block("uid_x", 1, { order_idx: ord(3) }),
+               block("uid_y", 1, { parent_uid: uid("uid_x") })],
+    }));
+    expect(result).toEqual({ status: "applied", cursor: 12 });
+    expect(tree().filter((r) => ["uid_x", "uid_y"].includes(r.uid))).toEqual([
+      { uid: "uid_x", page_id: 1, parent_uid: null },
+      { uid: "uid_y", page_id: 1, parent_uid: "uid_x" },
+    ]);
+    expect(count("SELECT COUNT(*) AS n FROM pages WHERE id = 3")).toBe(0);
+  });
+
+  test("a subtree the server deleted is still removed", () => {
+    // the server's journal tombstones every block of a deleted subtree
+    const result = applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      tombstones: [{ kind: "block", entity_id: "uid_p" },
+                   { kind: "block", entity_id: "uid_c" },
+                   { kind: "block", entity_id: "uid_g" }],
+    }));
+    expect(result).toEqual({ status: "applied", cursor: 12 });
+    expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid IN" +
+                 " ('uid_p', 'uid_c', 'uid_g')")).toBe(0);
+    expect(ftsHits("grandchild")).toEqual([]);
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+  });
+
+  test("a page merged into a new page under its title moves its blocks across", () => {
+    // a merge: page 3's blocks move to a new page 4 that takes its title,
+    // and page 3 goes, all in one window
+    const result = applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      tombstones: [{ kind: "page", entity_id: "3" }],
+      pages: [page(4, "Doomed")],
+      blocks: [block("uid_x", 4), block("uid_y", 4, { parent_uid: uid("uid_x") })],
+    }));
+    expect(result).toEqual({ status: "applied", cursor: 12 });
+    expect(t.db.select("SELECT id FROM pages WHERE title = 'Doomed'"))
+      .toEqual([{ id: 4 }]);
+    expect(tree().filter((r) => ["uid_x", "uid_y"].includes(r.uid))).toEqual([
+      { uid: "uid_x", page_id: 4, parent_uid: null },
+      { uid: "uid_y", page_id: 4, parent_uid: "uid_x" },
+    ]);
+  });
+
+  test("a pending create under the deleted parent goes; one under the moved-out child stays", () => {
+    enqueueBatch(t.db, [
+      { op: "create", uid: uid("uid_ghost_p"), page_title: "Machine Learning",
+        parent_uid: uid("uid_p"), order_idx: ord(1), text: "typed under p" },
+      { op: "create", uid: uid("uid_ghost_c"), page_title: "Machine Learning",
+        parent_uid: uid("uid_c"), order_idx: ord(1), text: "typed under c" },
+    ], 5, bid("batch-ghosts"));
+    expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid LIKE 'uid_ghost_%'"))
+      .toBe(2);
+
+    const result = applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      tombstones: [{ kind: "block", entity_id: "uid_p" }],
+      blocks: [block("uid_c", 1, { order_idx: ord(3) })],
+    }), 6);
+
+    expect(result).toEqual({ status: "applied", cursor: 12 });
+    expect(tree().filter((r) => r.uid.startsWith("uid_ghost_") ||
+                                ["uid_c", "uid_g"].includes(r.uid))).toEqual([
+      { uid: "uid_c", page_id: 1, parent_uid: null },
+      { uid: "uid_g", page_id: 1, parent_uid: "uid_c" },
+      { uid: "uid_ghost_c", page_id: 1, parent_uid: "uid_c" },
+    ]);
+    // the queue is the user's intent: the batch still flushes
+    expect(allBatches(t.db)).toHaveLength(1);
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
   });
 });
 

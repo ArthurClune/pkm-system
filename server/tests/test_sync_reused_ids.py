@@ -62,8 +62,8 @@ def test_reused_sidebar_id_ships_tombstone_and_new_entry(client):
 
 
 def test_reused_page_window_ships_blocks_on_and_referencing_the_page(client):
-    # The replica applies tombstones first, so the page tombstone's cascade
-    # removes every local block on the id and every ref to it. A window
+    # The replica applies page tombstones first, so the page tombstone's
+    # cascade removes every local block on the id and every ref to it. A window
     # that ships the page as tombstone plus live row must therefore ship
     # the current blocks on the page and those referencing it, even when
     # their own journal rows fall in a later window.

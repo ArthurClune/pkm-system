@@ -120,10 +120,9 @@ transaction:
   replica drops those rows instead of replaying them over their own echo (see
   [sync-recovery.md § A payload that already holds a pending batch](sync-recovery.md#a-payload-that-already-holds-a-pending-batch)).
 - `applyWindow` (`web/src/replica/apply.ts`) applies a window in one
-  transaction: tombstones, then pages, blocks and sidebar. The UNIQUE `title`
-  columns are why tombstones lead; deferred FKs make the order irrelevant for
-  references. Titles two rows swapped are parked under a placeholder
-  (`parkTakenTitles`) and restored by their own upserts. `parkTakenTitles` and
+  transaction, in the order of the table below. Titles two rows swapped are
+  parked under a placeholder (`parkTakenTitles`) and restored by their own
+  upserts. `parkTakenTitles` and
   `assertNoParkedTitles` take the id type as a type parameter and the table
   name as a type depending on it (`TitledTableFor<Id>`). A plain
   `"pages" | "sidebar_entries"` union could not stop a pages call being
@@ -139,6 +138,23 @@ transaction:
   newer server added would otherwise destroy an unrelated row. The one TEXT
   `entity_id` is minted into `BlockUid`, `PageId` or `SidebarEntryId` per
   branch, never before the dispatch picks the kind.
+
+| Step in `applyWindow` | Why it sits there |
+|---|---|
+| 1. Page and sidebar tombstones | The UNIQUE `title` columns: a row that gave its title up by being deleted must go before the row that took the title. A reused page id's cascade clears the old page before the new one lands. |
+| 2. Page upserts, then block upserts | Deferred FKs make their order irrelevant for references. |
+| 3. Block tombstones | The local cascade must never reach a block the server kept (below). |
+| 4. Sidebar upserts | Independent of blocks. |
+| 5. `dropAppliedPending`, then `reapplyPending` | The queue replays over the window's final rows (see [sync-recovery.md](sync-recovery.md#a-payload-that-already-holds-a-pending-batch)). |
+
+**Block tombstones follow the upserts.** The server journals every block it
+deletes, cascaded rows included, so each one arrives as its own tombstone. A
+block that moved out of a deleted subtree with its parent changed no row of its
+own, so only its parent's row ships. Applying that row first takes the subtree
+out of the tombstone's local cascade. The cascade still removes optimistic rows
+under a deleted block, and `reapplyPending` then skips their ops. A page
+cascade can run before the upserts because a block leaves a page only by a
+write to its own row: a move rewrites `page_id` on every block of the subtree.
 
 ## Post-commit nudges
 

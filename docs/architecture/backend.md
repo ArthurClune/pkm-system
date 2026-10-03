@@ -412,10 +412,12 @@ one uid in the same batch land both texts.
 
 `JournalBlock` writes the journal row the triggers would. The feed ships a
 journalled uid with no block row as a tombstone, and a live one as its
-current row. A replica applies tombstones first, and a block tombstone
-cascades the whole local subtree. So a ghost parent's tombstone also deletes
-the live blocks a replica optimistically moved under it, which is why a move
-to a missing parent journals the moved subtree, not just its root.
+current row. A block tombstone cascades the whole local subtree. A replica
+applies a window's block tombstones after its upserts, so rows in the same
+window move blocks out first. A ghost parent's tombstone in an earlier window
+than those rows still deletes the live blocks a replica optimistically moved
+under it. So a move to a missing parent journals the moved subtree, not just
+its root.
 `_plan_skip` emits tombstones before live rows, so a window
 boundary can never put a tombstone after the rows that restore what it
 cascades away.

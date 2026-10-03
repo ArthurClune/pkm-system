@@ -15,7 +15,15 @@ Found by the sync protocol property (pkm-yxcs). Device A moves pt_seed_5 (with c
 - [x] Reorder apply (and the snapshot path if affected)
 - [x] Property: F8 replay passes; earlier replays still pass
 - [x] Docs: sync-recovery.md / sync-and-offline.md apply order; troubleshooting row
+- [x] Window boundary: a block tombstone ships only with its delete row; the harness draws a window limit
 
 ## Resolution
 
-Tombstones-first came from pkm-n31j (UNIQUE page/sidebar titles); pkm-8uc9 later relied on it for a reused page id shipped as tombstone plus live row. Neither reason applies to blocks: uids are never reused (presence rule), so no block is both tombstoned and shipped live, and the server journals every block it deletes (cascaded rows too, with or without recursive_triggers, verified). applyWindow now applies page and sidebar tombstones first, then pages and blocks, then block tombstones, then sidebar, then the drop and the replay. Page tombstones may stay first because leaving a page rewrites page_id on every block of the moved subtree, so each kept block ships its own row. The snapshot path wipes and reloads and applies no tombstones, so it is not exposed. A fixed property scenario ("moved-out child survives its old parent's deletion on another device") fails before the fix and passes after.
+Tombstones-first came from pkm-n31j (UNIQUE page/sidebar titles); pkm-8uc9 later relied on it for a reused page id shipped as tombstone plus live row. Neither reason applies to blocks: uids are never reused, so no block is both tombstoned and shipped live.
+
+The guarantee that a block tombstone's local cascade never reaches a block the server kept rests on two rules together:
+
+1. Same window: applyWindow applies page and sidebar tombstones first, then pages and blocks, then block tombstones, then sidebar, then the drop and the replay.
+2. Across windows: the feed ships a block tombstone only in the window that holds its delete row (sync_core.tombstone_entities). Before, any window holding an older live row of a block absent now shipped its tombstone, ahead of the window with the move out (review finding, fix round 1). The server journals a delete row for every block it deletes (the delete trigger fires for cascaded rows, with or without recursive_triggers, verified; JournalBlock marks a uid with no block row deleted).
+
+A kept block left the deleted subtree by a move at a lower seq than the delete, so that move's row lands in the delete row's window or earlier, and the upserts take it out of the cascade first. The kept block may be a descendant that moved along with its moved-out ancestor; its own row never changes, so nothing would re-ship it. Page tombstones may stay first because leaving a page rewrites page_id on every block of the moved subtree, so each kept block ships its own row. The snapshot path applies no tombstones. Covered by apply.test.ts, server/tests/test_sync_block_tombstone_window.py, test_sync_core.py, and two fixed property scenarios (same window; window limit 1). The property now draws a per-example changes window limit (none, or 1-5 rows).

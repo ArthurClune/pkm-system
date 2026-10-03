@@ -24,7 +24,7 @@ import { createReconnectFlow, type ReconnectFlow } from "../../sync/reconnectFlo
 import { createReplicaSync, type ReplicaSync } from "../../sync/replicaSync";
 import type { SyncEvent, SyncStatus } from "../../sync/syncState";
 import type { ServerControl } from "./serverControl";
-import { createTransport, type Broken, type Transport,
+import { createTransport, type Broken, type Transport, type TransportOptions,
          type TransportLife } from "./transport";
 
 export interface HarnessClient {
@@ -126,10 +126,11 @@ function lifeDb(current: () => ReplicaDb): LifeDb {
 
 export async function startClient(
   name: string, server: ServerControl, broken?: Broken,
+  transportOptions: TransportOptions = {},
 ): Promise<HarnessClient> {
   const raw = await openRawTestDb();
   const db = raw.db;
-  const transport = createTransport(server, broken);
+  const transport = createTransport(server, broken, transportOptions);
   const enqueued: BatchId[] = [];
   const poisoned: BatchId[] = [];
   const desyncs: unknown[] = [];

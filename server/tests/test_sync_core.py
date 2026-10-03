@@ -51,10 +51,21 @@ def test_dedupe_window_flag_ignores_row_order():
 
 
 def test_tombstone_entities_absent_entity():
-    win = dedupe_window([ChangeRow(SyncSeq(1), "block", "A", 0),
-                         ChangeRow(SyncSeq(2), "page", "7", 0)])
+    win = dedupe_window([ChangeRow(SyncSeq(1), "block", "A", 1),
+                         ChangeRow(SyncSeq(2), "page", "7", 0),
+                         ChangeRow(SyncSeq(3), "page", "8", 0)])
     assert tombstone_entities(
-        win, {"block": set(), "page": {"7"}}) == [("block", "A")]
+        win, {"block": set(), "page": {"7"}}) == [("block", "A"),
+                                                   ("page", "8")]
+
+
+def test_tombstone_entities_block_waits_for_its_delete_row():
+    # absent now, but this window holds only an older live row: the
+    # tombstone ships with the window that holds the delete row, after the
+    # moves that took the block's surviving descendants out
+    win = dedupe_window([ChangeRow(SyncSeq(1), "block", "A", 0),
+                         ChangeRow(SyncSeq(2), "block", "B", 1)])
+    assert tombstone_entities(win, {"block": set()}) == [("block", "B")]
 
 
 def test_tombstone_entities_missing_kind_counts_as_empty():

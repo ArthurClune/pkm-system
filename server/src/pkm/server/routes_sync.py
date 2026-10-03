@@ -143,9 +143,9 @@ def _block_payloads(db: sqlite3.Connection,
     block_rows = _blocks_by_uid(db, uids)
     block_rows = _with_parent_closure(db, block_rows)
     # refs only for uids that still have a block row: a uid whose block
-    # was deleted again since has no row here, and the caller turns its
-    # absence into a tombstone -- same as the old per-uid loop skipping
-    # the refs query for a missing block.
+    # was deleted again since has no row here, and the caller ships a
+    # tombstone for it when the window holds its delete row -- same as the
+    # old per-uid loop skipping the refs query for a missing block.
     refs_by_uid = _refs_by_block(db, list(block_rows))
     by_uid: dict[str, SyncBlock] = {}
     dep_pages: set[int] = set()

@@ -1,15 +1,16 @@
 // pattern: Imperative Shell
 // The sync protocol property: 2-3 clients running the real web sync stack
 // against the real server take a random sequence of edits and faults, then
-// are brought to rest and checked by the oracle. Five fixed scenarios run
-// first, through the same commands.
+// are brought to rest and checked by the oracle. Some examples cap the
+// changes feed's window at a few journal rows, so a catch-up crosses window
+// boundaries. Six fixed scenarios run first, through the same commands.
 //
 // A failure prints the seed, the path, the shrunk command list, what each
 // command did in the failing run, the oracle's findings and a replay line.
 // How often each command and fault ran is printed once, after the file.
 import fc from "fast-check";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import type { OpDraft } from "./arbitraries";
+import { EDIT_TARGETS, type OpDraft } from "./arbitraries";
 import { allCommands, BadBatch, Edit, Fault, NAMES, Nudge, Offline, Pull, Reload,
          SyncCommand, type World } from "./commands";
 import { PATH, REPLAY_PATH, SEED } from "./env";
@@ -58,7 +59,17 @@ afterAll(() => {
 interface ExampleOptions {
   /** Runs after the commands, before quiescence. */
   beforeQuiesce?: (world: World) => Promise<void>;
+  /** Every client's changes-feed window, in journal rows; absent, the
+   * server's default. */
+  windowLimit?: number;
 }
+
+/** No cap two times in three, else 1-5 journal rows per window. Shrinks
+ * toward no cap. */
+const windowLimit: fc.Arbitrary<number | undefined> = fc.oneof(
+  { weight: 2, arbitrary: fc.constant(undefined) },
+  { weight: 1, arbitrary: fc.integer({ min: 1, max: 5 }) },
+);
 
 /** One example: reset the server, start the clients, run the commands
  * (watching every cursor after each), bring everything to rest, and run
@@ -70,8 +81,12 @@ async function runExample(names: readonly string[], cmds: Commands,
   const transcript: string[] = [];
   const body = async (): Promise<void> => {
     await server.reset();
-    for (const name of names) clients.set(name, await startClient(name, server));
-    transcript.push(`start ${names.join(", ")}`);
+    for (const name of names) {
+      clients.set(name, await startClient(name, server, undefined,
+                                          { windowLimit: opts.windowLimit }));
+    }
+    transcript.push(`start ${names.join(", ")}` +
+      (opts.windowLimit === undefined ? "" : `, window limit ${opts.windowLimit}`));
     const model = initialModel([...names]);
     const world: World = { server, clients, watch: new CursorWatch(), transcript, count };
     const all = (): HarnessClient[] => [...clients.values()];
@@ -223,7 +238,14 @@ const draft = (d: Partial<OpDraft> & Pick<OpDraft, "kind">): OpDraft =>
 // pt_seed_4 in one batch; B pulls after each. B's last window carries
 // pt_seed_4's tombstone and pt_seed_5's row but not the child's, whose row
 // did not change: it has to survive pt_seed_4's local cascade.
+/** The scenarios below name blocks by pool index. */
+const assertPool = (): void => {
+  expect(EDIT_TARGETS[3]).toBe("pt_seed_4");
+  expect(EDIT_TARGETS[4]).toBe("pt_seed_5");
+};
+
 test("moved-out child survives its old parent's deletion on another device", async () => {
+  assertPool();
   await runExample(["A", "B"], [
     new Edit("A", [draft({ kind: "move", target: 4, parent: 3 })]),
     new Drained("A"), new Pull("B"),
@@ -236,11 +258,32 @@ test("moved-out child survives its old parent's deletion on another device", asy
   ]);
 });
 
+// The same deletion, read by a replica catching up one journal row per
+// window: pt_seed_4's edit row lands in a window before pt_seed_5's move
+// out. pt_seed_4 is already gone on the server by then, but its tombstone
+// must wait for the window holding its delete row, or its local cascade
+// takes the child, whose own row never changes.
+test("moved-out child survives a window cut before its old parent's delete", async () => {
+  assertPool();
+  await runExample(["A", "B"], [
+    new Edit("A", [draft({ kind: "move", target: 4, parent: 3 })]),
+    new Edit("A", [draft({ kind: "create", parent: 4, text: "child" })]),
+    new Drained("A"), new Pull("B"),
+    new Edit("A", [draft({ kind: "update_text", target: 3, text: "edited" })]),
+    new Edit("A", [draft({ kind: "move", target: 4 })]),
+    new Edit("A", [draft({ kind: "delete", target: 3 })]),
+    new Drained("A"), new Pull("B"),
+  ], { windowLimit: 1 });
+});
+
 /** The failure report: everything needed to read and replay it. */
-function report(details: fc.RunDetails<[number, Commands]>): string {
+function report(details: fc.RunDetails<[number, Commands, number | undefined]>): string {
   const counterexample = details.counterexample;
   const shown = counterexample === null ? "none"
-    : `${counterexample[0]} clients, ${String(counterexample[1])}`;
+    : `${counterexample[0]} clients, ` +
+      (counterexample[2] === undefined ? "no window limit"
+                                       : `window limit ${counterexample[2]}`) +
+      `, ${String(counterexample[1])}`;
   const replay = /replayPath="([^"]*)"/.exec(shown)?.[1];
   const error = details.errorInstance instanceof Error
     ? details.errorInstance.message : String(details.errorInstance);
@@ -263,10 +306,15 @@ test("sync protocol property", async () => {
     fc.commands(allCommands, {
       maxCommands: MAX_COMMANDS, size: "max", replayPath: REPLAY_PATH,
     }),
-    async (n, cmds) => {
+    // Last: an arbitrary's place fixes what a seed and path replay, so the
+    // two before it replay as they did before it was added.
+    windowLimit,
+    async (n, cmds, limit) => {
       count("examples");
       count(`examples with ${n} clients`);
-      await runExample(NAMES.slice(0, n), cmds);
+      count(limit === undefined ? "examples with no window limit"
+                                : `examples with window limit ${limit}`);
+      await runExample(NAMES.slice(0, n), cmds, { windowLimit: limit });
     },
   ), {
     numRuns: NUM_RUNS, seed: SEED, path: PATH,

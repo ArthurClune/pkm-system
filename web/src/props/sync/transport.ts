@@ -86,7 +86,22 @@ interface Answer {
   body: unknown;
 }
 
-export function createTransport(server: ServerControl, broken?: Broken): Transport {
+export interface TransportOptions {
+  /** Appended as `limit` to every GET /api/sync/changes, so a catch-up
+   * crosses window boundaries; absent, the server's default applies. */
+  windowLimit?: number;
+}
+
+/** `path` with `limit=` appended when it is a changes-feed request. */
+export function withWindowLimit(path: string, windowLimit?: number): string {
+  if (windowLimit === undefined || path.split("?")[0] !== "/api/sync/changes") {
+    return path;
+  }
+  return `${path}${path.includes("?") ? "&" : "?"}limit=${windowLimit}`;
+}
+
+export function createTransport(server: ServerControl, broken?: Broken,
+                                { windowLimit }: TransportOptions = {}): Transport {
   let offline = false;
   let faults: Fault[] = [];
   let generation = 0;
@@ -208,8 +223,9 @@ export function createTransport(server: ServerControl, broken?: Broken): Transpo
     const fault = at < 0 ? null : faults[at];
     if (at >= 0) faults = faults.filter((_, i) => i !== at);
     const fullInit: RequestInit = { ...init, method };
-    let answer = await exchange(path, fullInit, kind);
-    if (fault === "duplicate") answer = await exchange(path, fullInit, kind);
+    const sentPath = method === "GET" ? withWindowLimit(path, windowLimit) : path;
+    let answer = await exchange(sentPath, fullInit, kind);
+    if (fault === "duplicate") answer = await exchange(sentPath, fullInit, kind);
     if (fault === "dropAck" || fault === "lostPull" || !live()) {
       throw networkError();
     }

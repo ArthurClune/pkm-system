@@ -665,11 +665,12 @@ describe("applyChanges: a page id deleted and reused inside one window", () => {
 });
 
 describe("applyChanges: a block tombstone's cascade reaches only blocks the server deleted", () => {
-  // The server journals every block it deletes, cascaded rows included, so
-  // each one arrives as its own tombstone. A descendant that moved out of a
-  // deleted subtree with its parent changed no row of its own, so only its
-  // parent's row ships: the window's upserts have to take the subtree out
-  // from under the tombstoned block before its local cascade runs.
+  // The server journals every block it deletes, cascaded rows included, and
+  // ships each tombstone in the window holding its delete row. A descendant
+  // that moved along with a moved-out ancestor changed no row of its own, so
+  // only the ancestor's row ships: the window's upserts have to take the
+  // subtree out from under the tombstoned block before its local cascade
+  // runs.
   const tree = () => t.db.select<{ uid: string; page_id: number;
                                    parent_uid: string | null }>(
     "SELECT uid, page_id, parent_uid FROM blocks ORDER BY uid");

@@ -564,11 +564,13 @@ class RecordConflictHeader:
 @dataclass(frozen=True)
 class JournalBlock:
     """A changes-journal row for uid without writing the block. The feed
-    hydrates each journalled uid from current state, so a uid with no block
-    row ships as a tombstone and a live one as its real row: this is how a
-    replica drops the ghost of an op the server skipped (a block it never
-    created, or a move it never made) without an authoritative repair.
-    `deleted` fills the journal's informational column. `page_id`, on a
+    hydrates each journalled uid from current state, so a live uid ships as
+    its real row, and a uid with no block row journalled `deleted` ships as
+    a tombstone: this is how a replica drops the ghost of an op the server
+    skipped (a block it never created, or a move it never made) without an
+    authoritative repair. `deleted` must be true exactly when the uid has no
+    block row: the feed ships a block tombstone only from a delete row
+    (sync_core.tombstone_entities). `page_id`, on a
     tombstone, is the page the uid's block was on, as the delete trigger
     records it (schema.BLOCKS_CHG_AD_TRIGGER); the feed never ships it."""
     uid: BlockUid

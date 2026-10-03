@@ -6,7 +6,7 @@ import type { BatchId, BlockUid, ClientId } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import { startClient, type HarnessClient } from "./harnessClient";
 import { connectServer, type ServerControl } from "./serverControl";
-import { createTransport } from "./transport";
+import { createTransport, withWindowLimit } from "./transport";
 
 let server: ServerControl;
 let clients: HarnessClient[] = [];
@@ -24,8 +24,8 @@ afterEach(async () => {
   clients = [];
 });
 
-async function start(name: string): Promise<HarnessClient> {
-  const c = await startClient(name, server);
+async function start(name: string, windowLimit?: number): Promise<HarnessClient> {
+  const c = await startClient(name, server, undefined, { windowLimit });
   clients.push(c);
   return c;
 }
@@ -191,6 +191,30 @@ test("a reply arriving after a new life is a network error, but is recorded", as
   await expect(life.post({ ...body, batch_id: "raw-batch-2" as BatchId }))
     .rejects.toThrow(TypeError);
   expect(await appliedIds()).not.toContain("raw-batch-2");
+});
+
+test("a window limit goes on changes-feed requests only", () => {
+  expect(withWindowLimit("/api/sync/changes?since=3", 2))
+    .toBe("/api/sync/changes?since=3&limit=2");
+  expect(withWindowLimit("/api/sync/changes", 1)).toBe("/api/sync/changes?limit=1");
+  expect(withWindowLimit("/api/sync/snapshot?pending=x", 1))
+    .toBe("/api/sync/snapshot?pending=x");
+  expect(withWindowLimit("/api/sync/changes?since=3", undefined))
+    .toBe("/api/sync/changes?since=3");
+});
+
+test("a client pulling one journal row per window still catches up", async () => {
+  const t = createTransport(server, undefined, { windowLimit: 1 });
+  const feed = await t.fetchJson("/api/sync/changes?since=0") as
+    { next_since: number; latest_seq: number };
+  expect(feed.next_since).toBe(Math.min(1, feed.latest_seq));
+  const a = await start("A");
+  const b = await start("B", 1);
+  await a.edit(setText("pt_seed_1", "one"));
+  await a.edit(setText("pt_seed_2", "two"));
+  await settle([a, b]);
+  expect(b.cursor()).toBe(await server.latestSeq());
+  expect(blockText(b, "pt_seed_2")).toBe("two");
 });
 
 test("offline sends nothing and keeps the armed fault", async () => {

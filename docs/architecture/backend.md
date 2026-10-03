@@ -410,9 +410,9 @@ diverted subtree lands flat, each child's text under its own parent's uid,
 and loses its nesting, heading and view type. A create and then an edit of
 one uid in the same batch land both texts.
 
-`JournalBlock` writes the journal row the triggers would. The feed ships a
-journalled uid with no block row as a tombstone, and a live one as its
-current row. A block tombstone cascades the whole local subtree. A replica
+`JournalBlock` writes the journal row the triggers would. It marks a uid
+with no block row `deleted`, because the feed ships a block tombstone only
+from a delete row; a live uid ships as its current row. A block tombstone cascades the whole local subtree. A replica
 applies a window's block tombstones after its upserts, so rows in the same
 window move blocks out first. A ghost parent's tombstone in an earlier window
 than those rows still deletes the live blocks a replica optimistically moved

@@ -93,8 +93,8 @@ transaction:
   (`_with_parent_closure`, cycle-safe). A missing dependency fails the replica's
   deferred FK check at COMMIT. A dependency block that no longer exists is
   absent from the payload.
-- `sync_core.tombstone_entities` picks the tombstones. An entity absent from
-  current state ships as one. So does a `page` or `sidebar` id
+- `sync_core.tombstone_entities` picks the tombstones. A page or sidebar entry
+  absent from current state ships as one. So does a `page` or `sidebar` id
   (`REUSABLE_ID_KINDS`) with a delete row in the window, even when a live row
   holds it. Both ids are an `INTEGER PRIMARY KEY` without `AUTOINCREMENT`.
   SQLite gives the next insert max(id)+1, so deleting the highest id frees it
@@ -104,8 +104,10 @@ transaction:
   ships every current block on the page or with a ref to it. That makes the
   page whole again by the window's COMMIT, not only once later windows arrive.
   A block delivered onto the page earlier and moved off since is still cascaded
-  away, and returns with its own later row. Blocks keep the presence rule: a uid
-  recreated by undo is the same block.
+  away, and returns with its own later row. A block present now ships live: a
+  uid recreated by undo is the same block. A block absent now ships as a
+  tombstone only from the window that holds its delete row (see the apply
+  order below).
 - `block_refs` never ships; both sides derive it from block text through the
   parity-pinned extractor (see
   [Offline editing and reconnect](#offline-editing-and-reconnect)).
@@ -147,12 +149,21 @@ transaction:
 | 4. Sidebar upserts | Independent of blocks. |
 | 5. `dropAppliedPending`, then `reapplyPending` | The queue replays over the window's final rows (see [sync-recovery.md](sync-recovery.md#a-payload-that-already-holds-a-pending-batch)). |
 
-**Block tombstones follow the upserts.** The server journals every block it
-deletes, cascaded rows included, so each one arrives as its own tombstone. A
-block that moved out of a deleted subtree with its parent changed no row of its
-own, so only its parent's row ships. Applying that row first takes the subtree
-out of the tombstone's local cascade. The cascade still removes optimistic rows
-under a deleted block, and `reapplyPending` then skips their ops. A page
+**A block tombstone's local cascade never reaches a block the server kept.**
+Two rules hold this up:
+
+| Rule | Where |
+|---|---|
+| A block tombstone ships only in the window that holds the block's delete row. The server journals a delete row for every block it deletes, cascaded rows included | `sync_core.tombstone_entities` |
+| A window's block tombstones apply after its upserts | `applyWindow` |
+
+A kept block left the deleted subtree by a move at a lower seq than the delete.
+That move's row is in the delete row's window or an earlier one, so it lands
+before the cascade runs. The kept block may be a descendant that moved along
+with a moved-out ancestor. Its own row never changed, so only the ancestor's
+row ships, and nothing would re-ship the descendant once the cascade took it.
+The cascade still removes optimistic rows under a deleted block, and
+`reapplyPending` then skips their ops. A page
 cascade can run before the upserts because a block leaves a page only by a
 write to its own row: a move rewrites `page_id` on every block of the subtree.
 

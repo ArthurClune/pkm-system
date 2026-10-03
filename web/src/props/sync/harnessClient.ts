@@ -83,13 +83,23 @@ interface Life {
   /** useSocketLifecycle's readInitialPending, read at mount. */
   initialPending: Promise<number>;
   offs: (() => void)[];
+  /** This life's view of the shared database. */
+  handle: LifeDb;
+  /** One slot per non-empty enqueue, in call order: the queue mints ids in
+   * the same order on its persist chain, and each mint fills the oldest
+   * empty slot. */
+  idSlots: { id?: BatchId }[];
+}
+
+interface LifeDb {
+  db: ReplicaDb;
+  ended(): boolean;
+  end(): void;
 }
 
 /** `db` for one life: unusable once `end` has run, as a dead worker's handle
  * is, while the database itself carries on for the next life. */
-function lifeDb(current: () => ReplicaDb): {
-  db: ReplicaDb; ended(): boolean; end(): void;
-} {
+function lifeDb(current: () => ReplicaDb): LifeDb {
   let ended = false;
   const live = (): ReplicaDb => {
     if (ended) throw new Error("replica worker ended with its page load");
@@ -127,6 +137,7 @@ export async function startClient(
     lives += 1;
     // A page load mints a new client id; batch ids carry on across lives.
     const clientId = `proptest-${name}-${lives}` as ClientId;
+    const idSlots: { id?: BatchId }[] = [];
     const state: LifeState = {
       status: "connecting", everConnected: false, unsentInMemory: 0, ended: false,
     };
@@ -156,6 +167,8 @@ export async function startClient(
         minted += 1;
         const id = `batch-${name}-${minted}` as BatchId;
         enqueued.push(id);
+        const slot = idSlots.find((s) => s.id === undefined);
+        if (slot) slot.id = id;
         return id;
       },
     });
@@ -193,7 +206,7 @@ export async function startClient(
     ];
     return {
       state, queue, replica, replicaSync, runtime, reconnect,
-      initialPending: Promise.resolve(0), offs,
+      initialPending: Promise.resolve(0), offs, handle, idSlots,
     };
   };
 
@@ -211,13 +224,20 @@ export async function startClient(
   const endLife = async (l: Life): Promise<void> => {
     l.state.ended = true;
     l.offs.forEach((off) => off());
-    // SyncProvider's teardown order: runtime, replicaSync, queue, replica.
-    l.runtime.dispose();
+    // useSocketLifecycle's teardown order: stop replicaSync, dispose the
+    // queue, then SyncProvider's disposeOwned (the runtime, then the replica).
     l.replicaSync.stop();
     l.queue.dispose();
-    // close queues behind every request the old worker already received, so
-    // this resolves once that work has finished; then the ports close.
-    await l.replica.dispose();
+    l.runtime.dispose();
+    try {
+      // close queues behind every request the old worker already received,
+      // so this resolves once that work has finished; then the ports close.
+      await l.replica.dispose();
+    } finally {
+      // A close that timed out must still cut the old life off from the
+      // shared database.
+      l.handle.end();
+    }
   };
 
   let life = buildLife(transport.newLife());
@@ -276,21 +296,25 @@ export async function startClient(
     offline: () => goOffline(life),
     async edit(ops) {
       if (ops.length === 0) throw new Error("an edit needs at least one op");
-      const before = enqueued.length;
-      const ticket = life.queue.enqueue(ops);
+      const l = life;
+      const slot: { id?: BatchId } = {};
+      l.idSlots.push(slot);
+      const ticket = l.queue.enqueue(ops);
       await ticket.settled;
-      // The queue mints a batch id inside its persistence chain, before the
-      // replica write; edits are awaited one at a time, so the next id
-      // minted is this ticket's.
-      const id = enqueued[before];
-      if (id === undefined) throw new Error("the queue minted no batch id");
-      return id;
+      // The mint precedes the replica write that settles the ticket, so the
+      // slot is filled unless the queue was disposed before persisting.
+      if (slot.id === undefined) throw new Error("the queue minted no batch id");
+      return slot.id;
     },
     async pull() {
+      const l = life;
+      const latest = await server.latestSeq();
+      // A reload while the seq was read ended this life: never call into it.
+      if (l.state.ended) return;
       // Forced: a rotated generation keeps the journal's seq, and a pull must
       // still run to find it.
-      life.replicaSync.onSeq(await server.latestSeq(), true);
-      await life.replicaSync.idle();
+      l.replicaSync.onSeq(latest, true);
+      await l.replicaSync.idle();
     },
     nudge(seq, force = false) {
       life.replicaSync.onSeq(seq, force);

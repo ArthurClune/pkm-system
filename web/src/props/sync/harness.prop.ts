@@ -78,6 +78,8 @@ test("dropAck redelivers once", async () => {
   expect((await appliedIds()).filter((x) => x === id)).toEqual([id]);
   expect(pendingRows(a)).toBe(0);
   expect(a.transport.committed.has(id)).toBe(true);
+  // The fault fired: the first send lost its ack, so the batch went twice.
+  expect(a.transport.sends(id)).toBe(2);
 });
 
 test("dropAck applies to fetchJson posts too", async () => {
@@ -108,6 +110,25 @@ test("duplicate is inert", async () => {
   await settle([a]);
   expect((await appliedIds()).filter((x) => x === id)).toEqual([id]);
   expect(pendingRows(a)).toBe(0);
+  // The fault fired: one request went out twice, and the replay ack was
+  // enough to settle it.
+  expect(a.transport.sends(id)).toBe(2);
+});
+
+test("edits started together each get their own batch id", async () => {
+  const a = await start("A");
+  a.offline();
+  const [first, second] = await Promise.all([
+    a.edit(setText("pt_seed_1", "first")),
+    a.edit(setText("pt_seed_2", "second")),
+  ]);
+  expect([first, second]).toEqual(a.enqueued);
+  expect(first).not.toBe(second);
+  const rows = a.db.select<{ batch_id: string; ops_json: string }>(
+    "SELECT batch_id, ops_json FROM pending_ops ORDER BY id");
+  expect(rows.map((r) => r.batch_id)).toEqual([first, second]);
+  expect(rows[0].ops_json).toContain("first");
+  expect(rows[1].ops_json).toContain("second");
 });
 
 test("writeFails goes through the lane", async () => {

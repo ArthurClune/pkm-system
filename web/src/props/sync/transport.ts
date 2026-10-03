@@ -39,6 +39,9 @@ export interface Transport extends TransportLife {
    * time only, keyed by batch id. Recorded on arrival, so a reply then
    * dropped, or discarded because its life ended, is still here. */
   readonly committed: ReadonlyMap<BatchId, string>;
+  /** How many times a POST /api/ops for this batch id actually went out on
+   * the network (whatever became of the answer). */
+  sends(batchId: BatchId): number;
   /** Ends the current life and returns doors bound to a new one. A request
    * from an ended life is not sent, and a reply arriving for one is
    * discarded: its caller sees a network error, as a reloaded page's
@@ -83,6 +86,7 @@ export function createTransport(server: ServerControl, broken?: Broken): Transpo
   let lastSeq = 0 as SyncSeq;
   let held: string | null = null;
   const committed = new Map<BatchId, string>();
+  const sent = new Map<BatchId, number>();
 
   const noteSeq = (seq: unknown): void => {
     if (typeof seq === "number" && seq > lastSeq) lastSeq = seq as SyncSeq;
@@ -92,6 +96,11 @@ export function createTransport(server: ServerControl, broken?: Broken): Transpo
   const send = async (path: string, init: RequestInit): Promise<Answer> => {
     const headers = new Headers(init.headers);
     headers.set("cookie", server.cookie);
+    const isOps = kindOf(path, init.method ?? "GET") === "ops";
+    if (isOps) {
+      const batchId = (JSON.parse(String(init.body)) as OpBatch).batch_id;
+      sent.set(batchId, (sent.get(batchId) ?? 0) + 1);
+    }
     const res = await fetch(`${BASE_URL}${path}`, { ...init, headers });
     const text = await res.text();
     let body: unknown = null;
@@ -100,7 +109,7 @@ export function createTransport(server: ServerControl, broken?: Broken): Transpo
     } catch {
       body = text;
     }
-    if (res.ok && kindOf(path, init.method ?? "GET") === "ops") {
+    if (res.ok && isOps) {
       const batchId = (JSON.parse(String(init.body)) as OpBatch).batch_id;
       if (!committed.has(batchId)) committed.set(batchId, String(init.body));
     }
@@ -211,6 +220,7 @@ export function createTransport(server: ServerControl, broken?: Broken): Transpo
     arm: (fault) => { faults = [...faults, fault]; },
     clearFaults: () => { faults = []; },
     committed,
+    sends: (batchId) => sent.get(batchId) ?? 0,
     newLife: () => {
       generation += 1;
       return doors(generation);

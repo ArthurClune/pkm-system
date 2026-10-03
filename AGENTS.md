@@ -69,6 +69,7 @@ Production runs on this machine: a launchd service serving `~/.config/pkm/app` o
 | 8974 | production — never bind it, never `launchctl bootout` the service to free it |
 | 8975 | scratch servers (`.claude/skills/verify`) and the default `E2E_PORT` |
 | 8977 | `perf/check.sh` fixture server |
+| 8978 | `proptest/check.sh web` sync server |
 
 - Deploy only with `~/.config/pkm/app/deploy/update.sh` (it refuses to run from another checkout). Run it as `CI=true …/update.sh` when headless, or pnpm aborts asking to purge `node_modules`.
 - Verify a deploy rather than trusting "updated to <sha>": `launchctl kickstart` silently does nothing when the service is unloaded, so check `launchctl list | grep pkm` and the port-8974 owner, then grep the served bundle (under `/app-assets/`) for a string the change added.

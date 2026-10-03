@@ -351,3 +351,28 @@ Task 7 stopped at Step 5 with two product failures. Arthur ruled: fix both on th
 - [ ] **Step 4:** docs: `sync-recovery.md` (the keepSlot / skipped-op notes: a skip re-ships the destination group, so the transient misordering ends at the next pull), `backend.md` missing-targets/concurrent-structure tables, a `troubleshooting.md` row (pkm-hz8w). If `web/src/api/openapi.json` is affected (it should not be), regenerate. Commit `fix(pkm-hz8w): re-ship the destination siblings of a skipped create or move`.
 
 ### Then: Task 7 resumes at Step 4 (calibration), then Task 8.
+
+### Task 7c: A batch reads the clock once (pkm-hb4x) — done (b331b4e4)
+
+### Task 7d: The feed names pending batches it already holds (pkm-undg)
+
+The property found F7: `reapplyPending` replays a pending batch over a window that already contains it (the server committed it, the client has not processed the ack), double-applying it. Live without a reload: a lost ack plus the batch's own WS nudge. No client-only rule can be correct (identical replica state and window need opposite answers). Arthur ruled option B.
+
+**Design.**
+- The pull sends the ids of its non-poisoned pending batches — only the head prefix of the durable queue (delivery is FIFO, so only a prefix can be committed), capped so the GET stays small; if a cap is needed, choose it from measurement and say why.
+- `GET /api/sync/changes` and `GET /api/sync/snapshot` accept them (e.g. a repeated `pending` query param) and answer, from the **same read transaction** that hydrates the window, which of them are in `applied_batches`, with each one's stored ack `seq` and `skipped` (new response field, e.g. `applied_batches: [{batch_id, seq, skipped}]`). A batch's writes and its `applied_batches` row commit together, so "present in this read" is exactly "this window's rows include it". No ids → no extra query, field empty/absent.
+- The worker, inside the window's transaction and **before** `reapplyPending`, deletes the named pending rows (recording their acked seqs as the drain's ack path does) and returns the dropped ids. The same for `applySnapshot`.
+- `replicaSync`/the queue resolve the dropped rows' delivery tickets and outbox entries exactly as a drain ack would (`finishDelivery`/`forget` or their equivalents), and a non-empty `skipped` bumps resync as an ack's would.
+- Old server ↔ new client and new server ↔ old client both keep working (additive both ways).
+
+**Files (expected):** `server/src/pkm/server/routes_sync.py` (+ `sync_core.py` if the read belongs there), `server/src/pkm/contracts/…` (response models), `web/src/api/openapi.json` + generated types (regenerate per backend.md § Generated artifacts), `web/src/replica/apply.ts`, `web/src/replica/workerHandlers.ts`, `web/src/replica/client.ts`, `web/src/sync/replicaSync.ts`, `web/src/sync/opQueue.ts`, tests beside each, `web/src/props/sync/sync.prop.ts` (fixed scenario), docs.
+
+- [ ] **Step 1: Failing tests** (real sqlite via `openTestDb` on the web side):
+  - `apply.test.ts` `describe("applyChanges: a window that names a pending batch as applied drops it instead of replaying it")` — seed s1..s6, enqueue the batch, apply a feed holding the server's post-batch rows and naming the batch; assert blocks equal the server rows, no pending rows, and a following empty window changes nothing. Cases: `move s4 0; move s4 1`; `move s4 0; move s5 0`; `move s4 0; create n1 0`; `update_text s1 "mine"` under a window holding a later `"theirs"`; a partial window shipping only the siblings. Converse: the same window not naming the batch still replays it.
+  - `workerHandlers.test.ts`: the handler returns dropped ids and records acked seqs; a later `deleteBatch` for a dropped row is a harmless no-op; only rows pending when the pull snapshotted its ids are dropped (a row enqueued after the ids were read is untouched).
+  - `replicaSync.test.ts`: the pull sends the pending head ids and hands dropped ids to the queue; the queue resolves their tickets; a dropped batch with `skipped` bumps resync.
+  - Server: the changes and snapshot routes return only ids present in `applied_batches` within the same read; none without the param; no extra query without the param; unknown ids ignored.
+- [ ] **Step 2:** RED, implement, GREEN. Regenerate OpenAPI and generated types.
+- [ ] **Step 3: Property.** Add the fixed scenario `lost ack, own nudge pulls before the redelivery` to `sync.prop.ts` (arm `dropAck`, edit two moves of one block, wait for the commit, `pull()`, quiesce, `checkQuiescent`) — it must fail before the fix and pass after. The F7 replay line passes; F2/F4/F6 replays still pass; `proptest/check.sh server` and `web` pass.
+- [ ] **Step 4: Gates.** Server pytest/pyrefly/ruff; web typecheck/lint/check:fcis/test:unit; `perf/check.sh backend` and `perf/check.sh frontend` (serial, quiet machine).
+- [ ] **Step 5: Docs.** `sync-recovery.md` § Windows and the pending queue (the new field and why the same read transaction makes it exact), § Recovery never erases intent (the replay-over-echo paragraph; correct the "drifting per window" row, citing pkm-sj5l for the remaining transient drift); `backend.md` API table; a `troubleshooting.md` row (pkm-undg). Commit `fix(pkm-undg): the changes feed names pending batches it already holds`.

@@ -42,6 +42,11 @@ export interface Transport extends TransportLife {
   /** How many times a POST /api/ops for this batch id actually went out on
    * the network (whatever became of the answer). */
   sends(batchId: BatchId): number;
+  /** Test-only: every request whose path starts with `pathPrefix` ("" for
+   * all) waits, before it is sent, until the returned release is called. A
+   * stall is not a fault: clearFaults leaves it in place. Never released, it
+   * is a network that never answers. */
+  stall(pathPrefix: string): () => void;
   /** Ends the current life and returns doors bound to a new one. A request
    * from an ended life is not sent, and a reply arriving for one is
    * discarded: its caller sees a network error, as a reloaded page's
@@ -85,6 +90,7 @@ export function createTransport(server: ServerControl, broken?: Broken): Transpo
   let brokenUsed = false;
   let lastSeq = 0 as SyncSeq;
   let held: string | null = null;
+  let stalls: { prefix: string; released: Promise<void> }[] = [];
   const committed = new Map<BatchId, string>();
   const sent = new Map<BatchId, number>();
 
@@ -188,6 +194,11 @@ export function createTransport(server: ServerControl, broken?: Broken): Transpo
   ): Promise<unknown> => {
     const live = (): boolean => life === null || life === generation;
     if (offline || !live()) throw networkError();
+    const holding = stalls.filter((st) => path.startsWith(st.prefix));
+    if (holding.length > 0) {
+      await Promise.all(holding.map((st) => st.released));
+      if (offline || !live()) throw networkError();
+    }
     const method = (init?.method ?? "GET").toUpperCase();
     const kind = kindOf(path, method);
     const at = faults.findIndex((f) => faultMatches(f, kind));
@@ -219,6 +230,18 @@ export function createTransport(server: ServerControl, broken?: Broken): Transpo
     setOffline: (next) => { offline = next; },
     arm: (fault) => { faults = [...faults, fault]; },
     clearFaults: () => { faults = []; },
+    stall: (prefix) => {
+      let release = (): void => undefined;
+      const stall = {
+        prefix,
+        released: new Promise<void>((resolve) => { release = resolve; }),
+      };
+      stalls = [...stalls, stall];
+      return () => {
+        stalls = stalls.filter((st) => st !== stall);
+        release();
+      };
+    },
     committed,
     sends: (batchId) => sent.get(batchId) ?? 0,
     newLife: () => {

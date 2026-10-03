@@ -152,6 +152,32 @@ async function badBatchScenario(): Promise<{
   return { a, b, good, bad, b1 };
 }
 
+test("quiesce bounds a hung network", async () => {
+  // A network that takes requests and never answers: no step of quiesce may
+  // wait on it past the limit.
+  const a = await start("A");
+  a.offline();
+  await a.edit(setText("pt_seed_1", "stuck behind a hung network"));
+  a.transport.stall("");
+  const started = Date.now();
+  const error = await quiesce([a], server, 1_500).then(() => null, (e: unknown) => e);
+  console.log(`teeth hung network: ${String(error)}`);
+  expect(error).toBeInstanceOf(QuiesceError);
+  expect(String(error)).toMatch(/did not settle in 1500ms \(.* hung\)/);
+  expect(String(error)).toMatch(/A: pending 1, poisoned 0, lane 0/);
+  expect(Date.now() - started).toBeLessThan(1_500 + 2_000);
+});
+
+test("quiesce bounds a hung round", async () => {
+  // Going online finishes; then a pull inside a round never returns.
+  const a = await start("A");
+  a.pull = () => new Promise<void>(() => undefined);
+  const error = await quiesce([a], server, 1_500).then(() => null, (e: unknown) => e);
+  console.log(`teeth hung round: ${String(error)}`);
+  expect(error).toBeInstanceOf(QuiesceError);
+  expect(String(error)).toMatch(/did not settle in 1500ms \(a drain, pull or read hung\)/);
+});
+
 test("bad batch is poisoned and repaired", async () => {
   const { a, b, good, bad, b1 } = await badBatchScenario();
   expect(a.poisoned).toContain(bad);
@@ -160,6 +186,30 @@ test("bad batch is poisoned and repaired", async () => {
     good: new Map([["A", [good]], ["B", [b1]]]), bad: new Set([bad]),
   };
   expect(await failures("bad batch", checkQuiescent([a, b], server, exp)))
+    .toEqual([]);
+});
+
+test("quiesce waits for a lone client's poison repair", async () => {
+  // No other traffic: the rejection moves no seq, so only the poisoned row
+  // shows that the repair has not finished. The repair's delete of that row,
+  // which follows its rebase, is held for a while, so a quiesce that ignores
+  // the row returns mid-repair.
+  const a = await start("A");
+  const replica = a.replica;
+  const deleteBatch = replica.deleteBatch.bind(replica);
+  replica.deleteBatch = async (...args) => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return deleteBatch(...args);
+  };
+  const bad = await a.edit([{
+    op: "create", uid: "pt_seed_6" as BlockUid, page_title: "Proptest",
+    parent_uid: null, order_idx: 60 as OrderIdx, text: "a create of a live uid",
+  }]);
+  await quiesce([a], server);
+  expect(await a.replica.poisonedBatches()).toEqual([]);
+  expect(a.poisoned).toEqual([bad]);
+  const exp: Expectation = { good: new Map([["A", []]]), bad: new Set([bad]) };
+  expect(await failures("lone bad batch", checkQuiescent([a], server, exp)))
     .toEqual([]);
 });
 

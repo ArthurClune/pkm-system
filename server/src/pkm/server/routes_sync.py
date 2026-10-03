@@ -12,15 +12,16 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from pkm.contracts.responses import (ChangesPayload, EntityKind,
-                                        SnapshotPayload, SyncBlock, SyncPage,
-                                        SyncRef, SyncSeq, SyncSidebarEntry,
-                                        SyncTombstone)
+from pkm.contracts.ops import BatchId
+from pkm.contracts.responses import (AppliedBatch, ChangesPayload, EntityKind,
+                                        OpsAck, SnapshotPayload, SyncBlock,
+                                        SyncPage, SyncRef, SyncSeq,
+                                        SyncSidebarEntry, SyncTombstone)
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.sync_core import (ChangeRow, chunk_ids, dedupe_window,
@@ -34,6 +35,11 @@ from pkm.server.sync_meta import (
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 MAX_LIMIT = 5000
+
+# The client's pending batch ids, repeated: `?pending=a&pending=b`.
+PendingIds = Annotated[list[str] | None, Query(
+    description="Batch ids the client still holds as pending. The response's"
+                " applied_batches names those this payload already holds.")]
 
 logger = logging.getLogger("pkm.sync")
 
@@ -196,6 +202,30 @@ def _page_payloads(db: sqlite3.Connection, ids: set[int]) -> list[SyncPage]:
     return hydrate_in_order(ordered, by_id)
 
 
+def _applied_batches(db: sqlite3.Connection,
+                     pending: list[str] | None) -> list[AppliedBatch]:
+    """The `pending` ids that have an applied_batches row, in request order,
+    each with its stored ack's seq and skipped ops. The caller runs this inside
+    the read transaction that hydrates its payload: routes_ops commits a
+    batch's writes and its applied_batches row together, so a row visible here
+    is a batch whose effects that payload's rows already show. No ids, no
+    query."""
+    if not pending:
+        return []
+    ids = list(dict.fromkeys(pending))
+    found: dict[str, AppliedBatch] = {}
+    for chunk in chunk_ids(ids):
+        marks = ",".join("?" * len(chunk))
+        for row in db.execute(
+                "SELECT batch_id, response FROM applied_batches"
+                f" WHERE batch_id IN ({marks})", chunk):
+            ack = OpsAck.model_validate(json.loads(row["response"]))
+            found[row["batch_id"]] = AppliedBatch(
+                batch_id=BatchId(row["batch_id"]), seq=ack.seq,
+                skipped=ack.skipped)
+    return hydrate_in_order(ids, found)
+
+
 def _sidebar_payloads(db: sqlite3.Connection,
                       ids: list[int]) -> list[SyncSidebarEntry]:
     if not ids:
@@ -212,7 +242,10 @@ def _sidebar_payloads(db: sqlite3.Connection,
 
 @router.get("/api/sync/changes", response_model=ChangesPayload)
 def sync_changes(since: int = 0, limit: int = 1000,
+                 pending: PendingIds = None,
                  db: sqlite3.Connection = Depends(get_db)) -> ChangesPayload:
+    """One window of the change journal after `since`, hydrated to current
+    rows, plus which of the `pending` batch ids that window already holds."""
     limit = max(1, min(limit, MAX_LIMIT))
     db.execute("BEGIN")  # one consistent read snapshot for scan + hydration
     try:
@@ -286,14 +319,18 @@ def sync_changes(since: int = 0, limit: int = 1000,
             plain_space_title_canonicalization=plain_space_active,
             next_since=win.next_since if rows else SyncSeq(since),
             latest_seq=latest, pages=pages, blocks=blocks, sidebar=sidebar,
-            tombstones=tombstones)
+            tombstones=tombstones,
+            applied_batches=_applied_batches(db, pending))
     finally:
         db.rollback()  # end the read transaction; nothing was written
 
 
 @router.get("/api/sync/snapshot", response_model=SnapshotPayload)
-def sync_snapshot(db: sqlite3.Connection = Depends(get_db)
+def sync_snapshot(pending: PendingIds = None,
+                  db: sqlite3.Connection = Depends(get_db)
                   ) -> SnapshotPayload:
+    """The whole graph at one journal seq, plus which of the `pending` batch
+    ids it already holds."""
     db.execute("BEGIN")
     try:
         seq = SyncSeq(db.execute(
@@ -313,6 +350,7 @@ def sync_snapshot(db: sqlite3.Connection = Depends(get_db)
             pages=pages,
             blocks=blocks,
             sidebar=sidebar,
+            applied_batches=_applied_batches(db, pending),
         )
     finally:
         db.rollback()

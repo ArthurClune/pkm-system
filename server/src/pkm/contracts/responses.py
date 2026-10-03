@@ -19,7 +19,7 @@ from pydantic import BaseModel, BeforeValidator, Field
 
 from pkm.changed import ChangeStatus
 from pkm.contracts.brands import brand
-from pkm.contracts.ops import (BlockUid, HeadingLevel, OpKind, OrderIdx,
+from pkm.contracts.ops import (BatchId, BlockUid, HeadingLevel, OpKind, OrderIdx,
                                PageId, Sha256Hex, SidebarEntryId, ViewType)
 from pkm.goodlinks import GoodlinksId
 from pkm.refs import CanonicalTitle, RefKind
@@ -388,6 +388,18 @@ class SyncTombstone(BaseModel):
     entity_id: str
 
 
+class AppliedBatch(BaseModel):
+    """One of the client's pending batches (the `pending` query param of
+    /api/sync/changes and /api/sync/snapshot) that the payload already holds:
+    its applied_batches row is in the same read transaction that hydrated the
+    payload, and a batch's writes commit with that row. `seq` and `skipped`
+    are its stored ack's, read through OpsAck, so an ack stored before those
+    fields existed reads as None / []."""
+    batch_id: BatchId
+    seq: SyncSeq | None
+    skipped: list[SkippedOp]
+
+
 class ChangesPayload(BaseModel):
     reset: bool = False
     generation: str
@@ -398,6 +410,11 @@ class ChangesPayload(BaseModel):
     blocks: list[SyncBlock]
     sidebar: list[SyncSidebarEntry]
     tombstones: list[SyncTombstone]
+    # The second exception to "keep every field required", like OpsAck's
+    # seq/skipped: a client must also read a server that predates the field,
+    # so the generated TypeScript marks it optional. Empty when the request
+    # named no pending batches.
+    applied_batches: list[AppliedBatch] = Field(default_factory=list)
 
 
 class BlockPayload(BaseModel):
@@ -415,6 +432,8 @@ class SnapshotPayload(BaseModel):
     pages: list[SyncPage]
     blocks: list[SyncBlock]
     sidebar: list[SyncSidebarEntry]
+    # optional for the same reason as ChangesPayload.applied_batches
+    applied_batches: list[AppliedBatch] = Field(default_factory=list)
 
 
 # The three Claude aliases plus z.ai's GLM. Lives here (not

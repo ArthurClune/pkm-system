@@ -1082,6 +1082,7 @@
     "/api/sync/changes": {
       "get": {
         "summary": "Sync Changes",
+        "description": "One window of the change journal after `since`, hydrated to current\nrows, plus which of the `pending` batch ids that window already holds.",
         "operationId": "sync_changes_api_sync_changes_get",
         "parameters": [
           {
@@ -1103,6 +1104,27 @@
               "default": 1000,
               "title": "Limit"
             }
+          },
+          {
+            "name": "pending",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Batch ids the client still holds as pending. The response's applied_batches names those this payload already holds.",
+              "title": "Pending"
+            },
+            "description": "Batch ids the client still holds as pending. The response's applied_batches names those this payload already holds."
           }
         ],
         "responses": {
@@ -1132,7 +1154,31 @@
     "/api/sync/snapshot": {
       "get": {
         "summary": "Sync Snapshot",
+        "description": "The whole graph at one journal seq, plus which of the `pending` batch\nids it already holds.",
         "operationId": "sync_snapshot_api_sync_snapshot_get",
+        "parameters": [
+          {
+            "name": "pending",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Batch ids the client still holds as pending. The response's applied_batches names those this payload already holds.",
+              "title": "Pending"
+            },
+            "description": "Batch ids the client still holds as pending. The response's applied_batches names those this payload already holds."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1140,6 +1186,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SnapshotPayload"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -2023,6 +2079,42 @@
         ],
         "title": "AddSidebarEntryRequest"
       },
+      "AppliedBatch": {
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "title": "Batch Id",
+            "x-brand": "BatchId"
+          },
+          "seq": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "x-brand": "SyncSeq"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seq"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/SkippedOp"
+            },
+            "type": "array",
+            "title": "Skipped"
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch_id",
+          "seq",
+          "skipped"
+        ],
+        "title": "AppliedBatch",
+        "description": "One of the client's pending batches (the `pending` query param of\n/api/sync/changes and /api/sync/snapshot) that the payload already holds:\nits applied_batches row is in the same read transaction that hydrated the\npayload, and a batch's writes commit with that row. `seq` and `skipped`\nare its stored ack's, read through OpsAck, so an ack stored before those\nfields existed reads as None / []."
+      },
       "AssetRef": {
         "properties": {
           "uid": {
@@ -2753,6 +2845,13 @@
             },
             "type": "array",
             "title": "Tombstones"
+          },
+          "applied_batches": {
+            "items": {
+              "$ref": "#/components/schemas/AppliedBatch"
+            },
+            "type": "array",
+            "title": "Applied Batches"
           }
         },
         "type": "object",
@@ -4122,6 +4221,13 @@
             },
             "type": "array",
             "title": "Sidebar"
+          },
+          "applied_batches": {
+            "items": {
+              "$ref": "#/components/schemas/AppliedBatch"
+            },
+            "type": "array",
+            "title": "Applied Batches"
           }
         },
         "type": "object",

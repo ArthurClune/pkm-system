@@ -22,6 +22,7 @@ replica is a cache and the queue is the user's intent.
 | The OPFS file cannot be opened | `openWithRetry`, `ensureMinimumCapacity` | Up to 6 attempts, then `unusable` for the session | `forceReinitIfPreviouslyFailed`; pool top-up before the open | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
 | The worker RPC breaks | `RpcLifecycleError`, read as `unreachable` | Ops kept; recovery barrier held | `unreachable` never lifts the barrier | [Availability: two values, one owner](#availability-two-values-one-owner) |
 | A window was fetched before an ack deleted its pending row | `pendingSetStillCovered` | Applied if the ack's `seq` is covered, else refetched | No window applies without the edits it lacks | [Windows and the pending queue](#windows-and-the-pending-queue) |
+| A window or snapshot already holds a batch whose row is still pending (a lost ack, or the batch's own nudge pulling first) | The payload's `applied_batches`, answering the ids the pull named | The named rows are deleted before `reapplyPending`, and settled as their acks would be | The server reads `applied_batches` in the payload's own read transaction; only rows in the pull's pending snapshot go | [A payload that already holds a pending batch](#a-payload-that-already-holds-a-pending-batch) |
 | Pending rows change while recovery runs | The fingerprint check in `commitRecovery` | Recovery aborts before anything is destroyed | Every mutating RPC passes the recovery gate | [Recovery never erases intent](#recovery-never-erases-intent) |
 | A re-applied pending batch dangles a foreign key | `PRAGMA foreign_key_check` diff in `reapplyPending` | That batch rolls back locally; its row stays | The queue row is never deleted locally | [Recovery never erases intent](#recovery-never-erases-intent) |
 | The server answers a terminal 4xx for a durable batch | `isTerminalRejection` returns true | Row poisoned, delivery paused, snapshot repair drops it | Later rows never post ahead of it; the repair never resets | [A batch the server rejects](#a-batch-the-server-rejects) |
@@ -233,6 +234,40 @@ the row by `id` and `batch_id` both (`queue.ts::deleteBatch`,
 hand an old id to a batch enqueued behind the lease. The drain's delete for
 the old batch, queued behind that enqueue, must then match nothing.
 
+### A payload that already holds a pending batch
+
+A batch can commit while its row is still pending: its ack was lost, or its
+own WS nudge pulled before the ack arrived. A window read after the commit
+already shows the batch's effects. Replaying the batch over them applies it a
+second time (see [Recovery never erases intent](#recovery-never-erases-intent)),
+and no later window re-ships the rows it damaged. Only the server knows which
+batches a read holds, so the pull asks it.
+
+| Step | Where | What |
+|---|---|---|
+| Name | `pullLoop`, `pendingQuery` (`replicaSync.ts`) | `pending=<batch_id>` for the non-poisoned head of the queue, at most `PENDING_IDS_CAP` (100), from the same read that gives the worker its pending-id snapshot. A bootstrap names the rows `init` read |
+| Answer | `_applied_batches` (`routes_sync.py`) | `applied_batches`: each named id that has an `applied_batches` row, with its stored ack's `seq` and `skipped` |
+| Drop | `dropAppliedPending` (`replica/apply.ts`) | In the window's transaction, before `reapplyPending`, deletes the named rows that were in the snapshot, never a poisoned one. The worker records their seqs in `ackedSeqs` |
+| Settle | `settleApplied` (`replicaSync.ts`), `OpQueue.settleCommitted` | Resolves each row's delivery ticket and lane mark as its ack would, and bumps resync when its stored ack skipped an op |
+
+**The server reads `applied_batches` inside the read transaction that hydrates
+the payload.** `post_ops` commits a batch's writes and its `applied_batches`
+row together. So a row that read sees is a batch whose effects the payload
+already shows, and no seq comparison is needed. Under WAL the snapshot is
+fixed at the transaction's first read, so a batch committing mid-request is
+absent from both the rows and the answer. A window that rolls back keeps the
+rows it would have dropped.
+
+Delivery is in queue order, so only a head prefix can commit while still
+pending, and the cap only bounds the query string. A later ack or redelivery
+for a dropped row matches nothing in `deleteBatch`; the server answers a
+redelivery with the stored ack. The lane's entries are never named: they are
+not durable rows, and `reapplyPending` never replays them. A recovery snapshot
+names nothing. Its flush holds an ack for every row it posted, and a poison
+rebase's rows were never posted, since the drain stops at the rejected batch.
+Both directions are additive: an older server omits the field, and an older
+client sends no ids.
+
 ## Recovery never erases intent
 
 | Guard | Where | What it stops |
@@ -241,8 +276,9 @@ the old batch, queued behind that enqueue, must then match nothing.
 | A worker-owned FIFO recovery gate that every database-mutating RPC passes through | `recoveryGate.ts`, `workerHandlers.ts` | An enqueue landing mid-rebuild |
 | `prepareRecovery` fingerprints the durable pending rows; `commitRecovery` re-reads them just before the destructive step and aborts if they changed | `workerHandlers.ts` | Recovery erasing an acknowledged enqueue |
 | `reapplyPending` re-applies non-poisoned pending batches on top of every snapshot and feed window | `replica/apply.ts` | Later edits capturing stale base hashes |
+| A payload's `applied_batches` deletes the pending rows it names before the replay | `replica/apply.ts::dropAppliedPending`, `routes_sync.py::_applied_batches` | A batch replayed over its own echo, applied twice |
 | `reapplyPending` diffs `PRAGMA foreign_key_check` around each batch and rolls a violating one back to its savepoint | `replica/apply.ts` | A pending block re-created under a row the feed removed failing the whole window at COMMIT |
-| Replay (`applyLocalOps` with `reapply`) keeps a create whose row exists, and a move whose block already sits at its target, in place | `replica/localOps.ts::keepSlot` | A pending create failing its whole batch on every window; sibling `order_idx` drifting up per window |
+| Replay (`applyLocalOps` with `reapply`) keeps a create whose row exists, and a move whose block already sits at its target, in place | `replica/localOps.ts::keepSlot` | A pending create failing its whole batch on every window; a pending move shifting its siblings again on every window |
 | A rebase commit deletes the rows its flush got acks for, in the snapshot's transaction, before the replay | `replicaSync.ts::flushBatches`, `workerHandlers.ts`, `replica/ackedRows.ts` | Recovery replaying a batch's wire text over the server's result |
 | Every delete and poison mark names its row by `id` and `batch_id` both | `replica/queue.ts::deleteBatch`, `markPoisoned` | A delete queued behind a reset or file replacement removing the batch that took its row id |
 | A rebase that replaces the file commits the queue to a carry database first; every queue handler adopts a leftover carry before serving | `workerHandlers.ts`, `replica/carryStore.ts` | A failed open, schema install or import, or a killed worker, losing the queue during a file replacement |
@@ -259,6 +295,15 @@ replaying a move's sibling shift would push later siblings up again. `keepSlot`
 shifts siblings only when one the window re-shipped at its server index shares
 the block's slot. At enqueue a create onto an existing uid still fails, as the
 server 400s it.
+
+Each keep rule checks one op's own precondition, so it holds only while
+nothing after that op moved its target. Over the server's echo of the batch, a
+later op of the same batch, a later batch or another device may have. That is
+why a payload that holds a pending batch drops it instead of replaying it
+([§ A payload that already holds a pending batch](#a-payload-that-already-holds-a-pending-batch)).
+The same gap remains, transiently, for a window that lacks the batch: a batch
+with two moves of one block shifts that block's siblings again on each such
+window, until the ack's echo re-ships them.
 
 Replaying over a window leaves two orderings wrong for one round trip, and
 both are accepted. When a window re-ships only some siblings, at their server

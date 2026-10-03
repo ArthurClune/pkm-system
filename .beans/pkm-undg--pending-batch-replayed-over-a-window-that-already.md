@@ -15,4 +15,4 @@ Found by the sync protocol property (pkm-yxcs). reapplyPending replays every pen
 - [x] Replica/worker: drop named rows before reapplyPending, record acked seqs, return dropped ids
 - [x] Queue/replicaSync: send ids, resolve dropped rows' delivery tickets, keep skipped/resync semantics
 - [x] Regression tests (apply, workerHandlers, replicaSync, server) + props fixed scenario
-- [ ] Docs: sync-recovery.md, backend.md API table, troubleshooting row
+- [x] Docs: sync-recovery.md, backend.md API table, troubleshooting row

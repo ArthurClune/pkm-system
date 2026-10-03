@@ -115,6 +115,10 @@ transaction:
 - The client loops `pull → apply → cursor = next_since` until
   `next_since >= latest_seq` (`web/src/sync/replicaSync.ts`), persisting the
   cursor in the replica's `sync_client_meta` table.
+- Each pull also names the head of its pending queue (`pending=` batch ids). The
+  window answers which of them it already holds in `applied_batches`. The
+  replica drops those rows instead of replaying them over their own echo (see
+  [sync-recovery.md § A payload that already holds a pending batch](sync-recovery.md#a-payload-that-already-holds-a-pending-batch)).
 - `applyWindow` (`web/src/replica/apply.ts`) applies a window in one
   transaction: tombstones, then pages, blocks and sidebar. The UNIQUE `title`
   columns are why tombstones lead; deferred FKs make the order irrelevant for

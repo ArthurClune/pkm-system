@@ -1,4 +1,4 @@
-from proptest.run import web_command
+from proptest.run import web_command, web_env
 from proptest.sides import available, sides_for
 
 
@@ -38,3 +38,15 @@ def test_web_command():
     expected = ["pnpm", "exec", "vitest", "run", "--config", "vitest.props.config.ts"]
     assert web_command(None) == expected
     assert web_command(7) == expected
+
+
+def test_web_env_carries_the_server_alone_by_default():
+    assert web_env(8978, None, None, None) == {
+        "PROPTEST_BASE_URL": "http://127.0.0.1:8978", "PROPTEST_PASSWORD": "proptest-pw"}
+
+
+def test_web_env_forwards_seed_path_and_replay_path():
+    env = web_env(8978, 42, "3:1:0", "AAB")
+    assert env["PROPTEST_SEED"] == "42"
+    assert env["PROPTEST_PATH"] == "3:1:0"
+    assert env["PROPTEST_REPLAY_PATH"] == "AAB"

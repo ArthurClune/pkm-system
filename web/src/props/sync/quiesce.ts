@@ -36,10 +36,10 @@ const ROUND_PAUSE_MS = 20;
 /** How long a liveness report waits for each client's state. */
 const REPORT_WAIT_MS = 1_000;
 
-const TIMED_OUT = Symbol("timed out");
+export const TIMED_OUT = Symbol("timed out");
 
 /** `p`, or TIMED_OUT once `ms` has passed. */
-async function within<T>(p: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+export async function within<T>(p: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<typeof TIMED_OUT>((resolve) => {
     timer = setTimeout(() => resolve(TIMED_OUT), Math.max(0, ms));

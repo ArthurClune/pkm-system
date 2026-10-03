@@ -38,7 +38,8 @@ export interface HarnessClient {
   readonly replicaSync: ReplicaSync;
   /** Every ticket's batch id, in enqueue order, across lives. */
   readonly enqueued: BatchId[];
-  /** Batch ids reported through onPoison. */
+  /** Batch ids reported rejected: through onPoison, or found poisoned by a
+   * page load's startup discovery. */
   readonly poisoned: BatchId[];
   /** Errors reported through onDesync. */
   readonly desyncs: unknown[];
@@ -57,6 +58,8 @@ export interface HarnessClient {
   nudge(seq: SyncSeq, force?: boolean): void;
   /** The next pending_ops INSERT throws. */
   failNextWrite(): void;
+  /** A failNextWrite whose INSERT has not yet come. */
+  writeFailArmed(): boolean;
   reload(): Promise<void>;
   /** sync_client_meta "cursor", 0 before the first bootstrap. */
   cursor(): SyncSeq;
@@ -90,6 +93,8 @@ interface Life {
    * empty slot. */
   idSlots: { id?: BatchId }[];
 }
+
+const PENDING_INSERT = /^\s*INSERT INTO pending_ops/i;
 
 interface LifeDb {
   db: ReplicaDb;
@@ -132,6 +137,7 @@ export async function startClient(
   let lives = 0;
   // failingOnce over the shared handle while a write failure is armed.
   let writeDb: ReplicaDb = db;
+  let writeArmed = false;
 
   const buildLife = (doors: TransportLife): Life => {
     lives += 1;
@@ -181,7 +187,20 @@ export async function startClient(
       onState: () => undefined,
     });
     const runtime = createClientRuntime({
-      queue, replica, replicaSync,
+      queue, replicaSync,
+      replica: {
+        // Startup discovery. A rejection whose onPoison died with the page
+        // load before (its mark landed while that life was being torn down)
+        // is found here, surfaced and repaired by this one.
+        poisonedBatches: async () => {
+          const found = await replica.poisonedBatches();
+          for (const event of found) {
+            if (!poisoned.includes(event.batch_id)) poisoned.push(event.batch_id);
+          }
+          return found;
+        },
+        deleteBatch: (id, batchId) => replica.deleteBatch(id, batchId),
+      },
       onSyncEvent: () => undefined,
       onReplicaState: () => undefined,
     });
@@ -320,9 +339,18 @@ export async function startClient(
       life.replicaSync.onSeq(seq, force);
     },
     failNextWrite() {
-      writeDb = failingOnce(db, /^\s*INSERT INTO pending_ops/i,
-                            "proptest: injected write failure");
+      const failing = failingOnce(db, PENDING_INSERT, "proptest: injected write failure");
+      writeArmed = true;
+      writeDb = {
+        ...failing,
+        exec(sql, params) {
+          // The first matching INSERT is the one failingOnce throws on.
+          if (PENDING_INSERT.test(sql)) writeArmed = false;
+          failing.exec(sql, params);
+        },
+      };
     },
+    writeFailArmed: () => writeArmed,
     async reload() {
       // Severed first: the old life's fetches fail now rather than after
       // the network answers, which also releases any recovery lease it holds.

@@ -126,7 +126,10 @@ web/src/
 │   └── client.ts / useAssistant.ts / AssistantPanel.tsx — Shell: stream, state, panel
 │
 ├── sync/                     Delivery + connectivity (see sync-and-offline.md)
-│   ├── SyncProvider.tsx      Shell        The global context; repair orchestration
+│   ├── SyncProvider.tsx      Shell        The global context; wires the queue, replica sync
+│   │                                      and client runtime to React
+│   ├── clientRuntime.ts      Shell        Startup poison gate and poison repair, without
+│   │                                      React (retryFailedRepair on reconnect)
 │   ├── useSocketLifecycle.ts Shell        Connect lifecycle: pending bootstrap, socket
 │   │                                      status, StrictMode teardown
 │   ├── reconnectFlow.ts      Shell        Reconnect single-flight: drain → pull → resync

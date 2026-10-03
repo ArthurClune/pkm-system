@@ -344,10 +344,10 @@ a 5xx or a dropped fetch, instead of poisoning or discarding anything.
 redirect is orthogonal to this predicate.
 
 A terminal 4xx on a durable batch marks its row *poisoned* and pauses
-delivery. `SyncProvider` then runs the authoritative repair:
-`rebaseAuthoritative`, a `rebase` with flush `"skip"`, re-applies the
-non-poisoned batches over a fresh snapshot. The provider deletes the poisoned
-row by id and resumes delivery.
+delivery. The client runtime (`sync/clientRuntime.ts`) then runs the
+authoritative repair: `rebaseAuthoritative`, a `rebase` with flush `"skip"`,
+re-applies the non-poisoned batches over a fresh snapshot. The runtime deletes
+the poisoned row by id and resumes delivery.
 
 The repair never escalates to a `reset`, because a reset drops `pending_ops`
 and the valid rows behind the poisoned one must stay durable until it is
@@ -457,7 +457,7 @@ Entrants differ only in the `RecoveryOptions` they pass:
 | Option | schema / feed recovery | poison repair | manual reset |
 |---|---|---|---|
 | `flush` | `"preemptible"`: abandon the run if a poison mark claims recovery mid-flush | `"skip"`: never post later valid rows ahead of a batch the server refused | `"blocking"`: a failed flush raises `ResetBlockedError` and keeps the database. `"skip"` when the user chose to discard pending changes |
-| `resume` | yes | no: `SyncProvider` resumes after deleting the durable row | yes |
+| `resume` | yes | no: the client runtime resumes after deleting the durable row | yes |
 | `reportReplicaFailure` | yes, mode `recovery-failed` | no, the repair banner owns the report | no, the reset banner owns the report |
 | `awaitInFlightPull` | no | yes | yes |
 | `forceReadyOnSuccess` | no | no | yes: mode `ready`, pulls re-enabled |
@@ -503,7 +503,7 @@ the rejected-batch repair gets past a damaged file without resetting. **The
 rows no ack covers are committed to the carry database,
 `/pkm-replica-carry.sqlite3`, before the damaged file is unlinked.** They
 travel verbatim, ids,
-`poisoned` and `error` included, because the provider deletes the poisoned row
+`poisoned` and `error` included, because the client runtime deletes the poisoned row
 by id afterwards.
 
 | Step | Action | If the worker dies here, the rows are intact in |
@@ -592,6 +592,7 @@ Known gaps, where the replica keeps its shifted keys:
 | The block was deleted before the journal recorded pages | Its delete row has no `page_id` |
 | A diverted create whose `page_title` names no page, under a parent with no page-bearing tombstone | Its own tombstone has no `page_id` either |
 | A top-level move whose `page_title` names a page another device renamed, of a block the server no longer has | The stale title names no page, so the skip finds no siblings to re-ship |
+| A client that, offline, moved a block the server no longer has to page Q with a `page_title` (skipped), then makes a top-level move with no `page_title` | The replica now has the block on Q and targets Q. The server reads the page from the block's tombstone, which is the original page, and re-ships that group instead |
 | An op the server applies, not skips, on another page than the replica's: a top-level move with no `page_title` of a block another device moved, or a top-level create or move whose `page_title` page another device renamed | The server shifts and journals its own page's siblings; the replica's page is never re-shipped ([troubleshooting](../troubleshooting.md#sync-and-offline)) |
 
 A block tombstone cascades its local subtree, and a replica applies it after

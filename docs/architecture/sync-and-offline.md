@@ -34,10 +34,12 @@ preservation resolves collisions at push time.
 | WS hub | `server/.../ws.py`, `notify.py` | Post-commit `{type:"seq",seq}`; generation rotation adds `force:true,generation`; applied-op echoes; drops a client at `QUEUE_SIZE` (64) or a `SEND_TIMEOUT` (10 s) send |
 | Replica | `web/src/replica/` (worker, OPFS) | sqlite-wasm copy of the graph (BASE_DDL only) on the OPFS SAHPool VFS |
 | Op queue | `web/src/sync/opQueue.ts`, `web/src/replica/queue.ts` | Durable `pending_ops` rows; optimistic local apply; drain-on-reconnect. Its pure rules: lane ordering in `outbox.ts`, poison-mark intents in `poisonIntents.ts` (stored by `poisonIntentStore.ts`) |
-| Sync orchestration | `web/src/sync/SyncProvider.tsx`, `useSocketLifecycle.ts`, `reconnectFlow.ts`, `replicaSync.ts` | Connect/reconnect ordering, cursor pull loop, recovery, view refetch (`resyncGeneration`). `syncFailures.ts` classifies pull failures |
+| Sync orchestration | `web/src/sync/SyncProvider.tsx`, `clientRuntime.ts`, `useSocketLifecycle.ts`, `reconnectFlow.ts`, `replicaSync.ts` | Connect/reconnect ordering, cursor pull loop, recovery, view refetch (`resyncGeneration`). `clientRuntime.ts` holds the startup poison gate and the poison repair, without React. `syncFailures.ts` classifies pull failures |
 | Offline API shim | `web/src/replica/localApi/` | Serves the read API's JSON shapes from the replica, pinned by `shared/fixtures/shim_parity.json` and by generated return types |
 
-`createOpQueue(replica)` takes no callbacks. Every `OpQueue` signal
+`createOpQueue(replica, deps?)` takes no callbacks. The optional `OpQueueDeps`
+(`post`, `clientId`, `poisonStore`, `newBatchId`) exist for tests and the
+property harness; the app passes none. Every `OpQueue` signal
 (`onDesync`, `onDrain`, `onSkipped`, `onPending`, `onPoison`, …) and
 `ReplicaSync.onSkipped` is a listener built with `listeners<T>()`
 (`sync/listeners.ts`), so a throwing listener never reaches the emitter or
@@ -340,8 +342,8 @@ pull, then refetch views**, so the pull observes server state that already
 includes this client's offline edits. A socket reconnect and the queue's
 `onDrain` listener (`reconnect.observeDrain`) share one completion, which is
 what finishes a reconnect whose first drain was blocked. Before its drain, a
-connect retries a rejected-batch repair whose last attempt failed, because
-that repair's barrier would block the drain. The terminal-4xx
+connect retries a rejected-batch repair whose last attempt failed
+(`retryFailedRepair`, the client runtime's), because that repair's barrier would block the drain. The terminal-4xx
 branch's repair, and which statuses count as terminal (`isTerminalRejection`),
 are in
 [sync-recovery.md § A batch the server rejects](sync-recovery.md#a-batch-the-server-rejects).

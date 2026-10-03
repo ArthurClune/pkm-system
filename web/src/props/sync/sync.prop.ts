@@ -313,6 +313,21 @@ test("moved-out child survives a window cut before its old parent's delete", asy
   ], { windowLimit: 1 });
 });
 
+// A's poison repairs pause its queue, so quiesce's drain of A returns before
+// A's last batch is posted, and the post commits while quiesce reads where
+// everyone stands. Quiesce must not then call B settled at the old seq.
+// The race is timing, so the scenario runs a number of times: read in the
+// wrong order, it settled early in about one example in six.
+test("quiesce waits for a batch a poison repair held back", async () => {
+  for (let i = 0; i < 20; i += 1) {
+    await runExample(["A", "B"], [
+      new BadBatch("A"), new BadBatch("A"), new BadBatch("A"),
+      new Edit("A", [draft({ kind: "move", target: 0, parent: 0, orderIdx: 28 })]),
+      new Offline("B"),
+    ]);
+  }
+});
+
 /** The failure report: everything needed to read and replay it. */
 function report(details: fc.RunDetails<[number, Commands, number | undefined]>): string {
   const counterexample = details.counterexample;

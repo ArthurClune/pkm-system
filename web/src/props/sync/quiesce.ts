@@ -97,8 +97,15 @@ async function round(clients: HarnessClient[], server: ServerControl): Promise<{
   }
   // The pulls above have finished; this catches any a drain's ack started.
   await Promise.all(clients.map((c) => c.replicaSync.idle()));
-  const latest = await server.latestSeq();
-  return { latest, states: await Promise.all(clients.map(restOf)) };
+  // States first, then the server's latest seq. A drain can return before
+  // it posts (the queue is paused while a poison repair runs) and the post
+  // can then commit at any moment. Read in this order, a batch that is no
+  // longer pending had committed before the latest seq was read, so every
+  // cursor must reach it. Read the other way round, the latest seq can
+  // predate a commit whose row is already gone, and quiesce returns before
+  // the other clients have pulled it.
+  const states = await Promise.all(clients.map(restOf));
+  return { latest: await server.latestSeq(), states };
 }
 
 export async function quiesce(clients: HarnessClient[], server: ServerControl,

@@ -27,6 +27,7 @@ function fakeDeps(over: Partial<SocketLifecycleDeps> = {}): SocketLifecycleDeps 
     replicaSync: null,
     readInitialPending: async () => 0,
     startupRun: async () => undefined,
+    retryFailedRepair: async () => undefined,
     mountedRef: { current: true },
     statusRef: { current: "connecting" as SyncStatus },
     onBatch: () => undefined,

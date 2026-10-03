@@ -465,25 +465,69 @@ describe("clientRuntime reconnect", () => {
     ]);
   });
 
-  test("a reconnect joins nothing while a repair is in flight", async () => {
-    const rebase = deferred<void>();
-    let fail = true;
+  test("a reconnect during a repair that then fails retries it once", async () => {
+    // A network switch: the snapshot fetch hangs on the dead connection,
+    // the socket reconnects on a new one, and only then does the fetch fail.
+    const inFlight = deferred<void>();
+    let attempt = 0;
     const h = setup({
       rebase: async () => {
-        if (fail) { fail = false; throw new TypeError("fetch failed"); }
-        await rebase.promise;
+        attempt += 1;
+        if (attempt === 1) await inFlight.promise;
+      },
+    });
+    await h.runtime.startup();
+    h.calls.length = 0;
+    h.events.length = 0;
+    const event = poisonEvent(1, "b-1");
+    h.emitPoison(event);
+    await flush();
+    const reconnect = h.runtime.retryFailedRepair();
+    inFlight.reject(new TypeError("fetch failed"));
+    await reconnect;
+
+    expect(attempt).toBe(2);
+    expect(h.calls.filter((c) => c === "deleteBatch(1,b-1)")).toHaveLength(1);
+    expect(h.calls.at(-1)).toBe("start");
+    expect(h.events).toEqual([
+      { type: "repair-started", event },
+      { type: "repair-failed", event, error: "fetch failed" },
+      { type: "repair-started", event },
+      { type: "repair-succeeded", event },
+    ]);
+  });
+
+  test("a reconnect during a repair that then succeeds retries nothing", async () => {
+    const inFlight = deferred<void>();
+    const h = setup({ rebase: () => inFlight.promise });
+    await h.runtime.startup();
+    h.emitPoison(poisonEvent(1, "b-1"));
+    await flush();
+    const first = h.runtime.retryFailedRepair();
+    const second = h.runtime.retryFailedRepair();
+    inFlight.resolve();
+    await Promise.all([first, second]);
+    expect(h.calls.filter((c) => c === "rebaseAuthoritative(poison)"))
+      .toHaveLength(1);
+  });
+
+  test("two connects during a repair that then fails retry it once", async () => {
+    const inFlight = deferred<void>();
+    let attempt = 0;
+    const h = setup({
+      rebase: async () => {
+        attempt += 1;
+        if (attempt === 1) await inFlight.promise;
       },
     });
     await h.runtime.startup();
     h.emitPoison(poisonEvent(1, "b-1"));
     await flush();
-    const retry = h.runtime.retryFailedRepair();
-    // A second connect while the retry is still running starts no repair.
-    await h.runtime.retryFailedRepair();
-    rebase.resolve();
-    await retry;
-    expect(h.calls.filter((c) => c === "rebaseAuthoritative(poison)"))
-      .toHaveLength(2);
+    const first = h.runtime.retryFailedRepair();
+    const second = h.runtime.retryFailedRepair();
+    inFlight.reject(new TypeError("fetch failed"));
+    await Promise.all([first, second]);
+    expect(attempt).toBe(2);
   });
 
   test("a reconnect after a failed poison mark leaves the mark to Retry", async () => {

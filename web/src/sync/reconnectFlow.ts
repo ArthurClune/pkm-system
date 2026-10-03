@@ -53,8 +53,10 @@ export function createReconnectFlow(deps: {
   /** False after unmount: nothing may be finished or resynced past it. */
   isMounted: () => boolean;
   onResync: () => void;
-  /** A connect's first step: the client runtime's retryFailedRepair. */
-  retryFailedRepair?: () => Promise<void>;
+  /** A connect's first step: the client runtime's retryFailedRepair, or a
+   * resolved promise when there is no runtime. Required, so that no caller
+   * can drop the retry by leaving it out. */
+  retryFailedRepair: () => Promise<void>;
 }): ReconnectFlow {
   let intent = false;
   // Rides with the intent, not the call: a stale-views drain that gets through
@@ -91,7 +93,7 @@ export function createReconnectFlow(deps: {
     begin: async (opts) => {
       intent = true;
       staleViews = staleViews || opts?.viewsAreStale === true;
-      if (deps.isMounted()) await deps.retryFailedRepair?.();
+      if (deps.isMounted()) await deps.retryFailedRepair();
       const outcome = await deps.queue.drain();
       if (outcome.status !== "drained" || !deps.isMounted()) return;
       await finish();

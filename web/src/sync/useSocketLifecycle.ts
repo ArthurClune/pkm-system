@@ -28,7 +28,7 @@ export interface SocketLifecycleDeps {
   startupRun: () => Promise<void>;
   /** The client runtime's retryFailedRepair: every connect's reconnect
    * protocol starts with it (reconnectFlow.ts). */
-  retryFailedRepair?: () => Promise<void>;
+  retryFailedRepair: () => Promise<void>;
   /** False after unmount (owned by the provider, which also guards on it). */
   mountedRef: MutableRefObject<boolean>;
   /** Written synchronously on every transition: the offline gateway and the
@@ -60,8 +60,7 @@ export function useSocketLifecycle(deps: SocketLifecycleDeps): void {
       replicaSync,
       isMounted: () => mountedRef.current,
       onResync: () => depsRef.current.onResync(),
-      retryFailedRepair: () =>
-        depsRef.current.retryFailedRepair?.() ?? Promise.resolve(),
+      retryFailedRepair: () => depsRef.current.retryFailedRepair(),
     });
     // Drains completing out of band reach this mount's reconnect flow, and
     // nothing after its cleanup.

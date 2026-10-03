@@ -66,6 +66,7 @@ function harness(opts: {
     replicaSync,
     isMounted: opts.mounted ?? (() => true),
     onResync: () => { trace.push("resync"); },
+    retryFailedRepair: async () => undefined,
   });
   return { flow, trace };
 }

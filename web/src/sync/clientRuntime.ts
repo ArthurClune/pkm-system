@@ -62,9 +62,10 @@ export interface ClientRuntime {
    * stays with SyncProvider. */
   runRetry(plan: PoisonRetryPlan): Promise<void>;
   /** A socket reconnect: rerun a repair whose last attempt failed, exactly as
-   * the banner's "repair-targets" Retry does; otherwise nothing. Never while
-   * startup discovery is gated or a repair is running, and never after a
-   * failed poison mark, whose Retry is the mark rather than a repair. */
+   * the banner's "repair-targets" Retry does; otherwise nothing. A repair
+   * still running is awaited first and retried once if it fails. Never while
+   * startup discovery is gated, and never after a failed poison mark, whose
+   * Retry is the mark rather than a repair. */
   retryFailedRepair(): Promise<void>;
   /** Give up on retained mark intents and release the barrier they held. */
   discardPoisonIntents(): Promise<void>;
@@ -262,13 +263,16 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     continueStartup,
     repair,
     runRetry,
-    retryFailedRepair: () => {
-      // The flag alone keeps this off the startup gate and off a running
-      // repair: repairs start only once discovery has answered, and each
-      // clears the flag as it starts, so a second connect during the retry
-      // finds nothing to do.
-      if (!live() || !repairFailed) return Promise.resolve();
-      return runRetry({ kind: "repair-targets" });
+    retryFailedRepair: async () => {
+      // A connect that arrives mid-repair waits for it: a fetch hung on the
+      // connection the socket just replaced fails only after the reconnect,
+      // and the next connect may be far off. Repairs start only once
+      // discovery has answered, so the flag also keeps this off the startup
+      // gate. A retry clears the flag as it starts, so of several connects
+      // waiting on one failed attempt only the first retries it.
+      await (repairRun ?? Promise.resolve());
+      if (!live() || !repairFailed) return;
+      await runRetry({ kind: "repair-targets" });
     },
     discardPoisonIntents: () => {
       queue.discardPoisonIntents();

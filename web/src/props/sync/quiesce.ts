@@ -7,6 +7,12 @@
 // (queueState: only offline, recovery or dispose stop a drain), and pull()
 // forces a pull, so no round waits out a backoff.
 //
+// This diverges from the app in one way. online() calls the reconnect flow's
+// begin() even for a client that is already online, so quiesce stands in for
+// a reconnect. A repair that failed while connected (after a lostPull, say)
+// therefore gets one retry here, where the app would wait for a reconnect or
+// a Retry click.
+//
 // A poisoned row counts as unsettled: pendingCount skips it, and a rejection
 // moves no seq, so without it a lone client's poison repair could still be
 // rebasing when quiesce returned. The repair deletes the row only after its

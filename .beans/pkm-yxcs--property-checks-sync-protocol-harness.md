@@ -1,10 +1,11 @@
 ---
 # pkm-yxcs
 title: 'Property checks: sync protocol harness'
-status: todo
+status: in-progress
 type: feature
+priority: normal
 created_at: 2026-10-02T10:57:25Z
-updated_at: 2026-10-02T10:57:25Z
+updated_at: 2026-10-03T09:17:05Z
 parent: pkm-nws9
 ---
 

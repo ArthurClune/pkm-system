@@ -145,23 +145,37 @@ transaction:
 |---|---|
 | 1. Page and sidebar tombstones | The UNIQUE `title` columns: a row that gave its title up by being deleted must go before the row that took the title. A reused page id's cascade clears the old page before the new one lands. |
 | 2. Page upserts, then block upserts | Deferred FKs make their order irrelevant for references. |
-| 3. Block tombstones | The local cascade must never reach a block the server kept (below). |
+| 3. Block tombstones | The window's moves out land before the local cascade runs (below). |
 | 4. Sidebar upserts | Independent of blocks. |
 | 5. `dropAppliedPending`, then `reapplyPending` | The queue replays over the window's final rows (see [sync-recovery.md](sync-recovery.md#a-payload-that-already-holds-a-pending-batch)). |
 
-**A block tombstone's local cascade never reaches a block the server kept.**
-Two rules hold this up:
+A block tombstone cascades the replica's local subtree, so it must not reach
+a block the server kept. Two rules keep it off such a block when the block's
+move out ships no later than the tombstone:
 
 | Rule | Where |
 |---|---|
 | A block tombstone ships only in the window that holds the block's delete row. The server journals a delete row for every block it deletes, cascaded rows included | `sync_core.tombstone_entities` |
 | A window's block tombstones apply after its upserts | `applyWindow` |
 
-A kept block left the deleted subtree by a move at a lower seq than the delete.
-That move's row is in the delete row's window or an earlier one, so it lands
-before the cascade runs. The kept block may be a descendant that moved along
-with a moved-out ancestor. Its own row never changed, so only the ancestor's
-row ships, and nothing would re-ship the descendant once the cascade took it.
+A kept block left the deleted subtree by a move at a lower seq than the delete,
+in the delete row's window or an earlier one. The kept block may be a
+descendant that moved along with a moved-out ancestor. Its own row never
+changed, so only the ancestor's row ships, and nothing would re-ship the
+descendant once the cascade took it.
+
+**Known hole: an ancestor moved out, then deleted in a later window.** Take
+D > A > K > L. A moves to the top level, D is deleted, K moves to the top level,
+and A is deleted. The server ends with K > L. A replica catching up in windows
+small enough to split those rows ends with K and no L. A's move row ships
+nothing, because A is absent now and its delete row lies in a later window. So
+D's tombstone cascades the replica's stale D > A > K > L. K returns with its own
+move row, but L's row never changed. One window carrying all four rows is safe.
+Production windows split at 1000 rows, so only a large catch-up can hit it.
+`test_sync_block_tombstone_window.py` pins it as a strict xfail, and the sync
+property draws no small window limits until it is fixed
+([troubleshooting](../troubleshooting.md#sync-and-offline)).
+
 The cascade still removes optimistic rows under a deleted block, and
 `reapplyPending` then skips their ops. A page
 cascade can run before the upserts because a block leaves a page only by a

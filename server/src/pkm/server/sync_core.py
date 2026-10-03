@@ -34,12 +34,18 @@ absent now ships as a tombstone only from the window that holds its
 delete row; one whose delete row lies past the window ships nothing yet.
 A replica cascades a block tombstone through its local subtree, after
 the window's upserts. Every block the server kept left that subtree
-before the delete, by a move row at a lower seq: that row is in the
-delete row's window or an earlier one, so the cascade reaches only
-deleted blocks. Shipped from an older live row, the tombstone could run
-before that move arrives. Every block delete journals a delete row: the
-delete trigger fires for cascaded rows too, and ops_core.JournalBlock
-marks a uid with no block row deleted."""
+before the delete, by a move row at a lower seq, in the delete row's
+window or an earlier one. Shipped from an older live row, the tombstone
+could run before that move arrives. Every block delete journals a delete
+row: the delete trigger fires for cascaded rows too, and
+ops_core.JournalBlock marks a uid with no block row deleted.
+
+That spares a kept block whose move out ships no later than the
+tombstone. It does not spare one whose move out was made by an ancestor
+that is itself deleted in a later window: the ancestor is absent now, so
+its move row hydrates to nothing, and the cascade runs over the
+replica's stale subtree. The kept block returns with its own row, but its
+descendants, whose rows never changed, do not."""
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence

@@ -664,7 +664,7 @@ describe("applyChanges: a page id deleted and reused inside one window", () => {
   });
 });
 
-describe("applyChanges: a block tombstone's cascade reaches only blocks the server deleted", () => {
+describe("applyChanges: in one window, a block tombstone's cascade reaches only blocks the server deleted", () => {
   // The server journals every block it deletes, cascaded rows included, and
   // ships each tombstone in the window holding its delete row. A descendant
   // that moved along with a moved-out ancestor changed no row of its own, so

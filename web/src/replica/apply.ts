@@ -407,17 +407,19 @@ function applyTombstone(db: ReplicaDb, tomb: SyncTombstone): void {
  * hydrated onto the page, and which has left it since, returns with its
  * own later journal row.
  *
- * Block tombstones follow the upserts, and the local cascade must never
- * reach a block the server kept. Two rules together guarantee it. The
+ * Block tombstones follow the upserts, so the local cascade spares a block
+ * the server kept when its move out ships no later than the tombstone. The
  * server journals every block it deletes, cascaded rows included, and ships
  * a block's tombstone only in the window that holds its delete row
  * (sync_core.tombstone_entities). A kept block left the deleted subtree by
- * a move at a lower seq, so that move's row is in the same window or an
- * earlier one, and applying the upserts first takes it out of the
- * cascade's reach. The kept block may be a descendant that moved along
- * with a moved-out ancestor: its own row never changed, so only the
- * ancestor's row ships, and nothing would re-ship the descendant once the
- * cascade had taken it. Block uids are never reused, so no block is
+ * a move at a lower seq, in the same window or an earlier one, and
+ * applying the upserts first takes it out of the cascade's reach. The kept
+ * block may be a descendant that moved along with a moved-out ancestor:
+ * its own row never changed, so only the ancestor's row ships, and nothing
+ * would re-ship the descendant once the cascade had taken it. Not yet
+ * covered: when that ancestor is itself deleted in a later window, its
+ * move row ships nothing (it is absent now), and the cascade runs over the
+ * replica's stale subtree. Block uids are never reused, so no block is
  * both tombstoned and shipped live in one window. The cascade still removes
  * optimistic rows under a deleted block (a pending create's ghost), and the
  * replay then skips the op as the server does. */

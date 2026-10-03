@@ -18,6 +18,8 @@ const ack = (): OpsAck => ({
   applied: true, seq: 1 as SyncSeq,
 } as unknown as OpsAck);
 
+const bid = (s: string): BatchId => s as BatchId;
+
 function minter(): () => BatchId {
   let n = 0;
   return () => { n += 1; return `batch-${n}` as BatchId; };
@@ -102,4 +104,31 @@ describe("createOpQueue deps", () => {
     a.dispose();
     b.dispose();
   });
+});
+
+describe("settleCommitted", () => {
+  test("resolves a durable batch's delivery as its ack would, and re-reads the count",
+    async () => {
+      const replica = memReplica();
+      const q = createOpQueue(replica, { newBatchId: minter() });
+      q.setOnline(false);
+      const pending: number[] = [];
+      q.onPending((n) => { pending.push(n); });
+      const first = q.enqueue([op("aaaaaaaa")]);
+      const second = q.enqueue([op("bbbbbbbb")]);
+      await first.settled;
+      await second.settled;
+      // the replica dropped the first row: a sync window named its batch
+      replica.rows.splice(0, 1);
+      q.settleCommitted([bid("batch-1")]);
+      await expect(first.delivered).resolves.toEqual({ status: "delivered" });
+      await vi.waitFor(() => { expect(pending.at(-1)).toBe(1); });
+      let secondSettled = false;
+      void second.delivered.then(() => { secondSettled = true; });
+      await Promise.resolve();
+      expect(secondSettled).toBe(false);
+      // a later settle, or one for a batch it never held, is a no-op
+      q.settleCommitted([bid("batch-1"), bid("never-held")]);
+      q.dispose();
+    });
 });

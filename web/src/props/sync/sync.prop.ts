@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 // The sync protocol property: 2-3 clients running the real web sync stack
 // against the real server take a random sequence of edits and faults, then
-// are brought to rest and checked by the oracle. Three fixed scenarios run
+// are brought to rest and checked by the oracle. Four fixed scenarios run
 // first, through the same commands.
 //
 // A failure prints the seed, the path, the shrunk command list, what each
@@ -9,7 +9,7 @@
 // How often each command and fault ran is printed once, after the file.
 import fc from "fast-check";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { allCommands, BadBatch, Edit, NAMES, Nudge, Offline, Reload,
+import { allCommands, BadBatch, Edit, Fault, NAMES, Nudge, Offline, Reload,
          type World } from "./commands";
 import { PATH, REPLAY_PATH, SEED } from "./env";
 import { startClient, type HarnessClient } from "./harnessClient";
@@ -148,6 +148,33 @@ test("poison repair cut off by offline settles after reconnect", async () => {
       world.transcript.push("Online(A)");
       await a.online();
       expect(outcomes()).toEqual(["repair-failed", "repair-succeeded"]);
+    },
+  });
+});
+
+// The ack of a two-move batch is lost after the server commits it, and the
+// batch's own websocket nudge pulls before the queue's redelivery: the
+// window already holds the batch while its row is still pending, so the
+// replica must not replay it over its own effects.
+test("lost ack, own nudge pulls before the redelivery", async () => {
+  await runExample(["A"], [
+    new Fault("A", "dropAck"),
+    new Edit("A", [
+      { kind: "move", target: 3, parent: null, orderIdx: 0, text: "", collapsed: false },
+      { kind: "move", target: 3, parent: null, orderIdx: 1, text: "", collapsed: false },
+    ]),
+  ], {
+    beforeQuiesce: async (world) => {
+      const a = world.clients.get("A");
+      if (!a) throw new Error("no client A");
+      const committed = await within((async () => {
+        while (a.transport.committed.size === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 2));
+        }
+      })(), REPRO_WAIT_MS);
+      if (committed === TIMED_OUT) throw new Error("the batch never committed");
+      world.transcript.push("Pull(A) before the redelivery");
+      await a.pull();
     },
   });
 });

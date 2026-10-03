@@ -4,6 +4,7 @@
 
 import type { BatchId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
+import type { SkippedOp } from "../api/payloads";
 import type { ApplyResult, Changes, Snapshot } from "./apply";
 import type { LocalApiRequest, LocalApiResult } from "./localApi/router";
 import { createRpcClient, type PortLike } from "./rpc";
@@ -69,6 +70,14 @@ export interface AckedBatch {
   id: PendingRowId;
   batch_id: BatchId;
   seq: SyncSeq | null;
+}
+
+/** A pending row a sync payload named in its `applied_batches` (the server
+ * already holds the batch), deleted in that payload's own transaction before
+ * the replay. `seq` and `skipped` are the batch's stored ack's: the same
+ * facts a drain ack would have carried. */
+export interface DroppedBatch extends AckedBatch {
+  skipped: readonly SkippedOp[];
 }
 
 /** A reset drops the queue, so it carries no acks. A rebase deletes the rows

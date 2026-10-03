@@ -12,7 +12,7 @@ Found by the sync protocol property (pkm-yxcs). reapplyPending replays every pen
 
 - [x] Server: changes/snapshot accept pending batch ids and report applied ones (same read txn), tests
 - [x] OpenAPI regen
-- [ ] Replica/worker: drop named rows before reapplyPending, record acked seqs, return dropped ids
-- [ ] Queue/replicaSync: send ids, resolve dropped rows' delivery tickets, keep skipped/resync semantics
-- [ ] Regression tests (apply, workerHandlers, replicaSync, server) + props fixed scenario
+- [x] Replica/worker: drop named rows before reapplyPending, record acked seqs, return dropped ids
+- [x] Queue/replicaSync: send ids, resolve dropped rows' delivery tickets, keep skipped/resync semantics
+- [x] Regression tests (apply, workerHandlers, replicaSync, server) + props fixed scenario
 - [ ] Docs: sync-recovery.md, backend.md API table, troubleshooting row

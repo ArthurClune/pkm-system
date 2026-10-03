@@ -74,6 +74,10 @@ test("dropAck redelivers once", async () => {
   const a = await start("A");
   a.transport.arm("dropAck");
   const id = await a.edit(setText("pt_seed_1", "dropped ack"));
+  // Redeliver before any pull: a window would name the committed batch as
+  // applied, and the replica would settle it without a second send.
+  await a.queue.drain();
+  await a.queue.drain();
   await settle([a]);
   expect((await appliedIds()).filter((x) => x === id)).toEqual([id]);
   expect(pendingRows(a)).toBe(0);

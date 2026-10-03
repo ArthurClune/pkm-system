@@ -129,6 +129,12 @@ export interface OpQueue {
    * failure — a discard is the drain's decision alone, never this door's —
    * and throws if the queue is disposed. */
   deliverLaneAhead(batchId: BatchId): Promise<void>;
+  /** Durable batches the server holds that no ack of this queue's settled: a
+   * sync payload named them as already applied and the replica dropped their
+   * rows (replicaSync). Each delivery resolves "delivered" and its lane mark
+   * goes, exactly as on the drain's ack, and the durable count is re-read.
+   * A batch already settled, or never this queue's, is a no-op. */
+  settleCommitted(batchIds: readonly BatchId[]): void;
 }
 
 let nextTicket = 1;
@@ -781,6 +787,13 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     discardPoisonIntents: () => {
       poisonMarkIntents = [];
       poisonStore.write(poisonMarkIntents);
+    },
+    settleCommitted(batchIds) {
+      for (const batchId of batchIds) {
+        finishDelivery(batchId, { status: "delivered" });
+        outbox = forget(outbox, batchId);
+      }
+      void countPending();
     },
     async deliverLaneAhead(batchId) {
       if (qstate.disposed) throw new Error("op queue disposed");

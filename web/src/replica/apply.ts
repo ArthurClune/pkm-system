@@ -24,11 +24,13 @@
 import type { BlockUid, CanonicalTitle, PageId, SidebarEntryId,
               SyncSeq } from "../api/brands";
 import type { components } from "../api/types";
+import { appliedPendingRows } from "./ackedRows";
 import { reindexBlockRefs } from "./blockRefs";
+import type { DroppedBatch, PendingRowId } from "./client";
 import { type ReplicaDb, rollbackToSavepoint, type SqlValue } from "./db";
 import { applyLocalOps } from "./localOps";
 import { getMeta, setMeta, setPlainSpaceTitleCanonicalization } from "./meta";
-import { allBatches } from "./queue";
+import { allBatches, deleteBatch } from "./queue";
 import { reconcileActivationPageTitles, reconcilePage } from "./reconcile";
 
 export type Changes = components["schemas"]["ChangesPayload"];
@@ -37,8 +39,12 @@ export type SyncBlock = components["schemas"]["SyncBlock"];
 export type SyncPage = components["schemas"]["SyncPage"];
 export type SyncTombstone = components["schemas"]["SyncTombstone"];
 
+type AppliedBatch = components["schemas"]["AppliedBatch"];
+
+/** `dropped` lists the pending rows the window named as already applied and
+ * deleted (see dropAppliedPending); it is absent when there were none. */
 export type ApplyResult =
-  | { status: "applied"; cursor: SyncSeq }
+  | { status: "applied"; cursor: SyncSeq; dropped?: readonly DroppedBatch[] }
   | { status: "needs-bootstrap" }
   | { status: "pending-changed" };
 
@@ -73,9 +79,35 @@ const upsertBlock = (db: ReplicaDb, b: SyncBlock): void => {
   reindexBlockRefs(db, b.uid, b.text);
 };
 
+/** The pending rows a payload names in `applied_batches` (the batch is
+ * already in the server's applied_batches as of the read that hydrated the
+ * payload), deleted before the replay; see appliedPendingRows for which rows
+ * qualify.
+ *
+ * A batch's writes and its applied_batches row commit together, so a named
+ * batch is one whose effects the payload's rows already show, however its
+ * ack is faring. Replaying it would apply it a second time: reapplyPending's
+ * per-op keep rules hold only while nothing after an op moved its target,
+ * and a later op of the same batch, a later batch, or another device's edit
+ * can. The payload is the batch's echo, so nothing would re-ship the rows it
+ * damaged. Deleting the row here is what the drain does on the ack; its
+ * caller settles the row's delivery as the ack would. A window whose
+ * transaction rolls back keeps the rows. */
+function dropAppliedPending(db: ReplicaDb,
+                            applied: readonly AppliedBatch[] | undefined,
+                            droppable?: readonly PendingRowId[]): DroppedBatch[] {
+  if (applied === undefined || applied.length === 0) return [];
+  const dropped = appliedPendingRows(
+    allBatches(db), applied,
+    droppable === undefined ? undefined : new Set(droppable));
+  for (const row of dropped) deleteBatch(db, row.id, row.batch_id);
+  return dropped;
+}
+
+/** Returns the pending rows the snapshot named as applied and deleted. */
 export function applySnapshot(db: ReplicaDb, snap: Snapshot,
-                              nowMs: number = Date.now()): void {
-  db.transaction(() => {
+                              nowMs: number = Date.now()): DroppedBatch[] {
+  return db.transaction(() => {
     db.exec("PRAGMA defer_foreign_keys = ON");
     // wipe order respects FKs anyway (refs -> blocks -> pages)
     db.exec("DELETE FROM refs");
@@ -94,7 +126,9 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
     setPlainSpaceTitleCanonicalization(
       db, snap.plain_space_title_canonicalization);
     reconcileActivationPageTitles(db);
+    const dropped = dropAppliedPending(db, snap.applied_batches);
     reapplyPending(db, nowMs);
+    return dropped;
   });
 }
 
@@ -111,7 +145,9 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
  * then the provider deletes their rows before delivery resumes.
  * A replayed batch is one the server has not acknowledged: a rebase commit
  * deletes the batches its flush got acks for before the snapshot applies,
- * since what the server saved for them can differ from their wire text. The
+ * since what the server saved for them can differ from their wire text, and
+ * a payload's applied_batches deletes the batches it already holds
+ * (dropAppliedPending). The
  * batches replayed here still flush to the server unchanged. An op whose
  * block or parent the feed removed is skipped inside applyLocalOps, as the
  * server skips it, so the rest of its batch still lands. A window
@@ -211,15 +247,21 @@ const isFkFailure = (e: unknown): boolean => {
       || /\bresult code 787\b/.test(message);
 };
 
+/** `droppable`: the pending rows the pull read when it named its pending
+ * batches to the server. Only those may be dropped as already applied; when
+ * omitted, any row the feed names may be. */
 export function applyChanges(db: ReplicaDb, feed: Changes,
-                             nowMs: number = Date.now()): ApplyResult {
+                             nowMs: number = Date.now(),
+                             { droppable }: { droppable?: readonly PendingRowId[] } = {},
+): ApplyResult {
   if (feed.reset || feed.generation !== getMeta(db, "generation")) {
     // cursor from another life: a reset request, or a rebuilt database
     // whose journal restarted. Never apply mid-journal rows.
     return { status: "needs-bootstrap" };
   }
+  let dropped: DroppedBatch[];
   try {
-    applyWindow(db, feed, nowMs);
+    dropped = applyWindow(db, feed, nowMs, droppable);
   } catch (e) {
     if (e instanceof StaleTitleHolderError) {
       // A local row still holds a title this window handed to another id,
@@ -249,7 +291,9 @@ export function applyChanges(db: ReplicaDb, feed: Changes,
       e);
     return { status: "needs-bootstrap" };
   }
-  return { status: "applied", cursor: feed.next_since };
+  return dropped.length > 0
+    ? { status: "applied", cursor: feed.next_since, dropped }
+    : { status: "applied", cursor: feed.next_since };
 }
 
 /** Thrown inside the window transaction (so it rolls back) when a parked
@@ -319,7 +363,8 @@ export function assertNoParkedTitles<Id extends PageId | SidebarEntryId>(
 }
 
 /** Order inside the window transaction: tombstones, then pages, blocks and
- * sidebar upserts, then the queue replay. Deferred FKs make the order
+ * sidebar upserts, then dropping the pending rows the window names as
+ * applied, then the queue replay. Deferred FKs make the order
  * irrelevant for referential integrity; it is the UNIQUE titles that fix it.
  * A row that gave a title up by being deleted must be gone before the row
  * that took the title arrives, so tombstones go first. A page
@@ -333,8 +378,9 @@ export function assertNoParkedTitles<Id extends PageId | SidebarEntryId>(
  * is back by COMMIT. A block an earlier window hydrated onto the page, and
  * which has left it since, is removed too and returns with its own later
  * journal row, so the replica converges by a later window. */
-function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number): void {
-  db.transaction(() => {
+function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
+                     droppable?: readonly PendingRowId[]): DroppedBatch[] {
+  return db.transaction(() => {
     db.exec("PRAGMA defer_foreign_keys = ON");
     for (const tomb of feed.tombstones) {
       if (tomb.kind === "block") {
@@ -375,6 +421,8 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number): void {
     setPlainSpaceTitleCanonicalization(
       db, feed.plain_space_title_canonicalization);
     reconcileActivationPageTitles(db);
+    const dropped = dropAppliedPending(db, feed.applied_batches, droppable);
     reapplyPending(db, nowMs);
+    return dropped;
   });
 }

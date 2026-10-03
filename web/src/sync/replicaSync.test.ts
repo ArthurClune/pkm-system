@@ -2,13 +2,14 @@ import { describe, expect, test, vi } from "vitest";
 import { ApiError, OfflineError } from "../api/client";
 import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
+import type { SkippedOp } from "../api/payloads";
 import type {
-  PendingBatch, PendingRowId, Replica, ReplicaInit,
+  DroppedBatch, PendingBatch, PendingRowId, Replica, ReplicaInit,
 } from "../replica/client";
 import { ReplicaError, ReplicaUnusableError } from "../replica/errors";
 import { uid } from "../test-helpers";
 import {
-  createReplicaSync, PENDING_CHANGED_CAP, ResetBlockedError, RETRY_BASE_MS,
+  createReplicaSync, PENDING_CHANGED_CAP, PENDING_IDS_CAP, ResetBlockedError, RETRY_BASE_MS,
   RETRY_MAX_MS, STALL_AFTER_FAILURES, WINDOW_STRIKES, type ReplicaState,
 } from "./replicaSync";
 
@@ -141,7 +142,8 @@ describe("start, bootstrap and feed pulls", () => {
 
     expect(fetchJson).toHaveBeenCalledTimes(2);
     expect(fetchJson.mock.calls.map(([path]) => path))
-      .toEqual(["/api/sync/changes?since=5", "/api/sync/changes?since=5"]);
+      .toEqual(["/api/sync/changes?since=5&pending=batch-1",
+                "/api/sync/changes?since=5"]);
     expect(applyChanges.mock.calls).toEqual([
       [stale, [1]],
       [stale, []],
@@ -2201,5 +2203,153 @@ describe("acks held across a flush and rebase", () => {
       kind: "rebase", snapshot: SNAP, acked: [{ id: 1, batch_id: bid("b-1"), seq: 8 }],
     });
     sync.stop(); // the failed pull armed a retry
+  });
+});
+
+describe("pending batches a payload already holds", () => {
+  const row = (id: number, poisoned = false): PendingBatch => ({
+    id: id as PendingRowId, batch_id: bid(`b-${id}`),
+    ops: [{ op: "delete", uid: uid(`uid_${id}`) }], poisoned,
+  });
+  const dropped = (id: number, skipped: SkippedOp[] = []): DroppedBatch => ({
+    id: id as PendingRowId, batch_id: bid(`b-${id}`), seq: 9 as SyncSeq, skipped,
+  });
+  const SKIP: SkippedOp = {
+    index: 0, op: "delete", uid: uid("uid_1"), reason: "block_not_found",
+    note_page: null,
+  };
+  const queueSpy = () => ({
+    pause: vi.fn(), resume: vi.fn(), settleCommitted: vi.fn(),
+  });
+
+  test("a pull names the head of its non-poisoned pending batches", async () => {
+    const replica = fakeReplica({
+      pendingBatches: async () => [row(1, true), row(2), row(3)],
+    });
+    const fetchJson = vi.fn(async () => feed());
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState: collector().onState,
+    });
+    await sync.start();
+    expect(fetchJson).toHaveBeenCalledWith(
+      "/api/sync/changes?since=5&pending=b-2&pending=b-3");
+  });
+
+  test("a pull names at most PENDING_IDS_CAP of them, oldest first", async () => {
+    const rows = Array.from({ length: PENDING_IDS_CAP + 5 }, (_, i) => row(i + 1));
+    const replica = fakeReplica({ pendingBatches: async () => rows });
+    const fetchJson = vi.fn(async (_path: string) => feed());
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState: collector().onState,
+    });
+    await sync.start();
+    const path = fetchJson.mock.calls[0][0];
+    const named = new URLSearchParams(path.split("?")[1]).getAll("pending");
+    expect(named).toEqual(rows.slice(0, PENDING_IDS_CAP).map((r) => r.batch_id));
+  });
+
+  test("an empty queue names nothing", async () => {
+    const fetchJson = vi.fn(async () => feed());
+    const sync = createReplicaSync({
+      replica: fakeReplica(), fetchJson, clientId: CID, onState: collector().onState,
+    });
+    await sync.start();
+    expect(fetchJson).toHaveBeenCalledWith("/api/sync/changes?since=5");
+  });
+
+  test("the pull hands the rows the replica dropped to the queue", async () => {
+    const replica = fakeReplica({
+      pendingBatches: async () => [row(1), row(2)],
+      applyChanges: vi.fn().mockResolvedValueOnce({
+        status: "applied", cursor: 5 as SyncSeq, dropped: [dropped(1)],
+      }),
+    });
+    const queue = queueSpy();
+    const onSkipped = vi.fn();
+    const sync = createReplicaSync({
+      replica, fetchJson: vi.fn(async () => feed()), clientId: CID, queue,
+      onState: collector().onState,
+    });
+    sync.onSkipped(onSkipped);
+    await sync.start();
+    expect(replica.applyChanges).toHaveBeenCalledWith(feed(), [1, 2]);
+    expect(queue.settleCommitted).toHaveBeenCalledWith([bid("b-1")]);
+    expect(onSkipped).not.toHaveBeenCalled();
+  });
+
+  test("a dropped batch whose ack skipped an op bumps resync once, as the ack would", async () => {
+    const replica = fakeReplica({
+      applyChanges: vi.fn().mockResolvedValueOnce({
+        status: "applied", cursor: 5 as SyncSeq,
+        dropped: [dropped(1, [SKIP]), dropped(2, [SKIP])],
+      }),
+    });
+    const onSkipped = vi.fn();
+    const sync = createReplicaSync({
+      replica, fetchJson: vi.fn(async () => feed()), clientId: CID,
+      queue: queueSpy(), onState: collector().onState,
+    });
+    sync.onSkipped(onSkipped);
+    await sync.start();
+    expect(onSkipped).toHaveBeenCalledTimes(1);
+  });
+
+  test("a bootstrap names the pending batches init read and settles those the snapshot holds",
+    async () => {
+      const replica = fakeReplica({}, {
+        empty: true, cursor: 0 as SyncSeq, pendingBatches: [row(1), row(2, true)],
+      });
+      const snap: Snapshot = {
+        ...SNAP, applied_batches: [{ batch_id: bid("b-1"), seq: 4 as SyncSeq, skipped: [SKIP] }],
+      };
+      const fetchJson = vi.fn(async (path: string) =>
+        path.startsWith("/api/sync/snapshot") ? snap : feed());
+      const queue = queueSpy();
+      const onSkipped = vi.fn();
+      const sync = createReplicaSync({
+        replica, fetchJson, clientId: CID, queue, onState: collector().onState,
+      });
+      sync.onSkipped(onSkipped);
+      await sync.start();
+      expect(fetchJson).toHaveBeenCalledWith(
+        "/api/sync/snapshot?pending=b-1", undefined, { timeoutMs: null });
+      expect(queue.settleCommitted).toHaveBeenCalledWith([bid("b-1")]);
+      expect(onSkipped).toHaveBeenCalledTimes(1);
+    });
+
+  test("a poison rebase names no pending batch", async () => {
+    const replica = fakeReplica({
+      prepareRecovery: async () => ({
+        token: "lease-1", batches: [row(1, true), row(2), row(3)],
+      }),
+    });
+    const fetchJson = vi.fn(async (path: string) =>
+      path.startsWith("/api/sync/snapshot") ? SNAP : feed());
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, queue: queueSpy(),
+      onState: collector().onState,
+    });
+    await sync.start();
+    await sync.rebaseAuthoritative("poison");
+    expect(fetchJson).toHaveBeenCalledWith(
+      "/api/sync/snapshot", undefined, { timeoutMs: null });
+  });
+
+  test("a rebase whose flush got every ack names nothing", async () => {
+    const replica = fakeReplica({
+      applyChanges: vi.fn().mockResolvedValueOnce({ status: "needs-bootstrap" }),
+      prepareRecovery: async () => ({ token: "lease-1", batches: [row(1), row(2)] }),
+    });
+    const fetchJson = vi.fn(async (path: string) => {
+      if (path === "/api/ops") return { ok: true, ts: 1, applied: 1, seq: 7 };
+      if (path.startsWith("/api/sync/snapshot")) return SNAP;
+      return feed();
+    });
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, queue: queueSpy(), onState: collector().onState,
+    });
+    await sync.start();
+    expect(fetchJson).toHaveBeenCalledWith(
+      "/api/sync/snapshot", undefined, { timeoutMs: null });
   });
 });

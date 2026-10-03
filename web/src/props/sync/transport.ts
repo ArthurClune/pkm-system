@@ -58,10 +58,13 @@ const networkError = (): TypeError => new TypeError("fetch failed");
 
 type RequestKind = "ops" | "pull" | "other";
 
+/** Matched on the path alone: a pull's query string names its pending
+ * batches, so `/api/sync/snapshot?pending=...` is still a pull. */
 function kindOf(path: string, method: string): RequestKind {
-  if (method === "POST" && path === "/api/ops") return "ops";
-  if (method === "GET" && (path.startsWith("/api/sync/changes") ||
-                           path === "/api/sync/snapshot")) return "pull";
+  const route = path.split("?")[0];
+  if (method === "POST" && route === "/api/ops") return "ops";
+  if (method === "GET" && (route === "/api/sync/changes" ||
+                           route === "/api/sync/snapshot")) return "pull";
   return "other";
 }
 

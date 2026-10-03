@@ -1093,8 +1093,8 @@ async function leasedAckedAndOpen(
     batchId: bid("open"),
   });
   const lease = await handlers.prepareRecovery(undefined) as { token: string };
-  const commit = (acked: AckedBatch[]) => handlers.commitRecovery({
-    token: lease.token, input: { kind: "rebase", snapshot: SERVER, acked },
+  const commit = (acked: AckedBatch[], snapshot: Snapshot = SERVER) => handlers.commitRecovery({
+    token: lease.token, input: { kind: "rebase", snapshot, acked },
   });
   return { t, handlers, commit };
 }
@@ -1263,4 +1263,90 @@ test("deleteBatch refuses a payload without the row's batch id", async () => {
     1 as unknown as Parameters<typeof handlers.deleteBatch>[0],
   )).rejects.toThrow(/batch id/);
   expect(t.db.select("SELECT batch_id FROM pending_ops")).toEqual([{ batch_id: "a" }]);
+});
+
+const named = (batchId: string, at: number, skipped: Changes["applied_batches"] = []) =>
+  ({ batch_id: bid(batchId), seq: seq(at), skipped: skipped as never[] });
+
+/** Two queued batches over SNAP: row 1 "a", row 2 "b". */
+async function twoQueued() {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(SNAP);
+  await handlers.enqueue({
+    ops: [{ op: "update_text", uid: uid("uid_b1"), text: "a" }], batchId: bid("a") });
+  await handlers.enqueue({
+    ops: [{ op: "update_text", uid: uid("uid_b1"), text: "b" }], batchId: bid("b") });
+  return { t, handlers };
+}
+
+test("applyChanges drops the rows its window names as applied and returns them", async () => {
+  const { t, handlers } = await twoQueued();
+  await expect(handlers.applyChanges({
+    feed: { ...EMPTY_GEN1_FEED, applied_batches: [named("a", 7)] },
+    expectedPendingIds: [pid(1), pid(2)],
+  })).resolves.toEqual({
+    status: "applied", cursor: 7,
+    dropped: [{ id: pid(1), batch_id: bid("a"), seq: seq(7), skipped: [] }],
+  });
+  expect(pendingIds(t.db)).toEqual([{ batch_id: "b" }]);
+});
+
+test("a dropped row's acked seq vouches for a window as a drain ack's does", async () => {
+  const { handlers } = await twoQueued();
+  await handlers.applyChanges({
+    feed: { ...EMPTY_GEN1_FEED, applied_batches: [named("a", 7)] },
+    expectedPendingIds: [pid(1), pid(2)],
+  });
+  // a pull that read its pending ids before the drop
+  await expect(handlers.applyChanges({
+    feed: EMPTY_GEN1_FEED, expectedPendingIds: [pid(1), pid(2)],
+  })).resolves.toEqual({ status: "applied", cursor: 7 });
+});
+
+test("a later deleteBatch for a dropped row is a harmless no-op", async () => {
+  const { t, handlers } = await twoQueued();
+  await handlers.applyChanges({
+    feed: { ...EMPTY_GEN1_FEED, applied_batches: [named("a", 7)] },
+    expectedPendingIds: [pid(1), pid(2)],
+  });
+  await expect(handlers.deleteBatch({ id: pid(1), batchId: bid("a"), ackedSeq: seq(7) }))
+    .resolves.toEqual({ pending: 1 });
+  expect(pendingIds(t.db)).toEqual([{ batch_id: "b" }]);
+});
+
+test("a row queued after the pull read its ids is never dropped", async () => {
+  const { t, handlers } = await twoQueued();
+  // the pull read rows 1 and 2; row 3 arrives while its fetch is out
+  await handlers.enqueue({
+    ops: [{ op: "update_text", uid: uid("uid_b1"), text: "c" }], batchId: bid("c") });
+  await expect(handlers.applyChanges({
+    feed: { ...EMPTY_GEN1_FEED, applied_batches: [named("a", 7), named("c", 7)] },
+    expectedPendingIds: [pid(1), pid(2)],
+  })).resolves.toEqual({ status: "pending-changed" });
+  expect(pendingIds(t.db)).toEqual([{ batch_id: "a" }, { batch_id: "b" }, { batch_id: "c" }]);
+});
+
+test("applySnapshot drops the rows the snapshot names as applied", async () => {
+  const { t, handlers } = await twoQueued();
+  await handlers.applySnapshot({ ...SNAP, seq: seq(7), applied_batches: [named("a", 7)] });
+  expect(pendingIds(t.db)).toEqual([{ batch_id: "b" }]);
+  expect(textOf(t.db, "uid_b1")).toBe("b");
+  await expect(handlers.applyChanges({
+    feed: EMPTY_GEN1_FEED, expectedPendingIds: [pid(1), pid(2)],
+  })).resolves.toEqual({ status: "applied", cursor: 7 });
+});
+
+test("a rebase commit drops the rows its snapshot names beside the acked ones", async () => {
+  const { t, handlers, commit } = await leasedAckedAndOpen();
+  await expect(commit(
+    [{ id: pid(1), batch_id: bid("acked"), seq: seq(7) }],
+    { ...SERVER, applied_batches: [named("open", 7)] },
+  )).resolves.toBeNull();
+  expect(pendingIds(t.db)).toEqual([]);
+  expect(textOf(t.db, "uid_b2")).toBe("server b2");
+  await expect(handlers.applyChanges({
+    feed: EMPTY_GEN1_FEED, expectedPendingIds: [pid(1), pid(2)],
+  })).resolves.toEqual({ status: "applied", cursor: 7 });
 });

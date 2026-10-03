@@ -8,8 +8,8 @@
 // database: degraded beats data loss.
 
 import type { ApiFetchOptions } from "../api/client";
-import type { ClientId, SyncSeq } from "../api/brands";
-import type { OpsAck } from "../api/payloads";
+import type { BatchId, ClientId, SyncSeq } from "../api/brands";
+import type { OpsAck, SkippedOp } from "../api/payloads";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { ReplicaDiagnostics } from "../replica/client";
 import type {
@@ -81,9 +81,11 @@ export interface ReplicaSync {
    * doesn't leak a timer that outlives its component; an in-flight pull may
    * still finish after stop() but will not reschedule another retry. */
   stop(): void;
-  /** The recovery flush's ack named a skipped op -- the same signal as the
-   * queue's own onSkipped, for the POST path outside the queue: the active
-   * view is stale and must refetch. Never a desync: the batch committed. */
+  /** The recovery flush's ack named a skipped op, or a sync payload named a
+   * pending batch as already applied whose stored ack did -- the same signal
+   * as the queue's own onSkipped, for the paths outside the queue's drain:
+   * the active view is stale and must refetch. Never a desync: the batch
+   * committed. */
   onSkipped(fn: () => void): () => void;
 }
 
@@ -112,6 +114,16 @@ export const WINDOW_STRIKES = STALL_AFTER_FAILURES;
 export const PENDING_CHANGED_CAP = 20;
 export const RETRY_BASE_MS = 1000;
 export const RETRY_MAX_MS = 60000;
+/** How many pending batch ids a pull names to the server, from the head of
+ * the queue. Delivery is in queue order, so only a head prefix can be
+ * committed while still pending: the drain holds at most its head in doubt,
+ * and only a recovery flush whose commit never ran (then a reload, which
+ * loses its held acks) leaves more. The ids ride the GET's query string.
+ * Measured: 100 web batch ids (16 characters) add about 2.5 KB to the URL,
+ * and 7.3 KB even at the 64 characters the server accepts, under the 8 KB
+ * request line common proxies allow; uvicorn itself took 87 KB. The server's
+ * lookup for 100 named batches cost about 0.3 ms. */
+export const PENDING_IDS_CAP = 100;
 
 /** The snapshot is the one read here that is exempt from the ordinary read
  * deadline: its size grows with the graph, so on a slow link a
@@ -135,7 +147,8 @@ export interface ReplicaSyncDeps {
    * on its own, knowing nothing about the lane, so flushBatches asks the
    * queue to deliver whatever the lane holds ahead of each one first. */
   queue?: Pick<OpQueue, "pause" | "resume"> &
-    Partial<Pick<OpQueue, "onPoisonPending" | "onPoisonMarkUnmatched" | "deliverLaneAhead">>;
+    Partial<Pick<OpQueue, "onPoisonPending" | "onPoisonMarkUnmatched" |
+                          "deliverLaneAhead" | "settleCommitted">>;
   /** True while the socket is down (mirrors the offline gateway's own
    * `statusRef.current === "reconnecting"` predicate). A failed pull's retry
    * is pointless here -- every retry while offline just reproduces the same
@@ -148,6 +161,20 @@ export interface ReplicaSyncDeps {
 
 const errText = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
+
+/** The query naming the pending batches a payload may already hold: the
+ * non-poisoned head of the queue, at most PENDING_IDS_CAP of them, oldest
+ * first. Empty when there are none, so the request is unchanged then. A
+ * poisoned batch is left out: the server refused it, and the poison repair
+ * owns its row. */
+const pendingQuery = (batches: readonly PendingBatch[]): string => {
+  const params = new URLSearchParams();
+  for (const b of batches.filter((batch) => !batch.poisoned)
+                         .slice(0, PENDING_IDS_CAP)) {
+    params.append("pending", b.batch_id);
+  }
+  return params.toString();
+};
 
 /** What a recovery run does with the lease's pending batches. The queue is the
  * user's intent, so this is a policy per entrant rather than a boolean. */
@@ -338,13 +365,35 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     return run;
   };
 
-  const fetchSnapshot = async (): Promise<Snapshot> =>
-    (await fetchJson("/api/sync/snapshot", undefined, UNTIMED)) as Snapshot;
+  /** `pending`: the batches the snapshot should say whether it holds. */
+  const fetchSnapshot = async (
+    pending: readonly PendingBatch[] = [],
+  ): Promise<Snapshot> => {
+    const query = pendingQuery(pending);
+    return (await fetchJson(
+      query === "" ? "/api/sync/snapshot" : `/api/sync/snapshot?${query}`,
+      undefined, UNTIMED)) as Snapshot;
+  };
 
-  const bootstrap = async (): Promise<void> => {
-    const snap = await fetchSnapshot();
+  /** Batches a payload named as already applied, whose rows the replica
+   * dropped instead of replaying: settled as their acks would have settled
+   * them. Their deliveries resolve through the queue, and a stored ack that
+   * skipped an op bumps resync, as the drain does for a live one. */
+  const settleApplied = (
+    batches: readonly { batch_id: BatchId; skipped: readonly SkippedOp[] }[],
+  ): void => {
+    if (batches.length === 0) return;
+    if (batches.some((b) => b.skipped.length > 0)) skipped.emit(undefined);
+    queue.settleCommitted?.(batches.map((b) => b.batch_id));
+  };
+
+  /** `pending`: the rows init read, which a database queued into before its
+   * first snapshot can hold. */
+  const bootstrap = async (pending: readonly PendingBatch[]): Promise<void> => {
+    const snap = await fetchSnapshot(pending);
     await replica.applySnapshot(snap);
     adoptCursor(snap.seq, "snapshot");
+    settleApplied(snap.applied_batches ?? []);
   };
 
   const assertNormalRecoveryStillOwnsFlush = (): void => {
@@ -422,6 +471,14 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       const lease = await replica.prepareRecovery();
       token = lease.token;
       await flushLease(lease, options.flush);
+      // Names no pending batch, unlike a pull or a bootstrap: no leased row
+      // can be committed without an ack this run holds. A flushing rebase
+      // posted every leased row and holds the acks, and the commit deletes
+      // those rows before its replay. A poison rebase posts nothing, and its
+      // rows were never posted either: the drain posts in queue order and
+      // deletes each row on its ack, so every row ahead of the rejected batch
+      // is gone, and it stops at the rejection, so none behind it went out.
+      // A reset drops the queue and replays nothing.
       const snapshot = await fetchSnapshot();
       // Every commit takes the held acks. A reset drops the queue, so it
       // passes none; a commit that fails left the rows in place, so the acks
@@ -590,10 +647,13 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         let feed: Changes;
         let res: ApplyResult;
         try {
-          const expectedPendingIds = (await replica.pendingBatches())
-            .map((batch) => batch.id);
-          feed = (await fetchJson(
-            `/api/sync/changes?since=${cursor}`)) as Changes;
+          // One read serves both: the ids named to the server come from the
+          // rows this window may drop, so a row queued after it can't be.
+          const pending = await replica.pendingBatches();
+          const expectedPendingIds = pending.map((batch) => batch.id);
+          const query = pendingQuery(pending);
+          feed = (await fetchJson(`/api/sync/changes?since=${cursor}` +
+            (query === "" ? "" : `&${query}`))) as Changes;
           res = await replica.applyChanges(feed, expectedPendingIds);
         } catch (error: unknown) {
           // Corruption first: it is the one window failure whose repair must
@@ -664,6 +724,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
           done = feed.latest_seq <= cursor;
         } else {
           adoptCursor(res.cursor, "window");
+          settleApplied(res.dropped ?? []);
           done = feed.next_since >= feed.latest_seq;
         }
       }
@@ -713,7 +774,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // the same worker lease used for feed generation/reset recovery.
       if (!(await recover("reset")).ok) return;
     } else if (init.empty) {
-      await bootstrap();
+      await bootstrap(init.pendingBatches);
     }
     started = true;
     // Read by web/tooling/perf/check.mjs to time replica readiness.

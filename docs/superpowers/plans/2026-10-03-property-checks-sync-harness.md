@@ -321,3 +321,33 @@ Invoke the `architecture-docs` skill first. Verify every claim against the code 
 - [ ] `perf/check.sh frontend` (serial, quiet machine) — `opQueue`/`SyncProvider` changed.
 - [ ] `proptest/check.sh server` and `proptest/check.sh web`.
 - [ ] Final review (strongest model, mutation probes in a scratch worktree); mark pkm-yxcs completed with a Summary of Changes; merge `--no-ff` after Arthur's go-ahead.
+
+## Addendum (2026-10-03): fixes for the property's first findings
+
+Task 7 stopped at Step 5 with two product failures. Arthur ruled: fix both on this branch before merge, then resume Task 7 at Step 4 (calibration). Each fix follows superpowers:systematic-debugging and TDD; the shrunk case becomes an ordinary unit test that runs on every commit.
+
+### Task 7a: Retry a failed poison repair on reconnect (pkm-f170)
+
+**Files:** `web/src/sync/clientRuntime.ts` (+ test), the shared reconnect path (`web/src/sync/reconnectFlow.ts` and/or `useSocketLifecycle.ts`), `web/src/props/sync/harnessClient.ts` (wire the same path), `docs/architecture/sync-recovery.md`, `docs/troubleshooting.md`.
+
+**Interfaces:**
+- Produces: a reconnect retries a poison repair whose last attempt failed, running the same plan the banner's Retry runs (`planRetry` → `runRetry`, then the restart-after-repair), once per reconnect — never a retry loop while connected. The trigger lives on a path both `SyncProvider` and the harness client use, so the harness gets it through wiring, not a copy of the logic.
+
+- [ ] **Step 1: Failing unit test** in `clientRuntime.test.ts` (or `reconnectFlow.test.ts`, wherever the trigger lands): `a poison repair that failed offline is retried on reconnect` — memReplica + fake replicaSync whose first `rebaseAuthoritative` rejects with `new TypeError("fetch failed")`; after the reconnect hook, `rebaseAuthoritative` was called twice, both poisoned batches deleted, `queue.resume("recovery")` called, `replicaSync.start` called; events `repair-failed` then `repair-started`, `repair-succeeded`. Plus `a reconnect with no failed repair does nothing` and `a repair that fails again waits for the next reconnect` (no loop).
+- [ ] **Step 2:** run → FAIL; implement; run → PASS. `SyncProvider.test.tsx` still passes unmodified (if a SyncProvider-level test is genuinely needed, add a new test, don't edit old ones).
+- [ ] **Step 3:** wire the harness client's `online()` through the same path; the props fixed scenario `poison repair cut off by offline settles after reconnect` (one client: BadBatch, BadBatch, Offline, Online → quiesce + checkQuiescent pass). `proptest/check.sh web` passes, and the F1 replay line (`--seed -496395878 --path 35:4:13:14:13:11:11:12 --replay-path JAGAZAr:VB`) passes.
+- [ ] **Step 4:** docs: `sync-recovery.md` (where the repair banner's Retry is described: a reconnect now retries too), a `troubleshooting.md` row (symptom "edits on one device never reach the server after a network blip during a rejected-batch repair", cause, owning section, pkm-f170). Gates: typecheck, lint, check:fcis, test:unit. Commit `fix(pkm-f170): retry a failed poison repair on reconnect`.
+
+### Task 7b: Re-ship the destination sibling group of a skipped create/move (pkm-hz8w)
+
+**Files:** the server's skip path (`server/src/pkm/server/ops_apply.py` / `ops_core.py`, wherever skipped creates/moves are decided and executed), `server/tests/` (new regression test), `docs/architecture/sync-recovery.md`, `docs/architecture/backend.md` (§ Missing targets / Concurrent structure edits), `docs/troubleshooting.md`.
+
+**Interfaces:**
+- Produces: when the server skips a `create` or `move` (missing block, missing parent, cycle), it records a journal row for every live block in the op's destination sibling group (same page and `parent_uid` the op named; top level of the op's page when `parent_uid` is null), without changing any column, so the next `/api/sync/changes` window re-ships their true `order_idx`. Nothing else about the skip changes (ack `skipped`, daily-note entries, applied state).
+
+- [ ] **Step 1: Failing server test** `test_skipped_move_reships_destination_siblings`: seed a page with top-level blocks `s1..s4` at 0/10/20/30; delete `s2` in one batch; record `next_since`; post `move s2 → parent null, index 0`; the ack lists the move as skipped; `GET /api/sync/changes?since=<recorded>` includes `s1`, `s3`, `s4` with order_idx 0/20/30 and the `s2` tombstone. Add the cycle-skip and missing-parent variants the same way (missing parent: nothing to re-ship beyond what tombstones already carry — assert no error and no stray rows).
+- [ ] **Step 2:** run → FAIL; implement; run → PASS. Check how the journal triggers fire (an UPDATE that changes nothing may or may not journal, depending on the trigger's WHEN clause) and that FTS/refs/`updated_at` are untouched by the touch.
+- [ ] **Step 3:** `uv run pytest -q`, pyrefly, ruff; `proptest/check.sh server` still passes (the server suite's model compares block state, not the journal); `proptest/check.sh web` passes and the F2 replay line (`--seed -496395878 --path 36:0:2:1:4:5:4:4:6:6:6:6:6:10:10:10:10:10:10:10:10:10:10:10:10:10 --replay-path 'AAAACABAGA/G:V1'`) passes.
+- [ ] **Step 4:** docs: `sync-recovery.md` (the keepSlot / skipped-op notes: a skip re-ships the destination group, so the transient misordering ends at the next pull), `backend.md` missing-targets/concurrent-structure tables, a `troubleshooting.md` row (pkm-hz8w). If `web/src/api/openapi.json` is affected (it should not be), regenerate. Commit `fix(pkm-hz8w): re-ship the destination siblings of a skipped create or move`.
+
+### Then: Task 7 resumes at Step 4 (calibration), then Task 8.

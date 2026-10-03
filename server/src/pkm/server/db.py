@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import Request
 
 from pkm.refs import extract
-from pkm.schema import DDL
+from pkm.schema import BLOCKS_CHG_AD_TRIGGER, DDL
 from pkm.server.config import Config
 
 
@@ -31,6 +31,23 @@ def _ensure_schema_migrations(con: sqlite3.Connection) -> None:
                       ("describe_error", "TEXT")):
         if col not in asset_columns:
             con.execute(f"ALTER TABLE assets ADD COLUMN {col} {decl}")
+    _ensure_changes_page_id(con)
+
+
+def _ensure_changes_page_id(con: sqlite3.Connection) -> None:
+    """Bring a journal that predates `changes.page_id` up to date: the
+    column (NULL on every existing row) and a delete trigger that fills
+    it. The trigger is checked on its own, not through the column, so a
+    startup interrupted between the two finishes the job on the next one."""
+    columns = {row[1] for row in con.execute("PRAGMA table_info(changes)")}
+    if "page_id" not in columns:
+        con.execute("ALTER TABLE changes ADD COLUMN page_id INTEGER")
+    trigger = con.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'trigger'"
+        " AND name = 'blocks_chg_ad'").fetchone()
+    if trigger is None or "page_id" not in trigger[0]:
+        con.execute("DROP TRIGGER IF EXISTS blocks_chg_ad")
+        con.execute(BLOCKS_CHG_AD_TRIGGER)
 
 
 def _backfill_created_at(con: sqlite3.Connection) -> None:

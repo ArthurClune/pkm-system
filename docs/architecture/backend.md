@@ -181,11 +181,19 @@ Around that base model:
   badge and `GET /api/block/{uid}/backlinks`. Block text is the only durable
   data — `refs`, `block_refs` and FTS are always rebuilt from it.
 - **Server-only tables** (`SERVER_DDL`):
-  - `changes(seq AUTOINCREMENT, kind, entity_id, deleted)` — the append-only
-    change journal, populated by row-level triggers rather than route code, so
-    any new write path is journalled automatically. Cascade deletes journal
-    only because `recursive_triggers=ON`. The one direct writer is the
-    `JournalBlock` effect for an op on a missing target (below).
+  - `changes(seq AUTOINCREMENT, kind, entity_id, deleted, page_id)` — the
+    append-only change journal, populated by row-level triggers rather than
+    route code, so any new write path is journalled automatically. Cascade
+    deletes journal only because `recursive_triggers=ON`. The one direct
+    writer is the `JournalBlock` effect for an op on a missing target
+    (below). `page_id` is set only on a block tombstone: on a delete row, by
+    `blocks_chg_ad`, it is the page the deleted block was on; on a diverted
+    create's row, by `JournalBlock`, the page the client placed the block
+    on. It is the server's only record of either
+    ([Missing targets](#missing-targets)). It is never shipped,
+    and has no index, since every journal insert would pay for one.
+    `db._ensure_schema_migrations` adds the column to an older journal
+    (existing rows stay NULL) and re-creates the trigger.
   - `applied_batches(batch_id, request_hash, response)` — op idempotency.
   - `block_rewrites(uid, base_hash, after_hash, old_title, new_title,
     created_at)` — what a rename, merge or the title migration did to one
@@ -315,7 +323,9 @@ edit was based on. It is a text hash rather than a version counter, so
 structural changes don't manufacture conflicts. On a mismatch, or on an edit
 to a block that no longer exists, the incoming edit still wins. The losing
 text is rescued as a child block under a `[[conflict]]` header appended to
-today's daily page (`title_for_date(date.today())`, server-local). A second
+the daily page of the batch's own `now_ms`
+(`title_for_date` of its server-local date; `_conflict_landing` never reads
+the clock itself). A second
 conflict on the same block the same day appends under that same header
 instead of minting another (`conflict_headers`, above). The header text names
 the page:
@@ -378,9 +388,9 @@ the daily page is resolved only when an entry lands:
 |---|---|---|---|---|
 | `set_collapsed`, block gone | no-op, but journalled: a replica that collapsed the block holds a ghost of it | `block_not_found` | — | the uid |
 | `delete`, block gone | no-op | `block_not_found` | — | — |
-| `move` / `set_heading` / `set_view_type`, block gone | skipped; child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under the `(page unknown)` header | `block_not_found` | the block's uid | the uid |
+| `move` / `set_heading` / `set_view_type`, block gone | skipped; child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under the `(page unknown)` header | `block_not_found` | the block's uid | the uid; a move also its destination siblings (below) |
 | `update_text`, block gone, hashed or not | text lands (header table above); a blank text lands nothing | `block_not_found` | the block's uid | the uid |
-| `create`, parent gone | block not created; its text lands, header labelled from the op's `page_title`; a blank text lands nothing | `parent_not_found` | the parent's uid | created uid and parent uid |
+| `create`, parent gone | block not created; its text lands, header labelled from the op's `page_title`; a blank text lands nothing | `parent_not_found` | the parent's uid | created uid, with the page the client placed it on (below), and parent uid |
 | `move`, block exists, parent gone | block stays put; child `move skipped: target parent <uid> not found` | `parent_not_found` | the block's uid | the parent uid, then every block of the moved subtree |
 
 Grouping by uid means an orphaned edit and a skipped op on the same block
@@ -400,15 +410,44 @@ diverted subtree lands flat, each child's text under its own parent's uid,
 and loses its nesting, heading and view type. A create and then an edit of
 one uid in the same batch land both texts.
 
-`JournalBlock` writes the journal row the triggers would. The feed ships a
-journalled uid with no block row as a tombstone, and a live one as its
-current row. A replica applies tombstones first, and a block tombstone
-cascades the whole local subtree. So a ghost parent's tombstone also deletes
-the live blocks a replica optimistically moved under it, which is why a move
-to a missing parent journals the moved subtree, not just its root.
+`JournalBlock` writes the journal row the triggers would. It marks a uid
+with no block row `deleted`, because the feed ships a block tombstone only
+from a delete row; a live uid ships as its current row. A block tombstone cascades the whole local subtree. A replica
+applies a window's block tombstones after its upserts, so rows in the same
+window move blocks out first. A ghost parent's tombstone in an earlier window
+than those rows still deletes the live blocks a replica optimistically moved
+under it. So a move to a missing parent journals the moved subtree, not just
+its root.
 `_plan_skip` emits tombstones before live rows, so a window
 boundary can never put a tombstone after the rows that restore what it
 cascades away.
+
+A skipped `create` or `move` also shifted its destination siblings in the
+client's optimistic apply, and the server did not. Where nothing else
+re-ships them, the skip journals them (`ops_apply._destination_siblings`):
+
+| Skip | Destination | Siblings journalled |
+|---|---|---|
+| move of a gone block | a live `parent_uid` | its children |
+| move of a gone block | top level, `page_title` naming a page | that page's top-level blocks (looked up, never created) |
+| move of a gone block | top level, no `page_title` | the top level of the block's own page, read from its latest tombstone with a `changes.page_id` |
+| any | a gone `parent_uid` | none: the parent's tombstone cascades the replica's shifted copies |
+| `move_cycle` | the target's children | none extra: they lie inside the journalled subtree |
+
+A block the server never created has no delete row, so a diverted create
+writes the page on its own tombstone (`ops_apply._diverted_create_page`).
+The client placed the block on its parent's page. The op's `page_title`
+names the page whose outline showed that parent, so a page by that title
+comes first. A title that names no page falls back to the page on the
+parent's own tombstone.
+
+The `page_id` lookup scans the journal newest first. The tombstone a skip
+races is recent, so the scan stops early. Only a uid with no page-bearing
+tombstone reads the whole journal, and it journals no siblings.
+`JournalBlock` inserts into `changes` directly, so no `blocks` trigger fires
+and `updated_at`, FTS, `refs` and `block_refs` stay as they were. The rows
+are written in the batch's transaction, so the window that carries the batch
+re-ships each sibling's current row.
 
 Every other planning error is still a 400: invalid uid, uid already exists,
 title syntax. `find_op_title_violation` checks the whole batch before any op
@@ -711,8 +750,8 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | **Sidebar** | | |
 | GET / POST / PUT / DELETE | `/api/sidebar`… | Pinned pages: list / pin / reorder (permutation-validated) / unpin |
 | **Sync** (see [sync-and-offline.md](sync-and-offline.md)) | | |
-| GET | `/api/sync/snapshot` | Full graph bootstrap + `seq` + `generation` + title-canonicalization activation |
-| GET | `/api/sync/changes?since&limit` | Windowed incremental feed with the same generation/activation metadata |
+| GET | `/api/sync/snapshot?pending` | Full graph bootstrap + `seq` + `generation` + title-canonicalization activation; `applied_batches` names which `pending` batch ids (repeated param) the payload already holds, each `{batch_id, seq, skipped}` from its stored ack, read in the payload's own read transaction; left out when empty, so a request naming nothing gets the old payload |
+| GET | `/api/sync/changes?since&limit&pending` | Windowed incremental feed with the same generation/activation metadata and the same `applied_batches` answer (never on a `reset` answer) |
 | POST | `/api/client/diagnostics` | A replica's self-report before it rebuilds a corrupt database; logged as one `pkm.sync` WARNING line, nothing written |
 | WS | `/api/ws` | Push nudges: applied-op broadcasts + real `seq` hints; title generation rotation adds `force:true,generation` without fabricating a cursor |
 | **Assistant** (SSE — see [assistant.md](assistant.md)) | | |

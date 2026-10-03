@@ -34,10 +34,12 @@ preservation resolves collisions at push time.
 | WS hub | `server/.../ws.py`, `notify.py` | Post-commit `{type:"seq",seq}`; generation rotation adds `force:true,generation`; applied-op echoes; drops a client at `QUEUE_SIZE` (64) or a `SEND_TIMEOUT` (10 s) send |
 | Replica | `web/src/replica/` (worker, OPFS) | sqlite-wasm copy of the graph (BASE_DDL only) on the OPFS SAHPool VFS |
 | Op queue | `web/src/sync/opQueue.ts`, `web/src/replica/queue.ts` | Durable `pending_ops` rows; optimistic local apply; drain-on-reconnect. Its pure rules: lane ordering in `outbox.ts`, poison-mark intents in `poisonIntents.ts` (stored by `poisonIntentStore.ts`) |
-| Sync orchestration | `web/src/sync/SyncProvider.tsx`, `useSocketLifecycle.ts`, `reconnectFlow.ts`, `replicaSync.ts` | Connect/reconnect ordering, cursor pull loop, recovery, view refetch (`resyncGeneration`). `syncFailures.ts` classifies pull failures |
+| Sync orchestration | `web/src/sync/SyncProvider.tsx`, `clientRuntime.ts`, `useSocketLifecycle.ts`, `reconnectFlow.ts`, `replicaSync.ts` | Connect/reconnect ordering, cursor pull loop, recovery, view refetch (`resyncGeneration`). `clientRuntime.ts` holds the startup poison gate and the poison repair, without React. `syncFailures.ts` classifies pull failures |
 | Offline API shim | `web/src/replica/localApi/` | Serves the read API's JSON shapes from the replica, pinned by `shared/fixtures/shim_parity.json` and by generated return types |
 
-`createOpQueue(replica)` takes no callbacks. Every `OpQueue` signal
+`createOpQueue(replica, deps?)` takes no callbacks. The optional `OpQueueDeps`
+(`post`, `clientId`, `poisonStore`, `newBatchId`) exist for tests and the
+property harness; the app passes none. Every `OpQueue` signal
 (`onDesync`, `onDrain`, `onSkipped`, `onPending`, `onPoison`, …) and
 `ReplicaSync.onSkipped` is a listener built with `listeners<T>()`
 (`sync/listeners.ts`), so a throwing listener never reaches the emitter or
@@ -93,8 +95,8 @@ transaction:
   (`_with_parent_closure`, cycle-safe). A missing dependency fails the replica's
   deferred FK check at COMMIT. A dependency block that no longer exists is
   absent from the payload.
-- `sync_core.tombstone_entities` picks the tombstones. An entity absent from
-  current state ships as one. So does a `page` or `sidebar` id
+- `sync_core.tombstone_entities` picks the tombstones. A page or sidebar entry
+  absent from current state ships as one. So does a `page` or `sidebar` id
   (`REUSABLE_ID_KINDS`) with a delete row in the window, even when a live row
   holds it. Both ids are an `INTEGER PRIMARY KEY` without `AUTOINCREMENT`.
   SQLite gives the next insert max(id)+1, so deleting the highest id frees it
@@ -104,8 +106,10 @@ transaction:
   ships every current block on the page or with a ref to it. That makes the
   page whole again by the window's COMMIT, not only once later windows arrive.
   A block delivered onto the page earlier and moved off since is still cascaded
-  away, and returns with its own later row. Blocks keep the presence rule: a uid
-  recreated by undo is the same block.
+  away, and returns with its own later row. A block present now ships live: a
+  uid recreated by undo is the same block. A block absent now ships as a
+  tombstone only from the window that holds its delete row (see the apply
+  order below).
 - `block_refs` never ships; both sides derive it from block text through the
   parity-pinned extractor (see
   [Offline editing and reconnect](#offline-editing-and-reconnect)).
@@ -115,11 +119,14 @@ transaction:
 - The client loops `pull → apply → cursor = next_since` until
   `next_since >= latest_seq` (`web/src/sync/replicaSync.ts`), persisting the
   cursor in the replica's `sync_client_meta` table.
+- Each pull also names the head of its pending queue (`pending=` batch ids). The
+  window answers which of them it already holds in `applied_batches`. The
+  replica drops those rows instead of replaying them over their own echo (see
+  [sync-recovery.md § A payload that already holds a pending batch](sync-recovery.md#a-payload-that-already-holds-a-pending-batch)).
 - `applyWindow` (`web/src/replica/apply.ts`) applies a window in one
-  transaction: tombstones, then pages, blocks and sidebar. The UNIQUE `title`
-  columns are why tombstones lead; deferred FKs make the order irrelevant for
-  references. Titles two rows swapped are parked under a placeholder
-  (`parkTakenTitles`) and restored by their own upserts. `parkTakenTitles` and
+  transaction, in the order of the table below. Titles two rows swapped are
+  parked under a placeholder (`parkTakenTitles`) and restored by their own
+  upserts. `parkTakenTitles` and
   `assertNoParkedTitles` take the id type as a type parameter and the table
   name as a type depending on it (`TitledTableFor<Id>`). A plain
   `"pages" | "sidebar_entries"` union could not stop a pages call being
@@ -135,6 +142,46 @@ transaction:
   newer server added would otherwise destroy an unrelated row. The one TEXT
   `entity_id` is minted into `BlockUid`, `PageId` or `SidebarEntryId` per
   branch, never before the dispatch picks the kind.
+
+| Step in `applyWindow` | Why it sits there |
+|---|---|
+| 1. Page and sidebar tombstones | The UNIQUE `title` columns: a row that gave its title up by being deleted must go before the row that took the title. A reused page id's cascade clears the old page before the new one lands. |
+| 2. Page upserts, then block upserts | Deferred FKs make their order irrelevant for references. |
+| 3. Block tombstones | The window's moves out land before the local cascade runs (below). |
+| 4. Sidebar upserts | Independent of blocks. |
+| 5. `dropAppliedPending`, then `reapplyPending` | The queue replays over the window's final rows (see [sync-recovery.md](sync-recovery.md#a-payload-that-already-holds-a-pending-batch)). |
+
+A block tombstone cascades the replica's local subtree, so it must not reach
+a block the server kept. Two rules keep it off such a block when the block's
+move out ships no later than the tombstone:
+
+| Rule | Where |
+|---|---|
+| A block tombstone ships only in the window that holds the block's delete row. The server journals a delete row for every block it deletes, cascaded rows included | `sync_core.tombstone_entities` |
+| A window's block tombstones apply after its upserts | `applyWindow` |
+
+A kept block left the deleted subtree by a move at a lower seq than the delete,
+in the delete row's window or an earlier one. The kept block may be a
+descendant that moved along with a moved-out ancestor. Its own row never
+changed, so only the ancestor's row ships, and nothing would re-ship the
+descendant once the cascade took it.
+
+**Known hole: an ancestor moved out, then deleted in a later window.** Take
+D > A > K > L. A moves to the top level, D is deleted, K moves to the top level,
+and A is deleted. The server ends with K > L. A replica catching up in windows
+small enough to split those rows ends with K and no L. A's move row ships
+nothing, because A is absent now and its delete row lies in a later window. So
+D's tombstone cascades the replica's stale D > A > K > L. K returns with its own
+move row, but L's row never changed. One window carrying all four rows is safe.
+Production windows split at 1000 rows, so only a large catch-up can hit it.
+`test_sync_block_tombstone_window.py` pins it as a strict xfail, and the sync
+property draws no small window limits until it is fixed
+([troubleshooting](../troubleshooting.md#sync-and-offline)).
+
+The cascade still removes optimistic rows under a deleted block, and
+`reapplyPending` then skips their ops. A page
+cascade can run before the upserts because a block leaves a page only by a
+write to its own row: a move rewrites `page_id` on every block of the subtree.
 
 ## Post-commit nudges
 
@@ -294,7 +341,9 @@ Reconnect ordering in `reconnectFlow.ts` is fixed: **drain the queue first, then
 pull, then refetch views**, so the pull observes server state that already
 includes this client's offline edits. A socket reconnect and the queue's
 `onDrain` listener (`reconnect.observeDrain`) share one completion, which is
-what finishes a reconnect whose first drain was blocked. The terminal-4xx
+what finishes a reconnect whose first drain was blocked. Before its drain, a
+connect retries a rejected-batch repair whose last attempt failed
+(`retryFailedRepair`, the client runtime's), because that repair's barrier would block the drain. The terminal-4xx
 branch's repair, and which statuses count as terminal (`isTerminalRejection`),
 are in
 [sync-recovery.md § A batch the server rejects](sync-recovery.md#a-batch-the-server-rejects).

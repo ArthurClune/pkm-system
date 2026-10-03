@@ -20,15 +20,32 @@ not) to `known` before asking again -- that's what makes a cycle or a
 dangling parent_uid terminate the walk instead of looping.
 
 tombstone_entities decides which of a window's entities ship as
-tombstones. A block that no longer exists does. A page or sidebar id is
-an INTEGER PRIMARY KEY without AUTOINCREMENT, so SQLite gives the next
-insert max(id)+1 and deleting the highest id frees it for reuse:
-presence in current state does not prove the row
+tombstones. A page or sidebar entry that no longer exists does. A page or
+sidebar id is an INTEGER PRIMARY KEY without AUTOINCREMENT, so SQLite
+gives the next insert max(id)+1 and deleting the highest id frees it for
+reuse: presence in current state does not prove the row
 is the entity the window's older rows were about, while a delete row in
 the window does. So those two kinds also tombstone on a delete row, and
-the live row ships beside the tombstone. Block uids are never reused by
-the database (a block recreated under its old uid is the same block), so
-blocks keep the presence rule."""
+the live row ships beside the tombstone.
+
+Block uids are never reused by the database (a block recreated under its
+old uid is the same block), so a block present now ships live. A block
+absent now ships as a tombstone only from the window that holds its
+delete row; one whose delete row lies past the window ships nothing yet.
+A replica cascades a block tombstone through its local subtree, after
+the window's upserts. Every block the server kept left that subtree
+before the delete, by a move row at a lower seq, in the delete row's
+window or an earlier one. Shipped from an older live row, the tombstone
+could run before that move arrives. Every block delete journals a delete
+row: the delete trigger fires for cascaded rows too, and
+ops_core.JournalBlock marks a uid with no block row deleted.
+
+That spares a kept block whose move out ships no later than the
+tombstone. It does not spare one whose move out was made by an ancestor
+that is itself deleted in a later window: the ancestor is absent now, so
+its move row hydrates to nothing, and the cascade runs over the
+replica's stale subtree. The kept block returns with its own row, but its
+descendants, whose rows never changed, do not."""
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -105,13 +122,18 @@ def dedupe_window(rows: Sequence[ChangeRow]) -> Window:
 def tombstone_entities(win: Window,
                        present: Mapping[EntityKind, AbstractSet[str]]
                        ) -> list[tuple[EntityKind, str]]:
-    """The window's entities that ship as tombstones, in window order: an
-    entity absent from current state (`present[kind]`, a missing kind
-    counting as empty), or a reusable-id entity with a delete row in the
-    window even though a live row now holds its id."""
-    return [(k, e) for k, e in win.entities
-            if e not in present.get(k, frozenset())
-            or (k in REUSABLE_ID_KINDS and (k, e) in win.tombstoned)]
+    """The window's entities that ship as tombstones, in window order: a
+    block absent from current state (`present[kind]`, a missing kind
+    counting as empty) with a delete row in the window; a page or sidebar
+    entry absent from current state; or a reusable-id entity with a delete
+    row in the window even though a live row now holds its id."""
+    def ships(k: EntityKind, e: str) -> bool:
+        if k in REUSABLE_ID_KINDS:
+            return (e not in present.get(k, frozenset())
+                    or (k, e) in win.tombstoned)
+        return (e not in present.get(k, frozenset())
+                and (k, e) in win.tombstoned)
+    return [(k, e) for k, e in win.entities if ships(k, e)]
 
 
 def tombstoned_ids(win: Window, kind: EntityKind) -> list[str]:

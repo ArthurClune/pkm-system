@@ -7,11 +7,15 @@ from collections.abc import Iterable
 
 # Same rule as perfcheck.run_core._SIDES: e2e specs and docs under web/
 # don't change what the browser runs.
+# The web suite drives the real server's sync routes, so server/src and the
+# harness launcher count as web changes too.
 _SIDES = (("server", lambda p: p.startswith("server/")),
-          ("web", lambda p: p.startswith("web/") and not p.startswith("web/e2e/")
-           and not p.endswith(".md")))
+          ("web", lambda p: (p.startswith("web/") and not p.startswith("web/e2e/")
+                             and not p.endswith(".md"))
+           or p.startswith("server/src/")
+           or p == "server/tooling/proptest/sync_server.py"))
 
-_AVAILABLE = {"server"}
+_AVAILABLE = {"server", "web"}
 
 
 def sides_for(paths: Iterable[str]) -> list[str]:

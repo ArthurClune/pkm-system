@@ -4,6 +4,8 @@ import type { BatchId, BlockUid, CanonicalTitle, PageId, SyncSeq } from "../api/
 import type { Changes, Snapshot, SyncBlock, SyncTombstone } from "./apply";
 import { applyChanges, applySnapshot, assertNoParkedTitles,
          parkTakenTitles } from "./apply";
+import type { BlockOp } from "../api/ops";
+import { applyLocalOps } from "./localOps";
 import { getMeta } from "./meta";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
@@ -610,7 +612,7 @@ describe("applyChanges: a title moving between ids inside one window", () => {
 describe("applyChanges: a page id deleted and reused inside one window", () => {
   // SQLite gives the next insert max(id)+1, so deleting the highest page id
   // frees it for reuse, and the server ships
-  // such an id as a tombstone and a live row in one window. Tombstones lead:
+  // such an id as a tombstone and a live row in one window. Page tombstones lead:
   // the page's cascade clears what hung off the old page, then the upserts
   // bring back everything the window ships for the new one.
   test("the tombstone clears the old page's blocks and other blocks' refs before the new page lands", () => {
@@ -659,6 +661,125 @@ describe("applyChanges: a page id deleted and reused inside one window", () => {
     expect(t.db.select("SELECT id, title FROM pages WHERE id = 2"))
       .toEqual([{ id: 2, title: "AI" }]);
     expect(count("SELECT COUNT(*) AS n FROM refs WHERE target_page_id = 2")).toBe(0);
+  });
+});
+
+describe("applyChanges: in one window, a block tombstone's cascade reaches only blocks the server deleted", () => {
+  // The server journals every block it deletes, cascaded rows included, and
+  // ships each tombstone in the window holding its delete row. A descendant
+  // that moved along with a moved-out ancestor changed no row of its own, so
+  // only the ancestor's row ships: the window's upserts have to take the
+  // subtree out from under the tombstoned block before its local cascade
+  // runs.
+  const tree = () => t.db.select<{ uid: string; page_id: number;
+                                   parent_uid: string | null }>(
+    "SELECT uid, page_id, parent_uid FROM blocks ORDER BY uid");
+  beforeEach(() => {
+    // uid_p > uid_c > uid_g on Machine Learning, and a page that will go
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      pages: [page(3, "Doomed")],
+      blocks: [
+        block("uid_p", 1, { order_idx: ord(2) }),
+        block("uid_c", 1, { parent_uid: uid("uid_p") }),
+        block("uid_g", 1, { parent_uid: uid("uid_c"), text: "grandchild searchable" }),
+        block("uid_x", 3),
+        block("uid_y", 3, { parent_uid: uid("uid_x") }),
+      ],
+    }));
+  });
+
+  test("a block moved out from under a parent deleted in the same window keeps its subtree", () => {
+    const result = applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      tombstones: [{ kind: "block", entity_id: "uid_p" }],
+      blocks: [block("uid_c", 1, { order_idx: ord(3) })],
+    }));
+    expect(result).toEqual({ status: "applied", cursor: 12 });
+    expect(tree().filter((r) => ["uid_p", "uid_c", "uid_g"].includes(r.uid)))
+      .toEqual([
+        { uid: "uid_c", page_id: 1, parent_uid: null },
+        { uid: "uid_g", page_id: 1, parent_uid: "uid_c" },
+      ]);
+    expect(ftsHits("grandchild")).toEqual(["uid_g"]);
+  });
+
+  test("a block moved off a page deleted in the same window keeps its subtree", () => {
+    // leaving a page rewrites every block of the moved subtree (page_id),
+    // so the server ships the child's row too
+    const result = applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      tombstones: [{ kind: "page", entity_id: "3" }],
+      blocks: [block("uid_x", 1, { order_idx: ord(3) }),
+               block("uid_y", 1, { parent_uid: uid("uid_x") })],
+    }));
+    expect(result).toEqual({ status: "applied", cursor: 12 });
+    expect(tree().filter((r) => ["uid_x", "uid_y"].includes(r.uid))).toEqual([
+      { uid: "uid_x", page_id: 1, parent_uid: null },
+      { uid: "uid_y", page_id: 1, parent_uid: "uid_x" },
+    ]);
+    expect(count("SELECT COUNT(*) AS n FROM pages WHERE id = 3")).toBe(0);
+  });
+
+  test("a subtree the server deleted is still removed", () => {
+    // the server's journal tombstones every block of a deleted subtree
+    const result = applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      tombstones: [{ kind: "block", entity_id: "uid_p" },
+                   { kind: "block", entity_id: "uid_c" },
+                   { kind: "block", entity_id: "uid_g" }],
+    }));
+    expect(result).toEqual({ status: "applied", cursor: 12 });
+    expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid IN" +
+                 " ('uid_p', 'uid_c', 'uid_g')")).toBe(0);
+    expect(ftsHits("grandchild")).toEqual([]);
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+  });
+
+  test("a page merged into a new page under its title moves its blocks across", () => {
+    // a merge: page 3's blocks move to a new page 4 that takes its title,
+    // and page 3 goes, all in one window
+    const result = applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      tombstones: [{ kind: "page", entity_id: "3" }],
+      pages: [page(4, "Doomed")],
+      blocks: [block("uid_x", 4), block("uid_y", 4, { parent_uid: uid("uid_x") })],
+    }));
+    expect(result).toEqual({ status: "applied", cursor: 12 });
+    expect(t.db.select("SELECT id FROM pages WHERE title = 'Doomed'"))
+      .toEqual([{ id: 4 }]);
+    expect(tree().filter((r) => ["uid_x", "uid_y"].includes(r.uid))).toEqual([
+      { uid: "uid_x", page_id: 4, parent_uid: null },
+      { uid: "uid_y", page_id: 4, parent_uid: "uid_x" },
+    ]);
+  });
+
+  test("a pending create under the deleted parent goes; one under the moved-out child stays", () => {
+    enqueueBatch(t.db, [
+      { op: "create", uid: uid("uid_ghost_p"), page_title: "Machine Learning",
+        parent_uid: uid("uid_p"), order_idx: ord(1), text: "typed under p" },
+      { op: "create", uid: uid("uid_ghost_c"), page_title: "Machine Learning",
+        parent_uid: uid("uid_c"), order_idx: ord(1), text: "typed under c" },
+    ], 5, bid("batch-ghosts"));
+    expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid LIKE 'uid_ghost_%'"))
+      .toBe(2);
+
+    const result = applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      tombstones: [{ kind: "block", entity_id: "uid_p" }],
+      blocks: [block("uid_c", 1, { order_idx: ord(3) })],
+    }), 6);
+
+    expect(result).toEqual({ status: "applied", cursor: 12 });
+    expect(tree().filter((r) => r.uid.startsWith("uid_ghost_") ||
+                                ["uid_c", "uid_g"].includes(r.uid))).toEqual([
+      { uid: "uid_c", page_id: 1, parent_uid: null },
+      { uid: "uid_g", page_id: 1, parent_uid: "uid_c" },
+      { uid: "uid_ghost_c", page_id: 1, parent_uid: "uid_c" },
+    ]);
+    // the queue is the user's intent: the batch still flushes
+    expect(allBatches(t.db)).toHaveLength(1);
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
   });
 });
 
@@ -1010,5 +1131,178 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     }), 7);
 
     expect(underB1()).toEqual(settled);
+  });
+});
+
+describe("applyChanges: a window that names a pending batch as applied drops it instead of replaying it", () => {
+  // s1..s6 at 0..5 on one page: the shape the sync property found this on.
+  const SIX: Snapshot = {
+    generation: "gen-1", plain_space_title_canonicalization: false,
+    seq: 10 as SyncSeq, pages: [page(1, "P")],
+    blocks: ["s1", "s2", "s3", "s4", "s5", "s6"].map(
+      (u, i) => block(u, 1, { order_idx: ord(i) })),
+    sidebar: [],
+  };
+  const mv = (u: string, o: number): BlockOp =>
+    ({ op: "move", uid: uid(u), parent_uid: null, order_idx: ord(o) });
+  const cr = (u: string, o: number): BlockOp =>
+    ({ op: "create", uid: uid(u), page_title: "P", parent_uid: null,
+       order_idx: ord(o), text: `text of ${u}` });
+  const ut = (u: string, text: string): BlockOp =>
+    ({ op: "update_text", uid: uid(u), text });
+  type Row = { uid: string; parent_uid: string | null; order_idx: number; text: string };
+  const rows = (db: ReplicaDb): Row[] => db.select<Row>(
+    "SELECT uid, parent_uid, order_idx, text FROM blocks ORDER BY uid");
+  const asSync = (db: ReplicaDb, keep: (u: string) => boolean = () => true): SyncBlock[] =>
+    rows(db).filter((r) => keep(r.uid)).map((r) => block(r.uid, 1, {
+      parent_uid: r.parent_uid as BlockUid | null, order_idx: ord(r.order_idx),
+      text: r.text }));
+  const named = (batchId: string, seq = 11) =>
+    ({ batch_id: bid(batchId), seq: seq as SyncSeq, skipped: [] });
+
+  /** The server's rows: the batch applied for real, then `later` (another
+   * device's edits) on top. */
+  const serverAfter = async (batch: BlockOp[], later: BlockOp[] = []): Promise<TestDb> => {
+    const s = await openTestDb();
+    applySnapshot(s.db, SIX, 1);
+    applyLocalOps(s.db, batch, 2);
+    if (later.length > 0) applyLocalOps(s.db, later, 3);
+    return s;
+  };
+
+  const cases: [string, BlockOp[], BlockOp[]][] = [
+    ["two moves of one block", [mv("s4", 0), mv("s4", 1)], []],
+    ["moves of two blocks", [mv("s4", 0), mv("s5", 0)], []],
+    ["a move then a create", [mv("s4", 0), cr("n1", 0)], []],
+    ["an update another device superseded", [ut("s1", "mine")], [ut("s1", "theirs")]],
+  ];
+  for (const [name, batch, later] of cases) {
+    test(name, async () => {
+      const srv = await serverAfter(batch, later);
+      applySnapshot(t.db, SIX, 1);
+      enqueueBatch(t.db, batch, 3, bid("b0"));
+      const [row] = allBatches(t.db);
+
+      const res = applyChanges(t.db, emptyFeed({
+        next_since: 11, latest_seq: 11, blocks: asSync(srv.db),
+        applied_batches: [named("b0")],
+      }), 4);
+
+      expect(res).toEqual({
+        status: "applied", cursor: 11,
+        dropped: [{ id: row.id, batch_id: bid("b0"), seq: 11, skipped: [] }],
+      });
+      expect(allBatches(t.db)).toEqual([]);
+      expect(rows(t.db)).toEqual(rows(srv.db));
+      applyChanges(t.db, emptyFeed({ next_since: 12, latest_seq: 12 }), 5);
+      expect(rows(t.db)).toEqual(rows(srv.db));
+      srv.close();
+    });
+  }
+
+  test("a partial window shipping only the siblings", async () => {
+    const batch = [mv("s4", 0), mv("s4", 1)];
+    const srv = await serverAfter(batch);
+    applySnapshot(t.db, SIX, 1);
+    enqueueBatch(t.db, batch, 3, bid("b0"));
+
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 12, blocks: asSync(srv.db, (u) => u !== "s4"),
+      applied_batches: [named("b0")],
+    }), 4);
+    const others = (rs: Row[]) => rs.filter((r) => r.uid !== "s4");
+    expect(allBatches(t.db)).toEqual([]);
+    expect(others(rows(t.db))).toEqual(others(rows(srv.db)));
+
+    // the rest of the batch's journal rows, in the next window
+    applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12, blocks: asSync(srv.db, (u) => u === "s4"),
+    }), 5);
+    expect(rows(t.db)).toEqual(rows(srv.db));
+    srv.close();
+  });
+
+  test("the same window not naming the batch still replays it", async () => {
+    const batch = [mv("s4", 0), mv("s4", 1)];
+    const srv = await serverAfter(batch);
+    applySnapshot(t.db, SIX, 1);
+    enqueueBatch(t.db, batch, 3, bid("b0"));
+
+    const res = applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, blocks: asSync(srv.db),
+    }), 4);
+
+    expect(res).toEqual({ status: "applied", cursor: 11 });
+    expect(allBatches(t.db).map((b) => b.batch_id)).toEqual([bid("b0")]);
+    expect(rows(t.db)).not.toEqual(rows(srv.db));
+    srv.close();
+  });
+
+  test("only named rows go, and only rows the caller lets it drop", () => {
+    applySnapshot(t.db, SIX, 1);
+    enqueueBatch(t.db, [mv("s4", 0)], 3, bid("b0"));
+    enqueueBatch(t.db, [mv("s5", 0)], 3, bid("b1"));
+    enqueueBatch(t.db, [mv("s6", 0)], 3, bid("b2"));
+    const [b0, b1, b2] = allBatches(t.db);
+
+    const res = applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      applied_batches: [named("b0"), named("b1"), named("never-queued")],
+    }), 4, { droppable: [b0.id, b2.id] });
+
+    expect(res).toEqual({
+      status: "applied", cursor: 11,
+      dropped: [{ id: b0.id, batch_id: bid("b0"), seq: 11, skipped: [] }],
+    });
+    expect(allBatches(t.db).map((b) => b.id)).toEqual([b1.id, b2.id]);
+  });
+
+  test("a poisoned row is never dropped", () => {
+    applySnapshot(t.db, SIX, 1);
+    enqueueBatch(t.db, [mv("s4", 0)], 3, bid("b0"));
+    const [b0] = allBatches(t.db);
+    markPoisoned(t.db, b0.id, "rejected", bid("b0"));
+
+    const res = applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, applied_batches: [named("b0")],
+    }), 4);
+
+    expect(res).toEqual({ status: "applied", cursor: 11 });
+    expect(allBatches(t.db).map((b) => b.id)).toEqual([b0.id]);
+  });
+
+  test("a window that rolls back keeps the named rows", () => {
+    applySnapshot(t.db, SIX, 1);
+    enqueueBatch(t.db, [mv("s4", 0)], 3, bid("b0"));
+
+    const res = applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, applied_batches: [named("b0")],
+      // a block on a page nothing ships: the deferred FK fails at COMMIT
+      blocks: [block("orphan", 99)],
+    }), 4);
+
+    expect(res).toEqual({ status: "needs-bootstrap" });
+    expect(allBatches(t.db).map((b) => b.batch_id)).toEqual([bid("b0")]);
+  });
+
+  test("applySnapshot drops a named batch before its replay", async () => {
+    const batch = [mv("s4", 0), mv("s4", 1)];
+    const srv = await serverAfter(batch);
+    applySnapshot(t.db, SIX, 1);
+    enqueueBatch(t.db, batch, 3, bid("b0"));
+    enqueueBatch(t.db, [mv("s6", 0)], 3, bid("b1"));
+    const [b0] = allBatches(t.db);
+
+    const dropped = applySnapshot(t.db, {
+      ...SIX, seq: 11 as SyncSeq, blocks: asSync(srv.db),
+      applied_batches: [named("b0")],
+    }, 4);
+
+    expect(dropped).toEqual([{ id: b0.id, batch_id: bid("b0"), seq: 11, skipped: [] }]);
+    expect(allBatches(t.db).map((b) => b.batch_id)).toEqual([bid("b1")]);
+    // b1 still replays over the server's rows: s6 to the front
+    const replica = rows(t.db);
+    expect(replica.find((r) => r.uid === "s6")?.order_idx).toBe(0);
+    srv.close();
   });
 });

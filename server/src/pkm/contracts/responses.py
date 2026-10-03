@@ -15,11 +15,12 @@ from __future__ import annotations
 from collections.abc import Iterator, Sequence
 from typing import Annotated, Literal, NewType
 
-from pydantic import BaseModel, BeforeValidator, Field
+from pydantic import (BaseModel, BeforeValidator, Field,
+                      SerializerFunctionWrapHandler, model_serializer)
 
 from pkm.changed import ChangeStatus
 from pkm.contracts.brands import brand
-from pkm.contracts.ops import (BlockUid, HeadingLevel, OpKind, OrderIdx,
+from pkm.contracts.ops import (BatchId, BlockUid, HeadingLevel, OpKind, OrderIdx,
                                PageId, Sha256Hex, SidebarEntryId, ViewType)
 from pkm.goodlinks import GoodlinksId
 from pkm.refs import CanonicalTitle, RefKind
@@ -388,6 +389,29 @@ class SyncTombstone(BaseModel):
     entity_id: str
 
 
+class AppliedBatch(BaseModel):
+    """One of the client's pending batches (the `pending` query param of
+    /api/sync/changes and /api/sync/snapshot) that the payload already holds:
+    its applied_batches row is in the same read transaction that hydrated the
+    payload, and a batch's writes commit with that row. `seq` and `skipped`
+    are its stored ack's, read through OpsAck, so an ack stored before those
+    fields existed reads as None / []."""
+    batch_id: BatchId
+    seq: SyncSeq | None
+    skipped: list[SkippedOp]
+
+
+def _omit_empty_applied(model: BaseModel,
+                        handler: SerializerFunctionWrapHandler) -> object:
+    """Serialize `model`, leaving `applied_batches` out when it is empty: a
+    request that named no pending batches gets the payload it got before the
+    field existed, byte for byte."""
+    data = handler(model)
+    if isinstance(data, dict) and not data.get("applied_batches"):
+        data.pop("applied_batches", None)
+    return data
+
+
 class ChangesPayload(BaseModel):
     reset: bool = False
     generation: str
@@ -398,6 +422,15 @@ class ChangesPayload(BaseModel):
     blocks: list[SyncBlock]
     sidebar: list[SyncSidebarEntry]
     tombstones: list[SyncTombstone]
+    # The second exception to "keep every field required", like OpsAck's
+    # seq/skipped: a client must also read a server that predates the field,
+    # so the generated TypeScript marks it optional. Left out of the JSON
+    # when empty (_omit_empty_applied).
+    applied_batches: list[AppliedBatch] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler):
+        return _omit_empty_applied(self, handler)
 
 
 class BlockPayload(BaseModel):
@@ -415,6 +448,12 @@ class SnapshotPayload(BaseModel):
     pages: list[SyncPage]
     blocks: list[SyncBlock]
     sidebar: list[SyncSidebarEntry]
+    # optional, and left out when empty, as ChangesPayload.applied_batches
+    applied_batches: list[AppliedBatch] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler):
+        return _omit_empty_applied(self, handler)
 
 
 # The three Claude aliases plus z.ai's GLM. Lives here (not

@@ -14,10 +14,10 @@ import { attachActiveOutlineWriteReplay, repairActiveOutlineSessions,
          trackActiveOutlineWrite } from "../outline/outlineSessions";
 import type { OutlineReplayAction } from "../outline/outlineState";
 import { createReplica, type Replica } from "../replica/client";
-import { availabilityOf, ReplicaUnusableError } from "../replica/errors";
+import { ReplicaUnusableError } from "../replica/errors";
 import { toPortLike } from "../replica/rpc";
-import { clientId, createOpQueue, type PoisonEvent,
-         type WriteTicket } from "./opQueue";
+import { createClientRuntime } from "./clientRuntime";
+import { clientId, createOpQueue, type WriteTicket } from "./opQueue";
 import { createReplicaSync, ResetBlockedError, type ReplicaState } from "./replicaSync";
 import { planRetry } from "./retryPolicy";
 import type { WsBatch } from "./socket";
@@ -27,17 +27,6 @@ import { useSocketLifecycle } from "./useSocketLifecycle";
 import { useUnloadGuard } from "./unloadGuard";
 
 export type { SyncStatus, SyncProblem } from "./syncState";
-
-const mergePoisonEvents = (
-  ...groups: ReadonlyArray<readonly PoisonEvent[]>
-): PoisonEvent[] => {
-  const merged = new Map<string, PoisonEvent>();
-  groups.flat().forEach((event) => {
-    merged.set(`${event.id}\u0000${event.batch_id}`, event);
-  });
-  return [...merged.values()].sort((a, b) =>
-    a.id - b.id || a.batch_id.localeCompare(b.batch_id));
-};
 
 /** Connectivity and delivery health: the half that churns. `pending` moves at
  * least twice per flushed edit, so it must not share an identity with the
@@ -238,16 +227,8 @@ export function SyncProvider({ children, replica }: {
   const statusRef = useRef<SyncStatus>("connecting");
   const modeRef = useRef(replicaState.mode);
   modeRef.current = replicaState.mode;
-  const startupRunRef = useRef<Promise<void>>(Promise.resolve());
-  const repairRunRef = useRef<Promise<void> | null>(null);
-  const repairTargetsRef = useRef<readonly PoisonEvent[]>([]);
-  const repairSucceededRef = useRef(false);
-  const startupDiscoveringPoisonRef = useRef(true);
   const legacyRepairRunRef = useRef<Promise<void> | null>(null);
   const legacyRejectedRef = useRef<unknown>();
-  const continueStartupRef = useRef<(
-    marked: readonly PoisonEvent[],
-  ) => Promise<void>>(async () => undefined);
   const problemRef = useRef<SyncProblem>();
   problemRef.current = problem;
 
@@ -329,14 +310,6 @@ export function SyncProvider({ children, replica }: {
       queue.onUnsentInMemory((n) => {
         if (mountedRef.current) setUnsentInMemory(n);
       }),
-      queue.onPoisonMarkFailed(({ event, error }) => {
-        repairTargetsRef.current = [event];
-        repairSucceededRef.current = false;
-        applySync({
-          type: "poison-mark-failed", event,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }),
     ];
     // A durable queue may be non-empty from a previous session. Asked of the
     // queue, not of the replica: setPending has exactly one caller — the
@@ -385,135 +358,27 @@ export function SyncProvider({ children, replica }: {
   useEffect(() => replicaSync?.onSkipped(
     () => applySync({ type: "ops-skipped" })), [applySync, replicaSync]);
 
-  const repairEventsRef = useRef<(events: readonly PoisonEvent[]) => Promise<void>>(
-    async () => undefined);
-  repairEventsRef.current = (events) => {
-    if (events.length === 0) return Promise.resolve();
-    if (repairRunRef.current) {
-      repairTargetsRef.current = mergePoisonEvents(
-        repairTargetsRef.current, events,
-      );
-      return repairRunRef.current;
-    }
-    repairTargetsRef.current = mergePoisonEvents(events);
-    repairSucceededRef.current = false;
-    const event = repairTargetsRef.current[0];
-    applySync({ type: "repair-started", event });
-    const run = (async () => {
-      try {
-        await replicaSync!.rebaseAuthoritative("poison");
-        for (const poisonEvent of repairTargetsRef.current) {
-          await replicaRef.current!.deleteBatch(poisonEvent.id, poisonEvent.batch_id);
-        }
-        if (mountedRef.current) {
-          // setPending has exactly one caller (queue.onPending, above);
-          // refreshPending is the door for an outside re-read of the durable
-          // count, same as the mount-time bootstrap does (see opQueue's
-          // emitPending INVARIANT comment). A direct setPending here would be
-          // a second writer that can disagree with the queue's own count.
-          void queue.refreshPending();
-          applySync({ type: "repair-succeeded", event });
-        }
-        replicaSync!.completeAuthoritativeRepair("poison");
-        if (mountedRef.current) {
-          queue.resume("recovery");
-        }
-        repairSucceededRef.current = true;
-      } catch (error: unknown) {
-        applySync({
-          type: "repair-failed", event,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    })();
-    repairRunRef.current = run.finally(() => { repairRunRef.current = null; });
-    return repairRunRef.current;
-  };
-
-  continueStartupRef.current = async (marked) => {
-    let discovered: PoisonEvent[] = [];
-    try {
-      discovered = await replicaRef.current!.poisonedBatches();
-    } catch (error: unknown) {
-      if (marked.length === 0) {
-        // Discovery reaching the database and failing may simply mean there is
-        // no openable database at all — and the worker is the one party that
-        // can tell the difference, so it says so in the error's type. Only its
-        // own latched open failure ("unusable") is evidence that there is no
-        // poison table for this gate to protect; with no replica there are no
-        // poison rows, and holding the barrier would strand every accepted edit
-        // in the in-memory fallback lane until the tab closes.
-        //
-        // Anything else — a dead worker, a module chunk 404 after a deploy
-        // against a stale index.html, an RPC timeout — is "we could not ask",
-        // not "there is nothing to read", so it keeps today's gate and its
-        // Retry banner rather than delivering past unread poison. Every branch
-        // here must resolve to a definite availability state; none may leave
-        // downstream unable to tell what happened.
-        const message = error instanceof Error ? error.message : String(error);
-        if (availabilityOf(error) === "unusable") {
-          startupDiscoveringPoisonRef.current = false;
-          // Report the mode directly, exactly as the null-replica path does
-          // below. There is nothing to "mark": the worker has latched the fact,
-          // and every later replica call — including the start() a reconnect
-          // triggers — replays it.
-          if (mountedRef.current) setReplicaState({ mode: "no-replica" });
-          queue.resume("recovery");
-          // Not silent: the user has lost offline editing for the session and
-          // gets no other signal, since "no-replica" raises no banner of its
-          // own.
-          applySync({ type: "replica-unusable", error: message });
-          return;
-        }
-        applySync({ type: "poison-discovery-failed", error: message });
-        return;
-      }
-      // Returned mark evidence is sufficient to repair those rows safely;
-      // never discard it merely because the broader discovery read failed.
-    }
-    const repairable = mergePoisonEvents(marked, discovered);
-    startupDiscoveringPoisonRef.current = false;
-    if (repairable.length > 0) {
-      await repairEventsRef.current(repairable);
-      if (!repairSucceededRef.current) return;
-    } else {
-      applySync({ type: "poison-discovery-cleared" });
-      queue.resume("recovery");
-    }
-    await replicaSync!.start();
-  };
+  // The startup poison gate and poison repair (clientRuntime.ts), one per
+  // replica-backed mount. It subscribes the queue's poison signals itself and
+  // is disposed with the queue in the socket lifecycle's deferred teardown,
+  // so a StrictMode effect replay keeps it; mountedRef stops its work at the
+  // unmount itself, a microtask before that.
+  const runtime = useMemo(() => replicaSync === null ? null : createClientRuntime({
+    queue,
+    replica: replicaRef.current!,
+    replicaSync,
+    onSyncEvent: applySync,
+    onReplicaState: (next) => { if (mountedRef.current) setReplicaState(next); },
+    isMounted: () => mountedRef.current,
+  }), [applySync, queue, replicaSync]);
 
   useEffect(() => {
-    if (replicaSync === null) {
+    if (runtime === null) {
       setReplicaState({ mode: "no-replica" });
       return;
     }
-    // Close the reload window where later durable work could post before a
-    // previously rejected optimistic batch is repaired.
-    queue.setOnline(false);
-    queue.pause("recovery");
-    startupRunRef.current = (async () => {
-      let marked: readonly PoisonEvent[];
-      try {
-        // Reload fallback intents are marked before any database discovery,
-        // initialization, or delivery. This path never calls /api/ops.
-        marked = await queue.retryPoisonMarks();
-      } catch {
-        // The typed failure listener owns the visible Retry state; retain the
-        // startup gate and recovery barrier until marking succeeds.
-        return;
-      }
-      await continueStartupRef.current(marked);
-    })().catch(() => undefined);
-  }, [queue, replicaSync]);
-
-  useEffect(() => queue.onPoison((event) => {
-    // Startup mark-only retries are followed by one authoritative database
-    // discovery so multiple retained intents and pre-existing poison rows
-    // enter the same repair. Current-session poison starts repair directly.
-    if (startupDiscoveringPoisonRef.current) return;
-    void repairEventsRef.current([event]);
-  }), [queue]);
+    void runtime.startup();
+  }, [runtime]);
 
   // Views that fetched while the replica was still starting got online-only
   // errors (or stale server state); once it turns ready with the socket
@@ -578,7 +443,8 @@ export function SyncProvider({ children, replica }: {
     // being a second, private view of it.
     readInitialPending: () =>
       replicaRef.current ? queue.refreshPending() : Promise.resolve(0),
-    startupRun: () => startupRunRef.current,
+    startupRun: () => runtime?.startupRun() ?? Promise.resolve(),
+    retryFailedRepair: () => runtime?.retryFailedRepair() ?? Promise.resolve(),
     mountedRef,
     statusRef,
     onBatch: (batch) => {
@@ -589,6 +455,7 @@ export function SyncProvider({ children, replica }: {
     onStatus: setStatus,
     onResync: () => setResyncGeneration((n) => n + 1),
     disposeOwned: () => {
+      runtime?.dispose();
       const owned = ownedReplicaRef.current;
       ownedReplicaRef.current = null;
       if (owned) void owned.replica.dispose();
@@ -614,120 +481,76 @@ export function SyncProvider({ children, replica }: {
   const editability = useMemo<SyncEditability>(
     () => ({ canEdit, readOnlyReason }), [canEdit, readOnlyReason]);
 
-  const actions = useMemo<SyncActions>(() => {
-    // Every Retry path ends the same way, and the condition is the point: the
-    // replica may only resume syncing once a repair actually succeeded — a
-    // restart after a failed one would sync past rows still awaiting repair.
-    const restartAfterRepair = async (): Promise<void> => {
-      if (repairSucceededRef.current) await replicaSync?.start();
-    };
-    return {
-      retryProblem: () => {
-        // Which recovery this click means is a pure decision (retryPolicy.ts);
-        // only its execution — the queue, the replica and the startup gate —
-        // belongs here. The freshest problem is read from problemRef for the
-        // same reason applySync does: a same-tick dispatch must not be judged
-        // against the value still pending in React's batched state update.
-        const plan = planRetry(problemRef.current, {
-          startupDiscoveringPoison: startupDiscoveringPoisonRef.current,
-        });
-        switch (plan.kind) {
-          case "legacy-repair":
-            return repairLegacy(legacyRejectedRef.current);
-          case "retry-poison-marks":
-            return (async () => {
-              try {
-                const marked = await queue.retryPoisonMarks();
-                if (plan.continueStartup) {
-                  await continueStartupRef.current(marked);
-                  return;
-                }
-              } catch {
-                return;
-              }
-              await (repairRunRef.current ?? Promise.resolve());
-              await restartAfterRepair();
-            })();
-          case "continue-startup":
-            return continueStartupRef.current([]);
-          case "repair-targets":
-            return repairEventsRef.current(repairTargetsRef.current)
-              .then(restartAfterRepair);
-          case "none":
-            return Promise.resolve();
-        }
-      },
-      discardProblem: () => {
-        const currentProblem = problemRef.current;
-        if (currentProblem?.kind !== "rejected-batch" ||
-            currentProblem.repair !== "mark-failed") return Promise.resolve();
-        queue.discardPoisonIntents();
-        applySync({ type: "poison-intents-discarded" });
-        // Releases a claim this session may be holding from a rejection that
-        // has not yet re-entered rejectDurableBatch; harmless when no claim is
-        // held (completeAuthoritativeRepair only clears its own matching
-        // reason).
-        replicaSync!.completeAuthoritativeRepair("poison");
-        if (startupDiscoveringPoisonRef.current) {
-          // Rejoin the normal startup: discovery runs against the replica,
-          // and an unopenable one falls into the online-only fallback.
-          return continueStartupRef.current([]);
-        }
-        // Mid-session the still-unmarked durable row is simply handed out
-        // again once the barrier lifts: the server rejects it again and the
-        // flow re-enters rejectDurableBatch, whose per-batch effects are
-        // idempotent across repeats (rememberPoisonMark).
-        queue.resume("recovery");
-        return Promise.resolve();
-      },
-      dismissProblem: () => {
-        const currentProblem = problemRef.current;
-        if (currentProblem?.kind === "legacy-rejected" &&
-            currentProblem.repair === "repaired") {
-          legacyRejectedRef.current = undefined;
-        } else if (currentProblem?.kind === "rejected-batch" &&
-            currentProblem.repair === "repaired") {
-          repairTargetsRef.current = [];
-        } else if (currentProblem?.kind === "replica-stalled" &&
-            (currentProblem.reset === "blocked" || currentProblem.reset === "failed")) {
-          // No local ref cleanup needed here: acknowledging a blocked/failed
-          // reset just clears the banner — a later stall re-report re-raises
-          // it fresh (see syncState's "dismiss"/"replica-stalled" handling).
+  // All five are created once per provider, so this value is too. The
+  // methods reach current state through refs on purpose (see SyncActions).
+  const actions = useMemo<SyncActions>(() => ({
+    retryProblem: () => {
+      // Which recovery this click means is a pure decision (retryPolicy.ts);
+      // its execution — the queue, the replica and the startup gate —
+      // belongs to the runtime, except the legacy outline repair. The
+      // freshest problem is read from problemRef for the same reason
+      // applySync does: a same-tick dispatch must not be judged against the
+      // value still pending in React's batched state update. With no
+      // runtime, startup never ran, so its gate still counts as up.
+      const plan = planRetry(problemRef.current, {
+        startupDiscoveringPoison: runtime?.discoveringPoison() ?? true,
+      });
+      if (plan.kind === "legacy-repair") {
+        return repairLegacy(legacyRejectedRef.current);
+      }
+      return runtime?.runRetry(plan) ?? Promise.resolve();
+    },
+    discardProblem: () => {
+      const currentProblem = problemRef.current;
+      if (currentProblem?.kind !== "rejected-batch" ||
+          currentProblem.repair !== "mark-failed") return Promise.resolve();
+      return runtime?.discardPoisonIntents() ?? Promise.resolve();
+    },
+    dismissProblem: () => {
+      const currentProblem = problemRef.current;
+      if (currentProblem?.kind === "legacy-rejected" &&
+          currentProblem.repair === "repaired") {
+        legacyRejectedRef.current = undefined;
+      } else if (currentProblem?.kind === "rejected-batch" &&
+          currentProblem.repair === "repaired") {
+        runtime?.clearRepairTargets();
+      } else if (currentProblem?.kind === "replica-stalled" &&
+          (currentProblem.reset === "blocked" || currentProblem.reset === "failed")) {
+        // No local ref cleanup needed here: acknowledging a blocked/failed
+        // reset just clears the banner — a later stall re-report re-raises
+        // it fresh (see syncState's "dismiss"/"replica-stalled" handling).
+      } else {
+        return;
+      }
+      applySync({ type: "dismiss" });
+    },
+    resetReplica: async (discardPending = false) => {
+      applySync({ type: "reset-started" });
+      try {
+        await replicaSync?.resetLocalData({ discardPending });
+        applySync({ type: "reset-succeeded" });
+      } catch (e: unknown) {
+        if (e instanceof ResetBlockedError) {
+          applySync({ type: "reset-blocked", pending: e.pending });
         } else {
-          return;
+          applySync({ type: "reset-failed", error: String(e) });
         }
-        applySync({ type: "dismiss" });
-      },
-      resetReplica: async (discardPending = false) => {
-        applySync({ type: "reset-started" });
-        try {
-          await replicaSync?.resetLocalData({ discardPending });
-          applySync({ type: "reset-succeeded" });
-        } catch (e: unknown) {
-          if (e instanceof ResetBlockedError) {
-            applySync({ type: "reset-blocked", pending: e.pending });
-          } else {
-            applySync({ type: "reset-failed", error: String(e) });
-          }
-        }
-      },
-      enqueue: (ops, scope) => {
-        const ticket = queue.enqueue(ops, scope);
-        trackActiveOutlineWrite(ticket, ops);
-        return ticket;
-      },
-      attachOutlineReplay: (ticket, title, replay) => {
-        attachActiveOutlineWriteReplay(ticket, title, replay);
-      },
-      subscribe: (fn) => {
-        subsRef.current.add(fn);
-        return () => { subsRef.current.delete(fn); };
-      },
-      settled: () => queue.settled(),
-    };
-    // All four are created once per provider, so this value is too. The
-    // methods reach current state through refs on purpose (see SyncActions).
-  }, [applySync, queue, replicaSync, repairLegacy]);
+      }
+    },
+    enqueue: (ops, scope) => {
+      const ticket = queue.enqueue(ops, scope);
+      trackActiveOutlineWrite(ticket, ops);
+      return ticket;
+    },
+    attachOutlineReplay: (ticket, title, replay) => {
+      attachActiveOutlineWriteReplay(ticket, title, replay);
+    },
+    subscribe: (fn) => {
+      subsRef.current.add(fn);
+      return () => { subsRef.current.delete(fn); };
+    },
+    settled: () => queue.settled(),
+  }), [applySync, queue, replicaSync, repairLegacy, runtime]);
 
   // Nested rather than combined, most stable outermost. A change to one slice
   // re-renders that slice's consumers only; `children` is the same element

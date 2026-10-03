@@ -28,7 +28,7 @@ in [`docs/design.md`](../design.md) and the specs under
 | [sync-recovery.md](sync-recovery.md) | Sync failure modes and recovery: each guard, what detects it, what it does |
 | [sqlite-wasm-patch.md](sqlite-wasm-patch.md) | The temporary sqlite-wasm patch for hot-journal rollback: what it changes, how it is applied, upgrading, upstream status |
 | [performance-checks.md](performance-checks.md) | The `perf/check.sh` regression gate: fixture, scenarios, metric classes, confirmation, shared state |
-| [property-checks.md](property-checks.md) | The `proptest/check.sh` property-based gate: what each property checks, running it, reading a failure |
+| [property-checks.md](property-checks.md) | The `proptest/check.sh` property-based gate, server and web sides: what each property checks, running it, reading a failure |
 | [troubleshooting.md](../troubleshooting.md) | Known failures indexed by symptom, each with its cause and the section that owns it |
 
 ## System context

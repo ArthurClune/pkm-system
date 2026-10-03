@@ -483,7 +483,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Sync Changes */
+        /**
+         * Sync Changes
+         * @description One window of the change journal after `since`, hydrated to current
+         *     rows, plus which of the `pending` batch ids that window already holds.
+         */
         get: operations["sync_changes_api_sync_changes_get"];
         put?: never;
         post?: never;
@@ -500,7 +504,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Sync Snapshot */
+        /**
+         * Sync Snapshot
+         * @description The whole graph at one journal seq, plus which of the `pending` batch
+         *     ids it already holds.
+         */
         get: operations["sync_snapshot_api_sync_snapshot_get"];
         put?: never;
         post?: never;
@@ -933,6 +941,23 @@ export interface components {
             /** Title */
             title: string;
         };
+        /**
+         * AppliedBatch
+         * @description One of the client's pending batches (the `pending` query param of
+         *     /api/sync/changes and /api/sync/snapshot) that the payload already holds:
+         *     its applied_batches row is in the same read transaction that hydrated the
+         *     payload, and a batch's writes commit with that row. `seq` and `skipped`
+         *     are its stored ack's, read through OpsAck, so an ack stored before those
+         *     fields existed reads as None / [].
+         */
+        AppliedBatch: {
+            /** Batch Id */
+            batch_id: Brands.BatchId;
+            /** Seq */
+            seq: Brands.SyncSeq | null;
+            /** Skipped */
+            skipped: components["schemas"]["SkippedOp"][];
+        };
         /** AssetRef */
         AssetRef: {
             /** Uid */
@@ -1194,6 +1219,8 @@ export interface components {
             sidebar: components["schemas"]["SyncSidebarEntry"][];
             /** Tombstones */
             tombstones: components["schemas"]["SyncTombstone"][];
+            /** Applied Batches */
+            applied_batches?: components["schemas"]["AppliedBatch"][];
         };
         /**
          * ClientDiagnosticsRequest
@@ -1713,6 +1740,8 @@ export interface components {
             blocks: components["schemas"]["SyncBlock"][];
             /** Sidebar */
             sidebar: components["schemas"]["SyncSidebarEntry"][];
+            /** Applied Batches */
+            applied_batches?: components["schemas"]["AppliedBatch"][];
         };
         /** SyncBlock */
         SyncBlock: {
@@ -2671,6 +2700,8 @@ export interface operations {
             query?: {
                 since?: number;
                 limit?: number;
+                /** @description Batch ids the client still holds as pending. The response's applied_batches names those this payload already holds. */
+                pending?: string[] | null;
             };
             header?: never;
             path?: never;
@@ -2700,7 +2731,10 @@ export interface operations {
     };
     sync_snapshot_api_sync_snapshot_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Batch ids the client still holds as pending. The response's applied_batches names those this payload already holds. */
+                pending?: string[] | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2714,6 +2748,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SnapshotPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

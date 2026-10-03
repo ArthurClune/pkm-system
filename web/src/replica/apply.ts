@@ -1,10 +1,12 @@
 // pattern: Imperative Shell
 // Feed application (spec sections 3 and 1): snapshot bootstrap and windowed
-// changes upserts. Each window applies in ONE transaction, ordered tombstones
-// -> pages -> blocks -> sidebar, under transaction-scoped deferred FKs so
-// intra-window row order never matters for FKs; it matters for the UNIQUE
-// titles, which is why tombstones lead and colliding titles are parked
-// (applyWindow). Upserts are idempotent -- re-pulling any window is safe. The
+// changes upserts. Each window applies in ONE transaction, ordered page and
+// sidebar tombstones -> pages -> blocks -> block tombstones -> sidebar, under
+// transaction-scoped deferred FKs so intra-window row order never matters for
+// FKs; it matters for the UNIQUE titles, which is why page and sidebar
+// tombstones lead and colliding titles are parked, and for the block
+// cascade, which is why block tombstones follow the upserts (applyWindow).
+// Upserts are idempotent -- re-pulling any window is safe. The
 // base schema's FTS triggers maintain the local search index on every upsert.
 //
 // Deferred FKs move every violation to the outer COMMIT, so neither the
@@ -24,11 +26,13 @@
 import type { BlockUid, CanonicalTitle, PageId, SidebarEntryId,
               SyncSeq } from "../api/brands";
 import type { components } from "../api/types";
+import { appliedPendingRows } from "./ackedRows";
 import { reindexBlockRefs } from "./blockRefs";
+import type { DroppedBatch, PendingRowId } from "./client";
 import { type ReplicaDb, rollbackToSavepoint, type SqlValue } from "./db";
 import { applyLocalOps } from "./localOps";
 import { getMeta, setMeta, setPlainSpaceTitleCanonicalization } from "./meta";
-import { allBatches } from "./queue";
+import { allBatches, deleteBatch } from "./queue";
 import { reconcileActivationPageTitles, reconcilePage } from "./reconcile";
 
 export type Changes = components["schemas"]["ChangesPayload"];
@@ -37,8 +41,12 @@ export type SyncBlock = components["schemas"]["SyncBlock"];
 export type SyncPage = components["schemas"]["SyncPage"];
 export type SyncTombstone = components["schemas"]["SyncTombstone"];
 
+type AppliedBatch = components["schemas"]["AppliedBatch"];
+
+/** `dropped` lists the pending rows the window named as already applied and
+ * deleted (see dropAppliedPending); it is absent when there were none. */
 export type ApplyResult =
-  | { status: "applied"; cursor: SyncSeq }
+  | { status: "applied"; cursor: SyncSeq; dropped?: readonly DroppedBatch[] }
   | { status: "needs-bootstrap" }
   | { status: "pending-changed" };
 
@@ -73,9 +81,35 @@ const upsertBlock = (db: ReplicaDb, b: SyncBlock): void => {
   reindexBlockRefs(db, b.uid, b.text);
 };
 
+/** The pending rows a payload names in `applied_batches` (the batch is
+ * already in the server's applied_batches as of the read that hydrated the
+ * payload), deleted before the replay; see appliedPendingRows for which rows
+ * qualify.
+ *
+ * A batch's writes and its applied_batches row commit together, so a named
+ * batch is one whose effects the payload's rows already show, however its
+ * ack is faring. Replaying it would apply it a second time: reapplyPending's
+ * per-op keep rules hold only while nothing after an op moved its target,
+ * and a later op of the same batch, a later batch, or another device's edit
+ * can. The payload is the batch's echo, so nothing would re-ship the rows it
+ * damaged. Deleting the row here is what the drain does on the ack; its
+ * caller settles the row's delivery as the ack would. A window whose
+ * transaction rolls back keeps the rows. */
+function dropAppliedPending(db: ReplicaDb,
+                            applied: readonly AppliedBatch[] | undefined,
+                            droppable?: readonly PendingRowId[]): DroppedBatch[] {
+  if (applied === undefined || applied.length === 0) return [];
+  const dropped = appliedPendingRows(
+    allBatches(db), applied,
+    droppable === undefined ? undefined : new Set(droppable));
+  for (const row of dropped) deleteBatch(db, row.id, row.batch_id);
+  return dropped;
+}
+
+/** Returns the pending rows the snapshot named as applied and deleted. */
 export function applySnapshot(db: ReplicaDb, snap: Snapshot,
-                              nowMs: number = Date.now()): void {
-  db.transaction(() => {
+                              nowMs: number = Date.now()): DroppedBatch[] {
+  return db.transaction(() => {
     db.exec("PRAGMA defer_foreign_keys = ON");
     // wipe order respects FKs anyway (refs -> blocks -> pages)
     db.exec("DELETE FROM refs");
@@ -94,7 +128,9 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
     setPlainSpaceTitleCanonicalization(
       db, snap.plain_space_title_canonicalization);
     reconcileActivationPageTitles(db);
+    const dropped = dropAppliedPending(db, snap.applied_batches);
     reapplyPending(db, nowMs);
+    return dropped;
   });
 }
 
@@ -111,7 +147,9 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
  * then the provider deletes their rows before delivery resumes.
  * A replayed batch is one the server has not acknowledged: a rebase commit
  * deletes the batches its flush got acks for before the snapshot applies,
- * since what the server saved for them can differ from their wire text. The
+ * since what the server saved for them can differ from their wire text, and
+ * a payload's applied_batches deletes the batches it already holds
+ * (dropAppliedPending). The
  * batches replayed here still flush to the server unchanged. An op whose
  * block or parent the feed removed is skipped inside applyLocalOps, as the
  * server skips it, so the rest of its batch still lands. A window
@@ -211,15 +249,21 @@ const isFkFailure = (e: unknown): boolean => {
       || /\bresult code 787\b/.test(message);
 };
 
+/** `droppable`: the pending rows the pull read when it named its pending
+ * batches to the server. Only those may be dropped as already applied; when
+ * omitted, any row the feed names may be. */
 export function applyChanges(db: ReplicaDb, feed: Changes,
-                             nowMs: number = Date.now()): ApplyResult {
+                             nowMs: number = Date.now(),
+                             { droppable }: { droppable?: readonly PendingRowId[] } = {},
+): ApplyResult {
   if (feed.reset || feed.generation !== getMeta(db, "generation")) {
     // cursor from another life: a reset request, or a rebuilt database
     // whose journal restarted. Never apply mid-journal rows.
     return { status: "needs-bootstrap" };
   }
+  let dropped: DroppedBatch[];
   try {
-    applyWindow(db, feed, nowMs);
+    dropped = applyWindow(db, feed, nowMs, droppable);
   } catch (e) {
     if (e instanceof StaleTitleHolderError) {
       // A local row still holds a title this window handed to another id,
@@ -249,7 +293,9 @@ export function applyChanges(db: ReplicaDb, feed: Changes,
       e);
     return { status: "needs-bootstrap" };
   }
-  return { status: "applied", cursor: feed.next_since };
+  return dropped.length > 0
+    ? { status: "applied", cursor: feed.next_since, dropped }
+    : { status: "applied", cursor: feed.next_since };
 }
 
 /** Thrown inside the window transaction (so it rolls back) when a parked
@@ -286,8 +332,8 @@ type TitledTableFor<Id extends PageId | SidebarEntryId> =
 /** `pages.title` and `sidebar_entries.title` are UNIQUE, and a window is a
  * set of CURRENT rows: it can carry two rows that traded titles, or a
  * tombstone for the row that used to own a title beside the row that took it
- * over. Tombstones are applied before upserts (applyWindow), which covers the
- * second shape; this covers the first. For each incoming row, any OTHER
+ * over. Page and sidebar tombstones are applied before upserts (applyWindow),
+ * which covers the second shape; this covers the first. For each incoming row, any OTHER
  * positive-id local row holding its title is moved to a placeholder first, so
  * the upsert lands, and the holder's own upsert (later in the same window)
  * restores its real title. Negative ids are offline-created pages, which
@@ -318,50 +364,78 @@ export function assertNoParkedTitles<Id extends PageId | SidebarEntryId>(
   if (still.length > 0) throw new StaleTitleHolderError(table, still);
 }
 
-/** Order inside the window transaction: tombstones, then pages, blocks and
- * sidebar upserts, then the queue replay. Deferred FKs make the order
- * irrelevant for referential integrity; it is the UNIQUE titles that fix it.
- * A row that gave a title up by being deleted must be gone before the row
- * that took the title arrives, so tombstones go first. A page
- * tombstone cascades to its local blocks; any of those that survived
- * server-side (moved to another page) come back through the block upserts
- * that follow, because the feed hydrates current rows. A page id the server
- * deleted and reused inside the window arrives as both a tombstone and a
- * live row: the tombstone's cascade clears the old page's blocks and every
- * ref to the id. The server ships every current block on or referencing
- * that page in the same window, so every block the server still has there
- * is back by COMMIT. A block an earlier window hydrated onto the page, and
- * which has left it since, is removed too and returns with its own later
- * journal row, so the replica converges by a later window. */
-function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number): void {
-  db.transaction(() => {
+/** Deletes one tombstone's row; its FK cascades take what hangs off it. */
+function applyTombstone(db: ReplicaDb, tomb: SyncTombstone): void {
+  if (tomb.kind === "block") {
+    // entity_id is one TEXT wire field for three kinds; a block
+    // tombstone's value is a block uid.
+    db.exec("DELETE FROM blocks WHERE uid = ?",
+            [tomb.entity_id as BlockUid]);
+  } else if (tomb.kind === "page") {
+    db.exec("DELETE FROM pages WHERE id = ?",
+            [Number(tomb.entity_id) as PageId]);
+  } else if (tomb.kind === "sidebar") {
+    db.exec("DELETE FROM sidebar_entries WHERE id = ?",
+            [Number(tomb.entity_id) as SidebarEntryId]);
+  } else {
+    // A kind this build doesn't know (an older replica meeting a kind a
+    // newer server added): skip it rather than fall through to a
+    // sidebar delete, which would destroy an unrelated row. The `never`
+    // assignment makes an unhandled EntityKind a compile error here.
+    const unhandled: never = tomb.kind;
+    console.warn("applyWindow: unknown tombstone kind, skipping",
+                 unhandled);
+  }
+}
+
+/** Order inside the window transaction: page and sidebar tombstones, then
+ * pages and blocks, then block tombstones, then sidebar upserts, then
+ * dropping the pending rows the window names as applied, then the queue
+ * replay. Deferred FKs make the order irrelevant for referential
+ * integrity; the UNIQUE titles and the local cascades fix it.
+ *
+ * Page and sidebar tombstones lead. A row that gave a title up by being
+ * deleted must be gone before the row that took the title arrives. A page
+ * id the server deleted and reused inside the window arrives as both a
+ * tombstone and a live row: the tombstone's cascade clears the old page's
+ * blocks and every ref to the id, and the server ships every current block
+ * on or referencing that page in the same window, so every block the
+ * server still has there is back by COMMIT. A page cascade never removes a
+ * block the server kept for good: a block leaves a page only by a write to
+ * its own row (every block of a moved subtree gets the new page_id), so
+ * the block upserts that follow bring it back. A block an earlier window
+ * hydrated onto the page, and which has left it since, returns with its
+ * own later journal row.
+ *
+ * Block tombstones follow the upserts, so the local cascade spares a block
+ * the server kept when its move out ships no later than the tombstone. The
+ * server journals every block it deletes, cascaded rows included, and ships
+ * a block's tombstone only in the window that holds its delete row
+ * (sync_core.tombstone_entities). A kept block left the deleted subtree by
+ * a move at a lower seq, in the same window or an earlier one, and
+ * applying the upserts first takes it out of the cascade's reach. The kept
+ * block may be a descendant that moved along with a moved-out ancestor:
+ * its own row never changed, so only the ancestor's row ships, and nothing
+ * would re-ship the descendant once the cascade had taken it. Not yet
+ * covered: when that ancestor is itself deleted in a later window, its
+ * move row ships nothing (it is absent now), and the cascade runs over the
+ * replica's stale subtree. Block uids are never reused, so no block is
+ * both tombstoned and shipped live in one window. The cascade still removes
+ * optimistic rows under a deleted block (a pending create's ghost), and the
+ * replay then skips the op as the server does. */
+function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
+                     droppable?: readonly PendingRowId[]): DroppedBatch[] {
+  return db.transaction(() => {
     db.exec("PRAGMA defer_foreign_keys = ON");
+    const blockTombstones = feed.tombstones.filter((tm) => tm.kind === "block");
     for (const tomb of feed.tombstones) {
-      if (tomb.kind === "block") {
-        // entity_id is one TEXT wire field for three kinds; a block
-        // tombstone's value is a block uid.
-        db.exec("DELETE FROM blocks WHERE uid = ?",
-                [tomb.entity_id as BlockUid]);
-      } else if (tomb.kind === "page") {
-        db.exec("DELETE FROM pages WHERE id = ?",
-                [Number(tomb.entity_id) as PageId]);
-      } else if (tomb.kind === "sidebar") {
-        db.exec("DELETE FROM sidebar_entries WHERE id = ?",
-                [Number(tomb.entity_id) as SidebarEntryId]);
-      } else {
-        // A kind this build doesn't know (an older replica meeting a kind a
-        // newer server added): skip it rather than fall through to a
-        // sidebar delete, which would destroy an unrelated row. The `never`
-        // assignment makes an unhandled EntityKind a compile error here.
-        const unhandled: never = tomb.kind;
-        console.warn("applyWindow: unknown tombstone kind, skipping",
-                     unhandled);
-      }
+      if (tomb.kind !== "block") applyTombstone(db, tomb);
     }
     const parkedPages = parkTakenTitles(db, "pages", feed.pages);
     for (const p of feed.pages) upsertPage(db, p);
     assertNoParkedTitles(db, "pages", parkedPages);
     for (const b of feed.blocks) upsertBlock(db, b);
+    for (const tomb of blockTombstones) applyTombstone(db, tomb);
     const parkedSidebar = parkTakenTitles(db, "sidebar_entries", feed.sidebar);
     for (const s of feed.sidebar) {
       db.exec(
@@ -375,6 +449,8 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number): void {
     setPlainSpaceTitleCanonicalization(
       db, feed.plain_space_title_canonicalization);
     reconcileActivationPageTitles(db);
+    const dropped = dropAppliedPending(db, feed.applied_batches, droppable);
     reapplyPending(db, nowMs);
+    return dropped;
   });
 }

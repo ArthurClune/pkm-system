@@ -12,7 +12,7 @@
 import { ApiError } from "../api/client";
 import type { BatchId, ClientId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
-import type { OpsAck } from "../api/payloads";
+import type { OpBatch, OpsAck } from "../api/payloads";
 import { apiPost } from "../api/typedClient";
 import type { PendingBatch, Replica } from "../replica/client";
 import { availabilityOf, isSessionFatal, ReplicaError,
@@ -129,6 +129,13 @@ export interface OpQueue {
    * failure — a discard is the drain's decision alone, never this door's —
    * and throws if the queue is disposed. */
   deliverLaneAhead(batchId: BatchId): Promise<void>;
+  /** Durable batches the server holds that no ack of this queue's settled: a
+   * sync payload named them as already applied and the replica dropped their
+   * rows (replicaSync). Each delivery resolves "delivered" and its lane mark
+   * goes, the backoff resets and the drain runs on, as on the drain's ack;
+   * the durable count is re-read. A batch already settled, or never this
+   * queue's, settles nothing. */
+  settleCommitted(batchIds: readonly BatchId[]): void;
 }
 
 let nextTicket = 1;
@@ -142,14 +149,36 @@ function ticket(scope: readonly string[] | undefined,
   };
 }
 
-function postOps(ops: BlockOp[], batchId: BatchId): Promise<OpsAck> {
-  return apiPost("/api/ops", {
-    body: { client_id: clientId, batch_id: batchId, ops },
-  });
+/** Durable store for poison-mark intents (localStorage by default). */
+export interface PoisonIntentStore {
+  read(): PoisonEvent[];
+  write(intents: readonly PoisonEvent[]): void;
 }
 
-export function createOpQueue(replica: Replica): OpQueue {
-  let poisonMarkIntents = readPoisonMarkIntents();
+/** Everything the queue otherwise takes from module state or the network, so
+ * a harness can run several independent queues in one process. */
+export interface OpQueueDeps {
+  post?: (body: OpBatch) => Promise<OpsAck>;
+  clientId?: ClientId;
+  poisonStore?: PoisonIntentStore;
+  newBatchId?: () => BatchId;
+}
+
+const defaultPost = (body: OpBatch): Promise<OpsAck> =>
+  apiPost("/api/ops", { body });
+
+const defaultPoisonStore: PoisonIntentStore = {
+  read: readPoisonMarkIntents, write: writePoisonMarkIntents,
+};
+
+export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue {
+  const post = deps.post ?? defaultPost;
+  const queueClientId = deps.clientId ?? clientId;
+  const poisonStore = deps.poisonStore ?? defaultPoisonStore;
+  const newBatchId = deps.newBatchId ?? ((): BatchId => newRawUid() as BatchId);
+  const postOps = (ops: BlockOp[], batchId: BatchId): Promise<OpsAck> =>
+    post({ client_id: queueClientId, batch_id: batchId, ops });
+  let poisonMarkIntents = poisonStore.read();
   // Connectivity + retry policy lives in the queueState core; this shell owns
   // the timer handle and dispatches events into it.
   let qstate = createQueueState(poisonMarkIntents.length > 0);
@@ -345,7 +374,7 @@ export function createOpQueue(replica: Replica): OpQueue {
    * decrement it used to be. */
   const rememberPoisonMark = (event: PoisonEvent): void => {
     poisonMarkIntents = withIntent(poisonMarkIntents, event);
-    writePoisonMarkIntents(poisonMarkIntents);
+    poisonStore.write(poisonMarkIntents);
   };
 
   const markRetainedPoison = async (): Promise<readonly PoisonEvent[]> => {
@@ -374,7 +403,7 @@ export function createOpQueue(replica: Replica): OpQueue {
     // The database is now the durable source of truth. Removing fallback
     // metadata before publication is crash-safe: startup discovers the
     // poisoned database rows. If removal fails, marking is idempotent.
-    writePoisonMarkIntents([]);
+    poisonStore.write([]);
     poisonMarkIntents = [];
     matchedIntents.forEach((event) => poison.emit(event));
     if (intents.length > 0 && matchedIntents.length === 0) {
@@ -648,7 +677,7 @@ export function createOpQueue(replica: Replica): OpQueue {
         // the catch below still carries the row's id, and whichever copy
         // delivers second lands on the server's applied_batches replay
         // instead of a create-collision 400.
-        const batchId = newRawUid() as BatchId;
+        const batchId = newBatchId();
         try {
           const result = await replica.enqueue(ops, batchId);
           // Persisted durably: marked behind every lane entry appended
@@ -758,7 +787,20 @@ export function createOpQueue(replica: Replica): OpQueue {
     retryPoisonMarks: markRetainedPoison,
     discardPoisonIntents: () => {
       poisonMarkIntents = [];
-      writePoisonMarkIntents(poisonMarkIntents);
+      poisonStore.write(poisonMarkIntents);
+    },
+    settleCommitted(batchIds) {
+      if (batchIds.length === 0) return;
+      for (const batchId of batchIds) {
+        finishDelivery(batchId, { status: "delivered" });
+        outbox = forget(outbox, batchId);
+      }
+      void countPending();
+      // As on a drain ack: the backoff resets, and the rows behind a dropped
+      // head go out now rather than when the retry timer armed for that head
+      // (its lost ack) fires.
+      dispatch({ type: "batch-succeeded" });
+      if (!qstate.disposed) kick();
     },
     async deliverLaneAhead(batchId) {
       if (qstate.disposed) throw new Error("op queue disposed");

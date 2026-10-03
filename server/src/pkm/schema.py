@@ -133,12 +133,31 @@ BASE_DDL += SIDEBAR_ENTRIES_DDL
 # cascade deletes, implicit page creation), and triggers capture every
 # affected row on every write path, current and future. Cascade deletes
 # fire these triggers only when PRAGMA recursive_triggers=ON (db.py).
+#
+# A block's delete row also records the page the block was on (page_id),
+# and so does the tombstone a diverted create writes for the block the
+# server never created (ops_core.JournalBlock); every other row leaves it
+# NULL. A skipped top-level move with no page_title
+# shifted the top level of the block's own page on the client, and once
+# the block is gone this is the server's only record of that page
+# (ops_apply._destination_siblings). A database that predates the column
+# gets it and the re-created trigger from db._ensure_schema_migrations.
+# The lookup scans the journal newest first, with no index: an index would
+# cost every journal insert, and the lookup runs only on that rare skip.
+BLOCKS_CHG_AD_TRIGGER = """
+CREATE TRIGGER IF NOT EXISTS blocks_chg_ad AFTER DELETE ON blocks BEGIN
+  INSERT INTO changes(kind, entity_id, deleted, page_id)
+  VALUES ('block', old.uid, 1, old.page_id);
+END;
+"""
+
 SERVER_DDL = """
 CREATE TABLE IF NOT EXISTS changes(
   seq        INTEGER PRIMARY KEY AUTOINCREMENT,
   kind       TEXT NOT NULL CHECK(kind IN ('block','page','sidebar')),
   entity_id  TEXT NOT NULL,
-  deleted    INTEGER NOT NULL DEFAULT 0
+  deleted    INTEGER NOT NULL DEFAULT 0,
+  page_id    INTEGER
 );
 
 CREATE TRIGGER IF NOT EXISTS blocks_chg_ai AFTER INSERT ON blocks BEGIN
@@ -147,9 +166,7 @@ END;
 CREATE TRIGGER IF NOT EXISTS blocks_chg_au AFTER UPDATE ON blocks BEGIN
   INSERT INTO changes(kind, entity_id, deleted) VALUES ('block', new.uid, 0);
 END;
-CREATE TRIGGER IF NOT EXISTS blocks_chg_ad AFTER DELETE ON blocks BEGIN
-  INSERT INTO changes(kind, entity_id, deleted) VALUES ('block', old.uid, 1);
-END;
+""" + BLOCKS_CHG_AD_TRIGGER + """
 
 CREATE TRIGGER IF NOT EXISTS pages_chg_ai AFTER INSERT ON pages BEGIN
   INSERT INTO changes(kind, entity_id, deleted)

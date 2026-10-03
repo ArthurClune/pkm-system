@@ -115,6 +115,9 @@ export default defineConfig({
         "src/**/*.d.ts",
         "src/api/ops.ts",
         "src/api/payloads.ts",
+        // property-suite helpers run under proptest/check.sh web; only the
+        // ordinary unit tests under props/ (already excluded as *.test.*) count
+        "src/props/**",
       ],
       thresholds: {
         statements: 95,

@@ -410,8 +410,10 @@ class TextConflictContext:
 @dataclass(frozen=True)
 class SkipContext:
     """A skipped op that lands nothing (`skip.landing_uid` is None): a
-    noop, or a blank orphan_edit / diverted_create."""
+    noop, or a blank orphan_edit / diverted_create. `ghost_page`: see
+    LandedSkipContext."""
     skip: Skip
+    ghost_page: PageId | None = None
 
 
 @dataclass(frozen=True)
@@ -419,10 +421,21 @@ class LandedSkipContext:
     """An orphan_edit, diverted_create or orphan_structural with an entry
     to land. `hint_page_exists` says whether op.page_title, the client's
     hint, names a page now; it picks the header's link-vs-code-span label
-    (`conflict_notes.conflict_label`)."""
+    (`conflict_notes.conflict_label`).
+
+    `siblings`: the live blocks of an orphan move's destination sibling
+    group, which the client's optimistic apply shifted and the server did
+    not (`ops_apply._destination_siblings`); empty for every other op.
+
+    `ghost_page` (here and on SkipContext): for a diverted_create, the page
+    the client placed the block on, if the server can tell. Its tombstone
+    records it, so a later skip of the same uid can name the page as it
+    would a deleted block's."""
     skip: Skip
     landing: ConflictLanding
     hint_page_exists: bool
+    siblings: tuple[BlockUid, ...] = ()
+    ghost_page: PageId | None = None
 
 
 @dataclass(frozen=True)
@@ -551,13 +564,20 @@ class RecordConflictHeader:
 @dataclass(frozen=True)
 class JournalBlock:
     """A changes-journal row for uid without writing the block. The feed
-    hydrates each journalled uid from current state, so a uid with no block
-    row ships as a tombstone and a live one as its real row: this is how a
-    replica drops the ghost of an op the server skipped (a block it never
-    created, or a move it never made) without an authoritative repair.
-    `deleted` fills the journal's informational column."""
+    hydrates each journalled uid from current state, so a live uid ships as
+    its real row, and a uid with no block row journalled `deleted` ships as
+    a tombstone: this is how a replica drops the ghost of an op the server
+    skipped (a block it never created, or a move it never made) without an
+    authoritative repair. `deleted` must be true exactly when the uid has no
+    block row: the feed ships a block tombstone only from a delete row
+    (sync_core.tombstone_entities). `page_id`, on a tombstone, is the page
+    the uid's block was on, as the delete trigger records it
+    (schema.BLOCKS_CHG_AD_TRIGGER); for a diverted create it is the page the
+    client placed the block on (the create's `page_title` page, else its
+    parent's last page). The feed never ships it."""
     uid: BlockUid
     deleted: bool
+    page_id: PageId | None = None
 
 
 Effect = Union[ShiftSiblings, InsertBlock, UpdateText, SetParent,
@@ -599,12 +619,24 @@ def conflict_entry_effects(
 def _plan_skip(op: BlockOp, ctx: SkippedContext) -> tuple[Effect, ...]:
     """Effects for an op `classify_skip` flagged: a daily-note entry when it
     has a landing, plus JournalBlock for every uid a replica may hold a
-    ghost of, so the feed corrects it.
+    ghost of, so the feed corrects it, and for every destination sibling
+    (`LandedSkipContext.siblings`) the replica's optimistic apply shifted.
+    Journalling a sibling writes no column: the feed re-ships its row as it
+    stands.
 
     Tombstones (uids with no row) always lead, live rows always trail: a
     ghost's tombstone cascades its whole local subtree away on a replica,
     and a window boundary between the two must never put it after the live
     rows that bring the survivors back."""
+    effects = _plan_skip_own(op, ctx)
+    journalled = {e.uid for e in effects if isinstance(e, JournalBlock)}
+    siblings = ctx.siblings if isinstance(ctx, LandedSkipContext) else ()
+    return (*effects, *(JournalBlock(u, False) for u in siblings
+                        if u not in journalled))
+
+
+def _plan_skip_own(op: BlockOp, ctx: SkippedContext) -> tuple[Effect, ...]:
+    """`_plan_skip` less the destination siblings."""
     assert not isinstance(op, CreatePageOp)  # never classified skipped
     skip = ctx.skip
     # the context type must fit the skip kind, not just the op: planned
@@ -642,7 +674,7 @@ def _plan_skip(op: BlockOp, ctx: SkippedContext) -> tuple[Effect, ...]:
                 if isinstance(op, SetCollapsedOp) else ())
     if isinstance(op, CreateOp):                     # diverted_create
         assert op.parent_uid is not None
-        tombstones = (JournalBlock(op.uid, True),
+        tombstones = (JournalBlock(op.uid, True, ctx.ghost_page),
                       JournalBlock(op.parent_uid, True))
     else:
         # orphan_edit (check 1): edit-vs-delete race, uid+text is all we

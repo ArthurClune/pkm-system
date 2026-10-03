@@ -1,34 +1,77 @@
 # Property checks
 
-`proptest/check.sh` is a Hypothesis property-based gate for the sync and
-planning invariants: two generators drive random op batches and CLI batches
-against the real server and compare the result with a from-the-docs reference
-model. It runs locally before a merge, the same way
+`proptest/check.sh` is a property-based gate for the sync and planning
+invariants, in two suites:
+
+| Side | Framework | Drives | Compared with |
+|---|---|---|---|
+| `server` | Hypothesis | random op batches and CLI batches, in-process | a from-the-docs reference model |
+| `web` | fast-check | 2-3 clients running the real web sync stack against the real server, with faults | the server's state, through an oracle (see [What the web property checks](#what-the-web-property-checks)) |
+
+It runs locally before a merge, the same way
 [`perf/check.sh`](performance-checks.md) does; it is not CI, a git hook, or
-part of `pytest -q` or `pnpm verify`.
+part of `pytest -q`, `pnpm test:unit` or `pnpm verify`.
 
 What to do with a failure is in
 [`AGENTS.md` § Testing](../../AGENTS.md#testing). The rationale and rejected
-alternatives are in the
-[design spec](../superpowers/specs/2026-10-02-property-checks-server-design.md).
+alternatives are in the design specs:
+[server](../superpowers/specs/2026-10-02-property-checks-server-design.md) and
+[web sync harness](../superpowers/specs/2026-10-03-property-checks-sync-harness-design.md).
 
 ## Running it
 
 ```
-proptest/check.sh [auto|server|web] [--seed N]
+proptest/check.sh [auto|server|web] [--seed N] [--path P] [--replay-path R]
 ```
 
 `auto` (the default) picks sides from the diff against `main`, the same rule
-as `perf/check.sh`: `server/…` runs the server side, `web/…` the web side.
-Only `server` exists yet; naming `web` prints "no properties yet" until a
-later sub-project adds one. `--seed N` reproduces a specific run
-(`--hypothesis-seed=N`); without it, each run explores a new random seed.
+as `perf/check.sh`:
+
+| Changed path | Side |
+|---|---|
+| `server/…` | server |
+| `web/…`, except `web/e2e/` and `*.md` | web |
+| `server/src/…`, `server/tooling/proptest/sync_server.py` | web as well: the web suite drives the real server's sync routes |
+
+`--seed N` reproduces a specific run (`--hypothesis-seed=N` on the server
+side, fast-check's seed on the web side); without it, each run explores a new
+random seed. `--path` and `--replay-path` apply to the web side only
+(see [Reading a web failure](#reading-a-web-failure)).
+
+The web side starts the harness server, `server/tooling/proptest/sync_server.py`,
+on port 8978, waits for `/healthz`, runs vitest, and stops the server by PID.
+It refuses to run when 8978 is already in use. The server is the real
+`create_app` plus four control routes the suite needs, which exist only in
+that launcher and never in `pkm.server.app`:
+
+| Route | Does |
+|---|---|
+| `POST /__proptest/reset` | restores the seeded database (six `pt_seed_N` blocks on the `Proptest` page) and the clock |
+| `POST /__proptest/clock` | moves the frozen server clock |
+| `POST /__proptest/rotate-generation` | rotates the sync `db_generation` |
+| `GET /__proptest/applied` | `applied_batches` rows in commit order, with `applied_at` |
+
+The server clock starts at `START_MS`, 2026-03-01 12:00 Europe/London, never
+ticks, and moves only by `/__proptest/clock`. It never moves before `START_MS`
+or more than a year past it, because the harness logs in once at `START_MS` and
+session cookies are rejected when issued in the future or more than a year ago.
 
 | Module | Pattern | Role |
 |---|---|---|
 | `proptest/check.sh` | script | wrapper: `TZ=Europe/London`, `python -m proptest.run` |
-| `server/tooling/proptest/run.py` | Imperative Shell | git diff, then `uv run pytest -m proptest --no-cov tests/props` under `HYPOTHESIS_PROFILE=merge` |
-| `server/tooling/proptest/sides.py` | Functional Core | `sides_for(changed_paths)`, mirrors `perfcheck.run_core.sides_for` |
+| `server/tooling/proptest/run.py` | Imperative Shell | git diff; the server runner (`uv run pytest -m proptest --no-cov tests/props` under `HYPOTHESIS_PROFILE=merge`) and the web runner (launches `sync_server.py`, then `vitest run --config vitest.props.config.ts`, passing `PROPTEST_*` environment variables) |
+| `server/tooling/proptest/sides.py` | Functional Core | `sides_for(changed_paths)`, mirrors `perfcheck.run_core.sides_for` plus the `server/src/` rule |
+| `server/tooling/proptest/sync_server.py` | Imperative Shell | the harness server on port 8978 |
+| `web/vitest.props.config.ts` | config | node environment, includes only `src/props/**/*.prop.ts`, one fork, no jsdom setup |
+| `web/src/props/sync/env.ts`, `serverControl.ts` | Imperative Shell | the `PROPTEST_*` settings; the session cookie and the control routes |
+| `web/src/props/sync/transport.ts` | Imperative Shell | one client's network to the server: one-shot faults, a window limit, and the deliberately broken modes the teeth tests use |
+| `web/src/props/sync/harnessClient.ts` | Imperative Shell | one simulated device: the real replica worker, op queue, replica sync, client runtime and reconnect flow, over an in-memory database that survives `reload()` |
+| `web/src/props/sync/model.ts`, `arbitraries.ts`, `normalise.ts` | Functional Core | the command model; op drafts and the uid pool; the common graph form replicas and snapshots are compared in |
+| `web/src/props/sync/commands.ts` | Imperative Shell | one fast-check command class per row of the commands table below |
+| `web/src/props/sync/oracle.ts`, `quiesce.ts` | Imperative Shell | the six invariants; bringing every client to rest |
+| `web/src/props/sync/sync.prop.ts` | Imperative Shell | the property, the six fixed scenarios, the tally |
+| `web/src/props/sync/teeth.prop.ts`, `harness.prop.ts`, `smoke.prop.ts` | test | the oracle's teeth; the harness client and transport self-tests; the server wiring |
+| `web/src/props/sync/normalise.test.ts`, `arbitraries.test.ts` | test | unit tests that do run under `pnpm test:unit` |
 | `server/tests/props/conftest.py` | test | Hypothesis profiles (`merge`, `dev`), the `template_db` fixture |
 | `server/tests/props/harness.py` | test | non-fixture helpers every property needs: `template_db_path`, `fresh_app`, `FROZEN_NOW`, `MERGE_EXAMPLES`, `assert_unique_keys`/`assert_well_formed` |
 | `server/tests/props/strategies.py` | Functional Core | uid pools, trees with gapped keys, op and CLI-command strategies |
@@ -49,7 +92,7 @@ against this repo. `tests/test_proptest_exclusion.py` pins the default
 invocation (`pytest -q` with no `-m`) against this regressing silently; it
 cannot pin every possible custom `-m` a future command might use.
 
-## What each property checks
+## What the server properties check
 
 Both run in-process against a fresh app and a fresh copy of a seeded
 template database per Hypothesis example. A state machine's `__init__`
@@ -69,7 +112,59 @@ The reference model must never import `ops_core`, `ops_apply` or `planning`
 semantics, not re-derive the server's own decisions, or a server bug and its
 model would agree by construction.
 
-## Reading a failure
+## What the web property checks
+
+`sync.prop.ts` starts 2-3 clients, each the real web sync stack
+(`harnessClient.ts`), against the harness server. fast-check draws up to 30
+commands, runs them, brings every client to rest (`quiesce.ts`), and runs the
+oracle. Six fixed scenarios, each a regression the property first found, run
+through the same commands.
+
+| Command | Does | Skipped when |
+|---|---|---|
+| `Edit` | enqueues a batch of op drafts (create, update, move, delete) resolved against the model | the client is not in the example |
+| `BadBatch` | enqueues a create of a uid that is live everywhere, which the server rejects with a 400 | a write failure is armed or the in-memory lane is non-empty |
+| `Offline`, `Online` | cuts or restores the client's network | already in that state |
+| `Fault` | arms one fault: `dropAck` (lose the ack after commit), `duplicate` (send twice), `lostPull` (lose a changes response), `writeFails` (fail the next local write, which pushes ops into the in-memory lane) | `writeFails` already armed |
+| `Pull` | forces a catch-up | offline |
+| `Nudge` | a websocket `seq` frame: `latest`, `stale`, `duplicate` or `ahead` of the journal | offline |
+| `Reload` | a page reload: the worker and in-flight requests die, the database survives | ops would be lost by design (a non-empty lane or armed write failure) |
+| `RotateGeneration` | rotates `db_generation`, so every client's next pull rebases | never |
+| `CrossMidnight` | the server clock to 23:59:55 local, then ten seconds on; one crossing in four lands on a BST/GMT changeover | never |
+
+A skipped command is a precondition failing in the model, not an error. The
+tally counts each skip by reason.
+
+After quiescence `oracle.ts` evaluates every invariant, never stopping at the
+first failure, and throws one `OracleError` that names each one that failed.
+Cursor monotonic runs after every command instead.
+
+| Invariant | Holds when | Catches |
+|---|---|---|
+| convergence | each replica's graph equals the server's snapshot | a lost, duplicated or misplaced change on a client; a feed that omits a row a replica needs |
+| accounting | `applied_batches` holds exactly the batches the model expects, no rejected batch landed, every rejected batch was reported poisoned, and no pending or poisoned rows remain | a dropped, double-applied or re-id'd batch; a rejection that was never surfaced |
+| per-client order | each client's batches landed in its enqueue order | a queue that reorders its own client's delivery |
+| desync/poison | no `onDesync`, and `onPoison` only for batches the model expects to be rejected | a recovery path taken for no reason; a valid batch rejected |
+| serial replay | replaying the recorded request bodies in commit order, each at its `applied_at`, on a fresh server reproduces the final graph | server-side apply that depends on anything but the batch sequence and the clock |
+| cursor monotonic | no client's cursor goes below the highest it has shown, across reloads and recoveries | a cursor rewound by a recovery or a stale frame |
+
+Serial replay resets the server, so the faulted run's snapshot and applied
+list are read first. Ids the server mints are compared by position.
+
+`teeth.prop.ts` checks the oracle can fail. Each broken transport mode
+(`dropBatch`, `reidBatch`, `holdBatch`, `skipWindow`) must trip the invariant
+that exists for it, a tampered recorded body must trip serial replay, and a
+clean run must pass. If a broken mode passes, the oracle is blind.
+
+The examples are meant to draw a small changes-feed window limit, so a
+catch-up crosses window boundaries. That draw is off: a catch-up over small
+windows can still lose a block another device kept (see
+[sync-and-offline.md § The changes feed](sync-and-offline.md#the-changes-feed)
+and [troubleshooting.md](../troubleshooting.md#sync-and-offline)). Every
+example runs with the server's default window until that is fixed. The
+window-cut path is still covered by a fixed scenario with a limit of one.
+
+## Reading a server failure
 
 Hypothesis shrinks a failure toward the smallest batch that reproduces it,
 then prints it with `print_blob=True`'s `@reproduce_failure(...)` decorator.
@@ -82,25 +177,63 @@ re-exploring; past the cap, this also resumes shrinking from where it left off.
 The example database at `server/.hypothesis/` (gitignored) also means a bare
 re-run of the same test tries that recent failure first, decorator or not.
 
+## Reading a web failure
+
+A failing run prints one report:
+
+```
+sync property failed after N runs and M shrinks
+seed: …
+path: …
+counterexample: <clients>, <command list>
+error: <the oracle's findings>
+replay: proptest/check.sh web --seed … --path '…' --replay-path '…'
+```
+
+The error also carries a transcript of what each command did in the failing
+run, with each client's fired faults, and the oracle's evidence per failed
+invariant. Run the `replay:` line to re-run just the shrunk example.
+
+A replay is only as deterministic as the run: examples that depend on timing
+(a retry timer, a pull overlapping a websocket frame) may not reproduce. A
+failure that does not reproduce from its seed is still a finding. Read the
+transcript and the invariant, and reproduce the scenario with a fixed command
+list (the fixed scenarios in `sync.prop.ts` are the pattern). An example that
+runs past 90 seconds fails as a hung command, and one that cannot settle in
+30 seconds fails as a liveness failure with each client's state.
+
+## When a property fails
+
 A property failure blocks the merge:
 
 - Read the shrunk example and decide whether it is a product bug or a wrong
   property.
 - A product bug gets fixed with the shrunk example added as an ordinary unit
-  test in `server/tests/` (not `props/`) — the gate stays an explorer, the
+  test on the side the bug is on (pytest in `server/tests/`, vitest beside the
+  code under `web/src/`), never in `props/`. The gate stays an explorer; the
   regression lives where it runs on every commit.
 - A wrong property gets fixed in `props/`, with the commit message saying why.
 - Arthur may accept a failure instead, with a bean filed.
 
 A property that fails once and passes on a re-run of the same seed is a
 harness bug (flaky), not a product one: file a bean against the gate and
-carry on, the same as perf's "unstable".
+carry on, the same as perf's "unstable". On the web side, a replay that does
+not reproduce is not on its own evidence of a flaky harness (see above).
 
 ## Calibration
 
-`props/harness.py`'s `MERGE_EXAMPLES` sets each property's `max_examples`
-under the `merge` profile, sized so `proptest/check.sh server` runs in about
-3 minutes. `examples()` caps every other profile (`dev`'s default) at 20, so
+Each sub-project's suite brings its own budget, so the gate's total grows as
+suites are added. Today it is about 3 minutes for the server side and about 3
+for the web side. The budget is set where the count is set:
+
+| Side | Count | Sized for |
+|---|---|---|
+| server | `props/harness.py`'s `MERGE_EXAMPLES` per property, `max_examples` under the `merge` profile | `proptest/check.sh server`, about 3 minutes |
+| web | `NUM_RUNS` in `sync.prop.ts` (3200 examples) | `proptest/check.sh web`, about 3 minutes |
+
+### Server
+
+`MERGE_EXAMPLES` sets each property's `max_examples`. `examples()` caps every other profile (`dev`'s default) at 20, so
 running a props file by hand stays fast.
 
 ```
@@ -112,3 +245,18 @@ This prints each generator's `event()` counts: what fraction of examples hit
 each branch. A generator that stops reaching its interesting cases — a
 changed rate, a widened uid pool — shows up as a shifted percentage rather
 than a silent loss of coverage.
+
+### Web
+
+The property's `afterAll` prints a tally covering every run, shrinks
+included: examples per client count and window limit, each command's runs and
+each skip by reason, op kinds, and examples with a conflict or a rejected
+batch. Fault rows show *armed* beside *fired*. A fault is armed by the
+command and fires only if a request meets it, so a large gap means the faults
+are not reaching anything. A skip count that climbs means a precondition has
+stopped matching what the generator draws. Run `proptest/check.sh web` and
+read the tally after any change to the commands, their weights or the
+preconditions. The weights themselves are in `commands.ts`'s `allCommands`.
+
+The property is also bounded: it is interrupted at 420 seconds and the
+interruption counts as a failure, reporting the smallest counterexample so far.

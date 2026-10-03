@@ -22,6 +22,7 @@ replica is a cache and the queue is the user's intent.
 | The OPFS file cannot be opened | `openWithRetry`, `ensureMinimumCapacity` | Up to 6 attempts, then `unusable` for the session | `forceReinitIfPreviouslyFailed`; pool top-up before the open | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
 | The worker RPC breaks | `RpcLifecycleError`, read as `unreachable` | Ops kept; recovery barrier held | `unreachable` never lifts the barrier | [Availability: two values, one owner](#availability-two-values-one-owner) |
 | A window was fetched before an ack deleted its pending row | `pendingSetStillCovered` | Applied if the ack's `seq` is covered, else refetched | No window applies without the edits it lacks | [Windows and the pending queue](#windows-and-the-pending-queue) |
+| A window or snapshot already holds a batch whose row is still pending (a lost ack, or the batch's own nudge pulling first) | The payload's `applied_batches`, answering the ids the pull named | The named rows are deleted before `reapplyPending`, and settled as their acks would be | The server reads `applied_batches` in the payload's own read transaction; only rows in the pull's pending snapshot go | [A payload that already holds a pending batch](#a-payload-that-already-holds-a-pending-batch) |
 | Pending rows change while recovery runs | The fingerprint check in `commitRecovery` | Recovery aborts before anything is destroyed | Every mutating RPC passes the recovery gate | [Recovery never erases intent](#recovery-never-erases-intent) |
 | A re-applied pending batch dangles a foreign key | `PRAGMA foreign_key_check` diff in `reapplyPending` | That batch rolls back locally; its row stays | The queue row is never deleted locally | [Recovery never erases intent](#recovery-never-erases-intent) |
 | The server answers a terminal 4xx for a durable batch | `isTerminalRejection` returns true | Row poisoned, delivery paused, snapshot repair drops it | Later rows never post ahead of it; the repair never resets | [A batch the server rejects](#a-batch-the-server-rejects) |
@@ -233,6 +234,54 @@ the row by `id` and `batch_id` both (`queue.ts::deleteBatch`,
 hand an old id to a batch enqueued behind the lease. The drain's delete for
 the old batch, queued behind that enqueue, must then match nothing.
 
+### A payload that already holds a pending batch
+
+A batch can commit while its row is still pending: its ack was lost, or its
+own WS nudge pulled before the ack arrived. A window read after the commit
+already shows the batch's effects. Replaying the batch over them applies it a
+second time (see [Recovery never erases intent](#recovery-never-erases-intent)),
+and no later window re-ships the rows it damaged. Only the server knows which
+batches a read holds, so the pull asks it.
+
+| Step | Where | What |
+|---|---|---|
+| Name | `pullLoop`, `pendingQuery` (`replicaSync.ts`) | `pending=<batch_id>` for the non-poisoned head of the queue, at most `PENDING_IDS_CAP` (100), from the same read that gives the worker its pending-id snapshot. A bootstrap names the rows `init` read |
+| Answer | `_applied_batches` (`routes_sync.py`) | `applied_batches`: each named id that has an `applied_batches` row, with its stored ack's `seq` and `skipped` |
+| Drop | `dropAppliedPending` (`replica/apply.ts`) | In the window's transaction, before `reapplyPending`, deletes the named rows that were in the snapshot, never a poisoned one. The worker records their seqs in `ackedSeqs` |
+| Settle | `settleApplied` (`replicaSync.ts`), `OpQueue.settleCommitted` | Resolves each row's delivery ticket and lane mark as its ack would, and bumps resync when its stored ack skipped an op |
+
+**The server reads `applied_batches` inside the read transaction that hydrates
+the payload.** `post_ops` commits a batch's writes and its `applied_batches`
+row together. So a row that read sees is a batch whose effects the payload
+already shows, and no seq comparison is needed. Under WAL the snapshot is
+fixed at the transaction's first read, so a batch committing mid-request is
+absent from both the rows and the answer. A window that rolls back keeps the
+rows it would have dropped.
+
+Delivery is in queue order, so only a head prefix can commit while still
+pending. The drain holds at most its head in doubt. More takes a recovery
+flush whose held acks were lost to a reload, and committed rows past
+`PENDING_IDS_CAP` in that case (a flush of more than 100 rows) are still
+replayed. A later ack or redelivery
+for a dropped row matches nothing in `deleteBatch`; the server answers a
+redelivery with the stored ack. The lane's entries are never named: they are
+not durable rows, and `reapplyPending` never replays them.
+
+A recovery snapshot names nothing: every leased row the server holds has an
+ack in `heldAcks`, which the commit deletes before its replay. A flushing
+rebase holds one for each row it posted. A poison rebase posts nothing, and two
+guards keep a normal flush from having posted past the poisoned row:
+
+| Guard | Where | What it stops |
+|---|---|---|
+| `onPoisonPending` sets `authoritativeRepair = "poison"` synchronously, before the durable mark; `assertNormalRecoveryStillOwnsFlush` runs before every post | `replicaSync.ts`, `opQueue.ts::rejectDurableBatch` | A lease that could see the poisoned row posting the rows behind it |
+| Startup repairs poisoned rows left by an earlier page load before `replicaSync.start()` | `clientRuntime.ts` | A normal recovery leasing an old poisoned row |
+
+Weaken either and a flush can post past a poisoned row, and the poison
+rebase replays it twice.
+Both directions are additive: an older server omits the field, and an older
+client sends no ids.
+
 ## Recovery never erases intent
 
 | Guard | Where | What it stops |
@@ -241,8 +290,9 @@ the old batch, queued behind that enqueue, must then match nothing.
 | A worker-owned FIFO recovery gate that every database-mutating RPC passes through | `recoveryGate.ts`, `workerHandlers.ts` | An enqueue landing mid-rebuild |
 | `prepareRecovery` fingerprints the durable pending rows; `commitRecovery` re-reads them just before the destructive step and aborts if they changed | `workerHandlers.ts` | Recovery erasing an acknowledged enqueue |
 | `reapplyPending` re-applies non-poisoned pending batches on top of every snapshot and feed window | `replica/apply.ts` | Later edits capturing stale base hashes |
+| A payload's `applied_batches` deletes the pending rows it names before the replay | `replica/apply.ts::dropAppliedPending`, `routes_sync.py::_applied_batches` | A batch replayed over its own echo, applied twice |
 | `reapplyPending` diffs `PRAGMA foreign_key_check` around each batch and rolls a violating one back to its savepoint | `replica/apply.ts` | A pending block re-created under a row the feed removed failing the whole window at COMMIT |
-| Replay (`applyLocalOps` with `reapply`) keeps a create whose row exists, and a move whose block already sits at its target, in place | `replica/localOps.ts::keepSlot` | A pending create failing its whole batch on every window; sibling `order_idx` drifting up per window |
+| Replay (`applyLocalOps` with `reapply`) keeps a create whose row exists, and a move whose block already sits at its target, in place | `replica/localOps.ts::keepSlot` | A pending create failing its whole batch on every window; a pending move shifting its siblings again on every window |
 | A rebase commit deletes the rows its flush got acks for, in the snapshot's transaction, before the replay | `replicaSync.ts::flushBatches`, `workerHandlers.ts`, `replica/ackedRows.ts` | Recovery replaying a batch's wire text over the server's result |
 | Every delete and poison mark names its row by `id` and `batch_id` both | `replica/queue.ts::deleteBatch`, `markPoisoned` | A delete queued behind a reset or file replacement removing the batch that took its row id |
 | A rebase that replaces the file commits the queue to a carry database first; every queue handler adopts a leftover carry before serving | `workerHandlers.ts`, `replica/carryStore.ts` | A failed open, schema install or import, or a killed worker, losing the queue during a file replacement |
@@ -260,13 +310,26 @@ shifts siblings only when one the window re-shipped at its server index shares
 the block's slot. At enqueue a create onto an existing uid still fails, as the
 server 400s it.
 
+Each keep rule checks one op's own precondition, so it holds only while
+nothing after that op moved its target. Over the server's echo of the batch, a
+later op of the same batch, a later batch or another device may have. That is
+why a payload that holds a pending batch drops it instead of replaying it
+([§ A payload that already holds a pending batch](#a-payload-that-already-holds-a-pending-batch)).
+The same gap remains, transiently, for a window that lacks the batch: a batch
+with two moves of one block shifts that block's siblings again on each such
+window, until the ack's echo re-ships them.
+
 Replaying over a window leaves two orderings wrong for one round trip, and
 both are accepted. When a window re-ships only some siblings, at their server
 `order_idx`, into a list holding locally shifted indices, the replay can put
 those siblings out of order. A replayed cross-page move keeps its root in
 place but not a descendant the window re-shipped at the old page. Each lasts
-until the ack's echo re-ships the server's rows. Nothing wrong is stored, and
-a fix would mean keeping pre-images of every row a pending op touches.
+until the ack's echo re-ships the server's rows. For an applied op, the
+triggers journal the server's own sibling shifts. For a skipped create or
+move, the skip journals the destination siblings the server left alone
+([§ Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has)).
+Nothing wrong is stored, and a fix would mean keeping pre-images of every
+row a pending op touches.
 
 ## A batch the server rejects
 
@@ -281,16 +344,27 @@ a 5xx or a dropped fetch, instead of poisoning or discarding anything.
 redirect is orthogonal to this predicate.
 
 A terminal 4xx on a durable batch marks its row *poisoned* and pauses
-delivery. `SyncProvider` then runs the authoritative repair:
-`rebaseAuthoritative`, a `rebase` with flush `"skip"`, re-applies the
-non-poisoned batches over a fresh snapshot. The provider deletes the poisoned
-row by id and resumes delivery.
+delivery. The client runtime (`sync/clientRuntime.ts`) then runs the
+authoritative repair: `rebaseAuthoritative`, a `rebase` with flush `"skip"`,
+re-applies the non-poisoned batches over a fresh snapshot. The runtime deletes
+the poisoned row by id and resumes delivery.
 
 The repair never escalates to a `reset`, because a reset drops `pending_ops`
 and the valid rows behind the poisoned one must stay durable until it is
 deleted. It also never posts those rows first. Its way past a damaged file is
 the rebase's own file replacement (see
 [Reset, rebase and file replacement](#reset-rebase-and-file-replacement)).
+
+A repair that fails keeps the barrier and raises the rejected-batch banner's
+Retry. Its usual cause is the snapshot fetch failing because the network went
+down, so every socket connect also retries it. The reconnect flow's `begin()`
+first calls `clientRuntime.retryFailedRepair()`, which runs the same
+`repair-targets` plan as the Retry button. A connect that arrives while the
+repair is still running waits for it, and retries once if it fails. That
+covers a fetch hung on the connection the socket just replaced. Only a connect
+calls it, never a drain observed while connected. A repair that fails again
+therefore waits for the next connect instead of looping. After a failed poison mark it does
+nothing, because that Retry must re-mark the row, not repair it.
 
 Retained mark intents live in `localStorage` (`sync/poisonIntentStore.ts`,
 key `pkm.poison-mark-intents.v1`), not the replica, so they survive an
@@ -383,7 +457,7 @@ Entrants differ only in the `RecoveryOptions` they pass:
 | Option | schema / feed recovery | poison repair | manual reset |
 |---|---|---|---|
 | `flush` | `"preemptible"`: abandon the run if a poison mark claims recovery mid-flush | `"skip"`: never post later valid rows ahead of a batch the server refused | `"blocking"`: a failed flush raises `ResetBlockedError` and keeps the database. `"skip"` when the user chose to discard pending changes |
-| `resume` | yes | no: `SyncProvider` resumes after deleting the durable row | yes |
+| `resume` | yes | no: the client runtime resumes after deleting the durable row | yes |
 | `reportReplicaFailure` | yes, mode `recovery-failed` | no, the repair banner owns the report | no, the reset banner owns the report |
 | `awaitInFlightPull` | no | yes | yes |
 | `forceReadyOnSuccess` | no | no | yes: mode `ready`, pulls re-enabled |
@@ -429,7 +503,7 @@ the rejected-batch repair gets past a damaged file without resetting. **The
 rows no ack covers are committed to the carry database,
 `/pkm-replica-carry.sqlite3`, before the damaged file is unlinked.** They
 travel verbatim, ids,
-`poisoned` and `error` included, because the provider deletes the poisoned row
+`poisoned` and `error` included, because the client runtime deletes the poisoned row
 by id afterwards.
 
 | Step | Action | If the worker dies here, the rows are intact in |
@@ -501,10 +575,31 @@ The client keeps its optimistic copy of the skipped op. So the server journals
 every uid involved in the same commit through `JournalBlock`, and the feed
 ships each as a tombstone, or as the block's real row if it exists.
 
-A replica applies tombstones first, and a block tombstone cascades its local
-subtree. The server orders its journal rows so that a window boundary never
-puts a tombstone after the rows that restore what it cascades away (same
-section of backend.md). The ghost goes without a snapshot repair.
+A skipped create or move also shifted its destination siblings on the
+replica, rows the op never named. The server journals that sibling group in
+the same commit, and the feed re-ships their true `order_idx` (the table is
+in [backend.md § Missing targets](backend.md#missing-targets)). A top-level
+move with no `page_title` targets the block's own page. The server reads
+that page from the block's tombstone in the journal: its delete row, or,
+for a block the server never created because it diverted the create, the
+page the client placed it on.
+
+Known gaps, where the replica keeps its shifted keys:
+
+| Case | Why the server re-ships the wrong group, or none |
+|---|---|
+| Another device moved the block to another page and then deleted it, before this client pulled the move | The delete row names the page the block was on when deleted, not the one the replica shifted |
+| The block was deleted before the journal recorded pages | Its delete row has no `page_id` |
+| A diverted create whose `page_title` names no page, under a parent with no page-bearing tombstone | Its own tombstone has no `page_id` either |
+| A top-level move whose `page_title` names a page another device renamed, of a block the server no longer has | The stale title names no page, so the skip finds no siblings to re-ship |
+| A client that, offline, moved a block the server no longer has to page Q with a `page_title` (skipped), then makes a top-level move with no `page_title` | The replica now has the block on Q and targets Q. The server reads the page from the block's tombstone, which is the original page, and re-ships that group instead |
+| An op the server applies, not skips, on another page than the replica's: a top-level move with no `page_title` of a block another device moved, or a top-level create or move whose `page_title` page another device renamed | The server shifts and journals its own page's siblings; the replica's page is never re-shipped ([troubleshooting](../troubleshooting.md#sync-and-offline)) |
+
+A block tombstone cascades its local subtree, and a replica applies it after
+the window's upserts ([sync-and-offline.md § The changes feed](sync-and-offline.md#the-changes-feed)).
+The server orders its journal rows so that a window boundary never puts a
+tombstone after the rows that restore what it cascades away (same section of
+backend.md). The ghost goes without a snapshot repair.
 
 The replica's local apply skips the same ops. `skipsOnMissingTarget`
 (`replica/missingTarget.ts`) mirrors `classify_skip`, and

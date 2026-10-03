@@ -9,7 +9,8 @@ import { splitAckedRows } from "./ackedRows";
 import { mergeCarriedRows } from "./carryMerge";
 import type { CarryStore } from "./carryStore";
 import type {
-  AckedBatch, PendingBatch, PendingRowId, ReplicaDiagnostics, ReplicaRpc,
+  AckedBatch, DroppedBatch, PendingBatch, PendingRowId, ReplicaDiagnostics,
+  ReplicaRpc,
 } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
@@ -49,7 +50,10 @@ export interface WorkerDeps {
   clockMs?: () => number;
   newBatchId?: () => BatchId;
   newRecoveryToken?: () => string;
-  applySnapshot?: (db: ReplicaDb, snapshot: Snapshot, nowMs: number) => void;
+  /** Returns the pending rows the snapshot named as applied and deleted
+   * (apply.ts applySnapshot); a stand-in that returns nothing dropped none. */
+  applySnapshot?: (db: ReplicaDb, snapshot: Snapshot,
+                   nowMs: number) => readonly DroppedBatch[] | void;
 }
 
 const tableExists = (db: ReplicaDb, name: string): boolean =>
@@ -242,8 +246,10 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
    * database even when an adoption would fail. */
   const queueDb = async (): Promise<ReplicaDb> => adoptLeftoverCarry(await db());
   // Batch row id -> the journal seq its server ack named, for batches deleted
-  // on an ack. applyChanges consults it to accept a window fetched while such
-  // a batch was still pending (see pendingGuard.ts). In memory only: a worker
+  // on an ack, or dropped because a sync payload named them as already
+  // applied (the payload carries the stored ack's seq). applyChanges
+  // consults it to accept a window fetched while such a batch was still
+  // pending (see pendingGuard.ts). In memory only: a worker
   // restart starts a fresh pull with a fresh pending snapshot.
   const ackedSeqs = new Map<PendingRowId, SyncSeq>();
   /** Record the seq an ack named for a deleted row, or forget the row when
@@ -254,6 +260,10 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
     } else {
       ackedSeqs.delete(id);
     }
+  };
+  /** Record the acked seqs of the rows a payload's applied_batches dropped. */
+  const noteDropped = (dropped: readonly DroppedBatch[] | void): void => {
+    for (const row of dropped ?? []) noteAck(row.id, row.seq);
   };
   const nowMs = deps.nowMs ?? (() => Date.now());
   const clockMs = deps.clockMs ?? (() => Date.now());
@@ -381,11 +391,12 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
     const { settled, remaining } = splitAckedRows(rows, acked);
     try {
       const d = await db();
-      d.transaction(() => {
+      const dropped = d.transaction(() => {
         for (const a of settled) deleteBatch(d, a.id, a.batch_id);
-        applySnapshotToDb(d, snapshot, nowMs());
+        return applySnapshotToDb(d, snapshot, nowMs());
       });
       for (const a of settled) noteAck(a.id, a.seq);
+      noteDropped(dropped);
     } catch (error: unknown) {
       // No ack is recorded on this path: the rebuild clears ackedSeqs, and
       // the new file's ids restart from the highest carried one, so an acked
@@ -471,7 +482,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
     },
     async applySnapshot(snapshot) {
       return gate.run(async () => {
-        applySnapshotToDb(await queueDb(), snapshot, nowMs());
+        noteDropped(applySnapshotToDb(await queueDb(), snapshot, nowMs()));
         return null;
       });
     },
@@ -489,7 +500,14 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
           if (!expected.has(id)) ackedSeqs.delete(id);
         }
         if (!covered) return { status: "pending-changed" };
-        return applyChanges(d, feed, nowMs());
+        // Only the rows this pull read when it named its pending batches to
+        // the server may be dropped as already applied. The cover check above
+        // already refuses a window when a row was queued since; passing the
+        // ids keeps that rule from resting on it.
+        const result = applyChanges(d, feed, nowMs(),
+                                    { droppable: expectedPendingIds });
+        if (result.status === "applied") noteDropped(result.dropped);
+        return result;
       });
     },
     async pendingBatches() {

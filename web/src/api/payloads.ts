@@ -47,3 +47,4 @@ export type GoodlinksLink = Schemas["GoodlinksLink"];
 
 export type OpsAck = Schemas["OpsAck"];
 export type SkippedOp = Schemas["SkippedOp"];
+export type OpBatch = Schemas["OpBatch"];

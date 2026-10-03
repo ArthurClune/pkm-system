@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 // The sync protocol property: 2-3 clients running the real web sync stack
 // against the real server take a random sequence of edits and faults, then
-// are brought to rest and checked by the oracle. Two fixed scenarios run
+// are brought to rest and checked by the oracle. Three fixed scenarios run
 // first, through the same commands.
 //
 // A failure prints the seed, the path, the shrunk command list, what each
@@ -9,7 +9,8 @@
 // How often each command and fault ran is printed once, after the file.
 import fc from "fast-check";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { Edit, allCommands, NAMES, Nudge, Reload, type World } from "./commands";
+import { allCommands, BadBatch, Edit, NAMES, Nudge, Offline, Reload,
+         type World } from "./commands";
 import { PATH, REPLAY_PATH, SEED } from "./env";
 import { startClient, type HarnessClient } from "./harnessClient";
 import { initialModel, type SyncModel } from "./model";
@@ -32,6 +33,8 @@ const EXAMPLE_LIMIT_MS = 90_000;
  * cuts a report off. */
 const PROPERTY_LIMIT_MS = 420_000;
 const DISPOSE_LIMIT_MS = 10_000;
+/** How long a fixed scenario waits for the state it sets up. */
+const REPRO_WAIT_MS = 5_000;
 
 type Commands = Iterable<fc.AsyncCommand<SyncModel, World, boolean>>;
 
@@ -117,6 +120,34 @@ test("a nudge ahead of the journal", async () => {
       if (!a) throw new Error("no client A");
       await a.replicaSync.idle();
       expect(a.cursor()).toBeLessThanOrEqual(await server.latestSeq());
+    },
+  });
+});
+
+// The second BadBatch's edit waits for persistence, which gives the first
+// one's rejection time to arrive and start the repair; going offline then
+// cuts that repair's snapshot fetch off. The reconnect alone must retry it:
+// quiesce's own online() would be a second reconnect, so the repair has to
+// have succeeded before quiesce starts.
+test("poison repair cut off by offline settles after reconnect", async () => {
+  await runExample(["A"], [new BadBatch("A"), new BadBatch("A"), new Offline("A")], {
+    beforeQuiesce: async (world) => {
+      const a = world.clients.get("A");
+      if (!a) throw new Error("no client A");
+      const outcomes = (): string[] => a.syncEvents
+        .filter((e) => e.type === "repair-failed" || e.type === "repair-succeeded")
+        .map((e) => e.type);
+      const failed = await within((async () => {
+        while (!outcomes().includes("repair-failed")) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+      })(), REPRO_WAIT_MS);
+      if (failed === TIMED_OUT) {
+        throw new Error(`the repair never failed offline: ${outcomes().join(", ") || "none"}`);
+      }
+      world.transcript.push("Online(A)");
+      await a.online();
+      expect(outcomes()).toEqual(["repair-failed", "repair-succeeded"]);
     },
   });
 });

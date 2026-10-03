@@ -444,6 +444,7 @@ export function SyncProvider({ children, replica }: {
     readInitialPending: () =>
       replicaRef.current ? queue.refreshPending() : Promise.resolve(0),
     startupRun: () => runtime?.startupRun() ?? Promise.resolve(),
+    retryFailedRepair: () => runtime?.retryFailedRepair() ?? Promise.resolve(),
     mountedRef,
     statusRef,
     onBatch: (batch) => {

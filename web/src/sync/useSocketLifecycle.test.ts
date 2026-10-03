@@ -166,3 +166,38 @@ test("online cold start with an already-bootstrapped replica and empty queue " +
 
   expect(startCalls.length).toBe(0);
 });
+
+test("each connect retries a failed repair, the first after the startup gate",
+async () => {
+  // A startup repair that failed offline leaves the replica un-started, so
+  // the first connect runs the reconnect protocol; it must not ask the
+  // runtime until startup has answered.
+  const trace: string[] = [];
+  const replicaSync = {
+    start: async () => { trace.push("start"); },
+    idle: async () => undefined,
+    appliedVersion: () => 0,
+    hasStarted: () => false,
+    stop: () => undefined,
+  } as unknown as ReplicaSync;
+
+  renderHook(() => useSocketLifecycle(fakeDeps({
+    replicaSync,
+    startupRun: async () => { trace.push("startupRun"); },
+    retryFailedRepair: async () => { trace.push("retryFailedRepair"); },
+  })));
+
+  await act(async () => {
+    lastWs().open();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(trace).toEqual(["startupRun", "retryFailedRepair", "start"]);
+
+  trace.length = 0;
+  await act(async () => {
+    lastWs().drop();
+    lastWs().open();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(trace).toEqual(["retryFailedRepair", "start"]);
+});

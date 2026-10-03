@@ -23,6 +23,14 @@
 //   * `observeDrain()` — the queue's own drain observer, so a drain that
 //     completes out of band (an automatic retry after a blocked flush) still
 //     finishes the reconnect that is waiting on it.
+// A reconnect first reruns a poison repair whose last attempt failed
+// (`retryFailedRepair`, the runtime's): that repair holds the recovery
+// barrier, so nothing below it can deliver until it succeeds, and a repair
+// cut off by the network going down has no other trigger. It runs from
+// begin() only, once per (re)connect; observeDrain fires on every drain while
+// connected and never calls it, so a repair that fails again waits for the
+// next connect instead of looping.
+//
 // `intent` is what makes overlapping reconnects collapse: a second connect
 // while a completion is already running joins that run instead of scheduling
 // another feed pull, and no stale intent survives it.
@@ -45,6 +53,8 @@ export function createReconnectFlow(deps: {
   /** False after unmount: nothing may be finished or resynced past it. */
   isMounted: () => boolean;
   onResync: () => void;
+  /** A connect's first step: the client runtime's retryFailedRepair. */
+  retryFailedRepair?: () => Promise<void>;
 }): ReconnectFlow {
   let intent = false;
   // Rides with the intent, not the call: a stale-views drain that gets through
@@ -81,6 +91,7 @@ export function createReconnectFlow(deps: {
     begin: async (opts) => {
       intent = true;
       staleViews = staleViews || opts?.viewsAreStale === true;
+      if (deps.isMounted()) await deps.retryFailedRepair?.();
       const outcome = await deps.queue.drain();
       if (outcome.status !== "drained" || !deps.isMounted()) return;
       await finish();

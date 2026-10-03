@@ -61,6 +61,11 @@ export interface ClientRuntime {
   /** Execute a planRetry() result for the poison-side plans; "legacy-repair"
    * stays with SyncProvider. */
   runRetry(plan: PoisonRetryPlan): Promise<void>;
+  /** A socket reconnect: rerun a repair whose last attempt failed, exactly as
+   * the banner's "repair-targets" Retry does; otherwise nothing. Never while
+   * startup discovery is gated or a repair is running, and never after a
+   * failed poison mark, whose Retry is the mark rather than a repair. */
+  retryFailedRepair(): Promise<void>;
   /** Give up on retained mark intents and release the barrier they held. */
   discardPoisonIntents(): Promise<void>;
   /** Forget the retained repair targets (a dismissed repaired problem). */
@@ -86,6 +91,11 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
   let repairRun: Promise<void> | null = null;
   let repairTargets: readonly PoisonEvent[] = [];
   let repairSucceeded = false;
+  // The last repair attempt failed and nothing has superseded it. A failed
+  // snapshot fetch is most often the network going away, and nothing else
+  // retries it: without a reconnect retry the recovery barrier would hold
+  // every later edit until a click on Retry or a reload.
+  let repairFailed = false;
   let discovering = true;
 
   const repair = (events: readonly PoisonEvent[]): Promise<void> => {
@@ -96,6 +106,7 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     }
     repairTargets = mergePoisonEvents(events);
     repairSucceeded = false;
+    repairFailed = false;
     const event = repairTargets[0];
     emit({ type: "repair-started", event });
     const run = (async () => {
@@ -115,6 +126,7 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
         if (live()) queue.resume("recovery");
         repairSucceeded = true;
       } catch (error: unknown) {
+        repairFailed = true;
         emit({ type: "repair-failed", event, error: messageOf(error) });
       }
     })();
@@ -184,6 +196,31 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     if (repairSucceeded && live()) await replicaSync.start();
   };
 
+  const runRetry = (plan: PoisonRetryPlan): Promise<void> => {
+    switch (plan.kind) {
+      case "retry-poison-marks":
+        return (async () => {
+          try {
+            const marked = await queue.retryPoisonMarks();
+            if (plan.continueStartup) {
+              await continueStartup(marked);
+              return;
+            }
+          } catch {
+            return;
+          }
+          await (repairRun ?? Promise.resolve());
+          await restartAfterRepair();
+        })();
+      case "continue-startup":
+        return continueStartup([]);
+      case "repair-targets":
+        return repair(repairTargets).then(restartAfterRepair);
+      case "none":
+        return Promise.resolve();
+    }
+  };
+
   const offs = [
     queue.onPoison((event) => {
       // Startup mark-only retries are followed by one authoritative database
@@ -196,6 +233,7 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
       if (!live()) return;
       repairTargets = [event];
       repairSucceeded = false;
+      repairFailed = false;
       emit({ type: "poison-mark-failed", event, error: messageOf(error) });
     }),
   ];
@@ -223,29 +261,14 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     startupRun: () => startupRunPromise,
     continueStartup,
     repair,
-    runRetry: (plan) => {
-      switch (plan.kind) {
-        case "retry-poison-marks":
-          return (async () => {
-            try {
-              const marked = await queue.retryPoisonMarks();
-              if (plan.continueStartup) {
-                await continueStartup(marked);
-                return;
-              }
-            } catch {
-              return;
-            }
-            await (repairRun ?? Promise.resolve());
-            await restartAfterRepair();
-          })();
-        case "continue-startup":
-          return continueStartup([]);
-        case "repair-targets":
-          return repair(repairTargets).then(restartAfterRepair);
-        case "none":
-          return Promise.resolve();
-      }
+    runRetry,
+    retryFailedRepair: () => {
+      // The flag alone keeps this off the startup gate and off a running
+      // repair: repairs start only once discovery has answered, and each
+      // clears the flag as it starts, so a second connect during the retry
+      // finds nothing to do.
+      if (!live() || !repairFailed) return Promise.resolve();
+      return runRetry({ kind: "repair-targets" });
     },
     discardPoisonIntents: () => {
       queue.discardPoisonIntents();

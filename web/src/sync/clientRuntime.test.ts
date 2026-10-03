@@ -362,3 +362,158 @@ describe("clientRuntime repair and retry", () => {
     expect(h.events).toEqual([{ type: "replica-unusable", error: "gone" }]);
   });
 });
+
+describe("clientRuntime reconnect", () => {
+  /** A rebase that fails while `offline` is set, as the snapshot fetch does. */
+  const offlineRebase = () => {
+    const net = { offline: false, attempts: 0 };
+    const rebase = async () => {
+      net.attempts += 1;
+      if (net.offline) throw new TypeError("fetch failed");
+    };
+    return { net, rebase };
+  };
+
+  test("a poison repair that failed offline is retried on reconnect", async () => {
+    const { net, rebase } = offlineRebase();
+    const rebaseGate = deferred<void>();
+    let gated = true;
+    const h = setup({
+      rebase: async () => {
+        if (gated) { gated = false; await rebaseGate.promise; }
+        await rebase();
+      },
+    });
+    await h.runtime.startup();
+    h.calls.length = 0;
+    h.events.length = 0;
+    const first = poisonEvent(1, "b-1");
+    const second = poisonEvent(2, "b-2");
+    h.emitPoison(first);
+    h.emitPoison(second);
+    net.offline = true;
+    rebaseGate.resolve();
+    await flush();
+    expect(h.calls).not.toContain("deleteBatch(1,b-1)");
+
+    net.offline = false;
+    await h.runtime.retryFailedRepair();
+
+    expect(h.calls.filter((c) => c === "rebaseAuthoritative(poison)"))
+      .toHaveLength(2);
+    expect(h.calls).toEqual(expect.arrayContaining([
+      "deleteBatch(1,b-1)", "deleteBatch(2,b-2)", "resume(recovery)", "start",
+    ]));
+    expect(h.calls.at(-1)).toBe("start");
+    expect(h.events).toEqual([
+      { type: "repair-started", event: first },
+      { type: "repair-failed", event: first, error: "fetch failed" },
+      { type: "repair-started", event: first },
+      { type: "repair-succeeded", event: first },
+    ]);
+  });
+
+  test("a reconnect with no failed repair does nothing", async () => {
+    const h = setup();
+    await h.runtime.startup();
+    h.calls.length = 0;
+    await h.runtime.retryFailedRepair();
+    h.emitPoison(poisonEvent(1, "b-1"));
+    await flush();
+    h.calls.length = 0;
+    h.events.length = 0;
+    // The repair above succeeded: nothing is left for a reconnect to retry.
+    await h.runtime.retryFailedRepair();
+    expect(h.calls).toEqual([]);
+    expect(h.events).toEqual([]);
+  });
+
+  test("a repair that fails again waits for the next reconnect", async () => {
+    const { net, rebase } = offlineRebase();
+    const h = setup({ rebase });
+    await h.runtime.startup();
+    net.offline = true;
+    h.emitPoison(poisonEvent(1, "b-1"));
+    await flush();
+    await h.runtime.retryFailedRepair();
+    await flush();
+    // One attempt per reconnect: the failed retry schedules nothing.
+    expect(net.attempts).toBe(2);
+    expect(h.calls).not.toContain("deleteBatch(1,b-1)");
+
+    net.offline = false;
+    await h.runtime.retryFailedRepair();
+    expect(net.attempts).toBe(3);
+    expect(h.calls).toContain("deleteBatch(1,b-1)");
+    expect(h.calls.at(-1)).toBe("start");
+  });
+
+  test("a startup repair that failed offline is retried on reconnect", async () => {
+    const event = poisonEvent(3, "b-3");
+    const { net, rebase } = offlineRebase();
+    net.offline = true;
+    const h = setup({ poisoned: async () => [event], rebase });
+    await h.runtime.startup();
+    expect(h.calls).not.toContain("start");
+
+    net.offline = false;
+    h.calls.length = 0;
+    await h.runtime.retryFailedRepair();
+    expect(h.calls).toEqual([
+      "rebaseAuthoritative(poison)", "deleteBatch(3,b-3)", "refreshPending",
+      "completeAuthoritativeRepair(poison)", "resume(recovery)", "start",
+    ]);
+  });
+
+  test("a reconnect joins nothing while a repair is in flight", async () => {
+    const rebase = deferred<void>();
+    let fail = true;
+    const h = setup({
+      rebase: async () => {
+        if (fail) { fail = false; throw new TypeError("fetch failed"); }
+        await rebase.promise;
+      },
+    });
+    await h.runtime.startup();
+    h.emitPoison(poisonEvent(1, "b-1"));
+    await flush();
+    const retry = h.runtime.retryFailedRepair();
+    // A second connect while the retry is still running starts no repair.
+    await h.runtime.retryFailedRepair();
+    rebase.resolve();
+    await retry;
+    expect(h.calls.filter((c) => c === "rebaseAuthoritative(poison)"))
+      .toHaveLength(2);
+  });
+
+  test("a reconnect after a failed poison mark leaves the mark to Retry", async () => {
+    const { net, rebase } = offlineRebase();
+    const h = setup({ rebase });
+    await h.runtime.startup();
+    net.offline = true;
+    h.emitPoison(poisonEvent(1, "b-1"));
+    await flush();
+    // A later rejection whose durable mark failed: repairing now would
+    // repair over an unmarked row, so only the mark retry may run.
+    const unmarked = poisonEvent(2, "b-2");
+    h.emitMarkFailed({ event: unmarked, error: new Error("mark rpc") });
+    net.offline = false;
+    h.calls.length = 0;
+    await h.runtime.retryFailedRepair();
+    expect(h.calls).toEqual([]);
+  });
+
+  test("a disposed runtime retries nothing on reconnect", async () => {
+    const { net, rebase } = offlineRebase();
+    const h = setup({ rebase });
+    await h.runtime.startup();
+    net.offline = true;
+    h.emitPoison(poisonEvent(1, "b-1"));
+    await flush();
+    h.runtime.dispose();
+    net.offline = false;
+    h.calls.length = 0;
+    await h.runtime.retryFailedRepair();
+    expect(h.calls).toEqual([]);
+  });
+});

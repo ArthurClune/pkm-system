@@ -292,6 +292,15 @@ deleted. It also never posts those rows first. Its way past a damaged file is
 the rebase's own file replacement (see
 [Reset, rebase and file replacement](#reset-rebase-and-file-replacement)).
 
+A repair that fails keeps the barrier and raises the rejected-batch banner's
+Retry. Its usual cause is the snapshot fetch failing because the network went
+down, so every socket connect also retries it. The reconnect flow's `begin()`
+first calls `clientRuntime.retryFailedRepair()`, which runs the same
+`repair-targets` plan as the Retry button. Only a connect calls it, never a
+drain observed while connected. A repair that fails again therefore waits
+for the next connect instead of looping. After a failed poison mark it does
+nothing, because that Retry must re-mark the row, not repair it.
+
 Retained mark intents live in `localStorage` (`sync/poisonIntentStore.ts`,
 key `pkm.poison-mark-intents.v1`), not the replica, so they survive an
 unopenable database. A `retryPoisonMarks()` that fails while intents exist

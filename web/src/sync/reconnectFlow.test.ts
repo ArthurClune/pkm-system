@@ -275,3 +275,50 @@ test("a reconnect resyncs once a pull reports the replica has become unusable",
   ]);
   sync.stop(); // the failed pull scheduled a backoff retry
 });
+
+test("a reconnect retries a failed repair before it drains", async () => {
+  const trace: string[] = [];
+  const flow = createReconnectFlow({
+    queue: { drain: async () => { trace.push("drain"); return { status: "drained" }; } },
+    replicaSync: movingReplica(trace),
+    isMounted: () => true,
+    onResync: () => { trace.push("resync"); },
+    retryFailedRepair: async () => { trace.push("retryFailedRepair"); },
+  });
+
+  await flow.begin();
+
+  expect(trace).toEqual(["retryFailedRepair", "drain", "start", "idle", "resync"]);
+});
+
+test("a drain observed while connected never retries a failed repair", async () => {
+  const retryFailedRepair = vi.fn(async () => undefined);
+  const flow = createReconnectFlow({
+    queue: { drain: async () => ({ status: "drained" }) },
+    replicaSync: movingReplica([]),
+    isMounted: () => true,
+    onResync: () => undefined,
+    retryFailedRepair,
+  });
+
+  flow.observeDrain({ status: "drained" });
+  flow.observeDrain({ status: "drained" });
+  await Promise.resolve();
+
+  expect(retryFailedRepair).not.toHaveBeenCalled();
+});
+
+test("an unmounted reconnect retries no repair", async () => {
+  const retryFailedRepair = vi.fn(async () => undefined);
+  const flow = createReconnectFlow({
+    queue: { drain: async () => ({ status: "drained" }) },
+    replicaSync: movingReplica([]),
+    isMounted: () => false,
+    onResync: () => undefined,
+    retryFailedRepair,
+  });
+
+  await flow.begin();
+
+  expect(retryFailedRepair).not.toHaveBeenCalled();
+});

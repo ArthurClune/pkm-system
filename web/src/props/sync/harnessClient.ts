@@ -22,7 +22,7 @@ import { createClientRuntime, type ClientRuntime } from "../../sync/clientRuntim
 import { createOpQueue, type OpQueue, type PoisonEvent } from "../../sync/opQueue";
 import { createReconnectFlow, type ReconnectFlow } from "../../sync/reconnectFlow";
 import { createReplicaSync, type ReplicaSync } from "../../sync/replicaSync";
-import type { SyncStatus } from "../../sync/syncState";
+import type { SyncEvent, SyncStatus } from "../../sync/syncState";
 import type { ServerControl } from "./serverControl";
 import { createTransport, type Broken, type Transport,
          type TransportLife } from "./transport";
@@ -43,6 +43,9 @@ export interface HarnessClient {
   readonly poisoned: BatchId[];
   /** Errors reported through onDesync. */
   readonly desyncs: unknown[];
+  /** The client runtime's sync events (SyncProvider's applySync input), in
+   * order, across lives. */
+  readonly syncEvents: SyncEvent[];
   /** Entries in the queue's in-memory lane (lost by a reload). */
   unsentInMemory(): number;
   /** The socket coming up. */
@@ -130,6 +133,7 @@ export async function startClient(
   const enqueued: BatchId[] = [];
   const poisoned: BatchId[] = [];
   const desyncs: unknown[] = [];
+  const syncEvents: SyncEvent[] = [];
   // Stands in for the localStorage poison-intent store, and outlives a
   // reload as localStorage does.
   let poisonIntents: PoisonEvent[] = [];
@@ -201,7 +205,7 @@ export async function startClient(
         },
         deleteBatch: (id, batchId) => replica.deleteBatch(id, batchId),
       },
-      onSyncEvent: () => undefined,
+      onSyncEvent: (event) => { syncEvents.push(event); },
       onReplicaState: () => undefined,
     });
     const reconnect = createReconnectFlow({
@@ -209,6 +213,7 @@ export async function startClient(
       replicaSync,
       isMounted: () => !state.ended,
       onResync: () => undefined,
+      retryFailedRepair: () => runtime.retryFailedRepair(),
     });
     const offs = [
       // Stands in for SyncProvider's legacy outline repair, whose success
@@ -310,6 +315,7 @@ export async function startClient(
     enqueued,
     poisoned,
     desyncs,
+    syncEvents,
     unsentInMemory: () => life.state.unsentInMemory,
     online: () => goOnline(life),
     offline: () => goOffline(life),

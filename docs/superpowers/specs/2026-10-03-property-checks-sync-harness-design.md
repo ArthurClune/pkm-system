@@ -156,7 +156,7 @@ the model's.
 | Command | Does | Notes |
 |---|---|---|
 | `Edit(c, ops)` | Enqueues 1–4 raw ops (`create`, `update_text`, `move`, `delete`, `set_collapsed`) over a uid pool shared by all clients, with base hashes left undefined so the worker stamps them from that client's replica | Awaits persistence only; delivery runs in the background, as in the app. Its batch id joins the expected set |
-| `BadBatch(c)` | Enqueues an op the replica accepts but the server rejects with a 400 | About 1 in 30. Planning picks the op from the 400 classes sub-project 1 found. Expected poisoned, then repaired |
+| `BadBatch(c)` | Enqueues a `create` of a uid already live in that client's replica: the replica keeps it in place as a replay (`placementFor`), the server rejects it with a 400 | About 1 in 30. Expected poisoned, then repaired. Only on the durable path: precondition no armed `writeFails` and nothing unsent in memory |
 | `Offline(c)` / `Online(c)` | `queue.setOnline` and `reconnect.begin`, as `useSocketLifecycle` does | |
 | `Fault(c, kind)` | Arms one `dropAck`, `duplicate`, `lostPull` or `writeFails` | |
 | `Pull(c)` | Pulls to the server's latest seq and awaits it | |
@@ -192,18 +192,28 @@ Then:
 | 1 | **Convergence.** Each replica's graph tables — blocks (`uid`, page title, `parent_uid`, `order_idx`, `text`, `heading`, `collapsed`, `view_type`), pages by title, refs by block uid and target title — equal the server's snapshot, normalised the same way | A missed window, a bad apply, a stuck optimistic ghost. Checking only at quiescence absorbs the two transient `keepSlot` misorderings in `sync-recovery.md § Recovery never erases intent` |
 | 2 | **Accounting.** The set of `applied_batches` ids equals the set of `Edit` batch ids. Every `BadBatch` was reported through `onPoison`, repaired, and is absent from `applied_batches`. No pending or poisoned rows remain | A batch lost before or after enqueue, a batch applied under a second id, a poison with no terminal rejection, a rejection never repaired |
 | 3 | **Serial replay.** Reset the server, then for each applied batch in commit order, set the clock to its `applied_at` and post its recorded body. The resulting snapshot equals the faulted run's | Doubled or reordered application, and any state a fault left that a clean run would not |
-| 4 | **Cursor monotonic.** Checked after every command, per client, across reloads and recoveries | A rewind that would re-apply or skip a window |
+| 4 | **Per-client order.** Each client's batches appear in `applied_batches` in the order that client enqueued them, across the lane, reloads and recovery flushes | A batch delivered ahead of one its client enqueued earlier. Serial replay cannot see this: it replays the server's commit order, swap included |
+| 5 | **Cursor monotonic.** Checked after every command, per client, across reloads and recoveries | A rewind that would re-apply or skip a window |
+| 6 | **No unexplained desync or poison.** No `onDesync`, and `onPoison` only for `BadBatch` ids | A batch the server accepted being treated as rejected |
 
-Together, 2 and 3 are "nothing lost, nothing applied twice": every user
-batch landed exactly once, in an order a fault-free run reproduces.
+Together, 2, 3 and 4 are "nothing lost, nothing applied twice": every user
+batch landed exactly once, in its client's order, and a fault-free run
+reproduces the result. Serial replay is what catches a duplicate delivery
+that re-applied under the same batch id, which accounting cannot see.
 Conflict copies then follow from the server's semantics, which pkm-svgx
 checks.
+
+**Uids.** Each client creates only from its own pool of fresh uids, each
+at most once per example, as real random uids would be. An `Edit` can then
+never meet a legitimate 400 (a create of a uid another client already
+made), so every terminal rejection is a `BadBatch`'s. The model tracks
+which pool uids are used.
 
 ## The gate
 
 | Piece | Change |
 |---|---|
-| `server/tooling/proptest/sides.py` | `web` becomes available |
+| `server/tooling/proptest/sides.py` | `web` becomes available. A change under `server/src/` now picks the web side too, since this suite drives the server's sync routes as much as the client |
 | `server/tooling/proptest/run.py` | A web runner: start `sync_server.py` on 8978, poll `/healthz`, run vitest with `PROPTEST_BASE_URL` (and `PROPTEST_SEED` for `--seed N`), stop the server by PID |
 | `web/vitest.props.config.ts` | Node environment, `src/props/**/*.prop.ts`, no coverage, a long test timeout |
 | `web/package.json` | `fast-check` devDependency |
@@ -223,9 +233,10 @@ property fail. If one passes, the oracle is blind and the gate fails:
 | Broken transport | Must trip |
 |---|---|
 | Drops a batch and fakes a 200 | Accounting |
-| Re-posts a batch under a fresh batch id | Accounting, then replay |
-| Swaps the order of two batches | Serial replay |
-| Skips a pull window | Convergence |
+| Re-posts a batch under a fresh batch id | Accounting |
+| Holds one batch and delivers it after the client's next | Per-client order |
+| Removes the blocks from one changes window | Convergence |
+| Alters a recorded body before the replay | Serial replay |
 
 These need the server, so they live in the props suite. The `createOpQueue`
 deps and `clientRuntime` get ordinary unit tests in the normal suite.

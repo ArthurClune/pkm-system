@@ -748,8 +748,8 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | **Sidebar** | | |
 | GET / POST / PUT / DELETE | `/api/sidebar`… | Pinned pages: list / pin / reorder (permutation-validated) / unpin |
 | **Sync** (see [sync-and-offline.md](sync-and-offline.md)) | | |
-| GET | `/api/sync/snapshot?pending` | Full graph bootstrap + `seq` + `generation` + title-canonicalization activation; `applied_batches` names which `pending` batch ids (repeated param) the payload already holds, each `{batch_id, seq, skipped}` from its stored ack, read in the payload's own read transaction |
-| GET | `/api/sync/changes?since&limit&pending` | Windowed incremental feed with the same generation/activation metadata and the same `applied_batches` answer (empty on a `reset` answer) |
+| GET | `/api/sync/snapshot?pending` | Full graph bootstrap + `seq` + `generation` + title-canonicalization activation; `applied_batches` names which `pending` batch ids (repeated param) the payload already holds, each `{batch_id, seq, skipped}` from its stored ack, read in the payload's own read transaction; left out when empty, so a request naming nothing gets the old payload |
+| GET | `/api/sync/changes?since&limit&pending` | Windowed incremental feed with the same generation/activation metadata and the same `applied_batches` answer (never on a `reset` answer) |
 | POST | `/api/client/diagnostics` | A replica's self-report before it rebuilds a corrupt database; logged as one `pkm.sync` WARNING line, nothing written |
 | WS | `/api/ws` | Push nudges: applied-op broadcasts + real `seq` hints; title generation rotation adds `force:true,generation` without fabricating a cursor |
 | **Assistant** (SSE — see [assistant.md](assistant.md)) | | |

@@ -62,10 +62,17 @@ def test_an_ack_stored_before_seq_and_skipped_existed_reads_as_unknown(
         {"batch_id": "old_ack_row", "seq": None, "skipped": []}]
 
 
-def test_no_pending_param_names_nothing(client):
+def test_no_pending_param_leaves_the_field_out(client):
+    # the payload is the one a server without the field sent, byte for byte
     _post(client, "never_asked", [{"op": "update_text", "uid": "uid_b1", "text": "w"}])
-    assert client.get("/api/sync/changes?since=0").json()["applied_batches"] == []
-    assert client.get("/api/sync/snapshot").json()["applied_batches"] == []
+    assert "applied_batches" not in client.get("/api/sync/changes?since=0").json()
+    assert "applied_batches" not in client.get("/api/sync/snapshot").json()
+
+
+def test_named_batches_none_applied_leaves_the_field_out(client):
+    feed = client.get("/api/sync/changes?since=0&pending=never_posted").json()
+    assert "applied_batches" not in feed
+    assert feed["reset"] is False
 
 
 def test_a_reset_answer_names_nothing(client):
@@ -74,7 +81,7 @@ def test_a_reset_answer_names_nothing(client):
     feed = client.get(
         "/api/sync/changes?since=999999&pending=before_reset").json()
     assert feed["reset"] is True
-    assert feed["applied_batches"] == []
+    assert "applied_batches" not in feed
 
 
 def _traced(con, fn):

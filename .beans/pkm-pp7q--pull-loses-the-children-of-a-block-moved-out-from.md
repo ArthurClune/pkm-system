@@ -1,10 +1,11 @@
 ---
 # pkm-pp7q
 title: Pull loses the children of a block moved out from under a deleted parent
-status: in-progress
+status: completed
 type: bug
+priority: normal
 created_at: 2026-10-03T15:11:14Z
-updated_at: 2026-10-03T16:40:00Z
+updated_at: 2026-10-03T17:47:14Z
 parent: pkm-nws9
 ---
 
@@ -32,3 +33,7 @@ A kept block left the deleted subtree by a move at a lower seq than the delete, 
 Not covered (pkm-d3qh, open; review finding, fix round 2): the moved-out ancestor is itself deleted in a later window. Its move row hydrates to nothing (absent now, delete row later), so the cascade runs over the replica's stale subtree and the kept block's unchanged children are lost. D > A > K > L; move A top, delete D, move K top, delete A; windows of 1-2 rows lose L. Pinned as a strict xfail in server/tests/test_sync_block_tombstone_window.py; the sync property's windowLimit arbitrary yields only "no limit" until it is fixed (plumbing kept so seeds and paths replay unchanged).
 
 Page tombstones may stay first because leaving a page rewrites page_id on every block of the moved subtree, so each kept block ships its own row. The snapshot path applies no tombstones. Covered by apply.test.ts, server/tests/test_sync_block_tombstone_window.py, test_sync_core.py, and two fixed property scenarios (same window; window limit 1). The property carries a per-example changes window limit, currently always none (see above).
+
+
+## Summary of Changes
+A window's block upserts apply before its block tombstones (page/sidebar tombstones stay first), and the server ships a block tombstone only in the window that holds its delete row. Real-sqlite unit tests, server limit-1 tests and props fixed scenarios. The deeper multi-window variant is documented and pinned by a strict xfail (pkm-d3qh). Commits c1b5184f, 80765389, 5eb2ed3b.

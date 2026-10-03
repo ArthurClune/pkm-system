@@ -1,10 +1,11 @@
 ---
 # pkm-undg
 title: Pending batch replayed over a window that already holds it
-status: in-progress
+status: completed
 type: bug
+priority: normal
 created_at: 2026-10-03T14:19:22Z
-updated_at: 2026-10-03T14:19:22Z
+updated_at: 2026-10-03T17:47:14Z
 parent: pkm-nws9
 ---
 
@@ -16,3 +17,7 @@ Found by the sync protocol property (pkm-yxcs). reapplyPending replays every pen
 - [x] Queue/replicaSync: send ids, resolve dropped rows' delivery tickets, keep skipped/resync semantics
 - [x] Regression tests (apply, workerHandlers, replicaSync, server) + props fixed scenario
 - [x] Docs: sync-recovery.md, backend.md API table, troubleshooting row
+
+
+## Summary of Changes
+A pull sends its non-poisoned pending head batch ids (cap 100); /api/sync/changes and /api/sync/snapshot report which are in applied_batches from the same read transaction that hydrates the window (field omitted when empty; additive both ways). The worker drops those rows inside the window transaction before reapplyPending, records acked seqs, and the queue settles their tickets and drains on. Recovery snapshots name no ids (guarded by the synchronous poison claim and startup repair order). Commits 58782984, cbbec075, e82dcb23, 01ddb8fd, 035c4143. Residual transient drift: pkm-sj5l.

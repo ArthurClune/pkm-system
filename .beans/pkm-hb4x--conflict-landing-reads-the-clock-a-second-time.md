@@ -1,10 +1,11 @@
 ---
 # pkm-hb4x
 title: Conflict landing reads the clock a second time
-status: in-progress
+status: completed
 type: bug
+priority: normal
 created_at: 2026-10-03T13:47:51Z
-updated_at: 2026-10-03T13:47:51Z
+updated_at: 2026-10-03T17:47:14Z
 parent: pkm-nws9
 ---
 
@@ -13,3 +14,7 @@ Found by the sync protocol property (pkm-yxcs), serial replay invariant. post_op
 - [x] Deterministic failing server test (now_ms before midnight, wall clock after)
 - [x] One clock read per batch: derive the landing day (and any other date/time in the batch path) from now_ms
 - [x] Troubleshooting row
+
+
+## Summary of Changes
+The conflict landing day derives from the batch's single now_ms; the batch path has one clock read. Commit b331b4e4.

@@ -1,11 +1,11 @@
 ---
 # pkm-f170
 title: Failed poison repair is never retried on reconnect
-status: in-progress
+status: completed
 type: bug
 priority: normal
 created_at: 2026-10-03T12:03:48Z
-updated_at: 2026-10-03T12:13:37Z
+updated_at: 2026-10-03T17:47:14Z
 parent: pkm-nws9
 ---
 
@@ -14,3 +14,7 @@ Found by the sync protocol property (pkm-yxcs). If a poison repair's snapshot fe
 - [x] Shrunk case as a failing unit test
 - [x] Retry a failed poison repair on reconnect (path shared by SyncProvider and the harness)
 - [x] Docs: sync-recovery.md, troubleshooting row
+
+
+## Summary of Changes
+A reconnect now retries a poison repair whose last attempt failed, through a required `retryFailedRepair` dep on `createReconnectFlow` (clientRuntime), shared by SyncProvider and the harness. A reconnect that arrives during an in-flight repair waits for it and retries once if it fails. Unit tests in clientRuntime/reconnectFlow/useSocketLifecycle and a SyncProvider-level test; props fixed scenario. Commits f68ae9aa, 7df882b0.

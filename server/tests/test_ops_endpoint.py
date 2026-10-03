@@ -524,23 +524,26 @@ def test_deleted_header_starts_a_fresh_one(client):
         ("[[conflict]] (page unknown)" + ORPHAN_SUFFIX, ["after"])]
 
 
-def test_new_day_starts_a_fresh_header_and_prunes(client, seeded_config,
-                                                   monkeypatch):
-    from pkm.server import ops_apply
+def test_new_day_starts_a_fresh_header_and_prunes(client, seeded_config):
+    import time_machine
+    from datetime import datetime, timedelta
     from pkm.server.db import open_db
 
     def on(day):
-        class _Date:
-            @staticmethod
-            def today():
-                return day
-        monkeypatch.setattr(ops_apply, "date", _Date)
+        return time_machine.travel(
+            datetime(day.year, day.month, day.day, 12).astimezone(),
+            tick=False)
 
-    day1, day2 = date(2026, 9, 27), date(2026, 9, 28)
-    on(day1)
-    assert _post(client, _orphan_edit("uid_zz4", "day one")).status_code == 200
-    on(day2)
-    assert _post(client, _orphan_edit("uid_zz4", "day two")).status_code == 200
+    # later days than today: the session cookie is stamped at the real clock
+    # and rejects a request from before it was issued
+    day1 = date.today() + timedelta(days=1)
+    day2 = day1 + timedelta(days=1)
+    with on(day1):
+        assert _post(client, _orphan_edit("uid_zz4", "day one")
+                     ).status_code == 200
+    with on(day2):
+        assert _post(client, _orphan_edit("uid_zz4", "day two")
+                     ).status_code == 200
 
     label = "[[conflict]] (page unknown)" + ORPHAN_SUFFIX
     assert _conflicts(client, day1) == [(label, ["day one"])]

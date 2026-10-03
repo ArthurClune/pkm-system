@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import datetime
 from typing import get_args
 
 import pytest
@@ -13,6 +13,7 @@ from pkm.server.ops_apply import (_parent_chain, _subtree_deepest_first,
 from pkm.server.ops_core import OpError, SubtreeRow
 
 NOW = 1_800_000_000_000
+NOW_DAY = title_for_date(datetime.fromtimestamp(NOW / 1000).date())
 
 
 @pytest.fixture()
@@ -389,7 +390,7 @@ def test_diverged_delete_of_a_preexisting_cycle_copies_each_block_once(db):
     copies = db.execute(
         "SELECT b.text FROM blocks b JOIN pages p ON p.id = b.page_id"
         " WHERE p.title = ? AND b.text IN ('n0', 'n1', 'n2')",
-        (title_for_date(date.today()),)).fetchall()
+        (NOW_DAY,)).fetchall()
     assert sorted(r["text"] for r in copies) == ["n0", "n1", "n2"]
 
 
@@ -466,7 +467,7 @@ def test_conflict_uids_retry_until_alphanumeric_first_char(db, monkeypatch):
     child = db.execute(
         "SELECT b.uid, b.parent_uid FROM blocks b JOIN pages p"
         " ON p.id = b.page_id WHERE b.text = 'Tags:: #AI' AND p.title = ?",
-        (title_for_date(date.today()),)).fetchone()
+        (NOW_DAY,)).fetchone()
     assert (child["uid"], child["parent_uid"]) == ("goodchild123",
                                                    "goodheader12")
 
@@ -650,7 +651,7 @@ def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
 
     assert db.execute("SELECT text FROM blocks WHERE uid='rew_uid1'"
                       ).fetchone()[0] == "see [[New]] page plus extra"
-    day = title_for_date(date.today())
+    day = NOW_DAY
     assert db.execute("SELECT id FROM pages WHERE title = ?",
                       (day,)).fetchone() is None
 
@@ -667,7 +668,7 @@ def test_stale_hash_identical_text_does_not_create_daily_page(db):
 
     assert db.execute("SELECT text FROM blocks WHERE uid='uid_b1'"
                       ).fetchone()[0] == "Tags:: #AI"
-    day = title_for_date(date.today())
+    day = NOW_DAY
     assert db.execute("SELECT id FROM pages WHERE title = ?",
                       (day,)).fetchone() is None
 
@@ -770,7 +771,7 @@ def test_noop_batch_journals_the_ghost_without_a_daily_page(db):
     ), NOW)
     db.commit()
     assert _journal_rows_since(db, before) == [("ghost_nb1", 1)]
-    day = title_for_date(date.today())
+    day = NOW_DAY
     assert db.execute("SELECT id FROM pages WHERE title = ?",
                       (day,)).fetchone() is None
 
@@ -851,7 +852,7 @@ def test_cycle_move_journals_the_moved_subtree_and_creates_no_page(db):
                                      "collapsed": True}]
     assert result.skipped == [{
         "index": 0, "op": "move", "uid": "uid_b2", "reason": "cycle",
-        "note_page": title_for_date(date.today())}]
+        "note_page": NOW_DAY}]
     rows = _journal_rows_since(db, before)
     # every row of the moved subtree ships live, root first; nothing is
     # tombstoned, since nothing is gone
@@ -944,3 +945,29 @@ def test_skipped_contexts_are_exactly_the_skipped_context_union():
     # apply_batch reports an op as skipped by isinstance against this tuple;
     # a Union member missing from it would be broadcast as applied instead
     assert set(ops_core.SKIPPED_CONTEXTS) == set(get_args(ops_core.SkippedContext))
+
+
+def test_conflict_landing_uses_the_batch_clock(db):
+    # The batch waited on the write lock across midnight: its now_ms is the
+    # evening before, the wall clock already the next morning. The conflict
+    # entry lands on the day of now_ms, the day the batch is stamped with.
+    import time_machine
+    evening = datetime(2026, 3, 10, 23, 59, 59).astimezone()
+    morning = datetime(2026, 3, 11, 0, 0, 5).astimezone()
+    now_ms = int(evening.timestamp() * 1000)
+    with time_machine.travel(morning, tick=False):
+        apply_batch(db, _batch(
+            {"op": "update_text", "uid": "uid_b1", "text": "offline edit",
+             "base_text_hash": text_hash("stale base")},
+        ), now_ms)
+        db.commit()
+
+    landed = db.execute(
+        "SELECT id, created_at FROM pages WHERE title = ?",
+        (title_for_date(evening.date()),)).fetchone()
+    assert landed is not None
+    assert landed["created_at"] == now_ms
+    assert db.execute("SELECT 1 FROM blocks WHERE page_id = ?",
+                      (landed["id"],)).fetchone() is not None
+    assert db.execute("SELECT id FROM pages WHERE title = ?", (
+        title_for_date(morning.date()),)).fetchone() is None

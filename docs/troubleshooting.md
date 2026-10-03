@@ -16,6 +16,7 @@ Owner: [backend.md](architecture/backend.md)
 
 | Symptom | Cause | Where | Ref |
 |---|---|---|---|
+| A conflict copy lands on a different daily note than the batch's `applied_at` day; the sync property's serial replay disagrees | `post_ops` read the clock once before `BEGIN IMMEDIATE`, but `_conflict_landing` took the day from `date.today()`. A batch that waited on the write lock across midnight split the two. A batch reads the clock once: every date and time on the `apply_batch` path derives from its `now_ms` | [backend.md § The write path](architecture/backend.md#the-write-path) | pkm-hb4x |
 | A server refactor breaks the CLI/MCP client with no compile-time warning | Client code imports `pkm.server.ops_core` or `pkm.server.daily` directly; it must use the shared `pkm/contracts/` models | [backend.md § Module map](architecture/backend.md#module-map) | test_client_contracts.py |
 | Request handlers hit a database-locked error under concurrent startup | Per-connection WAL/DDL setup races an in-flight transaction. Schema setup belongs in `init_db()`, never in the per-request connection | [backend.md § Database](architecture/backend.md#database) | — |
 | A breadcrumb trail or backlink group truncates at 100 levels on a deeply nested page | `_fetch_ancestors`'s CTE stops on a visited path. A `depth < 100` guard truncates real trails | [backend.md § Breadcrumbs and recursive traversal](architecture/backend.md#breadcrumbs-and-recursive-traversal) | pkm-8kw2 |

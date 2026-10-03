@@ -323,7 +323,9 @@ edit was based on. It is a text hash rather than a version counter, so
 structural changes don't manufacture conflicts. On a mismatch, or on an edit
 to a block that no longer exists, the incoming edit still wins. The losing
 text is rescued as a child block under a `[[conflict]]` header appended to
-today's daily page (`title_for_date(date.today())`, server-local). A second
+the daily page of the batch's own `now_ms`
+(`title_for_date` of its server-local date; `_conflict_landing` never reads
+the clock itself). A second
 conflict on the same block the same day appends under that same header
 instead of minting another (`conflict_headers`, above). The header text names
 the page:

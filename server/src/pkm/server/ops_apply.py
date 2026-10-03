@@ -7,7 +7,7 @@ import dataclasses
 import secrets
 import sqlite3
 from collections.abc import Collection
-from datetime import date
+from datetime import datetime
 
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp,
@@ -189,13 +189,14 @@ def _conflict_landing(db: sqlite3.Connection, target_uid: str,
                       exclude: Collection[str] = ()) -> ConflictLanding:
     """Where text that could not apply to target_uid lands: today's daily
     page, under its existing header for the block or at a fresh top-level
-    slot. The day key is the server's local date, same as the daily page.
+    slot. The day key is the local date (server timezone) of the batch's own
+    now_ms, never a fresh clock read, so it agrees with the batch's applied_at.
 
     An existing header whose uid is in `exclude` is passed over for a fresh
     one: a delete passes the subtree it removes, and a header inside that
     subtree would take the copies down with it. The fresh header is then
     recorded in its place."""
-    day = title_for_date(date.today())
+    day = title_for_date(datetime.fromtimestamp(now_ms / 1000).date())
     # title_for_date's fixed format is already canonical under either
     # plain_space setting, the same argument _daily_title makes.
     daily_title = CanonicalTitle(NormalizedTitle(day))

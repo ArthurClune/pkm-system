@@ -518,11 +518,18 @@ ships each as a tombstone, or as the block's real row if it exists.
 
 A skipped create or move also shifted its destination siblings on the
 replica, rows the op never named. The server journals that sibling group in
-the same commit, and the feed re-ships their true `order_idx`. One shape
-stays open: a top-level move with no `page_title`, of a block the server no
-longer has, targets a page the server cannot name. That skip re-ships no
-siblings, so the replica keeps its shifted keys
-([troubleshooting](../troubleshooting.md#sync-and-offline)).
+the same commit, and the feed re-ships their true `order_idx` (the table is
+in [backend.md § Missing targets](backend.md#missing-targets)). A top-level
+move with no `page_title` targets the block's own page, which the server
+reads from the block's delete row in the journal.
+
+Known gaps, where the replica keeps its shifted keys:
+
+| Case | Why the server re-ships the wrong group, or none |
+|---|---|
+| Another device moved the block to another page and then deleted it, before this client pulled the move | The delete row names the page the block was on when deleted, not the one the replica shifted |
+| The block was deleted before the journal recorded pages | Its delete row has no `page_id` |
+| An op the server applies, not skips, on another page than the replica's: a top-level move with no `page_title` of a block another device moved, or a top-level create or move whose `page_title` page another device renamed | The server shifts and journals its own page's siblings; the replica's page is never re-shipped ([troubleshooting](../troubleshooting.md#sync-and-offline)) |
 
 A replica applies tombstones first, and a block tombstone cascades its local
 subtree. The server orders its journal rows so that a window boundary never

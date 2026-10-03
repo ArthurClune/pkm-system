@@ -227,23 +227,45 @@ def _existing_page_id(db: sqlite3.Connection, title: str) -> PageId | None:
     return PageId(page["id"]) if page is not None else None
 
 
-def _destination_siblings(db: sqlite3.Connection,
-                          op) -> tuple[BlockUid, ...]:
+def _deleted_block_page(db: sqlite3.Connection, uid: str) -> PageId | None:
+    """The page a deleted block was on, from its latest delete row in the
+    journal (schema.BLOCKS_CHG_AD_TRIGGER). A newest-first scan: the delete
+    a skip races is recent, and only a uid never deleted reads the whole
+    journal."""
+    row = db.execute(
+        "SELECT page_id FROM changes WHERE entity_id = ?"
+        " AND page_id IS NOT NULL ORDER BY seq DESC LIMIT 1",
+        (uid,)).fetchone()
+    return PageId(row["page_id"]) if row is not None else None
+
+
+def _destination_siblings(db: sqlite3.Connection, op, skip: Skip,
+                          parent_exists: bool) -> tuple[BlockUid, ...]:
     """The live blocks of a skipped create's or move's destination sibling
-    group, where the client's local apply placed the op (placement.ts): the
-    children of its parent_uid, or the top level of the page a top-level
-    move's page_title names. A missing parent has no live children. A
-    top-level move with no page_title targets the block's own page, which
-    the server cannot name once the block is gone, so it has none either."""
-    if not isinstance(op, (CreateOp, MoveOp)):
+    group, where the client's local apply placed the op (placement.ts),
+    when only these journal rows would re-ship them: the orphan move of a
+    gone block. The other skipped creates and moves read nothing. A gone
+    parent (diverted_create, move_parent_missing) has no live children,
+    and a move_cycle's group, the target's children, lies inside the
+    subtree its StuckMoveContext journals.
+
+    The group is the children of a live parent_uid, or the top level of
+    the page a top-level move's page_title names. With no page_title the
+    move targets the block's own page, the one its delete row in the
+    journal recorded. A uid never deleted, or deleted before the journal
+    recorded pages, has none."""
+    if skip.kind != "orphan_structural" or not isinstance(op, MoveOp):
         return ()
     if op.parent_uid is not None:
+        if not parent_exists:
+            return ()
         rows = db.execute(
             "SELECT uid FROM blocks WHERE parent_uid = ?"
             " ORDER BY order_idx, uid", (op.parent_uid,)).fetchall()
     else:
         page_id = (_existing_page_id(db, op.page_title)
-                   if op.page_title is not None else None)
+                   if op.page_title is not None
+                   else _deleted_block_page(db, op.uid))
         if page_id is None:
             return ()
         rows = db.execute(
@@ -253,11 +275,12 @@ def _destination_siblings(db: sqlite3.Connection,
 
 
 def _skip_context(db: sqlite3.Connection, op, skip: Skip,
-                  block: BlockInfo | None, now_ms: int) -> SkippedContext:
+                  block: BlockInfo | None, parent_exists: bool,
+                  now_ms: int) -> SkippedContext:
     """Context for an op classify_skip flagged. Resolves no op page_title
     (get_or_create would create a page for an op that isn't applied), and
     pays for today's daily page only when an entry lands."""
-    siblings = _destination_siblings(db, op)
+    siblings = _destination_siblings(db, op, skip, parent_exists)
     if skip.landing_uid is None:
         return SkipContext(skip, siblings)
     if skip.kind in ("move_parent_missing", "move_cycle"):
@@ -291,7 +314,8 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
              and parent is not None else ())
     skip = classify_skip(op, block is not None, parent is not None, chain)
     if skip is not None:
-        return _skip_context(db, op, skip, block, now_ms)
+        return _skip_context(db, op, skip, block, parent is not None,
+                             now_ms)
     if isinstance(op, CreateOp):
         # Under a live parent the block lands on the parent's page, so the
         # op's page_title is never resolved: a title gone stale since

@@ -71,15 +71,9 @@ def _block_state(seeded_config):
         con.close()
 
 
-@pytest.mark.parametrize("page_title", [
-    PAGE,
-    # A top-level move with no page_title targets the block's own page,
-    # and the server keeps no record of that page once the block is gone.
-    # This is the shape the sync property found; it stays open until the
-    # server can name the page.
-    pytest.param(None, marks=pytest.mark.xfail(
-        strict=True, reason="the server cannot name a gone block's page")),
-], ids=["titled", "untitled"])
+# untitled: the move targets the block's own page, which the server reads
+# from the block's delete row in the journal
+@pytest.mark.parametrize("page_title", [PAGE, None], ids=["titled", "untitled"])
 def test_skipped_move_reships_destination_siblings(client, page_title):
     _seed_top_level(client)
     _post(client, {"op": "delete", "uid": "sib_s2"})
@@ -201,3 +195,40 @@ def test_title_naming_no_page_reships_nothing_and_creates_no_page(
                            ("Not A Page Yet",)).fetchone() is None
     finally:
         con.close()
+
+
+def test_a_skips_own_tombstone_does_not_hide_the_blocks_page(client):
+    # the skip journals the gone uid again as a tombstone with no page; a
+    # later skip of the same uid must still find the page its delete wrote
+    _seed_top_level(client)
+    _post(client, {"op": "delete", "uid": "sib_s2"})
+    move = {"op": "move", "uid": "sib_s2", "parent_uid": None, "order_idx": 0}
+    _post(client, move)
+    since = _latest_seq(client)
+    _post(client, move)
+    blocks, _ = _feed_since(client, since)
+    assert {"sib_s1", "sib_s3", "sib_s4"} <= set(blocks)
+
+
+def test_untitled_skip_of_a_uid_never_deleted_reships_nothing(
+        client, seeded_config):
+    _seed_top_level(client)
+    since = _latest_seq(client)
+    ack = _post(client, {"op": "move", "uid": "sib_never1", "parent_uid": None,
+                         "order_idx": 0})
+    assert [s["reason"] for s in ack["skipped"]] == ["block_not_found"]
+    journalled = {u for u, _ in _journalled_since(seeded_config, since)}
+    assert journalled & {"sib_s1", "sib_s2", "sib_s3", "sib_s4"} == set()
+
+
+def test_orphan_move_under_a_gone_parent_reships_nothing(client, seeded_config):
+    _seed_top_level(client)
+    _post(client, _create("sib_gone3", 40), _create("sib_k3", 0, "sib_gone3"))
+    _post(client, {"op": "delete", "uid": "sib_gone3"})
+    _post(client, {"op": "delete", "uid": "sib_s2"})
+    since = _latest_seq(client)
+    ack = _post(client, {"op": "move", "uid": "sib_s2",
+                         "parent_uid": "sib_gone3", "order_idx": 0})
+    assert [s["reason"] for s in ack["skipped"]] == ["block_not_found"]
+    journalled = {u for u, _ in _journalled_since(seeded_config, since)}
+    assert journalled & {"sib_s1", "sib_s3", "sib_s4", "sib_k3"} == set()

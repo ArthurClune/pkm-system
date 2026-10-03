@@ -426,7 +426,8 @@ class LandedSkipContext:
     `siblings` (here and on the other skipped contexts): the live blocks of
     a skipped create's or move's destination sibling group, the group the
     client's optimistic apply shifted and the server did not. Empty for
-    every other op, and when the server cannot name the group."""
+    every other op, and wherever the skip's other journal rows already
+    correct the group (`ops_apply._destination_siblings`)."""
     skip: Skip
     landing: ConflictLanding
     hint_page_exists: bool

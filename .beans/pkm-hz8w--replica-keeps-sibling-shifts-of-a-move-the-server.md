@@ -12,5 +12,5 @@ Found by the sync protocol property (pkm-yxcs). A client moves a block another d
 
 - [x] Shrunk case as a failing server unit test (tests/test_skip_reships_siblings.py)
 - [x] Journal-touch the destination sibling group on a skipped create/move, where the server can name it (live parent; top level of a page_title that names a page)
-- [ ] Open: a top-level move with no page_title of a gone block (the F2 shape itself). The server cannot name the block's page once it is gone, so nothing is re-shipped and the F2 replay still fails. Needs a ruling (see task-7b-report.md); the untitled test param is a strict xfail
+- [x] A top-level move with no page_title of a gone block: the block's delete row in `changes` records its page (`page_id`), and the skip re-ships that page's top level
 - [x] Docs: sync-recovery.md / backend.md missing targets, troubleshooting row

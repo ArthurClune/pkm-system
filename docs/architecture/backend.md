@@ -181,11 +181,17 @@ Around that base model:
   badge and `GET /api/block/{uid}/backlinks`. Block text is the only durable
   data — `refs`, `block_refs` and FTS are always rebuilt from it.
 - **Server-only tables** (`SERVER_DDL`):
-  - `changes(seq AUTOINCREMENT, kind, entity_id, deleted)` — the append-only
-    change journal, populated by row-level triggers rather than route code, so
-    any new write path is journalled automatically. Cascade deletes journal
-    only because `recursive_triggers=ON`. The one direct writer is the
-    `JournalBlock` effect for an op on a missing target (below).
+  - `changes(seq AUTOINCREMENT, kind, entity_id, deleted, page_id)` — the
+    append-only change journal, populated by row-level triggers rather than
+    route code, so any new write path is journalled automatically. Cascade
+    deletes journal only because `recursive_triggers=ON`. The one direct
+    writer is the `JournalBlock` effect for an op on a missing target
+    (below). `page_id` is set only on a block's delete row, by
+    `blocks_chg_ad`: it is the server's only record of the page a deleted
+    block was on ([Missing targets](#missing-targets)). It is never shipped,
+    and has no index, since every journal insert would pay for one.
+    `db._ensure_schema_migrations` adds the column to an older journal
+    (existing rows stay NULL) and re-creates the trigger.
   - `applied_batches(batch_id, request_hash, response)` — op idempotency.
   - `block_rewrites(uid, base_hash, after_hash, old_title, new_title,
     created_at)` — what a rename, merge or the title migration did to one
@@ -378,7 +384,7 @@ the daily page is resolved only when an entry lands:
 |---|---|---|---|---|
 | `set_collapsed`, block gone | no-op, but journalled: a replica that collapsed the block holds a ghost of it | `block_not_found` | — | the uid |
 | `delete`, block gone | no-op | `block_not_found` | — | — |
-| `move` / `set_heading` / `set_view_type`, block gone | skipped; child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under the `(page unknown)` header | `block_not_found` | the block's uid | the uid; a move also its destination siblings |
+| `move` / `set_heading` / `set_view_type`, block gone | skipped; child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under the `(page unknown)` header | `block_not_found` | the block's uid | the uid; a move also its destination siblings (below) |
 | `update_text`, block gone, hashed or not | text lands (header table above); a blank text lands nothing | `block_not_found` | the block's uid | the uid |
 | `create`, parent gone | block not created; its text lands, header labelled from the op's `page_title`; a blank text lands nothing | `parent_not_found` | the parent's uid | created uid and parent uid |
 | `move`, block exists, parent gone | block stays put; child `move skipped: target parent <uid> not found` | `parent_not_found` | the block's uid | the parent uid, then every block of the moved subtree |
@@ -410,23 +416,25 @@ to a missing parent journals the moved subtree, not just its root.
 boundary can never put a tombstone after the rows that restore what it
 cascades away.
 
-A skipped `create` or `move` also journals its destination sibling group
-(`ops_apply._destination_siblings`). The client's optimistic apply shifted
-those siblings' `order_idx` and the server did not, so only these rows
-bring the replica's keys back.
+A skipped `create` or `move` also shifted its destination siblings in the
+client's optimistic apply, and the server did not. Where nothing else
+re-ships them, the skip journals them (`ops_apply._destination_siblings`):
 
-| Destination | Siblings journalled |
-|---|---|
-| a live `parent_uid` | its children |
-| a gone `parent_uid` | none: the parent's tombstone cascades the replica's shifted copies |
-| top level, `page_title` naming a page | that page's top-level blocks (looked up, never created) |
-| top level, no `page_title`, block gone | none: the target is the block's own page, which the server can no longer name |
+| Skip | Destination | Siblings journalled |
+|---|---|---|
+| move of a gone block | a live `parent_uid` | its children |
+| move of a gone block | top level, `page_title` naming a page | that page's top-level blocks (looked up, never created) |
+| move of a gone block | top level, no `page_title` | the top level of the block's own page, read from its latest delete row (`changes.page_id`) |
+| any | a gone `parent_uid` | none: the parent's tombstone cascades the replica's shifted copies |
+| `move_cycle` | the target's children | none extra: they lie inside the journalled subtree |
 
-A cycle's group, the target's children, lies inside the journalled subtree
-already. `JournalBlock` inserts into `changes` directly, so no `blocks`
-trigger fires and `updated_at`, FTS, `refs` and `block_refs` stay as they
-were. The rows are written in the batch's transaction, so the window that
-carries the batch re-ships each sibling's current row.
+The `page_id` lookup scans the journal newest first. The delete a skip races
+is recent, so the scan stops early; only a uid never deleted, or deleted
+before the column existed, reads the whole journal and journals no siblings.
+`JournalBlock` inserts into `changes` directly, so no `blocks` trigger fires
+and `updated_at`, FTS, `refs` and `block_refs` stay as they were. The rows
+are written in the batch's transaction, so the window that carries the batch
+re-ships each sibling's current row.
 
 Every other planning error is still a 400: invalid uid, uid already exists,
 title syntax. `find_op_title_violation` checks the whole batch before any op

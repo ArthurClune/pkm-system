@@ -3,19 +3,26 @@ import fc from "fast-check";
 import { expect, test } from "vitest";
 import { BASE_URL, PASSWORD, SEED } from "./env";
 
-test("harness server resets to the six seed blocks", async () => {
-  const login = await fetch(`${BASE_URL}/api/login`, {
+async function login(): Promise<string> {
+  const res = await fetch(`${BASE_URL}/api/login`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ password: PASSWORD }),
   });
-  expect(login.ok).toBe(true);
-  const cookie = (login.headers.getSetCookie()[0] ?? "").split(";")[0];
+  expect(res.ok).toBe(true);
+  return (res.headers.getSetCookie()[0] ?? "").split(";")[0];
+}
+
+test("harness server resets to the six seed blocks", async () => {
+  // An earlier file may have left the server clock far past START_MS, and a
+  // cookie issued there is in the future once the reset returns the clock:
+  // the first login only buys the reset, the second is the one used.
   const reset = await fetch(`${BASE_URL}/__proptest/reset`, {
     method: "POST",
-    headers: { cookie },
+    headers: { cookie: await login() },
   });
   expect(reset.status).toBe(200);
+  const cookie = await login();
   const snap = (await (
     await fetch(`${BASE_URL}/api/sync/snapshot`, { headers: { cookie } })
   ).json()) as { blocks: { uid: string }[] };

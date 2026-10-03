@@ -131,4 +131,40 @@ describe("settleCommitted", () => {
       q.settleCommitted([bid("batch-1"), bid("never-held")]);
       q.dispose();
     });
+
+  test("drains on after a pull settles the head, without waiting for the retry timer",
+    async () => {
+      vi.useFakeTimers();
+      try {
+        const replica = memReplica();
+        const sent: string[] = [];
+        let failFirst = true;
+        const post = vi.fn(async (body: OpBatch): Promise<OpsAck> => {
+          sent.push(body.batch_id);
+          if (failFirst) {
+            failFirst = false;
+            // committed, but the ack never arrives
+            throw new TypeError("fetch failed");
+          }
+          return ack();
+        });
+        const q = createOpQueue(replica, { post, newBatchId: minter() });
+        await q.enqueue([op("aaaaaaaa")]).settled;
+        await q.enqueue([op("bbbbbbbb")]).settled;
+        const outcome = await q.drain();
+        expect(outcome).toMatchObject({ status: "blocked", reason: "retryable" });
+        expect(sent).toEqual(["batch-1"]);
+
+        // a pull's window named batch-1 as applied and the replica dropped it
+        replica.rows.splice(0, 1);
+        q.settleCommitted([bid("batch-1")]);
+        // microtasks only: vi.waitFor would advance the fake retry timer
+        for (let i = 0; i < 50 && sent.length < 2; i += 1) await Promise.resolve();
+        expect(sent).toEqual(["batch-1", "batch-2"]);
+        expect(vi.getTimerCount()).toBe(0);
+        q.dispose();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
 });

@@ -472,12 +472,18 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       token = lease.token;
       await flushLease(lease, options.flush);
       // Names no pending batch, unlike a pull or a bootstrap: no leased row
-      // can be committed without an ack this run holds. A flushing rebase
-      // posted every leased row and holds the acks, and the commit deletes
-      // those rows before its replay. A poison rebase posts nothing, and its
-      // rows were never posted either: the drain posts in queue order and
-      // deletes each row on its ack, so every row ahead of the rejected batch
-      // is gone, and it stops at the rejection, so none behind it went out.
+      // can be committed without an ack held in heldAcks, which the commit
+      // deletes before its replay. A flushing rebase holds an ack for every
+      // row it posted. A poison rebase posts nothing; a row behind the
+      // rejected one went out only if a normal flush posted it, and two
+      // guards stop that. onPoisonPending claims authoritativeRepair
+      // synchronously, before the durable poison mark, so a lease that could
+      // see the mark fails assertNormalRecoveryStillOwnsFlush before its
+      // first post, and a flush already under way stops at its next one,
+      // its acks held. A poisoned row left by an earlier page load is
+      // repaired before start() (clientRuntime's startup), before any
+      // normal recovery can lease it. Weakening either guard would let a
+      // flush post past a poisoned row and this snapshot replay it twice.
       // A reset drops the queue and replays nothing.
       const snapshot = await fetchSnapshot();
       // Every commit takes the held acks. A reset drops the queue, so it

@@ -173,6 +173,15 @@ test("lost ack, own nudge pulls before the redelivery", async () => {
         }
       })(), REPRO_WAIT_MS);
       if (committed === TIMED_OUT) throw new Error("the batch never committed");
+      // The race this scenario is about: still pending and sent once, so the
+      // pull below lands before the redelivery, not after it.
+      const [id] = a.transport.committed.keys();
+      const pending = a.db.select<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM pending_ops")[0].n;
+      if (pending !== 1 || a.transport.sends(id) !== 1) {
+        throw new Error(`the redelivery won the race: ${pending} pending,` +
+                        ` ${a.transport.sends(id)} sends`);
+      }
       world.transcript.push("Pull(A) before the redelivery");
       await a.pull();
     },

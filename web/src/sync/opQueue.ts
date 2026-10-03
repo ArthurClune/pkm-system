@@ -132,8 +132,9 @@ export interface OpQueue {
   /** Durable batches the server holds that no ack of this queue's settled: a
    * sync payload named them as already applied and the replica dropped their
    * rows (replicaSync). Each delivery resolves "delivered" and its lane mark
-   * goes, exactly as on the drain's ack, and the durable count is re-read.
-   * A batch already settled, or never this queue's, is a no-op. */
+   * goes, the backoff resets and the drain runs on, as on the drain's ack;
+   * the durable count is re-read. A batch already settled, or never this
+   * queue's, settles nothing. */
   settleCommitted(batchIds: readonly BatchId[]): void;
 }
 
@@ -789,11 +790,17 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       poisonStore.write(poisonMarkIntents);
     },
     settleCommitted(batchIds) {
+      if (batchIds.length === 0) return;
       for (const batchId of batchIds) {
         finishDelivery(batchId, { status: "delivered" });
         outbox = forget(outbox, batchId);
       }
       void countPending();
+      // As on a drain ack: the backoff resets, and the rows behind a dropped
+      // head go out now rather than when the retry timer armed for that head
+      // (its lost ack) fires.
+      dispatch({ type: "batch-succeeded" });
+      if (!qstate.disposed) kick();
     },
     async deliverLaneAhead(batchId) {
       if (qstate.disposed) throw new Error("op queue disposed");

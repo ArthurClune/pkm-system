@@ -259,12 +259,26 @@ absent from both the rows and the answer. A window that rolls back keeps the
 rows it would have dropped.
 
 Delivery is in queue order, so only a head prefix can commit while still
-pending, and the cap only bounds the query string. A later ack or redelivery
+pending. The drain holds at most its head in doubt. More takes a recovery
+flush whose held acks were lost to a reload, and committed rows past
+`PENDING_IDS_CAP` in that case (a flush of more than 100 rows) are still
+replayed. A later ack or redelivery
 for a dropped row matches nothing in `deleteBatch`; the server answers a
 redelivery with the stored ack. The lane's entries are never named: they are
-not durable rows, and `reapplyPending` never replays them. A recovery snapshot
-names nothing. Its flush holds an ack for every row it posted, and a poison
-rebase's rows were never posted, since the drain stops at the rejected batch.
+not durable rows, and `reapplyPending` never replays them.
+
+A recovery snapshot names nothing: every leased row the server holds has an
+ack in `heldAcks`, which the commit deletes before its replay. A flushing
+rebase holds one for each row it posted. A poison rebase posts nothing, and two
+guards keep a normal flush from having posted past the poisoned row:
+
+| Guard | Where | What it stops |
+|---|---|---|
+| `onPoisonPending` sets `authoritativeRepair = "poison"` synchronously, before the durable mark; `assertNormalRecoveryStillOwnsFlush` runs before every post | `replicaSync.ts`, `opQueue.ts::rejectDurableBatch` | A lease that could see the poisoned row posting the rows behind it |
+| Startup repairs poisoned rows left by an earlier page load before `replicaSync.start()` | `clientRuntime.ts` | A normal recovery leasing an old poisoned row |
+
+Weaken either and a flush can post past a poisoned row, and the poison
+rebase replays it twice.
 Both directions are additive: an older server omits the field, and an older
 client sends no ids.
 

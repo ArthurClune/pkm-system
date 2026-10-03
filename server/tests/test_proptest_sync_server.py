@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import dataclasses
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
@@ -110,3 +112,14 @@ def test_proptest_routes_are_not_in_the_product_app(tmp_path: Path, clock: Clock
 def test_server_log_path_honours_override(tmp_path: Path) -> None:
     assert sync_server.log_path({"PROPTEST_SERVER_LOG": "/x/y.log"}, tmp_path) == Path("/x/y.log")
     assert sync_server.log_path({}, tmp_path) == tmp_path / "server.log"
+
+
+def test_cookie_from_start_survives_every_clock_the_harness_uses(client: TestClient) -> None:
+    def local_ms(y: int, m: int, d: int) -> int:
+        return int(datetime(y, m, d, 23, 59, 55, tzinfo=ZoneInfo("Europe/London")).timestamp() * 1000)
+
+    for ms in (local_ms(2026, 3, 29), local_ms(2026, 10, 25), START_MS + 300 * 24 * 3600 * 1000):
+        client.post("/__proptest/clock", json={"ms": ms})
+        assert client.get("/api/sync/snapshot").status_code == 200
+        assert client.post("/__proptest/reset").status_code == 200
+        assert client.get("/api/sync/snapshot").status_code == 200

@@ -6,6 +6,11 @@ in commit order. The routes live here and never in pkm.server.app.
 
 Run (cwd server/, as proptest/check.sh runs run.py):
     TZ=Europe/London PYTHONPATH=tooling uv run python -m proptest.sync_server
+
+Invariant: the harness logs in once, at START_MS, and the clock never moves
+before START_MS or more than a year past it. Session cookies are signed with
+the server clock and rejected when issued more than 5 minutes in the future
+or more than a year ago, so any other clock position would log the harness out.
 """
 from __future__ import annotations
 
@@ -49,7 +54,7 @@ SEED_PAGE = "Proptest"
 # pt_seed_6 is reserved: no generated Edit targets it, so it is live on the
 # server for the whole example and a create of it is always a 400 (BadBatch).
 SEED_UIDS = tuple(f"pt_seed_{i}" for i in range(1, 7))
-START_MS = int(datetime(2026, 6, 15, 12, 0, 0, tzinfo=ZoneInfo("Europe/London")).timestamp() * 1000)
+START_MS = int(datetime(2026, 3, 1, 12, 0, 0, tzinfo=ZoneInfo("Europe/London")).timestamp() * 1000)
 
 logger = logging.getLogger("pkm.proptest_server")
 

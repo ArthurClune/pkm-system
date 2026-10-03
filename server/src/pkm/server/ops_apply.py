@@ -12,7 +12,7 @@ from datetime import date
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp,
                                MoveOp, OpBatch, OrderIdx, PageId, UpdateTextOp)
-from pkm.refs import CanonicalTitle, NormalizedTitle
+from pkm.refs import CanonicalTitle, NormalizedTitle, is_blank_title
 from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  BlockRewrite, ConflictLanding, CreateContext,
                                  DeleteBlocks, DeleteConflictContext,
@@ -217,25 +217,61 @@ def _conflict_landing(db: sqlite3.Connection, target_uid: str,
                            entry_uid=_new_uid(), header=header)
 
 
+def _existing_page_id(db: sqlite3.Connection, title: str) -> PageId | None:
+    """The page `_resolve_page` would return for title, if it exists
+    already; never creates one."""
+    canonical = read_title(db, title)
+    if is_blank_title(canonical):
+        canonical = read_title(db, UNTITLED_PAGE_TITLE)
+    page = fetch_page(db, canonical)
+    return PageId(page["id"]) if page is not None else None
+
+
+def _destination_siblings(db: sqlite3.Connection,
+                          op) -> tuple[BlockUid, ...]:
+    """The live blocks of a skipped create's or move's destination sibling
+    group, where the client's local apply placed the op (placement.ts): the
+    children of its parent_uid, or the top level of the page a top-level
+    move's page_title names. A missing parent has no live children. A
+    top-level move with no page_title targets the block's own page, which
+    the server cannot name once the block is gone, so it has none either."""
+    if not isinstance(op, (CreateOp, MoveOp)):
+        return ()
+    if op.parent_uid is not None:
+        rows = db.execute(
+            "SELECT uid FROM blocks WHERE parent_uid = ?"
+            " ORDER BY order_idx, uid", (op.parent_uid,)).fetchall()
+    else:
+        page_id = (_existing_page_id(db, op.page_title)
+                   if op.page_title is not None else None)
+        if page_id is None:
+            return ()
+        rows = db.execute(
+            "SELECT uid FROM blocks WHERE page_id = ? AND parent_uid IS NULL"
+            " ORDER BY order_idx, uid", (page_id,)).fetchall()
+    return tuple(BlockUid(r["uid"]) for r in rows)
+
+
 def _skip_context(db: sqlite3.Connection, op, skip: Skip,
                   block: BlockInfo | None, now_ms: int) -> SkippedContext:
     """Context for an op classify_skip flagged. Resolves no op page_title
     (get_or_create would create a page for an op that isn't applied), and
     pays for today's daily page only when an entry lands."""
+    siblings = _destination_siblings(db, op)
     if skip.landing_uid is None:
-        return SkipContext(skip)
+        return SkipContext(skip, siblings)
     if skip.kind in ("move_parent_missing", "move_cycle"):
         assert block is not None  # the block exists; its target does not fit
         page_title = _require_page_title(db, block.page_id)
         subtree = _subtree_deepest_first(db, op.uid)
         return StuckMoveContext(
             skip, _conflict_landing(db, skip.landing_uid, now_ms),
-            page_title, subtree)
+            page_title, subtree, siblings)
     hint_page_exists = (isinstance(op, (CreateOp, UpdateTextOp))
                         and _hint_page_exists(db, op.page_title))
     return LandedSkipContext(
         skip, _conflict_landing(db, skip.landing_uid, now_ms),
-        hint_page_exists)
+        hint_page_exists, siblings)
 
 
 def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:

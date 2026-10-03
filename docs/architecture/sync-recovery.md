@@ -265,8 +265,12 @@ both are accepted. When a window re-ships only some siblings, at their server
 `order_idx`, into a list holding locally shifted indices, the replay can put
 those siblings out of order. A replayed cross-page move keeps its root in
 place but not a descendant the window re-shipped at the old page. Each lasts
-until the ack's echo re-ships the server's rows. Nothing wrong is stored, and
-a fix would mean keeping pre-images of every row a pending op touches.
+until the ack's echo re-ships the server's rows. For an applied op, the
+triggers journal the server's own sibling shifts. For a skipped create or
+move, the skip journals the destination siblings the server left alone
+([§ Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has)).
+Nothing wrong is stored, and a fix would mean keeping pre-images of every
+row a pending op touches.
 
 ## A batch the server rejects
 
@@ -511,6 +515,14 @@ per-op table is in [backend.md § Missing targets](backend.md#missing-targets)).
 The client keeps its optimistic copy of the skipped op. So the server journals
 every uid involved in the same commit through `JournalBlock`, and the feed
 ships each as a tombstone, or as the block's real row if it exists.
+
+A skipped create or move also shifted its destination siblings on the
+replica, rows the op never named. The server journals that sibling group in
+the same commit, and the feed re-ships their true `order_idx`. One shape
+stays open: a top-level move with no `page_title`, of a block the server no
+longer has, targets a page the server cannot name. That skip re-ships no
+siblings, so the replica keeps its shifted keys
+([troubleshooting](../troubleshooting.md#sync-and-offline)).
 
 A replica applies tombstones first, and a block tombstone cascades its local
 subtree. The server orders its journal rows so that a window boundary never

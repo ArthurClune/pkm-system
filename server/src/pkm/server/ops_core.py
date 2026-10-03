@@ -410,8 +410,10 @@ class TextConflictContext:
 @dataclass(frozen=True)
 class SkipContext:
     """A skipped op that lands nothing (`skip.landing_uid` is None): a
-    noop, or a blank orphan_edit / diverted_create."""
+    noop, or a blank orphan_edit / diverted_create. `siblings`: see
+    LandedSkipContext."""
     skip: Skip
+    siblings: tuple[BlockUid, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -419,10 +421,16 @@ class LandedSkipContext:
     """An orphan_edit, diverted_create or orphan_structural with an entry
     to land. `hint_page_exists` says whether op.page_title, the client's
     hint, names a page now; it picks the header's link-vs-code-span label
-    (`conflict_notes.conflict_label`)."""
+    (`conflict_notes.conflict_label`).
+
+    `siblings` (here and on the other skipped contexts): the live blocks of
+    a skipped create's or move's destination sibling group, the group the
+    client's optimistic apply shifted and the server did not. Empty for
+    every other op, and when the server cannot name the group."""
     skip: Skip
     landing: ConflictLanding
     hint_page_exists: bool
+    siblings: tuple[BlockUid, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -434,6 +442,7 @@ class StuckMoveContext:
     landing: ConflictLanding
     page_title: str
     subtree: tuple[BlockUid, ...]
+    siblings: tuple[BlockUid, ...] = ()
 
 
 SkippedContext = Union[SkipContext, LandedSkipContext, StuckMoveContext]
@@ -599,12 +608,22 @@ def conflict_entry_effects(
 def _plan_skip(op: BlockOp, ctx: SkippedContext) -> tuple[Effect, ...]:
     """Effects for an op `classify_skip` flagged: a daily-note entry when it
     has a landing, plus JournalBlock for every uid a replica may hold a
-    ghost of, so the feed corrects it.
+    ghost of, so the feed corrects it, and for every destination sibling
+    (`ctx.siblings`) the replica's optimistic apply shifted. Journalling a
+    sibling writes no column: the feed re-ships its row as it stands.
 
     Tombstones (uids with no row) always lead, live rows always trail: a
     ghost's tombstone cascades its whole local subtree away on a replica,
     and a window boundary between the two must never put it after the live
     rows that bring the survivors back."""
+    effects = _plan_skip_own(op, ctx)
+    journalled = {e.uid for e in effects if isinstance(e, JournalBlock)}
+    return (*effects, *(JournalBlock(u, False) for u in ctx.siblings
+                        if u not in journalled))
+
+
+def _plan_skip_own(op: BlockOp, ctx: SkippedContext) -> tuple[Effect, ...]:
+    """`_plan_skip` less the destination siblings."""
     assert not isinstance(op, CreatePageOp)  # never classified skipped
     skip = ctx.skip
     # the context type must fit the skip kind, not just the op: planned

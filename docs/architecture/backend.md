@@ -378,7 +378,7 @@ the daily page is resolved only when an entry lands:
 |---|---|---|---|---|
 | `set_collapsed`, block gone | no-op, but journalled: a replica that collapsed the block holds a ghost of it | `block_not_found` | — | the uid |
 | `delete`, block gone | no-op | `block_not_found` | — | — |
-| `move` / `set_heading` / `set_view_type`, block gone | skipped; child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under the `(page unknown)` header | `block_not_found` | the block's uid | the uid |
+| `move` / `set_heading` / `set_view_type`, block gone | skipped; child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under the `(page unknown)` header | `block_not_found` | the block's uid | the uid; a move also its destination siblings |
 | `update_text`, block gone, hashed or not | text lands (header table above); a blank text lands nothing | `block_not_found` | the block's uid | the uid |
 | `create`, parent gone | block not created; its text lands, header labelled from the op's `page_title`; a blank text lands nothing | `parent_not_found` | the parent's uid | created uid and parent uid |
 | `move`, block exists, parent gone | block stays put; child `move skipped: target parent <uid> not found` | `parent_not_found` | the block's uid | the parent uid, then every block of the moved subtree |
@@ -409,6 +409,24 @@ to a missing parent journals the moved subtree, not just its root.
 `_plan_skip` emits tombstones before live rows, so a window
 boundary can never put a tombstone after the rows that restore what it
 cascades away.
+
+A skipped `create` or `move` also journals its destination sibling group
+(`ops_apply._destination_siblings`). The client's optimistic apply shifted
+those siblings' `order_idx` and the server did not, so only these rows
+bring the replica's keys back.
+
+| Destination | Siblings journalled |
+|---|---|
+| a live `parent_uid` | its children |
+| a gone `parent_uid` | none: the parent's tombstone cascades the replica's shifted copies |
+| top level, `page_title` naming a page | that page's top-level blocks (looked up, never created) |
+| top level, no `page_title`, block gone | none: the target is the block's own page, which the server can no longer name |
+
+A cycle's group, the target's children, lies inside the journalled subtree
+already. `JournalBlock` inserts into `changes` directly, so no `blocks`
+trigger fires and `updated_at`, FTS, `refs` and `block_refs` stay as they
+were. The rows are written in the batch's transaction, so the window that
+carries the batch re-ships each sibling's current row.
 
 Every other planning error is still a 400: invalid uid, uid already exists,
 title syntax. `find_op_title_violation` checks the whole batch before any op

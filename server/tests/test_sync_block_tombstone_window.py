@@ -1,14 +1,13 @@
 """A block tombstone ships only in the window that holds the block's delete
 row. A replica cascades a block tombstone through its local subtree, after
-the window's upserts. Every block the server kept left that subtree before
-the delete, so its move row lies in the delete row's window or an earlier
-one. A tombstone shipped from an older live row of the block, ahead of its
-delete row, would run the cascade before those moves arrive.
+the upserts of the window that reaches the journal head; a window short of
+the head records its block tombstones for that window to apply.
 
-That holds for a kept block whose move out ships no later than the
-tombstone. It does not yet hold across windows when the block that moved
-out is itself deleted later: its move row hydrates to nothing, so the
-cascade runs over the replica's stale subtree (the strict xfail below)."""
+Waiting for the head covers a kept block whose ancestor moved out of the
+deleted subtree and was deleted itself in a later window: the ancestor's
+move row hydrates to nothing, so a cascade run in the earlier window would
+take the replica's stale subtree, and the kept block's child, whose row
+never changed, would not ship again."""
 import pytest
 
 
@@ -27,26 +26,33 @@ def _ops(client, batch_id, ops):
 
 def _catch_up(client, since, local, limit):
     """Apply every window after `since` to `local` (uid -> parent_uid) as the
-    replica does: upserts, then block tombstones cascading the local
-    subtree. Returns the windows' tombstones and shipped uids, in order."""
+    replica does: upserts, and block tombstones recorded until the window
+    that reaches the journal head, which cascades every recorded one through
+    the local subtree after its upserts. A block a later window ships live
+    leaves the record. Returns the windows' tombstones and shipped uids, in
+    order."""
     windows = []
+    owed: list[str] = []
     while True:
         feed = _drain(client, since=since, limit=limit)
+        shipped = [b["uid"] for b in feed["blocks"]]
         for b in feed["blocks"]:
             local[b["uid"]] = b["parent_uid"]
         tombs = [t["entity_id"] for t in feed["tombstones"]
                  if t["kind"] == "block"]
-        for uid in tombs:
-            doomed = {uid}
-            grew = True
-            while grew:
-                more = {u for u, p in local.items() if p in doomed} - doomed
-                doomed |= more
-                grew = bool(more)
-            for u in doomed:
-                local.pop(u, None)
-        windows.append((tombs, [b["uid"] for b in feed["blocks"]]))
+        owed = list(dict.fromkeys(
+            [u for u in owed if u not in shipped] + tombs))
+        windows.append((tombs, shipped))
         if feed["next_since"] >= feed["latest_seq"]:
+            for uid in owed:
+                doomed = {uid}
+                grew = True
+                while grew:
+                    more = {u for u, p in local.items() if p in doomed} - doomed
+                    doomed |= more
+                    grew = bool(more)
+                for u in doomed:
+                    local.pop(u, None)
             return windows
         since = feed["next_since"]
 
@@ -71,7 +77,10 @@ def _build_edit_move_delete(client):
     return start
 
 
-def test_window_cut_before_the_delete_row_keeps_the_moved_out_subtree(client):
+def test_window_cut_before_the_delete_row_ships_the_move_first(client):
+    """The feed ships a moved-out block's row no later than its old
+    parent's tombstone. The replica's end shape holds either way, since its
+    cascade waits for the head window."""
     start = _build_edit_move_delete(client)
     local = {"uid_tw_p": None, "uid_tw_c": "uid_tw_p", "uid_tw_g": "uid_tw_c"}
 
@@ -143,13 +152,6 @@ def test_one_window_keeps_a_descendant_of_an_ancestor_moved_out_then_deleted(
     assert _dd_tree(local) == {"uid_dd_k": None, "uid_dd_l": "uid_dd_k"}
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "known hole: across windows, an ancestor that moved out of a deleted "
-    "subtree and was deleted later ships nothing for its move (it is absent "
-    "now and its delete row lies in a later window), so the deleted block's "
-    "tombstone cascades the replica's stale subtree; the kept descendant "
-    "returns with its own move row, but its child's row never changed and "
-    "never re-ships"))
 @pytest.mark.parametrize("limit", [1, 2])
 def test_small_windows_keep_a_descendant_of_an_ancestor_moved_out_then_deleted(
         client, limit):

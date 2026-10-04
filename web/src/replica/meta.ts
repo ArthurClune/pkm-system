@@ -1,8 +1,11 @@
 // pattern: Imperative Shell
 // sync_client_meta accessors. Keys in use: "cursor" (last applied feed
 // seq), "generation" (server DB generation token),
-// "plain_space_title_canonicalization" ("0"/"1" server activation), and
-// "schema_version" (DDL stamp for mismatch recovery).
+// "plain_space_title_canonicalization" ("0"/"1" server activation),
+// "schema_version" (DDL stamp for mismatch recovery), and
+// "deferred_block_tombstones" (JSON {cursor, uids}: block uids a catch-up
+// has tombstoned short of the journal head, and the cursor stored with
+// them; absent when none, void if the cursor differs, see applyWindow).
 
 import type { CanonicalTitle } from "../api/brands";
 import type { ReplicaDb } from "./db";
@@ -19,6 +22,10 @@ export function setMeta(db: ReplicaDb, key: string, value: string): void {
     "INSERT INTO sync_client_meta(key, value) VALUES (?, ?)" +
     " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     [key, value]);
+}
+
+export function deleteMeta(db: ReplicaDb, key: string): void {
+  db.exec("DELETE FROM sync_client_meta WHERE key = ?", [key]);
 }
 
 export function plainSpaceTitleCanonicalizationActive(db: ReplicaDb): boolean {

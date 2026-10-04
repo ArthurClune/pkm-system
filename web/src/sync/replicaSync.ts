@@ -641,10 +641,11 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   };
 
   const pullLoop = async (): Promise<void> => {
-    // Counts consecutive "pending-changed" refetches across this whole call
-    // (including across an `again`-triggered restart): a feed that never
-    // stops racing the local queue must eventually be treated as a failed
-    // pull attempt rather than spin forever.
+    // Counts consecutive "pending-changed" refetches since the last applied
+    // window (including across an `again`-triggered restart). A feed that
+    // never stops racing the local queue never applies a window, so a run of
+    // them must be treated as a failed pull attempt rather than spin forever;
+    // a window that applies is progress, so it clears the run.
     let pendingChangedRetries = 0;
     do {
       again = false;
@@ -730,6 +731,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
           done = feed.latest_seq <= cursor;
         } else {
           adoptCursor(res.cursor, "window");
+          pendingChangedRetries = 0;
           settleApplied(res.dropped ?? []);
           done = feed.next_since >= feed.latest_seq;
         }

@@ -147,36 +147,39 @@ transaction:
 |---|---|
 | 1. Page and sidebar tombstones | The UNIQUE `title` columns: a row that gave its title up by being deleted must go before the row that took the title. A reused page id's cascade clears the old page before the new one lands. |
 | 2. Page upserts, then block upserts | Deferred FKs make their order irrelevant for references. |
-| 3. Block tombstones | The window's moves out land before the local cascade runs (below). |
+| 3. Block tombstones, in the window at the journal head only | The moves out land before the local cascade runs (below). |
 | 4. Sidebar upserts | Independent of blocks. |
 | 5. `dropAppliedPending`, then `reapplyPending` | The queue replays over the window's final rows (see [sync-recovery.md](sync-recovery.md#a-payload-that-already-holds-a-pending-batch)). |
 
 A block tombstone cascades the replica's local subtree, so it must not reach
-a block the server kept. Two rules keep it off such a block when the block's
-move out ships no later than the tombstone:
+a block the server kept. The kept block may be a descendant that moved along
+with a moved-out ancestor. Its own row never changed, so only the ancestor's
+row ships, and nothing would re-ship the descendant once the cascade took it.
+**Block tombstones therefore wait for the window at the journal head:**
 
-| Rule | Where |
-|---|---|
-| A block tombstone ships only in the window that holds the block's delete row. The server journals a delete row for every block it deletes, cascaded rows included | `sync_core.tombstone_entities` |
-| A window's block tombstones apply after its upserts | `applyWindow` |
+| Window | What happens to block tombstones | Where |
+|---|---|---|
+| Any | The feed ships a block's tombstone only in the window that holds its delete row. The server journals a delete row for every block it deletes, cascaded rows included | `sync_core.tombstone_entities` |
+| Short of the head (`next_since < latest_seq`) | Applies none. Records them in `sync_client_meta` under `deferred_block_tombstones`, with the cursor it writes, in the same transaction. A block a later window ships live (an undo recreated it) leaves the record | `applyWindow` |
+| At the head | Applies every recorded tombstone and its own, after its upserts, and clears the record. A record whose cursor is not the current one is void: code without this rule moved the cursor past it and cascaded per window itself | `applyWindow` |
+| Snapshot | Clears the record | `applySnapshot` |
 
-A kept block left the deleted subtree by a move at a lower seq than the delete,
-in the delete row's window or an earlier one. The kept block may be a
-descendant that moved along with a moved-out ancestor. Its own row never
-changed, so only the ancestor's row ships, and nothing would re-ship the
-descendant once the cascade took it.
+A moved-out ancestor can be deleted in a later window. Take D > A > K > L. A
+moves to the top level, D is deleted, K moves to the top level, and A is
+deleted. The server ends with K > L. A's move row ships nothing, because A is
+absent now. Cascading D's tombstone in its own window would take the replica's
+stale D > A > K > L, and L's row never changes to ship again. After the head
+window's upserts, every block the server still has is placed by its own row or
+sits under an unchanged chain of blocks the server also kept. No surviving
+block is then under a deleted one, so the cascade is the one-window case.
+`test_sync_block_tombstone_window.py` models this rule over windows of one
+and two rows.
 
-**Known hole: an ancestor moved out, then deleted in a later window.** Take
-D > A > K > L. A moves to the top level, D is deleted, K moves to the top level,
-and A is deleted. The server ends with K > L. A replica catching up in windows
-small enough to split those rows ends with K and no L. A's move row ships
-nothing, because A is absent now and its delete row lies in a later window. So
-D's tombstone cascades the replica's stale D > A > K > L. K returns with its own
-move row, but L's row never changed. One window carrying all four rows is safe.
-Production windows split at 1000 rows, so only a large catch-up can hit it.
-`test_sync_block_tombstone_window.py` pins it as a strict xfail, and the sync
-property draws no small window limits until it is fixed
-([troubleshooting](../troubleshooting.md#sync-and-offline)).
+Between windows, deleted blocks stay visible and editable. An edit to one lands
+as a conflict entry, as an edit to a block deleted elsewhere always does. A
+pending move of a kept block under one of them loses that block locally at the
+head window. The server skips the move and journals the moved subtree live, so
+the block returns with the batch's echo.
 
 The cascade still removes optimistic rows under a deleted block, and
 `reapplyPending` then skips their ops. A page

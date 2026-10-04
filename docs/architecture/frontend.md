@@ -166,7 +166,8 @@ web/src/
 │   ├── clientSchema.ts       Shell        CLIENT_DDL (pending_ops, sync_client_meta),
 │   │                                      SCHEMA_VERSION, installSchema
 │   ├── meta.ts               Shell        sync_client_meta accessors (cursor,
-│   │                                      generation, title flag, schema version)
+│   │                                      generation, title flag, schema version,
+│   │                                      deferred block tombstones)
 │   ├── carryStore.ts         Shell        The pending queue's durable copy across a file replacement
 │   ├── carryMerge.ts         Core         Which pending rows a replacement at carry adoption keeps
 │   ├── ackedRows.ts          Core         Which lease rows a recovery commit's acks settle

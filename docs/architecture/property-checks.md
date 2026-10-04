@@ -69,7 +69,7 @@ session cookies are rejected when issued in the future or more than a year ago.
 | `web/src/props/sync/model.ts`, `arbitraries.ts`, `normalise.ts` | Functional Core | the command model; op drafts and the uid pool; the common graph form replicas and snapshots are compared in |
 | `web/src/props/sync/commands.ts` | Imperative Shell | one fast-check command class per row of the commands table below |
 | `web/src/props/sync/oracle.ts`, `quiesce.ts` | Imperative Shell | the six invariants; bringing every client to rest |
-| `web/src/props/sync/sync.prop.ts` | Imperative Shell | the property, the six fixed scenarios, the tally |
+| `web/src/props/sync/sync.prop.ts` | Imperative Shell | the property, the seven fixed scenarios, the tally |
 | `web/src/props/sync/teeth.prop.ts`, `harness.prop.ts`, `smoke.prop.ts` | test | the oracle's teeth; the harness client and transport self-tests; the server wiring |
 | `web/src/props/sync/normalise.test.ts`, `arbitraries.test.ts` | test | unit tests that do run under `pnpm test:unit` |
 | `server/tests/props/conftest.py` | test | Hypothesis profiles (`merge`, `dev`), the `template_db` fixture |
@@ -117,7 +117,7 @@ model would agree by construction.
 `sync.prop.ts` starts 2-3 clients, each the real web sync stack
 (`harnessClient.ts`), against the harness server. fast-check draws up to 30
 commands, runs them, brings every client to rest (`quiesce.ts`), and runs the
-oracle. Six fixed scenarios, each a regression the property first found, run
+oracle. Seven fixed scenarios, each a regression the property first found, run
 through the same commands.
 
 | Command | Does | Skipped when |
@@ -156,13 +156,12 @@ list are read first. Ids the server mints are compared by position.
 that exists for it, a tampered recorded body must trip serial replay, and a
 clean run must pass. If a broken mode passes, the oracle is blind.
 
-The examples are meant to draw a small changes-feed window limit, so a
-catch-up crosses window boundaries. That draw is off: a catch-up over small
-windows can still lose a block another device kept (see
-[sync-and-offline.md § The changes feed](sync-and-offline.md#the-changes-feed)
-and [troubleshooting.md](../troubleshooting.md#sync-and-offline)). Every
-example runs with the server's default window until that is fixed. The
-window-cut path is still covered by a fixed scenario with a limit of one.
+One example in three draws a changes-feed window limit of one to five
+journal rows, so a catch-up crosses window boundaries, where block tombstones
+wait for the window at the journal head (see
+[sync-and-offline.md § The changes feed](sync-and-offline.md#the-changes-feed)).
+The rest run with the server's default window. A fixed scenario also cuts the
+window at one row.
 
 ## Reading a server failure
 

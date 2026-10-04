@@ -1769,3 +1769,169 @@ describe("applyChanges: the effect ledger", () => {
     expect(ledger()).toEqual([]);
   });
 });
+
+describe("applyChanges: a create or move the two sides place in different groups", () => {
+  // Each test seeds the replica, enqueues the batch, acks it, then applies
+  // the head window with the rows the server wrote. The rows the server
+  // never wrote are never re-shipped, so the settle must put them back.
+  // The server leaves a gap in the group a block leaves.
+  const seed = (pages: ReturnType<typeof page>[], blocks: SyncBlock[]): void => {
+    applySnapshot(t.db, {
+      generation: "gen-1", plain_space_title_canonicalization: false,
+      seq: 10 as SyncSeq, pages, blocks, sidebar: [],
+    }, 1);
+  };
+  const at = (rawUid: string, rawPageId: number, o: number,
+              over: Partial<SyncBlock> = {}): SyncBlock =>
+    block(rawUid, rawPageId, { order_idx: ord(o), ...over });
+  /** One sibling group as `uid@order_idx`, in order. */
+  const group = (rawPageId: number, parent: string | null = null): string =>
+    t.db.select<{ uid: string; order_idx: number }>(
+      "SELECT uid, order_idx FROM blocks WHERE page_id = ? AND parent_uid IS ?" +
+      " ORDER BY order_idx, uid", [rawPageId, parent])
+      .map((r) => `${r.uid}@${r.order_idx}`).join(" ");
+  const titles = (): Array<{ id: number; title: string }> =>
+    t.db.select("SELECT id, title FROM pages ORDER BY id");
+  const ledgerRows = (): number => count("SELECT COUNT(*) AS n FROM effect_ledger");
+
+  const enqueueAndAck = (ops: BlockOp[]): void => {
+    enqueueBatch(t.db, ops, 2, bid("b1"));
+    ackNext(t.db);
+  };
+  const headWindow = (over: Parameters<typeof emptyFeed>[0]): void => {
+    expect(applyChanges(t.db, emptyFeed({ next_since: 11, latest_seq: 11, ...over }), 3))
+      .toEqual({ status: "applied", cursor: 11 });
+  };
+
+  const moveTop = (u: string, o: number, pageTitle?: string): BlockOp =>
+    ({ op: "move", uid: uid(u), parent_uid: null, order_idx: ord(o),
+       ...(pageTitle !== undefined ? { page_title: pageTitle } : {}) });
+  const moveUnder = (u: string, parent: string, o: number): BlockOp =>
+    ({ op: "move", uid: uid(u), parent_uid: uid(parent), order_idx: ord(o) });
+
+  test("an untitled top-level move of a block moved to another page elsewhere", () => {
+    // The server already has m at the top of S (x shifted to 1).
+    seed([page(1, "P"), page(2, "S")],
+         [at("m", 1, 0), at("a", 1, 1), at("r", 1, 2), at("x", 2, 0)]);
+    enqueueAndAck([moveTop("m", 1)]);
+    expect(group(1)).toBe("m@1 a@2 r@3");
+
+    // The server moves m on S, where it is, shifting x past it.
+    headWindow({ blocks: [at("m", 2, 1), at("x", 2, 2)] });
+
+    expect(group(1)).toBe("a@1 r@2");
+    expect(group(2)).toBe("m@1 x@2");
+    expect(ledgerRows()).toBe(0);
+  });
+
+  // The server's page 1 was renamed Third; the replica still calls it
+  // Proptest, so the op's title resolves to page 1 here and to a fresh
+  // page 3 on the server.
+  const seedRenamed = (): void => {
+    seed([page(1, "Proptest"), page(2, "Second")],
+         [at("s1", 1, 0), at("s2", 1, 1), at("s3", 1, 2)]);
+  };
+  const RENAMED_PAGES = [page(1, "Third"), page(3, "Proptest")];
+
+  test("a top-level move to a title renamed away before the pull", () => {
+    seedRenamed();
+    enqueueAndAck([moveTop("s3", 0, "Proptest")]);
+    expect(group(1)).toBe("s3@0 s1@1 s2@2");
+
+    headWindow({ pages: RENAMED_PAGES, blocks: [at("s3", 3, 0)] });
+
+    expect(titles()).toEqual([{ id: 1, title: "Third" }, { id: 2, title: "Second" },
+                              { id: 3, title: "Proptest" }]);
+    expect(group(1)).toBe("s1@0 s2@1");
+    expect(group(3)).toBe("s3@0");
+    expect(ledgerRows()).toBe(0);
+  });
+
+  test("a top-level create on a title renamed away before the pull", () => {
+    seedRenamed();
+    enqueueAndAck([{ op: "create", uid: uid("X"), page_title: "Proptest",
+                     parent_uid: null, order_idx: ord(0), text: "text of X" }]);
+    expect(group(1)).toBe("X@0 s1@1 s2@2 s3@3");
+
+    headWindow({ pages: RENAMED_PAGES, blocks: [at("X", 3, 0)] });
+
+    expect(titles()).toEqual([{ id: 1, title: "Third" }, { id: 2, title: "Second" },
+                              { id: 3, title: "Proptest" }]);
+    expect(group(1)).toBe("s1@0 s2@1 s3@2");
+    expect(group(3)).toBe("X@0");
+    expect(ledgerRows()).toBe(0);
+  });
+
+  test("an untitled top-level move of a block moved across pages and deleted elsewhere", () => {
+    // On the server, m went to the top of S (x shifted to 1) and was deleted.
+    seed([page(1, "P"), page(2, "S")],
+         [at("a", 1, 0), at("m", 1, 1), at("r", 1, 2), at("x", 2, 0)]);
+    enqueueAndAck([moveTop("m", 0)]);
+    expect(group(1)).toBe("m@0 a@1 r@3");
+
+    // The server skips the move and re-journals the top level of S, the
+    // page m's delete row names.
+    headWindow({ blocks: [at("x", 2, 1)],
+                 tombstones: [{ kind: "block", entity_id: "m" }] });
+
+    expect(group(1)).toBe("a@0 r@2");
+    expect(group(2)).toBe("x@1");
+    expect(ledgerRows()).toBe(0);
+  });
+
+  test("an untitled top-level move after a move to another page, of a block deleted elsewhere", () => {
+    seed([page(1, "P"), page(2, "S")],
+         [at("m", 1, 0), at("a", 1, 1), at("x", 2, 0), at("y", 2, 1)]);
+    enqueueAndAck([moveUnder("m", "x", 0), moveTop("m", 0)]);
+    expect(group(2)).toBe("m@0 x@1 y@2");
+
+    // The server skips both moves; the second re-journals P's top level,
+    // where m was deleted.
+    headWindow({ blocks: [at("a", 1, 1)],
+                 tombstones: [{ kind: "block", entity_id: "m" }] });
+
+    expect(group(1)).toBe("a@1");
+    expect(group(2)).toBe("x@0 y@1");
+    expect(ledgerRows()).toBe(0);
+  });
+
+  test("an untitled top-level move after the batch's own move under a parent deleted elsewhere", () => {
+    seed([page(1, "P"), page(2, "S")],
+         [at("a", 1, 0), at("m", 1, 1), at("r", 1, 2),
+          at("x", 2, 0), at("y", 2, 1), at("z", 2, 2)]);
+    enqueueAndAck([moveUnder("m", "y", 0), moveTop("m", 0)]);
+    expect(group(1)).toBe("a@0 r@2");
+    expect(group(2)).toBe("m@0 x@1 y@2 z@3");
+
+    // The server skips the move under the gone y, so the second move finds
+    // m still on P and shifts P.
+    headWindow({ blocks: [at("m", 1, 0), at("a", 1, 1), at("r", 1, 3)],
+                 tombstones: [{ kind: "block", entity_id: "y" }] });
+
+    expect(group(1)).toBe("m@0 a@1 r@3");
+    expect(group(2)).toBe("x@0 z@2");
+    expect(ledgerRows()).toBe(0);
+  });
+
+  test("a move under a parent another device moved to the block's own page", () => {
+    // The server already has t1 at the top of P (s1 shifted to 1).
+    seed([page(1, "P"), page(2, "S")],
+         [at("s1", 1, 0), at("s2", 1, 0, { parent_uid: uid("s1"), updated_at: 5 }),
+          at("t1", 2, 0), at("t2", 2, 1)]);
+    enqueueAndAck([moveUnder("s1", "t1", 0)]);
+    expect(t.db.select("SELECT page_id FROM blocks WHERE uid IN ('s1', 's2')"))
+      .toEqual([{ page_id: 2 }, { page_id: 2 }]);
+
+    // s1 stays on P under t1: the server re-pages nothing.
+    headWindow({ blocks: [at("t1", 1, 0), at("s1", 1, 0, { parent_uid: uid("t1") })] });
+
+    expect(t.db.select(
+      "SELECT uid, page_id, parent_uid, updated_at FROM blocks" +
+      " WHERE uid = 's2'"))
+      .toEqual([{ uid: "s2", page_id: 1, parent_uid: "s1", updated_at: 5 }]);
+    expect(group(1)).toBe("t1@0");
+    expect(group(1, "t1")).toBe("s1@0");
+    expect(group(2)).toBe("t2@1");
+    expect(ledgerRows()).toBe(0);
+  });
+});

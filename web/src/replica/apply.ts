@@ -5,7 +5,8 @@
 // transaction-scoped deferred FKs so intra-window row order never matters for
 // FKs; it matters for the UNIQUE titles, which is why page and sidebar
 // tombstones lead and colliding titles are parked, and for the block
-// cascade, which is why block tombstones follow the upserts (applyWindow).
+// cascade, which is why block tombstones follow the upserts and wait for the
+// window that reaches the journal head (applyWindow).
 // Upserts are idempotent -- re-pulling any window is safe. The
 // base schema's FTS triggers maintain the local search index on every upsert.
 //
@@ -31,7 +32,8 @@ import { reindexBlockRefs } from "./blockRefs";
 import type { DroppedBatch, PendingRowId } from "./client";
 import { type ReplicaDb, rollbackToSavepoint, type SqlValue } from "./db";
 import { applyLocalOps } from "./localOps";
-import { getMeta, setMeta, setPlainSpaceTitleCanonicalization } from "./meta";
+import { deleteMeta, getMeta, setMeta,
+         setPlainSpaceTitleCanonicalization } from "./meta";
 import { allBatches, deleteBatch } from "./queue";
 import { reconcileActivationPageTitles, reconcilePage } from "./reconcile";
 
@@ -125,6 +127,7 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
     }
     setMeta(db, "cursor", String(snap.seq));
     setMeta(db, "generation", snap.generation);
+    deleteMeta(db, DEFERRED_BLOCK_TOMBSTONES); // the snapshot is the whole state
     setPlainSpaceTitleCanonicalization(
       db, snap.plain_space_title_canonicalization);
     reconcileActivationPageTitles(db);
@@ -388,11 +391,28 @@ function applyTombstone(db: ReplicaDb, tomb: SyncTombstone): void {
   }
 }
 
+/** The sync_client_meta key holding the block tombstones a catch-up has
+ * received short of the journal head and not yet applied (applyWindow). */
+const DEFERRED_BLOCK_TOMBSTONES = "deferred_block_tombstones";
+
+/** The block tombstones still owed after a window: those recorded by
+ * earlier windows, less any block this window ships live (a uid an undo
+ * recreated after its tombstone was read), then this window's, once each,
+ * in order. */
+function owedBlockTombstones(recorded: string | null,
+                             shipped: readonly SyncBlock[],
+                             tombstoned: readonly BlockUid[]): BlockUid[] {
+  const live = new Set(shipped.map((b) => b.uid));
+  const earlier = recorded === null ? [] : JSON.parse(recorded) as BlockUid[];
+  return [...new Set([...earlier.filter((u) => !live.has(u)), ...tombstoned])];
+}
+
 /** Order inside the window transaction: page and sidebar tombstones, then
- * pages and blocks, then block tombstones, then sidebar upserts, then
- * dropping the pending rows the window names as applied, then the queue
- * replay. Deferred FKs make the order irrelevant for referential
- * integrity; the UNIQUE titles and the local cascades fix it.
+ * pages and blocks, then block tombstones (in the window at the journal
+ * head only, below), then sidebar upserts, then dropping the pending rows
+ * the window names as applied, then the queue replay. Deferred FKs make
+ * the order irrelevant for referential integrity; the UNIQUE titles and
+ * the local cascades fix it.
  *
  * Page and sidebar tombstones lead. A row that gave a title up by being
  * deleted must be gone before the row that took the title arrives. A page
@@ -407,19 +427,26 @@ function applyTombstone(db: ReplicaDb, tomb: SyncTombstone): void {
  * hydrated onto the page, and which has left it since, returns with its
  * own later journal row.
  *
- * Block tombstones follow the upserts, so the local cascade spares a block
- * the server kept when its move out ships no later than the tombstone. The
- * server journals every block it deletes, cascaded rows included, and ships
- * a block's tombstone only in the window that holds its delete row
- * (sync_core.tombstone_entities). A kept block left the deleted subtree by
- * a move at a lower seq, in the same window or an earlier one, and
- * applying the upserts first takes it out of the cascade's reach. The kept
- * block may be a descendant that moved along with a moved-out ancestor:
- * its own row never changed, so only the ancestor's row ships, and nothing
- * would re-ship the descendant once the cascade had taken it. Not yet
- * covered: when that ancestor is itself deleted in a later window, its
- * move row ships nothing (it is absent now), and the cascade runs over the
- * replica's stale subtree. Block uids are never reused, so no block is
+ * Block tombstones apply only in the window that reaches the journal head
+ * (`next_since >= latest_seq`, pullLoop's own test for done), after its
+ * upserts. A window short of the head records its block tombstones in
+ * sync_client_meta instead, in the transaction that advances the cursor, so
+ * a restart mid-catch-up cannot leave the cursor past a tombstone nobody
+ * applied; the window at the head applies every recorded one with its own.
+ * The cascade must not reach a block the server kept. A kept block may be a
+ * descendant that moved along with a moved-out ancestor: its own row never
+ * changed, so only the ancestor's row ships, and nothing would re-ship it
+ * once the cascade had taken it. Cascading per window fails when that
+ * ancestor is itself deleted in a later window: its move row ships nothing
+ * (it is absent now), so the earlier window's cascade would run over the
+ * replica's stale subtree. Once the head window's upserts have run, every
+ * block the server still has is placed either by its own shipped row or
+ * under an unchanged parent chain of blocks the server also still has, so
+ * none sits under a deleted block, and the cascade over that tree is the
+ * one-window case. Between windows the replica only looks older (deleted
+ * blocks stay visible), never wrongly shaped. A recorded block a later
+ * window ships live (an undo recreated it after its tombstone was read)
+ * is dropped from the record. Block uids are never reused, so no block is
  * both tombstoned and shipped live in one window. The cascade still removes
  * optimistic rows under a deleted block (a pending create's ghost), and the
  * replay then skips the op as the server does. */
@@ -427,7 +454,12 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
                      droppable?: readonly PendingRowId[]): DroppedBatch[] {
   return db.transaction(() => {
     db.exec("PRAGMA defer_foreign_keys = ON");
-    const blockTombstones = feed.tombstones.filter((tm) => tm.kind === "block");
+    const recorded = getMeta(db, DEFERRED_BLOCK_TOMBSTONES);
+    const owed = owedBlockTombstones(
+      recorded, feed.blocks,
+      feed.tombstones.filter((tm) => tm.kind === "block")
+        .map((tm) => tm.entity_id as BlockUid));
+    const atHead = feed.next_since >= feed.latest_seq;
     for (const tomb of feed.tombstones) {
       if (tomb.kind !== "block") applyTombstone(db, tomb);
     }
@@ -435,7 +467,9 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
     for (const p of feed.pages) upsertPage(db, p);
     assertNoParkedTitles(db, "pages", parkedPages);
     for (const b of feed.blocks) upsertBlock(db, b);
-    for (const tomb of blockTombstones) applyTombstone(db, tomb);
+    if (atHead) {
+      for (const u of owed) applyTombstone(db, { kind: "block", entity_id: u });
+    }
     const parkedSidebar = parkTakenTitles(db, "sidebar_entries", feed.sidebar);
     for (const s of feed.sidebar) {
       db.exec(
@@ -446,6 +480,11 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
     }
     assertNoParkedTitles(db, "sidebar_entries", parkedSidebar);
     setMeta(db, "cursor", String(feed.next_since));
+    if (!atHead && owed.length > 0) {
+      setMeta(db, DEFERRED_BLOCK_TOMBSTONES, JSON.stringify(owed));
+    } else if (recorded !== null) {
+      deleteMeta(db, DEFERRED_BLOCK_TOMBSTONES);
+    }
     setPlainSpaceTitleCanonicalization(
       db, feed.plain_space_title_canonicalization);
     reconcileActivationPageTitles(db);

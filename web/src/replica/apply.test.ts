@@ -783,6 +783,144 @@ describe("applyChanges: in one window, a block tombstone's cascade reaches only 
   });
 });
 
+describe("applyChanges: block tombstones wait for the window that reaches the journal head", () => {
+  // D > A > K > L; then s12 moves A to the top level, s13 deletes D, s14
+  // moves K to the top level, s15 deletes A. The server ends with K > L.
+  // Caught up one journal row per window: A's move ships nothing (A is
+  // absent now and its delete row lies in a later window), so D's
+  // tombstone, cascaded at once, would take the stale D > A > K > L, and
+  // L's row never changes to ship again.
+  const tree = () => t.db.select<{ uid: string; parent_uid: string | null }>(
+    "SELECT uid, parent_uid FROM blocks WHERE uid LIKE 'uid_dd_%' ORDER BY uid");
+  const deferred = (): string[] | null => {
+    const raw = getMeta(t.db, "deferred_block_tombstones");
+    return raw === null ? null : JSON.parse(raw) as string[];
+  };
+  const window = (next: number, over: Partial<Changes> = {}) =>
+    applyChanges(t.db, emptyFeed({ next_since: next, latest_seq: 15, ...over }));
+  const tomb = (raw: string): SyncTombstone => ({ kind: "block", entity_id: raw });
+  beforeEach(() => {
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      blocks: [
+        block("uid_dd_d", 1, { order_idx: ord(2) }),
+        block("uid_dd_a", 1, { parent_uid: uid("uid_dd_d") }),
+        block("uid_dd_k", 1, { parent_uid: uid("uid_dd_a") }),
+        block("uid_dd_l", 1, { parent_uid: uid("uid_dd_k"), text: "leaf searchable" }),
+      ],
+    }));
+  });
+
+  test("windows of one row end with the server's K > L", () => {
+    expect(window(12)).toEqual({ status: "applied", cursor: 12 });
+    expect(window(13, { tombstones: [tomb("uid_dd_d")] }))
+      .toEqual({ status: "applied", cursor: 13 });
+    expect(window(14, { blocks: [block("uid_dd_k", 1, { order_idx: ord(3) })] }))
+      .toEqual({ status: "applied", cursor: 14 });
+    expect(window(15, { tombstones: [tomb("uid_dd_a")] }))
+      .toEqual({ status: "applied", cursor: 15 });
+
+    expect(tree()).toEqual([
+      { uid: "uid_dd_k", parent_uid: null },
+      { uid: "uid_dd_l", parent_uid: "uid_dd_k" },
+    ]);
+    expect(ftsHits("leaf")).toEqual(["uid_dd_l"]);
+    expect(deferred()).toBeNull();
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+  });
+
+  test("a window short of the head leaves the tombstoned block and records its uid", () => {
+    window(12);
+    window(13, { tombstones: [tomb("uid_dd_d")] });
+
+    // the replica looks older, not wrongly shaped: D is still there
+    expect(tree()).toEqual([
+      { uid: "uid_dd_a", parent_uid: "uid_dd_d" },
+      { uid: "uid_dd_d", parent_uid: null },
+      { uid: "uid_dd_k", parent_uid: "uid_dd_a" },
+      { uid: "uid_dd_l", parent_uid: "uid_dd_k" },
+    ]);
+    expect(deferred()).toEqual(["uid_dd_d"]);
+    expect(getMeta(t.db, "cursor")).toBe("13");
+  });
+
+  test("the recorded uids accumulate across windows, once each, in order", () => {
+    window(13, { tombstones: [tomb("uid_dd_d")] });
+    window(13, { tombstones: [tomb("uid_dd_d")] }); // the same window re-pulled
+    window(14, { tombstones: [tomb("uid_dd_l"), tomb("uid_dd_d")] });
+
+    expect(deferred()).toEqual(["uid_dd_d", "uid_dd_l"]);
+    expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid LIKE 'uid_dd_%'"))
+      .toBe(4);
+
+    window(15);
+    expect(tree()).toEqual([]);
+    expect(deferred()).toBeNull();
+  });
+
+  test("a window that reaches the head with nothing in it still applies the recorded tombstones", () => {
+    window(13, { tombstones: [tomb("uid_dd_k")] });
+    expect(window(15)).toEqual({ status: "applied", cursor: 15 });
+
+    expect(tree()).toEqual([
+      { uid: "uid_dd_a", parent_uid: "uid_dd_d" },
+      { uid: "uid_dd_d", parent_uid: null },
+    ]);
+    expect(deferred()).toBeNull();
+  });
+
+  test("a block a later window ships live drops its recorded tombstone", () => {
+    // deleted, then recreated by an undo under the same uid: the live row
+    // was read later than the tombstone
+    window(13, { tombstones: [tomb("uid_dd_l")] });
+    window(14, { blocks: [block("uid_dd_l", 1, { parent_uid: uid("uid_dd_k"),
+                                                 text: "leaf searchable" })] });
+    expect(deferred()).toBeNull();
+
+    window(15);
+    expect(tree()).toHaveLength(4);
+  });
+
+  test("a window that rolls back records nothing", () => {
+    // a block whose page never shipped fails the deferred FK check at COMMIT
+    expect(window(13, {
+      tombstones: [tomb("uid_dd_d")],
+      blocks: [block("uid_dd_orphan", 99)],
+    })).toEqual({ status: "needs-bootstrap" });
+
+    expect(deferred()).toBeNull();
+    expect(getMeta(t.db, "cursor")).toBe("11");
+  });
+
+  test("a snapshot clears the recorded tombstones", () => {
+    window(13, { tombstones: [tomb("uid_dd_d")] });
+    expect(deferred()).toEqual(["uid_dd_d"]);
+
+    applySnapshot(t.db, SNAP);
+    expect(deferred()).toBeNull();
+  });
+
+  test("a pending create under a block tombstoned short of the head goes once the head is reached", () => {
+    enqueueBatch(t.db, [
+      { op: "create", uid: uid("uid_dd_ghost"), page_title: "Machine Learning",
+        parent_uid: uid("uid_dd_d"), order_idx: ord(1), text: "typed under d" },
+    ], 5, bid("batch-dd-ghost"));
+
+    window(13, { tombstones: [tomb("uid_dd_d")] });
+    expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid = 'uid_dd_ghost'"))
+      .toBe(1);
+
+    window(15, { tombstones: [tomb("uid_dd_a")],
+                 blocks: [block("uid_dd_k", 1, { order_idx: ord(3) })] });
+    expect(tree()).toEqual([
+      { uid: "uid_dd_k", parent_uid: null },
+      { uid: "uid_dd_l", parent_uid: "uid_dd_k" },
+    ]);
+    expect(allBatches(t.db)).toHaveLength(1);
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+  });
+});
+
 describe("applySnapshot and applyChanges: a create under a ghost parent keeps the rest of its batch", () => {
   // Regression for the bean: a pending batch [create C under parent G,
   // update_text L] optimistically applies both while G is still present

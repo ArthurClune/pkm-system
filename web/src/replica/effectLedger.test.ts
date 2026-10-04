@@ -150,6 +150,24 @@ describe("settleBatches", () => {
       [["b2", "b"], ["b2", "c"]]);
   });
 
+  test("every settling batch's delta on one uid is subtracted together", () => {
+    recordShift(t.db, b1, topGroup, u("a"));
+    recordShift(t.db, b2, topGroup, u("a"));
+    t.db.exec("UPDATE blocks SET order_idx = order_idx + 2 WHERE uid IN ('b','c')");
+    settleBatches(t.db);
+    expect(blk("b").order_idx).toBe(1);
+    expect(blk("c").order_idx).toBe(2);
+    expect(ledger()).toEqual([]);
+  });
+
+  test("a NULL base updated_at is written back as NULL", () => {
+    t.db.exec("UPDATE blocks SET updated_at = NULL WHERE uid = 'c1'");
+    recordRepage(t.db, b1, u("c1"));
+    t.db.exec("UPDATE blocks SET page_id = 2, updated_at = 222 WHERE uid = 'c1'");
+    settleBatches(t.db);
+    expect(blk("c1")).toEqual({ page_id: 1, order_idx: 0, updated_at: null });
+  });
+
   test("writes the base page and updated_at only when the last page record goes", () => {
     recordRepage(t.db, b1, u("c1"));
     recordRepage(t.db, b2, u("c1"));

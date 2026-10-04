@@ -1637,6 +1637,19 @@ describe("applyChanges: the effect ledger", () => {
     expect(ledger()).toEqual([]);
   });
 
+  test("two batches acked before one head window revert by the summed delta", () => {
+    enqueueBatch(t.db, [moveTop("m", 1)], 2, bid("b1"));
+    enqueueBatch(t.db, [createTop("X", 3)], 2, bid("b2"));
+    ackNext(t.db);
+    ackNext(t.db);
+    applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      blocks: [M_ON_S, block("X", 1, { order_idx: ord(3), text: "text of X" })],
+    }), 3);
+    expect(keys(1)).toBe("a1 r2 X3");
+    expect(ledger()).toEqual([]);
+  });
+
   describe("a batch rolled back in reapplyPending leaves only its earlier records", () => {
     test("an op that throws", () => {
       enqueueBatch(t.db, [createTop("X", 0),

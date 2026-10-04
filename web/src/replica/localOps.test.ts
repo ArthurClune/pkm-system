@@ -559,6 +559,22 @@ describe("applyLocalOps: effect ledger", () => {
     ]);
   });
 
+  test("a replayed create kept after its parent moved pages records a page base for the descendants only", () => {
+    apply(t.db, [
+      { op: "create", uid: uid("uid_n"), page_title: "AI", parent_uid: uid("uid_r2"),
+        order_idx: ord(5), text: "n" },
+      { op: "create", uid: uid("uid_nc"), page_title: "AI", parent_uid: uid("uid_n"),
+        order_idx: ord(0), text: "nc" },
+    ], 99, b("b1"));
+    t.db.exec("UPDATE blocks SET page_id = 2 WHERE uid IN ('uid_r2','uid_r2c')");
+    apply(t.db, [
+      { op: "create", uid: uid("uid_n"), page_title: "AI", parent_uid: uid("uid_r2"),
+        order_idx: ord(5), text: "n" },
+    ], 100, { ...b("b1"), reapply: true });
+    const pageRecs = ledger().filter((r) => r.base_page_id !== null);
+    expect(pageRecs.map((r) => [r.uid, r.base_page_id])).toEqual([["uid_nc", 1]]);
+  });
+
   test("a replay that keeps its op in place records nothing", () => {
     apply(t.db, [create("uid_new", 0)], 99, b("b1"));
     const before = ledger();

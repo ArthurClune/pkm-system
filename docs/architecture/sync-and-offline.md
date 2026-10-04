@@ -346,7 +346,9 @@ includes this client's offline edits. A socket reconnect and the queue's
 `onDrain` listener (`reconnect.observeDrain`) share one completion, which is
 what finishes a reconnect whose first drain was blocked. Before its drain, a
 connect retries a rejected-batch repair whose last attempt failed
-(`retryFailedRepair`, the client runtime's), because that repair's barrier would block the drain. The terminal-4xx
+(`retryFailedRepair`: the client runtime's poison repair, then
+`legacyRepair.ts`'s lane-batch repair), because either repair's barrier would
+block the drain. The terminal-4xx
 branch's repair, and which statuses count as terminal (`isTerminalRejection`),
 are in
 [sync-recovery.md § A batch the server rejects](sync-recovery.md#a-batch-the-server-rejects).

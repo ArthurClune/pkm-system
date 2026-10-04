@@ -65,7 +65,7 @@ session cookies are rejected when issued in the future or more than a year ago.
 | `web/vitest.props.config.ts` | config | node environment, includes only `src/props/**/*.prop.ts`, one fork, no jsdom setup |
 | `web/src/props/sync/env.ts`, `serverControl.ts` | Imperative Shell | the `PROPTEST_*` settings; the session cookie and the control routes |
 | `web/src/props/sync/transport.ts` | Imperative Shell | one client's network to the server: one-shot faults, a window limit, and the deliberately broken modes the teeth tests use |
-| `web/src/props/sync/harnessClient.ts` | Imperative Shell | one simulated device: the real replica worker, op queue, replica sync, client runtime and reconnect flow, over an in-memory database that survives `reload()` |
+| `web/src/props/sync/harnessClient.ts` | Imperative Shell | one simulated device: the real replica worker, op queue, replica sync, client runtime, legacy repair and reconnect flow, over an in-memory database that survives `reload()`. The legacy repair's outline sessions are stood in for by one page read through the client's transport, which fails while offline |
 | `web/src/props/sync/model.ts`, `arbitraries.ts`, `normalise.ts` | Functional Core | the command model; op drafts and the uid pool; the common graph form replicas and snapshots are compared in |
 | `web/src/props/sync/commands.ts` | Imperative Shell | one fast-check command class per row of the commands table below |
 | `web/src/props/sync/oracle.ts`, `quiesce.ts` | Imperative Shell | the six invariants; bringing every client to rest |

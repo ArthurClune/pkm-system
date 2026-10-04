@@ -177,6 +177,8 @@ web/src/
 │   │                                      apply, negative-id remap, recovery FIFO
 │   ├── localApi/             Shell        Offline read shims: the routes' exact JSON
 │   ├── localOps.ts           Shell        Optimistic apply (server timestamp rules)
+│   ├── effectLedger.ts       Shell        effect_ledger statements: record a pending batch's
+│   │                                      collateral writes, drop, settle, remap
 │   ├── placement.ts          Core         placementFor: where a create or move lands,
 │   │                                      or skip / keep on replay (mirrors ops_apply)
 │   ├── missingTarget.ts      Core         Which ops skip on a missing target (mirrors ops_core)

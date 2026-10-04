@@ -252,6 +252,14 @@ connections, on the threadpool) cannot land between a context read and the
 effect it justified. A lock the busy timeout cannot take returns 503 with
 `Retry-After`.
 
+`POST /api/page/{title}/rename` (rename and merge) takes the same lock the
+same way. It runs `BEGIN IMMEDIATE` before its first read, so the snapshot of
+referencing blocks it rewrites is taken inside the write transaction: a batch
+cannot commit between that snapshot and the rename's `UPDATE`, which would
+leave its `[[Old]]` link unrewritten. Every early exit rolls back, and a busy
+lock returns 503 with `Retry-After`. With the lock held a title race cannot
+reach the `UPDATE`, so the route has no `IntegrityError` to 409 path.
+
 `ops_apply._context_for` classifies each op once, with `ops_core.classify_skip` and,
 for a hashed edit, `classify_text_edit`. It then hands `plan_op` the context
 type that classification calls for, such as `TextConflictContext` or
@@ -425,7 +433,10 @@ not matter.
 
 A skipped `create` or `move` also shifted its destination siblings in the
 client's optimistic apply, and the server did not. Where nothing else
-re-ships them, the skip journals them (`ops_apply._destination_siblings`):
+re-ships them, the skip journals them (`ops_apply._destination_siblings`).
+This is defence in depth for replicas: the replica's effect ledger reverts
+the same shifts at settle ([sync-recovery.md § The effect ledger](sync-recovery.md#the-effect-ledger)),
+whichever group the server did or did not journal.
 
 | Skip | Destination | Siblings journalled |
 |---|---|---|

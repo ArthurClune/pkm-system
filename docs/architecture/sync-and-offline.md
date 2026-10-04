@@ -155,7 +155,7 @@ transaction:
 | 8. `dropAppliedPending` | A batch this window names settles in this window (see [sync-recovery.md](sync-recovery.md#a-payload-that-already-holds-a-pending-batch)). |
 | 9. `settleBatches`, at the head window only | Reverts the ledger records of every batch with no pending row. After 7, so bases are remapped; before 10, so replays build on reverted rows ([the effect ledger](sync-recovery.md#the-effect-ledger)). |
 | 10. `reapplyPending` | The queue replays over the window's final rows and records its collateral writes. |
-| 11. `dropStrandedLocalPages` | Deletes a negative-id page no block, ref, ledger base or pending op names. After 9, since a revert can put a block back on a local page. |
+| 11. `dropStrandedLocalPages` | Deletes a negative-id page no block, ref, ledger base or pending op names, and not today's daily page. After 9, since a revert can put a block back on a local page. |
 
 A block tombstone cascades the replica's local subtree, so it must not reach
 a block the server kept. The kept block may be a descendant that moved along
@@ -473,8 +473,8 @@ One file, `/pkm-replica.sqlite3`, in a dedicated worker on the OPFS SAHPool VFS,
 holds both the graph copy (the server's `BASE_DDL`, replicated via the generated
 `web/src/replica/baseSchema.gen.ts`) and the client-only tables `pending_ops`,
 `sync_client_meta` and `effect_ledger` (see
-[sync-recovery.md § The effect ledger](sync-recovery.md#the-effect-ledger)). A second file, `/pkm-replica-carry.sqlite3`, holds
-the pending queue across a
+[sync-recovery.md § The effect ledger](sync-recovery.md#the-effect-ledger)).
+A second file, `/pkm-replica-carry.sqlite3`, holds the pending queue across a
 [file replacement](sync-recovery.md#reset-rebase-and-file-replacement). A
 worker that dies during one leaves it behind, and the next queue handler
 adopts and removes it.

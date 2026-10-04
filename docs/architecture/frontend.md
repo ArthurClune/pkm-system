@@ -165,7 +165,7 @@ web/src/
 │   ├── rpc.ts / client.ts    Shell        Typed RPC over the worker port
 │   ├── db.ts                 Shell        ReplicaDb over sqlite-wasm; rollbacks
 │   │                                      that keep the original error
-│   ├── clientSchema.ts       Shell        CLIENT_DDL (pending_ops, sync_client_meta),
+│   ├── clientSchema.ts       Shell        CLIENT_DDL (pending_ops, sync_client_meta, effect_ledger),
 │   │                                      SCHEMA_VERSION, installSchema
 │   ├── meta.ts               Shell        sync_client_meta accessors (cursor,
 │   │                                      generation, title flag, schema version,

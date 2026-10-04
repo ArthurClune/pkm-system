@@ -306,12 +306,13 @@ writes so they can be taken back when the batch settles.
 | Event | Records dropped |
 |---|---|
 | A window upserts or tombstones a block (`dropWindowRecords`, step 4 of `applyWindow`) | Every record on that uid |
-| A pending op writes the uid directly | Every record on that uid |
+| A pending create or move places the uid itself | Every record on that uid |
 | The batch settles | That batch's records, after the revert |
 | Snapshot, reset, rebuild or file replacement | All |
 
-Settle runs in the first window that reaches the journal head, for every batch
-with no `pending_ops` row (`settleBatches`). A poisoned row is still a row, so
+A batch settles in the first head window (one that reaches the journal head)
+after its `pending_ops` row is gone: `settleBatches` runs in every head window
+for every batch with no row. A poisoned row is still a row, so
 a poisoned batch never settles; its repair rebases onto a snapshot. The revert
 subtracts each uid's summed `order_delta`, then restores `page_id` and
 `updated_at` from the base once no pending batch holds a page record for that

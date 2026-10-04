@@ -224,7 +224,7 @@ An `UPDATE` on a uid the replica no longer has changes nothing.
 | 8 | `dropAppliedPending` | So a batch this window names settles in this window |
 | 9 | **At the head window: settle every batch with no pending row** | After 7, so bases are remapped; before 10, so replays build on reverted rows |
 | 10 | `reapplyPending`, recording collateral writes | Its `keepSlot` re-derives any shift a revert exposed |
-| 11 | `dropStrandedLocalPages`, keeping ledger bases | After 9: a revert can put a block back on a local page |
+| 11 | `dropStrandedLocalPages`, keeping ledger bases | At the head window only, after 9: a revert can put a block back on a local page |
 
 `applySnapshot` clears the ledger with its table wipe (`apply.ts:117-122`)
 and has no settle step.

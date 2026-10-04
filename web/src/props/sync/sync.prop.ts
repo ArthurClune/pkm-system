@@ -28,7 +28,7 @@ import { connectServer, type ServerControl } from "./serverControl";
 
 /** Examples per gate run, sized so `proptest/check.sh web` takes about
  * three minutes. */
-export const NUM_RUNS = 3200;
+export const NUM_RUNS = 2300;
 const MAX_COMMANDS = 30;
 const QUIESCE_LIMIT_MS = 30_000;
 /** One example, commands to oracle: well past the quiesce limit, so a

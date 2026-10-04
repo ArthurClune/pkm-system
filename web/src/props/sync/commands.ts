@@ -25,6 +25,7 @@ import type { ConnectLanding, HarnessClient } from "./harnessClient";
 import { countDown, FALL_BACK, midnightCrossing, type MidnightDay, type OfflineBack,
          SPRING_FORWARD, type SyncModel } from "./model";
 import type { CursorWatch } from "./oracle";
+import { ExampleCancelled } from "./cancel";
 import type { ServerControl } from "./serverControl";
 
 export interface World {
@@ -35,6 +36,8 @@ export interface World {
   transcript: string[];
   /** Counts what ran, by name (see tally). */
   count(key: string): void;
+  /** True once the example is over or abandoned: no command may run. */
+  cancelled(): boolean;
 }
 
 export type FaultKind = "dropAck" | "duplicate" | "lostPull" | "writeFails";
@@ -91,6 +94,11 @@ export abstract class SyncCommand implements fc.AsyncCommand<SyncModel, World> {
   protected abstract act(m: SyncModel, w: World): Promise<string>;
 
   async run(m: SyncModel, w: World): Promise<void> {
+    // An abandoned example's command loop may still be going: it must not
+    // act on clients or a server the next example now owns.
+    if (w.cancelled()) {
+      throw new ExampleCancelled(`${this.toString()} refused: the example was cancelled`);
+    }
     // Counted before act, so the Offline that starts a countdown is not one
     // of its commands; a skipped command never gets here and does not count.
     const { backAfter, due } = countDown(m.backAfter);

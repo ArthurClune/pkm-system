@@ -120,8 +120,12 @@ export function createTransport(server: ServerControl, broken?: Broken,
     if (typeof seq === "number" && seq > lastSeq) lastSeq = seq as SyncSeq;
   };
 
-  /** One HTTP exchange, recorded before anyone can drop its reply. */
-  const send = async (path: string, init: RequestInit): Promise<Answer> => {
+  /** One HTTP exchange, recorded before anyone can drop its reply. Every
+   * send checks its life first, so a second send for one request (a
+   * duplicate fault, a broken mode) never goes out once the life has ended. */
+  const sendOne = async (path: string, init: RequestInit,
+                         live: () => boolean): Promise<Answer> => {
+    if (!live()) throw networkError();
     const headers = new Headers(init.headers);
     headers.set("cookie", server.cookie);
     const isOps = kindOf(path, init.method ?? "GET") === "ops";
@@ -160,8 +164,9 @@ export function createTransport(server: ServerControl, broken?: Broken,
 
   /** The broken mode's version of an exchange, or plain `send`. */
   const exchange = async (
-    path: string, init: RequestInit, kind: RequestKind,
+    path: string, init: RequestInit, kind: RequestKind, live: () => boolean,
   ): Promise<Answer> => {
+    const send = (p: string, i: RequestInit): Promise<Answer> => sendOne(p, i, live);
     if (broken === undefined || (brokenUsed && held === null)) {
       return send(path, init);
     }
@@ -228,8 +233,8 @@ export function createTransport(server: ServerControl, broken?: Broken,
     if (at >= 0) faults = faults.filter((_, i) => i !== at);
     const fullInit: RequestInit = { ...init, method };
     const sentPath = method === "GET" ? withWindowLimit(path, windowLimit) : path;
-    let answer = await exchange(sentPath, fullInit, kind);
-    if (fault === "duplicate") answer = await exchange(sentPath, fullInit, kind);
+    let answer = await exchange(sentPath, fullInit, kind, live);
+    if (fault === "duplicate") answer = await exchange(sentPath, fullInit, kind, live);
     if (fault !== null) firedCounts[fault] += 1;
     if (fault === "dropAck" || fault === "lostPull" || !live()) {
       throw networkError();

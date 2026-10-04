@@ -134,7 +134,16 @@ export class Edit extends SyncCommand {
     m.freshUids[this.client] = (m.freshUids[this.client] ?? []).slice(used.length);
     m.createdUids.push(...used);
     w.count("Edit");
-    for (const op of ops) w.count(`Edit op ${op.op}`);
+    for (const op of ops) {
+      w.count(`Edit op ${op.op}`);
+      // Where a title places the op: a top-level create's page, and whether
+      // a top-level move names one.
+      if (op.op === "create" && op.parent_uid === null) {
+        w.count(`Edit op create top of ${op.page_title}`);
+      } else if (op.op === "move" && op.parent_uid === null) {
+        w.count(op.page_title ? `Edit op move top of ${op.page_title}` : "Edit op move top untitled");
+      }
+    }
     const id = await clientOf(w, this.client).edit(ops);
     m.good.get(this.client)?.push(id);
     return `Edit(${this.client}) ${id}: ${ops.map(showOp).join("; ")}`;

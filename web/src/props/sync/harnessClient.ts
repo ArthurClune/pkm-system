@@ -5,10 +5,12 @@
 // them, over an in-memory sqlite database that survives reloads.
 //
 // The legacy repair's outline sessions are the one part stood in for: the
-// harness mounts no editor, so its repairSessions is one authoritative page
-// read through this client's transport. That read fails while the client is
-// offline, as the real repair's does, so a lane rejection whose repair is
-// cut off by the network is left for the next connect to retry.
+// harness mounts no editor, so its repairSessions is one authoritative read
+// through this client's transport, of pt_seed_6's block: live for the whole
+// example, so the read succeeds online whatever a Rename has done to page
+// titles. It fails while the client is offline, as the real repair's does,
+// so a lane rejection whose repair is cut off by the network is left for
+// the next connect to retry.
 //
 // A "life" is one page load. reload() ends it the way a browser ends one by
 // killing the worker and the page's fetches: the transport discards replies
@@ -37,7 +39,7 @@ import { createOpQueue, type OpQueue, type PoisonEvent } from "../../sync/opQueu
 import { createReconnectFlow, type ReconnectFlow } from "../../sync/reconnectFlow";
 import { createReplicaSync, type ReplicaSync } from "../../sync/replicaSync";
 import type { SyncEvent, SyncStatus } from "../../sync/syncState";
-import { SEED_PAGE } from "./arbitraries";
+import { BAD_UID } from "./arbitraries";
 import type { ServerControl } from "./serverControl";
 import { createTransport, type Broken, type Transport, type TransportOptions,
          type TransportLife } from "./transport";
@@ -252,7 +254,7 @@ export async function startClient(
     });
     const legacyRepair = createLegacyRepair({
       repairSessions: async (onStable) => {
-        await doors.fetchJson(`/api/page/${encodeURIComponent(SEED_PAGE)}`);
+        await doors.fetchJson(`/api/block/${BAD_UID}`);
         onStable();
       },
       onEvent: (event) => { syncEvents.push(event); },

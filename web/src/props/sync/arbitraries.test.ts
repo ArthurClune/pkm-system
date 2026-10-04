@@ -1,14 +1,15 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { BAD_UID, editDrafts, EDIT_TARGETS, opsFor, resolveOps, targetPool,
-         type OpDraft } from "./arbitraries";
+import { BAD_UID, editDrafts, EDIT_TARGETS, opsFor, PAGE_TITLES, resolveOps, showDraft,
+         showOp, targetPool, type OpDraft } from "./arbitraries";
 import { countDown, FALL_BACK, freshPool, initialModel, londonMs, londonTime,
          midnightCrossing, SPRING_FORWARD, START_MS } from "./model";
 
 const BLOCK_UID = /^[a-zA-Z0-9_-]{6,32}$/;
 
 const draft = (over: Partial<OpDraft>): OpDraft => ({
-  kind: "update_text", target: 0, parent: null, orderIdx: 0, text: "", collapsed: false,
+  kind: "update_text", target: 0, parent: null, page: null, orderIdx: 0, text: "",
+  collapsed: false,
   ...over,
 });
 
@@ -76,9 +77,49 @@ describe("resolveOps", () => {
     }
   });
 
-  it("pool targets exclude the BadBatch uid", () => {
+  it("pool targets exclude the BadBatch uid, and the seed blocks keep their indexes", () => {
     expect(EDIT_TARGETS).not.toContain(BAD_UID);
-    expect(EDIT_TARGETS).toHaveLength(5);
+    expect(EDIT_TARGETS).toEqual(["pt_seed_1", "pt_seed_2", "pt_seed_3", "pt_seed_4",
+                                  "pt_seed_5", "pt_sec_1", "pt_sec_2", "pt_sec_3"]);
+  });
+
+  it("creates on the drawn title, Proptest when none is drawn", () => {
+    const { ops } = resolveOps(
+      [draft({ kind: "create", page: 2 }), draft({ kind: "create", page: 5 }),
+       draft({ kind: "create" })],
+      ["pt_seed_1"], ["pt_A_1", "pt_A_2", "pt_A_3"]);
+    expect(ops.map((op) => op.op === "create" && op.page_title))
+      .toEqual(["Third", "Second", "Proptest"]);
+  });
+
+  it("gives only a top-level move a page_title, and only when one is drawn", () => {
+    const { ops } = resolveOps(
+      [draft({ kind: "move", page: 1, orderIdx: 4 }),
+       draft({ kind: "move", page: null }),
+       draft({ kind: "move", parent: 1, page: 3 })],
+      ["pt_seed_1", "pt_seed_2"], []);
+    expect(ops).toEqual([
+      { op: "move", uid: "pt_seed_1", parent_uid: null, order_idx: 4, page_title: "Second" },
+      { op: "move", uid: "pt_seed_1", parent_uid: null, order_idx: 0 },
+      { op: "move", uid: "pt_seed_1", parent_uid: "pt_seed_2", order_idx: 0 },
+    ]);
+    expect(ops.map(showOp)).toEqual([
+      "move pt_seed_1 under top of Second at 4", "move pt_seed_1 under top at 0",
+      "move pt_seed_1 under pt_seed_2 at 0"]);
+  });
+
+  it("shows a draft's page by the title it draws", () => {
+    expect(showDraft(draft({ kind: "move", target: 2, page: 3 })))
+      .toBe("move #2 under top of Fourth at 0");
+    expect(showDraft(draft({ kind: "move", target: 2, parent: 1, page: 3 })))
+      .toBe("move #2 under #1 at 0");
+    expect(showDraft(draft({ kind: "create", text: "x" })))
+      .toBe('create under top of Proptest at 0 "x"');
+  });
+
+  it("draws every pool title, and no title for some", () => {
+    const pages = fc.sample(editDrafts, { numRuns: 300, seed: 5 }).flat().map((d) => d.page);
+    expect(new Set(pages)).toEqual(new Set([null, ...PAGE_TITLES.keys()]));
   });
 });
 

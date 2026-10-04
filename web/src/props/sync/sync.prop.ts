@@ -243,10 +243,13 @@ async function runExample(names: readonly string[], cmds: Commands,
   }
 }
 
+/** A fixed scenario's op draft: top level, Proptest, key 0, unless given. */
+const draft = (d: Partial<OpDraft> & Pick<OpDraft, "kind">): OpDraft =>
+  ({ target: 0, parent: null, page: null, orderIdx: 0, text: "", collapsed: false, ...d });
+
 test("reload during an in-flight post", async () => {
   await runExample(["A"], [
-    new Edit("A", [{ kind: "update_text", target: 0, parent: null, orderIdx: 0,
-                     text: "posted, then reloaded", collapsed: false }]),
+    new Edit("A", [draft({ kind: "update_text", text: "posted, then reloaded" })]),
     new Reload("A"),
   ]);
 });
@@ -298,8 +301,8 @@ test("lost ack, own nudge pulls before the redelivery", async () => {
   await runExample(["A"], [
     new Fault("A", "dropAck"),
     new Edit("A", [
-      { kind: "move", target: 3, parent: null, orderIdx: 0, text: "", collapsed: false },
-      { kind: "move", target: 3, parent: null, orderIdx: 1, text: "", collapsed: false },
+      draft({ kind: "move", target: 3, orderIdx: 0 }),
+      draft({ kind: "move", target: 3, orderIdx: 1 }),
     ]),
   ], {
     beforeQuiesce: async (world) => {
@@ -352,9 +355,6 @@ class Drained extends SyncCommand {
 
   toString(): string { return `Drained(${this.client})`; }
 }
-
-const draft = (d: Partial<OpDraft> & Pick<OpDraft, "kind">): OpDraft =>
-  ({ target: 0, parent: null, orderIdx: 0, text: "", collapsed: false, ...d });
 
 // The pool's #3 is pt_seed_4 and #4 is pt_seed_5. A moves pt_seed_5 under
 // pt_seed_4, gives it a child, then moves it back out and deletes

@@ -521,3 +521,95 @@ describe("opBumpsUpdatedAt agrees with what the replica actually writes", () => 
     expect(after === 999).toBe(opBumpsUpdatedAt(op));
   });
 });
+
+describe("applyLocalOps: effect ledger", () => {
+  type Rec = { batch_id: string; uid: string; order_delta: number;
+               base_page_id: number | null; base_updated_at: number | null };
+  const ledger = () => rows<Rec>(
+    "SELECT batch_id, uid, order_delta, base_page_id, base_updated_at" +
+    " FROM effect_ledger ORDER BY batch_id, uid");
+  const deltas = () => ledger().map((r) => `${r.batch_id}:${r.uid}:${r.order_delta}`);
+  const create = (u: string, order = 0, page_title = "AI"): BlockOp =>
+    ({ op: "create", uid: uid(u), page_title, parent_uid: null,
+       order_idx: ord(order), text: u });
+  const b = (s: string) => ({ batchId: bid(s) });
+
+  test("a create records +1 on each shifted sibling and nothing for its own uid", () => {
+    apply(t.db, [create("uid_new", 0)], 99, b("b1"));
+    expect(deltas()).toEqual(["b1:uid_r1:1", "b1:uid_r2:1"]);
+  });
+
+  test("a move within one group records the shifted siblings, not the moved block", () => {
+    apply(t.db, [{ op: "move", uid: uid("uid_r2"), parent_uid: null,
+                   order_idx: ord(0), page_title: "AI" }], 99, b("b1"));
+    expect(deltas()).toEqual(["b1:uid_r1:1"]);
+  });
+
+  test("a cross-page move records destination siblings and page records for descendants, not the root", () => {
+    t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, updated_at)" +
+              " VALUES ('uid_p2a', 2, NULL, 0, 'p2', 1)");
+    t.db.exec("UPDATE blocks SET updated_at = 555 WHERE uid = 'uid_r2c'");
+    apply(t.db, [{ op: "move", uid: uid("uid_r2"), parent_uid: null,
+                   order_idx: ord(0), page_title: "ML" }], 99, b("b1"));
+    expect(ledger()).toEqual([
+      { batch_id: "b1", uid: "uid_p2a", order_delta: 1,
+        base_page_id: null, base_updated_at: null },
+      { batch_id: "b1", uid: "uid_r2c", order_delta: 0,
+        base_page_id: 1, base_updated_at: 555 },
+    ]);
+  });
+
+  test("a replay that keeps its op in place records nothing", () => {
+    apply(t.db, [create("uid_new", 0)], 99, b("b1"));
+    const before = ledger();
+    apply(t.db, [create("uid_new", 0)], 100, { ...b("b1"), reapply: true });
+    expect(ledger()).toEqual(before);
+  });
+
+  test("a replay whose keepSlot finds a clash adds to the delta", () => {
+    apply(t.db, [create("uid_new", 0)], 99, b("b1"));
+    t.db.exec("UPDATE blocks SET order_idx = 0 WHERE uid = 'uid_r1'");
+    apply(t.db, [create("uid_new", 0)], 100, { ...b("b1"), reapply: true });
+    expect(deltas()).toEqual(["b1:uid_r1:2", "b1:uid_r2:2"]);
+  });
+
+  test("a replay of a move no longer in place adds to the delta", () => {
+    const mv: BlockOp = { op: "move", uid: uid("uid_r2"), parent_uid: null,
+                          order_idx: ord(0), page_title: "AI" };
+    apply(t.db, [mv], 99, b("b1"));
+    expect(deltas()).toEqual(["b1:uid_r1:1"]);
+    t.db.exec("UPDATE blocks SET order_idx = 1 WHERE uid = 'uid_r2'");
+    apply(t.db, [mv], 100, { ...b("b1"), reapply: true });
+    expect(deltas()).toEqual(["b1:uid_r1:2"]);
+  });
+
+  test("a batch that moves a root across pages then moves its descendant leaves the descendant unrecorded", () => {
+    apply(t.db, [
+      { op: "move", uid: uid("uid_r2"), parent_uid: null, order_idx: ord(0),
+        page_title: "ML" },
+      { op: "move", uid: uid("uid_r2c"), parent_uid: null, order_idx: ord(0),
+        page_title: "ML" },
+    ], 99, b("b1"));
+    expect(ledger().filter((r) => r.uid === "uid_r2c")).toEqual([]);
+  });
+
+  test("re-creating a uid drops the records an earlier batch left on it", () => {
+    apply(t.db, [create("uid_new", 0)], 99, b("b1"));
+    expect(deltas()).toContain("b1:uid_r1:1");
+    apply(t.db, [{ op: "delete", uid: uid("uid_r1") }], 100, b("b2"));
+    apply(t.db, [create("uid_r1", 0)], 101, b("b3"));
+    expect(ledger().filter((r) => r.uid === "uid_r1")).toEqual([]);
+  });
+
+  test("update_text, set_collapsed, set_heading, set_view_type, delete and create_page record nothing", () => {
+    apply(t.db, [
+      { op: "update_text", uid: uid("uid_r1"), text: "x" },
+      { op: "set_collapsed", uid: uid("uid_r1"), collapsed: true },
+      { op: "set_heading", uid: uid("uid_r1"), heading: 2 },
+      { op: "set_view_type", uid: uid("uid_r1"), view_type: "numbered" },
+      { op: "delete", uid: uid("uid_r2") },
+      { op: "create_page", page_title: "Fresh" },
+    ], 99, b("b1"));
+    expect(ledger()).toEqual([]);
+  });
+});

@@ -37,6 +37,20 @@ const durableAndOptimisticState = () => ({
 });
 
 describe("enqueueBatch", () => {
+  test("an op whose optimistic apply throws after its shift leaves no record", () => {
+    t.db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
+      " VALUES ('uid_q2', 1, NULL, 1, 'at the slot')," +
+      " ('uid_q3', 1, NULL, 2, 'reused uid')");
+    enqueueBatch(t.db, [
+      { op: "create", uid: uid("uid_q3"), page_title: "AI", parent_uid: null,
+        order_idx: ord(1), text: "dup" },
+    ], 99, bid("batch-dup"));
+    expect(t.db.select("SELECT * FROM effect_ledger")).toEqual([]);
+    expect(t.db.select("SELECT batch_id FROM pending_ops"))
+      .toEqual([{ batch_id: "batch-dup" }]);
+  });
+
   test.each([
     ["explicit page title", { op: "create_page", page_title: "Queue #Bad" },
       "page_title", "Queue #Bad"],

@@ -17,6 +17,7 @@ import type { BatchId, BlockUid, CanonicalTitle, OrderIdx, PageId } from "../api
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
+import { dropRecordsOf, recordRepage, recordShift } from "./effectLedger";
 import { type TitleReader, titleReader } from "./meta";
 import { skipsOnMissingTarget } from "./missingTarget";
 import { type Placement, type PlacementFacts, placementFor } from "./placement";
@@ -105,8 +106,9 @@ const touchPage = (db: ReplicaDb, pageId: PageId, nowMs: number): void => {
 
 const shiftSiblings = (db: ReplicaDb, pageId: PageId,
                        parentUid: BlockUid | null,
-                       fromOrderIdx: OrderIdx, _exceptUid: BlockUid,
-                       _batchId: BatchId): void => {
+                       fromOrderIdx: OrderIdx, exceptUid: BlockUid,
+                       batchId: BatchId): void => {
+  recordShift(db, batchId, { pageId, parentUid, fromOrderIdx }, exceptUid);
   db.exec(
     "UPDATE blocks SET order_idx = order_idx + 1" +
     " WHERE page_id = ? AND parent_uid IS ? AND order_idx >= ?",
@@ -128,12 +130,14 @@ const blockInfo = (db: ReplicaDb, uid: BlockUid): BlockInfo | null => {
  * feed re-ships at its server index overtakes one that drifted. Shift only
  * when a sibling the window re-shipped now shares this block's slot. */
 const keepSlot = (db: ReplicaDb, uid: BlockUid, at: BlockInfo,
-                  _batchId: BatchId): void => {
+                  batchId: BatchId): void => {
   const clash = db.select(
     "SELECT 1 AS x FROM blocks WHERE page_id = ? AND parent_uid IS ?" +
     " AND order_idx = ? AND uid != ? LIMIT 1",
     [at.page_id, at.parent_uid, at.order_idx, uid]);
   if (clash.length === 0) return;
+  recordShift(db, batchId, { pageId: at.page_id, parentUid: at.parent_uid,
+                             fromOrderIdx: at.order_idx }, uid);
   db.exec(
     "UPDATE blocks SET order_idx = order_idx + 1" +
     " WHERE page_id = ? AND parent_uid IS ? AND order_idx >= ? AND uid != ?",
@@ -188,9 +192,11 @@ const place = (db: ReplicaDb, op: CreateOp | MoveOp, block: BlockInfo | null,
     const at = block!;
     if (verdict.repageTo !== null) {
       for (const uid of subtreeUids(db, op.uid)) {
+        if (uid !== op.uid) recordRepage(db, batchId, uid);
         db.exec("UPDATE blocks SET page_id = ? WHERE uid = ?",
                 [verdict.repageTo, uid]);
       }
+      dropRecordsOf(db, op.uid);
       at.page_id = verdict.repageTo;
     }
     keepSlot(db, op.uid, at, batchId);
@@ -208,6 +214,7 @@ const place = (db: ReplicaDb, op: CreateOp | MoveOp, block: BlockInfo | null,
       " VALUES (?,?,?,?,?,?,0,?,?,?)",
       [op.uid, pageId, verdict.parentUid, verdict.orderIdx, op.text,
        op.heading ?? null, nowMs, nowMs, op.view_type ?? null]);
+    dropRecordsOf(db, op.uid);
     reindexRefs(db, op.uid, op.text, nowMs);
     touchPage(db, pageId, nowMs);
     return;
@@ -218,11 +225,14 @@ const place = (db: ReplicaDb, op: CreateOp | MoveOp, block: BlockInfo | null,
     "UPDATE blocks SET parent_uid = ?, order_idx = ?, updated_at = ?" +
     " WHERE uid = ?",
     [verdict.parentUid, verdict.orderIdx, nowMs, op.uid]);
+  dropRecordsOf(db, op.uid);
   if (verdict.repage) {
     for (const uid of subtreeUids(db, op.uid)) {
+      if (uid !== op.uid) recordRepage(db, batchId, uid);
       db.exec("UPDATE blocks SET page_id = ?, updated_at = ? WHERE uid = ?",
               [pageId, nowMs, uid]);
     }
+    dropRecordsOf(db, op.uid);
     touchPage(db, moved.page_id, nowMs);
   }
   touchPage(db, pageId, nowMs);

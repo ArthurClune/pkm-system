@@ -10,16 +10,18 @@
 //   per-client order  each client's batches landed in its enqueue order
 //   desync/poison     no onDesync, and onPoison only for expected rejections
 //   serial replay     replaying the recorded bodies in commit order, each at
-//                     its applied_at, on a fresh server reproduces the graph
-// The serial replay resets the server, so the faulted run's snapshot and
-// applied list are read before it, and afterwards the server holds the
-// replay's state.
+//                     its applied_at, with every page rename put back after
+//                     the batch it followed, at the clock it ran at, on a
+//                     fresh server reproduces the graph
+// The serial replay resets the server, so the faulted run's snapshot,
+// applied list and renames are read before it, and afterwards the server
+// holds the replay's state.
 // CursorWatch is the sixth check, run after every command rather than here.
 import type { BatchId, SyncSeq } from "../../api/brands";
 import type { HarnessClient } from "./harnessClient";
 import { canonicaliseMintedUids, diffGraphs, fromReplica, fromSnapshot,
          type NormalGraph, opUids } from "./normalise";
-import type { ServerControl } from "./serverControl";
+import type { RenameRecord, ServerControl } from "./serverControl";
 
 export type Invariant =
   | "convergence" | "accounting" | "per-client order" | "desync/poison"
@@ -43,6 +45,9 @@ export interface CheckOptions {
   /** The recorded POST /api/ops bodies the serial replay posts; by default
    * the union of the clients' transports' records. */
   committed?: ReadonlyMap<BatchId, string>;
+  /** The page renames the serial replay puts back; by default the
+   * server's record of them. */
+  renames?: readonly RenameRecord[];
 }
 
 type Applied = { batch_id: BatchId; applied_at: number }[];
@@ -119,10 +124,17 @@ function desyncPoison(clients: HarnessClient[], exp: Expectation): Findings {
 
 async function serialReplay(server: ServerControl, applied: Applied,
                             faulted: Awaited<ReturnType<ServerControl["snapshot"]>>,
-                            committed: ReadonlyMap<BatchId, string>): Promise<Findings> {
+                            committed: ReadonlyMap<BatchId, string>,
+                            renames: readonly RenameRecord[]): Promise<Findings> {
   const unrecorded = applied.filter((r) => !committed.has(r.batch_id));
   if (unrecorded.length > 0) {
     return [`no recorded body for applied batches: ${list(unrecorded.map((r) => r.batch_id))}`];
+  }
+  const landed = new Set<BatchId | null>([null, ...applied.map((r) => r.batch_id)]);
+  const stray = renames.filter((r) => !landed.has(r.after_batch_id));
+  if (stray.length > 0) {
+    return [`renames after a batch that never applied: ${
+      list(stray.map((r) => `${r.old_title} -> ${r.new_title} after ${r.after_batch_id}`))}`];
   }
   const out: Findings = [];
   await server.reset();
@@ -132,10 +144,24 @@ async function serialReplay(server: ServerControl, applied: Applied,
   for (const row of applied) {
     for (const uid of opUids(committed.get(row.batch_id) ?? "{}")) known.add(uid);
   }
+  // A rename is no batch: it goes back between the two batches it fell
+  // between in the faulted run, in the order the renames committed.
+  const renamesAfter = async (batch: BatchId | null): Promise<void> => {
+    for (const r of renames.filter((x) => x.after_batch_id === batch)) {
+      await server.setClock(r.at);
+      const res = await server.postRename(r.old_title, r.new_title);
+      if (!res.ok) {
+        out.push(`replaying rename ${r.old_title} -> ${r.new_title} got ${res.status}:` +
+                 ` ${await res.text()}`);
+      }
+    }
+  };
+  await renamesAfter(null);
   for (const row of applied) {
     await server.setClock(row.applied_at);
     const res = await server.postRaw(committed.get(row.batch_id) ?? "");
     if (!res.ok) out.push(`replaying ${row.batch_id} got ${res.status}: ${await res.text()}`);
+    await renamesAfter(row.batch_id);
   }
   const replayed = await server.snapshot();
   const diff = diffGraphs(
@@ -159,6 +185,7 @@ export async function checkQuiescent(clients: HarnessClient[], server: ServerCon
                                      exp: Expectation, opts: CheckOptions = {}): Promise<void> {
   const faulted = await server.snapshot();
   const applied = await server.applied();
+  const renames = opts.renames ?? await server.renames();
   const committed = opts.committed ?? new Map(
     clients.flatMap((c) => [...c.transport.committed]));
   const results: [Invariant, Findings][] = [
@@ -166,7 +193,7 @@ export async function checkQuiescent(clients: HarnessClient[], server: ServerCon
     ["accounting", await evaluate(() => accounting(clients, applied, exp))],
     ["per-client order", await evaluate(() => perClientOrder(applied, exp))],
     ["desync/poison", await evaluate(() => desyncPoison(clients, exp))],
-    ["serial replay", await evaluate(() => serialReplay(server, applied, faulted, committed))],
+    ["serial replay", await evaluate(() => serialReplay(server, applied, faulted, committed, renames))],
   ];
   const failed = results.filter(([, findings]) => findings.length > 0);
   if (failed.length === 0) return;

@@ -16,16 +16,18 @@ function fakeServer(calls: string[]): ServerControl {
     setClock: () => note("setClock"),
     rotateGeneration: () => note("rotateGeneration"),
     applied: async () => { await note("applied"); return [] as { batch_id: BatchId; applied_at: number }[]; },
+    renames: async () => { await note("renames"); return []; },
     snapshot: async () => { await note("snapshot"); return {} as Snapshot; },
     latestSeq: async () => { await note("latestSeq"); return 7 as SyncSeq; },
     postRaw: async () => { await note("postRaw"); return new Response(null); },
+    postRename: async () => { await note("postRename"); return new Response(null); },
     withSignal: () => fakeServer(calls),
   };
 }
 
 const everyCall = (s: ServerControl): Promise<unknown>[] => [
   s.reset(), s.setClock(0), s.rotateGeneration(), s.applied(), s.snapshot(),
-  s.latestSeq(), s.postRaw("{}"),
+  s.latestSeq(), s.postRaw("{}"), s.renames(), s.postRename("Second", "Third"),
 ];
 
 describe("cancellable", () => {
@@ -35,7 +37,7 @@ describe("cancellable", () => {
     expect(guard.server.cookie).toBe("session=x");
     await Promise.all(everyCall(guard.server));
     expect(await guard.server.latestSeq()).toBe(7);
-    expect(calls).toHaveLength(8);
+    expect(calls).toHaveLength(10);
     expect(guard.cancelled()).toBe(false);
   });
 

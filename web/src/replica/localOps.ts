@@ -17,7 +17,7 @@ import type { BlockUid, CanonicalTitle, OrderIdx, PageId } from "../api/brands";
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
-import { titleReader } from "./meta";
+import { type TitleReader, titleReader } from "./meta";
 import { skipsOnMissingTarget } from "./missingTarget";
 import { type Placement, type PlacementFacts, placementFor } from "./placement";
 import { findOpTitleViolation, type OpTitleViolation,
@@ -50,11 +50,14 @@ const titleViolationError = (violation: OpTitleViolation): LocalOpError =>
   );
 
 /** The title a page is stored under: canonicalised, blank as "Untitled". */
-const localPageTitle = (db: ReplicaDb, title: string): CanonicalTitle => {
-  const read = titleReader(db);
+export const storedPageTitle = (read: TitleReader,
+                                title: string): CanonicalTitle => {
   const canonical = read(title);
   return canonical.trim().length === 0 ? read("Untitled") : canonical;
 };
+
+const localPageTitle = (db: ReplicaDb, title: string): CanonicalTitle =>
+  storedPageTitle(titleReader(db), title);
 
 const pageIdByTitle = (db: ReplicaDb, title: CanonicalTitle): PageId | null => {
   const rows = db.select<{ id: PageId }>(

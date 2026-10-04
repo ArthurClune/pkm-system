@@ -35,7 +35,8 @@ import { applyLocalOps } from "./localOps";
 import { deleteMeta, getMeta, setMeta,
          setPlainSpaceTitleCanonicalization } from "./meta";
 import { allBatches, deleteBatch } from "./queue";
-import { reconcileActivationPageTitles, reconcilePage } from "./reconcile";
+import { dropStrandedLocalPages, reconcileActivationPageTitles,
+         reconcilePage } from "./reconcile";
 
 export type Changes = components["schemas"]["ChangesPayload"];
 export type Snapshot = components["schemas"]["SnapshotPayload"];
@@ -421,7 +422,8 @@ function owedBlockTombstones(earlier: readonly BlockUid[],
 /** Order inside the window transaction: page and sidebar tombstones, then
  * pages and blocks, then block tombstones (in the window at the journal
  * head only, below), then sidebar upserts, then dropping the pending rows
- * the window names as applied, then the queue replay. Deferred FKs make
+ * the window names as applied, then the queue replay, then dropping the
+ * local pages nothing keeps (dropStrandedLocalPages). Deferred FKs make
  * the order irrelevant for referential integrity; the UNIQUE titles and
  * the local cascades fix it.
  *
@@ -510,6 +512,7 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
     reconcileActivationPageTitles(db);
     const dropped = dropAppliedPending(db, feed.applied_batches, droppable);
     reapplyPending(db, nowMs);
+    dropStrandedLocalPages(db, nowMs);
     return dropped;
   });
 }

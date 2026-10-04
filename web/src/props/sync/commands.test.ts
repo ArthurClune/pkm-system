@@ -1,6 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { commandsFor, Offline, offlineBack, Reload, type SyncCommand } from "./commands";
+import { commandsFor, connectTally, connectTiming, Offline, offlineBack, Reload,
+         type SyncCommand } from "./commands";
 
 /** The client a command names, or null for one that names none. */
 const clientOf = (cmd: SyncCommand): string | null =>
@@ -38,8 +39,24 @@ describe("Offline", () => {
   });
 });
 
-describe("Reload", () => {
-  it("connects once startup completes by default", () => {
+describe("connect timing", () => {
+  it("shows a Reload's timing, and none when it connects after startup", () => {
     expect(new Reload("A").toString()).toBe("Reload(A)");
+    expect(new Reload("A", 3).toString()).toBe("Reload(A, connect at tick 3)");
+    expect(new Reload("B", 0).toString()).toBe("Reload(B, connect at tick 0)");
+  });
+
+  it("draws no timing, or a tick from 0 to 7", () => {
+    const drawn = fc.sample(connectTiming, { numRuns: 1000, seed: 4 });
+    expect(drawn).toContain(undefined);
+    const timed = drawn.filter((t) => t !== undefined);
+    expect(new Set(timed)).toEqual(new Set([0, 1, 2, 3, 4, 5, 6, 7]));
+  });
+
+  it("tallies where a connect landed", () => {
+    expect(connectTally(undefined, null)).toBe("connect untimed");
+    expect(connectTally(2, null)).toBe("connect timed, offline");
+    expect(connectTally(2, "mid-startup")).toBe("connect timed, landed mid-startup");
+    expect(connectTally(6, "after startup")).toBe("connect timed, landed after startup");
   });
 });

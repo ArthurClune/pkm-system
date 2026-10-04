@@ -3,7 +3,9 @@
 // against the real server take a random sequence of edits and faults, then
 // are brought to rest and checked by the oracle. One example in three caps
 // the changes feed's window at a few journal rows, so a catch-up crosses
-// window boundaries (see windowLimit). Seven fixed scenarios run first,
+// window boundaries (see windowLimit). Half the time a client's first
+// connect, and a Reload's, comes at a drawn tick of its startup rather than
+// after it (connectTiming in commands.ts). Seven fixed scenarios run first,
 // through the same commands.
 //
 // A failure prints the seed, the path, the shrunk command list, what each
@@ -13,8 +15,9 @@
 import fc from "fast-check";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { EDIT_TARGETS, type OpDraft } from "./arbitraries";
-import { BadBatch, commandsFor, countSkipsWith, Edit, Fault, type FaultKind, NAMES,
-         Nudge, Offline, Pull, Reload, SyncCommand, type World } from "./commands";
+import { BadBatch, commandsFor, connectTally, connectTiming, countSkipsWith, Edit,
+         Fault, type FaultKind, NAMES, Nudge, Offline, Pull, Reload, SyncCommand,
+         type World } from "./commands";
 import { PATH, REPLAY_PATH, SEED } from "./env";
 import { startClient, type HarnessClient } from "./harnessClient";
 import { initialModel, type SyncModel } from "./model";
@@ -88,6 +91,9 @@ interface ExampleOptions {
   /** Every client's changes-feed window, in journal rows; absent, the
    * server's default. */
   windowLimit?: number;
+  /** Each client's first connect, by client order, in ticks after its
+   * mount begins (StartOptions); absent, once its startup has finished. */
+  connectAt?: readonly (number | undefined)[];
 }
 
 /** No cap two times in three, else a window of one to five journal rows:
@@ -109,11 +115,16 @@ async function runExample(names: readonly string[], cmds: Commands,
   const transcript: string[] = [];
   const body = async (): Promise<void> => {
     await server.reset();
-    for (const name of names) {
-      clients.set(name, await startClient(name, server, undefined,
-                                          { windowLimit: opts.windowLimit }));
+    const started: string[] = [];
+    for (const [i, name] of names.entries()) {
+      const at = opts.connectAt?.[i];
+      const c = await startClient(name, server, undefined,
+                                  { windowLimit: opts.windowLimit }, { connectAt: at });
+      clients.set(name, c);
+      count(`start ${connectTally(at, c.connectLanded())}`);
+      started.push(at === undefined ? name : `${name} (connect at tick ${at})`);
     }
-    transcript.push(`start ${names.join(", ")}` +
+    transcript.push(`start ${started.join(", ")}` +
       (opts.windowLimit === undefined ? "" : `, window limit ${opts.windowLimit}`));
     const model = initialModel([...names]);
     const world: World = { server, clients, watch: new CursorWatch(), transcript, count };
@@ -337,6 +348,10 @@ test("quiesce waits for a batch a poison repair held back", async () => {
 
 /** An example's clients and the commands drawn for exactly those. */
 type Drawn = [number, Commands];
+/** Each client's first connect, by client order (ExampleOptions). */
+type Starts = [number | undefined, number | undefined, number | undefined];
+
+const starts: fc.Arbitrary<Starts> = fc.tuple(connectTiming, connectTiming, connectTiming);
 
 /** Two or three clients, equally often. Each branch draws its commands
  * from its own clients alone, so no draw names a client the example lacks.
@@ -348,13 +363,19 @@ const clientsAndCommands: fc.Arbitrary<Drawn> = fc.oneof(
     { maxCommands: MAX_COMMANDS, size: "max", replayPath: REPLAY_PATH }))),
 );
 
+/** The started clients' first-connect timings, for the report. */
+const showStarts = (n: number, at: Starts): string =>
+  NAMES.slice(0, n).map((name, i) =>
+    `${name} ${at[i] === undefined ? "after startup" : `tick ${at[i]}`}`).join(", ");
+
 /** The failure report: everything needed to read and replay it. */
-function report(details: fc.RunDetails<[Drawn, number | undefined]>): string {
+function report(details: fc.RunDetails<[Drawn, number | undefined, Starts]>): string {
   const counterexample = details.counterexample;
   const shown = counterexample === null ? "none"
     : `${counterexample[0][0]} clients, ` +
       (counterexample[1] === undefined ? "no window limit"
                                        : `window limit ${counterexample[1]}`) +
+      `, connect at ${showStarts(counterexample[0][0], counterexample[2])}` +
       `, ${String(counterexample[0][1])}`;
   const replay = /replayPath="([^"]*)"/.exec(shown)?.[1];
   const error = details.errorInstance instanceof Error
@@ -379,12 +400,13 @@ test("sync protocol property", async () => {
     // path replay, so the ones before it replay as they did before it was
     // added.
     windowLimit,
-    async ([n, cmds], limit) => {
+    starts,
+    async ([n, cmds], limit, at) => {
       count("examples");
       count(`examples with ${n} clients`);
       count(limit === undefined ? "examples with no window limit"
                                 : `examples with window limit ${limit}`);
-      await runExample(NAMES.slice(0, n), cmds, { windowLimit: limit });
+      await runExample(NAMES.slice(0, n), cmds, { windowLimit: limit, connectAt: at });
     },
   ), {
     numRuns: NUM_RUNS, seed: SEED, path: PATH,

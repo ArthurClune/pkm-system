@@ -21,7 +21,7 @@ import type { BlockUid, OrderIdx, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import { BAD_UID, editDrafts, resolveOps, SEED_PAGE, showDraft, showOp,
          targetPool, type OpDraft } from "./arbitraries";
-import type { HarnessClient } from "./harnessClient";
+import type { ConnectLanding, HarnessClient } from "./harnessClient";
 import { countDown, FALL_BACK, midnightCrossing, type MidnightDay, type OfflineBack,
          SPRING_FORWARD, type SyncModel } from "./model";
 import type { CursorWatch } from "./oracle";
@@ -268,10 +268,12 @@ export class Nudge extends SyncCommand {
 
 /** A page reload. Ops only in the in-memory lane die with the page by
  * design (the beforeunload guard's job), so it needs an empty lane and no
- * write failure armed to put anything there. */
+ * write failure armed to put anything there. An online client's new life
+ * connects `connectAt` ticks into its startup, or once the startup has
+ * finished when that is absent (HarnessClient.reload). */
 export class Reload extends SyncCommand {
   protected readonly kindName = "Reload";
-  constructor(readonly client: string) { super(); }
+  constructor(readonly client: string, readonly connectAt?: number) { super(); }
 
   protected blocked(m: Readonly<SyncModel>): string | null {
     return notStarted(m, this.client) ??
@@ -282,11 +284,23 @@ export class Reload extends SyncCommand {
     const c = clientOf(w, this.client);
     assertNoLane(this, c);
     w.count("Reload");
-    await c.reload();
+    await c.reload(this.connectAt);
+    w.count(`Reload ${connectTally(this.connectAt, c.connectLanded())}`);
     return this.toString();
   }
 
-  toString(): string { return `Reload(${this.client})`; }
+  toString(): string {
+    return this.connectAt === undefined ? `Reload(${this.client})`
+      : `Reload(${this.client}, connect at tick ${this.connectAt})`;
+  }
+}
+
+/** The tally's word on a page load's first connect: untimed, a timing an
+ * offline load ignored, or where a timed connect landed in the startup. */
+export function connectTally(connectAt: number | undefined,
+                             landed: ConnectLanding | null): string {
+  if (connectAt === undefined) return "connect untimed";
+  return landed === null ? "connect timed, offline" : `connect timed, landed ${landed}`;
 }
 
 /** Every client's next pull runs rebase recovery. */
@@ -338,6 +352,16 @@ export const offlineBack: fc.Arbitrary<OfflineBack> = fc.oneof(
   { weight: 3, arbitrary: fc.constantFrom<OfflineBack>(1, 2, 3, 5) },
 );
 
+/** When a page load's first connect comes, in ticks after its mount
+ * begins; absent half the time, when it comes once the startup has
+ * finished. A startup spans a few ticks: measured over the property's own
+ * examples, a first start finished after 2 to 5 (mostly 3 or 4), a reload
+ * after 1 to 7 (median 3, with a long tail). Ticks 0
+ * to 7 land a connect before the startup's first reply, inside it, and
+ * after it, for both. */
+export const connectTiming: fc.Arbitrary<number | undefined> =
+  fc.option(fc.integer({ min: 0, max: 7 }), { nil: undefined, freq: 2 });
+
 /** Every command, naming only `names` (the clients the example starts), so
  * no draw is spent on a client the example lacks. Weighted as calibrated:
  * Edit 10, Pull 3, Nudge 3, Offline 3, Fault 3, Reload 2, BadBatch 1,
@@ -355,7 +379,8 @@ export function commandsFor(names: readonly string[]): fc.Arbitrary<SyncCommand>
         .map(([c, back]) => new Offline(c, back)) },
     { weight: 3, arbitrary: fc.tuple(client, fc.constantFrom<FaultKind>(
         "dropAck", "duplicate", "lostPull", "writeFails")).map(([c, k]) => new Fault(c, k)) },
-    { weight: 2, arbitrary: client.map((c) => new Reload(c)) },
+    { weight: 2, arbitrary: fc.tuple(client, connectTiming)
+        .map(([c, at]) => new Reload(c, at)) },
     { weight: 1, arbitrary: client.map((c) => new BadBatch(c)) },
     { weight: 1, arbitrary: fc.constant(null).map(() => new RotateGeneration()) },
     // One crossing in four lands on a BST/GMT changeover date.

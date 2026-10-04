@@ -1469,3 +1469,303 @@ describe("applyChanges: a window that names a pending batch as applied drops it 
     srv.close();
   });
 });
+
+describe("applyChanges: the effect ledger", () => {
+  // P holds m@0 a@1 r@2; S holds s@0. Pages are top-level groups here, so
+  // `keys` reads one page's top level in order.
+  const LEDGER_SNAP: Snapshot = {
+    generation: "gen-1", plain_space_title_canonicalization: false,
+    seq: 10 as SyncSeq, pages: [page(1, "P"), page(2, "S")],
+    blocks: [block("m", 1, { order_idx: ord(0) }),
+             block("a", 1, { order_idx: ord(1) }),
+             block("r", 1, { order_idx: ord(2) }),
+             block("s", 2, { order_idx: ord(0) })],
+    sidebar: [],
+  };
+  beforeEach(() => { applySnapshot(t.db, LEDGER_SNAP, 1); });
+
+  type Rec = { batch_id: string; uid: string; order_delta: number;
+               base_page_id: number | null; base_updated_at: number | null };
+  const ledger = (): Rec[] => t.db.select<Rec>(
+    "SELECT batch_id, uid, order_delta, base_page_id, base_updated_at" +
+    " FROM effect_ledger ORDER BY batch_id, uid");
+  /** `uid:delta` per record, in (batch, uid) order. */
+  const deltas = (): string[] =>
+    ledger().map((r) => `${r.batch_id}:${r.uid}${r.order_delta}`);
+  /** A page's top level as `uid` + `order_idx`, in order. */
+  const keys = (rawPageId: number): string =>
+    t.db.select<{ uid: string; order_idx: number }>(
+      "SELECT uid, order_idx FROM blocks WHERE page_id = ? AND parent_uid IS NULL" +
+      " ORDER BY order_idx, uid", [rawPageId])
+      .map((r) => `${r.uid}${r.order_idx}`).join(" ");
+
+  const createTop = (u: string, o: number, pageTitle = "P"): BlockOp =>
+    ({ op: "create", uid: uid(u), page_title: pageTitle, parent_uid: null,
+       order_idx: ord(o), text: `text of ${u}` });
+  // An untitled top-level move stays on the page the replica sees the
+  // block on.
+  const moveTop = (u: string, o: number): BlockOp =>
+    ({ op: "move", uid: uid(u), parent_uid: null, order_idx: ord(o) });
+  const named = (batchId: string) =>
+    ({ batch_id: bid(batchId), seq: 11 as SyncSeq, skipped: [] });
+
+  // Another device moved m to S (after s) before this replica pulled: the
+  // server's move of m shifts S's top level, where nothing sits past s.
+  const M_ON_S = block("m", 2, { order_idx: ord(1) });
+
+  test("a window upsert drops records on the shipped block", () => {
+    enqueueBatch(t.db, [createTop("X", 0)], 2, bid("b1"));
+    expect(deltas()).toEqual(["b1:a1", "b1:m1", "b1:r1"]);
+
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, blocks: [block("a", 1, { order_idx: ord(1) })],
+    }), 3);
+
+    expect(deltas()).toEqual(["b1:m1", "b1:r1"]);
+  });
+
+  test("a block tombstone drops records, applied at the head and deferred short of it", () => {
+    enqueueBatch(t.db, [createTop("X", 0)], 2, bid("b1"));
+
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 12,
+      tombstones: [{ kind: "block", entity_id: "a" }],
+    }), 3);
+    expect(keys(1)).toContain("a2"); // the tombstone waits for the head
+    expect(deltas()).toEqual(["b1:m1", "b1:r1"]);
+
+    applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      tombstones: [{ kind: "block", entity_id: "r" }],
+    }), 4);
+    expect(keys(1)).toBe("X0 m1");
+    expect(deltas()).toEqual(["b1:m1"]);
+  });
+
+  test("no revert while the batch is pending", () => {
+    enqueueBatch(t.db, [moveTop("m", 1)], 2, bid("b1"));
+    expect(keys(1)).toBe("m1 a2 r3");
+
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, blocks: [M_ON_S],
+    }), 3);
+
+    expect(keys(1)).toBe("a2 r3");
+    expect(deltas()).toEqual(["b1:a1", "b1:r1"]);
+  });
+
+  test("no revert in a window short of the head after the ack; revert in the next head window", () => {
+    enqueueBatch(t.db, [moveTop("m", 1)], 2, bid("b1"));
+    ackNext(t.db);
+
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 12, blocks: [M_ON_S],
+    }), 3);
+    expect(keys(1)).toBe("a2 r3");
+    expect(deltas()).toEqual(["b1:a1", "b1:r1"]);
+
+    applyChanges(t.db, emptyFeed({ next_since: 12, latest_seq: 12 }), 4);
+    expect(keys(1)).toBe("a1 r2");
+    expect(keys(2)).toBe("s0 m1");
+    expect(ledger()).toEqual([]);
+  });
+
+  test("revert at an empty head window after deleteBatch", () => {
+    enqueueBatch(t.db, [moveTop("m", 1)], 2, bid("b1"));
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, blocks: [M_ON_S],
+    }), 3);
+    ackNext(t.db);
+
+    applyChanges(t.db, emptyFeed({ next_since: 12, latest_seq: 12 }), 4);
+
+    expect(keys(1)).toBe("a1 r2");
+    expect(ledger()).toEqual([]);
+  });
+
+  test("revert in the window whose applied_batches names the batch, before the replay", () => {
+    enqueueBatch(t.db, [moveTop("m", 1)], 2, bid("b1"));
+    enqueueBatch(t.db, [createTop("X", 3)], 2, bid("b2"));
+    expect(keys(1)).toBe("m1 a2 X3 r4");
+
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, blocks: [M_ON_S],
+      applied_batches: [named("b1")],
+    }), 3);
+
+    // b1 reverted first, so b2's replay found r on X's slot and moved it on
+    expect(allBatches(t.db).map((b) => b.batch_id)).toEqual([bid("b2")]);
+    expect(keys(1)).toBe("a1 X3 r4");
+    expect(deltas()).toEqual(["b2:r2"]);
+  });
+
+  test("a poisoned batch never settles", () => {
+    enqueueBatch(t.db, [moveTop("m", 1)], 2, bid("b1"));
+    const [b1] = allBatches(t.db);
+    markPoisoned(t.db, b1.id, "rejected", bid("b1"));
+
+    applyChanges(t.db, emptyFeed({ next_since: 11, latest_seq: 11 }), 3);
+
+    expect(keys(1)).toBe("m1 a2 r3");
+    expect(deltas()).toEqual(["b1:a1", "b1:r1"]);
+  });
+
+  test("two pending batches: the spec's table, row by row", () => {
+    enqueueBatch(t.db, [moveTop("m", 1)], 2, bid("b1"));
+    expect(keys(1)).toBe("m1 a2 r3");
+    expect(deltas()).toEqual(["b1:a1", "b1:r1"]);
+
+    enqueueBatch(t.db, [createTop("X", 3)], 2, bid("b2"));
+    expect(keys(1)).toBe("m1 a2 X3 r4");
+    expect(deltas()).toEqual(["b1:a1", "b1:r1", "b2:r1"]);
+
+    // b1 commits: the server moves m on S
+    ackNext(t.db);
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, blocks: [M_ON_S],
+    }), 3);
+    expect(keys(1)).toBe("a1 X3 r4");
+    expect(deltas()).toEqual(["b2:r2"]);
+
+    // b2 commits: X at 3, with r@2 below the slot
+    ackNext(t.db);
+    applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      blocks: [block("X", 1, { order_idx: ord(3), text: "text of X" })],
+    }), 4);
+    expect(keys(1)).toBe("a1 r2 X3");
+    expect(ledger()).toEqual([]);
+  });
+
+  describe("a batch rolled back in reapplyPending leaves only its earlier records", () => {
+    test("an op that throws", () => {
+      enqueueBatch(t.db, [createTop("X", 0),
+                          { op: "update_text", uid: uid("X"), text: "later" }],
+                   2, bid("b1"));
+      expect(deltas()).toEqual(["b1:a1", "b1:m1", "b1:r1"]);
+      // The replay's update_text fails after its create recorded a shift.
+      t.db.exec("CREATE TEMP TRIGGER fail_x_text BEFORE UPDATE OF text ON blocks" +
+                " WHEN NEW.uid = 'X' BEGIN SELECT RAISE(ABORT, 'refused'); END");
+
+      // another device's z on X's slot: the replay's keepSlot shifts past it
+      const res = applyChanges(t.db, emptyFeed({
+        next_since: 11, latest_seq: 11, blocks: [block("z", 1, { order_idx: ord(0) })],
+      }), 3);
+
+      expect(res).toEqual({ status: "applied", cursor: 11 });
+      expect(keys(1)).toBe("X0 z0 m1 a2 r3");
+      expect(deltas()).toEqual(["b1:a1", "b1:m1", "b1:r1"]);
+    });
+
+    test("an op that adds an FK violation", () => {
+      // Q@0 top-level on P with child C@0.
+      applySnapshot(t.db, {
+        ...LEDGER_SNAP,
+        blocks: [block("Q", 1), block("C", 1, { parent_uid: uid("Q") })],
+      }, 1);
+      enqueueBatch(t.db, [
+        { op: "create", uid: uid("X"), page_title: "P", parent_uid: uid("Q"),
+          order_idx: ord(0), text: "x" },
+        { op: "create", uid: uid("Y"), page_title: "P", parent_uid: uid("X"),
+          order_idx: ord(0), text: "y" },
+      ], 2, bid("b1"));
+      enqueueBatch(t.db, [
+        { op: "move", uid: uid("Q"), parent_uid: null, page_title: "P",
+          order_idx: ord(0) },
+      ], 2, bid("b2"));
+      expect(deltas()).toEqual(["b1:C1"]);
+
+      // Q arrives on a page the window never ships. b1's replay follows Q
+      // there, re-paging Y (a record) and leaving X and Y dangling, so it
+      // rolls back; b2's replay moves Q back onto P and the COMMIT holds.
+      const res = applyChanges(t.db, emptyFeed({
+        next_since: 11, latest_seq: 11, blocks: [block("Q", 99)],
+      }), 3);
+
+      expect(res).toEqual({ status: "applied", cursor: 11 });
+      expect(ledger().filter((r) => r.batch_id === "b1"))
+        .toEqual([{ batch_id: "b1", uid: "C", order_delta: 1,
+                    base_page_id: null, base_updated_at: null }]);
+    });
+  });
+
+  test("applySnapshot clears the ledger and its replay records again", () => {
+    enqueueBatch(t.db, [moveTop("m", 1)], 2, bid("b0"));
+    ackNext(t.db); // awaiting its head window
+    enqueueBatch(t.db, [createTop("X", 0)], 2, bid("b1"));
+    expect(deltas()).toEqual(["b0:a1", "b0:r1", "b1:a1", "b1:m1", "b1:r1"]);
+
+    applySnapshot(t.db, { ...LEDGER_SNAP, seq: 11 as SyncSeq }, 3);
+
+    expect(keys(1)).toBe("X0 m1 a2 r3");
+    expect(deltas()).toEqual(["b1:a1", "b1:m1", "b1:r1"]);
+  });
+
+  test("a window that rolls back (StaleTitleHolderError) leaves the ledger as it was", () => {
+    enqueueBatch(t.db, [moveTop("m", 1)], 2, bid("b1"));
+    ackNext(t.db);
+
+    // page 5 takes P's title; nothing retitles or deletes page 1
+    const res = applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, pages: [page(5, "P")],
+      blocks: [block("a", 1, { order_idx: ord(1) })],
+    }), 3);
+
+    expect(res).toEqual({ status: "needs-bootstrap" });
+    expect(keys(1)).toBe("m1 a2 r3");
+    expect(deltas()).toEqual(["b1:a1", "b1:r1"]);
+  });
+
+  test("a batch replayed over its own echo reverts at settle", async () => {
+    // The server applies the batch to the same group: r1 m2 a3.
+    const batch = [moveTop("r", 0), moveTop("r", 1)];
+    const srv = await openTestDb();
+    applySnapshot(srv.db, LEDGER_SNAP, 1);
+    applyLocalOps(srv.db, batch, 2, { batchId: bid("srv") });
+    const serverRows = (db: ReplicaDb) => db.select(
+      "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid");
+    const echo = srv.db.select<{ uid: string; order_idx: number }>(
+      "SELECT uid, order_idx FROM blocks WHERE page_id = 1")
+      .map((r) => block(r.uid, 1, { order_idx: ord(r.order_idx) }));
+    enqueueBatch(t.db, batch, 2, bid("b1"));
+
+    // the echo, not naming the batch: the replay runs over it and shifts again
+    applyChanges(t.db, emptyFeed({ next_since: 11, latest_seq: 11, blocks: echo }), 3);
+    expect(keys(1)).toBe("r1 m4 a5");
+    expect(deltas()).toEqual(["b1:a2", "b1:m2"]);
+
+    ackNext(t.db);
+    applyChanges(t.db, emptyFeed({ next_since: 12, latest_seq: 12 }), 4);
+
+    expect(serverRows(t.db)).toEqual(serverRows(srv.db));
+    expect(ledger()).toEqual([]);
+    srv.close();
+  });
+
+  test("a base on a local page lands on the server's id when the page arrives in the settling window", () => {
+    // B and its child D are made on a new title, then B moves to P: D's
+    // record names the local page as its base.
+    enqueueBatch(t.db, [
+      createTop("B", 0, "Local"),
+      { op: "create", uid: uid("D"), page_title: "Local", parent_uid: uid("B"),
+        order_idx: ord(0), text: "d" },
+      { op: "move", uid: uid("B"), parent_uid: null, page_title: "P",
+        order_idx: ord(0) },
+    ], 2, bid("b1"));
+    const [local] = t.db.select<{ id: number }>(
+      "SELECT id FROM pages WHERE title = 'Local'");
+    expect(local.id).toBeLessThan(0);
+    expect(ledger()).toContainEqual(
+      { batch_id: "b1", uid: "D", order_delta: 0, base_page_id: local.id,
+        base_updated_at: 2 });
+
+    ackNext(t.db);
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, pages: [page(7, "Local")],
+    }), 3);
+
+    expect(t.db.select("SELECT page_id FROM blocks WHERE uid = 'D'"))
+      .toEqual([{ page_id: 7 }]);
+    expect(ledger()).toEqual([]);
+  });
+});

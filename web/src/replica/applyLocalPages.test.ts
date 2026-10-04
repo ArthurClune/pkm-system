@@ -213,3 +213,39 @@ describe("applyChanges: a local page something keeps stays", () => {
     expect(titles()).toEqual(["Empty", "Proptest", "Second"]);
   });
 });
+
+describe("applyChanges: a local page a ledger base names", () => {
+  // B and its child D are made on a new title, then B moves to Proptest:
+  // D's record names Fourth as its base. A later batch deletes B (and D),
+  // so once the first is acked nothing but that record keeps Fourth.
+  const strandFourth = (): void => {
+    enqueue([
+      createOn("uid_n1", "Fourth"),
+      { op: "create", uid: uid("uid_n2"), page_title: "Fourth",
+        parent_uid: uid("uid_n1"), order_idx: ord(0), text: "child" },
+      { op: "move", uid: uid("uid_n1"), parent_uid: null, page_title: "Proptest",
+        order_idx: ord(0) },
+    ], "b-made");
+    enqueue([{ op: "delete", uid: uid("uid_n1") }], "b-delete");
+    ackNext(t.db);
+  };
+
+  test("a local page a ledger base names stays", () => {
+    strandFourth();
+
+    applyChanges(t.db, window({ next_since: 11, latest_seq: 12 }), NOW);
+
+    expect(titles()).toContain("Fourth");
+  });
+
+  test("it goes in the window that settles the record", () => {
+    strandFourth();
+    applyChanges(t.db, window({ next_since: 11, latest_seq: 12 }), NOW);
+    expect(titles()).toContain("Fourth");
+
+    applyChanges(t.db, window({ next_since: 12, latest_seq: 12 }), NOW);
+
+    expect(titles()).toEqual(["Proptest", "Second"]);
+    expect(t.db.select("SELECT * FROM effect_ledger")).toEqual([]);
+  });
+});

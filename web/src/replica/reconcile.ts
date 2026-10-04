@@ -11,6 +11,7 @@ import type { CanonicalTitle, PageId } from "../api/brands";
 import type { SyncPage } from "./apply";
 import { titleForDate } from "./daily";
 import type { ReplicaDb } from "./db";
+import { remapBasePage } from "./effectLedger";
 import { storedPageTitle } from "./localOps";
 import { titleReader } from "./meta";
 import { allBatches } from "./queue";
@@ -27,6 +28,7 @@ export const remapLocalPage = (db: ReplicaDb,
   // the refs primary key
   db.exec("UPDATE OR REPLACE refs SET target_page_id = ?" +
           " WHERE target_page_id = ?", [targetId, localId]);
+  remapBasePage(db, { localId, targetId });
   db.exec("DELETE FROM pages WHERE id = ?", [localId]);
 };
 
@@ -66,23 +68,26 @@ export function reconcileActivationPageTitles(db: ReplicaDb): void {
 }
 
 /** Delete every negative-id page nothing keeps: no block on it, no ref to
- * it, no pending op naming its title (a poisoned batch is not replayed, so
- * it names nothing), and not today's daily page (a read makes that one
- * locally, with no op behind it).
+ * it, no effect-ledger record naming it as a base (the settle may put a
+ * block back on it), no pending op naming its title (a poisoned batch is
+ * not replayed, so it names nothing), and not today's daily page (a read
+ * makes that one locally, with no op behind it).
  *
  * reconcilePage matches a local page to the feed's only by title, so a
  * local page the server never made under that title is never matched: the
  * server renamed the page before the pull, or skipped the op that made it.
  * Its blocks leave it by their own rows; this removes the page they leave
- * behind. Run after the window's block tombstones and the queue replay, so
- * a block whose tombstone is deferred still keeps its page and a replayed
- * op has re-made whatever it needs. Positive ids are the server's and are
+ * behind. Run after the window's block tombstones, the settle and the queue
+ * replay, so a block whose tombstone is deferred still keeps its page, a
+ * reverted block is back on its page, and a replayed op has re-made
+ * whatever it needs. Positive ids are the server's and are
  * never touched. */
 export function dropStrandedLocalPages(db: ReplicaDb, nowMs: number): void {
   const stranded = db.select<{ id: PageId; title: CanonicalTitle }>(
     "SELECT id, title FROM pages p WHERE id < 0" +
     " AND NOT EXISTS (SELECT 1 FROM blocks WHERE page_id = p.id)" +
-    " AND NOT EXISTS (SELECT 1 FROM refs WHERE target_page_id = p.id)");
+    " AND NOT EXISTS (SELECT 1 FROM refs WHERE target_page_id = p.id)" +
+    " AND NOT EXISTS (SELECT 1 FROM effect_ledger WHERE base_page_id = p.id)");
   if (stranded.length === 0) return;
   const read = titleReader(db);
   const kept = new Set<CanonicalTitle>(

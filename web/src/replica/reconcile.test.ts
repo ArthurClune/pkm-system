@@ -104,4 +104,20 @@ describe("reconcile on feed page delivery", () => {
       "SELECT target_page_id FROM refs WHERE src_block_uid = 'uid_a1'"))
       .toEqual([{ target_page_id: 7 }]);
   });
+
+  test("remapLocalPage rewrites ledger bases", () => {
+    t.db.exec("INSERT INTO effect_ledger(batch_id, uid, base_page_id, base_updated_at)" +
+              " VALUES ('b1', 'uid_x', ?, 5), ('b2', 'uid_y', 1, 6)", [negId]);
+
+    t.db.transaction(() => {
+      t.db.exec("PRAGMA defer_foreign_keys = ON");
+      remapLocalPage(t.db, { localId: pageId(negId), targetId: pageId(7) });
+      t.db.exec("INSERT INTO pages(id, title) VALUES (7, 'Offline Page')");
+    });
+
+    expect(t.db.select(
+      "SELECT uid, base_page_id, base_updated_at FROM effect_ledger ORDER BY uid"))
+      .toEqual([{ uid: "uid_x", base_page_id: 7, base_updated_at: 5 },
+                { uid: "uid_y", base_page_id: 1, base_updated_at: 6 }]);
+  });
 });

@@ -12,7 +12,7 @@ import type {
   AckedBatch, DroppedBatch, PendingBatch, PendingRowId, ReplicaDiagnostics,
   ReplicaRpc,
 } from "./client";
-import { SCHEMA_VERSION, installSchema } from "./clientSchema";
+import { CLIENT_DDL, SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
 import { isCorruptionMessage, isUnreadableFileMessage,
          ReplicaUnusableError } from "./errors";
@@ -431,6 +431,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         // An existing database (any version) is left alone — init() owns
         // schema-mismatch detection and recovery.
         if (!tableExists(d, "sync_client_meta")) installSchema(d);
+        // The stale-schema reset runs from start(), so an enqueue before it
+        // commits must not fail its first ledger write.
+        else if (!tableExists(d, "effect_ledger")) d.exec(CLIENT_DDL);
         return enqueueBatch(d, ops, nowMs(), batchId);
       });
     },

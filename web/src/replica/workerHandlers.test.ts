@@ -1350,3 +1350,38 @@ test("a rebase commit drops the rows its snapshot names beside the acked ones", 
     feed: EMPTY_GEN1_FEED, expectedPendingIds: [pid(1), pid(2)],
   })).resolves.toEqual({ status: "applied", cursor: 7 });
 });
+
+const shiftingCreate = (id: string) => ({
+  ops: [{ op: "create" as const, uid: uid("uid_new"), page_title: "AI",
+          parent_uid: null, order_idx: ord(0), text: "new" }],
+  batchId: bid(id),
+});
+const orderOf = (db: ReplicaDb, u: string): unknown =>
+  db.select<{ order_idx: number }>("SELECT order_idx FROM blocks WHERE uid = ?", [u])[0]?.order_idx;
+
+test("an enqueue on a file without effect_ledger creates it, records, and leaves schema_version stale", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(TWO);
+  t.db.exec("DROP TABLE effect_ledger");
+  t.db.exec("INSERT OR REPLACE INTO sync_client_meta(key, value) VALUES ('schema_version', 'old')");
+  await handlers.enqueue(shiftingCreate("a"));
+  expect(t.db.select("SELECT uid FROM effect_ledger WHERE batch_id = 'a' ORDER BY uid"))
+    .toEqual([{ uid: "uid_b1" }, { uid: "uid_b2" }]);
+  expect(t.db.select("SELECT value FROM sync_client_meta WHERE key = 'schema_version'"))
+    .toEqual([{ value: "old" }]);
+});
+
+test("deleteBatch without a seq, then a head window, reverts", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(TWO);
+  await handlers.enqueue(shiftingCreate("a"));
+  expect(orderOf(t.db, "uid_b2")).toBe(2);
+  await handlers.deleteBatch({ id: pid(1), batchId: bid("a") });
+  await expect(handlers.applyChanges({ feed: EMPTY_GEN1_FEED, expectedPendingIds: [] }))
+    .resolves.toMatchObject({ status: "applied" });
+  expect(orderOf(t.db, "uid_b2")).toBe(1);
+});

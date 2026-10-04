@@ -6,7 +6,7 @@ invariants, in two suites:
 | Side | Framework | Drives | Compared with |
 |---|---|---|---|
 | `server` | Hypothesis | random op batches and CLI batches, in-process | a from-the-docs reference model |
-| `web` | fast-check | 2-3 clients running the real web sync stack against the real server, with faults | the server's state, through an oracle (see [What the web property checks](#what-the-web-property-checks)) |
+| `web` | fast-check | 2 or 3 clients running the real web sync stack against the real server, with faults | the server's state, through an oracle (see [What the web property checks](#what-the-web-property-checks)) |
 
 It runs locally before a merge, the same way
 [`perf/check.sh`](performance-checks.md) does; it is not CI, a git hook, or
@@ -64,6 +64,7 @@ session cookies are rejected when issued in the future or more than a year ago.
 | `server/tooling/proptest/sync_server.py` | Imperative Shell | the harness server on port 8978 |
 | `web/vitest.props.config.ts` | config | node environment, includes only `src/props/**/*.prop.ts`, one fork, no jsdom setup |
 | `web/src/props/sync/env.ts`, `serverControl.ts` | Imperative Shell | the `PROPTEST_*` settings; the session cookie and the control routes |
+| `web/src/props/sync/cancel.ts` | Imperative Shell | one example's server handle, which refuses every call once the example is cancelled, so an abandoned example cannot reach the server the next one has reset |
 | `web/src/props/sync/transport.ts` | Imperative Shell | one client's network to the server: one-shot faults, a window limit, and the deliberately broken modes the teeth tests use |
 | `web/src/props/sync/harnessClient.ts` | Imperative Shell | one simulated device: the real replica worker, op queue, replica sync, client runtime, legacy repair and reconnect flow, over an in-memory database that survives `reload()`. The legacy repair's outline sessions are stood in for by one page read through the client's transport, which fails while offline |
 | `web/src/props/sync/model.ts`, `arbitraries.ts`, `normalise.ts` | Functional Core | the command model; op drafts and the uid pool; the common graph form replicas and snapshots are compared in |
@@ -114,9 +115,9 @@ model would agree by construction.
 
 ## What the web property checks
 
-`sync.prop.ts` starts 2-3 clients, each the real web sync stack
+`sync.prop.ts` starts 2 or 3 clients, equally often, each the real web sync stack
 (`harnessClient.ts`), against the harness server. fast-check draws up to 30
-commands, runs them, brings every client to rest (`quiesce.ts`), and runs the
+commands naming only the clients that example starts (`commandsFor`), runs them, brings every client to rest (`quiesce.ts`), and runs the
 oracle. Seven fixed scenarios, each a regression the property first found, run
 through the same commands.
 
@@ -124,16 +125,17 @@ through the same commands.
 |---|---|---|
 | `Edit` | enqueues a batch of op drafts (create, update, move, delete) resolved against the model | the client is not in the example |
 | `BadBatch` | enqueues a create of a uid that is live everywhere, which the server rejects with a 400 | a write failure is armed or the in-memory lane is non-empty |
-| `Offline`, `Online` | cuts or restores the client's network | already in that state |
+| `Offline` | cuts the client's network and draws its return: back online after 1, 2, 3 or 5 further commands (about three draws in four), or not until quiesce (about one in four). `SyncCommand.run` brings it back; skipped commands do not count. There is no `Online` command | already offline |
 | `Fault` | arms one fault: `dropAck` (lose the ack after commit), `duplicate` (send twice), `lostPull` (lose a changes response), `writeFails` (fail the next local write, which pushes ops into the in-memory lane) | `writeFails` already armed |
 | `Pull` | forces a catch-up | offline |
 | `Nudge` | a websocket `seq` frame: `latest`, `stale`, `duplicate` or `ahead` of the journal | offline |
-| `Reload` | a page reload: the worker and in-flight requests die, the database survives | ops would be lost by design (a non-empty lane or armed write failure) |
+| `Reload` | a page reload: the worker and in-flight requests die, the database survives. Half the time an online client's new life connects 1 to 7 timer ticks after its mount begins, possibly mid-startup as the app's socket can; otherwise once the startup has finished (`connectTiming`, `HarnessClient.reload`) | ops would be lost by design (a non-empty lane or armed write failure) |
 | `RotateGeneration` | rotates `db_generation`, so every client's next pull rebases | never |
 | `CrossMidnight` | the server clock to 23:59:55 local, then ten seconds on; one crossing in four lands on a BST/GMT changeover | never |
 
 A skipped command is a precondition failing in the model, not an error. The
-tally counts each skip by reason.
+tally counts each skip by reason. A client's first start connects on the same
+timing as a `Reload` (`StartOptions.connectAt`).
 
 After quiescence `oracle.ts` evaluates every invariant, never stopping at the
 first failure, and throws one `OracleError` that names each one that failed.
@@ -228,7 +230,7 @@ for the web side. The budget is set where the count is set:
 | Side | Count | Sized for |
 |---|---|---|
 | server | `props/harness.py`'s `MERGE_EXAMPLES` per property, `max_examples` under the `merge` profile | `proptest/check.sh server`, about 3 minutes |
-| web | `NUM_RUNS` in `sync.prop.ts` (3200 examples) | `proptest/check.sh web`, about 3 minutes |
+| web | `NUM_RUNS` in `sync.prop.ts` (2300 examples) | `proptest/check.sh web`, about 3 minutes |
 
 ### Server
 
@@ -250,12 +252,24 @@ than a silent loss of coverage.
 The property's `afterAll` prints a tally covering every run, shrinks
 included: examples per client count and window limit, each command's runs and
 each skip by reason, op kinds, and examples with a conflict or a rejected
-batch. Fault rows show *armed* beside *fired*. A fault is armed by the
+batch. `Online after k` counts offline periods that ended by their drawn
+return, and `Online at quiesce` those that lasted until quiesce (`, before its
+return` when the commands ran out first). `start` and `Reload` rows report
+where timed connects landed: mid-startup, after startup, offline (the timing
+was ignored) or untimed. Fault rows show *armed* beside *fired*. A fault is armed by the
 command and fires only if a request meets it, so a large gap means the faults
 are not reaching anything. A skip count that climbs means a precondition has
 stopped matching what the generator draws. Run `proptest/check.sh web` and
 read the tally after any change to the commands, their weights or the
-preconditions. The weights themselves are in `commands.ts`'s `allCommands`.
+preconditions. The weights themselves are in `commands.ts`'s `commandsFor`.
 
-The property is also bounded: it is interrupted at 420 seconds and the
-interruption counts as a failure, reporting the smallest counterexample so far.
+The property is also bounded, at `PROPERTY_LIMIT_MS` (420 seconds):
+
+| When the limit hits | The run |
+|---|---|
+| after a failure, while shrinking | fails with the smallest counterexample so far |
+| with no failure | fails as "ran out of its time budget", a budget problem and not a finding |
+
+Every example is cancelled when it ends, whether it passed, failed, hung or was
+abandoned at the limit, and only then are its clients disposed. A dispose that
+fails or hangs is appended to the example's failure, or fails a passing example.

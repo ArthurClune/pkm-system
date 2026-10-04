@@ -446,8 +446,9 @@ function owedBlockTombstones(recorded: string | null,
  * one-window case. Between windows the replica only looks older (deleted
  * blocks stay visible), never wrongly shaped. A recorded block a later
  * window ships live (an undo recreated it after its tombstone was read)
- * is dropped from the record. Block uids are never reused, so no block is
- * both tombstoned and shipped live in one window. The cascade still removes
+ * is dropped from the record. A uid only ever names one block, and a block
+ * present at read time ships live, so no block is both tombstoned and
+ * shipped live in one window. The cascade still removes
  * optimistic rows under a deleted block (a pending create's ghost), and the
  * replay then skips the op as the server does. */
 function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,

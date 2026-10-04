@@ -32,20 +32,18 @@ Block uids are never reused by the database (a block recreated under its
 old uid is the same block), so a block present now ships live. A block
 absent now ships as a tombstone only from the window that holds its
 delete row; one whose delete row lies past the window ships nothing yet.
-A replica cascades a block tombstone through its local subtree, after
-the window's upserts. Every block the server kept left that subtree
-before the delete, by a move row at a lower seq, in the delete row's
-window or an earlier one. Shipped from an older live row, the tombstone
-could run before that move arrives. Every block delete journals a delete
-row: the delete trigger fires for cascaded rows too, and
-ops_core.JournalBlock marks a uid with no block row deleted.
-
-That spares a kept block whose move out ships no later than the
-tombstone. It does not spare one whose move out was made by an ancestor
-that is itself deleted in a later window: the ancestor is absent now, so
-its move row hydrates to nothing, and the cascade runs over the
-replica's stale subtree. The kept block returns with its own row, but its
-descendants, whose rows never changed, do not."""
+A replica applies block tombstones, cascading each through its local
+subtree, only in the window that reaches the journal head, after that
+window's upserts; earlier windows' tombstones wait for it. By then every
+block the server kept is placed by its own shipped row or sits under an
+unchanged chain of blocks the server also kept, so no cascade reaches
+it. A per-window cascade would not: an ancestor that moved out of a
+deleted subtree and was deleted in a later window ships nothing for its
+move (it is absent now), and its descendants' rows never re-ship.
+Shipped from an older
+live row, a tombstone could run before that move arrives. Every block
+delete journals a delete row: the delete trigger fires for cascaded rows
+too, and ops_core.JournalBlock marks a uid with no block row deleted."""
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence

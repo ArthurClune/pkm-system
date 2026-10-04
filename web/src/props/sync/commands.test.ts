@@ -1,7 +1,10 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { commandsFor, connectTally, connectTiming, Offline, offlineBack, Reload,
-         type SyncCommand } from "./commands";
+import { ExampleCancelled } from "./cancel";
+import { commandsFor, connectTally, connectTiming, Fault, Offline, offlineBack, Reload,
+         type SyncCommand, type World } from "./commands";
+import type { HarnessClient } from "./harnessClient";
+import { initialModel } from "./model";
 
 /** The client a command names, or null for one that names none. */
 const clientOf = (cmd: SyncCommand): string | null =>
@@ -58,5 +61,64 @@ describe("connect timing", () => {
     expect(connectTally(2, null)).toBe("connect timed, offline");
     expect(connectTally(2, "mid-startup")).toBe("connect timed, landed mid-startup");
     expect(connectTally(6, "after startup")).toBe("connect timed, landed after startup");
+  });
+});
+
+describe("offlineBack", () => {
+  it("shrinks a drawn return to quiesce", () => {
+    // Every value fails, so each counterexample shrinks as far as it can:
+    // only a cross-shrink gets a number to quiesce.
+    for (let seed = 1; seed <= 20; seed += 1) {
+      const result = fc.check(fc.property(offlineBack, () => false), { seed });
+      expect(result.counterexample?.[0]).toBe("quiesce");
+    }
+  });
+});
+
+/** A world with one client "A" whose calls land in `events`. */
+function stubWorld(events: string[], cancelled = false): World {
+  const client = {
+    offline: () => { events.push("offline"); },
+    online: () => { events.push("online"); return Promise.resolve(); },
+    transport: { arm: (kind: string) => { events.push(`arm ${kind}`); } },
+    writeFailArmed: () => false,
+    unsentInMemory: () => 0,
+  } as unknown as HarnessClient;
+  return {
+    server: {} as World["server"],
+    clients: new Map([["A", client]]),
+    watch: { observe: () => undefined } as unknown as World["watch"],
+    transcript: [],
+    count: () => undefined,
+    cancelled: () => cancelled,
+  };
+}
+
+describe("SyncCommand.run", () => {
+  it("brings a client back only after the command that finishes its countdown", async () => {
+    for (const back of [1, 2] as const) {
+      const events: string[] = [];
+      const w = stubWorld(events);
+      const m = initialModel(["A"]);
+      await new Offline("A", back).run(m, w);
+      expect(events).toEqual(["offline"]);
+      if (back === 2) {
+        await new Fault("A", "dropAck").run(m, w);
+        expect(events).toEqual(["offline", "arm dropAck"]);
+      }
+      await new Fault("A", "dropAck").run(m, w);
+      expect(events.filter((e) => e === "online")).toHaveLength(1);
+      expect(events.at(-1)).toBe("online");
+      expect(events.indexOf("online")).toBeGreaterThan(events.lastIndexOf("arm dropAck") - 1);
+      expect(m.online.A).toBe(true);
+    }
+  });
+
+  it("refuses a cancelled example before its act touches a client", async () => {
+    const events: string[] = [];
+    const w = stubWorld(events, true);
+    await expect(new Offline("A", 1).run(initialModel(["A"]), w))
+      .rejects.toBeInstanceOf(ExampleCancelled);
+    expect(events).toEqual([]);
   });
 });

@@ -19,6 +19,7 @@ function fakeServer(calls: string[]): ServerControl {
     snapshot: async () => { await note("snapshot"); return {} as Snapshot; },
     latestSeq: async () => { await note("latestSeq"); return 7 as SyncSeq; },
     postRaw: async () => { await note("postRaw"); return new Response(null); },
+    withSignal: () => fakeServer(calls),
   };
 }
 
@@ -52,5 +53,28 @@ describe("cancellable", () => {
     // The shared control is untouched.
     await inner.reset();
     expect(calls).toEqual(["reset"]);
+  });
+
+  it("aborts its signal on cancel, and a call already pending with it", async () => {
+    let pending: Promise<Response> | null = null;
+    const inner: ServerControl = {
+      ...fakeServer([]),
+      // A request that waits on the wire until its signal aborts.
+      withSignal: (signal) => ({
+        ...fakeServer([]),
+        postRaw: () => {
+          pending = new Promise<Response>((_, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason));
+          });
+          return pending;
+        },
+      }),
+    };
+    const guard = cancellable(inner);
+    expect(guard.signal.aborted).toBe(false);
+    const call = guard.server.postRaw("{}");
+    guard.cancel();
+    expect(guard.signal.aborted).toBe(true);
+    await expect(call).rejects.toBeDefined();
   });
 });

@@ -183,6 +183,7 @@ export async function startClient(
   let writeDb: ReplicaDb = db;
   let writeArmed = false;
   let lanePushes = 0;
+  let disposed = false;
 
   const buildLife = (doors: TransportLife): Life => {
     lives += 1;
@@ -436,6 +437,9 @@ export async function startClient(
       // the network answers, which also releases any recovery lease it holds.
       const doors = transport.newLife();
       await endLife(life);
+      // A dispose that ran while the old life was ending has closed the DB:
+      // a new life built now would keep open message ports on it.
+      if (disposed) return;
       life = buildLife(doors);
       if (offline) {
         landed = null;
@@ -453,6 +457,7 @@ export async function startClient(
       return Number(hasMeta ? getMeta(db, "cursor") ?? 0 : 0) as SyncSeq;
     },
     async dispose() {
+      disposed = true;
       transport.newLife();
       await endLife(life);
       raw.close();

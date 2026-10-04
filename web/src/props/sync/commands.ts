@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
-// The sync property's commands, one class per row of the spec's command
-// table, each acting on the real clients and server through the harness.
+// The sync property's commands, one class per drawn command (an Offline
+// carries its own return), each acting on the real clients and server through the harness.
 //
 // Every command's run ends the same way (SyncCommand.run): a client whose
 // Offline drew a return and whose countdown this command finished comes back
@@ -293,8 +293,12 @@ export class Reload extends SyncCommand {
     assertNoLane(this, c);
     w.count("Reload");
     await c.reload(this.connectAt);
-    w.count(`Reload ${connectTally(this.connectAt, c.connectLanded())}`);
-    return this.toString();
+    const landed = c.connectLanded();
+    w.count(`Reload ${connectTally(this.connectAt, landed)}`);
+    // An offline load ignores its timing; the report says so rather than
+    // implying the tick mattered.
+    return this.connectAt !== undefined && landed === null
+      ? `${this.toString()} (offline: timing unused)` : this.toString();
   }
 
   toString(): string {
@@ -356,6 +360,7 @@ export const NAMES = ["A", "B", "C"] as const;
  * than any one short blip; it comes first, so a shrink moves toward the
  * fixed scenarios' plain Offline. */
 export const offlineBack: fc.Arbitrary<OfflineBack> = fc.oneof(
+  { withCrossShrink: true },
   { weight: 1, arbitrary: fc.constant<OfflineBack>("quiesce") },
   { weight: 3, arbitrary: fc.constantFrom<OfflineBack>(1, 2, 3, 5) },
 );

@@ -11,6 +11,10 @@ export class ExampleCancelled extends Error {
 export interface Cancellable {
   /** Throws on every call, the cookie included, once cancel() has run. */
   server: ServerControl;
+  /** Aborted by cancel(): every request the example makes carries it, so one
+   * already on the wire is cut off rather than committing after the next
+   * example's reset. */
+  signal: AbortSignal;
   cancel(): void;
   cancelled(): boolean;
 }
@@ -18,24 +22,29 @@ export interface Cancellable {
 /** `server` for one example. An abandoned example must not reach the
  * server the next example has reset: cancelled, its control refuses every
  * call, and its transports, which read the cookie for every request, refuse
- * to send. `server` itself stays usable. */
+ * to send, and a request already on the wire is aborted. `server` itself
+ * stays usable. */
 export function cancellable(server: ServerControl): Cancellable {
   let cancelled = false;
+  const controller = new AbortController();
+  const bound = server.withSignal(controller.signal);
   const live = (): void => {
     if (cancelled) throw new ExampleCancelled("the example was cancelled: no more server calls");
   };
   return {
     server: {
-      get cookie() { live(); return server.cookie; },
-      reset: async () => { live(); await server.reset(); },
-      setClock: async (ms) => { live(); await server.setClock(ms); },
-      rotateGeneration: async () => { live(); await server.rotateGeneration(); },
-      applied: async () => { live(); return server.applied(); },
-      snapshot: async () => { live(); return server.snapshot(); },
-      latestSeq: async () => { live(); return server.latestSeq(); },
-      postRaw: async (body) => { live(); return server.postRaw(body); },
+      get cookie() { live(); return bound.cookie; },
+      reset: async () => { live(); await bound.reset(); },
+      setClock: async (ms) => { live(); await bound.setClock(ms); },
+      rotateGeneration: async () => { live(); await bound.rotateGeneration(); },
+      applied: async () => { live(); return bound.applied(); },
+      snapshot: async () => { live(); return bound.snapshot(); },
+      latestSeq: async () => { live(); return bound.latestSeq(); },
+      postRaw: async (body) => { live(); return bound.postRaw(body); },
+      withSignal: (next) => { live(); return server.withSignal(next); },
     },
-    cancel: () => { cancelled = true; },
+    signal: controller.signal,
+    cancel: () => { cancelled = true; controller.abort(); },
     cancelled: () => cancelled,
   };
 }

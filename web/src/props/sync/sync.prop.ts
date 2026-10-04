@@ -159,7 +159,8 @@ async function runExample(names: readonly string[], cmds: Commands,
     for (const [i, name] of names.entries()) {
       const at = opts.connectAt?.[i];
       const c = await startClient(name, guard.server, undefined,
-                                  { windowLimit: opts.windowLimit }, { connectAt: at });
+                                  { windowLimit: opts.windowLimit, signal: guard.signal },
+                                  { connectAt: at });
       if (guard.cancelled()) {
         // Cancelled while it started: the clean-up ran without it.
         await c.dispose();
@@ -422,8 +423,13 @@ const starts: fc.Arbitrary<Starts> = fc.tuple(connectTiming, connectTiming, conn
 
 /** Two or three clients, equally often. Each branch draws its commands
  * from its own clients alone, so no draw names a client the example lacks.
- * A oneof of whole examples rather than a chain from the count: a chain
- * redraws the commands when the count shrinks, so it shrinks badly. */
+ * A oneof of whole examples rather than a chain from the count (a chain
+ * redraws the commands when the count shrinks). The client count itself does
+ * not shrink: fc.oneof without cross-shrink never takes a 3-client example to
+ * 2. A 3-client counterexample whose bug needs two still starts C, but the
+ * shrinker removes C's commands, so an idle C shows in the report. An integer
+ * count with C's commands remapped onto the started clients was rejected: the
+ * printed commands would name a client other than the one they acted on. */
 const clientsAndCommands: fc.Arbitrary<Drawn> = fc.oneof(
   ...[2, 3].map((n) => fc.tuple(fc.constant(n), fc.commands(
     commandsFor(NAMES.slice(0, n)),

@@ -93,6 +93,10 @@ export interface TransportOptions {
   /** Appended as `limit` to every GET /api/sync/changes, so a catch-up
    * crosses window boundaries; absent, the server's default applies. */
   windowLimit?: number;
+  /** Aborts every request the transport has on the wire: the aborted fetch
+   * surfaces as the network error a dead life gives, so the app sees an
+   * ordinary failed request. */
+  signal?: AbortSignal;
 }
 
 /** `path` with `limit=` appended when it is a changes-feed request. */
@@ -104,7 +108,7 @@ export function withWindowLimit(path: string, windowLimit?: number): string {
 }
 
 export function createTransport(server: ServerControl, broken?: Broken,
-                                { windowLimit }: TransportOptions = {}): Transport {
+                                { windowLimit, signal }: TransportOptions = {}): Transport {
   let offline = false;
   let faults: Fault[] = [];
   const firedCounts: Record<Fault, number> = { dropAck: 0, duplicate: 0, lostPull: 0 };
@@ -133,8 +137,16 @@ export function createTransport(server: ServerControl, broken?: Broken,
       const batchId = (JSON.parse(String(init.body)) as OpBatch).batch_id;
       sent.set(batchId, (sent.get(batchId) ?? 0) + 1);
     }
-    const res = await fetch(`${BASE_URL}${path}`, { ...init, headers });
-    const text = await res.text();
+    let res: Response;
+    let text: string;
+    try {
+      res = await fetch(`${BASE_URL}${path}`, { ...init, headers, signal });
+      text = await res.text();
+    } catch (error) {
+      // An abort rejects with a DOMException; the app sees a dead network.
+      if (signal?.aborted) throw networkError();
+      throw error;
+    }
     let body: unknown = null;
     try {
       body = text === "" ? null : JSON.parse(text);

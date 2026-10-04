@@ -288,30 +288,45 @@ def test_rename_new_title_with_close_brackets_422(client):
     assert client.get("/api/page/AI").status_code == 200
 
 
-def test_rename_race_condition_returns_409(client, monkeypatch):
-    """Simulates a concurrent rename onto the same free title: another
-    writer inserts the target title between the route's collision check
-    and the UPDATE, so the UPDATE itself trips the UNIQUE(pages.title)
-    constraint. This must surface as a 409, not an unhandled 500."""
-    import pkm.server.routes_pages as routes_pages
-    from pkm.server.store import rename_page_rows as real_rename_page_rows
+def test_rename_holds_the_write_lock_from_its_snapshot_on(
+        client, seeded_config, monkeypatch):
+    """A batch committing between the rename's snapshot of referencing
+    blocks and its UPDATE would be ordered before the rename yet never have
+    its [[link]] rewritten. The route must hold the write lock across the
+    snapshot, so that second writer is refused until the rename commits."""
+    from pkm.server import store
 
-    def racy_rename_page_rows(db, page_id, old_title, new_title, now_ms):
-        # another request "wins" the race and creates the target title
-        # first, on the same connection, right before the real mutation
-        db.execute("INSERT INTO pages(title) VALUES (?)", (new_title,))
-        real_rename_page_rows(db, page_id, old_title, new_title, now_ms)
+    real_snapshot = store._snapshot_referencing_blocks
+    outcome = {}
 
-    monkeypatch.setattr(routes_pages, "rename_page_rows",
-                        racy_rename_page_rows)
+    def racing(db, page_id):
+        snapshots = real_snapshot(db, page_id)
+        con2 = sqlite3.connect(seeded_config.db_path)
+        con2.execute("PRAGMA busy_timeout=50")
+        try:
+            con2.execute("UPDATE blocks SET text = '[[Machine Learning]] late'"
+                         " WHERE uid = 'uid_b6'")
+            con2.commit()
+            outcome["locked"] = False
+        except sqlite3.OperationalError as exc:
+            outcome["locked"] = "locked" in str(exc)
+        finally:
+            con2.close()
+        return snapshots
 
-    r = _rename(client, "Machine Learning", "Race Title")
-    assert r.status_code == 409
-    assert r.json()["detail"] == "page 'Race Title' already exists"
+    monkeypatch.setattr(store, "_snapshot_referencing_blocks", racing)
+    r = _rename(client, "Machine Learning", "ML Stuff")
+    assert r.status_code == 200
+    assert outcome == {"locked": True}
 
-    # source page survived untouched
-    body = client.get("/api/page/Machine Learning").json()
-    assert [b["text"] for b in body["blocks"]] == ["Tags:: #AI", "Papers"]
+
+def test_rename_early_exits_leave_no_transaction_open(client):
+    assert _rename(client, "No Such Page", "X").status_code == 404
+    assert _rename(client, "AI", "AI").status_code == 400
+    assert _rename(client, "AI", "[[bad").status_code == 422
+    assert _rename(client, "AI", "Machine Learning").status_code == 409
+    # a leaked write lock would make this fail or hang
+    assert _rename(client, "Machine Learning", "ML Stuff").status_code == 200
 
 
 def test_retitle_without_rewrite_changes_only_page_and_sidebar_title(seeded_config):

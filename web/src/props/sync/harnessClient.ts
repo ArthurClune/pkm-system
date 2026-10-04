@@ -1,8 +1,14 @@
 // pattern: Imperative Shell
 // One simulated device: the real replica worker handlers over a
-// MessageChannel, the real op queue, replicaSync, clientRuntime and
-// reconnect flow, wired as SyncProvider and useSocketLifecycle wire them, over
-// an in-memory sqlite database that survives reloads.
+// MessageChannel, the real op queue, replicaSync, clientRuntime, legacy
+// repair and reconnect flow, wired as SyncProvider and useSocketLifecycle wire
+// them, over an in-memory sqlite database that survives reloads.
+//
+// The legacy repair's outline sessions are the one part stood in for: the
+// harness mounts no editor, so its repairSessions is one authoritative page
+// read through this client's transport. That read fails while the client is
+// offline, as the real repair's does, so a lane rejection whose repair is
+// cut off by the network is left for the next connect to retry.
 //
 // A "life" is one page load. reload() ends it the way a browser ends one by
 // killing the worker and the page's fetches: the transport discards replies
@@ -19,10 +25,12 @@ import { serveRpc, toPortLike } from "../../replica/rpc";
 import { failingOnce, openRawTestDb } from "../../replica/testDb";
 import { buildHandlers } from "../../replica/workerHandlers";
 import { createClientRuntime, type ClientRuntime } from "../../sync/clientRuntime";
+import { createLegacyRepair } from "../../sync/legacyRepair";
 import { createOpQueue, type OpQueue, type PoisonEvent } from "../../sync/opQueue";
 import { createReconnectFlow, type ReconnectFlow } from "../../sync/reconnectFlow";
 import { createReplicaSync, type ReplicaSync } from "../../sync/replicaSync";
 import type { SyncEvent, SyncStatus } from "../../sync/syncState";
+import { SEED_PAGE } from "./arbitraries";
 import type { ServerControl } from "./serverControl";
 import { createTransport, type Broken, type Transport, type TransportOptions,
          type TransportLife } from "./transport";
@@ -43,8 +51,8 @@ export interface HarnessClient {
   readonly poisoned: BatchId[];
   /** Errors reported through onDesync. */
   readonly desyncs: unknown[];
-  /** The client runtime's sync events (SyncProvider's applySync input), in
-   * order, across lives. */
+  /** The client runtime's and the legacy repair's sync events
+   * (SyncProvider's applySync input), in order, across lives. */
   readonly syncEvents: SyncEvent[];
   /** Entries in the queue's in-memory lane (lost by a reload). */
   unsentInMemory(): number;
@@ -213,21 +221,30 @@ export async function startClient(
       onSyncEvent: (event) => { syncEvents.push(event); },
       onReplicaState: () => undefined,
     });
+    const legacyRepair = createLegacyRepair({
+      repairSessions: async (onStable) => {
+        await doors.fetchJson(`/api/page/${encodeURIComponent(SEED_PAGE)}`);
+        onStable();
+      },
+      onEvent: (event) => { syncEvents.push(event); },
+      resume: () => queue.resume("recovery"),
+      isMounted: () => !state.ended,
+    });
     const reconnect = createReconnectFlow({
       queue,
       replicaSync,
       isMounted: () => !state.ended,
       onResync: () => undefined,
-      retryFailedRepair: () => runtime.retryFailedRepair(),
+      // SyncProvider's composition: the poison repair first, then the legacy.
+      retryFailedRepair: async () => {
+        await runtime.retryFailedRepair();
+        await legacyRepair.retryFailed();
+      },
     });
     const offs = [
-      // Stands in for SyncProvider's legacy outline repair, whose success
-      // resumes delivery.
       queue.onDesync((error) => {
         desyncs.push(error);
-        void Promise.resolve().then(() => {
-          if (!state.ended) queue.resume("recovery");
-        });
+        void legacyRepair.run(error);
       }),
       queue.onPoison((event) => { poisoned.push(event.batch_id); }),
       queue.onUnsentInMemory((n) => {

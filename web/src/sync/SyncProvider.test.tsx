@@ -748,6 +748,57 @@ describe("legacy repair of a rejected batch", () => {
     removeLoader();
     session.release();
   });
+
+  test("a failed legacy outline repair is retried by the next reconnect", async () => {
+    let postCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
+      postCount += 1;
+      return postCount === 1
+        ? jsonResponse({ detail: "bad op" }, 400)
+        : jsonResponse({ ok: true });
+    }));
+    const session = acquireOutlineSession("Reconnect legacy repair", []);
+    let loadCount = 0;
+    const removeLoader = session.setAuthoritativeLoader("editable", async () => {
+      loadCount += 1;
+      // The rejection arrives as the link drops: the repair's page read
+      // finds no network.
+      if (loadCount === 1) throw new TypeError("fetch failed");
+      return [];
+    });
+    let sync!: Sync;
+    function Grab() {
+      sync = useSyncWhole();
+      return <div data-testid="legacy-problem">{
+        sync.problem?.kind === "legacy-rejected" ? sync.problem.repair : "none"
+      }</div>;
+    }
+
+    const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+    try {
+      await act(async () => { lastWs().open(); });
+      const rejected = sync.enqueue([{ op: "delete", uid: uid("bad") }]);
+      await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+      await vi.waitFor(() => {
+        expect(screen.getByTestId("legacy-problem")).toHaveTextContent("failed");
+      });
+      await act(async () => { lastWs().drop(); });
+      const later = sync.enqueue([{ op: "delete", uid: uid("later") }]);
+      expect(postCount).toBe(1);
+
+      await act(async () => { lastWs().open(); });
+
+      await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+      expect(loadCount).toBe(2);
+      expect(postCount).toBe(2);
+      expect(screen.getByTestId("legacy-problem")).toHaveTextContent("repaired");
+    } finally {
+      view.unmount();
+      removeLoader();
+      session.release();
+    }
+  });
 });
 
 describe("durable batches on connect", () => {

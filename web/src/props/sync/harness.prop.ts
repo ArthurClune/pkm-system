@@ -1,10 +1,12 @@
 // pattern: Imperative Shell
 // Self-tests for the harness client and its faulty transport, against the
 // real proptest server (run through proptest/check.sh web).
-import { afterEach, beforeAll, beforeEach, expect, test } from "vitest";
-import type { BatchId, BlockUid, ClientId } from "../../api/brands";
+import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
+import type { BatchId, BlockUid, ClientId, OrderIdx } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
+import { BAD_UID, SEED_PAGE } from "./arbitraries";
 import { startClient, type HarnessClient } from "./harnessClient";
+import { quiesce } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
 import { createTransport, withWindowLimit } from "./transport";
 
@@ -144,6 +146,39 @@ test("writeFails goes through the lane", async () => {
   await a.queue.drain();
   expect(await appliedIds()).toContain(id);
   expect(a.unsentInMemory()).toBe(0);
+});
+
+test("a lane rejection whose repair fails offline is retried on reconnect", async () => {
+  const a = await start("A");
+  // The repair's page read waits until the link has dropped under it.
+  const release = a.transport.stall("/api/page/");
+  a.failNextWrite();
+  const bad = await a.edit([{
+    op: "create", uid: BAD_UID as BlockUid, page_title: SEED_PAGE,
+    parent_uid: null, order_idx: 60 as OrderIdx, text: "a create of a live uid",
+  }]);
+  expect(a.unsentInMemory()).toBe(1);
+  await a.queue.drain();
+  expect(a.desyncs).toHaveLength(1);
+  a.offline();
+  release();
+  const repairOutcomes = (): string[] => a.syncEvents
+    .filter((e) => e.type === "legacy-repair-failed" ||
+                   e.type === "legacy-repair-succeeded")
+    .map((e) => e.type);
+  await vi.waitFor(() => {
+    expect(repairOutcomes()).toEqual(["legacy-repair-failed"]);
+  });
+  const later = await a.edit(setText("pt_seed_1", "behind the failed repair"));
+
+  // The reconnect alone reruns the repair and releases the later edit;
+  // quiesce's own online() would be a second reconnect.
+  await a.online();
+  expect(repairOutcomes()).toEqual(["legacy-repair-failed", "legacy-repair-succeeded"]);
+  await a.queue.drain();
+  expect(await appliedIds()).toContain(later);
+  expect(await appliedIds()).not.toContain(bad);
+  await quiesce([a], server, 5_000);
 });
 
 test("reload keeps pending ops", async () => {

@@ -26,7 +26,7 @@ export interface SocketLifecycleDeps {
   readInitialPending: () => Promise<number>;
   /** The startup poison gate: a first connect waits for it before flushing. */
   startupRun: () => Promise<void>;
-  /** The client runtime's retryFailedRepair: every connect's reconnect
+  /** Reruns a failed poison or legacy repair: every connect's reconnect
    * protocol starts with it (reconnectFlow.ts). */
   retryFailedRepair: () => Promise<void>;
   /** False after unmount (owned by the provider, which also guards on it). */

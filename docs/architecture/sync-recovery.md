@@ -108,6 +108,12 @@ calls `onDesync`. A 401, 403, 408 or 429 is not terminal — see
 [A batch the server rejects](#a-batch-the-server-rejects) — so it takes the
 same retained-under-backoff path as a 5xx instead.
 
+`onDesync` runs the legacy outline repair (`sync/legacyRepair.ts`), which
+resumes delivery from the repair epoch's `onStable`. A repair that fails keeps
+the barrier and raises the `legacy-rejected` banner's Retry. Every socket
+connect also reruns it, under the same rules as the poison repair's retry in
+[A batch the server rejects](#a-batch-the-server-rejects).
+
 A reload destroys the lane, so `useUnloadGuard` interrupts one. It arms from
 `onUnsentInMemory`, the lane's own length, never from "N changes pending",
 whose total includes durable rows a reload finds again. The `beforeunload`
@@ -359,12 +365,14 @@ A repair that fails keeps the barrier and raises the rejected-batch banner's
 Retry. Its usual cause is the snapshot fetch failing because the network went
 down, so every socket connect also retries it. The reconnect flow's `begin()`
 first calls `clientRuntime.retryFailedRepair()`, which runs the same
-`repair-targets` plan as the Retry button. A connect that arrives while the
-repair is still running waits for it, and retries once if it fails. That
-covers a fetch hung on the connection the socket just replaced. Only a connect
-calls it, never a drain observed while connected. A repair that fails again
-therefore waits for the next connect instead of looping. After a failed poison mark it does
-nothing, because that Retry must re-mark the row, not repair it.
+`repair-targets` plan as the Retry button. It then calls
+`legacyRepair.retryFailed()`, which does the same for a rejected lane batch's
+outline repair. A connect that arrives while either repair is still running
+waits for it, and retries once if it fails. That covers a fetch hung on the
+connection the socket just replaced. Only a connect calls them, never a drain
+observed while connected. A repair that fails again therefore waits for the
+next connect instead of looping. After a failed poison mark the runtime's
+retry does nothing, because that Retry must re-mark the row, not repair it.
 
 Retained mark intents live in `localStorage` (`sync/poisonIntentStore.ts`,
 key `pkm.poison-mark-intents.v1`), not the replica, so they survive an

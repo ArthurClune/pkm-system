@@ -17,6 +17,7 @@ import { createReplica, type Replica } from "../replica/client";
 import { ReplicaUnusableError } from "../replica/errors";
 import { toPortLike } from "../replica/rpc";
 import { createClientRuntime } from "./clientRuntime";
+import { createLegacyRepair } from "./legacyRepair";
 import { clientId, createOpQueue, type WriteTicket } from "./opQueue";
 import { createReplicaSync, ResetBlockedError, type ReplicaState } from "./replicaSync";
 import { planRetry } from "./retryPolicy";
@@ -227,8 +228,6 @@ export function SyncProvider({ children, replica }: {
   const statusRef = useRef<SyncStatus>("connecting");
   const modeRef = useRef(replicaState.mode);
   modeRef.current = replicaState.mode;
-  const legacyRepairRunRef = useRef<Promise<void> | null>(null);
-  const legacyRejectedRef = useRef<unknown>();
   const problemRef = useRef<SyncProblem>();
   problemRef.current = problem;
 
@@ -273,34 +272,19 @@ export function SyncProvider({ children, replica }: {
   const queue = useMemo(
     () => createOpQueue(replicaRef.current ?? absentReplica()), []);
 
-  // Stable (refs, applySync and the queue only): the desync listener and the
-  // legacy-repair Retry both call it, and the actions value memoises on it.
-  const repairLegacy = useCallback((error: unknown): Promise<void> => {
-    legacyRejectedRef.current = error;
-    if (legacyRepairRunRef.current) return legacyRepairRunRef.current;
-    const message = error instanceof Error ? error.message : String(error);
-    applySync({ type: "legacy-repair-started", error: message });
-    const run = repairActiveOutlineSessions(() => {
-        if (!mountedRef.current) return;
-        applySync({ type: "legacy-repair-succeeded", error: message });
-        queue.resume("recovery");
-      })
-      .catch((repairError: unknown) => {
-        applySync({
-          type: "legacy-repair-failed", error: message,
-          repairError: repairError instanceof Error
-            ? repairError.message : String(repairError),
-        });
-      });
-    legacyRepairRunRef.current = run.finally(() => {
-      legacyRepairRunRef.current = null;
-    });
-    return legacyRepairRunRef.current;
-  }, [applySync, queue]);
+  // The legacy outline repair (legacyRepair.ts), one per mount: the desync
+  // listener, the legacy-repair Retry and every reconnect call it, and the
+  // actions value memoises on it.
+  const legacyRepair = useMemo(() => createLegacyRepair({
+    repairSessions: repairActiveOutlineSessions,
+    onEvent: applySync,
+    resume: () => queue.resume("recovery"),
+    isMounted: () => mountedRef.current,
+  }), [applySync, queue]);
 
   useEffect(() => {
     const offs = [
-      queue.onDesync((error) => { void repairLegacy(error); }),
+      queue.onDesync((error) => { void legacyRepair.run(error); }),
       // Either delivery path's ack named a skipped op: a replica-backed
       // tab's own feed tombstones the row, but nothing else bumps resync
       // for it, so this refetches regardless. Never a desync -- the batch
@@ -318,7 +302,7 @@ export function SyncProvider({ children, replica }: {
     // suppression into a stuck banner (see opQueue's emitPending).
     if (replicaRef.current) void queue.refreshPending();
     return () => { offs.forEach((off) => off()); };
-  }, [applySync, queue, repairLegacy]);
+  }, [applySync, queue, legacyRepair]);
   const replicaSync = useMemo(() => {
     const r = replicaRef.current;
     return r ? createReplicaSync({
@@ -444,7 +428,12 @@ export function SyncProvider({ children, replica }: {
     readInitialPending: () =>
       replicaRef.current ? queue.refreshPending() : Promise.resolve(0),
     startupRun: () => runtime?.startupRun() ?? Promise.resolve(),
-    retryFailedRepair: () => runtime?.retryFailedRepair() ?? Promise.resolve(),
+    // Either repair's failed last attempt is rerun by a connect. The poison
+    // repair goes first: it holds the durable queue's recovery barrier.
+    retryFailedRepair: async () => {
+      await (runtime?.retryFailedRepair() ?? Promise.resolve());
+      await legacyRepair.retryFailed();
+    },
     mountedRef,
     statusRef,
     onBatch: (batch) => {
@@ -496,7 +485,7 @@ export function SyncProvider({ children, replica }: {
         startupDiscoveringPoison: runtime?.discoveringPoison() ?? true,
       });
       if (plan.kind === "legacy-repair") {
-        return repairLegacy(legacyRejectedRef.current);
+        return legacyRepair.run(legacyRepair.rejected());
       }
       return runtime?.runRetry(plan) ?? Promise.resolve();
     },
@@ -510,7 +499,7 @@ export function SyncProvider({ children, replica }: {
       const currentProblem = problemRef.current;
       if (currentProblem?.kind === "legacy-rejected" &&
           currentProblem.repair === "repaired") {
-        legacyRejectedRef.current = undefined;
+        legacyRepair.clear();
       } else if (currentProblem?.kind === "rejected-batch" &&
           currentProblem.repair === "repaired") {
         runtime?.clearRepairTargets();
@@ -550,7 +539,7 @@ export function SyncProvider({ children, replica }: {
       return () => { subsRef.current.delete(fn); };
     },
     settled: () => queue.settled(),
-  }), [applySync, queue, replicaSync, repairLegacy, runtime]);
+  }), [applySync, legacyRepair, queue, replicaSync, runtime]);
 
   // Nested rather than combined, most stable outermost. A change to one slice
   // re-renders that slice's consumers only; `children` is the same element

@@ -374,6 +374,7 @@ late enough. Every pull ends with one: `pullLoop` fetches at least one
 window and loops until `next_since >= latest_seq`
 (`replicaSync.ts:650-736`). A batch with records always journals rows when
 it commits, so its ack is always followed by a pull with a window to apply.
+The exception is far past `PENDING_IDS_CAP` when the echo was pulled before the ack: the ack triggers no pull, so the replay's records wait for the next pull (`opQueue.ts`). That delay is transient.
 
 The seq would settle a batch one or more windows sooner, and only during
 a catch-up over several windows. It would cost a durable write on both

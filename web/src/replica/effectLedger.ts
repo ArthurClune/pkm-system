@@ -2,14 +2,18 @@
 // The effect ledger records what a pending batch's local apply did to rows
 // the server will re-derive: order shifts on siblings and page moves. When
 // the batch leaves the queue, the feed window's rebase replays the server's
-// result on top of the replica, so any local effect of a settled batch must
-// be taken back first or it is counted twice.
+// result on top of the replica. Where the server made the same write, its
+// echo ships the row and drops the record. Where it did not (it placed a
+// create or move in another group), the server never re-ships the rows the
+// local apply disturbed, so settling a batch takes its collateral writes back.
 //
-// Invariants: (1) a record exists only while its effect is in the replica
-// and not yet in the feed; settling a batch undoes exactly its records and
-// deletes them. (2) A row's page and updated_at revert to the base only when
-// no pending batch still holds a page record for it, so a later batch's move
-// is never undone by an earlier batch settling.
+// Invariants, with base the value a row's last resetting write (a window
+// upsert, or a pending op's direct write) gave it: (1) order_idx = base
+// order_idx + the sum of order_delta over the uid's records. (2) If a page
+// record exists on a uid, every one carries the base page; otherwise page_id
+// is the base's. So a row's page and updated_at revert only when no pending
+// batch still holds a page record for it, and a later batch's move is never
+// undone by an earlier batch settling.
 //
 // Every function runs inside the caller's transaction and opens none.
 

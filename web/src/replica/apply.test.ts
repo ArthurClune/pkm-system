@@ -6,7 +6,7 @@ import { applyChanges, applySnapshot, assertNoParkedTitles,
          parkTakenTitles } from "./apply";
 import type { BlockOp } from "../api/ops";
 import { applyLocalOps } from "./localOps";
-import { getMeta } from "./meta";
+import { getMeta, setMeta } from "./meta";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
 import type { ReplicaDb } from "./db";
@@ -794,7 +794,7 @@ describe("applyChanges: block tombstones wait for the window that reaches the jo
     "SELECT uid, parent_uid FROM blocks WHERE uid LIKE 'uid_dd_%' ORDER BY uid");
   const deferred = (): string[] | null => {
     const raw = getMeta(t.db, "deferred_block_tombstones");
-    return raw === null ? null : JSON.parse(raw) as string[];
+    return raw === null ? null : (JSON.parse(raw) as { uids: string[] }).uids;
   };
   const window = (next: number, over: Partial<Changes> = {}) =>
     applyChanges(t.db, emptyFeed({ next_since: next, latest_seq: 15, ...over }));
@@ -879,6 +879,31 @@ describe("applyChanges: block tombstones wait for the window that reaches the jo
 
     window(15);
     expect(tree()).toHaveLength(4);
+  });
+
+  test("the record carries the cursor its window wrote", () => {
+    window(13, { tombstones: [tomb("uid_dd_d")] });
+    expect(JSON.parse(getMeta(t.db, "deferred_block_tombstones")!))
+      .toEqual({ cursor: 13, uids: ["uid_dd_d"] });
+  });
+
+  test("a record whose cursor no longer matches is void at the head window", () => {
+    window(13, { tombstones: [tomb("uid_dd_d")] });
+    // a build without the rule advanced the cursor past the record
+    setMeta(t.db, "cursor", "14");
+    expect(window(15)).toEqual({ status: "applied", cursor: 15 });
+
+    expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid LIKE 'uid_dd_%'"))
+      .toBe(4);
+    expect(deferred()).toBeNull();
+  });
+
+  test("a void record is replaced by the short window's own tombstones", () => {
+    window(13, { tombstones: [tomb("uid_dd_d")] });
+    setMeta(t.db, "cursor", "14");
+    window(14, { tombstones: [tomb("uid_dd_l")] });
+
+    expect(deferred()).toEqual(["uid_dd_l"]);
   });
 
   test("a window that rolls back records nothing", () => {

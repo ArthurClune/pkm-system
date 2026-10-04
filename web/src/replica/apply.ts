@@ -392,18 +392,29 @@ function applyTombstone(db: ReplicaDb, tomb: SyncTombstone): void {
 }
 
 /** The sync_client_meta key holding the block tombstones a catch-up has
- * received short of the journal head and not yet applied (applyWindow). */
+ * received short of the journal head and not yet applied (applyWindow), as
+ * JSON `{cursor, uids}`: `cursor` is the next_since the same transaction
+ * stored as the cursor. */
 const DEFERRED_BLOCK_TOMBSTONES = "deferred_block_tombstones";
+
+/** The uids a stored record still owes, or none when it is absent or void:
+ * a record whose cursor is not the stored cursor was outrun by code that
+ * advanced the cursor without this rule. */
+function recordedBlockTombstones(recorded: string | null,
+                                 cursor: string | null): BlockUid[] {
+  if (recorded === null) return [];
+  const rec = JSON.parse(recorded) as { cursor: number; uids: BlockUid[] };
+  return cursor !== null && String(rec.cursor) === cursor ? rec.uids : [];
+}
 
 /** The block tombstones still owed after a window: those recorded by
  * earlier windows, less any block this window ships live (a uid an undo
  * recreated after its tombstone was read), then this window's, once each,
  * in order. */
-function owedBlockTombstones(recorded: string | null,
+function owedBlockTombstones(earlier: readonly BlockUid[],
                              shipped: readonly SyncBlock[],
                              tombstoned: readonly BlockUid[]): BlockUid[] {
   const live = new Set(shipped.map((b) => b.uid));
-  const earlier = recorded === null ? [] : JSON.parse(recorded) as BlockUid[];
   return [...new Set([...earlier.filter((u) => !live.has(u)), ...tombstoned])];
 }
 
@@ -433,6 +444,11 @@ function owedBlockTombstones(recorded: string | null,
  * sync_client_meta instead, in the transaction that advances the cursor, so
  * a restart mid-catch-up cannot leave the cursor past a tombstone nobody
  * applied; the window at the head applies every recorded one with its own.
+ * The record carries that cursor because a build without this rule (an old
+ * tab on the same replica, a rollback) may advance the cursor past it, or
+ * consume a recorded uid's live re-creation, without clearing it; a record
+ * whose cursor is not the stored one is void, since that build applied block
+ * tombstones per window itself.
  * The cascade must not reach a block the server kept. A kept block may be a
  * descendant that moved along with a moved-out ancestor: its own row never
  * changed, so only the ancestor's row ships, and nothing would re-ship it
@@ -443,8 +459,10 @@ function owedBlockTombstones(recorded: string | null,
  * block the server still has is placed either by its own shipped row or
  * under an unchanged parent chain of blocks the server also still has, so
  * none sits under a deleted block, and the cascade over that tree is the
- * one-window case. Between windows the replica only looks older (deleted
- * blocks stay visible), never wrongly shaped. A recorded block a later
+ * one-window case. Between windows deleted blocks stay visible, and a
+ * pending local op that moves a kept block under one of them loses that
+ * block locally at the head window until the server's skip echo re-ships it
+ * (the server journals a skipped move's subtree live). A recorded block a later
  * window ships live (an undo recreated it after its tombstone was read)
  * is dropped from the record. A uid only ever names one block, and a block
  * present at read time ships live, so no block is both tombstoned and
@@ -457,7 +475,7 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
     db.exec("PRAGMA defer_foreign_keys = ON");
     const recorded = getMeta(db, DEFERRED_BLOCK_TOMBSTONES);
     const owed = owedBlockTombstones(
-      recorded, feed.blocks,
+      recordedBlockTombstones(recorded, getMeta(db, "cursor")), feed.blocks,
       feed.tombstones.filter((tm) => tm.kind === "block")
         .map((tm) => tm.entity_id as BlockUid));
     const atHead = feed.next_since >= feed.latest_seq;
@@ -482,7 +500,7 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
     assertNoParkedTitles(db, "sidebar_entries", parkedSidebar);
     setMeta(db, "cursor", String(feed.next_since));
     if (!atHead && owed.length > 0) {
-      setMeta(db, DEFERRED_BLOCK_TOMBSTONES, JSON.stringify(owed));
+      setMeta(db, DEFERRED_BLOCK_TOMBSTONES, JSON.stringify({ cursor: feed.next_since, uids: owed }));
     } else if (recorded !== null) {
       deleteMeta(db, DEFERRED_BLOCK_TOMBSTONES);
     }

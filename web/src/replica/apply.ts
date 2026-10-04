@@ -462,8 +462,8 @@ function owedBlockTombstones(earlier: readonly BlockUid[],
  * one-window case. Between windows deleted blocks stay visible, and a
  * pending local op that moves a kept block under one of them loses that
  * block locally at the head window until the server's skip echo re-ships it
- * (the server journals a skipped move's subtree live). A recorded block a later
- * window ships live (an undo recreated it after its tombstone was read)
+ * (the server journals a skipped move's subtree live). A recorded block a
+ * later window ships live (an undo recreated it after its tombstone was read)
  * is dropped from the record. A uid only ever names one block, and a block
  * present at read time ships live, so no block is both tombstoned and
  * shipped live in one window. The cascade still removes
@@ -500,7 +500,8 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
     assertNoParkedTitles(db, "sidebar_entries", parkedSidebar);
     setMeta(db, "cursor", String(feed.next_since));
     if (!atHead && owed.length > 0) {
-      setMeta(db, DEFERRED_BLOCK_TOMBSTONES, JSON.stringify({ cursor: feed.next_since, uids: owed }));
+      setMeta(db, DEFERRED_BLOCK_TOMBSTONES,
+              JSON.stringify({ cursor: feed.next_since, uids: owed }));
     } else if (recorded !== null) {
       deleteMeta(db, DEFERRED_BLOCK_TOMBSTONES);
     }

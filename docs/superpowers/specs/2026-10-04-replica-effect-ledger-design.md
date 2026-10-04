@@ -1,8 +1,8 @@
 # Replica effect ledger (pkm-dbr1)
 
 Design (c′) agreed with Arthur 2026-10-04. One change from what was agreed,
-the settle rule, is in [§ Deviation from the agreed design](#deviation-from-the-agreed-design)
-and needs his ruling before planning. Bean pkm-dbr1, under the
+the settle rule, is in [§ Deviation from the agreed design](#deviation-from-the-agreed-design);
+Arthur approved it with the spec on 2026-10-04. Bean pkm-dbr1, under the
 property-checks epic pkm-nws9. Line numbers are as of `a0a22a6e` on
 `feat/pkm-dbr1-cross-page`.
 
@@ -492,5 +492,5 @@ skill.
 
 ## Open questions
 
-- The head-window settle rule in place of the durable ack seq needs
-  Arthur's ruling.
+None. The head-window settle rule replaces the durable ack seq (approved
+2026-10-04).

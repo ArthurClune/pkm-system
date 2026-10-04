@@ -13,7 +13,7 @@
 import fc from "fast-check";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { EDIT_TARGETS, type OpDraft } from "./arbitraries";
-import { allCommands, BadBatch, countSkipsWith, Edit, Fault, type FaultKind, NAMES,
+import { BadBatch, commandsFor, countSkipsWith, Edit, Fault, type FaultKind, NAMES,
          Nudge, Offline, Pull, Reload, SyncCommand, type World } from "./commands";
 import { PATH, REPLAY_PATH, SEED } from "./env";
 import { startClient, type HarnessClient } from "./harnessClient";
@@ -120,6 +120,14 @@ async function runExample(names: readonly string[], cmds: Commands,
     const all = (): HarnessClient[] => [...clients.values()];
     world.watch.observe(all());
     await fc.asyncModelRun(() => ({ model, real: world }), cmds);
+    // How each offline period still open ends: quiesce brings it online,
+    // whether it was drawn until quiesce or the commands ran out before its
+    // return.
+    for (const name of names) {
+      if (model.online[name]) continue;
+      count(model.backAfter[name] === null ? "Online at quiesce"
+                                           : "Online at quiesce, before its return");
+    }
     await opts.beforeQuiesce?.(world);
     const fired = Object.entries(firedFaults(all())).filter(([, n]) => n > 0);
     if (fired.length > 0) {
@@ -327,14 +335,27 @@ test("quiesce waits for a batch a poison repair held back", async () => {
   }
 });
 
+/** An example's clients and the commands drawn for exactly those. */
+type Drawn = [number, Commands];
+
+/** Two or three clients, equally often. Each branch draws its commands
+ * from its own clients alone, so no draw names a client the example lacks.
+ * A oneof of whole examples rather than a chain from the count: a chain
+ * redraws the commands when the count shrinks, so it shrinks badly. */
+const clientsAndCommands: fc.Arbitrary<Drawn> = fc.oneof(
+  ...[2, 3].map((n) => fc.tuple(fc.constant(n), fc.commands(
+    commandsFor(NAMES.slice(0, n)),
+    { maxCommands: MAX_COMMANDS, size: "max", replayPath: REPLAY_PATH }))),
+);
+
 /** The failure report: everything needed to read and replay it. */
-function report(details: fc.RunDetails<[number, Commands, number | undefined]>): string {
+function report(details: fc.RunDetails<[Drawn, number | undefined]>): string {
   const counterexample = details.counterexample;
   const shown = counterexample === null ? "none"
-    : `${counterexample[0]} clients, ` +
-      (counterexample[2] === undefined ? "no window limit"
-                                       : `window limit ${counterexample[2]}`) +
-      `, ${String(counterexample[1])}`;
+    : `${counterexample[0][0]} clients, ` +
+      (counterexample[1] === undefined ? "no window limit"
+                                       : `window limit ${counterexample[1]}`) +
+      `, ${String(counterexample[0][1])}`;
   const replay = /replayPath="([^"]*)"/.exec(shown)?.[1];
   const error = details.errorInstance instanceof Error
     ? details.errorInstance.message : String(details.errorInstance);
@@ -353,14 +374,12 @@ function report(details: fc.RunDetails<[number, Commands, number | undefined]>):
 
 test("sync protocol property", async () => {
   const details = await fc.check(fc.asyncProperty(
-    fc.integer({ min: 2, max: 3 }),
-    fc.commands(allCommands, {
-      maxCommands: MAX_COMMANDS, size: "max", replayPath: REPLAY_PATH,
-    }),
-    // Last: an arbitrary's place fixes what a seed and path replay, so the
-    // two before it replay as they did before it was added.
+    clientsAndCommands,
+    // A new arbitrary goes last: an arbitrary's place fixes what a seed and
+    // path replay, so the ones before it replay as they did before it was
+    // added.
     windowLimit,
-    async (n, cmds, limit) => {
+    async ([n, cmds], limit) => {
       count("examples");
       count(`examples with ${n} clients`);
       count(limit === undefined ? "examples with no window limit"

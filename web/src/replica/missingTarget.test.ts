@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
+import type { BatchId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { applyLocalOps } from "./localOps";
 import { skipsOnMissingTarget } from "./missingTarget";
@@ -74,7 +75,7 @@ describe("applyLocalOps placement agrees with the server", () => {
           [b.uid, pageIds.get(b.page)!, b.parent_uid, b.order_idx, b.uid]);
       }
 
-      applyLocalOps(t.db, c.ops, 99, { reapply: c.replay });
+      applyLocalOps(t.db, c.ops, 99, { batchId: "t" as BatchId, reapply: c.replay });
 
       const placed = new Map(t.db.select<PlacedBlock>(
         "SELECT b.uid, p.title AS page, b.parent_uid, b.order_idx" +

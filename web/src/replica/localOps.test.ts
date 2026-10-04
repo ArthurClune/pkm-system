@@ -1,11 +1,18 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
+import type { BatchId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { opBumpsUpdatedAt } from "../outline/blockStamps";
 import { applyLocalOps, getOrCreateLocalPage, LocalOpError, subtreeUids } from "./localOps";
 import { setPlainSpaceTitleCanonicalization } from "./meta";
 import { openTestDb, type TestDb } from "./testDb";
 import { ord, uid } from "../test-helpers";
+
+const bid = (s: string): BatchId => s as BatchId;
+/** applyLocalOps for a fixed test batch; `opts` overrides the id or replays. */
+const apply = (db: TestDb["db"], ops: BlockOp[], nowMs: number,
+               opts: { batchId?: BatchId; reapply?: boolean } = {}): void =>
+  applyLocalOps(db, ops, nowMs, { batchId: bid("t"), ...opts });
 
 let t: TestDb;
 beforeEach(async () => {
@@ -130,7 +137,7 @@ describe("applyLocalOps", () => {
   ] as const)("rejects a forbidden %s before mutation", (_name, op) => {
     const before = replicaState();
 
-    expect(() => applyLocalOps(t.db, [op as BlockOp], 99))
+    expect(() => apply(t.db, [op as BlockOp], 99))
       .toThrow(LocalOpError);
     expect(replicaState()).toEqual(before);
   });
@@ -147,7 +154,7 @@ describe("applyLocalOps", () => {
 
       let thrown: unknown;
       try {
-        applyLocalOps(t.db, [
+        apply(t.db, [
           { op: "update_text", uid: uid("uid_r1"), text: "would partially apply" },
           invalidOp as BlockOp,
         ], 99);
@@ -161,7 +168,7 @@ describe("applyLocalOps", () => {
     });
 
   test("create shifts following siblings and reindexes refs", () => {
-    applyLocalOps(t.db, [{
+    apply(t.db, [{
       op: "create", uid: uid("uid_new1"), page_title: "AI", parent_uid: null,
       order_idx: ord(1), text: "links [[ML]] and [[Brand New]]", view_type: "numbered",
     }], 99);
@@ -180,7 +187,7 @@ describe("applyLocalOps", () => {
   });
 
   test("create skips blank refs while still indexing nonblank refs in the same block", () => {
-    applyLocalOps(t.db, [{
+    apply(t.db, [{
       op: "create", uid: uid("uid_blank_ref"), page_title: "AI", parent_uid: null,
       order_idx: ord(1), text: "skip [[   ]] but keep [[Valid Page]]",
     }], 99);
@@ -196,7 +203,7 @@ describe("applyLocalOps", () => {
   });
 
   test("update_text rewrites text and refs; FTS sees the new text", () => {
-    applyLocalOps(t.db, [
+    apply(t.db, [
       { op: "update_text", uid: uid("uid_r1"), text: "now mentions [[ML]]" },
     ], 99);
     expect(blockRow("uid_r1").text).toBe("now mentions [[ML]]");
@@ -208,14 +215,14 @@ describe("applyLocalOps", () => {
   });
 
   test("create and update_text maintain block_refs", () => {
-    applyLocalOps(t.db, [{
+    apply(t.db, [{
       op: "create", uid: uid("uid_src1"), page_title: "P", parent_uid: null,
       order_idx: ord(0), text: "see ((uid_tgt1)) and ((uid_tgt1))",
     }], 99);
     expect(rows("SELECT * FROM block_refs")).toEqual([
       { src_block_uid: "uid_src1", target_block_uid: "uid_tgt1" }]);
 
-    applyLocalOps(t.db, [
+    apply(t.db, [
       { op: "update_text", uid: uid("uid_src1"), text: "now ((uid_tgt2))" },
     ], 99);
     expect(rows("SELECT * FROM block_refs")).toEqual([
@@ -223,19 +230,19 @@ describe("applyLocalOps", () => {
   });
 
   test("delete cascades block_refs with the block", () => {
-    applyLocalOps(t.db, [{
+    apply(t.db, [{
       op: "create", uid: uid("uid_src2"), page_title: "P", parent_uid: null,
       order_idx: ord(0), text: "see ((uid_tgt1))",
     }], 99);
 
-    applyLocalOps(t.db, [{ op: "delete", uid: uid("uid_src2") }], 99);
+    apply(t.db, [{ op: "delete", uid: uid("uid_src2") }], 99);
 
     expect(rows(
       "SELECT * FROM block_refs WHERE src_block_uid = 'uid_src2'")).toEqual([]);
   });
 
   test("cross-page move rewrites the whole subtree's page_id", () => {
-    applyLocalOps(t.db, [{
+    apply(t.db, [{
       op: "move", uid: uid("uid_r2"), parent_uid: null, order_idx: ord(0),
       page_title: "ML",
     }], 99);
@@ -246,7 +253,7 @@ describe("applyLocalOps", () => {
   test("cross-page move rewrites every page_id in a 150-block subtree", () => {
     const uids = makeChain(150, "move_150");
 
-    applyLocalOps(t.db, [{
+    apply(t.db, [{
       op: "move", uid: uid(uids[0]), parent_uid: null, order_idx: ord(0),
       page_title: "ML",
     }], 99);
@@ -257,7 +264,7 @@ describe("applyLocalOps", () => {
   });
 
   test("move under a parent on the same page shifts siblings at the target", () => {
-    applyLocalOps(t.db, [{
+    apply(t.db, [{
       op: "move", uid: uid("uid_r1"), parent_uid: uid("uid_r2"), order_idx: ord(0),
       page_title: null,
     }], 99);
@@ -267,7 +274,7 @@ describe("applyLocalOps", () => {
   });
 
   test("delete removes the subtree deepest-first (children gone too)", () => {
-    applyLocalOps(t.db, [{ op: "delete", uid: uid("uid_r2") }], 99);
+    apply(t.db, [{ op: "delete", uid: uid("uid_r2") }], 99);
     expect(rows("SELECT uid FROM blocks")).toEqual([{ uid: "uid_r1" }]);
     expect(rows("SELECT COUNT(*) AS n FROM refs")).toEqual([{ n: 0 }]);
   });
@@ -275,7 +282,7 @@ describe("applyLocalOps", () => {
   test("delete removes every row from a 150-block subtree", () => {
     const uids = makeChain(150, "delete_150");
 
-    applyLocalOps(t.db, [{ op: "delete", uid: uid(uids[0]) }], 99);
+    apply(t.db, [{ op: "delete", uid: uid(uids[0]) }], 99);
 
     expect(rows<{ n: number }>(
       "SELECT COUNT(*) AS n FROM blocks WHERE uid LIKE 'delete_150_%'"
@@ -290,7 +297,7 @@ describe("applyLocalOps", () => {
     // Collapse/expand is not a real change: it must not
     // touch the block's own updated_at, nor its page's — otherwise a
     // collapse toggle would reorder "recently touched" page lists.
-    applyLocalOps(t.db, [
+    apply(t.db, [
       { op: "set_collapsed", uid: uid("uid_r2"), collapsed: true },
     ], 99);
     expect(blockRow("uid_r2").collapsed).toBe(1);
@@ -298,7 +305,7 @@ describe("applyLocalOps", () => {
     expect(rows("SELECT updated_at FROM pages WHERE id = 1"))
       .toEqual([{ updated_at: 10 }]);
 
-    applyLocalOps(t.db, [
+    apply(t.db, [
       { op: "set_heading", uid: uid("uid_r1"), heading: 2 },
     ], 199);
     expect(blockRow("uid_r1").heading).toBe(2);
@@ -308,7 +315,7 @@ describe("applyLocalOps", () => {
   });
 
   test("set_view_type updates persistent metadata", () => {
-    applyLocalOps(t.db, [
+    apply(t.db, [
       { op: "set_view_type", uid: uid("uid_r1"), view_type: "numbered" },
     ], 99);
     expect(blockRow("uid_r1").view_type).toBe("numbered");
@@ -317,7 +324,7 @@ describe("applyLocalOps", () => {
   });
 
   test("blank op titles use the server fallback instead of minting blank pages", () => {
-    applyLocalOps(t.db, [
+    apply(t.db, [
       { op: "create_page", page_title: "   " },
       { op: "create", uid: uid("uid_blank"), page_title: "\n\t",
         parent_uid: null, order_idx: ord(0), text: "fallback" },
@@ -332,7 +339,7 @@ describe("applyLocalOps", () => {
 
   test("active create, create_page and cross-page move share canonical page ids", () => {
     setPlainSpaceTitleCanonicalization(t.db, true);
-    applyLocalOps(t.db, [
+    apply(t.db, [
       { op: "create_page", page_title: "  Shared Target  " },
       { op: "create", uid: uid("uid_active"), page_title: " Shared Target ",
         parent_uid: null, order_idx: ord(0), text: "active" },
@@ -349,7 +356,7 @@ describe("applyLocalOps", () => {
   });
 
   test("create_page is a local get-or-create (idempotent, negative id)", () => {
-    applyLocalOps(t.db, [
+    apply(t.db, [
       { op: "create_page", page_title: "Fresh Offline Page" },
       { op: "create_page", page_title: "Fresh Offline Page" },
     ], 99);
@@ -362,7 +369,7 @@ describe("applyLocalOps", () => {
   test("a batch applies atomically: a bad op rolls the whole batch back", () => {
     // A missing target is skipped, not a failure, so this now
     // needs an op that still throws: a create whose uid already exists.
-    expect(() => applyLocalOps(t.db, [
+    expect(() => apply(t.db, [
       { op: "update_text", uid: uid("uid_r1"), text: "changed" },
       { op: "create", uid: uid("uid_r2"), page_title: "AI", parent_uid: null,
         order_idx: ord(0), text: "collides" },
@@ -380,7 +387,7 @@ describe("applyLocalOps", () => {
       ["set_view_type", { op: "set_view_type", uid: "uid_missing", view_type: "numbered" }],
     ] as const)("%s on a missing block is skipped; the batch's other ops still apply",
       (_label, missingOp) => {
-        applyLocalOps(t.db, [
+        apply(t.db, [
           missingOp as BlockOp,
           { op: "update_text", uid: uid("uid_r1"), text: "still applied" },
         ], 99);
@@ -392,7 +399,7 @@ describe("applyLocalOps", () => {
 
     test("create under a missing parent leaves no row, and a follow-on" +
          " update_text to it in the same batch is skipped too", () => {
-      applyLocalOps(t.db, [
+      apply(t.db, [
         { op: "create", uid: uid("uid_orphan"), page_title: "AI",
           parent_uid: uid("uid_ghost_parent"), order_idx: ord(0), text: "lost child" },
         { op: "update_text", uid: uid("uid_orphan"), text: "still lost" },
@@ -406,7 +413,7 @@ describe("applyLocalOps", () => {
     test("move to a missing parent leaves the block where it was", () => {
       const before = blockRow("uid_r1");
 
-      applyLocalOps(t.db, [
+      apply(t.db, [
         { op: "move", uid: uid("uid_r1"), parent_uid: uid("uid_ghost_parent"), order_idx: ord(0) },
         { op: "update_text", uid: uid("uid_r2"), text: "sibling applied" },
       ], 99);
@@ -426,7 +433,7 @@ describe("applyLocalOps", () => {
     });
 
     test("a create under a parent on another page follows the parent", () => {
-      applyLocalOps(t.db, [
+      apply(t.db, [
         { op: "create", uid: uid("uid_new1"), page_title: "AI",
           parent_uid: uid("uid_m1"), order_idx: ord(0), text: "typed child" },
       ], 99);
@@ -436,7 +443,7 @@ describe("applyLocalOps", () => {
     });
 
     test("a create under a live parent resolves no page for its stale title", () => {
-      applyLocalOps(t.db, [
+      apply(t.db, [
         { op: "create", uid: uid("uid_new1"), page_title: "Never Seen Here",
           parent_uid: uid("uid_m1"), order_idx: ord(0), text: "typed child" },
       ], 99);
@@ -447,7 +454,7 @@ describe("applyLocalOps", () => {
     });
 
     test("a move whose page_title no longer names the parent's page follows the parent", () => {
-      applyLocalOps(t.db, [
+      apply(t.db, [
         { op: "move", uid: uid("uid_r2"), parent_uid: uid("uid_m1"), order_idx: ord(0),
           page_title: "Never Seen Here" },
       ], 99);
@@ -465,7 +472,7 @@ describe("applyLocalOps", () => {
     ])("a move %s is skipped; the batch's other ops still apply", (_label, parent) => {
       const before = replicaState().blocks;
 
-      applyLocalOps(t.db, [
+      apply(t.db, [
         { op: "move", uid: uid("uid_r2"), parent_uid: uid(parent), order_idx: ord(0) },
         { op: "update_text", uid: uid("uid_m1"), text: "sibling applied" },
       ], 99);
@@ -480,7 +487,7 @@ describe("applyLocalOps", () => {
     test("a move under a deeper descendant is skipped too", () => {
       const [root, , , leaf] = makeChain(4, "deep");
 
-      applyLocalOps(t.db, [
+      apply(t.db, [
         { op: "move", uid: uid(root), parent_uid: uid(leaf), order_idx: ord(0) },
       ], 99);
 
@@ -489,7 +496,7 @@ describe("applyLocalOps", () => {
   });
 
   test("touches the page's updated_at", () => {
-    applyLocalOps(t.db, [
+    apply(t.db, [
       { op: "update_text", uid: uid("uid_r1"), text: "changed" },
     ], 12345);
     expect(rows("SELECT updated_at FROM pages WHERE id = 1"))
@@ -509,7 +516,7 @@ describe("opBumpsUpdatedAt agrees with what the replica actually writes", () => 
 
   test.each(ops)("%s", (_label, op) => {
     t.db.exec("UPDATE blocks SET updated_at = 111 WHERE uid = 'uid_r1'");
-    applyLocalOps(t.db, [op], 999);
+    apply(t.db, [op], 999);
     const after = blockRow("uid_r1").updated_at;
     expect(after === 999).toBe(opBumpsUpdatedAt(op));
   });

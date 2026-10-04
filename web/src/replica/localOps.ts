@@ -13,7 +13,7 @@
 // lands, including a re-applied batch (reapply) keeping its own effects
 // in place, is placementFor's verdict (placement.ts); this file runs it.
 
-import type { BlockUid, CanonicalTitle, OrderIdx, PageId } from "../api/brands";
+import type { BatchId, BlockUid, CanonicalTitle, OrderIdx, PageId } from "../api/brands";
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
@@ -105,7 +105,8 @@ const touchPage = (db: ReplicaDb, pageId: PageId, nowMs: number): void => {
 
 const shiftSiblings = (db: ReplicaDb, pageId: PageId,
                        parentUid: BlockUid | null,
-                       fromOrderIdx: OrderIdx): void => {
+                       fromOrderIdx: OrderIdx, _exceptUid: BlockUid,
+                       _batchId: BatchId): void => {
   db.exec(
     "UPDATE blocks SET order_idx = order_idx + 1" +
     " WHERE page_id = ? AND parent_uid IS ? AND order_idx >= ?",
@@ -126,7 +127,8 @@ const blockInfo = (db: ReplicaDb, uid: BlockUid): BlockInfo | null => {
  * every later sibling's order_idx on each feed window, until a sibling the
  * feed re-ships at its server index overtakes one that drifted. Shift only
  * when a sibling the window re-shipped now shares this block's slot. */
-const keepSlot = (db: ReplicaDb, uid: BlockUid, at: BlockInfo): void => {
+const keepSlot = (db: ReplicaDb, uid: BlockUid, at: BlockInfo,
+                  _batchId: BatchId): void => {
   const clash = db.select(
     "SELECT 1 AS x FROM blocks WHERE page_id = ? AND parent_uid IS ?" +
     " AND order_idx = ? AND uid != ? LIMIT 1",
@@ -179,7 +181,7 @@ const placementFacts = (db: ReplicaDb, op: CreateOp | MoveOp,
 
 /** Carry out placementFor's verdict for a create or move. */
 const place = (db: ReplicaDb, op: CreateOp | MoveOp, block: BlockInfo | null,
-               verdict: Placement, nowMs: number): void => {
+               verdict: Placement, nowMs: number, batchId: BatchId): void => {
   if (verdict.kind === "skip") return;
   if (verdict.kind === "keep") {
     // only a replayed create is ever kept with a re-page
@@ -191,13 +193,14 @@ const place = (db: ReplicaDb, op: CreateOp | MoveOp, block: BlockInfo | null,
       }
       at.page_id = verdict.repageTo;
     }
-    keepSlot(db, op.uid, at);
+    keepSlot(db, op.uid, at, batchId);
     return;
   }
   const pageId = "id" in verdict.page
     ? verdict.page.id
     : getOrCreateLocalPage(db, verdict.page.title, nowMs);
-  shiftSiblings(db, pageId, verdict.parentUid, verdict.orderIdx);
+  shiftSiblings(db, pageId, verdict.parentUid, verdict.orderIdx, op.uid,
+                batchId);
   if (op.op === "create") {
     db.exec(
       "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
@@ -226,7 +229,7 @@ const place = (db: ReplicaDb, op: CreateOp | MoveOp, block: BlockInfo | null,
 };
 
 function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
-                  reapply: boolean): void {
+                  reapply: boolean, batchId: BatchId): void {
   if (op.op === "create_page") {
     getOrCreateLocalPage(db, op.page_title, nowMs);
     return;
@@ -234,7 +237,7 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
   const info = blockInfo(db, op.uid);
   if (op.op === "create" || op.op === "move") {
     place(db, op, info,
-          placementFor(op, placementFacts(db, op, info), reapply), nowMs);
+          placementFor(op, placementFacts(db, op, info), reapply), nowMs, batchId);
     return;
   }
   if (skipsOnMissingTarget(op, info !== null, false)) return;
@@ -294,11 +297,12 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
  * create whose uid exists and a move whose block already sits at its target
  * are kept in place (keepSlot) instead of failing or shifting again. */
 export function applyLocalOps(db: ReplicaDb, ops: BlockOp[], nowMs: number,
-                              { reapply = false }: { reapply?: boolean } = {},
+                              { batchId, reapply = false }:
+                                { batchId: BatchId; reapply?: boolean },
 ): void {
   const violation = findOpTitleViolation(ops);
   if (violation !== null) throw titleViolationError(violation);
   db.transaction(() => {
-    for (const op of ops) applyOne(db, op, nowMs, reapply);
+    for (const op of ops) applyOne(db, op, nowMs, reapply, batchId);
   });
 }

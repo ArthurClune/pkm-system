@@ -3,7 +3,7 @@
 // the authoritative row for a page created offline, children and refs are
 // remapped inside the window transaction — never a cascade delete.
 import { beforeEach, describe, expect, test } from "vitest";
-import type { SyncSeq } from "../api/brands";
+import type { BatchId, SyncSeq } from "../api/brands";
 import { applyChanges, type Changes } from "./apply";
 import { applyLocalOps } from "./localOps";
 import { setMeta } from "./meta";
@@ -25,7 +25,7 @@ beforeEach(async () => {
       order_idx: ord(0), text: "links back to [[AI]]" },
     { op: "create", uid: uid("uid_l2"), page_title: "Offline Page", parent_uid: uid("uid_l1"),
       order_idx: ord(0), text: "a child" },
-  ], 50);
+  ], 50, { batchId: "t" as BatchId });
   negId = t.db.select<{ id: number }>(
     "SELECT id FROM pages WHERE title = 'Offline Page'")[0].id;
   expect(negId).toBeLessThan(0);

@@ -6,7 +6,7 @@
 // re-inlines it; the equivalence test fails if the two paths ever derive
 // different rows from the same text, whatever code they run.
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { BlockUid, SyncSeq } from "../api/brands";
+import type { BatchId, BlockUid, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
@@ -67,7 +67,7 @@ const targets = (uid: string): string[] =>
     " ORDER BY target_block_uid", [uid]).map((r) => r.target_block_uid);
 
 const updateText = (uid: string, text: string): void =>
-  applyLocalOps(t.db, [{ op: "update_text", uid, text } as BlockOp], 7000);
+  applyLocalOps(t.db, [{ op: "update_text", uid, text } as BlockOp], 7000, { batchId: "t" as BatchId });
 
 describe("reindexBlockRefs", () => {
   test("replaces the block's rows and leaves other blocks alone", () => {
@@ -124,7 +124,7 @@ describe("delegation", () => {
     applyLocalOps(t.db, [{
       op: "create", uid: "uid_new1", page_title: "AI", parent_uid: null,
       order_idx: 5, text: "fresh ((uid_b1))",
-    } as BlockOp], 7000);
+    } as BlockOp], 7000, { batchId: "t" as BatchId });
 
     expect(spy.mock.calls.map((c) => [c[1], c[2]]))
       .toEqual([["uid_new1", "fresh ((uid_b1))"]]);

@@ -1328,8 +1328,8 @@ describe("applyChanges: a window that names a pending batch as applied drops it 
   const serverAfter = async (batch: BlockOp[], later: BlockOp[] = []): Promise<TestDb> => {
     const s = await openTestDb();
     applySnapshot(s.db, SIX, 1);
-    applyLocalOps(s.db, batch, 2);
-    if (later.length > 0) applyLocalOps(s.db, later, 3);
+    applyLocalOps(s.db, batch, 2, { batchId: bid("t") });
+    if (later.length > 0) applyLocalOps(s.db, later, 3, { batchId: bid("t") });
     return s;
   };
 

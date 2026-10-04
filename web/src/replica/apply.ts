@@ -175,7 +175,7 @@ function reapplyPending(db: ReplicaDb, nowMs: number): void {
     let result: { after: Set<string> } | null;
     let failure: unknown;
     try {
-      applyLocalOps(db, b.ops, nowMs, { reapply: true });
+      applyLocalOps(db, b.ops, nowMs, { batchId: b.batch_id, reapply: true });
       const after = fkViolations(db);
       result = addsFkViolation(before, after) ? null : { after };
     } catch (error: unknown) {

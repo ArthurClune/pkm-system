@@ -41,15 +41,16 @@ random seed. `--path` and `--replay-path` apply to the web side only
 The web side starts the harness server, `server/tooling/proptest/sync_server.py`,
 on port 8978, waits for `/healthz`, runs vitest, and stops the server by PID.
 It refuses to run when 8978 is already in use. The server is the real
-`create_app` plus four control routes the suite needs, which exist only in
+`create_app` plus five control routes the suite needs, which exist only in
 that launcher and never in `pkm.server.app`:
 
 | Route | Does |
 |---|---|
-| `POST /__proptest/reset` | restores the seeded database (six `pt_seed_N` blocks on the `Proptest` page) and the clock |
+| `POST /__proptest/reset` | restores the seeded database (six `pt_seed_N` blocks on the `Proptest` page, three `pt_sec_N` blocks on the `Second` page) and the clock |
 | `POST /__proptest/clock` | moves the frozen server clock |
 | `POST /__proptest/rotate-generation` | rotates the sync `db_generation` |
 | `GET /__proptest/applied` | `applied_batches` rows in commit order, with `applied_at` |
+| `GET /__proptest/renames` | every page retitle in commit order: the titles, the batch it followed (`after_batch_id`, null before the first) and the clock `at` it ran at. A trigger the seeded database installs writes the log, because a rename is a route of its own, not a batch |
 
 The server clock starts at `START_MS`, 2026-03-01 12:00 Europe/London, never
 ticks, and moves only by `/__proptest/clock`. It never moves before `START_MS`
@@ -70,7 +71,7 @@ session cookies are rejected when issued in the future or more than a year ago.
 | `web/src/props/sync/model.ts`, `arbitraries.ts`, `normalise.ts` | Functional Core | the command model; op drafts and the uid pool; the common graph form replicas and snapshots are compared in |
 | `web/src/props/sync/commands.ts` | Imperative Shell | one fast-check command class per row of the commands table below |
 | `web/src/props/sync/oracle.ts`, `quiesce.ts` | Imperative Shell | the six invariants; bringing every client to rest |
-| `web/src/props/sync/sync.prop.ts` | Imperative Shell | the property, the seven fixed scenarios, the tally |
+| `web/src/props/sync/sync.prop.ts` | Imperative Shell | the property, the seventeen fixed scenarios, the tally |
 | `web/src/props/sync/teeth.prop.ts`, `harness.prop.ts`, `smoke.prop.ts` | test | the oracle's teeth; the harness client and transport self-tests; the server wiring |
 | `web/src/props/sync/normalise.test.ts`, `arbitraries.test.ts` | test | unit tests that do run under `pnpm test:unit` |
 | `server/tests/props/conftest.py` | test | Hypothesis profiles (`merge`, `dev`), the `template_db` fixture |
@@ -118,17 +119,18 @@ model would agree by construction.
 `sync.prop.ts` starts 2 or 3 clients, equally often, each the real web sync stack
 (`harnessClient.ts`), against the harness server. fast-check draws up to 30
 commands naming only the clients that example starts (`commandsFor`), runs them, brings every client to rest (`quiesce.ts`), and runs the
-oracle. Seven fixed scenarios, each a regression the property first found, run
+oracle. Seventeen fixed scenarios, each a regression the property first found, run
 through the same commands.
 
 | Command | Does | Skipped when |
 |---|---|---|
-| `Edit` | enqueues a batch of op drafts (create, update, move, delete) resolved against the model | the client is not in the example |
+| `Edit` | enqueues a batch of op drafts (create, update, move, delete) resolved against the model. A top-level create or move names a page from the title pool, or none. The uid pool spans both seeded pages | the client is not in the example |
 | `BadBatch` | enqueues a create of a uid that is live everywhere, which the server rejects with a 400 | a write failure is armed or the in-memory lane is non-empty |
 | `Offline` | cuts the client's network and draws its return: back online after 1, 2, 3 or 5 further commands (about three draws in four), or not until quiesce (about one in four). `SyncCommand.run` brings it back; skipped commands do not count. There is no `Online` command | already offline |
 | `Fault` | arms one fault: `dropAck` (lose the ack after commit), `duplicate` (send twice), `lostPull` (lose a changes response), `writeFails` (fail the next local write, which pushes ops into the in-memory lane) | `writeFails` already armed |
 | `Pull` | forces a catch-up | offline |
 | `Nudge` | a websocket `seq` frame: `latest`, `stale`, `duplicate` or `ahead` of the journal | offline |
+| `Rename` | a page rename from a fixed title pool (`Proptest`, `Second`, `Third`, `Fourth`) through the client's network, never a merge. The pool is a fixed list, so after renames a drawn title may name another page, or a page that no longer exists. The route refusing it (400, 404, 409) or a dead network is a counted outcome, not an error | the client is not in the example |
 | `Reload` | a page reload: the worker and in-flight requests die, the database survives. Half the time an online client's new life connects 1 to 7 timer ticks after its mount begins, possibly mid-startup as the app's socket can; otherwise once the startup has finished (`connectTiming`, `HarnessClient.reload`) | ops would be lost by design (a non-empty lane or armed write failure) |
 | `RotateGeneration` | rotates `db_generation`, so every client's next pull rebases | never |
 | `CrossMidnight` | the server clock to 23:59:55 local, then ten seconds on; one crossing in four lands on a BST/GMT changeover | never |
@@ -150,13 +152,18 @@ Cursor monotonic runs after every command instead.
 | serial replay | replaying the recorded request bodies in commit order, each at its `applied_at`, on a fresh server reproduces the final graph | server-side apply that depends on anything but the batch sequence and the clock |
 | cursor monotonic | no client's cursor goes below the highest it has shown, across reloads and recoveries | a cursor rewound by a recovery or a stale frame |
 
-Serial replay resets the server, so the faulted run's snapshot and applied
-list are read first. Ids the server mints are compared by position.
+Serial replay puts each page rename back between the two batches it fell
+between, at the clock it ran at, using `/__proptest/renames`. A rename that
+followed a batch that never applied is itself a finding. The replay resets the
+server, so the faulted run's snapshot, applied list and renames are read
+first. Ids the server mints are compared by position.
 
 `teeth.prop.ts` checks the oracle can fail. Each broken transport mode
 (`dropBatch`, `reidBatch`, `holdBatch`, `skipWindow`) must trip the invariant
 that exists for it, a tampered recorded body must trip serial replay, and a
-clean run must pass. If a broken mode passes, the oracle is blind.
+clean run must pass. Serial replay has two more: an omitted rename, and a
+rename replayed after the wrong batch, must each trip it, and a run with a
+rename must replay clean. If a broken mode passes, the oracle is blind.
 
 One example in three draws a changes-feed window limit of one to five
 journal rows, so a catch-up crosses window boundaries, where block tombstones
@@ -230,7 +237,7 @@ for the web side. The budget is set where the count is set:
 | Side | Count | Sized for |
 |---|---|---|
 | server | `props/harness.py`'s `MERGE_EXAMPLES` per property, `max_examples` under the `merge` profile | `proptest/check.sh server`, about 3 minutes |
-| web | `NUM_RUNS` in `sync.prop.ts` (2300 examples) | `proptest/check.sh web`, about 3 minutes |
+| web | `NUM_RUNS` in `sync.prop.ts` (2100 examples) | `proptest/check.sh web`, about 3 minutes |
 
 ### Server
 

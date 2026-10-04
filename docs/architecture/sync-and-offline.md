@@ -146,10 +146,16 @@ transaction:
 | Step in `applyWindow` | Why it sits there |
 |---|---|
 | 1. Page and sidebar tombstones | The UNIQUE `title` columns: a row that gave its title up by being deleted must go before the row that took the title. A reused page id's cascade clears the old page before the new one lands. |
-| 2. Page upserts, then block upserts | Deferred FKs make their order irrelevant for references. |
-| 3. Block tombstones, in the window at the journal head only | The moves out land before the local cascade runs (below). |
-| 4. Sidebar upserts | Independent of blocks. |
-| 5. `dropAppliedPending`, then `reapplyPending` | The queue replays over the window's final rows (see [sync-recovery.md](sync-recovery.md#a-payload-that-already-holds-a-pending-batch)). |
+| 2. Page upserts | `reconcilePage` remaps local page ids, effect-ledger bases included. |
+| 3. Block upserts | Deferred FKs make their order irrelevant for references. |
+| 4. `dropWindowRecords` for every block uid the window ships live or tombstones | The server's row supersedes the local one, so nothing a pending batch did to it is left to revert. |
+| 5. Block tombstones, in the window at the journal head only | The moves out land before the local cascade runs (below). |
+| 6. Sidebar upserts | Independent of blocks. |
+| 7. Cursor, deferred-tombstone record, plain-space flag, `reconcileActivationPageTitles` | The last remaps ledger bases through `remapLocalPage`. |
+| 8. `dropAppliedPending` | A batch this window names settles in this window (see [sync-recovery.md](sync-recovery.md#a-payload-that-already-holds-a-pending-batch)). |
+| 9. `settleBatches`, at the head window only | Reverts the ledger records of every batch with no pending row. After 7, so bases are remapped; before 10, so replays build on reverted rows ([the effect ledger](sync-recovery.md#the-effect-ledger)). |
+| 10. `reapplyPending` | The queue replays over the window's final rows and records its collateral writes. |
+| 11. `dropStrandedLocalPages` | Deletes a negative-id page no block, ref, ledger base or pending op names, and not today's daily page. At the head window only (an acked `create_page` batch no longer names its page, and the server's may ship in a later window). After 9, since a revert can put a block back on a local page. |
 
 A block tombstone cascades the replica's local subtree, so it must not reach
 a block the server kept. The kept block may be a descendant that moved along
@@ -465,9 +471,10 @@ transaction rolls back.
 
 One file, `/pkm-replica.sqlite3`, in a dedicated worker on the OPFS SAHPool VFS,
 holds both the graph copy (the server's `BASE_DDL`, replicated via the generated
-`web/src/replica/baseSchema.gen.ts`) and the client-only tables `pending_ops`
-and `sync_client_meta`. A second file, `/pkm-replica-carry.sqlite3`, holds
-the pending queue across a
+`web/src/replica/baseSchema.gen.ts`) and the client-only tables `pending_ops`,
+`sync_client_meta` and `effect_ledger` (see
+[sync-recovery.md § The effect ledger](sync-recovery.md#the-effect-ledger)).
+A second file, `/pkm-replica-carry.sqlite3`, holds the pending queue across a
 [file replacement](sync-recovery.md#reset-rebase-and-file-replacement). A
 worker that dies during one leaves it behind, and the next queue handler
 adopts and removes it.

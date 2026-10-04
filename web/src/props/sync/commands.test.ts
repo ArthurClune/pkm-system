@@ -2,7 +2,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { ExampleCancelled } from "./cancel";
 import { commandsFor, connectTally, connectTiming, Fault, Offline, offlineBack, Reload,
-         type SyncCommand, type World } from "./commands";
+         Rename, type SyncCommand, type World } from "./commands";
 import type { HarnessClient } from "./harnessClient";
 import { initialModel } from "./model";
 
@@ -23,6 +23,17 @@ describe("commandsFor", () => {
     const named = new Set(fc.sample(arb, { numRuns: 500, seed: 2 })
       .map(clientOf).filter((c) => c !== null));
     expect([...named]).toEqual(["C"]);
+  });
+});
+
+describe("Rename", () => {
+  it("names its titles, and never draws a rename to the same title", () => {
+    expect(new Rename("A", 1, 2).toString()).toBe("Rename(A, Second -> Third)");
+    const renames = fc.sample(commandsFor(["A"])[0], { numRuns: 3000, seed: 6 })
+      .filter((c): c is Rename => c instanceof Rename);
+    expect(renames.length).toBeGreaterThan(0);
+    for (const r of renames) expect(r.from).not.toBe(r.to);
+    expect(new Set(renames.map((r) => `${r.from}${r.to}`)).size).toBe(12);
   });
 });
 

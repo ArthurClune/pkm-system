@@ -292,31 +292,45 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
     rewritten to the target, source page row dropped) -- a confirm-gated
     merge, not a silent overwrite. Case-sensitive throughout, like
     pages.title itself."""
-    canonical = title_reader(db)
-    title = canonical(title)
-    # normalized here as well as in get_or_create_page: the merge branch
-    # below compares and reports new_title directly, so it has to be the
-    # title that actually lands in the row.
-    new_title = canonical(body.new_title)
-    if is_blank_title(new_title):
-        raise HTTPException(status_code=422,
-                            detail="title must not be blank")
-    if title_syntax_reason(new_title) is not None:
-        raise HTTPException(
-            status_code=422,
-            detail=f"unsupported page-title syntax: {new_title!r}",
-        )
-    page = fetch_page(db, title)
-    if page is None:
-        raise HTTPException(status_code=404, detail="page not found")
-    if new_title == title:
-        raise HTTPException(status_code=400, detail="title is unchanged")
-    if date_for_title(title) is not None:
-        raise HTTPException(status_code=400,
-                            detail="daily notes cannot be renamed")
-    now_ms = int(time.time() * 1000)
-    target = fetch_page(db, new_title)
+    # The write lock is taken before the first read the decision rests on
+    # (existence, target, the snapshot of referencing blocks), so a batch
+    # cannot commit between that snapshot and the rewrite and escape it:
+    # it is ordered wholly before or wholly after the rename.
     try:
+        db.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError as exc:
+        if "locked" not in str(exc):
+            raise
+        raise HTTPException(status_code=503, headers={"Retry-After": "1"},
+                            detail="database busy, retry") from exc
+    try:
+        canonical = title_reader(db)
+        title = canonical(title)
+        # normalized here as well as in get_or_create_page: the merge branch
+        # below compares and reports new_title directly, so it has to be the
+        # title that actually lands in the row.
+        new_title = canonical(body.new_title)
+        if is_blank_title(new_title):
+            raise HTTPException(status_code=422,
+                                detail="title must not be blank")
+        if title_syntax_reason(new_title) is not None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"unsupported page-title syntax: {new_title!r}",
+            )
+        page = fetch_page(db, title)
+        if page is None:
+            raise HTTPException(status_code=404, detail="page not found")
+        if new_title == title:
+            raise HTTPException(status_code=400, detail="title is unchanged")
+        if date_for_title(title) is not None:
+            raise HTTPException(status_code=400,
+                                detail="daily notes cannot be renamed")
+        now_ms = int(time.time() * 1000)
+        # No IntegrityError branch: with the write lock held no other writer
+        # can create new_title after this check, and the helpers retitle
+        # sidebar entries without tripping UNIQUE(title).
+        target = fetch_page(db, new_title)
         if target is None:
             rename_page_rows(db, page["id"], title, new_title, now_ms)
             result = "renamed"
@@ -327,19 +341,10 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
             merge_page_rows(db, page["id"], target["id"], title, new_title,
                             now_ms)
             result = "merged"
-        notify.commit_and_nudge_threadpool(request, db)
-    except sqlite3.IntegrityError:
-        # Our fetch_page(new_title) check above can go stale: another
-        # request creates new_title between that check and this
-        # mutation/commit, and the UNIQUE(pages.title) constraint trips
-        # here instead. Surface the same 409 as the collision we would
-        # have raised had we seen it in time, not a raw 500. Labeling any
-        # IntegrityError this way relies on rename_page_rows retitling
-        # pages FIRST (so a title race trips before sidebar UNIQUE could)
-        # and on the helpers' refs inserts being INSERT OR IGNORE.
+    except BaseException:
         db.rollback()
-        raise HTTPException(status_code=409,
-                            detail=f"page {new_title!r} already exists")
+        raise
+    notify.commit_and_nudge_threadpool(request, db)
     return {"result": result, "title": new_title}
 
 

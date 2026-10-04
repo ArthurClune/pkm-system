@@ -1,8 +1,9 @@
 # pattern: Imperative Shell
 """Test-only launcher for the web sync property harness: the real pkm app on
 port 8978 plus a few /__proptest/* control routes that reset the database,
-move the server clock, rotate the sync generation and read applied_batches
-in commit order. The routes live here and never in pkm.server.app.
+move the server clock, rotate the sync generation, and read applied_batches
+and the page renames in commit order. The routes live here and never in
+pkm.server.app.
 
 Run (cwd server/, as proptest/check.sh runs run.py):
     TZ=Europe/London PYTHONPATH=tooling uv run python -m proptest.sync_server
@@ -54,6 +55,35 @@ SEED_PAGE = "Proptest"
 # pt_seed_6 is reserved: no generated Edit targets it, so it is live on the
 # server for the whole example and a create of it is always a 400 (BadBatch).
 SEED_UIDS = tuple(f"pt_seed_{i}" for i in range(1, 7))
+# A second page, so moves and creates can cross pages.
+SECOND_PAGE = "Second"
+SECOND_UIDS = tuple(f"pt_sec_{i}" for i in range(1, 4))
+
+# Harness-only: every page retitle, in commit order, with the applied batch
+# it followed. A rename is a route of its own, not a batch, so the serial
+# replay could not otherwise put it back between the right two batches.
+# The trigger runs inside the rename's own write transaction, so the
+# highest applied_batches rowid it reads is exactly the last batch that
+# committed before it (no applied_batches row is ever deleted). `at` is the
+# page's new updated_at: the rename route stamps it with the server clock
+# it ran at, the same now_ms its block rewrites carry, so a replay with the
+# clock set there reproduces every timestamp the rename wrote. Only the
+# rename route retitles a page while the harness runs (the title migration
+# route is never called), and nothing the oracle compares reads this table.
+RENAME_LOG_DDL = """
+CREATE TABLE proptest_renames(
+  old_title   TEXT NOT NULL,
+  new_title   TEXT NOT NULL,
+  after_batch INTEGER NOT NULL,
+  at          INTEGER NOT NULL
+);
+CREATE TRIGGER proptest_renames_au AFTER UPDATE OF title ON pages
+WHEN OLD.title IS NOT NEW.title BEGIN
+  INSERT INTO proptest_renames(old_title, new_title, after_batch, at)
+  VALUES (OLD.title, NEW.title,
+          (SELECT COALESCE(MAX(rowid), 0) FROM applied_batches), NEW.updated_at);
+END;
+"""
 START_MS = int(datetime(2026, 3, 1, 12, 0, 0, tzinfo=ZoneInfo("Europe/London")).timestamp() * 1000)
 
 logger = logging.getLogger("pkm.proptest_server")
@@ -75,20 +105,25 @@ class Clock:
 
 
 def build_template(path: Path) -> None:
-    """A fresh DB holding page "Proptest" with six top-level blocks, written
-    through the real op pipeline so the change journal and refs are as a
-    client's creates would leave them."""
+    """A fresh DB holding page "Proptest" with six top-level blocks and page
+    "Second" with three, written through the real op pipeline so the change
+    journal and refs are as a client's creates would leave them, plus the
+    rename log (RENAME_LOG_DDL). The app's schema setup is all IF NOT
+    EXISTS and leaves a table and trigger it does not know alone."""
     init_db(path)
     con = open_db(path)
     try:
+        ops = [{"op": "create", "uid": uid, "page_title": title, "parent_uid": None,
+                "order_idx": i * 10, "text": f"{label} {i + 1}"}
+               for title, label, uids in ((SEED_PAGE, "seed", SEED_UIDS),
+                                          (SECOND_PAGE, "second", SECOND_UIDS))
+               for i, uid in enumerate(uids)]
         batch = OpBatch.model_validate({
-            "client_id": "proptest-seed", "batch_id": "proptest-seed-batch",
-            "ops": [{"op": "create", "uid": uid, "page_title": SEED_PAGE, "parent_uid": None,
-                     "order_idx": i * 10, "text": f"seed {i + 1}"}
-                    for i, uid in enumerate(SEED_UIDS)]})
+            "client_id": "proptest-seed", "batch_id": "proptest-seed-batch", "ops": ops})
         con.execute("BEGIN IMMEDIATE")
         apply_batch(con, batch, START_MS)
         con.commit()
+        con.executescript(RENAME_LOG_DDL)
     finally:
         con.close()
 
@@ -157,6 +192,21 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         finally:
             con.close()
         return [{"batch_id": r["batch_id"], "applied_at": r["applied_at"]} for r in rows]
+
+    @app.get("/__proptest/renames", dependencies=[Depends(require_auth)])
+    def renames(request: Request) -> list[dict]:
+        con = open_db(request.app.state.config.db_path)
+        try:
+            # The batch each followed by id: the serial replay walks
+            # /__proptest/applied's list, which names batches, not rowids.
+            rows = con.execute(
+                "SELECT r.old_title, r.new_title, a.batch_id AS after_batch_id, r.at"
+                " FROM proptest_renames r"
+                " LEFT JOIN applied_batches a ON a.rowid = r.after_batch"
+                " ORDER BY r.rowid").fetchall()
+        finally:
+            con.close()
+        return [dict(r) for r in rows]
 
     return app
 

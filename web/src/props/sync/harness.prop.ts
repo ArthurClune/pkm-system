@@ -150,8 +150,8 @@ test("writeFails goes through the lane", async () => {
 
 test("a lane rejection whose repair fails offline is retried on reconnect", async () => {
   const a = await start("A");
-  // The repair's page read waits until the link has dropped under it.
-  const release = a.transport.stall("/api/page/");
+  // The repair's authoritative read waits until the link has dropped under it.
+  const release = a.transport.stall("/api/block/");
   a.failNextWrite();
   const bad = await a.edit([{
     op: "create", uid: BAD_UID as BlockUid, page_title: SEED_PAGE,

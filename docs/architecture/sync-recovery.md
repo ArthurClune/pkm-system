@@ -288,6 +288,46 @@ rebase replays it twice.
 Both directions are additive: an older server omits the field, and an older
 client sends no ids.
 
+### The effect ledger
+
+A pending batch's local apply writes rows it never names: it shifts the
+`order_idx` of siblings, and a cross-page create or move re-pages descendants.
+The server re-derives both and journals them, but not always for the rows the
+replica changed. `effect_ledger` (`replica/effectLedger.ts`, a client-only
+table keyed by `(batch_id, uid)`, no foreign keys) records those collateral
+writes so they can be taken back when the batch settles.
+
+| Write | Record |
+|---|---|
+| A shift of a sibling (`shiftSiblings`, or `keepSlot` when it shifts) | `order_delta + 1` on the sibling |
+| A re-page of a descendant | A page record: `base_page_id` and `base_updated_at` before the first collateral re-page. Every batch's record for one uid carries the same base |
+| A block the op names itself (create insert, the move's own row) | None, and it drops every record on that uid: the echo always re-ships it |
+
+| Event | Records dropped |
+|---|---|
+| A window upserts or tombstones a block (`dropWindowRecords`, step 4 of `applyWindow`) | Every record on that uid |
+| A pending create or move places the uid itself | Every record on that uid |
+| The batch settles | That batch's records, after the revert |
+| Snapshot, reset, rebuild or file replacement | All |
+
+A batch settles in the first head window (one that reaches the journal head)
+after its `pending_ops` row is gone: `settleBatches` runs in every head window
+for every batch with no row. A poisoned row is still a row, so
+a poisoned batch never settles; its repair rebases onto a snapshot. The revert
+subtracts each uid's summed `order_delta`, then restores `page_id` and
+`updated_at` from the base once no pending batch holds a page record for that
+uid and only if the base page exists. `remapLocalPage` rewrites bases from a
+local page id to the server's, and `dropStrandedLocalPages` keeps a page a base
+names.
+
+Settling at the head is safe because a window applied after a batch's row is
+gone has `latest_seq` at or past the batch's commit: the pending guard covers
+a stale snapshot, and a later one was read after the commit. So every journal
+row of the batch's commit has been applied before its records are reverted.
+An enqueue that reaches a file still on the old schema installs `CLIENT_DDL`
+first when `effect_ledger` is missing (`workerHandlers.ts`), so the ledger
+insert cannot fail and roll the op's optimistic apply back.
+
 ## Recovery never erases intent
 
 | Guard | Where | What it stops |
@@ -299,6 +339,7 @@ client sends no ids.
 | A payload's `applied_batches` deletes the pending rows it names before the replay | `replica/apply.ts::dropAppliedPending`, `routes_sync.py::_applied_batches` | A batch replayed over its own echo, applied twice |
 | `reapplyPending` diffs `PRAGMA foreign_key_check` around each batch and rolls a violating one back to its savepoint | `replica/apply.ts` | A pending block re-created under a row the feed removed failing the whole window at COMMIT |
 | Replay (`applyLocalOps` with `reapply`) keeps a create whose row exists, and a move whose block already sits at its target, in place | `replica/localOps.ts::keepSlot` | A pending create failing its whole batch on every window; a pending move shifting its siblings again on every window |
+| The local apply records each collateral write of a pending batch in `effect_ledger`; a head window reverts the records of every batch no longer pending | `replica/effectLedger.ts`, `replica/apply.ts::applyWindow` | A create or move the server placed in another group leaves siblings shifted or descendants re-paged at rest |
 | A rebase commit deletes the rows its flush got acks for, in the snapshot's transaction, before the replay | `replicaSync.ts::flushBatches`, `workerHandlers.ts`, `replica/ackedRows.ts` | Recovery replaying a batch's wire text over the server's result |
 | Every delete and poison mark names its row by `id` and `batch_id` both | `replica/queue.ts::deleteBatch`, `markPoisoned` | A delete queued behind a reset or file replacement removing the batch that took its row id |
 | A rebase that replaces the file commits the queue to a carry database first; every queue handler adopts a leftover carry before serving | `workerHandlers.ts`, `replica/carryStore.ts` | A failed open, schema install or import, or a killed worker, losing the queue during a file replacement |
@@ -323,19 +364,15 @@ why a payload that holds a pending batch drops it instead of replaying it
 ([§ A payload that already holds a pending batch](#a-payload-that-already-holds-a-pending-batch)).
 The same gap remains, transiently, for a window that lacks the batch: a batch
 with two moves of one block shifts that block's siblings again on each such
-window, until the ack's echo re-ships them.
+window, until the batch settles.
 
 Replaying over a window leaves two orderings wrong for one round trip, and
 both are accepted. When a window re-ships only some siblings, at their server
 `order_idx`, into a list holding locally shifted indices, the replay can put
 those siblings out of order. A replayed cross-page move keeps its root in
 place but not a descendant the window re-shipped at the old page. Each lasts
-until the ack's echo re-ships the server's rows. For an applied op, the
-triggers journal the server's own sibling shifts. For a skipped create or
-move, the skip journals the destination siblings the server left alone
-([§ Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has)).
-Nothing wrong is stored, and a fix would mean keeping pre-images of every
-row a pending op touches.
+until the batch settles, when [the effect ledger](#the-effect-ledger) takes
+back the collateral writes and the server's rows stand.
 
 ## A batch the server rejects
 
@@ -592,16 +629,10 @@ that page from the block's tombstone in the journal: its delete row, or,
 for a block the server never created because it diverted the create, the
 page the client placed it on.
 
-Known gaps, where the replica keeps its shifted keys:
-
-| Case | Why the server re-ships the wrong group, or none |
-|---|---|
-| Another device moved the block to another page and then deleted it, before this client pulled the move | The delete row names the page the block was on when deleted, not the one the replica shifted |
-| The block was deleted before the journal recorded pages | Its delete row has no `page_id` |
-| A diverted create whose `page_title` names no page, under a parent with no page-bearing tombstone | Its own tombstone has no `page_id` either |
-| A top-level move whose `page_title` names a page another device renamed, of a block the server no longer has | The stale title names no page, so the skip finds no siblings to re-ship |
-| A client that, offline, moved a block the server no longer has to page Q with a `page_title` (skipped), then makes a top-level move with no `page_title` | The replica now has the block on Q and targets Q. The server reads the page from the block's tombstone, which is the original page, and re-ships that group instead |
-| An op the server applies, not skips, on another page than the replica's: a top-level move with no `page_title` of a block another device moved, or a top-level create or move whose `page_title` page another device renamed | The server shifts and journals its own page's siblings; the replica's page is never re-shipped ([troubleshooting](../troubleshooting.md#sync-and-offline)) |
+The server's journalling of the destination group is defence in depth. The
+replica does not depend on it: its [effect ledger](#the-effect-ledger) reverts
+the shifts of every skipped or re-placed create and move, whichever group the
+server named.
 
 A block tombstone cascades its local subtree. A replica applies it only in
 the window that reaches the journal head, after that window's upserts

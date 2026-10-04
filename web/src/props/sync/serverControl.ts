@@ -5,6 +5,15 @@ import type { BatchId, SyncSeq } from "../../api/brands";
 import type { Changes, Snapshot } from "../../replica/apply";
 import { BASE_URL, PASSWORD } from "./env";
 
+/** One page retitle, in commit order: the batch it followed (null: before
+ * every batch) and the server clock it ran at. */
+export interface RenameRecord {
+  old_title: string;
+  new_title: string;
+  after_batch_id: BatchId | null;
+  at: number;
+}
+
 export interface ServerControl {
   cookie: string;
   reset(): Promise<void>;
@@ -12,11 +21,16 @@ export interface ServerControl {
   rotateGeneration(): Promise<void>;
   /** applied_batches in commit order. */
   applied(): Promise<{ batch_id: BatchId; applied_at: number }[]>;
+  /** Every page retitle, in commit order. */
+  renames(): Promise<RenameRecord[]>;
   snapshot(): Promise<Snapshot>;
   /** The journal's latest seq. */
   latestSeq(): Promise<SyncSeq>;
   /** POST /api/ops with this exact body, for replaying a recorded request. */
   postRaw(body: string): Promise<Response>;
+  /** POST the rename route as the SPA does (no merge), for replaying a
+   * recorded rename. */
+  postRename(from: string, to: string): Promise<Response>;
   /** The same control whose every request is aborted when `signal` fires, so
    * a request already on the wire cannot commit after its owner gave up. */
   withSignal(signal: AbortSignal): ServerControl;
@@ -64,6 +78,8 @@ function control(cookie: string, signal?: AbortSignal): ServerControl {
     applied: async () =>
       (await (await call("/__proptest/applied")).json()) as
         { batch_id: BatchId; applied_at: number }[],
+    renames: async () =>
+      (await (await call("/__proptest/renames")).json()) as RenameRecord[],
     snapshot: async () =>
       (await (await call("/api/sync/snapshot")).json()) as Snapshot,
     latestSeq: async () => {
@@ -77,6 +93,13 @@ function control(cookie: string, signal?: AbortSignal): ServerControl {
       body,
       signal,
     }),
+    postRename: (from, to) => fetch(
+      `${BASE_URL}/api/page/${encodeURIComponent(from)}/rename`, {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ new_title: to, allow_merge: false }),
+        signal,
+      }),
     withSignal: (next) => control(cookie, next),
   };
 }

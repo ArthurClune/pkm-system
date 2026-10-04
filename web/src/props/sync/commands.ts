@@ -19,8 +19,9 @@
 import fc from "fast-check";
 import type { BlockUid, OrderIdx, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
-import { BAD_UID, editDrafts, resolveOps, SEED_PAGE, showDraft, showOp,
-         targetPool, type OpDraft } from "./arbitraries";
+import { ApiError } from "../../api/client";
+import { BAD_UID, editDrafts, PAGE_TITLES, pageTitle, resolveOps, SEED_PAGE, showDraft,
+         showOp, targetPool, type OpDraft } from "./arbitraries";
 import type { ConnectLanding, HarnessClient } from "./harnessClient";
 import { countDown, FALL_BACK, midnightCrossing, type MidnightDay, type OfflineBack,
          SPRING_FORWARD, type SyncModel } from "./model";
@@ -133,7 +134,16 @@ export class Edit extends SyncCommand {
     m.freshUids[this.client] = (m.freshUids[this.client] ?? []).slice(used.length);
     m.createdUids.push(...used);
     w.count("Edit");
-    for (const op of ops) w.count(`Edit op ${op.op}`);
+    for (const op of ops) {
+      w.count(`Edit op ${op.op}`);
+      // Where a title places the op: a top-level create's page, and whether
+      // a top-level move names one.
+      if (op.op === "create" && op.parent_uid === null) {
+        w.count(`Edit op create top of ${op.page_title}`);
+      } else if (op.op === "move" && op.parent_uid === null) {
+        w.count(op.page_title ? `Edit op move top of ${op.page_title}` : "Edit op move top untitled");
+      }
+    }
     const id = await clientOf(w, this.client).edit(ops);
     m.good.get(this.client)?.push(id);
     return `Edit(${this.client}) ${id}: ${ops.map(showOp).join("; ")}`;
@@ -350,6 +360,59 @@ export class CrossMidnight extends SyncCommand {
   toString(): string { return `CrossMidnight(${this.day})`; }
 }
 
+/** Statuses the rename route refuses a drawn rename with: 404 when no page
+ * has the old title (renamed away, or never made), 409 when a page has the
+ * new one, 400 when they are the same title. */
+const REFUSED = new Set([400, 404, 409]);
+
+/** A page rename from the title pool, as the SPA's PageTitle commits one:
+ * the rename route straight through this client's network, not an op, and
+ * never a merge. Offline it runs and fails, as a user's attempt does. The
+ * other clients learn of it only from the feed, so their queued and later
+ * ops may still name the old title. */
+export class Rename extends SyncCommand {
+  protected readonly kindName = "Rename";
+  constructor(readonly client: string, readonly from: number, readonly to: number) { super(); }
+
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return notStarted(m, this.client);
+  }
+
+  protected async act(_m: SyncModel, w: World): Promise<string> {
+    const c = clientOf(w, this.client);
+    const [from, to] = [pageTitle(this.from), pageTitle(this.to)];
+    let outcome: string;
+    try {
+      await c.transport.fetchJson(`/api/page/${encodeURIComponent(from)}/rename`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_title: to, allow_merge: false }),
+      });
+      outcome = "renamed";
+    } catch (error: unknown) {
+      if (error instanceof ApiError && REFUSED.has(error.status)) {
+        outcome = `refused ${error.status}`;
+      } else if (error instanceof TypeError) {
+        // The transport's dead network: offline, as the model says.
+        outcome = "failed offline";
+      } else {
+        throw error;
+      }
+    }
+    w.count(`Rename ${outcome}`);
+    return `${this.toString()}: ${outcome}`;
+  }
+
+  toString(): string {
+    return `Rename(${this.client}, ${pageTitle(this.from)} -> ${pageTitle(this.to)})`;
+  }
+}
+
+/** A Rename's two titles: any pool title, and a different one. */
+const renameTitles: fc.Arbitrary<[number, number]> = fc.tuple(
+  fc.nat({ max: PAGE_TITLES.length - 1 }), fc.integer({ min: 1, max: PAGE_TITLES.length - 1 }),
+).map(([from, step]) => [from, (from + step) % PAGE_TITLES.length]);
+
 /** The clients an example may start, in order: an example with two
  * starts A and B. */
 export const NAMES = ["A", "B", "C"] as const;
@@ -379,9 +442,9 @@ export const connectTiming: fc.Arbitrary<number | undefined> =
 /** Every command, naming only `names` (the clients the example starts), so
  * no draw is spent on a client the example lacks. Weighted as calibrated:
  * Edit 10, Pull 3, Nudge 3, Offline 3, Fault 3, Reload 2, BadBatch 1,
- * RotateGeneration 1, CrossMidnight 1, so a BadBatch is about one command
- * in twenty-seven. An Offline's three units buy a whole offline period,
- * its return included. */
+ * RotateGeneration 1, CrossMidnight 1, Rename 1, so a BadBatch is about one
+ * command in twenty-eight. An Offline's three units buy a whole offline
+ * period, its return included. */
 export function commandsFor(names: readonly string[]): fc.Arbitrary<SyncCommand>[] {
   const client = fc.constantFrom(...names);
   return [fc.oneof(
@@ -402,5 +465,7 @@ export function commandsFor(names: readonly string[]): fc.Arbitrary<SyncCommand>
         { weight: 3, arbitrary: fc.constant<MidnightDay>("model") },
         { weight: 1, arbitrary: fc.constantFrom<MidnightDay>(SPRING_FORWARD, FALL_BACK) },
       ).map((day) => new CrossMidnight(day)) },
+    { weight: 1, arbitrary: fc.tuple(client, renameTitles)
+        .map(([c, [from, to]]) => new Rename(c, from, to)) },
   )];
 }

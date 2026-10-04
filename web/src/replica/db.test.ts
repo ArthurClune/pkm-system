@@ -126,6 +126,16 @@ describe("wrapSqlite + installSchema", () => {
     t.close();
   });
 
+  test("installSchema creates effect_ledger and its uid index", async () => {
+    const t = await openTestDb();
+    const names = t.db.select<{ name: string }>(
+      "SELECT name FROM sqlite_master").map((r) => r.name);
+    expect(names).toContain("effect_ledger");
+    expect(names).toContain("idx_effect_ledger_uid");
+    expect(t.db.select("PRAGMA foreign_key_list(effect_ledger)")).toEqual([]);
+    t.close();
+  });
+
   test("is idempotent and stamps a schema version", async () => {
     const t = await openTestDb();
     installSchema(t.db); // second run must be a no-op

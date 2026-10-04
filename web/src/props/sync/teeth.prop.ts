@@ -120,6 +120,60 @@ test("a tampered committed body trips serial replay", async () => {
     .toContain("serial replay");
 });
 
+/** A renames Second to Third between two of its batches, pulls it, and the
+ * second batch creates on Second, which the server then get_or_creates
+ * afresh: where the rename falls among the batches decides which page the
+ * create lands on, so a replay that puts it back in the wrong place, or not
+ * at all, builds a different graph. */
+async function renameScenario(): Promise<{
+  a: HarnessClient; b: HarnessClient; exp: Expectation; committed: Map<BatchId, string>;
+}> {
+  const a = await start("A");
+  const b = await start("B");
+  const a1 = await a.edit(setText("pt_sec_1", "before the rename"));
+  await a.queue.drain();
+  await a.transport.fetchJson(`/api/page/${encodeURIComponent("Second")}/rename`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ new_title: "Third", allow_merge: false }),
+  });
+  await a.pull();
+  const a2 = await a.edit([{
+    op: "create", uid: "pt_A_1" as BlockUid, page_title: "Second",
+    parent_uid: null, order_idx: 0 as OrderIdx, text: "on a new Second",
+  }]);
+  await a.queue.drain();
+  await quiesce([a, b], server);
+  return {
+    a, b,
+    exp: { good: new Map([["A", [a1, a2]], ["B", []]]), bad: new Set() },
+    committed: new Map([...a.transport.committed, ...b.transport.committed]),
+  };
+}
+
+test("a run with a rename replays clean", async () => {
+  const { a, b, exp } = await renameScenario();
+  expect((await server.renames()).map((r) => r.new_title)).toEqual(["Third"]);
+  expect(await failures("rename", checkQuiescent([a, b], server, exp))).toEqual([]);
+});
+
+test("an omitted rename trips serial replay", async () => {
+  const { a, b, exp, committed } = await renameScenario();
+  expect(await failures("omitted rename",
+                        checkQuiescent([a, b], server, exp, { committed, renames: [] })))
+    .toContain("serial replay");
+});
+
+test("a rename replayed after the wrong batch trips serial replay", async () => {
+  const { a, b, exp, committed } = await renameScenario();
+  const [rename] = await server.renames();
+  const [, a2] = exp.good.get("A") ?? [];
+  expect(rename.after_batch_id).not.toBe(a2);
+  expect(await failures("misplaced rename", checkQuiescent(
+    [a, b], server, exp, { committed, renames: [{ ...rename, after_batch_id: a2 }] })))
+    .toContain("serial replay");
+});
+
 test("quiesce reports liveness failure", async () => {
   const a = await start("A");
   a.offline();

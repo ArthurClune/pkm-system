@@ -31,11 +31,13 @@ import { appliedPendingRows } from "./ackedRows";
 import { reindexBlockRefs } from "./blockRefs";
 import type { DroppedBatch, PendingRowId } from "./client";
 import { type ReplicaDb, rollbackToSavepoint, type SqlValue } from "./db";
+import { clearLedger, dropWindowRecords, settleBatches } from "./effectLedger";
 import { applyLocalOps } from "./localOps";
 import { deleteMeta, getMeta, setMeta,
          setPlainSpaceTitleCanonicalization } from "./meta";
 import { allBatches, deleteBatch } from "./queue";
-import { reconcileActivationPageTitles, reconcilePage } from "./reconcile";
+import { dropStrandedLocalPages, reconcileActivationPageTitles,
+         reconcilePage } from "./reconcile";
 
 export type Changes = components["schemas"]["ChangesPayload"];
 export type Snapshot = components["schemas"]["SnapshotPayload"];
@@ -119,6 +121,8 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
     db.exec("DELETE FROM blocks");
     db.exec("DELETE FROM pages");
     db.exec("DELETE FROM sidebar_entries");
+    // the snapshot is every row's base; the replay below records afresh
+    clearLedger(db);
     for (const p of snap.pages) upsertPage(db, p);
     for (const b of snap.blocks) upsertBlock(db, b);
     for (const s of snap.sidebar) {
@@ -174,7 +178,7 @@ function reapplyPending(db: ReplicaDb, nowMs: number): void {
     let result: { after: Set<string> } | null;
     let failure: unknown;
     try {
-      applyLocalOps(db, b.ops, nowMs, { reapply: true });
+      applyLocalOps(db, b.ops, nowMs, { batchId: b.batch_id, reapply: true });
       const after = fkViolations(db);
       result = addsFkViolation(before, after) ? null : { after };
     } catch (error: unknown) {
@@ -419,11 +423,26 @@ function owedBlockTombstones(earlier: readonly BlockUid[],
 }
 
 /** Order inside the window transaction: page and sidebar tombstones, then
- * pages and blocks, then block tombstones (in the window at the journal
- * head only, below), then sidebar upserts, then dropping the pending rows
- * the window names as applied, then the queue replay. Deferred FKs make
- * the order irrelevant for referential integrity; the UNIQUE titles and
- * the local cascades fix it.
+ * pages and blocks, then dropping the effect-ledger records of every block
+ * the window ships or tombstones, then block tombstones (in the window at
+ * the journal head only, below), then sidebar upserts, then dropping the
+ * pending rows the window names as applied, then (at the head only)
+ * settling every batch no longer pending, then the queue replay, then
+ * dropping (at the head only) the local pages nothing keeps
+ * (dropStrandedLocalPages). Deferred
+ * FKs make the order irrelevant for referential integrity; the UNIQUE
+ * titles and the local cascades fix it.
+ *
+ * The settle follows dropAppliedPending, so a batch this window names
+ * settles in it, and the local-page remaps, so bases name server ids; it
+ * precedes the replay, so later batches build on the reverted rows, and
+ * dropStrandedLocalPages, since a revert can put a block back on a local
+ * page. The settle waits for the head window: an ack can delete a batch's
+ * row before the window holding its commit's journal rows arrives, and only
+ * the window at the head is sure to have applied every one of them.
+ * dropStrandedLocalPages waits for it too: an acked create_page batch no
+ * longer names its page, and the server's page for it may ship in a later
+ * window than the one carrying the ack.
  *
  * Page and sidebar tombstones lead. A row that gave a title up by being
  * deleted must be gone before the row that took the title arrives. A page
@@ -486,6 +505,13 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
     for (const p of feed.pages) upsertPage(db, p);
     assertNoParkedTitles(db, "pages", parkedPages);
     for (const b of feed.blocks) upsertBlock(db, b);
+    // The server's row supersedes the local one, so nothing a pending batch
+    // did to it is left to revert; a tombstoned uid alike, applied now or
+    // deferred.
+    dropWindowRecords(db, [
+      ...feed.blocks.map((b) => b.uid),
+      ...feed.tombstones.filter((tm) => tm.kind === "block")
+        .map((tm) => tm.entity_id as BlockUid)]);
     if (atHead) {
       for (const u of owed) applyTombstone(db, { kind: "block", entity_id: u });
     }
@@ -509,7 +535,9 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
       db, feed.plain_space_title_canonicalization);
     reconcileActivationPageTitles(db);
     const dropped = dropAppliedPending(db, feed.applied_batches, droppable);
+    if (atHead) settleBatches(db);
     reapplyPending(db, nowMs);
+    if (atHead) dropStrandedLocalPages(db, nowMs);
     return dropped;
   });
 }

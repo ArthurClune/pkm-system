@@ -7,10 +7,15 @@
 // (already running with defer_foreign_keys): remap children + refs, delete
 // the negative row, and let the caller insert the authoritative row.
 
-import type { PageId } from "../api/brands";
+import type { CanonicalTitle, PageId } from "../api/brands";
 import type { SyncPage } from "./apply";
+import { titleForDate } from "./daily";
 import type { ReplicaDb } from "./db";
+import { remapBasePage } from "./effectLedger";
+import { storedPageTitle } from "./localOps";
 import { titleReader } from "./meta";
+import { allBatches } from "./queue";
+import { opPageTitles } from "./titles";
 
 /** A named-object parameter, not two positional PageIds: a brand alone can't
  * tell `localId` and `targetId` apart, since both are the same type. */
@@ -23,6 +28,7 @@ export const remapLocalPage = (db: ReplicaDb,
   // the refs primary key
   db.exec("UPDATE OR REPLACE refs SET target_page_id = ?" +
           " WHERE target_page_id = ?", [targetId, localId]);
+  remapBasePage(db, { localId, targetId });
   db.exec("DELETE FROM pages WHERE id = ?", [localId]);
 };
 
@@ -58,5 +64,40 @@ export function reconcileActivationPageTitles(db: ReplicaDb): void {
     } else {
       remapLocalPage(db, { localId: local.id, targetId: targets[0].id });
     }
+  }
+}
+
+/** Delete every negative-id page nothing keeps: no block on it, no ref to
+ * it, no effect-ledger record naming it as a base (the settle may put a
+ * block back on it), no pending op naming its title (a poisoned batch is
+ * not replayed, so it names nothing), and not today's daily page (a read
+ * makes that one locally, with no op behind it).
+ *
+ * reconcilePage matches a local page to the feed's only by title, so a
+ * local page the server never made under that title is never matched: the
+ * server renamed the page before the pull, or skipped the op that made it.
+ * Its blocks leave it by their own rows; this removes the page they leave
+ * behind. Run after the window's block tombstones, the settle and the queue
+ * replay, so a block whose tombstone is deferred still keeps its page, a
+ * reverted block is back on its page, and a replayed op has re-made
+ * whatever it needs. Call it only for the window at the journal head: a
+ * batch acked mid catch-up no longer names its page, and the server's page
+ * for it has not necessarily arrived yet. Positive ids are the server's and are
+ * never touched. */
+export function dropStrandedLocalPages(db: ReplicaDb, nowMs: number): void {
+  const stranded = db.select<{ id: PageId; title: CanonicalTitle }>(
+    "SELECT id, title FROM pages p WHERE id < 0" +
+    " AND NOT EXISTS (SELECT 1 FROM blocks WHERE page_id = p.id)" +
+    " AND NOT EXISTS (SELECT 1 FROM refs WHERE target_page_id = p.id)" +
+    " AND NOT EXISTS (SELECT 1 FROM effect_ledger WHERE base_page_id = p.id)");
+  if (stranded.length === 0) return;
+  const read = titleReader(db);
+  const kept = new Set<CanonicalTitle>(
+    allBatches(db).filter((b) => !b.poisoned)
+      .flatMap((b) => opPageTitles(b.ops))
+      .map((title) => storedPageTitle(read, title)));
+  kept.add(titleForDate(new Date(nowMs)));
+  for (const p of stranded) {
+    if (!kept.has(p.title)) db.exec("DELETE FROM pages WHERE id = ?", [p.id]);
   }
 }

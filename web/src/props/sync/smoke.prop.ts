@@ -13,7 +13,7 @@ async function login(): Promise<string> {
   return (res.headers.getSetCookie()[0] ?? "").split(";")[0];
 }
 
-test("harness server resets to the six seed blocks", async () => {
+test("harness server resets to the seed blocks of both pages", async () => {
   // An earlier file may have left the server clock far past START_MS, and a
   // cookie issued there is in the future once the reset returns the clock:
   // the first login only buys the reset, the second is the one used.
@@ -27,7 +27,8 @@ test("harness server resets to the six seed blocks", async () => {
     await fetch(`${BASE_URL}/api/sync/snapshot`, { headers: { cookie } })
   ).json()) as { blocks: { uid: string }[] };
   expect(snap.blocks.map((b) => b.uid).sort()).toEqual(
-    ["pt_seed_1", "pt_seed_2", "pt_seed_3", "pt_seed_4", "pt_seed_5", "pt_seed_6"],
+    ["pt_sec_1", "pt_sec_2", "pt_sec_3",
+     "pt_seed_1", "pt_seed_2", "pt_seed_3", "pt_seed_4", "pt_seed_5", "pt_seed_6"],
   );
 });
 

@@ -3,7 +3,7 @@
 // the authoritative row for a page created offline, children and refs are
 // remapped inside the window transaction — never a cascade delete.
 import { beforeEach, describe, expect, test } from "vitest";
-import type { SyncSeq } from "../api/brands";
+import type { BatchId, SyncSeq } from "../api/brands";
 import { applyChanges, type Changes } from "./apply";
 import { applyLocalOps } from "./localOps";
 import { setMeta } from "./meta";
@@ -25,7 +25,7 @@ beforeEach(async () => {
       order_idx: ord(0), text: "links back to [[AI]]" },
     { op: "create", uid: uid("uid_l2"), page_title: "Offline Page", parent_uid: uid("uid_l1"),
       order_idx: ord(0), text: "a child" },
-  ], 50);
+  ], 50, { batchId: "t" as BatchId });
   negId = t.db.select<{ id: number }>(
     "SELECT id FROM pages WHERE title = 'Offline Page'")[0].id;
   expect(negId).toBeLessThan(0);
@@ -103,5 +103,21 @@ describe("reconcile on feed page delivery", () => {
     expect(t.db.select(
       "SELECT target_page_id FROM refs WHERE src_block_uid = 'uid_a1'"))
       .toEqual([{ target_page_id: 7 }]);
+  });
+
+  test("remapLocalPage rewrites ledger bases", () => {
+    t.db.exec("INSERT INTO effect_ledger(batch_id, uid, base_page_id, base_updated_at)" +
+              " VALUES ('b1', 'uid_x', ?, 5), ('b2', 'uid_y', 1, 6)", [negId]);
+
+    t.db.transaction(() => {
+      t.db.exec("PRAGMA defer_foreign_keys = ON");
+      remapLocalPage(t.db, { localId: pageId(negId), targetId: pageId(7) });
+      t.db.exec("INSERT INTO pages(id, title) VALUES (7, 'Offline Page')");
+    });
+
+    expect(t.db.select(
+      "SELECT uid, base_page_id, base_updated_at FROM effect_ledger ORDER BY uid"))
+      .toEqual([{ uid: "uid_x", base_page_id: 7, base_updated_at: 5 },
+                { uid: "uid_y", base_page_id: 1, base_updated_at: 6 }]);
   });
 });

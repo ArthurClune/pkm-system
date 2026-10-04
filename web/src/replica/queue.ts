@@ -104,7 +104,7 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
         // reapplyPending restores local consistency once rows exist.
         db.exec("SAVEPOINT optimistic_op");
         try {
-          applyLocalOps(db, [wireOp], nowMs);
+          applyLocalOps(db, [wireOp], nowMs, { batchId });
           db.exec("RELEASE optimistic_op");
         } catch (error: unknown) {
           rollbackToSavepoint(db, "optimistic_op", error);

@@ -3,7 +3,7 @@
 // reconciles a local page only by title (reconcilePage), so a local page
 // the server never made under that title -- it was renamed before the pull,
 // or the op that made it was skipped -- would otherwise outlive everything
-// that needed it. A window drops a local page once nothing keeps it: no
+// that needed it. The window at the journal head drops a local page once nothing keeps it: no
 // block on it, no ref to it, no pending op naming its title. Server pages
 // are never dropped, however empty.
 import { beforeEach, describe, expect, test } from "vitest";
@@ -247,5 +247,31 @@ describe("applyChanges: a local page a ledger base names", () => {
 
     expect(titles()).toEqual(["Proptest", "Second"]);
     expect(t.db.select("SELECT * FROM effect_ledger")).toEqual([]);
+  });
+});
+
+describe("applyChanges: dropping stranded local pages waits for the head window", () => {
+  test("an acked batch's page survives a window short of the head", () => {
+    enqueue([{ op: "create_page", page_title: "Draft" }], "b-page");
+    ackNext(t.db);
+
+    applyChanges(t.db, window({ next_since: 11, latest_seq: 12 }), NOW);
+    expect(titles()).toContain("Draft");
+
+    applyChanges(t.db, window({ next_since: 12, latest_seq: 12 }), NOW);
+    expect(titles()).toEqual(["Proptest", "Second"]);
+  });
+
+  test("the server's page for the acked batch replaces it at the head", () => {
+    enqueue([{ op: "create_page", page_title: "Draft" }], "b-page");
+    ackNext(t.db);
+
+    applyChanges(t.db, window({ next_since: 11, latest_seq: 12 }), NOW);
+    applyChanges(t.db, window({
+      next_since: 12, latest_seq: 12, pages: [page(7, "Draft")],
+    }), NOW);
+
+    expect(t.db.select<{ id: number }>(
+      "SELECT id FROM pages WHERE title = 'Draft'")).toEqual([{ id: 7 }]);
   });
 });

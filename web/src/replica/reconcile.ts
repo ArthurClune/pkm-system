@@ -80,7 +80,9 @@ export function reconcileActivationPageTitles(db: ReplicaDb): void {
  * behind. Run after the window's block tombstones, the settle and the queue
  * replay, so a block whose tombstone is deferred still keeps its page, a
  * reverted block is back on its page, and a replayed op has re-made
- * whatever it needs. Positive ids are the server's and are
+ * whatever it needs. Call it only for the window at the journal head: a
+ * batch acked mid catch-up no longer names its page, and the server's page
+ * for it has not necessarily arrived yet. Positive ids are the server's and are
  * never touched. */
 export function dropStrandedLocalPages(db: ReplicaDb, nowMs: number): void {
   const stranded = db.select<{ id: PageId; title: CanonicalTitle }>(

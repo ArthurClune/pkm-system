@@ -232,7 +232,6 @@ const place = (db: ReplicaDb, op: CreateOp | MoveOp, block: BlockInfo | null,
       db.exec("UPDATE blocks SET page_id = ?, updated_at = ? WHERE uid = ?",
               [pageId, nowMs, uid]);
     }
-    dropRecordsOf(db, op.uid);
     touchPage(db, moved.page_id, nowMs);
   }
   touchPage(db, pageId, nowMs);

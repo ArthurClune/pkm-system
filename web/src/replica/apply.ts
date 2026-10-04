@@ -428,7 +428,8 @@ function owedBlockTombstones(earlier: readonly BlockUid[],
  * the journal head only, below), then sidebar upserts, then dropping the
  * pending rows the window names as applied, then (at the head only)
  * settling every batch no longer pending, then the queue replay, then
- * dropping the local pages nothing keeps (dropStrandedLocalPages). Deferred
+ * dropping (at the head only) the local pages nothing keeps
+ * (dropStrandedLocalPages). Deferred
  * FKs make the order irrelevant for referential integrity; the UNIQUE
  * titles and the local cascades fix it.
  *
@@ -436,9 +437,12 @@ function owedBlockTombstones(earlier: readonly BlockUid[],
  * settles in it, and the local-page remaps, so bases name server ids; it
  * precedes the replay, so later batches build on the reverted rows, and
  * dropStrandedLocalPages, since a revert can put a block back on a local
- * page. It waits for the head window: an ack can delete a batch's row
- * before the window holding its commit's journal rows arrives, and only
+ * page. The settle waits for the head window: an ack can delete a batch's
+ * row before the window holding its commit's journal rows arrives, and only
  * the window at the head is sure to have applied every one of them.
+ * dropStrandedLocalPages waits for it too: an acked create_page batch no
+ * longer names its page, and the server's page for it may ship in a later
+ * window than the one carrying the ack.
  *
  * Page and sidebar tombstones lead. A row that gave a title up by being
  * deleted must be gone before the row that took the title arrives. A page
@@ -533,7 +537,7 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
     const dropped = dropAppliedPending(db, feed.applied_batches, droppable);
     if (atHead) settleBatches(db);
     reapplyPending(db, nowMs);
-    dropStrandedLocalPages(db, nowMs);
+    if (atHead) dropStrandedLocalPages(db, nowMs);
     return dropped;
   });
 }

@@ -23,6 +23,16 @@ CREATE TABLE IF NOT EXISTS pending_ops(
   poisoned INTEGER NOT NULL DEFAULT 0,
   error    TEXT
 );
+
+CREATE TABLE IF NOT EXISTS effect_ledger(
+  batch_id        TEXT NOT NULL,
+  uid             TEXT NOT NULL,
+  order_delta     INTEGER NOT NULL DEFAULT 0,
+  base_page_id    INTEGER,
+  base_updated_at INTEGER,
+  PRIMARY KEY (batch_id, uid)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_effect_ledger_uid ON effect_ledger(uid);
 `;
 
 /** Identifies the exact DDL a replica file was built with; a mismatch on

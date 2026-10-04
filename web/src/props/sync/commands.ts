@@ -364,11 +364,12 @@ export const offlineBack: fc.Arbitrary<OfflineBack> = fc.oneof(
  * begins; absent half the time, when it comes once the startup has
  * finished. A startup spans a few ticks: measured over the property's own
  * examples, a first start finished after 2 to 5 (mostly 3 or 4), a reload
- * after 1 to 7 (median 3, with a long tail). Ticks 0
+ * after 1 to 7 (median 3, with a long tail). Ticks 1
  * to 7 land a connect before the startup's first reply, inside it, and
- * after it, for both. */
+ * after it, for both. Never tick 0: the socket's open event is a macrotask
+ * of its own, so in the app at least one turn passes after the mount. */
 export const connectTiming: fc.Arbitrary<number | undefined> =
-  fc.option(fc.integer({ min: 0, max: 7 }), { nil: undefined, freq: 2 });
+  fc.option(fc.integer({ min: 1, max: 7 }), { nil: undefined, freq: 2 });
 
 /** Every command, naming only `names` (the clients the example starts), so
  * no draw is spent on a client the example lacks. Weighted as calibrated:

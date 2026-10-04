@@ -43,14 +43,14 @@ describe("connect timing", () => {
   it("shows a Reload's timing, and none when it connects after startup", () => {
     expect(new Reload("A").toString()).toBe("Reload(A)");
     expect(new Reload("A", 3).toString()).toBe("Reload(A, connect at tick 3)");
-    expect(new Reload("B", 0).toString()).toBe("Reload(B, connect at tick 0)");
+    expect(new Reload("B", 1).toString()).toBe("Reload(B, connect at tick 1)");
   });
 
-  it("draws no timing, or a tick from 0 to 7", () => {
+  it("draws no timing, or a tick from 1 to 7, never 0", () => {
     const drawn = fc.sample(connectTiming, { numRuns: 1000, seed: 4 });
     expect(drawn).toContain(undefined);
     const timed = drawn.filter((t) => t !== undefined);
-    expect(new Set(timed)).toEqual(new Set([0, 1, 2, 3, 4, 5, 6, 7]));
+    expect(new Set(timed)).toEqual(new Set([1, 2, 3, 4, 5, 6, 7]));
   });
 
   it("tallies where a connect landed", () => {

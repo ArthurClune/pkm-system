@@ -595,11 +595,11 @@ Known gaps, where the replica keeps its shifted keys:
 | A client that, offline, moved a block the server no longer has to page Q with a `page_title` (skipped), then makes a top-level move with no `page_title` | The replica now has the block on Q and targets Q. The server reads the page from the block's tombstone, which is the original page, and re-ships that group instead |
 | An op the server applies, not skips, on another page than the replica's: a top-level move with no `page_title` of a block another device moved, or a top-level create or move whose `page_title` page another device renamed | The server shifts and journals its own page's siblings; the replica's page is never re-shipped ([troubleshooting](../troubleshooting.md#sync-and-offline)) |
 
-A block tombstone cascades its local subtree, and a replica applies it after
-the window's upserts ([sync-and-offline.md § The changes feed](sync-and-offline.md#the-changes-feed)).
-The server orders its journal rows so that a window boundary never puts a
-tombstone after the rows that restore what it cascades away (same section of
-backend.md). The ghost goes without a snapshot repair.
+A block tombstone cascades its local subtree. A replica applies it only in
+the window that reaches the journal head, after that window's upserts
+([sync-and-offline.md § The changes feed](sync-and-offline.md#the-changes-feed)).
+By then the skip's live rows have placed every block the server kept, so the
+cascade takes only the ghost, without a snapshot repair.
 
 The replica's local apply skips the same ops. `skipsOnMissingTarget`
 (`replica/missingTarget.ts`) mirrors `classify_skip`, and

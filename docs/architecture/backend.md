@@ -412,15 +412,16 @@ one uid in the same batch land both texts.
 
 `JournalBlock` writes the journal row the triggers would. It marks a uid
 with no block row `deleted`, because the feed ships a block tombstone only
-from a delete row; a live uid ships as its current row. A block tombstone cascades the whole local subtree. A replica
-applies a window's block tombstones after its upserts, so rows in the same
-window move blocks out first. A ghost parent's tombstone in an earlier window
-than those rows still deletes the live blocks a replica optimistically moved
-under it. So a move to a missing parent journals the moved subtree, not just
-its root.
-`_plan_skip` emits tombstones before live rows, so a window
-boundary can never put a tombstone after the rows that restore what it
-cascades away.
+from a delete row; a live uid ships as its current row.
+
+A block tombstone cascades the whole local subtree, so a ghost parent's
+tombstone deletes the live blocks a replica optimistically moved under it.
+A move to a missing parent therefore journals the moved subtree, not just its
+root, and those rows restore the blocks. A replica applies block tombstones
+only in the window that reaches the journal head, after its upserts
+([sync-and-offline.md § The changes feed](sync-and-offline.md#the-changes-feed)),
+so the window boundaries between `_plan_skip`'s tombstones and live rows do
+not matter.
 
 A skipped `create` or `move` also shifted its destination siblings in the
 client's optimistic apply, and the server did not. Where nothing else

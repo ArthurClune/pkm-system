@@ -39,11 +39,10 @@ block the server kept is placed by its own shipped row or sits under an
 unchanged chain of blocks the server also kept, so no cascade reaches
 it. A per-window cascade would not: an ancestor that moved out of a
 deleted subtree and was deleted in a later window ships nothing for its
-move (it is absent now), and its descendants' rows never re-ship.
-Shipped from an older
-live row, a tombstone could run before that move arrives. Every block
-delete journals a delete row: the delete trigger fires for cascaded rows
-too, and ops_core.JournalBlock marks a uid with no block row deleted."""
+move (it is absent now), and its descendants' rows never re-ship. Every
+block delete journals a delete row: the delete trigger fires for cascaded
+rows too, and ops_core.JournalBlock marks a uid with no block row
+deleted."""
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence

@@ -1,11 +1,7 @@
 """A block tombstone ships only in the window that holds the block's delete
 row. A replica cascades a block tombstone through its local subtree, after
 the upserts of the window that reaches the journal head; a window short of
-the head records its block tombstones for that window to apply. Every block
-the server kept left a deleted subtree before the delete, so its move row
-lies in the delete row's window or an earlier one. A tombstone shipped from
-an older live row of the block, ahead of its delete row, would run the
-cascade before those moves arrive.
+the head records its block tombstones for that window to apply.
 
 Waiting for the head covers a kept block whose ancestor moved out of the
 deleted subtree and was deleted itself in a later window: the ancestor's
@@ -81,7 +77,10 @@ def _build_edit_move_delete(client):
     return start
 
 
-def test_window_cut_before_the_delete_row_keeps_the_moved_out_subtree(client):
+def test_window_cut_before_the_delete_row_ships_the_move_first(client):
+    """The feed ships a moved-out block's row no later than its old
+    parent's tombstone. The replica's end shape holds either way, since its
+    cascade waits for the head window."""
     start = _build_edit_move_delete(client)
     local = {"uid_tw_p": None, "uid_tw_c": "uid_tw_p", "uid_tw_g": "uid_tw_c"}
 

@@ -1002,6 +1002,36 @@ describe("pull retries and the stall report", () => {
     expect(states.some((s) => s.mode === "stalled")).toBe(false);
   });
 
+  test("pending-changed retries count per run, not per pull", async () => {
+    // Each of the 6 windows races the local queue 5 times before it applies:
+    // 30 pending-changed results in all (over the cap), never 20 in a row.
+    const racesPerWindow = PENDING_CHANGED_CAP / 4;
+    const windows = 6;
+    let racesLeft = racesPerWindow;
+    const applyChanges = vi.fn(async (f: Changes) => {
+      if (racesLeft > 0) {
+        racesLeft -= 1;
+        return { status: "pending-changed" as const };
+      }
+      racesLeft = racesPerWindow;
+      return { status: "applied" as const, cursor: f.next_since };
+    });
+    const replica = fakeReplica({ applyChanges }, { cursor: (0 as SyncSeq) });
+    const fetchJson = vi.fn(async (path: string) => {
+      const since = Number(new URL(path, "http://x").searchParams.get("since"));
+      const next = Math.min(since + 1, windows);
+      return feed({ next_since: (next as SyncSeq), latest_seq: (windows as SyncSeq) });
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+
+    await sync.start();
+
+    expect(applyChanges.mock.calls.length).toBe(windows * (racesPerWindow + 1));
+    expect(applyChanges.mock.calls.length - windows).toBeGreaterThan(PENDING_CHANGED_CAP);
+    expect(states.at(-1)).toEqual({ mode: "ready" });
+  });
+
   test("network-shaped pull failures never stall, however many retries", async () => {
     vi.useFakeTimers();
     try {

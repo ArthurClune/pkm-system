@@ -17,6 +17,9 @@ export interface ServerControl {
   latestSeq(): Promise<SyncSeq>;
   /** POST /api/ops with this exact body, for replaying a recorded request. */
   postRaw(body: string): Promise<Response>;
+  /** The same control whose every request is aborted when `signal` fires, so
+   * a request already on the wire cannot commit after its owner gave up. */
+  withSignal(signal: AbortSignal): ServerControl;
 }
 
 // Past any real seq: the changes route answers a cursor beyond its journal
@@ -42,11 +45,11 @@ async function checked(res: Response, what: string): Promise<Response> {
   return res;
 }
 
-function control(cookie: string): ServerControl {
+function control(cookie: string, signal?: AbortSignal): ServerControl {
   const call = async (path: string, init?: RequestInit): Promise<Response> => {
     const headers = new Headers(init?.headers);
     headers.set("cookie", cookie);
-    return checked(await fetch(`${BASE_URL}${path}`, { ...init, headers }), path);
+    return checked(await fetch(`${BASE_URL}${path}`, { ...init, headers, signal }), path);
   };
   const post = (path: string, body?: unknown): Promise<Response> => call(path, {
     method: "POST",
@@ -72,7 +75,9 @@ function control(cookie: string): ServerControl {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
       body,
+      signal,
     }),
+    withSignal: (next) => control(cookie, next),
   };
 }
 

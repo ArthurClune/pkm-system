@@ -2,7 +2,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { BAD_UID, editDrafts, EDIT_TARGETS, opsFor, resolveOps, targetPool,
          type OpDraft } from "./arbitraries";
-import { FALL_BACK, freshPool, initialModel, londonMs, londonTime,
+import { countDown, FALL_BACK, freshPool, initialModel, londonMs, londonTime,
          midnightCrossing, SPRING_FORWARD, START_MS } from "./model";
 
 const BLOCK_UID = /^[a-zA-Z0-9_-]{6,32}$/;
@@ -119,5 +119,28 @@ describe("model", () => {
     const c = midnightCrossing(late, SPRING_FORWARD);
     expect(c).toMatchObject({ date: "2026-10-26", fellBack: true });
     expect(c.before).toBeGreaterThan(late);
+  });
+
+  it("counts every countdown down by one and returns those due, with their count", () => {
+    const { backAfter, due } = countDown({
+      A: { after: 2, left: 2 }, B: { after: 1, left: 1 }, C: null,
+    });
+    expect(backAfter).toEqual({ A: { after: 2, left: 1 }, B: null, C: null });
+    expect(due).toEqual([{ client: "B", after: 1 }]);
+    const again = countDown(backAfter);
+    expect(again.backAfter).toEqual({ A: null, B: null, C: null });
+    expect(again.due).toEqual([{ client: "A", after: 2 }]);
+  });
+
+  it("leaves the countdowns it is given alone", () => {
+    const before = { A: { after: 3, left: 3 } };
+    countDown(before);
+    expect(before).toEqual({ A: { after: 3, left: 3 } });
+  });
+
+  it("starts every client online with no countdown", () => {
+    const m = initialModel(["A", "B"]);
+    expect(m.online).toEqual({ A: true, B: true });
+    expect(m.backAfter).toEqual({ A: null, B: null });
   });
 });

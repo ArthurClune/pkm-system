@@ -1,7 +1,8 @@
 // pattern: Functional Core
-// The sync property's model: which clients are online, which batch ids must
-// land and which must be rejected, each client's unused create uids, and the
-// server clock. The expected tree is the oracle's job, not the model's.
+// The sync property's model: which clients are online and when an offline
+// one comes back, which batch ids must land and which must be rejected, each
+// client's unused create uids, and the server clock. The expected tree is the
+// oracle's job, not the model's.
 //
 // The server clock is the harness's own (sync_server.py) and never ticks. It
 // starts at START_MS, every reset returns it there, and it never moves
@@ -13,6 +14,9 @@ import type { BatchId } from "../../api/brands";
 export interface SyncModel {
   clients: string[];
   online: Record<string, boolean>;
+  /** Per client: the countdown an Offline with a drawn return started, or
+   * null (online, or offline until quiesce). */
+  backAfter: Record<string, Countdown | null>;
   /** Unused create uids per client, in the order they are taken. */
   freshUids: Record<string, string[]>;
   /** Pool uids some Edit has created (in an enqueued batch, not necessarily
@@ -90,6 +94,38 @@ export function midnightCrossing(clockMs: number, day: MidnightDay): {
   };
 }
 
+/** When an Offline's client comes back by itself: after this many more
+ * commands have run, or not until quiesce brings every client online. */
+export type OfflineBack = number | "quiesce";
+
+export interface Countdown {
+  /** The drawn number of commands, for the transcript. */
+  after: number;
+  /** Commands still to run, the one in hand included, before the return. */
+  left: number;
+}
+
+/** A command is about to run: every countdown is one nearer. Returns the
+ * countdowns left and the clients due back online once this command has
+ * run, each with the count it was drawn with. An Offline that starts a
+ * countdown does so after this, so it never counts itself. */
+export function countDown(backAfter: Readonly<Record<string, Countdown | null>>): {
+  backAfter: Record<string, Countdown | null>;
+  due: { client: string; after: number }[];
+} {
+  const next: Record<string, Countdown | null> = {};
+  const due: { client: string; after: number }[] = [];
+  for (const [client, c] of Object.entries(backAfter)) {
+    if (c === null || c.left <= 1) {
+      next[client] = null;
+      if (c !== null) due.push({ client, after: c.after });
+    } else {
+      next[client] = { after: c.after, left: c.left - 1 };
+    }
+  }
+  return { backAfter: next, due };
+}
+
 export const FRESH_PER_CLIENT = 8;
 
 /** A client's own create uids: `pt_<client>_<n>`, valid block uids. */
@@ -103,6 +139,7 @@ export function initialModel(clients: string[]): SyncModel {
   return {
     clients: [...clients],
     online: each(() => true),
+    backAfter: each(() => null),
     freshUids: each(freshPool),
     createdUids: [],
     good: new Map(clients.map((c) => [c, []])),

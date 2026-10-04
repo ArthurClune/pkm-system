@@ -3,7 +3,9 @@
 // against the real server take a random sequence of edits and faults, then
 // are brought to rest and checked by the oracle. One example in three caps
 // the changes feed's window at a few journal rows, so a catch-up crosses
-// window boundaries (see windowLimit). Seven fixed scenarios run first,
+// window boundaries (see windowLimit). Half the time a client's first
+// connect, and a Reload's, comes at a drawn tick of its startup rather than
+// after it (connectTiming in commands.ts). Seven fixed scenarios run first,
 // through the same commands.
 //
 // A failure prints the seed, the path, the shrunk command list, what each
@@ -13,8 +15,10 @@
 import fc from "fast-check";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { EDIT_TARGETS, type OpDraft } from "./arbitraries";
-import { allCommands, BadBatch, countSkipsWith, Edit, Fault, type FaultKind, NAMES,
-         Nudge, Offline, Pull, Reload, SyncCommand, type World } from "./commands";
+import { cancellable, ExampleCancelled } from "./cancel";
+import { BadBatch, commandsFor, connectTally, connectTiming, countSkipsWith, Edit,
+         Fault, type FaultKind, NAMES, Nudge, Offline, Pull, Reload, SyncCommand,
+         type World } from "./commands";
 import { PATH, REPLAY_PATH, SEED } from "./env";
 import { startClient, type HarnessClient } from "./harnessClient";
 import { initialModel, type SyncModel } from "./model";
@@ -24,17 +28,19 @@ import { connectServer, type ServerControl } from "./serverControl";
 
 /** Examples per gate run, sized so `proptest/check.sh web` takes about
  * three minutes. */
-export const NUM_RUNS = 3200;
+export const NUM_RUNS = 2300;
 const MAX_COMMANDS = 30;
 const QUIESCE_LIMIT_MS = 30_000;
 /** One example, commands to oracle: well past the quiesce limit, so a
  * liveness failure is quiesce's to report. A command that hangs is caught
  * here instead, as a failing example fast-check can shrink. */
 const EXAMPLE_LIMIT_MS = 90_000;
-/** The whole property, shrinking included. Interrupted, it fails with the
- * smallest counterexample so far; the margin to vitest's testTimeout
- * (vitest.props.config.ts) covers the example in flight, so vitest never
- * cuts a report off. */
+/** The whole property, shrinking included. fast-check abandons the example
+ * the limit cuts into, which the property then cancels. Cut off while
+ * shrinking, it fails with the smallest counterexample so far; cut off
+ * before any failure, it fails as a budget problem, never as a finding. The
+ * margin to vitest's testTimeout (vitest.props.config.ts) covers that
+ * example's clean-up and the report, so vitest never cuts a report off. */
 const PROPERTY_LIMIT_MS = 420_000;
 const DISPOSE_LIMIT_MS = 10_000;
 /** How long a fixed scenario waits for the state it sets up. */
@@ -88,6 +94,9 @@ interface ExampleOptions {
   /** Every client's changes-feed window, in journal rows; absent, the
    * server's default. */
   windowLimit?: number;
+  /** Each client's first connect, by client order, in ticks after its
+   * mount begins (StartOptions); absent, once its startup has finished. */
+  connectAt?: readonly (number | undefined)[];
 }
 
 /** No cap two times in three, else a window of one to five journal rows:
@@ -99,60 +108,138 @@ const windowLimit: fc.Arbitrary<number | undefined> = fc.oneof(
   { weight: 1, arbitrary: fc.integer({ min: 1, max: 5 }) },
 );
 
+/** An error as the report shows it. */
+const showError = (error: unknown): string =>
+  error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+
+/** Disposes every client, each dispose bounded: what went wrong, or null. */
+async function disposeAll(clients: readonly HarnessClient[]): Promise<string | null> {
+  const done = clients.map(() => false);
+  const settled = Promise.allSettled(clients.map(async (c, i) => {
+    try {
+      await c.dispose();
+    } finally {
+      done[i] = true;
+    }
+  }));
+  const outcome = await within(settled, DISPOSE_LIMIT_MS);
+  if (outcome === TIMED_OUT) {
+    const hung = clients.filter((_, i) => !done[i]).map((c) => c.name);
+    return `dispose of ${hung.join(", ")} did not finish in ${DISPOSE_LIMIT_MS}ms`;
+  }
+  const failed = outcome.flatMap((r, i) =>
+    r.status === "rejected" ? [`${clients[i].name}: ${showError(r.reason)}`] : []);
+  return failed.length === 0 ? null : `dispose failed: ${failed.join("; ")}`;
+}
+
+const ABANDONED = Symbol("abandoned");
+
+/** The example in flight. fast-check's time limit abandons a run part way
+ * through, leaving it running, so the property abandons it here too before
+ * it reports. */
+let inFlight: { abandon(): void; finished: Promise<void> } | null = null;
+
 /** One example: reset the server, start the clients, run the commands
  * (watching every cursor after each), bring everything to rest, and run
  * the oracle. The serial replay leaves the server in its replayed state,
- * which the next example's reset clears. */
+ * which the next example's reset clears.
+ *
+ * However the body ends (passed, failed, hung or abandoned), the example
+ * is then cancelled (cancel.ts) and its clients disposed, so a body still
+ * running never reaches the server again. A dispose that fails or hangs is
+ * appended to the body's failure, or fails a passing example itself. */
 async function runExample(names: readonly string[], cmds: Commands,
                           opts: ExampleOptions = {}): Promise<void> {
   const clients = new Map<string, HarnessClient>();
   const transcript: string[] = [];
+  const guard = cancellable(server);
   const body = async (): Promise<void> => {
-    await server.reset();
-    for (const name of names) {
-      clients.set(name, await startClient(name, server, undefined,
-                                          { windowLimit: opts.windowLimit }));
+    await guard.server.reset();
+    const started: string[] = [];
+    for (const [i, name] of names.entries()) {
+      const at = opts.connectAt?.[i];
+      const c = await startClient(name, guard.server, undefined,
+                                  { windowLimit: opts.windowLimit, signal: guard.signal },
+                                  { connectAt: at });
+      if (guard.cancelled()) {
+        // Cancelled while it started: the clean-up ran without it.
+        await c.dispose();
+        throw new ExampleCancelled(`${name} started after the example was cancelled`);
+      }
+      clients.set(name, c);
+      count(`start ${connectTally(at, c.connectLanded())}`);
+      started.push(at === undefined ? name : `${name} (connect at tick ${at})`);
     }
-    transcript.push(`start ${names.join(", ")}` +
+    transcript.push(`start ${started.join(", ")}` +
       (opts.windowLimit === undefined ? "" : `, window limit ${opts.windowLimit}`));
     const model = initialModel([...names]);
-    const world: World = { server, clients, watch: new CursorWatch(), transcript, count };
+    const world: World = {
+      server: guard.server, clients, watch: new CursorWatch(), transcript, count,
+      cancelled: guard.cancelled,
+    };
     const all = (): HarnessClient[] => [...clients.values()];
     world.watch.observe(all());
     await fc.asyncModelRun(() => ({ model, real: world }), cmds);
+    // How each offline period still open ends: quiesce brings it online,
+    // whether it was drawn until quiesce or the commands ran out before its
+    // return.
+    for (const name of names) {
+      if (model.online[name]) continue;
+      count(model.backAfter[name] === null ? "Online at quiesce"
+                                           : "Online at quiesce, before its return");
+    }
     await opts.beforeQuiesce?.(world);
     const fired = Object.entries(firedFaults(all())).filter(([, n]) => n > 0);
     if (fired.length > 0) {
       transcript.push(`faults fired: ${fired.map(([k, n]) => `${k} ${n}`).join(", ")}`);
     }
     transcript.push("quiesce");
-    await quiesce(all(), server, QUIESCE_LIMIT_MS);
+    await quiesce(all(), guard.server, QUIESCE_LIMIT_MS);
     world.watch.observe(all());
-    const snap = await server.snapshot();
+    const snap = await guard.server.snapshot();
     if (snap.blocks.some((b) => b.text.includes("[[conflict]]"))) count("examples with a conflict");
     if (model.bad.size > 0) count("examples with a rejected batch");
     transcript.push("check");
-    await checkQuiescent(all(), server, model);
+    await checkQuiescent(all(), guard.server, model);
   };
-  const running = body();
-  // An abandoned run may still fail later; its failure is already reported.
-  running.catch(() => undefined);
-  try {
-    const outcome = await within(running, EXAMPLE_LIMIT_MS);
-    if (outcome === TIMED_OUT) {
-      throw new Error(`example did not finish in ${EXAMPLE_LIMIT_MS}ms (a command hung)`);
+  let abandon = (): void => undefined;
+  const abandoned = new Promise<typeof ABANDONED>((resolve) => {
+    abandon = () => resolve(ABANDONED);
+  });
+  const finished = (async (): Promise<void> => {
+    const running = body();
+    // An abandoned run may still fail later; its failure is already reported.
+    running.catch(() => undefined);
+    let failure: { error: unknown } | null = null;
+    try {
+      const outcome = await Promise.race([within(running, EXAMPLE_LIMIT_MS), abandoned]);
+      if (outcome === TIMED_OUT) {
+        throw new Error(`example did not finish in ${EXAMPLE_LIMIT_MS}ms (a command hung)`);
+      }
+      if (outcome === ABANDONED) {
+        throw new Error("example abandoned: the property ran out of its time budget");
+      }
+    } catch (error: unknown) {
+      failure = { error };
     }
-  } catch (error: unknown) {
-    const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-    throw new Error(`${message}\n-- what each command did --\n${transcript.join("\n")}`,
-                    { cause: error });
-  } finally {
+    guard.cancel();
     for (const [kind, n] of Object.entries(firedFaults(clients.values()))) {
       if (n > 0) count(`Fault ${kind} fired`, n);
     }
-    const disposed = Promise.all([...clients.values()].map((c) => c.dispose()));
-    disposed.catch(() => undefined);
-    await within(disposed, DISPOSE_LIMIT_MS);
+    const disposeProblem = await disposeAll([...clients.values()]);
+    if (failure === null && disposeProblem === null) return;
+    const head = failure === null ? `the example passed, but ${disposeProblem}`
+                                  : showError(failure.error);
+    const tail = failure !== null && disposeProblem !== null
+      ? `\n-- disposing the clients --\n${disposeProblem}` : "";
+    throw new Error(`${head}\n-- what each command did --\n${transcript.join("\n")}${tail}`,
+                    { cause: failure?.error });
+  })();
+  inFlight = { abandon, finished };
+  try {
+    await finished;
+  } finally {
+    if (inFlight?.finished === finished) inFlight = null;
   }
 }
 
@@ -170,7 +257,7 @@ test("a nudge ahead of the journal", async () => {
       const a = world.clients.get("A");
       if (!a) throw new Error("no client A");
       await a.replicaSync.idle();
-      expect(a.cursor()).toBeLessThanOrEqual(await server.latestSeq());
+      expect(a.cursor()).toBeLessThanOrEqual(await world.server.latestSeq());
     },
   });
 });
@@ -327,20 +414,49 @@ test("quiesce waits for a batch a poison repair held back", async () => {
   }
 });
 
+/** An example's clients and the commands drawn for exactly those. */
+type Drawn = [number, Commands];
+/** Each client's first connect, by client order (ExampleOptions). */
+type Starts = [number | undefined, number | undefined, number | undefined];
+
+const starts: fc.Arbitrary<Starts> = fc.tuple(connectTiming, connectTiming, connectTiming);
+
+/** Two or three clients, equally often. Each branch draws its commands
+ * from its own clients alone, so no draw names a client the example lacks.
+ * A oneof of whole examples rather than a chain from the count (a chain
+ * redraws the commands when the count shrinks). The client count itself does
+ * not shrink: fc.oneof without cross-shrink never takes a 3-client example to
+ * 2. A 3-client counterexample whose bug needs two still starts C, but the
+ * shrinker removes C's commands, so an idle C shows in the report. An integer
+ * count with C's commands remapped onto the started clients was rejected: the
+ * printed commands would name a client other than the one they acted on. */
+const clientsAndCommands: fc.Arbitrary<Drawn> = fc.oneof(
+  ...[2, 3].map((n) => fc.tuple(fc.constant(n), fc.commands(
+    commandsFor(NAMES.slice(0, n)),
+    { maxCommands: MAX_COMMANDS, size: "max", replayPath: REPLAY_PATH }))),
+);
+
+/** The started clients' first-connect timings, for the report. */
+const showStarts = (n: number, at: Starts): string =>
+  NAMES.slice(0, n).map((name, i) =>
+    `${name} ${at[i] === undefined ? "after startup" : `tick ${at[i]}`}`).join(", ");
+
 /** The failure report: everything needed to read and replay it. */
-function report(details: fc.RunDetails<[number, Commands, number | undefined]>): string {
+function report(details: fc.RunDetails<[Drawn, number | undefined, Starts]>): string {
   const counterexample = details.counterexample;
   const shown = counterexample === null ? "none"
-    : `${counterexample[0]} clients, ` +
-      (counterexample[2] === undefined ? "no window limit"
-                                       : `window limit ${counterexample[2]}`) +
-      `, ${String(counterexample[1])}`;
+    : `${counterexample[0][0]} clients, ` +
+      (counterexample[1] === undefined ? "no window limit"
+                                       : `window limit ${counterexample[1]}`) +
+      `, connect at ${showStarts(counterexample[0][0], counterexample[2])}` +
+      `, ${String(counterexample[0][1])}`;
   const replay = /replayPath="([^"]*)"/.exec(shown)?.[1];
   const error = details.errorInstance instanceof Error
     ? details.errorInstance.message : String(details.errorInstance);
   return [
     `sync property failed after ${details.numRuns} runs and ${details.numShrinks} shrinks` +
-      (details.interrupted ? " (interrupted at the time limit)" : ""),
+      (details.interrupted ? " (shrinking cut off at the time limit: the smallest" +
+                             " counterexample so far)" : ""),
     `seed: ${details.seed}`,
     `path: ${details.counterexamplePath ?? "none"}`,
     `counterexample: ${shown}`,
@@ -353,24 +469,45 @@ function report(details: fc.RunDetails<[number, Commands, number | undefined]>):
 
 test("sync protocol property", async () => {
   const details = await fc.check(fc.asyncProperty(
-    fc.integer({ min: 2, max: 3 }),
-    fc.commands(allCommands, {
-      maxCommands: MAX_COMMANDS, size: "max", replayPath: REPLAY_PATH,
-    }),
-    // Last: an arbitrary's place fixes what a seed and path replay, so the
-    // two before it replay as they did before it was added.
+    clientsAndCommands,
+    // A new arbitrary goes last: an arbitrary's place fixes what a seed and
+    // path replay, so the ones before it replay as they did before it was
+    // added.
     windowLimit,
-    async (n, cmds, limit) => {
+    starts,
+    async ([n, cmds], limit, at) => {
       count("examples");
       count(`examples with ${n} clients`);
       count(limit === undefined ? "examples with no window limit"
                                 : `examples with window limit ${limit}`);
-      await runExample(NAMES.slice(0, n), cmds, { windowLimit: limit });
+      await runExample(NAMES.slice(0, n), cmds, { windowLimit: limit, connectAt: at });
     },
   ), {
     numRuns: NUM_RUNS, seed: SEED, path: PATH,
-    interruptAfterTimeLimit: PROPERTY_LIMIT_MS, markInterruptAsFailure: true,
+    interruptAfterTimeLimit: PROPERTY_LIMIT_MS, markInterruptAsFailure: false,
   });
+  // The example the time limit cut into is still running: stop it before
+  // anything is reported, and before the next file resets the server.
+  if (inFlight !== null) {
+    inFlight.abandon();
+    await within(inFlight.finished.catch(() => undefined), DISPOSE_LIMIT_MS * 2);
+  }
+  // A failure keeps failed set when the time limit cuts its shrinking off,
+  // with the smallest counterexample so far. Cut off before any failure,
+  // fast-check reports interrupted, and failed as well if no example had
+  // finished, but with no counterexample: either way that is the budget.
+  if (details.failed && details.counterexample !== null) {
+    const text = report(details);
+    console.error(text);
+    throw new Error(text);
+  }
+  if (details.interrupted) {
+    const text = `sync property ran out of its time budget after ${details.numRuns} of` +
+      ` ${NUM_RUNS} runs (no failure found): a budget problem, not a finding\n` +
+      `seed: ${details.seed}`;
+    console.error(text);
+    throw new Error(text);
+  }
   if (details.failed) {
     const text = report(details);
     console.error(text);

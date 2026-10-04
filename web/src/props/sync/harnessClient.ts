@@ -16,6 +16,13 @@
 // handlers finish what they had already received and then lose the
 // database, and the old ports close, so nothing from an old promise chain
 // can write into the database the new life opens.
+//
+// A page load's first connect comes, by default, once the startup has
+// finished. In the app it need not: the socket's onStatus is a macrotask
+// that can land at any await inside runtime.startup(), and the
+// first-connect handler then waits on the mount-time pending read and the
+// startup run itself. A load given connectAt connects that many ticks after
+// its mount begins instead, whether or not the startup has finished.
 import type { BatchId, ClientId, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import { createReplica, type Replica } from "../../replica/client";
@@ -74,7 +81,12 @@ export interface HarnessClient {
   /** Batches a failed local write has pushed into the lane, across lives:
    * how often writeFails fired. */
   lanePushes(): number;
-  reload(): Promise<void>;
+  /** A page reload. Online, the new life connects `connectAt` ticks after
+   * its mount begins (see StartOptions); offline, it does not connect. */
+  reload(connectAt?: number): Promise<void>;
+  /** Whether the current life's timed connect fired before its startup had
+   * finished, or null when it had no timing or did not connect. */
+  connectLanded(): ConnectLanding | null;
   /** sync_client_meta "cursor", 0 before the first bootstrap. */
   cursor(): SyncSeq;
   dispose(): Promise<void>;
@@ -110,6 +122,22 @@ interface Life {
 
 const PENDING_INSERT = /^\s*INSERT INTO pending_ops/i;
 
+export type ConnectLanding = "mid-startup" | "after startup";
+
+export interface StartOptions {
+  /** Ticks (event-loop turns, each a setTimeout of 0) after the first
+   * mount begins at which the socket connects; absent, it connects once the
+   * startup has finished. */
+  connectAt?: number;
+}
+
+/** `n` event-loop turns. */
+async function ticks(n: number): Promise<void> {
+  for (let i = 0; i < n; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
 interface LifeDb {
   db: ReplicaDb;
   ended(): boolean;
@@ -137,7 +165,7 @@ function lifeDb(current: () => ReplicaDb): LifeDb {
 
 export async function startClient(
   name: string, server: ServerControl, broken?: Broken,
-  transportOptions: TransportOptions = {},
+  transportOptions: TransportOptions = {}, { connectAt }: StartOptions = {},
 ): Promise<HarnessClient> {
   const raw = await openRawTestDb();
   const db = raw.db;
@@ -155,6 +183,7 @@ export async function startClient(
   let writeDb: ReplicaDb = db;
   let writeArmed = false;
   let lanePushes = 0;
+  let disposed = false;
 
   const buildLife = (doors: TransportLife): Life => {
     lives += 1;
@@ -327,8 +356,28 @@ export async function startClient(
     l.state.status = "reconnecting";
   };
 
-  await mount(life);
-  await goOnline(life);
+  let landed: ConnectLanding | null = null;
+
+  /** A page load that connects: the mount, and the socket's first connect
+   * either once the startup has finished or `at` ticks after the mount
+   * begins, running alongside whatever of the startup is left. */
+  const load = async (l: Life, at: number | undefined): Promise<void> => {
+    landed = null;
+    if (at === undefined) {
+      await mount(l);
+      await goOnline(l);
+      return;
+    }
+    let mountDone = false;
+    const mounted = mount(l).finally(() => { mountDone = true; });
+    // Rejected while the ticks run, it is still awaited below.
+    mounted.catch(() => undefined);
+    await ticks(at);
+    landed = mountDone ? "after startup" : "mid-startup";
+    await Promise.all([mounted, goOnline(l)]);
+  };
+
+  await load(life, connectAt);
 
   return {
     name,
@@ -383,16 +432,24 @@ export async function startClient(
     },
     writeFailArmed: () => writeArmed,
     lanePushes: () => lanePushes,
-    async reload() {
+    async reload(at) {
       // Severed first: the old life's fetches fail now rather than after
       // the network answers, which also releases any recovery lease it holds.
       const doors = transport.newLife();
       await endLife(life);
+      // A dispose that ran while the old life was ending has closed the DB:
+      // a new life built now would keep open message ports on it.
+      if (disposed) return;
       life = buildLife(doors);
-      await mount(life);
-      if (offline) goOffline(life);
-      else await goOnline(life);
+      if (offline) {
+        landed = null;
+        await mount(life);
+        goOffline(life);
+      } else {
+        await load(life, at);
+      }
     },
+    connectLanded: () => landed,
     cursor() {
       const hasMeta = db.select(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sync_client_meta'",
@@ -400,6 +457,7 @@ export async function startClient(
       return Number(hasMeta ? getMeta(db, "cursor") ?? 0 : 0) as SyncSeq;
     },
     async dispose() {
+      disposed = true;
       transport.newLife();
       await endLife(life);
       raw.close();

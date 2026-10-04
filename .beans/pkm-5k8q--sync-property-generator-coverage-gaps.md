@@ -3,8 +3,9 @@
 title: Sync property generator coverage gaps
 status: todo
 type: task
+priority: normal
 created_at: 2026-10-03T17:03:13Z
-updated_at: 2026-10-03T17:03:13Z
+updated_at: 2026-10-04T14:46:11Z
 parent: pkm-nws9
 ---
 
@@ -14,3 +15,5 @@ From the pkm-yxcs Task 7 and final reviews (harness quality, not product bugs). 
 - [ ] Explore startup vs first-connect interleaving
 - [ ] Harden hang/dispose/interrupt reporting
 - [ ] Re-calibrate NUM_RUNS
+
+Note 2026-10-04: (5) is done — pkm-d3qh shipped and the property draws window limits 1-5 one example in three again (~1000 of 3200 per run). The harness now also runs the real legacy repair (pkm-91ux). Re-calibrate NUM_RUNS against today's ~3 min run with small windows on.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NormalBlock, NormalGraph } from "../sync/normalise";
-import { cascadeExclusions, withoutBlocks } from "./cascade";
+import { cascadeExclusions, cascadeRemoved, withoutBlocks } from "./cascade";
 
 const nb = (uid: string, page: string, parent_uid: string | null,
             order_idx: number): NormalBlock => ({
@@ -46,6 +46,42 @@ describe("cascadeExclusions", () => {
   it("ignores top-level moves", () => {
     expect(cascadeExclusions([{ uid: "opsb02", parent: null }], tombstoned, replayed, server).size)
       .toBe(0);
+  });
+});
+
+// Run 5's shape, one level deeper: the batch creates opsc00 under opsb28
+// and moves opsb05 (Ops Three) under opsc00; another device deletes
+// opsb28. The tombstone of opsb28 cascades over the pending create and so
+// over opsb05, while the server skips both ops and keeps opsb05.
+describe("a cascade through a pending create", () => {
+  const before = graph([
+    nb("opsb16", "Outline Props", null, 0), nb("opsb28", "Outline Props", null, 3),
+    nb("opsc00", "Outline Props", "opsb28", 0), nb("opsb05", "Outline Props", "opsc00", 0),
+  ]);
+  const removed = cascadeRemoved(new Set(["opsb28"]), before);
+  const replayedHere = graph([nb("opsb16", "Outline Props", null, 0)]);
+  const serverHere = graph([nb("opsb16", "Outline Props", null, 0),
+                            nb("opsb05", "Ops Three", null, 0)]);
+
+  it("counts the tombstoned block's descendants as removed", () => {
+    expect([...removed].sort()).toEqual(["opsb05", "opsb28", "opsc00"]);
+  });
+
+  it("sets aside the kept block moved under the removed create", () => {
+    expect([...cascadeExclusions([{ uid: "opsb05", parent: "opsc00" }], removed,
+                                 replayedHere, serverHere)]).toEqual(["opsb05"]);
+  });
+
+  it("sets nothing aside for a move under a block outside the removed subtree", () => {
+    expect(cascadeExclusions([{ uid: "opsb05", parent: "opsb16" }], removed,
+                             replayedHere, serverHere).size).toBe(0);
+  });
+});
+
+describe("cascadeRemoved", () => {
+  it("is the tombstoned uids when the replica holds nothing under them", () => {
+    expect([...cascadeRemoved(new Set(["opsb16", "opsx99"]), replayed)].sort())
+      .toEqual(["opsb16", "opsx99"]);
   });
 });
 

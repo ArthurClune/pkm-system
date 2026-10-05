@@ -49,7 +49,8 @@ import { diffGraphs, fromReplica, fromSnapshot, type NormalGraph } from "../sync
 import type { ServerControl } from "../sync/serverControl";
 import { type Example, OPS_PAGES, type RawDraft, rawUidMinter, resolveRaw, seedOps,
          TITLE_POOL } from "./arbitraries";
-import { cascadeExclusions, type PendingMove, withoutBlocks } from "./cascade";
+import { cascadeExclusions, cascadeRemoved, type PendingMove,
+         withoutBlocks } from "./cascade";
 import { diffTrees, pruneGraph, pruneTree, rankOrder, treesFromSnapshot } from "./compare";
 
 /** The implementations a teeth check swaps for deliberately wrong ones. */
@@ -218,8 +219,9 @@ const movesOf = (ops: readonly BlockOp[]): PendingMove[] =>
   ops.flatMap((op) => (op.op === "move" ? [{ uid: op.uid, parent: op.parent_uid ?? null }] : []));
 
 /** What a step's O window did that the cascade exclusion reads: the moves
- * the pending batches sent, and the blocks the window tombstoned. */
-interface Cascade { moves: PendingMove[]; tombstoned: Set<string> }
+ * the pending batches sent, and the blocks the window's tombstones removed
+ * from the replica as it stood before the window. */
+interface Cascade { moves: PendingMove[]; removed: Set<string> }
 
 export interface RunOptions {
   seam?: OpsSeam;
@@ -313,7 +315,7 @@ export async function runExample(server: ServerControl, ex: Example,
                            cascade: Cascade | null, names: [string, string],
                            prefix: string): { problems: string[]; excluded: Set<string> } => {
       const excluded = cascade === null ? new Set<string>()
-        : cascadeExclusions(cascade.moves, cascade.tombstoned, ours, theirs);
+        : cascadeExclusions(cascade.moves, cascade.removed, ours, theirs);
       const shape = ranked ? rankOrder : (g: NormalGraph) => g;
       const view = (g: NormalGraph) => shape(pruneGraph(withoutBlocks(g, excluded), known, keep));
       const diff = diffGraphs(view(ours), view(theirs), names);
@@ -490,7 +492,8 @@ export async function runExample(server: ServerControl, ex: Example,
           const feed = await headWindow();
           const tombstoned = new Set(
             feed.tombstones.filter((tm) => tm.kind === "block").map((tm) => tm.entity_id));
-          cascade = { moves: pending.flatMap((b) => movesOf(b.ops)), tombstoned };
+          cascade = { moves: pending.flatMap((b) => movesOf(b.ops)),
+                      removed: cascadeRemoved(tombstoned, fromReplica(replica.db)) };
           const reshipped = new Set<string>([...feed.blocks.map((b) => b.uid), ...tombstoned]);
           ranked = [...touched].some((u) => reshipped.has(u));
           tally.others[ranked ? "touched" : "untouched"] += 1;

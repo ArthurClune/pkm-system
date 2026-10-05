@@ -12,8 +12,8 @@ import type { SyncPage } from "./apply";
 import { titleForDate } from "./daily";
 import type { ReplicaDb } from "./db";
 import { remapBasePage } from "./effectLedger";
-import { storedPageTitle } from "./localOps";
 import { titleReader } from "./meta";
+import { storedPageTitle } from "./pageLookup";
 import { allBatches } from "./queue";
 import { opPageTitles } from "./titles";
 

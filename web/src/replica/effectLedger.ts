@@ -18,12 +18,16 @@
 // A row record (row_json set) means the block was removed by that batch's
 // delete cascade. Its row_json is the base row and base_page_id the base
 // page; it absorbs every other record on the uid, whose deltas and page
-// record the base already has taken out.
+// record the base already has taken out. A window that ships or tombstones
+// the uid drops it; one still standing at settle is a block the server kept,
+// and settling puts its row back under its parent, if that is present.
 //
 // Every function runs inside the caller's transaction and opens none.
 
 import type { BatchId, BlockUid, OrderIdx, PageId } from "../api/brands";
+import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
+import { existingLocalPageId } from "./pageLookup";
 
 const SETTLING = "batch_id NOT IN (SELECT batch_id FROM pending_ops)";
 
@@ -120,7 +124,9 @@ export function dropWindowRecords(db: ReplicaDb, uids: readonly BlockUid[]): voi
 }
 
 /** Undo and delete the records of every batch no longer in pending_ops
- * (poisoned rows count as present). */
+ * (poisoned rows count as present): revert the order deltas and page moves,
+ * then restore each standing row record whose parent is present, parents
+ * first. */
 export function settleBatches(db: ReplicaDb): void {
   db.exec(
     `UPDATE blocks SET order_idx = order_idx - d.s
@@ -130,14 +136,55 @@ export function settleBatches(db: ReplicaDb): void {
   db.exec(
     `UPDATE blocks SET page_id = d.base_page_id, updated_at = d.base_updated_at
        FROM (SELECT uid, base_page_id, base_updated_at FROM effect_ledger e
-              WHERE ${SETTLING} AND base_page_id IS NOT NULL
+              WHERE ${SETTLING} AND base_page_id IS NOT NULL AND row_json IS NULL
                 AND NOT EXISTS (SELECT 1 FROM effect_ledger r
                                  WHERE r.uid = e.uid AND r.base_page_id IS NOT NULL
+                                   AND r.row_json IS NULL
                                    AND r.batch_id IN (SELECT batch_id FROM pending_ops))
               GROUP BY uid) AS d
       WHERE blocks.uid = d.uid
         AND EXISTS (SELECT 1 FROM pages WHERE id = d.base_page_id)`);
+  restoreRows(db);
   db.exec(`DELETE FROM effect_ledger WHERE ${SETTLING}`);
+}
+
+/** Puts back the settling batches' row records: the server kept these
+ * blocks, and their rows never changed, so no window ships them again. A row
+ * goes back on its parent's page, or its base page at the top level, and
+ * only when that parent or page is present; it runs in rounds, since a
+ * child's record may sort before its parent's. Refs resolve against the
+ * pages present: a title with no page is left unlinked, never minted. */
+function restoreRows(db: ReplicaDb): void {
+  let remaining = db.select<{ uid: BlockUid; base_page_id: PageId | null; row_json: string }>(
+    `SELECT uid, base_page_id, row_json FROM effect_ledger
+      WHERE ${SETTLING} AND row_json IS NOT NULL ORDER BY batch_id, uid`)
+    .map((r) => ({ uid: r.uid, basePageId: r.base_page_id,
+                   row: JSON.parse(r.row_json) as CascadedRow }));
+  for (let inserted = true; inserted;) {
+    inserted = false;
+    remaining = remaining.filter(({ uid, basePageId, row }) => {
+      if (db.select("SELECT 1 FROM blocks WHERE uid = ?", [uid]).length > 0) return false;
+      const [page] = row.parent_uid === null
+        ? db.select<{ id: PageId }>("SELECT id FROM pages WHERE id = ?", [basePageId])
+        : db.select<{ id: PageId }>("SELECT page_id AS id FROM blocks WHERE uid = ?",
+                                    [row.parent_uid]);
+      if (page === undefined) return true;
+      db.exec(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading," +
+        " collapsed, created_at, updated_at, view_type) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        [uid, page.id, row.parent_uid, row.order_idx, row.text, row.heading,
+         row.collapsed, row.created_at, row.updated_at, row.view_type]);
+      const { refs } = reindexBlockRefs(db, uid, row.text);
+      for (const ref of refs) {
+        const pageId = existingLocalPageId(db, ref.title);
+        if (pageId !== null) {
+          db.exec("INSERT OR IGNORE INTO refs VALUES (?,?,?)", [uid, pageId, ref.kind]);
+        }
+      }
+      inserted = true;
+      return false;
+    });
+  }
 }
 
 export function clearLedger(db: ReplicaDb): void {

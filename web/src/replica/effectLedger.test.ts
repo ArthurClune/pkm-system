@@ -231,6 +231,112 @@ describe("recordCascade", () => {
   });
 });
 
+describe("settleBatches: row records", () => {
+  const cascade = (batch: BatchId, ...uids: string[]) => {
+    for (const id of uids) recordCascade(t.db, batch, u(id));
+    for (const id of [...uids].reverse()) t.db.exec("DELETE FROM blocks WHERE uid = ?", [id]);
+  };
+  const rows = () => t.db.select(
+    "SELECT uid, page_id, parent_uid, order_idx, text, heading, collapsed," +
+    " created_at, updated_at, view_type FROM blocks WHERE uid IN ('c1','c2')" +
+    " ORDER BY uid");
+  const present = (uid: string) =>
+    t.db.select("SELECT 1 FROM blocks WHERE uid = ?", [uid]).length > 0;
+  // stage c > c1 > c2 so there are two levels to restore
+  beforeEach(() => {
+    t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, updated_at)" +
+              " VALUES ('c2', 1, 'c1', 0, 'see [[S]] and ((abcdef))', 5)");
+  });
+
+  test("restores a standing row record, parents first, with refs, block refs and FTS", () => {
+    const before = rows();
+    cascade(b1, "c2", "c1");
+    expect(rows()).toEqual([]);
+    settleBatches(t.db);
+    expect(rows()).toEqual(before);
+    expect(t.db.select("SELECT src_block_uid, target_page_id, kind FROM refs"))
+      .toEqual([{ src_block_uid: "c2", target_page_id: 2, kind: "link" }]);
+    expect(t.db.select("SELECT src_block_uid, target_block_uid FROM block_refs"))
+      .toEqual([{ src_block_uid: "c2", target_block_uid: "abcdef" }]);
+    expect(t.db.select<{ uid: string }>(
+      "SELECT b.uid FROM blocks b JOIN blocks_fts f ON f.rowid = b.rowid" +
+      " WHERE blocks_fts MATCH 'see'").map((r) => r.uid)).toEqual(["c2"]);
+    expect(ledger()).toEqual([]);
+  });
+
+  test("restore derives refs against pages present, minting none", () => {
+    t.db.exec("UPDATE pages SET title = 'Renamed' WHERE id = 2");
+    const pages = t.db.select("SELECT COUNT(*) AS n FROM pages");
+    cascade(b1, "c2");
+    settleBatches(t.db);
+    expect(present("c2")).toBe(true);
+    expect(t.db.select("SELECT * FROM refs WHERE src_block_uid = 'c2'")).toEqual([]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual(pages);
+  });
+
+  test("a record whose parent is absent is dropped, not restored", () => {
+    cascade(b1, "c2");
+    t.db.exec("DELETE FROM blocks WHERE uid = 'c1'");
+    settleBatches(t.db);
+    expect(present("c2")).toBe(false);
+    expect(ledger()).toEqual([]);
+  });
+
+  test("a pending batch's row record waits", () => {
+    pend("b1");
+    cascade(b1, "c2");
+    settleBatches(t.db);
+    expect(present("c2")).toBe(false);
+    expect(rowRec("c2").map((r) => r.batch_id)).toEqual(["b1"]);
+  });
+
+  test("a restored row takes its parent's page after the page revert", () => {
+    recordRepage(t.db, b1, u("c1"));
+    t.db.exec("UPDATE blocks SET page_id = 2 WHERE uid IN ('c1','c2')");
+    cascade(b1, "c2");
+    expect(rowRec("c2")[0].base_page_id).toBe(2);
+    settleBatches(t.db);
+    expect(blk("c1").page_id).toBe(1);
+    expect(blk("c2").page_id).toBe(1);
+  });
+
+  test("a top-level record goes back on its base page, and is dropped when that page is gone", () => {
+    cascade(b1, "c", "c1", "c2");
+    t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
+              " VALUES ('s', 2, NULL, 0, 's')");
+    cascade(b1, "s");
+    t.db.exec("DELETE FROM pages WHERE id = 2");
+    settleBatches(t.db);
+    expect(t.db.select("SELECT uid, page_id, parent_uid FROM blocks" +
+                       " WHERE uid IN ('c', 'c1', 'c2', 's') ORDER BY uid")).toEqual([
+      { uid: "c", page_id: 1, parent_uid: null },
+      { uid: "c1", page_id: 1, parent_uid: "c" },
+      { uid: "c2", page_id: 1, parent_uid: "c1" },
+    ]);
+    expect(ledger()).toEqual([]);
+  });
+
+  test("a record whose uid is present again leaves that row as it is", () => {
+    cascade(b1, "c2");
+    t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
+              " VALUES ('c2', 2, NULL, 0, 'newer')");
+    settleBatches(t.db);
+    expect(t.db.select("SELECT page_id, parent_uid, text FROM blocks WHERE uid = 'c2'"))
+      .toEqual([{ page_id: 2, parent_uid: null, text: "newer" }]);
+    expect(ledger()).toEqual([]);
+  });
+
+  test("rounds restore a child whose parent another settling batch restores", () => {
+    // (b1, c2) sorts before (b2, c1), so a single pass would miss c2
+    cascade(b1, "c2");
+    cascade(b2, "c1");
+    settleBatches(t.db);
+    expect(present("c1")).toBe(true);
+    expect(present("c2")).toBe(true);
+    expect(ledger()).toEqual([]);
+  });
+});
+
 test("remapBasePage rewrites base_page_id from the local id to the target", () => {
   recordRepage(t.db, b1, u("c1"));
   recordRepage(t.db, b1, u("a"));

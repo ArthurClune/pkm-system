@@ -4,7 +4,9 @@
 // rows alone and never calls the outline code it checks; where the two
 // disagree, the disagreement is a finding.
 import type { BlockUid } from "../../api/brands";
-import { rowsDiff, type Row } from "./reading";
+import type { DropPosition } from "../../outline/dnd";
+import type { PastedNode } from "../../outline/paste";
+import { rowsDiff, structural, type Row } from "./reading";
 import type { Resolved } from "./run";
 
 export type Expected = { kind: "noop" } | { kind: "rows"; rows: Row[] };
@@ -39,6 +41,19 @@ const previousSibling = (rows: readonly Row[], i: number): number | null => {
 const nextSibling = (rows: readonly Row[], i: number): number | null => {
   const j = subtreeEnd(rows, i);
   return j < rows.length && rows[j].depth === rows[i].depth ? j : null;
+};
+
+/** Row i's parent, or null at top level. */
+const parentOf = (rows: readonly Row[], i: number): number | null => {
+  for (let j = i - 1; j >= 0; j--) if (rows[j].depth < rows[i].depth) return j;
+  return null;
+};
+
+/** rows[start, end) moved to sit before what was rows[at]; `at` lies outside the block. */
+const moveBlock = (rows: readonly Row[], start: number, end: number, at: number): Row[] => {
+  const rest = [...rows.slice(0, start), ...rows.slice(end)];
+  rest.splice(at > start ? at - (end - start) : at, 0, ...rows.slice(start, end));
+  return rest;
 };
 
 /** A row is hidden exactly when one of its ancestors is collapsed. */
@@ -168,6 +183,103 @@ function setField(before: readonly Row[], uid: BlockUid, field: Partial<Row>): E
   return settle(before, rows);
 }
 
+type Direction = "up" | "down";
+
+/**
+ * The run of adjacent sibling roots moved one place, or null when blocked.
+ * It swaps with the sibling subtree in that direction; failing that, when it
+ * may cross, it becomes the last (up) or first (down) child of its parent's
+ * neighbour, at the same depth, and that neighbour is expanded unless it is
+ * one of `selected`.
+ */
+function moveRun(rows: readonly Row[], run: readonly BlockUid[], dir: Direction,
+                 cross: boolean, selected: ReadonlySet<BlockUid>): Row[] | null {
+  const first = indexOf(rows, run[0]);
+  const last = indexOf(rows, run[run.length - 1]);
+  const end = subtreeEnd(rows, last);
+  const sibling = dir === "up" ? previousSibling(rows, first) : nextSibling(rows, last);
+  if (sibling !== null) {
+    return moveBlock(rows, first, end, dir === "up" ? sibling : subtreeEnd(rows, sibling));
+  }
+  const parent = parentOf(rows, first);
+  if (!cross || parent === null) return null;
+  const neighbour = dir === "up" ? previousSibling(rows, parent) : nextSibling(rows, parent);
+  if (neighbour === null) return null;
+  // Up: the neighbour's subtree ends where the parent starts. Down: right after the neighbour.
+  const moved = moveBlock(rows, first, end, dir === "up" ? parent : neighbour + 1);
+  const n = indexOf(moved, rows[neighbour].uid);
+  if (!selected.has(moved[n].uid)) expand(moved, n);
+  return moved;
+}
+
+function moveOne(before: readonly Row[], uid: BlockUid, dir: Direction, cross: boolean): Expected {
+  const moved = moveRun(before, [uid], dir, cross, new Set([uid]));
+  return moved === null ? NOOP : settle(before, moved);
+}
+
+function moveSelection(before: readonly Row[], uids: readonly BlockUid[], dir: Direction): Expected {
+  const roots = rootsOf(before, uids);
+  const selected = new Set(roots.map((i) => before[i].uid));
+  const runs = runsOf(before, roots).map((run) => run.map((i) => before[i].uid));
+  if (runs.length === 0) return NOOP;
+  let rows: Row[] = [...before];
+  for (const run of runs) {
+    const moved = moveRun(rows, run, dir, true, selected);
+    if (moved === null) return NOOP;
+    rows = moved;
+  }
+  return settle(before, rows);
+}
+
+function drop(before: readonly Row[], uids: readonly BlockUid[], position: DropPosition): Expected {
+  const dragged = new Set<number>();
+  const blocks: Row[][] = [];
+  for (const uid of uids) {
+    const i = indexOf(before, uid);
+    const end = subtreeEnd(before, i);
+    const shift = position.depth - before[i].depth;
+    const block: Row[] = [];
+    for (let j = i; j < end; j++) {
+      dragged.add(j);
+      block.push({ ...before[j], depth: before[j].depth + shift });
+    }
+    blocks.push(block);
+  }
+  const rest = before.filter((_, j) => !dragged.has(j));
+  // Lifting whole subtrees out leaves every other row's ancestors, so its hidden flag, as it was.
+  const visible = rest.flatMap((r, j) => (r.hidden ? [] : [j]));
+  const at = position.boundary < visible.length ? visible[position.boundary] : rest.length;
+  const rows = [...rest.slice(0, at), ...blocks.flat(), ...rest.slice(at)];
+  const same = structural(rows).join("\n") === structural(before).join("\n");
+  return same ? NOOP : { kind: "rows", rows: rehide(rows) };
+}
+
+function paste(before: readonly Row[], uid: BlockUid, from: number, to: number,
+               forest: readonly PastedNode[], uids: readonly BlockUid[]): Expected {
+  const [head, ...later] = forest;
+  if (head === undefined) throw new Error("model: paste of an empty forest");
+  const i = indexOf(before, uid);
+  const row = before[i];
+  let taken = 0;
+  const flatten = (nodes: readonly PastedNode[], depth: number): Row[] => nodes.flatMap((n) => {
+    if (taken >= uids.length) throw new Error("model: paste ran out of fresh uids");
+    return [fresh(uids[taken++], depth, n.text), ...flatten(n.children, depth + 1)];
+  });
+  const children = flatten(head.children, row.depth + 1);
+  const siblings = flatten(later, row.depth);
+  if (taken !== uids.length) throw new Error("model: paste left fresh uids unused");
+  const spliced: Row = {
+    ...row,
+    text: row.text.slice(0, from) + head.text + row.text.slice(to),
+    collapsed: children.length > 0 ? false : row.collapsed,
+  };
+  const end = subtreeEnd(before, i);
+  return settle(before, [
+    ...before.slice(0, i), spliced, ...children, ...before.slice(i + 1, end),
+    ...siblings, ...before.slice(end),
+  ]);
+}
+
 /** The rows a reader should see after the command, from the rows before it. */
 export function expectedRows(before: readonly Row[], r: Resolved): Expected {
   switch (r.kind) {
@@ -182,8 +294,13 @@ export function expectedRows(before: readonly Row[], r: Resolved): Expected {
     case "collapse": return setField(before, r.uid, { collapsed: r.value });
     case "heading": return setField(before, r.uid, { heading: r.value });
     case "viewType": return setField(before, r.uid, { viewType: r.value });
-    case "moveUp": case "moveDown": case "subtreeUp": case "subtreeDown":
-    case "selUp": case "selDown": case "drop": case "paste":
-      throw new Error(`model: ${r.kind} not yet modelled`);
+    case "moveUp": return moveOne(before, r.uid, "up", false);
+    case "moveDown": return moveOne(before, r.uid, "down", false);
+    case "subtreeUp": return moveOne(before, r.uid, "up", true);
+    case "subtreeDown": return moveOne(before, r.uid, "down", true);
+    case "selUp": return moveSelection(before, r.uids, "up");
+    case "selDown": return moveSelection(before, r.uids, "down");
+    case "drop": return drop(before, r.uids, r.position);
+    case "paste": return paste(before, r.uid, r.from, r.to, r.forest, r.fresh);
   }
 }

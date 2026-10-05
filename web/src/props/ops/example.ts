@@ -13,18 +13,25 @@
 //              server's graph;
 //   check R    the replica after a feed window is a fresh replica built from
 //              the snapshot with the same pending batches enqueued on it;
+//   check S    after each ack the replica pulls the head window, as the app
+//              does, and is then the server's graph exactly, minted rows
+//              included; the next step starts from it, so nothing check 3
+//              tolerates carries into a later step;
 //   rejection  enqueueBatch refuses a batch for its title syntax exactly
-//              when the server does, and never a command batch.
+//              when the server does; a command batch both refuse for its
+//              title syntax is tallied and ends the example, and any other
+//              refusal of one is a failure.
 // The only exclusions are the spec's: rows the server minted, a page whose
-// echo the session would reload instead of applying, and timestamps.
+// echo the session would reload instead of applying, timestamps, and (3 and
+// R only) a kept block a head-window tombstone cascaded over (cascade.ts).
 //
 // Pending rows: the harness pulls windows without naming its pending
 // batches, so no window lists one in `applied_batches` and applyChanges
 // never drops a row. An acked batch's row is deleted here instead, as the
-// drain does on the ack (deleteBatch), so the pending set a later step's
-// replay and check R see is the unacked batches only. Its effect-ledger
-// records stay until the next window at the journal head settles them, as
-// in the app.
+// drain does on the ack (deleteBatch), before the pull that check S reads,
+// so that pull settles the batch's effect-ledger records as the app's
+// would, and the pending set a later step's replay and check R see is the
+// unacked batches only.
 import type { BatchId, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import type { BlockNode } from "../../api/payloads";
@@ -42,6 +49,7 @@ import { diffGraphs, fromReplica, fromSnapshot, type NormalGraph } from "../sync
 import type { ServerControl } from "../sync/serverControl";
 import { type Example, OPS_PAGES, type RawDraft, rawUidMinter, resolveRaw, seedOps,
          TITLE_POOL } from "./arbitraries";
+import { cascadeExclusions, type PendingMove, withoutBlocks } from "./cascade";
 import { diffTrees, pruneGraph, pruneTree, rankOrder, treesFromSnapshot } from "./compare";
 
 /** The implementations a teeth check swaps for deliberately wrong ones. */
@@ -72,6 +80,11 @@ export interface Tally {
   reloads: number;
   /** B batches the server answered 400, by cause. */
   rejections: { "title syntax": number; other: number };
+  /** Blocks checks 3 and R set aside: kept blocks a head-window tombstone
+   * cascaded over (cascade.ts). */
+  cascadeExcluded: number;
+  /** Command batches both sides refused for title syntax (the example ends). */
+  commandTitleRefused: number;
 }
 
 export function newTally(): Tally {
@@ -83,6 +96,8 @@ export function newTally(): Tally {
     skipped: {},
     reloads: 0,
     rejections: { "title syntax": 0, other: 0 },
+    cascadeExcluded: 0,
+    commandTitleRefused: 0,
   };
 }
 
@@ -109,6 +124,8 @@ export function showTally(t: Tally): string {
     `  pages set aside for an authoritative reload: ${t.reloads}`,
     `  rejections: title syntax ${t.rejections["title syntax"]},` +
       ` other ${t.rejections.other}`,
+    `  command batches both sides refused for title syntax: ${t.commandTitleRefused}`,
+    `  blocks set aside as cascaded over at the head window: ${t.cascadeExcluded}`,
   ].join("\n");
 }
 
@@ -190,12 +207,19 @@ function tallyRaw(t: Tally, drafts: readonly RawDraft[], ops: readonly BlockOp[]
   for (const v of seen) bump(t.variations, v);
 }
 
-/** Every uid a batch's ops name, as subject or parent. */
-const opUidsOf = (ops: readonly BlockOp[]): string[] => ops.flatMap((op) => {
-  if (op.op === "create_page") return [];
-  const parent = "parent_uid" in op && typeof op.parent_uid === "string" ? [op.parent_uid] : [];
-  return [op.uid, ...parent];
-});
+/** Every uid a batch's ops are about. Never a parent: a move or a create
+ * does not change its parent's row, so a window re-shipping only the parent
+ * leaves the batch's own keys to be compared exactly. */
+const subjectUids = (ops: readonly BlockOp[]): string[] =>
+  ops.flatMap((op) => (op.op === "create_page" ? [] : [op.uid]));
+
+/** Every move a batch sends, with the parent it names. */
+const movesOf = (ops: readonly BlockOp[]): PendingMove[] =>
+  ops.flatMap((op) => (op.op === "move" ? [{ uid: op.uid, parent: op.parent_uid ?? null }] : []));
+
+/** What a step's O window did that the cascade exclusion reads: the moves
+ * the pending batches sent, and the blocks the window tombstoned. */
+interface Cascade { moves: PendingMove[]; tombstoned: Set<string> }
 
 export interface RunOptions {
   seam?: OpsSeam;
@@ -279,22 +303,69 @@ export async function runExample(server: ServerControl, ex: Example,
       return problems;
     };
 
-    /** Check 3: the replica against the server's graph. */
-    const checkReplica = (after: Snapshot, ranked: boolean): string[] => {
+    const pendingRow = (batchId: BatchId) =>
+      allBatches(replica.db).find((b) => b.batch_id === batchId && !b.poisoned);
+
+    /** Checks 3 and R: `ours` against `theirs`, minted rows and the blocks
+     * a head-window tombstone cascaded over (`cascade`, from the step's O
+     * window) set aside; through sibling ranks when `ranked`. */
+    const compareReplay = (ours: NormalGraph, theirs: NormalGraph, ranked: boolean,
+                           cascade: Cascade | null, names: [string, string],
+                           prefix: string): { problems: string[]; excluded: Set<string> } => {
+      const excluded = cascade === null ? new Set<string>()
+        : cascadeExclusions(cascade.moves, cascade.tombstoned, ours, theirs);
       const shape = ranked ? rankOrder : (g: NormalGraph) => g;
-      const diff = diffGraphs(shape(pruneGraph(fromReplica(replica.db), known, keep)),
-                              shape(pruneGraph(fromSnapshot(after), known, keep)),
-                              ["replica", "server"]);
-      return diff === null ? []
-        : diff.split("\n").map((l) => `check 3${ranked ? " (sibling ranks)" : ""}: ${l}`);
+      const view = (g: NormalGraph) => shape(pruneGraph(withoutBlocks(g, excluded), known, keep));
+      const diff = diffGraphs(view(ours), view(theirs), names);
+      const label = `${prefix}${ranked ? " (sibling ranks)" : ""}: `;
+      return { problems: diff === null ? [] : diff.split("\n").map((l) => label + l), excluded };
+    };
+
+    /** Check 3: the optimistic replica against the server's graph. */
+    const checkReplica = (after: Snapshot, ranked: boolean,
+                          cascade: Cascade | null): { problems: string[]; excluded: Set<string> } =>
+      compareReplay(fromReplica(replica.db), fromSnapshot(after), ranked, cascade,
+                    ["replica", "server"], "check 3");
+
+    const cursorOf = (): SyncSeq => {
+      const cursor = getMeta(replica.db, "cursor");
+      if (cursor === null) throw harness("the replica holds no cursor");
+      return Number(cursor) as SyncSeq;
+    };
+
+    /** The window from the replica's cursor, which must reach the head. */
+    const headWindow = async (): Promise<Changes> => {
+      const cursor = cursorOf();
+      const feed = await server.changes(cursor);
+      if (feed.next_since !== feed.latest_seq) {
+        throw harness(`window from ${cursor} stops at ${feed.next_since},` +
+                      ` short of the head ${feed.latest_seq}`);
+      }
+      return feed;
+    };
+
+    /** Check S: the pull after an ack, then the replica against `after`
+     * exactly, nothing pruned (the feed delivers minted rows). */
+    const settle = async (after: Snapshot): Promise<string[]> => {
+      const applied = applyChanges(replica.db, await headWindow(), now());
+      if (applied.status !== "applied") {
+        return [`check S: applyChanges answered ${applied.status} to the head window`];
+      }
+      const diff = diffGraphs(fromReplica(replica.db), fromSnapshot(after), ["replica", "server"]);
+      return diff === null ? [] : diff.split("\n").map((l) => `check S: ${l}`);
+    };
+
+    /** The pending row enqueue stored for `batchId`; a harness fault when an
+     * enqueue that did not throw stored none. */
+    const storedRow = (batchId: BatchId) => {
+      const row = pendingRow(batchId);
+      if (!row) throw harness(`enqueue of ${batchId} stored no pending row`);
+      return row;
     };
 
     const ackSkips = (p: Posted): void => {
       if (p.status === 200) for (const s of p.ack.skipped ?? []) bump(tally.skipped, s.reason);
     };
-
-    const pendingRow = (batchId: BatchId) =>
-      allBatches(replica.db).find((b) => b.batch_id === batchId && !b.poisoned);
 
     if (ex.kind === "command") {
       const run = runSequence(ex.start.pages["Outline Props"], ex.commands,
@@ -307,23 +378,44 @@ export async function runExample(server: ServerControl, ex: Example,
         for (const op of batch.ops) bump(tally.opKinds, op.op);
         const batchId = nextBatchId();
         const problems: string[] = [];
-        let refused = false;
+        let refused: LocalOpError | null = null;
         try {
           seam.enqueue(replica.db, batch.ops, now(), batchId);
         } catch (e) {
           if (!(e instanceof LocalOpError)) throw e;
-          refused = true;
-          problems.push(`rejection: enqueueBatch refused a command batch: ${e.message}`);
+          refused = e;
         }
-        const row = pendingRow(batchId);
+        // A refused batch has no row: it goes out as the editor stamped it,
+        // so the server's verdict can be compared.
+        const row = refused === null ? storedRow(batchId) : null;
         const sent = row?.ops ?? batch.ops;
         const posted = await post(server, batchId, "ops-device", sent);
         ackSkips(posted);
         trace.push(`  command batch ${i + 1} (${batchId}): ${showAck(posted)}`,
                    `      ${showOps(sent)}`);
         if (posted.status === 400) {
-          tally.rejections[isTitleSyntax(posted.reason) ? "title syntax" : "other"] += 1;
+          const titled = isTitleSyntax(posted.reason);
+          tally.rejections[titled ? "title syntax" : "other"] += 1;
+          if (await server.takeEcho() !== null) throw harness(`an echo after ${batchId}'s 400`);
+          // Both sides refusing a title is the designed guard: tallied, and
+          // the editor's tree has nowhere further to go.
+          if (titled && refused !== null) {
+            tally.commandTitleRefused += 1;
+            return [];
+          }
+          if (refused !== null) {
+            problems.push(`rejection: enqueueBatch refused a command batch (${refused.message})` +
+                          ` but the server answered 400 ${posted.reason}`);
+          } else if (titled) {
+            problems.push(`rejection: the server refused a command batch for its title syntax` +
+                          ` (${posted.reason}) but enqueueBatch took it`);
+          }
           problems.push(`check 2: the server rejected a command batch: ${posted.reason}`);
+          return fail(header, problems);
+        }
+        if (refused !== null) {
+          problems.push(`rejection: enqueueBatch refused a command batch (${refused.message})` +
+                        " but the server applied it");
           return fail(header, problems);
         }
         if ((posted.ack.skipped ?? []).length > 0) {
@@ -340,7 +432,8 @@ export async function runExample(server: ServerControl, ex: Example,
           problems.push(`check 2: ${line}`);
         }
         problems.push(...checkEcho(echo, s1, others, "command echo"));
-        if (!refused) problems.push(...checkReplica(s1, false));
+        problems.push(...checkReplica(s1, false, null).problems);
+        problems.push(...await settle(s1));
         if (problems.length > 0) return fail(header, problems);
       }
       return [];
@@ -366,6 +459,8 @@ export async function runExample(server: ServerControl, ex: Example,
 
       // Another device's batch, then a window over B's optimistic apply.
       let ranked = false;
+      let cascade: Cascade | null = null;
+      let excludedR = new Set<string>();
       if (step.other !== null) {
         const gO = fromSnapshot(await server.snapshot());
         const opsO = resolveRaw(step.other, gO, mint);
@@ -386,22 +481,17 @@ export async function runExample(server: ServerControl, ex: Example,
 
           const pending = allBatches(replica.db).filter((b) => !b.poisoned);
           const ids = pending.map((b) => b.batch_id);
-          const touched = new Set<string>(pending.flatMap((b) => opUidsOf(b.ops)));
+          const touched = new Set<string>(pending.flatMap((b) => subjectUids(b.ops)));
           if (ids.length > 0) {
             for (const r of replica.db.select<{ uid: string }>(
               `SELECT uid FROM effect_ledger WHERE batch_id IN (${ids.map(() => "?").join(",")})`,
               ids)) touched.add(r.uid);
           }
-          const cursor = Number(getMeta(replica.db, "cursor")) as SyncSeq;
-          const feed = await server.changes(cursor);
-          if (feed.next_since !== feed.latest_seq) {
-            throw harness(`window from ${cursor} stops at ${feed.next_since},` +
-                          ` short of the head ${feed.latest_seq}`);
-          }
-          const reshipped = new Set<string>([
-            ...feed.blocks.map((b) => b.uid),
-            ...feed.tombstones.filter((tm) => tm.kind === "block").map((tm) => tm.entity_id),
-          ]);
+          const feed = await headWindow();
+          const tombstoned = new Set(
+            feed.tombstones.filter((tm) => tm.kind === "block").map((tm) => tm.entity_id));
+          cascade = { moves: pending.flatMap((b) => movesOf(b.ops)), tombstoned };
+          const reshipped = new Set<string>([...feed.blocks.map((b) => b.uid), ...tombstoned]);
           ranked = [...touched].some((u) => reshipped.has(u));
           tally.others[ranked ? "touched" : "untouched"] += 1;
           const applied = seam.applyWindow(replica.db, feed, now());
@@ -413,14 +503,11 @@ export async function runExample(server: ServerControl, ex: Example,
           try {
             applySnapshot(fresh.db, sO, now());
             for (const b of pending) REAL_OPS.enqueue(fresh.db, b.ops, now(), b.batch_id);
-            const shape = ranked ? rankOrder : (x: NormalGraph) => x;
-            const diff = diffGraphs(shape(pruneGraph(fromReplica(replica.db), known, keep)),
-                                    shape(pruneGraph(fromReplica(fresh.db), known, keep)),
-                                    ["replayed", "fresh"]);
-            if (diff !== null) {
-              problems.push(...diff.split("\n").map(
-                (l) => `check R${ranked ? " (sibling ranks)" : ""}: ${l}`));
-            }
+            const r = compareReplay(fromReplica(replica.db), fromReplica(fresh.db), ranked,
+                                    cascade, ["replayed", "fresh"], "check R");
+            problems.push(...r.problems);
+            excludedR = r.excluded;
+            tally.cascadeExcluded += r.excluded.size;
           } finally {
             fresh.close();
           }
@@ -428,7 +515,7 @@ export async function runExample(server: ServerControl, ex: Example,
       }
 
       // B goes out as the queue would send it: the ops its row stored.
-      const row = pendingRow(batchB);
+      const row = refused === null ? storedRow(batchB) : null;
       const sent = row?.ops ?? opsB;
       const posted = await post(server, batchB, "ops-device", sent);
       ackSkips(posted);
@@ -460,7 +547,10 @@ export async function runExample(server: ServerControl, ex: Example,
       if (echo === null) throw harness(`no echo after ${batchB}'s 200`);
       const s1 = await server.snapshot();
       problems.push(...checkEcho(echo, s1, TITLE_POOL, "B's echo"));
-      problems.push(...checkReplica(s1, ranked));
+      const c3 = checkReplica(s1, ranked, cascade);
+      problems.push(...c3.problems);
+      tally.cascadeExcluded += [...c3.excluded].filter((u) => !excludedR.has(u)).length;
+      problems.push(...await settle(s1));
       if (problems.length > 0) return fail(header, problems);
     }
     return [];

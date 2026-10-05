@@ -272,6 +272,18 @@ it("redoes a move down after its undo shifted the keys it was planned on", () =>
   expect(shape(tree)).toEqual(["b1", "b0", "b2"]);
 });
 
+it("redoes a selection move up after its undo", () => {
+  // moveSelectionUp [b2, b3]: b1 moves past the run's last block
+  let tree = flat("b0", "b1", "b2", "b3");
+  const e = record(tree, moveTo("b1", 4));
+  tree = applyOps(tree, e.ops, PAGE);
+  expect(shape(tree)).toEqual(["b0", "b2", "b3", "b1"]);
+  tree = replay(tree, e, "undo");
+  expect(shape(tree)).toEqual(["b0", "b1", "b2", "b3"]);
+  tree = replay(tree, e, "redo");
+  expect(shape(tree)).toEqual(["b0", "b2", "b3", "b1"]);
+});
+
 it("redoes a multi-block drop down after its undo", () => {
   // moveBlocksTo [b0, b1] after b3: groupMoveOps at the end of the list
   let tree = flat("b0", "b1", "b2", "b3");

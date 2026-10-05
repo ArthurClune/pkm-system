@@ -1,12 +1,14 @@
 import { afterEach, expect, it } from "vitest";
 import type { BlockOp } from "../api/ops";
+import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
 import { block, makeSync, ord, uid } from "../test-helpers";
 import { acquireOutlineSession } from "./outlineSessions";
 import { performRedo, performUndo, recordHistory, registerOutlineHistory,
          resetHistory, setHistoryNavigator } from "./undoManager";
-import { invertOps, type HistoryEntry } from "./history";
+import { historyAnchors, invertOps, type HistoryEntry } from "./history";
+import { applyOps } from "./tree";
 
 const PAGE = "Undo Page";
 
@@ -14,6 +16,7 @@ const entry = (): HistoryEntry => ({
   pageTitle: PAGE,
   ops: [{ op: "update_text", uid: uid("a"), text: "after" }],
   inverse: [{ op: "update_text", uid: uid("a"), text: "before" }],
+  anchors: { ops: [null], inverse: [null] },
   focusBefore: { uid: uid("a"), cursor: 6 },
   focusAfter: { uid: uid("a"), cursor: 5 },
 });
@@ -119,6 +122,7 @@ it("redo stamps against the current tree, not the recorded one", () => {
     pageTitle: PAGE,
     ops: [{ op: "update_text", uid: uid("a"), text: "one" }],
     inverse: [{ op: "update_text", uid: uid("a"), text: "zero" }],
+    anchors: { ops: [null], inverse: [null] },
     focusBefore: null,
     focusAfter: null,
   });
@@ -150,6 +154,7 @@ it("an undo that deletes is stamped against the tree at replay time", () => {
   const handle = acquireOutlineSession(PAGE, [
     ...before, block("n", "", { order_idx: ord(1) })]);
   recordHistory({ pageTitle: PAGE, ops: create, inverse: inverse!,
+                  anchors: historyAnchors(before, PAGE, create, inverse!),
                   focusBefore: null, focusAfter: null });
   const typed: BlockOp[] = [{ op: "update_text", uid: uid("n"), text: "typed later" }];
   handle.applyLocal(sync.enqueue(typed, ["page", PAGE]), typed);
@@ -160,6 +165,38 @@ it("an undo that deletes is stamped against the tree at replay time", () => {
     op: "delete", uid: "n",
     base_subtree_hash: subtreeHash([["n", "typed later"]]),
   }]);
+  handle.release();
+});
+
+it("undo re-keys placements against the mounted tree, not the recorded keys", () => {
+  // Two moves up in a row: undoing the second shifts keys up, so the first
+  // entry's recorded key no longer names b1's old slot.
+  const sync = makeSync();
+  const move = (u: string, orderIdx: number): BlockOp[] =>
+    [{ op: "move", uid: uid(u), parent_uid: null, order_idx: ord(orderIdx) }];
+  const record = (pre: BlockNode[], ops: BlockOp[]) => {
+    const inverse = invertOps(pre, PAGE, ops)!;
+    recordHistory({ pageTitle: PAGE, ops, inverse,
+                    anchors: historyAnchors(pre, PAGE, ops, inverse),
+                    focusBefore: null, focusAfter: null });
+    return applyOps(pre, ops, PAGE);
+  };
+  let tree = ["b0", "b1", "b2"].map((u, i) => block(u, u, { order_idx: ord(i) }));
+  tree = record(tree, move("b1", 0));
+  tree = record(tree, move("b2", tree[1].order_idx));
+  const handle = acquireOutlineSession(PAGE, tree);
+  const order = () => handle.getSnapshot().blocks.map((n) => n.uid);
+  expect(order()).toEqual(["b1", "b2", "b0"]);
+
+  performUndo(sync);
+  expect(order()).toEqual(["b1", "b0", "b2"]);
+  performUndo(sync);
+  expect(order()).toEqual(["b0", "b1", "b2"]);
+  // the server gets the re-keyed op the session applied
+  expect(sync.sent[1]).toEqual([{ op: "move", uid: "b1", parent_uid: null,
+                                  order_idx: handle.getSnapshot().blocks[1].order_idx }]);
+  performRedo(sync);
+  expect(order()).toEqual(["b1", "b0", "b2"]);
   handle.release();
 });
 

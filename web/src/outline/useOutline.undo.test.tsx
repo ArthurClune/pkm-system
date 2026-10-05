@@ -2,7 +2,7 @@
 // handlers dispatch through the global undo manager.
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import type { ClientId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
@@ -115,6 +115,28 @@ it("undo reverses a whole cross-parent selection move in one step", () => {
   ]);
 });
 
+it("undoes two moves up in a row and redoes them, though each replay shifted keys", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, [
+    block("a", "A", { order_idx: ord(0) }),
+    block("b", "B", { order_idx: ord(1) }),
+    block("c", "C", { order_idx: ord(2) }),
+  ]);
+  const order = () => outline().blocks.map((n) => n.uid);
+  act(() => outline().handlers.onMoveSubtreeUp(uid("b")));
+  act(() => outline().handlers.onMoveSubtreeUp(uid("c")));
+  expect(order()).toEqual(["b", "c", "a"]);
+
+  act(() => outline().handlers.onUndo());
+  expect(order()).toEqual(["b", "a", "c"]);
+  act(() => outline().handlers.onUndo());
+  expect(order()).toEqual(["a", "b", "c"]);
+  act(() => outline().handlers.onRedo());
+  expect(order()).toEqual(["b", "a", "c"]);
+  act(() => outline().handlers.onRedo());
+  expect(order()).toEqual(["b", "c", "a"]);
+});
+
 it("undo restores a deleted block's text via subtree recreate", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
@@ -187,6 +209,7 @@ it("undo stamps page_title on the enqueued op, though the recorded entry carries
     pageTitle: PAGE,
     ops: [{ op: "update_text", uid: uid("a"), text: "one" }],
     inverse,
+    anchors: { ops: [null], inverse: [null] },
     focusBefore: null,
     focusAfter: null,
   });
@@ -214,19 +237,115 @@ it("undo restores focus to where it was before the edit", () => {
   expect(outline().focus).toEqual({ uid: "a", cursor: 5 });
 });
 
+it("undo restoring focus to a block hidden by a later collapse focuses the collapsed ancestor", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, [
+    block("p", "parent", { order_idx: ord(0),
+                           children: [block("c", "child", { order_idx: ord(0) })] }),
+  ]);
+  act(() => outline().handlers.onFocusBlock(uid("c"), 5));
+  act(() => outline().handlers.onSplit(uid("c"), 5));
+  act(() => outline().handlers.onToggleCollapsed(uid("p"), true));
+  act(() => outline().handlers.onUndo());
+  expect(outline().focus).toEqual({ uid: "p", cursor: 6 });
+});
+
+it("undo clamps the restored caret to the restored text", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, [block("a", "ab", { order_idx: ord(0) })]);
+  act(() => outline().handlers.onFocusBlock(uid("a"), 2));
+  act(() => outline().handlers.onDraftChange(uid("a"), "x y"));
+  act(() => outline().handlers.onFocusBlock(uid("a"), 3));
+  act(() => outline().handlers.onSplit(uid("a"), 3));
+  act(() => outline().handlers.onUndo());
+  expect(outline().blocks[0].text).toBe("ab");
+  expect(outline().focus).toEqual({ uid: "a", cursor: 2 });
+});
+
+/** A collapsed Roam table: its rows render whatever its collapsed flag says. */
+const collapsedTable = () => [
+  block("t", "{{[[table]]}}", { order_idx: ord(0), collapsed: true, children: [
+    block("r1", "a", { order_idx: ord(0), children: [
+      block("r1b", "b", { order_idx: ord(0) }),
+    ] }),
+  ] }),
+  block("x", "other", { order_idx: ord(1) }),
+];
+
+it("typing in a cell of a collapsed table keeps focus there through a flush and a remote batch", () => {
+  vi.useFakeTimers();
+  try {
+    const sync = makeSync();
+    const outline = setup(sync, PAGE, collapsedTable());
+    act(() => outline().handlers.onFocusBlock(uid("r1b"), 1));
+    act(() => outline().handlers.onDraftChange(uid("r1b"), "bc"));
+    act(() => { vi.advanceTimersByTime(5000); }); // the debounced flush
+    expect(sync.sent[0]).toMatchObject([{ op: "update_text", uid: "r1b", text: "bc" }]);
+    expect(outline().focus).toEqual({ uid: "r1b", cursor: 1 });
+    act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
+      { op: "update_text", uid: uid("x"), text: "remote" },
+    ] }));
+    expect(outline().focus).toEqual({ uid: "r1b", cursor: 1 });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("a remote collapse of the typed block's parent moves focus to the parent, and the draft still lands on the block", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, [
+    block("p", "parent", { order_idx: ord(0),
+                           children: [block("c", "child", { order_idx: ord(0) })] }),
+  ]);
+  act(() => outline().handlers.onFocusBlock(uid("c"), 5));
+  act(() => outline().handlers.onDraftChange(uid("c"), "child typed"));
+  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
+    { op: "set_collapsed", uid: uid("p"), collapsed: true },
+  ] }));
+  expect(outline().focus).toEqual({ uid: "p", cursor: 6 });
+
+  // Typing in the parent's textarea flushes the hidden block's draft first.
+  act(() => outline().handlers.onDraftStart(uid("p"), "parent"));
+  expect(sync.sent[0]).toMatchObject([{ op: "update_text", uid: "c", text: "child typed" }]);
+  expect(outline().blocks[0].children[0].text).toBe("child typed");
+  expect(outline().blocks[0].text).toBe("parent");
+});
+
+it("undo inside a cell of a collapsed table keeps focus in the cell", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, collapsedTable());
+  act(() => outline().handlers.onFocusBlock(uid("r1b"), 1));
+  act(() => outline().handlers.onSetHeading(uid("r1b"), 2));
+  act(() => outline().handlers.onUndo());
+  expect(outline().focus).toEqual({ uid: "r1b", cursor: 1 });
+});
+
 it("collapse toggles are not undo steps", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE,
     [block("a", "alpha", { order_idx: ord(0), children: [block("a1", "kid", { order_idx: ord(0) })] }),
      block("b", "beta", { order_idx: ord(1) })]);
   // onToggleTodo on plain text returns null from toggleTodo (grammar/todo.ts)
-  // and records nothing; onSetHeading always produces an op.
+  // and records nothing; onSetHeading to a new level produces an op.
   act(() => outline().handlers.onSetHeading(uid("b"), 2)); // recorded entry
   act(() => outline().handlers.onToggleCollapsed(uid("a"), true)); // not recorded
   act(() => outline().handlers.onUndo());
   // undo skipped the collapse and reverted the heading; collapse persists
   expect(outline().blocks[1].heading).toBeNull();
   expect(outline().blocks[0].collapsed).toBe(true);
+});
+
+it("a field setter that changes nothing sends no op and records no undo step", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, ab());
+  act(() => outline().handlers.onSetHeading(uid("a"), 2)); // recorded entry
+  const sent = sync.sent.length;
+  act(() => outline().handlers.onSetHeading(uid("a"), 2));
+  act(() => outline().handlers.onSetViewType(uid("b"), "document"));
+  act(() => outline().handlers.onToggleCollapsed(uid("b"), false));
+  expect(sync.sent).toHaveLength(sent);
+  act(() => outline().handlers.onUndo()); // reaches the first heading change
+  expect(outline().blocks[0].heading).toBeNull();
 });
 
 it("a fresh edit after undo clears redo", () => {

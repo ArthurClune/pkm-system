@@ -615,7 +615,7 @@ function report(details: fc.RunDetails<[Drawn, number | undefined, Starts]>): st
     `path: ${details.counterexamplePath ?? "none"}`,
     `counterexample: ${shown}`,
     `error: ${error}`,
-    `replay: proptest/check.sh web --seed ${details.seed}` +
+    `replay: proptest/check.sh web --file sync/sync.prop.ts --seed ${details.seed}` +
       (details.counterexamplePath ? ` --path '${details.counterexamplePath}'` : "") +
       (replay ? ` --replay-path '${replay}'` : ""),
   ].join("\n");

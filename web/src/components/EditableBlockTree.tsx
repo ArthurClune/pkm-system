@@ -17,7 +17,8 @@ import { tokenizeBlock } from "../grammar/tokenize";
 import { decideSelectionKey } from "../outline/keyboardPolicy";
 import { selectedUids, selectionText,
          type BlockSelection } from "../outline/blockSelection";
-import { ancestorChain, findNode } from "../outline/tree";
+import { ancestorChain, findNode, hidesChildren } from "../outline/tree";
+import { roamTableRows } from "../outline/roamTableRows";
 import { formatStamp, formatStampTitle, stampBand,
          stampTs } from "../outline/blockStamps";
 import { BlockInput } from "./BlockInput";
@@ -28,7 +29,6 @@ import { RoamTable } from "./roamTable";
 import { TocBlock } from "./TableOfContents";
 import { quoteContent } from "./blockPresentation";
 import { effectiveChildView, type EffectiveBlockView } from "./blockView";
-import { roamTableRows } from "./roamTableRows";
 import { isTocMacro } from "./tocEntries";
 
 interface TreeProps {
@@ -353,10 +353,10 @@ const EditableBlock = memo(function EditableBlock(
   const showToc = !focused && isTocMacro(node.text);
   const WrapperTag: "h1" | "h2" | "h3" | "div" =
     showTable || showToc ? "div" : Tag;
-  const hidesChildren = hasChildren && node.collapsed && tableRows === null;
+  const childrenHidden = hidesChildren(node);
   const chevronHasChildren = showTable ? false : hasChildren;
-  const chevronClosed = hidesChildren;
-  const bulletClosed = hidesChildren;
+  const chevronClosed = childrenHidden;
+  const bulletClosed = childrenHidden;
   return (
     <div className="block">
       <div className={"block-row" + (focused ? " focused" : "")
@@ -437,7 +437,7 @@ const EditableBlock = memo(function EditableBlock(
         )}
         {stamps && <BlockStamp node={node} nowMs={nowMs} />}
       </div>
-      {hasChildren && !showTable && (tableRows !== null || !node.collapsed) && (
+      {hasChildren && !showTable && !childrenHidden && (
         <div className={`block-children ${childrenView}-view`}>
           {node.children.map((c, index) => (
             <EditableBlock key={c.uid} node={c} focus={focus} selected={selected}

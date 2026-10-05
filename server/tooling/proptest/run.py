@@ -37,8 +37,8 @@ def changed_paths(repo: Path) -> list[str]:
 
 
 def _run_server(repo: Path, seed: int | None, path: str | None = None,
-                replay_path: str | None = None) -> int:
-    # Hypothesis replays from the seed alone: path and replay_path are web-only.
+                replay_path: str | None = None, file: str | None = None) -> int:
+    # Hypothesis replays from the seed alone: path, replay_path and file are web-only.
     cmd = ["uv", "run", "pytest", "-m", "proptest", "--no-cov", "-q", "tests/props"]
     if seed is not None:
         cmd.append(f"--hypothesis-seed={seed}")
@@ -52,14 +52,17 @@ WEB_PASSWORD = "proptest-pw"
 _HEALTH_DEADLINE_S = 30.0
 
 
-def web_command(seed: int | None) -> list[str]:
+def web_command(seed: int | None, file: str | None = None) -> list[str]:
     # The seed travels in PROPTEST_SEED, not argv: vitest has no seed flag.
-    return ["pnpm", "exec", "vitest", "run", "--config", "vitest.props.config.ts"]
+    cmd = ["pnpm", "exec", "vitest", "run", "--config", "vitest.props.config.ts"]
+    if file is not None:
+        cmd.append(file)
+    return cmd
 
 
 def web_env(port: int, seed: int | None, path: str | None,
             replay_path: str | None) -> dict[str, str]:
-    """What the props suite reads (web/src/props/sync/env.ts): the server,
+    """What the props suite reads (web/src/props/env.ts and sync/env.ts): the server,
     and, to replay a failure, fast-check's seed, path and command replay
     path."""
     env = {"PROPTEST_BASE_URL": f"http://127.0.0.1:{port}",
@@ -87,7 +90,7 @@ def _healthy(port: int) -> bool:
 
 
 def _run_web(repo: Path, seed: int | None, path: str | None = None,
-             replay_path: str | None = None) -> int:
+             replay_path: str | None = None, file: str | None = None) -> int:
     if _port_in_use(WEB_PORT):
         print(f"web: port {WEB_PORT} is already in use; refusing to touch it. "
               "Stop whatever owns it and re-run.", file=sys.stderr)
@@ -111,7 +114,7 @@ def _run_web(repo: Path, seed: int | None, path: str | None = None,
                     return 1
                 time.sleep(0.2)
             env = {**os.environ, **web_env(WEB_PORT, seed, path, replay_path)}
-            return subprocess.run(web_command(seed), cwd=repo / "web", env=env).returncode
+            return subprocess.run(web_command(seed, file), cwd=repo / "web", env=env).returncode
         finally:
             server.terminate()
             try:
@@ -132,7 +135,13 @@ def main(argv: list[str]) -> int:
                     help="web only: fast-check counterexample path (with --seed)")
     ap.add_argument("--replay-path", default=None,
                     help="web only: fast-check command replayPath (with --seed and --path)")
+    ap.add_argument("--file", default=None,
+                    help="web only: a vitest file filter, to run one suite")
     a = ap.parse_args(argv)
+    if a.file is not None and a.side != "web":
+        print("--file is web only: name the side, as in `proptest/check.sh web --file ...`",
+              file=sys.stderr)
+        return 2
     repo = repo_root()
     if a.side == "auto":
         sides = sides_for(changed_paths(repo))
@@ -146,7 +155,7 @@ def main(argv: list[str]) -> int:
         if not available(side):
             print(f"{side}: no properties yet")
             continue
-        rc = max(rc, _RUNNERS[side](repo, a.seed, a.path, a.replay_path))
+        rc = max(rc, _RUNNERS[side](repo, a.seed, a.path, a.replay_path, a.file))
     return rc
 
 

@@ -78,7 +78,9 @@ web/src/
 ├── outline/                  The editor engine (see frontend-editor.md)
 │   ├── handlers.ts           —            OutlineHandlers, the command port (types only)
 │   ├── outlineState.ts       Core         transitionOutline — the session reducer
-│   ├── tree.ts               Core         applyOps; mirrors the server's op semantics
+│   ├── tree.ts               Core         applyOps; mirrors the server's op semantics;
+│   │                                      hidesChildren, the one rule for what collapse hides
+│   ├── roamTableRows.ts      Core         A Roam {{table}} macro tree as rectangular rows
 │   ├── orderIdx.ts           Core         The one order-key arithmetic module (OrderIdx)
 │   ├── edits.ts / keyEdits.ts  Core       Structural and in-block edit planning
 │   ├── keyboardPolicy.ts     Core         Keystroke → semantic KeyDecision
@@ -99,7 +101,8 @@ web/src/
 │   ├── useOutlinePageLoad.ts Shell        The shared single-page load controller
 │   ├── useBlockDraft.ts      Shell        The focused block's draft session
 │   ├── useAutocomplete.ts    Shell        The popup's shared state
-│   ├── undoManager.ts        Shell        Undo/redo dispatch; re-stamps hashes at replay
+│   ├── undoManager.ts        Shell        Undo/redo dispatch; re-keys placements and
+│   │                                      re-stamps hashes at replay
 │   └── caretDisplayLine.ts   Shell        Caret geometry reads
 │
 ├── components/               ~45 Shell files: the editor's views (EditableBlockTree,
@@ -111,7 +114,7 @@ web/src/
 │   ├── ExternalLinkInterceptor.tsx  Shell  Capture-phase document click listener,
 │   │                                       mounted only in iOS standalone (see below)
 │   └── pure halves           Core         Beside their component: pdfViewerCore,
-│                                          roamTableRows, tocEntries, backlinkFilter, groups,
+│                                          tocEntries, backlinkFilter, groups,
 │                                          backlinkBatchWalk, bluesky, mermaidTheme,
 │                                          blockRefStore…
 │

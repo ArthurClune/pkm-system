@@ -14,8 +14,9 @@ import type { WriteTicket } from "../sync/opQueue";
 import { pagePath } from "../paths";
 import { stampBaseTextHashes } from "./baseTextHash";
 import type { FocusTarget } from "./edits";
-import { emptyHistory, recordEntry, takeRedo, takeUndo,
-         type HistoryEntry, type HistoryState } from "./history";
+import { emptyHistory, recordEntry, resolveAnchors, takeRedo, takeUndo,
+         type BatchAnchors, type HistoryEntry,
+         type HistoryState } from "./history";
 import { peekOutlineSession } from "./outlineSessions";
 
 export interface HistoryDispatch {
@@ -64,7 +65,8 @@ export function performUndo(sync: HistoryDispatch): boolean {
   const { state: next, entry } = takeUndo(state);
   state = next;
   if (!entry) return false;
-  dispatch(sync, entry.inverse, entry.pageTitle, entry.focusBefore);
+  dispatch(sync, entry.inverse, entry.anchors.inverse, entry.pageTitle,
+           entry.focusBefore);
   return true;
 }
 
@@ -73,7 +75,8 @@ export function performRedo(sync: HistoryDispatch): boolean {
   const { state: next, entry } = takeRedo(state);
   state = next;
   if (!entry) return false;
-  dispatch(sync, entry.ops, entry.pageTitle, entry.focusAfter);
+  dispatch(sync, entry.ops, entry.anchors.ops, entry.pageTitle,
+           entry.focusAfter);
   return true;
 }
 
@@ -90,7 +93,8 @@ function flushAll(): void {
   }
 }
 
-function dispatch(sync: HistoryDispatch, batch: BlockOp[], title: string,
+function dispatch(sync: HistoryDispatch, batch: BlockOp[],
+                  anchors: BatchAnchors, title: string,
                   focus: FocusTarget | null): void {
   // Peek BEFORE enqueueing: the hash must be taken against the tree as it is
   // now, not as it was when the entry was recorded, or a replay after any later
@@ -106,14 +110,23 @@ function dispatch(sync: HistoryDispatch, batch: BlockOp[], title: string,
   // session whose replica never opened, ships an unguarded update_text.
   // Residual hole, tracked but not fixed.
   //
+  // Placements are re-keyed against the same live tree, before stamping, so
+  // the hashes cover the ops that actually ship (history.ts states the
+  // anchor rule). Re-keying needs a tree to read anchors off, so with no
+  // session for the page the recorded keys go out as they are: undoing an
+  // edit to a page you have since navigated away from lands right only
+  // while nothing has shifted that page's keys since the entry was recorded.
+  // Residual hole, tracked but not fixed.
+  //
   // try/finally because peeking first put an acquired handle on the wrong side
   // of sync.enqueue, which throws on a disposed queue (opQueue.ts): before the
   // peek moved up, a throw left nothing acquired, and a leaked refcount pins
   // the session for the rest of the tab's life.
   const handle = peekOutlineSession(title);
   try {
-    const wireOps = handle
-      ? stampBaseTextHashes(handle.getSnapshot().blocks, title, batch)
+    const live = handle?.getSnapshot().blocks ?? null;
+    const wireOps = live
+      ? stampBaseTextHashes(live, title, resolveAnchors(live, title, batch, anchors))
       : [...batch];
     const write = sync.enqueue(wireOps, ["page", title]);
     handle?.applyLocal(write, wireOps);

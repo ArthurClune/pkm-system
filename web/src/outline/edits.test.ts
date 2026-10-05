@@ -654,17 +654,48 @@ describe("moveSelectionUp / moveSelectionDown", () => {
       .toEqual(["first0"]);
   });
 
-  test("up: a collapsed selected destination root stays collapsed", () => {
+  test("up: a collapsed selected root that a run crosses into is expanded", () => {
     const r = moveSelectionUp(selectedDestinationTree(), P, [uid("b"), uid("c0"), uid("c1")]);
 
     expect(r.ops).toEqual([
       { op: "move", uid: "a", parent_uid: null, order_idx: 2 },
+      { op: "set_collapsed", uid: "b", collapsed: false },
       { op: "move", uid: "c0", parent_uid: "b", order_idx: 1 },
       { op: "move", uid: "c1", parent_uid: "b", order_idx: 2 },
     ]);
-    expect(findNode(r.blocks, uid("b"))!.collapsed).toBe(true);
+    expect(findNode(r.blocks, uid("b"))!.collapsed).toBe(false);
     expect(findNode(r.blocks, uid("b"))!.children.map((n) => n.uid))
       .toEqual(["b0", "c0", "c1"]);
+  });
+
+  test("down: a collapsed selected root that a run crosses into is expanded", () => {
+    const t = [
+      block("a", "A", {
+        order_idx: ord(0),
+        children: [
+          block("a1", "A first", { order_idx: ord(0) }),
+          block("a2", "A second", { order_idx: ord(1) }),
+        ],
+      }),
+      block("b", "B", {
+        order_idx: ord(1),
+        collapsed: true,
+        children: [block("b1", "B child", { order_idx: ord(0) })],
+      }),
+      block("c", "C", { order_idx: ord(2) }),
+    ];
+
+    const r = moveSelectionDown(t, P, [uid("a2"), uid("b")]);
+
+    expect(r.ops).toEqual([
+      { op: "set_collapsed", uid: "b", collapsed: false },
+      { op: "move", uid: "a2", parent_uid: "b", order_idx: 0 },
+      { op: "move", uid: "c", parent_uid: null, order_idx: 1 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["a", "c", "b"]);
+    expect(findNode(r.blocks, uid("b"))!.collapsed).toBe(false);
+    expect(findNode(r.blocks, uid("b"))!.children.map((n) => n.uid))
+      .toEqual(["a2", "b1"]);
   });
 
   test("moves eligible mixed-depth runs from original positions", () => {
@@ -857,6 +888,13 @@ describe("setCollapsed", () => {
     expect(r.ops).toEqual([{ op: "set_collapsed", uid: "b", collapsed: true }]);
     expect(findNode(r.blocks, uid("b"))!.collapsed).toBe(true);
   });
+
+  test("no-op when the block already holds the value", () => {
+    const t = [block("b", "beta", { collapsed: true })];
+    const r = setCollapsed(t, P, uid("b"), true);
+    expect(r.ops).toEqual([]);
+    expect(r.blocks).toBe(t);
+  });
 });
 
 describe("setHeading", () => {
@@ -867,9 +905,15 @@ describe("setHeading", () => {
   });
 
   test("clearing back to plain text", () => {
-    const r = setHeading(tree(), P, uid("b"), null);
+    const r = setHeading([block("b", "beta", { heading: 2 })], P, uid("b"), null);
     expect(r.ops).toEqual([{ op: "set_heading", uid: "b", heading: null }]);
     expect(findNode(r.blocks, uid("b"))!.heading).toBeNull();
+  });
+
+  test("no-op when the block already holds the level", () => {
+    const t = [block("b", "beta", { heading: 2 })];
+    expect(setHeading(t, P, uid("b"), 2).ops).toEqual([]);
+    expect(setHeading(tree(), P, uid("b"), null).ops).toEqual([]);
   });
 
   test("no-op for an unknown uid", () => {
@@ -888,8 +932,21 @@ describe("setViewType", () => {
   });
 
   test("explicit document mode and unknown-uid no-op", () => {
-    const r = setViewType(tree(), P, uid("b"), "document");
+    const r = setViewType([block("b", "beta", { view_type: "numbered" })], P,
+                          uid("b"), "document");
     expect(findNode(r.blocks, uid("b"))!.view_type).toBe("document");
     expect(setViewType(tree(), P, uid("ghost"), "numbered").ops).toEqual([]);
+  });
+
+  test("no-op when the block already holds the view type", () => {
+    const t = [block("b", "beta", { view_type: "numbered" })];
+    const r = setViewType(t, P, uid("b"), "numbered");
+    expect(r.ops).toEqual([]);
+    expect(r.blocks).toBe(t);
+  });
+
+  test("document over the null default is a no-op: they render the same", () => {
+    expect(findNode(tree(), uid("b"))!.view_type).toBeNull();
+    expect(setViewType(tree(), P, uid("b"), "document").ops).toEqual([]);
   });
 });

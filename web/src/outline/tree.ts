@@ -7,6 +7,7 @@ import type { BlockUid, OrderIdx } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import { orderIdxAfter } from "./orderIdx";
+import { roamTableRows } from "./roamTableRows";
 
 export interface Located {
   node: BlockNode;
@@ -43,6 +44,13 @@ export function visibleUids(blocks: BlockNode[]): BlockUid[] {
   };
   walk(blocks);
   return out;
+}
+
+/** Whether the editor leaves this block's children off screen: it is
+ * collapsed, unless it is a Roam table, whose rows render as its children
+ * whatever its collapsed flag says. */
+export function hidesChildren(node: BlockNode): boolean {
+  return node.collapsed && node.children.length > 0 && roamTableRows(node) === null;
 }
 
 /** The uid path from the outermost ancestor down to `uid` inclusive; empty

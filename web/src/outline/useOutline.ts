@@ -24,7 +24,7 @@ import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          type FocusTarget } from "./edits";
 import { goodlinksAttribute, goodlinksCandidates, goodlinksNotice } from "./goodlinks";
 import type { OutlineHandlers } from "./handlers";
-import { invertOps } from "./history";
+import { historyAnchors, invertOps } from "./history";
 import { loadOutlineBlocks } from "./loadOutlineBlocks";
 import { substituteMissingDaily } from "./missingPage";
 import { planOutlinePaste } from "./paste";
@@ -206,12 +206,15 @@ export function useOutline(
     // [[conflict]] header on the daily note. undoManager stamps at replay
     // time instead. The flushed text op arrives already stamped with the
     // draft's base, so its stamps are stripped here.
-    const inverse =
-      invertOps(pre, pageTitle, [...undoableTextOps, ...result.ops]);
+    //
+    // Placement anchors are read off `pre` too, so a replay re-keys each
+    // placement against the tree it lands on (see history.ts).
+    const recorded = [...undoableTextOps.map(withoutStamps), ...result.ops];
+    const inverse = invertOps(pre, pageTitle, recorded);
     if (inverse !== null && inverse.length > 0) {
       recordHistory({
-        pageTitle, ops: [...undoableTextOps.map(withoutStamps), ...result.ops],
-        inverse,
+        pageTitle, ops: recorded, inverse,
+        anchors: historyAnchors(pre, pageTitle, recorded, inverse),
         focusBefore: focusRef.current,
         focusAfter: result.focus ?? focusRef.current,
       });

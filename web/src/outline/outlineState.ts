@@ -7,10 +7,10 @@ import type { BlockNode } from "../api/payloads";
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
 import type { TicketId } from "../sync/opQueue";
-import type { FocusTarget } from "./edits";
+import { clampCaret, type FocusTarget } from "./edits";
 import type { TextSelection } from "./keyEdits";
-import { applyOps, applyOpsWithChange, blocksEqual, findNode,
-         insertSubtree } from "./tree";
+import { ancestorChain, applyOps, applyOpsWithChange, blocksEqual, findNode,
+         hidesChildren, insertSubtree } from "./tree";
 import { bumpedUids } from "./blockStamps";
 
 // Distinct web-only brands for ReadToken's two same-typed counters. Both are
@@ -339,11 +339,29 @@ export function transitionOutline(
   }
 }
 
+/** The focus this tree can show: null when the block is gone; its nearest
+ * visible ancestor (the outermost one that hides its children), caret at the
+ * end of its text, when the block is hidden; otherwise the same block with
+ * its caret clamped to the text. A focus that already holds comes back as the
+ * same object. */
 export function validateOutlineFocus(
   focus: FocusTarget | null,
   blocks: BlockNode[],
 ): FocusTarget | null {
-  return focus && findNode(blocks, focus.uid) ? focus : null;
+  if (!focus) return null;
+  let siblings = blocks;
+  for (const uid of ancestorChain(blocks, focus.uid)) {
+    // The chain is a root-to-block path through this tree, so each uid is
+    // among the children of the one before it.
+    const node = siblings.find((n) => n.uid === uid)!;
+    if (uid === focus.uid) {
+      const cursor = clampCaret(focus.cursor, node.text.length);
+      return cursor === focus.cursor ? focus : { uid, cursor };
+    }
+    if (hidesChildren(node)) return { uid, cursor: node.text.length };
+    siblings = node.children;
+  }
+  return null;
 }
 
 /** An editor draft: the text typed into one block, and the text that block

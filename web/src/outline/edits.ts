@@ -382,13 +382,13 @@ function moveSelection(
     plans.push(plan);
   }
 
-  const selectedRoots = new Set(runs.flatMap((run) => run.uids));
+  // A run that crosses into a collapsed neighbour expands it, even when that
+  // neighbour is itself a selected root, so the moved run stays visible. A
+  // selected root that only moves keeps its collapsed state.
   const expanded = new Set<BlockUid>();
   const ops: BlockOp[] = [];
   for (const plan of plans) {
-    if (plan.expandUid
-        && !selectedRoots.has(plan.expandUid)
-        && !expanded.has(plan.expandUid)) {
+    if (plan.expandUid && !expanded.has(plan.expandUid)) {
       ops.push({
         op: "set_collapsed", uid: plan.expandUid, collapsed: false,
       });
@@ -491,23 +491,31 @@ export function backspaceAtStart(blocks: BlockNode[], pageTitle: CanonicalTitle,
               { uid: prev.uid, cursor: prev.text.length });
 }
 
+// The three field setters are no-ops when the block already holds the
+// value: an op that changes nothing would still ship, and a heading or view
+// type op would re-stamp the block and add an undo step.
 export function setCollapsed(blocks: BlockNode[], pageTitle: CanonicalTitle,
                              uid: BlockUid, collapsed: boolean): EditResult {
-  if (!findNode(blocks, uid)) return noop(blocks);
+  const node = findNode(blocks, uid);
+  if (!node || node.collapsed === collapsed) return noop(blocks);
   return done(blocks, pageTitle,
               [{ op: "set_collapsed", uid, collapsed }], null);
 }
 
 export function setHeading(blocks: BlockNode[], pageTitle: CanonicalTitle, uid: BlockUid,
                            heading: SetHeadingOp["heading"]): EditResult {
-  if (!findNode(blocks, uid)) return noop(blocks);
+  const node = findNode(blocks, uid);
+  if (!node || (node.heading ?? null) === (heading ?? null)) return noop(blocks);
   return done(blocks, pageTitle, [{ op: "set_heading", uid, heading }], null);
 }
 
+/** A null view type renders as "document", so setting "document" over it
+ * changes nothing. */
 export function setViewType(blocks: BlockNode[], pageTitle: CanonicalTitle,
                             uid: BlockUid,
                             viewType: SetViewTypeOp["view_type"]): EditResult {
-  if (!findNode(blocks, uid)) return noop(blocks);
+  const node = findNode(blocks, uid);
+  if (!node || (node.view_type ?? "document") === viewType) return noop(blocks);
   return done(blocks, pageTitle,
               [{ op: "set_view_type", uid, view_type: viewType }], null);
 }

@@ -2,7 +2,7 @@
 // Semantic table shell composing the context-aware inline render pipeline.
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
-import type { RoamTableRows } from "./roamTableRows";
+import type { RoamTableRows } from "../outline/roamTableRows";
 
 export function RoamTable({ rows }: { rows: RoamTableRows }) {
   const [header, ...body] = rows;

@@ -209,6 +209,55 @@ describe("outline causality", () => {
     )).toEqual({ uid: "kept", cursor: 2 });
   });
 
+  it("keeps a valid focus as the same object", () => {
+    const focus = { uid: uid("kept"), cursor: 2 };
+    expect(validateOutlineFocus(focus, [block("kept", "text")])).toBe(focus);
+  });
+
+  it("clamps a caret past the end of the block's text", () => {
+    // Undo restores focus recorded on "x y" (caret 3) over the text "ab".
+    expect(validateOutlineFocus(
+      { uid: uid("u"), cursor: 3 }, [block("u", "ab")],
+    )).toEqual({ uid: "u", cursor: 2 });
+  });
+
+  it("moves focus hidden under a collapsed ancestor to that ancestor's end", () => {
+    // Split child c of p, collapse p, undo: focusBefore names c, now hidden.
+    const tree = [block("p", "parent", { collapsed: true, children: [
+      block("c", "child", { order_idx: ord(0) }),
+    ] })];
+    expect(validateOutlineFocus({ uid: uid("c"), cursor: 1 }, tree))
+      .toEqual({ uid: "p", cursor: 6 });
+  });
+
+  it("moves hidden focus to the outermost collapsed ancestor, the one on screen", () => {
+    const tree = [block("g", "grand", { collapsed: true, children: [
+      block("p", "parent", { order_idx: ord(0), collapsed: true, children: [
+        block("c", "child", { order_idx: ord(0) }),
+      ] }),
+    ] })];
+    expect(validateOutlineFocus({ uid: uid("c"), cursor: 0 }, tree))
+      .toEqual({ uid: "g", cursor: 5 });
+  });
+
+  it("keeps focus in a cell of a collapsed Roam table: its rows stay on screen", () => {
+    const tree = [block("t", "{{[[table]]}}", { collapsed: true, children: [
+      block("r1", "a", { order_idx: ord(0), children: [
+        block("r1b", "b", { order_idx: ord(0) }),
+      ] }),
+    ] })];
+    const focus = { uid: uid("r1b"), cursor: 1 };
+    expect(validateOutlineFocus(focus, tree)).toBe(focus);
+  });
+
+  it("keeps focus on a collapsed block itself: only its children are hidden", () => {
+    const tree = [block("p", "parent", { collapsed: true, children: [
+      block("c", "child", { order_idx: ord(0) }),
+    ] })];
+    expect(validateOutlineFocus({ uid: uid("p"), cursor: 2 }, tree))
+      .toEqual({ uid: "p", cursor: 2 });
+  });
+
   it("requests one fresh read instead of adopting a pre-edit candidate", () => {
     const started = beginAuthoritativeRead(
       createOutlineState("Page", [block("u1", "old")]),

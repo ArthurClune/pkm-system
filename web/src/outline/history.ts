@@ -5,8 +5,8 @@
 // editor's applyOps uses, so inversion can never disagree with what the ops
 // actually did). set_collapsed is view state and is never inverted — EXCEPT
 // that recreating a deleted subtree restores collapsed flags, which is
-// content fidelity, not a view toggle. A null return means "not invertible from this tree" (e.g. a
-// cross-page move); callers record nothing.
+// content fidelity, not a view toggle. A null return means "not invertible
+// from this tree" (e.g. a cross-page move); callers record nothing.
 //
 // A placement (create, move) shifts every sibling at or after its key up, and
 // nothing shifts keys down, so a replayed batch can restore positions but not

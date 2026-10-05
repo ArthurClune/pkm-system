@@ -1,11 +1,11 @@
 ---
 # pkm-j3ui
 title: 'Property checks: client/server op divergence'
-status: todo
+status: in-progress
 type: feature
 priority: normal
 created_at: 2026-10-02T10:57:25Z
-updated_at: 2026-10-05T17:47:12Z
+updated_at: 2026-10-05T19:25:20Z
 parent: pkm-nws9
 ---
 
@@ -16,3 +16,6 @@ Note from the sync harness (pkm-yxcs): its single-client mode could compare the 
 ## Progress 2026-10-05
 
 Spec, plan and Tasks 1-6 done on feat/pkm-j3ui-op-divergence. First runs found: A (property, fixed: check S), B/D/E replay != first apply incl. pkm-sj5l proper (→ replay rebase, spec docs/superpowers/specs/2026-10-05-replica-replay-rebase-design.md approved), C (accepted transient, excluded), F (open page loses an off-and-back block: fixed b1e59fd8), G (paste title refusal: tallied). Next: rebase plan. Handover: docs/superpowers/handoffs/2026-10-05-property-checks-handover-4.md
+
+
+Progress 2026-10-05 (later): replay rebase executed (61fa64c7..10c5a4ad): B, D, E and sj5l fixed, cascade exclusion and rank mode removed, checks 3 and R exact. Teeth (4 mutants caught), calibration (ops NUM_RUNS 2250, ~60 s; web gate ~5 min), docs done. Gates green; final review: merge with fixes (fix wave in progress).

@@ -2,12 +2,14 @@
 // the keystroke, so the search bar keeps native input undo.
 import { fireEvent, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it } from "vitest";
 import { SyncContext } from "../sync/SyncProvider";
 import { makeSync, uid } from "../test-helpers";
-import { recordHistory, resetHistory } from "../outline/undoManager";
+import { historyIdle, recordHistory, resetHistory,
+         setHistoryPageLoader } from "../outline/undoManager";
 import { UndoRedoKeys } from "./UndoRedoKeys";
 
+beforeEach(() => { setHistoryPageLoader(async () => []); });
 afterEach(() => resetHistory());
 
 const entry = () => ({
@@ -30,18 +32,20 @@ function setup(sync = makeSync()) {
   return sync;
 }
 
-it("Cmd-Z on the window dispatches undo", () => {
+it("Cmd-Z on the window dispatches undo", async () => {
   const sync = setup();
   recordHistory(entry());
   fireEvent.keyDown(window, { key: "z", metaKey: true });
+  await historyIdle();
   expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before" }]]);
 });
 
-it("Shift-Cmd-Z dispatches redo", () => {
+it("Shift-Cmd-Z dispatches redo", async () => {
   const sync = setup();
   recordHistory(entry());
   fireEvent.keyDown(window, { key: "z", metaKey: true });
   fireEvent.keyDown(window, { key: "z", metaKey: true, shiftKey: true });
+  await historyIdle();
   expect(sync.sent).toHaveLength(2);
   expect(sync.sent[1]).toEqual([{ op: "update_text", uid: "a", text: "after" }]);
 });

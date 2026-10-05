@@ -10,6 +10,7 @@
 // navigates there so the effect is visible, even if a lingering session
 // still exists to receive the data.
 import type { BlockOp } from "../api/ops";
+import type { BlockNode } from "../api/payloads";
 import type { WriteTicket } from "../sync/opQueue";
 import { pagePath } from "../paths";
 import { stampBaseTextHashes } from "./baseTextHash";
@@ -17,6 +18,8 @@ import type { FocusTarget } from "./edits";
 import { emptyHistory, recordEntry, resolveAnchors, takeRedo, takeUndo,
          type BatchAnchors, type HistoryEntry,
          type HistoryState } from "./history";
+import { loadOutlineBlocks } from "./loadOutlineBlocks";
+import { substituteMissingDaily } from "./missingPage";
 import { peekOutlineSession } from "./outlineSessions";
 
 export interface HistoryDispatch {
@@ -33,6 +36,15 @@ export interface OutlineHistoryHooks {
 let state: HistoryState = emptyHistory();
 const hooks = new Map<string, Set<OutlineHistoryHooks>>();
 let navigator: ((path: string) => void) | null = null;
+
+type PageLoader = (title: string) => Promise<BlockNode[]>;
+const defaultPageLoader: PageLoader =
+  (title) => loadOutlineBlocks(title, substituteMissingDaily);
+let loadPage: PageLoader = defaultPageLoader;
+// Dispatches that had to wait for a page read, in keypress order.
+let chain: Promise<void> = Promise.resolve();
+let queued = 0;
+let epoch = 0;
 
 export function registerOutlineHistory(
   title: string, h: OutlineHistoryHooks,
@@ -54,6 +66,19 @@ export function setHistoryNavigator(nav: (path: string) => void): () => void {
   return () => {
     if (navigator === nav) navigator = null;
   };
+}
+
+/** Test seam: how an unmounted page's tree is read. */
+export function setHistoryPageLoader(load: PageLoader): () => void {
+  loadPage = load;
+  return () => {
+    if (loadPage === load) loadPage = defaultPageLoader;
+  };
+}
+
+/** Test seam: resolves when no queued dispatch remains. */
+export async function historyIdle(): Promise<void> {
+  while (queued > 0) await chain;
 }
 
 export function recordHistory(entry: HistoryEntry): void {
@@ -83,6 +108,10 @@ export function performRedo(sync: HistoryDispatch): boolean {
 /** Test seam: history is module state. */
 export function resetHistory(): void {
   state = emptyHistory();
+  loadPage = defaultPageLoader;
+  epoch++;
+  chain = Promise.resolve();
+  queued = 0;
 }
 
 function flushAll(): void {
@@ -96,43 +125,85 @@ function flushAll(): void {
 function dispatch(sync: HistoryDispatch, batch: BlockOp[],
                   anchors: BatchAnchors, title: string,
                   focus: FocusTarget | null): void {
-  // Peek BEFORE enqueueing: the hash must be taken against the tree as it is
-  // now, not as it was when the entry was recorded, or a replay after any later
-  // edit would carry a stale hash and land a spurious daily-note [[conflict]]
-  // header. With no mounted session there is no tree to hash against, so
-  // the ops go out unstamped, and the worker fills them in when the replica
-  // is openable — the same fallback as a block this tree does not know. But
-  // in an online-only session the replica never opens, so the worker never
-  // fills them in: undo is a per-tab global across pages (dispatch takes
-  // entry.pageTitle and navigates when the page isn't mounted, see below),
-  // and peekOutlineSession returns null once a page's session is released —
-  // so undoing an edit to a page you have since navigated away from, in a
-  // session whose replica never opened, ships an unguarded update_text.
-  // Residual hole, tracked but not fixed.
-  //
-  // Placements are re-keyed against the same live tree, before stamping, so
-  // the hashes cover the ops that actually ship (history.ts states the
-  // anchor rule). Re-keying needs a tree to read anchors off, so with no
-  // session for the page the recorded keys go out as they are: undoing an
-  // edit to a page you have since navigated away from lands right only
-  // while nothing has shifted that page's keys since the entry was recorded.
-  // Residual hole, tracked but not fixed.
-  //
-  // try/finally because peeking first put an acquired handle on the wrong side
-  // of sync.enqueue, which throws on a disposed queue (opQueue.ts): before the
-  // peek moved up, a throw left nothing acquired, and a leaked refcount pins
-  // the session for the rest of the tab's life.
-  const handle = peekOutlineSession(title);
-  try {
-    const live = handle?.getSnapshot().blocks ?? null;
-    const wireOps = live
-      ? stampBaseTextHashes(live, title, resolveAnchors(live, title, batch, anchors))
-      : [...batch];
-    const write = sync.enqueue(wireOps, ["page", title]);
-    handle?.applyLocal(write, wireOps);
-  } finally {
-    handle?.release();
+  // Dispatches apply in keypress order. With nothing queued and a session for
+  // the page, apply synchronously; otherwise join the chain, so a mounted
+  // page's undo never overtakes an earlier undo still waiting on a page read.
+  if (queued === 0) {
+    const handle = peekOutlineSession(title);
+    if (handle) {
+      dispatchWithSession(sync, handle, batch, anchors, title, focus);
+      return;
+    }
   }
+  const mine = epoch;
+  queued++;
+  chain = chain.then(async () => {
+    try {
+      if (mine !== epoch) return;
+      const handle = peekOutlineSession(title);
+      if (handle) {
+        dispatchWithSession(sync, handle, batch, anchors, title, focus);
+      } else {
+        await dispatchUnmounted(sync, batch, anchors, title, focus);
+      }
+    } catch (e: unknown) {
+      console.error("undo/redo dispatch failed", e);
+    } finally {
+      if (mine === epoch) queued--;
+    }
+  });
+}
+
+type SessionHandle = NonNullable<ReturnType<typeof peekOutlineSession>>;
+
+function dispatchWithSession(sync: HistoryDispatch, handle: SessionHandle,
+                             batch: BlockOp[], anchors: BatchAnchors,
+                             title: string, focus: FocusTarget | null): void {
+  // The tree must be read BEFORE enqueueing: the hash must be taken against the
+  // tree as it is now, not as it was when the entry was recorded, or a replay
+  // after any later edit would carry a stale hash and land a spurious
+  // daily-note [[conflict]] header. Placements are re-keyed against the same
+  // tree, before stamping, so the hashes cover the ops that actually ship
+  // (history.ts states the anchor rule).
+  //
+  // try/finally because the handle is acquired before sync.enqueue, which
+  // throws on a disposed queue (opQueue.ts); a leaked refcount pins the
+  // session for the rest of the tab's life.
+  try {
+    const live = handle.getSnapshot().blocks;
+    const wireOps = stampBaseTextHashes(
+      live, title, resolveAnchors(live, title, batch, anchors));
+    const write = sync.enqueue(wireOps, ["page", title]);
+    handle.applyLocal(write, wireOps);
+  } finally {
+    handle.release();
+  }
+  settle(title, focus);
+}
+
+async function dispatchUnmounted(sync: HistoryDispatch, batch: BlockOp[],
+                                 anchors: BatchAnchors, title: string,
+                                 focus: FocusTarget | null): Promise<void> {
+  // A session disappears only when it has no handles and no undelivered
+  // writes, so with none this tab holds nothing unresolved for the page and
+  // the page as the normal read returns it is a correct tree to re-key and
+  // stamp against. If that read fails the recorded batch ships as it is: the
+  // recorded keys are right only while nothing shifted the page's keys since
+  // recording, and an online-only session never fills the missing hashes in.
+  let wireOps: BlockOp[];
+  try {
+    const live = await loadPage(title);
+    wireOps = stampBaseTextHashes(
+      live, title, resolveAnchors(live, title, batch, anchors));
+  } catch (e: unknown) {
+    console.warn("undo/redo could not read the page; sending unstamped", e);
+    wireOps = [...batch];
+  }
+  sync.enqueue(wireOps, ["page", title]);
+  settle(title, focus);
+}
+
+function settle(title: string, focus: FocusTarget | null): void {
   const registered = hooks.get(title);
   if (registered) {
     registered.forEach((h) => h.applyFocus(focus));

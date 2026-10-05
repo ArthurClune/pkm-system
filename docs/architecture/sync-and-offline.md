@@ -145,17 +145,16 @@ transaction:
 
 | Step in `applyWindow` | Why it sits there |
 |---|---|
-| 1. Page and sidebar tombstones | The UNIQUE `title` columns: a row that gave its title up by being deleted must go before the row that took the title. A reused page id's cascade clears the old page before the new one lands. |
-| 2. Page upserts | `reconcilePage` remaps local page ids, effect-ledger bases included. |
-| 3. Block upserts | Deferred FKs make their order irrelevant for references. |
-| 4. `dropWindowRecords` for every block uid the window ships live or owes a tombstone, including one an earlier window deferred | The server's row supersedes the local one, so nothing a pending batch did to it is left to revert. A deferred block stays present until the head window, so a local delete in between can record it. |
-| 5. Block tombstones, in the window at the journal head only | The moves out land before the local cascade runs (below). |
-| 6. Sidebar upserts | Independent of blocks. |
-| 7. Cursor, deferred-tombstone record, plain-space flag, `reconcileActivationPageTitles` | The last remaps ledger bases through `remapLocalPage`. |
-| 8. `dropAppliedPending` | A batch this window names settles in this window (see [sync-recovery.md](sync-recovery.md#a-payload-that-already-holds-a-pending-batch)). |
-| 9. `settleBatches`, at the head window only | Reverts the ledger records of every batch with no pending row, and restores rows a settled delete cascaded past. After 7, so bases are remapped; before 10, so replays build on reverted rows ([the effect ledger](sync-recovery.md#the-effect-ledger)). |
-| 10. `reapplyPending` | The queue replays over the window's final rows and records its collateral writes. |
-| 11. `dropStrandedLocalPages` | Deletes a negative-id page no block, ref, ledger base or pending op names, and not today's daily page. At the head window only (an acked `create_page` batch no longer names its page, and the server's may ship in a later window). After 9, since a revert can put a block back on a local page. |
+| 1. `dropAppliedPending`, `pruneReplayBatches` | A batch this window names settles in this window (see [sync-recovery.md](sync-recovery.md#a-payload-that-already-holds-a-pending-batch)). |
+| 2. `rewind("pending")`, every window | Pending batches' effects come off before the server's rows land, so step 9 replays them as a first apply ([the replay log](sync-recovery.md#the-replay-log)). |
+| 3. Page and sidebar tombstones | The UNIQUE `title` columns: a row that gave its title up by being deleted must go before the row that took the title. A reused page id's cascade clears the old page before the new one lands. |
+| 4. Page upserts | `reconcilePage` remaps local page ids, replay-log keys and targets included. |
+| 5. Block upserts | Deferred FKs make their order irrelevant for references. |
+| 6. `dropWindowRecords` for every block uid the window ships live or owes a tombstone (including one an earlier window deferred), and every page it ships | The server's row supersedes the local one, so an acked batch's record on it has nothing left to restore. |
+| 7. Block tombstones, in the window at the journal head only | The moves out land before the local cascade runs (below). |
+| 8. `rewind("all")`, at the head window only | Settles the records acked batches left. After 6, so records the window made redundant are gone. |
+| 9. Sidebar upserts, cursor, deferred-tombstone record, plain-space flag, `reconcileActivationPageTitles`, then `replayPending` | The queue replays over the window's final rows, each batch as a first apply at its enqueue time. |
+| 10. `dropStrandedLocalPages` | Deletes a negative-id page no block, ref, `replay_log` record or today's daily title names. At the head window only (an acked `create_page` batch no longer names its page, and the server's may ship in a later window). After 9, since a replay re-makes the pages it needs. |
 
 A block tombstone cascades the replica's local subtree, so it must not reach
 a block the server kept. The kept block may be a descendant that moved along
@@ -174,23 +173,28 @@ A moved-out ancestor can be deleted in a later window. Take D > A > K > L. A
 moves to the top level, D is deleted, K moves to the top level, and A is
 deleted. The server ends with K > L. A's move row ships nothing, because A is
 absent now. Cascading D's tombstone in its own window would take the replica's
-stale D > A > K > L, and L's row never changes to ship again. After the head
-window's upserts, every block the server still has is placed by its own row or
-sits under an unchanged chain of blocks the server also kept. No surviving
-block is then under a deleted one, so the cascade is the one-window case.
+stale D > A > K > L, and L's row never changes to ship again. After the pending
+rewind and the head window's upserts, every block the server still has is
+placed by its own row or sits under an unchanged chain of blocks the server
+also kept. No surviving block is then under a deleted one, so the cascade is
+the one-window case.
 `test_sync_block_tombstone_window.py` models this rule over windows of one
 and two rows.
 
 Between windows, deleted blocks stay visible and editable. An edit to one lands
-as a conflict entry, as an edit to a block deleted elsewhere always does. A
-pending move of a kept block under one of them loses that block locally at the
-head window. The server skips the move and journals the moved subtree live, so
-the block returns with the batch's echo.
+as a conflict entry, as an edit to a block deleted elsewhere always does.
 
-The cascade still removes optimistic rows under a deleted block, and
-`reapplyPending` then skips their ops. A page
-cascade can run before the upserts because a block leaves a page only by a
-write to its own row: a move rewrites `page_id` on every block of the subtree.
+The cascade never meets a pending batch's effects, because `rewind("pending")`
+took them off before the window's writes. A pending move of a kept block under
+a deleted one has been undone, so the block is back in its server place when
+the cascade runs. A block a pending batch created under a deleted one is gone
+too. `replayPending` then skips both ops, as the server skips them. An acked
+op that did the same has had its echo by the head window: the server journals
+a skipped move's subtree live.
+
+A page cascade can run before the upserts because a block leaves a page only
+by a write to its own row: a move rewrites `page_id` on every block of the
+subtree.
 
 ## Post-commit nudges
 
@@ -472,8 +476,9 @@ transaction rolls back.
 One file, `/pkm-replica.sqlite3`, in a dedicated worker on the OPFS SAHPool VFS,
 holds both the graph copy (the server's `BASE_DDL`, replicated via the generated
 `web/src/replica/baseSchema.gen.ts`) and the client-only tables `pending_ops`,
-`sync_client_meta` and `effect_ledger` (see
-[sync-recovery.md § The effect ledger](sync-recovery.md#the-effect-ledger)).
+`sync_client_meta`, `replay_log`, `replay_log_refs` and `replay_batches`.
+The last three are described in
+[sync-recovery.md § The replay log](sync-recovery.md#the-replay-log).
 A second file, `/pkm-replica-carry.sqlite3`, holds the pending queue across a
 [file replacement](sync-recovery.md#reset-rebase-and-file-replacement). A
 worker that dies during one leaves it behind, and the next queue handler

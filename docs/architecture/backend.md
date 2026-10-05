@@ -434,8 +434,8 @@ not matter.
 A skipped `create` or `move` also shifted its destination siblings in the
 client's optimistic apply, and the server did not. Where nothing else
 re-ships them, the skip journals them (`ops_apply._destination_siblings`).
-This is defence in depth for replicas: the replica's effect ledger reverts
-the same shifts at settle ([sync-recovery.md § The effect ledger](sync-recovery.md#the-effect-ledger)),
+This is defence in depth for replicas: the replica's replay log rewinds
+the same shifts in every window ([sync-recovery.md § The replay log](sync-recovery.md#the-replay-log)),
 whichever group the server did or did not journal.
 
 | Skip | Destination | Siblings journalled |
@@ -850,6 +850,8 @@ with the change that invalidates them.
 | `shared/fixtures/draft_flush.json` | hand-maintained case | `tests/test_ops_endpoint.py` | `web/src/views/EditablePage.draftFlush.test.tsx`: the op an editor draft flushes is the op the ops route's conflict and orphan paths are tested with |
 | `shared/fixtures/subtree_hash.json` | hand-maintained cases | `tests/test_subtree_hash.py` | Pins `contracts.ops.subtree_hash` and the web's `subtreeHash` (`web/src/replica/subtreeHash.test.ts`) to the same canonical hash a guarded `delete` is checked against |
 | `shared/fixtures/ops_acks.json` | hand-maintained cases | `tests/test_ops_idempotency.py`, `tests/test_client_contracts.py` | Pins the stored-ack-to-wire mapping of `POST /api/ops` and the `SkipReason` values; the web's `readOpsAck` and queue replay the wire acks (`web/src/sync/opsAck.test.ts`, `opsAck.composed.test.ts`) |
+
+The fixtures pin the implementations on chosen cases; the ops property in [property-checks.md](property-checks.md#what-the-ops-property-checks) checks the server, replica and in-memory implementations against each other on random batches.
 
 ## Configuration and entrypoints
 

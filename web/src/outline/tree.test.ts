@@ -3,7 +3,8 @@ import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { block, ord, uid } from "../test-helpers";
 import { ancestorChain, applyOps, applyOpsWithChange, blocksEqual, findNode,
-         hidesChildren, insertSubtree, locate, removeSubtree, visibleNeighbor,
+         hidesChildren, insertSubtree, locate, needsAuthoritativeReload,
+         removeSubtree, visibleNeighbor,
          visibleUids } from "./tree";
 
 // Siblings with order_idx GAPS (0, 5, 7) — the server leaves gaps after
@@ -421,5 +422,59 @@ describe("applyOpsWithChange allocates nothing for a batch that misses this page
       expect(applied.changed).toBe(false);
       expect(applied.blocks).toEqual(before);
     }
+  });
+});
+
+describe("needsAuthoritativeReload", () => {
+  const move = (u: string, page_title: string | null): BlockOp => ({
+    op: "move", uid: uid(u), parent_uid: null, order_idx: ord(0), page_title,
+  } as BlockOp);
+
+  test("true for a move into this page of a uid the tree lacks", () => {
+    expect(needsAuthoritativeReload(tree(), [move("zz", "P")], "P")).toBe(true);
+  });
+  test("false when the uid is present", () => {
+    expect(needsAuthoritativeReload(tree(), [move("b1", "P")], "P")).toBe(false);
+  });
+  test("false when page_title is null", () => {
+    expect(needsAuthoritativeReload(tree(), [move("zz", null)], "P")).toBe(false);
+  });
+  test("false for a move naming another page", () => {
+    expect(needsAuthoritativeReload(tree(), [move("zz", "Q")], "P")).toBe(false);
+  });
+  test("false for non-move ops on absent uids", () => {
+    const ops: BlockOp[] = [
+      { op: "delete", uid: uid("zz") } as BlockOp,
+      { op: "update_text", uid: uid("zz"), text: "x" } as BlockOp,
+    ];
+    expect(needsAuthoritativeReload(tree(), ops, "P")).toBe(false);
+  });
+  test("true when one batch moves a present block off the page and back", () => {
+    // The echo removes "a" on the first move and cannot place it on the
+    // second, so the rule is asked of the tree as each op leaves it.
+    expect(needsAuthoritativeReload(
+      tree(), [move("a", "Q"), move("a", "P")], "P")).toBe(true);
+  });
+  test("true when a batch moves a parent off the page and then its child onto it", () => {
+    // The first move takes "b1" away with its parent "b", so the echo cannot
+    // place "b1" on the second.
+    expect(needsAuthoritativeReload(
+      tree(), [move("b", "Q"), move("b1", "P")], "P")).toBe(true);
+  });
+  test("false when the batch created the block on this page before moving it", () => {
+    const ops: BlockOp[] = [
+      { op: "create", uid: uid("zz"), parent_uid: null, order_idx: ord(9),
+        text: "Z", page_title: "P" } as BlockOp,
+      move("zz", "P"),
+    ];
+    expect(needsAuthoritativeReload(tree(), ops, "P")).toBe(false);
+  });
+  test("false for a batch that only moves a present block off the page", () => {
+    expect(needsAuthoritativeReload(tree(), [move("a", "Q")], "P")).toBe(false);
+  });
+  test("leaves the caller's tree untouched", () => {
+    const blocks = tree();
+    needsAuthoritativeReload(blocks, [move("a", "Q"), move("a", "P")], "P");
+    expect(blocks).toEqual(tree());
   });
 });

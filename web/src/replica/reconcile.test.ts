@@ -5,8 +5,10 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import type { BatchId, SyncSeq } from "../api/brands";
 import { applyChanges, type Changes } from "./apply";
-import { applyLocalOps } from "./localOps";
+import { titleForDate } from "./daily";
+import { applyLocalOps, getOrCreateLocalPage } from "./localOps";
 import { setMeta } from "./meta";
+import { deleteBatch, enqueueBatch, nextBatch } from "./queue";
 import { remapLocalPage } from "./reconcile";
 import { openTestDb, type TestDb } from "./testDb";
 import { ord, pageId, title, uid } from "../test-helpers";
@@ -19,17 +21,24 @@ beforeEach(async () => {
   setMeta(t.db, "generation", "gen-1");
   setMeta(t.db, "cursor", "10");
   t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
-  // offline: create a page implicitly (via a link) and explicitly add a block
-  applyLocalOps(t.db, [
+  // offline, still pending: create a page implicitly (via a link) and
+  // explicitly add a block
+  enqueueBatch(t.db, [
     { op: "create", uid: uid("uid_l1"), page_title: "Offline Page", parent_uid: null,
       order_idx: ord(0), text: "links back to [[AI]]" },
     { op: "create", uid: uid("uid_l2"), page_title: "Offline Page", parent_uid: uid("uid_l1"),
       order_idx: ord(0), text: "a child" },
-  ], 50, { batchId: "t" as BatchId });
+  ], 50, "t" as BatchId);
   negId = t.db.select<{ id: number }>(
     "SELECT id FROM pages WHERE title = 'Offline Page'")[0].id;
   expect(negId).toBeLessThan(0);
 });
+
+/** The drain's delete of the batch at the head of the queue, on its ack. */
+const ackNext = (): void => {
+  const b = nextBatch(t.db)!;
+  deleteBatch(t.db, b.id, b.batch_id);
+};
 
 const feed = (over: Partial<Changes>): Changes => ({
   reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
@@ -105,19 +114,82 @@ describe("reconcile on feed page delivery", () => {
       .toEqual([{ target_page_id: 7 }]);
   });
 
-  test("remapLocalPage rewrites ledger bases", () => {
-    t.db.exec("INSERT INTO effect_ledger(batch_id, uid, base_page_id, base_updated_at)" +
-              " VALUES ('b1', 'uid_x', ?, 5), ('b2', 'uid_y', 1, 6)", [negId]);
-
+  test("remapLocalPage moves the log's records and refs onto the target", () => {
+    // acked batches: the window's rewind leaves their records frozen
+    ackNext();
+    // a ref to the local page by hand, so u's record of uid_l2 holds one
+    t.db.exec("INSERT INTO refs VALUES ('uid_l2', ?, 'link')", [negId]);
+    applyLocalOps(t.db, [{ op: "update_text", uid: uid("uid_l2"), text: "edited" }],
+                  60, { batchId: "u" as BatchId });
     t.db.transaction(() => {
       t.db.exec("PRAGMA defer_foreign_keys = ON");
       remapLocalPage(t.db, { localId: pageId(negId), targetId: pageId(7) });
       t.db.exec("INSERT INTO pages(id, title) VALUES (7, 'Offline Page')");
     });
 
+    // the page t minted is the server's now, so its record goes; u's
+    // pre-images name the server id
     expect(t.db.select(
-      "SELECT uid, base_page_id, base_updated_at FROM effect_ledger ORDER BY uid"))
-      .toEqual([{ uid: "uid_x", base_page_id: 7, base_updated_at: 5 },
-                { uid: "uid_y", base_page_id: 1, base_updated_at: 6 }]);
+      "SELECT batch_id, kind, key, pre_page_id FROM replay_log" +
+      " ORDER BY batch_id, kind, key"))
+      .toEqual([
+        { batch_id: "t", kind: "block", key: "uid_l1", pre_page_id: null },
+        { batch_id: "t", kind: "block", key: "uid_l2", pre_page_id: null },
+        { batch_id: "u", kind: "block", key: "uid_l2", pre_page_id: 7 },
+        { batch_id: "u", kind: "page", key: "7", pre_page_id: null },
+      ]);
+    expect(t.db.select(
+      "SELECT l.key, r.target_page_id, r.kind FROM replay_log_refs r" +
+      " JOIN replay_log l ON l.id = r.log_id"))
+      .toEqual([{ key: "uid_l2", target_page_id: 7, kind: "link" }]);
+  });
+
+  test("a settled batch's record on a reconciled local page restores onto the server id at the head window", () => {
+    ackNext();
+    // a row on the local page with no record of its own (its creating
+    // batch's records already gone), which a later acked batch moves away
+    t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
+              " VALUES ('uid_s', ?, NULL, 1, 'kept')", [negId]);
+    applyLocalOps(t.db, [{ op: "move", uid: uid("uid_s"), parent_uid: null,
+                           order_idx: ord(0), page_title: "AI" }],
+                  60, { batchId: "u" as BatchId });
+
+    // the server's page for the title arrives short of the head
+    applyChanges(t.db, feed({
+      next_since: 11 as SyncSeq, latest_seq: 12 as SyncSeq,
+      pages: [{ id: pageId(7), title: title("Offline Page"), created_at: 9, updated_at: 9 }],
+    }));
+    expect(applyChanges(t.db, feed({ next_since: 12 as SyncSeq, latest_seq: 12 as SyncSeq })))
+      .toEqual({ status: "applied", cursor: 12 });
+
+    expect(t.db.select("SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid = 'uid_s'"))
+      .toEqual([{ page_id: 7, parent_uid: null, order_idx: 1 }]);
+  });
+
+  test("an acked page record re-keyed onto the page a window ships is dropped", () => {
+    const now = new Date(2026, 0, 15, 12).getTime();
+    const daily = titleForDate(new Date(now));
+    const local = getOrCreateLocalPage(t.db, daily, now); // a read, no record
+    enqueueBatch(t.db, [{ op: "create", uid: uid("uid_d1"), page_title: daily,
+                          parent_uid: null, order_idx: ord(0), text: "d" }],
+                 now, "d" as BatchId);
+    expect(t.db.select("SELECT key FROM replay_log WHERE batch_id = 'd' AND kind = 'page'"))
+      .toEqual([{ key: String(local) }]);
+    ackNext();
+    ackNext();
+
+    // the server's daily page and the block arrive short of the head
+    applyChanges(t.db, feed({
+      next_since: 11 as SyncSeq, latest_seq: 12 as SyncSeq,
+      pages: [{ id: pageId(8), title: title(daily), created_at: 9, updated_at: 99 }],
+      blocks: [{ uid: uid("uid_d1"), page_id: pageId(8), parent_uid: null,
+                 order_idx: ord(0), text: "d", heading: null, view_type: null,
+                 collapsed: 0, created_at: now, updated_at: now, refs: [] }],
+    }), now);
+    applyChanges(t.db, feed({ next_since: 12 as SyncSeq, latest_seq: 12 as SyncSeq }), now);
+
+    // the server's updated_at stands; the local page's pre-image is not put on it
+    expect(t.db.select("SELECT id, updated_at FROM pages WHERE id = 8"))
+      .toEqual([{ id: 8, updated_at: 99 }]);
   });
 });

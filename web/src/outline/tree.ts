@@ -33,6 +33,27 @@ export function findNode(blocks: BlockNode[], uid: BlockUid): BlockNode | null {
   return locate(blocks, uid)?.node ?? null;
 }
 
+/** True when a remote batch moves a block onto this page whose subtree the
+ *  tree does not hold, so the echo cannot place it and the page must reload
+ *  from authority instead. Asked op by op as the echo will apply them: a move
+ *  onto this page reloads when the block is missing from the tree as the
+ *  earlier ops of the same batch leave it, so a batch that moves a block off
+ *  the page and back reloads, and one that creates a block here before moving
+ *  it does not. Never mutates `blocks`. */
+export function needsAuthoritativeReload(
+  blocks: BlockNode[], ops: readonly BlockOp[], pageTitle: string,
+): boolean {
+  const movesHere = (op: BlockOp): op is Extract<BlockOp, { op: "move" }> =>
+    op.op === "move" && op.page_title === pageTitle;
+  if (!ops.some(movesHere)) return false;
+  const tree = cloneTree(blocks);
+  for (const op of ops) {
+    if (movesHere(op) && !findNode(tree, op.uid)) return true;
+    applyOpInPlace(tree, op, pageTitle);
+  }
+  return false;
+}
+
 /** Depth-first uids in on-screen order; children of collapsed blocks hidden. */
 export function visibleUids(blocks: BlockNode[]): BlockUid[] {
   const out: BlockUid[] = [];

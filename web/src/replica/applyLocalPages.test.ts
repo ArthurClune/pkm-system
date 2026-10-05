@@ -3,9 +3,9 @@
 // reconciles a local page only by title (reconcilePage), so a local page
 // the server never made under that title -- it was renamed before the pull,
 // or the op that made it was skipped -- would otherwise outlive everything
-// that needed it. The window at the journal head drops a local page once nothing keeps it: no
-// block on it, no ref to it, no pending op naming its title. Server pages
-// are never dropped, however empty.
+// that needed it. The window at the journal head drops a local page once
+// nothing keeps it: no block on it, no ref to it, no replay-log record of a
+// pending batch naming it. Server pages are never dropped, however empty.
 import { beforeEach, describe, expect, test } from "vitest";
 import type { BatchId, BlockUid, CanonicalTitle, PageId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
@@ -104,18 +104,54 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
     expect(titles()).toEqual(["Proptest", "Second"]);
   });
 
-  test("the skipped move's page goes on the window after the ack", () => {
+  // The pending move no longer keeps its page: the window rewinds the move,
+  // and its replay skips it on the deleted block, as a first apply would.
+  test("a pending move's page goes in the window that deletes its block", () => {
     enqueue([{ op: "move", uid: uid("uid_b1"), parent_uid: null,
                order_idx: ord(0), page_title: "Third" }], "b-move");
     applyChanges(t.db, window({
       tombstones: [{ kind: "block", entity_id: "uid_b1" }],
     }), NOW);
-    expect(titles()).toContain("Third"); // the pending move still names it
-
-    ackNext(t.db);
-    applyChanges(t.db, window({ next_since: 12, latest_seq: 12 }), NOW);
 
     expect(titles()).toEqual(["Proptest", "Second"]);
+  });
+
+  // The pending link no longer keeps its page: its replay skips the update
+  // on the deleted block, so no page is made.
+  test("a pending link on a block the window deletes makes no page", () => {
+    enqueue([{ op: "update_text", uid: uid("uid_b2"),
+               text: "see [[Linked]]" }], "b-link");
+
+    applyChanges(t.db, window({
+      tombstones: [{ kind: "block", entity_id: "uid_b2" }],
+    }), NOW);
+
+    expect(titles()).toEqual(["Proptest", "Second"]);
+  });
+
+  // The head window rewinds an acked batch's records: by then every journal
+  // row of its commit has arrived, so the server made no such block.
+  test("an acked create the head window does not ship takes its block and page with it", () => {
+    enqueue([createOn("uid_n1", "Fourth")], "b-create");
+    ackNext(t.db);
+
+    applyChanges(t.db, window(), NOW);
+
+    expect(titles()).toEqual(["Proptest", "Second"]);
+    expect(t.db.select("SELECT uid FROM blocks WHERE uid = 'uid_n1'")).toEqual([]);
+  });
+
+  // Likewise for an acked link: the head window puts the old text back.
+  test("an acked link the head window does not ship reverts and its page goes", () => {
+    enqueue([{ op: "update_text", uid: uid("uid_b2"),
+               text: "see [[Linked]]" }], "b-link");
+    ackNext(t.db);
+
+    applyChanges(t.db, window(), NOW);
+
+    expect(titles()).toEqual(["Proptest", "Second"]);
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b2'"))
+      .toEqual([{ text: "text of uid_b2" }]);
   });
 
   test("a poisoned batch names nothing: it is not replayed", () => {
@@ -130,7 +166,7 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
 });
 
 describe("applyChanges: a local page something keeps stays", () => {
-  test("a pending op names it", () => {
+  test("a pending create_page page with nothing on it survives the head window", () => {
     enqueue([{ op: "create_page", page_title: "Draft" }], "b-page");
     const [before] = t.db.select<{ id: number }>(
       "SELECT id FROM pages WHERE title = 'Draft'");
@@ -139,6 +175,15 @@ describe("applyChanges: a local page something keeps stays", () => {
 
     expect(t.db.select("SELECT id FROM pages WHERE title = 'Draft'"))
       .toEqual([before]);
+  });
+
+  test("a pending create_page of a local page that already exists keeps it", () => {
+    getOrCreateLocalPage(t.db, "Draft", NOW); // a read made it, no op behind it
+    enqueue([{ op: "create_page", page_title: "Draft" }], "b-page");
+
+    applyChanges(t.db, window(), NOW);
+
+    expect(titles()).toContain("Draft");
   });
 
   test("a pending op names it by a title that canonicalizes to it", () => {
@@ -152,21 +197,31 @@ describe("applyChanges: a local page something keeps stays", () => {
     expect(titles()).toContain("Draft");
   });
 
-  test("a pending op links to it", () => {
-    enqueue([{ op: "update_text", uid: uid("uid_b2"),
-               text: "see [[Linked]]" }], "b-link");
+  test("a pending batch's record names it, after the block moved off it", () => {
+    enqueue([createOn("uid_n1", "Fourth"),
+             { op: "move", uid: uid("uid_n1"), parent_uid: null,
+               order_idx: ord(0), page_title: "Proptest" }], "b-made");
 
-    // the block goes, taking its ref, and the replay skips the update
-    applyChanges(t.db, window({
-      tombstones: [{ kind: "block", entity_id: "uid_b2" }],
-    }), NOW);
+    applyChanges(t.db, window(), NOW);
+
+    expect(titles()).toContain("Fourth");
+  });
+
+  test("a pending batch's recorded refs name it, after its link was removed", () => {
+    // a page a read made, linked by a row whose own batch's records are gone
+    const linked = getOrCreateLocalPage(t.db, "Linked", NOW);
+    t.db.exec("INSERT INTO refs VALUES ('uid_b2', ?, 'link')", [linked]);
+    enqueue([{ op: "update_text", uid: uid("uid_b2"), text: "plain" }], "b-unlink");
+
+    applyChanges(t.db, window(), NOW);
 
     expect(titles()).toContain("Linked");
   });
 
   test("it still has a block", () => {
-    enqueue([createOn("uid_n1", "Fourth")], "b-create");
-    ackNext(t.db); // the create's echo is in a later window
+    const fourth = getOrCreateLocalPage(t.db, "Fourth", NOW);
+    t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
+              " VALUES ('uid_n1', ?, NULL, 0, 'n1')", [fourth]);
 
     applyChanges(t.db, window(), NOW);
 
@@ -189,9 +244,8 @@ describe("applyChanges: a local page something keeps stays", () => {
   });
 
   test("a block links to it", () => {
-    enqueue([{ op: "update_text", uid: uid("uid_b2"),
-               text: "see [[Linked]]" }], "b-link");
-    ackNext(t.db); // the update's echo is in a later window
+    const linked = getOrCreateLocalPage(t.db, "Linked", NOW);
+    t.db.exec("INSERT INTO refs VALUES ('uid_b2', ?, 'link')", [linked]);
 
     applyChanges(t.db, window(), NOW);
 
@@ -214,11 +268,10 @@ describe("applyChanges: a local page something keeps stays", () => {
   });
 });
 
-describe("applyChanges: a local page a ledger base names", () => {
-  // B and its child D are made on a new title, then B moves to Proptest:
-  // D's record names Fourth as its base. A later batch deletes B (and D),
-  // and D's row record takes over that base, so once both are acked
-  // nothing but that record keeps Fourth.
+describe("applyChanges: a local page an acked batch's frozen record names", () => {
+  // B and its child D are made on a new title, then B moves to Proptest. A
+  // later batch deletes B (and D). Once both are acked, only their frozen
+  // records name Fourth, until the head window rewinds them.
   const strandFourth = (): void => {
     enqueue([
       createOn("uid_n1", "Fourth"),
@@ -232,7 +285,7 @@ describe("applyChanges: a local page a ledger base names", () => {
     ackNext(t.db);
   };
 
-  test("a local page a ledger base names stays", () => {
+  test("a local page a frozen record names stays short of the head", () => {
     strandFourth();
 
     applyChanges(t.db, window({ next_since: 11, latest_seq: 12 }), NOW);
@@ -240,7 +293,7 @@ describe("applyChanges: a local page a ledger base names", () => {
     expect(titles()).toContain("Fourth");
   });
 
-  test("it goes in the window that settles the record", () => {
+  test("it goes in the head window, which rewinds the record", () => {
     strandFourth();
     applyChanges(t.db, window({ next_since: 11, latest_seq: 12 }), NOW);
     expect(titles()).toContain("Fourth");
@@ -248,7 +301,7 @@ describe("applyChanges: a local page a ledger base names", () => {
     applyChanges(t.db, window({ next_since: 12, latest_seq: 12 }), NOW);
 
     expect(titles()).toEqual(["Proptest", "Second"]);
-    expect(t.db.select("SELECT * FROM effect_ledger")).toEqual([]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM replay_log")).toEqual([{ n: 0 }]);
   });
 });
 

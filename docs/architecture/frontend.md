@@ -168,7 +168,7 @@ web/src/
 │   ├── rpc.ts / client.ts    Shell        Typed RPC over the worker port
 │   ├── db.ts                 Shell        ReplicaDb over sqlite-wasm; rollbacks
 │   │                                      that keep the original error
-│   ├── clientSchema.ts       Shell        CLIENT_DDL (pending_ops, sync_client_meta, effect_ledger),
+│   ├── clientSchema.ts       Shell        CLIENT_DDL (pending_ops, sync_client_meta, replay_log*),
 │   │                                      SCHEMA_VERSION, installSchema
 │   ├── meta.ts               Shell        sync_client_meta accessors (cursor,
 │   │                                      generation, title flag, schema version,
@@ -180,12 +180,12 @@ web/src/
 │   │                                      apply, negative-id remap, recovery FIFO
 │   ├── localApi/             Shell        Offline read shims: the routes' exact JSON
 │   ├── localOps.ts           Shell        Optimistic apply (server timestamp rules)
-│   ├── effectLedger.ts       Shell        effect_ledger statements: record a pending batch's
-│   │                                      collateral writes, drop, settle (revert, restore
-│   │                                      cascaded rows), remap
+│   ├── replayLog.ts          Shell        replay_log statements: record a row's pre-image before
+│   │                                      a pending batch's first write, enqueue times, drop, remap
+│   ├── rewind.ts             Shell        rewind: restore pre-images (pending or all scope)
 │   ├── pageLookup.ts         Shell        Page lookup by canonical title (no create)
 │   ├── placement.ts          Core         placementFor: where a create or move lands,
-│   │                                      or skip / keep on replay (mirrors ops_apply)
+│   │                                      or skip (mirrors ops_apply)
 │   ├── missingTarget.ts      Core         Which ops skip on a missing target (mirrors ops_core)
 │   ├── blockRefs.ts          Shell        block_refs re-derivation, shared by both applies
 │   ├── errors.ts             Core         The availability taxonomy

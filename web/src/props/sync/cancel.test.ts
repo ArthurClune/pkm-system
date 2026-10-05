@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BatchId, SyncSeq } from "../../api/brands";
-import type { Snapshot } from "../../replica/apply";
+import type { Changes, Snapshot } from "../../replica/apply";
 import { cancellable, ExampleCancelled } from "./cancel";
 import type { ServerControl } from "./serverControl";
 
@@ -18,6 +18,9 @@ function fakeServer(calls: string[]): ServerControl {
     applied: async () => { await note("applied"); return [] as { batch_id: BatchId; applied_at: number }[]; },
     renames: async () => { await note("renames"); return []; },
     snapshot: async () => { await note("snapshot"); return {} as Snapshot; },
+    takeEcho: async () => { await note("takeEcho"); return null; },
+    setEchoTeeth: () => note("setEchoTeeth"),
+    changes: async () => { await note("changes"); return {} as Changes; },
     latestSeq: async () => { await note("latestSeq"); return 7 as SyncSeq; },
     postRaw: async () => { await note("postRaw"); return new Response(null); },
     postRename: async () => { await note("postRename"); return new Response(null); },

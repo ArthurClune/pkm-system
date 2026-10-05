@@ -1,13 +1,14 @@
 # Property checks
 
 `proptest/check.sh` is a property-based gate for the sync, planning and
-outline-edit invariants. It has two sides, and the web side holds two suites:
+outline-edit invariants. It has two sides, and the web side holds three suites:
 
 | Side | Framework | Drives | Compared with |
 |---|---|---|---|
 | `server` | Hypothesis | random op batches and CLI batches, in-process | a from-the-docs reference model |
 | `web`, sync | fast-check | 2 or 3 clients running the real web sync stack against the real server, with faults | the server's state, through an oracle (see [What the sync property checks](#what-the-sync-property-checks)) |
 | `web`, outline | fast-check | random outline edit commands, undo and redo on one page, through the real outline code, with no server | a reading-view model (see [What the outline property checks](#what-the-outline-property-checks)) |
+| `web`, ops | fast-check | random raw op batches and outline commands, posted to the real server | the replica and the in-memory outline trees, each against the server's own state (see [What the ops property checks](#what-the-ops-property-checks)) |
 
 It runs locally before a merge, the same way
 [`perf/check.sh`](performance-checks.md) does; it is not CI, a git hook, or
@@ -43,7 +44,7 @@ random seed. `--path`, `--replay-path` and `--file` apply to the web side only
 The web side starts the harness server, `server/tooling/proptest/sync_server.py`,
 on port 8978, waits for `/healthz`, runs vitest, and stops the server by PID.
 It refuses to run when 8978 is already in use. The server is the real
-`create_app` plus five control routes the suite needs, which exist only in
+`create_app` plus seven control routes the suites need, which exist only in
 that launcher and never in `pkm.server.app`:
 
 | Route | Does |
@@ -53,6 +54,8 @@ that launcher and never in `pkm.server.app`:
 | `POST /__proptest/rotate-generation` | rotates the sync `db_generation` |
 | `GET /__proptest/applied` | `applied_batches` rows in commit order, with `applied_at` |
 | `GET /__proptest/renames` | every page retitle in commit order: the titles, the batch it followed (`after_batch_id`, null before the first) and the clock `at` it ran at. A trigger the seeded database installs writes the log, because a rename is a route of its own, not a batch |
+| `POST /__proptest/echo/take` | the ops of the last broadcast frame that carried any (the echo an open page would apply), cleared by the read; `null` when none arrived |
+| `POST /__proptest/echo/teeth` | arms a deliberately wrong echo that loses the `page_title` of every move that names one, for the ops teeth |
 
 The server clock starts at `START_MS`, 2026-03-01 12:00 Europe/London, never
 ticks, and moves only by `/__proptest/clock`. It never moves before `START_MS`
@@ -79,6 +82,10 @@ session cookies are rejected when issued in the future or more than a year ago.
 | `web/src/props/sync/normalise.test.ts`, `arbitraries.test.ts` | test | unit tests that do run under `pnpm test:unit` |
 | `web/src/props/outline/arbitraries.ts`, `reading.ts`, `model.ts`, `run.ts`, `checks.ts` | Functional Core | start trees, selections, drops, paste forests and command sequences; the reading-view rows; the model of each command; the runner over the real commands and history; the per-step and whole-sequence checks |
 | `web/src/props/outline/outline.prop.ts`, `teeth.prop.ts` | Imperative Shell | the property and its budget; the seeded wrong commands it must catch. Neither imports `sync/env.ts` or needs the server |
+| `web/src/props/ops/arbitraries.ts`, `compare.ts` | Functional Core | the start state, its seeding ops, the raw-batch drafts and their resolution against a server graph, and example kinds; per-page trees from a snapshot, tree and graph diffs, and the pruning of server-minted rows |
+| `web/src/props/ops/example.ts`, `ops.prop.ts` | Imperative Shell | one example run through the server, the replica and the in-memory trees with the checks below, behind a seam the teeth swap; the property, its two fixed scenarios and the tally |
+| `web/src/props/ops/teeth.prop.ts` | test | the four seeded mutants the property must catch, and a clean run it must pass |
+| `web/src/props/ops/*.test.ts` | test | unit tests that run under `pnpm test:unit` |
 | `web/src/props/outline/*.test.ts` | test | unit tests that run under `pnpm test:unit`; `src/props/**` is outside its coverage measure |
 | `server/tests/props/conftest.py` | test | Hypothesis profiles (`merge`, `dev`), the `template_db` fixture |
 | `server/tests/props/harness.py` | test | non-fixture helpers every property needs: `template_db_path`, `fresh_app`, `FROZEN_NOW`, `MERGE_EXAMPLES`, `assert_unique_keys`/`assert_well_formed` |
@@ -229,6 +236,61 @@ and a tooth counts only a failure report that names the property the mutant
 breaks: `meaning` for the commands, `undo-stack`, `undo-all` or `redo-all` for
 `invertOps`. A crash, or another property failing alone, is not a catch.
 
+## What the ops property checks
+
+Op semantics are implemented four times: the server (`ops_core`, `ops_apply`),
+the replica (`localOps.ts`, optimistic and replayed over feed windows), the
+in-memory outline tree (`tree.ts`, which applies the websocket echo and the
+editor's own commands) and the CLI planner. The server property checks the
+server against a model and the outline property checks commands against a
+reading view. `ops.prop.ts` checks that the replica and the in-memory tree store
+what the server stores.
+
+An example seeds a start state through `POST /api/ops`: pages `Outline Props`,
+`Ops Two` and `Ops Three`, 0 to 10 blocks each from a fixed uid pool, with
+refs into the title pool (those three plus `Ops Four`, which never exists at the
+start). It is a raw example about three times in five, otherwise a command
+example. Both run on a real replica database against the harness server.
+
+| Kind | Steps | Each step |
+|---|---|---|
+| raw | 1 to 3 batches of 1 to 6 ops | the replica enqueues batch B optimistically; in about half the steps another device's batch O is posted first, the in-memory trees apply O's echo, and the replica applies the head window over B; then B is posted as the queue would send it, and its echo and ack are checked |
+| command | 1 to 5 outline commands (undo and redo included), each command's ops one batch | the batch is enqueued, posted and checked the same way; the editor's tree advances by its own commands only |
+
+Drafts cover cycles, missing and cross-page parents, cross-page moves and
+creates, stale hashes, a block named by two ops of one batch, and a forbidden
+title.
+
+| Check | Holds when |
+|---|---|
+| 1 | an echo applied to a pool page's in-memory tree gives the server's tree for that page |
+| 2 | a command's resulting tree is the server's tree |
+| 3 | the replica after the optimistic apply is the server's graph |
+| R | the replica after a feed window equals a fresh replica built from the snapshot with the same pending batches enqueued |
+| S | after an ack the replica pulls the head window and is then the server's graph exactly; the next step starts from it |
+| rejection | `enqueueBatch` refuses a batch for its title syntax exactly when the server does |
+
+Checks 3 and R compare every key exactly, `order_idx` included: replay is a
+rebase, so a window's result is the server's rows with the pending batches
+applied over them as a first apply. The exclusions:
+
+| Set aside | From | Why |
+|---|---|---|
+| rows the server minted (conflict notes, daily pages) | 1, 3, R | the client never creates them; check S reads them with nothing pruned |
+| a page whose echo the session would reload (`needsAuthoritativeReload`) | 1 | the app fetches that page instead of applying the echo; its tree is replaced by the server's |
+| timestamps | all | not compared |
+
+A batch the server rejects for any reason other than title syntax ends the
+example. `ops.prop.ts` also runs two fixed scenarios: a move onto an open page
+whose tree lacks the block, and a reused batch id, which must surface as a
+harness error.
+
+`teeth.prop.ts` swaps in four mutants through the runner's seam and the echo
+fault route: an echo that shifts the moved block along with its new siblings, a
+move that lands one slot late, a replay applied without rewinding first, and an
+echo that drops a cross-page title. Each must be caught by the check it breaks
+(1, 3, R and 1), and a clean run of the real operations must pass.
+
 ## Reading a server failure
 
 Hypothesis shrinks a failure toward the smallest batch that reproduces it,
@@ -260,7 +322,11 @@ run, with each client's fired faults, and the oracle's evidence per failed
 invariant. Run the `replay:` line to re-run just the shrunk example. Each web suite prints
 its own report, and its `replay:` line names its own file with `--file`, so the
 replay runs that suite alone. The outline report shows the shrunk start tree
-and its commands in place of the clients.
+and its commands in place of the clients. The ops report's `counterexample:` shows
+the shrunk start state and every step; its `error:` shows the steps up to the
+failing one with each batch's ops and ack, then one line per difference, each
+prefixed with its check. Replay it with `--file ops/ops.prop.ts`. A `harness:` error is a fault in the harness, not a
+finding.
 
 A replay is only as deterministic as the run: examples that depend on timing
 (a retry timer, a pull overlapping a websocket frame) may not reproduce. A
@@ -292,14 +358,15 @@ not reproduce is not on its own evidence of a flaky harness (see above).
 
 Each sub-project's suite brings its own budget, so the gate's total grows as
 suites are added. Today the server side is about 3 minutes and the web side
-about 4 minutes (sync about 3 minutes, outline about 45 seconds). The budget is set
+about 5 minutes (sync about 170 seconds, outline about 50, ops about 60, the teeth files about 8). The budget is set
 where the count is set:
 
 | Side | Count | Sized for |
 |---|---|---|
 | server | `props/harness.py`'s `MERGE_EXAMPLES` per property, `max_examples` under the `merge` profile | `proptest/check.sh server`, about 3 minutes |
 | web, sync | `NUM_RUNS` in `sync.prop.ts` (2100 examples) | about 3 minutes of `proptest/check.sh web` |
-| web, outline | `NUM_RUNS` in `outline.prop.ts` (319,000 examples) | about 45 seconds of `proptest/check.sh web`, about 7,100 examples a second |
+| web, outline | `NUM_RUNS` in `outline.prop.ts` (319,000 examples) | about 50 seconds of `proptest/check.sh web`, about 6,400 examples a second |
+| web, ops | `NUM_RUNS` in `ops.prop.ts` (2250 examples) | about 60 seconds of `proptest/check.sh web`, about 37 examples a second |
 
 ### Server
 
@@ -333,7 +400,7 @@ read the tally after any change to the commands, their weights or the
 preconditions. The weights themselves are in `commands.ts`'s `commandsFor`.
 
 The sync property is also bounded, at `PROPERTY_LIMIT_MS` (420 seconds); the
-outline property has its own, 90 seconds:
+outline property has its own, 90 seconds, and the ops property 120:
 
 | When the limit hits | The run |
 |---|---|

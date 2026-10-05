@@ -22,9 +22,9 @@ replica is a cache and the queue is the user's intent.
 | The OPFS file cannot be opened | `openWithRetry`, `ensureMinimumCapacity` | Up to 6 attempts, then `unusable` for the session | `forceReinitIfPreviouslyFailed`; pool top-up before the open | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
 | The worker RPC breaks | `RpcLifecycleError`, read as `unreachable` | Ops kept; recovery barrier held | `unreachable` never lifts the barrier | [Availability: two values, one owner](#availability-two-values-one-owner) |
 | A window was fetched before an ack deleted its pending row | `pendingSetStillCovered` | Applied if the ack's `seq` is covered, else refetched | No window applies without the edits it lacks | [Windows and the pending queue](#windows-and-the-pending-queue) |
-| A window or snapshot already holds a batch whose row is still pending (a lost ack, or the batch's own nudge pulling first) | The payload's `applied_batches`, answering the ids the pull named | The named rows are deleted before `reapplyPending`, and settled as their acks would be | The server reads `applied_batches` in the payload's own read transaction; only rows in the pull's pending snapshot go | [A payload that already holds a pending batch](#a-payload-that-already-holds-a-pending-batch) |
+| A window or snapshot already holds a batch whose row is still pending (a lost ack, or the batch's own nudge pulling first) | The payload's `applied_batches`, answering the ids the pull named | The named rows are deleted before the rewind and the replay, and settled as their acks would be | The server reads `applied_batches` in the payload's own read transaction; only rows in the pull's pending snapshot go | [A payload that already holds a pending batch](#a-payload-that-already-holds-a-pending-batch) |
 | Pending rows change while recovery runs | The fingerprint check in `commitRecovery` | Recovery aborts before anything is destroyed | Every mutating RPC passes the recovery gate | [Recovery never erases intent](#recovery-never-erases-intent) |
-| A re-applied pending batch dangles a foreign key | `PRAGMA foreign_key_check` diff in `reapplyPending` | That batch rolls back locally; its row stays | The queue row is never deleted locally | [Recovery never erases intent](#recovery-never-erases-intent) |
+| A re-applied pending batch dangles a foreign key | `PRAGMA foreign_key_check` diff in `replayPending` | That batch rolls back locally; its row stays | The queue row is never deleted locally | [Recovery never erases intent](#recovery-never-erases-intent) |
 | The server answers a terminal 4xx for a durable batch | `isTerminalRejection` returns true | Row poisoned, delivery paused, snapshot repair drops it | Later rows never post ahead of it; the repair never resets | [A batch the server rejects](#a-batch-the-server-rejects) |
 | The server answers 401, 403, 408 or 429 | `isTerminalRejection` returns false | Retained under backoff exactly like a 5xx; on a 401, `apiFetch` still redirects to `/login` | A session expiry, a rotated secret or a cleared cookie never poisons or discards a batch | [A batch the server rejects](#a-batch-the-server-rejects) |
 | A pull keeps failing | `noteFailure`, counting only `isStallShaped` errors | Backoff retry; `stalled` after `STALL_AFTER_FAILURES` | Network-down and availability failures never count | [A pull that keeps failing](#a-pull-that-keeps-failing) |
@@ -253,7 +253,7 @@ batches a read holds, so the pull asks it.
 |---|---|---|
 | Name | `pullLoop`, `pendingQuery` (`replicaSync.ts`) | `pending=<batch_id>` for the non-poisoned head of the queue, at most `PENDING_IDS_CAP` (100), from the same read that gives the worker its pending-id snapshot. A bootstrap names the rows `init` read |
 | Answer | `_applied_batches` (`routes_sync.py`) | `applied_batches`: each named id that has an `applied_batches` row, with its stored ack's `seq` and `skipped` |
-| Drop | `dropAppliedPending` (`replica/apply.ts`) | In the window's transaction, before `reapplyPending`, deletes the named rows that were in the snapshot, never a poisoned one. The worker records their seqs in `ackedSeqs` |
+| Drop | `dropAppliedPending` (`replica/apply.ts`) | In the window's transaction, before the rewind and the replay, deletes the named rows that were in the snapshot, never a poisoned one. The worker records their seqs in `ackedSeqs` |
 | Settle | `settleApplied` (`replicaSync.ts`), `OpQueue.settleCommitted` | Resolves each row's delivery ticket and lane mark as its ack would, and bumps resync when its stored ack skipped an op |
 
 **The server reads `applied_batches` inside the read transaction that hydrates
@@ -271,7 +271,7 @@ flush whose held acks were lost to a reload, and committed rows past
 replayed. A later ack or redelivery
 for a dropped row matches nothing in `deleteBatch`; the server answers a
 redelivery with the stored ack. The lane's entries are never named: they are
-not durable rows, and `reapplyPending` never replays them.
+not durable rows, and `replayPending` never replays them.
 
 A recovery snapshot names nothing: every leased row the server holds has an
 ack in `heldAcks`, which the commit deletes before its replay. A flushing
@@ -288,56 +288,78 @@ rebase replays it twice.
 Both directions are additive: an older server omits the field, and an older
 client sends no ids.
 
-### The effect ledger
+### The replay log
 
 A pending batch's local apply writes rows it never names: it shifts the
 `order_idx` of siblings, a cross-page create or move re-pages descendants, and
 a delete cascades its subtree. The server re-derives all three and journals
-them, but not always for the rows the replica changed. `effect_ledger` (`replica/effectLedger.ts`, a client-only
-table keyed by `(batch_id, uid)`, no foreign keys; `row_json` holds a row
-record's base row) records those collateral
-writes so they can be taken back when the batch settles.
+them, but not always for the rows the replica changed. So a window cannot
+replay a pending batch over the server's rows by patching the difference. It
+takes the batch's effects off first, applies the server's rows, and replays the
+batch as if it were being enqueued again.
 
-| Write | Record |
+`replay_log` (`replica/replayLog.ts`, client-only, no foreign keys to the graph
+tables) makes that possible. `localOps.ts` records a row's pre-image before the
+first write of a batch to it, so the record is the row as it stood before the
+batch.
+
+| Table | Holds |
 |---|---|
-| A shift of a sibling (`shiftSiblings`, or `keepSlot` when it shifts) | `order_delta + 1` on the sibling |
-| A re-page of a descendant | A page record: `base_page_id` and `base_updated_at` before the first collateral re-page. Every batch's record for one uid carries the same base |
-| A descendant a delete cascades (`recordCascade`, before the cascade's DELETE; the op's own uid is not recorded) | A row record: `row_json` holds the base row and `base_page_id` its base page. It absorbs the uid's other records, whose effects the base row already has taken out |
-| A block the op names itself (create insert, the move's own row) | None, and it drops every record on that uid: the echo always re-ships it |
+| `replay_log` | One record per `(batch_id, kind, key)`, first touch wins. A block record holds every `blocks` column but `uid` and `page_id` in `pre_json`, with the page in `pre_page_id`. `pre_json` is NULL for a block the batch created. A page record holds `updated_at`, or NULL for a page the batch minted |
+| `replay_log_refs` | The block's `refs` rows at that moment. `block_refs` and FTS derive from the restored text and are never stored |
+| `replay_batches` | `enqueued_ms` per batch, which every replay of it reuses as its stamp. A batch with no row takes the first replay's time. A page's `updated_at` keeps the later of its own value and the stamp, so a replay never moves back a page another device edited after the enqueue |
 
-| Event | Records dropped |
+`create_page` records its page even when the page already exists. Page ids and
+ref targets sit in the log's own columns so that `remapLogPage` reaches them
+when `reconcilePage` swaps a local page id for the server's.
+
+The window order, from `applyWindow`:
+
+| Step | Why it sits there |
 |---|---|
-| A window upserts a block, or owes its tombstone: one the window ships, or one an earlier window deferred (`dropWindowRecords` over the shipped uids and `owed`, step 4 of `applyWindow`) | Every record on that uid |
-| A pending create or move places the uid itself | Every record on that uid |
-| The batch settles | That batch's records, after the revert and the restore |
-| Snapshot, reset, rebuild or file replacement | All |
+| `dropAppliedPending`, `pruneReplayBatches` | Deleting a queue row is what an ack does, so a batch the payload already holds is no longer pending. The prune drops `replay_batches` rows of batches that left the queue |
+| `rewind("pending")`, every window | Pending batches' effects come off before the server's rows land, so the replay is a first apply over them. Poisoned batches are rewound too and not replayed |
+| Page and sidebar tombstones, pages, blocks | As in [the changes feed](sync-and-offline.md#the-changes-feed) |
+| `dropWindowRecords` over the shipped and owed block uids and the shipped page ids | The server's row is now the base, so a settled batch's record on it is dropped. Only acked batches' records can remain, since pending ones are gone |
+| Block tombstones, head window only | They cascade over a tree holding no pending effects |
+| `rewind("all")`, head window only | Settles what acked batches left. Pending batches' records are already gone |
+| Sidebar, meta, `reconcileActivationPageTitles` | Independent of the log |
+| `replayPending` | Each non-poisoned batch, in queue order, applies as a first apply at its enqueue time and records afresh |
+| `dropStrandedLocalPages`, head window only | After the replay has made or re-made every page it needs |
 
-A batch settles in the first head window (one that reaches the journal head)
-after its `pending_ops` row is gone: `settleBatches` runs in every head window
-for every batch with no row. A poisoned row is still a row, so
-a poisoned batch never settles; its repair rebases onto a snapshot. The revert
-subtracts each uid's summed `order_delta`, then restores `page_id` and
-`updated_at` from the base once no pending batch holds a page record for that
-uid and only if the base page exists. `remapLocalPage` rewrites bases from a
-local page id to the server's, and `dropStrandedLocalPages` keeps a page a base
-names.
+`rewind` (`replica/rewind.ts`) restores with UPDATE and INSERT, never REPLACE:
+with `recursive_triggers` on, REPLACE's implicit delete fires the FTS delete
+trigger and cascades the row's children and refs. Per `(kind, key)` the oldest
+record wins. Blocks the batches created are deleted deepest first, after
+restored children have moved out from under them. A restored block whose parent
+or page is absent is dropped, since a tombstone may have taken the place its
+record names.
 
-After the reverts, `restoreRows` puts back the row records still standing:
-the server kept those blocks and their rows never changed, so no window ships
-them again. Parents go first, in rounds, because a child's record may sort
-before its parent's. A row lands on its parent's page, or on its base page at
-the top level, and a record whose parent or page is absent is dropped. Refs
-derive from the text against the pages present (`existingLocalPageId`), so a
-title with no page stays unlinked and none is created.
+The acked batch is the frozen case. Its `pending_ops` row is gone, so no
+window rewinds it as pending, but the echo of its commit may not have been
+applied yet. Its records wait for the head window, and `dropWindowRecords`
+removes the ones the earlier windows' rows made redundant before the head
+rewind runs. The prune leads the settle for two reasons. A descendant the
+server kept, whose parent only this window brings back, would be lost if the
+rewind ran first. A block the batch created, whose server children earlier
+windows shipped, would be deleted along with them.
 
-Settling at the head is safe because a window applied after a batch's row is
-gone has `latest_seq` at or past the batch's commit: the pending guard covers
-a stale snapshot, and a later one was read after the commit. So every journal
-row of the batch's commit has been applied before its records are reverted.
-An enqueue that reaches a file still on the old schema installs `CLIENT_DDL`
-first when `effect_ledger` is missing, and adds `row_json` when only that
-column is (`workerHandlers.ts`). Either way the ledger insert cannot fail and
-roll the op's optimistic apply back.
+`replayPending` runs each op under its own savepoint and diffs
+`PRAGMA foreign_key_check` around the batch, redoing it op by op when it adds
+a violation. An op whose block or parent the feed removed skips, as the server
+skips it; an op that throws or adds a violation rolls back alone. Nothing is
+deleted from `pending_ops`. Because every replay follows a rewind, the result
+is the window's rows plus every pending batch.
+
+`dropStrandedLocalPages` keeps a negative page that a block, a ref, a
+`replay_log` record (page key, `pre_page_id` or a `replay_log_refs` target) or
+today's daily title names. A replay that still needs a page re-mints it, and
+reuses the id the rewind freed for that title so ids do not churn per window.
+
+`applySnapshot` clears the log before its replay. A file still on an older
+schema gets `CLIENT_DDL` installed on the first enqueue
+(`workerHandlers.ts`), so the log's inserts cannot fail and roll the op's
+optimistic apply back.
 
 ## Recovery never erases intent
 
@@ -346,11 +368,10 @@ roll the op's optimistic apply back.
 | Best-effort optimistic apply: an op that cannot apply locally is skipped, never dropped from the queue | `replica/queue.ts::enqueueBatch` | A local failure deleting an edit the server would accept |
 | A worker-owned FIFO recovery gate that every database-mutating RPC passes through | `recoveryGate.ts`, `workerHandlers.ts` | An enqueue landing mid-rebuild |
 | `prepareRecovery` fingerprints the durable pending rows; `commitRecovery` re-reads them just before the destructive step and aborts if they changed | `workerHandlers.ts` | Recovery erasing an acknowledged enqueue |
-| `reapplyPending` re-applies non-poisoned pending batches on top of every snapshot and feed window | `replica/apply.ts` | Later edits capturing stale base hashes |
+| `replayPending` re-applies non-poisoned pending batches as a first apply after every snapshot and feed window | `replica/apply.ts` | Later edits capturing stale base hashes |
 | A payload's `applied_batches` deletes the pending rows it names before the replay | `replica/apply.ts::dropAppliedPending`, `routes_sync.py::_applied_batches` | A batch replayed over its own echo, applied twice |
-| `reapplyPending` diffs `PRAGMA foreign_key_check` around each batch and rolls a violating one back to its savepoint | `replica/apply.ts` | A pending block re-created under a row the feed removed failing the whole window at COMMIT |
-| Replay (`applyLocalOps` with `reapply`) keeps a create whose row exists, and a move whose block already sits at its target, in place | `replica/localOps.ts::keepSlot` | A pending create failing its whole batch on every window; a pending move shifting its siblings again on every window |
-| The local apply records each collateral write of a pending batch in `effect_ledger`; a head window reverts, and restores the cascaded rows of, every batch no longer pending | `replica/effectLedger.ts`, `replica/apply.ts::applyWindow` | A create or move the server placed in another group leaves siblings shifted or descendants re-paged at rest; a delete's cascade past a block the server kept leaves it missing |
+| `replayPending` diffs `PRAGMA foreign_key_check` around each batch and redoes a violating one op by op, rolling back the violating op | `replica/apply.ts` | A pending block re-created under a row the feed removed failing the whole window at COMMIT |
+| The local apply records each row's pre-image in `replay_log`; every window rewinds pending batches before the server's rows land and replays them after, and the head window settles acked batches' records | `replica/replayLog.ts`, `replica/rewind.ts`, `replica/apply.ts::applyWindow` | A create or move the server placed in another group leaving siblings shifted or descendants re-paged; a delete's cascade past a kept block leaving it missing; drift while a batch is pending |
 | A rebase commit deletes the rows its flush got acks for, in the snapshot's transaction, before the replay | `replicaSync.ts::flushBatches`, `workerHandlers.ts`, `replica/ackedRows.ts` | Recovery replaying a batch's wire text over the server's result |
 | Every delete and poison mark names its row by `id` and `batch_id` both | `replica/queue.ts::deleteBatch`, `markPoisoned` | A delete queued behind a reset or file replacement removing the batch that took its row id |
 | A rebase that replaces the file commits the queue to a carry database first; every queue handler adopts a leftover carry before serving | `workerHandlers.ts`, `replica/carryStore.ts` | A failed open, schema install or import, or a killed worker, losing the queue during a file replacement |
@@ -359,31 +380,7 @@ The FK diff works whatever the enforcement pragmas say, so it also covers the
 reset rebuild, which runs under `foreign_keys=OFF`. The rolled-back batch stays
 in `pending_ops` and still flushes to the server.
 
-A snapshot wipes before the replay; a window does not. So a windowed replay runs
-over the batch's own effects, and the result must still equal window rows plus
-every pending batch. A create's existing row is its own, from the enqueue-time
-apply or the server's echo. Replaying its insert would hit the PRIMARY KEY, and
-replaying a move's sibling shift would push later siblings up again. `keepSlot`
-shifts siblings only when one the window re-shipped at its server index shares
-the block's slot. At enqueue a create onto an existing uid still fails, as the
-server 400s it.
-
-Each keep rule checks one op's own precondition, so it holds only while
-nothing after that op moved its target. Over the server's echo of the batch, a
-later op of the same batch, a later batch or another device may have. That is
-why a payload that holds a pending batch drops it instead of replaying it
-([§ A payload that already holds a pending batch](#a-payload-that-already-holds-a-pending-batch)).
-The same gap remains, transiently, for a window that lacks the batch: a batch
-with two moves of one block shifts that block's siblings again on each such
-window, until the batch settles.
-
-Replaying over a window leaves two orderings wrong for one round trip, and
-both are accepted. When a window re-ships only some siblings, at their server
-`order_idx`, into a list holding locally shifted indices, the replay can put
-those siblings out of order. A replayed cross-page move keeps its root in
-place but not a descendant the window re-shipped at the old page. Each lasts
-until the batch settles, when [the effect ledger](#the-effect-ledger) takes
-back the collateral writes and the server's rows stand.
+The replay itself is described in [§ The replay log](#the-replay-log).
 
 ## A batch the server rejects
 
@@ -538,7 +535,7 @@ and the server's stored ack deletes them.
 | `flushBatches` | Each `/api/ops` ack is held in `heldAcks` as `{ id, batch_id, seq }` (`readOpsAck`, `sync/opsAck.ts`; null when the ack names none) |
 | A run that ends before its commit (a preempted flush, a failed snapshot fetch) | The acks stay held for the next run, which after a preemption is the poison rebase |
 | `commitRecovery`, either kind | Takes every held ack. A `reset` passes none, since it drops `pending_ops`. A commit that fails hands them back |
-| The worker's rebase commit | `splitAckedRows` (`replica/ackedRows.ts`) matches rows by `id` and `batch_id` both. The matched rows are deleted in the snapshot's own transaction, so `reapplyPending` replays only the rest. An entry that matches no row is ignored |
+| The worker's rebase commit | `splitAckedRows` (`replica/ackedRows.ts`) matches rows by `id` and `batch_id` both. The matched rows are deleted in the snapshot's own transaction, so `replayPending` replays only the rest. An entry that matches no row is ignored |
 
 ### Reset, rebase and file replacement
 
@@ -641,7 +638,7 @@ for a block the server never created because it diverted the create, the
 page the client placed it on.
 
 The server's journalling of the destination group is defence in depth. The
-replica does not depend on it: its [effect ledger](#the-effect-ledger) reverts
+replica does not depend on it: its [replay log](#the-replay-log) rewinds
 the shifts of every skipped or re-placed create and move, whichever group the
 server named.
 
@@ -654,7 +651,7 @@ cascade takes only the ghost, without a snapshot repair.
 The replica's local apply skips the same ops. `skipsOnMissingTarget`
 (`replica/missingTarget.ts`) mirrors `classify_skip`, and
 `shared/fixtures/missing_targets.json` pins the two to the same skip-or-not
-verdict per case. So when the feed removes one op's target, `reapplyPending` keeps the rest of that batch.
+verdict per case. So when the feed removes one op's target, `replayPending` keeps the rest of that batch.
 Rolling the whole batch back would revert its other edits until the ack. The
 next edit to a reverted block would then hash against stale text and draw a
 spurious conflict header.

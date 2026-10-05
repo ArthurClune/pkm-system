@@ -2,6 +2,7 @@
 // The harness's handle on the proptest server: the session cookie and the
 // /__proptest/* control routes (server/tooling/proptest/sync_server.py).
 import type { BatchId, SyncSeq } from "../../api/brands";
+import type { BlockOp } from "../../api/ops";
 import type { Changes, Snapshot } from "../../replica/apply";
 import { BASE_URL, PASSWORD } from "./env";
 
@@ -24,6 +25,14 @@ export interface ServerControl {
   /** Every page retitle, in commit order. */
   renames(): Promise<RenameRecord[]>;
   snapshot(): Promise<Snapshot>;
+  /** The ops of the last broadcast frame since the previous take or reset
+   * (null: none), then forgets them. */
+  takeEcho(): Promise<BlockOp[] | null>;
+  /** While on, recorded echoes lose the page_title of every move that names
+   * one: a deliberate corruption for checking that a suite notices. */
+  setEchoTeeth(on: boolean): Promise<void>;
+  /** GET /api/sync/changes?since=. */
+  changes(since: SyncSeq): Promise<Changes>;
   /** The journal's latest seq. */
   latestSeq(): Promise<SyncSeq>;
   /** POST /api/ops with this exact body, for replaying a recorded request. */
@@ -82,6 +91,14 @@ function control(cookie: string, signal?: AbortSignal): ServerControl {
       (await (await call("/__proptest/renames")).json()) as RenameRecord[],
     snapshot: async () =>
       (await (await call("/api/sync/snapshot")).json()) as Snapshot,
+    takeEcho: async () =>
+      ((await (await post("/__proptest/echo/take")).json()) as
+        { ops: BlockOp[] | null }).ops,
+    setEchoTeeth: async (on) => {
+      await post("/__proptest/echo/teeth", { drop_cross_page_title: on });
+    },
+    changes: async (since) =>
+      (await (await call(`/api/sync/changes?since=${since}`)).json()) as Changes,
     latestSeq: async () => {
       const feed = (await (await call(
         `/api/sync/changes?since=${BEYOND_ANY_SEQ}`)).json()) as Changes;

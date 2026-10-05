@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
-import { canonicalizeTitle, findOpTitleViolation, opPageTitles,
+import { canonicalizeTitle, findOpTitleViolation,
          titleSyntaxReason } from "./titles";
 import type { CanonicalTitle, NormalizedTitle } from "../api/brands";
 import type { components } from "../api/types";
@@ -64,23 +64,6 @@ describe("findOpTitleViolation", () => {
       opIndex: 0, source: "reference", title: "Outer [[New #Old]]",
       reason: "forbidden_syntax",
     });
-  });
-});
-
-describe("opPageTitles", () => {
-  test("names each op's page and each title its text links, raw", () => {
-    expect(opPageTitles([
-      { op: "create", uid: uid("uid_a"), page_title: " Made ", parent_uid: null,
-        order_idx: ord(0), text: "[[Linked]] #tag" },
-      { op: "move", uid: uid("uid_a"), parent_uid: null, order_idx: ord(0),
-        page_title: "Moved" },
-      { op: "move", uid: uid("uid_a"), parent_uid: uid("uid_b"),
-        order_idx: ord(0) },
-      { op: "create_page", page_title: "Empty" },
-      { op: "update_text", uid: uid("uid_a"), text: "see [[Later]]",
-        page_title: "Not made by an update" },
-      { op: "delete", uid: uid("uid_a") },
-    ])).toEqual([" Made ", "Linked", "tag", "Moved", "Empty", "Later"]);
   });
 });
 

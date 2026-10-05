@@ -109,6 +109,7 @@ export default defineConfig({
         "src/test-helpers.ts",
         "src/sync/memReplica.ts",
         "src/replica/testDb.ts",
+        "src/replica/replayArbs.ts",
         "src/replica/worker.ts",
         "src/test-setup.ts",
         "src/main.tsx",

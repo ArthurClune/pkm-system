@@ -286,4 +286,48 @@ describe("runSequence", () => {
         && run.steps.every((s, i) => s.command === commands[i]);
     }), { numRuns: 300 });
   });
+
+  describe("wire batches", () => {
+    it("mintPrefix names the fresh uid a split mints", () => {
+      const run = runSequence(flat(), [{ kind: "split", row: 1, caret: 50 }], { mintPrefix: "opsn" });
+      expect(run.steps[0].resolved).toMatchObject({ kind: "split", fresh: "opsn0" });
+    });
+
+    it("a draft folded into indent goes out as one batch, stamped", () => {
+      const run = runSequence(flat(), [
+        { kind: "type", row: 1, text: "zz" },
+        { kind: "indent", row: 1 },
+      ]);
+      expect(run.batches).toHaveLength(1);
+      const [ops] = [run.batches[0].ops];
+      expect(ops.map((o) => o.op)).toEqual(["update_text", "move"]);
+      expect(ops[0]).toHaveProperty("base_text_hash");
+      expect(run.batches[0].after).toEqual(run.end);
+    });
+
+    it("a trailing typed draft is the final batch", () => {
+      const run = runSequence(flat(), [{ kind: "type", row: 1, text: "zz" }]);
+      expect(run.batches).toHaveLength(1);
+      expect(run.batches[0].pre).toEqual(flat());
+      expect(textOf(run.batches[0].after, "b")).toBe("zz");
+    });
+
+    it("an undo is a batch whose after is the earlier tree", () => {
+      const run = runSequence(flat(), [{ kind: "moveDown", row: 0 }, { kind: "undo" }]);
+      expect(run.batches).toHaveLength(2);
+      expect(readingRows(run.batches[1].after)).toEqual(readingRows(flat()));
+    });
+
+    it("commands that emit nothing send nothing", () => {
+      expect(runSequence(flat(), [{ kind: "undo" }]).batches).toEqual([]);
+      expect(runSequence(flat(), [{ kind: "indent", row: 0 }]).batches).toEqual([]);
+    });
+
+    it("every batch's ops take pre to after", () => {
+      fc.assert(fc.property(sequenceArb, (seq) => {
+        const run = runSequence(seq.start, seq.commands);
+        return run.batches.every((b) => blocksEqual(applyOps(b.pre, b.ops, PAGE_TITLE), b.after));
+      }), { numRuns: 200 });
+    });
+  });
 });

@@ -4,8 +4,8 @@
 //
 // The guard exists because a window the server generated BEFORE batch B
 // committed lacks B, and if B's ack deleted its pending row before the window
-// was applied, applying it with no pending reapply would drop B's optimistic
-// edit. So a pending set that lost B is only unsafe when the window might
+// was applied, applying it with B no longer pending to replay would drop B's
+// optimistic edit. So a pending set that lost B is only unsafe when the window might
 // predate B's server commit.
 //
 // The ack of POST /api/ops names the journal max as of B's commit, and

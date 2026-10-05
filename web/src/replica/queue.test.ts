@@ -46,9 +46,17 @@ describe("enqueueBatch", () => {
       { op: "create", uid: uid("uid_q3"), page_title: "AI", parent_uid: null,
         order_idx: ord(1), text: "dup" },
     ], 99, bid("batch-dup"));
-    expect(t.db.select("SELECT * FROM effect_ledger")).toEqual([]);
+    expect(t.db.select("SELECT batch_id, kind, key FROM replay_log")).toEqual([]);
     expect(t.db.select("SELECT batch_id FROM pending_ops"))
       .toEqual([{ batch_id: "batch-dup" }]);
+  });
+
+  test("records the batch's enqueue time, which a later enqueue of the same id keeps", () => {
+    const op = { op: "set_collapsed" as const, uid: uid("uid_q1"), collapsed: true };
+    enqueueBatch(t.db, [op], 99, bid("batch-a"));
+    enqueueBatch(t.db, [op], 150, bid("batch-a"));
+    expect(t.db.select("SELECT batch_id, enqueued_ms FROM replay_batches"))
+      .toEqual([{ batch_id: "batch-a", enqueued_ms: 99 }]);
   });
 
   test.each([

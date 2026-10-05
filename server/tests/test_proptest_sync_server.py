@@ -165,3 +165,63 @@ def test_renames_are_logged_after_the_last_applied_batch_at_the_server_clock(
 def test_renames_route_needs_auth(tmp_path: Path, clock: Clock) -> None:
     with TestClient(build_app(tmp_path, clock)) as anon:
         assert anon.get("/__proptest/renames").status_code == 401
+
+
+def _take(client: TestClient) -> list[dict] | None:
+    r = client.post("/__proptest/echo/take")
+    assert r.status_code == 200, r.text
+    return r.json()["ops"]
+
+
+def _batch(batch_id: str, ops: list[dict]) -> dict:
+    return {"client_id": "t", "batch_id": batch_id, "ops": ops}
+
+
+def _move_to_second(batch_id: str) -> dict:
+    return _batch(batch_id, [
+        {"op": "move", "uid": SEED_UIDS[0], "parent_uid": None, "order_idx": 0,
+         "page_title": "Second"}])
+
+
+def test_echo_take_returns_the_last_batch_ops_then_none(client: TestClient) -> None:
+    assert _take(client) is None
+    r = client.post("/api/ops", json=_batch("batch_echo_01", [
+        {"op": "create_page", "page_title": "Echo Page"},
+        {"op": "create", "uid": "pt_echo_1", "page_title": "Echo Page", "parent_uid": None,
+         "order_idx": 0, "text": "x"}]))
+    assert r.status_code == 200, r.text
+    ops = _take(client)
+    assert ops is not None and [o["op"] for o in ops] == ["create_page", "create"]
+    assert all(o["page_title"] == "Echo Page" for o in ops)
+    assert _take(client) is None
+
+
+def test_echo_take_is_none_after_a_rejected_batch(client: TestClient) -> None:
+    _post(client, "pt_extra_1", "batch_extra_01")
+    assert _take(client) is not None
+    r = client.post("/api/ops", json=_create(SEED_UIDS[0], "batch_extra_02"))
+    assert r.status_code == 400
+    assert _take(client) is None
+
+
+def test_echo_is_cleared_by_reset(client: TestClient) -> None:
+    _post(client, "pt_extra_1", "batch_extra_01")
+    client.post("/__proptest/reset")
+    assert _take(client) is None
+
+
+def test_echo_teeth_drops_cross_page_move_titles(client: TestClient) -> None:
+    assert client.post("/__proptest/echo/teeth", json={"drop_cross_page_title": True}).status_code == 200
+    assert client.post("/api/ops", json=_move_to_second("batch_move_01")).status_code == 200
+    ops = _take(client)
+    assert ops is not None and ops[0]["op"] == "move" and ops[0]["page_title"] is None
+    client.post("/__proptest/reset")
+    assert client.post("/api/ops", json=_move_to_second("batch_move_02")).status_code == 200
+    ops = _take(client)
+    assert ops is not None and ops[0]["page_title"] == "Second"
+
+
+def test_echo_routes_need_auth(tmp_path: Path, clock: Clock) -> None:
+    with TestClient(build_app(tmp_path, clock)) as anon:
+        assert anon.post("/__proptest/echo/take").status_code == 401
+        assert anon.post("/__proptest/echo/teeth", json={"drop_cross_page_title": True}).status_code == 401

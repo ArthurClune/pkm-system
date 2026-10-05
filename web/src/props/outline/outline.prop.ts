@@ -14,8 +14,8 @@ import { sequenceArb, type Command } from "./arbitraries";
 import { sequenceProblems } from "./checks";
 import { runSequence } from "./run";
 
-/** Examples per gate run, sized so this file takes about 45 seconds inside
- * `proptest/check.sh web`: clean runs measured about 7,100 examples a second
+/** Examples per gate run, sized so this file takes about 50 seconds inside
+ * `proptest/check.sh web`: clean runs measured about 6,400 examples a second
  * there, and about 7,300 with the file run alone. */
 export const NUM_RUNS = 319_000;
 /** The whole property, shrinking included. Cut off while shrinking, it fails

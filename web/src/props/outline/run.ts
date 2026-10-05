@@ -48,7 +48,8 @@ export interface Step {
   /** The tree the command ran on (after any draft flush). */
   base: BlockNode[];
   after: BlockNode[];
-  /** The command's ops, not the flushed text op; for undo/redo, the batch replayed. */
+  /** The command's ops, not the flushed text op; for undo/redo, the batch as
+   * replayed, placements re-keyed against `base`. */
   ops: BlockOp[];
   focus: FocusTarget | null;
   /** invertOps over the recorded batch, against the pre-flush tree: it undoes a
@@ -77,6 +78,11 @@ export interface Run {
   /** The tree after the final draft flush. */
   end: BlockNode[];
   history: HistoryState;
+  /** The rows after the newest recorded entry (the start's when none was),
+   * taken when it was recorded: what redoing every entry should restore.
+   * Undo and redo only move entries between the stacks, so it stays the
+   * newest whether it now tops the undo stack or bottoms the redo stack. */
+  newest: Row[];
 }
 
 interface EntryRows { before: Row[]; after: Row[] }
@@ -101,13 +107,14 @@ function countNodes(forest: readonly PastedNode[]): number {
 }
 
 /** Replays a history entry the way undoManager does, placements re-keyed
- * against `tree`; every replay goes through here. */
+ * against `tree`; every replay goes through here. `ops` is the batch as
+ * applied, after re-keying. */
 export function replayEntry(tree: BlockNode[], entry: HistoryEntry,
-                            direction: "undo" | "redo"): BlockNode[] {
+                            direction: "undo" | "redo"): { blocks: BlockNode[]; ops: BlockOp[] } {
   const undoing = direction === "undo";
-  const batch = resolveAnchors(tree, PAGE_TITLE, undoing ? entry.inverse : entry.ops,
-                               undoing ? entry.anchors.inverse : entry.anchors.ops);
-  return applyOps(tree, batch, PAGE_TITLE);
+  const ops = resolveAnchors(tree, PAGE_TITLE, undoing ? entry.inverse : entry.ops,
+                             undoing ? entry.anchors.inverse : entry.anchors.ops);
+  return { blocks: applyOps(tree, ops, PAGE_TITLE), ops };
 }
 
 export function runSequence(start: BlockNode[], commands: readonly Command[],
@@ -120,6 +127,7 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
   // Entries are the same objects through takeUndo/takeRedo, so the rows each
   // entry should restore ride alongside without a second stack to keep in step.
   const entryRows = new Map<HistoryEntry, EntryRows>();
+  let newest = readingRows(start);
   const steps: Step[] = [];
   const mint = (): BlockUid => `n${minted++}` as BlockUid;
 
@@ -155,7 +163,8 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
         focusAfter: result.focus ?? focus,
       };
       history = recordEntry(history, entry);
-      entryRows.set(entry, { before: readingRows(pre), after: readingRows(next) });
+      newest = readingRows(next);
+      entryRows.set(entry, { before: readingRows(pre), after: newest });
     }
     if (result.focus) focus = result.focus;
     return { base, after: next, result, inverse };
@@ -177,12 +186,13 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
                undo: { expectedRows: readingRows(base) } };
     }
     const undoing = command.kind === "undo";
-    const batch = undoing ? entry.inverse : entry.ops;
-    tree = replayEntry(base, entry, command.kind);
+    const replayed = replayEntry(base, entry, command.kind);
+    tree = replayed.blocks;
+    // useOutline's applyFocus: the entry's focus, dropped when its block is gone.
     focus = validateOutlineFocus(undoing ? entry.focusBefore : entry.focusAfter, tree);
     const rows = entryRows.get(entry);
     if (!rows) throw new Error("runner: history entry without recorded rows");
-    return { command, resolved: null, base, after: tree, ops: batch, focus,
+    return { command, resolved: null, base, after: tree, ops: replayed.ops, focus,
              inverse: undoing ? entry.ops : entry.inverse,
              undo: { expectedRows: undoing ? rows.before : rows.after } };
   };
@@ -340,5 +350,5 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
   }
 
   flushNow();
-  return { steps, end: tree, history };
+  return { steps, end: tree, history, newest };
 }

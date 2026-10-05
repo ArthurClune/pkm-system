@@ -4,7 +4,7 @@ import type { BlockUid, OrderIdx } from "../../api/brands";
 import type { BlockNode } from "../../api/payloads";
 import { allowedDepths, dropRows } from "../../outline/dnd";
 import { emptyHistory } from "../../outline/history";
-import { findNode } from "../../outline/tree";
+import { applyOps, blocksEqual, findNode } from "../../outline/tree";
 import { forestArb, PAGE_TITLE, renderForest, sequenceArb, treeArb, type Command,
          type IndentStyle } from "./arbitraries";
 import { readingRows } from "./reading";
@@ -150,6 +150,34 @@ describe("runSequence", () => {
     expect(readingRows(redo.after)).toEqual(readingRows(indent.after));
     expect(run.history.undo).toHaveLength(1);
     expect(run.history.redo).toEqual([]);
+  });
+
+  it("an undo or redo step reports the batch it applied, placements re-keyed", () => {
+    const run = runSequence(flat(), [
+      { kind: "moveDown", row: 1 },
+      { kind: "undo" },
+      { kind: "redo" },
+    ]);
+    const [entry] = run.history.undo;
+    const redo = run.steps[2];
+    // Undo shifted the keys the move was planned on, so redo re-keys it.
+    expect(redo.ops).not.toEqual(entry.ops);
+    for (const step of run.steps.slice(1)) {
+      expect(blocksEqual(applyOps(step.base, step.ops, PAGE_TITLE), step.after)).toBe(true);
+    }
+  });
+
+  it("newest holds the rows after the newest entry, wherever it sits", () => {
+    expect(runSequence(flat(), []).newest).toEqual(readingRows(flat()));
+    const undone = runSequence(flat(), [
+      { kind: "indent", row: 1 },
+      { kind: "indent", row: 2 },
+      { kind: "undo" },
+    ]);
+    expect(undone.history.redo).toHaveLength(1);
+    expect(undone.newest).toEqual(readingRows(undone.steps[1].after));
+    const typed = runSequence(flat(), [{ kind: "indent", row: 1 }, { kind: "type", row: 2, text: "zz" }]);
+    expect(typed.newest).toEqual(readingRows(typed.end));
   });
 
   it("an undo with nothing to undo leaves the tree", () => {

@@ -25,7 +25,30 @@ function structuralDiff(expected: readonly Row[], actual: readonly Row[]): strin
 const valid = (blocks: readonly BlockNode[]): string[] =>
   treeProblems(blocks).map((p) => `valid: ${p}`);
 
-/** Properties 1–5 for a command step; 1 and the undo-stack model for undo/redo. */
+/** Ops that change the tree they ran on exactly when the tree after differs from it. */
+function changedProblems(step: Step): string[] {
+  const changed = applyOpsWithChange(step.base, step.ops, PAGE_TITLE).changed;
+  if (changed !== blocksEqual(step.base, step.after)) return [];
+  return [changed
+    ? "silent: its ops change the tree they ran on, but the tree after equals it"
+    : "silent: its ops change nothing on the tree they ran on, but the tree after differs"];
+}
+
+/** A returned focus names a row that is shown, with its caret inside the text. */
+function focusProblems(step: Step, afterRows: readonly Row[]): string[] {
+  if (!step.focus) return [];
+  const { uid, cursor } = step.focus;
+  const row = afterRows.find((r) => r.uid === uid);
+  if (!row) return [`focus: ${uid} is not in the tree`];
+  if (row.hidden) return [`focus: ${uid} is hidden under a collapsed ancestor`];
+  if (cursor < 0 || cursor > row.text.length) {
+    return [`focus: caret ${cursor} on ${uid} is outside [0, ${row.text.length}]`];
+  }
+  return [];
+}
+
+/** Properties 1–5 for a command step. An undo or redo step has no model of
+ * its own: the undo-stack model stands in for meaning, and it has no noop. */
 export function stepProblems(step: Step): string[] {
   const problems = valid(step.after);
   const afterRows = readingRows(step.after);
@@ -34,7 +57,7 @@ export function stepProblems(step: Step): string[] {
     if (!step.undo) throw new Error("checks: undo/redo step without expected rows");
     const diff = structuralDiff(step.undo.expectedRows, afterRows);
     if (diff) problems.push(`undo-stack: ${step.command.kind} ${diff}`);
-    return problems;
+    return [...problems, ...changedProblems(step), ...focusProblems(step, afterRows)];
   }
 
   // A command with no visible row to act on is a noop.
@@ -48,27 +71,12 @@ export function stepProblems(step: Step): string[] {
       ? `silent: the model calls this a no-op but it emitted ${JSON.stringify(step.ops)}`
       : "silent: the model expects a change but it emitted no ops");
   }
-  const changed = applyOpsWithChange(step.base, step.ops, PAGE_TITLE).changed;
-  if (changed === blocksEqual(step.base, step.after)) {
-    problems.push(changed
-      ? "silent: its ops change the tree they ran on, but the tree after equals it"
-      : "silent: its ops change nothing on the tree they ran on, but the tree after differs");
-  }
+  problems.push(...changedProblems(step));
 
   if (step.inverse === null && step.ops.some((op) => op.op !== "set_collapsed")) {
     problems.push(`undoable: no inverse for ${JSON.stringify(step.ops)}`);
   }
-
-  if (step.focus) {
-    const { uid, cursor } = step.focus;
-    const row = afterRows.find((r) => r.uid === uid);
-    if (!row) problems.push(`focus: ${uid} is not in the tree`);
-    else if (row.hidden) problems.push(`focus: ${uid} is hidden under a collapsed ancestor`);
-    else if (cursor < 0 || cursor > row.text.length) {
-      problems.push(`focus: caret ${cursor} on ${uid} is outside [0, ${row.text.length}]`);
-    }
-  }
-  return problems;
+  return [...problems, ...focusProblems(step, afterRows)];
 }
 
 /** Replays every entry on one side of the stack, newest first. */
@@ -79,7 +87,7 @@ function replayAll(tree: BlockNode[], history: HistoryState, direction: "undo" |
     const { state, entry } = direction === "undo" ? takeUndo(history) : takeRedo(history);
     if (!entry) return { tree, history };
     history = state;
-    tree = replayEntry(tree, entry, direction);
+    tree = replayEntry(tree, entry, direction).blocks;
     for (const p of treeProblems(tree)) problems.push(`${property}: ${direction} ${k}: ${p}`);
   }
 }
@@ -89,18 +97,15 @@ export function sequenceProblems(start: BlockNode[], run: Run): string[] {
   const problems = run.steps.flatMap((step, i) =>
     stepProblems(step).map((p) => `${p} [step ${i} ${step.command.kind}]`));
 
-  // The redo-all target is the tree after the newest entry. A sequence that
-  // ended in undo still holds entries on its redo stack, so the target is
-  // run.end with that pending redo stack replayed; when it is empty, the
-  // target is run.end itself.
-  const target = replayAll(run.end, run.history, "redo", [], "redo-all").tree;
-
   const undone = replayAll(run.end, run.history, "undo", problems, "undo-all");
   const missed = structuralDiff(readingRows(start), readingRows(undone.tree));
   if (missed) problems.push(`undo-all: the start ${missed}`);
 
   const redone = replayAll(undone.tree, undone.history, "redo", problems, "redo-all");
-  const short = structuralDiff(readingRows(target), readingRows(redone.tree));
+  // The rows recorded with the newest entry, not run.end: a sequence that
+  // ended in undo still holds entries on its redo stack, and one that ended in
+  // redo reached run.end through the replay under test.
+  const short = structuralDiff(run.newest, readingRows(redone.tree));
   if (short) problems.push(`redo-all: the newest entry ${short}`);
   return problems;
 }

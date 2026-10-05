@@ -5,6 +5,7 @@ import type { CaretOffset } from "../../outline/keyEdits";
 import { applyOps } from "../../outline/tree";
 import { PAGE_TITLE } from "./arbitraries";
 import { sequenceProblems, stepProblems } from "./checks";
+import { readingRows } from "./reading";
 import { runSequence, type Run } from "./run";
 
 const node = (uid: string, order: number, over: Partial<BlockNode> = {},
@@ -94,7 +95,33 @@ describe("stepProblems", () => {
     const run = runSequence(flat(), [{ kind: "indent", row: 1 }, { kind: "undo" }]);
     const step = run.steps[1];
     expect(stepProblems(step)).toEqual([]);
-    expect(stepProblems({ ...step, after: run.steps[0].after })).toEqual(only("undo-stack"));
+    const expectedRows = readingRows(run.steps[0].after);
+    expect(stepProblems({ ...step, undo: { expectedRows } })).toEqual(only("undo-stack"));
+  });
+
+  it("an undo whose ops change nothing while the tree changed is reported as silent", () => {
+    const step = runSequence(flat(), [{ kind: "indent", row: 1 }, { kind: "undo" }]).steps[1];
+    expect(stepProblems({ ...step, ops: [] })).toEqual(only("silent"));
+  });
+
+  it("an undo focus outside the tree is reported", () => {
+    const step = runSequence(flat(), [{ kind: "indent", row: 1 }, { kind: "undo" }]).steps[1];
+    expect(stepProblems({ ...step, focus: { uid: uid("zz"), cursor: caret(0) } }))
+      .toEqual(only("focus"));
+  });
+
+  it("an undo that returns focus under a block collapsed since is reported", () => {
+    // Split c under p (focus on c is the entry's focusBefore), collapse p,
+    // which records nothing, then undo: the app restores focus to c, hidden.
+    const start = [node("p", 0, {}, [node("c", 0, { text: "cc" })])];
+    const run = runSequence(start, [
+      { kind: "split", row: 1, caret: 50 },
+      { kind: "collapse", row: 0, value: true },
+      { kind: "undo" },
+    ]);
+    const undo = run.steps[2];
+    expect(undo.focus?.uid).toBe("c");
+    expect(stepProblems(undo)).toEqual(only("focus"));
   });
 });
 
@@ -135,7 +162,9 @@ describe("sequenceProblems", () => {
     const run = runSequence(start, [{ kind: "indent", row: 1 }]);
     const [entry] = run.history.undo;
     const doctored: Run = { ...run, history: { ...run.history, undo: [{ ...entry, inverse: [] }] } };
-    expect(sequenceProblems(start, doctored)).toContainEqual(expect.stringMatching(/^undo-all: /));
+    const problems = sequenceProblems(start, doctored);
+    expect(problems).toContainEqual(expect.stringMatching(/^undo-all: /));
+    expect(problems.filter((p) => !/^(undo-all|redo-all): /.test(p))).toEqual([]);
   });
 
   it("redo-all that misses the newest entry is reported", () => {
@@ -145,6 +174,18 @@ describe("sequenceProblems", () => {
     const doctored: Run = {
       ...run, history: { ...run.history, undo: [first, { ...second, ops: [] }] },
     };
+    expect(sequenceProblems(start, doctored)).toEqual(only("redo-all"));
+  });
+
+  it("redo-all that misses a pending redo entry is reported", () => {
+    const start = flat();
+    const run = runSequence(start, [
+      { kind: "indent", row: 1 },
+      { kind: "indent", row: 2 },
+      { kind: "undo" },
+    ]);
+    const [pending] = run.history.redo;
+    const doctored: Run = { ...run, history: { ...run.history, redo: [{ ...pending, ops: [] }] } };
     expect(sequenceProblems(start, doctored)).toEqual(only("redo-all"));
   });
 });

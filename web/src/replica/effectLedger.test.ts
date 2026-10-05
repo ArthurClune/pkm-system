@@ -346,6 +346,14 @@ test("remapBasePage rewrites base_page_id from the local id to the target", () =
     [["a", 1], ["c1", 2]]);
 });
 
+test("remapBasePage rewrites a row record's base page", () => {
+  t.db.exec("INSERT INTO pages(id, title) VALUES (-5, 'Local')");
+  t.db.exec("UPDATE blocks SET page_id = -5 WHERE uid = 'c1'");
+  recordCascade(t.db, b1, u("c1"));
+  remapBasePage(t.db, { localId: -5 as PageId, targetId: S });
+  expect(rowRec("c1").map((r) => r.base_page_id)).toEqual([2]);
+});
+
 test("clearLedger empties the table", () => {
   recordRepage(t.db, b1, u("c1"));
   clearLedger(t.db);

@@ -18,9 +18,10 @@
 // A row record (row_json set) means the block was removed by that batch's
 // delete cascade. Its row_json is the base row and base_page_id the base
 // page; it absorbs every other record on the uid, whose deltas and page
-// record the base already has taken out. A window that ships or tombstones
-// the uid drops it; one still standing at settle is a block the server kept,
-// and settling puts its row back under its parent, if that is present.
+// record the base already has taken out. A window that ships the uid or owes
+// its tombstone (its own, or one an earlier window deferred) drops it; one
+// still standing at settle is a block the server kept, and settling puts its
+// row back under its parent, if that is present.
 //
 // Every function runs inside the caller's transaction and opens none.
 
@@ -123,10 +124,10 @@ export function dropWindowRecords(db: ReplicaDb, uids: readonly BlockUid[]): voi
     [JSON.stringify(uids)]);
 }
 
-/** Undo and delete the records of every batch no longer in pending_ops
- * (poisoned rows count as present): revert the order deltas and page moves,
- * then restore each standing row record whose parent is present, parents
- * first. */
+/** Undo and delete the records of every batch no longer in pending_ops (a
+ * poisoned batch is still in pending_ops, so its records wait): revert the
+ * order deltas and page moves, then restore each standing row record whose
+ * parent is present, parents first. */
 export function settleBatches(db: ReplicaDb): void {
   db.exec(
     `UPDATE blocks SET order_idx = order_idx - d.s

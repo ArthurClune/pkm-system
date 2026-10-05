@@ -1,6 +1,7 @@
 // pattern: Functional Core
 import type { BlockUid } from "../../api/brands";
 import type { BlockNode } from "../../api/payloads";
+import { hidesChildren } from "../../outline/tree";
 
 export interface Row {
   uid: BlockUid;
@@ -9,7 +10,7 @@ export interface Row {
   heading: BlockNode["heading"];
   viewType: BlockNode["view_type"];
   collapsed: boolean;
-  /** Under a collapsed ancestor. */
+  /** Under an ancestor whose children the editor hides (`hidesChildren`). */
   hidden: boolean;
 }
 
@@ -22,7 +23,7 @@ export function readingRows(blocks: readonly BlockNode[]): Row[] {
         uid: n.uid, depth, text: n.text, heading: n.heading, viewType: n.view_type,
         collapsed: n.collapsed, hidden,
       });
-      walk(n.children, depth + 1, hidden || n.collapsed);
+      walk(n.children, depth + 1, hidden || hidesChildren(n));
     }
   };
   walk(blocks, 0, false);

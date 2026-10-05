@@ -1,21 +1,41 @@
 // pattern: Functional Core
 // A multi-block selection: a contiguous run of visible blocks, tracked as an
 // anchor (where it started) and a head (the moving end). All ordering is read
-// off visibleUids so a collapsed subtree's hidden children are never part of a
-// selection. Used for "select several blocks and copy their text out".
+// off selectableUids so a collapsed subtree's hidden children, and the cells of
+// a Roam table (drawn as one grid row during a selection), are never stops.
+// Used for "select several blocks and copy their text out".
 import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
-import { findNode, selectionRoots, visibleUids } from "./tree";
+import { roamTableRows } from "./roamTableRows";
+import { ancestorChain, findNode, selectableUids, selectionRoots } from "./tree";
 
 export interface BlockSelection {
   anchor: BlockUid; // block the selection started on
   head: BlockUid; // the end that Shift+Arrow moves
 }
 
+/** A selection begun on `uid`. Inside a valid Roam table (a cell being edited)
+ * the anchor is the outermost such table, since the table is one row while
+ * selecting. With a direction the head is the anchor's neighbour that way, or
+ * the anchor itself at an edge; with null the head is the anchor. */
+export function startSelection(
+  blocks: BlockNode[], uid: BlockUid, dir: "up" | "down" | null,
+): BlockSelection {
+  const anchor = ancestorChain(blocks, uid).find((u) => {
+    const n = findNode(blocks, u);
+    return n !== null && roamTableRows(n) !== null;
+  }) ?? uid;
+  if (dir === null) return { anchor, head: anchor };
+  const order = selectableUids(blocks);
+  const i = order.indexOf(anchor);
+  const head = i < 0 ? undefined : order[dir === "up" ? i - 1 : i + 1];
+  return { anchor, head: head ?? anchor };
+}
+
 /** The visible uids the selection covers, in document order (inclusive of both
  * ends). Empty if either end is no longer visible (e.g. a subtree collapsed). */
 export function selectedUids(blocks: BlockNode[], sel: BlockSelection): BlockUid[] {
-  const order = visibleUids(blocks);
+  const order = selectableUids(blocks);
   const a = order.indexOf(sel.anchor);
   const h = order.indexOf(sel.head);
   if (a < 0 || h < 0) return [];
@@ -28,7 +48,7 @@ export function selectedUids(blocks: BlockNode[], sel: BlockSelection): BlockUid
 export function extendSelection(
   blocks: BlockNode[], sel: BlockSelection, dir: "up" | "down",
 ): BlockSelection {
-  const order = visibleUids(blocks);
+  const order = selectableUids(blocks);
   const i = order.indexOf(sel.head);
   if (i < 0) return sel;
   const next = order[dir === "up" ? i - 1 : i + 1];
@@ -38,7 +58,8 @@ export function extendSelection(
 /** The selected blocks' text joined with newlines in document order, each
  * line indented with one tab per depth level relative to the shallowest
  * selected block — what lands on the clipboard when the selection
- * is copied, and what parseOutlineForest round-trips back into structure. */
+ * is copied, and what parseOutlineForest round-trips back into structure.
+ * A selected Roam table brings its whole subtree so it pastes back as a table. */
 export function selectionText(blocks: BlockNode[], sel: BlockSelection): string {
   const uids = selectedUids(blocks, sel);
   const depths = new Map<BlockUid, number>();
@@ -50,10 +71,18 @@ export function selectionText(blocks: BlockNode[], sel: BlockSelection): string 
   };
   walk(blocks, 0);
   const base = Math.min(...uids.map((uid) => depths.get(uid) ?? 0));
-  return uids
-    .map((uid) => "\t".repeat((depths.get(uid) ?? base) - base)
-      + (findNode(blocks, uid)?.text ?? ""))
-    .join("\n");
+  const lines: string[] = [];
+  const emit = (n: BlockNode, depth: number): void => {
+    lines.push("\t".repeat(depth - base) + n.text);
+    for (const c of n.children) emit(c, depth + 1);
+  };
+  for (const uid of uids) {
+    const n = findNode(blocks, uid);
+    const depth = depths.get(uid) ?? base;
+    if (n !== null && roamTableRows(n) !== null) emit(n, depth);
+    else lines.push("\t".repeat(depth - base) + (n?.text ?? ""));
+  }
+  return lines.join("\n");
 }
 
 /** The uids a drag should carry when the grab handle is `grabbed`:

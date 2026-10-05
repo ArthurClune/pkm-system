@@ -54,13 +54,29 @@ export function needsAuthoritativeReload(
   return false;
 }
 
-/** Depth-first uids in on-screen order; children of collapsed blocks hidden. */
+/** Depth-first uids in on-screen order; a block's children are left out when
+ * `hidesChildren` says the editor does not show them. */
 export function visibleUids(blocks: BlockNode[]): BlockUid[] {
   const out: BlockUid[] = [];
   const walk = (nodes: BlockNode[]) => {
     for (const n of nodes) {
       out.push(n.uid);
-      if (!n.collapsed) walk(n.children);
+      if (!hidesChildren(n)) walk(n.children);
+    }
+  };
+  walk(blocks);
+  return out;
+}
+
+/** The uids a block selection can step through, in on-screen order. A
+ * selection clears focus, so every valid Roam table renders as its grid: one
+ * row, its cells never stops, collapsed or not. Otherwise as `visibleUids`. */
+export function selectableUids(blocks: BlockNode[]): BlockUid[] {
+  const out: BlockUid[] = [];
+  const walk = (nodes: BlockNode[]) => {
+    for (const n of nodes) {
+      out.push(n.uid);
+      if (!hidesChildren(n) && roamTableRows(n) === null) walk(n.children);
     }
   };
   walk(blocks);

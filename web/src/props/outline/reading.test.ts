@@ -26,6 +26,18 @@ describe("readingRows", () => {
     ]);
     expect(rows[1].collapsed).toBe(true);
   });
+
+  it("shows the cells of a collapsed Roam table but hides an ordinary collapsed block's children", () => {
+    const tree = [
+      node("t", 0, { text: "{{table}}", collapsed: true }, [
+        node("r", 0, {}, [node("c", 0)]),
+      ]),
+      node("p", 1, { collapsed: true }, [node("q", 0)]),
+    ];
+    expect(readingRows(tree).map((r) => [r.uid, r.hidden])).toEqual([
+      ["t", false], ["r", false], ["c", false], ["p", false], ["q", true],
+    ]);
+  });
 });
 
 describe("structural", () => {

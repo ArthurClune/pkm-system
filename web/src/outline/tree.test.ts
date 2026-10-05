@@ -4,7 +4,7 @@ import type { BlockNode } from "../api/payloads";
 import { block, ord, uid } from "../test-helpers";
 import { ancestorChain, applyOps, applyOpsWithChange, blocksEqual, findNode,
          hidesChildren, insertSubtree, locate, needsAuthoritativeReload,
-         removeSubtree, visibleNeighbor,
+         removeSubtree, selectableUids, visibleNeighbor,
          visibleUids } from "./tree";
 
 // Siblings with order_idx GAPS (0, 5, 7) — the server leaves gaps after
@@ -216,6 +216,60 @@ describe("hidesChildren", () => {
 
   test("a collapsed block whose text is not a table macro hides its rows", () => {
     expect(hidesChildren(table("{{[[table]]}} notes"))).toBe(true);
+  });
+});
+
+describe("visibleUids and a collapsed Roam table", () => {
+  const cells = () => [
+    block("r1", "a", { children: [block("r1b", "b")] }),
+    block("r2", "c", { children: [block("r2b", "d")] }),
+  ];
+  const withTable = (text: string, rows: BlockNode[]) => [
+    block("t", text, { collapsed: true, children: rows }),
+    block("after", "after"),
+  ];
+
+  test("a collapsed valid table's cells stay in the on-screen order", () => {
+    expect(visibleUids(withTable("{{table}}", cells())))
+      .toEqual(["t", "r1", "r1b", "r2", "r2b", "after"]);
+  });
+
+  test("a collapsed table-shaped block that is not a valid table hides its children", () => {
+    const bad = [block("r1", "a", { children: [block("x", "x"), block("y", "y")] })];
+    expect(visibleUids(withTable("{{table}}", bad))).toEqual(["t", "after"]);
+    expect(visibleUids(withTable("notes", cells()))).toEqual(["t", "after"]);
+  });
+
+  test("visibleNeighbor steps from a collapsed table into its first cell", () => {
+    expect(visibleNeighbor(withTable("{{table}}", cells()), uid("t"), "down")).toBe("r1");
+  });
+});
+
+describe("selectableUids", () => {
+  const cells = () => [block("r1", "a", { children: [block("r1b", "b")] })];
+
+  test("a valid table is one row whether collapsed or not", () => {
+    for (const collapsed of [true, false]) {
+      const blocks = [block("t", "{{table}}", { collapsed, children: cells() }),
+                      block("after", "after")];
+      expect(selectableUids(blocks)).toEqual(["t", "after"]);
+    }
+  });
+
+  test("ordinary expanded blocks and an invalid table keep their children", () => {
+    const bad = [block("r1", "a", { children: [block("x", "x"), block("y", "y")] })];
+    expect(selectableUids([block("p", "p", { children: [block("q", "q")] })]))
+      .toEqual(["p", "q"]);
+    expect(selectableUids([block("t", "{{table}}", { children: bad })]))
+      .toEqual(["t", "r1", "x", "y"]);
+  });
+
+  test("a collapsed ordinary block or invalid table hides its children", () => {
+    const bad = [block("r1", "a", { children: [block("x", "x"), block("y", "y")] })];
+    expect(selectableUids([block("t", "{{table}}", { collapsed: true, children: bad })]))
+      .toEqual(["t"]);
+    expect(selectableUids([block("c", "c", { collapsed: true, children: cells() })]))
+      .toEqual(["c"]);
   });
 });
 

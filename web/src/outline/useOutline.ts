@@ -31,7 +31,7 @@ import { planOutlinePaste } from "./paste";
 import { applyOps, findNode, insertSubtree, removeSubtree,
          visibleNeighbor } from "./tree";
 import { extendSelection, needsDeleteConfirmation, selectedUids,
-         type BlockSelection } from "./blockSelection";
+         startSelection, type BlockSelection } from "./blockSelection";
 import { acquireOutlineSession,
          type OutlineSessionHandle } from "./outlineSessions";
 import { captureDraft, pendingTextOps, spliceUploadedMarkdown,
@@ -482,9 +482,9 @@ export function useOutline(
     // read-only while selected.
     onStartBlockSelection: (uid, dir) => {
       flushNow();
-      const head = visibleNeighbor(blocksRef.current, uid, dir) ?? uid;
+      const next = startSelection(blocksRef.current, uid, dir);
       setFocus(null);
-      setSelection({ anchor: uid, head });
+      setSelection(next);
     },
     // Ctrl+Cmd+Up/Down in a block: a one-block selection anchored
     // on that block — the "select the whole block" step that further presses
@@ -492,7 +492,7 @@ export function useOutline(
     onSelectBlock: (uid) => {
       flushNow();
       setFocus(null);
-      setSelection({ anchor: uid, head: uid });
+      setSelection(startSelection(blocksRef.current, uid, null));
     },
     onExtendBlockSelection: (dir) =>
       setSelection((s) => (s ? extendSelection(blocksRef.current, s, dir) : s)),

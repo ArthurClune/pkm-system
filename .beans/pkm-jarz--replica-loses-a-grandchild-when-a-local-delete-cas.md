@@ -1,11 +1,11 @@
 ---
 # pkm-jarz
 title: Replica loses a grandchild when a local delete cascades past a child moved out elsewhere
-status: todo
+status: in-progress
 type: bug
 priority: high
 created_at: 2026-10-05T11:37:49Z
-updated_at: 2026-10-05T11:37:49Z
+updated_at: 2026-10-05T13:56:44Z
 parent: pkm-nws9
 ---
 

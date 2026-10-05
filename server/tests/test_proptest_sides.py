@@ -50,3 +50,15 @@ def test_web_env_forwards_seed_path_and_replay_path():
     assert env["PROPTEST_SEED"] == "42"
     assert env["PROPTEST_PATH"] == "3:1:0"
     assert env["PROPTEST_REPLAY_PATH"] == "AAB"
+
+
+def test_web_command_appends_a_file_filter():
+    base = ["pnpm", "exec", "vitest", "run", "--config", "vitest.props.config.ts"]
+    assert web_command(None, "outline/outline.prop.ts") == [*base, "outline/outline.prop.ts"]
+    assert web_command(7, None) == base
+
+
+def test_file_is_web_only(capsys):
+    from proptest.run import main
+    assert main(["server", "--file", "x.prop.ts"]) == 2
+    assert "--file is web only" in capsys.readouterr().err

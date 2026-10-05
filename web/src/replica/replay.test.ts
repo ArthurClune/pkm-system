@@ -177,6 +177,20 @@ describe("a window replays pending batches as a first apply", () => {
     expect(orderIdx()).toEqual(enqueued);
   });
 
+  test("a page another device edited after the enqueue keeps the server's later updated_at", async () => {
+    const before = { pages: [page(1, "Page One")], blocks: [block("a")] };
+    const after = { pages: [{ ...page(1, "Page One"), updated_at: NOW + 50 }],
+                    blocks: [block("y"), block("a", at(1))] };
+    const batches = [batch("b1", { op: "update_text", uid: u("a"), text: "edited" })];
+    const db = await replicaOf(before, batches);
+
+    applyChanges(db, headWindow(after, 11), NOW + 100);
+
+    expect(db.select("SELECT updated_at FROM pages WHERE id = 1"))
+      .toEqual([{ updated_at: NOW + 50 }]);
+    expect(dump(db)).toEqual(await firstApply(after, batches));
+  });
+
   test("an empty head window leaves the database exactly as it was", async () => {
     await fc.assert(fc.asyncProperty(
       replicaStateArb.chain((state) => fc.tuple(fc.constant(state), batchesArb(state))),

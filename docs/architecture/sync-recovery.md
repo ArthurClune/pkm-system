@@ -307,7 +307,7 @@ batch.
 |---|---|
 | `replay_log` | One record per `(batch_id, kind, key)`, first touch wins. A block record holds every `blocks` column but `uid` and `page_id` in `pre_json`, with the page in `pre_page_id`. `pre_json` is NULL for a block the batch created. A page record holds `updated_at`, or NULL for a page the batch minted |
 | `replay_log_refs` | The block's `refs` rows at that moment. `block_refs` and FTS derive from the restored text and are never stored |
-| `replay_batches` | `enqueued_ms` per batch, which every replay of it reuses as its stamp. A batch with no row takes the first replay's time |
+| `replay_batches` | `enqueued_ms` per batch, which every replay of it reuses as its stamp. A batch with no row takes the first replay's time. A page's `updated_at` keeps the later of its own value and the stamp, so a replay never moves back a page another device edited after the enqueue |
 
 `create_page` records its page even when the page already exists. Page ids and
 ref targets sit in the log's own columns so that `remapLogPage` reaches them

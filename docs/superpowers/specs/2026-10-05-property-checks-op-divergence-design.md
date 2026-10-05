@@ -176,13 +176,24 @@ used. Below the head, block tombstones are deferred and collateral waits for
 settle; those are accepted transient exposures (pkm-d3qh, pkm-dbr1,
 pkm-jarz) that the sync suite already covers.
 
+### Check S: the settled replica
+
+After each acked step the replica pulls the head window, as the app does
+after an ack, and must then equal the server exactly in graph form (minted
+rows included: the feed delivers them). The next step starts from that
+replica. Check 3 compares the optimistic replica before that pull, so
+nothing check 3 tolerates can carry into a later step.
+
 ### Rejection agreement
 
 A batch with a forbidden title is a server 400 and an `enqueueBatch`
 `LocalOpError`, together or not at all. Another 400 (a create of a live uid)
 is enqueued optimistically and repaired by the poison path, which the sync
 suite's `BadBatch` covers; it is tallied, and checks 1 and 3 are skipped for
-that step. A command batch must never be rejected.
+that step. A command batch refused for title syntax by both sides is
+tallied and ends the example (Arthur, 2026-10-05: the refusal is the
+designed guard, and the two sides agree); a command batch refused for any
+other reason, or by one side only, is a failure.
 
 ### Exclusions
 
@@ -193,6 +204,7 @@ The complete list. Anything else that differs is a finding.
 | Rows the server minted: uids in neither S0 nor the steps' creates (conflict headers, rescued texts, skip notes), with their refs and the pages that exist only for them (the daily page, `conflict`) | 1, 3, R | Never echoed; the replica does not mirror conflict handling; the feed delivers them (`ops_apply.AppliedBatch` docstring, `localOps.ts` header). The edited block's own text agrees: on a conflict the incoming edit still wins (backend.md § Conflicts) |
 | A page whose echo needs an authoritative reload | 1 | The real session reloads it rather than applying the echo |
 | Timestamps | all | Client clock against the frozen server clock, as in the sync oracle |
+| A block a head-window tombstone cascaded away while a pending move had placed it under the deleted block, and its subtree, when the server skipped that move and kept the block | 3, R | A standing accepted transient (Arthur, 2026-10-05): the skip echo re-ships the block, which check S confirms after the pull |
 
 ## Harness server
 
@@ -256,6 +268,22 @@ the web side.
 | `server/tooling/proptest/sync_server.py` | Imperative Shell | the echo route and teeth mode |
 
 ## Findings
+### First run (2026-10-05)
+
+The first runs found, besides harness issues fixed in `props/ops/`:
+
+- **Replay is not a first apply** (sibling order, a create kept under a
+  parent the window deleted, a local page a now-skipped move minted): the
+  pkm-sj5l family. Arthur ruled a rebase design (replay takes back a
+  pending batch's own direct and collateral writes, then applies it as a
+  first apply), with its own spec inside j3ui. Once it lands, checks 3 and R
+  compare exact keys everywhere.
+- **An open page loses a block** a single remote batch moves off and back:
+  the authoritative-reload rule is asked of the whole batch against the
+  pre-batch tree. Arthur approved evaluating it op by op as the echo
+  applies.
+
+### Rules
 
 The epic's rules hold:
 

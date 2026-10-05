@@ -99,6 +99,12 @@ function countNodes(forest: readonly PastedNode[]): number {
   return forest.reduce((n, p) => n + 1 + countNodes(p.children), 0);
 }
 
+/** Replays a history entry the way undoManager does; every replay goes through here. */
+export function replayEntry(tree: BlockNode[], entry: HistoryEntry,
+                            direction: "undo" | "redo"): BlockNode[] {
+  return applyOps(tree, direction === "undo" ? entry.inverse : entry.ops, PAGE_TITLE);
+}
+
 export function runSequence(start: BlockNode[], commands: readonly Command[],
                             seam: Seam = REAL): Run {
   let tree = start;
@@ -165,7 +171,7 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
     }
     const undoing = command.kind === "undo";
     const batch = undoing ? entry.inverse : entry.ops;
-    tree = applyOps(base, batch, PAGE_TITLE);
+    tree = replayEntry(base, entry, command.kind);
     focus = validateOutlineFocus(undoing ? entry.focusBefore : entry.focusAfter, tree);
     const rows = entryRows.get(entry);
     if (!rows) throw new Error("runner: history entry without recorded rows");

@@ -857,6 +857,13 @@ describe("setCollapsed", () => {
     expect(r.ops).toEqual([{ op: "set_collapsed", uid: "b", collapsed: true }]);
     expect(findNode(r.blocks, uid("b"))!.collapsed).toBe(true);
   });
+
+  test("no-op when the block already holds the value", () => {
+    const t = [block("b", "beta", { collapsed: true })];
+    const r = setCollapsed(t, P, uid("b"), true);
+    expect(r.ops).toEqual([]);
+    expect(r.blocks).toBe(t);
+  });
 });
 
 describe("setHeading", () => {
@@ -867,9 +874,15 @@ describe("setHeading", () => {
   });
 
   test("clearing back to plain text", () => {
-    const r = setHeading(tree(), P, uid("b"), null);
+    const r = setHeading([block("b", "beta", { heading: 2 })], P, uid("b"), null);
     expect(r.ops).toEqual([{ op: "set_heading", uid: "b", heading: null }]);
     expect(findNode(r.blocks, uid("b"))!.heading).toBeNull();
+  });
+
+  test("no-op when the block already holds the level", () => {
+    const t = [block("b", "beta", { heading: 2 })];
+    expect(setHeading(t, P, uid("b"), 2).ops).toEqual([]);
+    expect(setHeading(tree(), P, uid("b"), null).ops).toEqual([]);
   });
 
   test("no-op for an unknown uid", () => {
@@ -888,8 +901,21 @@ describe("setViewType", () => {
   });
 
   test("explicit document mode and unknown-uid no-op", () => {
-    const r = setViewType(tree(), P, uid("b"), "document");
+    const r = setViewType([block("b", "beta", { view_type: "numbered" })], P,
+                          uid("b"), "document");
     expect(findNode(r.blocks, uid("b"))!.view_type).toBe("document");
     expect(setViewType(tree(), P, uid("ghost"), "numbered").ops).toEqual([]);
+  });
+
+  test("no-op when the block already holds the view type", () => {
+    const t = [block("b", "beta", { view_type: "numbered" })];
+    const r = setViewType(t, P, uid("b"), "numbered");
+    expect(r.ops).toEqual([]);
+    expect(r.blocks).toBe(t);
+  });
+
+  test("document over the null default is a no-op: they render the same", () => {
+    expect(findNode(tree(), uid("b"))!.view_type).toBeNull();
+    expect(setViewType(tree(), P, uid("b"), "document").ops).toEqual([]);
   });
 });

@@ -7,9 +7,9 @@ import type { BlockNode } from "../api/payloads";
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
 import type { TicketId } from "../sync/opQueue";
-import type { FocusTarget } from "./edits";
+import { clampCaret, type FocusTarget } from "./edits";
 import type { TextSelection } from "./keyEdits";
-import { applyOps, applyOpsWithChange, blocksEqual, findNode,
+import { ancestorChain, applyOps, applyOpsWithChange, blocksEqual, findNode,
          insertSubtree } from "./tree";
 import { bumpedUids } from "./blockStamps";
 
@@ -339,11 +339,27 @@ export function transitionOutline(
   }
 }
 
+/** The focus this tree can show: null when the block is gone; its nearest
+ * visible ancestor (the outermost collapsed one), caret at the end of its
+ * text, when the block is hidden; otherwise the same block with its caret
+ * clamped to the text. A focus that already holds comes back as the same
+ * object. */
 export function validateOutlineFocus(
   focus: FocusTarget | null,
   blocks: BlockNode[],
 ): FocusTarget | null {
-  return focus && findNode(blocks, focus.uid) ? focus : null;
+  if (!focus) return null;
+  let siblings = blocks;
+  for (const ancestor of ancestorChain(blocks, focus.uid)) {
+    const node = siblings.find((n) => n.uid === ancestor)!;
+    if (node.uid === focus.uid) {
+      const cursor = clampCaret(focus.cursor, node.text.length);
+      return cursor === focus.cursor ? focus : { uid: focus.uid, cursor };
+    }
+    if (node.collapsed) return { uid: node.uid, cursor: node.text.length };
+    siblings = node.children;
+  }
+  return null;
 }
 
 /** An editor draft: the text typed into one block, and the text that block

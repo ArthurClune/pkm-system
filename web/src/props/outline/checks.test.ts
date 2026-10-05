@@ -110,9 +110,9 @@ describe("stepProblems", () => {
       .toEqual(only("focus"));
   });
 
-  it("an undo that returns focus under a block collapsed since is reported", () => {
+  it("an undo whose focus a collapse has hidden since lands on the collapsed block", () => {
     // Split c under p (focus on c is the entry's focusBefore), collapse p,
-    // which records nothing, then undo: the app restores focus to c, hidden.
+    // which records nothing, then undo: c is hidden, so focus goes to p.
     const start = [node("p", 0, {}, [node("c", 0, { text: "cc" })])];
     const run = runSequence(start, [
       { kind: "split", row: 1, caret: 50 },
@@ -120,8 +120,8 @@ describe("stepProblems", () => {
       { kind: "undo" },
     ]);
     const undo = run.steps[2];
-    expect(undo.focus?.uid).toBe("c");
-    expect(stepProblems(undo)).toEqual(only("focus"));
+    expect(undo.focus).toEqual({ uid: "p", cursor: 1 });
+    expect(stepProblems(undo)).toEqual([]);
   });
 });
 

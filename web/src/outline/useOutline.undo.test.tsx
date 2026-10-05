@@ -237,19 +237,57 @@ it("undo restores focus to where it was before the edit", () => {
   expect(outline().focus).toEqual({ uid: "a", cursor: 5 });
 });
 
+it("undo restoring focus to a block hidden by a later collapse focuses the collapsed ancestor", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, [
+    block("p", "parent", { order_idx: ord(0),
+                           children: [block("c", "child", { order_idx: ord(0) })] }),
+  ]);
+  act(() => outline().handlers.onFocusBlock(uid("c"), 5));
+  act(() => outline().handlers.onSplit(uid("c"), 5));
+  act(() => outline().handlers.onToggleCollapsed(uid("p"), true));
+  act(() => outline().handlers.onUndo());
+  expect(outline().focus).toEqual({ uid: "p", cursor: 6 });
+});
+
+it("undo clamps the restored caret to the restored text", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, [block("a", "ab", { order_idx: ord(0) })]);
+  act(() => outline().handlers.onFocusBlock(uid("a"), 2));
+  act(() => outline().handlers.onDraftChange(uid("a"), "x y"));
+  act(() => outline().handlers.onFocusBlock(uid("a"), 3));
+  act(() => outline().handlers.onSplit(uid("a"), 3));
+  act(() => outline().handlers.onUndo());
+  expect(outline().blocks[0].text).toBe("ab");
+  expect(outline().focus).toEqual({ uid: "a", cursor: 2 });
+});
+
 it("collapse toggles are not undo steps", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE,
     [block("a", "alpha", { order_idx: ord(0), children: [block("a1", "kid", { order_idx: ord(0) })] }),
      block("b", "beta", { order_idx: ord(1) })]);
   // onToggleTodo on plain text returns null from toggleTodo (grammar/todo.ts)
-  // and records nothing; onSetHeading always produces an op.
+  // and records nothing; onSetHeading to a new level produces an op.
   act(() => outline().handlers.onSetHeading(uid("b"), 2)); // recorded entry
   act(() => outline().handlers.onToggleCollapsed(uid("a"), true)); // not recorded
   act(() => outline().handlers.onUndo());
   // undo skipped the collapse and reverted the heading; collapse persists
   expect(outline().blocks[1].heading).toBeNull();
   expect(outline().blocks[0].collapsed).toBe(true);
+});
+
+it("a field setter that changes nothing sends no op and records no undo step", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, ab());
+  act(() => outline().handlers.onSetHeading(uid("a"), 2)); // recorded entry
+  const sent = sync.sent.length;
+  act(() => outline().handlers.onSetHeading(uid("a"), 2));
+  act(() => outline().handlers.onSetViewType(uid("b"), "document"));
+  act(() => outline().handlers.onToggleCollapsed(uid("b"), false));
+  expect(sync.sent).toHaveLength(sent);
+  act(() => outline().handlers.onUndo()); // reaches the first heading change
+  expect(outline().blocks[0].heading).toBeNull();
 });
 
 it("a fresh edit after undo clears redo", () => {

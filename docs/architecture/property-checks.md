@@ -1,12 +1,12 @@
 # Property checks
 
-`proptest/check.sh` is a property-based gate for the sync and planning
-invariants, in two sides, the web side holding two suites:
+`proptest/check.sh` is a property-based gate for the sync, planning and
+outline-edit invariants. It has two sides, and the web side holds two suites:
 
 | Side | Framework | Drives | Compared with |
 |---|---|---|---|
 | `server` | Hypothesis | random op batches and CLI batches, in-process | a from-the-docs reference model |
-| `web`, sync | fast-check | 2 or 3 clients running the real web sync stack against the real server, with faults | the server's state, through an oracle (see [What the web property checks](#what-the-web-property-checks)) |
+| `web`, sync | fast-check | 2 or 3 clients running the real web sync stack against the real server, with faults | the server's state, through an oracle (see [What the sync property checks](#what-the-sync-property-checks)) |
 | `web`, outline | fast-check | random outline edit commands, undo and redo on one page, through the real outline code, with no server | a reading-view model (see [What the outline property checks](#what-the-outline-property-checks)) |
 
 It runs locally before a merge, the same way
@@ -120,7 +120,7 @@ The reference model must never import `ops_core`, `ops_apply` or `planning`
 semantics, not re-derive the server's own decisions, or a server bug and its
 model would agree by construction.
 
-## What the web property checks
+## What the sync property checks
 
 `sync.prop.ts` starts 2 or 3 clients, equally often, each the real web sync stack
 (`harnessClient.ts`), against the harness server. fast-check draws up to 30
@@ -181,15 +181,17 @@ window at one row.
 ## What the outline property checks
 
 `outline.prop.ts` draws a start tree on one page and a sequence of 1 to 20
-commands, and runs them through the real outline code (`edits.ts`, `paste.ts`,
-`dnd.ts`, `blockSelection.ts`, `history.ts`) with no server and no DOM.
+commands. It needs no server and no DOM. The commands run through the real
+outline code: `edits.ts`, `paste.ts`, `dnd.ts`, `blockSelection.ts`, `history.ts`,
+`outlineState.ts` (drafts, `validateOutlineFocus`) and `tree.ts`.
 
 | Commands | |
 |---|---|
 | text | type, split, backspace |
 | indent | indent and outdent, of a block or of a selection |
 | move | block, subtree or selection, up or down; drop |
-| selection | delete selection; outline paste |
+| selection | delete selection |
+| paste | outline paste into a block's text |
 | fields | collapse, heading, view type |
 | history | undo, redo |
 
@@ -216,11 +218,16 @@ code it checks. `checks.ts` names each failed property first.
 | `redo-all` | the sequence | every redo leaves a valid tree, and the last returns the rows recorded with the newest entry |
 
 Undo and redo comparisons are structural: they ignore raw `order_idx` and
-`collapsed`, and a null view type equals `"document"`, because a replay re-keys
-placements and need not restore either exactly.
+`collapsed`, and a null view type equals `"document"`. Replay re-keys
+placements, so `order_idx` can differ; `set_collapsed` is view state that history
+never inverts, except when recreating a deleted subtree; and a null view type
+renders as a document.
 
-`teeth.prop.ts` wraps five commands in deliberately wrong versions, each of which
-the property must catch within a few dozen runs. It takes about 10 ms.
+`teeth.prop.ts` swaps in five deliberately wrong outline functions: four
+commands and `invertOps`. Each runs at most 3000 times under a 15 second limit,
+and a tooth counts only a failure report that names the property the mutant
+breaks: `meaning` for the commands, `undo-stack`, `undo-all` or `redo-all` for
+`invertOps`. A crash, or another property failing alone, is not a catch.
 
 ## Reading a server failure
 
@@ -245,7 +252,7 @@ seed: …
 path: …
 counterexample: <clients>, <command list>
 error: <the oracle's findings>
-replay: proptest/check.sh web --seed … --path '…' --replay-path '…'
+replay: proptest/check.sh web --file sync/sync.prop.ts --seed … --path '…' --replay-path '…'
 ```
 
 The error also carries a transcript of what each command did in the failing
@@ -285,7 +292,7 @@ not reproduce is not on its own evidence of a flaky harness (see above).
 
 Each sub-project's suite brings its own budget, so the gate's total grows as
 suites are added. Today the server side is about 3 minutes and the web side
-about 3.7 (sync about 3 minutes, outline about 45 seconds). The budget is set
+about 4 minutes (sync about 3 minutes, outline about 45 seconds). The budget is set
 where the count is set:
 
 | Side | Count | Sized for |

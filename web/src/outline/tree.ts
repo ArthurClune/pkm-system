@@ -33,6 +33,17 @@ export function findNode(blocks: BlockNode[], uid: BlockUid): BlockNode | null {
   return locate(blocks, uid)?.node ?? null;
 }
 
+/** True when a remote batch moves a block onto this page whose subtree the
+ *  tree does not hold, so the echo cannot place it and the page must reload
+ *  from authority instead. */
+export function needsAuthoritativeReload(
+  blocks: BlockNode[], ops: readonly BlockOp[], pageTitle: string,
+): boolean {
+  return ops.some((op) =>
+    op.op === "move" && op.page_title != null && op.page_title === pageTitle &&
+    !findNode(blocks, op.uid));
+}
+
 /** Depth-first uids in on-screen order; children of collapsed blocks hidden. */
 export function visibleUids(blocks: BlockNode[]): BlockUid[] {
   const out: BlockUid[] = [];

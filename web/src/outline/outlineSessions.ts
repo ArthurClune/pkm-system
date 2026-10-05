@@ -38,7 +38,7 @@ import {
   type RepairCohort,
   type RepairTarget,
 } from "./repairEpochs";
-import { findNode } from "./tree";
+import { needsAuthoritativeReload } from "./tree";
 
 export type { ReadToken } from "./outlineState";
 export type { ParentReadiness } from "./parentReadElection";
@@ -637,10 +637,8 @@ export function acquireOutlineSession(
         return { applied: false, needsAuthoritative: false };
       }
       session.seenRemote.add(batch);
-      const needsAuthoritative = batch.ops.some((op) =>
-        op.op === "move" && op.page_title != null &&
-        op.page_title === session.title &&
-        !findNode(session.snapshot.blocks, op.uid));
+      const needsAuthoritative = needsAuthoritativeReload(
+        session.snapshot.blocks, batch.ops, session.title);
       applyTransition(session, transitionOutline(session.state, {
         type: "remote-ops", ops: batch.ops, nowMs: Date.now(),
       }));

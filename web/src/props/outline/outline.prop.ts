@@ -14,9 +14,9 @@ import { sequenceArb, type Command } from "./arbitraries";
 import { sequenceProblems } from "./checks";
 import { runSequence } from "./run";
 
-/** Examples per gate run. Not yet sized: the property does not yet pass
- * cleanly, and a budget is measured on clean runs. */
-export const NUM_RUNS = 2000;
+/** Examples per gate run, sized so this file takes about 45 seconds: clean
+ * runs measured about 7,000 examples a second. */
+export const NUM_RUNS = 316_900;
 /** The whole property, shrinking included. Cut off while shrinking, it fails
  * with the smallest counterexample so far; cut off before any failure, it
  * fails as a budget problem, never as a finding. */

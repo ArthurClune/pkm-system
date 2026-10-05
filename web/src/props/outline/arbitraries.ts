@@ -12,14 +12,14 @@ const MAX_BLOCKS = 30;
 const TREE_MAX_DEPTH = 5;
 const FOREST_MAX_DEPTH = 3;
 
-const BLOCK_TEXT = fc.constantFrom("", "a", "ab", "hello", " lead", "- dash", "x y");
+export const BLOCK_TEXT = fc.constantFrom("", "a", "ab", "hello", " lead", "- dash", "x y");
 // Non-empty, no leading whitespace, no bullet marker, no newline: what survives
 // a render-and-parse round trip in every indent style.
 const PASTE_TEXT = fc.constantFrom("p", "q r", "[[Link]]", "z");
 
 /** Flat generation order -> nesting: each entry sits at most one level below
  * its predecessor, so any array of picks yields a well-formed forest. */
-function depthsFor(picks: readonly number[], maxDepth: number): number[] {
+export function depthsFor(picks: readonly number[], maxDepth: number): number[] {
   const depths: number[] = [];
   let prev = -1;
   for (const pick of picks) {
@@ -30,9 +30,9 @@ function depthsFor(picks: readonly number[], maxDepth: number): number[] {
   return depths;
 }
 
-interface Slot { depth: number }
+export interface Slot { depth: number }
 
-function nest<S extends Slot, N extends { children: N[] }>(
+export function nest<S extends Slot, N extends { children: N[] }>(
   slots: readonly S[], make: (s: S, siblings: N[]) => N,
 ): N[] {
   const roots: N[] = [];
@@ -47,7 +47,7 @@ function nest<S extends Slot, N extends { children: N[] }>(
   return roots;
 }
 
-const gapArb = fc.oneof(
+export const gapArb = fc.oneof(
   { arbitrary: fc.constant(0), weight: 3 },
   { arbitrary: fc.integer({ min: 1, max: 4 }), weight: 1 },
 );

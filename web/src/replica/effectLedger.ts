@@ -15,6 +15,11 @@
 // batch still holds a page record for it, and a later batch's move is never
 // undone by an earlier batch settling.
 //
+// A row record (row_json set) means the block was removed by that batch's
+// delete cascade. Its row_json is the base row and base_page_id the base
+// page; it absorbs every other record on the uid, whose deltas and page
+// record the base already has taken out.
+//
 // Every function runs inside the caller's transaction and opens none.
 
 import type { BatchId, BlockUid, OrderIdx, PageId } from "../api/brands";
@@ -57,6 +62,49 @@ export function recordRepage(db: ReplicaDb, batchId: BatchId, uid: BlockUid): vo
                               THEN excluded.base_updated_at
                               ELSE base_updated_at END`,
     [batchId, uid, uid]);
+}
+
+/** A row record's parsed row_json: the block's base row minus uid and page. */
+export type CascadedRow = {
+  parent_uid: BlockUid | null;
+  order_idx: OrderIdx;
+  text: string;
+  heading: number | null;
+  collapsed: number;
+  created_at: number | null;
+  updated_at: number | null;
+  view_type: "numbered" | "document" | null;
+};
+
+/** Call before a cascade's DELETE of a descendant: replaces every record on
+ * the uid with this batch's row record. */
+export function recordCascade(db: ReplicaDb, batchId: BatchId, uid: BlockUid): void {
+  const [row] = db.select<CascadedRow & { page_id: PageId }>(
+    `SELECT b.parent_uid,
+            b.order_idx - (SELECT COALESCE(SUM(order_delta), 0) FROM effect_ledger
+                            WHERE uid = b.uid) AS order_idx,
+            b.text, b.heading, b.collapsed, b.created_at,
+            CASE WHEN x.base_page_id IS NOT NULL THEN x.base_updated_at
+                 ELSE b.updated_at END AS updated_at,
+            b.view_type,
+            COALESCE(x.base_page_id, b.page_id) AS page_id
+       FROM blocks b
+       LEFT JOIN (SELECT base_page_id, base_updated_at FROM effect_ledger
+                   WHERE uid = ? AND base_page_id IS NOT NULL AND row_json IS NULL
+                   LIMIT 1) x ON 1
+      WHERE b.uid = ?`,
+    [uid, uid]);
+  if (row === undefined) return;
+  const base: CascadedRow = {
+    parent_uid: row.parent_uid, order_idx: row.order_idx, text: row.text,
+    heading: row.heading, collapsed: row.collapsed, created_at: row.created_at,
+    updated_at: row.updated_at, view_type: row.view_type,
+  };
+  dropRecordsOf(db, uid);
+  db.exec(
+    `INSERT INTO effect_ledger(batch_id, uid, order_delta, base_page_id, row_json)
+     VALUES (?, ?, 0, ?, ?)`,
+    [batchId, uid, row.page_id, JSON.stringify(base)]);
 }
 
 export function dropRecordsOf(db: ReplicaDb, uid: BlockUid): void {

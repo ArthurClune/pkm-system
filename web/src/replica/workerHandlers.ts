@@ -59,6 +59,9 @@ export interface WorkerDeps {
 const tableExists = (db: ReplicaDb, name: string): boolean =>
   db.select("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name=?",
             [name]).length > 0;
+const columnExists = (db: ReplicaDb, table: string, column: string): boolean =>
+  db.select("SELECT 1 AS x FROM pragma_table_info(?) WHERE name = ?",
+            [table, column]).length > 0;
 
 function readPendingBatches(db: ReplicaDb): PendingBatch[] {
   // Guardrail (spec section 6): runs BEFORE any teardown decision, and
@@ -432,8 +435,13 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         // schema-mismatch detection and recovery.
         if (!tableExists(d, "sync_client_meta")) installSchema(d);
         // The stale-schema reset runs from start(), so an enqueue before it
-        // commits must not fail its first ledger write.
+        // commits must not fail its first ledger write: an older file gets
+        // the table, or the row_json column, it lacks. schema_version stays
+        // stale so the reset still rebuilds the table from CLIENT_DDL.
         else if (!tableExists(d, "effect_ledger")) d.exec(CLIENT_DDL);
+        else if (!columnExists(d, "effect_ledger", "row_json")) {
+          d.exec("ALTER TABLE effect_ledger ADD COLUMN row_json TEXT");
+        }
         return enqueueBatch(d, ops, nowMs(), batchId);
       });
     },

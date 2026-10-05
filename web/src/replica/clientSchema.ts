@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS effect_ledger(
   order_delta     INTEGER NOT NULL DEFAULT 0,
   base_page_id    INTEGER,
   base_updated_at INTEGER,
+  row_json        TEXT,
   PRIMARY KEY (batch_id, uid)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_effect_ledger_uid ON effect_ledger(uid);

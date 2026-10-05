@@ -17,7 +17,7 @@ import type { BatchId, BlockUid, CanonicalTitle, OrderIdx, PageId } from "../api
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
-import { dropRecordsOf, recordRepage, recordShift } from "./effectLedger";
+import { dropRecordsOf, recordCascade, recordRepage, recordShift } from "./effectLedger";
 import { type TitleReader, titleReader } from "./meta";
 import { skipsOnMissingTarget } from "./missingTarget";
 import { type Placement, type PlacementFacts, placementFor } from "./placement";
@@ -264,6 +264,7 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
     case "delete": {
       const block = info!;
       for (const uid of subtreeUids(db, op.uid)) {
+        if (uid !== op.uid) recordCascade(db, batchId, uid);
         db.exec("DELETE FROM blocks WHERE uid = ?", [uid]);
       }
       touchPage(db, block.page_id, nowMs);

@@ -217,7 +217,8 @@ describe("applyChanges: a local page something keeps stays", () => {
 describe("applyChanges: a local page a ledger base names", () => {
   // B and its child D are made on a new title, then B moves to Proptest:
   // D's record names Fourth as its base. A later batch deletes B (and D),
-  // so once the first is acked nothing but that record keeps Fourth.
+  // and D's row record takes over that base, so once both are acked
+  // nothing but that record keeps Fourth.
   const strandFourth = (): void => {
     enqueue([
       createOn("uid_n1", "Fourth"),
@@ -227,6 +228,7 @@ describe("applyChanges: a local page a ledger base names", () => {
         order_idx: ord(0) },
     ], "b-made");
     enqueue([{ op: "delete", uid: uid("uid_n1") }], "b-delete");
+    ackNext(t.db);
     ackNext(t.db);
   };
 

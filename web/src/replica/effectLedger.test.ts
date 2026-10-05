@@ -2,8 +2,8 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import type { BatchId, BlockUid, OrderIdx, PageId } from "../api/brands";
 import {
-  clearLedger, dropRecordsOf, dropWindowRecords, recordRepage, recordShift,
-  remapBasePage, settleBatches,
+  clearLedger, dropRecordsOf, dropWindowRecords, recordCascade, recordRepage,
+  recordShift, remapBasePage, settleBatches,
 } from "./effectLedger";
 import { openTestDb, type TestDb } from "./testDb";
 
@@ -35,10 +35,16 @@ const pend = (...ids: string[]) => {
 const ledger = () => t.db.select<{
   batch_id: string; uid: string; order_delta: number;
   base_page_id: number | null; base_updated_at: number | null;
-}>("SELECT * FROM effect_ledger ORDER BY batch_id, uid");
+}>("SELECT batch_id, uid, order_delta, base_page_id, base_updated_at" +
+  " FROM effect_ledger ORDER BY batch_id, uid");
 const blk = (uid: string) => t.db.select<{
   page_id: number; order_idx: number; updated_at: number | null;
 }>("SELECT page_id, order_idx, updated_at FROM blocks WHERE uid = ?", [uid])[0];
+const rowRec = (uid: string) => t.db.select<{
+  batch_id: string; base_page_id: number | null; base_updated_at: number | null;
+  order_delta: number; row_json: string | null;
+}>("SELECT batch_id, base_page_id, base_updated_at, order_delta, row_json" +
+   " FROM effect_ledger WHERE uid = ?", [uid]);
 const topGroup = { pageId: P, parentUid: null, fromOrderIdx: idx(1) };
 
 describe("recordShift", () => {
@@ -199,6 +205,29 @@ describe("settleBatches", () => {
     settleBatches(t.db);
     expect(t.db.select("SELECT * FROM blocks ORDER BY uid")).toEqual(before);
     expect(ledger()).toEqual([]);
+  });
+});
+
+describe("recordCascade", () => {
+  test("stores the base row with pending shifts taken out and absorbs every other record", () => {
+    recordShift(t.db, b1, { pageId: P, parentUid: u("c"), fromOrderIdx: idx(0) }, u("x"));
+    t.db.exec("UPDATE blocks SET order_idx = 1 WHERE uid = 'c1'");
+    recordCascade(t.db, b2, u("c1"));
+    const recs = rowRec("c1");
+    expect(recs.map(({ row_json, ...r }) => r)).toEqual([
+      { batch_id: "b2", base_page_id: 1, base_updated_at: null, order_delta: 0 }]);
+    expect(JSON.parse(recs[0].row_json!)).toEqual({
+      parent_uid: "c", order_idx: 0, text: "c1", heading: null, collapsed: 0,
+      created_at: null, updated_at: 111, view_type: null });
+  });
+
+  test("takes the page and updated_at an earlier page record carries", () => {
+    recordRepage(t.db, b1, u("c1"));
+    t.db.exec("UPDATE blocks SET page_id = 2, updated_at = 222 WHERE uid = 'c1'");
+    recordCascade(t.db, b2, u("c1"));
+    const [rec] = rowRec("c1");
+    expect(rec.base_page_id).toBe(1);
+    expect(JSON.parse(rec.row_json!).updated_at).toBe(111);
   });
 });
 

@@ -434,8 +434,8 @@ not matter.
 A skipped `create` or `move` also shifted its destination siblings in the
 client's optimistic apply, and the server did not. Where nothing else
 re-ships them, the skip journals them (`ops_apply._destination_siblings`).
-This is defence in depth for replicas: the replica's effect ledger reverts
-the same shifts at settle ([sync-recovery.md § The effect ledger](sync-recovery.md#the-effect-ledger)),
+This is defence in depth for replicas: the replica's replay log rewinds
+the same shifts in every window ([sync-recovery.md § The replay log](sync-recovery.md#the-replay-log)),
 whichever group the server did or did not journal.
 
 | Skip | Destination | Siblings journalled |

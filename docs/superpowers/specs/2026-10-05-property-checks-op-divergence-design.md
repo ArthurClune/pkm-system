@@ -168,8 +168,10 @@ snapshot after O with the same pending batches enqueued on it:
 
 - compared on structure (sibling order, fields, pages, refs) in general;
 - compared on **exact `order_idx`** when the window re-shipped none of the
-  rows the pending batches touched, as the effect ledger names them. That is
-  where the sj5l drift lives.
+  rows the pending batches touched, as the effect ledger named them. That is
+  where the sj5l drift lives. The replay rebase
+  ([spec](2026-10-05-replica-replay-rebase-design.md)) replaced the ledger and
+  the sibling-rank mode: checks 3 and R now compare exact keys.
 
 Only windows at the journal head, at the server's default window size, are
 used. Below the head, block tombstones are deferred and collateral waits for
@@ -204,7 +206,7 @@ The complete list. Anything else that differs is a finding.
 | Rows the server minted: uids in neither S0 nor the steps' creates (conflict headers, rescued texts, skip notes), with their refs and the pages that exist only for them (the daily page, `conflict`) | 1, 3, R | Never echoed; the replica does not mirror conflict handling; the feed delivers them (`ops_apply.AppliedBatch` docstring, `localOps.ts` header). The edited block's own text agrees: on a conflict the incoming edit still wins (backend.md § Conflicts) |
 | A page whose echo needs an authoritative reload | 1 | The real session reloads it rather than applying the echo |
 | Timestamps | all | Client clock against the frozen server clock, as in the sync oracle |
-| A block a head-window tombstone cascaded away while a pending move had placed it under the deleted block or one of its descendants (pending creates included), and its subtree as far as the cascade took it, when the server's ack skipped that move and kept the block | 3, R | A standing accepted transient (Arthur, 2026-10-05): the skip echo re-ships the block, which check S confirms after the pull |
+| A block a head-window tombstone cascaded away while a pending move had placed it under the deleted block or one of its descendants (pending creates included), and its subtree as far as the cascade took it, when the server's ack skipped that move and kept the block | 3, R | A standing accepted transient (Arthur, 2026-10-05): the skip echo re-ships the block, which check S confirms after the pull. Removed by the replay rebase ([spec](2026-10-05-replica-replay-rebase-design.md)): the window rewinds pending batches first, so the cascade never meets their effects |
 
 ## Harness server
 

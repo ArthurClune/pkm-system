@@ -455,6 +455,12 @@ describe("needsAuthoritativeReload", () => {
     expect(needsAuthoritativeReload(
       tree(), [move("a", "Q"), move("a", "P")], "P")).toBe(true);
   });
+  test("true when a batch moves a parent off the page and then its child onto it", () => {
+    // The first move takes "b1" away with its parent "b", so the echo cannot
+    // place "b1" on the second.
+    expect(needsAuthoritativeReload(
+      tree(), [move("b", "Q"), move("b1", "P")], "P")).toBe(true);
+  });
   test("false when the batch created the block on this page before moving it", () => {
     const ops: BlockOp[] = [
       { op: "create", uid: uid("zz"), parent_uid: null, order_idx: ord(9),

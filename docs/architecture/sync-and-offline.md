@@ -148,7 +148,7 @@ transaction:
 | 1. Page and sidebar tombstones | The UNIQUE `title` columns: a row that gave its title up by being deleted must go before the row that took the title. A reused page id's cascade clears the old page before the new one lands. |
 | 2. Page upserts | `reconcilePage` remaps local page ids, effect-ledger bases included. |
 | 3. Block upserts | Deferred FKs make their order irrelevant for references. |
-| 4. `dropWindowRecords` for every block uid the window ships live or tombstones | The server's row supersedes the local one, so nothing a pending batch did to it is left to revert. |
+| 4. `dropWindowRecords` for every block uid the window ships live or owes a tombstone, including one an earlier window deferred | The server's row supersedes the local one, so nothing a pending batch did to it is left to revert. A deferred block stays present until the head window, so a local delete in between can record it. |
 | 5. Block tombstones, in the window at the journal head only | The moves out land before the local cascade runs (below). |
 | 6. Sidebar upserts | Independent of blocks. |
 | 7. Cursor, deferred-tombstone record, plain-space flag, `reconcileActivationPageTitles` | The last remaps ledger bases through `remapLocalPage`. |

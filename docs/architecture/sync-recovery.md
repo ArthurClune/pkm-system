@@ -307,9 +307,9 @@ writes so they can be taken back when the batch settles.
 
 | Event | Records dropped |
 |---|---|
-| A window upserts or tombstones a block (`dropWindowRecords`, step 4 of `applyWindow`) | Every record on that uid |
+| A window upserts a block, or owes its tombstone: one the window ships, or one an earlier window deferred (`dropWindowRecords` over the shipped uids and `owed`, step 4 of `applyWindow`) | Every record on that uid |
 | A pending create or move places the uid itself | Every record on that uid |
-| The batch settles | That batch's records, after the revert |
+| The batch settles | That batch's records, after the revert and the restore |
 | Snapshot, reset, rebuild or file replacement | All |
 
 A batch settles in the first head window (one that reaches the journal head)

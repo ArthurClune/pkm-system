@@ -654,17 +654,48 @@ describe("moveSelectionUp / moveSelectionDown", () => {
       .toEqual(["first0"]);
   });
 
-  test("up: a collapsed selected destination root stays collapsed", () => {
+  test("up: a collapsed selected root that a run crosses into is expanded", () => {
     const r = moveSelectionUp(selectedDestinationTree(), P, [uid("b"), uid("c0"), uid("c1")]);
 
     expect(r.ops).toEqual([
       { op: "move", uid: "a", parent_uid: null, order_idx: 2 },
+      { op: "set_collapsed", uid: "b", collapsed: false },
       { op: "move", uid: "c0", parent_uid: "b", order_idx: 1 },
       { op: "move", uid: "c1", parent_uid: "b", order_idx: 2 },
     ]);
-    expect(findNode(r.blocks, uid("b"))!.collapsed).toBe(true);
+    expect(findNode(r.blocks, uid("b"))!.collapsed).toBe(false);
     expect(findNode(r.blocks, uid("b"))!.children.map((n) => n.uid))
       .toEqual(["b0", "c0", "c1"]);
+  });
+
+  test("down: a collapsed selected root that a run crosses into is expanded", () => {
+    const t = [
+      block("a", "A", {
+        order_idx: ord(0),
+        children: [
+          block("a1", "A first", { order_idx: ord(0) }),
+          block("a2", "A second", { order_idx: ord(1) }),
+        ],
+      }),
+      block("b", "B", {
+        order_idx: ord(1),
+        collapsed: true,
+        children: [block("b1", "B child", { order_idx: ord(0) })],
+      }),
+      block("c", "C", { order_idx: ord(2) }),
+    ];
+
+    const r = moveSelectionDown(t, P, [uid("a2"), uid("b")]);
+
+    expect(r.ops).toEqual([
+      { op: "set_collapsed", uid: "b", collapsed: false },
+      { op: "move", uid: "a2", parent_uid: "b", order_idx: 0 },
+      { op: "move", uid: "c", parent_uid: null, order_idx: 1 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["a", "c", "b"]);
+    expect(findNode(r.blocks, uid("b"))!.collapsed).toBe(false);
+    expect(findNode(r.blocks, uid("b"))!.children.map((n) => n.uid))
+      .toEqual(["a2", "b1"]);
   });
 
   test("moves eligible mixed-depth runs from original positions", () => {

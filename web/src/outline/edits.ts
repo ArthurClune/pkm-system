@@ -382,13 +382,13 @@ function moveSelection(
     plans.push(plan);
   }
 
-  const selectedRoots = new Set(runs.flatMap((run) => run.uids));
+  // A run that crosses into a collapsed neighbour expands it, even when that
+  // neighbour is itself a selected root, so the moved run stays visible. A
+  // selected root that only moves keeps its collapsed state.
   const expanded = new Set<BlockUid>();
   const ops: BlockOp[] = [];
   for (const plan of plans) {
-    if (plan.expandUid
-        && !selectedRoots.has(plan.expandUid)
-        && !expanded.has(plan.expandUid)) {
+    if (plan.expandUid && !expanded.has(plan.expandUid)) {
       ops.push({
         op: "set_collapsed", uid: plan.expandUid, collapsed: false,
       });

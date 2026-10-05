@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import type { BlockOp } from "../api/ops";
+import type { BlockNode } from "../api/payloads";
 import { block, ord, uid } from "../test-helpers";
 import { applyOps } from "./tree";
 import { invertOps, emptyHistory, HISTORY_CAP, recordEntry, takeRedo, takeUndo,
@@ -43,6 +44,91 @@ it("round-trips a move: apply ops then inverse restores the shape", () => {
   // c is back at top level after b (order_idx values may differ; shape matters)
   expect(after.map((n) => n.uid)).toEqual(["a", "b", "c"]);
   expect(after[0].children).toEqual([]);
+});
+
+// Uids in sibling order, nested: what a reader sees, with order_idx values
+// left out because a placement op only ever shifts keys up, so an undo can
+// restore every position without restoring every key.
+type Shape = (string | Shape)[];
+const shape = (nodes: BlockNode[]): Shape =>
+  nodes.flatMap((n) => n.children.length > 0 ? [n.uid, shape(n.children)] : [n.uid]);
+
+const roundTrip = (before: BlockNode[], ops: BlockOp[]): BlockNode[] => {
+  const inverse = invertOps(before, PAGE, ops)!;
+  return applyOps(applyOps(before, ops, PAGE), inverse, PAGE);
+};
+
+const flat = (...uids: string[]) =>
+  uids.map((u, i) => block(u, u, { order_idx: ord(i) }));
+
+it("round-trips a move up: the swapped sibling took the old key", () => {
+  // moveBlockUp b1: the move lands on b0's key, shifting b0 into b1's old one
+  const before = flat("b0", "b1");
+  const ops: BlockOp[] = [{ op: "move", uid: uid("b1"), parent_uid: null, order_idx: ord(0) }];
+  expect(shape(roundTrip(before, ops))).toEqual(["b0", "b1"]);
+});
+
+it("round-trips a move up inside a parent", () => {
+  const before = [block("p", "p", { order_idx: ord(0), children: flat("c0", "c1", "c2") })];
+  const ops: BlockOp[] = [{ op: "move", uid: uid("c2"), parent_uid: uid("p"), order_idx: ord(1) }];
+  expect(shape(roundTrip(before, ops))).toEqual(["p", ["c0", "c1", "c2"]]);
+});
+
+it("round-trips a selection move down (its next sibling moves up)", () => {
+  // moveSelectionDown [b0, b1]: b2 moves to the run's first key
+  const before = flat("b0", "b1", "b2", "b3");
+  const ops: BlockOp[] = [{ op: "move", uid: uid("b2"), parent_uid: null, order_idx: ord(0) }];
+  expect(shape(roundTrip(before, ops))).toEqual(["b0", "b1", "b2", "b3"]);
+});
+
+it("round-trips a selection move up (its previous sibling moves down)", () => {
+  // moveSelectionUp [b2, b3]: b1 moves past the run's last block
+  const before = flat("b0", "b1", "b2", "b3");
+  const ops: BlockOp[] = [{ op: "move", uid: uid("b1"), parent_uid: null, order_idx: ord(4) }];
+  expect(shape(roundTrip(before, ops))).toEqual(["b0", "b1", "b2", "b3"]);
+});
+
+it("round-trips a multi-block drop up within a parent", () => {
+  // moveBlocksTo [c2, c3] before c0: groupMoveOps, one op per block, and the
+  // second op shifts the siblings the first inverse will be placed among
+  const before = [block("p", "p", { order_idx: ord(0), children: flat("c0", "c1", "c2", "c3") })];
+  const ops: BlockOp[] = [
+    { op: "move", uid: uid("c2"), parent_uid: uid("p"), order_idx: ord(0) },
+    { op: "move", uid: uid("c3"), parent_uid: uid("p"), order_idx: ord(1) },
+  ];
+  expect(shape(roundTrip(before, ops))).toEqual(["p", ["c0", "c1", "c2", "c3"]]);
+});
+
+it("round-trips a multi-block move into another parent's middle", () => {
+  // the source keeps its keys; the destination's siblings are shifted twice
+  const before = [
+    block("p", "p", { order_idx: ord(0), children: flat("c0", "c1") }),
+    block("x", "x", { order_idx: ord(1) }),
+    block("y", "y", { order_idx: ord(2) }),
+  ];
+  const ops: BlockOp[] = [
+    { op: "move", uid: uid("x"), parent_uid: uid("p"), order_idx: ord(1) },
+    { op: "move", uid: uid("y"), parent_uid: uid("p"), order_idx: ord(2) },
+  ];
+  expect(shape(roundTrip(before, ops))).toEqual(["p", ["c0", "c1"], "x", "y"]);
+});
+
+it("round-trips a delete whose old previous sibling a later op shifted", () => {
+  const before = flat("b0", "b1", "b2");
+  const ops: BlockOp[] = [
+    { op: "delete", uid: uid("b1") },
+    { op: "move", uid: uid("b2"), parent_uid: null, order_idx: ord(0) },
+  ];
+  expect(shape(roundTrip(before, ops))).toEqual(["b0", "b1", "b2"]);
+});
+
+it("round-trips a move whose old slot sat in a key gap", () => {
+  // sparse keys: b's old key is still free between its neighbours
+  const before = [block("a", "a", { order_idx: ord(0) }),
+                  block("b", "b", { order_idx: ord(5) }),
+                  block("c", "c", { order_idx: ord(9) })];
+  const ops: BlockOp[] = [{ op: "move", uid: uid("b"), parent_uid: null, order_idx: ord(0) }];
+  expect(shape(roundTrip(before, ops))).toEqual(["a", "b", "c"]);
 });
 
 it("inverts delete into creates for the whole subtree plus collapsed restore", () => {

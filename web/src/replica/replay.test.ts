@@ -10,6 +10,7 @@ import type { BatchId, BlockUid, CanonicalTitle, OrderIdx, PageId,
 import type { BlockOp } from "../api/ops";
 import { applyChanges, applySnapshot, type Changes, type SyncBlock,
          type SyncTombstone } from "./apply";
+import type { PendingRowId } from "./client";
 import type { ReplicaDb } from "./db";
 import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { batchesArb, type DrawnBatch, replicaStateArb, type ReplicaState,
@@ -152,7 +153,7 @@ describe("a window replays pending batches as a first apply", () => {
     expect(dump(db)).toEqual(await firstApply(after, batches));
   });
 
-  test("sj5l: move s to 0 then to 1, over two windows that lack the batch", async () => {
+  test("a batch moving one block twice, over two windows that lack it", async () => {
     const before = { pages: [page(1, "Page One")],
                      blocks: [block("a"), block("s", at(1)), block("b", at(2))] };
     const batches = [batch("b1", move("s", 0), move("s", 1))];
@@ -223,7 +224,7 @@ describe("the log across acks, poison and upgrades", () => {
     expect(order(db, "p2")).toEqual(["c"]);
     const poisoned = db.select<{ id: number }>(
       "SELECT id FROM pending_ops WHERE batch_id = 'b2'")[0];
-    markPoisoned(db, poisoned.id as never, "rejected", bid("b2"));
+    markPoisoned(db, poisoned.id as PendingRowId, "rejected", bid("b2"));
 
     expect(applyChanges(db, window({ pages: [], blocks: [] }, 11, { latest: 12 }),
                         NOW + 100))

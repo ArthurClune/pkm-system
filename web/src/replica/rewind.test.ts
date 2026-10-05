@@ -278,6 +278,9 @@ describe("rewind", () => {
           for (const b of batches) enqueueBatch(r.db, b.ops, 500, b.batchId);
           inTx(() => rewind(r.db, "all"), r.db);
           expect(dump(r.db)).toEqual(before);
+          expect(r.db.select("SELECT COUNT(*) AS n FROM replay_log")).toEqual([{ n: 0 }]);
+          expect(r.db.select("SELECT COUNT(*) AS n FROM replay_log_refs"))
+            .toEqual([{ n: 0 }]);
           ftsIntact(r.db);
         } finally {
           r.close();

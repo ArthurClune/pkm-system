@@ -117,6 +117,8 @@ describe("reconcile on feed page delivery", () => {
   test("remapLocalPage moves the log's records and refs onto the target", () => {
     // acked batches: the window's rewind leaves their records frozen
     ackNext();
+    // a ref to the local page by hand, so u's record of uid_l2 holds one
+    t.db.exec("INSERT INTO refs VALUES ('uid_l2', ?, 'link')", [negId]);
     applyLocalOps(t.db, [{ op: "update_text", uid: uid("uid_l2"), text: "edited" }],
                   60, { batchId: "u" as BatchId });
     t.db.transaction(() => {
@@ -136,6 +138,10 @@ describe("reconcile on feed page delivery", () => {
         { batch_id: "u", kind: "block", key: "uid_l2", pre_page_id: 7 },
         { batch_id: "u", kind: "page", key: "7", pre_page_id: null },
       ]);
+    expect(t.db.select(
+      "SELECT l.key, r.target_page_id, r.kind FROM replay_log_refs r" +
+      " JOIN replay_log l ON l.id = r.log_id"))
+      .toEqual([{ key: "uid_l2", target_page_id: 7, kind: "link" }]);
   });
 
   test("a settled batch's record on a reconciled local page restores onto the server id at the head window", () => {

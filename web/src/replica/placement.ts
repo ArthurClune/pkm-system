@@ -3,8 +3,8 @@
 // ops_apply does (shared/fixtures/missing_targets.json pins both sides).
 // Under a live parent the block lands on the parent's page, whatever its
 // page_title says: page_title places only a top-level create or move. A
-// replay (reapply) finds its own create and move effects already in place
-// and keeps them rather than failing or shifting again. localOps.ts
+// feed window rewinds a pending batch before replaying it, so a replay
+// places its creates and moves exactly as the first apply did. localOps.ts
 // gathers the facts and runs the SQL for the verdict.
 
 import type { BlockUid, OrderIdx, PageId } from "../api/brands";

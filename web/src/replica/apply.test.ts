@@ -2044,7 +2044,8 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
         order_idx: ord(1), text: "[[New]]" }], 2, bid("b1"));
     const [local] = t.db.select<{ id: number }>("SELECT id FROM pages WHERE title = 'New'");
     expect(local.id).toBeLessThan(0);
-    // the ref a local apply derives for g's link
+    // a recorded ref by hand: g's snapshot row carries none, and the delete's
+    // record needs one to the local page for replay_log_refs to remap
     t.db.exec("INSERT INTO refs VALUES ('g', ?, 'link')", [local.id]);
     enqueueBatch(t.db, [deleteP], 2, bid("b2"));
     ackNext(t.db);

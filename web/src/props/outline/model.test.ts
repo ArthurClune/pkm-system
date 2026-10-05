@@ -141,9 +141,11 @@ describe("outdent", () => {
     expect(expectedRows(page(t("a"), t("b")), { kind: "outdent", uid: u("b") })).toEqual(noop);
   });
 
-  it("outdentSel two runs adopt up to the next run", () => {
+  it("outdentSel two runs: only the last adopts, up to the end of its sibling list", () => {
     // Runs [a2] under a and [b] under p: a2 has no later sibling to adopt; b
     // adopts c and d, up to the end of p's children, and q stays top-level.
+    // A contiguous selection never holds two runs under one parent, so the
+    // "up to the next run under the same parent" bound is not reachable here.
     const before = page(
       t("p", t("a", t("a1"), t("a2")), t("b", { collapsed: true }, t("b1")), t("c"), t("d")),
       t("q"),
@@ -177,6 +179,16 @@ describe("deleteSel", () => {
   });
 });
 
+describe("selection inputs", () => {
+  it("a selection naming a row the page lacks throws", () => {
+    const before = page(t("a"), t("b"));
+    expect(() => expectedRows(before, { kind: "deleteSel", uids: us("a", "x") }))
+      .toThrow("model: no row x");
+    expect(() => expectedRows(before, { kind: "indentSel", uids: us("x") }))
+      .toThrow("model: no row x");
+  });
+});
+
 describe("fields", () => {
   it("heading set to its current value is a noop", () => {
     const before = page(t("a", { heading: 2 }));
@@ -192,11 +204,21 @@ describe("fields", () => {
     expect(expectedRows(before, { kind: "collapse", uid: u("b"), value: false })).toEqual(noop);
   });
 
-  it("view type: the same value is a noop; document over null is a change", () => {
+  it("view type: the same value is a noop", () => {
     const numbered = page(t("a", { view_type: "numbered" }));
     expect(expectedRows(numbered, { kind: "viewType", uid: u("a"), value: "numbered" })).toEqual(noop);
-    expect(expectedRows(page(t("a")), { kind: "viewType", uid: u("a"), value: "document" }))
+    expect(expectedRows(numbered, { kind: "viewType", uid: u("a"), value: "document" }))
       .toEqual(rows(t("a", { view_type: "document" })));
+  });
+
+  it("view type: document over null is a noop, since null reads as document", () => {
+    expect(expectedRows(page(t("a")), { kind: "viewType", uid: u("a"), value: "document" }))
+      .toEqual(noop);
+  });
+
+  it("view type: numbered over null is a change", () => {
+    expect(expectedRows(page(t("a")), { kind: "viewType", uid: u("a"), value: "numbered" }))
+      .toEqual(rows(t("a", { view_type: "numbered" })));
   });
 });
 

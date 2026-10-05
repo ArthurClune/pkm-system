@@ -73,6 +73,7 @@ const fresh = (uid: BlockUid, depth: number, text: string): Row => ({
 
 /** Selected rows with no selected ancestor, in document order. */
 const rootsOf = (rows: readonly Row[], uids: readonly BlockUid[]): number[] => {
+  for (const uid of uids) indexOf(rows, uid);
   const selected = new Set<BlockUid>(uids);
   const roots: number[] = [];
   const ancestors: number[] = [];
@@ -280,6 +281,12 @@ function paste(before: readonly Row[], uid: BlockUid, from: number, to: number,
   ]);
 }
 
+/** A null view type reads as "document", so setting "document" on it changes nothing. */
+function viewType(before: readonly Row[], uid: BlockUid, value: NonNullable<Row["viewType"]>): Expected {
+  if ((before[indexOf(before, uid)].viewType ?? "document") === value) return NOOP;
+  return setField(before, uid, { viewType: value });
+}
+
 /** The rows a reader should see after the command, from the rows before it. */
 export function expectedRows(before: readonly Row[], r: Resolved): Expected {
   switch (r.kind) {
@@ -293,7 +300,7 @@ export function expectedRows(before: readonly Row[], r: Resolved): Expected {
     case "deleteSel": return deleteSubtrees(before, r.uids);
     case "collapse": return setField(before, r.uid, { collapsed: r.value });
     case "heading": return setField(before, r.uid, { heading: r.value });
-    case "viewType": return setField(before, r.uid, { viewType: r.value });
+    case "viewType": return viewType(before, r.uid, r.value);
     case "moveUp": return moveOne(before, r.uid, "up", false);
     case "moveDown": return moveOne(before, r.uid, "down", false);
     case "subtreeUp": return moveOne(before, r.uid, "up", true);

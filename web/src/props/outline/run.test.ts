@@ -24,16 +24,40 @@ const textOf = (blocks: BlockNode[], u: string) => findNode(blocks, uid(u))?.tex
 describe("runSequence", () => {
   it("a type command is held as a draft and flushed by the next command", () => {
     const run = runSequence(flat(), [
-      { kind: "type", row: 0, text: "zz" },
+      { kind: "type", row: 1, text: "zz" },
       { kind: "indent", row: 1 },
     ]);
     const [typed, indent] = run.steps;
-    expect(textOf(typed.after, "a")).toBe("zz");
-    expect(typed.ops).toEqual([{ op: "update_text", uid: "a", text: "zz" }]);
-    expect(textOf(indent.base, "a")).toBe("zz");
+    expect(textOf(typed.after, "b")).toBe("zz");
+    expect(typed.ops).toEqual([{ op: "update_text", uid: "b", text: "zz" }]);
+    expect(textOf(indent.base, "b")).toBe("zz");
     expect(indent.ops.every((op) => op.op !== "update_text")).toBe(true);
     expect(run.history.undo).toHaveLength(1);
-    expect(run.history.undo[0].ops[0]).toEqual({ op: "update_text", uid: "a", text: "zz" });
+    expect(run.history.undo[0].ops[0]).toEqual({ op: "update_text", uid: "b", text: "zz" });
+    expect(run.history.undo[0].ops.length).toBeGreaterThan(1);
+  });
+
+  it("a command on another block flushes the draft as its own entry first", () => {
+    const run = runSequence(flat(), [
+      { kind: "type", row: 0, text: "zz" },
+      { kind: "indent", row: 1 },
+    ]);
+    expect(textOf(run.steps[1].base, "a")).toBe("zz");
+    expect(run.history.undo.map((e) => e.ops)).toEqual([
+      [{ op: "update_text", uid: "a", text: "zz" }],
+      run.steps[1].ops,
+    ]);
+  });
+
+  it("a selection command flushes the draft as its own entry first", () => {
+    const run = runSequence(flat(), [
+      { kind: "type", row: 1, text: "zz" },
+      { kind: "indentSel", row: 1, span: 0 },
+    ]);
+    expect(run.history.undo.map((e) => e.ops)).toEqual([
+      [{ op: "update_text", uid: "b", text: "zz" }],
+      run.steps[1].ops,
+    ]);
   });
 
   it("undo flushes a pending draft as its own entry first", () => {

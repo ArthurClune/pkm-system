@@ -79,6 +79,17 @@ interface EntryRows { before: Row[]; after: Row[] }
 
 const noop = (b: BlockNode[]): EditResult => ({ blocks: b, ops: [], focus: null });
 
+// Keyboard commands fired from the focused textarea: only these reach run()
+// with the draft still pending, so only these fold it into their batch. Any
+// other gesture flushes it as its own entry first: a command on another block
+// needs focus there (onFocusBlock, onArrow), a selection starts with
+// onStartBlockSelection/onSelectBlock, and a chevron, block-menu or drag-handle
+// click blurs the textarea (onBlurBlock), each of which calls flushNow.
+const FOLDS_DRAFT = new Set<Command["kind"]>([
+  "split", "backspace", "indent", "outdent", "moveUp", "moveDown", "subtreeUp",
+  "subtreeDown", "paste", "heading",
+]);
+
 function countNodes(forest: readonly PastedNode[]): number {
   return forest.reduce((n, p) => n + 1 + countNodes(p.children), 0);
 }
@@ -133,6 +144,8 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
   };
 
   const flushNow = () => { run(noop); };
+  // A function, not a read of `draft`: the closures above reassign it.
+  const heldUid = (): BlockUid | null => draft?.uid ?? null;
 
   const replay = (command: Command & { kind: "undo" | "redo" }): Step => {
     flushNow();
@@ -285,9 +298,11 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
         break;
     }
 
+    const held = heldUid();
+    if (held !== null && !(FOLDS_DRAFT.has(command.kind) && held === uid)) flushNow();
     if (edit === null) {
       // A drop back where it came from: the app never calls moveTo.
-      steps.push({ command, resolved, base: shown, after: shown, ops: [], focus: null,
+      steps.push({ command, resolved, base: tree, after: tree, ops: [], focus: null,
                    inverse: [] });
       continue;
     }

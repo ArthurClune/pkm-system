@@ -1,0 +1,301 @@
+// pattern: Functional Core
+// Drives the real outline commands from abstract descriptors and records undo
+// history the way useOutline.run and undoManager do: a typed draft is held
+// until the next command flushes it, the flushed text op joins that command's
+// batch, the batch's inverse is taken against the pre-flush tree, and undo or
+// redo flushes the draft as its own entry before replaying anything.
+import type { BlockUid } from "../../api/brands";
+import type { BlockOp, SetViewTypeOp } from "../../api/ops";
+import type { BlockNode } from "../../api/payloads";
+import { withoutStamps } from "../../outline/baseTextHash";
+import { selectedUids, selectionDragUids,
+         type BlockSelection } from "../../outline/blockSelection";
+import { allowedDepths, dropRows, resolveDrop, type DragSource,
+         type DropPosition } from "../../outline/dnd";
+import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
+         moveBlocksTo, moveBlockDown, moveBlockUp, moveSelectionDown,
+         moveSelectionUp, moveSubtreeDown, moveSubtreeUp, outdentBlock,
+         outdentSelection, setCollapsed, setHeading, setViewType, splitBlock,
+         type EditResult, type FocusTarget } from "../../outline/edits";
+import { emptyHistory, invertOps, recordEntry, takeRedo, takeUndo,
+         type HistoryEntry, type HistoryState } from "../../outline/history";
+import { captureDraft, pendingTextOps, validateOutlineFocus,
+         type PendingDraft } from "../../outline/outlineState";
+import { isOutlinePaste, planOutlinePaste,
+         type PastedNode } from "../../outline/paste";
+import { applyOps, findNode, visibleUids } from "../../outline/tree";
+import { PAGE_TITLE, renderForest, type Command } from "./arbitraries";
+import { readingRows, type Row } from "./reading";
+
+/** The concrete inputs a command resolved to against the tree it ran on. */
+export type Resolved =
+  | { kind: "type"; uid: BlockUid; text: string }
+  | { kind: "split"; uid: BlockUid; caret: number; fresh: BlockUid }
+  | { kind: "backspace" | "indent" | "outdent" | "moveUp" | "moveDown" | "subtreeUp" | "subtreeDown"; uid: BlockUid }
+  | { kind: "indentSel" | "outdentSel" | "selUp" | "selDown" | "deleteSel"; uids: BlockUid[] } // selectedUids order
+  | { kind: "drop"; uids: BlockUid[]; position: DropPosition } // dragged roots, document order
+  | { kind: "paste"; uid: BlockUid; from: number; to: number; forest: PastedNode[]; text: string; fresh: BlockUid[] }
+  | { kind: "collapse"; uid: BlockUid; value: boolean }
+  | { kind: "heading"; uid: BlockUid; value: BlockNode["heading"] }
+  | { kind: "viewType"; uid: BlockUid; value: SetViewTypeOp["view_type"] };
+
+export interface Step {
+  command: Command;
+  /** null for undo/redo and for a command with no visible row. */
+  resolved: Resolved | null;
+  /** The tree the command ran on (after any draft flush). */
+  base: BlockNode[];
+  after: BlockNode[];
+  /** The command's ops, not the flushed text op; for undo/redo, the batch replayed. */
+  ops: BlockOp[];
+  focus: FocusTarget | null;
+  /** invertOps over the recorded batch; null = not invertible. */
+  inverse: BlockOp[] | null;
+  /** For undo/redo: the rows the entry should restore. */
+  undo?: { expectedRows: Row[] };
+}
+
+/** The functions a teeth check swaps for deliberately wrong versions. */
+export interface Seam {
+  outdentBlock: typeof outdentBlock;
+  moveBlockDown: typeof moveBlockDown;
+  planOutlinePaste: typeof planOutlinePaste;
+  invertOps: typeof invertOps;
+  deleteSelection: typeof deleteSelection;
+}
+
+export const REAL: Seam = {
+  outdentBlock, moveBlockDown, planOutlinePaste, invertOps, deleteSelection,
+};
+
+export interface Run {
+  steps: Step[];
+  /** The tree after the final draft flush. */
+  end: BlockNode[];
+  history: HistoryState;
+}
+
+interface EntryRows { before: Row[]; after: Row[] }
+
+const noop = (b: BlockNode[]): EditResult => ({ blocks: b, ops: [], focus: null });
+
+function countNodes(forest: readonly PastedNode[]): number {
+  return forest.reduce((n, p) => n + 1 + countNodes(p.children), 0);
+}
+
+export function runSequence(start: BlockNode[], commands: readonly Command[],
+                            seam: Seam = REAL): Run {
+  let tree = start;
+  let draft: PendingDraft | null = null;
+  let history = emptyHistory();
+  let focus: FocusTarget | null = null;
+  let minted = 0;
+  // Entries are the same objects through takeUndo/takeRedo, so the rows each
+  // entry should restore ride alongside without a second stack to keep in step.
+  const entryRows = new Map<HistoryEntry, EntryRows>();
+  const steps: Step[] = [];
+  const mint = (): BlockUid => `n${minted++}` as BlockUid;
+
+  /** What the editor shows: the committed tree with the draft typed over it. */
+  const displayed = (): BlockNode[] =>
+    draft && findNode(tree, draft.uid)
+      ? applyOps(tree, [{ op: "update_text", uid: draft.uid, text: draft.text }], PAGE_TITLE)
+      : tree;
+
+  /** useOutline.run: flush the draft, run the command on the flushed tree,
+   * record the whole batch with its inverse against the pre-flush tree. */
+  const run = (fn: (b: BlockNode[]) => EditResult) => {
+    const textOps = pendingTextOps(draft, tree, PAGE_TITLE);
+    draft = null;
+    const pre = tree;
+    const undoableTextOps = textOps.filter((op) => findNode(pre, op.uid));
+    const base = textOps.length > 0 ? applyOps(pre, textOps, PAGE_TITLE) : pre;
+    const result = fn(base);
+    if (textOps.length + result.ops.length === 0) {
+      return { base, after: base, result, inverse: [] as BlockOp[] | null };
+    }
+    const next = result.ops.length > 0 ? result.blocks : base;
+    tree = next;
+    const inverse = seam.invertOps(pre, PAGE_TITLE, [...undoableTextOps, ...result.ops]);
+    if (inverse !== null && inverse.length > 0) {
+      const entry: HistoryEntry = {
+        pageTitle: PAGE_TITLE,
+        ops: [...undoableTextOps.map(withoutStamps), ...result.ops],
+        inverse,
+        focusBefore: focus,
+        focusAfter: result.focus ?? focus,
+      };
+      history = recordEntry(history, entry);
+      entryRows.set(entry, { before: readingRows(pre), after: readingRows(next) });
+    }
+    if (result.focus) focus = result.focus;
+    return { base, after: next, result, inverse };
+  };
+
+  const flushNow = () => { run(noop); };
+
+  const replay = (command: Command & { kind: "undo" | "redo" }): Step => {
+    flushNow();
+    const base = tree;
+    const { state, entry } = command.kind === "undo" ? takeUndo(history) : takeRedo(history);
+    history = state;
+    if (!entry) {
+      return { command, resolved: null, base, after: base, ops: [], focus: null, inverse: [],
+               undo: { expectedRows: readingRows(base) } };
+    }
+    const undoing = command.kind === "undo";
+    const batch = undoing ? entry.inverse : entry.ops;
+    tree = applyOps(base, batch, PAGE_TITLE);
+    focus = validateOutlineFocus(undoing ? entry.focusBefore : entry.focusAfter, tree);
+    const rows = entryRows.get(entry);
+    if (!rows) throw new Error("runner: history entry without recorded rows");
+    return { command, resolved: null, base, after: tree, ops: batch, focus,
+             inverse: undoing ? entry.ops : entry.inverse,
+             undo: { expectedRows: undoing ? rows.before : rows.after } };
+  };
+
+  const type = (command: Command & { kind: "type" }, uid: BlockUid): Step => {
+    // A draft on another block is flushed before this one starts.
+    if (draft && draft.uid !== uid) flushNow();
+    const base = displayed();
+    draft = captureDraft(draft, uid, command.text, tree);
+    const after = displayed();
+    const ops: BlockOp[] = findNode(base, uid)?.text !== command.text
+      ? [{ op: "update_text", uid, text: command.text }] : [];
+    focus = { uid, cursor: command.text.length };
+    return { command, resolved: { kind: "type", uid, text: command.text }, base, after, ops,
+             focus, inverse: seam.invertOps(base, PAGE_TITLE, ops) };
+  };
+
+  for (const command of commands) {
+    if (command.kind === "undo" || command.kind === "redo") {
+      steps.push(replay(command));
+      continue;
+    }
+    const shown = displayed();
+    const rows = visibleUids(shown);
+    if (rows.length === 0) {
+      steps.push({ command, resolved: null, base: shown, after: shown, ops: [], focus: null,
+                   inverse: [] });
+      continue;
+    }
+    const r = command.row % rows.length;
+    const uid = rows[r];
+    if (command.kind === "type") {
+      steps.push(type(command, uid));
+      continue;
+    }
+    const text = findNode(shown, uid)?.text ?? "";
+    const selection = (span: number): BlockSelection =>
+      ({ anchor: uid, head: rows[Math.min(r + span, rows.length - 1)] });
+
+    let resolved: Resolved;
+    let edit: ((b: BlockNode[]) => EditResult) | null;
+    switch (command.kind) {
+      case "split": {
+        const caret = Math.round(((command.caret % 101) / 100) * text.length);
+        const fresh = mint();
+        resolved = { kind: "split", uid, caret, fresh };
+        edit = (b) => splitBlock(b, PAGE_TITLE, uid, caret, fresh);
+        break;
+      }
+      case "backspace":
+        resolved = { kind: command.kind, uid };
+        edit = (b) => backspaceAtStart(b, PAGE_TITLE, uid);
+        break;
+      case "indent":
+        resolved = { kind: command.kind, uid };
+        edit = (b) => indentBlock(b, PAGE_TITLE, uid);
+        break;
+      case "outdent":
+        resolved = { kind: command.kind, uid };
+        edit = (b) => seam.outdentBlock(b, PAGE_TITLE, uid);
+        break;
+      case "moveUp":
+        resolved = { kind: command.kind, uid };
+        edit = (b) => moveBlockUp(b, PAGE_TITLE, uid);
+        break;
+      case "moveDown":
+        resolved = { kind: command.kind, uid };
+        edit = (b) => seam.moveBlockDown(b, PAGE_TITLE, uid);
+        break;
+      case "subtreeUp":
+        resolved = { kind: command.kind, uid };
+        edit = (b) => moveSubtreeUp(b, PAGE_TITLE, uid);
+        break;
+      case "subtreeDown":
+        resolved = { kind: command.kind, uid };
+        edit = (b) => moveSubtreeDown(b, PAGE_TITLE, uid);
+        break;
+      case "indentSel":
+      case "outdentSel":
+      case "selUp":
+      case "selDown":
+      case "deleteSel": {
+        const sel = selection(command.span);
+        const plan = {
+          indentSel: indentSelection, outdentSel: outdentSelection,
+          selUp: moveSelectionUp, selDown: moveSelectionDown,
+          deleteSel: seam.deleteSelection,
+        }[command.kind];
+        resolved = { kind: command.kind, uids: selectedUids(shown, sel) };
+        edit = (b) => plan(b, PAGE_TITLE, selectedUids(b, sel));
+        break;
+      }
+      case "drop": {
+        const uids = command.span > 0
+          ? selectionDragUids(shown, selection(command.span), uid) ?? [uid] : [uid];
+        const drag: DragSource = { uid, pageTitle: PAGE_TITLE, ...(command.span > 0 ? { uids } : {}) };
+        const dropAt = dropRows(shown, drag, PAGE_TITLE);
+        const boundary = command.boundary % (dropAt.length + 1);
+        const allowed = allowedDepths(dropAt, boundary);
+        const position = { boundary, depth: allowed[command.depth % allowed.length] };
+        resolved = { kind: "drop", uids, position };
+        const target = resolveDrop(shown, PAGE_TITLE, drag, position);
+        edit = target
+          ? (b) => moveBlocksTo(b, PAGE_TITLE, uids, target.parent_uid, target.order_idx)
+          : null;
+        break;
+      }
+      case "paste": {
+        const pasted = renderForest(command.forest, command.style);
+        if (!isOutlinePaste(pasted)) throw new Error("runner: paste text is not an outline paste");
+        const [from, to] = [command.from, command.to]
+          .map((n) => n % (text.length + 1)).sort((x, y) => x - y);
+        // The first root splices into the row; every other node is created,
+        // depth-first, and takes the next fresh uid.
+        const fresh = Array.from({ length: countNodes(command.forest) - 1 }, mint);
+        let handed = 0;
+        const newUid = () => (handed < fresh.length ? fresh[handed++] : mint());
+        resolved = { kind: "paste", uid, from, to, forest: command.forest, text: pasted, fresh };
+        edit = (b) => seam.planOutlinePaste(b, PAGE_TITLE, uid, from, to, pasted, newUid);
+        break;
+      }
+      case "collapse":
+        resolved = { kind: "collapse", uid, value: command.value };
+        edit = (b) => setCollapsed(b, PAGE_TITLE, uid, command.value);
+        break;
+      case "heading":
+        resolved = { kind: "heading", uid, value: command.value };
+        edit = (b) => setHeading(b, PAGE_TITLE, uid, command.value);
+        break;
+      case "viewType":
+        resolved = { kind: "viewType", uid, value: command.value };
+        edit = (b) => setViewType(b, PAGE_TITLE, uid, command.value);
+        break;
+    }
+
+    if (edit === null) {
+      // A drop back where it came from: the app never calls moveTo.
+      steps.push({ command, resolved, base: shown, after: shown, ops: [], focus: null,
+                   inverse: [] });
+      continue;
+    }
+    const done = run(edit);
+    steps.push({ command, resolved, base: done.base, after: done.after, ops: done.result.ops,
+                 focus: done.result.focus, inverse: done.inverse });
+  }
+
+  flushNow();
+  return { steps, end: tree, history };
+}

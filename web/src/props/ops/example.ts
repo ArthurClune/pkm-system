@@ -214,14 +214,15 @@ function tallyRaw(t: Tally, drafts: readonly RawDraft[], ops: readonly BlockOp[]
 const subjectUids = (ops: readonly BlockOp[]): string[] =>
   ops.flatMap((op) => (op.op === "create_page" ? [] : [op.uid]));
 
-/** Every move a batch sends, with the parent it names. */
+/** Every move a batch sends, with the parent it names and its index. */
 const movesOf = (ops: readonly BlockOp[]): PendingMove[] =>
-  ops.flatMap((op) => (op.op === "move" ? [{ uid: op.uid, parent: op.parent_uid ?? null }] : []));
+  ops.flatMap((op, index) =>
+    (op.op === "move" ? [{ uid: op.uid, parent: op.parent_uid ?? null, index }] : []));
 
-/** What a step's O window did that the cascade exclusion reads: the moves
- * the pending batches sent, and the blocks the window's tombstones removed
- * from the replica as it stood before the window. */
-interface Cascade { moves: PendingMove[]; removed: Set<string> }
+/** What the cascade exclusion reads: B's moves, the blocks the step's O
+ * window's tombstones removed (cascadeRemoved), and the op indices B's ack
+ * skipped (every index when the server refused the batch whole). */
+interface Cascade { moves: PendingMove[]; removed: Set<string>; skipped: Set<number> }
 
 export interface RunOptions {
   seam?: OpsSeam;
@@ -315,7 +316,7 @@ export async function runExample(server: ServerControl, ex: Example,
                            cascade: Cascade | null, names: [string, string],
                            prefix: string): { problems: string[]; excluded: Set<string> } => {
       const excluded = cascade === null ? new Set<string>()
-        : cascadeExclusions(cascade.moves, cascade.removed, ours, theirs);
+        : cascadeExclusions(cascade.moves, cascade.skipped, cascade.removed, ours, theirs);
       const shape = ranked ? rankOrder : (g: NormalGraph) => g;
       const view = (g: NormalGraph) => shape(pruneGraph(withoutBlocks(g, excluded), known, keep));
       const diff = diffGraphs(view(ours), view(theirs), names);
@@ -462,7 +463,9 @@ export async function runExample(server: ServerControl, ex: Example,
       // Another device's batch, then a window over B's optimistic apply.
       let ranked = false;
       let cascade: Cascade | null = null;
-      let excludedR = new Set<string>();
+      // Check R's two sides, compared once B's ack says which moves the
+      // server skipped (the cascade exclusion reads it).
+      let replay: { replayed: NormalGraph; fresh: NormalGraph } | null = null;
       if (step.other !== null) {
         const gO = fromSnapshot(await server.snapshot());
         const opsO = resolveRaw(step.other, gO, mint);
@@ -482,6 +485,11 @@ export async function runExample(server: ServerControl, ex: Example,
           problems.push(...checkEcho(echoO, sO, TITLE_POOL, "O's echo"));
 
           const pending = allBatches(replica.db).filter((b) => !b.poisoned);
+          // Every earlier batch was acked and deleted before its pull.
+          if (pending.some((b) => b.batch_id !== batchB)) {
+            throw harness(`pending batches other than ${batchB}:` +
+                          ` ${pending.map((b) => b.batch_id).join(", ")}`);
+          }
           const ids = pending.map((b) => b.batch_id);
           const touched = new Set<string>(pending.flatMap((b) => subjectUids(b.ops)));
           if (ids.length > 0) {
@@ -493,7 +501,8 @@ export async function runExample(server: ServerControl, ex: Example,
           const tombstoned = new Set(
             feed.tombstones.filter((tm) => tm.kind === "block").map((tm) => tm.entity_id));
           cascade = { moves: pending.flatMap((b) => movesOf(b.ops)),
-                      removed: cascadeRemoved(tombstoned, fromReplica(replica.db)) };
+                      removed: cascadeRemoved(tombstoned, fromReplica(replica.db), feed.blocks),
+                      skipped: new Set() };
           const reshipped = new Set<string>([...feed.blocks.map((b) => b.uid), ...tombstoned]);
           ranked = [...touched].some((u) => reshipped.has(u));
           tally.others[ranked ? "touched" : "untouched"] += 1;
@@ -506,11 +515,7 @@ export async function runExample(server: ServerControl, ex: Example,
           try {
             applySnapshot(fresh.db, sO, now());
             for (const b of pending) REAL_OPS.enqueue(fresh.db, b.ops, now(), b.batch_id);
-            const r = compareReplay(fromReplica(replica.db), fromReplica(fresh.db), ranked,
-                                    cascade, ["replayed", "fresh"], "check R");
-            problems.push(...r.problems);
-            excludedR = r.excluded;
-            tally.cascadeExcluded += r.excluded.size;
+            replay = { replayed: fromReplica(replica.db), fresh: fromReplica(fresh.db) };
           } finally {
             fresh.close();
           }
@@ -524,6 +529,19 @@ export async function runExample(server: ServerControl, ex: Example,
       ackSkips(posted);
       trace.push(`  step ${i + 1} B (${batchB}): ${showAck(posted)}`,
                  `      ${showOps(sent)}`);
+      if (cascade !== null) {
+        cascade.skipped = posted.status === 200
+          ? new Set((posted.ack.skipped ?? []).map((sk) => sk.index))
+          : new Set(sent.map((_, k) => k));
+      }
+      let excludedR = new Set<string>();
+      if (replay !== null) {
+        const r = compareReplay(replay.replayed, replay.fresh, ranked, cascade,
+                                ["replayed", "fresh"], "check R");
+        problems.push(...r.problems);
+        excludedR = r.excluded;
+        tally.cascadeExcluded += r.excluded.size;
+      }
       if (posted.status === 400) {
         const titled = isTitleSyntax(posted.reason);
         tally.rejections[titled ? "title syntax" : "other"] += 1;

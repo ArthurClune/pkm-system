@@ -287,11 +287,18 @@ describe("move selection", () => {
     expect(expectedRows(before, r)).toEqual(noop);
   });
 
-  it("selDown crossing into a selected root leaves it collapsed", () => {
+  it("selDown crossing into a selected collapsed root expands it", () => {
     const before = page(t("a", t("a1"), t("a2")), t("b", { collapsed: true }, t("b1")), t("c"));
     const r: Resolved = { kind: "selDown", uids: us("a2", "b") };
     expect(expectedRows(before, r))
-      .toEqual(rows(t("a", t("a1")), t("c"), t("b", { collapsed: true }, t("a2"), t("b1"))));
+      .toEqual(rows(t("a", t("a1")), t("c"), t("b", t("a2"), t("b1"))));
+  });
+
+  it("selUp leaves a selected collapsed root collapsed when nothing crosses into it", () => {
+    const before = page(t("a"), t("b", { collapsed: true }, t("b1")), t("c", t("c0"), t("c1")));
+    const r: Resolved = { kind: "selUp", uids: us("b", "c1") };
+    expect(expectedRows(before, r))
+      .toEqual(rows(t("b", { collapsed: true }, t("b1")), t("a"), t("c", t("c1"), t("c0"))));
   });
 
   it("selDown moves a run of adjacent siblings as one block", () => {
@@ -309,6 +316,12 @@ describe("drop", () => {
     const before = page(t("a", { collapsed: true }, t("a1")), t("b"), t("c"));
     expect(expectedRows(before, drop(us("c"), 1, 0)))
       .toEqual(rows(t("a", { collapsed: true }, t("a1")), t("c"), t("b")));
+  });
+
+  it("drop at a child depth under a collapsed row throws", () => {
+    // allowedDepths offers no child depth after a collapsed row: b would land hidden in a.
+    const before = page(t("a", { collapsed: true }, t("a1")), t("b"));
+    expect(() => expectedRows(before, drop(us("b"), 1, 1))).toThrow(/^model: /);
   });
 
   it("drop at the end appends at the chosen depth", () => {

@@ -190,11 +190,11 @@ type Direction = "up" | "down";
  * The run of adjacent sibling roots moved one place, or null when blocked.
  * It swaps with the sibling subtree in that direction; failing that, when it
  * may cross, it becomes the last (up) or first (down) child of its parent's
- * neighbour, at the same depth, and that neighbour is expanded unless it is
- * one of `selected`.
+ * neighbour, at the same depth, and that neighbour is expanded, even when it
+ * is itself selected.
  */
 function moveRun(rows: readonly Row[], run: readonly BlockUid[], dir: Direction,
-                 cross: boolean, selected: ReadonlySet<BlockUid>): Row[] | null {
+                 cross: boolean): Row[] | null {
   const first = indexOf(rows, run[0]);
   const last = indexOf(rows, run[run.length - 1]);
   const end = subtreeEnd(rows, last);
@@ -208,24 +208,21 @@ function moveRun(rows: readonly Row[], run: readonly BlockUid[], dir: Direction,
   if (neighbour === null) return null;
   // Up: the neighbour's subtree ends where the parent starts. Down: right after the neighbour.
   const moved = moveBlock(rows, first, end, dir === "up" ? parent : neighbour + 1);
-  const n = indexOf(moved, rows[neighbour].uid);
-  if (!selected.has(moved[n].uid)) expand(moved, n);
+  expand(moved, indexOf(moved, rows[neighbour].uid));
   return moved;
 }
 
 function moveOne(before: readonly Row[], uid: BlockUid, dir: Direction, cross: boolean): Expected {
-  const moved = moveRun(before, [uid], dir, cross, new Set([uid]));
+  const moved = moveRun(before, [uid], dir, cross);
   return moved === null ? NOOP : settle(before, moved);
 }
 
 function moveSelection(before: readonly Row[], uids: readonly BlockUid[], dir: Direction): Expected {
-  const roots = rootsOf(before, uids);
-  const selected = new Set(roots.map((i) => before[i].uid));
-  const runs = runsOf(before, roots).map((run) => run.map((i) => before[i].uid));
+  const runs = runsOf(before, rootsOf(before, uids)).map((run) => run.map((i) => before[i].uid));
   if (runs.length === 0) return NOOP;
   let rows: Row[] = [...before];
   for (const run of runs) {
-    const moved = moveRun(rows, run, dir, true, selected);
+    const moved = moveRun(rows, run, dir, true);
     if (moved === null) return NOOP;
     rows = moved;
   }
@@ -252,7 +249,13 @@ function drop(before: readonly Row[], uids: readonly BlockUid[], position: DropP
   const at = position.boundary < visible.length ? visible[position.boundary] : rest.length;
   const rows = [...rest.slice(0, at), ...blocks.flat(), ...rest.slice(at)];
   const same = structural(rows).join("\n") === structural(before).join("\n");
-  return same ? NOOP : { kind: "rows", rows: rehide(rows) };
+  if (same) return NOOP;
+  const after = rehide(rows);
+  // A legal depth never puts a dragged root under a collapsed row (allowedDepths).
+  for (const uid of uids) {
+    if (after[indexOf(after, uid)].hidden) throw new Error(`model: drop hides ${uid}`);
+  }
+  return { kind: "rows", rows: after };
 }
 
 function paste(before: readonly Row[], uid: BlockUid, from: number, to: number,

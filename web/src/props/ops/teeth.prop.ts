@@ -90,7 +90,8 @@ const MUTANTS: Record<string, Mutant> = {
               db.exec("SAVEPOINT teeth_op");
               try {
                 applyLocalOps(db, [op], nowMs, { batchId: b.batch_id });
-              } catch (e) {
+              } catch {
+                // A throwing op is skipped alone, as the real replay does.
                 rollbackToSavepoint(db, "teeth_op");
               }
               db.exec("RELEASE teeth_op");

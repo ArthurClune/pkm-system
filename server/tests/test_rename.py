@@ -201,6 +201,10 @@ def test_a_stray_open_bracket_is_title_text_of_the_ref_that_closes():
     assert rewrite_title_refs("[[[Old]]", "[Old", "New") == "[[New]]"
 
 
+def test_an_unclosed_opener_overlapping_another_leaves_the_aligned_run_to_rewrite():
+    assert rewrite_title_refs("[[[[Old]]]", "Old", "New") == "[[[[New]]]"
+
+
 def test_a_trailing_close_bracket_is_left_where_it_was():
     assert rewrite_title_refs("[[Old]]]]", "Old", "New") == "[[New]]]]"
 

@@ -10,7 +10,7 @@ import { treeProblems } from "../outline/reading";
 import type { NormalBlock, NormalGraph } from "../sync/normalise";
 import {
   OPS_PAGES, TITLE_POOL, UID_POOL, exampleArb, rawBatchArb, rawUidMinter, resolveRaw, seedOps,
-  startStateArb, type RawDraft, type RawSlot, type StartState,
+  startStateArb, type MovePage, type RawDraft, type RawParent, type RawSlot, type StartState,
 } from "./arbitraries";
 
 const UID_RE = /^[a-zA-Z0-9_-]{6,32}$/;
@@ -66,6 +66,11 @@ describe("ops start states", () => {
         expect(depth(s.pages[p])).toBeLessThanOrEqual(4);
       }
     }
+  });
+
+  it("hands out uids in an order that does not follow the tree's", () => {
+    const firstUid = (s: StartState): string | undefined => startNodes(s)[0]?.uid;
+    expect(samples.some((s) => firstUid(s) !== undefined && firstUid(s) !== "opsb00")).toBe(true);
   });
 
   it("never names Ops Four in seed text", () => {
@@ -221,6 +226,21 @@ describe("resolveRaw", () => {
     expect(slot({ at: "end", n: 1 })).toMatchObject({ order_idx: 7 });
   });
 
+  it("titles a move with the page it lands on, or with the drawn title", () => {
+    const move = (parent: RawParent, page: MovePage) =>
+      resolve([{ kind: "move", target: { of: "live", n: 3 }, parent, page, slot: { at: "zero" } }])[0];
+    // opsb03 (Ops Two) under opsb00 (Outline Props).
+    expect(move({ to: "live", n: 0 }, { landing: true }))
+      .toMatchObject({ uid: "opsb03", parent_uid: "opsb00", page_title: "Outline Props" });
+    expect(move({ to: "live", n: 0 }, "Ops Three"))
+      .toMatchObject({ parent_uid: "opsb00", page_title: "Ops Three" });
+    expect(move({ to: "live", n: 0 }, null)).not.toHaveProperty("page_title");
+    expect(move({ to: "top" }, { landing: true }))
+      .toMatchObject({ parent_uid: null, page_title: "Ops Two" });
+    expect(move({ to: "top" }, "Ops Four"))
+      .toMatchObject({ parent_uid: null, page_title: "Ops Four" });
+  });
+
   it("can create a live uid, the rare 400", () => {
     const [op] = resolve([{ kind: "create", uid: { of: "live", n: 2 }, parent: { to: "top" },
                             page: null, slot: { at: "zero" }, text: "", heading: null,
@@ -258,10 +278,26 @@ describe("raw batches", () => {
     expect(s).toBeLessThanOrEqual(0.35);
   });
 
-  it("carry a forbidden title about one time in thirty", () => {
-    const s = share((b) => findOpTitleViolation(resolve(b)) !== null);
+  it("carry a forbidden title about one time in thirty, as a page title or a text ref", () => {
+    const violations = batches.map((b) => findOpTitleViolation(resolve(b)));
+    const s = violations.filter((v) => v !== null).length / batches.length;
     expect(s).toBeGreaterThanOrEqual(0.01);
     expect(s).toBeLessThanOrEqual(0.07);
+    const sources = new Set(violations.map((v) => v?.source).filter((x) => x !== undefined));
+    expect([...sources].sort()).toEqual(["page_title", "reference"]);
+  });
+
+  it("title about half of parented moves, with the parent's page or another", () => {
+    const pageOf = new Map(GRAPH.blocks.map((b) => [b.uid, b.page]));
+    const parented = batches.slice(0, 1000).flatMap((b) => resolve(b))
+      .filter((op): op is BlockOp & { op: "move" } => op.op === "move")
+      .filter((op) => op.parent_uid != null && pageOf.has(op.parent_uid));
+    const titled = parented.filter((op) => op.page_title != null);
+    const share = titled.length / parented.length;
+    expect(share).toBeGreaterThan(0.35);
+    expect(share).toBeLessThan(0.65);
+    expect(titled.some((op) => op.page_title === pageOf.get(op.parent_uid!))).toBe(true);
+    expect(titled.some((op) => op.page_title !== pageOf.get(op.parent_uid!))).toBe(true);
   });
 
   it("reach every op kind and variation", () => {
@@ -329,9 +365,10 @@ describe("examples", () => {
     expect(other).toBeLessThan(0.65);
   });
 
-  it("hold 1 to 5 commands", () => {
+  it("hold 1 to 5 commands, on an Outline Props page that holds a block", () => {
     for (const e of examples) {
       if (e.kind !== "command") continue;
+      expect(e.start.pages["Outline Props"].length).toBeGreaterThan(0);
       expect(e.commands.length).toBeGreaterThanOrEqual(1);
       expect(e.commands.length).toBeLessThanOrEqual(5);
     }

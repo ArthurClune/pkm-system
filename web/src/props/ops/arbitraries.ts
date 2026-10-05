@@ -32,8 +32,10 @@ export const UID_POOL: readonly string[] =
 export type OpsPage = (typeof OPS_PAGES)[number];
 export type PoolTitle = (typeof TITLE_POOL)[number];
 
-/** Refused by both the server and enqueueBatch (`titleSyntaxReason`). */
+/** Refused by both the server and enqueueBatch (`titleSyntaxReason`), as a
+ * page title or as a ref in block text. */
 export const FORBIDDEN_TITLES = ["Bad #title", "x [[y"] as const;
+export const FORBIDDEN_REF_TEXTS = ["see [[Ops #Bad]]", "#[[x #y]]"] as const;
 
 /** A parent no pool block can ever have: the fallback when every pool uid
  * is in the graph. Server-valid, so the op fails on the parent alone. */
@@ -56,7 +58,7 @@ const REF_TEXT: fc.Arbitrary<string> = fc.oneof(
   fc.nat(UID_POOL.length - 1).map((n) => `((${UID_POOL[n]}))`),
 );
 
-/** f7zv's texts, plus page and block refs about one time in four. */
+/** The outline suite's texts, plus page and block refs about one time in four. */
 export const TEXT: fc.Arbitrary<string> = fc.oneof(
   { arbitrary: BLOCK_TEXT, weight: 3 },
   { arbitrary: REF_TEXT, weight: 1 },
@@ -75,13 +77,17 @@ const blockSpecArb = fc.record({
 });
 
 // size "max": the default size caps generated arrays well below maxLength.
-const pageSpecsArb = fc.array(blockSpecArb, { maxLength: MAX_PAGE_BLOCKS, size: "max" });
+const pageSpecsArb = (minLength: number) =>
+  fc.array(blockSpecArb, { minLength, maxLength: MAX_PAGE_BLOCKS, size: "max" });
 
-/** Pages in OPS_PAGES order; uids taken from the pool in that order, so no
- * uid is drawn twice. */
-export const startStateArb: fc.Arbitrary<StartState> = fc
-  .tuple(pageSpecsArb, pageSpecsArb, pageSpecsArb)
-  .map((perPage) => {
+/** Pages in OPS_PAGES order, `outlineMin` blocks at least on Outline Props.
+ * Uids come from a shuffle of the pool, so none is drawn twice and their
+ * order does not follow the tree's. */
+const startArb = (outlineMin: number): fc.Arbitrary<StartState> => fc
+  .tuple(fc.shuffledSubarray([...UID_POOL], { minLength: UID_POOL.length,
+                                              maxLength: UID_POOL.length }),
+         pageSpecsArb(outlineMin), pageSpecsArb(0), pageSpecsArb(0))
+  .map(([uids, ...perPage]) => {
     let next = 0;
     const pages = {} as Record<OpsPage, BlockNode[]>;
     OPS_PAGES.forEach((title, p) => {
@@ -92,7 +98,7 @@ export const startStateArb: fc.Arbitrary<StartState> = fc
         (s, siblings) => {
           const prev = siblings[siblings.length - 1];
           return {
-            uid: UID_POOL[next++] as BlockUid,
+            uid: uids[next++] as BlockUid,
             text: s.text,
             heading: s.heading,
             view_type: s.viewType,
@@ -107,6 +113,8 @@ export const startStateArb: fc.Arbitrary<StartState> = fc
     });
     return { pages };
   });
+
+export const startStateArb: fc.Arbitrary<StartState> = startArb(0);
 
 /** The batch that recreates `s` on a freshly reset server: each page, then
  * each block parent-first and in ascending key order within its siblings,
@@ -157,11 +165,17 @@ export type RawTarget = { of: "live" | "gone"; n: number } | { of: "first" };
  * the live text cannot have. */
 export type RawHash = "none" | "match" | "stale";
 
+/** A move's page_title: none; a drawn title; or the page the block lands
+ * on (its parent's, else its own), as the editor always sends one. Under a
+ * live parent the server ignores it, while an open outline whose title it
+ * does not match takes the move as one leaving that page. */
+export type MovePage = string | { landing: true } | null;
+
 export type RawDraft =
   | { kind: "create"; uid: RawTarget | null; parent: RawParent; page: string | null;
       slot: RawSlot; text: string; heading: BlockNode["heading"];
       view_type: BlockNode["view_type"] }
-  | { kind: "move"; target: RawTarget; parent: RawParent; page: string | null; slot: RawSlot }
+  | { kind: "move"; target: RawTarget; parent: RawParent; page: MovePage; slot: RawSlot }
   | { kind: "update_text"; target: RawTarget; text: string; hash: RawHash }
   | { kind: "delete"; target: RawTarget; hash: RawHash }
   | { kind: "set_collapsed"; target: RawTarget; collapsed: boolean }
@@ -194,25 +208,28 @@ const slot: fc.Arbitrary<RawSlot> = weighted<RawSlot>(
   [1, choice.map((n): RawSlot => ({ at: "end", n }))]);
 
 const title = fc.constantFrom<string>(...TITLE_POOL);
-// Null half the time: the parent's page for a create, the block's own page
-// for a top-level move.
+// Null half the time: then a create goes on its parent's page.
 const pageOpt = fc.option(title, { nil: null, freq: 2 });
+// Titled half the time, half of those with the landing page.
+const movePage: fc.Arbitrary<MovePage> = weighted<MovePage>(
+  [2, fc.constant(null)], [1, fc.constant({ landing: true as const })], [1, title]);
 const hash = fc.constantFrom<RawHash>("none", "match", "stale");
 // About one create in twenty reuses a live uid: a 400 for the whole batch.
 const createUid = weighted<RawTarget | null>([19, fc.constant(null)], [1, liveTarget]);
 
-const createDraft = (page: fc.Arbitrary<string | null>): fc.Arbitrary<RawDraft> => fc.record({
+const createDraft = (page: fc.Arbitrary<string | null>,
+                     text: fc.Arbitrary<string> = TEXT): fc.Arbitrary<RawDraft> => fc.record({
   kind: fc.constant("create" as const), uid: createUid, parent: createParent, page, slot,
-  text: TEXT, heading: HEADING,
+  text, heading: HEADING,
   view_type: fc.constantFrom<BlockNode["view_type"]>(null, "document", "numbered"),
 });
 const moveDraft = (target: fc.Arbitrary<RawTarget>, parent: fc.Arbitrary<RawParent>,
-                   page: fc.Arbitrary<string | null>): fc.Arbitrary<RawDraft> =>
+                   page: fc.Arbitrary<MovePage>): fc.Arbitrary<RawDraft> =>
   fc.record({ kind: fc.constant("move" as const), target, parent, page, slot });
 
 // Moves lead: they are what disturbs sibling keys.
 export const rawDraftArb: fc.Arbitrary<RawDraft> = weighted<RawDraft>(
-  [4, moveDraft(liveTarget, moveParent, pageOpt)],
+  [4, moveDraft(liveTarget, moveParent, movePage)],
   [3, createDraft(pageOpt)],
   [3, fc.record({ kind: fc.constant("update_text" as const), target: editTarget, text: TEXT, hash })],
   [2, fc.record({ kind: fc.constant("delete" as const), target: liveTarget, hash })],
@@ -227,14 +244,18 @@ export const rawDraftArb: fc.Arbitrary<RawDraft> = weighted<RawDraft>(
 
 /** A move of the block the batch's first draft named: two moves of one
  * block, or a create then a move. */
-const twinArb = moveDraft(fc.constant<RawTarget>({ of: "first" }), moveParent, pageOpt);
+const twinArb = moveDraft(fc.constant<RawTarget>({ of: "first" }), moveParent, movePage);
 
 const badTitle = fc.constantFrom<string>(...FORBIDDEN_TITLES);
-/** A page title both sides refuse, on each op that carries one. */
+const badText = fc.constantFrom<string>(...FORBIDDEN_REF_TEXTS);
+/** A title both sides refuse: as the page title of each op that carries
+ * one, or as a ref in a create's or an edit's text. */
 const forbiddenArb: fc.Arbitrary<RawDraft> = fc.oneof(
   fc.record({ kind: fc.constant("create_page" as const), page: badTitle }),
   createDraft(badTitle),
   moveDraft(liveTarget, top, badTitle),
+  createDraft(pageOpt, badText),
+  fc.record({ kind: fc.constant("update_text" as const), target: liveTarget, text: badText, hash }),
 );
 
 const MAX_BATCH = 6;
@@ -356,16 +377,19 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
         const row = rows.get(uid);
         const own = row?.page ?? DEFAULT_PAGE;
         let parent: string | null;
-        let titled: string | null = null;
         switch (d.parent.to) {
-          case "top": parent = null; titled = d.page; break;
+          case "top": parent = null; break;
           case "same": parent = row?.parent ?? null; break;
           case "live": parent = live(d.parent.n); break;
           case "cycle": parent = at(subtree(uid), d.parent.n); break;
           case "missing": parent = missing(d.parent.n); break;
         }
         const parentRow = parent === null ? undefined : rows.get(parent);
-        const dest = parentRow?.page ?? titled ?? own;
+        // A top-level move lands on its titled page; under a parent the
+        // block follows the parent, whatever the title says.
+        const dest = parentRow?.page
+          ?? (parent === null && typeof d.page === "string" ? d.page : own);
+        const titled = d.page === null ? null : typeof d.page === "string" ? d.page : dest;
         const order = place(parent === null ? keysUnder(null, dest)
                             : parentRow ? keysUnder(parent, dest) : [], d.slot);
         ops.push({
@@ -451,7 +475,8 @@ export const exampleArb: fc.Arbitrary<Example> = weighted<Example>(
     steps: fc.array(rawStepArb, { minLength: 1, maxLength: 3 }),
   })],
   [2, fc.record({
-    start: startStateArb, kind: fc.constant("command" as const),
+    // Commands run on Outline Props, so it holds a block to run them on.
+    start: startArb(1), kind: fc.constant("command" as const),
     commands: fc.array(commandArb, { minLength: 1, maxLength: 5 }),
   })],
 );

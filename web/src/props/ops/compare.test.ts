@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../../replica/apply";
 import type { BlockNode } from "../../api/payloads";
 import type { NormalBlock, NormalGraph } from "../sync/normalise";
-import { diffTrees, pruneGraph, pruneTree, rankOrder, treesFromSnapshot } from "./compare";
+import { diffTrees, pruneGraph, pruneTree, treesFromSnapshot } from "./compare";
 
 const node = (uid: string, order_idx: number, children: BlockNode[] = [],
               extra: Partial<BlockNode> = {}): BlockNode => ({
@@ -124,21 +124,5 @@ describe("pruneGraph", () => {
     const out = pruneGraph(g, new Set(["opsb00"]), new Set(["New", "Kept"]));
     expect(out.pages).toEqual(["Kept", "Mine", "New", "Ref:d"]);
     expect(out.blocks.map((b) => b.uid)).toEqual(["opsb00"]);
-  });
-});
-
-describe("rankOrder", () => {
-  it("replaces keys by 0-based rank per page and parent", () => {
-    const g: NormalGraph = {
-      pages: ["A", "B"],
-      blocks: [
-        nb("a0", "A", null, 0), nb("a1", "A", null, 3), nb("a2", "A", null, 7),
-        nb("c0", "A", "a0", 2), nb("c1", "A", "a0", 9),
-        nb("b0", "B", null, 5),
-      ],
-    };
-    const r = rankOrder(g);
-    const idx = Object.fromEntries(r.blocks.map((b) => [b.uid, b.order_idx]));
-    expect(idx).toEqual({ a0: 0, a1: 1, a2: 2, c0: 0, c1: 1, b0: 0 });
   });
 });

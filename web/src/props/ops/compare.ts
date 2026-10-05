@@ -1,11 +1,10 @@
 // pattern: Functional Core
 // Comparison forms for the ops property: per-page trees from a server
 // snapshot, tree diffs, pruning of the rows the server mints itself (conflict
-// notes, daily pages), and a sibling-rank view of a graph for the checks that
-// care about order but not key values.
+// notes, daily pages).
 import type { BlockNode } from "../../api/payloads";
 import type { Snapshot, SyncBlock } from "../../replica/apply";
-import type { NormalBlock, NormalGraph } from "../sync/normalise";
+import type { NormalGraph } from "../sync/normalise";
 
 const show = (v: unknown): string => JSON.stringify(v) ?? "undefined";
 
@@ -125,20 +124,4 @@ export function pruneGraph(g: NormalGraph, known: ReadonlySet<string>,
     for (const r of b.refs) used.add(r.slice(r.indexOf(":") + 1));
   }
   return { ...g, pages: g.pages.filter((p) => used.has(p)), blocks };
-}
-
-/** Each block's `order_idx` replaced by its 0-based rank among the blocks
- * sharing its page and parent. */
-export function rankOrder(g: NormalGraph): NormalGraph {
-  const groups = new Map<string, NormalBlock[]>();
-  for (const b of g.blocks) {
-    const key = JSON.stringify([b.page, b.parent_uid]);
-    groups.set(key, [...(groups.get(key) ?? []), b]);
-  }
-  const rank = new Map<string, number>();
-  for (const group of groups.values()) {
-    group.slice().sort((x, y) => x.order_idx - y.order_idx || (x.uid < y.uid ? -1 : 1))
-      .forEach((b, i) => rank.set(b.uid, i));
-  }
-  return { ...g, blocks: g.blocks.map((b) => ({ ...b, order_idx: rank.get(b.uid) ?? 0 })) };
 }

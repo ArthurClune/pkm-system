@@ -8,7 +8,7 @@
 import type { BlockUid } from "../../api/brands";
 import type { BlockOp, SetViewTypeOp } from "../../api/ops";
 import type { BlockNode } from "../../api/payloads";
-import { withoutStamps } from "../../outline/baseTextHash";
+import { stampBaseTextHashes, withoutStamps } from "../../outline/baseTextHash";
 import { selectedUids, selectionDragUids,
          type BlockSelection } from "../../outline/blockSelection";
 import { allowedDepths, dropRows, resolveDrop, type DragSource,
@@ -73,8 +73,16 @@ export const REAL: Seam = {
   outdentBlock, moveBlockDown, planOutlinePaste, invertOps, deleteSelection,
 };
 
+/** One request the editor would send: the ops as stamped on the wire, with the
+ * tree they were computed against and the tree the editor shows after. */
+export interface WireBatch { pre: BlockNode[]; ops: BlockOp[]; after: BlockNode[] }
+
+export interface RunOptions { seam?: Seam; mintPrefix?: string }
+
 export interface Run {
   steps: Step[];
+  /** Every batch the editor would send, in send order. */
+  batches: WireBatch[];
   /** The tree after the final draft flush. */
   end: BlockNode[];
   history: HistoryState;
@@ -118,7 +126,11 @@ export function replayEntry(tree: BlockNode[], entry: HistoryEntry,
 }
 
 export function runSequence(start: BlockNode[], commands: readonly Command[],
-                            seam: Seam = REAL): Run {
+                            seamOrOptions: Seam | RunOptions = REAL): Run {
+  const options: RunOptions = "invertOps" in seamOrOptions ? { seam: seamOrOptions } : seamOrOptions;
+  const seam = options.seam ?? REAL;
+  const prefix = options.mintPrefix ?? "n";
+  const batches: WireBatch[] = [];
   let tree = start;
   let draft: PendingDraft | null = null;
   let history = emptyHistory();
@@ -129,7 +141,7 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
   const entryRows = new Map<HistoryEntry, EntryRows>();
   let newest = readingRows(start);
   const steps: Step[] = [];
-  const mint = (): BlockUid => `n${minted++}` as BlockUid;
+  const mint = (): BlockUid => `${prefix}${minted++}` as BlockUid;
 
   /** What the editor shows: the committed tree with the draft typed over it. */
   const displayed = (): BlockNode[] =>
@@ -151,6 +163,8 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
     }
     const next = result.ops.length > 0 ? result.blocks : base;
     tree = next;
+    batches.push({ pre, ops: stampBaseTextHashes(pre, PAGE_TITLE, [...textOps, ...result.ops]),
+                   after: next });
     const recorded = [...undoableTextOps.map(withoutStamps), ...result.ops];
     const inverse = seam.invertOps(pre, PAGE_TITLE, recorded);
     if (inverse !== null && inverse.length > 0) {
@@ -188,6 +202,7 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
     const undoing = command.kind === "undo";
     const replayed = replayEntry(base, entry, command.kind);
     tree = replayed.blocks;
+    batches.push({ pre: base, ops: stampBaseTextHashes(base, PAGE_TITLE, replayed.ops), after: tree });
     // useOutline's applyFocus: the entry's focus, validated as useOutline does.
     focus = validateOutlineFocus(undoing ? entry.focusBefore : entry.focusAfter, tree);
     const rows = entryRows.get(entry);
@@ -355,5 +370,5 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
   }
 
   flushNow();
-  return { steps, end: tree, history, newest };
+  return { steps, batches, end: tree, history, newest };
 }

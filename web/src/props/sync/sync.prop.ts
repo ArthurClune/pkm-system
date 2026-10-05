@@ -553,6 +553,65 @@ test("move under a parent another device moved to the block's own page", async (
   ]);
 });
 
+/** The delete-cascade scenarios also name blocks on the Second page. */
+const assertSecondPool = (): void => {
+  expect(EDIT_TARGETS[0]).toBe("pt_seed_1");
+  expect(EDIT_TARGETS[5]).toBe("pt_sec_1");
+  expect(EDIT_TARGETS[7]).toBe("pt_sec_3");
+};
+
+// Pool: #0 = pt_seed_1 (page Proptest), #5 = pt_sec_1, #7 = pt_sec_3 (page
+// Second). A nests sec_1 > sec_3 > seed_1, both batches acked and their echo
+// pulled. Offline, A deletes sec_1: the local cascade takes sec_3 and
+// seed_1. C meanwhile moves sec_3 to the top level of Second, so the
+// server's later delete removes sec_1 alone. The feed ships sec_3 (C's move)
+// and sec_1's tombstone; seed_1's row never changes again, so nothing
+// re-ships it and A has to restore it from the cascade it recorded.
+test("offline delete of a parent whose child another device moved out", async () => {
+  assertSecondPool();
+  await runExample(["A", "C"], [
+    new Edit("A", [draft({ kind: "move", target: 0, parent: 7 })]),
+    new Edit("A", [draft({ kind: "move", target: 7, parent: 5 })]),
+    new Drained("A"), new Pull("A"), new Pull("C"),
+    new Offline("A"),
+    new Edit("A", [draft({ kind: "delete", target: 5 })]),
+    new Edit("C", [draft({ kind: "move", target: 7 })]),
+    new Drained("C"),
+  ]);
+});
+
+// A's cursor is still behind its first batch's echo when it goes offline.
+// The later window re-ships seed_1's row from A's own move, so the replica
+// converges even without the recorded cascade.
+test("offline delete of a parent whose child another device moved out, own echo not yet pulled", async () => {
+  assertSecondPool();
+  await runExample(["A", "C"], [
+    new Edit("A", [draft({ kind: "move", target: 0, parent: 7 })]),
+    new Edit("A", [draft({ kind: "move", target: 7, parent: 5 })]),
+    new Drained("A"), new Pull("C"),
+    new Offline("A"),
+    new Edit("A", [draft({ kind: "delete", target: 5 })]),
+    new Edit("C", [draft({ kind: "move", target: 7 })]),
+    new Drained("C"),
+  ]);
+});
+
+// The nesting is made by C, not A: C moves sec_3 under sec_1 and seed_1
+// under sec_3, then A pulls, so the replica's view is server-made rather
+// than built from A's own batches.
+test("offline delete of a parent whose child another device moved out, nesting made by the other device", async () => {
+  assertSecondPool();
+  await runExample(["A", "C"], [
+    new Edit("C", [draft({ kind: "move", target: 0, parent: 7 })]),
+    new Edit("C", [draft({ kind: "move", target: 7, parent: 5 })]),
+    new Drained("C"), new Pull("A"), new Pull("C"),
+    new Offline("A"),
+    new Edit("A", [draft({ kind: "delete", target: 5 })]),
+    new Edit("C", [draft({ kind: "move", target: 7 })]),
+    new Drained("C"),
+  ]);
+});
+
 // A sets pt_seed_1's text to link [[Second]] while B renames Second to
 // Third, unsynchronised. When the batch commits between the rename's read
 // of the blocks that reference Second and its write, the rename lands

@@ -55,9 +55,7 @@ describe("skipsOnMissingTarget", () => {
 // same table the server's write path passes (test_ops_core.py), so an
 // optimistic placement is the one the feed later confirms. A replay case
 // enqueues the ops and then applies a feed window that ships nothing, so
-// the window rewinds the batch and replays it; its replica_only rows (the
-// earlier apply, written by hand for the replay this replaced) are not
-// read here.
+// the window rewinds the batch and replays it as a first apply.
 describe("applyLocalOps placement agrees with the server", () => {
   test.each(fixture.placement_cases)("$name", async (c) => {
     const t = await openTestDb();

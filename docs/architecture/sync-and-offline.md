@@ -173,23 +173,28 @@ A moved-out ancestor can be deleted in a later window. Take D > A > K > L. A
 moves to the top level, D is deleted, K moves to the top level, and A is
 deleted. The server ends with K > L. A's move row ships nothing, because A is
 absent now. Cascading D's tombstone in its own window would take the replica's
-stale D > A > K > L, and L's row never changes to ship again. After the head
-window's upserts, every block the server still has is placed by its own row or
-sits under an unchanged chain of blocks the server also kept. No surviving
-block is then under a deleted one, so the cascade is the one-window case.
+stale D > A > K > L, and L's row never changes to ship again. After the pending
+rewind and the head window's upserts, every block the server still has is
+placed by its own row or sits under an unchanged chain of blocks the server
+also kept. No surviving block is then under a deleted one, so the cascade is
+the one-window case.
 `test_sync_block_tombstone_window.py` models this rule over windows of one
 and two rows.
 
 Between windows, deleted blocks stay visible and editable. An edit to one lands
-as a conflict entry, as an edit to a block deleted elsewhere always does. A
-pending move of a kept block under one of them loses that block locally at the
-head window. The server skips the move and journals the moved subtree live, so
-the block returns with the batch's echo.
+as a conflict entry, as an edit to a block deleted elsewhere always does.
 
-The cascade still removes optimistic rows under a deleted block, and
-`replayPending` then skips their ops. A page
-cascade can run before the upserts because a block leaves a page only by a
-write to its own row: a move rewrites `page_id` on every block of the subtree.
+The cascade never meets a pending batch's effects, because `rewind("pending")`
+took them off before the window's writes. A pending move of a kept block under
+a deleted one has been undone, so the block is back in its server place when
+the cascade runs. A block a pending batch created under a deleted one is gone
+too. `replayPending` then skips both ops, as the server skips them. An acked
+op that did the same has had its echo by the head window: the server journals
+a skipped move's subtree live.
+
+A page cascade can run before the upserts because a block leaves a page only
+by a write to its own row: a move rewrites `page_id` on every block of the
+subtree.
 
 ## Post-commit nudges
 

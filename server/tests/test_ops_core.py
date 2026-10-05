@@ -701,9 +701,6 @@ def test_placement_matches_shared_fixture(case, tmp_path):
     # Where a create or move lands, applied through the real write path.
     # The replica's local apply (web/src/replica/localOps.ts) is pinned to
     # the same table, so an optimistic placement is what the feed confirms.
-    # replica_only rows are the replica's own earlier apply of these ops
-    # (a row for a shared uid is where that apply shifted it); the server
-    # never received them, so it starts from the shared state.
     db_path = tmp_path / "placement.sqlite3"
     init_db(db_path)
     db = open_db(db_path)

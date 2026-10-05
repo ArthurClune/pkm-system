@@ -17,11 +17,14 @@ import { connectServer, type ServerControl } from "../sync/serverControl";
 import { type Example, exampleArb, OPS_PAGES } from "./arbitraries";
 import { newTally, runExample, showTally } from "./example";
 
-/** Examples per gate run; a placeholder until the budget is calibrated. */
-export const NUM_RUNS = 1500;
+/** Examples per gate run, sized so this file takes about 60 seconds inside
+ * `proptest/check.sh web`: clean runs measured about 37 examples a second
+ * there (each example drives a real server and two replicas). */
+export const NUM_RUNS = 2250;
 /** The whole property, shrinking included. Cut off while shrinking, it fails
  * with the smallest counterexample so far; cut off before any failure, it
- * fails as a budget problem, never as a finding. */
+ * fails as a budget problem, never as a finding. The margin over NUM_RUNS
+ * covers a slower gate. */
 const PROPERTY_LIMIT_MS = 120_000;
 
 const tally = newTally();

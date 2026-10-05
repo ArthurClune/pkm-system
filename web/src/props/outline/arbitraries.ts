@@ -133,12 +133,23 @@ export type Command =
   | { kind: "undo" } | { kind: "redo" };
 
 const row = fc.nat();
+// Extra rows a selection or drag spans. The runner clamps at the last visible
+// row, so an unbounded value would nearly always run to the end of the page.
+const span = fc.oneof(
+  { weight: 4, arbitrary: fc.integer({ min: 0, max: 4 }) },
+  { weight: 1, arbitrary: fc.nat() },
+);
+// Half of all drops drag a single block.
+const dropSpan = fc.oneof(
+  { weight: 1, arbitrary: fc.constant(0) },
+  { weight: 1, arbitrary: fc.integer({ min: 1, max: 4 }) },
+);
 const VIEW_TYPES: SetViewTypeOp["view_type"][] = ["document", "numbered"];
 
 const sameRow = (kind: "indent" | "outdent" | "moveUp" | "moveDown" | "subtreeUp" | "subtreeDown") =>
   fc.record({ kind: fc.constant(kind), row });
 const withSpan = (kind: "indentSel" | "outdentSel" | "selUp" | "selDown" | "deleteSel") =>
-  fc.record({ kind: fc.constant(kind), row, span: fc.nat() });
+  fc.record({ kind: fc.constant(kind), row, span });
 
 // One arbitrary per command kind, so the weights below are even per kind.
 const editArbs: fc.Arbitrary<Command>[] = [
@@ -150,7 +161,7 @@ const editArbs: fc.Arbitrary<Command>[] = [
   withSpan("indentSel"), withSpan("outdentSel"), withSpan("selUp"), withSpan("selDown"),
   withSpan("deleteSel"),
   fc.record({
-    kind: fc.constant("drop" as const), row, span: fc.nat(), boundary: fc.nat(), depth: fc.nat(),
+    kind: fc.constant("drop" as const), row, span: dropSpan, boundary: fc.nat(), depth: fc.nat(),
   }),
   fc.record({ kind: fc.constant("collapse" as const), row, value: fc.boolean() }),
   fc.record({

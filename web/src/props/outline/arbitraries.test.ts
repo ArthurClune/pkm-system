@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { isOutlinePaste, parseOutlineForest } from "../../outline/paste";
 import type { BlockNode } from "../../api/payloads";
 import { commandArb, forestArb, sequenceArb, renderForest, treeArb, type IndentStyle } from "./arbitraries";
+import { runSequence } from "./run";
 import { treeProblems } from "./reading";
 
 const STYLES: IndentStyle[] = ["two", "four", "tab", "bullet"];
@@ -64,5 +65,22 @@ describe("outline arbitraries", () => {
     expect(share("undo") + share("redo")).toBeLessThan(0.17);
     expect(share("paste")).toBeGreaterThan(0.06);
     expect(share("paste")).toBeLessThan(0.10);
+  });
+
+  it("selections and drops reach small spans that change the tree", () => {
+    const seen = { selDown: [0, 0], outdentSel: [0, 0], drop: [0, 0] };
+    for (const { start, commands } of fc.sample(sequenceArb, 300)) {
+      for (const step of runSequence(start, commands).steps) {
+        const k = step.command.kind;
+        if (k !== "selDown" && k !== "outdentSel" && k !== "drop") continue;
+        seen[k][0]++;
+        if (k === "drop") {
+          if (step.resolved?.kind === "drop" && step.resolved.uids.length === 1) seen[k][1]++;
+        } else if (step.ops.length > 0) seen[k][1]++;
+      }
+    }
+    expect(seen.selDown[1] / seen.selDown[0]).toBeGreaterThan(0.1);
+    expect(seen.outdentSel[1] / seen.outdentSel[0]).toBeGreaterThan(0.1);
+    expect(seen.drop[1] / seen.drop[0]).toBeGreaterThan(0.2);
   });
 });

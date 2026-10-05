@@ -851,6 +851,8 @@ with the change that invalidates them.
 | `shared/fixtures/subtree_hash.json` | hand-maintained cases | `tests/test_subtree_hash.py` | Pins `contracts.ops.subtree_hash` and the web's `subtreeHash` (`web/src/replica/subtreeHash.test.ts`) to the same canonical hash a guarded `delete` is checked against |
 | `shared/fixtures/ops_acks.json` | hand-maintained cases | `tests/test_ops_idempotency.py`, `tests/test_client_contracts.py` | Pins the stored-ack-to-wire mapping of `POST /api/ops` and the `SkipReason` values; the web's `readOpsAck` and queue replay the wire acks (`web/src/sync/opsAck.test.ts`, `opsAck.composed.test.ts`) |
 
+The fixtures pin the implementations on chosen cases; the ops property in [property-checks.md](property-checks.md#what-the-ops-property-checks) checks the server, replica and in-memory implementations against each other on random batches.
+
 ## Configuration and entrypoints
 
 `config.json` lives in the data directory. It is never in git, and

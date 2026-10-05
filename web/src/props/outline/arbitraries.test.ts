@@ -2,7 +2,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { isOutlinePaste, parseOutlineForest } from "../../outline/paste";
 import type { BlockNode } from "../../api/payloads";
-import { forestArb, renderForest, treeArb, type IndentStyle } from "./arbitraries";
+import { commandArb, forestArb, sequenceArb, renderForest, treeArb, type IndentStyle } from "./arbitraries";
 import { treeProblems } from "./reading";
 
 const STYLES: IndentStyle[] = ["two", "four", "tab", "bullet"];
@@ -33,6 +33,8 @@ describe("outline arbitraries", () => {
     expect(trees.some((t) => allBlocks(t).some((b) => b.collapsed && b.children.length > 0))).toBe(true);
     expect(trees.some((t) => allBlocks(t).some((b) => b.text === ""))).toBe(true);
     expect(trees.every((t) => allBlocks(t).length <= 30)).toBe(true);
+    expect(trees.some((t) => allBlocks(t).length > 20)).toBe(true);
+    expect(fc.sample(sequenceArb, 500).some((q) => q.commands.length > 15)).toBe(true);
   });
 
   it("rendered paste forests parse back to themselves", () => {
@@ -44,5 +46,23 @@ describe("outline arbitraries", () => {
   it("every generated forest is an outline paste", () => {
     fc.assert(fc.property(forestArb, fc.constantFrom(...STYLES), (f, s) =>
       isOutlinePaste(renderForest(f, s))));
+  });
+
+  it("command kinds are weighted evenly apart from undo, redo and paste", () => {
+    const counts = new Map<string, number>();
+    const n = 20000;
+    for (const c of fc.sample(commandArb, n)) counts.set(c.kind, (counts.get(c.kind) ?? 0) + 1);
+    const share = (k: string): number => (counts.get(k) ?? 0) / n;
+    const special = new Set(["undo", "redo", "paste"]);
+    const edits = [...counts.keys()].filter((k) => !special.has(k));
+    expect(edits).toHaveLength(18);
+    for (const k of edits) {
+      expect(share(k)).toBeGreaterThan(0.03);
+      expect(share(k)).toBeLessThan(0.06);
+    }
+    expect(share("undo") + share("redo")).toBeGreaterThan(0.12);
+    expect(share("undo") + share("redo")).toBeLessThan(0.17);
+    expect(share("paste")).toBeGreaterThan(0.06);
+    expect(share("paste")).toBeLessThan(0.10);
   });
 });

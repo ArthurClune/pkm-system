@@ -1359,6 +1359,22 @@ const shiftingCreate = (id: string) => ({
 const orderOf = (db: ReplicaDb, u: string): unknown =>
   db.select<{ order_idx: number }>("SELECT order_idx FROM blocks WHERE uid = ?", [u])[0]?.order_idx;
 
+test("an enqueue on a file without replay_log creates the tables, records, and leaves schema_version stale", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(TWO);
+  t.db.exec("DROP TABLE replay_log_refs");
+  t.db.exec("DROP TABLE replay_log");
+  t.db.exec("DROP TABLE replay_batches");
+  t.db.exec("INSERT OR REPLACE INTO sync_client_meta(key, value) VALUES ('schema_version', 'old')");
+  await handlers.enqueue(shiftingCreate("a"));
+  expect(t.db.select("SELECT batch_id FROM replay_log WHERE batch_id = 'a'").length)
+    .toBeGreaterThan(0);
+  expect(t.db.select("SELECT value FROM sync_client_meta WHERE key = 'schema_version'"))
+    .toEqual([{ value: "old" }]);
+});
+
 test("deleteBatch without a seq, then a head window, reverts", async () => {
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });

@@ -126,13 +126,15 @@ describe("wrapSqlite + installSchema", () => {
     t.close();
   });
 
-  test("installSchema creates effect_ledger and its uid index", async () => {
+  test("installSchema creates replay_log, replay_log_refs and replay_batches with their indexes", async () => {
     const t = await openTestDb();
     const names = t.db.select<{ name: string }>(
       "SELECT name FROM sqlite_master").map((r) => r.name);
-    expect(names).toContain("effect_ledger");
-    expect(names).toContain("idx_effect_ledger_uid");
-    expect(t.db.select("PRAGMA foreign_key_list(effect_ledger)")).toEqual([]);
+    for (const n of ["replay_log", "replay_log_refs", "replay_batches",
+                     "idx_replay_log_key", "idx_replay_log_refs_log"]) {
+      expect(names).toContain(n);
+    }
+    expect(names).not.toContain("effect_ledger");
     t.close();
   });
 

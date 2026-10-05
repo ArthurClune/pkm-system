@@ -24,17 +24,6 @@ CREATE TABLE IF NOT EXISTS pending_ops(
   error    TEXT
 );
 
-CREATE TABLE IF NOT EXISTS effect_ledger(
-  batch_id        TEXT NOT NULL,
-  uid             TEXT NOT NULL,
-  order_delta     INTEGER NOT NULL DEFAULT 0,
-  base_page_id    INTEGER,
-  base_updated_at INTEGER,
-  row_json        TEXT,
-  PRIMARY KEY (batch_id, uid)
-) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS idx_effect_ledger_uid ON effect_ledger(uid);
-
 CREATE TABLE IF NOT EXISTS replay_log(
   id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id TEXT NOT NULL,
   kind TEXT NOT NULL CHECK(kind IN ('block','page')), key TEXT NOT NULL,

@@ -103,7 +103,7 @@ produce:
 | Delete selection | `deleteSelection` | a visible-row selection |
 | Outline paste | `planOutlinePaste` | a visible row, a selection range in its text, a random forest rendered with 2-space, 4-space, tab or `- ` indents, only when `isOutlinePaste` holds |
 | Collapse, heading, view type | `setCollapsed`, `setHeading`, `setViewType` | a visible row, a value |
-| Undo, redo | `takeUndo`/`takeRedo` then `applyOps` of the entry's inverse/ops | — |
+| Undo, redo | `takeUndo`/`takeRedo`, then `replayEntry`: `resolveAnchors` re-keys the entry's inverse/ops placements against the current tree, as `undoManager` does, and `applyOps` applies the result | — |
 
 The runner records history exactly as `useOutline.run` does: the entry's
 ops are the flushed text ops plus the command's ops, its inverse is
@@ -128,8 +128,8 @@ the rows and the command's inputs, never against `order_idx`:
 | Outdent | reading order unchanged; the outdented subtrees' depths −1, and the following siblings they adopt keep their depth (a collapsed adopter is expanded); no-op at top level |
 | Move block up/down | the block's subtree swaps with its neighbouring sibling's subtree |
 | Move subtree up/down at an edge | the subtree becomes the last child of the parent's previous sibling (up) or the first child of its next sibling (down), same depth, that sibling expanded; else no-op |
-| Move selection up/down | each run swaps with its neighbouring sibling, or crosses into the parent's neighbour as above; one blocked run makes the whole gesture a no-op |
-| Drop | the dragged roots' subtrees leave and land as one contiguous run at the drop boundary and depth, in their original order; every other row keeps its relative order |
+| Move selection up/down | each run swaps with its neighbouring sibling, or crosses into the parent's neighbour as above, which is expanded even when it is itself a selected root; one blocked run makes the whole gesture a no-op |
+| Drop | the dragged roots' subtrees leave and land as one contiguous run at the drop boundary and depth, in their original order; every other row keeps its relative order; no dragged root ends hidden, since `allowedDepths` offers no child depth under a collapsed row |
 | Delete selection | exactly the selected roots' subtrees disappear |
 | Outline paste | the first root's text splices into the row at the selection; its children become the row's first children (row expanded); later roots follow the row's subtree as siblings, each with its own subtree |
 | Collapse, heading, view type | that one field of that one row; setting a field to the value it already holds is a no-op |

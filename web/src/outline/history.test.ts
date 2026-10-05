@@ -122,6 +122,40 @@ it("round-trips a delete whose old previous sibling a later op shifted", () => {
   expect(shape(roundTrip(before, ops))).toEqual(["b0", "b1", "b2"]);
 });
 
+it("round-trips a batch of many creates, moves and deletes", () => {
+  // paste-sized: every op shifts keys the inverses after it are planned on
+  const before = [
+    ...flat("b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7"),
+    block("p", "p", { order_idx: ord(8), children: flat("c0", "c1", "c2") }),
+  ];
+  const ops: BlockOp[] = [];
+  for (let i = 0; i < 40; i++) {
+    ops.push({ op: "create", uid: uid(`n${i}`), page_title: PAGE,
+               parent_uid: i % 2 === 0 ? null : uid("p"),
+               order_idx: ord(i % 5), text: `n${i}` });
+  }
+  ops.push(...moveTo("b7", 0), ...moveTo("b6", 1),
+           { op: "move", uid: uid("b3"), parent_uid: uid("p"), order_idx: ord(0) },
+           { op: "delete", uid: uid("b1") }, { op: "delete", uid: uid("c1") },
+           ...moveTo("b5", 2));
+  expect(shape(roundTrip(before, ops))).toEqual(shape(before));
+});
+
+it("undoes a deleted subtree's children in order after another entry shifted its siblings", () => {
+  let tree = [
+    block("a", "a", { order_idx: ord(0) }),
+    block("b", "b", { order_idx: ord(1), children: flat("c0", "c1", "c2") }),
+    block("d", "d", { order_idx: ord(2) }),
+  ];
+  const deleted = record(tree, [{ op: "delete", uid: uid("b") }]);
+  tree = applyOps(tree, deleted.ops, PAGE);                 // [a, d]
+  const moved = record(tree, moveTo("d", 0));               // [d, a]
+  tree = applyOps(tree, moved.ops, PAGE);
+  tree = replay(tree, moved, "undo");
+  tree = replay(tree, deleted, "undo");
+  expect(shape(tree)).toEqual(["a", "b", ["c0", "c1", "c2"], "d"]);
+});
+
 it("round-trips a move whose old slot sat in a key gap", () => {
   // sparse keys: b's old key is still free between its neighbours
   const before = [block("a", "a", { order_idx: ord(0) }),

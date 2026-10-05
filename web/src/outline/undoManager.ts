@@ -112,9 +112,11 @@ function dispatch(sync: HistoryDispatch, batch: BlockOp[],
   //
   // Placements are re-keyed against the same live tree, before stamping, so
   // the hashes cover the ops that actually ship (history.ts states the
-  // anchor rule). With no session for the page the recorded keys go out as
-  // they are, which lands right only while nothing has shifted the page's
-  // keys since the entry was recorded.
+  // anchor rule). Re-keying needs a tree to read anchors off, so with no
+  // session for the page the recorded keys go out as they are: undoing an
+  // edit to a page you have since navigated away from lands right only
+  // while nothing has shifted that page's keys since the entry was recorded.
+  // Residual hole, tracked but not fixed.
   //
   // try/finally because peeking first put an acquired handle on the wrong side
   // of sync.enqueue, which throws on a disposed queue (opQueue.ts): before the

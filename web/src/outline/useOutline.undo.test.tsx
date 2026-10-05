@@ -115,6 +115,28 @@ it("undo reverses a whole cross-parent selection move in one step", () => {
   ]);
 });
 
+it("undoes two moves up in a row and redoes them, though each replay shifted keys", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, [
+    block("a", "A", { order_idx: ord(0) }),
+    block("b", "B", { order_idx: ord(1) }),
+    block("c", "C", { order_idx: ord(2) }),
+  ]);
+  const order = () => outline().blocks.map((n) => n.uid);
+  act(() => outline().handlers.onMoveSubtreeUp(uid("b")));
+  act(() => outline().handlers.onMoveSubtreeUp(uid("c")));
+  expect(order()).toEqual(["b", "c", "a"]);
+
+  act(() => outline().handlers.onUndo());
+  expect(order()).toEqual(["b", "a", "c"]);
+  act(() => outline().handlers.onUndo());
+  expect(order()).toEqual(["a", "b", "c"]);
+  act(() => outline().handlers.onRedo());
+  expect(order()).toEqual(["b", "a", "c"]);
+  act(() => outline().handlers.onRedo());
+  expect(order()).toEqual(["b", "c", "a"]);
+});
+
 it("undo restores a deleted block's text via subtree recreate", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
@@ -187,6 +209,7 @@ it("undo stamps page_title on the enqueued op, though the recorded entry carries
     pageTitle: PAGE,
     ops: [{ op: "update_text", uid: uid("a"), text: "one" }],
     inverse,
+    anchors: { ops: [null], inverse: [null] },
     focusBefore: null,
     focusAfter: null,
   });

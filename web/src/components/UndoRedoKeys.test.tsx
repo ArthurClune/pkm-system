@@ -14,6 +14,7 @@ const entry = () => ({
   pageTitle: "Keys Page",
   ops: [{ op: "update_text" as const, uid: uid("a"), text: "after" }],
   inverse: [{ op: "update_text" as const, uid: uid("a"), text: "before" }],
+  anchors: { ops: [null], inverse: [null] },
   focusBefore: null,
   focusAfter: null,
 });

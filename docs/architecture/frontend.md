@@ -99,7 +99,8 @@ web/src/
 │   ├── useOutlinePageLoad.ts Shell        The shared single-page load controller
 │   ├── useBlockDraft.ts      Shell        The focused block's draft session
 │   ├── useAutocomplete.ts    Shell        The popup's shared state
-│   ├── undoManager.ts        Shell        Undo/redo dispatch; re-stamps hashes at replay
+│   ├── undoManager.ts        Shell        Undo/redo dispatch; re-keys placements and
+│   │                                      re-stamps hashes at replay
 │   └── caretDisplayLine.ts   Shell        Caret geometry reads
 │
 ├── components/               ~45 Shell files: the editor's views (EditableBlockTree,

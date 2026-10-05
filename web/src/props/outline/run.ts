@@ -18,8 +18,9 @@ import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          moveSelectionUp, moveSubtreeDown, moveSubtreeUp, outdentBlock,
          outdentSelection, setCollapsed, setHeading, setViewType, splitBlock,
          type EditResult, type FocusTarget } from "../../outline/edits";
-import { emptyHistory, invertOps, recordEntry, takeRedo, takeUndo,
-         type HistoryEntry, type HistoryState } from "../../outline/history";
+import { emptyHistory, historyAnchors, invertOps, recordEntry, resolveAnchors,
+         takeRedo, takeUndo, type HistoryEntry,
+         type HistoryState } from "../../outline/history";
 import { captureDraft, pendingTextOps, validateOutlineFocus,
          type PendingDraft } from "../../outline/outlineState";
 import { isOutlinePaste, planOutlinePaste,
@@ -99,10 +100,14 @@ function countNodes(forest: readonly PastedNode[]): number {
   return forest.reduce((n, p) => n + 1 + countNodes(p.children), 0);
 }
 
-/** Replays a history entry the way undoManager does; every replay goes through here. */
+/** Replays a history entry the way undoManager does, placements re-keyed
+ * against `tree`; every replay goes through here. */
 export function replayEntry(tree: BlockNode[], entry: HistoryEntry,
                             direction: "undo" | "redo"): BlockNode[] {
-  return applyOps(tree, direction === "undo" ? entry.inverse : entry.ops, PAGE_TITLE);
+  const undoing = direction === "undo";
+  const batch = resolveAnchors(tree, PAGE_TITLE, undoing ? entry.inverse : entry.ops,
+                               undoing ? entry.anchors.inverse : entry.anchors.ops);
+  return applyOps(tree, batch, PAGE_TITLE);
 }
 
 export function runSequence(start: BlockNode[], commands: readonly Command[],
@@ -138,12 +143,14 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
     }
     const next = result.ops.length > 0 ? result.blocks : base;
     tree = next;
-    const inverse = seam.invertOps(pre, PAGE_TITLE, [...undoableTextOps, ...result.ops]);
+    const recorded = [...undoableTextOps.map(withoutStamps), ...result.ops];
+    const inverse = seam.invertOps(pre, PAGE_TITLE, recorded);
     if (inverse !== null && inverse.length > 0) {
       const entry: HistoryEntry = {
         pageTitle: PAGE_TITLE,
-        ops: [...undoableTextOps.map(withoutStamps), ...result.ops],
+        ops: recorded,
         inverse,
+        anchors: historyAnchors(pre, PAGE_TITLE, recorded, inverse),
         focusBefore: focus,
         focusAfter: result.focus ?? focus,
       };

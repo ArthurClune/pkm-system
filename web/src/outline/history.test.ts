@@ -3,8 +3,8 @@ import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { block, ord, uid } from "../test-helpers";
 import { applyOps } from "./tree";
-import { invertOps, emptyHistory, HISTORY_CAP, recordEntry, takeRedo, takeUndo,
-         type HistoryEntry } from "./history";
+import { invertOps, emptyHistory, historyAnchors, HISTORY_CAP, recordEntry,
+         resolveAnchors, takeRedo, takeUndo, type HistoryEntry } from "./history";
 
 const PAGE = "Test Page";
 
@@ -219,10 +219,120 @@ it("returns [] for create_page (additive, nothing to undo)", () => {
     .toEqual([]);
 });
 
+// Records and replays the way useOutline.run and undoManager.dispatch do:
+// anchors are read at record time, and the replayed batch is re-keyed against
+// whatever tree it is replayed onto.
+const record = (pre: BlockNode[], ops: BlockOp[]): HistoryEntry => {
+  const inverse = invertOps(pre, PAGE, ops)!;
+  return { pageTitle: PAGE, ops, inverse,
+           anchors: historyAnchors(pre, PAGE, ops, inverse),
+           focusBefore: null, focusAfter: null };
+};
+const replay = (tree: BlockNode[], e: HistoryEntry,
+                direction: "undo" | "redo"): BlockNode[] => {
+  const batch = direction === "undo" ? e.inverse : e.ops;
+  const anchors = direction === "undo" ? e.anchors.inverse : e.anchors.ops;
+  return applyOps(tree, resolveAnchors(tree, PAGE, batch, anchors), PAGE);
+};
+const moveTo = (u: string, orderIdx: number): BlockOp[] =>
+  [{ op: "move", uid: uid(u), parent_uid: null, order_idx: ord(orderIdx) }];
+
+it("anchors each placement on the sibling it lands in front of", () => {
+  const before = flat("b0", "b1", "b2");
+  const ops: BlockOp[] = [
+    { op: "update_text", uid: uid("b0"), text: "x" },
+    ...moveTo("b2", 0),
+  ];
+  const anchors = historyAnchors(before, PAGE, ops, invertOps(before, PAGE, ops)!);
+  // forward: b2 lands in front of b0; undo: b2 goes back last
+  expect(anchors.ops).toEqual([null, { before: "b0" }]);
+  expect(anchors.inverse).toEqual([{ before: null }, null]);
+});
+
+it("undoes two moves up in a row though the first undo shifted keys", () => {
+  let tree = flat("b0", "b1", "b2");
+  const first = record(tree, moveTo("b1", 0));          // [b1, b0, b2]
+  tree = applyOps(tree, first.ops, PAGE);
+  const second = record(tree, moveTo("b2", tree[1].order_idx)); // [b1, b2, b0]
+  tree = applyOps(tree, second.ops, PAGE);
+  tree = replay(tree, second, "undo");
+  expect(shape(tree)).toEqual(["b1", "b0", "b2"]);
+  tree = replay(tree, first, "undo");
+  expect(shape(tree)).toEqual(["b0", "b1", "b2"]);
+});
+
+it("redoes a move down after its undo shifted the keys it was planned on", () => {
+  // moveBlockDown b0 of dense [b0, b1, b2]: lands on b2's key
+  let tree = flat("b0", "b1", "b2");
+  const e = record(tree, moveTo("b0", 2));
+  tree = applyOps(tree, e.ops, PAGE);
+  tree = replay(tree, e, "undo");
+  expect(shape(tree)).toEqual(["b0", "b1", "b2"]);
+  tree = replay(tree, e, "redo");
+  expect(shape(tree)).toEqual(["b1", "b0", "b2"]);
+});
+
+it("redoes a multi-block drop down after its undo", () => {
+  // moveBlocksTo [b0, b1] after b3: groupMoveOps at the end of the list
+  let tree = flat("b0", "b1", "b2", "b3");
+  const e = record(tree, [...moveTo("b0", 4), ...moveTo("b1", 5)]);
+  tree = applyOps(tree, e.ops, PAGE);
+  expect(shape(tree)).toEqual(["b2", "b3", "b0", "b1"]);
+  tree = replay(tree, e, "undo");
+  expect(shape(tree)).toEqual(["b0", "b1", "b2", "b3"]);
+  tree = replay(tree, e, "redo");
+  expect(shape(tree)).toEqual(["b2", "b3", "b0", "b1"]);
+});
+
+it("undo lands in front of its old next sibling after another device inserted", () => {
+  let tree = flat("a", "b", "c", "d");
+  const e = record(tree, moveTo("b", 3));                // [a, c, b, d]
+  tree = applyOps(tree, e.ops, PAGE);
+  // another device inserts x in front of c, shifting every key from c's on
+  const remote: BlockOp[] = [{ op: "create", uid: uid("x"), page_title: PAGE,
+                               parent_uid: null, order_idx: tree[1].order_idx,
+                               text: "x" }];
+  tree = applyOps(tree, remote, PAGE);
+  expect(shape(tree)).toEqual(["a", "x", "c", "b", "d"]);
+  tree = replay(tree, e, "undo");
+  expect(shape(tree)).toEqual(["a", "x", "b", "c", "d"]);
+});
+
+it("keeps the recorded key when the anchor has left the parent", () => {
+  const live = [block("a", "a", { order_idx: ord(0) }),
+                block("p", "p", { order_idx: ord(1),
+                                  children: [block("c", "c", { order_idx: ord(0) })] }),
+                block("m", "m", { order_idx: ord(2) })];
+  // anchored in front of c, which another device moved under p
+  const ops = moveTo("m", 1);
+  expect(resolveAnchors(live, PAGE, ops, [{ before: uid("c") }])).toEqual(ops);
+  // and in front of a block that no longer exists
+  expect(resolveAnchors(live, PAGE, ops, [{ before: uid("gone") }])).toEqual(ops);
+});
+
+it("keeps the recorded key when it already lands at the anchor", () => {
+  const live = [block("a", "a", { order_idx: ord(0) }),
+                block("c", "c", { order_idx: ord(4) }),
+                block("m", "m", { order_idx: ord(9) })];
+  const ops = moveTo("m", 2);
+  expect(resolveAnchors(live, PAGE, ops, [{ before: uid("c") }])).toEqual(ops);
+});
+
+it("re-keys a placement whose recorded key no longer lands at its anchor", () => {
+  const live = [block("a", "a", { order_idx: ord(3) }),
+                block("c", "c", { order_idx: ord(4) }),
+                block("m", "m", { order_idx: ord(9) })];
+  expect(resolveAnchors(live, PAGE, moveTo("m", 1), [{ before: uid("c") }]))
+    .toEqual(moveTo("m", 4));
+  expect(resolveAnchors(live, PAGE, moveTo("a", 0), [{ before: null }]))
+    .toEqual(moveTo("a", 10));
+});
+
 const entry = (n: number): HistoryEntry => ({
   pageTitle: PAGE,
   ops: [{ op: "update_text", uid: uid("a"), text: `v${n}` }],
   inverse: [{ op: "update_text", uid: uid("a"), text: `v${n - 1}` }],
+  anchors: { ops: [null], inverse: [null] },
   focusBefore: null,
   focusAfter: null,
 });

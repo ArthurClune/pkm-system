@@ -166,6 +166,7 @@ flowchart LR
 | Authoritative text lands on the tree even for the focused block, while the textarea keeps the local draft; the draft's flush hashes the draft's `base`, never the tree | without the draft's base, the flush hashes the remote text and overwrites it with no conflict copy |
 | `/upload` gives up the block before opening the picker: the pick strips the trigger, calls `onBlurBlock`, then clicks the tree-owned file input | otherwise the blur depends on the native file dialog; `onFiles` leaves focus alone on completion, so the uploaded asset renders at once |
 | `preventDefault` and `dataTransfer.dropEffect` stay synchronous in every `dragover` handler | HTML5 drag-and-drop honours them only inside the handler, so a deferred call leaves the drop refused; both are unconditional, which `allowedDepths` never returning empty makes sound |
+| A history replay re-keys every create and move against the live tree (`resolveAnchors`), so each lands in front of the sibling it was recorded in front of. The recorded `order_idx` stands only when that sibling has left the parent | a placement shifts siblings' keys up and nothing shifts them down, so after any undo, redo or other device's edit a recorded key can name a different slot. `history.ts`'s header states the anchor rule |
 | `set_collapsed` must not stamp | `opBumpsUpdatedAt` (`outline/blockStamps.ts`) is the single statement that collapsing is a view toggle; `transitionOutline` uses it to choose which uids to stamp, and `replica/localOps.test.ts` pins the replica to it |
 
 ### Drafts and commit points

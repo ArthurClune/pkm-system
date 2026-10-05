@@ -322,10 +322,10 @@ run, with each client's fired faults, and the oracle's evidence per failed
 invariant. Run the `replay:` line to re-run just the shrunk example. Each web suite prints
 its own report, and its `replay:` line names its own file with `--file`, so the
 replay runs that suite alone. The outline report shows the shrunk start tree
-and its commands in place of the clients. The ops report shows the start
-state, then the steps up to the failing one with each batch's ops and ack, then
-one line per difference, each prefixed with its check; replay it with
-`--file ops/ops.prop.ts`. A `harness:` error is a fault in the harness, not a
+and its commands in place of the clients. The ops report's `counterexample:` shows
+the shrunk start state and every step; its `error:` shows the steps up to the
+failing one with each batch's ops and ack, then one line per difference, each
+prefixed with its check. Replay it with `--file ops/ops.prop.ts`. A `harness:` error is a fault in the harness, not a
 finding.
 
 A replay is only as deterministic as the run: examples that depend on timing
@@ -365,7 +365,7 @@ where the count is set:
 |---|---|---|
 | server | `props/harness.py`'s `MERGE_EXAMPLES` per property, `max_examples` under the `merge` profile | `proptest/check.sh server`, about 3 minutes |
 | web, sync | `NUM_RUNS` in `sync.prop.ts` (2100 examples) | about 3 minutes of `proptest/check.sh web` |
-| web, outline | `NUM_RUNS` in `outline.prop.ts` (319,000 examples) | about 45 seconds of `proptest/check.sh web`, about 7,100 examples a second |
+| web, outline | `NUM_RUNS` in `outline.prop.ts` (319,000 examples) | about 50 seconds of `proptest/check.sh web`, about 6,400 examples a second |
 | web, ops | `NUM_RUNS` in `ops.prop.ts` (2250 examples) | about 60 seconds of `proptest/check.sh web`, about 37 examples a second |
 
 ### Server

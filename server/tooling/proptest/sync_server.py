@@ -132,6 +132,10 @@ class _ClockBody(BaseModel):
     ms: int
 
 
+class _TeethBody(BaseModel):
+    drop_cross_page_title: bool
+
+
 def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI:
     data.mkdir(parents=True, exist_ok=True)
     (data / "assets").mkdir(exist_ok=True)
@@ -154,6 +158,26 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
 
     app = create_app(dataclasses.replace(config, db_path=fresh_copy()))
 
+    # The ops of the last broadcast frame that carried any (seq nudges carry
+    # none), kept until taken or reset. With teeth armed the recorded copy
+    # loses the page_title of every move that names one, a deliberate echo
+    # corruption the ops suite must notice.
+    echo: dict = {"ops": None, "drop_cross_page_title": False}
+    broadcast = app.state.hub.broadcast
+
+    async def recording_broadcast(message: dict) -> None:
+        ops = message.get("ops")
+        if ops is not None:
+            recorded = copy.deepcopy(ops)
+            if echo["drop_cross_page_title"]:
+                for op in recorded:
+                    if op.get("op") == "move" and op.get("page_title") is not None:
+                        op["page_title"] = None
+            echo["ops"] = recorded
+        await broadcast(message)
+
+    app.state.hub.broadcast = recording_broadcast
+
     @app.post("/__proptest/reset", dependencies=[Depends(require_auth)])
     def reset(request: Request) -> dict:
         # app.state audit: config is the only attribute bound to the DB
@@ -166,6 +190,8 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         db_path = fresh_copy()
         request.app.state.config = dataclasses.replace(request.app.state.config, db_path=db_path)
         clock.set_ms(START_MS)
+        echo["ops"] = None
+        echo["drop_cross_page_title"] = False
         return {"db_path": str(db_path)}
 
     @app.post("/__proptest/clock", dependencies=[Depends(require_auth)])
@@ -207,6 +233,16 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         finally:
             con.close()
         return [dict(r) for r in rows]
+
+    @app.post("/__proptest/echo/take", dependencies=[Depends(require_auth)])
+    def echo_take() -> dict:
+        ops, echo["ops"] = echo["ops"], None
+        return {"ops": ops}
+
+    @app.post("/__proptest/echo/teeth", dependencies=[Depends(require_auth)])
+    def echo_teeth(body: _TeethBody) -> dict:
+        echo["drop_cross_page_title"] = body.drop_cross_page_title
+        return {"drop_cross_page_title": body.drop_cross_page_title}
 
     return app
 

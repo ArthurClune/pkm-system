@@ -1,12 +1,13 @@
 # Property checks
 
 `proptest/check.sh` is a property-based gate for the sync and planning
-invariants, in two suites:
+invariants, in two sides, the web side holding two suites:
 
 | Side | Framework | Drives | Compared with |
 |---|---|---|---|
 | `server` | Hypothesis | random op batches and CLI batches, in-process | a from-the-docs reference model |
-| `web` | fast-check | 2 or 3 clients running the real web sync stack against the real server, with faults | the server's state, through an oracle (see [What the web property checks](#what-the-web-property-checks)) |
+| `web`, sync | fast-check | 2 or 3 clients running the real web sync stack against the real server, with faults | the server's state, through an oracle (see [What the web property checks](#what-the-web-property-checks)) |
+| `web`, outline | fast-check | random outline edit commands, undo and redo on one page, through the real outline code, with no server | a reading-view model (see [What the outline property checks](#what-the-outline-property-checks)) |
 
 It runs locally before a merge, the same way
 [`perf/check.sh`](performance-checks.md) does; it is not CI, a git hook, or
@@ -21,7 +22,7 @@ alternatives are in the design specs:
 ## Running it
 
 ```
-proptest/check.sh [auto|server|web] [--seed N] [--path P] [--replay-path R]
+proptest/check.sh [auto|server|web] [--seed N] [--path P] [--replay-path R] [--file F]
 ```
 
 `auto` (the default) picks sides from the diff against `main`, the same rule
@@ -33,9 +34,10 @@ as `perf/check.sh`:
 | `web/…`, except `web/e2e/` and `*.md` | web |
 | `server/src/…`, `server/tooling/proptest/sync_server.py` | web as well: the web suite drives the real server's sync routes |
 
-`--seed N` reproduces a specific run (`--hypothesis-seed=N` on the server
+`--file F` (web only) is a vitest file filter that runs one suite, for example
+`--file outline/outline.prop.ts`. `--seed N` reproduces a specific run (`--hypothesis-seed=N` on the server
 side, fast-check's seed on the web side); without it, each run explores a new
-random seed. `--path` and `--replay-path` apply to the web side only
+random seed. `--path`, `--replay-path` and `--file` apply to the web side only
 (see [Reading a web failure](#reading-a-web-failure)).
 
 The web side starts the harness server, `server/tooling/proptest/sync_server.py`,
@@ -64,7 +66,8 @@ session cookies are rejected when issued in the future or more than a year ago.
 | `server/tooling/proptest/sides.py` | Functional Core | `sides_for(changed_paths)`, mirrors `perfcheck.run_core.sides_for` plus the `server/src/` rule |
 | `server/tooling/proptest/sync_server.py` | Imperative Shell | the harness server on port 8978 |
 | `web/vitest.props.config.ts` | config | node environment, includes only `src/props/**/*.prop.ts`, one fork, no jsdom setup |
-| `web/src/props/sync/env.ts`, `serverControl.ts` | Imperative Shell | the `PROPTEST_*` settings; the session cookie and the control routes |
+| `web/src/props/env.ts` | Imperative Shell | the replay settings every web suite shares: `SEED`, `PATH`, `REPLAY_PATH` |
+| `web/src/props/sync/env.ts`, `serverControl.ts` | Imperative Shell | the harness server's address and password, re-exporting the shared replay settings; the session cookie and the control routes |
 | `web/src/props/sync/cancel.ts` | Imperative Shell | one example's server handle, which refuses every call once the example is cancelled and aborts any request still on the wire, so an abandoned example cannot reach the server the next one has reset |
 | `web/src/props/sync/transport.ts` | Imperative Shell | one client's network to the server: one-shot faults, a window limit, and the deliberately broken modes the teeth tests use |
 | `web/src/props/sync/harnessClient.ts` | Imperative Shell | one simulated device: the real replica worker, op queue, replica sync, client runtime, legacy repair and reconnect flow, over an in-memory database that survives `reload()`. The legacy repair's outline sessions are stood in for by one page read through the client's transport, which fails while offline |
@@ -74,6 +77,9 @@ session cookies are rejected when issued in the future or more than a year ago.
 | `web/src/props/sync/sync.prop.ts` | Imperative Shell | the property, the seventeen fixed scenarios, the tally |
 | `web/src/props/sync/teeth.prop.ts`, `harness.prop.ts`, `smoke.prop.ts` | test | the oracle's teeth; the harness client and transport self-tests; the server wiring |
 | `web/src/props/sync/normalise.test.ts`, `arbitraries.test.ts` | test | unit tests that do run under `pnpm test:unit` |
+| `web/src/props/outline/arbitraries.ts`, `reading.ts`, `model.ts`, `run.ts`, `checks.ts` | Functional Core | start trees, selections, drops, paste forests and command sequences; the reading-view rows; the model of each command; the runner over the real commands and history; the per-step and whole-sequence checks |
+| `web/src/props/outline/outline.prop.ts`, `teeth.prop.ts` | Imperative Shell | the property and its budget; the seeded wrong commands it must catch. Neither imports `sync/env.ts` or needs the server |
+| `web/src/props/outline/*.test.ts` | test | unit tests that run under `pnpm test:unit`; `src/props/**` is outside its coverage measure |
 | `server/tests/props/conftest.py` | test | Hypothesis profiles (`merge`, `dev`), the `template_db` fixture |
 | `server/tests/props/harness.py` | test | non-fixture helpers every property needs: `template_db_path`, `fresh_app`, `FROZEN_NOW`, `MERGE_EXAMPLES`, `assert_unique_keys`/`assert_well_formed` |
 | `server/tests/props/strategies.py` | Functional Core | uid pools, trees with gapped keys, op and CLI-command strategies |
@@ -172,6 +178,50 @@ wait for the window at the journal head (see
 The rest run with the server's default window. A fixed scenario also cuts the
 window at one row.
 
+## What the outline property checks
+
+`outline.prop.ts` draws a start tree on one page and a sequence of 1 to 20
+commands, and runs them through the real outline code (`edits.ts`, `paste.ts`,
+`dnd.ts`, `blockSelection.ts`, `history.ts`) with no server and no DOM.
+
+| Commands | |
+|---|---|
+| text | type, split, backspace |
+| indent | indent and outdent, of a block or of a selection |
+| move | block, subtree or selection, up or down; drop |
+| selection | delete selection; outline paste |
+| fields | collapse, heading, view type |
+| history | undo, redo |
+
+History is recorded as `useOutline.run` records it. A typed draft folds into
+the next command's entry only when that command is a keyboard command on the
+draft's own block; any other command first flushes the draft as its own entry.
+Undo and redo replay through `run.ts`'s `replayEntry`, which re-keys placements
+by anchors as `undoManager` does.
+
+The oracle is a model of the reading view (`model.ts` over `reading.ts`): rows of
+`uid`, depth, text, heading, view type, collapsed and hidden, never `order_idx`.
+It imports outline code as types only, so it cannot share a bug with the
+code it checks. `checks.ts` names each failed property first.
+
+| Check | Runs on | Holds when |
+|---|---|---|
+| `valid` | every step | the tree is well formed |
+| `meaning` | a command | the rows equal the model's, field for field |
+| `silent` | every step | a no-op emits no ops and a change emits some; `changed` is true exactly when the tree differs. Undo and redo are held to the `changed` half only |
+| `undoable` | a command | any op other than `set_collapsed` was recorded with an inverse |
+| `focus` | every step | focus is on a visible row with its caret inside the text |
+| `undo-stack` | an undo or redo | the rows equal what the model's stack of entries expects |
+| `undo-all` | the sequence | every undo leaves a valid tree, and the last returns the start rows |
+| `redo-all` | the sequence | every redo leaves a valid tree, and the last returns the rows recorded with the newest entry |
+
+Undo and redo comparisons are structural: they ignore raw `order_idx` and
+`collapsed`, and a null view type equals `"document"`, because a replay re-keys
+placements and need not restore either exactly.
+
+`teeth.prop.ts` wraps five commands in deliberately wrong versions, each of which
+the property must catch within a few dozen runs. It takes about 10 ms.
+
 ## Reading a server failure
 
 Hypothesis shrinks a failure toward the smallest batch that reproduces it,
@@ -200,7 +250,10 @@ replay: proptest/check.sh web --seed … --path '…' --replay-path '…'
 
 The error also carries a transcript of what each command did in the failing
 run, with each client's fired faults, and the oracle's evidence per failed
-invariant. Run the `replay:` line to re-run just the shrunk example.
+invariant. Run the `replay:` line to re-run just the shrunk example. Each web suite prints
+its own report, and its `replay:` line names its own file with `--file`, so the
+replay runs that suite alone. The outline report shows the shrunk start tree
+and its commands in place of the clients.
 
 A replay is only as deterministic as the run: examples that depend on timing
 (a retry timer, a pull overlapping a websocket frame) may not reproduce. A
@@ -231,13 +284,15 @@ not reproduce is not on its own evidence of a flaky harness (see above).
 ## Calibration
 
 Each sub-project's suite brings its own budget, so the gate's total grows as
-suites are added. Today it is about 3 minutes for the server side and about 3
-for the web side. The budget is set where the count is set:
+suites are added. Today the server side is about 3 minutes and the web side
+about 3.7 (sync about 3 minutes, outline about 45 seconds). The budget is set
+where the count is set:
 
 | Side | Count | Sized for |
 |---|---|---|
 | server | `props/harness.py`'s `MERGE_EXAMPLES` per property, `max_examples` under the `merge` profile | `proptest/check.sh server`, about 3 minutes |
-| web | `NUM_RUNS` in `sync.prop.ts` (2100 examples) | `proptest/check.sh web`, about 3 minutes |
+| web, sync | `NUM_RUNS` in `sync.prop.ts` (2100 examples) | about 3 minutes of `proptest/check.sh web` |
+| web, outline | `NUM_RUNS` in `outline.prop.ts` (319,000 examples) | about 45 seconds of `proptest/check.sh web`, about 7,100 examples a second |
 
 ### Server
 
@@ -270,7 +325,8 @@ stopped matching what the generator draws. Run `proptest/check.sh web` and
 read the tally after any change to the commands, their weights or the
 preconditions. The weights themselves are in `commands.ts`'s `commandsFor`.
 
-The property is also bounded, at `PROPERTY_LIMIT_MS` (420 seconds):
+The sync property is also bounded, at `PROPERTY_LIMIT_MS` (420 seconds); the
+outline property has its own, 90 seconds:
 
 | When the limit hits | The run |
 |---|---|

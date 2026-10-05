@@ -57,18 +57,21 @@ web/src/props/
   sync/env.ts            BASE_URL, PASSWORD; re-exports the shared three
   outline/
     arbitraries.ts       trees, selections, drops, paste forests, sequences
-    reading.ts           reading-view flattening + one model per command
+    reading.ts           reading-view flattening
+    model.ts             one model per command, over reading rows
+    checks.ts            the per-step and whole-sequence properties
     run.ts               pure sequence runner over the real commands
     outline.prop.ts      the properties, NUM_RUNS, time budget
     teeth.prop.ts        seeded wrong commands the properties must catch
-    *.test.ts            unit tests for reading.ts, arbitraries.ts, run.ts
+    *.test.ts            unit tests for the Functional Core files
 ```
 
-`arbitraries.ts`, `reading.ts` and `run.ts` are Functional Core. `reading.ts`
-imports nothing from `web/src/outline/` beyond types, so the model cannot
-share a bug with the code it checks. The `*.test.ts` files run under
-`pnpm test:unit` and count towards its enforced coverage, as `sync/*.test.ts`
-do; the `*.prop.ts` files run only in the gate.
+`arbitraries.ts`, `reading.ts`, `model.ts`, `run.ts` and `checks.ts` are
+Functional Core. `reading.ts` and `model.ts` import nothing from
+`web/src/outline/` beyond types, so the model cannot share a bug with the code
+it checks. The `*.test.ts` files still run under `pnpm test:unit`, but
+`src/props/**` is outside the unit coverage measure, so they do not count
+towards its enforced coverage; the `*.prop.ts` files run only in the gate.
 
 ## The page and the commands
 

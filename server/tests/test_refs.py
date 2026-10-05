@@ -88,6 +88,27 @@ def test_bracket_spans_pin_the_unbalanced_cases(text, titles):
             for s in iter_bracket_spans(bracket_spans(text))] == titles
 
 
+def test_an_unclosed_opener_overlapping_another_pairs_the_aligned_run():
+    assert [(r.title, r.kind) for r in extract("[[[[Link]]]").refs] == [
+        ("Link", "link")
+    ]
+
+
+def test_extract_survives_long_unclosed_and_deeply_nested_runs():
+    start = time.perf_counter()
+    assert extract("[[" * 20000).refs == ()
+    deep = "[[" * 10000 + "x" + "]]" * 10000
+    spans = bracket_spans(deep)
+    assert len(list(iter_bracket_spans(spans))) == 10000
+    assert time.perf_counter() - start < 1.0
+    # Reporting 10000 nested titles is quadratic in output size by nature
+    # (each outer title contains all the inner ones), so only the pairing is
+    # timed; extract just has to get through without a RecursionError.
+    refs_ = extract(deep).refs
+    assert len(refs_) == 10000
+    assert refs_[-1].title == "x"
+
+
 def test_tag_spans_window_keeps_the_lookbehind_outside_it():
     # rename scans the inside of an unreplaced bracket run this way: the
     # window starts past "[[", and "#Old" is still a tag because the space

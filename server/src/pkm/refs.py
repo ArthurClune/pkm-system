@@ -236,55 +236,76 @@ class TagSpan:
 
 
 def bracket_spans(text: str) -> tuple[BracketSpan, ...]:
-    """Sole owner of the balanced-bracket depth walk (extractor and rewriter
-    alike): the top-level `[[...]]` runs in `text`, each holding its own.
+    """Sole owner of `[[...]]` pairing (extractor and rewriter alike): the
+    top-level runs in `text`, each holding the runs nested directly in it.
 
-    An unbalanced `[[` is not a run and does not stop the scan -- the walk
-    resumes one character on, so `[[A and [[B]]` still reports `B`, and
-    `[[[C]]` reports the single run whose title is `[C`.
+    Aligned `[[` and `]]` tokens are paired with a stack, the same pairing
+    the web grammar scanner uses. Scanning advances two characters after any
+    `[[` or matched `]]`, one otherwise, and a `]]` with nothing open is
+    plain text. An opener that never closes is not a run and does not stop
+    the scan, so `[[A and [[B]]` reports `B`, `[[[C]]` reports the single run
+    whose title is `[C`, and `[[[[Link]]]` reports `Link`.
+
+    Iterative throughout: nesting depth is bounded by the text, not by the
+    Python recursion limit.
     """
-    return _scan_bracket_spans(text, 0, len(text), nested=False)
-
-
-def _scan_bracket_spans(
-    text: str, start: int, stop: int, *, nested: bool
-) -> tuple[BracketSpan, ...]:
-    out: list[BracketSpan] = []
-    i = start
-    while i < stop - 1:
-        if text[i] == "[" and text[i + 1] == "[":
-            depth, j = 1, i + 2
-            while j < stop - 1 and depth:
-                pair = text[j : j + 2]
-                if pair == "[[":
-                    depth, j = depth + 1, j + 2
-                elif pair == "]]":
-                    depth, j = depth - 1, j + 2
-                else:
-                    j += 1
-            if depth == 0:
-                out.append(BracketSpan(
-                    start=i,
-                    end=j,
-                    inner_start=i + 2,
-                    inner_end=j - 2,
-                    is_tag=not nested and i > 0 and text[i - 1] == "#",
-                    children=_scan_bracket_spans(
-                        text, i + 2, j - 2, nested=True
-                    ),
-                ))
-                i = j
-                continue
-        i += 1
-    return tuple(out)
+    pairs: list[tuple[int, int]] = []
+    opens: list[int] = []
+    n = len(text)
+    i = 0
+    while i < n - 1:
+        pair = text[i : i + 2]
+        if pair == "[[":
+            opens.append(i)
+            i += 2
+        elif pair == "]]" and opens:
+            pairs.append((opens.pop(), i + 2))
+            i += 2
+        else:
+            i += 1
+    pairs.sort()
+    # Matched pairs nest properly, so in open order a pair's parent is the
+    # nearest earlier pair still enclosing it.
+    parent: list[int] = []
+    enclosing: list[int] = []
+    roots: list[int] = []
+    for k, (open_, close) in enumerate(pairs):
+        while enclosing and open_ >= pairs[enclosing[-1]][1]:
+            enclosing.pop()
+        if enclosing:
+            parent.append(enclosing[-1])
+        else:
+            parent.append(-1)
+            roots.append(k)
+        enclosing.append(k)
+    kids: list[list[BracketSpan]] = [[] for _ in pairs]
+    built: list[BracketSpan | None] = [None] * len(pairs)
+    # Children open after their parent, so a reverse pass has every child
+    # built before the parent that holds it.
+    for k in range(len(pairs) - 1, -1, -1):
+        open_, close = pairs[k]
+        span = BracketSpan(
+            start=open_,
+            end=close,
+            inner_start=open_ + 2,
+            inner_end=close - 2,
+            is_tag=parent[k] == -1 and open_ > 0 and text[open_ - 1] == "#",
+            children=tuple(reversed(kids[k])),
+        )
+        built[k] = span
+        if parent[k] != -1:
+            kids[parent[k]].append(span)
+    return tuple(span for k in roots if (span := built[k]) is not None)
 
 
 def iter_bracket_spans(spans: Iterable[BracketSpan]) -> Iterator[BracketSpan]:
     """Flatten a span tree outer-first, which is the order refs are reported
     in: a nested link yields the outer title before the inner one."""
-    for span in spans:
+    stack = list(reversed(tuple(spans)))
+    while stack:
+        span = stack.pop()
         yield span
-        yield from iter_bracket_spans(span.children)
+        stack.extend(reversed(span.children))
 
 
 def tag_spans(

@@ -3,7 +3,7 @@ import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { block, ord, uid } from "../test-helpers";
 import { ancestorChain, applyOps, applyOpsWithChange, blocksEqual, findNode,
-         insertSubtree, locate, removeSubtree, visibleNeighbor,
+         hidesChildren, insertSubtree, locate, removeSubtree, visibleNeighbor,
          visibleUids } from "./tree";
 
 // Siblings with order_idx GAPS (0, 5, 7) — the server leaves gaps after
@@ -190,6 +190,31 @@ describe("applyOps mirrors ops_apply.py", () => {
     const insertedNode = findNode(next, uid("n"))!;
     expect(insertedNode.children.length).toBe(1);
     expect(insertedNode.children[0].uid).toBe("c1");
+  });
+});
+
+describe("hidesChildren", () => {
+  const table = (text: string) => block("t", text, { collapsed: true, children: [
+    block("r1", "a", { children: [block("r1b", "b")] }),
+  ] });
+
+  test("a collapsed block with children hides them", () => {
+    expect(hidesChildren(block("p", "p", { collapsed: true,
+                                           children: [block("c", "c")] }))).toBe(true);
+  });
+
+  test("an expanded block, or a collapsed one with no children, hides nothing", () => {
+    expect(hidesChildren(block("p", "p", { children: [block("c", "c")] }))).toBe(false);
+    expect(hidesChildren(block("p", "p", { collapsed: true }))).toBe(false);
+  });
+
+  test("a collapsed Roam table still shows its rows", () => {
+    expect(hidesChildren(table("{{[[table]]}}"))).toBe(false);
+    expect(hidesChildren(table("{{table}}"))).toBe(false);
+  });
+
+  test("a collapsed block whose text is not a table macro hides its rows", () => {
+    expect(hidesChildren(table("{{[[table]]}} notes"))).toBe(true);
   });
 });
 

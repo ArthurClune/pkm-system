@@ -240,6 +240,16 @@ describe("outline causality", () => {
       .toEqual({ uid: "g", cursor: 5 });
   });
 
+  it("keeps focus in a cell of a collapsed Roam table: its rows stay on screen", () => {
+    const tree = [block("t", "{{[[table]]}}", { collapsed: true, children: [
+      block("r1", "a", { order_idx: ord(0), children: [
+        block("r1b", "b", { order_idx: ord(0) }),
+      ] }),
+    ] })];
+    const focus = { uid: uid("r1b"), cursor: 1 };
+    expect(validateOutlineFocus(focus, tree)).toBe(focus);
+  });
+
   it("keeps focus on a collapsed block itself: only its children are hidden", () => {
     const tree = [block("p", "parent", { collapsed: true, children: [
       block("c", "child", { order_idx: ord(0) }),

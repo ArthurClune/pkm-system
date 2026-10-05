@@ -188,7 +188,7 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
     const undoing = command.kind === "undo";
     const replayed = replayEntry(base, entry, command.kind);
     tree = replayed.blocks;
-    // useOutline's applyFocus: the entry's focus, dropped when its block is gone.
+    // useOutline's applyFocus: the entry's focus, validated as useOutline does.
     focus = validateOutlineFocus(undoing ? entry.focusBefore : entry.focusAfter, tree);
     const rows = entryRows.get(entry);
     if (!rows) throw new Error("runner: history entry without recorded rows");

@@ -2,7 +2,7 @@
 // handlers dispatch through the global undo manager.
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import type { ClientId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
@@ -260,6 +260,44 @@ it("undo clamps the restored caret to the restored text", () => {
   act(() => outline().handlers.onUndo());
   expect(outline().blocks[0].text).toBe("ab");
   expect(outline().focus).toEqual({ uid: "a", cursor: 2 });
+});
+
+/** A collapsed Roam table: its rows render whatever its collapsed flag says. */
+const collapsedTable = () => [
+  block("t", "{{[[table]]}}", { order_idx: ord(0), collapsed: true, children: [
+    block("r1", "a", { order_idx: ord(0), children: [
+      block("r1b", "b", { order_idx: ord(0) }),
+    ] }),
+  ] }),
+  block("x", "other", { order_idx: ord(1) }),
+];
+
+it("typing in a cell of a collapsed table keeps focus there through a flush and a remote batch", () => {
+  vi.useFakeTimers();
+  try {
+    const sync = makeSync();
+    const outline = setup(sync, PAGE, collapsedTable());
+    act(() => outline().handlers.onFocusBlock(uid("r1b"), 1));
+    act(() => outline().handlers.onDraftChange(uid("r1b"), "bc"));
+    act(() => { vi.advanceTimersByTime(5000); }); // the debounced flush
+    expect(sync.sent[0]).toMatchObject([{ op: "update_text", uid: "r1b", text: "bc" }]);
+    expect(outline().focus).toEqual({ uid: "r1b", cursor: 1 });
+    act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
+      { op: "update_text", uid: uid("x"), text: "remote" },
+    ] }));
+    expect(outline().focus).toEqual({ uid: "r1b", cursor: 1 });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("undo inside a cell of a collapsed table keeps focus in the cell", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, collapsedTable());
+  act(() => outline().handlers.onFocusBlock(uid("r1b"), 1));
+  act(() => outline().handlers.onSetHeading(uid("r1b"), 2));
+  act(() => outline().handlers.onUndo());
+  expect(outline().focus).toEqual({ uid: "r1b", cursor: 1 });
 });
 
 it("collapse toggles are not undo steps", () => {

@@ -1,9 +1,10 @@
 // pattern: Functional Core
 // Drives the real outline commands from abstract descriptors and records undo
 // history the way useOutline.run and undoManager do: a typed draft is held
-// until the next command flushes it, the flushed text op joins that command's
-// batch, the batch's inverse is taken against the pre-flush tree, and undo or
-// redo flushes the draft as its own entry before replaying anything.
+// until the next command flushes it, joining that command's batch only under
+// the FOLDS_DRAFT rule below (otherwise it lands as its own entry first), the
+// batch's inverse is taken against the pre-flush tree, and undo or redo
+// flushes the draft as its own entry before replaying anything.
 import type { BlockUid } from "../../api/brands";
 import type { BlockOp, SetViewTypeOp } from "../../api/ops";
 import type { BlockNode } from "../../api/payloads";
@@ -49,7 +50,9 @@ export interface Step {
   /** The command's ops, not the flushed text op; for undo/redo, the batch replayed. */
   ops: BlockOp[];
   focus: FocusTarget | null;
-  /** invertOps over the recorded batch; null = not invertible. */
+  /** invertOps over the recorded batch, against the pre-flush tree: it undoes a
+   * folded draft too, so applyOps(after, inverse) gives that tree, not `base`.
+   * null = not invertible. */
   inverse: BlockOp[] | null;
   /** For undo/redo: the rows the entry should restore. */
   undo?: { expectedRows: Row[] };
@@ -84,7 +87,9 @@ const noop = (b: BlockNode[]): EditResult => ({ blocks: b, ops: [], focus: null 
 // other gesture flushes it as its own entry first: a command on another block
 // needs focus there (onFocusBlock, onArrow), a selection starts with
 // onStartBlockSelection/onSelectBlock, and a chevron, block-menu or drag-handle
-// click blurs the textarea (onBlurBlock), each of which calls flushNow.
+// click blurs the textarea (onBlurBlock), each of which calls flushNow. Those
+// same gestures set the focus the next history entry records: null after a
+// selection start or a blur, the target block after a focus change.
 const FOLDS_DRAFT = new Set<Command["kind"]>([
   "split", "backspace", "indent", "outdent", "moveUp", "moveDown", "subtreeUp",
   "subtreeDown", "paste", "heading",
@@ -144,8 +149,10 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
   };
 
   const flushNow = () => { run(noop); };
-  // A function, not a read of `draft`: the closures above reassign it.
+  // Functions, not reads of `draft` and `focus`: the closures above reassign
+  // them, which the loop's narrowing cannot see.
   const heldUid = (): BlockUid | null => draft?.uid ?? null;
+  const focusedUid = (): BlockUid | null => focus?.uid ?? null;
 
   const replay = (command: Command & { kind: "undo" | "redo" }): Step => {
     flushNow();
@@ -279,7 +286,12 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
         // depth-first, and takes the next fresh uid.
         const fresh = Array.from({ length: countNodes(command.forest) - 1 }, mint);
         let handed = 0;
-        const newUid = () => (handed < fresh.length ? fresh[handed++] : mint());
+        const newUid = (): BlockUid => {
+          if (handed === fresh.length) {
+            throw new Error("runner: paste created more blocks than its forest has");
+          }
+          return fresh[handed++];
+        };
         resolved = { kind: "paste", uid, from, to, forest: command.forest, text: pasted, fresh };
         edit = (b) => seam.planOutlinePaste(b, PAGE_TITLE, uid, from, to, pasted, newUid);
         break;
@@ -298,8 +310,11 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
         break;
     }
 
+    const folds = FOLDS_DRAFT.has(command.kind);
     const held = heldUid();
-    if (held !== null && !(FOLDS_DRAFT.has(command.kind) && held === uid)) flushNow();
+    if (held !== null && !(folds && held === uid)) flushNow();
+    if (!folds) focus = null;
+    else if (focusedUid() !== uid) focus = { uid, cursor: text.length };
     if (edit === null) {
       // A drop back where it came from: the app never calls moveTo.
       steps.push({ command, resolved, base: tree, after: tree, ops: [], focus: null,

@@ -8,7 +8,7 @@ import { findNode } from "../../outline/tree";
 import { forestArb, PAGE_TITLE, renderForest, sequenceArb, treeArb, type Command,
          type IndentStyle } from "./arbitraries";
 import { readingRows } from "./reading";
-import { runSequence } from "./run";
+import { REAL, runSequence } from "./run";
 
 const node = (uid: string, order: number, over: Partial<BlockNode> = {},
               children: BlockNode[] = []): BlockNode => ({
@@ -57,6 +57,59 @@ describe("runSequence", () => {
     expect(run.history.undo.map((e) => e.ops)).toEqual([
       [{ op: "update_text", uid: "b", text: "zz" }],
       run.steps[1].ops,
+    ]);
+  });
+
+  it("a folded command that is itself a no-op records a text-only entry", () => {
+    const run = runSequence(flat(), [
+      { kind: "type", row: 0, text: "zz" },
+      { kind: "indent", row: 0 },
+    ]);
+    const indent = run.steps[1];
+    expect(indent.ops).toEqual([]);
+    expect(indent.after).toEqual(indent.base);
+    expect(textOf(indent.after, "a")).toBe("zz");
+    expect(run.history.undo.map((e) => e.ops)).toEqual([
+      [{ op: "update_text", uid: "a", text: "zz" }],
+    ]);
+  });
+
+  it("a batch with no inverse is not recorded", () => {
+    const run = runSequence(flat(), [{ kind: "indent", row: 1 }],
+                            { ...REAL, invertOps: () => null });
+    expect(run.steps[0].ops.length).toBeGreaterThan(0);
+    expect(run.steps[0].inverse).toBeNull();
+    expect(run.history).toEqual(emptyHistory());
+  });
+
+  it("a drop that resolves to no move still flushes the draft", () => {
+    const run = runSequence(flat(), [
+      { kind: "type", row: 0, text: "zz" },
+      { kind: "drop", row: 0, span: 0, boundary: 0, depth: 0 },
+    ]);
+    const drop = run.steps[1];
+    expect(drop.resolved?.kind).toBe("drop");
+    expect(drop.ops).toEqual([]);
+    expect(textOf(drop.base, "a")).toBe("zz");
+    expect(run.history.undo.map((e) => e.ops)).toEqual([
+      [{ op: "update_text", uid: "a", text: "zz" }],
+    ]);
+  });
+
+  it("entry focus follows the gesture that ran the command", () => {
+    const sel = runSequence(flat(), [
+      { kind: "type", row: 0, text: "zz" },
+      { kind: "indentSel", row: 1, span: 0 },
+    ]);
+    expect(sel.history.undo.map((e) => e.focusBefore)).toEqual([
+      { uid: "a", cursor: 2 }, null,
+    ]);
+    const other = runSequence(flat(), [
+      { kind: "type", row: 0, text: "zz" },
+      { kind: "indent", row: 2 },
+    ]);
+    expect(other.history.undo.map((e) => e.focusBefore)).toEqual([
+      { uid: "a", cursor: 2 }, { uid: "c", cursor: 1 },
     ]);
   });
 
@@ -182,6 +235,8 @@ describe("runSequence", () => {
       return r.text === renderForest(command.forest, command.style)
         && r.fresh.length === count(command.forest) - 1
         && r.fresh.every((u) => findNode(step.after, u) !== null)
+        && readingRows(step.after).every((row) =>
+          findNode(step.base, row.uid) !== null || r.fresh.includes(row.uid))
         && 0 <= r.from && r.from <= r.to && r.to <= text.length;
     }));
   });

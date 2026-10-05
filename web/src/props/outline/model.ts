@@ -56,7 +56,8 @@ const moveBlock = (rows: readonly Row[], start: number, end: number, at: number)
   return rest;
 };
 
-/** A row is hidden exactly when one of its ancestors is collapsed. */
+/** A row is hidden exactly when one of its ancestors is collapsed. Matches
+ * readingRows only while no table macro is drawn: a collapsed Roam table hides nothing. */
 const rehide = (rows: readonly Row[]): Row[] => {
   const ancestors: Row[] = [];
   return rows.map((r) => {

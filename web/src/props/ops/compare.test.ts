@@ -50,7 +50,28 @@ describe("treesFromSnapshot", () => {
   });
 });
 
+describe("treesFromSnapshot input checks", () => {
+  it("throws on unreachable rows", () => {
+    for (const bad of [sblock("opsb09", 1, "nowhere", 1), sblock("opsb09", 1, "opsb09", 1),
+                       sblock("opsb09", 1, "opsb08", 1)]) {
+      const rows = [sblock("opsb00", 1, null, 1), bad,
+                    ...(bad.parent_uid === "opsb08" ? [sblock("opsb08", 2, null, 1)] : [])];
+      expect(() => treesFromSnapshot(snap(rows), ["A"])).toThrow(/page "A".*opsb09/);
+    }
+  });
+  it("throws on two pages with one title", () => {
+    const s = snap([]);
+    s.pages.push({ id: 3, title: "A", created_at: 1, updated_at: 1 } as never);
+    expect(() => treesFromSnapshot(s, ["A"])).toThrow(/two pages titled "A"/);
+  });
+});
+
 describe("diffTrees", () => {
+  it("reports a uid appearing twice in one tree", () => {
+    const a = [node("opsb00", 1), node("opsb00", 2)];
+    expect(diffTrees(a, [node("opsb00", 1)], ["server", "tree"]))
+      .toContain("opsb00: duplicated in server");
+  });
   const names: [string, string] = ["server", "tree"];
   it("is empty for equal trees", () => {
     expect(diffTrees([node("opsb00", 1)], [node("opsb00", 1)], names)).toEqual([]);

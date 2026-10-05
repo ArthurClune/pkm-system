@@ -449,4 +449,26 @@ describe("needsAuthoritativeReload", () => {
     ];
     expect(needsAuthoritativeReload(tree(), ops, "P")).toBe(false);
   });
+  test("true when one batch moves a present block off the page and back", () => {
+    // The echo removes "a" on the first move and cannot place it on the
+    // second, so the rule is asked of the tree as each op leaves it.
+    expect(needsAuthoritativeReload(
+      tree(), [move("a", "Q"), move("a", "P")], "P")).toBe(true);
+  });
+  test("false when the batch created the block on this page before moving it", () => {
+    const ops: BlockOp[] = [
+      { op: "create", uid: uid("zz"), parent_uid: null, order_idx: ord(9),
+        text: "Z", page_title: "P" } as BlockOp,
+      move("zz", "P"),
+    ];
+    expect(needsAuthoritativeReload(tree(), ops, "P")).toBe(false);
+  });
+  test("false for a batch that only moves a present block off the page", () => {
+    expect(needsAuthoritativeReload(tree(), [move("a", "Q")], "P")).toBe(false);
+  });
+  test("leaves the caller's tree untouched", () => {
+    const blocks = tree();
+    needsAuthoritativeReload(blocks, [move("a", "Q"), move("a", "P")], "P");
+    expect(blocks).toEqual(tree());
+  });
 });

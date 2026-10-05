@@ -50,6 +50,11 @@ repair epoch. Several surfaces of one title are usually mounted at once, so
 highest kind wins, and the newest registration within a kind; mount order must
 not decide which fetch a session performs.
 
+`tree.ts::needsAuthoritativeReload` decides the cross-page case op by op, on
+the tree as the batch's earlier ops leave it. A batch that moves a block off
+the page and back therefore reloads, because the echo removes the block on the
+first move and cannot place it on the second.
+
 | Kind | Registered by | Missing-page policy it applies |
 |---|---|---|
 | `page` | `useOutlinePageLoad` | the policy its surface was constructed with |

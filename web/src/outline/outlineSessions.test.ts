@@ -530,6 +530,26 @@ it("legacy repair adopts server state and reapplies a wholly later ticket", asyn
   session.release();
 });
 
+it("asks for authority when a remote batch moves a block off the page and back", () => {
+  const title = "Remote off and back";
+  const session = acquireOutlineSession(title, [
+    block("x1", "X", { order_idx: ord(0) }),
+  ]);
+  try {
+    const move = (pageTitle: string) => ({
+      op: "move" as const, uid: uid("x1"), parent_uid: null,
+      order_idx: ord(0), page_title: pageTitle,
+    });
+    const result = session.applyRemote({
+      client_id: "remote" as ClientId, ts: 1,
+      ops: [move("Elsewhere"), move(title)],
+    });
+    expect(result).toEqual({ applied: true, needsAuthoritative: true });
+  } finally {
+    session.release();
+  }
+});
+
 it("legacy repair rejects when an active session has no loader", async () => {
   const session = acquireOutlineSession(
     "Missing repair loader", [block("u1", "optimistic")],

@@ -34,6 +34,18 @@ CREATE TABLE IF NOT EXISTS effect_ledger(
   PRIMARY KEY (batch_id, uid)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_effect_ledger_uid ON effect_ledger(uid);
+
+CREATE TABLE IF NOT EXISTS replay_log(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('block','page')), key TEXT NOT NULL,
+  pre_json TEXT, pre_page_id INTEGER, UNIQUE(batch_id, kind, key));
+CREATE INDEX IF NOT EXISTS idx_replay_log_key ON replay_log(kind, key);
+CREATE TABLE IF NOT EXISTS replay_log_refs(
+  log_id INTEGER NOT NULL REFERENCES replay_log(id) ON DELETE CASCADE,
+  target_page_id INTEGER NOT NULL, kind TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_replay_log_refs_log ON replay_log_refs(log_id);
+CREATE TABLE IF NOT EXISTS replay_batches(
+  batch_id TEXT PRIMARY KEY, enqueued_ms INTEGER NOT NULL);
 `;
 
 /** Identifies the exact DDL a replica file was built with; a mismatch on

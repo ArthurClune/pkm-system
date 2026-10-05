@@ -58,11 +58,19 @@ export function treeProblems(blocks: readonly BlockNode[]): string[] {
   return problems;
 }
 
-/** null when the rows are equal, else the first differing index with both rows. */
+const rowEqual = (a: Row, b: Row): boolean =>
+  a.uid === b.uid && a.depth === b.depth && a.text === b.text && a.heading === b.heading
+  && a.viewType === b.viewType && a.collapsed === b.collapsed && a.hidden === b.hidden;
+
+/**
+ * null when the rows are equal, else the first differing index with both rows.
+ * Deliberately exact: a null view type differs from "document" here (the meaning
+ * check compares a command's effect field by field); `structural` is what folds them.
+ */
 export function rowsDiff(expected: readonly Row[], actual: readonly Row[]): string | null {
   const n = Math.min(expected.length, actual.length);
   for (let i = 0; i < n; i++) {
-    if (JSON.stringify(expected[i]) !== JSON.stringify(actual[i])) {
+    if (!rowEqual(expected[i], actual[i])) {
       return `row ${i} differs: expected ${JSON.stringify(expected[i])}, actual ${JSON.stringify(actual[i])}`;
     }
   }

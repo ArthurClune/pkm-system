@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BlockUid, OrderIdx } from "../../api/brands";
 import type { BlockNode } from "../../api/payloads";
-import { readingRows, rowsDiff, structural, treeProblems } from "./reading";
+import { readingRows, type Row, rowsDiff, structural, treeProblems } from "./reading";
 
 const node = (uid: string, order: number, over: Partial<BlockNode> = {},
               children: BlockNode[] = []): BlockNode => ({
@@ -34,6 +34,9 @@ describe("structural", () => {
     const other = readingRows([node("a", 0, { heading: 2, view_type: "document" })]);
     expect(structural(rows)).toEqual(structural(other));
     expect(structural(rows)).toHaveLength(1);
+    const base = (over: Partial<BlockNode>): string[] => structural(readingRows([node("a", 0, over)]));
+    expect(base({ heading: 1 })).not.toEqual(base({ heading: 2 }));
+    expect(base({ text: "x" })).not.toEqual(base({ text: "y" }));
   });
 });
 
@@ -45,12 +48,14 @@ describe("treeProblems", () => {
 
   it("names equal sibling order keys", () => {
     const problems = treeProblems([node("a", 1), node("b", 1)]);
-    expect(problems.join("\n")).toMatch(/order_idx/);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/share order_idx 1/);
   });
 
   it("names siblings not sorted by order_idx", () => {
     const problems = treeProblems([node("a", 5), node("b", 2)]);
-    expect(problems.length).toBeGreaterThan(0);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/not sorted by order_idx/);
   });
 
   it("accepts gaps", () => {
@@ -68,5 +73,14 @@ describe("rowsDiff", () => {
     expect(diff).toContain("\"b\"");
     expect(diff).toContain("\"x\"");
     expect(rowsDiff(a, a.slice(0, 2))).toContain("length");
+  });
+
+  it("ignores the key order of row literals", () => {
+    const [r] = readingRows([node("a", 0)]);
+    const reordered: Row = {
+      hidden: r.hidden, collapsed: r.collapsed, viewType: r.viewType, heading: r.heading,
+      text: r.text, depth: r.depth, uid: r.uid,
+    };
+    expect(rowsDiff([r], [reordered])).toBeNull();
   });
 });

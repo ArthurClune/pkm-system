@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
-import type { BatchId } from "../api/brands";
+import type { BatchId, CanonicalTitle, PageId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { opBumpsUpdatedAt } from "../outline/blockStamps";
 import { applyLocalOps, getOrCreateLocalPage, LocalOpError, subtreeUids } from "./localOps";
@@ -9,9 +9,9 @@ import { openTestDb, type TestDb } from "./testDb";
 import { ord, uid } from "../test-helpers";
 
 const bid = (s: string): BatchId => s as BatchId;
-/** applyLocalOps for a fixed test batch; `opts` overrides the id or replays. */
+/** applyLocalOps for a fixed test batch; `opts` overrides the id. */
 const apply = (db: TestDb["db"], ops: BlockOp[], nowMs: number,
-               opts: { batchId?: BatchId; reapply?: boolean } = {}): void =>
+               opts: { batchId?: BatchId } = {}): void =>
   applyLocalOps(db, ops, nowMs, { batchId: bid("t"), ...opts });
 
 let t: TestDb;
@@ -522,119 +522,133 @@ describe("opBumpsUpdatedAt agrees with what the replica actually writes", () => 
   });
 });
 
-describe("applyLocalOps: effect ledger", () => {
-  type Rec = { batch_id: string; uid: string; order_delta: number;
-               base_page_id: number | null; base_updated_at: number | null };
-  const ledger = () => rows<Rec>(
-    "SELECT batch_id, uid, order_delta, base_page_id, base_updated_at" +
-    " FROM effect_ledger ORDER BY batch_id, uid");
-  const deltas = () => ledger().map((r) => `${r.batch_id}:${r.uid}:${r.order_delta}`);
+describe("applyLocalOps: replay log", () => {
+  type Rec = { batch_id: string; kind: string; key: string;
+               order_idx: number | null; text: string | null;
+               updated_at: number | null; pre_page_id: number | null };
+  /** absent pre-images read as null order_idx, text and updated_at */
+  const log = () => rows<Rec>(
+    "SELECT batch_id, kind, key, pre_json ->> 'order_idx' AS order_idx," +
+    " pre_json ->> 'text' AS text, pre_json ->> 'updated_at' AS updated_at," +
+    " pre_page_id FROM replay_log ORDER BY batch_id, kind, key");
+  const keys = () => log().map((r) => `${r.batch_id}:${r.kind}:${r.key}`);
   const create = (u: string, order = 0, page_title = "AI"): BlockOp =>
     ({ op: "create", uid: uid(u), page_title, parent_uid: null,
        order_idx: ord(order), text: u });
   const b = (s: string) => ({ batchId: bid(s) });
+  const rec = (key: string, over: Partial<Rec> = {}): Rec => ({
+    batch_id: "b1", kind: "block", key, order_idx: null, text: null,
+    updated_at: null, pre_page_id: null, ...over,
+  });
+  const pageRec = (id: number, updated_at: number | null = null): Rec =>
+    rec(String(id), { kind: "page", updated_at });
 
-  test("a delete records each cascaded descendant and never the root", () => {
+  test("a delete records the whole subtree, root included, before it goes", () => {
     t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
               " VALUES ('uid_r2cc', 1, 'uid_r2c', 0, 'grandchild')");
     apply(t.db, [{ op: "delete", uid: uid("uid_r2") }], 99, b("b1"));
-    expect(rows<{ uid: string; has: number }>(
-      "SELECT uid, row_json IS NOT NULL AS has FROM effect_ledger ORDER BY uid"))
-      .toEqual([{ uid: "uid_r2c", has: 1 }, { uid: "uid_r2cc", has: 1 }]);
+    expect(log()).toEqual([
+      rec("uid_r2", { order_idx: 1, text: "second", pre_page_id: 1 }),
+      rec("uid_r2c", { order_idx: 0, text: "child of second", pre_page_id: 1 }),
+      rec("uid_r2cc", { order_idx: 0, text: "grandchild", pre_page_id: 1 }),
+      pageRec(1),
+    ]);
   });
 
-  test("a create records +1 on each shifted sibling and nothing for its own uid", () => {
+  test("a create records each shifted sibling's pre-image and an absent one for its own uid", () => {
     apply(t.db, [create("uid_new", 0)], 99, b("b1"));
-    expect(deltas()).toEqual(["b1:uid_r1:1", "b1:uid_r2:1"]);
+    expect(log()).toEqual([
+      rec("uid_new"),
+      rec("uid_r1", { order_idx: 0, text: "first", pre_page_id: 1 }),
+      rec("uid_r2", { order_idx: 1, text: "second", pre_page_id: 1 }),
+      pageRec(1),
+    ]);
   });
 
-  test("a move within one group records the shifted siblings, not the moved block", () => {
+  test("a move within one group records the shifted siblings and the moved block once, before the shift", () => {
     apply(t.db, [{ op: "move", uid: uid("uid_r2"), parent_uid: null,
                    order_idx: ord(0), page_title: "AI" }], 99, b("b1"));
-    expect(deltas()).toEqual(["b1:uid_r1:1"]);
+    expect(keys()).toEqual(["b1:block:uid_r1", "b1:block:uid_r2", "b1:page:1"]);
+    expect(log().find((r) => r.key === "uid_r2")!.order_idx).toBe(1);
   });
 
-  test("a cross-page move records destination siblings and page records for descendants, not the root", () => {
+  test("a cross-page move records destination siblings and the moved subtree on its old page", () => {
     t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, updated_at)" +
               " VALUES ('uid_p2a', 2, NULL, 0, 'p2', 1)");
     t.db.exec("UPDATE blocks SET updated_at = 555 WHERE uid = 'uid_r2c'");
     apply(t.db, [{ op: "move", uid: uid("uid_r2"), parent_uid: null,
                    order_idx: ord(0), page_title: "ML" }], 99, b("b1"));
-    expect(ledger()).toEqual([
-      { batch_id: "b1", uid: "uid_p2a", order_delta: 1,
-        base_page_id: null, base_updated_at: null },
-      { batch_id: "b1", uid: "uid_r2c", order_delta: 0,
-        base_page_id: 1, base_updated_at: 555 },
+    expect(log()).toEqual([
+      rec("uid_p2a", { order_idx: 0, text: "p2", updated_at: 1, pre_page_id: 2 }),
+      rec("uid_r2", { order_idx: 1, text: "second", pre_page_id: 1 }),
+      rec("uid_r2c", { order_idx: 0, text: "child of second", updated_at: 555,
+                       pre_page_id: 1 }),
+      pageRec(1), pageRec(2),
     ]);
   });
 
-  test("a replayed create kept after its parent moved pages records a page base for the descendants only", () => {
-    apply(t.db, [
-      { op: "create", uid: uid("uid_n"), page_title: "AI", parent_uid: uid("uid_r2"),
-        order_idx: ord(5), text: "n" },
-      { op: "create", uid: uid("uid_nc"), page_title: "AI", parent_uid: uid("uid_n"),
-        order_idx: ord(0), text: "nc" },
-    ], 99, b("b1"));
-    t.db.exec("UPDATE blocks SET page_id = 2 WHERE uid IN ('uid_r2','uid_r2c')");
-    apply(t.db, [
-      { op: "create", uid: uid("uid_n"), page_title: "AI", parent_uid: uid("uid_r2"),
-        order_idx: ord(5), text: "n" },
-    ], 100, { ...b("b1"), reapply: true });
-    const pageRecs = ledger().filter((r) => r.base_page_id !== null);
-    expect(pageRecs.map((r) => [r.uid, r.base_page_id])).toEqual([["uid_nc", 1]]);
-  });
-
-  test("a replay that keeps its op in place records nothing", () => {
-    apply(t.db, [create("uid_new", 0)], 99, b("b1"));
-    const before = ledger();
-    apply(t.db, [create("uid_new", 0)], 100, { ...b("b1"), reapply: true });
-    expect(ledger()).toEqual(before);
-  });
-
-  test("a replay whose keepSlot finds a clash adds to the delta", () => {
-    apply(t.db, [create("uid_new", 0)], 99, b("b1"));
-    t.db.exec("UPDATE blocks SET order_idx = 0 WHERE uid = 'uid_r1'");
-    apply(t.db, [create("uid_new", 0)], 100, { ...b("b1"), reapply: true });
-    expect(deltas()).toEqual(["b1:uid_r1:2", "b1:uid_r2:2"]);
-  });
-
-  test("a replay of a move no longer in place adds to the delta", () => {
-    const mv: BlockOp = { op: "move", uid: uid("uid_r2"), parent_uid: null,
-                          order_idx: ord(0), page_title: "AI" };
-    apply(t.db, [mv], 99, b("b1"));
-    expect(deltas()).toEqual(["b1:uid_r1:1"]);
-    t.db.exec("UPDATE blocks SET order_idx = 1 WHERE uid = 'uid_r2'");
-    apply(t.db, [mv], 100, { ...b("b1"), reapply: true });
-    expect(deltas()).toEqual(["b1:uid_r1:2"]);
-  });
-
-  test("a batch that moves a root across pages then moves its descendant leaves the descendant unrecorded", () => {
+  test("a later write in the batch keeps the first pre-image; another batch records its own", () => {
     apply(t.db, [
       { op: "move", uid: uid("uid_r2"), parent_uid: null, order_idx: ord(0),
         page_title: "ML" },
       { op: "move", uid: uid("uid_r2c"), parent_uid: null, order_idx: ord(0),
         page_title: "ML" },
+      { op: "update_text", uid: uid("uid_r2c"), text: "edited" },
     ], 99, b("b1"));
-    expect(ledger().filter((r) => r.uid === "uid_r2c")).toEqual([]);
+    apply(t.db, [{ op: "update_text", uid: uid("uid_r2c"), text: "again" }], 100,
+          b("b2"));
+    expect(log().filter((r) => r.key === "uid_r2c")).toEqual([
+      rec("uid_r2c", { order_idx: 0, text: "child of second", pre_page_id: 1 }),
+      rec("uid_r2c", { batch_id: "b2", order_idx: 0, text: "edited",
+                       updated_at: 99, pre_page_id: 2 }),
+    ]);
   });
 
-  test("re-creating a uid drops the records an earlier batch left on it", () => {
-    apply(t.db, [create("uid_new", 0)], 99, b("b1"));
-    expect(deltas()).toContain("b1:uid_r1:1");
-    apply(t.db, [{ op: "delete", uid: uid("uid_r1") }], 100, b("b2"));
-    apply(t.db, [create("uid_r1", 0)], 101, b("b3"));
-    expect(ledger().filter((r) => r.uid === "uid_r1")).toEqual([]);
-  });
-
-  test("update_text, set_collapsed, set_heading, set_view_type, a leaf delete and create_page record nothing", () => {
+  test("text and field edits record their block, and every one but set_collapsed its page", () => {
+    apply(t.db, [{ op: "set_collapsed", uid: uid("uid_r1"), collapsed: true }], 99,
+          b("b1"));
+    expect(keys()).toEqual(["b1:block:uid_r1"]);
     apply(t.db, [
-      { op: "update_text", uid: uid("uid_r1"), text: "x" },
-      { op: "set_collapsed", uid: uid("uid_r1"), collapsed: true },
-      { op: "set_heading", uid: uid("uid_r1"), heading: 2 },
+      { op: "update_text", uid: uid("uid_r2"), text: "x" },
+      { op: "set_heading", uid: uid("uid_r2c"), heading: 2 },
       { op: "set_view_type", uid: uid("uid_r1"), view_type: "numbered" },
-      { op: "delete", uid: uid("uid_r2c") },
-      { op: "create_page", page_title: "Fresh" },
-    ], 99, b("b1"));
-    expect(ledger()).toEqual([]);
+    ], 99, b("b2"));
+    expect(keys().filter((k) => k.startsWith("b2"))).toEqual(
+      ["b2:block:uid_r1", "b2:block:uid_r2", "b2:block:uid_r2c", "b2:page:1"]);
+  });
+
+  test("a link to a new title records the minted page as absent, and the block's refs", () => {
+    t.db.exec("INSERT INTO refs VALUES ('uid_r1', 2, 'link')");
+    apply(t.db, [{ op: "update_text", uid: uid("uid_r1"), text: "see [[Fresh]]" }],
+          99, b("b1"));
+    const [minted] = rows<{ id: number }>("SELECT id FROM pages WHERE title = 'Fresh'");
+    expect(log()).toEqual([
+      rec("uid_r1", { order_idx: 0, text: "first", pre_page_id: 1 }),
+      pageRec(minted.id), pageRec(1),
+    ].sort((x, y) => (x.kind + x.key).localeCompare(y.kind + y.key)));
+    expect(rows("SELECT target_page_id, kind FROM replay_log_refs"))
+      .toEqual([{ target_page_id: 2, kind: "link" }]);
+  });
+
+  test("create_page records its page whether it mints it or not", () => {
+    apply(t.db, [{ op: "create_page", page_title: "AI" },
+                 { op: "create_page", page_title: "Fresh" }], 99, b("b1"));
+    const [minted] = rows<{ id: number }>("SELECT id FROM pages WHERE title = 'Fresh'");
+    expect(rows("SELECT key, pre_json FROM replay_log ORDER BY key")).toEqual([
+      { key: String(minted.id), pre_json: null },
+      { key: "1", pre_json: JSON.stringify({ updated_at: null }) },
+    ]);
+  });
+
+  test("a recorded mint reuses the id freed for its title while that id is free", () => {
+    const freed = new Map([["Fresh" as CanonicalTitle, -7 as PageId],
+                           ["Taken" as CanonicalTitle, -1 as PageId]]);
+    t.db.exec("INSERT INTO pages(id, title) VALUES (-1, 'Other')");
+    const record = { batchId: bid("b1"), freed };
+    expect(getOrCreateLocalPage(t.db, "Fresh", 5, record)).toBe(-7);
+    expect(getOrCreateLocalPage(t.db, "Taken", 5, record)).toBe(-8);
+    // a read's mint is not recorded and reuses nothing
+    expect(getOrCreateLocalPage(t.db, "Daily", 5)).toBe(-9);
+    expect(keys()).toEqual(["b1:page:-7", "b1:page:-8"]);
   });
 });

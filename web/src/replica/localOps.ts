@@ -10,17 +10,20 @@
 // An op on a missing block or create/move parent is skipped, as the server
 // skips it (missingTarget.ts), and so is a move that would nest
 // a block under itself or its own descendant. Where a create or move
-// lands, including a re-applied batch (reapply) keeping its own effects
-// in place, is placementFor's verdict (placement.ts); this file runs it.
+// lands is placementFor's verdict (placement.ts); this file runs it.
+// Every write is preceded by a call recording the row's pre-image under the
+// op's batch (replayLog.ts), so a feed window can rewind the batch and
+// replay it as a first apply.
 
 import type { BatchId, BlockUid, OrderIdx, PageId } from "../api/brands";
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
-import { dropRecordsOf, recordCascade, recordRepage, recordShift } from "./effectLedger";
 import { skipsOnMissingTarget } from "./missingTarget";
 import { existingLocalPageId, localPageTitle, pageIdByTitle } from "./pageLookup";
 import { type Placement, type PlacementFacts, placementFor } from "./placement";
+import { recordBlocks, recordPage, recordSiblingsFrom } from "./replayLog";
+import type { FreedPages } from "./rewind";
 import { findOpTitleViolation, type OpTitleViolation,
          titleSyntaxReason } from "./titles";
 
@@ -50,16 +53,30 @@ const titleViolationError = (violation: OpTitleViolation): LocalOpError =>
     violation,
   );
 
+/** The batch a page mint is recorded under, and the ids a window's rewind
+ * freed by title. */
+type MintRecord = { batchId: BatchId; freed?: FreedPages };
+
+/** The page titled `requested`, minted with a negative id when none holds
+ * the title. With `record`, a mint is recorded under that batch and reuses
+ * the id the rewind freed for the title, while it is still free, so a
+ * replay does not churn local page ids (backlinks group by page_id). Reads
+ * that mint a daily page pass none: no op is behind that page. */
 export function getOrCreateLocalPage(db: ReplicaDb, requested: string,
-                                     nowMs: number): PageId {
+                                     nowMs: number, record?: MintRecord): PageId {
   const title = localPageTitle(db, requested);
   if (titleSyntaxReason(title) !== null) {
     throw new LocalOpError(`unsupported page title syntax: ${JSON.stringify(title)}`);
   }
   const existing = pageIdByTitle(db, title);
   if (existing !== null) return existing;
-  const next = db.select<{ id: PageId }>(
-    "SELECT MIN(0, COALESCE((SELECT MIN(id) FROM pages), 0)) - 1 AS id")[0].id;
+  const reuse = record?.freed?.get(title);
+  const next = reuse !== undefined
+      && db.select("SELECT 1 AS x FROM pages WHERE id = ?", [reuse]).length === 0
+    ? reuse
+    : db.select<{ id: PageId }>(
+        "SELECT MIN(0, COALESCE((SELECT MIN(id) FROM pages), 0)) - 1 AS id")[0].id;
+  if (record !== undefined) recordPage(db, record.batchId, next, true);
   db.exec(
     "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
     [next, title, nowMs, nowMs]);
@@ -67,27 +84,28 @@ export function getOrCreateLocalPage(db: ReplicaDb, requested: string,
 }
 
 const reindexRefs = (db: ReplicaDb, uid: BlockUid, text: string,
-                     nowMs: number): void => {
+                     nowMs: number, record: MintRecord): void => {
   // The block-level index is the composition apply.ts
   // shares; it hands back the parse so the page-level refs below reuse it.
   const { refs } = reindexBlockRefs(db, uid, text);
   db.exec("DELETE FROM refs WHERE src_block_uid = ?", [uid]);
   for (const ref of refs) {
-    const pageId = getOrCreateLocalPage(db, ref.title, nowMs);
+    const pageId = getOrCreateLocalPage(db, ref.title, nowMs, record);
     db.exec("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
             [uid, pageId, ref.kind]);
   }
 };
 
-const touchPage = (db: ReplicaDb, pageId: PageId, nowMs: number): void => {
+const touchPage = (db: ReplicaDb, pageId: PageId, nowMs: number,
+                   batchId: BatchId): void => {
+  recordPage(db, batchId, pageId, false);
   db.exec("UPDATE pages SET updated_at = ? WHERE id = ?", [nowMs, pageId]);
 };
 
 const shiftSiblings = (db: ReplicaDb, pageId: PageId,
                        parentUid: BlockUid | null,
-                       fromOrderIdx: OrderIdx, exceptUid: BlockUid,
-                       batchId: BatchId): void => {
-  recordShift(db, batchId, { pageId, parentUid, fromOrderIdx }, exceptUid);
+                       fromOrderIdx: OrderIdx, batchId: BatchId): void => {
+  recordSiblingsFrom(db, batchId, { pageId, parentUid, fromOrderIdx });
   db.exec(
     "UPDATE blocks SET order_idx = order_idx + 1" +
     " WHERE page_id = ? AND parent_uid IS ? AND order_idx >= ?",
@@ -102,25 +120,6 @@ const blockInfo = (db: ReplicaDb, uid: BlockUid): BlockInfo | null => {
   const rows = db.select<BlockInfo>(
     "SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid = ?", [uid]);
   return rows.length > 0 ? rows[0] : null;
-};
-
-/** Replay of a create or move already in place: shifting again would drift
- * every later sibling's order_idx on each feed window, until a sibling the
- * feed re-ships at its server index overtakes one that drifted. Shift only
- * when a sibling the window re-shipped now shares this block's slot. */
-const keepSlot = (db: ReplicaDb, uid: BlockUid, at: BlockInfo,
-                  batchId: BatchId): void => {
-  const clash = db.select(
-    "SELECT 1 AS x FROM blocks WHERE page_id = ? AND parent_uid IS ?" +
-    " AND order_idx = ? AND uid != ? LIMIT 1",
-    [at.page_id, at.parent_uid, at.order_idx, uid]);
-  if (clash.length === 0) return;
-  recordShift(db, batchId, { pageId: at.page_id, parentUid: at.parent_uid,
-                             fromOrderIdx: at.order_idx }, uid);
-  db.exec(
-    "UPDATE blocks SET order_idx = order_idx + 1" +
-    " WHERE page_id = ? AND parent_uid IS ? AND order_idx >= ? AND uid != ?",
-    [at.page_id, at.parent_uid, at.order_idx, uid]);
 };
 
 /** uid and every ancestor above it; the visited-path guard stops on a
@@ -164,28 +163,14 @@ const placementFacts = (db: ReplicaDb, op: CreateOp | MoveOp,
 
 /** Carry out placementFor's verdict for a create or move. */
 const place = (db: ReplicaDb, op: CreateOp | MoveOp, block: BlockInfo | null,
-               verdict: Placement, nowMs: number, batchId: BatchId): void => {
+               verdict: Placement, nowMs: number, record: MintRecord): void => {
   if (verdict.kind === "skip") return;
-  if (verdict.kind === "keep") {
-    // only a replayed create is ever kept with a re-page
-    const at = block!;
-    if (verdict.repageTo !== null) {
-      for (const uid of subtreeUids(db, op.uid)) {
-        if (uid !== op.uid) recordRepage(db, batchId, uid);
-        db.exec("UPDATE blocks SET page_id = ? WHERE uid = ?",
-                [verdict.repageTo, uid]);
-      }
-      dropRecordsOf(db, op.uid);
-      at.page_id = verdict.repageTo;
-    }
-    keepSlot(db, op.uid, at, batchId);
-    return;
-  }
+  const { batchId } = record;
   const pageId = "id" in verdict.page
     ? verdict.page.id
-    : getOrCreateLocalPage(db, verdict.page.title, nowMs);
-  shiftSiblings(db, pageId, verdict.parentUid, verdict.orderIdx, op.uid,
-                batchId);
+    : getOrCreateLocalPage(db, verdict.page.title, nowMs, record);
+  shiftSiblings(db, pageId, verdict.parentUid, verdict.orderIdx, batchId);
+  recordBlocks(db, batchId, [op.uid]);
   if (op.op === "create") {
     db.exec(
       "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
@@ -193,9 +178,8 @@ const place = (db: ReplicaDb, op: CreateOp | MoveOp, block: BlockInfo | null,
       " VALUES (?,?,?,?,?,?,0,?,?,?)",
       [op.uid, pageId, verdict.parentUid, verdict.orderIdx, op.text,
        op.heading ?? null, nowMs, nowMs, op.view_type ?? null]);
-    dropRecordsOf(db, op.uid);
-    reindexRefs(db, op.uid, op.text, nowMs);
-    touchPage(db, pageId, nowMs);
+    reindexRefs(db, op.uid, op.text, nowMs, record);
+    touchPage(db, pageId, nowMs, batchId);
     return;
   }
   // past the skip check, a move names an existing block
@@ -204,28 +188,32 @@ const place = (db: ReplicaDb, op: CreateOp | MoveOp, block: BlockInfo | null,
     "UPDATE blocks SET parent_uid = ?, order_idx = ?, updated_at = ?" +
     " WHERE uid = ?",
     [verdict.parentUid, verdict.orderIdx, nowMs, op.uid]);
-  dropRecordsOf(db, op.uid);
   if (verdict.repage) {
-    for (const uid of subtreeUids(db, op.uid)) {
-      if (uid !== op.uid) recordRepage(db, batchId, uid);
+    const subtree = subtreeUids(db, op.uid);
+    recordBlocks(db, batchId, subtree);
+    for (const uid of subtree) {
       db.exec("UPDATE blocks SET page_id = ?, updated_at = ? WHERE uid = ?",
               [pageId, nowMs, uid]);
     }
-    touchPage(db, moved.page_id, nowMs);
+    touchPage(db, moved.page_id, nowMs, batchId);
   }
-  touchPage(db, pageId, nowMs);
+  touchPage(db, pageId, nowMs, batchId);
 };
 
 function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
-                  reapply: boolean, batchId: BatchId): void {
+                  record: MintRecord): void {
+  const { batchId } = record;
   if (op.op === "create_page") {
-    getOrCreateLocalPage(db, op.page_title, nowMs);
+    // recorded even when the page exists, so the stranded-page sweep keeps
+    // a page only a pending create_page holds
+    const pageId = getOrCreateLocalPage(db, op.page_title, nowMs, record);
+    recordPage(db, batchId, pageId, false);
     return;
   }
   const info = blockInfo(db, op.uid);
   if (op.op === "create" || op.op === "move") {
-    place(db, op, info,
-          placementFor(op, placementFacts(db, op, info), reapply), nowMs, batchId);
+    place(db, op, info, placementFor(op, placementFacts(db, op, info)),
+          nowMs, record);
     return;
   }
   if (skipsOnMissingTarget(op, info !== null, false)) return;
@@ -234,19 +222,21 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
     case "update_text": {
       // past the skip check, every op but create names an existing block
       const block = info!;
+      recordBlocks(db, batchId, [op.uid]);
       db.exec("UPDATE blocks SET text = ?, updated_at = ? WHERE uid = ?",
               [op.text, nowMs, op.uid]);
-      reindexRefs(db, op.uid, op.text, nowMs);
-      touchPage(db, block.page_id, nowMs);
+      reindexRefs(db, op.uid, op.text, nowMs, record);
+      touchPage(db, block.page_id, nowMs, batchId);
       return;
     }
     case "delete": {
       const block = info!;
-      for (const uid of subtreeUids(db, op.uid)) {
-        if (uid !== op.uid) recordCascade(db, batchId, uid);
+      const subtree = subtreeUids(db, op.uid);
+      recordBlocks(db, batchId, subtree);
+      for (const uid of subtree) {
         db.exec("DELETE FROM blocks WHERE uid = ?", [uid]);
       }
-      touchPage(db, block.page_id, nowMs);
+      touchPage(db, block.page_id, nowMs, batchId);
       return;
     }
     case "set_collapsed": {
@@ -254,22 +244,25 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
       // other cases here, it must not bump the block's updated_at or its
       // page's — otherwise a UI-only toggle would pollute "last changed"
       // and reorder recency-sorted page lists.
+      recordBlocks(db, batchId, [op.uid]);
       db.exec("UPDATE blocks SET collapsed = ? WHERE uid = ?",
               [op.collapsed ? 1 : 0, op.uid]);
       return;
     }
     case "set_heading": {
       const block = info!;
+      recordBlocks(db, batchId, [op.uid]);
       db.exec("UPDATE blocks SET heading = ?, updated_at = ? WHERE uid = ?",
               [op.heading ?? null, nowMs, op.uid]);
-      touchPage(db, block.page_id, nowMs);
+      touchPage(db, block.page_id, nowMs, batchId);
       return;
     }
     case "set_view_type": {
       const block = info!;
+      recordBlocks(db, batchId, [op.uid]);
       db.exec("UPDATE blocks SET view_type = ?, updated_at = ? WHERE uid = ?",
               [op.view_type, nowMs, op.uid]);
-      touchPage(db, block.page_id, nowMs);
+      touchPage(db, block.page_id, nowMs, batchId);
       return;
     }
   }
@@ -278,20 +271,20 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
 /** Apply a batch atomically; a throwing op rolls the whole batch back.
  * An op on a missing target, or a move that would make a cycle, is skipped
  * rather than thrown on, as the server skips it, so the rest of the batch
- * still lands (the replica may simply be behind the editor). What still throws: a create onto an existing uid, a
- * title the grammar refuses. Callers treat the local apply as best-effort
- * cache maintenance, never as durability.
+ * still lands (the replica may simply be behind the editor). What still
+ * throws: a create onto an existing uid, a title the grammar refuses.
+ * Callers treat the local apply as best-effort cache maintenance, never as
+ * durability.
  *
- * `reapply` is reapplyPending's replay of a batch already applied once: a
- * create whose uid exists and a move whose block already sits at its target
- * are kept in place (keepSlot) instead of failing or shifting again. */
+ * Every write is recorded under `batchId` first. `freed` is the ids a
+ * window's rewind freed by title, for a replay's mints to reuse. */
 export function applyLocalOps(db: ReplicaDb, ops: BlockOp[], nowMs: number,
-                              { batchId, reapply = false }:
-                                { batchId: BatchId; reapply?: boolean },
+                              { batchId, freed }:
+                                { batchId: BatchId; freed?: FreedPages },
 ): void {
   const violation = findOpTitleViolation(ops);
   if (violation !== null) throw titleViolationError(violation);
   db.transaction(() => {
-    for (const op of ops) applyOne(db, op, nowMs, reapply, batchId);
+    for (const op of ops) applyOne(db, op, nowMs, { batchId, freed });
   });
 }

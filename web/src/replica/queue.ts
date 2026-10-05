@@ -18,6 +18,7 @@ import type { BlockOp } from "../api/ops";
 import type { PendingBatch, PendingRowId, PoisonedBatch } from "./client";
 import { type ReplicaDb, rollbackToSavepoint } from "./db";
 import { applyLocalOps, LocalOpError } from "./localOps";
+import { recordEnqueue } from "./replayLog";
 import { sha256Hex } from "./sha256";
 import { subtreeHash } from "./subtreeHash";
 import { findOpTitleViolation } from "./titles";
@@ -67,6 +68,8 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
   }
   if (ops.length > 0) {
     db.transaction(() => {
+      // a replay stamps the batch's rows with this time, as this apply does
+      recordEnqueue(db, batchId, nowMs);
       const augmented: BlockOp[] = [];
       for (const op of ops) {
         let wireOp: BlockOp = op;
@@ -101,7 +104,7 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
         // never depend on it. During the bootstrap window ops legitimately
         // reference blocks the replica has not hydrated yet — skip the
         // local effect (savepoint) and keep the op on the wire; the feed's
-        // reapplyPending restores local consistency once rows exist.
+        // replay applies it once the rows exist.
         db.exec("SAVEPOINT optimistic_op");
         try {
           applyLocalOps(db, [wireOp], nowMs, { batchId });

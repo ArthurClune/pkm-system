@@ -1,23 +1,26 @@
 // pattern: Imperative Shell
 // Feed application (spec sections 3 and 1): snapshot bootstrap and windowed
-// changes upserts. Each window applies in ONE transaction, ordered page and
-// sidebar tombstones -> pages -> blocks -> block tombstones -> sidebar, under
-// transaction-scoped deferred FKs so intra-window row order never matters for
-// FKs; it matters for the UNIQUE titles, which is why page and sidebar
-// tombstones lead and colliding titles are parked, and for the block
-// cascade, which is why block tombstones follow the upserts and wait for the
-// window that reaches the journal head (applyWindow).
+// changes upserts. Each window applies in ONE transaction: it rewinds the
+// pending batches' effects (rewind.ts), applies page and sidebar tombstones
+// -> pages -> blocks -> block tombstones -> sidebar, then replays the
+// pending batches as a first apply, under transaction-scoped deferred FKs
+// so intra-window row order never matters for FKs; it matters for the
+// UNIQUE titles, which is why page and sidebar tombstones lead and
+// colliding titles are parked, and for the block cascade, which is why
+// block tombstones follow the upserts and wait for the window that reaches
+// the journal head (applyWindow).
 // Upserts are idempotent -- re-pulling any window is safe. The
 // base schema's FTS triggers maintain the local search index on every upsert.
 //
 // Deferred FKs move every violation to the outer COMMIT, so neither the
-// savepoints reapplyPending rolls back to nor a try/catch around a single op
+// savepoints replayPending rolls back to nor a try/catch around a single op
 // can see one. Two guards keep that from wedging sync:
-//   - reapplyPending diffs `PRAGMA foreign_key_check` around each batch and
-//     rolls a batch back when it ADDS a violation, so an unappliable optimistic
-//     batch is skipped like any other instead of poisoning the COMMIT. The
-//     pragma reads violations whatever `foreign_keys`/`defer_foreign_keys` say,
-//     so this also protects the reset rebuild, which runs with FKs off.
+//   - replayPending diffs `PRAGMA foreign_key_check` around each batch and,
+//     when the batch ADDS a violation, redoes it op by op and rolls back each
+//     op that adds one, so an unappliable optimistic op is skipped like any
+//     other instead of poisoning the COMMIT. The pragma reads violations
+//     whatever `foreign_keys`/`defer_foreign_keys` say, so this also protects
+//     the reset rebuild, which runs with FKs off.
 //   - applyChanges turns an FK failure at COMMIT into `needs-bootstrap` rather
 //     than throwing: the window rolled back and the cursor never advanced, so
 //     rethrowing would refetch the same dependency-incomplete window forever.
@@ -29,15 +32,17 @@ import type { BlockUid, CanonicalTitle, PageId, SidebarEntryId,
 import type { components } from "../api/types";
 import { appliedPendingRows } from "./ackedRows";
 import { reindexBlockRefs } from "./blockRefs";
-import type { DroppedBatch, PendingRowId } from "./client";
+import type { DroppedBatch, PendingBatch, PendingRowId } from "./client";
 import { type ReplicaDb, rollbackToSavepoint, type SqlValue } from "./db";
-import { clearLedger, dropWindowRecords, settleBatches } from "./effectLedger";
 import { applyLocalOps } from "./localOps";
 import { deleteMeta, getMeta, setMeta,
          setPlainSpaceTitleCanonicalization } from "./meta";
 import { allBatches, deleteBatch } from "./queue";
 import { dropStrandedLocalPages, reconcileActivationPageTitles,
          reconcilePage } from "./reconcile";
+import { clearReplayLog, dropWindowRecords, enqueuedAt, pruneReplayBatches,
+         recordEnqueue } from "./replayLog";
+import { type FreedPages, rewind } from "./rewind";
 
 export type Changes = components["schemas"]["ChangesPayload"];
 export type Snapshot = components["schemas"]["SnapshotPayload"];
@@ -87,16 +92,13 @@ const upsertBlock = (db: ReplicaDb, b: SyncBlock): void => {
 
 /** The pending rows a payload names in `applied_batches` (the batch is
  * already in the server's applied_batches as of the read that hydrated the
- * payload), deleted before the replay; see appliedPendingRows for which rows
- * qualify.
+ * payload), deleted before the rewind and the replay; see appliedPendingRows
+ * for which rows qualify.
  *
  * A batch's writes and its applied_batches row commit together, so a named
  * batch is one whose effects the payload's rows already show, however its
- * ack is faring. Replaying it would apply it a second time: reapplyPending's
- * per-op keep rules hold only while nothing after an op moved its target,
- * and a later op of the same batch, a later batch, or another device's edit
- * can. The payload is the batch's echo, so nothing would re-ship the rows it
- * damaged. Deleting the row here is what the drain does on the ack; its
+ * ack is faring. Replaying it would apply it a second time over its own
+ * echo. Deleting the row here is what the drain does on the ack; its
  * caller settles the row's delivery as the ack would. A window whose
  * transaction rolls back keeps the rows. */
 function dropAppliedPending(db: ReplicaDb,
@@ -122,7 +124,7 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
     db.exec("DELETE FROM pages");
     db.exec("DELETE FROM sidebar_entries");
     // the snapshot is every row's base; the replay below records afresh
-    clearLedger(db);
+    clearReplayLog(db);
     for (const p of snap.pages) upsertPage(db, p);
     for (const b of snap.blocks) upsertBlock(db, b);
     for (const s of snap.sidebar) {
@@ -136,12 +138,14 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
       db, snap.plain_space_title_canonicalization);
     reconcileActivationPageTitles(db);
     const dropped = dropAppliedPending(db, snap.applied_batches);
-    reapplyPending(db, nowMs);
+    pruneReplayBatches(db);
+    replayPending(db, nowMs, new Map());
     return dropped;
   });
 }
 
-/** Re-apply queued optimistic batches after an authoritative write.
+/** Replay the queued optimistic batches as a first apply, after an
+ * authoritative write.
  *
  * Any snapshot or feed window may overwrite state that queued batches had
  * applied optimistically (edits race their own echo through the sync
@@ -149,69 +153,93 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
  * revert the visible text — the NEXT update_text would capture a stale
  * base_text_hash and manufacture a spurious daily-note conflict header
  * server-side.
+ * The caller has removed every pending effect first (a snapshot wipes; a
+ * window rewinds), so each batch applies to the replica exactly as its
+ * enqueue did, and records its pre-images afresh. It is stamped with its
+ * enqueue time, so a pending row keeps the stamps its first apply gave it;
+ * a batch with no replay_batches row (queued before the log existed, or
+ * imported by a rebuild) takes this call's time and keeps it from then on.
  * Rejected batches remain durable only while repair is pending: they are
- * skipped here so the authoritative snapshot removes their optimistic effect,
- * then the provider deletes their rows before delivery resumes.
+ * skipped here, so their optimistic effects leave with the rewind, and the
+ * provider deletes their rows before delivery resumes.
  * A replayed batch is one the server has not acknowledged: a rebase commit
  * deletes the batches its flush got acks for before the snapshot applies,
  * since what the server saved for them can differ from their wire text, and
  * a payload's applied_batches deletes the batches it already holds
- * (dropAppliedPending). The
- * batches replayed here still flush to the server unchanged. An op whose
- * block or parent the feed removed is skipped inside applyLocalOps, as the
- * server skips it, so the rest of its batch still lands. A window
- * does not wipe first, so its replay runs over the batch's own effects:
- * `reapply` keeps a create's existing row and an already-placed move where
- * they are rather than failing the insert or shifting siblings again. A
- * batch that still cannot apply (applyLocalOps throws) is skipped whole via
- * savepoint rollback — push-time resolution owns it. A batch
- * whose rows dangle counts as no-longer-applicable too: deferred FKs let the
- * ops themselves succeed, so the violation set is compared around each batch
- * (see the file header). Rows are never deleted here — the queue is the
- * user's intent and still flushes to the server. */
-function reapplyPending(db: ReplicaDb, nowMs: number): void {
+ * (dropAppliedPending). The batches replayed here still flush to the server
+ * unchanged.
+ * An op whose block or parent the feed removed is skipped inside
+ * applyLocalOps, as the server skips it. An op that still throws is rolled
+ * back alone, as enqueueBatch rolls it back, so the rest of its batch lands.
+ * An op whose rows dangle counts as no-longer-applicable too: deferred FKs
+ * let the op itself succeed, so the violation set is compared around the
+ * batch, and only when the batch adds one is it redone op by op with the
+ * comparison after each (see the file header). Rows are never deleted
+ * here — the queue is the user's intent and still flushes to the server. */
+function replayPending(db: ReplicaDb, nowMs: number, freed: FreedPages): void {
   const batches = allBatches(db).filter((b) => !b.poisoned);
-  if (batches.length === 0) return; // nothing to reapply, nothing to check
+  if (batches.length === 0) return; // nothing to replay, nothing to check
   let before = fkViolations(db); // empty unless the feed itself dangles
   for (const b of batches) {
-    db.exec("SAVEPOINT reapply_batch");
-    let result: { after: Set<string> } | null;
-    let failure: unknown;
-    try {
-      applyLocalOps(db, b.ops, nowMs, { batchId: b.batch_id, reapply: true });
-      const after = fkViolations(db);
-      result = addsFkViolation(before, after) ? null : { after };
-    } catch (error: unknown) {
-      result = null;
-      failure = error;
+    let stamp = enqueuedAt(db, b.batch_id);
+    if (stamp === null) {
+      recordEnqueue(db, b.batch_id, nowMs);
+      stamp = nowMs;
     }
-    if (result !== null) {
-      // A kept batch added no violation, so `after` is always a subset of
-      // `before` (it may also be a strict subset, if the batch's ops
-      // happened to resolve one the feed itself shipped). Tightening the
-      // baseline to it only ever shrinks what a later batch is allowed to
-      // add -- it can't cause a batch that would otherwise be kept to be
-      // rejected.
-      //
-      // Tightening is also what stops a DELETE-freed rowid from masking a
-      // later batch's dangling insert: `blocks` has no AUTOINCREMENT, so a
-      // rowid this batch's own delete just freed can be handed straight back
-      // out by the next batch's insert, reproducing the identical
-      // foreign_key_check key ([blocks, rowid, blocks, fkid]) the deleted
-      // row used to report. Leaving `before` untightened would still contain
-      // that key and wave the reused-rowid insert through as "no new
-      // violation". Reuse WITHIN one batch (a delete and a
-      // dangling insert together) still slips past this -- but that's
-      // harmless: it needs the window's own dangling row already in the
-      // baseline, which fails the deferred COMMIT regardless and falls back
-      // to needs-bootstrap; on the snapshot/reset path the baseline starts
-      // empty, so there is nothing to hide behind there either.
-      before = result.after;
-    } else {
-      rollbackToSavepoint(db, "reapply_batch", failure);
+    db.exec("SAVEPOINT replay_batch");
+    replayOps(db, b, stamp, freed, null);
+    let after = fkViolations(db);
+    if (addsFkViolation(before, after)) {
+      rollbackToSavepoint(db, "replay_batch");
+      after = replayOps(db, b, stamp, freed, before)!;
     }
-    db.exec("RELEASE reapply_batch");
+    db.exec("RELEASE replay_batch");
+    // A replayed batch added no violation, so `after` is always a subset of
+    // `before` (it may also be a strict subset, if the batch's ops happened
+    // to resolve one the feed itself shipped). Tightening the baseline to it
+    // only ever shrinks what a later batch is allowed to add -- it can't
+    // cause an op that would otherwise be kept to be rolled back.
+    //
+    // Tightening is also what stops a DELETE-freed rowid from masking a
+    // later batch's dangling insert: `blocks` has no AUTOINCREMENT, so a
+    // rowid this batch's own delete just freed can be handed straight back
+    // out by the next batch's insert, reproducing the identical
+    // foreign_key_check key ([blocks, rowid, blocks, fkid]) the deleted row
+    // used to report. Leaving `before` untightened would still contain that
+    // key and wave the reused-rowid insert through as "no new violation".
+    // Reuse WITHIN one batch (a delete and a dangling insert together)
+    // still slips past this -- but that's harmless: it needs the window's
+    // own dangling row already in the baseline, which fails the deferred
+    // COMMIT regardless and falls back to needs-bootstrap; on the
+    // snapshot/reset path the baseline starts empty, so there is nothing to
+    // hide behind there either.
+    before = after;
   }
+}
+
+/** Apply a batch's ops one at a time, each under its own savepoint, rolling
+ * back an op that throws and, given a baseline, one that adds an FK
+ * violation to it. Returns the baseline as the kept ops tightened it, or
+ * null when none was given. */
+function replayOps(db: ReplicaDb, b: PendingBatch, stamp: number,
+                   freed: FreedPages,
+                   baseline: Set<string> | null): Set<string> | null {
+  let current = baseline;
+  for (const op of b.ops) {
+    db.exec("SAVEPOINT replay_op");
+    try {
+      applyLocalOps(db, [op], stamp, { batchId: b.batch_id, freed });
+      if (current !== null) {
+        const after = fkViolations(db);
+        if (addsFkViolation(current, after)) rollbackToSavepoint(db, "replay_op");
+        else current = after;
+      }
+    } catch (error: unknown) {
+      rollbackToSavepoint(db, "replay_op", error);
+    }
+    db.exec("RELEASE replay_op");
+  }
+  return current;
 }
 
 /** Identities of the rows currently violating an FK. Readable inside a
@@ -230,7 +258,7 @@ function reapplyPending(db: ReplicaDb, nowMs: number): void {
  * hide.
  *
  * Deliberately unscoped. Narrowing it to `foreign_key_check(blocks)` looks
- * like a free win (reapplyPending calls this K+1 times per window) but is
+ * like a free win (replayPending calls this K+1 times per window) but is
  * not: `blocks`, `refs` and `block_refs` all bear FKs, so a correct scoped
  * check must run all three, and the unscoped pragma already visits only
  * FK-bearing tables -- measured at 1 000/5 000/20 000 blocks, whole-database
@@ -422,41 +450,53 @@ function owedBlockTombstones(earlier: readonly BlockUid[],
   return [...new Set([...earlier.filter((u) => !live.has(u)), ...tombstoned])];
 }
 
-/** Order inside the window transaction: page and sidebar tombstones, then
- * pages and blocks, then dropping the effect-ledger records of every block
- * the window ships or owes a tombstone (its own or one an earlier window
- * deferred), then block tombstones (in the window at
- * the journal head only, below), then sidebar upserts, then dropping the
- * pending rows the window names as applied, then (at the head only)
- * settling every batch no longer pending, then the queue replay, then
- * dropping (at the head only) the local pages nothing keeps
- * (dropStrandedLocalPages). Deferred
- * FKs make the order irrelevant for referential integrity; the UNIQUE
- * titles and the local cascades fix it.
+/** Order inside the window transaction: dropping the pending rows the
+ * window names as applied, then the rewind of every batch still pending,
+ * then page and sidebar tombstones, pages and blocks, then dropping the
+ * acked batches' log records on every row the window ships or owes a
+ * tombstone, then (at the journal head only, below) block tombstones and
+ * the rewind of every record left, then sidebar upserts, then the replay of
+ * the pending batches as a first apply, then (at the head only) dropping
+ * the local pages nothing keeps (dropStrandedLocalPages). Deferred FKs make
+ * the order irrelevant for referential integrity; the UNIQUE titles, the
+ * local cascades and the log fix it.
  *
- * The settle follows dropAppliedPending, so a batch this window names
- * settles in it, and the local-page remaps, so bases name server ids; it
- * precedes the replay, so later batches build on the reverted rows, and
- * dropStrandedLocalPages, since a revert can put a block back on a local
- * page. The settle waits for the head window: an ack can delete a batch's
- * row before the window holding its commit's journal rows arrives, and only
- * the window at the head is sure to have applied every one of them.
- * dropStrandedLocalPages waits for it too: an acked create_page batch no
- * longer names its page, and the server's page for it may ship in a later
- * window than the one carrying the ack.
+ * The pending rewind runs before any of the window's writes, so the
+ * server's rows land on a replica holding no pending effect and win with no
+ * override logic; the replay then builds each batch on them exactly as its
+ * enqueue built it on the rows it saw. dropAppliedPending precedes it, so a
+ * batch this window names is rewound as acked and not replayed over its own
+ * echo.
  *
- * Page and sidebar tombstones lead. A row that gave a title up by being
- * deleted must be gone before the row that took the title arrives. A page
- * id the server deleted and reused inside the window arrives as both a
- * tombstone and a live row: the tombstone's cascade clears the old page's
- * blocks and every ref to the id, and the server ships every current block
- * on or referencing that page in the same window, so every block the
- * server still has there is back by COMMIT. A page cascade never removes a
- * block the server kept for good: a block leaves a page only by a write to
- * its own row (every block of a moved subtree gets the new page_id), so
- * the block upserts that follow bring it back. A block an earlier window
- * hydrated onto the page, and which has left it since, returns with its
- * own later journal row.
+ * An acked batch's records are frozen: its pending row is gone, but the
+ * window holding its commit's journal rows may not have arrived. Each
+ * window drops those on the rows it ships or owes a tombstone (its own or
+ * one an earlier window deferred), since the server's row is now the base;
+ * a deferred tombstone counts because the block stayed until now, so a
+ * delete made between the windows may have recorded it after its own
+ * window's drop. The window at the head is sure to have applied every
+ * journal row of an acked commit, so it rewinds every record that remains
+ * (the rows the server never re-ships). That rewind follows the upserts and
+ * the drop: a block an acked batch created and this window ships keeps its
+ * row, and with it the server rows earlier windows shipped under it, and a
+ * block an acked delete cascaded past is restored under the parent this
+ * window shipped. dropStrandedLocalPages waits for the head too: short of
+ * it a frozen record may still put a block back on a local page, and the
+ * server's page for an acked create_page may ship in a later window than
+ * the one carrying the ack.
+ *
+ * Page and sidebar tombstones lead the window's writes. A row that gave a
+ * title up by being deleted must be gone before the row that took the
+ * title arrives. A page id the server deleted and reused inside the window
+ * arrives as both a tombstone and a live row: the tombstone's cascade
+ * clears the old page's blocks and every ref to the id, and the server
+ * ships every current block on or referencing that page in the same
+ * window, so every block the server still has there is back by COMMIT. A
+ * page cascade never removes a block the server kept for good: a block
+ * leaves a page only by a write to its own row (every block of a moved
+ * subtree gets the new page_id), so the block upserts that follow bring it
+ * back. A block an earlier window hydrated onto the page, and which has
+ * left it since, returns with its own later journal row.
  *
  * Block tombstones apply only in the window that reaches the journal head
  * (`next_since >= latest_seq`, pullLoop's own test for done), after its
@@ -475,20 +515,19 @@ function owedBlockTombstones(earlier: readonly BlockUid[],
  * once the cascade had taken it. Cascading per window fails when that
  * ancestor is itself deleted in a later window: its move row ships nothing
  * (it is absent now), so the earlier window's cascade would run over the
- * replica's stale subtree. Once the head window's upserts have run, every
- * block the server still has is placed either by its own shipped row or
- * under an unchanged parent chain of blocks the server also still has, so
- * none sits under a deleted block, and the cascade over that tree is the
- * one-window case. Between windows deleted blocks stay visible, and a
- * pending local op that moves a kept block under one of them loses that
- * block locally at the head window until the server's skip echo re-ships it
- * (the server journals a skipped move's subtree live). A recorded block a
- * later window ships live (an undo recreated it after its tombstone was read)
- * is dropped from the record. A uid only ever names one block, and a block
- * present at read time ships live, so no block is both tombstoned and
- * shipped live in one window. The cascade still removes
- * optimistic rows under a deleted block (a pending create's ghost), and the
- * replay then skips the op as the server does. */
+ * replica's stale subtree. Once the pending rewind and the head window's
+ * upserts have run, every block the server still has is placed either by
+ * its own shipped row or under an unchanged parent chain of blocks the
+ * server also still has, so none sits under a deleted block, and the
+ * cascade over that tree is the one-window case. A pending op that put a
+ * block under a deleted one, or created one there, was rewound first; its
+ * replay then skips the op, as the server does. An acked op that did so
+ * has had its echo by the head: the server journals a skipped move's
+ * subtree live. A recorded block a later window ships live (an
+ * undo recreated it after its tombstone was read) is dropped from the
+ * record. A uid only ever names one block, and a block present at read time
+ * ships live, so no block is both tombstoned and shipped live in one
+ * window. */
 function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
                      droppable?: readonly PendingRowId[]): DroppedBatch[] {
   return db.transaction(() => {
@@ -499,6 +538,9 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
       feed.tombstones.filter((tm) => tm.kind === "block")
         .map((tm) => tm.entity_id as BlockUid));
     const atHead = feed.next_since >= feed.latest_seq;
+    const dropped = dropAppliedPending(db, feed.applied_batches, droppable);
+    pruneReplayBatches(db);
+    const freed = rewind(db, "pending");
     for (const tomb of feed.tombstones) {
       if (tomb.kind !== "block") applyTombstone(db, tomb);
     }
@@ -506,15 +548,12 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
     for (const p of feed.pages) upsertPage(db, p);
     assertNoParkedTitles(db, "pages", parkedPages);
     for (const b of feed.blocks) upsertBlock(db, b);
-    // The server's row supersedes the local one, so nothing a pending batch
-    // did to it is left to revert; a tombstoned uid alike, applied now or
-    // deferred. That includes the tombstones earlier windows deferred: the
-    // block stayed until now, so a delete made between the windows may have
-    // recorded it after its own window's drop, and the settle would put back
-    // a block the server deleted.
-    dropWindowRecords(db, [...feed.blocks.map((b) => b.uid), ...owed]);
+    dropWindowRecords(db, { uids: [...feed.blocks.map((b) => b.uid), ...owed],
+                            pageIds: feed.pages.map((p) => p.id) });
     if (atHead) {
       for (const u of owed) applyTombstone(db, { kind: "block", entity_id: u });
+      // only acked batches' records remain: the pending ones were rewound
+      for (const [title, id] of rewind(db, "all")) freed.set(title, id);
     }
     const parkedSidebar = parkTakenTitles(db, "sidebar_entries", feed.sidebar);
     for (const s of feed.sidebar) {
@@ -535,9 +574,7 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
     setPlainSpaceTitleCanonicalization(
       db, feed.plain_space_title_canonicalization);
     reconcileActivationPageTitles(db);
-    const dropped = dropAppliedPending(db, feed.applied_batches, droppable);
-    if (atHead) settleBatches(db);
-    reapplyPending(db, nowMs);
+    replayPending(db, nowMs, freed);
     if (atHead) dropStrandedLocalPages(db, nowMs);
     return dropped;
   });

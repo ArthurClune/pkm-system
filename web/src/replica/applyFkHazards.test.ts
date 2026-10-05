@@ -1,11 +1,11 @@
 // @vitest-environment node
 // FK hazards in feed/snapshot application. defer_foreign_keys=ON
-// postpones FK checks to the outer COMMIT — past the savepoints reapplyPending
+// postpones FK checks to the outer COMMIT — past the savepoints replayPending
 // relies on. A dangling parent_uid therefore doesn't fail the op that inserts
 // it; it fails the whole window/snapshot transaction, and because the cursor
 // never advances, every retry refetches the same window: sync is wedged with
 // "FOREIGN KEY constraint failed", and reset/repair (which re-run
-// reapplyPending) wedge the same way.
+// replayPending) wedge the same way.
 import { beforeEach, describe, expect, test } from "vitest";
 import type { BatchId, BlockUid, CanonicalTitle, PageId, SyncSeq } from "../api/brands";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
@@ -98,10 +98,10 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
 
   test("a pending create under a block the feed tombstones does not wedge the window", () => {
     // Train scenario: an agent (CLI/MCP) deletes uid_b2 server-side while
-    // this client has a queued create under it. The tombstone cascades the
-    // optimistic child away, then reapplyPending re-creates it under the
-    // now-missing parent — a dangling insert the savepoint does NOT catch
-    // under deferred FKs.
+    // this client has a queued create under it. The window rewinds the
+    // optimistic child and the tombstone takes the parent, then the replay
+    // must not re-create the child under the now-missing parent — a
+    // dangling insert the savepoint does NOT catch under deferred FKs.
     enqueueBatch(t.db, [
       { op: "create", uid: uid("uid_child"), page_title: "Machine Learning",
         parent_uid: uid("uid_b2"), order_idx: ord(0), text: "typed offline" },
@@ -228,7 +228,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
   });
 
   test("a pending child of a poisoned batch's block does not wedge snapshot repair", () => {
-    // Poison repair and Reset local data both re-run reapplyPending over a
+    // Poison repair and Reset local data both re-run replayPending over a
     // fresh snapshot. The poisoned batch (which created the parent) is
     // rightly skipped; the later batch's child must not leave a dangling
     // parent_uid that fails the snapshot COMMIT — that makes repair/reset
@@ -246,7 +246,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
         parent_uid: uid("uid_opt_parent"), order_idx: ord(0), text: "child" },
     ], 6, bid("batch-child"));
     // a batch that still applies cleanly must survive the skip of the one
-    // before it: skipping is per-batch, not a bail-out of the whole reapply
+    // before it: skipping is per op, not a bail-out of the whole replay
     enqueueBatch(t.db, [
       { op: "create", uid: uid("uid_opt_ok"), page_title: "AI",
         parent_uid: null, order_idx: ord(1), text: "still valid" },
@@ -261,7 +261,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
   test("the reset rebuild's foreign_keys=OFF does not let a dangling batch through", () => {
     // rebuildSchema (Reset local data) disables FK enforcement around the
     // whole drop/reinstall/snapshot transaction, so nothing would fail the
-    // COMMIT — a dangling reapplied batch would just be written and stay
+    // COMMIT — a dangling replayed batch would just be written and stay
     // there. The guard reads PRAGMA foreign_key_check, which ignores the
     // enforcement pragmas, so it still catches it.
     enqueueBatch(t.db, [
@@ -277,6 +277,34 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
     expect(uids(t.db)).toEqual(["uid_b1", "uid_b2", "uid_b3"]);
     expect(queuedBatchIds(t.db)).toEqual([bid("batch-child")]);
+  });
+
+  // A failing op is skipped alone on replay, as enqueueBatch skips it, where
+  // the whole batch used to roll back.
+  test("a replayed batch keeps its other ops when one op adds an FK violation", () => {
+    enqueueBatch(t.db, [
+      { op: "create", uid: uid("uid_x"), page_title: "Machine Learning",
+        parent_uid: uid("uid_b2"), order_idx: ord(1), text: "x" },
+      { op: "update_text", uid: uid("uid_b1"), text: "mine" },
+    ], 5, bid("batch-x"));
+    enqueueBatch(t.db, [
+      { op: "move", uid: uid("uid_b2"), parent_uid: null, page_title: "AI",
+        order_idx: ord(0) },
+    ], 5, bid("batch-move"));
+
+    // uid_b2 arrives on a page the window never ships: the create under it
+    // lands there too and dangles, so it alone rolls back; batch-move's
+    // replay takes uid_b2 to AI, and the COMMIT holds
+    const res = applyChanges(t.db, emptyFeed({
+      next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
+      blocks: [block("uid_b2", 99)],
+    }));
+
+    expect(res).toEqual({ status: "applied", cursor: 11 });
+    expect(t.db.select("SELECT uid, page_id, text FROM blocks ORDER BY uid"))
+      .toEqual([{ uid: "uid_b1", page_id: 1, text: "mine" },
+                { uid: "uid_b2", page_id: 2, text: "text of uid_b2" },
+                { uid: "uid_b3", page_id: 2, text: "text of uid_b3" }]);
   });
 
   test("a window failing on anything other than an FK still throws", () => {

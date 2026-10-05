@@ -1,7 +1,12 @@
 // @vitest-environment node
+import fc from "fast-check";
 import { beforeEach, describe, expect, test } from "vitest";
 import type { BatchId, BlockUid, OrderIdx, PageId } from "../api/brands";
+import { applySnapshot } from "./apply";
 import { reindexBlockRefs } from "./blockRefs";
+import type { ReplicaDb } from "./db";
+import { enqueueBatch } from "./queue";
+import { batchesArb, replicaStateArb, snapshotOf } from "./replayArbs";
 import { recordBlocks, recordPage, recordSiblingsFrom } from "./replayLog";
 import { rewind } from "./rewind";
 import { openTestDb, type TestDb } from "./testDb";
@@ -33,24 +38,24 @@ beforeEach(async () => {
 
 /** Production rewinds inside applyWindow's transaction, which defers FKs;
  * COMMIT then fails if the rewind left a dangling parent or page. */
-const inTx = <T>(fn: () => T): T => t.db.transaction(() => {
-  t.db.exec("PRAGMA defer_foreign_keys = ON");
+const inTx = <T>(fn: () => T, db: ReplicaDb = t.db): T => db.transaction(() => {
+  db.exec("PRAGMA defer_foreign_keys = ON");
   return fn();
 });
-const dump = () => ({
-  blocks: t.db.select(
+const dump = (db: ReplicaDb = t.db) => ({
+  blocks: db.select(
     "SELECT uid, page_id, parent_uid, order_idx, text, heading, collapsed," +
     " created_at, updated_at, view_type FROM blocks ORDER BY uid"),
-  pages: t.db.select(
+  pages: db.select(
     "SELECT id, title, created_at, updated_at FROM pages ORDER BY id"),
-  refs: t.db.select(
+  refs: db.select(
     "SELECT src_block_uid, target_page_id, kind FROM refs ORDER BY 1, 2, 3"),
-  blockRefs: t.db.select(
+  blockRefs: db.select(
     "SELECT src_block_uid, target_block_uid FROM block_refs ORDER BY 1, 2"),
 });
-const ftsIntact = () => {
-  t.db.exec("INSERT INTO blocks_fts(blocks_fts, rank) VALUES('integrity-check', 1)");
-  t.db.exec("INSERT INTO pages_fts(pages_fts, rank) VALUES('integrity-check', 1)");
+const ftsIntact = (db: ReplicaDb = t.db) => {
+  db.exec("INSERT INTO blocks_fts(blocks_fts, rank) VALUES('integrity-check', 1)");
+  db.exec("INSERT INTO pages_fts(pages_fts, rank) VALUES('integrity-check', 1)");
 };
 const logSize = () =>
   t.db.select<{ n: number }>("SELECT COUNT(*) AS n FROM replay_log")[0].n;
@@ -260,5 +265,23 @@ describe("rewind", () => {
       expect(rewind(t.db, "all")).toEqual(new Map());
     });
     expect(pageIds()).toEqual([1, 2, 3]);
+  });
+
+  test("enqueue then rewind all restores the database exactly", async () => {
+    await fc.assert(fc.asyncProperty(
+      replicaStateArb.chain((state) => fc.tuple(fc.constant(state), batchesArb(state))),
+      async ([state, batches]) => {
+        const r = await openTestDb();
+        try {
+          applySnapshot(r.db, snapshotOf(state, 10), 5);
+          const before = dump(r.db);
+          for (const b of batches) enqueueBatch(r.db, b.ops, 500, b.batchId);
+          inTx(() => rewind(r.db, "all"), r.db);
+          expect(dump(r.db)).toEqual(before);
+          ftsIntact(r.db);
+        } finally {
+          r.close();
+        }
+      }), { numRuns: 150 });
   });
 });

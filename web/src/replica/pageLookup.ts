@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 // The replica's page lookup by title: the canonical form a page is stored
 // under, and the page that already holds it. localOps.ts creates a page when
-// none does; the effect ledger's restore only ever looks one up.
+// none does; its placement facts only ever look one up.
 
 import type { CanonicalTitle, PageId } from "../api/brands";
 import type { ReplicaDb } from "./db";

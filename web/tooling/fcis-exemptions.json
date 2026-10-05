@@ -6,6 +6,7 @@
   "src/components/beautifulMermaid.ts": "Bare re-export of the beautiful-mermaid package -- exists to name the lazy chunk and give tests a mock seam (see the file's own comment); no runtime declarations of its own, nothing to classify.",
   "src/router.ts": "Static React Router future-flag constants shared by main.tsx and every test's MemoryRouter -- a config value, not FCIS logic to classify.",
   "src/replica/baseSchema.gen.ts": "Generated verbatim from server/src/pkm/schema_dump.py (a SQL DDL string constant) -- data, not hand-written logic; see the file's own generated-file comment.",
+  "src/replica/replayArbs.ts": "Test-only fast-check arbitraries shared by the rewind and replay properties, excluded from unit coverage the same as testDb.ts (see vite.config.ts coverage.exclude) -- test support, not app runtime code.",
   "src/replica/testDb.ts": "Test-only in-memory sqlite-wasm helper, excluded from unit coverage the same as *.test.ts (see vite.config.ts coverage.exclude) -- test support, not app runtime code.",
   "src/sync/memReplica.ts": "Test-only in-memory Replica fake driven by the op-queue tests, excluded from unit coverage the same as src/test-helpers.ts (see vite.config.ts coverage.exclude) -- test support, not app runtime code.",
   "src/test-helpers.ts": "Shared test fixtures/mocks used only by *.test.ts files, excluded from unit coverage the same as test-setup.ts -- test support, not app runtime code.",

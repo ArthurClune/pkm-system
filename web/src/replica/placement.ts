@@ -23,18 +23,16 @@ export interface PlacementFacts {
   titlePageId: PageId | null;
 }
 
-/** `keep`: the row is already this op's own; leave its slot, re-paging its
- * subtree to `repageTo` first when that is set. `place`: shift the target's
- * siblings and write the row there. A `{ title }` page is resolved (and
- * created if missing) by the shell; `repage` moves the subtree with it. */
+/** `place`: shift the target's siblings and write the row there. A
+ * `{ title }` page is resolved (and created if missing) by the shell;
+ * `repage` moves the subtree with it. */
 export type Placement =
   | { kind: "skip" }
-  | { kind: "keep"; repageTo: PageId | null }
   | { kind: "place"; page: { id: PageId } | { title: string };
       parentUid: BlockUid | null; orderIdx: OrderIdx; repage: boolean };
 
-export function placementFor(op: CreateOp | MoveOp, facts: PlacementFacts,
-                             reapply: boolean): Placement {
+export function placementFor(op: CreateOp | MoveOp,
+                             facts: PlacementFacts): Placement {
   const { block, parent } = facts;
   if (skipsOnMissingTarget(op, block !== null, parent !== null,
                            facts.parentChain)) {
@@ -42,18 +40,7 @@ export function placementFor(op: CreateOp | MoveOp, facts: PlacementFacts,
   }
   const parentUid = op.parent_uid ?? null;
   if (op.op === "create") {
-    // On replay the row is this create's own: the enqueue-time apply, or
-    // the server's echo. It follows a parent the window moved to another
-    // page, as the server will place it, but only while it is still under
-    // that parent: a later pending move that took it elsewhere owns its
-    // page, and re-paging it here would make that move's replay re-shift
-    // its target's children on every window.
-    if (reapply && block !== null) {
-      const follows = parent !== null && block.parent_uid === parentUid
-        && block.page_id !== parent.page_id;
-      return { kind: "keep", repageTo: follows ? parent.page_id : null };
-    }
-    // Otherwise an existing uid fails the INSERT, as the server 400s.
+    // An existing uid fails the INSERT, as the server 400s.
     return { kind: "place",
              page: parent !== null ? { id: parent.page_id }
                                    : { title: op.page_title },
@@ -66,10 +53,6 @@ export function placementFor(op: CreateOp | MoveOp, facts: PlacementFacts,
     : title !== null ? { title } : { id: moved.page_id };
   // A title with no page yet names a page the block cannot already be on.
   const targetPageId = "id" in page ? page.id : facts.titlePageId;
-  if (reapply && targetPageId === moved.page_id
-      && moved.parent_uid === parentUid && moved.order_idx === op.order_idx) {
-    return { kind: "keep", repageTo: null };
-  }
   return { kind: "place", page, parentUid, orderIdx: op.order_idx,
            repage: targetPageId !== moved.page_id };
 }

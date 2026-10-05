@@ -1,10 +1,11 @@
 ---
 # pkm-f7zv
 title: 'Property checks: outline edit commands'
-status: todo
+status: in-progress
 type: feature
+priority: normal
 created_at: 2026-10-02T10:57:25Z
-updated_at: 2026-10-02T10:57:25Z
+updated_at: 2026-10-05T09:17:11Z
 parent: pkm-nws9
 ---
 

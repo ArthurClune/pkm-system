@@ -3,7 +3,7 @@ import type { BlockUid, OrderIdx } from "../../api/brands";
 import type { BlockNode } from "../../api/payloads";
 import type { CaretOffset } from "../../outline/keyEdits";
 import { applyOps } from "../../outline/tree";
-import { PAGE_TITLE } from "./arbitraries";
+import { PAGE_TITLE, type Command } from "./arbitraries";
 import { sequenceProblems, stepProblems } from "./checks";
 import { readingRows } from "./reading";
 import { runSequence, type Run } from "./run";
@@ -136,6 +136,20 @@ describe("sequenceProblems", () => {
       { kind: "redo" },
     ]);
     expect(sequenceProblems(start, run)).toEqual([]);
+  });
+
+  it("typing then undoing is clean", () => {
+    for (const commands of [
+      [{ kind: "type", row: 0, text: "longtext" }, { kind: "undo" }],
+      [{ kind: "type", row: 1, text: "longtext" }, { kind: "undo" }],
+      [{ kind: "type", row: 0, text: "longtext" }, { kind: "indent", row: 1 }, { kind: "undo" }],
+      [{ kind: "type", row: 1, text: "longtext" }, { kind: "indent", row: 1 }, { kind: "undo" }],
+    ] satisfies Command[][]) {
+      const start = [node("a", 0), node("b", 1)];
+      const run = runSequence(start, commands);
+      expect(run.steps.flatMap(stepProblems)).toEqual([]);
+      expect(sequenceProblems(start, run)).toEqual([]);
+    }
   });
 
   it("a sequence ending in undo redoes all to the newest entry", () => {

@@ -102,15 +102,25 @@ describe("runSequence", () => {
       { kind: "indentSel", row: 1, span: 0 },
     ]);
     expect(sel.history.undo.map((e) => e.focusBefore)).toEqual([
-      { uid: "a", cursor: 2 }, null,
+      { uid: "a", cursor: 1 }, null,
     ]);
     const other = runSequence(flat(), [
       { kind: "type", row: 0, text: "zz" },
       { kind: "indent", row: 2 },
     ]);
     expect(other.history.undo.map((e) => e.focusBefore)).toEqual([
-      { uid: "a", cursor: 2 }, { uid: "c", cursor: 1 },
+      { uid: "a", cursor: 1 }, { uid: "c", cursor: 1 },
     ]);
+  });
+
+  it("typing keeps the caret the block took when it was focused", () => {
+    const run = runSequence(flat(), [
+      { kind: "type", row: 1, text: "longtext" },
+      { kind: "type", row: 1, text: "x" },
+      { kind: "indent", row: 1 },
+    ]);
+    expect(run.steps.slice(0, 2).map((s) => s.focus)).toEqual([null, null]);
+    expect(run.history.undo.map((e) => e.focusBefore)).toEqual([{ uid: "b", cursor: 1 }]);
   });
 
   it("undo flushes a pending draft as its own entry first", () => {

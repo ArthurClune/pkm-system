@@ -203,11 +203,16 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
     const base = displayed();
     draft = captureDraft(draft, uid, command.text, tree);
     const after = displayed();
-    const ops: BlockOp[] = findNode(base, uid)?.text !== command.text
+    const before = findNode(base, uid)?.text ?? "";
+    const ops: BlockOp[] = before !== command.text
       ? [{ op: "update_text", uid, text: command.text }] : [];
-    focus = { uid, cursor: command.text.length };
+    // onFocusBlock sets the caret once, when the block takes focus, and typing
+    // never moves it: an entry's focus keeps that caret. A block focused to be
+    // typed into takes it at the end of the text it showed then.
+    if (focusedUid() !== uid) focus = { uid, cursor: before.length };
+    // Typing returns no focus; the editor's focus is left where it is.
     return { command, resolved: { kind: "type", uid, text: command.text }, base, after, ops,
-             focus, inverse: seam.invertOps(base, PAGE_TITLE, ops) };
+             focus: null, inverse: seam.invertOps(base, PAGE_TITLE, ops) };
   };
 
   for (const command of commands) {

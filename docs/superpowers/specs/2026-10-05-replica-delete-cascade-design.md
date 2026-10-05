@@ -18,7 +18,7 @@ changed: a same-page move journals only the moved row (`SetParent`,
 `server/src/pkm/server/ops_core.py:777`). Nothing re-ships G, so the replica
 lacks it until its next snapshot.
 
-The [effect ledger](../../architecture/sync-recovery.md#the-replay-log)
+The [replay log (formerly the effect ledger)](../../architecture/sync-recovery.md#the-replay-log)
 already takes back the collateral writes a pending batch made to rows the op
 never names (sibling shifts, descendant re-pages). A cascaded delete is one
 more such write, and the ledger does not record it.

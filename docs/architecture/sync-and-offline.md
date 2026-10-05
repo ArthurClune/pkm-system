@@ -153,7 +153,7 @@ transaction:
 | 6. Sidebar upserts | Independent of blocks. |
 | 7. Cursor, deferred-tombstone record, plain-space flag, `reconcileActivationPageTitles` | The last remaps ledger bases through `remapLocalPage`. |
 | 8. `dropAppliedPending` | A batch this window names settles in this window (see [sync-recovery.md](sync-recovery.md#a-payload-that-already-holds-a-pending-batch)). |
-| 9. `settleBatches`, at the head window only | Reverts the ledger records of every batch with no pending row. After 7, so bases are remapped; before 10, so replays build on reverted rows ([the effect ledger](sync-recovery.md#the-effect-ledger)). |
+| 9. `settleBatches`, at the head window only | Reverts the ledger records of every batch with no pending row, and restores rows a settled delete cascaded past. After 7, so bases are remapped; before 10, so replays build on reverted rows ([the effect ledger](sync-recovery.md#the-effect-ledger)). |
 | 10. `reapplyPending` | The queue replays over the window's final rows and records its collateral writes. |
 | 11. `dropStrandedLocalPages` | Deletes a negative-id page no block, ref, ledger base or pending op names, and not today's daily page. At the head window only (an acked `create_page` batch no longer names its page, and the server's may ship in a later window). After 9, since a revert can put a block back on a local page. |
 

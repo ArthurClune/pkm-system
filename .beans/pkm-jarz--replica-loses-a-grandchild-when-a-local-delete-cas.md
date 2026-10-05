@@ -1,11 +1,11 @@
 ---
 # pkm-jarz
 title: Replica loses a grandchild when a local delete cascades past a child moved out elsewhere
-status: in-progress
+status: completed
 type: bug
 priority: high
 created_at: 2026-10-05T11:37:49Z
-updated_at: 2026-10-05T13:56:44Z
+updated_at: 2026-10-05T14:37:52Z
 parent: pkm-nws9
 ---
 
@@ -67,3 +67,7 @@ test("S1 variant: the nesting came from the other device", async () => {
   ]);
 });
 ```
+
+## Summary of Changes
+
+A local delete now records each cascaded descendant in `effect_ledger` as a row record (new `row_json` column, base row plus base page; it absorbs the uid's other records). A window that ships or tombstones the uid drops it. `settleBatches` restores the records still standing after the reverts, parents first, under the parent's page, with refs derived against pages present; a record whose parent is absent is dropped. The enqueue guard adds the column to an old file. Page lookup helpers moved to `replica/pageLookup.ts`. Sync property scenarios S1 to S3 pin the case. Docs: sync-recovery.md, sync-and-offline.md, frontend.md, one troubleshooting row.

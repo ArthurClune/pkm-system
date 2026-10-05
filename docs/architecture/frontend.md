@@ -181,7 +181,9 @@ web/src/
 │   ├── localApi/             Shell        Offline read shims: the routes' exact JSON
 │   ├── localOps.ts           Shell        Optimistic apply (server timestamp rules)
 │   ├── effectLedger.ts       Shell        effect_ledger statements: record a pending batch's
-│   │                                      collateral writes, drop, settle, remap
+│   │                                      collateral writes, drop, settle (revert, restore
+│   │                                      cascaded rows), remap
+│   ├── pageLookup.ts         Shell        Page lookup by canonical title (no create)
 │   ├── placement.ts          Core         placementFor: where a create or move lands,
 │   │                                      or skip / keep on replay (mirrors ops_apply)
 │   ├── missingTarget.ts      Core         Which ops skip on a missing target (mirrors ops_core)

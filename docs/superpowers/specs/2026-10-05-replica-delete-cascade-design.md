@@ -64,7 +64,7 @@ a cascade of that batch's delete. Its fields:
 
 | Column | Holds |
 |---|---|
-| `row_json` | JSON of the block's base row except `page_id`: `parent_uid`, `order_idx`, `text`, `heading`, `collapsed`, `created_at`, `updated_at`, `view_type`, and `refs` (an array of `{ target_page_id, kind }`, the block's `refs` rows) |
+| `row_json` | JSON of the block's base row except `uid` and `page_id`: `parent_uid`, `order_idx`, `text`, `heading`, `collapsed`, `created_at`, `updated_at`, `view_type` |
 | `base_page_id` | The base page |
 | `base_updated_at` | Unused for a row record (`row_json` holds `updated_at`); left NULL |
 | `order_delta` | 0 |
@@ -90,8 +90,8 @@ than `op.uid` (the op names the root; its tombstone always comes back,
 applied or skipped). A new `recordCascade(db, batchId, uid)` in
 `effectLedger.ts`:
 
-1. reads the row, its `refs` rows and the uid's existing records, and
-   computes the base as above;
+1. reads the row and the uid's existing records, and computes the base as
+   above;
 2. deletes every record on that uid (all batches);
 3. inserts this batch's row record.
 
@@ -100,8 +100,10 @@ deltas and page records taken out. If they stayed, an earlier batch settling
 after this row was restored would subtract a shift a second time, or move
 the restored row to a stale page.
 
-`block_refs` are not stored: they are derived from `text` on restore, as a
-window upsert derives them.
+Neither `refs` nor `block_refs` is stored; the restore derives both from
+`text`. A stored `refs` row would name a page by id, and a local
+(negative) id inside `row_json` is out of `remapBasePage`'s reach, so a
+restore after the page reconciled would lose the ref.
 
 The replay (`reapplyPending`, `apply.ts:172`) runs the same code, so a
 replayed delete records the rows a window re-shipped under the deleted
@@ -133,11 +135,19 @@ batches:
   inserts nothing. Records are captured against different roots and
   batches, so a capture-time depth is not comparable across them; the
   rounds do not need one.
-- **The insert** writes the base row through the same statement and refs
-  handling as `upsertBlock` (`apply.ts:66-86`): a block row, its `refs`
-  rows (only those whose `target_page_id` exists), and `reindexBlockRefs`.
-  The FTS insert trigger indexes the text. A row with a parent takes the
-  parent's `page_id`, not its base page.
+- **The insert** writes the block row from the base row. A row with a
+  parent takes the parent's `page_id`, not its base page. The FTS insert
+  trigger indexes the text. `reindexBlockRefs` derives `block_refs` and
+  returns the parsed page refs; each becomes a `refs` row when a page of
+  that title exists on the replica, looked up as `getOrCreateLocalPage`
+  looks one up, and is skipped otherwise. The restore never mints a page:
+  it runs inside a window, and the server, which holds the block, holds its
+  ref targets too, so they have reached the replica by the head window.
+- **Lookup by title without `localOps.ts`.** `localOps.ts` imports
+  `effectLedger.ts`, so the title lookup (`storedPageTitle`,
+  `localPageTitle`, `pageIdByTitle`, `existingLocalPageId`,
+  `localOps.ts:51-70`) moves to a new `replica/pageLookup.ts`, imported by
+  both.
 - **A record that never qualifies is dropped**, not restored. A record's
   parent is absent at a head window only when a still-pending batch deleted
   it locally. That delete will reach the server and remove this block with
@@ -228,7 +238,7 @@ did (see `2026-10-04-replica-effect-ledger-design.md § Migration`).
 
 | Cost | When |
 |---|---|
-| One read of row, refs and records, one `DELETE`, one `INSERT` per cascaded descendant | A delete with descendants, at enqueue and on a replay that reaches them |
+| One read of row and records, one `DELETE`, one `INSERT` per cascaded descendant | A delete with descendants, at enqueue and on a replay that reaches them |
 | One extra predicate on the page revert; one probe for settling row records | A head window with a batch to settle |
 | One insert round per tree level of restored rows | Only when a restore happens |
 
@@ -245,8 +255,9 @@ backend perf run and no `openapi.json` regeneration.
   - a delete with descendants records each descendant and not the root;
   - the base subtracts pending deltas and takes an existing page base; the
     other records on that uid are absorbed;
-  - settle restores a standing row record with its refs, block refs and FTS
-    row, parents before children, under its parent's page;
+  - settle restores a standing row record with its refs (pages present
+    only, none minted), block refs and FTS row, parents before children,
+    under its parent's page;
   - a tombstone, a live re-ship or a re-create drops the record, and settle
     restores nothing;
   - a record whose parent is absent is dropped;

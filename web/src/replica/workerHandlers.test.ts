@@ -1373,6 +1373,33 @@ test("an enqueue on a file without effect_ledger creates it, records, and leaves
     .toEqual([{ value: "old" }]);
 });
 
+test("an enqueue on a file whose effect_ledger lacks row_json adds the column, records the cascade, and leaves schema_version stale", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot({
+    ...TWO,
+    blocks: [...TWO.blocks, { ...TWO.blocks[0], uid: uid("uid_c"),
+                              parent_uid: uid("uid_b2"), order_idx: ord(0), text: "c" }],
+  });
+  t.db.exec("DROP TABLE effect_ledger");
+  t.db.exec(`CREATE TABLE effect_ledger(
+    batch_id        TEXT NOT NULL,
+    uid             TEXT NOT NULL,
+    order_delta     INTEGER NOT NULL DEFAULT 0,
+    base_page_id    INTEGER,
+    base_updated_at INTEGER,
+    PRIMARY KEY (batch_id, uid)
+  ) WITHOUT ROWID`);
+  t.db.exec("INSERT OR REPLACE INTO sync_client_meta(key, value) VALUES ('schema_version', 'old')");
+  await handlers.enqueue({ ops: [{ op: "delete", uid: uid("uid_b2") }], batchId: bid("a") });
+  expect(t.db.select("SELECT uid FROM effect_ledger WHERE row_json IS NOT NULL"))
+    .toEqual([{ uid: "uid_c" }]);
+  expect(t.db.select("SELECT uid FROM blocks WHERE uid IN ('uid_b2', 'uid_c')")).toEqual([]);
+  expect(t.db.select("SELECT value FROM sync_client_meta WHERE key = 'schema_version'"))
+    .toEqual([{ value: "old" }]);
+});
+
 test("deleteBatch without a seq, then a head window, reverts", async () => {
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });

@@ -534,6 +534,15 @@ describe("applyLocalOps: effect ledger", () => {
        order_idx: ord(order), text: u });
   const b = (s: string) => ({ batchId: bid(s) });
 
+  test("a delete records each cascaded descendant and never the root", () => {
+    t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
+              " VALUES ('uid_r2cc', 1, 'uid_r2c', 0, 'grandchild')");
+    apply(t.db, [{ op: "delete", uid: uid("uid_r2") }], 99, b("b1"));
+    expect(rows<{ uid: string; has: number }>(
+      "SELECT uid, row_json IS NOT NULL AS has FROM effect_ledger ORDER BY uid"))
+      .toEqual([{ uid: "uid_r2c", has: 1 }, { uid: "uid_r2cc", has: 1 }]);
+  });
+
   test("a create records +1 on each shifted sibling and nothing for its own uid", () => {
     apply(t.db, [create("uid_new", 0)], 99, b("b1"));
     expect(deltas()).toEqual(["b1:uid_r1:1", "b1:uid_r2:1"]);
@@ -617,13 +626,13 @@ describe("applyLocalOps: effect ledger", () => {
     expect(ledger().filter((r) => r.uid === "uid_r1")).toEqual([]);
   });
 
-  test("update_text, set_collapsed, set_heading, set_view_type, delete and create_page record nothing", () => {
+  test("update_text, set_collapsed, set_heading, set_view_type, a leaf delete and create_page record nothing", () => {
     apply(t.db, [
       { op: "update_text", uid: uid("uid_r1"), text: "x" },
       { op: "set_collapsed", uid: uid("uid_r1"), collapsed: true },
       { op: "set_heading", uid: uid("uid_r1"), heading: 2 },
       { op: "set_view_type", uid: uid("uid_r1"), view_type: "numbered" },
-      { op: "delete", uid: uid("uid_r2") },
+      { op: "delete", uid: uid("uid_r2c") },
       { op: "create_page", page_title: "Fresh" },
     ], 99, b("b1"));
     expect(ledger()).toEqual([]);

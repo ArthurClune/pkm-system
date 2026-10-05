@@ -1948,3 +1948,133 @@ describe("applyChanges: a create or move the two sides place in different groups
     expect(ledgerRows()).toBe(0);
   });
 });
+
+describe("applyChanges: a local delete's cascade past a block the server kept", () => {
+  // p > k > g on P. This replica deletes p while another device moved k to
+  // the top level first: the server deletes only p, and g, whose row never
+  // changed, never ships again.
+  beforeEach(() => {
+    applySnapshot(t.db, {
+      generation: "gen-1", plain_space_title_canonicalization: false,
+      seq: 10 as SyncSeq, pages: [page(1, "P"), page(2, "S")],
+      blocks: [block("p", 1), block("k", 1, { parent_uid: uid("p") }),
+               block("g", 1, { parent_uid: uid("k") })],
+      sidebar: [],
+    }, 1);
+  });
+  const tree = () => t.db.select<{ uid: string; parent_uid: string | null }>(
+    "SELECT uid, parent_uid FROM blocks WHERE uid IN ('p', 'k', 'g') ORDER BY uid");
+  const records = () => t.db.select<{ batch_id: string; uid: string; row: number }>(
+    "SELECT batch_id, uid, row_json IS NOT NULL AS row FROM effect_ledger" +
+    " ORDER BY batch_id, uid");
+  const deleteP: BlockOp = { op: "delete", uid: uid("p") };
+  const kMovedOut = block("k", 1, { order_idx: ord(1) });
+  const pTomb: SyncTombstone = { kind: "block", entity_id: "p" };
+
+  test("a child moved out elsewhere keeps its unchanged grandchild", () => {
+    enqueueBatch(t.db, [deleteP], 2, bid("b1"));
+    ackNext(t.db);
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, blocks: [kMovedOut], tombstones: [pTomb] }), 3);
+    expect(tree()).toEqual([{ uid: "g", parent_uid: "k" },
+                            { uid: "k", parent_uid: null }]);
+    expect(records()).toEqual([]);
+  });
+
+  test("the server's cascade tombstones drop the records and nothing is restored", () => {
+    enqueueBatch(t.db, [deleteP], 2, bid("b1"));
+    ackNext(t.db);
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      tombstones: [pTomb, { kind: "block", entity_id: "k" },
+                   { kind: "block", entity_id: "g" }] }), 3);
+    expect(tree()).toEqual([]);
+    expect(records()).toEqual([]);
+  });
+
+  test("the records wait while the delete is pending, across a window that is not the head", () => {
+    enqueueBatch(t.db, [deleteP], 2, bid("b1"));
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 12, blocks: [kMovedOut] }), 3);
+    expect(tree()).toEqual([{ uid: "k", parent_uid: null }]);
+    expect(records()).toEqual([{ batch_id: "b1", uid: "g", row: 1 }]);
+
+    ackNext(t.db);
+    applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12, tombstones: [pTomb] }), 4);
+    expect(tree()).toEqual([{ uid: "g", parent_uid: "k" },
+                            { uid: "k", parent_uid: null }]);
+    expect(records()).toEqual([]);
+  });
+
+  test("a pending delete replayed after the restore records the restored rows again", () => {
+    enqueueBatch(t.db, [deleteP], 2, bid("b1"));
+    enqueueBatch(t.db, [{ op: "delete", uid: uid("k") }], 2, bid("b2"));
+    ackNext(t.db);
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, blocks: [kMovedOut], tombstones: [pTomb] }), 3);
+    // b2's replay deletes k again and cascades the restored g
+    expect(tree()).toEqual([]);
+    expect(records()).toEqual([{ batch_id: "b2", uid: "g", row: 1 }]);
+  });
+
+  test("a restored row's link resolves to the server id of a page made offline", () => {
+    // g links New, which the replica first has only as the page an offline
+    // create made: the snapshot leaves the server's New out
+    applySnapshot(t.db, {
+      generation: "gen-1", plain_space_title_canonicalization: false,
+      seq: 10 as SyncSeq, pages: [page(1, "P")],
+      blocks: [block("p", 1), block("k", 1, { parent_uid: uid("p") }),
+               block("g", 1, { parent_uid: uid("k"), text: "see [[New]]" })],
+      sidebar: [],
+    }, 1);
+    enqueueBatch(t.db, [
+      { op: "create", uid: uid("x"), page_title: "P", parent_uid: null,
+        order_idx: ord(1), text: "[[New]]" },
+      deleteP], 2, bid("b1"));
+    expect(t.db.select<{ id: number }>("SELECT id FROM pages WHERE title = 'New'")[0].id)
+      .toBeLessThan(0);
+    ackNext(t.db);
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, pages: [page(3, "New")],
+      blocks: [kMovedOut,
+               block("x", 1, { text: "[[New]]",
+                               refs: [{ target_page_id: pageId(3), kind: "link" }] })],
+      tombstones: [pTomb] }), 3);
+    expect(tree()).toEqual([{ uid: "g", parent_uid: "k" },
+                            { uid: "k", parent_uid: null }]);
+    expect(t.db.select("SELECT target_page_id, kind FROM refs WHERE src_block_uid = 'g'"))
+      .toEqual([{ target_page_id: 3, kind: "link" }]);
+    expect(count("SELECT COUNT(*) AS n FROM pages WHERE id < 0")).toBe(0);
+  });
+
+  test("a pending re-create of a cascaded block drops its record, so the settle restores nothing", () => {
+    enqueueBatch(t.db, [deleteP], 2, bid("b1"));
+    enqueueBatch(t.db, [{ op: "create", uid: uid("g"), page_title: "P", parent_uid: null,
+                          order_idx: ord(0), text: "text of g" }], 2, bid("b2"));
+    expect(records().filter((r) => r.uid === "g")).toEqual([]);
+    ackNext(t.db);
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11, blocks: [kMovedOut], tombstones: [pTomb] }), 3);
+    expect(tree()).toEqual([{ uid: "g", parent_uid: null },
+                            { uid: "k", parent_uid: null }]);
+    expect(records().filter((r) => r.row === 1)).toEqual([]);
+  });
+
+  test("a block whose tombstone an earlier window deferred is not restored", () => {
+    // Another device deletes g, then moves k out of p. g's tombstone arrives
+    // in a window short of the head, so g stays until the head window; this
+    // replica's delete of p, made between the windows, records g.
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 12,
+      tombstones: [{ kind: "block", entity_id: "g" }] }), 2);
+    enqueueBatch(t.db, [deleteP], 3, bid("b1"));
+    expect(records()).toEqual([{ batch_id: "b1", uid: "g", row: 1 },
+                               { batch_id: "b1", uid: "k", row: 1 }]);
+    ackNext(t.db);
+    applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12, blocks: [kMovedOut], tombstones: [pTomb] }), 4);
+    expect(tree()).toEqual([{ uid: "k", parent_uid: null }]);
+    expect(records()).toEqual([]);
+  });
+});

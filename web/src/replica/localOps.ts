@@ -13,13 +13,13 @@
 // lands, including a re-applied batch (reapply) keeping its own effects
 // in place, is placementFor's verdict (placement.ts); this file runs it.
 
-import type { BatchId, BlockUid, CanonicalTitle, OrderIdx, PageId } from "../api/brands";
+import type { BatchId, BlockUid, OrderIdx, PageId } from "../api/brands";
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
-import { dropRecordsOf, recordRepage, recordShift } from "./effectLedger";
-import { type TitleReader, titleReader } from "./meta";
+import { dropRecordsOf, recordCascade, recordRepage, recordShift } from "./effectLedger";
 import { skipsOnMissingTarget } from "./missingTarget";
+import { existingLocalPageId, localPageTitle, pageIdByTitle } from "./pageLookup";
 import { type Placement, type PlacementFacts, placementFor } from "./placement";
 import { findOpTitleViolation, type OpTitleViolation,
          titleSyntaxReason } from "./titles";
@@ -49,27 +49,6 @@ const titleViolationError = (violation: OpTitleViolation): LocalOpError =>
     `unsupported ${violation.source} title syntax: ${JSON.stringify(violation.title)}`,
     violation,
   );
-
-/** The title a page is stored under: canonicalised, blank as "Untitled". */
-export const storedPageTitle = (read: TitleReader,
-                                title: string): CanonicalTitle => {
-  const canonical = read(title);
-  return canonical.trim().length === 0 ? read("Untitled") : canonical;
-};
-
-const localPageTitle = (db: ReplicaDb, title: string): CanonicalTitle =>
-  storedPageTitle(titleReader(db), title);
-
-const pageIdByTitle = (db: ReplicaDb, title: CanonicalTitle): PageId | null => {
-  const rows = db.select<{ id: PageId }>(
-    "SELECT id FROM pages WHERE title = ?", [title]);
-  return rows.length > 0 ? rows[0].id : null;
-};
-
-/** The page getOrCreateLocalPage would return for `title`, if it exists
- * already; never creates one. */
-const existingLocalPageId = (db: ReplicaDb, title: string):
-  PageId | null => pageIdByTitle(db, localPageTitle(db, title));
 
 export function getOrCreateLocalPage(db: ReplicaDb, requested: string,
                                      nowMs: number): PageId {
@@ -264,6 +243,7 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
     case "delete": {
       const block = info!;
       for (const uid of subtreeUids(db, op.uid)) {
+        if (uid !== op.uid) recordCascade(db, batchId, uid);
         db.exec("DELETE FROM blocks WHERE uid = ?", [uid]);
       }
       touchPage(db, block.page_id, nowMs);

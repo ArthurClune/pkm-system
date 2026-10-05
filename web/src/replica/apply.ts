@@ -424,7 +424,8 @@ function owedBlockTombstones(earlier: readonly BlockUid[],
 
 /** Order inside the window transaction: page and sidebar tombstones, then
  * pages and blocks, then dropping the effect-ledger records of every block
- * the window ships or tombstones, then block tombstones (in the window at
+ * the window ships or owes a tombstone (its own or one an earlier window
+ * deferred), then block tombstones (in the window at
  * the journal head only, below), then sidebar upserts, then dropping the
  * pending rows the window names as applied, then (at the head only)
  * settling every batch no longer pending, then the queue replay, then
@@ -507,11 +508,11 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
     for (const b of feed.blocks) upsertBlock(db, b);
     // The server's row supersedes the local one, so nothing a pending batch
     // did to it is left to revert; a tombstoned uid alike, applied now or
-    // deferred.
-    dropWindowRecords(db, [
-      ...feed.blocks.map((b) => b.uid),
-      ...feed.tombstones.filter((tm) => tm.kind === "block")
-        .map((tm) => tm.entity_id as BlockUid)]);
+    // deferred. That includes the tombstones earlier windows deferred: the
+    // block stayed until now, so a delete made between the windows may have
+    // recorded it after its own window's drop, and the settle would put back
+    // a block the server deleted.
+    dropWindowRecords(db, [...feed.blocks.map((b) => b.uid), ...owed]);
     if (atHead) {
       for (const u of owed) applyTombstone(db, { kind: "block", entity_id: u });
     }

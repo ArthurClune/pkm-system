@@ -291,23 +291,25 @@ client sends no ids.
 ### The effect ledger
 
 A pending batch's local apply writes rows it never names: it shifts the
-`order_idx` of siblings, and a cross-page create or move re-pages descendants.
-The server re-derives both and journals them, but not always for the rows the
-replica changed. `effect_ledger` (`replica/effectLedger.ts`, a client-only
-table keyed by `(batch_id, uid)`, no foreign keys) records those collateral
+`order_idx` of siblings, a cross-page create or move re-pages descendants, and
+a delete cascades its subtree. The server re-derives all three and journals
+them, but not always for the rows the replica changed. `effect_ledger` (`replica/effectLedger.ts`, a client-only
+table keyed by `(batch_id, uid)`, no foreign keys; `row_json` holds a row
+record's base row) records those collateral
 writes so they can be taken back when the batch settles.
 
 | Write | Record |
 |---|---|
 | A shift of a sibling (`shiftSiblings`, or `keepSlot` when it shifts) | `order_delta + 1` on the sibling |
 | A re-page of a descendant | A page record: `base_page_id` and `base_updated_at` before the first collateral re-page. Every batch's record for one uid carries the same base |
+| A descendant a delete cascades (`recordCascade`, before the cascade's DELETE; the op's own uid is not recorded) | A row record: `row_json` holds the base row and `base_page_id` its base page. It absorbs the uid's other records, whose effects the base row already has taken out |
 | A block the op names itself (create insert, the move's own row) | None, and it drops every record on that uid: the echo always re-ships it |
 
 | Event | Records dropped |
 |---|---|
-| A window upserts or tombstones a block (`dropWindowRecords`, step 4 of `applyWindow`) | Every record on that uid |
+| A window upserts a block, or owes its tombstone: one the window ships, or one an earlier window deferred (`dropWindowRecords` over the shipped uids and `owed`, step 4 of `applyWindow`) | Every record on that uid |
 | A pending create or move places the uid itself | Every record on that uid |
-| The batch settles | That batch's records, after the revert |
+| The batch settles | That batch's records, after the revert and the restore |
 | Snapshot, reset, rebuild or file replacement | All |
 
 A batch settles in the first head window (one that reaches the journal head)
@@ -320,13 +322,22 @@ uid and only if the base page exists. `remapLocalPage` rewrites bases from a
 local page id to the server's, and `dropStrandedLocalPages` keeps a page a base
 names.
 
+After the reverts, `restoreRows` puts back the row records still standing:
+the server kept those blocks and their rows never changed, so no window ships
+them again. Parents go first, in rounds, because a child's record may sort
+before its parent's. A row lands on its parent's page, or on its base page at
+the top level, and a record whose parent or page is absent is dropped. Refs
+derive from the text against the pages present (`existingLocalPageId`), so a
+title with no page stays unlinked and none is created.
+
 Settling at the head is safe because a window applied after a batch's row is
 gone has `latest_seq` at or past the batch's commit: the pending guard covers
 a stale snapshot, and a later one was read after the commit. So every journal
 row of the batch's commit has been applied before its records are reverted.
 An enqueue that reaches a file still on the old schema installs `CLIENT_DDL`
-first when `effect_ledger` is missing (`workerHandlers.ts`), so the ledger
-insert cannot fail and roll the op's optimistic apply back.
+first when `effect_ledger` is missing, and adds `row_json` when only that
+column is (`workerHandlers.ts`). Either way the ledger insert cannot fail and
+roll the op's optimistic apply back.
 
 ## Recovery never erases intent
 
@@ -339,7 +350,7 @@ insert cannot fail and roll the op's optimistic apply back.
 | A payload's `applied_batches` deletes the pending rows it names before the replay | `replica/apply.ts::dropAppliedPending`, `routes_sync.py::_applied_batches` | A batch replayed over its own echo, applied twice |
 | `reapplyPending` diffs `PRAGMA foreign_key_check` around each batch and rolls a violating one back to its savepoint | `replica/apply.ts` | A pending block re-created under a row the feed removed failing the whole window at COMMIT |
 | Replay (`applyLocalOps` with `reapply`) keeps a create whose row exists, and a move whose block already sits at its target, in place | `replica/localOps.ts::keepSlot` | A pending create failing its whole batch on every window; a pending move shifting its siblings again on every window |
-| The local apply records each collateral write of a pending batch in `effect_ledger`; a head window reverts the records of every batch no longer pending | `replica/effectLedger.ts`, `replica/apply.ts::applyWindow` | A create or move the server placed in another group leaves siblings shifted or descendants re-paged at rest |
+| The local apply records each collateral write of a pending batch in `effect_ledger`; a head window reverts, and restores the cascaded rows of, every batch no longer pending | `replica/effectLedger.ts`, `replica/apply.ts::applyWindow` | A create or move the server placed in another group leaves siblings shifted or descendants re-paged at rest; a delete's cascade past a block the server kept leaves it missing |
 | A rebase commit deletes the rows its flush got acks for, in the snapshot's transaction, before the replay | `replicaSync.ts::flushBatches`, `workerHandlers.ts`, `replica/ackedRows.ts` | Recovery replaying a batch's wire text over the server's result |
 | Every delete and poison mark names its row by `id` and `batch_id` both | `replica/queue.ts::deleteBatch`, `markPoisoned` | A delete queued behind a reset or file replacement removing the batch that took its row id |
 | A rebase that replaces the file commits the queue to a carry database first; every queue handler adopts a leftover carry before serving | `workerHandlers.ts`, `replica/carryStore.ts` | A failed open, schema install or import, or a killed worker, losing the queue during a file replacement |

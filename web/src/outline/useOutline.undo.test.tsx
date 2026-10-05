@@ -291,6 +291,26 @@ it("typing in a cell of a collapsed table keeps focus there through a flush and 
   }
 });
 
+it("a remote collapse of the typed block's parent moves focus to the parent, and the draft still lands on the block", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, [
+    block("p", "parent", { order_idx: ord(0),
+                           children: [block("c", "child", { order_idx: ord(0) })] }),
+  ]);
+  act(() => outline().handlers.onFocusBlock(uid("c"), 5));
+  act(() => outline().handlers.onDraftChange(uid("c"), "child typed"));
+  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
+    { op: "set_collapsed", uid: uid("p"), collapsed: true },
+  ] }));
+  expect(outline().focus).toEqual({ uid: "p", cursor: 6 });
+
+  // Typing in the parent's textarea flushes the hidden block's draft first.
+  act(() => outline().handlers.onDraftStart(uid("p"), "parent"));
+  expect(sync.sent[0]).toMatchObject([{ op: "update_text", uid: "c", text: "child typed" }]);
+  expect(outline().blocks[0].children[0].text).toBe("child typed");
+  expect(outline().blocks[0].text).toBe("parent");
+});
+
 it("undo inside a cell of a collapsed table keeps focus in the cell", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, collapsedTable());

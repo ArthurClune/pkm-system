@@ -1,12 +1,13 @@
-import { afterEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
-import { block, makeSync, ord, uid } from "../test-helpers";
+import { block, defer, makeSync, ord, uid } from "../test-helpers";
 import { acquireOutlineSession } from "./outlineSessions";
-import { performRedo, performUndo, recordHistory, registerOutlineHistory,
-         resetHistory, setHistoryNavigator } from "./undoManager";
+import { historyIdle, performRedo, performUndo, recordHistory,
+         registerOutlineHistory, resetHistory, setHistoryNavigator,
+         setHistoryPageLoader } from "./undoManager";
 import { historyAnchors, invertOps, type HistoryEntry } from "./history";
 import { applyOps } from "./tree";
 
@@ -21,12 +22,16 @@ const entry = (): HistoryEntry => ({
   focusAfter: { uid: uid("a"), cursor: 5 },
 });
 
+// Unmounted pages are read through the page loader; an empty tree keeps the
+// ops unstamped, as a block the tree does not know is.
+beforeEach(() => { setHistoryPageLoader(async () => []); });
 afterEach(() => resetHistory());
 
-it("undo enqueues the inverse batch scoped to the entry's page", () => {
+it("undo enqueues the inverse batch scoped to the entry's page", async () => {
   const sync = makeSync();
   recordHistory(entry());
   expect(performUndo(sync)).toBe(true);
+  await historyIdle();
   expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before" }]]);
   expect(sync.tickets[0].scope).toEqual(["page", PAGE]);
 });
@@ -47,15 +52,16 @@ it("undo applies to a mounted session and restores focusBefore", () => {
   handle.release();
 });
 
-it("redo replays the forward batch and restores focusAfter", () => {
+it("redo replays the forward batch and restores focusAfter", async () => {
   const sync = makeSync();
   recordHistory(entry());
   performUndo(sync);
   expect(performRedo(sync)).toBe(true);
+  await historyIdle();
   expect(sync.sent[1]).toEqual([{ op: "update_text", uid: "a", text: "after" }]);
 });
 
-it("flushes registered drafts before undoing (pending draft becomes the undone entry)", () => {
+it("flushes registered drafts before undoing (pending draft becomes the undone entry)", async () => {
   const sync = makeSync();
   const calls: string[] = [];
   const unregister = registerOutlineHistory(PAGE, {
@@ -63,17 +69,19 @@ it("flushes registered drafts before undoing (pending draft becomes the undone e
     applyFocus: () => undefined,
   });
   expect(performUndo(sync)).toBe(true); // flush recorded the entry it then undoes
+  await historyIdle();
   expect(calls).toEqual(["flush"]);
   expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before" }]]);
   unregister();
 });
 
-it("navigates to the entry's page when no session is mounted", () => {
+it("navigates to the entry's page when no session is mounted", async () => {
   const sync = makeSync();
   const paths: string[] = [];
   const clear = setHistoryNavigator((p) => paths.push(p));
   recordHistory(entry());
   performUndo(sync);
+  await historyIdle();
   expect(paths).toHaveLength(1);
   expect(paths[0]).toContain("Undo");
   clear();
@@ -206,4 +214,104 @@ it("recording clears redo (integration of AC through the manager)", () => {
   performUndo(sync);
   recordHistory(entry());
   expect(performRedo(sync)).toBe(false);
+});
+
+const moveOp = (u: string, orderIdx: number): BlockOp[] =>
+  [{ op: "move", uid: uid(u), parent_uid: null, order_idx: ord(orderIdx) }];
+
+it("undo with no session re-keys placements against the loaded page", async () => {
+  // Move b1 to the top, navigate away, and let another device add x at the
+  // top, shifting every key up. The recorded inverse key now names b0's slot,
+  // so shipping it unchanged would leave b1 in front of b0.
+  const sync = makeSync();
+  const pre = ["b0", "b1", "b2"].map((u, i) => block(u, u, { order_idx: ord(i) }));
+  const ops = moveOp("b1", 0);
+  const inverse = invertOps(pre, PAGE, ops)!;
+  recordHistory({ pageTitle: PAGE, ops, inverse,
+                  anchors: historyAnchors(pre, PAGE, ops, inverse),
+                  focusBefore: null, focusAfter: null });
+  const loaded = applyOps(applyOps(pre, ops, PAGE), [{
+    op: "create", uid: uid("x"), page_title: PAGE, parent_uid: null,
+    order_idx: ord(0), text: "x" }], PAGE);
+  expect(loaded.map((n) => n.uid)).toEqual(["x", "b1", "b0", "b2"]);
+  setHistoryPageLoader(async () => loaded);
+  const paths: string[] = [];
+  const clear = setHistoryNavigator((p) => paths.push(p));
+
+  performUndo(sync);
+  await historyIdle();
+
+  expect(sync.tickets[0].scope).toEqual(["page", PAGE]);
+  expect(applyOps(loaded, sync.sent[0], PAGE).map((n) => n.uid))
+    .toEqual(["x", "b0", "b1", "b2"]);
+  expect(paths).toHaveLength(1);
+  clear();
+});
+
+it("undo with no session stamps base_text_hash against the loaded tree", async () => {
+  const sync = makeSync();
+  setHistoryPageLoader(async () => [block("a", "typed elsewhere", { order_idx: ord(0) })]);
+  recordHistory(entry());
+  performUndo(sync);
+  await historyIdle();
+  expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before",
+                               base_text_hash: sha256Hex("typed elsewhere"),
+                               page_title: PAGE }]]);
+});
+
+it("a mounted-page undo queued behind an unmounted load waits its turn", async () => {
+  const sync = makeSync();
+  const OTHER = "Other Page";
+  const gate = defer<BlockNode[]>();
+  setHistoryPageLoader(() => gate.promise);
+  recordHistory(entry());
+  recordHistory({ ...entry(), pageTitle: OTHER });
+  const mounted = acquireOutlineSession(PAGE, [block("a", "after", { order_idx: ord(0) })]);
+  performUndo(sync); // OTHER: no session, load pending
+  performUndo(sync); // PAGE: mounted, but must wait behind the load
+  expect(sync.sent).toEqual([]);
+  expect(mounted.getSnapshot().blocks[0].text).toBe("after");
+  gate.resolve([]);
+  await historyIdle();
+  expect(sync.tickets.map((t) => t.scope)).toEqual([
+    ["page", OTHER], ["page", PAGE]]);
+  expect(mounted.getSnapshot().blocks[0].text).toBe("before");
+  mounted.release();
+});
+
+it("a failed load ships the recorded batch unstamped, navigates, and later dispatches still run", async () => {
+  const sync = makeSync();
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  setHistoryPageLoader(async () => { throw new Error("offline"); });
+  const paths: string[] = [];
+  const clear = setHistoryNavigator((p) => paths.push(p));
+  recordHistory(entry());
+  recordHistory(entry());
+  performUndo(sync);
+  performUndo(sync);
+  await historyIdle();
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "a", text: "before" }],
+    [{ op: "update_text", uid: "a", text: "before" }]]);
+  expect(paths).toHaveLength(2);
+  expect(warn).toHaveBeenCalled();
+  clear();
+  warn.mockRestore();
+});
+
+it("a throwing enqueue is logged and does not break later dispatches or leak the session", async () => {
+  const sync = makeSync();
+  const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const boom = vi.spyOn(sync, "enqueue").mockImplementationOnce(() => {
+    throw new Error("disposed");
+  });
+  recordHistory(entry());
+  recordHistory(entry());
+  performUndo(sync);
+  performUndo(sync);
+  await historyIdle();
+  expect(boom).toHaveBeenCalledTimes(2);
+  expect(sync.sent).toHaveLength(1);
+  expect(error).toHaveBeenCalled();
+  error.mockRestore();
 });

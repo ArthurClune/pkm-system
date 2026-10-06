@@ -182,55 +182,39 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
                 { uid: "uid_b3", parent_uid: "uid_b2" }]);
   });
 
-  test("baseline tightening catches a DELETE-freed rowid reused by a later batch's dangling insert", () => {
+  test("a rowid a batch's delete freed does not hide a later batch's dangling insert", () => {
     // `blocks` is a rowid table (uid TEXT PRIMARY KEY, no AUTOINCREMENT): a
     // new row's rowid is max(rowid)+1, so deleting the max-rowid row frees it
-    // for reuse by the very next insert in the same transaction. Demonstrate
-    // that in isolation first, on SNAP's own rows, inside a throwaway
-    // transaction the test rolls back itself (not db.transaction(), so this
-    // doesn't disturb the fixture the scenario below depends on):
-    t.db.exec("BEGIN");
-    expect(t.db.select<{ rowid: number }>(
-      "SELECT rowid FROM blocks WHERE uid = 'uid_b3'")[0].rowid).toBe(3);
-    t.db.exec("DELETE FROM blocks WHERE uid = 'uid_b3'"); // frees rowid 3
-    t.db.exec(
-      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
-      " collapsed, created_at, updated_at) VALUES ('uid_probe',1,NULL,99,'x',0,1,1)");
-    expect(t.db.select<{ rowid: number }>(
-      "SELECT rowid FROM blocks WHERE uid = 'uid_probe'")[0].rowid).toBe(3);
-    t.db.exec("ROLLBACK");
-
-    // Two batches queue clean at enqueue time: one deletes uid_b3 (rowid 3),
-    // the other creates uid_y under uid_b2 (rowid 2).
-    enqueueBatch(t.db, [{ op: "delete", uid: uid("uid_b3") }], 5, bid("batch-del-b3"));
+    // for reuse by the very next insert. Both rows below dangle on their
+    // page, and foreign_key_check keys a row by (table, rowid, parent, fkid),
+    // so the insert that reuses the deleted row's rowid reports the identical
+    // key. A baseline carried over from before the delete would wave it
+    // through; the one taken at the later batch's savepoint does not.
+    // FKs off (the reset rebuild) keeps the dangling rows from failing the
+    // COMMIT, which is what lets the outcome be read from the rows.
+    applySnapshot(t.db, { ...SNAP, blocks: [...SNAP.blocks, block("uid_v", 1)] });
+    enqueueBatch(t.db, [{ op: "delete", uid: uid("uid_v") }], 5, bid("batch-del-v"));
     enqueueBatch(t.db, [
       { op: "create", uid: uid("uid_y"), page_title: "Machine Learning",
-        parent_uid: uid("uid_b2"), order_idx: ord(0), text: "typed offline" },
+        parent_uid: uid("uid_b3"), order_idx: ord(0), text: "typed offline" },
     ], 6, bid("batch-create-y"));
-    // The window tombstones uid_b2 -- cascading uid_y away -- and re-hydrates
-    // uid_b3 moved under a parent beyond the window (dependency-incomplete,
-    // same shape as the first test above). uid_b3 is a fresh INSERT (the
-    // pending delete already removed the old row optimistically) and lands
-    // on rowid 2, the lowest free slot: the window's own baseline is
-    // {[blocks,2,blocks,0]}.
-    const res = applyChanges(t.db, emptyFeed({
-      next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
-      tombstones: [{ kind: "block", entity_id: "uid_b2" }],
-      blocks: [block("uid_b3", 1, { parent_uid: uid("uid_far_parent") })],
-    }));
-    // batch-del-b3 deletes uid_b3 (rowid 2), shrinking the baseline to {} --
-    // the tightening under test. batch-create-y then inserts uid_y, which
-    // reuses that same freed rowid 2 and so reports the IDENTICAL key
-    // ([blocks,2,blocks,0], parent_uid still dangling on uid_b2). Against the
-    // tightened (now-empty) baseline that key is a new violation, so
-    // batch-create-y rolls back. Without the tightening it would still equal
-    // the untouched original baseline and be waved through, masking a
-    // dangling insert as the window's own already-known violation.
-    expect(res).toEqual({ status: "applied", cursor: 11 });
-    expect(getMeta(t.db, "cursor")).toBe("11");
-    expect(uids(t.db)).toEqual(["uid_b1"]);
-    expect(queuedBatchIds(t.db)).toEqual([bid("batch-del-b3"), bid("batch-create-y")]);
-    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+    t.db.exec("PRAGMA foreign_keys=OFF");
+    try {
+      applySnapshot(t.db, {
+        ...SNAP,
+        blocks: [block("uid_b1", 1), block("uid_b2", 1, { order_idx: ord(1) }),
+                 block("uid_b3", 98, { parent_uid: uid("uid_b2") }), // rowid 3
+                 block("uid_v", 99)],                                  // rowid 4
+      }, 7);
+    } finally {
+      t.db.exec("PRAGMA foreign_keys=ON");
+    }
+    // the delete freed rowid 4; the create under uid_b3 (page 98 is missing)
+    // would take it, and must roll back
+    expect(uids(t.db)).toEqual(["uid_b1", "uid_b2", "uid_b3"]);
+    expect(queuedBatchIds(t.db)).toEqual([bid("batch-del-v"), bid("batch-create-y")]);
+    expect(t.db.select("SELECT rowid, page_id FROM blocks WHERE page_id > 90"))
+      .toEqual([{ rowid: 3, page_id: 98 }]);
   });
 
   test("a pending child of a poisoned batch's block does not wedge snapshot repair", () => {
@@ -262,27 +246,6 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
       .toEqual(["uid_b1", "uid_b2", "uid_b3", "uid_opt_ok"]);
     expect(queuedBatchIds(t.db))
       .toEqual([bid("batch-parent"), bid("batch-child"), bid("batch-ok")]);
-  });
-
-  test("the reset rebuild's foreign_keys=OFF does not let a dangling batch through", () => {
-    // rebuildSchema (Reset local data) disables FK enforcement around the
-    // whole drop/reinstall/snapshot transaction, so nothing would fail the
-    // COMMIT — a dangling replayed batch would just be written and stay
-    // there. The guard reads PRAGMA foreign_key_check, which ignores the
-    // enforcement pragmas, so it still catches it.
-    enqueueBatch(t.db, [
-      { op: "create", uid: uid("uid_opt_child"), page_title: "AI",
-        parent_uid: uid("uid_never_existed"), order_idx: ord(0), text: "child" },
-    ], 5, bid("batch-child"));
-    t.db.exec("PRAGMA foreign_keys=OFF");
-    try {
-      applySnapshot(t.db, SNAP, 7);
-    } finally {
-      t.db.exec("PRAGMA foreign_keys=ON");
-    }
-    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
-    expect(uids(t.db)).toEqual(["uid_b1", "uid_b2", "uid_b3"]);
-    expect(queuedBatchIds(t.db)).toEqual([bid("batch-child")]);
   });
 
   // A failing op is skipped alone on replay, as enqueueBatch skips it, where
@@ -341,5 +304,104 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     expect(warn).toHaveBeenCalledWith(
       "sqlite3_step() rc=", 787, "SQLITE_CONSTRAINT_FOREIGNKEY", "SQL =", "COMMIT");
     expect(getMeta(t.db, "cursor")).toBe("10");
+  });
+
+  test("a pending op with a NULL uid under a block on a page the window never ships rolls back", () => {
+    // A NULL uid leaves no replay record (the recording is INSERT OR IGNORE
+    // into a NOT NULL column), so the page record is the only trace of the
+    // block it inserts on the missing page.
+    enqueueBatch(t.db, [
+      { op: "create", uid: uid("uid_x"), page_title: "Machine Learning",
+        parent_uid: uid("uid_b2"), order_idx: ord(1), text: "x" },
+    ], 5, bid("batch-x"));
+    // the typed API mints a uid; a crafted or old-build row need not
+    const queued = JSON.parse(t.db.select<{ ops_json: string }>(
+      "SELECT ops_json FROM pending_ops")[0].ops_json) as Record<string, unknown>[];
+    queued[0].uid = null;
+    t.db.exec("UPDATE pending_ops SET ops_json = ?", [JSON.stringify(queued)]);
+    enqueueBatch(t.db, [
+      { op: "move", uid: uid("uid_b2"), parent_uid: null, page_title: "AI",
+        order_idx: ord(0) },
+    ], 5, bid("batch-move"));
+    const res = applyChanges(t.db, emptyFeed({
+      next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
+      blocks: [block("uid_b2", 99)],
+    }));
+    expect(res).toEqual({ status: "applied", cursor: 11 });
+    expect(t.db.select("SELECT COUNT(*) AS n FROM blocks WHERE uid IS NULL"))
+      .toEqual([{ n: 0 }]);
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+  });
+});
+
+// With foreign_keys=OFF (the reset rebuild) a delete cascades nothing, so
+// the rows that depended on the deleted block stay and dangle: the replay
+// must catch them itself. Each case below is caught by one clause of
+// targetedFkHit only, and rolls the delete back locally.
+describe("targetedFkHit clauses that only foreign_keys=OFF reaches", () => {
+  const snapshotWith = (blocks: SyncBlock[]): Snapshot => ({ ...SNAP, blocks });
+
+  const replayDeleteWithFksOff = (snap: Snapshot, victim: string): void => {
+    applySnapshot(t.db, snap);
+    enqueueBatch(t.db, [{ op: "delete", uid: uid(victim) }], 5, bid("batch-del"));
+    expect(uids(t.db)).not.toContain(victim);
+    t.db.exec("PRAGMA foreign_keys=OFF");
+    try {
+      applySnapshot(t.db, snap, 7);
+    } finally {
+      t.db.exec("PRAGMA foreign_keys=ON");
+    }
+  };
+
+  test("a child the delete's subtree match misses (uid containing a comma)", () => {
+    replayDeleteWithFksOff(snapshotWith([
+      block("a,bcdefg", 1),
+      block("bcdefg", 1, { parent_uid: uid("a,bcdefg") }),
+    ]), "a,bcdefg");
+    expect(uids(t.db)).toEqual(["a,bcdefg", "bcdefg"]);
+    expect(queuedBatchIds(t.db)).toEqual([bid("batch-del")]);
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+  });
+
+  test("the refs rows of the deleted block", () => {
+    replayDeleteWithFksOff(snapshotWith([
+      block("uid_r1", 1, { text: "see [[AI]]",
+        refs: [{ target_page_id: 2 as PageId, kind: "link" }] }),
+    ]), "uid_r1");
+    expect(uids(t.db)).toEqual(["uid_r1"]);
+    expect(queuedBatchIds(t.db)).toEqual([bid("batch-del")]);
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+  });
+
+  test("the block_refs rows of the deleted block", () => {
+    replayDeleteWithFksOff(snapshotWith([
+      block("uid_s1", 1, { text: "see ((uid_s2))" }),
+      block("uid_s2", 1),
+    ]), "uid_s1");
+    expect(uids(t.db)).toEqual(["uid_s1", "uid_s2"]);
+    expect(queuedBatchIds(t.db)).toEqual([bid("batch-del")]);
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+  });
+});
+
+describe("the replica schema's foreign keys", () => {
+  test("are exactly the ones targetedFkHit's clauses cover", () => {
+    // Adding or changing an FK means revisiting targetedFkHit in apply.ts:
+    // it checks the rows a replayed batch wrote against these and no others.
+    const tables = t.db.select<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name");
+    const fks = tables.flatMap(({ name }) => t.db.select<{
+      from: string; table: string; to: string; on_delete: string }>(
+      `SELECT "from", "table", "to", on_delete FROM pragma_foreign_key_list(?)`,
+      [name]).map((f) => `${name}.${f.from} -> ${f.table}.${f.to} ${f.on_delete}`))
+      .sort();
+    expect(fks, "an FK changed: revisit targetedFkHit in replica/apply.ts").toEqual([
+      "block_refs.src_block_uid -> blocks.uid CASCADE",
+      "blocks.page_id -> pages.id CASCADE",
+      "blocks.parent_uid -> blocks.uid CASCADE",
+      "refs.src_block_uid -> blocks.uid CASCADE",
+      "refs.target_page_id -> pages.id CASCADE",
+      "replay_log_refs.log_id -> replay_log.id CASCADE",
+    ]);
   });
 });

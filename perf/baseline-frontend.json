@@ -1,5 +1,5 @@
 {
-  "commit": "99d94846",
+  "commit": "600fc25e+dirty",
   "env": {
     "chromium": "149.0.7827.55"
   },
@@ -161,7 +161,7 @@
       },
       "statements": {
         "class": "exact",
-        "value": 572
+        "value": 571
       },
       "trigger_statements": {
         "class": "exact",
@@ -169,7 +169,7 @@
       },
       "vm_steps_k": {
         "class": "exact",
-        "value": 3911
+        "value": 173
       }
     },
     "R/rebase-overlap": {
@@ -179,7 +179,7 @@
       },
       "statements": {
         "class": "exact",
-        "value": 564
+        "value": 563
       },
       "trigger_statements": {
         "class": "exact",
@@ -187,7 +187,7 @@
       },
       "vm_steps_k": {
         "class": "exact",
-        "value": 3912
+        "value": 174
       }
     },
     "R/rebase-paste": {
@@ -197,7 +197,7 @@
       },
       "statements": {
         "class": "exact",
-        "value": 725
+        "value": 724
       },
       "trigger_statements": {
         "class": "exact",
@@ -205,7 +205,7 @@
       },
       "vm_steps_k": {
         "class": "exact",
-        "value": 3917
+        "value": 179
       }
     },
     "S/search-burst": {

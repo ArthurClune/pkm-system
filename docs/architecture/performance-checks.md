@@ -288,9 +288,9 @@ run at least one statement.
 | `vm_steps_k` | exact | progress ticks, one per `PROGRESS_N` VM instructions |
 | `full_scans` | exact | the `EXPLAIN QUERY PLAN` rule of `sqlplan.py`, ported |
 
-Most of each window's `vm_steps_k` is `replayPending`'s whole-database
-`PRAGMA foreign_key_check`, which `fkViolations` (`apply.ts`) runs once before
-the batches and once after each, so K+1 times for K pending batches. The ten
+`replayPending` screens each batch with `targetedFkHit` (`apply.ts`), indexed
+lookups over the batch's `replay_log` records. Only a flagged batch pays for
+the whole-database `PRAGMA foreign_key_check` in `fkViolations`. The ten
 full scans per window are on small client tables: `pending_ops`, `replay_batches`, and the
 `replay_log` and `replay_log_refs` reads in `dropStrandedLocalPages`.
 

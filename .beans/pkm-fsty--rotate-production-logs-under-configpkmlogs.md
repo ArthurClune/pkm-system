@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-10-06T09:01:28Z
-updated_at: 2026-10-06T11:10:27Z
+updated_at: 2026-10-06T11:12:07Z
 ---
 
 Production's launchd jobs write to `~/.config/pkm/logs/` (deploy/README.md: `server.{out,err}.log`, `backup.*`, `icloud-backup.*`) and nothing ever rotates them. On 2026-10-06 `server.out.log` was 12 MB and `server.err.log` 2 MB after about three months; backup logs are tiny. Growth is slow but unbounded, and a big file makes the server-log forensics in the prod recipe slower.
@@ -30,3 +30,8 @@ Option 1, for the server logs: the server logs through its own TimedRotatingFile
 The backup and icloud-backup logs grow by a few KB a month (15 KB after three months), so they need nothing now; if they ever do, option 3 (the nightly job truncating its own log in place) suits them better than a handler.
 
 Check before choosing: what writes server.out.log (uvicorn access lines vs app logging) — that sets which loggers the handler must take over so the launchd files really stop growing.
+
+
+## Deployed (2026-10-06)
+
+Merged at 23597323 and deployed: install.sh re-rendered the server plist with `--log-dir` (its bootstrap hit the race filed as pkm-vlkm; a manual bootstrap brought the server back after about a minute). Prod now writes `logs/server.log` and `logs/access.log`; launchd's `server.{out,err}.log` are empty. The old files are kept as `server.{out,err}.log.pre-rotation.gz`. A forced rollover across a restart was checked on a scratch server; the open item is seeing the first midnight rotation on prod (`ls ~/.config/pkm/logs/*.log.2026-10-06` on or after 2026-10-07).

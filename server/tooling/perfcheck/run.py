@@ -29,17 +29,66 @@ from perfcheck.build import UNUSED_FOR_S, CacheLockTimeout, cache_dir, cache_loc
 from perfcheck.compare import (bootstrap, compare, confirm, incomparable_reason,
                                render_table)
 from perfcheck.fixture import FROZEN_NOW
-from perfcheck.run_core import (exit_code, frontend_letters, incomparable_advice, next_steps,
+from perfcheck.run_core import (busy_reason, exit_code, frontend_letters, incomparable_advice, next_steps,
                                 scenarios_of, sides_for, stale_entries)
 
 FRONTEND_PORT = 8977
 TZ = "Europe/London"
 LOG_TAIL_LINES = 40
 STOP_TIMEOUT_S = 30
+# The 1-min load average lags: it takes about two minutes to decay after load
+# stops, so a check started just after another suite waits rather than
+# refusing at once.
+LOAD_WAIT_S = 180
+LOAD_POLL_S = 10
 
 
 class PerfRunError(RuntimeError):
     pass
+
+
+class MachineBusy(PerfRunError):
+    pass
+
+
+def _load1() -> float:
+    return os.getloadavg()[0]
+
+
+def _cpus() -> int:
+    return os.cpu_count() or 1
+
+
+def wait_until_quiet(side: str, *, sleep=time.sleep, clock=time.monotonic) -> float:
+    """Block until the machine is quiet enough to time anything; returns that
+    load. Gives up with MachineBusy after LOAD_WAIT_S."""
+    start = clock()
+    warned = False
+    while True:
+        load = _load1()
+        reason = busy_reason(load, _cpus())
+        if reason is None:
+            return load
+        if clock() - start >= LOAD_WAIT_S:
+            raise MachineBusy(f"machine busy: {reason}; let other suites finish "
+                              "(keep perf checks serial) or pass --allow-busy")
+        if not warned:
+            print(f"## perf: {side} waiting for a quiet machine — {reason}",
+                  file=sys.stderr, flush=True)
+            warned = True
+        sleep(LOAD_POLL_S)
+
+
+def ensure_still_quiet(side: str) -> float:
+    """One sample after measuring: load that arrived mid-run taints every
+    timing, so nothing may be recorded or reported from it."""
+    load = _load1()
+    reason = busy_reason(load, _cpus())
+    if reason is not None:
+        raise MachineBusy(f"machine became busy during the run: {reason}; its timings "
+                          "can't be trusted and nothing was written; re-run on a quiet "
+                          "machine or pass --allow-busy")
+    return load
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -269,10 +318,17 @@ def _write(path: Path, doc: dict) -> None:
     path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
 
 
-def do_bootstrap(repo: Path, side: str, runs: int, at_merge_base: bool) -> int:
+def do_bootstrap(repo: Path, side: str, runs: int, at_merge_base: bool,
+                 allow_busy: bool = False) -> int:
     runner = _runner(repo, side)
+    if allow_busy:
+        print("load check skipped (--allow-busy)")
+    else:
+        wait_until_quiet(side)
     wt, commit = merge_base_worktree(repo, side) if at_merge_base else (repo, head_commit(repo))
     docs = [runner.run(wt, None, commit) for _ in range(runs)]
+    if not allow_busy:
+        ensure_still_quiet(side)
     base, unstable = bootstrap(docs)
     if base is None:
         print(f"## {side}: {len(unstable)} unstable metric(s) — reconcile before recording a baseline\n")
@@ -286,13 +342,14 @@ def do_bootstrap(repo: Path, side: str, runs: int, at_merge_base: bool) -> int:
     return 0
 
 
-def do_check(repo: Path, side: str) -> int:
+def do_check(repo: Path, side: str, allow_busy: bool = False) -> int:
     path = _baseline_path(repo, side)
     if not path.exists():
         print(f"## {side}: no baseline — run `perf/check.sh {side} --bootstrap`")
         return 1
     baseline = json.loads(path.read_text())
     runner = _runner(repo, side)
+    start_load = _load1() if allow_busy else wait_until_quiet(side)
     result = runner.run(repo, None, head_commit(repo))
     reason = incomparable_reason(baseline, result)
     if reason:
@@ -317,15 +374,19 @@ def do_check(repo: Path, side: str) -> int:
             wt, mb_commit = merge_base_worktree(repo, side)
             mb = runner.run(wt, scenarios_of(survivors), mb_commit)
         outcomes = confirm(baseline, c.candidates, rerun, mb)
+    end_load = _load1() if allow_busy else ensure_still_quiet(side)
     rc = exit_code(c, outcomes)
     improved = c.new_baseline != baseline
     if improved and rc == 0:  # only a passing check may ratchet the baseline
         _write(path, c.new_baseline)
     print(f"## perf: {side}\n")
+    if allow_busy:
+        print("load check skipped (--allow-busy)\n")
     print(render_table(c.findings, outcomes) if c.findings else "no changes against the baseline")
     steps = next_steps(side, [outcomes.get((f.scenario, f.metric), f.kind) for f in c.findings])
     if steps:
         print("\nnext:\n" + "\n".join(f"- {line}" for line in steps))
+    print(f"\nload: {start_load:.1f} → {end_load:.1f} (1-min) on {_cpus()} cores")
     if improved and rc == 0:
         print(f"\nbaseline updated: {path.relative_to(repo)} — commit it with this change")
     elif improved:
@@ -357,6 +418,8 @@ def main() -> int:
     bootstrap_group.add_argument("--bootstrap", action="store_true")
     bootstrap_group.add_argument("--rebaseline", action="store_true")
     ap.add_argument("--runs", type=_runs, default=5)
+    ap.add_argument("--allow-busy", action="store_true",
+                    help="measure even when the machine is busy; timings may be meaningless")
     a = ap.parse_args()
     try:
         repo = repo_root()
@@ -371,9 +434,10 @@ def main() -> int:
     for side in sides:
         try:
             if a.bootstrap or a.rebaseline:
-                rc |= do_bootstrap(repo, side, a.runs, at_merge_base=a.rebaseline)
+                rc |= do_bootstrap(repo, side, a.runs, at_merge_base=a.rebaseline,
+                                  allow_busy=a.allow_busy)
             else:
-                rc |= do_check(repo, side)
+                rc |= do_check(repo, side, a.allow_busy)
         except (PerfRunError, CacheLockTimeout, subprocess.CalledProcessError) as e:
             print(f"## perf: {side} failed — {e}", file=sys.stderr)
             rc |= 2

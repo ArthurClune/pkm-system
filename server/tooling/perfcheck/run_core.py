@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Iterable, Mapping
 
-from perfcheck.compare import Comparison, Outcome
+from perfcheck.compare import TIMING_FACTOR, Comparison, Outcome
 
 # e2e specs and docs under web/ don't change what the browser runs
 _SIDES = (("backend", lambda p: p.startswith("server/")),
@@ -16,6 +16,11 @@ _SIDES = (("backend", lambda p: p.startswith("server/")),
 # check.mjs runs these letters in one shared browser context each; counts
 # were recorded in that company, so a re-run takes the whole group
 _CONTEXT_GROUPS = ("HW", "ABFI", "JKS", "R")
+
+# 1-min load per core above which a machine counts as busy. On the 10-core
+# dev Mac an idle check's own load sits around 2-2.5 (0.25 per core), while a
+# parallel test suite or CPU burners push it past 10 (1.0 per core).
+BUSY_LOAD_PER_CPU = 0.5
 
 _NEXT = {
     "regression": "regression: read your diff along the regressed path, find the cause, "
@@ -28,6 +33,9 @@ _NEXT = {
             "and give the reason in the commit message",
     "reclassified": "reclassified: a metric changed class; re-record with "
                     "`perf/check.sh {side} --bootstrap` and give the reason in the commit message",
+    "faster": f"faster: a timing beat its baseline by more than {TIMING_FACTOR:g}x, which machine "
+              "load can also cause; one run never lowers a timing baseline — if the gain is "
+              "real, record it with `perf/check.sh {side} --bootstrap` on a quiet machine",
 }
 
 
@@ -51,9 +59,18 @@ def frontend_letters(names: Iterable[str]) -> str:
 
 
 def next_steps(side: str, verdicts: Iterable[str]) -> list[str]:
-    """One "what next" line per failing verdict present, in a fixed order."""
+    """One "what next" line per verdict present that has advice, in a fixed order."""
     present = set(verdicts)
     return [line.format(side=side) for verdict, line in _NEXT.items() if verdict in present]
+
+
+def busy_reason(load1: float, cpus: int) -> str | None:
+    """Why `load1` (the 1-min load average) on `cpus` cores is too busy to
+    measure timings, or None when the machine is quiet enough."""
+    limit = cpus * BUSY_LOAD_PER_CPU
+    if load1 <= limit:
+        return None
+    return f"1-min load {load1:.1f} on {cpus} cores (limit {limit:.1f})"
 
 
 def incomparable_advice(reason: str) -> str:

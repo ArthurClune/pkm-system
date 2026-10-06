@@ -3,11 +3,13 @@
 
 Every metric carries a class declared by the check that produced it:
 `exact` counts must not rise, `band` counts must stay under the max seen at
-bootstrap, `timing` values must not clearly worsen. Improvements are folded
-into `Comparison.new_baseline` so they cannot silently erode later; a
-worsened value is only a *candidate* until `confirm` has seen a re-run and a
-merge-base run; a reproduced timing is then judged against that merge-base
-run rather than the baseline."""
+bootstrap, `timing` values must not clearly worsen. Exact and band
+improvements are folded into `Comparison.new_baseline` so they cannot
+silently erode later; a timing never is (machine load moves timings both
+ways, so one fast run is only reported as `faster`). A worsened value is
+only a *candidate* until `confirm` has seen a re-run and a merge-base run;
+a reproduced timing is then judged against that merge-base run rather than
+the baseline."""
 from __future__ import annotations
 
 import copy
@@ -18,9 +20,9 @@ from typing import Literal
 
 TIMING_FACTOR = 2.0
 
-Kind = Literal["candidate", "improvement", "new", "lost", "reclassified"]
+Kind = Literal["candidate", "improvement", "faster", "new", "lost", "reclassified"]
 Outcome = Literal["regression", "unstable", "stale-baseline"]
-Judgement = Literal["pass", "candidate", "improvement"]
+Judgement = Literal["pass", "candidate", "improvement", "faster"]
 
 
 @dataclass(frozen=True)
@@ -87,7 +89,8 @@ def _judge(base: dict, now: dict) -> tuple[Judgement, dict]:
     if v > base["value"] * TIMING_FACTOR:
         return "candidate", base
     if v * TIMING_FACTOR < base["value"]:
-        return "improvement", {"class": "timing", "value": v}
+        # reported only: load can make a run fast as easily as slow
+        return "faster", base
     return "pass", base
 
 

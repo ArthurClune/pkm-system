@@ -55,14 +55,23 @@ def test_band_inside_passes_above_is_candidate_below_lowers_min_only():
     assert c.new_baseline["scenarios"]["s"]["long_tasks"] == band(0, 3)
 
 
-def test_timing_only_flags_past_factor_and_only_ratchets_past_factor():
+def test_timing_flags_past_factor_and_never_lowers_the_baseline():
     base = doc({"s": {"median_ms": tm(10.0)}})
     assert compare(base, doc({"s": {"median_ms": tm(19.9)}})).findings == ()
     assert kinds(compare(base, doc({"s": {"median_ms": tm(20.1)}}))) == {("s", "median_ms"): "candidate"}
     assert compare(base, doc({"s": {"median_ms": tm(6.0)}})).findings == ()
+    # machine load moves timings both ways, so one fast run is reported, not recorded
     c = compare(base, doc({"s": {"median_ms": tm(4.9)}}))
-    assert kinds(c) == {("s", "median_ms"): "improvement"}
-    assert c.new_baseline["scenarios"]["s"]["median_ms"] == tm(4.9)
+    assert kinds(c) == {("s", "median_ms"): "faster"}
+    assert c.new_baseline == base
+    assert c.candidates == () and c.blocking == ()
+
+
+def test_faster_timing_does_not_stop_other_improvements_being_recorded():
+    base = doc({"s": {"median_ms": tm(10.0), "statements": ex(4)}})
+    c = compare(base, doc({"s": {"median_ms": tm(1.0), "statements": ex(3)}}))
+    assert kinds(c) == {("s", "median_ms"): "faster", ("s", "statements"): "improvement"}
+    assert c.new_baseline["scenarios"]["s"] == {"median_ms": tm(10.0), "statements": ex(3)}
 
 
 def test_new_scenario_and_metric_recorded():

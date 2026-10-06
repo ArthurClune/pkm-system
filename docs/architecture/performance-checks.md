@@ -290,8 +290,8 @@ run at least one statement.
 
 Most of each window's `vm_steps_k` is `replayPending`'s whole-database
 `PRAGMA foreign_key_check`, which `fkViolations` (`apply.ts`) runs once before
-the batches and once after each, so K+1 times for K pending batches. Its full
-scans are on small client tables: `pending_ops`, `replay_batches`, and the
+the batches and once after each, so K+1 times for K pending batches. The ten
+full scans per window are on small client tables: `pending_ops`, `replay_batches`, and the
 `replay_log` and `replay_log_refs` reads in `dropStrandedLocalPages`.
 
 ## Determinism

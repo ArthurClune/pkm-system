@@ -125,4 +125,12 @@ describe("pruneGraph", () => {
     expect(out.pages).toEqual(["Kept", "Mine", "New", "Ref:d"]);
     expect(out.blocks.map((b) => b.uid)).toEqual(["opsb00"]);
   });
+  it("carries the graph's other fields through", () => {
+    const g: NormalGraph = {
+      pages: ["Mine"], blocks: [nb("opsb00", "Mine", null, 1)],
+      pageStamps: { Mine: "1/2" },
+    };
+    expect(pruneGraph(g, new Set(["opsb00"]), new Set()).pageStamps)
+      .toEqual({ Mine: "1/2" });
+  });
 });

@@ -122,6 +122,7 @@ describe("rewind", () => {
     const before = dump();
     expect(inTx(() => rewind(t.db, "all"))).toEqual(new Map());
     expect(dump()).toEqual(before);
+    ftsIntact();
   });
 
   test("a present row returns to its pre-image, refs and block_refs included", () => {
@@ -187,6 +188,7 @@ describe("rewind", () => {
     });
     expect(dump()).toEqual(before);
     expect(logSize()).toBe(0);
+    ftsIntact();
   });
 
   test("scope pending leaves a settled batch's records and rows", () => {
@@ -201,6 +203,7 @@ describe("rewind", () => {
     expect(dump()).toEqual(after);
     expect(t.db.select("SELECT DISTINCT batch_id FROM replay_log"))
       .toEqual([{ batch_id: "b1" }]);
+    ftsIntact();
   });
 
   test("a minted page is deleted and returned by title; a page a block still holds is kept", () => {
@@ -233,6 +236,31 @@ describe("rewind", () => {
       .toEqual([{ src_block_uid: "c2" }]);
     expect(t.db.select("SELECT src_block_uid, target_block_uid FROM block_refs"))
       .toEqual([{ src_block_uid: "a", target_block_uid: "uid-c1x" }]);
+    ftsIntact();
+  });
+
+  test("a row restored in place sits under a parent re-inserted in the same rewind", () => {
+    const before = dump();
+    inTx(() => {
+      // c1 leaves c for the top level, then c's subtree is deleted: after the
+      // rewind c1 (present, updated) must hang under c (absent, re-inserted)
+      move(b1, "c1", null, 3);
+      del(b1, "c2");
+      del(b1, "c");
+      expect(t.db.select("SELECT uid FROM blocks WHERE uid IN ('c', 'c2')")).toEqual([]);
+      rewind(t.db, "all");
+    });
+    expect(t.db.select(
+      "SELECT uid, page_id, parent_uid, order_idx FROM blocks" +
+      " WHERE uid IN ('c', 'c1', 'c11', 'c2') ORDER BY uid")).toEqual([
+      { uid: "c", page_id: 1, parent_uid: null, order_idx: 2 },
+      { uid: "c1", page_id: 1, parent_uid: "c", order_idx: 0 },
+      { uid: "c11", page_id: 1, parent_uid: "c1", order_idx: 0 },
+      { uid: "c2", page_id: 1, parent_uid: "c", order_idx: 1 },
+    ]);
+    expect(dump()).toEqual(before);
+    expect(logSize()).toBe(0);
+    ftsIntact();
   });
 
   test("a rewound block whose parent is gone is dropped", () => {
@@ -257,6 +285,7 @@ describe("rewind", () => {
     expect(t.db.select("SELECT uid FROM blocks ORDER BY uid"))
       .toEqual([{ uid: "a" }, { uid: "b" }]);
     expect(logSize()).toBe(0);
+    ftsIntact();
   });
 
   test("a positive page id is never deleted, whatever its record says", () => {
@@ -266,6 +295,7 @@ describe("rewind", () => {
       expect(rewind(t.db, "all")).toEqual(new Map());
     });
     expect(pageIds()).toEqual([1, 2, 3]);
+    ftsIntact();
   });
 
   test("enqueue then rewind all restores the database exactly", async () => {

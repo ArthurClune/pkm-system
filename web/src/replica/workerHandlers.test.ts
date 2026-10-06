@@ -1414,6 +1414,44 @@ test("an enqueue on a file without replay_log creates the tables, records, and l
     .toEqual([{ value: "old" }]);
 });
 
+const LEGACY_LEDGER =
+  "CREATE TABLE effect_ledger(batch_id TEXT NOT NULL, uid TEXT NOT NULL," +
+  " order_delta INTEGER NOT NULL DEFAULT 0, row_json TEXT, PRIMARY KEY (batch_id, uid))";
+
+test("an enqueue on a file with a legacy effect_ledger and no replay_log creates the replay tables and leaves the ledger alone", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(TWO);
+  t.db.exec("DROP TABLE replay_log_refs");
+  t.db.exec("DROP TABLE replay_log");
+  t.db.exec("DROP TABLE replay_batches");
+  t.db.exec(LEGACY_LEDGER);
+  t.db.exec("INSERT INTO effect_ledger(batch_id, uid) VALUES ('old', 'u')");
+  await handlers.enqueue(shiftingCreate("a"));
+  expect(t.db.select("SELECT batch_id FROM replay_log WHERE batch_id = 'a'").length)
+    .toBeGreaterThan(0);
+  expect(t.db.select("SELECT batch_id, uid FROM effect_ledger"))
+    .toEqual([{ batch_id: "old", uid: "u" }]);
+});
+
+test("an enqueue on a file with a legacy effect_ledger beside replay_log records without reinstalling the schema", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(TWO);
+  t.db.exec(LEGACY_LEDGER);
+  // an index CLIENT_DDL would recreate: its absence afterwards shows the DDL did not rerun
+  t.db.exec("DROP INDEX idx_replay_log_key");
+  await handlers.enqueue(shiftingCreate("a"));
+  expect(t.db.select("SELECT batch_id FROM replay_log WHERE batch_id = 'a'").length)
+    .toBeGreaterThan(0);
+  expect(t.db.select("SELECT name FROM sqlite_master WHERE name = 'idx_replay_log_key'"))
+    .toEqual([]);
+  expect(t.db.select("SELECT name FROM sqlite_master WHERE name = 'effect_ledger'"))
+    .toEqual([{ name: "effect_ledger" }]);
+});
+
 test("deleteBatch without a seq, then a head window, reverts", async () => {
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });

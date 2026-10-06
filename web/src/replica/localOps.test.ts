@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { BatchId, CanonicalTitle, PageId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { opBumpsUpdatedAt } from "../outline/blockStamps";
@@ -15,6 +15,7 @@ const apply = (db: TestDb["db"], ops: BlockOp[], nowMs: number,
   applyLocalOps(db, ops, nowMs, { batchId: bid("t"), ...opts });
 
 let t: TestDb;
+afterEach(() => { vi.restoreAllMocks(); });
 beforeEach(async () => {
   t?.close();
   t = await openTestDb();
@@ -369,11 +370,15 @@ describe("applyLocalOps", () => {
   test("a batch applies atomically: a bad op rolls the whole batch back", () => {
     // A missing target is skipped, not a failure, so this now
     // needs an op that still throws: a create whose uid already exists.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     expect(() => apply(t.db, [
       { op: "update_text", uid: uid("uid_r1"), text: "changed" },
       { op: "create", uid: uid("uid_r2"), page_title: "AI", parent_uid: null,
         order_idx: ord(0), text: "collides" },
     ], 99)).toThrow();
+    expect(warn).toHaveBeenCalledWith(
+      "sqlite3_step() rc=", 1555, "SQLITE_CONSTRAINT_PRIMARYKEY", "SQL =",
+      expect.stringContaining("INSERT INTO blocks"));
     expect(blockRow("uid_r1").text).toBe("first"); // rolled back
   });
 

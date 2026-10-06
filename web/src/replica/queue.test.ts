@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { BatchId } from "../api/brands";
 import type { BlockOp, DeleteOp, UpdateTextOp } from "../api/ops";
 import type { PendingRowId } from "./client";
@@ -17,6 +17,7 @@ import { ord, uid } from "../test-helpers";
 const bid = (s: string): BatchId => s as BatchId;
 
 let t: TestDb;
+afterEach(() => { vi.restoreAllMocks(); });
 beforeEach(async () => {
   t?.close();
   t = await openTestDb();
@@ -38,6 +39,7 @@ const durableAndOptimisticState = () => ({
 
 describe("enqueueBatch", () => {
   test("an op whose optimistic apply throws after its shift leaves no record", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     t.db.exec(
       "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
       " VALUES ('uid_q2', 1, NULL, 1, 'at the slot')," +
@@ -46,6 +48,9 @@ describe("enqueueBatch", () => {
       { op: "create", uid: uid("uid_q3"), page_title: "AI", parent_uid: null,
         order_idx: ord(1), text: "dup" },
     ], 99, bid("batch-dup"));
+    expect(warn).toHaveBeenCalledWith(
+      "sqlite3_step() rc=", 1555, "SQLITE_CONSTRAINT_PRIMARYKEY", "SQL =",
+      expect.stringContaining("INSERT INTO blocks"));
     expect(t.db.select("SELECT batch_id, kind, key FROM replay_log")).toEqual([]);
     expect(t.db.select("SELECT batch_id FROM pending_ops"))
       .toEqual([{ batch_id: "batch-dup" }]);

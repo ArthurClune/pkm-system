@@ -1,6 +1,6 @@
 // @vitest-environment node
 import fc from "fast-check";
-import { beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { BatchId, BlockUid, OrderIdx, PageId } from "../api/brands";
 import { applySnapshot } from "./apply";
 import { reindexBlockRefs } from "./blockRefs";
@@ -12,6 +12,7 @@ import { rewind } from "./rewind";
 import { openTestDb, type TestDb } from "./testDb";
 
 let t: TestDb;
+afterEach(() => { vi.restoreAllMocks(); });
 const P = 1 as PageId;
 const b1 = "b1" as BatchId;
 const b2 = "b2" as BatchId;
@@ -268,6 +269,7 @@ describe("rewind", () => {
   });
 
   test("enqueue then rewind all restores the database exactly", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     await fc.assert(fc.asyncProperty(
       replicaStateArb.chain((state) => fc.tuple(fc.constant(state), batchesArb(state))),
       async ([state, batches]) => {
@@ -286,5 +288,11 @@ describe("rewind", () => {
           r.close();
         }
       }), { numRuns: 150 });
+    // The generated batches collide on purpose (a create of an existing uid);
+    // the engine logs each failed statement, and nothing else may be logged.
+    for (const call of warn.mock.calls) {
+      expect(call.slice(0, 3)).toEqual(
+        ["sqlite3_step() rc=", expect.any(Number), "SQLITE_CONSTRAINT_PRIMARYKEY"]);
+    }
   });
 });

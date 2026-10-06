@@ -4,7 +4,7 @@
 // a fresh replica that bootstraps from the window's resulting server state
 // and enqueues the same batches at the same time.
 import fc from "fast-check";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import type { BatchId, BlockUid, CanonicalTitle, OrderIdx, PageId,
               SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
@@ -90,6 +90,7 @@ const exactDump = (db: ReplicaDb) => ({
 
 const opened: TestDb[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const t of opened.splice(0)) t.close();
 });
 
@@ -192,6 +193,7 @@ describe("a window replays pending batches as a first apply", () => {
   });
 
   test("an empty head window leaves the database exactly as it was", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     await fc.assert(fc.asyncProperty(
       replicaStateArb.chain((state) => fc.tuple(fc.constant(state), batchesArb(state))),
       async ([state, batches]) => {
@@ -204,6 +206,12 @@ describe("a window replays pending batches as a first apply", () => {
         expect(exactDump(db)).toEqual(before);
         for (const t of opened.splice(0)) t.close();
       }), { numRuns: 150 });
+    // The generated batches collide on purpose (a create of an existing uid);
+    // the engine logs each failed statement, and nothing else may be logged.
+    for (const call of warn.mock.calls) {
+      expect(call.slice(0, 3)).toEqual(
+        ["sqlite3_step() rc=", expect.any(Number), "SQLITE_CONSTRAINT_PRIMARYKEY"]);
+    }
   });
 });
 

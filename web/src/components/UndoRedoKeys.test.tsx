@@ -3,6 +3,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { makeSync, uid } from "../test-helpers";
 import { historyIdle, recordHistory, resetHistory,
@@ -23,7 +24,7 @@ const entry = () => ({
 
 function setup(sync = makeSync()) {
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
         <UndoRedoKeys />
         <input aria-label="other-input" />

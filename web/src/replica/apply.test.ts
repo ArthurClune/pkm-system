@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { BatchId, BlockUid, CanonicalTitle, PageId, SyncSeq } from "../api/brands";
 import type { Changes, Snapshot, SyncBlock, SyncTombstone } from "./apply";
 import { applyChanges, applySnapshot, assertNoParkedTitles,
@@ -11,6 +11,13 @@ import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "
 import { openTestDb, type TestDb } from "./testDb";
 import type { ReplicaDb } from "./db";
 import { entryId, ord, pageId, title, uid } from "../test-helpers";
+
+// Tests that provoke a failure path on purpose spy on console.warn and assert
+// the line applyChanges or the engine (via testDb.ts) logs for it.
+const quietWarn = () => vi.spyOn(console, "warn").mockImplementation(() => undefined);
+const engineStep = (code: string) =>
+  ["sqlite3_step() rc=", expect.any(Number), code, "SQL =", expect.any(String)] as const;
+afterEach(() => { vi.restoreAllMocks(); });
 
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
@@ -492,10 +499,13 @@ describe("applyChanges", () => {
   // shipped. Dispatch must not default to a sidebar delete for it --
   // that would destroy an unrelated row (see applyWindow).
   test("an unknown tombstone kind deletes nothing", () => {
+    const warn = quietWarn();
     applyChanges(t.db, emptyFeed({
       next_since: 13, latest_seq: 13,
       tombstones: [{ kind: "widget", entity_id: "1" } as unknown as SyncTombstone],
     }));
+    expect(warn).toHaveBeenCalledWith(
+      "applyWindow: unknown tombstone kind, skipping", expect.anything());
     expect(count("SELECT COUNT(*) AS n FROM sidebar_entries")).toBe(1);
     expect(count("SELECT COUNT(*) AS n FROM pages")).toBe(2);
     expect(count("SELECT COUNT(*) AS n FROM blocks")).toBe(3);
@@ -592,8 +602,11 @@ describe("applyChanges: a title moving between ids inside one window", () => {
     // The server cannot hold two "AI" rows, so a local positive-id "AI" that
     // is neither retitled nor tombstoned here means this replica's picture of
     // it is stale in a way no window can fix. Rebuild rather than wedge.
+    const warn = quietWarn();
     const feed = emptyFeed({ next_since: 20, latest_seq: 20, pages: [page(3, "AI")] });
     expect(applyChanges(t.db, feed)).toEqual({ status: "needs-bootstrap" });
+    expect(warn).toHaveBeenCalledWith(
+      "applyChanges: stale title holder, rebootstrapping", expect.objectContaining({ name: "StaleTitleHolderError" }));
     expect(getMeta(t.db, "cursor")).toBe("10");
     expect(t.db.select("SELECT id, title FROM pages ORDER BY id")).toEqual([
       { id: 1, title: "Machine Learning" }, { id: 2, title: "AI" },
@@ -926,11 +939,15 @@ describe("applyChanges: block tombstones wait for the window that reaches the jo
   });
 
   test("a window that rolls back records nothing", () => {
+    const warn = quietWarn();
     // a block whose page never shipped fails the deferred FK check at COMMIT
     expect(window(13, {
       tombstones: [tomb("uid_dd_d")],
       blocks: [block("uid_dd_orphan", 99)],
     })).toEqual({ status: "needs-bootstrap" });
+    expect(warn).toHaveBeenCalledWith(
+      "applyChanges: window failed its deferred FK check, rebootstrapping",
+      expect.anything());
 
     expect(deferred()).toBeNull();
     expect(getMeta(t.db, "cursor")).toBe("11");
@@ -1072,6 +1089,7 @@ describe("applyChanges: a replayed batch whose create already applied keeps its 
   });
 
   test("our own echo landing before the ack matches the server exactly", () => {
+    const warn = quietWarn();
     enqueueCreateAndEdit();
 
     // the server applied the batch: it shifted uid_b2 and journaled all three
@@ -1084,6 +1102,7 @@ describe("applyChanges: a replayed batch whose create already applied keeps its 
       ],
     }), 6);
 
+    expect(warn).toHaveBeenCalledWith(...engineStep("SQLITE_CONSTRAINT_PRIMARYKEY"));
     expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
       .toEqual([{ text: "mine" }]);
     expect(topLevel()).toEqual([
@@ -1454,6 +1473,7 @@ describe("applyChanges: a window that names a pending batch as applied drops it 
   });
 
   test("a window that rolls back keeps the named rows", () => {
+    const warn = quietWarn();
     applySnapshot(t.db, SIX, 1);
     enqueueBatch(t.db, [mv("s4", 0)], 3, bid("b0"));
 
@@ -1464,6 +1484,9 @@ describe("applyChanges: a window that names a pending batch as applied drops it 
     }), 4);
 
     expect(res).toEqual({ status: "needs-bootstrap" });
+    expect(warn).toHaveBeenCalledWith(
+      "applyChanges: window failed its deferred FK check, rebootstrapping",
+      expect.anything());
     expect(allBatches(t.db).map((b) => b.batch_id)).toEqual([bid("b0")]);
   });
 
@@ -1684,6 +1707,7 @@ describe("applyChanges: the replay log", () => {
   // whole batch used to roll back.
   describe("a replayed op that fails is rolled back alone", () => {
     test("an op that throws", () => {
+      const warn = quietWarn();
       enqueueBatch(t.db, [createTop("X", 0),
                           { op: "update_text", uid: uid("X"), text: "later" }],
                    2, bid("b1"));
@@ -1696,6 +1720,7 @@ describe("applyChanges: the replay log", () => {
       }), 3);
 
       expect(res).toEqual({ status: "applied", cursor: 11 });
+      expect(warn).toHaveBeenCalledWith(...engineStep("SQLITE_CONSTRAINT_TRIGGER"));
       expect(keys(1)).toBe("X0 m1 z1 a2 r3");
       expect(t.db.select("SELECT text FROM blocks WHERE uid = 'X'"))
         .toEqual([{ text: "text of X" }]);
@@ -1749,6 +1774,7 @@ describe("applyChanges: the replay log", () => {
     ackNext(t.db);
     const before = logKeys();
 
+    const warn = quietWarn();
     // page 5 takes P's title; nothing retitles or deletes page 1
     const res = applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11, pages: [page(5, "P")],
@@ -1756,6 +1782,8 @@ describe("applyChanges: the replay log", () => {
     }), 3);
 
     expect(res).toEqual({ status: "needs-bootstrap" });
+    expect(warn).toHaveBeenCalledWith(
+      "applyChanges: stale title holder, rebootstrapping", expect.objectContaining({ name: "StaleTitleHolderError" }));
     expect(keys(1)).toBe("m1 a2 r3");
     expect(logKeys()).toEqual(before);
   });
@@ -2067,12 +2095,14 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
   // b2's create of g fails its replay, as it fails on the server (the uid
   // exists), where the old settle let the re-create win.
   test("a pending re-create of a cascaded block the server kept fails its replay", () => {
+    const warn = quietWarn();
     enqueueBatch(t.db, [deleteP], 2, bid("b1"));
     enqueueBatch(t.db, [{ op: "create", uid: uid("g"), page_title: "P", parent_uid: null,
                           order_idx: ord(0), text: "text of g" }], 2, bid("b2"));
     ackNext(t.db);
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11, blocks: [kMovedOut], tombstones: [pTomb] }), 3);
+    expect(warn).toHaveBeenCalledWith(...engineStep("SQLITE_CONSTRAINT_PRIMARYKEY"));
     expect(tree()).toEqual([{ uid: "g", parent_uid: "k" },
                             { uid: "k", parent_uid: null }]);
     expect(records().filter((r) => r.startsWith("b1"))).toEqual([]);

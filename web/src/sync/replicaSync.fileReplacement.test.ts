@@ -4,7 +4,7 @@
 // file whose replacement fails once. The damaged database is really closed
 // when its file is discarded, so the queue survives only if it was made
 // durable somewhere else first.
-import { expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { Snapshot } from "../replica/apply";
 import { createCarryStore } from "../replica/carryStore";
@@ -27,7 +27,10 @@ const SNAP: Snapshot = {
 };
 const SQLITE_FULL = "SQLITE_FULL: sqlite3 result code 13: database or disk is full";
 
+afterEach(() => { vi.restoreAllMocks(); });
+
 test("a poison repair whose file replacement fails keeps every queued row for its Retry", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
   const damaged = await openRawTestDb();
   const fresh = await openRawTestDb();
   const carryDb = await openRawTestDb();
@@ -76,6 +79,9 @@ test("a poison repair whose file replacement fails keeps every queued row for it
 
   await expect(sync.rebaseAuthoritative("poison")).rejects.toThrow(/SQLITE_FULL/);
   expect(carriedAtDiscard).toEqual([["rejected", "valid"]]);
+  expect(warn).toHaveBeenCalledWith(
+    expect.stringContaining("rebuild hit file-level corruption, replacing the file"),
+    expect.anything());
   // the repair banner's Retry
   await sync.rebaseAuthoritative("poison");
   expect(carry.exists()).toBe(false);

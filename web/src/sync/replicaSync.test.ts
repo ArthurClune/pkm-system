@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError, OfflineError } from "../api/client";
 import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
@@ -76,6 +76,13 @@ function collector() {
   const states: ReplicaState[] = [];
   return { states, onState: (s: ReplicaState) => { states.push(s); } };
 }
+
+// Tests that drive a failure path on purpose spy on console.warn and assert
+// the recovery log they provoke; `logged` counts lines containing `text`.
+const quietWarn = () => vi.spyOn(console, "warn").mockImplementation(() => undefined);
+const logged = (warn: ReturnType<typeof quietWarn>, text: string) =>
+  warn.mock.calls.filter(([m]) => typeof m === "string" && m.includes(text)).length;
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe("start, bootstrap and feed pulls", () => {
   test("start on an empty replica bootstraps from the snapshot then is ready", async () => {
@@ -1058,6 +1065,7 @@ describe("pull retries and the stall report", () => {
   });
 
   test("pulls failing with ReplicaError still stall at 3", async () => {
+    const warn = quietWarn();
     vi.useFakeTimers();
     try {
       const replica = fakeReplica();
@@ -1075,6 +1083,10 @@ describe("pull retries and the stall report", () => {
 
       await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); // failure 3 -> stalled
       expect(states.at(-1)).toEqual({ mode: "stalled", error: "replica rpc failed" });
+      // each ReplicaError pull is a window that will not apply: the rebase
+      // reports it, and the report's own POST fails with the same error
+      expect(logged(warn, "re-snapshotting")).toBeGreaterThan(0);
+      expect(logged(warn, "could not post diagnostics")).toBeGreaterThan(0);
     } finally {
       vi.useRealTimers();
     }
@@ -1739,6 +1751,7 @@ describe("corruption rebuilds", () => {
   );
 
   test("a corruption-shaped pull failure rebuilds the schema instead of stalling", async () => {
+    const warn = quietWarn();
     const applyChanges = vi.fn()
       .mockRejectedValueOnce(CORRUPT())
       .mockResolvedValue({ status: "applied", cursor: 9 });
@@ -1758,9 +1771,11 @@ describe("corruption rebuilds", () => {
     expect(states.map((s) => s.mode)).not.toContain("stalled");
     expect(states.map((s) => s.mode)).not.toContain("recovery-failed");
     expect(states.at(-1)).toEqual({ mode: "ready" });
+    expect(logged(warn, "local database is corrupt")).toBe(1);
   });
 
   test("corruption that survives one rebuild is a stall, not a rebuild loop", async () => {
+    const warn = quietWarn();
     vi.useFakeTimers();
     try {
       const applyChanges = vi.fn().mockRejectedValue(CORRUPT());
@@ -1779,12 +1794,14 @@ describe("corruption rebuilds", () => {
         mode: "stalled",
         error: "SQLITE_CORRUPT_VTAB: sqlite3 result code 267: database disk image is malformed",
       });
+      expect(logged(warn, "local database is corrupt")).toBe(1);
     } finally {
       vi.useRealTimers();
     }
   });
 
   test("a feed re-bootstrap whose snapshot apply hits corruption escalates to a schema rebuild", async () => {
+    const warn = quietWarn();
     const kinds: string[] = [];
     const commitRecovery = vi.fn(async (_token: string, input: { kind: string }) => {
       kinds.push(input.kind);
@@ -1806,11 +1823,13 @@ describe("corruption rebuilds", () => {
     expect(kinds).toEqual(["rebase", "reset"]);
     expect(states.map((s) => s.mode)).not.toContain("recovery-failed");
     expect(states.at(-1)).toEqual({ mode: "ready" });
+    expect(logged(warn, "local database is corrupt")).toBe(1);
   });
 
   test("a fresh corruption posts a diagnostics report gathered before the rebuild", async () => {
     // The reset drops the tables, so whatever the database can say about the
     // corruption has to be read first; the POST itself is fire-and-forget.
+    const warn = quietWarn();
     const report = { sqliteVersion: "3.53.0", quickCheck: ["ok"],
       integrity: { blocks_fts: "malformed", pages_fts: "ok" },
       counts: { pages: 1, blocks: 2, pending_ops: 0,
@@ -1845,12 +1864,18 @@ describe("corruption rebuilds", () => {
       report,
     });
     expect(states.at(-1)).toEqual({ mode: "ready" });
+    expect(logged(warn, "local database is corrupt")).toBe(1);
+    // a failed POST is logged and swallowed
+    expect(warn).toHaveBeenCalledWith(
+      "replica: could not post diagnostics",
+      expect.objectContaining({ message: "diagnostics endpoint down" }));
   });
 
   test("a rebuild whose snapshot fetch fails is still available to the retry", async () => {
     // The once-per-session budget is spent on a rebuild that HAPPENED, not on
     // one that was attempted: a transient snapshot failure (the flaky link the
     // corruption arrived on) must not reinstate the stall banner.
+    const warn = quietWarn();
     vi.useFakeTimers();
     try {
       const applyChanges = vi.fn()
@@ -1878,6 +1903,7 @@ describe("corruption rebuilds", () => {
       expect(commitRecovery).toHaveBeenCalledTimes(1);
       expect(states.map((s) => s.mode)).not.toContain("stalled");
       expect(states.at(-1)).toEqual({ mode: "ready" });
+      expect(logged(warn, "local database is corrupt")).toBe(2);
     } finally {
       vi.useRealTimers();
     }
@@ -1905,6 +1931,7 @@ describe("window strikes", () => {
   };
 
   test("a window that fails identically WINDOW_STRIKES times rebases before the stall banner", async () => {
+    const warn = quietWarn();
     vi.useFakeTimers();
     try {
       const applyChanges = failingApply(WINDOW_STRIKES, UNAPPLIABLE);
@@ -1941,12 +1968,17 @@ describe("window strikes", () => {
         .toBeLessThan(replica.calls.indexOf("commitRecovery"));
       expect(states.map((s) => s.mode)).not.toContain("stalled");
       expect(states.at(-1)).toEqual({ mode: "ready" });
+      expect(warn).toHaveBeenCalledWith(
+        "replica: a changes window will not apply, re-snapshotting past it",
+        expect.objectContaining({ message: UNAPPLIABLE_MSG }));
+      expect(logged(warn, "re-snapshotting")).toBe(1);
     } finally {
       vi.useRealTimers();
     }
   });
 
   test("window failures with different messages never accumulate into a rebase", async () => {
+    const warn = quietWarn();
     vi.useFakeTimers();
     try {
       const applyChanges = vi.fn();
@@ -1965,6 +1997,7 @@ describe("window strikes", () => {
       await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (STALL_AFTER_FAILURES + 2));
 
       expect(commitRecovery).not.toHaveBeenCalled();
+      expect(logged(warn, "re-snapshotting")).toBe(0);
       expect(fetchJson.mock.calls.map(([path]) => path))
         .not.toContain("/api/client/diagnostics");
       expect(states).toContainEqual({
@@ -2030,6 +2063,7 @@ describe("window strikes", () => {
   });
 
   test("a second run of identical window failures stalls instead of rebasing again", async () => {
+    const warn = quietWarn();
     vi.useFakeTimers();
     try {
       const applyChanges = failingApply(WINDOW_STRIKES, UNAPPLIABLE);
@@ -2056,6 +2090,7 @@ describe("window strikes", () => {
       // stall banner, which is the point at which a feed bug should be visible
       expect(commitRecovery).toHaveBeenCalledTimes(1);
       expect(states).toContainEqual({ mode: "stalled", error: UNAPPLIABLE_MSG });
+      expect(logged(warn, "re-snapshotting")).toBe(1);
     } finally {
       vi.useRealTimers();
     }
@@ -2064,6 +2099,7 @@ describe("window strikes", () => {
   test("a strikes-rebase whose snapshot fetch fails is still available to the retry", async () => {
     // Mirrors the corruption budget rule: the once-per-session rebase is spent
     // when a rebase HAPPENS, not when one is attempted.
+    const warn = quietWarn();
     vi.useFakeTimers();
     try {
       const applyChanges = failingApply(WINDOW_STRIKES + 1, UNAPPLIABLE);
@@ -2086,6 +2122,7 @@ describe("window strikes", () => {
       await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (WINDOW_STRIKES + 2));
 
       expect(snapshots).toBe(2);
+      expect(logged(warn, "re-snapshotting")).toBe(2);
       expect(commitRecovery).toHaveBeenCalledTimes(1);
       expect(states.map((s) => s.mode)).not.toContain("stalled");
       expect(states.at(-1)).toEqual({ mode: "ready" });

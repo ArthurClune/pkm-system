@@ -7,6 +7,7 @@ import type { CarryFiles } from "./carryStore";
 import { installSchema } from "./clientSchema";
 
 interface Sqlite3Module {
+  config: { warn: (...args: unknown[]) => void };
   oo1: { DB: new (filename: string) => Oo1DbLike & { close(): void } };
 }
 
@@ -15,6 +16,21 @@ let sqlite3: Sqlite3Module | null = null;
 export interface TestDb {
   db: ReplicaDb;
   close(): void;
+}
+
+/** The engine's bootstrap probes `localStorage` for its kvvfs backend; on
+ * Node that getter prints an ExperimentalWarning to stderr. Hide the global
+ * for the probe, then put back exactly what was there. */
+async function initQuietly(): Promise<Sqlite3Module> {
+  const saved = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage",
+    { value: undefined, configurable: true, writable: true });
+  try {
+    return (await sqlite3InitModule()) as unknown as Sqlite3Module;
+  } finally {
+    if (saved) Object.defineProperty(globalThis, "localStorage", saved);
+    else delete (globalThis as { localStorage?: unknown }).localStorage;
+  }
 }
 
 export async function openTestDb(): Promise<TestDb> {
@@ -26,7 +42,13 @@ export async function openTestDb(): Promise<TestDb> {
 /** Same, but without installing the schema — for code paths that must see
  * a brand-new empty database (worker init). */
 export async function openRawTestDb(): Promise<TestDb> {
-  sqlite3 ??= (await sqlite3InitModule()) as unknown as Sqlite3Module;
+  if (!sqlite3) {
+    sqlite3 = await initQuietly();
+    // The engine reports failed statements through config.warn, bound to
+    // console.warn at init; looking console up per call lets a test's spy
+    // see (and silence) the ones it provokes on purpose.
+    sqlite3.config.warn = (...args) => console.warn(...args);
+  }
   const raw = new sqlite3.oo1.DB(":memory:");
   const db = wrapSqlite(raw);
   db.exec("PRAGMA foreign_keys=ON");

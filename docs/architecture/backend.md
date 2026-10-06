@@ -885,14 +885,28 @@ data directory.
 
 There is no metrics stack. The logs answer one question: what was the server
 doing when it was slow? `logfmt.uvicorn_log_config()` is uvicorn's default
-dictconfig plus timestamps on every formatter, and it wires the three streams
-below, so launchd's two log files keep their usual roles.
+dictconfig plus timestamps on every formatter. It routes the three loggers
+below to one of two handlers.
 
-| Logger | Stream | Line |
+| Logger | Handler | Line |
 |---|---|---|
-| `pkm.access` | stdout | One pre-formatted `logfmt.request_line` per request, emitted by `RequestLogMiddleware` (`server/request_log.py`) after the response body finishes, so the duration covers body send |
-| `pkm`, and every `pkm.*` child | stderr, INFO | Children — `pkm.assets`, `pkm.assistant`, `pkm.describe`, any future addition — inherit the parent's handler, level and format by propagation, with no entry of their own |
-| uvicorn lifecycle and errors | stderr | uvicorn's own output; its access log is disabled in `run.py` |
+| `pkm.access` | access | One pre-formatted `logfmt.request_line` per request, emitted by `RequestLogMiddleware` (`server/request_log.py`) after the response body finishes, so the duration covers body send |
+| `pkm`, and every `pkm.*` child | default, INFO | Children — `pkm.assets`, `pkm.assistant`, `pkm.describe`, any future addition — inherit the parent's handler, level and format by propagation, with no entry of their own |
+| uvicorn lifecycle and errors | default | uvicorn's own output; its access log is disabled in `run.py` |
+
+Where the handlers write depends on `run.py --log-dir`:
+
+| Run as | default handler | access handler |
+|---|---|---|
+| production (the launchd plist passes `--log-dir $PKM_HOME/logs`) | `server.log` | `access.log` |
+| no `--log-dir` (tests, e2e, scratch servers) | stderr | stdout |
+
+The two files rotate at midnight through `TimedRotatingFileHandler`, keeping
+30 dated copies (`server.log.YYYY-MM-DD`). The server rotates its own files
+because launchd holds its `StandardOutPath`/`StandardErrorPath` descriptors
+open, so an outside rename would leave the job writing to the renamed file.
+Those launchd files (`server.out.log`, `server.err.log`) catch only what
+escapes logging, such as a crash before `dictConfig` runs.
 
       <client> "GET /api/page/Foo?bl_limit=20" 200 4ms
 

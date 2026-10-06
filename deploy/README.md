@@ -13,9 +13,18 @@ Everything lives under `$PKM_HOME` (default `~/.config/pkm`):
   app/        git checkout of this repo (cloned by install.sh)
   data/       config.json, pkm.sqlite3, assets/ — the live database
   backups/    nightly sqlite snapshots + markdown/asset export
-  logs/       server.{out,err}.log, backup.{out,err}.log,
+  logs/       server.log, access.log (+ 30 dated copies of each),
+              server.{out,err}.log, backup.{out,err}.log,
               icloud-backup.{out,err}.log
 ```
+
+The server writes `server.log` (lifecycle, errors, `pkm.*` loggers) and
+`access.log` (one line per request, with its duration) itself, because the
+plist passes `--log-dir`. Both rotate at midnight. Yesterday's file is
+`server.log.YYYY-MM-DD`, and copies older than 30 days are deleted. The
+launchd `server.{out,err}.log` files catch only what escapes logging, such as
+a crash before logging starts. The backup jobs' logs grow by a few KB a
+month and are not rotated.
 
 `install.sh` and `update.sh` only create `data/`; they never modify an
 existing `config.json` or database.
@@ -55,6 +64,10 @@ checkout (set `PKM_UPDATE_FORCE=1` to override), because it would rebuild
 that checkout while restarting the prod service. It does a fast-forward
 `git pull`, `uv sync`s the server, rebuilds the web app, and kickstarts the
 server service. It leaves the backup jobs alone.
+
+`update.sh` does not re-render the launchd plists. When an update changes a
+`*.plist.template`, run `$PKM_HOME/app/deploy/install.sh` after it, which
+re-renders and reloads all three jobs.
 
 ## Backups
 
@@ -121,8 +134,13 @@ arrives aborts the run, and the next night retries.
 - `launchctl print "gui/$UID/com.$USER.pkm.server"`: job state, last exit
   status, and the pid if running (use `.backup` or `.icloud-backup` for the
   backup jobs).
-- `$PKM_HOME/logs/server.out.log` / `server.err.log`: server stdout/stderr
-  (same pattern for `backup.*.log` and `icloud-backup.*.log`).
+- `$PKM_HOME/logs/server.log` / `access.log`: today's server log and request
+  log; `server.log.YYYY-MM-DD` and `access.log.YYYY-MM-DD` hold the last 30
+  days (`grep … $PKM_HOME/logs/server.log*` searches them all).
+- `$PKM_HOME/logs/server.err.log` / `server.out.log`: what escaped logging,
+  such as a startup crash. Check these when the service won't stay up.
+- `$PKM_HOME/logs/backup.*.log` and `icloud-backup.*.log`: the backup jobs'
+  stdout/stderr.
 - `tailscale serve status`: confirms the HTTPS Serve forward to the local
   port is still configured after a Tailscale update or reboot.
 

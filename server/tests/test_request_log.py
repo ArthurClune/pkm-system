@@ -191,8 +191,8 @@ def test_create_app_wires_request_logging(anon_client, caplog):
     assert any('"GET /healthz" 200 ' in r.message for r in caplog.records)
 
 
-def test_main_passes_timestamped_log_config_to_uvicorn(tmp_path, monkeypatch):
-    (tmp_path / "assets").mkdir()
+def _run_main_capturing_uvicorn(tmp_path, monkeypatch, extra_args):
+    (tmp_path / "assets").mkdir(exist_ok=True)
     (tmp_path / "config.json").write_text(json.dumps({
         "db_file": "pkm.sqlite3", "assets_dir": "assets",
         "password_salt": "00", "password_hash": "00",
@@ -215,6 +215,76 @@ def test_main_passes_timestamped_log_config_to_uvicorn(tmp_path, monkeypatch):
     monkeypatch.setattr(run.uvicorn, "Config", FakeUvicornConfig)
     monkeypatch.setattr(run.uvicorn, "Server", FakeServer)
     assert run.main(["--data-dir", str(tmp_path), "--port", "0",
-                     "--host", "127.0.0.1"]) == 0
+                     "--host", "127.0.0.1", *extra_args]) == 0
+    return captured
+
+
+def test_main_passes_timestamped_log_config_to_uvicorn(tmp_path, monkeypatch):
+    captured = _run_main_capturing_uvicorn(tmp_path, monkeypatch, [])
     assert captured["access_log"] is False
     assert captured["log_config"] == uvicorn_log_config()
+
+
+def test_main_log_dir_creates_it_and_selects_file_config(tmp_path, monkeypatch):
+    log_dir = tmp_path / "logs" / "nested"
+    captured = _run_main_capturing_uvicorn(
+        tmp_path, monkeypatch, ["--log-dir", str(log_dir)])
+    assert log_dir.is_dir()
+    assert captured["log_config"] == uvicorn_log_config(log_dir)
+
+
+_ROTATING = "logging.handlers.TimedRotatingFileHandler"
+
+
+def test_log_config_without_dir_is_unchanged_stream_config():
+    assert uvicorn_log_config(None) == uvicorn_log_config()
+    handlers = uvicorn_log_config()["handlers"]
+    assert handlers["default"]["class"] == "logging.StreamHandler"
+    assert handlers["access"]["class"] == "logging.StreamHandler"
+
+
+def test_log_config_with_dir_uses_daily_rotating_files(tmp_path):
+    config = uvicorn_log_config(tmp_path)
+    for name, filename in (("default", "server.log"), ("access", "access.log")):
+        h = config["handlers"][name]
+        assert h["class"] == _ROTATING
+        assert h["filename"] == str(tmp_path / filename)
+        assert h["when"] == "midnight"
+        assert h["backupCount"] == 30
+        assert h["encoding"] == "utf-8"
+    assert config["formatters"]["default"]["use_colors"] is False
+    assert {k: v["handlers"] for k, v in config["loggers"].items()
+            if "handlers" in v} == {
+        k: v["handlers"] for k, v in uvicorn_log_config()["loggers"].items()
+        if "handlers" in v}
+
+
+def test_log_config_keep_days_is_honoured(tmp_path):
+    config = uvicorn_log_config(tmp_path, keep_days=7)
+    assert config["handlers"]["default"]["backupCount"] == 7
+    assert config["handlers"]["access"]["backupCount"] == 7
+
+
+def test_log_dir_config_routes_lines_to_the_right_files(tmp_path, capsys):
+    with _dict_config_applied(uvicorn_log_config(tmp_path)):
+        try:
+            logging.getLogger("pkm.access").info("access-line")
+            logging.getLogger("pkm.assets").info("assets-line")
+            logging.getLogger("uvicorn.error").info("uvicorn-line")
+        finally:
+            # _dict_config_applied restores handler lists without closing
+            # the file handlers dictConfig opened.
+            for h in _effective_handlers(logging.getLogger("pkm.access")) \
+                    + _effective_handlers(logging.getLogger("pkm.assets")) \
+                    + _effective_handlers(logging.getLogger("uvicorn.error")):
+                h.flush()
+                h.close()
+    server = (tmp_path / "server.log").read_text(encoding="utf-8")
+    access = (tmp_path / "access.log").read_text(encoding="utf-8")
+    assert "access-line" in access
+    assert "assets-line" not in access and "uvicorn-line" not in access
+    assert "assets-line" in server and "uvicorn-line" in server
+    assert "access-line" not in server
+    assert "\x1b[" not in server
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == ""

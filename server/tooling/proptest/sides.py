@@ -25,3 +25,23 @@ def sides_for(paths: Iterable[str]) -> list[str]:
 
 def available(side: str) -> bool:
     return side in _AVAILABLE
+
+
+_WEB_PROPS = "src/props/"
+
+
+def resolve_file_filter(file: str, suites: Iterable[str]) -> str | None:
+    """The vitest filter for `--file file`, or None when it names no suite.
+
+    `suites` are the *.prop.ts paths relative to web/src/props. A directory
+    gets a trailing slash so `ops` cannot match `props`, which vitest would
+    take as a substring of every path under src/props/."""
+    suites = list(suites)
+    name = file.removeprefix("./").removeprefix(_WEB_PROPS).strip("/")
+    if not name:
+        return None
+    if name in suites:
+        return f"{_WEB_PROPS}{name}"
+    if any(s.startswith(f"{name}/") for s in suites):
+        return f"{_WEB_PROPS}{name}/"
+    return None

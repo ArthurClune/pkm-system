@@ -486,9 +486,9 @@ adopts and removes it.
 
 A commit is atomic across the worker's death. SQLite takes the `-journal` a
 killed worker left as hot, and the next read of that file plays it back and
-removes it. Upstream's pool VFS never does this; the replica runs a patched
-build, and [sqlite-wasm-patch.md](sqlite-wasm-patch.md) covers the patch, how
-it is applied, and its upstream report. The fix relies on every connection to
+removes it. No released upstream pool VFS does this yet, so the replica runs a
+patched build. [sqlite-wasm-patch.md](sqlite-wasm-patch.md) covers the patch,
+how it is applied, and the upstream fix. The fix relies on every connection to
 a file living in this pool, which the pool's exclusive access handles
 guarantee.
 

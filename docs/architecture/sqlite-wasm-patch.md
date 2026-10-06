@@ -2,9 +2,10 @@
 
 The web replica runs a patched `@sqlite.org/sqlite-wasm`. Upstream's
 opfs-sahpool VFS never rolls back a hot journal, so a worker killed mid-commit
-leaves a half-applied transaction that `integrity_check` still calls "ok". The
-patch fixes that until upstream does. When a release carries the fix, delete
-the patch and this file together (see [Upgrading](#upgrading-sqlite-wasm)).
+leaves a half-applied transaction that `integrity_check` still calls "ok".
+Upstream has fixed this on trunk, but no npm release carries the fix yet, so
+the patch stays until one does. Then delete the patch and this file together
+(see [Upgrading](#upgrading-sqlite-wasm)).
 Known failures live in [troubleshooting.md](../troubleshooting.md).
 
 ## What it changes
@@ -55,10 +56,23 @@ before merging. A patch that applies but no longer works shows only there.
 
 ## Upstream status
 
-| Thread | VFS | State |
-|---|---|---|
-| [forumpost/ccf76ca422](https://sqlite.org/forum/forumpost/ccf76ca422), 2026-09-29 | opfs-sahpool | Same bug and fix, reported independently; confirmed on npm 3.53.4 and trunk `1f7010d4` across Chromium, Firefox and WebKit. No developer reply as of 2026-09-29 |
-| [forumpost/a2f573b00cda1372](https://sqlite.org/forum/forumpost/a2f573b00cda1372) | opfs (the older VFS) | The same defect, fixed in June 2024 by check-in `c298b8ba` |
+Stephan Beal fixed opfs-sahpool on 2026-09-30, on trunk and on `branch-3.53`,
+in [forumpost/ccf76ca422](https://sqlite.org/forum/forumpost/ccf76ca422). The
+fix goes further than this patch: an in-process lock table also covers
+overlapping handles on one file, and the VFS's `xSleep` becomes a no-op so
+that `busy_timeout` cannot freeze the worker.
 
-Watch the first thread, and the sqlite-wasm release notes, for a fix to
-opfs-sahpool.
+| Check-in | Trunk | `branch-3.53` |
+|---|---|---|
+| Hot-journal rollback (`xCheckReservedLock`) | `9168a6f1be` | `ea1d55e202e6e` |
+| Per-file lock table | `9e2caaa382ce` | `079400229e09` |
+| No-op `xSleep` | `c9dd4d88e4` | `f774529206` |
+
+No npm release carries these yet. `3.53.4-build2` (2026-10-02) is built from a
+2026-07-24 source and still answers 1. Upstream said it does not expect another
+3.53.x release, so the fix will probably first ship in 3.54.0.
+
+To test a candidate release, find opfs-sahpool's `xCheckReservedLock` in its
+`dist/index.mjs`. If it still calls `wasm.poke32(pOut, 1)`, the release lacks
+the fix. The older opfs VFS had the same defect, fixed in June 2024 by check-in
+`c298b8ba` ([forumpost/a2f573b00cda1372](https://sqlite.org/forum/forumpost/a2f573b00cda1372)).

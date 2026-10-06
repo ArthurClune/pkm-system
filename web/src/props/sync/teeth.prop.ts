@@ -12,6 +12,9 @@ import { checkQuiescent, CursorWatch, OracleError, type Expectation,
 import { quiesce, QuiesceError } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
 import type { Broken } from "./transport";
+import { captureFaultWarnings } from "../warningsCapture";
+
+captureFaultWarnings("sync teeth");
 
 let server: ServerControl;
 let clients: HarnessClient[] = [];

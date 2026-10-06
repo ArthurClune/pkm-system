@@ -25,6 +25,9 @@ import { initialModel, type SyncModel } from "./model";
 import { checkQuiescent, CursorWatch } from "./oracle";
 import { quiesce, TIMED_OUT, within } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
+import { captureFaultWarnings } from "../warningsCapture";
+
+captureFaultWarnings("sync");
 
 /** Examples per gate run, sized so `proptest/check.sh web` takes about
  * three minutes. */

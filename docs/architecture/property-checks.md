@@ -79,6 +79,7 @@ session cookies are rejected when issued in the future or more than a year ago.
 | `web/src/props/sync/oracle.ts`, `quiesce.ts` | Imperative Shell | the six invariants; bringing every client to rest |
 | `web/src/props/sync/sync.prop.ts` | Imperative Shell | the property, the seventeen fixed scenarios, the tally |
 | `web/src/props/sync/teeth.prop.ts`, `harness.prop.ts`, `smoke.prop.ts` | test | the oracle's teeth; the harness client and transport self-tests; the server wiring |
+| `web/src/props/warnings.ts`, `warningsCapture.ts`, `warnings.test.ts` | Functional Core, Imperative Shell, test | the expected fault-warning kinds, their classification and summary line; the per-file `console.warn` capture every `*.prop.ts` calls; the unit tests (run under `pnpm test:unit`) |
 | `web/src/props/sync/normalise.test.ts`, `arbitraries.test.ts` | test | unit tests that do run under `pnpm test:unit` |
 | `web/src/props/outline/arbitraries.ts`, `reading.ts`, `model.ts`, `run.ts`, `checks.ts` | Functional Core | start trees, selections, drops, paste forests and command sequences; the reading-view rows; the model of each command; the runner over the real commands and history; the per-step and whole-sequence checks |
 | `web/src/props/outline/outline.prop.ts`, `teeth.prop.ts` | Imperative Shell | the property and its budget; the seeded wrong commands it must catch. Neither imports `sync/env.ts` or needs the server |
@@ -410,3 +411,19 @@ outline property has its own, 90 seconds, and the ops property 120:
 Every example is cancelled when it ends, whether it passed, failed, hung or was
 abandoned at the limit, and only then are its clients disposed. A dispose that
 fails or hangs is appended to the example's failure, or fails a passing example.
+
+### Fault warnings
+
+Injected faults make the engine and the replica log through `console.warn`, by the hundred. Each `*.prop.ts` file calls `captureFaultWarnings("<suite>")`, which swallows those calls for the length of the file and prints one line after its tests:
+
+```
+fault warnings (sync): 1487 engine SQLITE_CONSTRAINT_PRIMARYKEY, 2 stale-title rebootstraps
+```
+
+| Kind (label in the line) | Matches | Produced by |
+|---|---|---|
+| `engine <SQLITE_CONSTRAINT_*>` | `sqlite3_step() rc=` with a constraint result code | duplicate inserts when retries, poisoned batches and reconnects re-deliver rows the replica holds |
+| `stale-title rebootstraps` | `applyChanges: stale title holder, rebootstrapping` | a window that gives a title to another row while the replica's holder of it is stale |
+| `deferred-FK rebootstraps` | `applyChanges: window failed its deferred FK check, rebootstrapping` | a window that depends on rows it never shipped (not seen in a clean run) |
+
+Any other `console.warn` call is listed under the line as `UNEXPECTED [<test name> seed=<seed>] <text>`, verbatim. It does not fail the gate: read it as a recovery path firing where no fault should reach it, and either fix the cause or, if a fault is meant to provoke it, add a kind. A kind is an entry in `EXPECTED_KINDS` in `web/src/props/warnings.ts` (a `match` over the argument list returning the tally label) with a comment naming the fault that produces it, and a case in `warnings.test.ts`. `console.error` is not captured.

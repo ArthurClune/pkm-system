@@ -19,6 +19,9 @@ import { SEED } from "../sync/env";
 import { connectServer } from "../sync/serverControl";
 import { exampleArb } from "./arbitraries";
 import { REAL_OPS, type OpsSeam, runExample } from "./example";
+import { captureFaultWarnings } from "../warningsCapture";
+
+captureFaultWarnings("ops teeth");
 
 const NUM_RUNS = 400;
 const TIME_LIMIT_MS = 20_000;

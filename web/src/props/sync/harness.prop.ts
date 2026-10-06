@@ -9,6 +9,9 @@ import { startClient, type HarnessClient } from "./harnessClient";
 import { quiesce } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
 import { createTransport, withWindowLimit } from "./transport";
+import { captureFaultWarnings } from "../warningsCapture";
+
+captureFaultWarnings("sync harness");
 
 let server: ServerControl;
 let clients: HarnessClient[] = [];

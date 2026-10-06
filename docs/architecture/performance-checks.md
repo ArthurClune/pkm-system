@@ -315,7 +315,7 @@ code. Each uncontrolled input has a harness control.
 | Typing speed against debounces | F and J type at a pace that keeps re-arming the text debounce, so one save; `search-common`/`search-rare` type slower than `SearchBar`'s debounce, so one search per key; `search-burst` types inside it, so one search for the whole term, and waits for that term's results and then network idle rather than timing the last key, so a keystroke landing on the debounce edge can't turn into a band | `check.mjs` |
 | Scenario order within a context | re-runs take the whole context group | `run_core.py` |
 | R's clock and ids | `nowMs` fixed at `PERF_FROZEN_NOW`; every batch id is named | `rebase.perf.ts` |
-| R's windows | each fetched from the scenario's own snapshot cursor, so another group's writes (F's save) never enter one | `rebase.perf.ts` |
+| R's windows | each fetched from the scenario's own snapshot cursor, so another group's writes (F's save) never enter one; the snapshot does carry F's save in a full run, and R's counts are the same with or without it | `rebase.perf.ts` |
 | R's counts | two measuring passes in one run must agree, or the run fails | `rebase.perf.ts` |
 | Viewport and headless rendering | fixed viewport, headless Chromium | `check.mjs` |
 
@@ -350,7 +350,13 @@ after changing it, delete the cached fixture.
 | frontend | `chromium` |
 
 The frontend result records `node` as a top-level field for information,
-since node only drives Playwright.
+not as comparability `env`: node runs Playwright and R's sqlite-wasm engine,
+whose counts do not depend on it.
+
+The sqlite-wasm build is not an `env` key either. It is pinned by the measured
+tree's own lockfile and resolved from `PERF_WEB_ROOT`, so a bump is a change in
+the diff that the merge-base confirmation attributes to the branch. The
+backend's `sqlite` differs because it is the libsqlite in the worktree's Python.
 
 ## Extending the gate
 

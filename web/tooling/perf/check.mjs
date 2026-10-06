@@ -614,7 +614,8 @@ async function main() {
       await ctx.close();
     }
     if (ONLY.has("R")) await run("R/rebase", () => rebase());
-    // node only drives Playwright, so it is information, not comparability env
+    // node runs Playwright and R's sqlite-wasm engine, whose counts do not depend on it,
+    // so it is information, not comparability env
     const doc = { commit: process.env.PERF_COMMIT ?? "working-tree",
                   fixture_hash: process.env.PERF_FIXTURE_HASH ?? "unknown",
                   env: { chromium: browser.version() }, node: process.version, scenarios };

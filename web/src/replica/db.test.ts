@@ -1,10 +1,16 @@
 // @vitest-environment node
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { rollbackToSavepoint } from "./db";
 import { openTestDb } from "./testDb";
 import { CLIENT_DDL, SCHEMA_VERSION, installSchema } from "./clientSchema";
 import { getMeta, setMeta } from "./meta";
 import { sha256Hex } from "./sha256";
+
+// Deliberate engine failures log through console.warn (the engine's own
+// "sqlite3_step() rc= ..." lines via testDb.ts, plus the wrapper's); each test
+// that provokes one spies and asserts it.
+const quietWarn = () => vi.spyOn(console, "warn").mockImplementation(() => undefined);
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe("sha256Hex", () => {
   test("matches known vectors", () => {
@@ -55,11 +61,17 @@ describe("wrapSqlite + installSchema", () => {
     // the wrapper's own ROLLBACK then fails with "no transaction is active".
     // The caller must still see the error that caused it.
     const t = await openTestDb();
+    const warn = quietWarn();
     expect(() => t.db.transaction(() => {
       t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
       t.db.exec("ROLLBACK");
       throw new Error("SQLITE_CORRUPT: database disk image is malformed");
     })).toThrow("SQLITE_CORRUPT");
+    expect(warn).toHaveBeenCalledWith(
+      "replica: ROLLBACK after a failed transaction",
+      expect.objectContaining({ message: expect.stringContaining("no transaction is active") }));
+    expect(warn).toHaveBeenCalledWith(
+      "sqlite3_step() rc=", 1, "SQLITE_ERROR", "SQL =", "ROLLBACK");
     expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 0 }]);
     t.db.transaction(() => {
       t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
@@ -70,12 +82,17 @@ describe("wrapSqlite + installSchema", () => {
 
   test("rollbackToSavepoint raises the cause when the engine already rolled back", async () => {
     const t = await openTestDb();
+    const warn = quietWarn();
     const cause = new Error("SQLITE_CORRUPT: database disk image is malformed");
     expect(() => t.db.transaction(() => {
       t.db.exec("SAVEPOINT sp");
       t.db.exec("ROLLBACK");
       rollbackToSavepoint(t.db, "sp", cause);
     })).toThrow(cause);
+    expect(warn).toHaveBeenCalledWith(
+      "sqlite3_step() rc=", 1, "SQLITE_ERROR", "SQL =", "ROLLBACK TO sp");
+    expect(warn).toHaveBeenCalledWith(
+      "sqlite3_step() rc=", 1, "SQLITE_ERROR", "SQL =", "ROLLBACK");
     t.db.transaction(() => {
       t.db.exec("SAVEPOINT sp");
       t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");

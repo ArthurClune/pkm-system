@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type { BatchId, SyncSeq } from "../api/brands";
 import { applySnapshot, type Changes, type Snapshot } from "./apply";
 import type { AckedBatch, PendingRowId, ReplicaDiagnostics } from "./client";
@@ -13,6 +13,15 @@ import { failingOnce, fakeCarryFiles, openRawTestDb, openTestDb,
 import { subtreeHash } from "./subtreeHash";
 import { buildHandlers, type WorkerDeps } from "./workerHandlers";
 import { ord, pageId, title, uid } from "../test-helpers";
+
+afterEach(() => { vi.restoreAllMocks(); });
+
+const quietWarn = () => vi.spyOn(console, "warn").mockImplementation(() => undefined);
+const expectFileReplaced = (warn: ReturnType<typeof quietWarn>) => {
+  expect(warn).toHaveBeenCalledWith(
+    expect.stringContaining("rebuild hit file-level corruption, replacing the file"),
+    expect.anything());
+};
 
 const bid = (s: string): BatchId => s as BatchId;
 const pid = (n: number): PendingRowId => n as PendingRowId;
@@ -63,6 +72,7 @@ test("commit refuses changed durable rows and releases the recovery lease", asyn
 
 test("diagnostics reports counts, meta and integrity results even over a broken FTS index", async () => {
   const t = await openRawTestDb();
+  const warn = quietWarn();
   const handlers = buildHandlers({ openDb: async () => t.db });
   await handlers.init(undefined);
   await handlers.applySnapshot(SNAP);
@@ -84,6 +94,10 @@ test("diagnostics reports counts, meta and integrity results even over a broken 
   });
   expect(report.integrity.pages_fts).toBe("ok");
   expect(report.integrity.blocks_fts).not.toBe("ok");
+  // the engine logs the failing integrity-check statement
+  expect(warn).toHaveBeenCalledWith(
+    "sqlite3_step() rc=", expect.any(Number), "SQLITE_CORRUPT_VTAB", "SQL =",
+    expect.stringContaining("integrity-check"));
 });
 
 test("abort rejects invalid and double-used recovery tokens", async () => {
@@ -464,6 +478,7 @@ test("a schema rebuild forgets acked seqs, since pending_ops ids restart", async
 });
 
 test("a reset over a damaged file replaces the file and rebuilds into the new one", async () => {
+  const warn = quietWarn();
   const damaged = await openRawTestDb();
   const fresh = await openRawTestDb();
   let current = withDamagedFreelist(damaged.db);
@@ -483,6 +498,7 @@ test("a reset over a damaged file replaces the file and rebuilds into the new on
     token: lease.token, input: { kind: "reset", snapshot: SNAP },
   })).resolves.toBeNull();
 
+  expectFileReplaced(warn);
   expect(discardDbFile).toHaveBeenCalledOnce();
   expect(fresh.db.select("SELECT uid, text FROM blocks"))
     .toEqual([{ uid: "uid_b1", text: "hello" }]);
@@ -493,6 +509,7 @@ test("a reset over a damaged file replaces the file and rebuilds into the new on
 });
 
 test("the no-pending reset replaces a damaged file too", async () => {
+  const warn = quietWarn();
   const damaged = await openRawTestDb();
   const fresh = await openRawTestDb();
   let current = withDamagedFreelist(damaged.db);
@@ -501,6 +518,7 @@ test("the no-pending reset replaces a damaged file too", async () => {
   await handlers.init(undefined);
 
   await expect(handlers.reset(undefined)).resolves.toBeNull();
+  expectFileReplaced(warn);
   expect(discardDbFile).toHaveBeenCalledOnce();
   expect(fresh.db.select(
     "SELECT name FROM sqlite_master WHERE name = 'pending_ops'"))
@@ -537,6 +555,7 @@ async function poisonedQueueOverDamagedFile(options: {
   carry?: (files: ReturnType<typeof fakeCarryFiles>) => CarryStore | undefined;
   applySnapshot?: WorkerDeps["applySnapshot"];
 } = {}) {
+  const warn = quietWarn();
   const damaged = await openRawTestDb();
   const fresh = await openRawTestDb();
   const carryFiles = fakeCarryFiles(await openRawTestDb());
@@ -578,18 +597,19 @@ async function poisonedQueueOverDamagedFile(options: {
   });
   return {
     handlers, commit, rowsBefore, carry, carryFiles, discardDbFile,
-    damaged, fresh, files, carriedAtDiscard: () => carriedAtDiscard,
+    damaged, fresh, files, warn, carriedAtDiscard: () => carriedAtDiscard,
   };
 }
 
 test("a rebase over a damaged file carries every durable row into a new file", async () => {
   // The rejected-batch repair is a rebase and must never drop the valid rows
   // queued behind the poisoned one: they move across verbatim.
-  const { handlers, commit, rowsBefore, carry, discardDbFile, fresh,
+  const { handlers, commit, rowsBefore, carry, discardDbFile, fresh, warn,
           carriedAtDiscard } = await poisonedQueueOverDamagedFile();
 
   await expect(commit()).resolves.toBeNull();
 
+  expectFileReplaced(warn);
   expect(discardDbFile).toHaveBeenCalledOnce();
   expect(carriedAtDiscard()).toEqual(rowsBefore);
   expect(fresh.db.select(DURABLE_ROWS)).toEqual(rowsBefore);
@@ -605,6 +625,7 @@ test("a rebase over a damaged file carries every durable row into a new file", a
 });
 
 test("a rebase keeps the carried rows even if the snapshot then fails on the new file", async () => {
+  const warn = quietWarn();
   const damaged = await openRawTestDb();
   const fresh = await openRawTestDb();
   const carry = createCarryStore(fakeCarryFiles(await openRawTestDb()));
@@ -630,36 +651,40 @@ test("a rebase keeps the carried rows even if the snapshot then fails on the new
   await expect(handlers.commitRecovery({
     token: lease.token, input: { kind: "rebase", snapshot: SNAP, acked: [] },
   })).rejects.toThrow();
+  expectFileReplaced(warn);
   expect(fresh.db.select("SELECT batch_id FROM pending_ops"))
     .toEqual([{ batch_id: "kept" }]);
   expect(carry.exists()).toBe(false);
 });
 
 test("a rebase whose new file will not open leaves every row in the carry", async () => {
-  const { commit, rowsBefore, carry, files } = await poisonedQueueOverDamagedFile();
+  const { commit, rowsBefore, carry, files, warn } = await poisonedQueueOverDamagedFile();
   files.openAfterDiscard = () => Promise.reject(new Error("open failed"));
   await expect(commit()).rejects.toThrow("open failed");
+  expectFileReplaced(warn);
   expect(carry?.read()).toEqual(rowsBefore);
 });
 
 test("a rebase whose schema install fails on the new file leaves every row in the carry", async () => {
-  const { commit, rowsBefore, carry } = await poisonedQueueOverDamagedFile({
+  const { commit, rowsBefore, carry, warn } = await poisonedQueueOverDamagedFile({
     fresh: (db) => failingOnce(db, /CREATE TABLE/i, SQLITE_FULL),
   });
   await expect(commit()).rejects.toThrow(/SQLITE_FULL/);
+  expectFileReplaced(warn);
   expect(carry?.read()).toEqual(rowsBefore);
 });
 
 test("a rebase whose row import fails leaves every row in the carry", async () => {
-  const { commit, rowsBefore, carry } = await poisonedQueueOverDamagedFile({
+  const { commit, rowsBefore, carry, warn } = await poisonedQueueOverDamagedFile({
     fresh: (db) => failingOnce(db, /^INSERT OR IGNORE INTO pending_ops/, SQLITE_FULL),
   });
   await expect(commit()).rejects.toThrow(/SQLITE_FULL/);
+  expectFileReplaced(warn);
   expect(carry?.read()).toEqual(rowsBefore);
 });
 
 test("a carry write failure leaves the damaged file and its rows in place", async () => {
-  const { commit, rowsBefore, discardDbFile, damaged } =
+  const { commit, rowsBefore, discardDbFile, damaged, warn } =
     await poisonedQueueOverDamagedFile({
       carry: (inner) => createCarryStore({
         exists: () => inner.exists(),
@@ -674,14 +699,16 @@ test("a carry write failure leaves the damaged file and its rows in place", asyn
       }),
     });
   await expect(commit()).rejects.toThrow(/SQLITE_FULL/);
+  expect(warn).not.toHaveBeenCalled();
   expect(discardDbFile).not.toHaveBeenCalled();
   expect(damaged.db.select(DURABLE_ROWS)).toEqual(rowsBefore);
 });
 
 test("a rebase without a carry store keeps the damaged file", async () => {
-  const { commit, rowsBefore, discardDbFile, damaged } =
+  const { commit, rowsBefore, discardDbFile, damaged, warn } =
     await poisonedQueueOverDamagedFile({ carry: () => undefined });
   await expect(commit()).rejects.toThrow(/SQLITE_CORRUPT/);
+  expect(warn).not.toHaveBeenCalled();
   expect(discardDbFile).not.toHaveBeenCalled();
   expect(damaged.db.select(DURABLE_ROWS)).toEqual(rowsBefore);
 });
@@ -697,9 +724,10 @@ test("a snapshot failure after the import leaves no carry to resurrect drained r
       applySnapshot(db, snapshot, nowMs);
     },
   });
-  const { handlers, commit, carry, fresh } = setup;
+  const { handlers, commit, carry, fresh, warn } = setup;
   failOn = fresh.db;
   await expect(commit()).rejects.toThrow("snapshot apply failed");
+  expectFileReplaced(warn);
   expect(fresh.db.select<{ id: number }>(DURABLE_ROWS).map((row) => row.id))
     .toEqual([1, 2]);
   expect(carry?.exists()).toBe(false);
@@ -728,7 +756,8 @@ async function workerDiedAfterDiscard() {
 }
 
 test("a worker that dies between discard and import hands its rows to the next worker", async () => {
-  const { next, fresh, rowsBefore, carry } = await workerDiedAfterDiscard();
+  const { next, fresh, rowsBefore, carry, warn } = await workerDiedAfterDiscard();
+  expectFileReplaced(warn);
   const init = await next.init(undefined) as { pendingBatches: unknown };
   expect(pendingSummary(init.pendingBatches)).toEqual([
     { id: 1, batch_id: "rejected", poisoned: true },
@@ -743,7 +772,8 @@ test("a worker that dies between discard and import hands its rows to the next w
 });
 
 test("an enqueue served before init on a restarted worker keeps the carried ids", async () => {
-  const { next, fresh } = await workerDiedAfterDiscard();
+  const { next, fresh, warn } = await workerDiedAfterDiscard();
+  expectFileReplaced(warn);
   await next.enqueue({ ops: [{ op: "delete", uid: uid("uid_b1") }], batchId: bid("first-edit") });
   expect(fresh.db.select("SELECT id, batch_id FROM pending_ops ORDER BY id")).toEqual([
     { id: 1, batch_id: "rejected" },
@@ -753,9 +783,10 @@ test("an enqueue served before init on a restarted worker keeps the carried ids"
 });
 
 test("a failed open leaves the carry for the open after close", async () => {
-  const { handlers, commit, files, fresh } = await poisonedQueueOverDamagedFile();
+  const { handlers, commit, files, fresh, warn } = await poisonedQueueOverDamagedFile();
   files.openAfterDiscard = () => Promise.reject(new Error("open failed"));
   await expect(commit()).rejects.toThrow("open failed");
+  expectFileReplaced(warn);
   files.openAfterDiscard = async () => fresh.db;
   await handlers.close(undefined);
   const init = await handlers.init(undefined) as { pendingBatches: { id: number }[] };
@@ -763,11 +794,12 @@ test("a failed open leaves the carry for the open after close", async () => {
 });
 
 test("a Retry in the same worker rebases the carried rows", async () => {
-  const { handlers, commit, rowsBefore, fresh, carry } =
+  const { handlers, commit, rowsBefore, fresh, carry, warn } =
     await poisonedQueueOverDamagedFile({
       fresh: (db) => failingOnce(db, /^INSERT OR IGNORE INTO pending_ops/, SQLITE_FULL),
     });
   await expect(commit()).rejects.toThrow(/SQLITE_FULL/);
+  expectFileReplaced(warn);
   const lease = await handlers.prepareRecovery(undefined) as {
     token: string; batches: readonly { id: number }[];
   };
@@ -780,20 +812,23 @@ test("a Retry in the same worker rebases the carried rows", async () => {
 });
 
 test("a deleteBatch served first by a restarted worker adopts the carry", async () => {
-  const { next, fresh } = await workerDiedAfterDiscard();
+  const { next, fresh, warn } = await workerDiedAfterDiscard();
+  expectFileReplaced(warn);
   await expect(next.deleteBatch({ id: pid(1), batchId: bid("rejected") })).resolves.toEqual({ pending: 1 });
   expect(fresh.db.select("SELECT id, batch_id FROM pending_ops ORDER BY id"))
     .toEqual([{ id: 2, batch_id: "valid" }]);
 });
 
 test("a nextBatch served first by a restarted worker drains the carried rows", async () => {
-  const { next } = await workerDiedAfterDiscard();
+  const { next, warn } = await workerDiedAfterDiscard();
+  expectFileReplaced(warn);
   await expect(next.nextBatch(undefined))
     .resolves.toMatchObject({ id: 2, batch_id: "valid" });
 });
 
 test("a local-API write served first by a restarted worker keeps the carried ids", async () => {
-  const { next, fresh } = await workerDiedAfterDiscard();
+  const { next, fresh, warn } = await workerDiedAfterDiscard();
+  expectFileReplaced(warn);
   await expect(next.localApi({
     method: "POST", path: "/api/pages", body: { title: "Offline" }, nowMs: 1,
   })).resolves.toMatchObject({ handled: true, status: 200 });
@@ -1159,9 +1194,10 @@ test("a commit with acked rows still refuses changed durable rows and deletes no
 });
 
 test("a rebase that replaces the file carries only the rows no ack covers", async () => {
-  const { handlers, commit, rowsBefore, carry, fresh, carriedAtDiscard } =
+  const { handlers, commit, rowsBefore, carry, fresh, warn, carriedAtDiscard } =
     await poisonedQueueOverDamagedFile();
   await expect(commit([{ id: (2 as PendingRowId), batch_id: bid("valid"), seq: (7 as SyncSeq) }])).resolves.toBeNull();
+  expectFileReplaced(warn);
   expect(carriedAtDiscard()).toEqual([rowsBefore[0]]);
   expect(fresh.db.select(DURABLE_ROWS)).toEqual([rowsBefore[0]]);
   // the snapshot's text, with the acked edit not replayed over it
@@ -1179,6 +1215,7 @@ test("a rebase that replaces the file carries only the rows no ack covers", asyn
  * replacement carries no acked row; a reset drops the table), so "typed"
  * takes id 1, and a delete by bare id would remove a never-sent edit. */
 async function drainDeleteQueuedBehindLease(options: { damaged: boolean }) {
+  const warn = quietWarn();
   const damaged = await openRawTestDb();
   const fresh = await openRawTestDb();
   const carry = createCarryStore(fakeCarryFiles(await openRawTestDb()));
@@ -1203,11 +1240,11 @@ async function drainDeleteQueuedBehindLease(options: { damaged: boolean }) {
   });
   const drainDelete = handlers.deleteBatch({ id: pid(1), batchId: bid("x"), ackedSeq: seq(7) });
   const db = () => discarded ? fresh.db : damaged.db;
-  return { handlers, lease, typed, drainDelete, db, discarded: () => discarded };
+  return { handlers, lease, typed, drainDelete, db, warn, discarded: () => discarded };
 }
 
 test("the drain's delete for a batch a replacing rebase settled spares the batch that reuses its id", async () => {
-  const { handlers, lease, typed, drainDelete, db, discarded } =
+  const { handlers, lease, typed, drainDelete, db, warn, discarded } =
     await drainDeleteQueuedBehindLease({ damaged: true });
   await expect(handlers.commitRecovery({
     token: lease.token,
@@ -1215,19 +1252,21 @@ test("the drain's delete for a batch a replacing rebase settled spares the batch
   })).resolves.toBeNull();
   await expect(typed).resolves.toMatchObject({ batchId: "typed" });
   await drainDelete;
+  expectFileReplaced(warn);
   expect(discarded()).toBe(true);
   expect(db().select("SELECT id, batch_id FROM pending_ops"))
     .toEqual([{ id: 1, batch_id: "typed" }]);
 });
 
 test("the drain's delete for a batch a reset dropped spares the batch that reuses its id", async () => {
-  const { handlers, lease, typed, drainDelete, db } =
+  const { handlers, lease, typed, drainDelete, db, warn } =
     await drainDeleteQueuedBehindLease({ damaged: false });
   await expect(handlers.commitRecovery({
     token: lease.token, input: { kind: "reset", snapshot: SNAP },
   })).resolves.toBeNull();
   await expect(typed).resolves.toMatchObject({ batchId: "typed" });
   await drainDelete;
+  expect(warn).not.toHaveBeenCalled();
   expect(db().select("SELECT id, batch_id FROM pending_ops"))
     .toEqual([{ id: 1, batch_id: "typed" }]);
 });

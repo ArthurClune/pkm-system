@@ -3,8 +3,9 @@
 title: Rotate production logs under ~/.config/pkm/logs
 status: todo
 type: task
+priority: normal
 created_at: 2026-10-06T09:01:28Z
-updated_at: 2026-10-06T09:01:28Z
+updated_at: 2026-10-06T11:03:43Z
 ---
 
 Production's launchd jobs write to `~/.config/pkm/logs/` (deploy/README.md: `server.{out,err}.log`, `backup.*`, `icloud-backup.*`) and nothing ever rotates them. On 2026-10-06 `server.out.log` was 12 MB and `server.err.log` 2 MB after about three months; backup logs are tiny. Growth is slow but unbounded, and a big file makes the server-log forensics in the prod recipe slower.
@@ -21,3 +22,11 @@ Whatever is chosen: keep enough history for forensics (at least a couple of week
 - [ ] Implement and test (unit-test any pure retention or rotation logic)
 - [ ] deploy/README.md: layout and where older logs live
 - [ ] Install on prod with Arthur's go-ahead; verify a rotation happened and the server kept logging
+
+## Recommendation (2026-10-06)
+
+Option 1, for the server logs: the server logs through its own TimedRotatingFileHandler (daily, keep about 30 days) under ~/.config/pkm/logs/, and launchd's StandardOutPath/StandardErrorPath carry only what escapes it (startup crashes, uncaught tracebacks). It needs no root, no kickstart after rotation, and nothing outside the app. The handler is configured where the server already sets up logging (and for uvicorn's access/error loggers too), with the path and retention from the existing settings/env pattern.
+
+The backup and icloud-backup logs grow by a few KB a month (15 KB after three months), so they need nothing now; if they ever do, option 3 (the nightly job truncating its own log in place) suits them better than a handler.
+
+Check before choosing: what writes server.out.log (uvicorn access lines vs app logging) — that sets which loggers the handler must take over so the launchd files really stop growing.

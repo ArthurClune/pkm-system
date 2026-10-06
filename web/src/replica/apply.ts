@@ -218,10 +218,12 @@ function replayPending(db: ReplicaDb, nowMs: number, freed: FreedPages): void {
  * deleted. Every blocks/refs/block_refs write is preceded by a replay_log
  * record of the block's uid under the batch id (replayLog.ts), and pages are
  * only inserted or touched, never deleted, so the records name every row to
- * look at. A deleted parent's dependants go with it when FKs are on (deferred
- * FKs still cascade); with FKs off (the reset rebuild) the clauses below
- * catch them. A recorded block's own parent is never checked: create and
- * move place only under an existing parent (missingTarget/placementFor).
+ * look at. A deleted parent's dependants need no check: with FKs on (deferred
+ * FKs still cascade) they go with it, and with FKs off (the reset rebuild)
+ * the delete removes the block's refs and block_refs rows itself and
+ * subtreeUids takes its children, except one the path match misses (CHILD
+ * below). A recorded block's own parent is never checked: create and move
+ * place only under an existing parent (missingTarget/placementFor).
  * PAGE is the only check of any block's page_id. The clauses:
  *   PAGE   a block on a recorded page that has no pages row. The only clause
  *          that sees an op whose NULL uid INSERT OR IGNORE left unrecorded;
@@ -229,8 +231,6 @@ function replayPending(db: ReplicaDb, nowMs: number, freed: FreedPages): void {
  *   CHILD  a block whose parent_uid is a recorded uid with no blocks row
  *          (FKs off; reachable when a uid holds a ',' and subtreeUids'
  *          path match misses the child).
- *   REFS   a refs row of a recorded uid with no blocks row (FKs off).
- *   BREFS  a block_refs row of a recorded uid with no blocks row (FKs off).
  * The schema-pin test fails when a table gains an FK, which is the cue to
  * revisit these clauses. */
 export const targetedFkHit = (db: ReplicaDb, batchId: BatchId): boolean =>
@@ -245,10 +245,7 @@ export const targetedFkHit = (db: ReplicaDb, batchId: BatchId): boolean =>
                  AND EXISTS(SELECT 1 FROM blocks WHERE page_id = p.id))
        OR EXISTS(SELECT 1 FROM u
                   WHERE NOT EXISTS(SELECT 1 FROM blocks WHERE uid = u.key)
-                    AND (EXISTS(SELECT 1 FROM blocks WHERE parent_uid = u.key)
-                      OR EXISTS(SELECT 1 FROM refs WHERE src_block_uid = u.key)
-                      OR EXISTS(SELECT 1 FROM block_refs
-                                 WHERE src_block_uid = u.key)))
+                    AND EXISTS(SELECT 1 FROM blocks WHERE parent_uid = u.key))
        AS hit`,
     [batchId])[0].hit === 1;
 

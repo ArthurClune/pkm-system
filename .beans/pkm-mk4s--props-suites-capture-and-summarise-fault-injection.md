@@ -19,8 +19,8 @@ Approach (option 2 of the choices discussed 2026-10-06; the strict "fail on unkn
 
 Engine lines reach `console.warn` through `sqlite3.config.warn`, which `web/src/replica/testDb.ts` rebinds to look `console.warn` up per call (pkm-iaa0), so a spy sees them. Check whether the props sync harness opens its replicas through `testDb.ts`; if not, it needs the same rebinding.
 
-- [ ] Inventory the warning kinds from a `proptest/check.sh web` run (all suites: sync, outline, ops, teeth)
-- [ ] Shared capture/classify/summary helper with unit tests (classification, unknown lines printed)
-- [ ] Wire into each props suite
-- [ ] `proptest/check.sh web` output: one summary line per suite, no raw noise; mutation-check that an injected unknown warning is printed
-- [ ] docs/architecture/property-checks.md: what the summary means and where to add a new expected kind
+- [x] Inventory the warning kinds from a `proptest/check.sh web` run (all suites: sync, outline, ops, teeth)
+- [x] Shared capture/classify/summary helper with unit tests (classification, unknown lines printed)
+- [x] Wire into each props suite
+- [x] `proptest/check.sh web` output: one summary line per suite, no raw noise; mutation-check that an injected unknown warning is printed
+- [x] docs/architecture/property-checks.md: what the summary means and where to add a new expected kind

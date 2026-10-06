@@ -41,6 +41,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--port", type=int, default=8974)
     ap.add_argument("--host", action="append", dest="hosts", default=None,
                     help="repeatable; overrides config bind_hosts")
+    ap.add_argument("--log-dir", default=None,
+                    help="write rotating log files here instead of "
+                         "stdout/stderr")
     args = ap.parse_args(argv)
     config = load_config(Path(args.data_dir) / "config.json")
     hosts = args.hosts if args.hosts else list(config.bind_hosts)
@@ -49,10 +52,16 @@ def main(argv: list[str] | None = None) -> int:
     # serving is never accidentally started against a non-WAL or
     # schema-less (e.g. brand-new, never-imported) database.
     # access_log=False: the RequestLogMiddleware in create_app() emits the
-    # access lines instead (same stdout stream, plus durations).
+    # access lines instead (stdout, or access.log under --log-dir, plus
+    # durations).
+    if args.log_dir:
+        Path(args.log_dir).mkdir(parents=True, exist_ok=True)
+        log_config = uvicorn_log_config(Path(args.log_dir))
+    else:
+        log_config = uvicorn_log_config()
     server = uvicorn.Server(uvicorn.Config(
         create_app(config, api_port=args.port), port=args.port,
-        log_config=uvicorn_log_config(), access_log=False))
+        log_config=log_config, access_log=False))
     server.run(sockets=sockets)
     return 0
 

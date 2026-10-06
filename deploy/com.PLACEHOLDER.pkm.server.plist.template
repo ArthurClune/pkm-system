@@ -15,6 +15,8 @@
     <string>pkm.server.run</string>
     <string>--data-dir</string>
     <string>{{PKM_HOME}}/data</string>
+    <string>--log-dir</string>
+    <string>{{PKM_HOME}}/logs</string>
   </array>
   <key>WorkingDirectory</key><string>{{PKM_HOME}}/app/server</string>
   <key>RunAtLoad</key><true/>

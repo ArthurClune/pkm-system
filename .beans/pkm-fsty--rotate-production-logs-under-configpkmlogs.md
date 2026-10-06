@@ -1,11 +1,11 @@
 ---
 # pkm-fsty
 title: Rotate production logs under ~/.config/pkm/logs
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-10-06T09:01:28Z
-updated_at: 2026-10-06T11:03:43Z
+updated_at: 2026-10-06T11:10:27Z
 ---
 
 Production's launchd jobs write to `~/.config/pkm/logs/` (deploy/README.md: `server.{out,err}.log`, `backup.*`, `icloud-backup.*`) and nothing ever rotates them. On 2026-10-06 `server.out.log` was 12 MB and `server.err.log` 2 MB after about three months; backup logs are tiny. Growth is slow but unbounded, and a big file makes the server-log forensics in the prod recipe slower.
@@ -18,9 +18,9 @@ Constraint: launchd opens the `StandardOutPath`/`StandardErrorPath` files and ho
 
 Whatever is chosen: keep enough history for forensics (at least a couple of weeks), cover all three jobs' logs, and update deploy/README.md (layout, and how to find older logs) and the prod-host recipe's log-reading notes. Deploying it changes the prod service setup, so confirm with Arthur before installing.
 
-- [ ] Pick the mechanism (above), with the forensics retention
-- [ ] Implement and test (unit-test any pure retention or rotation logic)
-- [ ] deploy/README.md: layout and where older logs live
+- [x] Pick the mechanism (above), with the forensics retention
+- [x] Implement and test (unit-test any pure retention or rotation logic)
+- [x] deploy/README.md: layout and where older logs live
 - [ ] Install on prod with Arthur's go-ahead; verify a rotation happened and the server kept logging
 
 ## Recommendation (2026-10-06)

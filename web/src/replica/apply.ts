@@ -15,19 +15,22 @@
 // Deferred FKs move every violation to the outer COMMIT, so neither the
 // savepoints replayPending rolls back to nor a try/catch around a single op
 // can see one. Two guards keep that from wedging sync:
-//   - replayPending diffs `PRAGMA foreign_key_check` around each batch and,
-//     when the batch ADDS a violation, redoes it op by op and rolls back each
-//     op that adds one, so an unappliable optimistic op is skipped like any
-//     other instead of poisoning the COMMIT. The pragma reads violations
-//     whatever `foreign_keys`/`defer_foreign_keys` say, so this also protects
-//     the reset rebuild, which runs with FKs off.
+//   - replayPending checks each batch with a targeted pre-check
+//     (targetedFkHit) that reads only the rows the batch wrote. A hit rolls
+//     the batch back to its savepoint and redoes it under whole-database
+//     `PRAGMA foreign_key_check` diffs: the batch as a whole, then, when it
+//     ADDS a violation, op by op, rolling back each op that adds one, so an
+//     unappliable optimistic op is skipped like any other instead of
+//     poisoning the COMMIT. The pragma reads violations whatever
+//     `foreign_keys`/`defer_foreign_keys` say, so this also protects the
+//     reset rebuild, which runs with FKs off.
 //   - applyChanges turns an FK failure at COMMIT into `needs-bootstrap` rather
 //     than throwing: the window rolled back and the cursor never advanced, so
 //     rethrowing would refetch the same dependency-incomplete window forever.
 //     applySnapshot still throws -- a snapshot ships the whole graph, so a
 //     dangling row in one means something is genuinely wrong.
 
-import type { BlockUid, CanonicalTitle, PageId, SidebarEntryId,
+import type { BatchId, BlockUid, CanonicalTitle, PageId, SidebarEntryId,
               SyncSeq } from "../api/brands";
 import type { components } from "../api/types";
 import { appliedPendingRows } from "./ackedRows";
@@ -172,14 +175,16 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
  * applyLocalOps, as the server skips it. An op that still throws is rolled
  * back alone, as enqueueBatch rolls it back, so the rest of its batch lands.
  * An op whose rows dangle counts as no-longer-applicable too: deferred FKs
- * let the op itself succeed, so the violation set is compared around the
- * batch, and only when the batch adds one is it redone op by op with the
- * comparison after each (see the file header). Rows are never deleted
- * here — the queue is the user's intent and still flushes to the server. */
+ * let the op itself succeed, so each batch is first screened by
+ * targetedFkHit, and only a batch it flags is rolled back to its savepoint
+ * and compared against the whole-database violation set taken there (see the
+ * file header). That baseline is the state the previous batch left, so a
+ * rowid a delete just freed cannot hide a later dangling insert behind the
+ * old key. Rows are never deleted here -- the queue is the user's intent and
+ * still flushes to the server. */
 function replayPending(db: ReplicaDb, nowMs: number, freed: FreedPages): void {
   const batches = allBatches(db).filter((b) => !b.poisoned);
   if (batches.length === 0) return; // nothing to replay, nothing to check
-  let before = fkViolations(db); // empty unless the feed itself dangles
   for (const b of batches) {
     let stamp = enqueuedAt(db, b.batch_id);
     if (stamp === null) {
@@ -188,34 +193,58 @@ function replayPending(db: ReplicaDb, nowMs: number, freed: FreedPages): void {
     }
     db.exec("SAVEPOINT replay_batch");
     replayOps(db, b, stamp, freed, null);
-    let after = fkViolations(db);
-    if (addsFkViolation(before, after)) {
+    if (targetedFkHit(db, b.batch_id)) {
       rollbackToSavepoint(db, "replay_batch");
-      after = replayOps(db, b, stamp, freed, before)!;
+      const before = fkViolations(db);
+      replayOps(db, b, stamp, freed, null);
+      if (addsFkViolation(before, fkViolations(db))) {
+        rollbackToSavepoint(db, "replay_batch");
+        replayOps(db, b, stamp, freed, before);
+      }
     }
     db.exec("RELEASE replay_batch");
-    // A replayed batch added no violation, so `after` is always a subset of
-    // `before` (it may also be a strict subset, if the batch's ops happened
-    // to resolve one the feed itself shipped). Tightening the baseline to it
-    // only ever shrinks what a later batch is allowed to add -- it can't
-    // cause an op that would otherwise be kept to be rolled back.
-    //
-    // Tightening is also what stops a DELETE-freed rowid from masking a
-    // later batch's dangling insert: `blocks` has no AUTOINCREMENT, so a
-    // rowid this batch's own delete just freed can be handed straight back
-    // out by the next batch's insert, reproducing the identical
-    // foreign_key_check key ([blocks, rowid, blocks, fkid]) the deleted row
-    // used to report. Leaving `before` untightened would still contain that
-    // key and wave the reused-rowid insert through as "no new violation".
-    // Reuse WITHIN one batch (a delete and a dangling insert together)
-    // still slips past this -- but that's harmless: it needs the window's
-    // own dangling row already in the baseline, which fails the deferred
-    // COMMIT regardless and falls back to needs-bootstrap; on the
-    // snapshot/reset path the baseline starts empty, so there is nothing to
-    // hide behind there either.
-    before = after;
   }
 }
+
+/** Whether a batch just replayed may have added an FK violation, read from
+ * the rows it touched alone; false guarantees `foreign_key_check` gained no
+ * key, a hit only sends the batch to the whole-database comparison.
+ *
+ * Soundness: a new violation needs a child row the batch wrote or a parent it
+ * deleted. Every blocks/refs/block_refs write is preceded by a replay_log
+ * record of the block's uid under the batch id (replayLog.ts), and pages are
+ * only inserted or touched, never deleted, so the records name every row to
+ * look at. A deleted parent's dependants go with it when FKs are on (deferred
+ * FKs still cascade); with FKs off (the reset rebuild) the clauses below
+ * catch them. The clauses:
+ *   PAGE   a block on a recorded page that has no pages row. The only clause
+ *          that sees an op whose NULL uid INSERT OR IGNORE left unrecorded;
+ *          it relies on touchPage following every blocks.page_id write.
+ *   CHILD  a block whose parent_uid is a recorded uid with no blocks row
+ *          (FKs off; reachable when a uid holds a ',' and subtreeUids'
+ *          path match misses the child).
+ *   REFS   a refs row of a recorded uid with no blocks row (FKs off).
+ *   BREFS  a block_refs row of a recorded uid with no blocks row (FKs off).
+ * The schema-pin test fails when a table gains an FK, which is the cue to
+ * revisit these clauses. */
+export const targetedFkHit = (db: ReplicaDb, batchId: BatchId): boolean =>
+  db.select<{ hit: number }>(
+    `WITH u(key) AS (SELECT key FROM replay_log
+                      WHERE batch_id = ?1 AND kind = 'block'),
+          p(id)  AS (SELECT CAST(key AS INTEGER) FROM replay_log
+                      WHERE batch_id = ?1 AND kind = 'page')
+     SELECT
+       EXISTS(SELECT 1 FROM p
+               WHERE NOT EXISTS(SELECT 1 FROM pages WHERE id = p.id)
+                 AND EXISTS(SELECT 1 FROM blocks WHERE page_id = p.id))
+       OR EXISTS(SELECT 1 FROM u
+                  WHERE NOT EXISTS(SELECT 1 FROM blocks WHERE uid = u.key)
+                    AND (EXISTS(SELECT 1 FROM blocks WHERE parent_uid = u.key)
+                      OR EXISTS(SELECT 1 FROM refs WHERE src_block_uid = u.key)
+                      OR EXISTS(SELECT 1 FROM block_refs
+                                 WHERE src_block_uid = u.key)))
+       AS hit`,
+    [batchId])[0].hit === 1;
 
 /** Apply a batch's ops one at a time, each under its own savepoint, rolling
  * back an op that throws and, given a baseline, one that adds an FK
@@ -257,13 +286,13 @@ function replayOps(db: ReplicaDb, b: PendingBatch, stamp: number,
  * is in the same payload -- there is nothing left for this collapse to
  * hide.
  *
- * Deliberately unscoped. Narrowing it to `foreign_key_check(blocks)` looks
- * like a free win (replayPending calls this K+1 times per window) but is
- * not: `blocks`, `refs` and `block_refs` all bear FKs, so a correct scoped
- * check must run all three, and the unscoped pragma already visits only
- * FK-bearing tables -- measured at 1 000/5 000/20 000 blocks, whole-database
- * (0.32/1.72/7.54 ms) equals the sum of the three scoped checks
- * (0.32/1.72/7.41 ms) within noise. Scoping to `blocks` alone
+ * Deliberately unscoped, and the slow path only (replayPending reaches it
+ * for a batch targetedFkHit flagged). Narrowing it to `foreign_key_check(blocks)`
+ * looks like a free win but is not: `blocks`, `refs` and `block_refs` all bear
+ * FKs, so a correct scoped check must run all three, and the unscoped pragma
+ * already visits only FK-bearing tables -- measured at 1 000/5 000/20 000
+ * blocks, whole-database (0.32/1.72/7.54 ms) equals the sum of the three scoped
+ * checks (0.32/1.72/7.41 ms) within noise. Scoping to `blocks` alone
  * would drop exactly the two tables the paragraph above is about. */
 const fkViolations = (db: ReplicaDb): Set<string> =>
   new Set(db.select<{ table: string; rowid: SqlValue; parent: string;

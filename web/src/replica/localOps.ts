@@ -97,7 +97,10 @@ const reindexRefs = (db: ReplicaDb, uid: BlockUid, text: string,
 };
 
 /** A replay stamps with the batch's enqueue time, which can be older than an
- * edit another device made since, so a page keeps the later of the two. */
+ * edit another device made since, so a page keeps the later of the two.
+ * Every blocks.page_id write must be followed by a call here: it records the
+ * page, which is how the replay's FK pre-check (targetedFkHit) sees a block
+ * written without a block record. */
 const touchPage = (db: ReplicaDb, pageId: PageId, nowMs: number,
                    batchId: BatchId): void => {
   recordPage(db, batchId, pageId, false);

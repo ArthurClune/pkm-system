@@ -45,6 +45,8 @@ to 8977 in every script. Outputs land in `out/` (gitignored).
 | `seed.mjs` | seeds content through `POST /api/ops`, same as a client would |
 | `instrument.js` | `addInitScript` payload: wraps timers/fetch/WebSocket, observes long tasks and outline DOM mutations, exposes `window.__perf` |
 | `react-commits.js` | `addInitScript` payload for J: a minimal `__REACT_DEVTOOLS_GLOBAL_HOOK__` counting commits and re-rendered fibers into `window.__react` |
+| `rebase.perf.ts`, `rebaseTargets.ts`, `vitest.rebase.config.ts` | the gate's scenario R (SQL counts of `applyChanges` over a pending queue), run by `check.mjs` as a vitest subprocess; not part of the investigation toolkit |
+| `sqlcount.ts` | SQL counter used by R: statements, trigger statements, VM steps, full scans |
 | `perf.mjs` | scenarios A (idle, big page), B (idle, journal), E (degraded: WS refused, HTTP 8 s → 503), E2 (degraded + pending edit), F (typing), G (two tabs), H (cold load, SW warm and cold), I (journal scroll), J (journal with every seeded day mounted: React commits and re-rendered fibers per keystroke), K (outline drag: dragover handler ms/event, commits/s, forced layouts) |
 | `ws-probe.mjs` | attempts/min on a dead link; changes-pulls and page refetches per successful reconnect on a flapping link |
 | `offline-probe.mjs` | per-process CPU attribution — exists to show why `context.setOffline` is unusable (below) |

@@ -49,6 +49,8 @@ measures the working tree's SPA.
 | `backend.py` + `trace.py` + `sqlplan.py` | Shell + Shell + Core | backend scenarios, per-request SQL tracing, plan-row classification |
 | `server/tests/e2e_serve.py` | Imperative Shell | the Playwright server, with perf env options |
 | `web/tooling/perf/check.mjs` + `harness.mjs` | script | frontend scenarios; helpers shared with the investigation harness |
+| `web/tooling/perf/rebase.perf.ts` + `rebaseTargets.ts` + `vitest.rebase.config.ts` | Imperative Shell + Functional Core + config | scenario R: a Node vitest run, started by `check.mjs` |
+| `web/tooling/perf/sqlcount.ts` | Mixed (unavoidable) | the SQL counter R installs on the replica's connection |
 
 ## Metric classes
 
@@ -133,6 +135,7 @@ filtered back to the scenarios asked for.
 | `perfcheck` (`PYTHONPATH` = the branch's `server/tooling`) | the `pkm` package (`uv run --project <worktree>/server --with time-machine`) |
 | `e2e_serve.py` and `check.mjs` | `web/dist`, built once per worktree |
 | Chromium, from the branch's Playwright | Python and SQLite, from the worktree's venv |
+| `rebase.perf.ts`, `vitest.rebase.config.ts`, `sqlcount.ts` | `src/replica` and `@sqlite.org/sqlite-wasm`, imported from `PERF_WEB_ROOT` (`<worktree>/web`, set by `FrontendRunner.check_command`) |
 
 So the gate works at a merge base older than the tooling. The base's SPA
 must still emit the `pkm:replica-ready` mark (`replicaSync.ts`), or the
@@ -210,13 +213,15 @@ target uids the fixture never generates (`MISSING_BLOCK_UID`,
 ## Frontend check
 
 `run.py` starts `e2e_serve.py` on port 8977 with the cached fixture, then runs
-`check.mjs`. Each browser context group gets one Playwright context.
+`check.mjs`. Each browser context group gets one Playwright context, except
+`R`, which has none.
 
 | Group | Context | Why |
 |---|---|---|
 | `HW` | fresh, not logged in | H must load into an empty replica; W is the next navigation, warm |
 | `ABFI` | logged in, no React hook | the hook walks the fiber tree on every commit and would distort idle and typing |
 | `JKS` | logged in, `react-commits.js` installed | these scenarios count React commits |
+| `R` | none: a Node subprocess talking to the fixture server over HTTP | R drives the replica code directly; it runs last, so nothing else writes to the server between its POSTs and GETs |
 
 | Scenario | Does | exact | band | timing |
 |---|---|---|---|---|
@@ -229,6 +234,7 @@ target uids the fixture never generates (`MISSING_BLOCK_UID`,
 | `K/drag-top`, `K/drag-bottom` | dispatch synthetic `dragover`s across the drop zone | `not_prevented` | `react_commits`, `forced_layouts` | `handler_ms` |
 | `S/search-common`, `S/search-rare` | type a term in the top-bar search, time the last key, open a hit | `search_requests`, `fetches` | `react_commits` | `results_ms` |
 | `S/search-burst` | type a term with every key inside `SearchBar`'s debounce window | `search_requests` | | |
+| `R/rebase-edit`, `R/rebase-paste`, `R/rebase-overlap` | apply one sync window to a replica holding six pending batches (see [Scenario R](#scenario-r)) | `statements`, `trigger_statements`, `vm_steps_k`, `full_scans` | | |
 
 The counters come from `instrument.js` (`window.__perf`), `harness.mjs`'s
 `attachCounters` (requests per path), CDP `Performance.getMetrics`
@@ -239,6 +245,54 @@ and why K's drag is synthetic.
 `handler_ms` sums the handler time over every `dragover`, because one handler
 is too close to the clock's resolution. `results_ms` runs from the last key's
 `keydown` to the render of that term's results.
+
+### Scenario R
+
+R measures the SQLite work one sync window costs `applyChanges` while six
+optimistic batches are pending. `check.mjs` runs it last, as
+`pnpm exec vitest run --config tooling/perf/vitest.rebase.config.ts`.
+Chromium still launches, because `env.chromium` comes from it.
+
+```mermaid
+flowchart TD
+  L["log in; GET /api/sync/snapshot"] --> W["per window: POST one batch as perf-rebase-peer,<br/>GET /api/sync/changes from the previous cursor"]
+  W --> P["two passes, each on a fresh in-memory replica<br/>built through the worker's buildHandlers"]
+  P --> Q["init, applySnapshot, enqueue pending batches p1..p6"]
+  Q --> M["Counter.measure around each applyChanges"]
+  M --> A{"passes agree?"}
+  A -->|"yes"| O["exact metrics per window"]
+  A -->|"no"| E["the run fails"]
+```
+
+| Window | Peer batch |
+|---|---|
+| `R/rebase-edit` | one text edit |
+| `R/rebase-paste` | 50 creates |
+| `R/rebase-overlap` | an edit to a block a pending batch edits, and a move under a parent the queue touched |
+
+The pending batches are creates, text edits, moves, a delete of a 21-block
+subtree and an edit of a pending-created block. `rebaseTargets.ts` picks
+their targets from the snapshot of the big page. That page is a deep chain,
+so the `edit` window's block sits under blocks the queue moves: it is a
+window that edits no pending-touched block, not one disjoint from the queue.
+Each window must answer `applied` over six non-poisoned pending batches and
+run at least one statement.
+
+`sqlcount.ts` counts inside `Counter.measure` through `sqlite3_trace_v2` and
+`sqlite3_progress_handler`.
+
+| Metric | Class | Measures |
+|---|---|---|
+| `statements` | exact | top-level statements |
+| `trigger_statements` | exact | every `--` trace line |
+| `vm_steps_k` | exact | progress ticks, one per `PROGRESS_N` VM instructions |
+| `full_scans` | exact | the `EXPLAIN QUERY PLAN` rule of `sqlplan.py`, ported |
+
+Most of each window's `vm_steps_k` is `replayPending`'s whole-database
+`PRAGMA foreign_key_check`, which `fkViolations` (`apply.ts`) runs once before
+the batches and once after each, so K+1 times for K pending batches. Its full
+scans are on small client tables: `pending_ops`, `replay_batches`, and the
+`replay_log` and `replay_log_refs` reads in `dropStrandedLocalPages`.
 
 ## Determinism
 
@@ -260,6 +314,9 @@ code. Each uncontrolled input has a harness control.
 | A save's WS nudge racing its HTTP ack | `pinSaveOrder()` holds `/api/ops` and `/api/sync/changes` responses so the nudge's pull always goes first | `check.mjs` |
 | Typing speed against debounces | F and J type at a pace that keeps re-arming the text debounce, so one save; `search-common`/`search-rare` type slower than `SearchBar`'s debounce, so one search per key; `search-burst` types inside it, so one search for the whole term, and waits for that term's results and then network idle rather than timing the last key, so a keystroke landing on the debounce edge can't turn into a band | `check.mjs` |
 | Scenario order within a context | re-runs take the whole context group | `run_core.py` |
+| R's clock and ids | `nowMs` fixed at `PERF_FROZEN_NOW`; every batch id is named | `rebase.perf.ts` |
+| R's windows | each fetched from the scenario's own snapshot cursor, so another group's writes (F's save) never enter one | `rebase.perf.ts` |
+| R's counts | two measuring passes in one run must agree, or the run fails | `rebase.perf.ts` |
 | Viewport and headless rendering | fixed viewport, headless Chromium | `check.mjs` |
 
 What no control removes is classed `band` or `timing`.
@@ -300,7 +357,7 @@ since node only drives Playwright.
 | Change | What the check then reports | Then run |
 |---|---|---|
 | Add a backend scenario (`scenarios()` in `backend.py`; `writes=True` for a write, placed after the reads) | `new` | the check; commit the rewritten baseline |
-| Add a frontend scenario (a function and letter in `check.mjs`, its context group in `main()`, the default `--only` list, and `_CONTEXT_GROUPS`) | `new` | the check; commit the rewritten baseline |
+| Add a frontend scenario (a function and letter in `check.mjs`, its context group in `main()`, the default `--only` list, and `_CONTEXT_GROUPS`; a Node scenario like R also needs its path in its vitest config's `include`) | `new` | the check; commit the rewritten baseline |
 | Change a metric's class | `reclassified` | `--bootstrap` |
 | Remove a scenario or metric | `lost` | `--bootstrap` |
 | Change how a check measures, moving counts | `stale-baseline` (the merge-base run uses the new harness) | `--rebaseline` |

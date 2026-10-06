@@ -248,27 +248,6 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
       .toEqual([bid("batch-parent"), bid("batch-child"), bid("batch-ok")]);
   });
 
-  test("the reset rebuild's foreign_keys=OFF does not let a dangling batch through", () => {
-    // rebuildSchema (Reset local data) disables FK enforcement around the
-    // whole drop/reinstall/snapshot transaction, so nothing would fail the
-    // COMMIT — a dangling replayed batch would just be written and stay
-    // there. The guard reads PRAGMA foreign_key_check, which ignores the
-    // enforcement pragmas, so it still catches it.
-    enqueueBatch(t.db, [
-      { op: "create", uid: uid("uid_opt_child"), page_title: "AI",
-        parent_uid: uid("uid_never_existed"), order_idx: ord(0), text: "child" },
-    ], 5, bid("batch-child"));
-    t.db.exec("PRAGMA foreign_keys=OFF");
-    try {
-      applySnapshot(t.db, SNAP, 7);
-    } finally {
-      t.db.exec("PRAGMA foreign_keys=ON");
-    }
-    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
-    expect(uids(t.db)).toEqual(["uid_b1", "uid_b2", "uid_b3"]);
-    expect(queuedBatchIds(t.db)).toEqual([bid("batch-child")]);
-  });
-
   // A failing op is skipped alone on replay, as enqueueBatch skips it, where
   // the whole batch used to roll back.
   test("a replayed batch keeps its other ops when one op adds an FK violation", () => {

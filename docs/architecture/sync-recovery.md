@@ -348,10 +348,11 @@ windows shipped, would be deleted along with them.
 `targetedFkHit`, which reads only the rows the batch wrote (its `replay_log`
 records) and the dependants of blocks it deleted. A hit rolls the batch back,
 takes a `PRAGMA foreign_key_check` baseline at the savepoint, and redoes the
-batch whole, then op by op when it adds a violation. An op whose block or parent the feed removed skips, as the server
-skips it; an op that throws or adds a violation rolls back alone. Nothing is
-deleted from `pending_ops`. Because every replay follows a rewind, the result
-is the window's rows plus every pending batch.
+batch whole, then op by op when it adds a violation. An op whose block or
+parent the feed removed skips, as the server skips it; an op that throws or
+adds a violation rolls back alone. Nothing is deleted from `pending_ops`.
+Because every replay follows a rewind, the result is the window's rows plus
+every pending batch.
 
 `dropStrandedLocalPages` keeps a negative page that a block, a ref, a
 `replay_log` record (page key, `pre_page_id` or a `replay_log_refs` target) or

@@ -180,7 +180,11 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
  * and compared against the whole-database violation set taken there (see the
  * file header). That baseline is the state the previous batch left, so a
  * rowid a delete just freed cannot hide a later dangling insert behind the
- * old key. Rows are never deleted here -- the queue is the user's intent and
+ * old key. Reuse within ONE batch (a delete and a dangling insert together)
+ * can still match a baseline key; that is harmless, since on the window path
+ * the dangling baseline row fails the deferred COMMIT anyway (needs-bootstrap)
+ * and on the snapshot/reset path the baseline starts empty. Rows are never
+ * deleted here -- the queue is the user's intent and
  * still flushes to the server. */
 function replayPending(db: ReplicaDb, nowMs: number, freed: FreedPages): void {
   const batches = allBatches(db).filter((b) => !b.poisoned);
@@ -216,7 +220,9 @@ function replayPending(db: ReplicaDb, nowMs: number, freed: FreedPages): void {
  * only inserted or touched, never deleted, so the records name every row to
  * look at. A deleted parent's dependants go with it when FKs are on (deferred
  * FKs still cascade); with FKs off (the reset rebuild) the clauses below
- * catch them. The clauses:
+ * catch them. A recorded block's own parent is never checked: create and
+ * move place only under an existing parent (missingTarget/placementFor).
+ * PAGE is the only check of any block's page_id. The clauses:
  *   PAGE   a block on a recorded page that has no pages row. The only clause
  *          that sees an op whose NULL uid INSERT OR IGNORE left unrecorded;
  *          it relies on touchPage following every blocks.page_id write.
@@ -248,11 +254,10 @@ export const targetedFkHit = (db: ReplicaDb, batchId: BatchId): boolean =>
 
 /** Apply a batch's ops one at a time, each under its own savepoint, rolling
  * back an op that throws and, given a baseline, one that adds an FK
- * violation to it. Returns the baseline as the kept ops tightened it, or
- * null when none was given. */
+ * violation to it. */
 function replayOps(db: ReplicaDb, b: PendingBatch, stamp: number,
                    freed: FreedPages,
-                   baseline: Set<string> | null): Set<string> | null {
+                   baseline: Set<string> | null): void {
   let current = baseline;
   for (const op of b.ops) {
     db.exec("SAVEPOINT replay_op");
@@ -268,7 +273,6 @@ function replayOps(db: ReplicaDb, b: PendingBatch, stamp: number,
     }
     db.exec("RELEASE replay_op");
   }
-  return current;
 }
 
 /** Identities of the rows currently violating an FK. Readable inside a

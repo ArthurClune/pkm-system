@@ -4,8 +4,10 @@
 // server on 8977 and sets PERF_FROZEN_NOW / PERF_FIXTURE_HASH / PERF_COMMIT.
 // Every metric declares its class here; changing one is a reviewed change.
 import { chromium } from "@playwright/test";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { BASE, BIG_PAGE, INIT, REACT_INIT, sleep, attachCounters, freshBag,
          resetBag, login } from "./harness.mjs";
 
@@ -14,7 +16,7 @@ const arg = (name, dflt) => {
   return i >= 0 ? process.argv[i + 1] : dflt;
 };
 const OUT = arg("--out");
-const LETTERS = "H,W,A,B,F,J,I,K,S";
+const LETTERS = "H,W,A,B,F,J,I,K,S,R";
 const ONLY = new Set((arg("--only", LETTERS)).split(","));
 {
   const valid = new Set(LETTERS.split(","));
@@ -527,6 +529,39 @@ async function step(label, fn) {
 }
 const run = (name, fn) => step(`scenario ${name}`, fn);
 
+// R is a vitest scenario against the replica code, not a browser one: it
+// drives the fixture server over HTTP from node. Run it serially, last, so
+// nothing else writes to the server between its window POSTs and GETs.
+async function rebase() {
+  const webDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+  const out = `${OUT}.rebase.json`;
+  fs.rmSync(out, { force: true });
+  const child = spawn("pnpm", ["exec", "vitest", "run", "--config",
+    "tooling/perf/vitest.rebase.config.ts"], {
+    cwd: webDir,
+    env: { ...process.env, PERF_BASE_URL: BASE, PERF_REBASE_OUT: out,
+           PERF_WEB_ROOT: process.env.PERF_WEB_ROOT ?? webDir },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let tail = "";
+  const keep = (b) => { tail = (tail + b).slice(-8000); };
+  child.stdout.on("data", keep);
+  child.stderr.on("data", keep);
+  const code = await new Promise((resolve, reject) => {
+    child.on("error", reject);
+    child.on("close", resolve);
+  });
+  if (code !== 0) throw new Error(`rebase scenario exited ${code}:\n${tail}`);
+  let doc;
+  try {
+    doc = JSON.parse(fs.readFileSync(out, "utf8"));
+  } catch (e) {
+    throw new Error(`rebase scenario wrote no usable ${out}: ${e.message}\n${tail}`);
+  }
+  Object.assign(scenarios, doc);
+  fs.rmSync(out, { force: true });
+}
+
 async function loggedIn(browser, letters, opts) {
   return step(`setup for ${letters}`, async () => {
     const ctx = await newContext(browser, opts);
@@ -578,6 +613,7 @@ async function main() {
       }
       await ctx.close();
     }
+    if (ONLY.has("R")) await run("R/rebase", () => rebase());
     // node only drives Playwright, so it is information, not comparability env
     const doc = { commit: process.env.PERF_COMMIT ?? "working-tree",
                   fixture_hash: process.env.PERF_FIXTURE_HASH ?? "unknown",

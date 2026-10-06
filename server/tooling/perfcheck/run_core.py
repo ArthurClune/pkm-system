@@ -15,7 +15,7 @@ _SIDES = (("backend", lambda p: p.startswith("server/")),
 
 # check.mjs runs these letters in one shared browser context each; counts
 # were recorded in that company, so a re-run takes the whole group
-_CONTEXT_GROUPS = ("HW", "ABFI", "JKS")
+_CONTEXT_GROUPS = ("HW", "ABFI", "JKS", "R")
 
 _NEXT = {
     "regression": "regression: read your diff along the regressed path, find the cause, "

@@ -36,6 +36,18 @@ def test_frontend_letters_cover_whole_context_groups():
     assert run_core.frontend_letters(["K/drag-top", "K/drag-bottom", "S/search-rare"]) == "J,K,S"
     assert run_core.frontend_letters(["F/typing"]) == "A,B,F,I"
     assert run_core.frontend_letters(["W/warm", "I/journal-scroll"]) == "A,B,F,H,I,W"
+    assert run_core.frontend_letters(["R/rebase-edit"]) == "R"
+    assert run_core.frontend_letters(["R/rebase-paste", "F/typing"]) == "A,B,F,I,R"
+
+
+def test_check_command_points_the_scenario_at_the_measured_worktree(tmp_path):
+    repo, wt = tmp_path / "repo", tmp_path / "wt"
+    cmd, env = run.FrontendRunner(repo).check_command(
+        wt, ["R/rebase-edit"], "abc", tmp_path / "out.json")
+    assert cmd[:2] == ["node", str(repo / "web" / "tooling" / "perf" / "check.mjs")]
+    assert cmd[cmd.index("--only") + 1] == "R"
+    assert env["PERF_WEB_ROOT"] == str(wt / "web")
+    assert env["PERF_COMMIT"] == "abc"
 
 
 def test_frontend_letters_errors_on_a_letter_outside_every_group():

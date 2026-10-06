@@ -184,8 +184,8 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
  * can still match a baseline key; that is harmless, since on the window path
  * the dangling baseline row fails the deferred COMMIT anyway (needs-bootstrap)
  * and on the snapshot/reset path the baseline starts empty. Rows are never
- * deleted here -- the queue is the user's intent and
- * still flushes to the server. */
+ * deleted here -- the queue is the user's intent and still flushes to the
+ * server. */
 function replayPending(db: ReplicaDb, nowMs: number, freed: FreedPages): void {
   const batches = allBatches(db).filter((b) => !b.poisoned);
   if (batches.length === 0) return; // nothing to replay, nothing to check

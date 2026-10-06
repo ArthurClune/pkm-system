@@ -1,5 +1,5 @@
 {
-  "commit": "600fc25e+dirty",
+  "commit": "2009eee9",
   "env": {
     "chromium": "149.0.7827.55"
   },
@@ -73,7 +73,7 @@
       },
       "replica_ready_ms": {
         "class": "timing",
-        "value": 3477
+        "value": 3507
       },
       "requests": {
         "class": "exact",
@@ -122,7 +122,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 59.4
+        "value": 54.4
       },
       "not_prevented": {
         "class": "exact",
@@ -142,7 +142,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 16.3
+        "value": 16.7
       },
       "not_prevented": {
         "class": "exact",
@@ -161,7 +161,7 @@
       },
       "statements": {
         "class": "exact",
-        "value": 571
+        "value": 573
       },
       "trigger_statements": {
         "class": "exact",
@@ -179,7 +179,7 @@
       },
       "statements": {
         "class": "exact",
-        "value": 563
+        "value": 565
       },
       "trigger_statements": {
         "class": "exact",
@@ -197,7 +197,7 @@
       },
       "statements": {
         "class": "exact",
-        "value": 724
+        "value": 726
       },
       "trigger_statements": {
         "class": "exact",
@@ -226,7 +226,7 @@
       },
       "results_ms": {
         "class": "timing",
-        "value": 254
+        "value": 253
       },
       "search_requests": {
         "class": "exact",
@@ -259,7 +259,7 @@
       },
       "first_outline_ms": {
         "class": "timing",
-        "value": 216
+        "value": 212
       },
       "requests": {
         "class": "exact",

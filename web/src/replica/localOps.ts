@@ -239,6 +239,13 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
       const block = info!;
       const subtree = subtreeUids(db, op.uid);
       recordBlocks(db, batchId, subtree);
+      // The reset rebuild replays with foreign keys off, where nothing
+      // cascades: remove the dependants explicitly so both paths agree.
+      const uids = JSON.stringify(subtree);
+      db.exec("DELETE FROM refs WHERE src_block_uid IN" +
+              " (SELECT value FROM json_each(?))", [uids]);
+      db.exec("DELETE FROM block_refs WHERE src_block_uid IN" +
+              " (SELECT value FROM json_each(?))", [uids]);
       for (const uid of subtree) {
         db.exec("DELETE FROM blocks WHERE uid = ?", [uid]);
       }

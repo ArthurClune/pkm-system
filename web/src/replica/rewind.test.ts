@@ -325,4 +325,17 @@ describe("rewind", () => {
         ["sqlite3_step() rc=", expect.any(Number), "SQLITE_CONSTRAINT_PRIMARYKEY"]);
     }
   });
+
+  test("a rewound delete of a block with a link and a ((uid)) ref restores its refs and block_refs", () => {
+    // 'a' holds [[S]] and ((uid-c1x)). Rewind is a window-path step, so it
+    // runs with FKs on; the reset rebuild clears the log instead.
+    const before = dump();
+    enqueueBatch(t.db, [{ op: "delete", uid: u("a") }], 500, b1);
+    expect(dump().refs).toEqual([
+      { src_block_uid: "c2", target_page_id: 3, kind: "link" }]);
+    expect(dump().blockRefs).toEqual([]);
+    inTx(() => rewind(t.db, "all"));
+    expect(dump()).toEqual(before);
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+  });
 });

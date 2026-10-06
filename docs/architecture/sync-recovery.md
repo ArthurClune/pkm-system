@@ -346,7 +346,7 @@ windows shipped, would be deleted along with them.
 
 `replayPending` runs each batch under a savepoint and screens it with
 `targetedFkHit`, which reads only the rows the batch wrote (its `replay_log`
-records) and the dependants of blocks it deleted. A hit rolls the batch back,
+records) and the children of a block it deleted. A hit rolls the batch back,
 takes a `PRAGMA foreign_key_check` baseline at the savepoint, and redoes the
 batch whole, then op by op when it adds a violation. An op whose block or
 parent the feed removed skips, as the server skips it; an op that throws or
@@ -382,6 +382,12 @@ optimistic apply back.
 The FK diff works whatever the enforcement pragmas say, so it also covers the
 reset rebuild, which runs under `foreign_keys=OFF`. The rolled-back batch stays
 in `pending_ops` and still flushes to the server.
+
+With FKs off nothing cascades, so the local `delete` removes each deleted
+block's `refs` and `block_refs` rows itself (`localOps.ts`); a replayed delete
+then lands the same on the reset and window paths. The one dependant it can
+leave is a child whose uid holds a `,`, which `subtreeUids`' path match misses;
+`targetedFkHit` catches that.
 
 The replay itself is described in [§ The replay log](#the-replay-log).
 

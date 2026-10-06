@@ -334,18 +334,24 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
   });
 });
 
-// With foreign_keys=OFF (the reset rebuild) a delete cascades nothing, so
-// the rows that depended on the deleted block stay and dangle: the replay
-// must catch them itself. Each case below is caught by one clause of
-// targetedFkHit only, and rolls the delete back locally.
-describe("targetedFkHit clauses that only foreign_keys=OFF reaches", () => {
+// With foreign_keys=OFF (the reset rebuild) nothing cascades, so a replayed
+// delete removes the deleted block's refs and block_refs rows itself and the
+// delete lands exactly as it does with FKs on. Only a child the subtree match
+// misses is left for targetedFkHit's CHILD clause.
+describe("a pending delete replayed with foreign_keys=OFF", () => {
   const snapshotWith = (blocks: SyncBlock[]): Snapshot => ({ ...SNAP, blocks });
 
-  const replayDeleteWithFksOff = (snap: Snapshot, victim: string): void => {
+  const rows = (db: ReplicaDb) => ({
+    blocks: uids(db),
+    refs: db.select("SELECT src_block_uid, target_page_id, kind FROM refs ORDER BY 1, 2, 3"),
+    blockRefs: db.select("SELECT src_block_uid, target_block_uid FROM block_refs ORDER BY 1, 2"),
+  });
+
+  const replayDelete = (snap: Snapshot, victim: string, fksOff: boolean): void => {
     applySnapshot(t.db, snap);
     enqueueBatch(t.db, [{ op: "delete", uid: uid(victim) }], 5, bid("batch-del"));
     expect(uids(t.db)).not.toContain(victim);
-    t.db.exec("PRAGMA foreign_keys=OFF");
+    if (fksOff) t.db.exec("PRAGMA foreign_keys=OFF");
     try {
       applySnapshot(t.db, snap, 7);
     } finally {
@@ -353,34 +359,42 @@ describe("targetedFkHit clauses that only foreign_keys=OFF reaches", () => {
     }
   };
 
+  /** Replay with FKs off, require the delete to have landed cleanly, and
+   * require the FKs-on replay of the same snapshot to leave identical rows. */
+  const expectDeleteLands = (snap: Snapshot, victim: string, kept: string[]): void => {
+    replayDelete(snap, victim, true);
+    expect(uids(t.db)).toEqual(kept);
+    expect(queuedBatchIds(t.db)).toEqual([bid("batch-del")]);
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+    const off = rows(t.db);
+    replayDelete(snap, victim, false);
+    expect(rows(t.db)).toEqual(off);
+  };
+
   test("a child the delete's subtree match misses (uid containing a comma)", () => {
-    replayDeleteWithFksOff(snapshotWith([
+    replayDelete(snapshotWith([
       block("a,bcdefg", 1),
       block("bcdefg", 1, { parent_uid: uid("a,bcdefg") }),
-    ]), "a,bcdefg");
+    ]), "a,bcdefg", true);
     expect(uids(t.db)).toEqual(["a,bcdefg", "bcdefg"]);
     expect(queuedBatchIds(t.db)).toEqual([bid("batch-del")]);
     expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
   });
 
-  test("the refs rows of the deleted block", () => {
-    replayDeleteWithFksOff(snapshotWith([
+  test("a block with a [[link]] is deleted along with its refs rows", () => {
+    expectDeleteLands(snapshotWith([
       block("uid_r1", 1, { text: "see [[AI]]",
         refs: [{ target_page_id: 2 as PageId, kind: "link" }] }),
-    ]), "uid_r1");
-    expect(uids(t.db)).toEqual(["uid_r1"]);
-    expect(queuedBatchIds(t.db)).toEqual([bid("batch-del")]);
-    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+    ]), "uid_r1", []);
+    expect(t.db.select("SELECT * FROM refs")).toEqual([]);
   });
 
-  test("the block_refs rows of the deleted block", () => {
-    replayDeleteWithFksOff(snapshotWith([
+  test("a block with a ((uid)) ref is deleted along with its block_refs rows", () => {
+    expectDeleteLands(snapshotWith([
       block("uid_s1", 1, { text: "see ((uid_s2))" }),
       block("uid_s2", 1),
-    ]), "uid_s1");
-    expect(uids(t.db)).toEqual(["uid_s1", "uid_s2"]);
-    expect(queuedBatchIds(t.db)).toEqual([bid("batch-del")]);
-    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+    ]), "uid_s1", ["uid_s2"]);
+    expect(t.db.select("SELECT * FROM block_refs")).toEqual([]);
   });
 });
 

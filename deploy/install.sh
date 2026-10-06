@@ -24,12 +24,29 @@ render() { # render <template> <dest>
       -e "s|{{PKM_HOME}}|$PKM_HOME|g" "$1" > "$2"
 }
 
+wait_unloaded() { # wait_unloaded <service target>
+  # bootout returns while the job is still shutting down (the server's
+  # graceful shutdown takes seconds), and a bootstrap in that window fails
+  # with "5: Input/output error". launchd SIGKILLs a job 20s after SIGTERM,
+  # so 30s is enough.
+  local tries=150
+  while launchctl print "$1" >/dev/null 2>&1; do
+    tries=$((tries - 1))
+    if [ "$tries" -le 0 ]; then
+      echo "timed out waiting for $1 to unload" >&2
+      return 1
+    fi
+    sleep 0.2
+  done
+}
+
 for svc in server backup icloud-backup; do
   LABEL="com.$USER_NAME.pkm.$svc"
   PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
   render "$REPO/deploy/com.PLACEHOLDER.pkm.$svc.plist.template" "$PLIST"
   plutil -lint -s "$PLIST"
   launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+  wait_unloaded "gui/$(id -u)/$LABEL"
   launchctl bootstrap "gui/$(id -u)" "$PLIST"
 done
 

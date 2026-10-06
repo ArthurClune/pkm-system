@@ -1,5 +1,5 @@
 {
-  "commit": "d564178",
+  "commit": "99d94846",
   "env": {
     "chromium": "149.0.7827.55"
   },
@@ -73,7 +73,7 @@
       },
       "replica_ready_ms": {
         "class": "timing",
-        "value": 3414
+        "value": 3477
       },
       "requests": {
         "class": "exact",
@@ -122,7 +122,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 55.9
+        "value": 59.4
       },
       "not_prevented": {
         "class": "exact",
@@ -142,7 +142,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 16.5
+        "value": 16.3
       },
       "not_prevented": {
         "class": "exact",
@@ -152,6 +152,60 @@
         "class": "band",
         "max": 33,
         "min": 33
+      }
+    },
+    "R/rebase-edit": {
+      "full_scans": {
+        "class": "exact",
+        "value": 10
+      },
+      "statements": {
+        "class": "exact",
+        "value": 572
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 912
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 3911
+      }
+    },
+    "R/rebase-overlap": {
+      "full_scans": {
+        "class": "exact",
+        "value": 10
+      },
+      "statements": {
+        "class": "exact",
+        "value": 564
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 826
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 3912
+      }
+    },
+    "R/rebase-paste": {
+      "full_scans": {
+        "class": "exact",
+        "value": 10
+      },
+      "statements": {
+        "class": "exact",
+        "value": 725
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 1370
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 3917
       }
     },
     "S/search-burst": {
@@ -172,7 +226,7 @@
       },
       "results_ms": {
         "class": "timing",
-        "value": 253
+        "value": 254
       },
       "search_requests": {
         "class": "exact",
@@ -205,7 +259,7 @@
       },
       "first_outline_ms": {
         "class": "timing",
-        "value": 206
+        "value": 216
       },
       "requests": {
         "class": "exact",

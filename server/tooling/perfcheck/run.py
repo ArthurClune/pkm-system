@@ -133,6 +133,19 @@ class FrontendRunner:
                "PYTHONPATH": str(self.repo / "server" / "tooling")}
         return cmd, env
 
+    def check_command(self, worktree: Path, only: list[str] | None, commit: str,
+                      out: Path) -> tuple[list[str], dict[str, str]]:
+        # the harness is always this checkout's; PERF_WEB_ROOT is the code measured
+        cmd = ["node", str(self.repo / "web" / "tooling" / "perf" / "check.mjs"),
+               "--out", str(out)]
+        if only:
+            cmd += ["--only", frontend_letters(only)]
+        env = {**_base_env(), "E2E_PORT": str(FRONTEND_PORT),
+               "PERF_FROZEN_NOW": FROZEN_NOW.isoformat(),
+               "PERF_FIXTURE_HASH": fixture_hash(), "PERF_COMMIT": commit,
+               "PERF_WEB_ROOT": str(worktree / "web")}
+        return cmd, env
+
     def run(self, worktree: Path, only: list[str] | None, commit: str) -> dict:
         if worktree == self.repo and not self._built:
             subprocess.run(["pnpm", "build"], check=True, cwd=self.repo / "web",
@@ -156,14 +169,8 @@ class FrontendRunner:
                                           stderr=subprocess.STDOUT, start_new_session=True)
             try:
                 self._wait_healthy(server, instance)
-                node = ["node", str(self.repo / "web" / "tooling" / "perf" / "check.mjs"),
-                        "--out", str(out)]
-                if only:
-                    node += ["--only", frontend_letters(only)]
-                subprocess.run(node, check=True, cwd=self.repo / "web", env={
-                    **_base_env(), "E2E_PORT": str(FRONTEND_PORT),
-                    "PERF_FROZEN_NOW": FROZEN_NOW.isoformat(),
-                    "PERF_FIXTURE_HASH": fixture_hash(), "PERF_COMMIT": commit})
+                node, node_env = self.check_command(worktree, only, commit, out)
+                subprocess.run(node, check=True, cwd=self.repo / "web", env=node_env)
             except (PerfRunError, subprocess.CalledProcessError):
                 self._print_server_logs()
                 raise

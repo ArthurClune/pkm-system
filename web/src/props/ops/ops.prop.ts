@@ -16,6 +16,9 @@ import { PATH, SEED } from "../sync/env";
 import { connectServer, type ServerControl } from "../sync/serverControl";
 import { type Example, exampleArb, OPS_PAGES } from "./arbitraries";
 import { newTally, runExample, showTally } from "./example";
+import { captureFaultWarnings } from "../warningsCapture";
+
+captureFaultWarnings("ops");
 
 /** Examples per gate run, sized so this file takes about 60 seconds inside
  * `proptest/check.sh web`: clean runs measured about 37 examples a second

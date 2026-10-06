@@ -1,10 +1,11 @@
 ---
 # pkm-mk4s
 title: 'Props suites: capture and summarise fault-injection warnings'
-status: todo
+status: in-progress
 type: task
+priority: normal
 created_at: 2026-10-06T09:01:28Z
-updated_at: 2026-10-06T09:01:28Z
+updated_at: 2026-10-06T09:52:44Z
 ---
 
 The property suites (`proptest/check.sh web`, `web/src/props/`) print warnings from the harness's deliberate fault injection: product recovery logs such as `applyChanges: stale title holder, rebootstrapping StaleTitleHolderError`, the window FK-failure rebootstrap, and the SQLite engine's own `sqlite3_step() rc=… SQL = ROLLBACK TO sp` lines (`rc=1555` etc.). They scroll past by the hundred, so a new, unexpected warning (a recovery path firing where it shouldn't) is invisible.

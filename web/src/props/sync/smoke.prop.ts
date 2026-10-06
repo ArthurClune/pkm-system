@@ -2,6 +2,9 @@
 import fc from "fast-check";
 import { expect, test } from "vitest";
 import { BASE_URL, PASSWORD, SEED } from "./env";
+import { captureFaultWarnings } from "../warningsCapture";
+
+captureFaultWarnings("sync smoke");
 
 async function login(): Promise<string> {
   const res = await fetch(`${BASE_URL}/api/login`, {

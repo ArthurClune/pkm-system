@@ -20,6 +20,9 @@ import { SEED } from "../env";
 import { PAGE_TITLE, sequenceArb } from "./arbitraries";
 import { sequenceProblems } from "./checks";
 import { REAL, runSequence, type Seam } from "./run";
+import { captureFaultWarnings } from "../warningsCapture";
+
+captureFaultWarnings("outline teeth");
 
 const NUM_RUNS = 3000;
 const TIME_LIMIT_MS = 15_000;

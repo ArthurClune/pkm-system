@@ -17,7 +17,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from proptest.sides import available, sides_for
+from proptest.sides import available, resolve_file_filter, sides_for
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -124,6 +124,11 @@ def _run_web(repo: Path, seed: int | None, path: str | None = None,
                 server.wait()
 
 
+def _props_suites(repo: Path) -> list[str]:
+    root = repo / "web" / "src" / "props"
+    return sorted(p.relative_to(root).as_posix() for p in root.rglob("*.prop.ts"))
+
+
 _RUNNERS = {"server": _run_server, "web": _run_web}
 
 
@@ -136,13 +141,21 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--replay-path", default=None,
                     help="web only: fast-check command replayPath (with --seed and --path)")
     ap.add_argument("--file", default=None,
-                    help="web only: a vitest file filter, to run one suite")
+                    help="web only: a suite directory or file under web/src/props, e.g. ops")
     a = ap.parse_args(argv)
     if a.file is not None and a.side != "web":
         print("--file is web only: name the side, as in `proptest/check.sh web --file ...`",
               file=sys.stderr)
         return 2
     repo = repo_root()
+    if a.file is not None:
+        suites = _props_suites(repo)
+        resolved = resolve_file_filter(a.file, suites)
+        if resolved is None:
+            print(f"--file {a.file!r} names no suite under web/src/props. Available: "
+                  + ", ".join(suites), file=sys.stderr)
+            return 2
+        a.file = resolved
     if a.side == "auto":
         sides = sides_for(changed_paths(repo))
         if not sides:

@@ -1,5 +1,7 @@
+import pytest
+
 from proptest.run import web_command, web_env
-from proptest.sides import available, sides_for
+from proptest.sides import available, resolve_file_filter, sides_for
 
 
 def test_server_src_picks_both_sides():
@@ -62,3 +64,50 @@ def test_file_is_web_only(capsys):
     from proptest.run import main
     assert main(["server", "--file", "x.prop.ts"]) == 2
     assert "--file is web only" in capsys.readouterr().err
+
+
+_SUITES = ["ops/ops.prop.ts", "ops/teeth.prop.ts", "sync/sync.prop.ts"]
+
+
+def test_file_filter_directory_gets_a_trailing_slash():
+    assert resolve_file_filter("ops", _SUITES) == "src/props/ops/"
+    assert resolve_file_filter("ops/", _SUITES) == "src/props/ops/"
+
+
+def test_file_filter_file_resolves_to_its_path():
+    assert resolve_file_filter("sync/sync.prop.ts", _SUITES) == "src/props/sync/sync.prop.ts"
+
+
+def test_file_filter_accepts_a_web_relative_path():
+    assert resolve_file_filter("src/props/ops/ops.prop.ts", _SUITES) == "src/props/ops/ops.prop.ts"
+    assert resolve_file_filter("src/props/ops", _SUITES) == "src/props/ops/"
+
+
+def test_file_filter_unknown_name_resolves_to_nothing():
+    assert resolve_file_filter("op", _SUITES) is None
+    assert resolve_file_filter("props", _SUITES) is None
+    assert resolve_file_filter("", _SUITES) is None
+
+
+def test_unknown_file_lists_suites_and_does_not_run(capsys, monkeypatch):
+    import proptest.run as run
+    monkeypatch.setattr(run, "_props_suites", lambda repo: _SUITES)
+    monkeypatch.setattr(run, "_RUNNERS", {"web": lambda *a: pytest.fail("ran")})
+    assert run.main(["web", "--file", "nope"]) == 2
+    err = capsys.readouterr().err
+    assert "nope" in err and "ops/ops.prop.ts" in err and "sync/sync.prop.ts" in err
+
+
+def test_resolved_file_reaches_the_runner(monkeypatch):
+    import proptest.run as run
+    seen = []
+    monkeypatch.setattr(run, "_props_suites", lambda repo: _SUITES)
+    monkeypatch.setattr(run, "_RUNNERS", {"web": lambda *a: seen.append(a[-1]) or 0})
+    assert run.main(["web", "--file", "ops"]) == 0
+    assert seen == ["src/props/ops/"]
+
+
+def test_props_suites_lists_the_real_tree():
+    import proptest.run as run
+    suites = run._props_suites(run.repo_root())
+    assert "ops/ops.prop.ts" in suites and "sync/sync.prop.ts" in suites

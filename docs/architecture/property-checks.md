@@ -35,8 +35,11 @@ as `perf/check.sh`:
 | `web/…`, except `web/e2e/` and `*.md` | web |
 | `server/src/…`, `server/tooling/proptest/sync_server.py` | web as well: the web suite drives the real server's sync routes |
 
-`--file F` (web only) is a vitest file filter that runs one suite, for example
-`--file outline/outline.prop.ts`. `--seed N` reproduces a specific run (`--hypothesis-seed=N` on the server
+`--file F` (web only) runs one suite: F is a directory or a `*.prop.ts` file
+under `web/src/props`, for example `--file ops` or `--file outline/outline.prop.ts`.
+`resolve_file_filter` turns it into a vitest filter (a directory gets a trailing
+slash, so `ops` cannot match every path under `props`) and exits 2, listing the
+suites, when F names none. `--seed N` reproduces a specific run (`--hypothesis-seed=N` on the server
 side, fast-check's seed on the web side); without it, each run explores a new
 random seed. `--path`, `--replay-path` and `--file` apply to the web side only
 (see [Reading a web failure](#reading-a-web-failure)).

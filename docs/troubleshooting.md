@@ -197,6 +197,7 @@ Owner: [performance-checks.md](architecture/performance-checks.md)
 
 | Symptom | Cause | Where | Ref |
 |---|---|---|---|
+| A check run beside other test suites reports a timing `unstable`, or passes with a timing "improvement" (K's `handler_ms` 2–7× lower) after which a quiet run fails as `stale-baseline` | Load moves timings both ways: K's paced handler runs faster when the cores stay clocked up. A check now waits for a quiet machine and refuses a busy one (`MachineBusy`, exit 2), and never writes a timing gain to the baseline (`faster`) | [performance-checks.md § Machine load](architecture/performance-checks.md#machine-load) | pkm-c1hj |
 | A frontend check fails with `port 8977 is in use` while no other perf check is running | An orphaned fixture server. It runs in its own process group, so a hard-killed `run.py` leaves it holding the port. Find it with `lsof -iTCP:8977` and stop it; never move the check to 8974 or 8975 | [performance-checks.md § Shared state](architecture/performance-checks.md#shared-state) | pkm-uxop |
 
 ## Deployment and host

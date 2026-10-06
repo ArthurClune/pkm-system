@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from perfcheck import run, run_core
-from perfcheck.compare import Comparison, Finding
+from perfcheck.compare import TIMING_FACTOR, Comparison, Finding
 
 
 def test_sides_for():
@@ -66,6 +66,10 @@ def test_next_steps_one_line_per_verdict_present():
     assert lost.startswith("lost:") and "perf/check.sh backend --bootstrap" in lost
     assert reclassified.startswith("reclassified:") and "--bootstrap" in reclassified
     assert run_core.next_steps("backend", ["improvement", "new"]) == []
+    faster = run_core.next_steps("backend", ["faster"])[0]
+    assert faster.startswith("faster:") and "perf/check.sh backend --bootstrap" in faster
+    assert "{" not in faster and f"{TIMING_FACTOR:g}" in faster
+    assert run_core.next_steps("backend", ["faster", "regression"])[0].startswith("regression:")
 
 
 def test_stale_entries_keep_recent_and_named():
@@ -95,6 +99,8 @@ def test_exit_code():
     assert run_core.exit_code(reg, {("s", "n"): "unstable"}) == 1
     lost = Comparison((Finding("s", "*", "lost", "present", "missing"),), {})
     assert run_core.exit_code(lost, {}) == 1
+    faster = Comparison((Finding("s", "t", "faster", "10.0", "1.0"),), {})
+    assert run_core.exit_code(faster, {}) == 0
 
 
 def test_sides_include_untracked(tmp_path, monkeypatch):
@@ -242,6 +248,13 @@ class _FakeRunner:
         return self.head_docs.pop(0)
 
 
+def _load(monkeypatch, loads, cpus=10):
+    """Patch the load sampler to hand out `loads` in order, then repeat the last."""
+    queue = list(loads)
+    monkeypatch.setattr(run, "_load1", lambda: queue.pop(0) if len(queue) > 1 else queue[0])
+    monkeypatch.setattr(run, "_cpus", lambda: cpus)
+
+
 @pytest.fixture
 def check(tmp_path, monkeypatch):
     """Run do_check against a committed-looking baseline with canned results;
@@ -252,11 +265,12 @@ def check(tmp_path, monkeypatch):
     mb_wt = tmp_path / "mb"
     monkeypatch.setattr(run, "head_commit", lambda repo: "head")
     monkeypatch.setattr(run, "merge_base_worktree", lambda repo, side: (mb_wt, "base"))
+    _load(monkeypatch, [0.5])
 
-    def go(head_docs, mb_docs=()):
+    def go(head_docs, mb_docs=(), **kwargs):
         runner = _FakeRunner(head_docs, mb_docs, mb_wt)
         monkeypatch.setattr(run, "_runner", lambda repo, side: runner)
-        return run.do_check(tmp_path, "backend"), runner, path
+        return run.do_check(tmp_path, "backend", **kwargs), runner, path
     return go
 
 
@@ -321,6 +335,22 @@ def test_check_records_improvements_when_passing(check, capsys):
     assert "next:" not in out
 
 
+def test_check_passes_a_faster_timing_without_touching_the_baseline(check, tmp_path, capsys):
+    path = tmp_path / "perf" / "baseline-backend.json"
+    base = {"commit": "c", "fixture_hash": "h", "env": {"py": "3"},
+            "scenarios": {"a/1": {"ms": {"class": "timing", "value": 10.0}}}}
+    path.write_text(json.dumps(base))
+    before = path.read_bytes()
+    rc, runner, _ = check([{**base, "scenarios": {"a/1": {"ms": {"class": "timing", "value": 1.0}}}}])
+    assert rc == 0
+    assert runner.head_only == [None]
+    assert path.read_bytes() == before
+    out = capsys.readouterr().out
+    assert "| a/1 | ms | 10.0 | 1.0 | faster |" in out
+    assert "- faster: " in out and "--bootstrap" in out
+    assert "baseline updated" not in out
+
+
 @pytest.mark.parametrize("runs", ["0", "1"])
 def test_runs_below_two_rejected(runs, monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["perf/check.sh", "backend", "--bootstrap", "--runs", runs])
@@ -382,3 +412,157 @@ def test_prune_worktrees_removes_only_long_unused(tmp_path, monkeypatch):
     monkeypatch.setattr(run, "_git", lambda repo, *a: calls.append(a) or "")
     run.prune_worktrees(tmp_path, root, keep=root / "current")
     assert calls == [("worktree", "remove", "--force", str(root / "old")), ("worktree", "prune")]
+
+
+def test_busy_reason_boundary():
+    assert run_core.busy_reason(5.0, 10) is None
+    assert run_core.busy_reason(0.0, 10) is None
+    msg = run_core.busy_reason(7.4, 10)
+    assert msg == "1-min load 7.4 on 10 cores (limit 5.0)"
+
+
+class _Clock:
+    """Fake time: sleeping advances the clock, so waits are instant."""
+    def __init__(self):
+        self.now, self.slept = 0.0, []
+
+    def sleep(self, s):
+        self.slept.append(s)
+        self.now += s
+
+    def __call__(self):
+        return self.now
+
+
+def test_wait_until_quiet_returns_once_load_decays(monkeypatch, capsys):
+    _load(monkeypatch, [9.0, 8.0, 1.0])
+    clock = _Clock()
+    assert run.wait_until_quiet("backend", sleep=clock.sleep, clock=clock) == 1.0
+    assert clock.slept == [run.LOAD_POLL_S, run.LOAD_POLL_S]
+    err = capsys.readouterr().err
+    assert err.count("waiting for a quiet machine") == 1  # said once, not per poll
+    assert "## perf: backend waiting for a quiet machine" in err
+
+
+def test_wait_until_quiet_gives_up_after_the_wait(monkeypatch):
+    _load(monkeypatch, [9.0])
+    clock = _Clock()
+    with pytest.raises(run.MachineBusy, match=r"machine busy: 1-min load 9\.0.*--allow-busy"):
+        run.wait_until_quiet("backend", sleep=clock.sleep, clock=clock)
+    assert clock.now >= run.LOAD_WAIT_S
+
+
+def test_wait_until_quiet_does_not_sleep_on_a_quiet_machine(monkeypatch):
+    _load(monkeypatch, [1.0])
+    clock = _Clock()
+    assert run.wait_until_quiet("backend", sleep=clock.sleep, clock=clock) == 1.0
+    assert clock.slept == []
+
+
+def test_ensure_still_quiet_samples_once_without_waiting(monkeypatch):
+    _load(monkeypatch, [1.0])
+    assert run.ensure_still_quiet("backend") == 1.0
+    _load(monkeypatch, [9.0])
+    with pytest.raises(run.MachineBusy, match="became busy during the run.*nothing was written"):
+        run.ensure_still_quiet("backend")
+
+
+def test_machine_busy_is_a_run_failure_with_exit_2(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["perf/check.sh", "backend"])
+    monkeypatch.setattr(run, "repo_root", lambda: Path("/repo"))
+    monkeypatch.setattr(run, "do_check", lambda *a, **k: (_ for _ in ()).throw(
+        run.MachineBusy("machine busy: x")))
+    assert run.main() == 2
+    assert "machine busy: x" in capsys.readouterr().err
+
+
+def test_main_passes_allow_busy_through(monkeypatch):
+    seen = []
+    monkeypatch.setattr("sys.argv", ["perf/check.sh", "backend", "--allow-busy"])
+    monkeypatch.setattr(run, "repo_root", lambda: Path("/repo"))
+    monkeypatch.setattr(run, "do_check", lambda repo, side, allow_busy: seen.append(allow_busy) or 0)
+    assert run.main() == 0
+    assert seen == [True]
+
+
+def test_check_on_a_busy_machine_refuses_before_measuring(check, monkeypatch, tmp_path):
+    _load(monkeypatch, [9.0])
+    monkeypatch.setattr(run, "LOAD_WAIT_S", 0)
+    path = tmp_path / "perf" / "baseline-backend.json"
+    before = path.read_bytes()
+    runner = _FakeRunner([], [], tmp_path / "mb")
+    monkeypatch.setattr(run, "_runner", lambda repo, side: runner)
+    with pytest.raises(run.MachineBusy):
+        run.do_check(tmp_path, "backend")
+    assert runner.head_only == []
+    assert path.read_bytes() == before
+
+
+def test_check_that_turns_busy_while_measuring_writes_nothing(check, tmp_path, monkeypatch, capsys):
+    # quiet at the start, busy by the end: an exact improvement would be
+    # recorded, but timings taken under load can't be trusted
+    _load(monkeypatch, [0.5, 9.0])
+    with pytest.raises(run.MachineBusy, match="became busy"):
+        check([_doc({"a/1": {"n": 10, "k": 8}, "b/2": {"n": 5}})])
+    assert "baseline updated" not in capsys.readouterr().out
+    path = tmp_path / "perf" / "baseline-backend.json"
+    assert json.loads(path.read_text())["scenarios"]["a/1"]["k"]["value"] == 10
+
+
+def test_allow_busy_measures_anyway_and_says_so(check, monkeypatch, capsys):
+    _load(monkeypatch, [9.0])
+    monkeypatch.setattr(run, "LOAD_WAIT_S", 0)
+    rc, runner, _ = check([_doc({"a/1": {"n": 10, "k": 10}, "b/2": {"n": 5}})], allow_busy=True)
+    assert rc == 0
+    assert runner.head_only == [None]
+    out = capsys.readouterr().out
+    assert "load check skipped (--allow-busy)" in out
+    assert "load: 9.0 → 9.0 (1-min) on 10 cores" in out
+
+
+def test_check_report_carries_the_load(check, capsys):
+    rc, _, _ = check([_doc({"a/1": {"n": 10, "k": 10}, "b/2": {"n": 5}})])
+    assert rc == 0
+    assert "load: 0.5 → 0.5 (1-min) on 10 cores" in capsys.readouterr().out
+
+
+def test_bootstrap_on_a_busy_machine_writes_no_baseline(tmp_path, monkeypatch):
+    (tmp_path / "perf").mkdir()
+    monkeypatch.setattr(run, "head_commit", lambda repo: "head")
+    runner = _FakeRunner([_doc({"a/1": {"n": 1}})] * 2, [], tmp_path / "mb")
+    monkeypatch.setattr(run, "_runner", lambda repo, side: runner)
+    # quiet at the start, busy once the runs are done
+    _load(monkeypatch, [0.5, 9.0])
+    with pytest.raises(run.MachineBusy, match="became busy"):
+        run.do_bootstrap(tmp_path, "backend", 2, at_merge_base=False)
+    assert len(runner.head_only) == 2
+    assert not (tmp_path / "perf" / "baseline-backend.json").exists()
+
+    # busy from the start: refuses before any run
+    _load(monkeypatch, [9.0])
+    monkeypatch.setattr(run, "LOAD_WAIT_S", 0)
+    runner.head_only.clear()
+    with pytest.raises(run.MachineBusy):
+        run.do_bootstrap(tmp_path, "backend", 2, at_merge_base=False)
+    assert runner.head_only == []
+    assert not (tmp_path / "perf" / "baseline-backend.json").exists()
+
+
+def test_bootstrap_on_a_quiet_machine_writes_the_baseline(tmp_path, monkeypatch):
+    (tmp_path / "perf").mkdir()
+    monkeypatch.setattr(run, "head_commit", lambda repo: "head")
+    runner = _FakeRunner([_doc({"a/1": {"n": 1}})] * 2, [], tmp_path / "mb")
+    monkeypatch.setattr(run, "_runner", lambda repo, side: runner)
+    _load(monkeypatch, [0.5])
+    assert run.do_bootstrap(tmp_path, "backend", 2, at_merge_base=False) == 0
+    assert (tmp_path / "perf" / "baseline-backend.json").exists()
+
+
+def test_bootstrap_allow_busy_skips_the_gate(tmp_path, monkeypatch, capsys):
+    (tmp_path / "perf").mkdir()
+    monkeypatch.setattr(run, "head_commit", lambda repo: "head")
+    runner = _FakeRunner([_doc({"a/1": {"n": 1}})] * 2, [], tmp_path / "mb")
+    monkeypatch.setattr(run, "_runner", lambda repo, side: runner)
+    _load(monkeypatch, [9.0])
+    assert run.do_bootstrap(tmp_path, "backend", 2, at_merge_base=False, allow_busy=True) == 0
+    assert "load check skipped (--allow-busy)" in capsys.readouterr().out

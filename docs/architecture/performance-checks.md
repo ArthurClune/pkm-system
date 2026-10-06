@@ -61,11 +61,12 @@ Compare never infers a class, so a reclassification is a reviewed code change.
 |---|---|---|---|
 | `exact` | identical on every run of a commit | the value rises | the new value |
 | `band` | scheduler-dependent but bounded; stored as `min`..`max` | the value exceeds `max` | a lower `min`; `max` stays |
-| `timing` | wall time in ms | the value passes `TIMING_FACTOR` times the baseline | the new value, only once it beats the baseline by the same factor |
+| `timing` | wall time in ms | the value passes `TIMING_FACTOR` times the baseline | never from a check; a gain past the same factor is reported as `faster` |
 
-A band only widens downward, and a timing ratchets only on a large gain.
-Either rule stops one lucky run from narrowing the baseline until an ordinary
-run is flagged. Only `--bootstrap` lowers a band's `max`.
+A band only widens downward, and a check never lowers a timing. Both rules
+stop one lucky run from narrowing the baseline until an ordinary run is
+flagged. Only `--bootstrap` lowers a band's `max` or a timing, since machine
+load moves timings in both directions ([Machine load](#machine-load)).
 
 **A baseline is rewritten only by a passing check.** Improvements and newly
 recorded metrics wait in `Comparison.new_baseline` until the whole side
@@ -80,6 +81,7 @@ when there is one, otherwise the kind.
 | Verdict | Condition | Fails the check | Then |
 |---|---|---|---|
 | `improvement` | better than the baseline, by the class's rule | no | commit the rewritten baseline |
+| `faster` | a timing below its baseline divided by `TIMING_FACTOR` | no | if the gain is real, `--bootstrap` on a quiet machine |
 | `new` | scenario or metric absent from the baseline | no | commit the rewritten baseline |
 | `lost` | baseline scenario or metric missing from the result | yes, without confirmation | `--bootstrap` |
 | `reclassified` | metric's class differs from the baseline's | yes, without confirmation | `--bootstrap` |
@@ -93,9 +95,29 @@ difference and suggests `--rebaseline`.
 
 | Exit | When |
 |---|---|
-| 0 | every side passes; improvements and new metrics included |
+| 0 | every side passes; improvements, `faster` timings and new metrics included |
 | 1 | any failing verdict, a missing baseline, an incomparable result, or an unstable `--bootstrap` |
-| 2 | a run failed: `PerfRunError`, `CacheLockTimeout`, or a failed subprocess (a scenario error, an `UnstableCountError`) |
+| 2 | a run failed or was refused: `PerfRunError`, `MachineBusy`, `CacheLockTimeout`, or a failed subprocess (a scenario error, an `UnstableCountError`) |
+
+## Machine load
+
+Load moves timings in both directions. A busy machine slows most scenarios,
+but K's paced `dragover` handler ran 2.5–7× faster under full load, because
+the cores stay clocked up between events. A one-run timing gain is therefore
+no more trustworthy than a one-run loss.
+
+| Where | Rule |
+|---|---|
+| `compare._judge` | a timing that beats its baseline by `TIMING_FACTOR` is `faster`: reported, never written to the baseline |
+| `run.wait_until_quiet`, before a side measures | waits up to `LOAD_WAIT_S` for the 1-min load average to fall to `BUSY_LOAD_PER_CPU` per core, then refuses with `MachineBusy` |
+| `run.ensure_still_quiet`, after a side measures | refuses with `MachineBusy` if the load rose during the run, before any baseline is written |
+
+The wait exists because the 1-min average lags. It takes about two minutes to
+decay after another suite stops, so a check started just after one waits
+rather than refusing at once. Both gates apply to `--bootstrap` and
+`--rebaseline` too, and `--allow-busy` skips them. Every check report ends
+with the load at its start and end, so an `unstable` timing can be read
+against it.
 
 ## Confirmation
 
@@ -155,7 +177,7 @@ of the working tree. `--rebaseline` does the same in the merge-base worktree.
 | `timing` | the median | never |
 
 A metric missing from any run is also unstable. Any unstable metric means no
-baseline is written.
+baseline is written, and so does a busy machine ([Machine load](#machine-load)).
 
 ## Backend check
 

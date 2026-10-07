@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { block, ord, title, uid } from "../test-helpers";
 import type { BlockUid } from "../api/brands";
-import { isUploadableType, partitionUploadable, planFileDropBlocks,
+import { fileDropNotice, isUploadableType, partitionUploadable, planFileDropBlocks,
          uploadableDrag } from "./fileDrop";
 
 const file = (name: string, type: string) => new File(["x"], name, { type });
@@ -91,5 +91,25 @@ describe("planFileDropBlocks", () => {
     const plan = planFileDropBlocks(tree(), P,
       { parent_uid: null, order_idx: ord(0), page_title: P }, ["t"], [uid("n1")]);
     expect(plan.firstUid satisfies BlockUid | null).toBe("n1");
+  });
+});
+
+describe("fileDropNotice", () => {
+  it("is null when nothing went wrong", () => {
+    expect(fileDropNotice([], [])).toBeNull();
+  });
+  it("words failures like /upload does", () => {
+    expect(fileDropNotice(["a.png: boom"], [])).toBe("Upload failed — a.png: boom");
+    expect(fileDropNotice(["a.png: x", "b.png: y"], []))
+      .toBe("2 uploads failed — a.png: x; b.png: y");
+  });
+  it("names the files that were not uploadable", () => {
+    expect(fileDropNotice([], ["n.txt", "z.zip"]))
+      .toContain("n.txt, z.zip");
+  });
+  it("reports both together", () => {
+    const text = fileDropNotice(["a.png: x"], ["n.txt"])!;
+    expect(text).toContain("Upload failed — a.png: x");
+    expect(text).toContain("n.txt");
   });
 });

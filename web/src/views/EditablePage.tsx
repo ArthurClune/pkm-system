@@ -45,7 +45,8 @@ export function EditablePage({ title, initial, composer = false,
   // `process` (dep `getBlocks`) on every render, making that memoization
   // inert even though the ref read below is always current regardless.
   const getBlocks = useCallback(() => blocksRef.current, []);
-  const { indicator, zoneProps } = useDropZone(title, getBlocks, containerRef);
+  const { indicator, zoneProps } = useDropZone(
+    title, getBlocks, containerRef, outline.onDropFiles);
 
   useEffect(() => {
     if (!ownsEditor) return undefined;

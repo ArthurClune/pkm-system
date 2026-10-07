@@ -60,3 +60,19 @@ export function planFileDropBlocks(blocks: BlockNode[], pageTitle: CanonicalTitl
     firstUid: uids[0] ?? null,
   };
 }
+
+/** The upload banner text for a drop: failed uploads (as `name: reason`) in
+ * the wording /upload uses, plus the files that were never uploaded because
+ * they are not images or PDFs. Null when nothing went wrong. */
+export function fileDropNotice(failures: string[], rejected: string[]): string | null {
+  const parts: string[] = [];
+  if (failures.length > 0) {
+    parts.push(failures.length === 1
+      ? `Upload failed — ${failures[0]}`
+      : `${failures.length} uploads failed — ${failures.join("; ")}`);
+  }
+  if (rejected.length > 0) {
+    parts.push(`Not uploaded, only images and PDFs can be dropped — ${rejected.join(", ")}`);
+  }
+  return parts.length > 0 ? parts.join(". ") : null;
+}

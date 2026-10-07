@@ -10,7 +10,7 @@ Everything lives under `$PKM_HOME` (default `~/.config/pkm`):
 
 ```
 ~/.config/pkm/
-  app/        git checkout of this repo (cloned by install.sh)
+  app/        git clone of the local dev checkout (made by install.sh)
   data/       config.json, pkm.sqlite3, assets/ — the live database
   backups/    nightly sqlite snapshots + markdown/asset export
   logs/       server.log, access.log (+ 30 dated copies of each),
@@ -31,9 +31,10 @@ existing `config.json` or database.
 
 ## First install
 
-1. Run `deploy/install.sh` from any checkout of this repo. It clones a fresh
-   copy into `$PKM_HOME/app` if none exists, renders the three launchd plists
-   from the templates in this directory, loads them with
+1. Run `deploy/install.sh` from any checkout of this repo or its worktrees.
+   If `$PKM_HOME/app` doesn't exist, it clones the main checkout there, so the
+   clone's `origin` is that local path. It then renders the three launchd
+   plists from the templates in this directory, loads them with
    `launchctl bootstrap`, and configures Tailscale Serve to forward HTTPS on
    the tailnet to the local server port.
 2. Build the web app (required before first startup):
@@ -61,9 +62,22 @@ existing `config.json` or database.
 
 Run `$PKM_HOME/app/deploy/update.sh`. It refuses to run from any other
 checkout (set `PKM_UPDATE_FORCE=1` to override), because it would rebuild
-that checkout while restarting the prod service. It does a fast-forward
-`git pull`, `uv sync`s the server, rebuilds the web app, and kickstarts the
-server service. It leaves the backup jobs alone.
+that checkout while restarting the prod service. It leaves the backup jobs
+alone.
+
+| Step | What it does |
+|---|---|
+| Fetch | `git fetch <source> main`, then `git merge --ff-only FETCH_HEAD` |
+| Server | `uv sync` |
+| Web | `pnpm install --frozen-lockfile && pnpm build` |
+| Restart | `launchctl kickstart -k` the server service |
+
+The source is `PKM_SRC` if set, otherwise the app checkout's `origin`. It must
+be a local directory: a deploy ships committed `main` of the dev checkout,
+with no push to GitHub. If `origin` is a URL, `update.sh` refuses to run.
+Repoint it with `git -C "$PKM_HOME/app" remote set-url origin <dev checkout>`.
+If the app checkout has diverged from `main`, the fast-forward fails and
+nothing is rebuilt.
 
 `update.sh` does not re-render the launchd plists. When an update changes a
 `*.plist.template`, run `$PKM_HOME/app/deploy/install.sh` after it, which

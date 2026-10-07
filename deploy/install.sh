@@ -14,7 +14,10 @@ PORT=8974
 
 mkdir -p "$PKM_HOME/data" "$PKM_HOME/backups" "$PKM_HOME/logs"
 if [ ! -e "$PKM_HOME/app" ]; then
-  git clone "$(git -C "$REPO" remote get-url origin)" "$PKM_HOME/app"
+  # Clone the main checkout, not this one: a worktree is deleted after use,
+  # and update.sh deploys from whatever path the clone records as origin.
+  SRC="$(dirname "$(git -C "$REPO" rev-parse --path-format=absolute --git-common-dir)")"
+  git clone "$SRC" "$PKM_HOME/app"
 fi
 
 render() { # render <template> <dest>

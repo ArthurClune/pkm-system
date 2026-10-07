@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 import type { Sha256Hex } from "../api/brands";
 import { jsonResponse } from "../test-helpers";
-import { assetMarkdown, uploadAsset } from "./assets";
+import { assetMarkdown, resetUploadClock, uploadAsset, uploadClock, uploadedSince } from "./assets";
 
 const INFO = { sha256: "ab".repeat(32) as Sha256Hex, filename: "cat.png",
                mime: "image/png", size: 3, url: `/assets/${"ab".repeat(32)}/cat.png`,
@@ -24,4 +24,19 @@ test("assetMarkdown: image embed for images, plain link otherwise", () => {
   expect(assetMarkdown(INFO)).toBe(`![cat.png](${INFO.url})`);
   expect(assetMarkdown({ ...INFO, filename: "doc.pdf", mime: "application/pdf" }))
     .toBe(`[doc.pdf](${INFO.url})`);
+});
+
+test("uploadAsset stamps the upload clock, fresh or dedup", async () => {
+  resetUploadClock();
+  vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(INFO)));
+  const file = new File(["abc"], "cat.png", { type: "image/png" });
+  const before = uploadClock();
+  expect(uploadedSince(INFO.sha256, before)).toBe(false);
+  await uploadAsset(file);
+  expect(uploadedSince(INFO.sha256, before)).toBe(true);
+  const mid = uploadClock();
+  vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ...INFO, existing: true })));
+  await uploadAsset(file);
+  expect(uploadedSince(INFO.sha256, mid)).toBe(true);
+  resetUploadClock();
 });

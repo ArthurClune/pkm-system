@@ -779,7 +779,7 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | GET | `/api/assets/describe-status` | Whether image descriptions are enabled, and why not if disabled |
 | POST | `/api/assets/scan?force` | Enqueue undescribed (or, with `force`, previously-failed) eligible images |
 | GET | `/api/assets/search?q&limit&offset&type&from_ms&to_ms&linked` | `LIKE` search over asset description + filename, filtered and paginated, with a `total` (backs the `/files` browser) |
-| DELETE | `/api/assets/{sha256}` | Delete an asset, stripping its reference tokens from block text |
+| DELETE | `/api/assets/{sha256}` | Delete an asset, stripping its reference tokens from block text; `?if_unreferenced=true` instead refuses with 409 while any block references it, and strips nothing |
 | POST | `/api/assets/export.zip` | Zip the selected assets (form-encoded `sha256s`, download) |
 | **Local documents** (`routes_local.py`) | | |
 | GET | `/api/local/check` | Every `/api/local/` href in block text, classified `ok` / `missing` / `evicted` / `invalid` against disk; `enabled: false` when `local_docs_root` is unset |

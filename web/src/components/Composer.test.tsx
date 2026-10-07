@@ -19,7 +19,7 @@ test("send delivers trimmed text and clears the box", () => {
   const ta = screen.getByRole("textbox", { name: "Add to this page" });
   fireEvent.change(ta, { target: { value: "  hello [[World]]  " } });
   fireEvent.click(screen.getByRole("button", { name: "Add" }));
-  expect(onSend).toHaveBeenCalledWith("hello [[World]]");
+  expect(onSend).toHaveBeenCalledWith("hello [[World]]", []);
   expect((ta as HTMLTextAreaElement).value).toBe("");
 });
 
@@ -207,4 +207,55 @@ test("Tab applies autocomplete and Escape cancels it", async () => {
   expect(screen.queryByRole("listbox")).toBeNull();
   expect(ta).toHaveValue("See [[Al");
   expect(onSend).not.toHaveBeenCalled();
+});
+
+function pickPhoto(name: string, existing: boolean) {
+  const sha = name.charCodeAt(0).toString(16).padStart(2, "0").repeat(32);
+  stubFetch([["/api/assets", { sha256: sha, filename: name, mime: "image/jpeg",
+                               size: 3, url: `/assets/${sha}/${name}`, existing }]]);
+  fireEvent.change(screen.getByLabelText("Add photo"), {
+    target: { files: [new File(["jpg"], name, { type: "image/jpeg" })] },
+  });
+  return sha;
+}
+const draftBox = () => screen.getByRole("textbox", { name: "Add to this page" }) as
+  HTMLTextAreaElement;
+
+test("sending a freshly uploaded photo passes its sha", async () => {
+  const onSend = vi.fn();
+  render(<Composer onSend={onSend} readOnly={false} />);
+  const sha = pickPhoto("cam.jpg", false);
+  await vi.waitFor(() => expect(draftBox().value).toContain("cam.jpg"));
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  expect(onSend).toHaveBeenCalledWith(`![cam.jpg](/assets/${sha}/cam.jpg)`, [sha]);
+});
+
+test("a photo whose markdown was deleted before sending is not passed", async () => {
+  const onSend = vi.fn();
+  render(<Composer onSend={onSend} readOnly={false} />);
+  pickPhoto("cam.jpg", false);
+  await vi.waitFor(() => expect(draftBox().value).toContain("cam.jpg"));
+  fireEvent.change(draftBox(), { target: { value: "just words" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  expect(onSend).toHaveBeenCalledWith("just words", []);
+});
+
+test("a dedup-hit photo is not passed", async () => {
+  const onSend = vi.fn();
+  render(<Composer onSend={onSend} readOnly={false} />);
+  const sha = pickPhoto("cam.jpg", true);
+  await vi.waitFor(() => expect(draftBox().value).toContain("cam.jpg"));
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  expect(onSend).toHaveBeenCalledWith(`![cam.jpg](/assets/${sha}/cam.jpg)`, []);
+});
+
+test("a sent photo's sha is not passed again with the next send", async () => {
+  const onSend = vi.fn();
+  render(<Composer onSend={onSend} readOnly={false} />);
+  pickPhoto("cam.jpg", false);
+  await vi.waitFor(() => expect(draftBox().value).toContain("cam.jpg"));
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  fireEvent.change(draftBox(), { target: { value: "next" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  expect(onSend).toHaveBeenLastCalledWith("next", []);
 });

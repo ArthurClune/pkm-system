@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
-import { makeSync, uid } from "../test-helpers";
+import { deliveredTicket, makeSync, uid } from "../test-helpers";
 import { historyIdle, recordHistory, resetHistory,
          setHistoryPageLoader } from "../outline/undoManager";
 import { UndoRedoKeys } from "./UndoRedoKeys";
@@ -18,6 +18,7 @@ const entry = () => ({
   ops: [{ op: "update_text" as const, uid: uid("a"), text: "after" }],
   inverse: [{ op: "update_text" as const, uid: uid("a"), text: "before" }],
   anchors: { ops: [null], inverse: [null] },
+  freshAssets: [],
   focusBefore: null,
   focusAfter: null,
 });
@@ -35,7 +36,7 @@ function setup(sync = makeSync()) {
 
 it("Cmd-Z on the window dispatches undo", async () => {
   const sync = setup();
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
   fireEvent.keyDown(window, { key: "z", metaKey: true });
   await historyIdle();
   expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before" }]]);
@@ -43,7 +44,7 @@ it("Cmd-Z on the window dispatches undo", async () => {
 
 it("Shift-Cmd-Z dispatches redo", async () => {
   const sync = setup();
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
   fireEvent.keyDown(window, { key: "z", metaKey: true });
   fireEvent.keyDown(window, { key: "z", metaKey: true, shiftKey: true });
   await historyIdle();
@@ -53,7 +54,7 @@ it("Shift-Cmd-Z dispatches redo", async () => {
 
 it("ignores keystrokes from editable elements (native undo wins there)", () => {
   const sync = setup();
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
   const input = document.querySelector("input")!;
   input.focus();
   fireEvent.keyDown(input, { key: "z", metaKey: true });
@@ -62,7 +63,7 @@ it("ignores keystrokes from editable elements (native undo wins there)", () => {
 
 it("does nothing when editing is read-only", () => {
   const sync = setup(makeSync("connecting"));
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
   fireEvent.keyDown(window, { key: "z", metaKey: true });
   expect(sync.sent).toEqual([]);
 });

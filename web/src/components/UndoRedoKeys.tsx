@@ -5,10 +5,11 @@
 // keyboardPolicy themselves (and preventDefault, so defaultPrevented guards
 // the double-dispatch), while search/title inputs keep native input undo.
 // Also registers router navigation so undoing an edit on an unmounted page
-// can bring the user to it.
+// can bring the user to it, and installs the pagehide release of undone
+// uploads.
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { performRedo, performUndo,
+import { installUnloadRelease, performRedo, performUndo,
          setHistoryNavigator } from "../outline/undoManager";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 
@@ -24,6 +25,7 @@ export function UndoRedoKeys() {
   const navigate = useNavigate();
 
   useEffect(() => setHistoryNavigator(navigate), [navigate]);
+  useEffect(() => installUnloadRelease(), []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

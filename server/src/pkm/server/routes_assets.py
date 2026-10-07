@@ -159,8 +159,37 @@ def search_assets(q: str = "", limit: int = 50, offset: int = 0,
     } for r, refs in hits]}
 
 
+def _delete_if_unreferenced(request: Request, sha: Sha256Hex,
+                            db: sqlite3.Connection, config: Config) -> dict:
+    try:
+        db.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError as exc:
+        if "locked" not in str(exc):
+            raise
+        raise HTTPException(status_code=503, headers={"Retry-After": "1"},
+                            detail="database busy, retry") from exc
+    row = db.execute("SELECT sha256 FROM assets WHERE sha256 = ?",
+                     (sha,)).fetchone()
+    if row is None:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="asset not found")
+    if referencing_blocks(db, sha):
+        db.rollback()
+        raise HTTPException(status_code=409, detail="asset is referenced")
+    db.execute("DELETE FROM assets WHERE sha256 = ?", (sha,))
+    db.commit()
+    path = config.assets_dir / sha[:2] / sha
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("could not remove asset file %s", path)
+    notify.nudge_threadpool(request, db)
+    return {"deleted": True, "refs_removed": 0}
+
+
 @router.delete("/api/assets/{sha256}")
 def delete_asset(request: Request, sha256: str,
+                 if_unreferenced: bool = False,
                  db: sqlite3.Connection = Depends(get_db),
                  config: Config = Depends(get_config)) -> dict:
     """Delete an asset: strip every reference token from block text
@@ -175,10 +204,18 @@ def delete_asset(request: Request, sha256: str,
     per-uid DELETE is required to keep the FTS delete trigger firing).
     `block_refs` needs no reindex either, for the same reason:
     `strip_asset_tokens` removes only asset-embed tokens, a syntax disjoint
-    from `((uid))`."""
+    from `((uid))`.
+
+    `if_unreferenced=true` changes the mode: nothing is stripped, and the
+    asset is deleted only while no block references it (409 otherwise).
+    The reference check and the delete share one write transaction, so a
+    block that starts referencing the asset cannot slip in between. Undo
+    history is its caller, releasing an upload once redo is gone."""
     if not SHA256_HEX_RE.fullmatch(sha256):
         raise HTTPException(status_code=404, detail="asset not found")
     sha = Sha256Hex(sha256)
+    if if_unreferenced:
+        return _delete_if_unreferenced(request, sha, db, config)
     row = db.execute("SELECT sha256 FROM assets WHERE sha256 = ?",
                      (sha,)).fetchone()
     if row is None:

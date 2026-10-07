@@ -2,6 +2,7 @@
 // Phone-only (CSS) fixed bottom composer: append a top-level block to the
 // current page with [[ autocomplete and camera/photo-library upload.
 import { useLayoutEffect, useRef, useState } from "react";
+import type { Sha256Hex } from "../api/brands";
 import { applyCompletion } from "../outline/autocomplete";
 import { useAutocomplete } from "../outline/useAutocomplete";
 import { autocompleteKeyAction } from "../outline/keyboardPolicy";
@@ -9,7 +10,7 @@ import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { AutocompletePopup, buildRows, useTitleOptions } from "./AutocompletePopup";
 
 export function Composer({ onSend, readOnly }: {
-  onSend: (text: string) => void;
+  onSend: (text: string, freshAssets?: readonly Sha256Hex[]) => void;
   readOnly: boolean;
 }) {
   const [draft, setDraft] = useState("");
@@ -24,10 +25,17 @@ export function Composer({ onSend, readOnly }: {
   const options = useTitleOptions(ac.ctx ? ac.ctx.query : null);
   const acRows = ac.ctx ? buildRows(options, ac.ctx.query) : [];
 
+  // Photos this draft freshly stored, so the block that keeps one can tell
+  // history to release it if the block's creation is undone and discarded.
+  const freshPhotos = useRef<{ sha: Sha256Hex; url: string }[]>([]);
+
   const send = () => {
     const text = draft.trim();
     if (text === "") return;
-    onSend(text);
+    // A photo whose markdown was deleted from the draft is not in the block.
+    const kept = freshPhotos.current.filter((p) => text.includes(p.url));
+    freshPhotos.current = [];
+    onSend(text, kept.map((p) => p.sha));
     setDraft("");
     ac.close();
   };
@@ -87,6 +95,9 @@ export function Composer({ onSend, readOnly }: {
     e.target.value = ""; // same photo can be picked twice
     if (!file) return;
     void uploadAsset(file).then((info) => {
+      if (!info.existing) {
+        freshPhotos.current.push({ sha: info.sha256, url: info.url });
+      }
       setDraft((d) => (d === "" ? "" : d + " ") + assetMarkdown(info));
     }).catch(() => undefined);
   };

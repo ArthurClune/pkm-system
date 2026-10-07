@@ -129,3 +129,46 @@ def test_delete_strips_link_with_spaces_and_parens_in_filename(
     r = client.delete(f"/api/assets/{a['sha256']}")
     assert r.json()["refs_removed"] == 1
     assert _block_text(seeded_config, "del006") == "before after"
+
+
+def test_if_unreferenced_deletes_an_orphan(client, seeded_config):
+    a = _upload(client)
+    path = _asset_path(seeded_config, a["sha256"])
+    r = client.delete(f"/api/assets/{a['sha256']}?if_unreferenced=true")
+    assert r.status_code == 200
+    assert r.json() == {"deleted": True, "refs_removed": 0}
+    assert not path.exists()
+    db = open_db(seeded_config.db_path)
+    row = db.execute("SELECT 1 FROM assets WHERE sha256 = ?",
+                     (a["sha256"],)).fetchone()
+    db.close()
+    assert row is None
+
+
+def test_if_unreferenced_refuses_a_referenced_asset(client, seeded_config):
+    a = _upload(client)
+    text = f"![pic.png]({a['url']})"
+    _create_block(client, "cond001", "AI", text)
+    r = client.delete(f"/api/assets/{a['sha256']}?if_unreferenced=true")
+    assert r.status_code == 409
+    assert r.json()["detail"] == "asset is referenced"
+    assert _block_text(seeded_config, "cond001") == text
+    assert _asset_path(seeded_config, a["sha256"]).is_file()
+    db = open_db(seeded_config.db_path)
+    row = db.execute("SELECT 1 FROM assets WHERE sha256 = ?",
+                     (a["sha256"],)).fetchone()
+    db.close()
+    assert row is not None
+
+
+def test_if_unreferenced_unknown_is_404(client):
+    q = "?if_unreferenced=true"
+    assert client.delete(f"/api/assets/{'a' * 64}{q}").status_code == 404
+    assert client.delete(f"/api/assets/not-a-sha{q}").status_code == 404
+
+
+def test_without_flag_still_strips(client, seeded_config):
+    a = _upload(client)
+    _create_block(client, "cond002", "AI", f"x ![p]({a['url']})")
+    r = client.delete(f"/api/assets/{a['sha256']}")
+    assert r.json()["refs_removed"] == 1

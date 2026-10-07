@@ -569,6 +569,12 @@ export interface paths {
          *     `block_refs` needs no reindex either, for the same reason:
          *     `strip_asset_tokens` removes only asset-embed tokens, a syntax disjoint
          *     from `((uid))`.
+         *
+         *     `if_unreferenced=true` changes the mode: nothing is stripped, and the
+         *     asset is deleted only while no block references it (409 otherwise).
+         *     The reference check and the delete share one write transaction, so a
+         *     block that starts referencing the asset cannot slip in between. Undo
+         *     history is its caller, releasing an upload once redo is gone.
          */
         delete: operations["delete_asset_api_assets__sha256__delete"];
         options?: never;
@@ -2800,7 +2806,9 @@ export interface operations {
     };
     delete_asset_api_assets__sha256__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                if_unreferenced?: boolean;
+            };
             header?: never;
             path: {
                 sha256: string;

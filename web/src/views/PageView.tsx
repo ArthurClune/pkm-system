@@ -15,7 +15,7 @@ import { useScrollFlashTarget } from "../useScrollFlashTarget";
 import { EditablePage } from "./EditablePage";
 
 export function PageView() {
-  const { pathname, hash } = useLocation();
+  const { pathname, hash, key } = useLocation();
   const title = titleFromPathname(pathname);
   const { payload, error, reload } =
     useOutlinePageLoad(title, substituteMissingDaily);
@@ -32,9 +32,11 @@ export function PageView() {
   // A block ref navigated here with the target uid as the hash:
   // once the payload has rendered, scroll to that block and flash it. A bare
   // "#", a malformed hash, or a uid not on the page (deleted, or inside a
-  // collapsed subtree) is a no-op inside the hook.
+  // collapsed subtree) is a no-op inside the hook. The location key makes a
+  // repeat click on the same link jump again.
   useScrollFlashTarget(
-    hash.length > 1 ? parseBlockUid(hash.slice(1)) : null, payload);
+    hash.length > 1 ? parseBlockUid(hash.slice(1)) : null, payload,
+    { navigation: key });
 
   if (error) return <p className="error">Could not load "{title}": {error}</p>;
   if (!payload) return <p className="loading">Loading…</p>;

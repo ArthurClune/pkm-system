@@ -28,5 +28,5 @@ Open questions: where the "fresh assets" list lives (HistoryEntry vs a side map 
 - [x] History entries carry `freshAssets`; undo manager releases discarded redo entries' uploads
 - [x] Upload paths tag fresh uploads
 - [x] e2e spec, architecture docs
-- [ ] perf/check.sh
-- [ ] proptest/check.sh
+- [x] perf/check.sh
+- [x] proptest/check.sh

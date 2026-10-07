@@ -212,6 +212,16 @@ export interface SyncFake extends Sync {
   emit(batch: WsBatch): void;
 }
 
+/** A ticket already delivered, for history entries whose own write is not
+ * under test. */
+export function deliveredTicket(scope: readonly string[] = []): WriteTicket {
+  return {
+    id: `delivered-${Math.random()}` as TicketId, scope,
+    settled: Promise.resolve({ status: "persisted", pending: 0 }),
+    delivered: Promise.resolve({ status: "delivered" }),
+  };
+}
+
 export function makeSync(status: SyncStatus = "connected",
                          over: Partial<Sync> = {}): SyncFake {
   const subs = new Set<(b: WsBatch) => void>();

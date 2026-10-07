@@ -8,7 +8,8 @@ import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, normTitle, ord, type SyncFake, title, uid } from "../test-helpers";
+import { block, deliveredTicket, makeSync, normTitle, ord, type SyncFake, title,
+         uid } from "../test-helpers";
 import { recordHistory, resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -212,7 +213,7 @@ it("undo stamps page_title on the enqueued op, though the recorded entry carries
     anchors: { ops: [null], inverse: [null] },
     freshAssets: [], focusBefore: null,
     focusAfter: null,
-  });
+  }, deliveredTicket());
   act(() => outline().handlers.onUndo());
   expect(sync.sent[sync.sent.length - 1][0]).toMatchObject({
     op: "update_text", uid: "a", text: "alpha", page_title: PAGE,

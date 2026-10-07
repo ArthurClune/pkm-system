@@ -53,7 +53,7 @@ let chain: Promise<void> = Promise.resolve();
 let queued = 0;
 let epoch = 0;
 
-interface AssetReleaser {
+export interface AssetReleaser {
   release(shas: readonly Sha256Hex[],
           waitFor: readonly Promise<DeliveryOutcome>[]): Promise<void>;
   releaseOnUnload(shas: readonly Sha256Hex[]): void;
@@ -118,7 +118,7 @@ export async function historyIdle(): Promise<void> {
 
 /** `write` is the edit's own ticket: a release this edit triggers waits for
  * it, so text that re-references a discarded upload lands first. */
-export function recordHistory(entry: HistoryEntry, write?: WriteTicket): void {
+export function recordHistory(entry: HistoryEntry, write: WriteTicket): void {
   const { state: next, discarded } = recordEntry(state, entry);
   state = next;
   for (const gone of discarded) {
@@ -127,16 +127,18 @@ export function recordHistory(entry: HistoryEntry, write?: WriteTicket): void {
     // Only an undo puts an entry on the redo stack, so a receipt is always
     // there; without one there is nothing safe to wait on.
     if (gone.freshAssets.length === 0 || !receipt) continue;
-    const waitFor = write
-      ? [receipt.delivered, write.delivered] : [receipt.delivered];
-    void releaser.release(gone.freshAssets, waitFor);
+    void releaser.release(gone.freshAssets,
+                          [receipt.delivered, write.delivered]);
   }
 }
 
 /** Best effort on tab close: release the redo entries whose undo the server
- * already has. Returns the remover. */
+ * already has. A page entering the back/forward cache keeps its redo stack,
+ * and redo would replay text naming the file, so that pagehide releases
+ * nothing. Returns the remover. */
 export function installUnloadRelease(target: Window = window): () => void {
-  const onPageHide = () => {
+  const onPageHide = (e: PageTransitionEvent) => {
+    if (e.persisted) return;
     for (const e of state.redo) {
       if (e.freshAssets.length > 0 && receipts.get(e)?.isDelivered) {
         releaser.releaseOnUnload(e.freshAssets);

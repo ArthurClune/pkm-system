@@ -6,7 +6,8 @@ import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
 import { releaseAssets, releaseUrl } from "../sync/assetRelease";
 import type { DeliveryOutcome, TicketId, WriteTicket } from "../sync/opQueue";
-import { block, defer, makeSync, ord, uid } from "../test-helpers";
+import { block, defer, deliveredTicket, makeSync, ord,
+         uid } from "../test-helpers";
 import { acquireOutlineSession } from "./outlineSessions";
 import { historyIdle, installUnloadRelease, performRedo, performUndo,
          recordHistory, registerOutlineHistory, resetHistory,
@@ -34,7 +35,7 @@ afterEach(() => resetHistory());
 
 it("undo enqueues the inverse batch scoped to the entry's page", async () => {
   const sync = makeSync();
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
   expect(performUndo(sync)).toBe(true);
   await historyIdle();
   expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before" }]]);
@@ -49,7 +50,7 @@ it("undo applies to a mounted session and restores focusBefore", () => {
     flushPending: () => undefined,
     applyFocus: (f) => focused.push(f),
   });
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
   performUndo(sync);
   expect(handle.getSnapshot().blocks[0].text).toBe("before");
   expect(focused).toEqual([{ uid: "a", cursor: 6 }]);
@@ -59,7 +60,7 @@ it("undo applies to a mounted session and restores focusBefore", () => {
 
 it("redo replays the forward batch and restores focusAfter", async () => {
   const sync = makeSync();
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
   performUndo(sync);
   expect(performRedo(sync)).toBe(true);
   await historyIdle();
@@ -70,7 +71,10 @@ it("flushes registered drafts before undoing (pending draft becomes the undone e
   const sync = makeSync();
   const calls: string[] = [];
   const unregister = registerOutlineHistory(PAGE, {
-    flushPending: () => { calls.push("flush"); recordHistory(entry()); },
+    flushPending: () => {
+      calls.push("flush");
+      recordHistory(entry(), deliveredTicket());
+    },
     applyFocus: () => undefined,
   });
   expect(performUndo(sync)).toBe(true); // flush recorded the entry it then undoes
@@ -84,7 +88,7 @@ it("navigates to the entry's page when no session is mounted", async () => {
   const sync = makeSync();
   const paths: string[] = [];
   const clear = setHistoryNavigator((p) => paths.push(p));
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
   performUndo(sync);
   await historyIdle();
   expect(paths).toHaveLength(1);
@@ -102,7 +106,7 @@ it("navigates on undo when the page's session lingers with no mounted hooks (off
   const handle = acquireOutlineSession(PAGE, [block("a", "after", { order_idx: ord(0) })]);
   const paths: string[] = [];
   const clear = setHistoryNavigator((p) => paths.push(p));
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
   performUndo(sync);
   // The lingering session IS a tree, so the replayed op is stamped against
   // it; the other undo tests here have no session and go out unstamped.
@@ -139,7 +143,7 @@ it("redo stamps against the current tree, not the recorded one", () => {
   freshAssets: [],
     focusBefore: null,
     focusAfter: null,
-  });
+  }, deliveredTicket());
   performUndo(sync);
   // A later edit of the user's own moves the block on before the redo.
   const later: BlockOp[] = [{ op: "update_text", uid: uid("a"), text: "two" }];
@@ -169,7 +173,8 @@ it("an undo that deletes is stamped against the tree at replay time", () => {
     ...before, block("n", "", { order_idx: ord(1) })]);
   recordHistory({ pageTitle: PAGE, ops: create, inverse: inverse!,
                   anchors: historyAnchors(before, PAGE, create, inverse!),
-                  freshAssets: [], focusBefore: null, focusAfter: null });
+                  freshAssets: [], focusBefore: null, focusAfter: null },
+                deliveredTicket());
   const typed: BlockOp[] = [{ op: "update_text", uid: uid("n"), text: "typed later" }];
   handle.applyLocal(sync.enqueue(typed, ["page", PAGE]), typed);
 
@@ -192,7 +197,8 @@ it("undo re-keys placements against the mounted tree, not the recorded keys", ()
     const inverse = invertOps(pre, PAGE, ops)!;
     recordHistory({ pageTitle: PAGE, ops, inverse,
                     anchors: historyAnchors(pre, PAGE, ops, inverse),
-                    freshAssets: [], focusBefore: null, focusAfter: null });
+                    freshAssets: [], focusBefore: null, focusAfter: null },
+                  deliveredTicket());
     return applyOps(pre, ops, PAGE);
   };
   let tree = ["b0", "b1", "b2"].map((u, i) => block(u, u, { order_idx: ord(i) }));
@@ -216,9 +222,9 @@ it("undo re-keys placements against the mounted tree, not the recorded keys", ()
 
 it("recording clears redo (integration of AC through the manager)", () => {
   const sync = makeSync();
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
   performUndo(sync);
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
   expect(performRedo(sync)).toBe(false);
 });
 
@@ -235,7 +241,8 @@ it("undo with no session re-keys placements against the loaded page", async () =
   const inverse = invertOps(pre, PAGE, ops)!;
   recordHistory({ pageTitle: PAGE, ops, inverse,
                   anchors: historyAnchors(pre, PAGE, ops, inverse),
-                  freshAssets: [], focusBefore: null, focusAfter: null });
+                  freshAssets: [], focusBefore: null, focusAfter: null },
+                deliveredTicket());
   const loaded = applyOps(applyOps(pre, ops, PAGE), [{
     op: "create", uid: uid("x"), page_title: PAGE, parent_uid: null,
     order_idx: ord(0), text: "x" }], PAGE);
@@ -257,7 +264,7 @@ it("undo with no session re-keys placements against the loaded page", async () =
 it("undo with no session stamps base_text_hash against the loaded tree", async () => {
   const sync = makeSync();
   setHistoryPageLoader(async () => [block("a", "typed elsewhere", { order_idx: ord(0) })]);
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
   performUndo(sync);
   await historyIdle();
   expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before",
@@ -270,8 +277,8 @@ it("a mounted-page undo queued behind an unmounted load waits its turn", async (
   const OTHER = "Other Page";
   const gate = defer<BlockNode[]>();
   setHistoryPageLoader(() => gate.promise);
-  recordHistory(entry());
-  recordHistory({ ...entry(), pageTitle: OTHER });
+  recordHistory(entry(), deliveredTicket());
+  recordHistory({ ...entry(), pageTitle: OTHER }, deliveredTicket());
   const mounted = acquireOutlineSession(PAGE, [block("a", "after", { order_idx: ord(0) })]);
   performUndo(sync); // OTHER: no session, load pending
   performUndo(sync); // PAGE: mounted, but must wait behind the load
@@ -291,8 +298,8 @@ it("a failed load ships the recorded batch unstamped, navigates, and later dispa
   setHistoryPageLoader(async () => { throw new Error("offline"); });
   const paths: string[] = [];
   const clear = setHistoryNavigator((p) => paths.push(p));
-  recordHistory(entry());
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
+  recordHistory(entry(), deliveredTicket());
   performUndo(sync);
   performUndo(sync);
   await historyIdle();
@@ -311,8 +318,8 @@ it("a throwing enqueue is logged and does not break later dispatches or leak the
   const boom = vi.spyOn(sync, "enqueue").mockImplementationOnce(() => {
     throw new Error("disposed");
   });
-  recordHistory(entry());
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
+  recordHistory(entry(), deliveredTicket());
   performUndo(sync);
   performUndo(sync);
   await historyIdle();
@@ -364,6 +371,9 @@ function spyReleaser() {
   return { release, releaseOnUnload };
 }
 
+const pageHide = (persisted: boolean) =>
+  new PageTransitionEvent("pagehide", { persisted });
+
 const flush = () => new Promise<void>((r) => { setTimeout(r, 0); });
 
 // An undelivered write keeps a page's session alive past release(), which
@@ -385,7 +395,7 @@ it("undo then a new edit releases the entry's fresh assets after both deliveries
   const { release } = spyReleaser();
   const sync = gatedSync();
   const handle = acquireOutlineSession(PAGE, [block("a", "after", { order_idx: ord(0) })]);
-  recordHistory(upload(S1));
+  recordHistory(upload(S1), deliveredTicket());
   performUndo(sync);
   expect(release).not.toHaveBeenCalled();
   const edit = gatedTicket();
@@ -399,7 +409,7 @@ it("undo then a new edit releases the entry's fresh assets after both deliveries
 it("undo then redo then an edit releases nothing", async () => {
   const { release } = spyReleaser();
   const sync = gatedSync();
-  recordHistory(upload(S1));
+  recordHistory(upload(S1), deliveredTicket());
   performUndo(sync);
   performRedo(sync);
   await historyIdle();
@@ -410,7 +420,7 @@ it("undo then redo then an edit releases nothing", async () => {
 it("entries without freshAssets are never released", async () => {
   const { release } = spyReleaser();
   const sync = gatedSync();
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
   performUndo(sync);
   await historyIdle();
   recordHistory(entry(), gatedTicket().ticket);
@@ -420,8 +430,8 @@ it("entries without freshAssets are never released", async () => {
 it("two undone uploads are both released by one edit", async () => {
   const { release } = spyReleaser();
   const sync = gatedSync();
-  recordHistory(upload(S1));
-  recordHistory(upload(S2));
+  recordHistory(upload(S1), deliveredTicket());
+  recordHistory(upload(S2), deliveredTicket());
   performUndo(sync);
   performUndo(sync);
   await historyIdle();
@@ -435,23 +445,12 @@ it("two undone uploads are both released by one edit", async () => {
   }
 });
 
-it("an edit with no ticket waits only on the undo", async () => {
-  const { release } = spyReleaser();
-  const sync = gatedSync();
-  const handle = acquireOutlineSession(PAGE, [block("a", "after", { order_idx: ord(0) })]);
-  recordHistory(upload(S1));
-  performUndo(sync);
-  recordHistory(entry());
-  expect(release).toHaveBeenCalledWith([S1], [sync.tickets[0].delivered]);
-  await closeSession(sync, handle);
-});
-
 it("an undo dispatched to an unmounted page releases only after that dispatch's delivery", async () => {
   const { release } = spyReleaser();
   const sync = gatedSync();
   const read = defer<BlockNode[]>();
   setHistoryPageLoader(() => read.promise);
-  recordHistory(upload(S1));
+  recordHistory(upload(S1), deliveredTicket());
   performUndo(sync);
   recordHistory(entry(), gatedTicket().ticket);
   expect(release).toHaveBeenCalledTimes(1);
@@ -477,7 +476,7 @@ it("an unmounted undo whose enqueue throws gives the release a failed receipt", 
   const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
   const sync = gatedSync();
   sync.enqueue = () => { throw new Error("disposed"); };
-  recordHistory(upload(S1));
+  recordHistory(upload(S1), deliveredTicket());
   performUndo(sync);
   await historyIdle();
   recordHistory(entry(), gatedTicket().ticket);
@@ -493,10 +492,12 @@ it("an unmounted undo dropped by a history reset gives the release a failed rece
   const sync = gatedSync();
   const read = defer<BlockNode[]>();
   setHistoryPageLoader(() => read.promise);
-  recordHistory(upload(S1));
-  recordHistory(upload(S2));
-  performUndo(sync); // S2: waits on the read
-  performUndo(sync); // S1: queued behind it
+  recordHistory(upload(S1), deliveredTicket());
+  recordHistory(upload(S2), deliveredTicket());
+  // Both undos are queued, and the reset lands before either chained
+  // callback starts, so neither enqueues.
+  performUndo(sync);
+  performUndo(sync);
   recordHistory(entry(), gatedTicket().ticket);
   const outcomes = release.mock.calls.map(([, waitFor]) => settledValue(waitFor[0]));
   resetHistory();
@@ -513,7 +514,7 @@ it("undo then re-upload of the same file waits for the clearing edit", async () 
     releaseOnUnload: () => undefined,
   });
   const sync = gatedSync();
-  recordHistory(upload(S1));
+  recordHistory(upload(S1), deliveredTicket());
   performUndo(sync);
   await historyIdle();
   sync.gates[0].resolve(DELIVERED);
@@ -532,26 +533,41 @@ it("undo then re-upload of the same file waits for the clearing edit", async () 
 it("pagehide releases only undos already delivered", async () => {
   const { releaseOnUnload } = spyReleaser();
   const sync = gatedSync();
-  recordHistory(upload(S1));
-  recordHistory(upload(S2));
+  recordHistory(upload(S1), deliveredTicket());
+  recordHistory(upload(S2), deliveredTicket());
   performUndo(sync); // S2's entry: tickets[0]
   performUndo(sync); // S1's entry: tickets[1]
   await historyIdle();
   sync.gates[0].resolve(DELIVERED);
   await flush();
   const remove = installUnloadRelease(window);
-  window.dispatchEvent(new Event("pagehide"));
+  window.dispatchEvent(pageHide(false));
   expect(releaseOnUnload).toHaveBeenCalledTimes(1);
   expect(releaseOnUnload).toHaveBeenCalledWith([S2]);
   remove();
-  window.dispatchEvent(new Event("pagehide"));
+  window.dispatchEvent(pageHide(false));
   expect(releaseOnUnload).toHaveBeenCalledTimes(1);
+});
+
+it("a pagehide into the back/forward cache releases nothing", async () => {
+  // A restored page keeps its redo stack, and redo replays text naming the file.
+  const { releaseOnUnload } = spyReleaser();
+  const sync = gatedSync();
+  recordHistory(upload(S1), deliveredTicket());
+  performUndo(sync);
+  await historyIdle();
+  sync.gates[0].resolve(DELIVERED);
+  await flush();
+  const remove = installUnloadRelease(window);
+  window.dispatchEvent(pageHide(true));
+  expect(releaseOnUnload).not.toHaveBeenCalled();
+  remove();
 });
 
 it("pagehide skips an undone upload that was redone", async () => {
   const { releaseOnUnload } = spyReleaser();
   const sync = gatedSync();
-  recordHistory(upload(S1));
+  recordHistory(upload(S1), deliveredTicket());
   performUndo(sync);
   await historyIdle();
   sync.gates[0].resolve(DELIVERED);
@@ -559,7 +575,7 @@ it("pagehide skips an undone upload that was redone", async () => {
   performRedo(sync);
   await historyIdle();
   const remove = installUnloadRelease(window);
-  window.dispatchEvent(new Event("pagehide"));
+  window.dispatchEvent(pageHide(false));
   expect(releaseOnUnload).not.toHaveBeenCalled();
   remove();
 });
@@ -571,10 +587,10 @@ it("resetHistory restores the default releaser", async () => {
   const fetchSpy = vi.spyOn(globalThis, "fetch")
     .mockResolvedValue({ status: 200 } as Response);
   const sync = gatedSync();
-  recordHistory(upload(S1));
+  recordHistory(upload(S1), deliveredTicket());
   performUndo(sync);
   await historyIdle();
-  recordHistory(entry());
+  recordHistory(entry(), deliveredTicket());
   sync.gates[0].resolve(DELIVERED);
   await flush();
   expect(release).not.toHaveBeenCalled();

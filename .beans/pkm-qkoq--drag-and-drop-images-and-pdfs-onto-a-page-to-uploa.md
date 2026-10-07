@@ -1,10 +1,11 @@
 ---
 # pkm-qkoq
 title: Drag and drop images and PDFs onto a page to upload them
-status: in-progress
+status: completed
 type: feature
+priority: normal
 created_at: 2026-10-07T19:20:00Z
-updated_at: 2026-10-07T19:20:00Z
+updated_at: 2026-10-07T19:51:35Z
 ---
 
 Dragging an image or PDF from outside the app (Finder, a browser) over an editable page shows the same drop indicator line as a block drag; releasing it uploads the file(s) like /upload and creates one new block per file at the indicator position.
@@ -27,5 +28,11 @@ Approved design (brainstorm 2026-10-07, bounded path, no spec):
 - [x] useOutline.onDropFiles incl. failure banner, parent-vanished fallback + scroll into view (vitest)
 - [x] Playwright spec with synthetic DataTransfer (PNG + PDF)
 - [x] docs/architecture/frontend-editor.md Drag and drop section
-- [ ] pnpm verify, perf/check.sh frontend, proptest/check.sh web
-- [ ] Manual check: real drag from Finder
+- [x] pnpm verify, perf/check.sh frontend, proptest/check.sh web
+- [x] Manual check: real drag from Finder
+
+## Summary of Changes
+
+Files dragged in from outside the app (images and PDFs) draw the block-drag drop line and, on release, upload and become one new block each at that line, in one undo step. `DragSource` is now a union (`blocks` | `files`); `outline/fileDrop.ts` holds the pure filter, banner wording and create-ops plan; `DndProvider` ends a files drag by a document enter/leave depth count (WebKit nulls `relatedTarget`) and guards the window so a missed drop never navigates to the file. The focused textarea keeps splice-at-caret. A drop whose parent vanished during upload appends at the page end and scrolls the first block into view without focusing it.
+
+Verified: pnpm verify (3671 unit, 75 Playwright incl. e2e/file-drop.spec.ts), proptest web 68/68, perf frontend unchanged, manual Finder drag in Safari and Chrome. Follow-up: undo of an upload leaves the asset orphaned (all upload paths) — separate bean.

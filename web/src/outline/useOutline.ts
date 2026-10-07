@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
          useState, type ReactNode } from "react";
 import { ApiError } from "../api/client";
-import type { BlockUid, CanonicalTitle } from "../api/brands";
+import type { BlockUid, CanonicalTitle, Sha256Hex } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { apiPost } from "../api/typedClient";
@@ -54,7 +54,7 @@ export interface Outline {
   handlers: OutlineHandlers;
   dnd: OutlineDndApi;
   createFirstBlock(): void;
-  appendBlock(text: string): void;
+  appendBlock(text: string, freshAssets?: readonly Sha256Hex[]): void;
   /** Most recent /upload, paste, or drag-drop failure, if any. */
   uploadError: string | null;
   /** Upload files dragged in from outside the app and create one new block
@@ -173,7 +173,8 @@ export function useOutline(
 
   /** Flush any pending text op, run the command against the flushed tree,
    * apply + enqueue everything in order, then move focus. */
-  const run = useCallback((fn: (b: BlockNode[]) => EditResult) => {
+  const run = useCallback((fn: (b: BlockNode[]) => EditResult,
+                           opts?: { freshAssets?: readonly Sha256Hex[] }) => {
     const textOps = takePendingTextOps();
     const pre = blocksRef.current; // history inverts the FULL batch from here
     // A draft whose block has left this tree still ships, but it cannot be
@@ -220,7 +221,7 @@ export function useOutline(
       recordHistory({
         pageTitle, ops: recorded, inverse,
         anchors: historyAnchors(pre, pageTitle, recorded, inverse),
-        freshAssets: [],
+        freshAssets: opts?.freshAssets ?? [],
         focusBefore: focusRef.current,
         focusAfter: result.focus ?? focusRef.current,
       }, write);
@@ -408,10 +409,13 @@ export function useOutline(
       setUploadError(null);
       return (async () => {
         let inserted = "";
+        const fresh: Sha256Hex[] = [];
         const failures: string[] = [];
         for (const file of files) {
           try {
-            inserted += (inserted ? " " : "") + assetMarkdown(await uploadAsset(file));
+            const info = await uploadAsset(file);
+            if (!info.existing) fresh.push(info.sha256);
+            inserted += (inserted ? " " : "") + assetMarkdown(info);
           } catch (err) {
             // failed upload: leave the text untouched rather than half-splice
             const reason = err instanceof Error ? err.message : String(err);
@@ -444,7 +448,7 @@ export function useOutline(
           const focus = focusRef.current?.uid === uid
             ? { uid, cursor: spliced.selStart } : null;
           return { blocks: applyOps(b, ops, pageTitle), ops, focus };
-        });
+        }, { freshAssets: fresh });
         return didSplice;
       })();
     },
@@ -585,9 +589,12 @@ export function useOutline(
     const { accepted, rejected } = partitionUploadable(files);
     const failures: string[] = [];
     const texts: string[] = [];
+    const fresh: Sha256Hex[] = [];
     for (const file of accepted) {
       try {
-        texts.push(assetMarkdown(await uploadAsset(file)));
+        const info = await uploadAsset(file);
+        if (!info.existing) fresh.push(info.sha256);
+        texts.push(assetMarkdown(info));
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         failures.push(`${file.name}: ${reason}`);
@@ -603,7 +610,7 @@ export function useOutline(
       const plan = planFileDropBlocks(b, pageTitle, target, texts, uids);
       if (plan.fellBack) scrollToUidRef.current = plan.firstUid;
       return plan.result;
-    });
+    }, { freshAssets: fresh });
   }, [run, pageTitle]);
 
   const createFirstBlock = useCallback(() => {
@@ -618,7 +625,7 @@ export function useOutline(
     });
   }, [run, pageTitle]);
 
-  const appendBlock = useCallback((text: string) => {
+  const appendBlock = useCallback((text: string, freshAssets?: readonly Sha256Hex[]) => {
     run((b) => {
       const uid = newUid();
       const ops: BlockOp[] = [{ op: "create", uid, page_title: pageTitle,
@@ -626,7 +633,7 @@ export function useOutline(
                                 order_idx: orderIdxAfterLast(b),
                                 text }];
       return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
-    });
+    }, { freshAssets });
   }, [run, pageTitle]);
 
   return {

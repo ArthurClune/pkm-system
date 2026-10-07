@@ -15,12 +15,12 @@ function page(): BlockNode[] {
     block("f", "F", { order_idx: ord(2) }),
   ];
 }
-const OTHER: DragSource = { uid: uid("zz"), pageTitle: "Elsewhere" };
+const OTHER: DragSource = { kind: "blocks", uid: uid("zz"), pageTitle: "Elsewhere" };
 
 it("dropRows hides collapsed children and excludes the dragged subtree", () => {
   expect(dropRows(page(), OTHER, "P").map((r) => r.uid))
     .toEqual(["a", "b", "c", "d", "f"]); // e hidden under collapsed d
-  expect(dropRows(page(), { uid: uid("b"), pageTitle: "P" }, "P").map((r) => r.uid))
+  expect(dropRows(page(), { kind: "blocks", uid: uid("b"), pageTitle: "P" }, "P").map((r) => r.uid))
     .toEqual(["a", "d", "f"]);           // b and c lifted out
 });
 
@@ -74,7 +74,7 @@ it("resolveDrop picks parent and order_idx from the chosen depth", () => {
 
 it("resolveDrop returns null for a same-position drop", () => {
   // dragging f, dropping at the very end at depth 0 = where it already is
-  const drag = { uid: uid("f"), pageTitle: "P" };
+  const drag: DragSource = { kind: "blocks", uid: uid("f"), pageTitle: "P" };
   const rows = dropRows(page(), drag, "P");
   expect(resolveDrop(page(), "P", drag, { boundary: rows.length, depth: 0 })).toBeNull();
   // and dropping right before its own old slot is also a no-op
@@ -89,20 +89,46 @@ it("resolveDrop from another page never returns null (content must move)", () =>
 // --- group drag: a drag that carries a multi-block selection ---
 
 it("dropRows excludes every dragged subtree of a group drag", () => {
-  const drag: DragSource = { uid: uid("a"), pageTitle: "P", uids: [uid("a"), uid("d")] };
+  const drag: DragSource = { kind: "blocks", uid: uid("a"), pageTitle: "P", uids: [uid("a"), uid("d")] };
   expect(dropRows(page(), drag, "P").map((r) => r.uid)).toEqual(["f"]);
 });
 
 it("resolveDrop resolves a group drop to the run's first slot", () => {
   // dragging [d, f] above a: insert at the top, before a
-  const drag: DragSource = { uid: uid("d"), pageTitle: "P", uids: [uid("d"), uid("f")] };
+  const drag: DragSource = { kind: "blocks", uid: uid("d"), pageTitle: "P", uids: [uid("d"), uid("f")] };
   expect(resolveDrop(page(), "P", drag, { boundary: 0, depth: 0 }))
     .toEqual({ parent_uid: null, order_idx: 0, page_title: "P" });
 });
 
 it("resolveDrop returns null when a group drop changes nothing", () => {
   // [d, f] dropped right back where they already sit (after a's subtree)
-  const drag: DragSource = { uid: uid("d"), pageTitle: "P", uids: [uid("d"), uid("f")] };
+  const drag: DragSource = { kind: "blocks", uid: uid("d"), pageTitle: "P", uids: [uid("d"), uid("f")] };
   const rows = dropRows(page(), drag, "P"); // [a, b, c]
   expect(resolveDrop(page(), "P", drag, { boundary: rows.length, depth: 0 })).toBeNull();
+});
+
+// --- file drag: an upload dragged in from outside the app ---
+
+const FILES: DragSource = { kind: "files" };
+
+it("dropRows keeps every row for a files drag, even on the same page", () => {
+  expect(dropRows(page(), FILES, "P").map((r) => r.uid))
+    .toEqual(["a", "b", "c", "d", "f"]);
+});
+
+it("resolveDrop never returns the same-position null for a files drag", () => {
+  // after f, depth 0: a block drag of f would be a no-op here
+  expect(resolveDrop(page(), "P", FILES, { boundary: 5, depth: 0 }))
+    .toEqual({ parent_uid: null, order_idx: 3, page_title: "P" });
+  expect(resolveDrop(page(), "P", FILES, { boundary: 0, depth: 0 }))
+    .toEqual({ parent_uid: null, order_idx: 0, page_title: "P" });
+});
+
+it("resolveDrop on an empty page puts a files drag first at the root", () => {
+  expect(resolveDrop([], "P", FILES, { boundary: 0, depth: 0 }))
+    .toEqual({ parent_uid: null, order_idx: 0, page_title: "P" });
+});
+
+it("resolveDrop still returns null where a files drag has no parent", () => {
+  expect(resolveDrop(page(), "P", FILES, { boundary: 0, depth: 2 })).toBeNull();
 });

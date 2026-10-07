@@ -3,12 +3,13 @@
 // during dragover, so the active drag lives here. Outlines register their
 // optimistic APIs by page title; a drop is dispatched to the registered
 // source/target outlines and enqueued as a move op.
-import { createContext, useContext, useMemo, useRef, useState,
+import { createContext, useContext, useEffect, useMemo, useRef, useState,
          type ReactNode } from "react";
 import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
-import { dragUids, type DragSource, type DropTarget } from "../outline/dnd";
+import { dragUids, type BlockDragSource, type DragSource,
+         type DropTarget } from "../outline/dnd";
 import { groupMoveOps } from "../outline/edits";
 import { orderIdxPlus } from "../outline/orderIdx";
 import { useSyncActions } from "../sync/SyncProvider";
@@ -30,7 +31,9 @@ export interface Dnd {
   startDrag(d: DragSource): void;
   endDrag(): void;
   registerOutline(pageTitle: string, api: OutlineDndApi): DndRegistration;
-  drop(drag: DragSource, target: DropTarget): void;
+  /** Dispatch a block drag's drop. A files drag never comes through here:
+   * its zone uploads straight into its own page. */
+  drop(drag: BlockDragSource, target: DropTarget): void;
 }
 
 export const DndContext = createContext<Dnd>({
@@ -54,6 +57,62 @@ export function DndProvider({ children }: { children: ReactNode }) {
     string,
     { token: symbol; api: OutlineDndApi }
   >());
+
+  // Files dragged in from outside the app never fire dragend on anything of
+  // ours, so a files drag is ended by what can be seen of it: the drop (the
+  // zone has used it by the time this bubbles to window), or the pointer
+  // leaving the page. Leaving is counted, not read off `relatedTarget`, which
+  // WebKit reports as null on every dragleave: dragenter and dragleave pair up
+  // in every engine, so the depth is back to zero exactly when the drag has
+  // left the document, whether the pointer exited the window or the OS
+  // cancelled the drag (Escape arrives as a dragleave; no keydown is delivered
+  // during a native drag). Capture phase, so the enter that makes a zone start
+  // the files drag is already counted when the zone's handler runs.
+  useEffect(() => {
+    const carriesFiles = (e: DragEvent) =>
+      Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    const endFilesDrag = () =>
+      setDrag((d) => (d?.kind === "files" ? null : d));
+    let depth = 0;
+    const onEnter = (e: DragEvent) => { if (carriesFiles(e)) depth++; };
+    const onLeave = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) endFilesDrag();
+    };
+    const onDrop = () => { depth = 0; endFilesDrag(); };
+    document.addEventListener("dragenter", onEnter, true);
+    document.addEventListener("dragleave", onLeave, true);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      document.removeEventListener("dragenter", onEnter, true);
+      document.removeEventListener("dragleave", onLeave, true);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
+  // A file dropped where nothing takes it makes the browser navigate to the
+  // file, abandoning the page. Zones and the block textarea run first (React
+  // listens below window), so only a drag nobody accepted reaches this: it is
+  // refused (cursor shows not-allowed) and its drop is swallowed. A text field
+  // is left alone on dragover, since it is a drop target in its own right.
+  useEffect(() => {
+    const carriesFiles = (e: DragEvent) =>
+      Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    const onOver = (e: DragEvent) => {
+      if (!carriesFiles(e) || e.defaultPrevented) return;
+      if (e.target instanceof Element && e.target.closest("textarea, input")) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "none";
+    };
+    const onDrop = (e: DragEvent) => { if (carriesFiles(e)) e.preventDefault(); };
+    window.addEventListener("dragover", onOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
 
   const api = useMemo<Dnd>(() => ({
     drag,

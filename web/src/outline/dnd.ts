@@ -10,7 +10,9 @@ import { applyOps, locate } from "./tree";
 
 export const INDENT_PX = 30; // .block-children: 22px margin-left + 8px padding
 
-export interface DragSource {
+/** A drag of blocks already in the outline. */
+export interface BlockDragSource {
+  kind: "blocks";
   /** The grabbed block (the drag handle). */
   uid: BlockUid;
   pageTitle: string;
@@ -20,8 +22,15 @@ export interface DragSource {
   uids?: BlockUid[];
 }
 
+/** Files dragged in from outside the app. It carries nothing: the File
+ * objects are only readable at drop time, and the drop target is resolved
+ * from the same geometry a block drag uses. */
+export interface FileDragSource { kind: "files" }
+
+export type DragSource = BlockDragSource | FileDragSource;
+
 /** Every uid a drag carries (the group when present, else the grab handle). */
-export function dragUids(drag: DragSource): BlockUid[] {
+export function dragUids(drag: BlockDragSource): BlockUid[] {
   return drag.uids ?? [drag.uid];
 }
 export interface DropTarget {
@@ -44,7 +53,7 @@ export interface DropPosition { boundary: number; depth: number }
 export function dropRows(blocks: BlockNode[], drag: DragSource,
                          pageTitle: string): DropRow[] {
   const out: DropRow[] = [];
-  const skip = drag.pageTitle === pageTitle
+  const skip = drag.kind === "blocks" && drag.pageTitle === pageTitle
     ? new Set(dragUids(drag)) : new Set<BlockUid>();
   const walk = (nodes: BlockNode[], depth: number) => {
     for (const n of nodes) {
@@ -92,7 +101,8 @@ function shape(blocks: BlockNode[]): string {
 }
 
 /** Resolve a drop position to a move target. Returns null when the drop
- * would change nothing (same page, same position). */
+ * would change nothing (same page, same position); a files drag always
+ * changes something, so only a missing parent yields null. */
 export function resolveDrop(blocks: BlockNode[], pageTitle: string,
                             drag: DragSource,
                             position: DropPosition): DropTarget | null {
@@ -125,7 +135,7 @@ export function resolveDrop(blocks: BlockNode[], pageTitle: string,
   }
   const target: DropTarget =
     { parent_uid: parentUid, order_idx: orderIdx, page_title: pageTitle };
-  if (drag.pageTitle === pageTitle) {
+  if (drag.kind === "blocks" && drag.pageTitle === pageTitle) {
     const after = applyOps(
       blocks, groupMoveOps(dragUids(drag), parentUid, orderIdx), pageTitle);
     if (shape(after) === shape(blocks)) return null;

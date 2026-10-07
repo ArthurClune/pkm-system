@@ -17,6 +17,8 @@ import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { stampBaseTextHashes, withoutStamps } from "./baseTextHash";
 import { FIRST_ORDER_IDX, orderIdxAfterLast } from "./orderIdx";
+import type { DropTarget } from "./dnd";
+import { fileDropNotice, partitionUploadable, planFileDropBlocks } from "./fileDrop";
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          moveBlocksTo, moveSelectionDown, moveSelectionUp, moveSubtreeDown,
          moveSubtreeUp, outdentBlock, outdentSelection, setCollapsed,
@@ -55,6 +57,9 @@ export interface Outline {
   appendBlock(text: string): void;
   /** Most recent /upload, paste, or drag-drop failure, if any. */
   uploadError: string | null;
+  /** Upload files dragged in from outside the app and create one new block
+   * per file at `target`. Resolves once the blocks are in (or nothing was). */
+  onDropFiles: (files: File[], target: DropTarget) => Promise<void>;
   dismissUploadError(): void;
   /** Outcome of the last /goodlinks pick: "Saved to Goodlinks" or a
    * failure notice (see outline/goodlinks.ts). */
@@ -560,6 +565,46 @@ export function useOutline(
     },
   }), [run, flushNow, pageTitle, publishBlocks]);
 
+  // The first block of a drop that fell back to the end of the page, waiting
+  // for the render that puts it in the DOM.
+  const scrollToUidRef = useRef<BlockUid | null>(null);
+  useEffect(() => {
+    const uid = scrollToUidRef.current;
+    if (!uid) return;
+    const el = document.querySelector(`[data-uid="${CSS.escape(uid)}"]`);
+    if (!el) return;
+    scrollToUidRef.current = null;
+    // Centred, and never focused: focusing shows the raw-markdown textarea
+    // instead of the rendered asset.
+    el.scrollIntoView({ block: "center" });
+  }, [blocks]);
+
+  const onDropFiles = useCallback(async (files: File[], target: DropTarget) => {
+    setUploadError(null);
+    const { accepted, rejected } = partitionUploadable(files);
+    const failures: string[] = [];
+    const texts: string[] = [];
+    for (const file of accepted) {
+      try {
+        texts.push(assetMarkdown(await uploadAsset(file)));
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        failures.push(`${file.name}: ${reason}`);
+      }
+    }
+    const notice = fileDropNotice(failures, rejected.map((f) => f.name));
+    if (notice !== null) setUploadError(notice);
+    if (texts.length === 0) return;
+    const uids = texts.map(() => newUid());
+    run((b) => {
+      // planned against the tree as it is now: the target's parent may have
+      // gone while the uploads ran
+      const plan = planFileDropBlocks(b, pageTitle, target, texts, uids);
+      if (plan.fellBack) scrollToUidRef.current = plan.firstUid;
+      return plan.result;
+    });
+  }, [run, pageTitle]);
+
   const createFirstBlock = useCallback(() => {
     run((b) => {
       if (b.length > 0) return { blocks: b, ops: [], focus: null };
@@ -596,6 +641,7 @@ export function useOutline(
     createFirstBlock,
     appendBlock,
     uploadError,
+    onDropFiles,
     dismissUploadError: () => setUploadError(null),
     goodlinksNotice: goodlinksNotice_,
     dismissGoodlinksNotice: () => setGoodlinksNotice(null),

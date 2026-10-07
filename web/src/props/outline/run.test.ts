@@ -251,7 +251,7 @@ describe("runSequence", () => {
       const [step] = runSequence(start, [command]).steps;
       const r = step.resolved;
       if (r?.kind !== "drop") return false;
-      const rows = dropRows(step.base, { uid: r.uids[0], pageTitle: PAGE_TITLE, uids: r.uids },
+      const rows = dropRows(step.base, { kind: "blocks", uid: r.uids[0], pageTitle: PAGE_TITLE, uids: r.uids },
                             PAGE_TITLE);
       return r.position.boundary <= rows.length
         && allowedDepths(rows, r.position.boundary).includes(r.position.depth);

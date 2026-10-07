@@ -330,6 +330,23 @@ cache rather than shifting it, since cached tops are viewport-relative like the
 candidate rather than the drop event's own coordinates, so a block lands where
 the indicator line was drawn.
 
+#### Files dragged in from outside the app
+
+`DragSource` (`outline/dnd.ts`) has two kinds: `blocks` (a grabbed block or
+selection) and `files` (carries nothing; the `File`s are readable only at
+drop). The zone's geometry and indicator are shared, so a files drag draws the
+same line and resolves through the same `resolveDrop`, which never reports a
+files drop as a no-op.
+
+| Piece | Rule |
+|---|---|
+| Start | a `dragenter`/`dragover` with `"Files"` in `dataTransfer.types` and no block drag, where `uploadableDrag` (`outline/fileDrop.ts`) finds an image or PDF among `dataTransfer.items`, or cannot tell (no items, or a file item with an empty type, as WebKit lists during `dragover`). Accepted as `copy`. A drag whose files all have a known other type is not accepted by the zone |
+| End | there is no `dragend` for an external drag, so `DndProvider` ends a files drag on a window `drop`, or when a capture-phase document counter of `dragenter` minus `dragleave` (files drags only) returns to zero. The counter, not `relatedTarget`, because WebKit reports null on every `dragleave`; an OS-level cancel (Escape) arrives as a `dragleave`, since no keydown is delivered during a native drag. The zone clears its line when the drag ends |
+| Window guard | `DndProvider` refuses any files `dragover` nobody accepted (`dropEffect = "none"`) and swallows the `drop`, so a miss or a read-only page never navigates to the file. A text field is exempt on `dragover`: it is its own drop target |
+| Textarea | over `textarea.block-input` the zone draws no line and ignores the drop (`defaultPrevented` too); `BlockInput`'s own drop splices at the caret |
+| Drop | a drop whose files drag has not yet reached the zone's closure still counts as one. `useOutline.onDropFiles` uploads sequentially, then one `run()` creates one block per upload at consecutive `order_idx` (one undo step). Non-image/PDF files and failed uploads are named in the upload banner. Focus is never moved: focusing would show the raw markdown instead of the asset |
+| Parent gone | if the target's parent was deleted during the uploads, `planFileDropBlocks` appends at the end of the page and the first new block is scrolled into view, centred |
+
 ## Journal day references
 
 Journal days render their linked references inline (`JournalDayReferences`,

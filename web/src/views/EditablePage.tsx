@@ -6,6 +6,7 @@ import { Composer } from "../components/Composer";
 import { EditableBlockTree } from "../components/EditableBlockTree";
 import { useDnd } from "../dnd/DndContext";
 import { useDropZone } from "../dnd/useDropZone";
+import type { DropTarget } from "../outline/dnd";
 import { selectionDragUids } from "../outline/blockSelection";
 import { useOutline } from "../outline/useOutline";
 
@@ -45,7 +46,12 @@ export function EditablePage({ title, initial, composer = false,
   // `process` (dep `getBlocks`) on every render, making that memoization
   // inert even though the ref read below is always current regardless.
   const getBlocks = useCallback(() => blocksRef.current, []);
-  const { indicator, zoneProps } = useDropZone(title, getBlocks, containerRef);
+  const uploadOutlineFiles = outline.onDropFiles;
+  const onDropFiles = useCallback((files: File[], target: DropTarget) => {
+    void uploadOutlineFiles(files, target);
+  }, [uploadOutlineFiles]);
+  const { indicator, zoneProps } = useDropZone(
+    title, getBlocks, containerRef, onDropFiles);
 
   useEffect(() => {
     if (!ownsEditor) return undefined;
@@ -60,8 +66,8 @@ export function EditablePage({ title, initial, composer = false,
     const group = outline.selection
       ? selectionDragUids(blocksRef.current, outline.selection, uid) : null;
     dnd.startDrag(group && group.length > 1
-      ? { uid, pageTitle: title, uids: group }
-      : { uid, pageTitle: title });
+      ? { kind: "blocks", uid, pageTitle: title, uids: group }
+      : { kind: "blocks", uid, pageTitle: title });
   }, [ownsEditor, outline.readOnly, outline.selection, dnd, title]);
   // The tree hands this object to every row, so a fresh literal per render
   // would defeat EditableBlock's memo — one Journal day's worth of wasted

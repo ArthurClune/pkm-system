@@ -308,7 +308,7 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
       case "drop": {
         const uids = command.span > 0
           ? selectionDragUids(shown, selection(command.span), uid) ?? [uid] : [uid];
-        const drag: DragSource = { uid, pageTitle: PAGE_TITLE, ...(command.span > 0 ? { uids } : {}) };
+        const drag: DragSource = { kind: "blocks", uid, pageTitle: PAGE_TITLE, ...(command.span > 0 ? { uids } : {}) };
         const dropAt = dropRows(shown, drag, PAGE_TITLE);
         const boundary = command.boundary % (dropAt.length + 1);
         const allowed = allowedDepths(dropAt, boundary);

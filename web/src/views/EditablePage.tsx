@@ -60,8 +60,8 @@ export function EditablePage({ title, initial, composer = false,
     const group = outline.selection
       ? selectionDragUids(blocksRef.current, outline.selection, uid) : null;
     dnd.startDrag(group && group.length > 1
-      ? { uid, pageTitle: title, uids: group }
-      : { uid, pageTitle: title });
+      ? { kind: "blocks", uid, pageTitle: title, uids: group }
+      : { kind: "blocks", uid, pageTitle: title });
   }, [ownsEditor, outline.readOnly, outline.selection, dnd, title]);
   // The tree hands this object to every row, so a fresh literal per render
   // would defeat EditableBlock's memo — one Journal day's worth of wasted

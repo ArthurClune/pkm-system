@@ -4,7 +4,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BlockNode } from "../api/payloads";
 import { allowedDepths, depthFromX, dropRows, resolveDrop, INDENT_PX,
-         type DragSource, type DropPosition, type DropRow } from "../outline/dnd";
+         type DragSource, type DropPosition, type DropRow,
+         type DropTarget } from "../outline/dnd";
+import { uploadableDrag } from "../outline/fileDrop";
 import { boundaryFromRects, cacheIsUsable, cachedRectFor,
          indicatorTopFromRects, type RectCache,
          type RowRect } from "./dropGeometry";
@@ -24,9 +26,22 @@ export interface Indicator { top: number; left: number }
  * drag. */
 const THROTTLE_MS = 50;
 
+/** The drag's `dataTransfer` says it carries files. */
+const carriesFiles = (e: React.DragEvent) =>
+  Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
+/** Over the focused block's own textarea, which takes a file drop itself
+ * (splicing at the caret). */
+const overBlockTextarea = (e: React.DragEvent) =>
+  e.target instanceof Element && e.target.closest("textarea.block-input") !== null;
+
+/** `onDropFiles` makes this zone a target for files dragged in from outside
+ * the app: it uploads them into this page at the drop target. Without it the
+ * zone only takes block drags. */
 export function useDropZone(pageTitle: string,
                             getBlocks: () => BlockNode[],
-                            containerRef: React.RefObject<HTMLElement | null>) {
+                            containerRef: React.RefObject<HTMLElement | null>,
+                            onDropFiles?: (files: File[], target: DropTarget) => void) {
   const dnd = useDnd();
   const [indicator, setIndicator] = useState<Indicator | null>(null);
   // candidate survives between dragover and drop
@@ -99,17 +114,48 @@ export function useDropZone(pageTitle: string,
       prev && prev.top === top && prev.left === left ? prev : { top, left });
   }, [dnd.drag, getBlocks, pageTitle, containerRef]);
 
-  const onDragOver = useCallback((e: React.DragEvent) => {
-    if (!dnd.drag || !containerRef.current) return;
-    // preventDefault is the "this zone accepts the drag" signal, and HTML5
-    // DnD only honours it synchronously: deferring it to the coalesced frame
-    // would leave the drop refused on every event the frame hadn't caught up
-    // with. It is unconditional because allowedDepths never comes back empty
-    // (outline/dnd.test.ts pins that), so there is no reachable pointer
-    // position this zone would decline.
+  /** Accept (or decline) a drag of files from outside the app, starting the
+   * files drag on first sight. Returns true when the zone is taking this
+   * event as part of a files drag. The accept (preventDefault, dropEffect) is
+   * synchronous like every dragover's. */
+  const acceptFiles = (e: React.DragEvent): boolean => {
+    if (!onDropFiles || !containerRef.current || !carriesFiles(e)) return false;
+    if (dnd.drag !== null && dnd.drag.kind !== "files") return false;
+    if (overBlockTextarea(e)) {
+      // the textarea's own drop handler owns this one: no line, no accept
+      cancelFrame();
+      candidateRef.current = null;
+      setIndicator(null);
+      return false;
+    }
+    if (dnd.drag === null &&
+        !uploadableDrag(Array.from(e.dataTransfer.items ?? []))) return false;
     e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
+    e.dataTransfer.dropEffect = "copy";
+    if (dnd.drag === null) dnd.startDrag({ kind: "files" });
+    return true;
+  };
+
+  const onDragEnter = (e: React.DragEvent) => { acceptFiles(e); };
+
+  const onDragOver = (e: React.DragEvent) => {
+    if (dnd.drag?.kind === "blocks") {
+      if (!containerRef.current) return;
+      // preventDefault is the "this zone accepts the drag" signal, and HTML5
+      // DnD only honours it synchronously: deferring it to the coalesced frame
+      // would leave the drop refused on every event the frame hadn't caught up
+      // with. It is unconditional because allowedDepths never comes back empty
+      // (outline/dnd.test.ts pins that), so there is no reachable pointer
+      // position this zone would decline.
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    } else if (!acceptFiles(e)) {
+      return;
+    }
     pointerRef.current = { x: e.clientX, y: e.clientY };
+    // A files drag is still starting when dnd.drag is null: the effect on
+    // `dragging` draws its first line.
+    if (!dnd.drag) return;
     if (performance.now() - processedAtRef.current >= THROTTLE_MS) {
       cancelFrame();
       process();
@@ -119,7 +165,7 @@ export function useDropZone(pageTitle: string,
         process();
       });
     }
-  }, [dnd.drag, containerRef, process]);
+  };
 
   const onDragLeave = useCallback((e: React.DragEvent) => {
     if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
@@ -132,7 +178,31 @@ export function useDropZone(pageTitle: string,
     setIndicator(null);
   }, []);
 
-  const onDrop = useCallback((e: React.DragEvent) => {
+  const onDrop = (e: React.DragEvent) => {
+    const drag = dnd.drag;
+    if (drag?.kind === "files") {
+      // the textarea splices a dropped file at its caret, and says so by
+      // preventing the event
+      if (e.defaultPrevented || overBlockTextarea(e)) return;
+      e.preventDefault();
+      cancelFrame();
+      const files = Array.from(e.dataTransfer.files);
+      let cand = candidateRef.current;
+      if (!cand) {
+        // no dragover was processed yet: measure the drop's own position
+        pointerRef.current = { x: e.clientX, y: e.clientY };
+        process();
+        cand = candidateRef.current;
+      }
+      candidateRef.current = null;
+      pointerRef.current = null;
+      setIndicator(null);
+      dnd.endDrag();
+      const target = cand
+        ? resolveDrop(getBlocks(), pageTitle, drag, cand) : null;
+      if (target && files.length > 0) onDropFiles?.(files, target);
+      return;
+    }
     e.preventDefault();
     cancelFrame();
     // Deliberately the last *processed* candidate rather than this event's
@@ -142,11 +212,11 @@ export function useDropZone(pageTitle: string,
     candidateRef.current = null;
     pointerRef.current = null;
     setIndicator(null);
-    if (!dnd.drag || !cand) return;
-    const target = resolveDrop(getBlocks(), pageTitle, dnd.drag, cand);
-    if (target) dnd.drop(dnd.drag, target);
+    if (!drag || !cand) return;
+    const target = resolveDrop(getBlocks(), pageTitle, drag, cand);
+    if (target) dnd.drop(drag, target);
     else dnd.endDrag();
-  }, [dnd, getBlocks, pageTitle]);
+  };
 
   const dragging = dnd.drag !== null;
   useEffect(() => {
@@ -155,6 +225,9 @@ export function useDropZone(pageTitle: string,
     // the spot rather than inheriting the last drag's throttle window.
     cacheRef.current = null;
     processedAtRef.current = 0;
+    // A files drag starts on a dragover that could not measure (there was no
+    // drag yet), so it draws its first line from that pointer sample.
+    if (pointerRef.current) process();
     // A scroll really does move rows out from under the cached tops, and
     // cannot be shifted for: clientY is viewport-relative. Capture, because
     // a scroll inside a pane does not bubble to window.
@@ -171,5 +244,17 @@ export function useDropZone(pageTitle: string,
     };
   }, [dragging]);
 
-  return { indicator, zoneProps: { onDragOver, onDragLeave, onDrop } };
+  // A files drag has no dragend to clear this zone's line, so the end of the
+  // drag (drop elsewhere, Escape, leaving the window) does it.
+  const filesDragging = dnd.drag?.kind === "files";
+  useEffect(() => {
+    if (!filesDragging) return undefined;
+    return () => {
+      pointerRef.current = null;
+      candidateRef.current = null;
+      setIndicator(null);
+    };
+  }, [filesDragging]);
+
+  return { indicator, zoneProps: { onDragEnter, onDragOver, onDragLeave, onDrop } };
 }

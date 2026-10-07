@@ -52,7 +52,7 @@ it("dropping an image on an empty page creates its block at the root", async () 
     { op: "create", parent_uid: null, order_idx: 0, text: `![cat.png](${INFO.url})` }]);
 });
 
-it("dropping an image on a populated page uploads it as a new block", async () => {
+it("dropping an image on a populated page uploads it as a block at the drop line", async () => {
   const sync = renderPage([block("u1", "one", { order_idx: ord(0) })]);
   const zone = document.querySelector(".outline-drop-zone")!;
   const t = transfer();
@@ -61,5 +61,6 @@ it("dropping an image on a populated page uploads it as a new block", async () =
     fireEvent.drop(zone, { clientX: 0, clientY: 0, dataTransfer: t });
     await new Promise((r) => setTimeout(r, 0));
   });
-  expect(sync.sent[0]).toMatchObject([{ op: "create", order_idx: 0 }]);
+  // jsdom measures every row as zero-height, so the line lands after the last
+  expect(sync.sent[0]).toMatchObject([{ op: "create", order_idx: 1 }]);
 });

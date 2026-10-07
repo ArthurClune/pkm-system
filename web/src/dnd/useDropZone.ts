@@ -136,6 +136,11 @@ export function useDropZone(pageTitle: string,
     return true;
   };
 
+  // the render's own process, for the effect below, which must not re-run
+  // for every change of it
+  const processRef = useRef(process);
+  processRef.current = process;
+
   const onDragEnter = (e: React.DragEvent) => { acceptFiles(e); };
 
   const onDragOver = (e: React.DragEvent) => {
@@ -227,7 +232,7 @@ export function useDropZone(pageTitle: string,
     processedAtRef.current = 0;
     // A files drag starts on a dragover that could not measure (there was no
     // drag yet), so it draws its first line from that pointer sample.
-    if (pointerRef.current) process();
+    if (pointerRef.current) processRef.current();
     // A scroll really does move rows out from under the cached tops, and
     // cannot be shifted for: clientY is viewport-relative. Capture, because
     // a scroll inside a pane does not bubble to window.

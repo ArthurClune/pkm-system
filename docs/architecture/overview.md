@@ -145,8 +145,9 @@ into iCloud Drive.
 
 - `deploy/install.sh` — idempotent first install: renders plists, bootstraps
   services, configures Tailscale Serve.
-- `deploy/update.sh` — deploy: `git pull --ff-only`, `uv sync`, `pnpm build`,
-  kickstart the server service. It refuses to run outside `$PKM_HOME/app`
+- `deploy/update.sh` — deploy: fast-forward to `main` of the local dev
+  checkout (never GitHub), `uv sync`, `pnpm build`, kickstart the server
+  service. It refuses to run outside `$PKM_HOME/app`
   unless `PKM_UPDATE_FORCE=1` is set, so a deploy runs against the installed
   checkout rather than a dev tree.
 - `deploy/smoke.sh` — post-deploy verification. It does a real WebSocket

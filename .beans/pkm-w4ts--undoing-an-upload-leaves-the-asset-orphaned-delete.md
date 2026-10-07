@@ -1,10 +1,11 @@
 ---
 # pkm-w4ts
 title: 'Undoing an upload leaves the asset orphaned: delete it once redo is gone'
-status: todo
+status: in-progress
 type: bug
+priority: normal
 created_at: 2026-10-07T19:51:52Z
-updated_at: 2026-10-07T19:51:52Z
+updated_at: 2026-10-07T19:59:08Z
 ---
 
 Undoing an upload leaves the uploaded asset orphaned in the store. Applies to every upload path that edits the outline: /upload, paste, file drop onto the focused textarea, and file drag-and-drop onto the page (pkm-qkoq). Reported by Arthur during pkm-qkoq's manual check.

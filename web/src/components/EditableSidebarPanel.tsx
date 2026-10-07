@@ -28,7 +28,7 @@ export function EditableSidebarPanel({ title, uid }: { title: string; uid?: Bloc
   const { payload, error } = useOutlinePageLoad(title, substituteMissingDaily);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useScrollFlashTarget(uid, payload, containerRef);
+  useScrollFlashTarget(uid, payload, { root: containerRef });
 
   if (error) return <p className="error">{error}</p>;
   if (!payload) return <p className="loading">Loading…</p>;

@@ -124,7 +124,13 @@ A `{{toc}}` block (`tocEntries`, Core) is the one row that must see past its
 own node. `EditableBlockTree` publishes its `blocks` through
 `RootBlocksContext` and only `TocBlock` reads it, so no other row's memo is
 disturbed. Entries link to `#<uid>`, which only `useScrollFlashTarget` in
-`PageView` consumes.
+`PageView` consumes. `PageView` passes the router's location key, so a second
+click on the same entry jumps again. Content above the target keeps growing
+after the jump: PDF pages replace their placeholder slots and embeds resize.
+So the hook re-centres the target whenever one of its ancestors resizes. It
+lets go at the reader's first wheel, touch, key or pointer input, or once
+layout has been quiet for `PIN_QUIET_MS`. It watches ancestors because `body`
+is fixed at 100% height and never resizes.
 
 Rows with incoming `((uid))` references carry `RefCountBadge` between the text
 and the stamp cell, fed by `block_ref_counts` on the page/journal payloads

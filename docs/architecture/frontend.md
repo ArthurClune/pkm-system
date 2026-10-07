@@ -57,7 +57,8 @@ web/src/
 │                                          live request (SearchBar, QueryBlock,
 │                                          useTitleOptions); Files keeps its own
 ├── useScrollFlashTarget.ts   Shell        Scroll a data-uid into view and flash it,
-│                                          document-wide or scoped to a panel root
+│                                          document-wide or scoped to a panel root;
+│                                          holds it centred while layout settles
 ├── externalLink.ts           Core         iOS-standalone predicate; click → x-safari-
 │                                          http(s) URL decision (see below)
 ├── styles.css                —            All styling — owned by styling.md

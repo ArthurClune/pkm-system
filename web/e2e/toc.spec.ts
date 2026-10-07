@@ -67,3 +67,66 @@ test("a {{toc}} block lists the page's headings and follows their edits",
   await input(page).press("Escape");
   await expect(tocLinks(page)).toHaveText(["Introduction", "Details"]);
 });
+
+// A long page whose last heading is far below the toc. Seeded through
+// /api/ops so the jump has real distance to cover; deleted afterwards.
+const created: string[] = [];
+test.afterEach(async ({ page }) => {
+  for (const title of created.splice(0)) {
+    await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
+  }
+});
+
+async function longPage(page: Page): Promise<string> {
+  const title = `Toc Long ${Date.now()}`;
+  created.push(title);
+  expect((await page.request.post("/api/pages", { data: { title } })).ok()).toBeTruthy();
+  const stamp = Date.now().toString(36);
+  const texts = ["{{toc}}", ...Array.from({ length: 80 }, (_, i) => `filler ${i}`)];
+  const ops = texts.map((text, i) => ({
+    op: "create", uid: `toc${stamp}f${i}`, page_title: title, parent_uid: null,
+    order_idx: i, text,
+  }));
+  ops.push({ op: "create", uid: `toc${stamp}tgt`, page_title: title, parent_uid: null,
+             order_idx: texts.length, text: "Far Heading", heading: 2 } as never);
+  const res = await page.request.post("/api/ops", { data: {
+    client_id: "e2e-toc", batch_id: `e2e-toc-${stamp}`, ops } });
+  expect(res.ok()).toBeTruthy();
+  return title;
+}
+
+const farHeading = (page: Page) => page.locator("h2.block-text", { hasText: "Far Heading" });
+
+test("a toc jump keeps its target in view while content above it grows",
+     async ({ page }) => {
+  await login(page);
+  await page.goto(`/page/${encodeURIComponent(await longPage(page))}`);
+  await tocLinks(page).filter({ hasText: "Far Heading" }).click();
+  await expect(farHeading(page)).toBeInViewport({ ratio: 1 });
+
+  // What a PDF page replacing its placeholder, or an embed resizing, does:
+  // a block above the target, already scrolled past, gets much taller.
+  await page.evaluate(() => {
+    const filler = [...document.querySelectorAll(".block-text")]
+      .find((el) => el.textContent === "filler 70") as HTMLElement;
+    filler.style.height = "900px";
+  });
+  await expect(farHeading(page)).toBeInViewport({ ratio: 1 });
+});
+
+test("clicking the same toc entry again after scrolling away jumps again",
+     async ({ page }) => {
+  await login(page);
+  await page.goto(`/page/${encodeURIComponent(await longPage(page))}`);
+  const entry = tocLinks(page).filter({ hasText: "Far Heading" });
+  await entry.click();
+  await expect(farHeading(page)).toBeInViewport({ ratio: 1 });
+
+  // The reader scrolls back up to the toc by hand.
+  await page.mouse.wheel(0, -100_000);
+  await expect(entry).toBeInViewport();
+  await expect(farHeading(page)).not.toBeInViewport();
+
+  await entry.click();
+  await expect(farHeading(page)).toBeInViewport({ ratio: 1 });
+});

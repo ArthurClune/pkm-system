@@ -21,3 +21,12 @@ Agreed so far (2026-10-07), to be refined in brainstorming before implementation
 - **Offline or failure: leave the file**; the /files orphan filter still finds it.
 
 Open questions: where the "fresh assets" list lives (HistoryEntry vs a side map keyed by entry), how the delete waits on the undo ticket's delivery, multiple outlines (journal days) each with their own history, the OpenAPI regen for the new route/param.
+
+## Checklist
+
+- [x] Server: conditional delete (`if_unreferenced`)
+- [x] History entries carry `freshAssets`; undo manager releases discarded redo entries' uploads
+- [x] Upload paths tag fresh uploads
+- [x] e2e spec, architecture docs
+- [ ] perf/check.sh
+- [ ] proptest/check.sh

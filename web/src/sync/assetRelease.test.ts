@@ -66,3 +66,16 @@ test("releaseOnUnload sends keepalive deletes and swallows errors", () => {
   const rejecting = vi.fn(async () => { throw new Error("async"); });
   expect(() => releaseOnUnload([A], rejecting as unknown as typeof fetch)).not.toThrow();
 });
+
+test("keep vetoes a sha at fetch time, not at schedule time", async () => {
+  const doFetch = fetchReturning(200);
+  let resolve!: (o: DeliveryOutcome) => void;
+  const pending = new Promise<DeliveryOutcome>((r) => { resolve = r; });
+  const kept = new Set<Sha256Hex>();
+  const done = releaseAssets([A, B], [pending], doFetch as unknown as typeof fetch,
+                             (sha) => kept.has(sha));
+  kept.add(A);
+  resolve(delivered);
+  await done;
+  expect(doFetch.mock.calls.map((c) => c[0])).toEqual([releaseUrl(B)]);
+});

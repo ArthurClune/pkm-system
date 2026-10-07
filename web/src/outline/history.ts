@@ -285,7 +285,7 @@ export function recordEntry(state: HistoryState,
                             entry: HistoryEntry):
     { state: HistoryState; discarded: HistoryEntry[] } {
   // `discarded` is the redo stack this clears; cap trimming drops undo-side
-  // entries, which stay undoable-by-intent and are not reported.
+  // entries, which are not reported, so their uploads are never released.
   return {
     state: { undo: [...state.undo, entry].slice(-HISTORY_CAP), redo: [] },
     discarded: state.redo,

@@ -18,6 +18,7 @@ import type { Sha256Hex } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { releaseAssets, releaseOnUnload } from "../sync/assetRelease";
+import { uploadClock, uploadedSince } from "../sync/assets";
 import type { DeliveryOutcome, WriteTicket } from "../sync/opQueue";
 import { pagePath } from "../paths";
 import { stampBaseTextHashes } from "./baseTextHash";
@@ -55,11 +56,13 @@ let epoch = 0;
 
 export interface AssetReleaser {
   release(shas: readonly Sha256Hex[],
-          waitFor: readonly Promise<DeliveryOutcome>[]): Promise<void>;
+          waitFor: readonly Promise<DeliveryOutcome>[],
+          keep?: (sha: Sha256Hex) => boolean): Promise<void>;
   releaseOnUnload(shas: readonly Sha256Hex[]): void;
 }
 const defaultReleaser: AssetReleaser = {
-  release: (shas, waitFor) => releaseAssets(shas, waitFor),
+  release: (shas, waitFor, keep) =>
+    releaseAssets(shas, waitFor, undefined, keep),
   releaseOnUnload: (shas) => releaseOnUnload(shas),
 };
 let releaser: AssetReleaser = defaultReleaser;
@@ -70,6 +73,8 @@ let releaser: AssetReleaser = defaultReleaser;
 interface UndoReceipt {
   delivered: Promise<DeliveryOutcome>;
   isDelivered: boolean;
+  /** uploadClock() at the undo: a later upload of the same bytes keeps the file. */
+  undoneAt: number;
 }
 let receipts = new WeakMap<HistoryEntry, UndoReceipt>();
 
@@ -127,8 +132,10 @@ export function recordHistory(entry: HistoryEntry, write: WriteTicket): void {
     // Only an undo puts an entry on the redo stack, so a receipt is always
     // there; without one there is nothing safe to wait on.
     if (gone.freshAssets.length === 0 || !receipt) continue;
+    const { undoneAt } = receipt;
     void releaser.release(gone.freshAssets,
-                          [receipt.delivered, write.delivered]);
+                          [receipt.delivered, write.delivered],
+                          (sha) => uploadedSince(sha, undoneAt));
   }
 }
 
@@ -139,10 +146,15 @@ export function recordHistory(entry: HistoryEntry, write: WriteTicket): void {
 export function installUnloadRelease(target: Window = window): () => void {
   const onPageHide = (e: PageTransitionEvent) => {
     if (e.persisted) return;
-    for (const e of state.redo) {
-      if (e.freshAssets.length > 0 && receipts.get(e)?.isDelivered) {
-        releaser.releaseOnUnload(e.freshAssets);
-      }
+    for (const entry of state.redo) {
+      const receipt = receipts.get(entry);
+      if (entry.freshAssets.length === 0 || !receipt?.isDelivered) continue;
+      // Sent before the visibilitychange draft flush: a draft that
+      // re-references the file is contrived (it would show as missing and
+      // the person re-uploads), so the release does not wait for it.
+      const shas = entry.freshAssets.filter(
+        (sha) => !uploadedSince(sha, receipt.undoneAt));
+      if (shas.length > 0) releaser.releaseOnUnload(shas);
     }
   };
   target.addEventListener("pagehide", onPageHide);
@@ -158,6 +170,7 @@ export function performUndo(sync: HistoryDispatch): boolean {
     delivered: dispatch(sync, entry.inverse, entry.anchors.inverse,
                         entry.pageTitle, entry.focusBefore),
     isDelivered: false,
+    undoneAt: uploadClock(),
   };
   void receipt.delivered.then((o) => {
     receipt.isDelivered = o.status === "delivered";

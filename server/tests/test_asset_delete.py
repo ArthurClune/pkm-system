@@ -172,3 +172,26 @@ def test_without_flag_still_strips(client, seeded_config):
     _create_block(client, "cond002", "AI", f"x ![p]({a['url']})")
     r = client.delete(f"/api/assets/{a['sha256']}")
     assert r.json()["refs_removed"] == 1
+
+
+def test_if_unreferenced_answers_503_while_the_write_lock_is_held(
+        client, seeded_config, monkeypatch):
+    # The reference check runs under BEGIN IMMEDIATE: a held write lock
+    # means no check, no delete.
+    a = _upload(client)
+    monkeypatch.setattr("pkm.server.db.BUSY_TIMEOUT_MS", 50)
+    holder = open_db(seeded_config.db_path)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        r = client.delete(f"/api/assets/{a['sha256']}?if_unreferenced=true")
+    finally:
+        holder.rollback()
+        holder.close()
+    assert r.status_code == 503
+    assert r.headers["Retry-After"] == "1"
+    assert _asset_path(seeded_config, a["sha256"]).is_file()
+    db = open_db(seeded_config.db_path)
+    row = db.execute("SELECT 1 FROM assets WHERE sha256 = ?",
+                     (a["sha256"],)).fetchone()
+    db.close()
+    assert row is not None

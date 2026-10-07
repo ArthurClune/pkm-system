@@ -8,15 +8,20 @@ export function releaseUrl(sha: Sha256Hex): string {
   return `/api/assets/${sha}?if_unreferenced=true`;
 }
 
+// `keep` vetoes a sha just before its fetch.
 // 200, 404 and 409 are final answers; anything else is logged and dropped.
 export async function releaseAssets(
   shas: readonly Sha256Hex[],
   waitFor: readonly Promise<DeliveryOutcome>[],
   doFetch: typeof fetch = fetch,
+  keep: (sha: Sha256Hex) => boolean = () => false,
 ): Promise<void> {
   const outcomes = await Promise.all(waitFor);
   if (outcomes.some((o) => o.status === "failed")) return;
   for (const sha of shas) {
+    // Checked per fetch, not at schedule time: a re-upload can land while
+    // the release waits on deliveries.
+    if (keep(sha)) continue;
     try {
       const res = await doFetch(releaseUrl(sha),
         { method: "DELETE", credentials: "same-origin" });

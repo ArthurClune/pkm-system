@@ -5,6 +5,7 @@ import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
 import { releaseAssets, releaseUrl } from "../sync/assetRelease";
+import { recordUpload, resetUploadClock } from "../sync/assets";
 import type { DeliveryOutcome, TicketId, WriteTicket } from "../sync/opQueue";
 import { block, defer, deliveredTicket, makeSync, ord,
          uid } from "../test-helpers";
@@ -31,7 +32,7 @@ const entry = (): HistoryEntry => ({
 // Unmounted pages are read through the page loader; an empty tree keeps the
 // ops unstamped, as a block the tree does not know is.
 beforeEach(() => { setHistoryPageLoader(async () => []); });
-afterEach(() => resetHistory());
+afterEach(() => { resetHistory(); resetUploadClock(); });
 
 it("undo enqueues the inverse batch scoped to the entry's page", async () => {
   const sync = makeSync();
@@ -402,7 +403,8 @@ it("undo then a new edit releases the entry's fresh assets after both deliveries
   recordHistory(entry(), edit.ticket);
   expect(release).toHaveBeenCalledTimes(1);
   expect(release).toHaveBeenCalledWith(
-    [S1], [sync.tickets[0].delivered, edit.ticket.delivered]);
+    [S1], [sync.tickets[0].delivered, edit.ticket.delivered],
+    expect.any(Function));
   await closeSession(sync, handle);
 });
 
@@ -510,7 +512,7 @@ it("an unmounted undo dropped by a history reset gives the release a failed rece
 it("undo then re-upload of the same file waits for the clearing edit", async () => {
   const doFetch = vi.fn(async () => ({ status: 409 }) as Response);
   setAssetReleaser({
-    release: (shas, waitFor) => releaseAssets(shas, waitFor, doFetch),
+    release: (shas, waitFor, keep) => releaseAssets(shas, waitFor, doFetch, keep),
     releaseOnUnload: () => undefined,
   });
   const sync = gatedSync();
@@ -597,4 +599,88 @@ it("resetHistory restores the default releaser", async () => {
   expect(fetchSpy).toHaveBeenCalledWith(releaseUrl(S1),
     expect.objectContaining({ method: "DELETE" }));
   fetchSpy.mockRestore();
+});
+
+function realReleaser() {
+  const doFetch = vi.fn(async () => ({ status: 200 }) as Response);
+  const unload = vi.fn((_shas: readonly Sha256Hex[]) => undefined);
+  setAssetReleaser({
+    release: (shas, waitFor, keep) => releaseAssets(shas, waitFor, doFetch, keep),
+    releaseOnUnload: unload,
+  });
+  return { doFetch, unload };
+}
+
+it("a same-bytes upload after the undo keeps the file even when a different edit clears redo", async () => {
+  const { doFetch } = realReleaser();
+  const sync = gatedSync();
+  recordHistory(upload(S1), deliveredTicket());
+  performUndo(sync);
+  await historyIdle();
+  sync.gates[0].resolve(DELIVERED);
+  recordUpload(S1);
+  recordHistory(entry(), deliveredTicket());
+  await flush();
+  expect(doFetch).not.toHaveBeenCalled();
+});
+
+it("a re-upload that completes while the release waits on deliveries still keeps the file", async () => {
+  const { doFetch } = realReleaser();
+  const sync = gatedSync();
+  recordHistory(upload(S1), deliveredTicket());
+  performUndo(sync);
+  await historyIdle();
+  const edit = gatedTicket();
+  recordHistory(entry(), edit.ticket);
+  sync.gates[0].resolve(DELIVERED);
+  await flush();
+  expect(doFetch).not.toHaveBeenCalled();
+  recordUpload(S1);
+  edit.gate.resolve(DELIVERED);
+  await flush();
+  expect(doFetch).not.toHaveBeenCalled();
+});
+
+it("an upload of an unrelated sha after the undo does not block the release", async () => {
+  const { doFetch } = realReleaser();
+  const sync = gatedSync();
+  recordHistory(upload(S1), deliveredTicket());
+  performUndo(sync);
+  await historyIdle();
+  sync.gates[0].resolve(DELIVERED);
+  recordUpload(S2);
+  recordHistory(entry(), deliveredTicket());
+  await flush();
+  expect(doFetch).toHaveBeenCalledTimes(1);
+  expect(doFetch).toHaveBeenCalledWith(releaseUrl(S1), expect.anything());
+});
+
+it("an upload before the undo does not keep the file", async () => {
+  const { doFetch } = realReleaser();
+  const sync = gatedSync();
+  recordUpload(S1);
+  recordHistory(upload(S1), deliveredTicket());
+  performUndo(sync);
+  await historyIdle();
+  sync.gates[0].resolve(DELIVERED);
+  recordHistory(entry(), deliveredTicket());
+  await flush();
+  expect(doFetch).toHaveBeenCalledTimes(1);
+});
+
+it("pagehide skips a sha re-uploaded since the undo", async () => {
+  const { unload } = realReleaser();
+  const sync = gatedSync();
+  recordHistory(upload(S1), deliveredTicket());
+  recordHistory(upload(S2), deliveredTicket());
+  performUndo(sync);
+  performUndo(sync);
+  await historyIdle();
+  sync.gates.forEach((g) => g.resolve(DELIVERED));
+  await flush();
+  recordUpload(S2);
+  const remove = installUnloadRelease(window);
+  window.dispatchEvent(pageHide(false));
+  expect(unload.mock.calls).toEqual([[[S1]]]);
+  remove();
 });

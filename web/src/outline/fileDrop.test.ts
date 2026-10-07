@@ -26,6 +26,13 @@ describe("uploadableDrag", () => {
     expect(uploadableDrag([{ kind: "file", type: "text/plain" }])).toBe(false);
     expect(uploadableDrag([{ kind: "string", type: "image/png" }])).toBe(false);
   });
+  it("is true for a file whose type the browser withholds (empty)", () => {
+    expect(uploadableDrag([{ kind: "file", type: "" }])).toBe(true);
+  });
+  it("is false when every file has a known unsuitable type", () => {
+    expect(uploadableDrag([{ kind: "file", type: "text/plain" },
+                           { kind: "file", type: "application/zip" }])).toBe(false);
+  });
   it("is true when the browser lists no items at all (type unknown)", () => {
     expect(uploadableDrag([])).toBe(true);
   });

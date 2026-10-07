@@ -60,23 +60,36 @@ export function DndProvider({ children }: { children: ReactNode }) {
 
   // Files dragged in from outside the app never fire dragend on anything of
   // ours, so a files drag is ended by what can be seen of it: the drop (the
-  // zone has used it by the time this bubbles to window), the pointer leaving
-  // the window, or Escape.
-  const filesDrag = drag?.kind === "files";
+  // zone has used it by the time this bubbles to window), or the pointer
+  // leaving the page. Leaving is counted, not read off `relatedTarget`, which
+  // WebKit reports as null on every dragleave: dragenter and dragleave pair up
+  // in every engine, so the depth is back to zero exactly when the drag has
+  // left the document, whether the pointer exited the window or the OS
+  // cancelled the drag (Escape arrives as a dragleave; no keydown is delivered
+  // during a native drag). Capture phase, so the enter that makes a zone start
+  // the files drag is already counted when the zone's handler runs.
   useEffect(() => {
-    if (!filesDrag) return undefined;
-    const end = () => setDrag(null);
-    const onLeave = (e: DragEvent) => { if (e.relatedTarget === null) end(); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") end(); };
-    window.addEventListener("drop", end);
-    window.addEventListener("dragleave", onLeave);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("drop", end);
-      window.removeEventListener("dragleave", onLeave);
-      window.removeEventListener("keydown", onKey);
+    const carriesFiles = (e: DragEvent) =>
+      Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    const endFilesDrag = () =>
+      setDrag((d) => (d?.kind === "files" ? null : d));
+    let depth = 0;
+    const onEnter = (e: DragEvent) => { if (carriesFiles(e)) depth++; };
+    const onLeave = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) endFilesDrag();
     };
-  }, [filesDrag]);
+    const onDrop = () => { depth = 0; endFilesDrag(); };
+    document.addEventListener("dragenter", onEnter, true);
+    document.addEventListener("dragleave", onLeave, true);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      document.removeEventListener("dragenter", onEnter, true);
+      document.removeEventListener("dragleave", onLeave, true);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
 
   // A file dropped where nothing takes it makes the browser navigate to the
   // file, abandoning the page. Zones and the block textarea run first (React

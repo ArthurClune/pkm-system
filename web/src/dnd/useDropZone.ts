@@ -92,13 +92,14 @@ export function useDropZone(pageTitle: string,
   /** Resolve the last pointer sample to a candidate and an indicator. Both
    * come out of the same sample, which is what lets a drop use the candidate
    * the visible line was drawn from (see onDrop). */
-  const process = useCallback(() => {
+  const process = useCallback((forced?: DragSource) => {
+    const drag = forced ?? dnd.drag;
     const container = containerRef.current;
     const at = pointerRef.current;
-    if (!dnd.drag || !container || !at) return;
+    if (!drag || !container || !at) return;
     processedAtRef.current = performance.now();
-    const rows = dropRows(getBlocks(), dnd.drag, pageTitle);
-    const cache = cacheFor(container, dnd.drag, rows);
+    const rows = dropRows(getBlocks(), drag, pageTitle);
+    const cache = cacheFor(container, drag, rows);
     const rectAt = measure(container, cache, rows);
     const boundary = boundaryFromRects(rows, rectAt, at.y);
     const depth = depthFromX(allowedDepths(rows, boundary),
@@ -184,7 +185,10 @@ export function useDropZone(pageTitle: string,
   }, []);
 
   const onDrop = (e: React.DragEvent) => {
-    const drag = dnd.drag;
+    // dnd.drag is null in this closure when the drop beats the render that
+    // would have started the files drag; the event still says what it is
+    const drag: DragSource | null = dnd.drag
+      ?? (onDropFiles && carriesFiles(e) ? { kind: "files" } : null);
     if (drag?.kind === "files") {
       // the textarea splices a dropped file at its caret, and says so by
       // preventing the event
@@ -196,7 +200,7 @@ export function useDropZone(pageTitle: string,
       if (!cand) {
         // no dragover was processed yet: measure the drop's own position
         pointerRef.current = { x: e.clientX, y: e.clientY };
-        process();
+        process(drag);
         cand = candidateRef.current;
       }
       candidateRef.current = null;

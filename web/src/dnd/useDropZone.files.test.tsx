@@ -175,24 +175,27 @@ it("a drop the textarea already took (defaultPrevented) is not taken again", () 
   expect(onDropFiles).not.toHaveBeenCalled();
 });
 
-it("Escape ends a files drag and its line", () => {
+it("the drag ends only when every dragenter has been matched by a dragleave", () => {
   const { zone } = setup();
-  fireEvent.dragOver(zone, { clientX: 0, clientY: 25, dataTransfer: filesTransfer([png]) });
+  const over = (el: Element) => fireEvent.dragEnter(el, { dataTransfer: filesTransfer([png]) });
+  const out = (el: Element) => fireEvent.dragLeave(el, { relatedTarget: null,
+                                                         dataTransfer: filesTransfer([png]) });
+  const child = zone.querySelector("[data-uid]")!;
+  over(zone);                       // starts the files drag
+  expect(dnd.drag).toEqual({ kind: "files" });
+  over(child);
+  out(zone);                        // null relatedTarget on every leave (WebKit)
   expect(dnd.drag).not.toBeNull();
-  fireEvent.keyDown(window, { key: "Escape" });
+  out(child);
   expect(dnd.drag).toBeNull();
-  expect(indicatorTop()).toBeNull();
 });
 
-it("the pointer leaving the window ends a files drag", () => {
-  const { zone } = setup();
-  fireEvent.dragOver(zone, { clientX: 0, clientY: 25, dataTransfer: filesTransfer([png]) });
-  // moving between elements inside the page names the element entered
-  fireEvent.dragLeave(zone, { relatedTarget: document.body });
-  expect(dnd.drag).not.toBeNull();
-  fireEvent.dragLeave(document.documentElement, { relatedTarget: null });
-  expect(dnd.drag).toBeNull();
-  expect(indicatorTop()).toBeNull();
+it("a drop that beats the render starting the files drag is still a files drop", () => {
+  const { zone, onDropFiles } = setup();
+  // no dragenter/dragover first: dnd.drag is null in the zone's closure
+  fireEvent.drop(zone, { clientX: 0, clientY: 25, dataTransfer: filesTransfer([png]) });
+  expect(onDropFiles).toHaveBeenCalledWith(
+    [png], { parent_uid: null, order_idx: 1, page_title: "P" });
 });
 
 it("a drop anywhere ends a files drag", () => {

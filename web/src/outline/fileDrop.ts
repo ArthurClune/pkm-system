@@ -17,11 +17,12 @@ export function isUploadableType(type: string): boolean {
 /** Whether a drag in flight carries something droppable, from
  * `dataTransfer.items` (the only view of a drag's contents before the drop:
  * `files` is empty until then, but each item's kind and type are listed).
- * A browser that lists no items at all gives no basis to refuse, so the drag
- * is accepted and the drop-time filter reports anything unsuitable. */
+ * A browser that lists no items at all, or lists a file with an empty type
+ * (WebKit does during dragover), gives no basis to refuse, so the drag is
+ * accepted and the drop-time filter reports anything unsuitable by name. */
 export function uploadableDrag(items: { kind: string; type: string }[]): boolean {
   if (items.length === 0) return true;
-  return items.some((i) => i.kind === "file" && isUploadableType(i.type));
+  return items.some((i) => i.kind === "file" && (i.type === "" || isUploadableType(i.type)));
 }
 
 /** The dropped files split by `file.type`, each side in drop order. */

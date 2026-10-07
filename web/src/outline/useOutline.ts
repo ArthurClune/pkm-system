@@ -220,6 +220,7 @@ export function useOutline(
       recordHistory({
         pageTitle, ops: recorded, inverse,
         anchors: historyAnchors(pre, pageTitle, recorded, inverse),
+        freshAssets: [],
         focusBefore: focusRef.current,
         focusAfter: result.focus ?? focusRef.current,
       });

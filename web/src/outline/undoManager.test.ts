@@ -18,6 +18,7 @@ const entry = (): HistoryEntry => ({
   ops: [{ op: "update_text", uid: uid("a"), text: "after" }],
   inverse: [{ op: "update_text", uid: uid("a"), text: "before" }],
   anchors: { ops: [null], inverse: [null] },
+  freshAssets: [],
   focusBefore: { uid: uid("a"), cursor: 6 },
   focusAfter: { uid: uid("a"), cursor: 5 },
 });
@@ -131,6 +132,7 @@ it("redo stamps against the current tree, not the recorded one", () => {
     ops: [{ op: "update_text", uid: uid("a"), text: "one" }],
     inverse: [{ op: "update_text", uid: uid("a"), text: "zero" }],
     anchors: { ops: [null], inverse: [null] },
+  freshAssets: [],
     focusBefore: null,
     focusAfter: null,
   });
@@ -163,7 +165,7 @@ it("an undo that deletes is stamped against the tree at replay time", () => {
     ...before, block("n", "", { order_idx: ord(1) })]);
   recordHistory({ pageTitle: PAGE, ops: create, inverse: inverse!,
                   anchors: historyAnchors(before, PAGE, create, inverse!),
-                  focusBefore: null, focusAfter: null });
+                  freshAssets: [], focusBefore: null, focusAfter: null });
   const typed: BlockOp[] = [{ op: "update_text", uid: uid("n"), text: "typed later" }];
   handle.applyLocal(sync.enqueue(typed, ["page", PAGE]), typed);
 
@@ -186,7 +188,7 @@ it("undo re-keys placements against the mounted tree, not the recorded keys", ()
     const inverse = invertOps(pre, PAGE, ops)!;
     recordHistory({ pageTitle: PAGE, ops, inverse,
                     anchors: historyAnchors(pre, PAGE, ops, inverse),
-                    focusBefore: null, focusAfter: null });
+                    freshAssets: [], focusBefore: null, focusAfter: null });
     return applyOps(pre, ops, PAGE);
   };
   let tree = ["b0", "b1", "b2"].map((u, i) => block(u, u, { order_idx: ord(i) }));
@@ -229,7 +231,7 @@ it("undo with no session re-keys placements against the loaded page", async () =
   const inverse = invertOps(pre, PAGE, ops)!;
   recordHistory({ pageTitle: PAGE, ops, inverse,
                   anchors: historyAnchors(pre, PAGE, ops, inverse),
-                  focusBefore: null, focusAfter: null });
+                  freshAssets: [], focusBefore: null, focusAfter: null });
   const loaded = applyOps(applyOps(pre, ops, PAGE), [{
     op: "create", uid: uid("x"), page_title: PAGE, parent_uid: null,
     order_idx: ord(0), text: "x" }], PAGE);

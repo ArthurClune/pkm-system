@@ -210,7 +210,7 @@ it("undo stamps page_title on the enqueued op, though the recorded entry carries
     ops: [{ op: "update_text", uid: uid("a"), text: "one" }],
     inverse,
     anchors: { ops: [null], inverse: [null] },
-    focusBefore: null,
+    freshAssets: [], focusBefore: null,
     focusAfter: null,
   });
   act(() => outline().handlers.onUndo());

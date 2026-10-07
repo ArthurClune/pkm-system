@@ -18,6 +18,7 @@ const entry = () => ({
   ops: [{ op: "update_text" as const, uid: uid("a"), text: "after" }],
   inverse: [{ op: "update_text" as const, uid: uid("a"), text: "before" }],
   anchors: { ops: [null], inverse: [null] },
+  freshAssets: [],
   focusBefore: null,
   focusAfter: null,
 });

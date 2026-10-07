@@ -82,7 +82,7 @@ export async function historyIdle(): Promise<void> {
 }
 
 export function recordHistory(entry: HistoryEntry): void {
-  state = recordEntry(state, entry);
+  state = recordEntry(state, entry).state;
 }
 
 export function performUndo(sync: HistoryDispatch): boolean {

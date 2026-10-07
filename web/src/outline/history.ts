@@ -25,7 +25,7 @@
 //   where that device put them, relative to their own neighbours. When
 //   another device moved the anchor elsewhere among the same siblings, the
 //   replayed block follows the anchor there.
-import type { BlockUid, OrderIdx } from "../api/brands";
+import type { BlockUid, OrderIdx, Sha256Hex } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import type { FocusTarget } from "./edits";
@@ -47,6 +47,9 @@ export interface HistoryEntry {
   inverse: BlockOp[];   // undo batch
   /** `ops` anchored on the pre-edit tree, `inverse` on the tree `ops` left. */
   anchors: { ops: BatchAnchors; inverse: BatchAnchors };
+  /** Assets the upload behind this entry freshly created (not dedup hits);
+   * the ones to release once the entry can no longer be redone. */
+  freshAssets: readonly Sha256Hex[];
   focusBefore: FocusTarget | null;
   focusAfter: FocusTarget | null;
 }
@@ -279,8 +282,14 @@ export function emptyHistory(): HistoryState {
 }
 
 export function recordEntry(state: HistoryState,
-                            entry: HistoryEntry): HistoryState {
-  return { undo: [...state.undo, entry].slice(-HISTORY_CAP), redo: [] };
+                            entry: HistoryEntry):
+    { state: HistoryState; discarded: HistoryEntry[] } {
+  // `discarded` is the redo stack this clears; cap trimming drops undo-side
+  // entries, which stay undoable-by-intent and are not reported.
+  return {
+    state: { undo: [...state.undo, entry].slice(-HISTORY_CAP), redo: [] },
+    discarded: state.redo,
+  };
 }
 
 export function takeUndo(state: HistoryState):

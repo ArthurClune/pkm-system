@@ -173,10 +173,11 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
         ops: recorded,
         inverse,
         anchors: historyAnchors(pre, PAGE_TITLE, recorded, inverse),
+        freshAssets: [],
         focusBefore: focus,
         focusAfter: result.focus ?? focus,
       };
-      history = recordEntry(history, entry);
+      history = recordEntry(history, entry).state;
       newest = readingRows(next);
       entryRows.set(entry, { before: readingRows(pre), after: newest });
     }

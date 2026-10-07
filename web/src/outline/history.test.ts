@@ -1,10 +1,12 @@
 import { expect, it } from "vitest";
+import type { Sha256Hex } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { block, ord, uid } from "../test-helpers";
 import { applyOps } from "./tree";
 import { invertOps, emptyHistory, historyAnchors, HISTORY_CAP, recordEntry,
-         resolveAnchors, takeRedo, takeUndo, type HistoryEntry } from "./history";
+         resolveAnchors, takeRedo, takeUndo, type HistoryEntry,
+         type HistoryState } from "./history";
 
 const PAGE = "Test Page";
 
@@ -260,6 +262,7 @@ const record = (pre: BlockNode[], ops: BlockOp[]): HistoryEntry => {
   const inverse = invertOps(pre, PAGE, ops)!;
   return { pageTitle: PAGE, ops, inverse,
            anchors: historyAnchors(pre, PAGE, ops, inverse),
+           freshAssets: [],
            focusBefore: null, focusAfter: null };
 };
 const replay = (tree: BlockNode[], e: HistoryEntry,
@@ -379,12 +382,16 @@ const entry = (n: number): HistoryEntry => ({
   ops: [{ op: "update_text", uid: uid("a"), text: `v${n}` }],
   inverse: [{ op: "update_text", uid: uid("a"), text: `v${n - 1}` }],
   anchors: { ops: [null], inverse: [null] },
+  freshAssets: [],
   focusBefore: null,
   focusAfter: null,
 });
 
+const rec = (s: HistoryState, e: HistoryEntry): HistoryState =>
+  recordEntry(s, e).state;
+
 it("undo pops LIFO and moves the entry to the redo stack", () => {
-  let s = recordEntry(recordEntry(emptyHistory(), entry(1)), entry(2));
+  let s = rec(rec(emptyHistory(), entry(1)), entry(2));
   const u1 = takeUndo(s);
   expect(u1.entry).toEqual(entry(2));
   const r = takeRedo(u1.state);
@@ -398,16 +405,46 @@ it("returns null entry on empty stacks", () => {
 });
 
 it("recording clears the redo stack (AC: new op invalidates redo)", () => {
-  let s = recordEntry(emptyHistory(), entry(1));
+  let s = rec(emptyHistory(), entry(1));
   s = takeUndo(s).state;
   expect(s.redo).toHaveLength(1);
-  s = recordEntry(s, entry(2));
+  s = rec(s, entry(2));
   expect(s.redo).toHaveLength(0);
 });
 
 it("caps the undo stack, evicting the oldest", () => {
   let s = emptyHistory();
-  for (let i = 0; i < HISTORY_CAP + 5; i++) s = recordEntry(s, entry(i));
+  for (let i = 0; i < HISTORY_CAP + 5; i++) s = rec(s, entry(i));
   expect(s.undo).toHaveLength(HISTORY_CAP);
   expect(s.undo[0]).toEqual(entry(5)); // oldest five evicted
+});
+
+it("recordEntry returns the redo entries it clears", () => {
+  let s = rec(rec(rec(emptyHistory(), entry(1)), entry(2)), entry(3));
+  s = takeUndo(takeUndo(s).state).state;
+  const r1 = s.redo[0], r2 = s.redo[1];
+  const out = recordEntry(s, entry(4));
+  expect(out.discarded).toEqual([r1, r2]);
+  expect(out.state.redo).toEqual([]);
+});
+
+it("recordEntry with an empty redo discards nothing", () => {
+  expect(recordEntry(emptyHistory(), entry(1)).discarded).toEqual([]);
+});
+
+it("HISTORY_CAP trimming is not a discard", () => {
+  let s = emptyHistory();
+  for (let i = 0; i < HISTORY_CAP + 1; i++) {
+    const out = recordEntry(s, entry(i));
+    expect(out.discarded).toEqual([]);
+    s = out.state;
+  }
+});
+
+it("freshAssets survives undo and redo moves", () => {
+  const fresh = ["a".repeat(64) as Sha256Hex];
+  let s = rec(emptyHistory(), { ...entry(1), freshAssets: fresh });
+  const u = takeUndo(s);
+  expect(u.entry!.freshAssets).toEqual(fresh);
+  expect(takeRedo(u.state).entry!.freshAssets).toEqual(fresh);
 });

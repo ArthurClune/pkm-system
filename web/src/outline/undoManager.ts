@@ -9,9 +9,16 @@
 // when this page has no mounted outline (no registered hooks), the app
 // navigates there so the effect is visible, even if a lingering session
 // still exists to receive the data.
+//
+// Undoing an upload's edit leaves the file unreferenced but still needed: redo
+// replays text that names it. Once a new edit clears the redo stack, the
+// discarded entries' fresh uploads are released (a conditional server delete)
+// after the undo and the clearing edit have both reached the server.
+import type { Sha256Hex } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
-import type { WriteTicket } from "../sync/opQueue";
+import { releaseAssets, releaseOnUnload } from "../sync/assetRelease";
+import type { DeliveryOutcome, WriteTicket } from "../sync/opQueue";
 import { pagePath } from "../paths";
 import { stampBaseTextHashes } from "./baseTextHash";
 import type { FocusTarget } from "./edits";
@@ -46,6 +53,26 @@ let chain: Promise<void> = Promise.resolve();
 let queued = 0;
 let epoch = 0;
 
+interface AssetReleaser {
+  release(shas: readonly Sha256Hex[],
+          waitFor: readonly Promise<DeliveryOutcome>[]): Promise<void>;
+  releaseOnUnload(shas: readonly Sha256Hex[]): void;
+}
+const defaultReleaser: AssetReleaser = {
+  release: (shas, waitFor) => releaseAssets(shas, waitFor),
+  releaseOnUnload: (shas) => releaseOnUnload(shas),
+};
+let releaser: AssetReleaser = defaultReleaser;
+
+// What an undone entry waits on before its assets may go: the undo's own
+// delivery. isDelivered mirrors it synchronously, because pagehide cannot
+// await. Keyed by entry identity: takeUndo/takeRedo move the same objects.
+interface UndoReceipt {
+  delivered: Promise<DeliveryOutcome>;
+  isDelivered: boolean;
+}
+let receipts = new WeakMap<HistoryEntry, UndoReceipt>();
+
 export function registerOutlineHistory(
   title: string, h: OutlineHistoryHooks,
 ): () => void {
@@ -76,13 +103,48 @@ export function setHistoryPageLoader(load: PageLoader): () => void {
   };
 }
 
+/** Test seam: how fresh assets are released. */
+export function setAssetReleaser(r: AssetReleaser): () => void {
+  releaser = r;
+  return () => {
+    if (releaser === r) releaser = defaultReleaser;
+  };
+}
+
 /** Test seam: resolves when no queued dispatch remains. */
 export async function historyIdle(): Promise<void> {
   while (queued > 0) await chain;
 }
 
-export function recordHistory(entry: HistoryEntry): void {
-  state = recordEntry(state, entry).state;
+/** `write` is the edit's own ticket: a release this edit triggers waits for
+ * it, so text that re-references a discarded upload lands first. */
+export function recordHistory(entry: HistoryEntry, write?: WriteTicket): void {
+  const { state: next, discarded } = recordEntry(state, entry);
+  state = next;
+  for (const gone of discarded) {
+    const receipt = receipts.get(gone);
+    receipts.delete(gone);
+    // Only an undo puts an entry on the redo stack, so a receipt is always
+    // there; without one there is nothing safe to wait on.
+    if (gone.freshAssets.length === 0 || !receipt) continue;
+    const waitFor = write
+      ? [receipt.delivered, write.delivered] : [receipt.delivered];
+    void releaser.release(gone.freshAssets, waitFor);
+  }
+}
+
+/** Best effort on tab close: release the redo entries whose undo the server
+ * already has. Returns the remover. */
+export function installUnloadRelease(target: Window = window): () => void {
+  const onPageHide = () => {
+    for (const e of state.redo) {
+      if (e.freshAssets.length > 0 && receipts.get(e)?.isDelivered) {
+        releaser.releaseOnUnload(e.freshAssets);
+      }
+    }
+  };
+  target.addEventListener("pagehide", onPageHide);
+  return () => target.removeEventListener("pagehide", onPageHide);
 }
 
 export function performUndo(sync: HistoryDispatch): boolean {
@@ -90,8 +152,15 @@ export function performUndo(sync: HistoryDispatch): boolean {
   const { state: next, entry } = takeUndo(state);
   state = next;
   if (!entry) return false;
-  dispatch(sync, entry.inverse, entry.anchors.inverse, entry.pageTitle,
-           entry.focusBefore);
+  const receipt: UndoReceipt = {
+    delivered: dispatch(sync, entry.inverse, entry.anchors.inverse,
+                        entry.pageTitle, entry.focusBefore),
+    isDelivered: false,
+  };
+  void receipt.delivered.then((o) => {
+    receipt.isDelivered = o.status === "delivered";
+  });
+  receipts.set(entry, receipt);
   return true;
 }
 
@@ -100,8 +169,9 @@ export function performRedo(sync: HistoryDispatch): boolean {
   const { state: next, entry } = takeRedo(state);
   state = next;
   if (!entry) return false;
-  dispatch(sync, entry.ops, entry.anchors.ops, entry.pageTitle,
-           entry.focusAfter);
+  receipts.delete(entry); // back on the undo stack: its file is referenced
+  void dispatch(sync, entry.ops, entry.anchors.ops, entry.pageTitle,
+                entry.focusAfter);
   return true;
 }
 
@@ -109,6 +179,8 @@ export function performRedo(sync: HistoryDispatch): boolean {
 export function resetHistory(): void {
   state = emptyHistory();
   loadPage = defaultPageLoader;
+  releaser = defaultReleaser;
+  receipts = new WeakMap();
   epoch++;
   chain = Promise.resolve();
   queued = 0;
@@ -122,43 +194,57 @@ function flushAll(): void {
   }
 }
 
+const failed = (error: unknown): Promise<DeliveryOutcome> =>
+  Promise.resolve({ status: "failed", error });
+
+// Resolves with the dispatched write's delivery, never rejects: a dispatch
+// that throws or is dropped by a reset resolves "failed".
 function dispatch(sync: HistoryDispatch, batch: BlockOp[],
                   anchors: BatchAnchors, title: string,
-                  focus: FocusTarget | null): void {
+                  focus: FocusTarget | null): Promise<DeliveryOutcome> {
   // Dispatches apply in keypress order. With nothing queued and a session for
   // the page, apply synchronously; otherwise join the chain, so a mounted
   // page's undo never overtakes an earlier undo still waiting on a page read.
   if (queued === 0) {
     const handle = peekOutlineSession(title);
     if (handle) {
-      dispatchWithSession(sync, handle, batch, anchors, title, focus);
-      return;
+      return dispatchWithSession(sync, handle, batch, anchors, title, focus)
+        .delivered;
     }
   }
   const mine = epoch;
   queued++;
-  chain = chain.then(async () => {
+  // The step resolves once the write is enqueued, not delivered (the chain
+  // must not wait on the network), so the delivery rides in a wrapper.
+  const step = chain.then(async (): Promise<{
+    delivered: Promise<DeliveryOutcome>;
+  }> => {
     try {
-      if (mine !== epoch) return;
-      const handle = peekOutlineSession(title);
-      if (handle) {
-        dispatchWithSession(sync, handle, batch, anchors, title, focus);
-      } else {
-        await dispatchUnmounted(sync, batch, anchors, title, focus);
+      if (mine !== epoch) {
+        return { delivered: failed(new Error("history reset")) };
       }
+      const handle = peekOutlineSession(title);
+      const write = handle
+        ? dispatchWithSession(sync, handle, batch, anchors, title, focus)
+        : await dispatchUnmounted(sync, batch, anchors, title, focus);
+      return { delivered: write.delivered };
     } catch (e: unknown) {
       console.error("undo/redo dispatch failed", e);
+      return { delivered: failed(e) };
     } finally {
       if (mine === epoch) queued--;
     }
   });
+  chain = step.then(() => undefined);
+  return step.then((s) => s.delivered);
 }
 
 type SessionHandle = NonNullable<ReturnType<typeof peekOutlineSession>>;
 
 function dispatchWithSession(sync: HistoryDispatch, handle: SessionHandle,
                              batch: BlockOp[], anchors: BatchAnchors,
-                             title: string, focus: FocusTarget | null): void {
+                             title: string,
+                             focus: FocusTarget | null): WriteTicket {
   // The tree must be read BEFORE enqueueing: the hash must be taken against the
   // tree as it is now, not as it was when the entry was recorded, or a replay
   // after any later edit would carry a stale hash and land a spurious
@@ -169,21 +255,24 @@ function dispatchWithSession(sync: HistoryDispatch, handle: SessionHandle,
   // try/finally because the handle is acquired before sync.enqueue, which
   // throws on a disposed queue (opQueue.ts); a leaked refcount pins the
   // session for the rest of the tab's life.
+  let write: WriteTicket;
   try {
     const live = handle.getSnapshot().blocks;
     const wireOps = stampBaseTextHashes(
       live, title, resolveAnchors(live, title, batch, anchors));
-    const write = sync.enqueue(wireOps, ["page", title]);
+    write = sync.enqueue(wireOps, ["page", title]);
     handle.applyLocal(write, wireOps);
   } finally {
     handle.release();
   }
   settle(title, focus);
+  return write;
 }
 
-async function dispatchUnmounted(sync: HistoryDispatch, batch: BlockOp[],
-                                 anchors: BatchAnchors, title: string,
-                                 focus: FocusTarget | null): Promise<void> {
+async function dispatchUnmounted(
+  sync: HistoryDispatch, batch: BlockOp[], anchors: BatchAnchors,
+  title: string, focus: FocusTarget | null,
+): Promise<WriteTicket> {
   // A session disappears only when it has no handles and no undelivered
   // writes, so with none this tab holds nothing unresolved for the page and
   // the page as the normal read returns it is a correct tree to re-key and
@@ -199,8 +288,9 @@ async function dispatchUnmounted(sync: HistoryDispatch, batch: BlockOp[],
     console.warn("undo/redo could not read the page; sending unstamped", e);
     wireOps = [...batch];
   }
-  sync.enqueue(wireOps, ["page", title]);
+  const write = sync.enqueue(wireOps, ["page", title]);
   settle(title, focus);
+  return write;
 }
 
 function settle(title: string, focus: FocusTarget | null): void {

@@ -223,7 +223,7 @@ export function useOutline(
         freshAssets: [],
         focusBefore: focusRef.current,
         focusAfter: result.focus ?? focusRef.current,
-      });
+      }, write);
     }
     if (result.focus) setFocus(result.focus);
   }, [takePendingTextOps, pageTitle, sync]);

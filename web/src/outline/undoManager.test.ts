@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { Sha256Hex } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
+import { releaseAssets, releaseUrl } from "../sync/assetRelease";
+import type { DeliveryOutcome, TicketId, WriteTicket } from "../sync/opQueue";
 import { block, defer, makeSync, ord, uid } from "../test-helpers";
 import { acquireOutlineSession } from "./outlineSessions";
-import { historyIdle, performRedo, performUndo, recordHistory,
-         registerOutlineHistory, resetHistory, setHistoryNavigator,
+import { historyIdle, installUnloadRelease, performRedo, performUndo,
+         recordHistory, registerOutlineHistory, resetHistory,
+         setAssetReleaser, setHistoryNavigator,
          setHistoryPageLoader } from "./undoManager";
 import { historyAnchors, invertOps, type HistoryEntry } from "./history";
 import { applyOps } from "./tree";
@@ -316,4 +320,265 @@ it("a throwing enqueue is logged and does not break later dispatches or leak the
   expect(sync.sent).toHaveLength(1);
   expect(error).toHaveBeenCalled();
   error.mockRestore();
+});
+
+// --- releasing the fresh assets of discarded redo entries ---
+
+const S1 = "1".repeat(64) as Sha256Hex;
+const S2 = "2".repeat(64) as Sha256Hex;
+const DELIVERED: DeliveryOutcome = { status: "delivered" };
+
+const upload = (sha: Sha256Hex): HistoryEntry => ({ ...entry(), freshAssets: [sha] });
+
+function gatedTicket() {
+  const gate = defer<DeliveryOutcome>();
+  const ticket = {
+    id: `gated-${Math.random()}` as TicketId, scope: ["page", PAGE],
+    settled: Promise.resolve({ status: "persisted", pending: 0 }),
+    delivered: gate.promise,
+  } satisfies WriteTicket;
+  return { ticket, gate };
+}
+
+// A HistoryDispatch whose tickets deliver only when the test says so.
+function gatedSync() {
+  const tickets: WriteTicket[] = [];
+  const gates: ReturnType<typeof defer<DeliveryOutcome>>[] = [];
+  return {
+    tickets, gates,
+    enqueue(_ops: BlockOp[], _scope?: readonly string[]): WriteTicket {
+      const { ticket, gate } = gatedTicket();
+      tickets.push(ticket);
+      gates.push(gate);
+      return ticket;
+    },
+  };
+}
+
+function spyReleaser() {
+  const release = vi.fn(
+    async (_shas: readonly Sha256Hex[],
+           _waitFor: readonly Promise<DeliveryOutcome>[]) => undefined);
+  const releaseOnUnload = vi.fn((_shas: readonly Sha256Hex[]) => undefined);
+  setAssetReleaser({ release, releaseOnUnload });
+  return { release, releaseOnUnload };
+}
+
+const flush = () => new Promise<void>((r) => { setTimeout(r, 0); });
+
+// An undelivered write keeps a page's session alive past release(), which
+// would leave later tests dispatching to a mounted page.
+async function closeSession(sync: ReturnType<typeof gatedSync>,
+                            handle: { release(): void }): Promise<void> {
+  sync.gates.forEach((g) => g.resolve(DELIVERED));
+  handle.release();
+  await flush();
+}
+
+function settledValue<T>(p: Promise<T>): () => T | undefined {
+  let value: T | undefined;
+  void p.then((v) => { value = v; });
+  return () => value;
+}
+
+it("undo then a new edit releases the entry's fresh assets after both deliveries", async () => {
+  const { release } = spyReleaser();
+  const sync = gatedSync();
+  const handle = acquireOutlineSession(PAGE, [block("a", "after", { order_idx: ord(0) })]);
+  recordHistory(upload(S1));
+  performUndo(sync);
+  expect(release).not.toHaveBeenCalled();
+  const edit = gatedTicket();
+  recordHistory(entry(), edit.ticket);
+  expect(release).toHaveBeenCalledTimes(1);
+  expect(release).toHaveBeenCalledWith(
+    [S1], [sync.tickets[0].delivered, edit.ticket.delivered]);
+  await closeSession(sync, handle);
+});
+
+it("undo then redo then an edit releases nothing", async () => {
+  const { release } = spyReleaser();
+  const sync = gatedSync();
+  recordHistory(upload(S1));
+  performUndo(sync);
+  performRedo(sync);
+  await historyIdle();
+  recordHistory(entry(), gatedTicket().ticket);
+  expect(release).not.toHaveBeenCalled();
+});
+
+it("entries without freshAssets are never released", async () => {
+  const { release } = spyReleaser();
+  const sync = gatedSync();
+  recordHistory(entry());
+  performUndo(sync);
+  await historyIdle();
+  recordHistory(entry(), gatedTicket().ticket);
+  expect(release).not.toHaveBeenCalled();
+});
+
+it("two undone uploads are both released by one edit", async () => {
+  const { release } = spyReleaser();
+  const sync = gatedSync();
+  recordHistory(upload(S1));
+  recordHistory(upload(S2));
+  performUndo(sync);
+  performUndo(sync);
+  await historyIdle();
+  const edit = gatedTicket();
+  recordHistory(entry(), edit.ticket);
+  expect(release.mock.calls.map(([shas]) => shas).sort())
+    .toEqual([[S1], [S2]]);
+  for (const [, waitFor] of release.mock.calls) {
+    expect(waitFor).toHaveLength(2);
+    expect(waitFor[1]).toBe(edit.ticket.delivered);
+  }
+});
+
+it("an edit with no ticket waits only on the undo", async () => {
+  const { release } = spyReleaser();
+  const sync = gatedSync();
+  const handle = acquireOutlineSession(PAGE, [block("a", "after", { order_idx: ord(0) })]);
+  recordHistory(upload(S1));
+  performUndo(sync);
+  recordHistory(entry());
+  expect(release).toHaveBeenCalledWith([S1], [sync.tickets[0].delivered]);
+  await closeSession(sync, handle);
+});
+
+it("an undo dispatched to an unmounted page releases only after that dispatch's delivery", async () => {
+  const { release } = spyReleaser();
+  const sync = gatedSync();
+  const read = defer<BlockNode[]>();
+  setHistoryPageLoader(() => read.promise);
+  recordHistory(upload(S1));
+  performUndo(sync);
+  recordHistory(entry(), gatedTicket().ticket);
+  expect(release).toHaveBeenCalledTimes(1);
+  const undoOutcome = settledValue(release.mock.calls[0][1][0]);
+
+  await flush();
+  expect(sync.tickets).toHaveLength(0);
+  expect(undoOutcome()).toBeUndefined();
+
+  read.resolve([]);
+  await historyIdle();
+  await flush();
+  expect(sync.tickets).toHaveLength(1);
+  expect(undoOutcome()).toBeUndefined();
+
+  sync.gates[0].resolve(DELIVERED);
+  await flush();
+  expect(undoOutcome()).toEqual(DELIVERED);
+});
+
+it("an unmounted undo whose enqueue throws gives the release a failed receipt", async () => {
+  const { release } = spyReleaser();
+  const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const sync = gatedSync();
+  sync.enqueue = () => { throw new Error("disposed"); };
+  recordHistory(upload(S1));
+  performUndo(sync);
+  await historyIdle();
+  recordHistory(entry(), gatedTicket().ticket);
+  const undoOutcome = settledValue(release.mock.calls[0][1][0]);
+  await flush();
+  expect(undoOutcome()).toMatchObject({ status: "failed" });
+  expect(error).toHaveBeenCalled();
+  error.mockRestore();
+});
+
+it("an unmounted undo dropped by a history reset gives the release a failed receipt", async () => {
+  const { release } = spyReleaser();
+  const sync = gatedSync();
+  const read = defer<BlockNode[]>();
+  setHistoryPageLoader(() => read.promise);
+  recordHistory(upload(S1));
+  recordHistory(upload(S2));
+  performUndo(sync); // S2: waits on the read
+  performUndo(sync); // S1: queued behind it
+  recordHistory(entry(), gatedTicket().ticket);
+  const outcomes = release.mock.calls.map(([, waitFor]) => settledValue(waitFor[0]));
+  resetHistory();
+  read.resolve([]);
+  await flush();
+  expect(sync.tickets).toHaveLength(0);
+  expect(outcomes.map((o) => o()?.status).sort()).toEqual(["failed", "failed"]);
+});
+
+it("undo then re-upload of the same file waits for the clearing edit", async () => {
+  const doFetch = vi.fn(async () => ({ status: 409 }) as Response);
+  setAssetReleaser({
+    release: (shas, waitFor) => releaseAssets(shas, waitFor, doFetch),
+    releaseOnUnload: () => undefined,
+  });
+  const sync = gatedSync();
+  recordHistory(upload(S1));
+  performUndo(sync);
+  await historyIdle();
+  sync.gates[0].resolve(DELIVERED);
+  // The re-upload is a dedup hit, so its entry carries no fresh assets; its
+  // text references the file, so the delete must not run before it lands.
+  const redrop = gatedTicket();
+  recordHistory(entry(), redrop.ticket);
+  await flush();
+  expect(doFetch).not.toHaveBeenCalled();
+  redrop.gate.resolve(DELIVERED);
+  await flush();
+  expect(doFetch).toHaveBeenCalledTimes(1);
+  expect(doFetch).toHaveBeenCalledWith(releaseUrl(S1), expect.objectContaining({ method: "DELETE" }));
+});
+
+it("pagehide releases only undos already delivered", async () => {
+  const { releaseOnUnload } = spyReleaser();
+  const sync = gatedSync();
+  recordHistory(upload(S1));
+  recordHistory(upload(S2));
+  performUndo(sync); // S2's entry: tickets[0]
+  performUndo(sync); // S1's entry: tickets[1]
+  await historyIdle();
+  sync.gates[0].resolve(DELIVERED);
+  await flush();
+  const remove = installUnloadRelease(window);
+  window.dispatchEvent(new Event("pagehide"));
+  expect(releaseOnUnload).toHaveBeenCalledTimes(1);
+  expect(releaseOnUnload).toHaveBeenCalledWith([S2]);
+  remove();
+  window.dispatchEvent(new Event("pagehide"));
+  expect(releaseOnUnload).toHaveBeenCalledTimes(1);
+});
+
+it("pagehide skips an undone upload that was redone", async () => {
+  const { releaseOnUnload } = spyReleaser();
+  const sync = gatedSync();
+  recordHistory(upload(S1));
+  performUndo(sync);
+  await historyIdle();
+  sync.gates[0].resolve(DELIVERED);
+  await flush();
+  performRedo(sync);
+  await historyIdle();
+  const remove = installUnloadRelease(window);
+  window.dispatchEvent(new Event("pagehide"));
+  expect(releaseOnUnload).not.toHaveBeenCalled();
+  remove();
+});
+
+it("resetHistory restores the default releaser", async () => {
+  const { release } = spyReleaser();
+  resetHistory();
+  setHistoryPageLoader(async () => []);
+  const fetchSpy = vi.spyOn(globalThis, "fetch")
+    .mockResolvedValue({ status: 200 } as Response);
+  const sync = gatedSync();
+  recordHistory(upload(S1));
+  performUndo(sync);
+  await historyIdle();
+  recordHistory(entry());
+  sync.gates[0].resolve(DELIVERED);
+  await flush();
+  expect(release).not.toHaveBeenCalled();
+  expect(fetchSpy).toHaveBeenCalledWith(releaseUrl(S1),
+    expect.objectContaining({ method: "DELETE" }));
+  fetchSpy.mockRestore();
 });

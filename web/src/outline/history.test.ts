@@ -388,7 +388,7 @@ const entry = (n: number): HistoryEntry => ({
 });
 
 const rec = (s: HistoryState, e: HistoryEntry): HistoryState =>
-  recordEntry(s, e).state;
+  recordEntry(s, e);
 
 it("undo pops LIFO and moves the entry to the redo stack", () => {
   let s = rec(rec(emptyHistory(), entry(1)), entry(2));
@@ -419,32 +419,20 @@ it("caps the undo stack, evicting the oldest", () => {
   expect(s.undo[0]).toEqual(entry(5)); // oldest five evicted
 });
 
-it("recordEntry returns the redo entries it clears", () => {
-  let s = rec(rec(rec(emptyHistory(), entry(1)), entry(2)), entry(3));
-  s = takeUndo(takeUndo(s).state).state;
-  const r1 = s.redo[0], r2 = s.redo[1];
-  const out = recordEntry(s, entry(4));
-  expect(out.discarded).toEqual([r1, r2]);
-  expect(out.state.redo).toEqual([]);
-});
+const FRESH = ["a".repeat(64) as Sha256Hex];
 
-it("recordEntry with an empty redo discards nothing", () => {
-  expect(recordEntry(emptyHistory(), entry(1)).discarded).toEqual([]);
-});
-
-it("HISTORY_CAP trimming is not a discard", () => {
-  let s = emptyHistory();
-  for (let i = 0; i < HISTORY_CAP + 1; i++) {
-    const out = recordEntry(s, entry(i));
-    expect(out.discarded).toEqual([]);
-    s = out.state;
-  }
-});
-
-it("freshAssets survives undo and redo moves", () => {
-  const fresh = ["a".repeat(64) as Sha256Hex];
-  let s = rec(emptyHistory(), { ...entry(1), freshAssets: fresh });
+it("undoing an entry with freshAssets clears redo, earlier redo entries included", () => {
+  let s = rec(rec(rec(emptyHistory(), entry(1)), { ...entry(2), freshAssets: FRESH }), entry(3));
+  s = takeUndo(s).state; // entry 3 -> redo
+  expect(s.redo).toHaveLength(1);
   const u = takeUndo(s);
-  expect(u.entry!.freshAssets).toEqual(fresh);
-  expect(takeRedo(u.state).entry!.freshAssets).toEqual(fresh);
+  expect(u.entry!.freshAssets).toEqual(FRESH);
+  expect(u.state.redo).toEqual([]);
+  expect(takeRedo(u.state).entry).toBeNull();
+});
+
+it("undoing an entry without freshAssets leaves redo intact", () => {
+  let s = rec(rec(emptyHistory(), entry(1)), entry(2));
+  s = takeUndo(takeUndo(s).state).state;
+  expect(s.redo).toHaveLength(2);
 });

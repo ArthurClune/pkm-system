@@ -48,7 +48,7 @@ export interface HistoryEntry {
   /** `ops` anchored on the pre-edit tree, `inverse` on the tree `ops` left. */
   anchors: { ops: BatchAnchors; inverse: BatchAnchors };
   /** Assets the upload behind this entry freshly created (not dedup hits);
-   * the ones to release once the entry can no longer be redone. */
+   * the ones released when the entry is undone, which also clears redo. */
   freshAssets: readonly Sha256Hex[];
   focusBefore: FocusTarget | null;
   focusAfter: FocusTarget | null;
@@ -282,24 +282,18 @@ export function emptyHistory(): HistoryState {
 }
 
 export function recordEntry(state: HistoryState,
-                            entry: HistoryEntry):
-    { state: HistoryState; discarded: HistoryEntry[] } {
-  // `discarded` is the redo stack this clears; cap trimming drops undo-side
-  // entries, which are not reported, so their uploads are never released.
-  return {
-    state: { undo: [...state.undo, entry].slice(-HISTORY_CAP), redo: [] },
-    discarded: state.redo,
-  };
+                            entry: HistoryEntry): HistoryState {
+  return { undo: [...state.undo, entry].slice(-HISTORY_CAP), redo: [] };
 }
 
 export function takeUndo(state: HistoryState):
     { state: HistoryState; entry: HistoryEntry | null } {
   const entry = state.undo[state.undo.length - 1] ?? null;
   if (!entry) return { state, entry: null };
-  return {
-    state: { undo: state.undo.slice(0, -1), redo: [...state.redo, entry] },
-    entry,
-  };
+  // Undoing an upload is final: its file is deleted, so redo could not
+  // restore it. Redo entries from earlier undos go with it.
+  const redo = entry.freshAssets.length > 0 ? [] : [...state.redo, entry];
+  return { state: { undo: state.undo.slice(0, -1), redo }, entry };
 }
 
 export function takeRedo(state: HistoryState):

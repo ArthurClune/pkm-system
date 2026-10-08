@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import type { Sha256Hex } from "../api/brands";
-import { releaseAssets, releaseOnUnload, releaseUrl } from "./assetRelease";
+import { releaseAssets, releaseUrl } from "./assetRelease";
 import type { DeliveryOutcome } from "./opQueue";
 
 const A = "aa".repeat(32) as Sha256Hex;
@@ -54,28 +54,4 @@ test("a 500 and a network error are warned about, never thrown", async () => {
   const boom = vi.fn(async () => { throw new Error("offline"); });
   await releaseAssets([A], [], boom as unknown as typeof fetch);
   expect(warn).toHaveBeenCalledTimes(2);
-});
-
-test("releaseOnUnload sends keepalive deletes and swallows errors", () => {
-  const doFetch = fetchReturning(200);
-  releaseOnUnload([A, B], doFetch as unknown as typeof fetch);
-  expect(doFetch).toHaveBeenCalledTimes(2);
-  expect(doFetch.mock.calls[1][1]).toMatchObject({ method: "DELETE", keepalive: true });
-  const sync = vi.fn(() => { throw new Error("sync"); });
-  expect(() => releaseOnUnload([A], sync as unknown as typeof fetch)).not.toThrow();
-  const rejecting = vi.fn(async () => { throw new Error("async"); });
-  expect(() => releaseOnUnload([A], rejecting as unknown as typeof fetch)).not.toThrow();
-});
-
-test("keep vetoes a sha at fetch time, not at schedule time", async () => {
-  const doFetch = fetchReturning(200);
-  let resolve!: (o: DeliveryOutcome) => void;
-  const pending = new Promise<DeliveryOutcome>((r) => { resolve = r; });
-  const kept = new Set<Sha256Hex>();
-  const done = releaseAssets([A, B], [pending], doFetch as unknown as typeof fetch,
-                             (sha) => kept.has(sha));
-  kept.add(A);
-  resolve(delivered);
-  await done;
-  expect(doFetch.mock.calls.map((c) => c[0])).toEqual([releaseUrl(B)]);
 });

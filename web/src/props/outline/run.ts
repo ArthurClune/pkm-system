@@ -177,7 +177,7 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
         focusBefore: focus,
         focusAfter: result.focus ?? focus,
       };
-      history = recordEntry(history, entry).state;
+      history = recordEntry(history, entry);
       newest = readingRows(next);
       entryRows.set(entry, { before: readingRows(pre), after: newest });
     }

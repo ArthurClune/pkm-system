@@ -436,3 +436,15 @@ it("undoing an entry without freshAssets leaves redo intact", () => {
   s = takeUndo(takeUndo(s).state).state;
   expect(s.redo).toHaveLength(2);
 });
+
+it("edits before an undone upload stay undoable, then redoable", () => {
+  const drop = { ...entry(2), freshAssets: FRESH };
+  const s = rec(rec(emptyHistory(), entry(1)), drop);
+  const u1 = takeUndo(s);
+  expect(u1.entry).toBe(drop);
+  const u2 = takeUndo(u1.state);
+  expect(u2.entry).toEqual(entry(1));
+  const r = takeRedo(u2.state);
+  expect(r.entry).toEqual(entry(1));
+  expect(takeRedo(r.state).entry).toBeNull();
+});

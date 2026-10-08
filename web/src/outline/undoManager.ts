@@ -10,15 +10,14 @@
 // navigates there so the effect is visible, even if a lingering session
 // still exists to receive the data.
 //
-// Undoing an upload's edit leaves the file unreferenced but still needed: redo
-// replays text that names it. Once a new edit clears the redo stack, the
-// discarded entries' fresh uploads are released (a conditional server delete)
-// after the undo and the clearing edit have both reached the server.
+// Undoing an upload is final: takeUndo clears the redo stack, and once the
+// undo's write has reached the server its fresh uploads are released (a
+// conditional server delete, refused while any block still references the
+// file). An undo whose delivery fails leaves the files.
 import type { Sha256Hex } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
-import { releaseAssets, releaseOnUnload } from "../sync/assetRelease";
-import { uploadClock, uploadedSince } from "../sync/assets";
+import { releaseAssets } from "../sync/assetRelease";
 import type { DeliveryOutcome, WriteTicket } from "../sync/opQueue";
 import { pagePath } from "../paths";
 import { stampBaseTextHashes } from "./baseTextHash";
@@ -56,27 +55,12 @@ let epoch = 0;
 
 export interface AssetReleaser {
   release(shas: readonly Sha256Hex[],
-          waitFor: readonly Promise<DeliveryOutcome>[],
-          keep?: (sha: Sha256Hex) => boolean): Promise<void>;
-  releaseOnUnload(shas: readonly Sha256Hex[]): void;
+          waitFor: readonly Promise<DeliveryOutcome>[]): Promise<void>;
 }
 const defaultReleaser: AssetReleaser = {
-  release: (shas, waitFor, keep) =>
-    releaseAssets(shas, waitFor, undefined, keep),
-  releaseOnUnload: (shas) => releaseOnUnload(shas),
+  release: (shas, waitFor) => releaseAssets(shas, waitFor),
 };
 let releaser: AssetReleaser = defaultReleaser;
-
-// What an undone entry waits on before its assets may go: the undo's own
-// delivery. isDelivered mirrors it synchronously, because pagehide cannot
-// await. Keyed by entry identity: takeUndo/takeRedo move the same objects.
-interface UndoReceipt {
-  delivered: Promise<DeliveryOutcome>;
-  isDelivered: boolean;
-  /** uploadClock() at the undo: a later upload of the same bytes keeps the file. */
-  undoneAt: number;
-}
-let receipts = new WeakMap<HistoryEntry, UndoReceipt>();
 
 export function registerOutlineHistory(
   title: string, h: OutlineHistoryHooks,
@@ -121,44 +105,8 @@ export async function historyIdle(): Promise<void> {
   while (queued > 0) await chain;
 }
 
-/** `write` is the edit's own ticket: a release this edit triggers waits for
- * it, so text that re-references a discarded upload lands first. */
-export function recordHistory(entry: HistoryEntry, write: WriteTicket): void {
-  const { state: next, discarded } = recordEntry(state, entry);
-  state = next;
-  for (const gone of discarded) {
-    const receipt = receipts.get(gone);
-    receipts.delete(gone);
-    // Only an undo puts an entry on the redo stack, so a receipt is always
-    // there; without one there is nothing safe to wait on.
-    if (gone.freshAssets.length === 0 || !receipt) continue;
-    const { undoneAt } = receipt;
-    void releaser.release(gone.freshAssets,
-                          [receipt.delivered, write.delivered],
-                          (sha) => uploadedSince(sha, undoneAt));
-  }
-}
-
-/** Best effort on tab close: release the redo entries whose undo the server
- * already has. A page entering the back/forward cache keeps its redo stack,
- * and redo would replay text naming the file, so that pagehide releases
- * nothing. Returns the remover. */
-export function installUnloadRelease(target: Window = window): () => void {
-  const onPageHide = (e: PageTransitionEvent) => {
-    if (e.persisted) return;
-    for (const entry of state.redo) {
-      const receipt = receipts.get(entry);
-      if (entry.freshAssets.length === 0 || !receipt?.isDelivered) continue;
-      // Sent before the visibilitychange draft flush: a draft that
-      // re-references the file is contrived (it would show as missing and
-      // the person re-uploads), so the release does not wait for it.
-      const shas = entry.freshAssets.filter(
-        (sha) => !uploadedSince(sha, receipt.undoneAt));
-      if (shas.length > 0) releaser.releaseOnUnload(shas);
-    }
-  };
-  target.addEventListener("pagehide", onPageHide);
-  return () => target.removeEventListener("pagehide", onPageHide);
+export function recordHistory(entry: HistoryEntry): void {
+  state = recordEntry(state, entry);
 }
 
 export function performUndo(sync: HistoryDispatch): boolean {
@@ -166,16 +114,11 @@ export function performUndo(sync: HistoryDispatch): boolean {
   const { state: next, entry } = takeUndo(state);
   state = next;
   if (!entry) return false;
-  const receipt: UndoReceipt = {
-    delivered: dispatch(sync, entry.inverse, entry.anchors.inverse,
-                        entry.pageTitle, entry.focusBefore),
-    isDelivered: false,
-    undoneAt: uploadClock(),
-  };
-  void receipt.delivered.then((o) => {
-    receipt.isDelivered = o.status === "delivered";
-  });
-  receipts.set(entry, receipt);
+  const delivered = dispatch(sync, entry.inverse, entry.anchors.inverse,
+                             entry.pageTitle, entry.focusBefore);
+  if (entry.freshAssets.length > 0) {
+    void releaser.release(entry.freshAssets, [delivered]);
+  }
   return true;
 }
 
@@ -184,7 +127,6 @@ export function performRedo(sync: HistoryDispatch): boolean {
   const { state: next, entry } = takeRedo(state);
   state = next;
   if (!entry) return false;
-  receipts.delete(entry); // back on the undo stack: its file is referenced
   void dispatch(sync, entry.ops, entry.anchors.ops, entry.pageTitle,
                 entry.focusAfter);
   return true;
@@ -195,7 +137,6 @@ export function resetHistory(): void {
   state = emptyHistory();
   loadPage = defaultPageLoader;
   releaser = defaultReleaser;
-  receipts = new WeakMap();
   epoch++;
   chain = Promise.resolve();
   queued = 0;

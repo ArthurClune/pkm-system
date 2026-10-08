@@ -1,9 +1,8 @@
-// Undoing a file drop releases the uploaded file once redo is gone: the next
-// edit clears the redo stack, and the server then deletes the asset if no
-// block references it. Redo, or the same bytes uploaded again, keeps it.
+// Undoing a file drop is final: redo is cleared and, once the undo has
+// reached the server, the uploaded file is deleted unless a block still
+// references it (a second drop of the same bytes).
 import { type Locator, type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { waitForServerText } from "./server-state";
 
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
@@ -75,17 +74,6 @@ async function dropPng(page: Page, rows: Locator, png: number[], after: number) 
   return url;
 }
 
-/** An ordinary UI edit (records history, clearing redo): a new block after
- * "second", saved to the server. */
-async function typeUnrelatedBlock(page: Page) {
-  await page.getByText("second", { exact: true }).click();
-  await page.keyboard.press("End");
-  await page.keyboard.press("Enter");
-  await page.keyboard.type("x");
-  await page.keyboard.press("Escape");
-  await waitForServerText(page, title!, "x");
-}
-
 async function undo(page: Page) {
   await page.keyboard.press("Escape"); // no textarea focused, or it is textarea undo
   await page.keyboard.press("ControlOrMeta+z");
@@ -94,36 +82,33 @@ async function undo(page: Page) {
 const status = (page: Page, url: string) =>
   page.request.get(url).then((r) => r.status());
 
-test("undo then an edit deletes the dropped file", async ({ page }) => {
+test("undoing a drop deletes the file with no further edit", async ({ page }) => {
   const { rows, png } = await setup(page, "delete");
   const url = await dropPng(page, rows, png, 0);
   expect(await status(page, url)).toBe(200);
   await undo(page);
   await expect(rows).toHaveCount(2);
-  await typeUnrelatedBlock(page);
   await expect.poll(() => status(page, url)).toBe(404);
 });
 
-test("undo, redo, then an edit keeps the file", async ({ page }) => {
+test("redo after undoing a drop does nothing", async ({ page }) => {
   const { rows, png } = await setup(page, "redo");
   const url = await dropPng(page, rows, png, 0);
   await undo(page);
   await expect(rows).toHaveCount(2);
   await page.keyboard.press("ControlOrMeta+Shift+z");
-  await expect(rows).toHaveCount(3);
-  await typeUnrelatedBlock(page);
-  // a delete would land shortly after the edit's text; give it the chance
-  await page.waitForTimeout(1500);
-  expect(await status(page, url)).toBe(200);
+  await expect.poll(() => status(page, url)).toBe(404);
+  await expect(rows).toHaveCount(2);
 });
 
-test("undo then dropping the same file elsewhere keeps it", async ({ page }) => {
+test("undoing a second drop of the same bytes keeps the file", async ({ page }) => {
   const { rows, png } = await setup(page, "again");
   const url = await dropPng(page, rows, png, 0);
-  await undo(page);
-  await expect(rows).toHaveCount(2);
   const again = await dropPng(page, rows, png, 1);
   expect(again).toBe(url);
+  await undo(page);
+  await expect(rows).toHaveCount(3);
+  // a delete would follow the undo's delivery; give it the chance
   await page.waitForTimeout(1500);
   expect(await status(page, url)).toBe(200);
 });

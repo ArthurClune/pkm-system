@@ -1,5 +1,10 @@
 # Undoing an upload deletes the file once redo is gone
 
+> **Superseded (2026-10-08, pkm-qibv).** Arthur reversed the timing: undoing an
+> upload now deletes the file as soon as the undo is delivered, and clears the
+> redo stack. The server's conditional delete and `freshAssets` survive; the
+> redo-clear release, `pagehide` release and per-tab upload clock were removed.
+
 Bean: pkm-w4ts. Approved in conversation 2026-10-07 (approach A: the client
 tracks candidates, the server does a conditional delete).
 

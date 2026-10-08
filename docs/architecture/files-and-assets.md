@@ -50,10 +50,10 @@ The three management endpoints behind the `/files` browser share
   asset deletion must never cascade away real content. Asset URLs never produce
   `refs` rows — only `[[link]]`, `#tag` and `attr::` do — so no refs reindex is
   needed. With `?if_unreferenced=true` nothing is stripped: the delete is
-  refused with 409 while any block references the asset, and undo history
+  refused with 409 while any block references the asset, and undoing an upload
   (`sync/assetRelease.ts`) is its only caller. Another device uploading the
-  same bytes inside the release window is not protected, the same exposure as
-  a `/files` delete.
+  same bytes just before the delete runs is not protected, the same exposure
+  as a `/files` delete.
 - **Selected-asset zip** is form-encoded, so the web app can drive it with a
   plain `<form method="post">` and let the browser own the download. Unknown,
   malformed, duplicate and missing-on-disk digests are skipped rather than

@@ -5,7 +5,7 @@ status: in-progress
 type: bug
 priority: normal
 created_at: 2026-10-11T15:07:38Z
-updated_at: 2026-10-11T15:17:39Z
+updated_at: 2026-10-11T15:22:19Z
 ---
 
 The `ipad-simulator` skill (and `scripts/simpad.py`) no longer works with the Xcode installed on biber (Xcode 27.0).
@@ -23,3 +23,6 @@ The `ipad-simulator` skill (and `scripts/simpad.py`) no longer works with the Xc
 - [x] Fix `scripts/simpad.py` (boot, open, safaridriver session setup) for Xcode 27
 - [x] Update `.claude/skills/ipad-simulator/SKILL.md` (invoke `superpowers:writing-skills` first): any Simulator.app references, the device/OS line, and the failure table
 - [x] Verify end-to-end: a session loads the app on the simulated iPad and runs one `execute_script` check
+- [x] Fix the ruff 0.16 default-rule findings in simpad.py (UP035, PLW1510)
+- [x] `down` kills only the listener `up` started, never a pid that merely holds a connection
+- [x] Move simpad off proptest's 8978 to 8979 (`FORBIDDEN_PORTS`, `up` refuses an occupied port, AGENTS.md port table, SKILL.md); re-verify end to end on 8979

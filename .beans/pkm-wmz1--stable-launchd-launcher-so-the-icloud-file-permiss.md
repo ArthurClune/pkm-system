@@ -1,11 +1,11 @@
 ---
 # pkm-wmz1
 title: Stable launchd launcher so the iCloud file permission survives uv upgrades
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-10-11T12:09:52Z
-updated_at: 2026-10-11T12:09:57Z
+updated_at: 2026-10-11T14:10:52Z
 blocked_by:
     - pkm-a7i8
 ---

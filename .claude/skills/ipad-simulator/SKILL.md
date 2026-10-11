@@ -7,7 +7,7 @@ description: Use when a change needs verifying on real iPadOS Safari/WebKit rath
 
 ## Overview
 
-Playwright covers Chromium only. The iOS Simulator on this Mac (iPad Air 11-inch M4, iOS 26.5) runs the real WebKit, driven through selenium + `/usr/bin/safaridriver`. Everything in the browser is done with `execute_script`; the page is mutated through the API, never the UI. `scripts/simpad.py` holds the plumbing — do not re-derive it.
+Playwright covers Chromium only. The iOS Simulator on this Mac (iPad Air 11-inch M4, iOS 26.5 runtime, Xcode 27) runs the real WebKit, driven through selenium + `/usr/bin/safaridriver`. Xcode 27 has no Simulator.app: `simctl` boots and screenshots the device, and safaridriver opens it through DeviceHub.app on its own. Everything in the browser is done with `execute_script`; the page is mutated through the API, never the UI. `scripts/simpad.py` holds the plumbing — do not re-derive it.
 
 ## Quick reference
 
@@ -51,6 +51,8 @@ Import the same file from a check script (run it with `uv run --with selenium py
 | Synthetic clicks land at (0,0) | `dispatch_click` sends no coordinates, so anything positioned from `clientX/Y` opens top-left. Assert on `rect(...) is not None`, not on placement. |
 | Teardown = `simpad.py down` only | it kills `lsof -ti tcp:8978`. `pgrep -f pkm.server.run` also matches the launchd **prod** server on 8974. Never `launchctl bootout/kickstart`; never touch 8974/8975/8977. |
 | `bootstatus -b` before the first session | a cold boot takes minutes; safaridriver times out otherwise (`up` does this). |
+| No `open -a Simulator`, and don't open DeviceHub by hand | there is no Simulator.app. safaridriver opens the device through DeviceHub's `devices://` URL on every session and relaunches DeviceHub if it was quit. To see the screen, use `simpad.screenshot`. |
+| `The file "open" couldn't be opened`, or `timed out … Booting Simulator.app` → stop and ask Arthur | Xcode's first-launch packages are missing (this recurs after every Xcode upgrade). DeviceHub waits on an admin prompt to install them, so its `devices://` open times out. `up` and `session()` check `xcodebuild -checkFirstLaunchStatus` and refuse. The fix is Arthur running `sudo xcodebuild -runFirstLaunch`; retries and simulator restarts don't help. |
 
 ## Example
 

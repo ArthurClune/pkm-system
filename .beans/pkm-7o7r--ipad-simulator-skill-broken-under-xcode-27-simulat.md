@@ -5,7 +5,7 @@ status: in-progress
 type: bug
 priority: normal
 created_at: 2026-10-11T15:07:38Z
-updated_at: 2026-10-11T15:16:11Z
+updated_at: 2026-10-11T15:17:39Z
 ---
 
 The `ipad-simulator` skill (and `scripts/simpad.py`) no longer works with the Xcode installed on biber (Xcode 27.0).
@@ -21,5 +21,5 @@ The `ipad-simulator` skill (and `scripts/simpad.py`) no longer works with the Xc
 - [x] Reproduce: `scripts/simpad.py up` and one safaridriver session from a clean state; capture the exact failing step and error
 - [x] Find what replaces Simulator.app in Xcode 27 (DeviceHub.app? `xcrun simctl` alone?) and whether safaridriver's simulator support still needs a visible Simulator UI
 - [x] Fix `scripts/simpad.py` (boot, open, safaridriver session setup) for Xcode 27
-- [ ] Update `.claude/skills/ipad-simulator/SKILL.md` (invoke `superpowers:writing-skills` first): any Simulator.app references, the device/OS line, and the failure table
-- [ ] Verify end-to-end: a session loads the app on the simulated iPad and runs one `execute_script` check
+- [x] Update `.claude/skills/ipad-simulator/SKILL.md` (invoke `superpowers:writing-skills` first): any Simulator.app references, the device/OS line, and the failure table
+- [x] Verify end-to-end: a session loads the app on the simulated iPad and runs one `execute_script` check

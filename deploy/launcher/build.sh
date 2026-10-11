@@ -14,4 +14,4 @@ SRC="$(cd "$(dirname "$0")" && pwd)/pkm-server.swift"
 mkdir -p "$(dirname "$OUT")"
 swiftc -O -o "$OUT" "$SRC"
 codesign --force -s - -i "com.$(whoami).pkm.server" "$OUT"
-codesign -dv "$OUT" 2>&1 | grep -E '^(Identifier|CDHash)='
+codesign -dvvv "$OUT" 2>&1 | grep -E '^(Identifier|CDHash)='

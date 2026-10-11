@@ -377,12 +377,12 @@ it("falls back to the download link when the document fails to load", async () =
   expect(screen.queryByTestId("pdf-document")).toBeNull();
 });
 
-it("a 503 from /api/local reads as 'not downloaded' rather than a render failure", async () => {
+it("a 503 from /api/local reads as a host-side failure rather than a render failure", async () => {
   failLoad = true;
   failWith = { status: 503 };
   render(<PdfViewer href={href} label="Notes" />);
   await act(async () => {});
-  expect(screen.getByText("Not downloaded on the host.")).toBeInTheDocument();
+  expect(screen.getByText("The host can't serve this file right now: it isn't downloaded yet, or the host isn't allowed to read it.")).toBeInTheDocument();
   expect(screen.queryByText("Couldn't render this PDF.")).toBeNull();
   expect(screen.getByRole("link", { name: "Notes" })).toHaveAttribute("href", href);
 });
@@ -393,7 +393,7 @@ it("a non-503 HTTP failure still reads as a render failure", async () => {
   render(<PdfViewer href={href} label="Notes" />);
   await act(async () => {});
   expect(screen.getByText("Couldn't render this PDF.")).toBeInTheDocument();
-  expect(screen.queryByText("Not downloaded on the host.")).toBeNull();
+  expect(screen.queryByText("The host can't serve this file right now: it isn't downloaded yet, or the host isn't allowed to read it.")).toBeNull();
 });
 
 // ---- reset and generation-guard on href change ------------------------

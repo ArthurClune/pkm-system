@@ -162,8 +162,8 @@ describe("placeholderHeight", () => {
 });
 
 describe("failureNote", () => {
-  it("names the iCloud-evicted case on a 503", () => {
-    expect(failureNote({ status: 503 })).toBe("Not downloaded on the host.");
+  it("names the not-downloaded-or-unreadable case on a 503", () => {
+    expect(failureNote({ status: 503 })).toBe("The host can't serve this file right now: it isn't downloaded yet, or the host isn't allowed to read it.");
   });
   it("falls back to the generic note otherwise", () => {
     expect(failureNote({ status: 404 })).toBe("Couldn't render this PDF.");

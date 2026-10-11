@@ -35,7 +35,10 @@ if [ "$REBUILD_LAUNCHER" = 1 ] || [ ! -x "$LAUNCHER" ]; then
     echo "WARNING: rebuilding the launcher changes its identity; macOS will ask" >&2
     echo "for iCloud file access again (click Allow at the Mac's screen)." >&2
   fi
-  "$REPO/deploy/launcher/build.sh" "$LAUNCHER"
+  # Build from the deployed checkout so the binary matches deployed main.
+  "$PKM_HOME/app/deploy/launcher/build.sh" "$LAUNCHER"
+  shasum -a 256 "$PKM_HOME/app/deploy/launcher/pkm-server.swift" |
+    cut -d' ' -f1 > "$LAUNCHER.source-sha256"
 fi
 
 # The server runs from the venv directly (the launcher does not go through

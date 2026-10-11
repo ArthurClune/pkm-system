@@ -28,5 +28,18 @@ git -C "$APP" fetch "$SRC" main
 git -C "$APP" merge --ff-only FETCH_HEAD
 (cd "$APP/server" && uv sync)
 (cd "$APP/web" && pnpm install --frozen-lockfile && pnpm build)
+# update.sh never rebuilds the launcher (a new build needs a new consent
+# click), so say when the deployed source has moved past the built binary.
+LAUNCHER="$PKM_HOME/bin/pkm-server"
+if [ -x "$LAUNCHER" ]; then
+  BUILT="$(cat "$LAUNCHER.source-sha256" 2>/dev/null || true)"
+  NOW="$(shasum -a 256 "$APP/deploy/launcher/pkm-server.swift" | cut -d' ' -f1)"
+  if [ "$BUILT" != "$NOW" ]; then
+    echo "WARNING: the launcher at $LAUNCHER was not built from the deployed" \
+         "source (or has no build stamp). Run" \
+         "$APP/deploy/install.sh --rebuild-launcher to update it; macOS will" \
+         "then ask for iCloud file access again." >&2
+  fi
+fi
 launchctl kickstart -k "gui/$(id -u)/com.$(whoami).pkm.server"
 echo "updated to $(git -C "$APP" rev-parse --short HEAD)"

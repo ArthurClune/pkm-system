@@ -92,8 +92,9 @@ group, retrying if concurrent writes shift the pages.
 The default `--limit` is 50.
 
 `pkm local check` reports every `/api/local/` link in block text whose file is
-`missing`, `evicted` (an iCloud placeholder not yet downloaded), or `invalid`
-(the href doesn't resolve to a safe path), checked against the server's
+`missing`, `evicted` (an iCloud placeholder not yet downloaded), `unreadable`
+(the host can't open it), `unchecked` (too many opens already in flight to
+try) or `invalid` (the href doesn't resolve to a safe path), checked against the server's
 `local_docs_root`. Exit status: `0` clean, `1` problems found, `2`
 `local_docs_root` not set.
 

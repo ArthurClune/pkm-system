@@ -782,8 +782,8 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | DELETE | `/api/assets/{sha256}` | Delete an asset, stripping its reference tokens from block text; `?if_unreferenced=true` instead refuses with 409 while any block references it, and strips nothing |
 | POST | `/api/assets/export.zip` | Zip the selected assets (form-encoded `sha256s`, download) |
 | **Local documents** (`routes_local.py`) | | |
-| GET | `/api/local/check` | Every `/api/local/` href in block text, classified `ok` / `missing` / `evicted` / `invalid` / `unreadable` against disk (a dataless file is `evicted` and is never opened; any other file is probe-opened, and a failed probe is `unreadable`); `enabled: false` when `local_docs_root` is unset |
-| GET | `/api/local/{path}` | Serve one regular file under `local_docs_root` (inline for PDF/image extensions, attachment otherwise, `nosniff`); 404 for anything outside the root, missing, or not a regular file; 503 + `Retry-After` for an iCloud-evicted or dataless file, and for a file the host cannot open within the probe timeout (`the host can't open this file`) |
+| GET | `/api/local/check` | Every `/api/local/` href in block text, classified `ok` / `missing` / `evicted` / `invalid` / `unreadable` / `unchecked` against disk (a dataless file is `evicted` and is never opened; any other file is probe-opened: a failed probe is `unreadable`, a full probe cap is `unchecked`); `enabled: false` when `local_docs_root` is unset |
+| GET | `/api/local/{path}` | Serve one regular file under `local_docs_root` (inline for PDF/image extensions, attachment otherwise, `nosniff`); 404 for anything outside the root, missing, or not a regular file; 503 + `Retry-After` for an iCloud-evicted or dataless file, and for a file the host cannot open within the probe timeout (`the host can't open this file`) or a full probe cap (`too many file opens are in flight…`) |
 | **GoodLinks copies** (`routes_goodlinks.py`, see [goodlinks.md](goodlinks.md)) | | |
 | POST | `/api/goodlinks/resolve` | Resolve a URL to a GoodLinks link (exact, query-stripped, trailing-slash-toggled, single search hit); with `save` true, save it read-marked when absent |
 | GET | `/api/goodlinks/check` | Every `/api/goodlinks/` href in block text, `ok` / `missing` / `invalid` against the library; `enabled: false` without an API token |
@@ -802,7 +802,8 @@ confirms what exists. `/api/local/check` starts from a raw href in block text
 rather than an already-decoded path parameter, so it goes through
 `resolve_relative`, which unquotes exactly once.
 
-`_is_evicted` in `routes_local.py` is the single source of truth for iCloud
+`_is_evicted` and `_is_dataless` in `routes_local.py` are the two eviction
+helpers, shared by both routes so they cannot disagree. `_is_evicted` covers iCloud
 eviction, which shows up on disk as an `.icloud` stub beside a missing file.
 The file route answers 503 with `Retry-After` after a best-effort
 `brctl download`; `/api/local/check` reports `evicted` rather than `missing`.
@@ -821,8 +822,9 @@ runs `os.open` on its own daemon thread with a timeout, shares one thread among
 callers asking about the same path, and caps distinct in-flight probes (a probe
 past the cap is `busy` without starting a thread). A blocked `open()` cannot be
 cancelled, so the bound on stuck threads is the cap, and daemon threads keep a
-stuck one from holding up shutdown. `unreadable` and `busy` are both a 503 on
-the file route and `unreadable` in `/api/local/check`.
+stuck one from holding up shutdown. A failed or timed-out probe is `unreadable`: a 503 `the host can't open this file` on the file route and `unreadable` in `/api/local/check`. `busy` is a different 503 detail (`too many file opens are in flight on the host; see the server log`) and the `unchecked` status in the check, because it says nothing about the file itself. A caller joining a probe already in flight waits only for what is left of its timeout.
+
+The probe and `FileResponse` each open the file, so a file that becomes unopenable between the two still hangs after the 200 headers. That window is accepted.
 
 ### Breadcrumbs and recursive traversal
 

@@ -1501,7 +1501,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "missing" | "evicted" | "invalid";
+            status: "missing" | "evicted" | "invalid" | "unreadable";
         };
         /** LoginBody */
         LoginBody: {

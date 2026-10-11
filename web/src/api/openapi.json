@@ -3524,7 +3524,8 @@
             "enum": [
               "missing",
               "evicted",
-              "invalid"
+              "invalid",
+              "unreadable"
             ],
             "title": "Status"
           }

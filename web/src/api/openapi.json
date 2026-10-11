@@ -3525,7 +3525,8 @@
               "missing",
               "evicted",
               "invalid",
-              "unreadable"
+              "unreadable",
+              "unchecked"
             ],
             "title": "Status"
           }

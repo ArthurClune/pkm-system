@@ -1,8 +1,17 @@
 #!/bin/bash
 # Install/refresh the PKM launchd services on this machine. Idempotent:
 # re-running updates plists and Tailscale Serve config; it never touches
-# data/, backups/, or an existing config.json.
+# data/, backups/, or an existing config.json. The launcher binary is built
+# only when missing: --rebuild-launcher forces it, which changes its identity
+# and makes macOS ask for iCloud file access again.
 set -euo pipefail
+
+REBUILD_LAUNCHER=0
+case "${1:-}" in
+  "") ;;
+  --rebuild-launcher) REBUILD_LAUNCHER=1 ;;
+  *) echo "usage: $0 [--rebuild-launcher]" >&2; exit 64 ;;
+esac
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PKM_HOME="${PKM_HOME:-$HOME/.config/pkm}"
@@ -19,6 +28,19 @@ if [ ! -e "$PKM_HOME/app" ]; then
   SRC="$(dirname "$(git -C "$REPO" rev-parse --path-format=absolute --git-common-dir)")"
   git clone "$SRC" "$PKM_HOME/app"
 fi
+
+LAUNCHER="$PKM_HOME/bin/pkm-server"
+if [ "$REBUILD_LAUNCHER" = 1 ] || [ ! -x "$LAUNCHER" ]; then
+  if [ "$REBUILD_LAUNCHER" = 1 ]; then
+    echo "WARNING: rebuilding the launcher changes its identity; macOS will ask" >&2
+    echo "for iCloud file access again (click Allow at the Mac's screen)." >&2
+  fi
+  "$REPO/deploy/launcher/build.sh" "$LAUNCHER"
+fi
+
+# The server runs from the venv directly (the launcher does not go through
+# uv run, which used to create it on first start).
+(cd "$PKM_HOME/app/server" && "$UV" sync)
 
 render() { # render <template> <dest>
   sed -e "s|{{USER}}|$USER_NAME|g" \

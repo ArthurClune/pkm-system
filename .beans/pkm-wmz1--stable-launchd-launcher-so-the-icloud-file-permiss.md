@@ -30,10 +30,10 @@ A tiny launcher binary at a fixed path outside the app checkout, `~/.config/pkm/
 
 ## Todo
 
-- [ ] Launcher source in `deploy/` (Swift), header `// pattern: Imperative Shell`
-- [ ] Test first (pytest): compile to a temp dir; exit status passes through; SIGTERM to the launcher reaches the child and the launcher exits after the child does; a child killed by a signal yields 128+signal
-- [ ] `install.sh`: build and sign into `$PKM_HOME/bin/pkm-server` only if missing (an explicit flag to force a rebuild, with a warning that it re-triggers the consent prompt)
-- [ ] Server plist template: run `pkm-server <PKM_HOME>/app/server/.venv/bin/python -m pkm.server.run …` instead of `uv run`; backup jobs stay on `uv run` (they never open iCloud files)
-- [ ] `deploy/README.md`: layout, why the launcher must not be rebuilt casually, how to re-grant (System Settings, or open a local file and click Allow on the console)
-- [ ] Update `backend.md` / `overview.md` wherever they say the service runs under `uv run`
+- [x] Launcher source in `deploy/` (Swift), header `// pattern: Imperative Shell`
+- [x] Test first (pytest): compile to a temp dir; exit status passes through; SIGTERM to the launcher reaches the child and the launcher exits after the child does; a child killed by a signal yields 128+signal
+- [x] `install.sh`: build and sign into `$PKM_HOME/bin/pkm-server` only if missing (an explicit flag to force a rebuild, with a warning that it re-triggers the consent prompt)
+- [x] Server plist template: run `pkm-server <PKM_HOME>/app/server/.venv/bin/python -m pkm.server.run …` instead of `uv run`; backup jobs stay on `uv run` (they never open iCloud files)
+- [x] `deploy/README.md`: layout, why the launcher must not be rebuilt casually, how to re-grant (System Settings, or open a local file and click Allow on the console)
+- [x] Update `backend.md` / `overview.md` wherever they say the service runs under `uv run`
 - [ ] Cutover on biber: `install.sh`, open a local PDF, Allow for pkm-server on the console, verify a 200/206 `/api/local/` line in `access.log` and the PDF on the iPad; confirm TCC.db shows the grant against `pkm-server`

@@ -1,11 +1,11 @@
 ---
 # pkm-fsty
 title: Rotate production logs under ~/.config/pkm/logs
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-10-06T09:01:28Z
-updated_at: 2026-10-06T11:12:07Z
+updated_at: 2026-10-11T15:55:15Z
 ---
 
 Production's launchd jobs write to `~/.config/pkm/logs/` (deploy/README.md: `server.{out,err}.log`, `backup.*`, `icloud-backup.*`) and nothing ever rotates them. On 2026-10-06 `server.out.log` was 12 MB and `server.err.log` 2 MB after about three months; backup logs are tiny. Growth is slow but unbounded, and a big file makes the server-log forensics in the prod recipe slower.
@@ -21,7 +21,7 @@ Whatever is chosen: keep enough history for forensics (at least a couple of week
 - [x] Pick the mechanism (above), with the forensics retention
 - [x] Implement and test (unit-test any pure retention or rotation logic)
 - [x] deploy/README.md: layout and where older logs live
-- [ ] Install on prod with Arthur's go-ahead; verify a rotation happened and the server kept logging
+- [x] Install on prod with Arthur's go-ahead; verify a rotation happened and the server kept logging
 
 ## Recommendation (2026-10-06)
 
@@ -35,3 +35,7 @@ Check before choosing: what writes server.out.log (uvicorn access lines vs app l
 ## Deployed (2026-10-06)
 
 Merged at 23597323 and deployed: install.sh re-rendered the server plist with `--log-dir` (its bootstrap hit the race filed as pkm-vlkm; a manual bootstrap brought the server back after about a minute). Prod now writes `logs/server.log` and `logs/access.log`; launchd's `server.{out,err}.log` are empty. The old files are kept as `server.{out,err}.log.pre-rotation.gz`. A forced rollover across a restart was checked on a scratch server; the open item is seeing the first midnight rotation on prod (`ls ~/.config/pkm/logs/*.log.2026-10-06` on or after 2026-10-07).
+
+## Verification (2026-10-11)
+
+Deployed 2026-10-06. Daily `server.log.2026-10-06` through `-10-10` and matching `access.log.*` files exist in `~/.config/pkm/logs`; today's `server.log`/`access.log` are still being written, and `server.out.log` has stayed empty since the changeover.

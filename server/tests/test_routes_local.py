@@ -205,3 +205,101 @@ def test_check_agrees_with_file_route_on_percent_in_filename(
     body = local_client.get("/api/local/check").json()
     by_uid = {p["uid"]: p for p in body["problems"]}
     assert "uid_pct" not in by_uid
+
+
+# --- open probe and dataless handling -------------------------------------
+
+import threading  # noqa: E402
+
+import pytest  # noqa: E402
+
+from pkm.server.local_open import OpenProber  # noqa: E402
+
+
+@pytest.fixture
+def blocking_prober(monkeypatch):
+    """A prober whose opener blocks until released; swapped in for the
+    module default so no state leaks between tests."""
+    gate = threading.Event()
+    calls = []
+
+    def opener(path):
+        calls.append(path)
+        gate.wait(10)
+
+    prober = OpenProber(opener=opener, timeout=0.2, cap=4)
+    monkeypatch.setattr(routes_local, "default_prober", prober)
+    yield prober, calls
+    gate.set()
+
+
+def test_unreadable_file_is_503(local_client, blocking_prober):
+    r = local_client.get("/api/local/Papers/ML/Title%20one.pdf")
+    assert r.status_code == 503
+    assert r.headers["retry-after"] == "5"
+    assert r.json() == {"detail": "the host can't open this file",
+                        "path": "Papers/ML/Title one.pdf"}
+
+
+def test_busy_prober_is_503(local_client, monkeypatch):
+    monkeypatch.setattr(routes_local, "default_prober",
+                        OpenProber(opener=lambda p: None, timeout=0.2, cap=0))
+    r = local_client.get("/api/local/Papers/ML/Title%20one.pdf")
+    assert r.status_code == 503
+    assert r.json()["detail"] == "the host can't open this file"
+
+
+def test_permission_error_is_503(local_client, monkeypatch):
+    def deny(path):
+        raise PermissionError(1, "denied")
+    monkeypatch.setattr(routes_local, "default_prober",
+                        OpenProber(opener=deny, timeout=1, cap=2))
+    assert local_client.get("/api/local/Papers/ML/Title%20one.pdf").status_code == 503
+
+
+def test_dataless_file_is_evicted_and_never_opened(local_client, local_root, monkeypatch):
+    calls = []
+    monkeypatch.setattr(routes_local, "default_prober",
+                        OpenProber(opener=calls.append, timeout=1, cap=2))
+    monkeypatch.setattr(routes_local, "_is_dataless", lambda p: True)
+    asked = []
+    monkeypatch.setattr(routes_local, "_request_download", lambda p: asked.append(p))
+    r = local_client.get("/api/local/Papers/ML/Title%20one.pdf")
+    assert r.status_code == 503
+    assert r.json()["detail"] == "not downloaded on the host"
+    assert calls == []
+    assert asked == [local_root / "Papers" / "ML" / "Title one.pdf"]
+
+
+def test_check_reports_unreadable_file(local_client, seeded_config, blocking_prober):
+    _seed_local_links(seeded_config.db_path)
+    body = local_client.get("/api/local/check").json()
+    statuses = {(p["uid"], p["status"]) for p in body["problems"]}
+    assert ("uid_l1", "unreadable") in statuses
+    assert body["ok"] == 0
+
+
+def test_check_reports_dataless_as_evicted_without_opening(
+        local_client, seeded_config, monkeypatch):
+    calls = []
+    monkeypatch.setattr(routes_local, "default_prober",
+                        OpenProber(opener=calls.append, timeout=1, cap=2))
+    monkeypatch.setattr(routes_local, "_is_dataless", lambda p: True)
+    _seed_local_links(seeded_config.db_path)
+    body = local_client.get("/api/local/check").json()
+    assert ("uid_l1", "evicted") in {(p["uid"], p["status"]) for p in body["problems"]}
+    assert calls == []
+
+
+def test_is_dataless_reads_the_stat_flag(tmp_path, monkeypatch):
+    f = tmp_path / "x"
+    f.write_text("x")
+    assert routes_local._is_dataless(f) is False
+    real = os.stat
+
+    class S:
+        st_flags = 0x40000000
+    monkeypatch.setattr(routes_local.os, "stat", lambda p: S())
+    assert routes_local._is_dataless(f) is True
+    monkeypatch.setattr(routes_local.os, "stat", real)
+    assert routes_local._is_dataless(tmp_path / "missing") is False

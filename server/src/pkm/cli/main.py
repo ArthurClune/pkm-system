@@ -737,7 +737,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = _add("local", "check Local copy:: links against the server's disk",
              _LOCAL_EPILOG)
     sub_local = p.add_subparsers(dest="local_action", required=True)
-    sp = sub_local.add_parser("check", help="report missing/evicted local files")
+    sp = sub_local.add_parser("check", help="report missing, evicted or unreadable local files")
     _common(sp)
 
     p = _add("goodlinks", "check Local copy:: Goodlinks links against the Goodlinks library",

@@ -42,7 +42,7 @@ Two environment variables override the defaults:
     pkm rename "Old Title" "New Title" [--allow-merge] [--json]
     pkm migrate-titles [--json]              # side-effect-free audit
     pkm migrate-titles --apply DIGEST        # explicit audited apply
-    pkm local check [--json]                 # /api/local/ links missing/evicted on the host
+    pkm local check [--json]                 # /api/local/ links missing, evicted or unreadable on the host
     pkm goodlinks check [--json]             # /api/goodlinks/ links GoodLinks no longer has
 
 ### Writing

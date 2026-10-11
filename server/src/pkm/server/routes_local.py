@@ -8,10 +8,17 @@ exists.
 
 iCloud can evict a file, leaving only a `.Name.ext.icloud` stub. That
 case is a 503 with Retry-After, after a best-effort `brctl download` so
-the next click usually succeeds."""
+the next click usually succeeds. A dataless file (macOS's newer eviction,
+no stub) is treated the same way.
+
+A resolved file is probed with `local_open` before `FileResponse` sees
+it: `open()` on an iCloud path can block for good, and FileResponse
+would do that on anyio's shared pool. A probe that fails or times out
+is a 503, never a hang."""
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -27,6 +34,7 @@ from pkm.local_docs import (LOCAL_PREFIX, clean_relative, disposition_for,
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
+from pkm.server.local_open import default_prober
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 logger = logging.getLogger("pkm.local")
@@ -87,13 +95,29 @@ def _is_evicted(root: Path, candidate: Path) -> bool:
         return False
 
 
-def _classify(root: Path, href: str) -> Literal["ok", "missing", "evicted", "invalid"]:
+_SF_DATALESS = 0x40000000
+
+
+def _is_dataless(path: Path) -> bool:
+    """True when macOS reports `path` as an evicted placeholder (the
+    SF_DATALESS flag); opening it would block while it downloads."""
+    try:
+        return bool(getattr(os.stat(path), "st_flags", 0) & _SF_DATALESS)
+    except OSError:
+        return False
+
+
+def _classify(root: Path, href: str) -> Literal[
+        "ok", "missing", "evicted", "invalid", "unreadable"]:
     rel = resolve_relative(href[len(LOCAL_PREFIX):])
     if rel is None:
         return "invalid"
     candidate = root / rel
-    if _resolve_contained_file(root, candidate) is not None:
-        return "ok"
+    resolved = _resolve_contained_file(root, candidate)
+    if resolved is not None:
+        if _is_dataless(resolved):
+            return "evicted"
+        return "ok" if default_prober.probe(resolved) == "ok" else "unreadable"
     if _is_evicted(root, candidate):
         return "evicted"
     return "missing"
@@ -134,6 +158,15 @@ def get_local_file(path: str,
     resolved = _resolve_contained_file(root, candidate)
     if resolved is None:
         raise _NOT_FOUND
+    if _is_dataless(resolved):
+        _request_download(resolved)
+        return JSONResponse(
+            status_code=503, headers={"Retry-After": "5"},
+            content={"detail": "not downloaded on the host", "path": rel})
+    if default_prober.probe(resolved) != "ok":
+        return JSONResponse(
+            status_code=503, headers={"Retry-After": "5"},
+            content={"detail": "the host can't open this file", "path": rel})
     return FileResponse(
         resolved, media_type=media_type_for(resolved.name),
         filename=resolved.name,

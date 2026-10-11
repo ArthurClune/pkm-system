@@ -143,8 +143,10 @@ machine's Tailscale IP for direct API clients. The backup service runs nightly
 at 03:30; at 04:30 `deploy/icloud_backup.py` mirrors the snapshots and `data/`
 into iCloud Drive.
 
-- `deploy/install.sh` — idempotent first install: renders plists, bootstraps
-  services, configures Tailscale Serve.
+- `deploy/install.sh` — idempotent first install: builds the server launcher
+  once (macOS attributes file-access consent to the job's own binary, so it
+  must not change), runs `uv sync`, renders plists, bootstraps services,
+  configures Tailscale Serve.
 - `deploy/update.sh` — deploy: fast-forward to `main` of the local dev
   checkout (never GitHub), `uv sync`, `pnpm build`, kickstart the server
   service. It refuses to run outside `$PKM_HOME/app`

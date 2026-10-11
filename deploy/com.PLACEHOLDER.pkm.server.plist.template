@@ -6,11 +6,8 @@
   <key>Label</key><string>com.{{USER}}.pkm.server</string>
   <key>ProgramArguments</key>
   <array>
-    <string>{{UV}}</string>
-    <string>run</string>
-    <string>--project</string>
-    <string>{{PKM_HOME}}/app/server</string>
-    <string>python</string>
+    <string>{{PKM_HOME}}/bin/pkm-server</string>
+    <string>{{PKM_HOME}}/app/server/.venv/bin/python</string>
     <string>-m</string>
     <string>pkm.server.run</string>
     <string>--data-dir</string>
@@ -18,6 +15,11 @@
     <string>--log-dir</string>
     <string>{{PKM_HOME}}/logs</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>{{PKM_HOME}}/app/server/.venv/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>VIRTUAL_ENV</key><string>{{PKM_HOME}}/app/server/.venv</string>
+  </dict>
   <key>WorkingDirectory</key><string>{{PKM_HOME}}/app/server</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>

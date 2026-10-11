@@ -894,9 +894,12 @@ The fixtures pin the implementations on chosen cases; the ops property in [prope
 
 Every path key resolves relative to `config.json`'s own directory, so the data
 directory can move as a unit. `python -m pkm.server.run` is the entrypoint,
-serving port 8974 on `bind_hosts`. `create_app()` always runs `init_db()`, so
-every entrypoint — server, tests, artifact dumps — works against a brand-new
-data directory.
+serving port 8974 on `bind_hosts`. In production launchd runs it through
+`$PKM_HOME/bin/pkm-server`, which spawns the venv Python and stays its
+parent, so macOS attributes file-access consent to a binary that does not
+change (see [the launcher](../../deploy/README.md#the-launcher)).
+`create_app()` always runs `init_db()`, so every entrypoint — server, tests,
+artifact dumps — works against a brand-new data directory.
 
 ## Logging and observability
 

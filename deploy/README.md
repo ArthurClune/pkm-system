@@ -10,6 +10,7 @@ Everything lives under `$PKM_HOME` (default `~/.config/pkm`):
 
 ```
 ~/.config/pkm/
+  bin/        pkm-server, the launcher binary (built by install.sh)
   app/        git clone of the local dev checkout (made by install.sh)
   data/       config.json, pkm.sqlite3, assets/ — the live database
   backups/    nightly sqlite snapshots + markdown/asset export
@@ -33,7 +34,9 @@ existing `config.json` or database.
 
 1. Run `deploy/install.sh` from any checkout of this repo or its worktrees.
    If `$PKM_HOME/app` doesn't exist, it clones the main checkout there, so the
-   clone's `origin` is that local path. It then renders the three launchd
+   clone's `origin` is that local path. It builds the launcher into
+   `$PKM_HOME/bin/pkm-server` if missing, runs `uv sync` so the venv exists,
+   and renders the three launchd
    plists from the templates in this directory, loads them with
    `launchctl bootstrap`, and configures Tailscale Serve to forward HTTPS on
    the tailnet to the local server port.
@@ -56,7 +59,9 @@ existing `config.json` or database.
    ```
 5. Restart the server so it picks up the new config:
    `launchctl kickstart -k "gui/$UID/com.$USER.pkm.server"`.
-6. Run `deploy/smoke.sh` to verify the install end-to-end.
+6. After the first start, open a Local copy file (or run `pkm local check`)
+   and click **Allow** for "pkm-server" at the Mac's screen.
+7. Run `deploy/smoke.sh` to verify the install end-to-end.
 
 ## Updating
 
@@ -82,6 +87,32 @@ nothing is rebuilt.
 `update.sh` does not re-render the launchd plists. When an update changes a
 `*.plist.template`, run `$PKM_HOME/app/deploy/install.sh` after it, which
 re-renders and reloads all three jobs.
+
+## The launcher
+
+The server job runs `$PKM_HOME/bin/pkm-server <venv python> -m pkm.server.run
+...` (source: `deploy/launcher/pkm-server.swift`, built and ad-hoc signed by
+`deploy/launcher/build.sh`). macOS grants iCloud file access to the launchd
+job's own binary, not to the Python it starts. The launcher spawns the server
+and stays its parent, forwards SIGTERM/SIGINT/SIGHUP to it and exits with its
+status, so that binary is the one identity the grant attaches to. The grant
+is keyed to the binary's path and code hash (the signing identifier only
+keeps the hash reproducible), so it survives `uv`, Homebrew, Python and app
+upgrades.
+
+Rebuilding unchanged source with the same toolchain keeps the hash and the
+grant. A source change, a Swift toolchain change or a moved `PKM_HOME` gives
+a new client, and the consent prompt returns at the Mac's screen.
+`update.sh` never rebuilds the launcher: a change under `deploy/launcher/`
+reaches prod only through `install.sh --rebuild-launcher` followed by Allow.
+`install.sh` records the built source's SHA-256 in
+`$PKM_HOME/bin/pkm-server.source-sha256`, and `update.sh` warns when the
+deployed source no longer matches it. To re-grant, click Allow on the prompt, or use System Settings → Privacy &
+Security → Files and Folders → pkm-server → iCloud Drive. Old `uv` entries in
+that pane can be removed.
+
+Cutover for an install that still runs under `uv run`: `update.sh`, then
+`$PKM_HOME/app/deploy/install.sh`, then Allow.
 
 ## Backups
 
@@ -146,7 +177,8 @@ arrives aborts the run, and the next night retries.
 ## Troubleshooting
 
 - `launchctl print "gui/$UID/com.$USER.pkm.server"`: job state, last exit
-  status, and the pid if running (use `.backup` or `.icloud-backup` for the
+  status (an exit code of 128+N means the server died of signal N), and the
+  pid if running (use `.backup` or `.icloud-backup` for the
   backup jobs).
 - `$PKM_HOME/logs/server.log` / `access.log`: today's server log and request
   log; `server.log.YYYY-MM-DD` and `access.log.YYYY-MM-DD` hold the last 30

@@ -1,8 +1,18 @@
 #!/bin/bash
 # Install/refresh the PKM launchd services on this machine. Idempotent:
 # re-running updates plists and Tailscale Serve config; it never touches
-# data/, backups/, or an existing config.json.
+# data/, backups/, or an existing config.json. The launcher binary is built
+# only when missing: --rebuild-launcher forces it. A rebuild after a source or
+# Swift toolchain change gives the binary a new identity, and macOS then asks
+# for iCloud file access again.
 set -euo pipefail
+
+REBUILD_LAUNCHER=0
+case "${1:-}" in
+  "") ;;
+  --rebuild-launcher) REBUILD_LAUNCHER=1 ;;
+  *) echo "usage: $0 [--rebuild-launcher]" >&2; exit 64 ;;
+esac
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PKM_HOME="${PKM_HOME:-$HOME/.config/pkm}"
@@ -19,6 +29,23 @@ if [ ! -e "$PKM_HOME/app" ]; then
   SRC="$(dirname "$(git -C "$REPO" rev-parse --path-format=absolute --git-common-dir)")"
   git clone "$SRC" "$PKM_HOME/app"
 fi
+
+LAUNCHER="$PKM_HOME/bin/pkm-server"
+if [ "$REBUILD_LAUNCHER" = 1 ] || [ ! -x "$LAUNCHER" ]; then
+  if [ "$REBUILD_LAUNCHER" = 1 ]; then
+    echo "WARNING: if the launcher source or Swift toolchain changed, the rebuilt" >&2
+    echo "binary has a new identity and macOS will ask for iCloud file access" >&2
+    echo "again (click Allow at the Mac's screen)." >&2
+  fi
+  # Build from the deployed checkout so the binary matches deployed main.
+  "$PKM_HOME/app/deploy/launcher/build.sh" "$LAUNCHER"
+  shasum -a 256 "$PKM_HOME/app/deploy/launcher/pkm-server.swift" |
+    cut -d' ' -f1 > "$LAUNCHER.source-sha256"
+fi
+
+# The server runs from the venv directly (the launcher does not go through
+# uv run, which used to create it on first start).
+(cd "$PKM_HOME/app/server" && "$UV" sync)
 
 render() { # render <template> <dest>
   sed -e "s|{{USER}}|$USER_NAME|g" \

@@ -160,6 +160,27 @@ def find_device_udid(name: str = DEFAULT_DEVICE) -> str:
     return candidates[0][1]
 
 
+def check_xcode_first_launch() -> None:
+    """Refuse to go on while Xcode's first-launch packages are uninstalled.
+
+    Xcode 27 ships no Simulator.app, so safaridriver opens the simulator via
+    DeviceHub's `devices://device/open?id=<udid>` URL on every session, even
+    with the device already booted. DeviceHub's launcher first installs
+    Xcode's first-launch packages (MobileDevice, CoreTypes) behind an admin
+    password prompt, and until someone approves it the URL open times out:
+    the session dies with `The file "open" couldn't be opened` (or, on
+    DeviceHub's cold launch, `timed out ... Booting Simulator.app`).
+    """
+    if subprocess.run(["xcodebuild", "-checkFirstLaunchStatus"],
+                      capture_output=True, check=False).returncode != 0:
+        raise SystemExit(
+            "Xcode first-launch packages are not installed, so safaridriver cannot open "
+            "the simulator through DeviceHub.\nArthur must run `sudo xcodebuild "
+            "-runFirstLaunch` (or approve DeviceHub's install prompt); there is no "
+            "workaround without admin rights."
+        )
+
+
 def find_booted_udid(name: str = DEFAULT_DEVICE) -> str:
     """Return the UDID of the currently-Booted device matching `name`, booting it if needed."""
     udid = find_device_udid(name)
@@ -208,6 +229,7 @@ def _needs_build(web_dir: Path) -> bool:
 def cmd_up(port: int, device: str, no_build: bool) -> None:
     """Boot the simulator device (if needed), build the SPA (if stale), start the e2e server."""
     _check_port_allowed(port)
+    check_xcode_first_launch()
 
     udid = find_booted_udid(device)
 
@@ -310,11 +332,13 @@ def session(port: int = DEFAULT_PORT, udid: str | None = None,
     Builds capabilities exactly as the proven ad-hoc scripts did
     (`platformName: ios`, `safari:useSimulator: True`,
     `safari:deviceUDID`), logs in via an in-page fetch to /api/login, and
-    always quits the driver on exit.
+    always quits the driver on exit. safaridriver launches DeviceHub itself
+    (see check_xcode_first_launch); nothing needs to be opened by hand.
     """
     from selenium import webdriver
     from selenium.webdriver.safari.options import Options as SafariOptions
 
+    check_xcode_first_launch()
     if udid is None:
         udid = find_booted_udid()
 

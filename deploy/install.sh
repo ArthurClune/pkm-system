@@ -2,8 +2,9 @@
 # Install/refresh the PKM launchd services on this machine. Idempotent:
 # re-running updates plists and Tailscale Serve config; it never touches
 # data/, backups/, or an existing config.json. The launcher binary is built
-# only when missing: --rebuild-launcher forces it, which changes its identity
-# and makes macOS ask for iCloud file access again.
+# only when missing: --rebuild-launcher forces it. A rebuild after a source or
+# Swift toolchain change gives the binary a new identity, and macOS then asks
+# for iCloud file access again.
 set -euo pipefail
 
 REBUILD_LAUNCHER=0
@@ -32,8 +33,9 @@ fi
 LAUNCHER="$PKM_HOME/bin/pkm-server"
 if [ "$REBUILD_LAUNCHER" = 1 ] || [ ! -x "$LAUNCHER" ]; then
   if [ "$REBUILD_LAUNCHER" = 1 ]; then
-    echo "WARNING: rebuilding the launcher changes its identity; macOS will ask" >&2
-    echo "for iCloud file access again (click Allow at the Mac's screen)." >&2
+    echo "WARNING: if the launcher source or Swift toolchain changed, the rebuilt" >&2
+    echo "binary has a new identity and macOS will ask for iCloud file access" >&2
+    echo "again (click Allow at the Mac's screen)." >&2
   fi
   # Build from the deployed checkout so the binary matches deployed main.
   "$PKM_HOME/app/deploy/launcher/build.sh" "$LAUNCHER"

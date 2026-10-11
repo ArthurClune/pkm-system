@@ -782,8 +782,8 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | DELETE | `/api/assets/{sha256}` | Delete an asset, stripping its reference tokens from block text; `?if_unreferenced=true` instead refuses with 409 while any block references it, and strips nothing |
 | POST | `/api/assets/export.zip` | Zip the selected assets (form-encoded `sha256s`, download) |
 | **Local documents** (`routes_local.py`) | | |
-| GET | `/api/local/check` | Every `/api/local/` href in block text, classified `ok` / `missing` / `evicted` / `invalid` against disk; `enabled: false` when `local_docs_root` is unset |
-| GET | `/api/local/{path}` | Serve one regular file under `local_docs_root` (inline for PDF/image extensions, attachment otherwise, `nosniff`); 404 for anything outside the root, missing, or not a regular file; 503 + `Retry-After` for an iCloud-evicted file |
+| GET | `/api/local/check` | Every `/api/local/` href in block text, classified `ok` / `missing` / `evicted` / `invalid` / `unreadable` against disk (a dataless file is `evicted` and is never opened; any other file is probe-opened, and a failed probe is `unreadable`); `enabled: false` when `local_docs_root` is unset |
+| GET | `/api/local/{path}` | Serve one regular file under `local_docs_root` (inline for PDF/image extensions, attachment otherwise, `nosniff`); 404 for anything outside the root, missing, or not a regular file; 503 + `Retry-After` for an iCloud-evicted or dataless file, and for a file the host cannot open within the probe timeout (`the host can't open this file`) |
 | **GoodLinks copies** (`routes_goodlinks.py`, see [goodlinks.md](goodlinks.md)) | | |
 | POST | `/api/goodlinks/resolve` | Resolve a URL to a GoodLinks link (exact, query-stripped, trailing-slash-toggled, single search hit); with `save` true, save it read-marked when absent |
 | GET | `/api/goodlinks/check` | Every `/api/goodlinks/` href in block text, `ok` / `missing` / `invalid` against the library; `enabled: false` without an API token |
@@ -808,6 +808,21 @@ The file route answers 503 with `Retry-After` after a best-effort
 `brctl download`; `/api/local/check` reports `evicted` rather than `missing`.
 `/api/local/check` is registered ahead of the `/api/local/{path}` catch-all, so
 the literal `check` segment resolves to the audit route.
+
+A dataless file (macOS's newer eviction: no stub, `SF_DATALESS` set in
+`st_flags`) counts as evicted too, through `_is_dataless`. Opening it would
+block while it downloads, so neither route opens it.
+
+A resolved file is never handed to `FileResponse` unprobed. `open()` on an
+iCloud path can block in the kernel for good while macOS waits for a consent
+prompt. `FileResponse` would run that `open()` on anyio's shared threadpool,
+so every attempt would leak a thread until every sync route hung. `local_open.OpenProber`
+runs `os.open` on its own daemon thread with a timeout, shares one thread among
+callers asking about the same path, and caps distinct in-flight probes (a probe
+past the cap is `busy` without starting a thread). A blocked `open()` cannot be
+cancelled, so the bound on stuck threads is the cap, and daemon threads keep a
+stuck one from holding up shutdown. `unreadable` and `busy` are both a 503 on
+the file route and `unreadable` in `/api/local/check`.
 
 ### Breadcrumbs and recursive traversal
 

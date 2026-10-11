@@ -1,11 +1,11 @@
 ---
 # pkm-a7i8
 title: Local copy file the host can't open hangs the request and leaks a thread
-status: todo
+status: in-progress
 type: bug
 priority: high
 created_at: 2026-10-11T12:02:05Z
-updated_at: 2026-10-11T12:02:05Z
+updated_at: 2026-10-11T12:12:39Z
 ---
 
 A `Local copy::` file the host process can't open hangs the request forever instead of failing.
@@ -22,12 +22,12 @@ The consent is tied to the launchd job's binary (Homebrew's ad-hoc-signed `uv`),
 
 ## Todo
 
-- [ ] `get_local_file`: probe-open the resolved file with a timeout before returning `FileResponse`; on timeout, `PermissionError` or other `OSError`, return 503 with a clear detail (e.g. "the host can't read this file"), in the same shape as the existing "not downloaded on the host" 503
-- [ ] Bound the damage of a probe that never returns: a timed-out thread still leaks, so cap concurrent probes (e.g. a small semaphore, failing fast with 503 when exhausted) so they can never fill the shared threadpool
-- [ ] `pkm local check` / `GET /api/local/check`: add an `unreadable` status that opens the file (with the same timeout and cap), reported as a problem rather than ok; update `LocalCheckPayload` status literal, the CLI output and regenerate `web/src/api/openapi.json`
-- [ ] Optional: the web PDF viewer times out and shows the fallback link instead of spinning forever
-- [ ] Tests first (pytest): an open that blocks past the timeout -> 503 and the thread cap holds; `PermissionError` -> 503; check reports `unreadable`
-- [ ] Docs: row in `docs/troubleshooting.md` (symptom "Local copy PDF hangs on Loading PDF…, nothing in access.log"; cause "launchd process blocked opening a file in an iCloud container pending TCC consent"; owning section `files-and-assets.md`); note the new status/503 in `files-and-assets.md` and the API table in `backend.md`
+- [x] `get_local_file`: probe-open the resolved file with a timeout before returning `FileResponse`; on timeout, `PermissionError` or other `OSError`, return 503 with a clear detail (e.g. "the host can't read this file"), in the same shape as the existing "not downloaded on the host" 503
+- [x] Bound the damage of a probe that never returns: a timed-out thread still leaks, so cap concurrent probes (e.g. a small semaphore, failing fast with 503 when exhausted) so they can never fill the shared threadpool
+- [x] `pkm local check` / `GET /api/local/check`: add an `unreadable` status that opens the file (with the same timeout and cap), reported as a problem rather than ok; update `LocalCheckPayload` status literal, the CLI output and regenerate `web/src/api/openapi.json`
+- [ ] Optional: the web PDF viewer times out and shows the fallback link instead of spinning forever (deferred: not in this branch)
+- [x] Tests first (pytest): an open that blocks past the timeout -> 503 and the thread cap holds; `PermissionError` -> 503; check reports `unreadable`
+- [x] Docs: row in `docs/troubleshooting.md` (symptom "Local copy PDF hangs on Loading PDF…, nothing in access.log"; cause "launchd process blocked opening a file in an iCloud container pending TCC consent"; owning section `files-and-assets.md`); note the new status/503 in `files-and-assets.md` and the API table in `backend.md`
 
 ## Evidence
 

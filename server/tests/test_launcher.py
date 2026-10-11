@@ -119,3 +119,39 @@ def test_signal_reaches_child_and_launcher_waits_for_it(
         if proc.poll() is None:
             proc.kill()
             proc.wait()
+
+
+def test_child_starts_with_an_empty_signal_mask(
+    launcher: str, tmp_path: Path
+) -> None:
+    out = tmp_path / "mask"
+
+    def block() -> None:
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGUSR1})
+
+    code = (
+        "import signal;"
+        f"open({str(out)!r}, 'w').write("
+        "repr(sorted(signal.pthread_sigmask(signal.SIG_BLOCK, set()))))"
+    )
+    proc = subprocess.Popen([launcher, sys.executable, "-c", code], preexec_fn=block)
+    assert proc.wait(timeout=TIMEOUT) == 0
+    assert out.read_text() == "[]"
+
+
+def test_signal_during_startup_is_never_lost(launcher: str) -> None:
+    """A SIGTERM at any instant either kills the launcher before it spawns or
+    reaches the child; it is never dropped while the child keeps running."""
+    for i in range(200):
+        proc = subprocess.Popen([launcher, "/bin/sleep", "5"])
+        spin_until = time.perf_counter() + (i % 50) * 0.0001
+        while time.perf_counter() < spin_until:
+            pass
+        proc.send_signal(signal.SIGTERM)
+        try:
+            rc = proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            pytest.fail(f"SIGTERM lost on iteration {i}")
+        assert rc in (-signal.SIGTERM, 128 + signal.SIGTERM)

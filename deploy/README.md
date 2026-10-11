@@ -95,12 +95,19 @@ The server job runs `$PKM_HOME/bin/pkm-server <venv python> -m pkm.server.run
 `deploy/launcher/build.sh`). macOS grants iCloud file access to the launchd
 job's own binary, not to the Python it starts. The launcher spawns the server
 and stays its parent, forwards SIGTERM/SIGINT/SIGHUP to it and exits with its
-status, so that binary is the one identity the grant attaches to. It survives
-`uv`, Homebrew, Python and app upgrades.
+status, so that binary is the one identity the grant attaches to. The grant
+is keyed to the binary's path and code hash (the signing identifier only
+keeps the hash reproducible), so it survives `uv`, Homebrew, Python and app
+upgrades.
 
-Never rebuild it casually. `install.sh --rebuild-launcher` forces a rebuild
-and re-triggers the consent prompt, which must be clicked at the Mac's screen.
-To re-grant, click Allow on the prompt, or use System Settings → Privacy &
+Rebuilding unchanged source with the same toolchain keeps the hash and the
+grant. A source change, a Swift toolchain change or a moved `PKM_HOME` gives
+a new client, and the consent prompt returns at the Mac's screen.
+`update.sh` never rebuilds the launcher: a change under `deploy/launcher/`
+reaches prod only through `install.sh --rebuild-launcher` followed by Allow.
+`install.sh` records the built source's SHA-256 in
+`$PKM_HOME/bin/pkm-server.source-sha256`, and `update.sh` warns when the
+deployed source no longer matches it. To re-grant, click Allow on the prompt, or use System Settings → Privacy &
 Security → Files and Folders → pkm-server → iCloud Drive. Old `uv` entries in
 that pane can be removed.
 
@@ -170,7 +177,8 @@ arrives aborts the run, and the next night retries.
 ## Troubleshooting
 
 - `launchctl print "gui/$UID/com.$USER.pkm.server"`: job state, last exit
-  status, and the pid if running (use `.backup` or `.icloud-backup` for the
+  status (an exit code of 128+N means the server died of signal N), and the
+  pid if running (use `.backup` or `.icloud-backup` for the
   backup jobs).
 - `$PKM_HOME/logs/server.log` / `access.log`: today's server log and request
   log; `server.log.YYYY-MM-DD` and `access.log.YYYY-MM-DD` hold the last 30

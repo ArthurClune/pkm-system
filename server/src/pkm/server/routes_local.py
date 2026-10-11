@@ -98,17 +98,21 @@ def _is_evicted(root: Path, candidate: Path) -> bool:
 _SF_DATALESS = 0x40000000
 
 
+def _st_flags(path: Path) -> int:
+    return getattr(os.stat(path), "st_flags", 0)
+
+
 def _is_dataless(path: Path) -> bool:
     """True when macOS reports `path` as an evicted placeholder (the
     SF_DATALESS flag); opening it would block while it downloads."""
     try:
-        return bool(getattr(os.stat(path), "st_flags", 0) & _SF_DATALESS)
+        return bool(_st_flags(path) & _SF_DATALESS)
     except OSError:
         return False
 
 
 def _classify(root: Path, href: str) -> Literal[
-        "ok", "missing", "evicted", "invalid", "unreadable"]:
+        "ok", "missing", "evicted", "invalid", "unreadable", "unchecked"]:
     rel = resolve_relative(href[len(LOCAL_PREFIX):])
     if rel is None:
         return "invalid"
@@ -117,7 +121,10 @@ def _classify(root: Path, href: str) -> Literal[
     if resolved is not None:
         if _is_dataless(resolved):
             return "evicted"
-        return "ok" if default_prober.probe(resolved) == "ok" else "unreadable"
+        outcome = default_prober.probe(resolved)
+        if outcome == "busy":
+            return "unchecked"
+        return "ok" if outcome == "ok" else "unreadable"
     if _is_evicted(root, candidate):
         return "evicted"
     return "missing"
@@ -163,10 +170,13 @@ def get_local_file(path: str,
         return JSONResponse(
             status_code=503, headers={"Retry-After": "5"},
             content={"detail": "not downloaded on the host", "path": rel})
-    if default_prober.probe(resolved) != "ok":
+    outcome = default_prober.probe(resolved)
+    if outcome != "ok":
+        detail = ("too many file opens are in flight on the host; see the server log"
+                  if outcome == "busy" else "the host can't open this file")
         return JSONResponse(
             status_code=503, headers={"Retry-After": "5"},
-            content={"detail": "the host can't open this file", "path": rel})
+            content={"detail": detail, "path": rel})
     return FileResponse(
         resolved, media_type=media_type_for(resolved.name),
         filename=resolved.name,

@@ -1,12 +1,15 @@
 import os
 import sqlite3
+import threading
 from dataclasses import replace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from pkm.local_docs import local_href
 from pkm.server import routes_local
 from pkm.server.app import create_app
+from pkm.server.local_open import OpenProber
 
 
 def test_serves_pdf_inline_with_headers(local_client):
@@ -209,13 +212,6 @@ def test_check_agrees_with_file_route_on_percent_in_filename(
 
 # --- open probe and dataless handling -------------------------------------
 
-import threading  # noqa: E402
-
-import pytest  # noqa: E402
-
-from pkm.server.local_open import OpenProber  # noqa: E402
-
-
 @pytest.fixture
 def blocking_prober(monkeypatch):
     """A prober whose opener blocks until released; swapped in for the
@@ -246,7 +242,18 @@ def test_busy_prober_is_503(local_client, monkeypatch):
                         OpenProber(opener=lambda p: None, timeout=0.2, cap=0))
     r = local_client.get("/api/local/Papers/ML/Title%20one.pdf")
     assert r.status_code == 503
-    assert r.json()["detail"] == "the host can't open this file"
+    assert r.headers["retry-after"] == "5"
+    assert r.json() == {
+        "detail": "too many file opens are in flight on the host; see the server log",
+        "path": "Papers/ML/Title one.pdf"}
+
+
+def test_check_reports_busy_as_unchecked(local_client, seeded_config, monkeypatch):
+    monkeypatch.setattr(routes_local, "default_prober",
+                        OpenProber(opener=lambda p: None, timeout=0.2, cap=0))
+    _seed_local_links(seeded_config.db_path)
+    body = local_client.get("/api/local/check").json()
+    assert ("uid_l1", "unchecked") in {(p["uid"], p["status"]) for p in body["problems"]}
 
 
 def test_permission_error_is_503(local_client, monkeypatch):
@@ -295,11 +302,7 @@ def test_is_dataless_reads_the_stat_flag(tmp_path, monkeypatch):
     f = tmp_path / "x"
     f.write_text("x")
     assert routes_local._is_dataless(f) is False
-    real = os.stat
-
-    class S:
-        st_flags = 0x40000000
-    monkeypatch.setattr(routes_local.os, "stat", lambda p: S())
-    assert routes_local._is_dataless(f) is True
-    monkeypatch.setattr(routes_local.os, "stat", real)
+    with monkeypatch.context() as m:
+        m.setattr(routes_local, "_st_flags", lambda p: 0x40000000)
+        assert routes_local._is_dataless(f) is True
     assert routes_local._is_dataless(tmp_path / "missing") is False

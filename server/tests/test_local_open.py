@@ -78,7 +78,8 @@ def test_release_frees_slot(opener):
     opener.gate("/a").set()
     assert _wait_until(lambda: p.probe("/b") != "busy")
     opener.gate("/b").set()
-    assert _wait_until(lambda: p.probe("/c") == "ok" or p.probe("/c") == "unreadable")
+    opener.gate("/c").set()
+    assert _wait_until(lambda: p.probe("/c") == "ok")
 
 
 def test_slot_frees_and_new_probe_ok_after_release(opener):
@@ -108,3 +109,28 @@ def test_real_opener_reads_a_real_file(tmp_path):
     f.write_text("hi")
     assert OpenProber().probe(f) == "ok"
     assert OpenProber().probe(tmp_path / "nope") == "unreadable"
+
+
+def test_known_stuck_path_answers_at_once(opener):
+    p = OpenProber(opener=opener, timeout=0.3, cap=2)
+    assert p.probe("/a") == "unreadable"
+    t0 = time.monotonic()
+    assert p.probe("/a") == "unreadable"
+    assert time.monotonic() - t0 < 0.1
+
+
+def test_thread_start_failure_frees_the_slot(monkeypatch):
+    p = OpenProber(opener=lambda path: None, timeout=0.2, cap=1)
+
+    def boom(self):
+        raise RuntimeError("can't start new thread")
+    with monkeypatch.context() as m:
+        m.setattr(threading.Thread, "start", boom)
+        assert p.probe("/a") == "unreadable"
+    assert p.probe("/a") == "ok"
+
+
+def test_base_exception_from_opener_is_unreadable():
+    def boom(path):
+        raise KeyboardInterrupt
+    assert OpenProber(opener=boom, timeout=1, cap=1).probe("/a") == "unreadable"

@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from concurrent.futures import Future, TimeoutError as FutureTimeout
 from typing import Callable, Literal
 
@@ -38,27 +39,41 @@ class OpenProber:
         self._timeout = timeout
         self._cap = cap
         self._lock = threading.Lock()
-        self._inflight: dict[str, Future[None]] = {}
+        self._inflight: dict[str, tuple[Future[None], float]] = {}
 
     def probe(self, path: str | os.PathLike[str]) -> ProbeResult:
+        """A caller joining a probe already in flight waits only for what
+        is left of the timeout, so a path that has already timed out
+        answers `unreadable` at once."""
         key = os.fspath(path)
         with self._lock:
-            fut = self._inflight.get(key)
-            if fut is None:
+            entry = self._inflight.get(key)
+            if entry is None:
                 if len(self._inflight) >= self._cap:
-                    logger.warning("local open probe for %s refused: %d probes already stuck",
+                    logger.warning("local open probe for %s refused: %d probes already in flight",
                                    key, len(self._inflight))
                     return "busy"
-                fut = Future()
-                self._inflight[key] = fut
-                threading.Thread(target=self._run, args=(key, fut), daemon=True,
-                                 name="local-open-probe").start()
+                fut: Future[None] = Future()
+                started = time.monotonic()
+                self._inflight[key] = (fut, started)
+                try:
+                    threading.Thread(target=self._run, args=(key, fut), daemon=True,
+                                     name="local-open-probe").start()
+                except RuntimeError as e:
+                    del self._inflight[key]
+                    logger.warning("local open probe for %s could not start a thread: %s", key, e)
+                    return "unreadable"
+            else:
+                fut, started = entry
+        wait = max(0.0, self._timeout - (time.monotonic() - started))
         try:
-            fut.result(timeout=self._timeout)
+            fut.result(timeout=wait)
         except FutureTimeout:
             logger.warning("local open probe for %s timed out after %ss", key, self._timeout)
             return "unreadable"
-        except Exception as e:
+        except BaseException as e:
+            if not fut.done():
+                raise  # an interrupt of this caller, not the opener's outcome
             logger.warning("local open probe for %s failed: %s", key, e)
             return "unreadable"
         return "ok"

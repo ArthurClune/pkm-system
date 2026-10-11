@@ -282,7 +282,7 @@ class LocalCheckProblem(BaseModel):
     uid: BlockUid
     page: CanonicalTitle
     href: str
-    status: Literal["missing", "evicted", "invalid", "unreadable"]
+    status: Literal["missing", "evicted", "invalid", "unreadable", "unchecked"]
 
 
 class LocalCheckPayload(BaseModel):

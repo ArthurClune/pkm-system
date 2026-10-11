@@ -368,7 +368,7 @@ examples:
 
 _LOCAL_EPILOG = """\
 examples:
-  # list Local copy:: links whose file is missing or not downloaded
+  # list Local copy:: links whose file is missing, not downloaded or unreadable
   pkm local check
   pkm local check --json
 

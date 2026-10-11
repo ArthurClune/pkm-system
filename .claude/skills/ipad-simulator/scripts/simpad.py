@@ -38,9 +38,10 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 from urllib.parse import quote
 
 # selenium is imported lazily inside the functions that need it, so that
@@ -274,7 +275,8 @@ def cmd_down(port: int, shutdown_sim: bool) -> None:
     """Kill only the pids listening on `port`, then optionally shut down booted iPads."""
     _check_port_allowed(port)
 
-    out = subprocess.run(["lsof", "-ti", f"tcp:{port}"], capture_output=True, text=True)
+    out = subprocess.run(["lsof", "-ti", f"tcp:{port}"], capture_output=True, text=True,
+                         check=False)
     pids = [int(p) for p in out.stdout.split()]
     for pid in pids:
         try:

@@ -15,12 +15,14 @@ Subcommands: up, down, shot, udid. See `--help` on each for options, or
 the module docstrings below for the importable library API.
 
 Hard safety rules (do not relax these, even temporarily):
-  1. Never use port 8974 (prod), 8975 (pnpm's own e2e harness), or 8977
-     (perf harness). This tool defaults to 8978 and `up`/`down` refuse the
-     other three outright.
+  1. Never use port 8974 (prod), 8975 (pnpm's own e2e harness), 8977
+     (perf harness) or 8978 (proptest's web sync server). This tool
+     defaults to 8979, `up`/`down` refuse the other four outright, and `up`
+     refuses any port that already has a listener.
   2. Never kill processes by name pattern (e.g. `pkill uvicorn`) -- other
-     dev servers on this machine share process names. Only kill pids
-     obtained from `lsof -ti tcp:<this tool's own port>`.
+     dev servers on this machine share process names. `down` kills only
+     the listener `up` recorded (or, with no record, whatever listens on
+     the port), never a process that merely holds a connection to it.
   3. Never call `launchctl bootout` or `launchctl kickstart` -- that is
      prod's launchd service. This tool only starts/stops its own
      subprocess.
@@ -38,9 +40,10 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 from urllib.parse import quote
 
 # selenium is imported lazily inside the functions that need it, so that
@@ -48,8 +51,8 @@ from urllib.parse import quote
 # it to be installed -- only `session()` and its callers do.
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-FORBIDDEN_PORTS = {8974, 8975, 8977}
-DEFAULT_PORT = 8978
+FORBIDDEN_PORTS = {8974, 8975, 8977, 8978}
+DEFAULT_PORT = 8979
 DEFAULT_DEVICE = "iPad Air 11-inch (M4)"
 DEFAULT_PASSWORD = "e2e-pw"
 UID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,32}$")
@@ -160,6 +163,27 @@ def find_device_udid(name: str = DEFAULT_DEVICE) -> str:
     return candidates[0][1]
 
 
+def check_xcode_first_launch() -> None:
+    """Refuse to go on while Xcode's first-launch packages are uninstalled.
+
+    Xcode 27 ships no Simulator.app, so safaridriver opens the simulator via
+    DeviceHub's `devices://device/open?id=<udid>` URL on every session, even
+    with the device already booted. DeviceHub's launcher first installs
+    Xcode's first-launch packages (MobileDevice, CoreTypes) behind an admin
+    password prompt, and until someone approves it the URL open times out:
+    the session dies with `The file "open" couldn't be opened` (or, on
+    DeviceHub's cold launch, `timed out ... Booting Simulator.app`).
+    """
+    if subprocess.run(["xcodebuild", "-checkFirstLaunchStatus"],
+                      capture_output=True, check=False).returncode != 0:
+        raise SystemExit(
+            "Xcode first-launch packages are not installed, so safaridriver cannot open "
+            "the simulator through DeviceHub.\nArthur must run `sudo xcodebuild "
+            "-runFirstLaunch` (or approve DeviceHub's install prompt); there is no "
+            "workaround without admin rights."
+        )
+
+
 def find_booted_udid(name: str = DEFAULT_DEVICE) -> str:
     """Return the UDID of the currently-Booted device matching `name`, booting it if needed."""
     udid = find_device_udid(name)
@@ -181,9 +205,22 @@ def _check_port_allowed(port: int) -> None:
     if port in FORBIDDEN_PORTS:
         raise SystemExit(
             f"refusing port {port}: reserved for prod (8974), pnpm's own "
-            f"e2e harness (8975), or the perf harness (8977). Use the "
-            f"default {DEFAULT_PORT} or another free port."
+            f"e2e harness (8975), the perf harness (8977), or proptest's web "
+            f"sync server (8978). Use the default {DEFAULT_PORT} or another free port."
         )
+
+
+def _listeners(port: int) -> list[int]:
+    """Pids listening on `port`; a process that only holds a connection to it is not one."""
+    out = subprocess.run(["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"],
+                         capture_output=True, text=True, check=False)
+    return [int(p) for p in out.stdout.split()]
+
+
+def _parent_pid(pid: int) -> int | None:
+    out = subprocess.run(["ps", "-o", "ppid=", "-p", str(pid)],
+                         capture_output=True, text=True, check=False)
+    return int(out.stdout) if out.stdout.strip() else None
 
 
 def _pid_file(port: int) -> Path:
@@ -208,6 +245,14 @@ def _needs_build(web_dir: Path) -> bool:
 def cmd_up(port: int, device: str, no_build: bool) -> None:
     """Boot the simulator device (if needed), build the SPA (if stale), start the e2e server."""
     _check_port_allowed(port)
+    check_xcode_first_launch()
+    busy = _listeners(port)
+    if busy:
+        raise SystemExit(
+            f"refusing port {port}: already in use by pid(s) {busy}. If that is a server "
+            f"an earlier `up` left behind, stop it with `simpad.py down --port {port}`; "
+            f"otherwise pass another --port."
+        )
 
     udid = find_booted_udid(device)
 
@@ -226,12 +271,11 @@ def cmd_up(port: int, device: str, no_build: bool) -> None:
             stdout=log_f, stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-    _pid_file(port).write_text(str(proc.pid))
 
     deadline = time.time() + 60
     url = f"http://127.0.0.1:{port}/"
     up = False
-    while time.time() < deadline:
+    while time.time() < deadline and proc.poll() is None:
         try:
             with urllib.request.urlopen(url, timeout=2) as resp:
                 if resp.status == 200:
@@ -240,8 +284,13 @@ def cmd_up(port: int, device: str, no_build: bool) -> None:
         except (urllib.error.URLError, ConnectionError):
             pass
         time.sleep(0.5)
-    if not up:
+    # `uv run` starts the server as a child, so the listener is proc or its child.
+    ours = [p for p in _listeners(port) if p == proc.pid or _parent_pid(p) == proc.pid]
+    if not up or not ours:
+        if proc.poll() is None:
+            os.killpg(proc.pid, signal.SIGTERM)
         raise SystemExit(f"server did not respond with 200 on {url} within 60s; see {log_path}")
+    _pid_file(port).write_text(str(ours[0]))
 
     print(f"UDID={udid}")
     print(f"PORT={port}")
@@ -249,25 +298,28 @@ def cmd_up(port: int, device: str, no_build: bool) -> None:
 
 
 def cmd_down(port: int, shutdown_sim: bool) -> None:
-    """Kill only the pids listening on `port`, then optionally shut down booted iPads."""
+    """Kill the server `up` started on `port`, then optionally shut down booted iPads.
+
+    Kills the listener pid `up` recorded when it is still listening, otherwise
+    whatever listens on `port`; never a pid that is not listening there.
+    """
     _check_port_allowed(port)
 
-    out = subprocess.run(["lsof", "-ti", f"tcp:{port}"], capture_output=True, text=True)
-    pids = [int(p) for p in out.stdout.split()]
+    listeners = _listeners(port)
+    pid_file = _pid_file(port)
+    recorded = int(pid_file.read_text()) if pid_file.exists() else None
+    pids = [recorded] if recorded in listeners else listeners
     for pid in pids:
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
-    if pids:
-        time.sleep(3)
-        for pid in pids:
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+    deadline = time.time() + 5
+    while time.time() < deadline and set(pids) & set(_listeners(port)):
+        time.sleep(0.2)
+    for pid in set(pids) & set(_listeners(port)):
+        os.kill(pid, signal.SIGKILL)
 
-    pid_file = _pid_file(port)
     if pid_file.exists():
         pid_file.unlink()
 
@@ -310,11 +362,13 @@ def session(port: int = DEFAULT_PORT, udid: str | None = None,
     Builds capabilities exactly as the proven ad-hoc scripts did
     (`platformName: ios`, `safari:useSimulator: True`,
     `safari:deviceUDID`), logs in via an in-page fetch to /api/login, and
-    always quits the driver on exit.
+    always quits the driver on exit. safaridriver launches DeviceHub itself
+    (see check_xcode_first_launch); nothing needs to be opened by hand.
     """
     from selenium import webdriver
     from selenium.webdriver.safari.options import Options as SafariOptions
 
+    check_xcode_first_launch()
     if udid is None:
         udid = find_booted_udid()
 

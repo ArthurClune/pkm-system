@@ -42,7 +42,7 @@ Two environment variables override the defaults:
     pkm rename "Old Title" "New Title" [--allow-merge] [--json]
     pkm migrate-titles [--json]              # side-effect-free audit
     pkm migrate-titles --apply DIGEST        # explicit audited apply
-    pkm local check [--json]                 # /api/local/ links missing/evicted on the host
+    pkm local check [--json]                 # /api/local/ links missing, evicted or unreadable on the host
     pkm goodlinks check [--json]             # /api/goodlinks/ links GoodLinks no longer has
 
 ### Writing
@@ -92,8 +92,9 @@ group, retrying if concurrent writes shift the pages.
 The default `--limit` is 50.
 
 `pkm local check` reports every `/api/local/` link in block text whose file is
-`missing`, `evicted` (an iCloud placeholder not yet downloaded), or `invalid`
-(the href doesn't resolve to a safe path), checked against the server's
+`missing`, `evicted` (an iCloud placeholder not yet downloaded), `unreadable`
+(the host can't open it), `unchecked` (too many opens already in flight to
+try) or `invalid` (the href doesn't resolve to a safe path), checked against the server's
 `local_docs_root`. Exit status: `0` clean, `1` problems found, `2`
 `local_docs_root` not set.
 

@@ -155,3 +155,19 @@ def test_signal_during_startup_is_never_lost(launcher: str) -> None:
             proc.wait()
             pytest.fail(f"SIGTERM lost on iteration {i}")
         assert rc in (-signal.SIGTERM, 128 + signal.SIGTERM)
+
+
+def _cdhash(path: Path) -> str:
+    r = subprocess.run(["codesign", "-dvvv", str(path)], capture_output=True,
+                       text=True, check=True)
+    return next(line for line in r.stderr.splitlines() if line.startswith("CDHash="))
+
+
+def test_rebuilding_unchanged_source_gives_the_same_code_hash(tmp_path: Path) -> None:
+    """macOS keys the file-access grant to the binary's path and code hash, so
+    a rebuild of unchanged source must reproduce the hash or it re-prompts."""
+    first, second = tmp_path / "a" / "pkm-server", tmp_path / "b" / "pkm-server"
+    for out in (first, second):
+        subprocess.run([str(BUILD), str(out)], check=True, timeout=300,
+                       capture_output=True)
+    assert _cdhash(first) == _cdhash(second)

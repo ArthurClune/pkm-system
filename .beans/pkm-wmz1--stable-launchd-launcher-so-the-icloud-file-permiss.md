@@ -1,11 +1,11 @@
 ---
 # pkm-wmz1
 title: Stable launchd launcher so the iCloud file permission survives uv upgrades
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-10-11T12:09:52Z
-updated_at: 2026-10-11T14:10:52Z
+updated_at: 2026-10-11T15:06:30Z
 blocked_by:
     - pkm-a7i8
 ---
@@ -36,4 +36,23 @@ A tiny launcher binary at a fixed path outside the app checkout, `~/.config/pkm/
 - [x] Server plist template: run `pkm-server <PKM_HOME>/app/server/.venv/bin/python -m pkm.server.run …` instead of `uv run`; backup jobs stay on `uv run` (they never open iCloud files)
 - [x] `deploy/README.md`: layout, why the launcher must not be rebuilt casually, how to re-grant (System Settings, or open a local file and click Allow on the console)
 - [x] Update `backend.md` / `overview.md` wherever they say the service runs under `uv run`
-- [ ] Cutover on biber: `install.sh`, open a local PDF, Allow for pkm-server on the console, verify a 200/206 `/api/local/` line in `access.log` and the PDF on the iPad; confirm TCC.db shows the grant against `pkm-server`
+- [x] Cutover on biber: `install.sh`, open a local PDF, Allow for pkm-server on the console, verify a 200/206 `/api/local/` line in `access.log` and the PDF on the iPad; confirm TCC.db shows the grant against `pkm-server`
+
+## Summary of Changes
+
+- `deploy/launcher/pkm-server.swift` is the server's launchd job. It spawns the venv Python and stays its parent, so macOS attributes iCloud file access to the launcher.
+  - It blocks TERM/INT/HUP across the spawn, then forwards them with real handlers, so a stop arriving during startup is never lost.
+  - The child starts with default dispositions and an empty mask.
+  - It exits with the child's status, or 128+signal.
+- `build.sh` builds into a scratch directory under the output's own file name, signs ad hoc as `com.<user>.pkm.server`, verifies, then moves the binary into place. A rebuild of unchanged source reproduces the CDHash, and a test pins this.
+- `install.sh` changes:
+  - It builds `$PKM_HOME/bin/pkm-server` from the deployed checkout, only when missing or with `--rebuild-launcher`.
+  - It stamps the source sha256 and runs `uv sync` before bootstrapping.
+- `update.sh` warns when the deployed launcher source no longer matches the stamp.
+- The server plist runs the launcher with the venv Python, and sets the PATH/VIRTUAL_ENV that `uv run` used to set.
+- Docs updated: deploy/README.md (layout, the launcher, cutover), backend.md, overview.md, and troubleshooting.md (the grant row now names pkm-server, plus a missing-interpreter row).
+- Cutover on 2026-10-11:
+  - TCC.db holds `kTCCServiceFileProviderDomain` for `~/.config/pkm/bin/pkm-server` (CDHash 46786398…).
+  - `pkm local check` reports 569/569 ok.
+  - The iPad loaded the Rosetta Stone PDF (200/206 in access.log, 16:06).
+- Review: an Opus whole-branch review raised 2 Important and 6 Minor findings, all fixed. The non-reproducible build caught during cutover was fixed before the grant.

@@ -51,9 +51,9 @@ export function EditablePage({ title, initial, composer = false,
 
   // Only the editor can emit the expansion. A read-only outline (sync cannot
   // edit), or the fallback mount of a title already open elsewhere in the
-  // tab, leaves a hidden target hidden and the caller's scroll a no-op. Each navigation is revealed once: a later
-  // change of lease or editability must not re-expand what the reader has
-  // collapsed since.
+  // tab, leaves a hidden target hidden and the caller's scroll a no-op. Each
+  // navigation is revealed once: a later change of lease or editability must
+  // not re-expand what the reader has collapsed since.
   const canReveal = ownsEditor && !outline.readOnly;
   const revealOutline = outline.reveal;
   const revealedRef = useRef<{ uid: BlockUid; navigation: unknown } | null>(null);

@@ -1,7 +1,7 @@
 ---
 # pkm-8myl
 title: Following a ref or search into a collapsed subtree lands at page top
-status: in-progress
+status: completed
 type: bug
 created_at: 2026-10-12T19:12:49Z
 updated_at: 2026-10-12T19:12:49Z
@@ -16,4 +16,8 @@ Wanted (Arthur): navigating to a block inside a collapsed subtree expands it. Ex
 - [x] Shell: main pane and sidebar panel reveal then scroll+flash once the rows render
 - [x] e2e spec
 - [x] Docs: frontend-editor.md (toc/#uid paragraph, edit-rules table), hook and PageView comments
-- [ ] pnpm verify; proptest web outline; perf frontend (verify and proptest pass; perf left to the merge check)
+- [x] pnpm verify (3706 unit, 79 e2e); proptest web outline (6 pass); perf frontend (no changes against the baseline)
+
+## Summary of Changes
+
+A #uid navigation into a collapsed subtree now expands it. `hidingAncestors` (tree.ts) and `revealBlock` (edits.ts) emit one batch of `set_collapsed(false)` for every ancestor that hides the target (a collapsed Roam table is left alone); it is persisted like any toggle and adds no undo step. `useOutline.reveal` runs it; `EditablePage` takes `reveal`/`revealNavigation`/`onRevealed`, reveals once per navigation when it owns an editable outline, and reports once the uncovered rows have rendered. PageView and EditableSidebarPanel bump a counter that `useScrollFlashTarget` takes as `revealed`, so the scroll and flash happen after the expansion; a target that was never hidden behaves as before. A read-only or fallback mount (same page already open in the tab) still leaves a hidden target hidden. Tests: core, hook, PageView and sidebar unit tests, and e2e `reveal-collapsed.spec.ts`. Docs: frontend-editor.md.

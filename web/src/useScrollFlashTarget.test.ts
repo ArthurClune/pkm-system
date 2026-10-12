@@ -153,6 +153,23 @@ it("scrolls again when the same uid is navigated to a second time", () => {
   expect(scrolls).toBe(2);
 });
 
+it("tries again once the caller reports the target revealed", () => {
+  // Under a collapsed ancestor the row is not rendered at first; the caller
+  // expands the ancestors and signals once the uncovered rows are in the DOM.
+  const { rerender } = renderHook(
+    ({ revealed }: { revealed: number }) =>
+      useScrollFlashTarget(uid("abc123"), true, { navigation: "k1", revealed }),
+    { initialProps: { revealed: 0 } });
+  expect(scrolls).toBe(0);
+
+  const el = block("abc123");
+  rerender({ revealed: 0 });
+  expect(scrolls).toBe(0);
+  rerender({ revealed: 1 });
+  expect(scrolls).toBe(1);
+  expect(el.classList.contains("flash-target")).toBe(true);
+});
+
 it("re-centres the target when the page grows after the jump", () => {
   // Content above it (a PDF page replacing its slot, an embed resizing) would
   // otherwise push the target out of view.

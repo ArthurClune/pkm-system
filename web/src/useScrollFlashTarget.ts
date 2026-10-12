@@ -12,6 +12,11 @@
 // location key). A second click on the same toc entry or block ref leaves
 // the uid unchanged, so without it the jump would happen only once.
 //
+// `revealed` is for a target under a collapsed ancestor, which is not
+// rendered, so the first attempt finds nothing. The caller expands the
+// hiding ancestors (EditablePage's reveal) and changes `revealed` once the
+// rows it uncovered have rendered; that is when the jump happens.
+//
 // `root`, when given, scopes the lookup to that subtree and NEVER falls back
 // to the document: the same page can be open in the main pane and a sidebar
 // panel at once, both rendering an element with this data-uid, and a panel
@@ -40,9 +45,10 @@ const READER_INPUT = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
 export function useScrollFlashTarget(
   uid: BlockUid | null | undefined,
   ready: unknown,
-  { root, navigation }: {
+  { root, navigation, revealed }: {
     root?: RefObject<HTMLElement | null>;
     navigation?: unknown;
+    revealed?: unknown;
   } = {},
 ): void {
   useEffect(() => {
@@ -50,7 +56,7 @@ export function useScrollFlashTarget(
     const scope = root ? root.current : document;
     if (!scope) return;
     const el = scope.querySelector(`[data-uid="${CSS.escape(uid)}"]`);
-    if (!el) return; // deleted, or inside a collapsed subtree
+    if (!el) return; // deleted, or not yet revealed
     const centre = () => el.scrollIntoView({ block: "center" });
     centre();
     el.classList.add("flash-target");
@@ -85,5 +91,5 @@ export function useScrollFlashTarget(
       clearTimeout(flashTimer);
       release();
     };
-  }, [uid, ready, root, navigation]);
+  }, [uid, ready, root, navigation, revealed]);
 }

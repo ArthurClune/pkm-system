@@ -3,7 +3,7 @@ import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { block, ord, uid } from "../test-helpers";
 import { ancestorChain, applyOps, applyOpsWithChange, blocksEqual, findNode,
-         hidesChildren, insertSubtree, locate, needsAuthoritativeReload,
+         hidesChildren, hidingAncestors, insertSubtree, locate, needsAuthoritativeReload,
          removeSubtree, selectableUids, visibleNeighbor,
          visibleUids } from "./tree";
 
@@ -216,6 +216,30 @@ describe("hidesChildren", () => {
 
   test("a collapsed block whose text is not a table macro hides its rows", () => {
     expect(hidesChildren(table("{{[[table]]}} notes"))).toBe(true);
+  });
+});
+
+describe("hidingAncestors", () => {
+  const t = () => [
+    block("g", "g", { collapsed: true, children: [
+      block("m", "m", { children: [
+        block("tbl", "{{table}}", { collapsed: true, children: [
+          block("r1", "a", { children: [block("r1b", "b")] }),
+        ] }),
+      ] }),
+    ] }),
+  ];
+
+  test("lists the collapsed ancestors that keep a block off screen, outermost first", () => {
+    expect(hidingAncestors(t(), uid("r1b"))).toEqual(["g"]);
+    expect(hidingAncestors(t(), uid("m"))).toEqual(["g"]);
+  });
+
+  test("empty for a block on screen, a top-level block, or one not in the tree", () => {
+    const shown = [block("p", "p", { children: [block("c", "c")] })];
+    expect(hidingAncestors(shown, uid("c"))).toEqual([]);
+    expect(hidingAncestors(t(), uid("g"))).toEqual([]);
+    expect(hidingAncestors(t(), uid("nowhere"))).toEqual([]);
   });
 });
 

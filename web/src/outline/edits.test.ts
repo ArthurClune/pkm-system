@@ -4,8 +4,8 @@ import { findNode } from "./tree";
 import { backspaceAtStart, clampCaret, deleteSelection, indentBlock,
          indentSelection, moveBlockDown, moveBlocksTo, moveBlockUp,
          moveSelectionDown, moveSelectionUp, moveSubtreeDown, moveSubtreeUp,
-         outdentBlock, outdentSelection, setCollapsed, setHeading,
-         setViewType, splitBlock } from "./edits";
+         outdentBlock, outdentSelection, revealBlock, setCollapsed,
+         setHeading, setViewType, splitBlock } from "./edits";
 
 const someUid = uid("abcdef");
 
@@ -892,6 +892,70 @@ describe("setCollapsed", () => {
   test("no-op when the block already holds the value", () => {
     const t = [block("b", "beta", { collapsed: true })];
     const r = setCollapsed(t, P, uid("b"), true);
+    expect(r.ops).toEqual([]);
+    expect(r.blocks).toBe(t);
+  });
+});
+
+describe("revealBlock", () => {
+  // g (collapsed) > m (expanded) > p (collapsed) > t, with the target t itself
+  // collapsed over a child of its own.
+  const nested = () => [
+    block("g", "grandparent", { collapsed: true, children: [
+      block("m", "middle", { children: [
+        block("p", "parent", { collapsed: true, children: [
+          block("t", "target", { collapsed: true, children: [block("tc", "under target")] }),
+        ] }),
+      ] }),
+    ] }),
+    block("after", "after"),
+  ];
+
+  test("expands every collapsed ancestor that hides the block, outermost first, in one batch", () => {
+    const r = revealBlock(nested(), P, uid("t"));
+    expect(r.ops).toEqual([
+      { op: "set_collapsed", uid: "g", collapsed: false },
+      { op: "set_collapsed", uid: "p", collapsed: false },
+    ]);
+    expect(findNode(r.blocks, uid("g"))!.collapsed).toBe(false);
+    expect(findNode(r.blocks, uid("p"))!.collapsed).toBe(false);
+    // The target's own flag is not an ancestor's: it stays collapsed.
+    expect(findNode(r.blocks, uid("t"))!.collapsed).toBe(true);
+  });
+
+  test("leaves focus where it is", () => {
+    expect(revealBlock(nested(), P, uid("t")).focus).toBeNull();
+  });
+
+  test("a collapsed Roam table above the block shows its rows, so it stays collapsed", () => {
+    const t = [
+      block("g", "outer", { collapsed: true, children: [
+        block("tbl", "{{table}}", { collapsed: true, children: [
+          block("r1", "cell", { children: [block("r1b", "cell b")] }),
+        ] }),
+      ] }),
+    ];
+    const r = revealBlock(t, P, uid("r1b"));
+    expect(r.ops).toEqual([{ op: "set_collapsed", uid: "g", collapsed: false }]);
+    expect(findNode(r.blocks, uid("tbl"))!.collapsed).toBe(true);
+  });
+
+  test("no-op when nothing hides the block", () => {
+    const t = [block("p", "parent", { children: [block("c", "child")] })];
+    const r = revealBlock(t, P, uid("c"));
+    expect(r).toEqual({ blocks: t, ops: [], focus: null });
+    expect(r.blocks).toBe(t);
+  });
+
+  test("no-op for a top-level block, even a collapsed one", () => {
+    const t = nested();
+    expect(revealBlock(t, P, uid("after")).ops).toEqual([]);
+    expect(revealBlock(t, P, uid("g")).blocks).toBe(t);
+  });
+
+  test("no-op when the block is not on the page", () => {
+    const t = nested();
+    const r = revealBlock(t, P, uid("elsewhere"));
     expect(r.ops).toEqual([]);
     expect(r.blocks).toBe(t);
   });

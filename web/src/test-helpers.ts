@@ -1,5 +1,6 @@
 import { expect, vi } from "vitest";
 import { acquireOutlineSession } from "./outline/outlineSessions";
+import { applyOps } from "./outline/tree";
 import type { BlockOp } from "./api/ops";
 import type { Backlinks, BlockNode, PagePayload } from "./api/payloads";
 import type { BlockUid, CanonicalTitle, NormalizedTitle, OrderIdx, PageId,
@@ -71,6 +72,21 @@ export function stubFetch(handlers: [string, unknown][]) {
     }
     return jsonResponse({ detail: "not found" }, 404);
   });
+  vi.stubGlobal("fetch", mock);
+  return mock;
+}
+
+/** Serve one page the way the server would after this tab's writes: every
+ * read of /api/page/<title> is `blocks` with all of `sync.sent` applied, so a
+ * re-read after a write settles does not undo it. */
+export function servePageApplyingSent(sync: SyncFake, pageTitle: string,
+                                      blocks: BlockNode[]) {
+  const path = `/api/page/${encodeURIComponent(pageTitle)}`;
+  const mock = vi.fn(async (input: RequestInfo | URL) => (
+    String(input).startsWith(path)
+      ? jsonResponse(pagePayload(pageTitle,
+                                 applyOps(blocks, sync.sent.flat(), pageTitle)))
+      : jsonResponse({ detail: "not found" }, 404)));
   vi.stubGlobal("fetch", mock);
   return mock;
 }

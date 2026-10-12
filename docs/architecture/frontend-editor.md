@@ -123,11 +123,18 @@ whether focus sits inside it with a lookup rather than a subtree walk.
 A `{{toc}}` block (`tocEntries`, Core) is the one row that must see past its
 own node. `EditableBlockTree` publishes its `blocks` through
 `RootBlocksContext` and only `TocBlock` reads it, so no other row's memo is
-disturbed. Entries link to `#<uid>`, which only `useScrollFlashTarget` in
-`PageView` consumes. `PageView` passes the router's location key, so a second
-click on the same entry jumps again. Content above the target keeps growing
-after the jump: PDF pages replace their placeholder slots and embeds resize.
-So the hook re-centres the target whenever one of its ancestors resizes. It
+disturbed. Entries link to `#<uid>`, as block refs and search hits do, and
+only `useScrollFlashTarget` in `PageView` consumes it. A sidebar panel runs
+the same hook for its shift-clicked uid, scoped to its own container.
+`PageView` passes the router's location key, so a second click on the same
+entry jumps again. A target inside a collapsed subtree has no row to scroll
+to. `EditablePage` first expands every ancestor that hides it (`revealBlock`,
+one batch of `set_collapsed(false)`, no undo step). It then calls
+`onRevealed` once the uncovered rows have rendered, and the caller's
+`revealed` counter re-runs the hook. Only the editor can emit that batch, so
+in a read-only or fallback outline a hidden target stays hidden. Content
+above the target keeps growing after the jump: PDF pages replace their
+placeholder slots and embeds resize. So the hook re-centres the target whenever one of its ancestors resizes. It
 lets go at the reader's first wheel, touch, key or pointer input, or once
 layout has been quiet for `PIN_QUIET_MS`. It watches ancestors because `body`
 is fixed at 100% height and never resizes.
@@ -184,6 +191,7 @@ flowchart LR
 | A restored focus (undo, redo, adopting shared state) lands on a visible block. `validateOutlineFocus` redirects a hidden one to its nearest visible ancestor, where `hidesChildren` decides what hides: a collapsed Roam table does not hide its cells. It clamps the caret to the block's text. `visibleUids`, behind arrow navigation, hides by the same predicate | focus sits on a block the user cannot see, or a caret past the end of the text; arrows skip cell rows that are on screen |
 | A block selection treats a valid Roam table as one row. Selection clears focus, so every table renders as its grid: `selectableUids` never descends into one, `startSelection` lifts an anchor in a cell to the outermost table, and `selectionText` copies a selected table's cells with it | Shift+Arrow spends presses on cells that are not rows on screen, and a copied table pastes back without its cells |
 | An edit never puts a block it places under a collapsed row. Indent, outdent and a move across parents (`moveSubtreeUp`/`Down`, `moveSelectionUp`/`Down`) expand that row first, even when it is itself a selected root; `allowedDepths` offers a drop no child depth under a collapsed row. A collapsed block that only moves stays collapsed | the moved block vanishes into a closed subtree |
+| A navigation to a block (`#<uid>`, a panel's uid) expands, in one batch, every ancestor that `hidesChildren` says hides it, and does so once per navigation (`revealBlock`, `EditablePage`). A collapsed Roam table is left collapsed | the jump lands at the top of the page, because a hidden block has no row. Re-running the reveal on a lease or editability change would re-open a row the reader has collapsed since |
 | `set_collapsed` must not stamp | `opBumpsUpdatedAt` (`outline/blockStamps.ts`) is the single statement that collapsing is a view toggle; `transitionOutline` uses it to choose which uids to stamp, and `replica/localOps.test.ts` pins the replica to it |
 
 ### Drafts and commit points

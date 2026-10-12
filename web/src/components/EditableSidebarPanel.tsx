@@ -15,8 +15,10 @@
 // shift-click) is scrolled to and flashed once the page has rendered --
 // scoped to this panel's OWN container via containerRef, never a
 // document-wide query: the same page can be open in the main window at
-// the same time, with its own element carrying that data-uid.
-import { useRef } from "react";
+// the same time, with its own element carrying that data-uid. A uid inside
+// a collapsed subtree is revealed first, as in the main pane: EditablePage
+// expands its hiding ancestors and reports when the rows have rendered.
+import { useCallback, useRef, useState } from "react";
 import type { BlockUid } from "../api/brands";
 import { BlockRefProvider } from "./BlockRefProvider";
 import { substituteMissingDaily } from "../outline/missingPage";
@@ -28,14 +30,18 @@ export function EditableSidebarPanel({ title, uid }: { title: string; uid?: Bloc
   const { payload, error } = useOutlinePageLoad(title, substituteMissingDaily);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useScrollFlashTarget(uid, payload, { root: containerRef });
+  const [revealed, setRevealed] = useState(0);
+  const onRevealed = useCallback(() => setRevealed((n) => n + 1), []);
+
+  useScrollFlashTarget(uid, payload, { root: containerRef, revealed });
 
   if (error) return <p className="error">{error}</p>;
   if (!payload) return <p className="loading">Loading…</p>;
   return (
     <div ref={containerRef}>
       <BlockRefProvider seed={payload.block_ref_texts}>
-        <EditablePage title={payload.page.title} initial={payload.blocks} />
+        <EditablePage title={payload.page.title} initial={payload.blocks}
+                      reveal={uid} onRevealed={onRevealed} />
       </BlockRefProvider>
     </div>
   );

@@ -107,6 +107,20 @@ export function ancestorChain(blocks: BlockNode[], uid: BlockUid): BlockUid[] {
   return walk(blocks) ? path : [];
 }
 
+/** The ancestors of `uid`, outermost first, that keep it off screen
+ * (`hidesChildren`); empty when it is on screen or not in this tree. */
+export function hidingAncestors(blocks: BlockNode[], uid: BlockUid): BlockUid[] {
+  const hiding: BlockUid[] = [];
+  let level = blocks;
+  for (const ancestor of ancestorChain(blocks, uid).slice(0, -1)) {
+    const node = level.find((n) => n.uid === ancestor);
+    if (!node) return [];
+    if (hidesChildren(node)) hiding.push(node.uid);
+    level = node.children;
+  }
+  return hiding;
+}
+
 /** Whether two trees hold the same blocks in the same order with the same
  * field values. Short-circuits on reference-equal arrays and nodes and at the
  * first difference; every BlockNode field is compared, so this is the verdict

@@ -1,14 +1,15 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   acquireOutlineSession,
   isOutlineSessionActive,
   repairActiveOutlineSessions,
 } from "../outline/outlineSessions";
+import { performUndo, resetHistory } from "../outline/undoManager";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, journalBacklinks, jsonResponse, makeSync, ord, pageId, pagePayload, READ_INIT, stubFetch, title, uid } from "../test-helpers";
+import { block, journalBacklinks, jsonResponse, makeSync, ord, pageId, pagePayload, READ_INIT, servePageApplyingSent, stubFetch, title, uid } from "../test-helpers";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
 import { BlockStampsContext } from "../contexts";
 import { Journal } from "./Journal";
@@ -1259,6 +1260,67 @@ it("scrolls to and flashes the block named in the location hash", async () => {
   expect(scrollIntoView).toHaveBeenCalled();
   expect(scrollIntoView.mock.instances[0]).toBe(row);
   expect(row!.classList.contains("flash-target")).toBe(true);
+});
+
+describe("a hash naming a block inside a collapsed subtree", () => {
+  const collapsedPaper = () => [
+    block("uid_g", "grandparent", { collapsed: true, children: [
+      block("uid_p", "parent", { collapsed: true, children: [
+        block("uid_t1", "target block"),
+      ] }),
+    ] }),
+  ];
+
+  function renderCollapsed() {
+    const sync = makeSync();
+    servePageApplyingSent(sync, "Paper", collapsedPaper());
+    const view = render(
+      <SyncContext.Provider value={sync}>
+        <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                      initialEntries={["/page/Paper#uid_t1"]}>
+          <Link to="/page/Paper#uid_t1">again</Link>
+          <Routes><Route path="/page/*" element={<PageView />} /></Routes>
+        </MemoryRouter>
+      </SyncContext.Provider>,
+    );
+    return { sync, ...view };
+  }
+
+  it("expands the hiding ancestors, then scrolls to and flashes the block", async () => {
+    const scrollIntoView = vi.fn();
+    window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    resetHistory();
+    const { sync, container } = renderCollapsed();
+    await screen.findByText("target block");
+    const row = container.querySelector('[data-uid="uid_t1"]');
+    expect(scrollIntoView.mock.instances).toContain(row);
+    expect(row!.classList.contains("flash-target")).toBe(true);
+    // Persisted like any toggle, as one batch, and not an undo step.
+    expect(sync.sent).toEqual([[
+      { op: "set_collapsed", uid: "uid_g", collapsed: false },
+      { op: "set_collapsed", uid: "uid_p", collapsed: false },
+    ]]);
+    expect(performUndo(sync)).toBe(false);
+  });
+
+  it("expands it again on a repeat navigation after the reader collapsed it", async () => {
+    const scrollIntoView = vi.fn();
+    window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    const { sync, container } = renderCollapsed();
+    await screen.findByText("target block");
+    const parentRow = container.querySelector('[data-uid="uid_p"]')!;
+    fireEvent.click(parentRow.querySelector('[aria-label="toggle children"]')!);
+    expect(screen.queryByText("target block")).toBeNull();
+    scrollIntoView.mockClear();
+
+    fireEvent.click(screen.getByText("again"));
+    await screen.findByText("target block");
+    const row = container.querySelector('[data-uid="uid_t1"]');
+    expect(scrollIntoView.mock.instances).toContain(row);
+    expect(sync.sent.at(-1)).toEqual([
+      { op: "set_collapsed", uid: "uid_p", collapsed: false },
+    ]);
+  });
 });
 
 it("a hash naming no block on the page is a no-op", async () => {

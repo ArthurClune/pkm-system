@@ -31,12 +31,15 @@ export function PageView() {
 
   // A block ref navigated here with the target uid as the hash:
   // once the payload has rendered, scroll to that block and flash it. A bare
-  // "#", a malformed hash, or a uid not on the page (deleted, or inside a
-  // collapsed subtree) is a no-op inside the hook. The location key makes a
-  // repeat click on the same link jump again.
-  useScrollFlashTarget(
-    hash.length > 1 ? parseBlockUid(hash.slice(1)) : null, payload,
-    { navigation: key });
+  // "#", a malformed hash, or a uid not on the page is a no-op inside the
+  // hook. A uid inside a collapsed subtree is revealed first: EditablePage
+  // expands its hiding ancestors and reports when the rows have rendered,
+  // which re-runs the hook. The location key makes a repeat click on the
+  // same link jump again.
+  const target = hash.length > 1 ? parseBlockUid(hash.slice(1)) : null;
+  const [revealed, setRevealed] = useState(0);
+  const onRevealed = useCallback(() => setRevealed((n) => n + 1), []);
+  useScrollFlashTarget(target, payload, { navigation: key, revealed });
 
   if (error) return <p className="error">Could not load "{title}": {error}</p>;
   if (!payload) return <p className="loading">Loading…</p>;
@@ -46,7 +49,9 @@ export function PageView() {
         <PageTitle title={payload.page.title} />
         <EditablePage key={payload.page.title} title={payload.page.title}
                       initial={payload.blocks} composer stamps={stamps}
-                      refCounts={payload.block_ref_counts} />
+                      refCounts={payload.block_ref_counts}
+                      reveal={target} revealNavigation={key}
+                      onRevealed={onRevealed} />
       </article>
       <BacklinksSection
         key={`bl-${title}`}

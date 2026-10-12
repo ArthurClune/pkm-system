@@ -12,7 +12,7 @@ import type { BlockOp, SetHeadingOp, SetViewTypeOp } from "../api/ops";
 import type { CaretOffset } from "./keyEdits";
 import { FIRST_ORDER_IDX, orderIdxAfter, orderIdxAfterLast,
          orderIdxPlus } from "./orderIdx";
-import { applyOps, findNode, locate, selectionRoots,
+import { applyOps, findNode, hidingAncestors, locate, selectionRoots,
          visibleNeighbor } from "./tree";
 
 export interface FocusTarget {
@@ -500,6 +500,18 @@ export function setCollapsed(blocks: BlockNode[], pageTitle: CanonicalTitle,
   if (!node || node.collapsed === collapsed) return noop(blocks);
   return done(blocks, pageTitle,
               [{ op: "set_collapsed", uid, collapsed }], null);
+}
+
+/** Bring `uid` on screen for a navigation to it: one batch expanding every
+ * collapsed ancestor that hides it, the same set_collapsed(false) indent and
+ * the moves emit before placing a block under a collapsed row. A collapsed
+ * Roam table already shows its rows, so it stays collapsed. Focus stays put. */
+export function revealBlock(blocks: BlockNode[], pageTitle: CanonicalTitle,
+                            uid: BlockUid): EditResult {
+  const hiding = hidingAncestors(blocks, uid);
+  if (hiding.length === 0) return noop(blocks);
+  return done(blocks, pageTitle, hiding.map((ancestor) => (
+    { op: "set_collapsed", uid: ancestor, collapsed: false })), null);
 }
 
 export function setHeading(blocks: BlockNode[], pageTitle: CanonicalTitle, uid: BlockUid,

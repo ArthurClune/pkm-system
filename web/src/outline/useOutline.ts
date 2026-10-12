@@ -21,8 +21,8 @@ import type { DropTarget } from "./dnd";
 import { fileDropNotice, partitionUploadable, planFileDropBlocks } from "./fileDrop";
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          moveBlocksTo, moveSelectionDown, moveSelectionUp, moveSubtreeDown,
-         moveSubtreeUp, outdentBlock, outdentSelection, setCollapsed,
-         setHeading, splitBlock, setViewType, type EditResult,
+         moveSubtreeUp, outdentBlock, outdentSelection, revealBlock,
+         setCollapsed, setHeading, splitBlock, setViewType, type EditResult,
          type FocusTarget } from "./edits";
 import { goodlinksAttribute, goodlinksCandidates, goodlinksNotice } from "./goodlinks";
 import type { OutlineHandlers } from "./handlers";
@@ -30,7 +30,7 @@ import { historyAnchors, invertOps } from "./history";
 import { loadOutlineBlocks } from "./loadOutlineBlocks";
 import { substituteMissingDaily } from "./missingPage";
 import { planOutlinePaste } from "./paste";
-import { applyOps, findNode, insertSubtree, removeSubtree,
+import { applyOps, findNode, hidingAncestors, insertSubtree, removeSubtree,
          visibleNeighbor } from "./tree";
 import { extendSelection, needsDeleteConfirmation, selectedUids,
          startSelection, type BlockSelection } from "./blockSelection";
@@ -55,6 +55,9 @@ export interface Outline {
   dnd: OutlineDndApi;
   createFirstBlock(): void;
   appendBlock(text: string, freshAssets?: readonly Sha256Hex[]): void;
+  /** Expand every collapsed ancestor hiding `uid` (revealBlock); true when
+   * that took any ops. Never an undo step: set_collapsed is not inverted. */
+  reveal(uid: BlockUid): boolean;
   /** Most recent /upload, paste, or drag-drop failure, if any. */
   uploadError: string | null;
   /** Upload files dragged in from outside the app and create one new block
@@ -636,6 +639,14 @@ export function useOutline(
     }, { freshAssets });
   }, [run, pageTitle]);
 
+  // Checked before run(), which would otherwise flush a pending draft for a
+  // navigation to a block that is already on screen.
+  const reveal = useCallback((uid: BlockUid) => {
+    if (hidingAncestors(blocksRef.current, uid).length === 0) return false;
+    run((b) => revealBlock(b, pageTitle, uid));
+    return true;
+  }, [run, pageTitle]);
+
   return {
     blocks,
     session,
@@ -648,6 +659,7 @@ export function useOutline(
     dnd,
     createFirstBlock,
     appendBlock,
+    reveal,
     uploadError,
     onDropFiles,
     dismissUploadError: () => setUploadError(null),

@@ -9,7 +9,7 @@ import {
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
-import { block, jsonResponse, makeSync, ord, pagePayload, READ_INIT, reserveOutlineEditor, stubFetch, title, uid } from "../test-helpers";
+import { block, jsonResponse, makeSync, ord, pagePayload, READ_INIT, reserveOutlineEditor, servePageApplyingSent, stubFetch, title, uid } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { EditablePage } from "../views/EditablePage";
 import { PageView } from "../views/PageView";
@@ -311,6 +311,56 @@ test("a uid prop scrolls to and flashes that block within the panel's own contai
   expect(scrollIntoView).toHaveBeenCalled();
   expect(scrollIntoView.mock.instances[0]).toBe(row);
   expect(row!.classList.contains("flash-target")).toBe(true);
+});
+
+const collapsedPaper = () => [
+  block("uid_s0", "parent", { collapsed: true, children: [
+    block("uid_s1", "target block"),
+  ] }),
+];
+
+test("a uid under a collapsed ancestor is expanded, then scrolled to and flashed", async () => {
+  const scrollIntoView = vi.fn();
+  window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+  const sync = makeSync();
+  servePageApplyingSent(sync, "Paper", collapsedPaper());
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={sync}>
+        <EditableSidebarPanel title="Paper" uid={uid("uid_s1")} />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+  await screen.findByText("target block");
+  const row = container.querySelector('[data-uid="uid_s1"]');
+  expect(scrollIntoView.mock.instances).toContain(row);
+  expect(row!.classList.contains("flash-target")).toBe(true);
+  expect(sync.sent).toEqual([[
+    { op: "set_collapsed", uid: "uid_s0", collapsed: false },
+  ]]);
+});
+
+test("a uid under a collapsed ancestor stays hidden when the page is open elsewhere", async () => {
+  // The panel's outline is the read-only fallback: it cannot emit the
+  // expansion, so the target stays where it is.
+  const scrollIntoView = vi.fn();
+  window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+  const sync = makeSync();
+  servePageApplyingSent(sync, "Paper", collapsedPaper());
+  const release = reserveOutlineEditor("Paper");
+  try {
+    render(
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <SyncContext.Provider value={sync}>
+          <EditableSidebarPanel title="Paper" uid={uid("uid_s1")} />
+        </SyncContext.Provider>
+      </MemoryRouter>);
+    await screen.findByText("parent");
+    expect(sync.sent).toEqual([]);
+    expect(screen.queryByText("target block")).toBeNull();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  } finally {
+    release();
+  }
 });
 
 test("no uid prop: no scroll/flash side effect", async () => {

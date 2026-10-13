@@ -3,8 +3,9 @@ from pathlib import Path
 import pytest
 
 from pkm.local_docs import (LOCAL_PREFIX, clean_relative, disposition_for,
-                            extract_local_hrefs, is_within, local_href,
-                            media_type_for, resolve_relative)
+                            error_page_html, extract_local_hrefs, is_within,
+                            local_href, media_type_for, resolve_relative,
+                            wants_html_error)
 
 
 @pytest.mark.parametrize("raw, expected", [
@@ -96,3 +97,33 @@ def test_is_within_is_a_pure_prefix_check_on_resolved_paths():
     assert is_within(root, Path("/r/pkm"))
     assert not is_within(root, Path("/r/pkm2/x.pdf"))
     assert not is_within(root, Path("/r/other/x.pdf"))
+
+
+@pytest.mark.parametrize("mode, dest, accept, expected", [
+    ("navigate", None, None, True),
+    ("navigate", "document", "*/*", True),
+    (None, "document", None, True),
+    ("cors", "empty", "text/html", False),
+    ("same-origin", "empty", "application/json", False),
+    (None, None, "text/html,application/xhtml+xml,*/*;q=0.8", True),
+    (None, None, "application/json", False),
+    (None, None, "*/*", False),
+    (None, None, None, False),
+])
+def test_wants_html_error(mode, dest, accept, expected):
+    assert wants_html_error(mode, dest, accept) is expected
+
+
+def test_error_page_html_escapes_everything():
+    page = error_page_html(404, "not <b>here</b>", "<script>alert(1)</script>.pdf")
+    assert "<script>" not in page
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;.pdf" in page
+    assert "not &lt;b&gt;here&lt;/b&gt;" in page
+    assert "404" in page
+    assert "<script" not in page.lower()
+
+
+def test_error_page_html_without_path():
+    page = error_page_html(503, "try again", None)
+    assert "<code>" not in page
+    assert "503" in page

@@ -19,6 +19,7 @@ make it disagree with `check` for any filename containing a literal
 percent sign."""
 from __future__ import annotations
 
+import html
 import re
 from pathlib import Path
 from typing import Literal
@@ -113,3 +114,31 @@ def is_within(root: Path, candidate: Path) -> bool:
     """True when `candidate` is `root` or below it. Both must already be
     resolved (symlinks followed) by the caller."""
     return candidate == root or root in candidate.parents
+
+
+def wants_html_error(fetch_mode: str | None, fetch_dest: str | None,
+                     accept: str | None) -> bool:
+    """True when the request is a browser navigation (address bar, plain
+    link, new tab) rather than a fetch()/pdf.js call. `Sec-Fetch-Mode:
+    navigate` or `Sec-Fetch-Dest: document` decides when the browser sent
+    Sec-Fetch-*; only a browser that sent neither falls back to an Accept
+    that names text/html."""
+    if fetch_mode is not None or fetch_dest is not None:
+        return fetch_mode == "navigate" or fetch_dest == "document"
+    return accept is not None and "text/html" in accept.lower()
+
+
+def error_page_html(status: int, message: str, path: str | None) -> str:
+    """A tiny self-contained HTML error page: no scripts, no external
+    resources. `message` and `path` are escaped here; `path` is whatever
+    the client asked for, never anything read from the disk."""
+    shown = f"<p><code>{html.escape(path)}</code></p>" if path else ""
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>{status} - local copy unavailable</title>"
+        "<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;"
+        "margin:4rem auto;padding:0 1rem}code{word-break:break-all}</style>"
+        "</head><body>"
+        f"<h1>{status}: local copy unavailable</h1>"
+        f"<p>{html.escape(message)}</p>{shown}</body></html>")

@@ -14,7 +14,12 @@ no stub) is treated the same way.
 A resolved file is probed with `local_open` before `FileResponse` sees
 it: `open()` on an iCloud path can block for good, and FileResponse
 would do that on anyio's shared pool. A probe that fails or times out
-is a 503, never a hang."""
+is a 503, never a hang.
+
+When the request is a browser navigation (Sec-Fetch-Mode, else Accept:
+text/html), every failure is a short HTML page with the same status and
+headers instead of JSON, so a person following the link never sees raw
+JSON; fetch()/pdf.js requests keep the JSON bodies."""
 from __future__ import annotations
 
 import logging
@@ -24,13 +29,13 @@ import subprocess
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from pkm.contracts.responses import LocalCheckPayload, LocalCheckProblem
 from pkm.local_docs import (LOCAL_PREFIX, clean_relative, disposition_for,
-                            extract_local_hrefs, is_within, media_type_for,
-                            resolve_relative)
+                            error_page_html, extract_local_hrefs, is_within,
+                            media_type_for, resolve_relative, wants_html_error)
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
@@ -153,30 +158,58 @@ def check_local_links(db: sqlite3.Connection = Depends(get_db),
     return LocalCheckPayload(enabled=True, total=total, ok=ok, problems=problems)
 
 
+_NOT_DOWNLOADED = "The file isn't downloaded on the host yet. The host has asked iCloud for it; try again in a few seconds."
+_NOT_FOUND_MESSAGE = "That file isn't in the local documents folder on the host."
+_OPEN_FAILED = "The host can't open this file; the server log has the reason."
+_OPEN_BUSY = "Too many file opens are in flight on the host; try again shortly."
+
+
+def _failure(html_wanted: bool, status: int, message: str, shown: str,
+             body: dict[str, str], retry: bool) -> Response:
+    """The JSON body fetch() callers have always got, or the HTML page a
+    browser navigation gets; same status and Retry-After either way."""
+    headers = {"Retry-After": "5"} if retry else {}
+    if html_wanted:
+        return HTMLResponse(
+            error_page_html(status, message, shown), status_code=status,
+            headers={**headers, "Cache-Control": "no-store",
+                     "X-Content-Type-Options": "nosniff"})
+    return JSONResponse(status_code=status, headers=headers, content=body)
+
+
 @router.get("/api/local/{path:path}")
-def get_local_file(path: str,
+def get_local_file(path: str, request: Request,
                    config: Config = Depends(get_config)) -> Response:
-    root, candidate, rel = _locate(config, path)
+    html_wanted = wants_html_error(request.headers.get("sec-fetch-mode"),
+                                   request.headers.get("sec-fetch-dest"),
+                                   request.headers.get("accept"))
+
+    def not_found() -> Response:
+        return _failure(html_wanted, 404, _NOT_FOUND_MESSAGE, path,
+                        {"detail": "not found"}, retry=False)
+
+    try:
+        root, candidate, rel = _locate(config, path)
+    except HTTPException:
+        return not_found()
     if _is_evicted(root, candidate):
         _request_download(candidate)
-        return JSONResponse(
-            status_code=503, headers={"Retry-After": "5"},
-            content={"detail": "not downloaded on the host", "path": rel})
+        return _failure(html_wanted, 503, _NOT_DOWNLOADED, rel,
+                        {"detail": "not downloaded on the host", "path": rel}, retry=True)
     resolved = _resolve_contained_file(root, candidate)
     if resolved is None:
-        raise _NOT_FOUND
+        return not_found()
     if _is_dataless(resolved):
         _request_download(resolved)
-        return JSONResponse(
-            status_code=503, headers={"Retry-After": "5"},
-            content={"detail": "not downloaded on the host", "path": rel})
+        return _failure(html_wanted, 503, _NOT_DOWNLOADED, rel,
+                        {"detail": "not downloaded on the host", "path": rel}, retry=True)
     outcome = default_prober.probe(resolved)
     if outcome != "ok":
+        busy = outcome == "busy"
         detail = ("too many file opens are in flight on the host; see the server log"
-                  if outcome == "busy" else "the host can't open this file")
-        return JSONResponse(
-            status_code=503, headers={"Retry-After": "5"},
-            content={"detail": detail, "path": rel})
+                  if busy else "the host can't open this file")
+        return _failure(html_wanted, 503, _OPEN_BUSY if busy else _OPEN_FAILED, rel,
+                        {"detail": detail, "path": rel}, retry=True)
     return FileResponse(
         resolved, media_type=media_type_for(resolved.name),
         filename=resolved.name,

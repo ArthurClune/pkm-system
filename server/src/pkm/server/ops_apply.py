@@ -90,8 +90,8 @@ def _block_info(db: sqlite3.Connection, uid: str) -> BlockInfo | None:
 
 def _block_rewrites(db: sqlite3.Connection,
                     uid: str) -> tuple[BlockRewrite, ...]:
-    """Every recorded rename/merge rewrite of this block, newest first --
-    the order `ops_core.replay_title_rewrites` walks the chain in."""
+    """Every recorded rename/merge/delete rewrite of this block, newest
+    first -- the order `ops_core.replay_title_rewrites` walks the chain in."""
     rows = db.execute(
         "SELECT base_hash, after_hash, old_title, new_title, kind"
         " FROM block_rewrites WHERE uid = ?"

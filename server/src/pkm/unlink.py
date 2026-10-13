@@ -7,8 +7,8 @@ scanners `refs.extract()` uses (bracket_spans, tag_spans,
 attribute_title_span), never a second grammar, and are spliced back to
 front on `strip_code()` output whose offsets index the original text, as
 `rename.py` does. A leading `Title::` attribute is never touched; a rewrite
-that would create one, and a query macro naming the page, are reported as
-blockers instead.
+that would add or change one, a query macro naming the page, and a rewrite
+that would still reference the page are reported as blockers instead.
 """
 from __future__ import annotations
 
@@ -103,14 +103,28 @@ def _unlink_range(
     _unlink_tags(text, clean, is_target, index, stop, spans)
 
 
-def unlink_title_refs(text: str, is_target: TitleMatch) -> str:
-    """Turn every link, tag and aliased link to the target into plain text."""
+def _unlink_pass(text: str, is_target: TitleMatch) -> str:
     clean = strip_code(text)
     spans: list[Span] = []
     _unlink_range(
         text, clean, is_target, 0, len(clean), bracket_spans(clean), spans
     )
     return _splice(text, spans)
+
+
+def unlink_title_refs(text: str, is_target: TitleMatch) -> str:
+    """Turn every link, tag and aliased link to the target into plain text.
+
+    Repeated until nothing changes: a nested legacy link (`[[[[AI]]]]`,
+    `[[ [[AI]] ]]`) loses one layer per pass, and the outer layer would
+    otherwise re-derive the page. Every pass that changes the text makes it
+    shorter, so the length bounds the loop."""
+    for _ in range(len(text) + 1):
+        unlinked = _unlink_pass(text, is_target)
+        if unlinked == text:
+            break
+        text = unlinked
+    return text
 
 
 def inline_block_refs(text: str, copies: Mapping[str, str]) -> str:
@@ -141,7 +155,10 @@ def apply_delete_rewrite(
     return unlink_title_refs(inline_block_refs(text, copies), is_target)
 
 
-BlockerReason = Literal["query", "attribute"]
+# query: a query macro names the page; attribute: the rewrite would change
+# the block's leading `Name::` attribute; residual: the rewritten text would
+# still reference the page or one of its blocks.
+BlockerReason = Literal["query", "attribute", "residual"]
 
 
 @dataclass(frozen=True)
@@ -184,20 +201,40 @@ def _build_copies(
     return copies
 
 
+def _attribute_raw(text: str) -> str | None:
+    span = attribute_title_span(strip_code(text))
+    return None if span is None else span.raw_title
+
+
+def _still_refs_page(
+    is_target: TitleMatch, page_blocks: Mapping[str, str], original: str,
+    rewritten: str,
+) -> bool:
+    """Whether the rewritten text references the page or its blocks, beyond
+    a leading attribute naming the page that the rewrite left as it was."""
+    parsed = extract(rewritten)
+    kept_attribute = _attribute_raw(original) == _attribute_raw(rewritten)
+    return any(
+        is_target(ref.title)
+        and not (ref.kind == "attribute" and kept_attribute)
+        for ref in parsed.refs
+    ) or any(uid in page_blocks for uid in parsed.block_refs)
+
+
 def _blocker_reason(
-    is_target: TitleMatch, source: SourceBlock, copies: Mapping[str, str]
+    is_target: TitleMatch, page_blocks: Mapping[str, str],
+    source: SourceBlock, rewritten: str,
 ) -> BlockerReason | None:
     clean = strip_code(source.text)
     for _start, _end, expr in find_query_macros(clean):
         if any(is_target(ref.title) for ref in extract(expr).refs):
             return "query"
-    before = attribute_title_span(clean)
-    if before is not None and is_target(before.raw_title):
-        return None
-    rewritten = apply_delete_rewrite(source.text, is_target, copies)
-    after = attribute_title_span(strip_code(rewritten))
-    if after is not None and is_target(after.raw_title):
+    # A rewrite that adds or retitles the leading attribute would turn the
+    # block into a property block and create the page it names.
+    if _attribute_raw(source.text) != _attribute_raw(rewritten):
         return "attribute"
+    if _still_refs_page(is_target, page_blocks, source.text, rewritten):
+        return "residual"
     return None
 
 
@@ -216,21 +253,24 @@ def plan_page_delete(
     links = block_refs = 0
     for source in sources:
         parsed = extract(source.text)
-        if any(is_target(ref.title) for ref in parsed.refs):
+        # a leading `Title::` attribute naming the page is not rewritten,
+        # so a block holding only that is not a link the delete removes
+        if any(is_target(ref.title) for ref in parsed.refs
+               if ref.kind != "attribute"):
             links += 1
             link_pages.add(source.page_title)
         applied = {u: copies[u] for u in parsed.block_refs if u in copies}
         if applied:
             block_refs += 1
             ref_pages.add(source.page_title)
-        reason = _blocker_reason(is_target, source, applied)
+        pre = inline_block_refs(source.text, applied)
+        new = unlink_title_refs(pre, is_target)
+        reason = _blocker_reason(is_target, page_blocks, source, new)
         if reason is not None:
             blockers.append(
                 DeleteBlocker(source.uid, source.page_title, source.text, reason)
             )
             continue
-        pre = inline_block_refs(source.text, applied)
-        new = unlink_title_refs(pre, is_target)
         if new != source.text:
             rewrites[source.uid] = new
         if new != pre:

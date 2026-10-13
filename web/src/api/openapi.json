@@ -302,7 +302,7 @@
       },
       "delete": {
         "summary": "Delete Page",
-        "description": "Deletes the page, its blocks, and any sidebar entry for it. Inbound\n[[links]] and #tags in other pages' blocks become plain\ntext, and inbound ((block refs)) are replaced by a copy of the referenced\ntext. 409 with the offending blocks when a query macro or attribute value\nnames the page, since those cannot be rewritten; nothing is changed.",
+        "description": "Deletes the page, its blocks, and any sidebar entry for it. Inbound\n[[links]] and #tags in other pages' blocks become plain\ntext, and inbound ((block refs)) are replaced by a copy of the referenced\ntext. 409 with the offending blocks when a query macro names the page or\nunlinking would change a block's leading attribute name (`[[page]]:: v`)\nor still leave a reference, since those cannot be rewritten; nothing is\nchanged.",
         "operationId": "delete_page_api_page__title__delete",
         "parameters": [
           {
@@ -383,7 +383,7 @@
     "/api/delete-preview": {
       "get": {
         "summary": "Delete Preview",
-        "description": "What deleting the page would rewrite: how many [[links]] become plain\ntext and ((block refs)) become copies (blocks and distinct pages), and the\nblocks that would make DELETE refuse (query macros and attribute values\nnaming the page). Read-only; 404 when the page does not exist. Not under\n/api/page/ because GET /api/page/{title:path} would swallow it.",
+        "description": "What deleting the page would rewrite: how many [[links]] become plain\ntext and ((block refs)) become copies (blocks and distinct pages), and the\nblocks that would make DELETE refuse (a query macro naming the page, or a\nrewrite that would change the leading attribute name, as for\n`[[page]]:: v`, or still reference the page). Read-only; 404 when the page does not exist. Not under\n/api/page/ because GET /api/page/{title:path} would swallow it.",
         "operationId": "delete_preview_api_delete_preview_get",
         "parameters": [
           {
@@ -3184,7 +3184,8 @@
             "type": "string",
             "enum": [
               "query",
-              "attribute"
+              "attribute",
+              "residual"
             ],
             "title": "Reason"
           }
@@ -3197,7 +3198,7 @@
           "reason"
         ],
         "title": "DeleteBlockerModel",
-        "description": "A block whose reference to the page a delete cannot rewrite (a query\nmacro or an attribute value naming it)."
+        "description": "A block whose reference to the page a delete cannot rewrite. `query`:\na query macro names the page. `attribute`: unlinking would add or change\nthe block's leading `Name::` attribute (as for `[[page]]:: v`), turning\nit into a property block. `residual`: the rewritten text would still\nreference the page or one of its blocks."
       },
       "DeleteOp": {
         "properties": {

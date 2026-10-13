@@ -1,6 +1,6 @@
 import pytest
 
-from pkm.refs import normalize_title
+from pkm.refs import canonicalize_title, normalize_title
 from pkm.unlink import (
     SourceBlock,
     apply_delete_rewrite,
@@ -29,6 +29,8 @@ def is_ai(raw: str) -> bool:
     ("Tags:: #AI", "Tags:: AI"),
     ("AI:: value", "AI:: value"),
     ("[[x [[AI]] y]]", "[[x AI y]]"),
+    ("[[[[AI]]]]", "AI"),
+    ("#[[[[AI]]]] x", "AI x"),
 ])
 def test_unlink_title_refs(text, expected):
     assert unlink_title_refs(text, is_ai) == expected
@@ -105,3 +107,61 @@ def test_blockers_ignore_code():
     plan = plan_page_delete(is_ai, {}, [
         SourceBlock("c1", "C", "`{{query: {and: [[AI]]}}}` [[AI]]")])
     assert plan.blockers == ()
+
+
+def is_ai_plain_space(raw: str) -> bool:
+    return canonicalize_title(raw, plain_space=True) == "AI"
+
+
+def test_unlink_padded_nested_link_under_plain_space():
+    assert unlink_title_refs("x [[ [[AI]] ]] y", is_ai_plain_space) \
+        == "x  AI  y"
+
+
+@pytest.mark.parametrize("text", [
+    "[[AI]] stuff:: v",
+    "[l]([[AI]]):: v",
+    "#AI rest:: v",
+    "[[AI]] [[AI]]:: v",
+    "((pg_p01)):: v",
+])
+def test_blocker_when_the_rewrite_changes_the_leading_attribute(text):
+    plan = plan_page_delete(is_ai, {"pg_p01": "copied"}, [
+        SourceBlock("a1", "A", text)])
+    assert [(b.uid, b.reason) for b in plan.blockers] == [("a1", "attribute")]
+    assert plan.rewrites == {}
+
+
+def test_unchanged_leading_attribute_is_not_a_blocker():
+    plan = plan_page_delete(is_ai, {}, [
+        SourceBlock("s1", "A", "Status:: [[AI]]"),
+        SourceBlock("s2", "A", "AI:: see [[AI]]"),
+    ])
+    assert plan.blockers == ()
+    assert plan.rewrites == {"s1": "Status:: AI", "s2": "AI:: see AI"}
+
+
+def test_leading_attribute_of_the_page_alone_is_not_counted_as_a_link():
+    plan = plan_page_delete(is_ai, {}, [
+        SourceBlock("s1", "A", "AI:: value"),
+        SourceBlock("s2", "B", "AI:: [[AI]]"),
+    ])
+    assert (plan.links, plan.link_pages) == (1, 1)
+    assert plan.rewrites == {"s2": "AI:: AI"}
+
+
+def test_nested_legacy_links_unlink_to_a_fixpoint_in_the_plan():
+    plan = plan_page_delete(is_ai_plain_space, {}, [
+        SourceBlock("s1", "A", "[[[[AI]]]]"),
+        SourceBlock("s2", "A", "x [[ [[AI]] ]] y"),
+    ])
+    assert plan.blockers == ()
+    assert plan.rewrites == {"s1": "AI", "s2": "x  AI  y"}
+
+
+def test_blocker_when_the_rewrite_still_refs_a_page_block():
+    # unlinking `[[AI]]` splices the uid back together into a ref
+    plan = plan_page_delete(is_ai, {"abcdAIxyz": "copied"}, [
+        SourceBlock("s1", "A", "((abcd[[AI]]xyz))")])
+    assert [(b.uid, b.reason) for b in plan.blockers] == [("s1", "residual")]
+    assert plan.rewrites == {}

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { deleteConfirmMessage } from "./deletePageCopy";
+import { blockerReasonLabel, deleteConfirmMessage } from "./deletePageCopy";
 
 const base = { links: 0, link_pages: 0, block_refs: 0, block_ref_pages: 0, blockers: [] };
 
@@ -27,4 +27,10 @@ it("adds the block reference sentence, singular and plural", () => {
 it("adds both sentences in order", () => {
   expect(deleteConfirmMessage("P", { ...base, links: 2, link_pages: 2, block_refs: 1, block_ref_pages: 1 })).toBe(
     'Delete "P"? This cannot be undone. 2 links on 2 pages will become plain text. 1 block reference on 1 page will be replaced with a copy of the text they point to.');
+});
+
+it("labels each blocker reason", () => {
+  expect(blockerReasonLabel("query")).toBe("a query names this page");
+  expect(blockerReasonLabel("attribute")).toBe("unlinking would make this an attribute");
+  expect(blockerReasonLabel("residual")).toBe("unlinking would still leave a link to this page");
 });

@@ -34,7 +34,12 @@ export function blockedHeading(title: string): string {
 export const BLOCKED_LEAD = "Change these blocks first:";
 
 export function blockerReasonLabel(reason: DeleteBlocker["reason"]): string {
-  return reason === "query"
-    ? "a query names this page"
-    : "unlinking would make this an attribute";
+  switch (reason) {
+    case "query":
+      return "a query names this page";
+    case "attribute":
+      return "unlinking would make this an attribute";
+    case "residual":
+      return "unlinking would still leave a link to this page";
+  }
 }

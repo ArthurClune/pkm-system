@@ -162,8 +162,10 @@ export interface paths {
          * @description Deletes the page, its blocks, and any sidebar entry for it. Inbound
          *     [[links]] and #tags in other pages' blocks become plain
          *     text, and inbound ((block refs)) are replaced by a copy of the referenced
-         *     text. 409 with the offending blocks when a query macro or attribute value
-         *     names the page, since those cannot be rewritten; nothing is changed.
+         *     text. 409 with the offending blocks when a query macro names the page or
+         *     unlinking would change a block's leading attribute name (`[[page]]:: v`)
+         *     or still leave a reference, since those cannot be rewritten; nothing is
+         *     changed.
          */
         delete: operations["delete_page_api_page__title__delete"];
         options?: never;
@@ -202,8 +204,9 @@ export interface paths {
          * Delete Preview
          * @description What deleting the page would rewrite: how many [[links]] become plain
          *     text and ((block refs)) become copies (blocks and distinct pages), and the
-         *     blocks that would make DELETE refuse (query macros and attribute values
-         *     naming the page). Read-only; 404 when the page does not exist. Not under
+         *     blocks that would make DELETE refuse (a query macro naming the page, or a
+         *     rewrite that would change the leading attribute name, as for
+         *     `[[page]]:: v`, or still reference the page). Read-only; 404 when the page does not exist. Not under
          *     /api/page/ because GET /api/page/{title:path} would swallow it.
          */
         get: operations["delete_preview_api_delete_preview_get"];
@@ -1352,8 +1355,11 @@ export interface components {
         };
         /**
          * DeleteBlockerModel
-         * @description A block whose reference to the page a delete cannot rewrite (a query
-         *     macro or an attribute value naming it).
+         * @description A block whose reference to the page a delete cannot rewrite. `query`:
+         *     a query macro names the page. `attribute`: unlinking would add or change
+         *     the block's leading `Name::` attribute (as for `[[page]]:: v`), turning
+         *     it into a property block. `residual`: the rewritten text would still
+         *     reference the page or one of its blocks.
          */
         DeleteBlockerModel: {
             /** Uid */
@@ -1366,7 +1372,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "query" | "attribute";
+            reason: "query" | "attribute" | "residual";
         };
         /** DeleteOp */
         DeleteOp: {

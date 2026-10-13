@@ -281,8 +281,9 @@ def delete_preview(title: str,
                    db: sqlite3.Connection = Depends(get_db)) -> DeletePreview:
     """What deleting the page would rewrite: how many [[links]] become plain
     text and ((block refs)) become copies (blocks and distinct pages), and the
-    blocks that would make DELETE refuse (query macros and attribute values
-    naming the page). Read-only; 404 when the page does not exist. Not under
+    blocks that would make DELETE refuse (a query macro naming the page, or a
+    rewrite that would change the leading attribute name, as for
+    `[[page]]:: v`, or still reference the page). Read-only; 404 when the page does not exist. Not under
     /api/page/ because GET /api/page/{title:path} would swallow it."""
     title = read_title(db, title)
     page = fetch_page(db, title)
@@ -301,8 +302,10 @@ def delete_page(request: Request, title: str,
     """Deletes the page, its blocks, and any sidebar entry for it. Inbound
     [[links]] and #tags in other pages' blocks become plain
     text, and inbound ((block refs)) are replaced by a copy of the referenced
-    text. 409 with the offending blocks when a query macro or attribute value
-    names the page, since those cannot be rewritten; nothing is changed."""
+    text. 409 with the offending blocks when a query macro names the page or
+    unlinking would change a block's leading attribute name (`[[page]]:: v`)
+    or still leave a reference, since those cannot be rewritten; nothing is
+    changed."""
     # Same ordering rule as rename: the write lock precedes the snapshot of
     # referencing blocks, so no batch can commit between snapshot and rewrite.
     try:

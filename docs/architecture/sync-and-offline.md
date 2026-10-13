@@ -397,7 +397,7 @@ stale `base_text_hash`, rather than a conflict:
 
 | Situation | Outcome |
 |---|---|
-| `base_text_hash` matches a pre-rename snapshot of this block | The rename or merge is replayed over the incoming text, which then meets the rows below as an edit of the rewritten text |
+| `base_text_hash` matches a pre-rewrite snapshot of this block | The rename, merge or page-delete unlink/inline is replayed over the incoming text, which then meets the rows below as an edit of the rewritten text |
 | Incoming text equals current | No-op, whatever the hash |
 | `hash(current) == base_text_hash` | Clean apply |
 | Hashes differ (concurrent edit) | Incoming wins; the overwritten text lands under a `[[conflict]]` header block on today's daily page |
@@ -422,8 +422,8 @@ first: the later one wins and the earlier one becomes the conflict copy.
 A conflict copy is never discarded: conflict blocks are ordinary blocks, so
 they reach every client through the feed and are findable through search and
 the `[[conflict]]` page's backlinks. The first row's replay, from records in the server-only
-`block_rewrites` table, stops a device that never saw a rename from carrying
-the old title back. A missing target never rejects its batch, so another
+`block_rewrites` table, stops a device that never saw a rename, or a page delete's unlink and inline rewrites, from carrying
+the old title or block ref back. A missing target never rejects its batch, so another
 device's delete cannot poison the queue; how the replica then drops its
 optimistic ghost is in
 [sync-recovery.md § Ops on blocks the server no longer has](sync-recovery.md#ops-on-blocks-the-server-no-longer-has).

@@ -5,7 +5,7 @@ status: in-progress
 type: feature
 priority: normal
 created_at: 2026-10-13T19:43:18Z
-updated_at: 2026-10-13T21:28:33Z
+updated_at: 2026-10-13T21:55:54Z
 ---
 
 Design in progress (brainstorming 2026-10-13). Spec: docs/superpowers/specs/2026-10-13-page-delete-unlinks-design.md. Follows pkm-70ty: today a delete leaves [[A]] text whose next edit recreates the page.
@@ -21,7 +21,8 @@ Design in progress (brainstorming 2026-10-13). Spec: docs/superpowers/specs/2026
 - [x] Property checks for the rewriter
 - [x] Architecture docs
 - [x] Final review fixes
-- [ ] Merge, deploy
+- [x] Merge
+- [ ] Deploy
 - [ ] Data repair of the 13 pkm-70ty blocks (needs Arthur's OK)
 
 Follow-ups: pkm-xsgt (refuse deleting attribute pages), pkm-wvac (sync suite draws page deletes).

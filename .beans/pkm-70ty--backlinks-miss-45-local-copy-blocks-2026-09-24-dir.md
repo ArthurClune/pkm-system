@@ -1,10 +1,11 @@
 ---
 # pkm-70ty
 title: 'Backlinks miss 45 ''Local copy::'' blocks: 2026-09-24 direct DB rewrite never wrote refs rows'
-status: todo
+status: completed
 type: bug
+priority: normal
 created_at: 2026-10-13T18:36:18Z
-updated_at: 2026-10-13T18:36:18Z
+updated_at: 2026-10-13T19:08:40Z
 ---
 
 ## Symptom
@@ -20,6 +21,18 @@ updated_at: 2026-10-13T18:36:18Z
 The backlinks query (`routes_pages._backlinks`) is a plain join on `refs`. Data is wrong; the code is right.
 
 ## Todo
-- [ ] Re-derive refs for the 45 blocks (a write via the API with unchanged text, or a one-off script calling `reindex_refs_for_text`); confirm `pkm refs "Local copy"` then returns 715 blocks
-- [ ] Sweep for other stale refs: compare each block's parsed refs against its `refs` rows across the whole DB (other direct-write batches exist; e.g. 2026-10-09 12:35 shows blocks with `[[`/`::` and no refs, which may or may not be real)
-- [ ] Decide whether direct-DB maintenance writes should be refused in favour of the API, or whether a `pkm` admin reindex verb should exist for after them
+- [x] Re-derive refs for the 45 blocks (a write via the API with unchanged text, or a one-off script calling `reindex_refs_for_text`); confirm `pkm refs "Local copy"` then returns 715 blocks
+- [x] Sweep for other stale refs: compare each block's parsed refs against its `refs` rows across the whole DB (other direct-write batches exist; e.g. 2026-10-09 12:35 shows blocks with `[[`/`::` and no refs, which may or may not be real)
+- [x] Decide whether direct-DB maintenance writes should be refused in favour of the API, or whether a `pkm` admin reindex verb should exist for after them
+
+
+## Summary of Changes
+Data-only repair; no code changed.
+
+- **Root cause confirmed:** the 2026-09-24 "note migration" (worklog) rewrote 68 free-text GoodLinks notes such as `(local copy in Goodlinks)` into `Local copy::` links with direct SQL. Triggers kept FTS and `changes` current but not `refs`. The nightly export diff a3e22ed..2d48dba shows the before/after text.
+- **Sweep** (server `refs.extract` vs `refs`/`block_refs`, every block, prod copy): 59 mismatches.
+  - 45: the GoodLinks rewrite.
+  - 1: `8YAh9mjHF` (`[[Prompt Injection]][[]]`), a leftover row to legacy blank-title page id 1.
+  - 13: links to pages since deleted (e.g. `Keyboard shortcuts`, `1`, empty daily notes removed by journal cleanup). Arthur confirmed that deleting a page leaves inbound links as text by design, so these are expected and were left alone. Reindexing them would also have recreated the pages.
+- **Repair:** one `pkm batch` updated each of the 46 blocks to `text + " "` and back. An identical-text update is planned as a no-op (`ops_core`, "identical"), hence the two steps. 184 ops; text verified byte-identical afterwards; page count unchanged (4483); sweep now clean apart from the 13; `pkm refs "Local copy"` returns all 715 blocks. Side effect: those 46 blocks carry a 2026-10-13 `updated_at`.
+- **Prevention:** no admin reindex verb for now. The session memory recipe for direct DB maintenance writes now says triggers do not maintain `refs`, so any text change that adds or alters `[[x]]`, `#tag` or `attr::` goes through `pkm batch`.

@@ -2,6 +2,8 @@ import sqlite3
 from datetime import date, timedelta
 from urllib.parse import quote
 
+import pytest
+
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import text_hash
 
@@ -294,6 +296,84 @@ def test_delete_refused_with_blockers_409(client):
         "text": "{{query: {and: [[Machine Learning]] [[Paper]]}}}",
         "reason": "query"}]
     assert client.get("/api/page/Machine Learning").status_code == 200
+
+
+B4_SEED = "Studying [[Machine Learning]] today"
+
+
+def _set_b4(client, text):
+    r = client.post("/api/ops", json={
+        "client_id": "c1", "batch_id": "batch_b4000001",
+        "ops": [{"op": "update_text", "uid": "uid_b4", "text": text,
+                 "base_text_hash": text_hash(B4_SEED)}]})
+    assert r.status_code == 200, r.text
+
+
+def _b4_text(client):
+    page = client.get("/api/page/July 7th, 2026").json()
+    return next(b["text"] for b in page["blocks"] if b["uid"] == "uid_b4")
+
+
+def _rewrite_rows(seeded_config):
+    con = sqlite3.connect(seeded_config.db_path)
+    try:
+        return con.execute("SELECT count(*) FROM block_rewrites").fetchone()[0]
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("text,would_create", [
+    # unlinking would turn the block into a new `Machine Learning stuff::`
+    ("[[Machine Learning]] stuff:: v", "Machine Learning stuff"),
+    # unlinking would make the leading attribute name the page itself
+    ("[[Machine Learning]]:: v", None),
+])
+def test_delete_refused_when_unlinking_changes_the_leading_attribute(
+        client, seeded_config, text, would_create):
+    _set_b4(client, text)
+    r = client.delete("/api/page/Machine Learning")
+    assert r.status_code == 409
+    assert [(b["uid"], b["reason"]) for b in r.json()["detail"]["blockers"]] \
+        == [("uid_b4", "attribute")]
+    assert client.get("/api/page/Machine Learning").status_code == 200
+    if would_create is not None:
+        assert client.get(f"/api/page/{would_create}").status_code == 404
+    assert _b4_text(client) == text
+    assert _rewrite_rows(seeded_config) == 0
+
+
+def test_delete_inlines_an_embed_of_a_page_block(client):
+    _set_b4(client, "x {{embed: ((uid_b3))}} y")
+    assert client.delete("/api/page/Machine Learning").status_code == 200
+    assert _b4_text(client) == (
+        "x [[Attention Is All You Need]] is a [[Paper]] y")
+    assert client.get("/api/page/Machine Learning").status_code == 404
+
+
+def test_delete_rolls_back_every_rewrite_when_a_later_one_fails(
+        client, seeded_config, monkeypatch):
+    from pkm.server import store
+
+    real = store.reindex_refs_for_text
+    calls = []
+
+    def failing_second(db, uid, text, now_ms):
+        calls.append(uid)
+        if len(calls) == 2:
+            raise RuntimeError("disk on fire")
+        return real(db, uid, text, now_ms)
+
+    monkeypatch.setattr(store, "reindex_refs_for_text", failing_second)
+    with pytest.raises(RuntimeError, match="disk on fire"):
+        client.delete("/api/page/Machine Learning")
+    monkeypatch.setattr(store, "reindex_refs_for_text", real)
+
+    assert calls == ["uid_b4", "uid_b5"]
+    page = client.get("/api/page/July 7th, 2026").json()
+    assert {b["uid"]: b["text"] for b in page["blocks"]} == {
+        "uid_b4": B4_SEED, "uid_b5": "See ((uid_b3)) for details"}
+    assert client.get("/api/page/Machine Learning").status_code == 200
+    assert _rewrite_rows(seeded_config) == 0
 
 
 def test_delete_holds_the_write_lock_from_its_snapshot_on(

@@ -149,6 +149,17 @@ def test_spares_empty_daily_with_inbound_tag(client, seeded_config):
     assert _page_exists(seeded_config.db_path, title)
 
 
+def test_spares_empty_daily_with_inbound_attribute(client, seeded_config):
+    title = _daily_title(_in_window_days_ago())
+    _insert_page(seeded_config.db_path, 96, title)
+    _insert_indexed_block(seeded_config.db_path, "uid_a1", 2, f"{title}:: x")
+
+    r = client.post("/api/journal/cleanup")
+
+    assert r.json() == {"deleted": []}
+    assert _page_exists(seeded_config.db_path, title)
+
+
 def test_ignores_empty_daily_older_than_a_week(client, seeded_config):
     title = _daily_title(_outside_window_days_ago())
     _insert_page(seeded_config.db_path, 94, title)

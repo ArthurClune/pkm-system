@@ -160,8 +160,12 @@ export interface paths {
         /**
          * Delete Page
          * @description Deletes the page, its blocks, and any sidebar entry for it. Inbound
-         *     [[links]] from other pages' block text are left as-is -- only the refs
-         *     rows pointing at this page disappear (via target_page_id CASCADE).
+         *     [[links]] and #tags in other pages' blocks become plain
+         *     text, and inbound ((block refs)) are replaced by a copy of the referenced
+         *     text. 409 with the offending blocks when a query macro names the page or
+         *     unlinking would change a block's leading attribute name (`[[page]]:: v`)
+         *     or still leave a reference, since those cannot be rewritten; nothing is
+         *     changed.
          */
         delete: operations["delete_page_api_page__title__delete"];
         options?: never;
@@ -183,6 +187,31 @@ export interface paths {
          * @description Idempotent: creating an existing page returns its row, not an error.
          */
         post: operations["create_page_api_pages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delete-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Delete Preview
+         * @description What deleting the page would rewrite: how many [[links]] become plain
+         *     text and ((block refs)) become copies (blocks and distinct pages), and the
+         *     blocks that would make DELETE refuse (a query macro naming the page, or a
+         *     rewrite that would change the leading attribute name, as for
+         *     `[[page]]:: v`, or still reference the page). Read-only; 404 when the page does not exist. Not under
+         *     /api/page/ because GET /api/page/{title:path} would swallow it.
+         */
+        get: operations["delete_preview_api_delete_preview_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -295,9 +324,10 @@ export interface paths {
          * @description Deletes completely-empty daily pages from the 7 days before today
          *     (today is spared: the journal auto-creates it for composing). Stateless:
          *     every call re-checks the whole window, so a page emptied later by block
-         *     moves is caught on the next load. A page whose blank block is still
-         *     ((referenced)) from another page is spared -- deleting it would leave
-         *     the reference dangling.
+         *     moves is caught on the next load. A day with any incoming link is
+         *     spared, never rewritten: a `refs` row of any kind (link, tag, attribute)
+         *     targeting the page, or a ((block ref)) to one of its blocks, from a
+         *     block on another page.
          */
         post: operations["cleanup_journal_api_journal_cleanup_post"];
         delete?: never;
@@ -1323,6 +1353,27 @@ export interface components {
             /** Pages */
             pages: components["schemas"]["CurrentWorkPage"][];
         };
+        /**
+         * DeleteBlockerModel
+         * @description A block whose reference to the page a delete cannot rewrite. `query`:
+         *     a query macro names the page. `attribute`: unlinking would add or change
+         *     the block's leading `Name::` attribute (as for `[[page]]:: v`), turning
+         *     it into a property block. `residual`: the rewritten text would still
+         *     reference the page or one of its blocks.
+         */
+        DeleteBlockerModel: {
+            /** Uid */
+            uid: string;
+            /** Page Title */
+            page_title: string;
+            /** Text */
+            text: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "query" | "attribute" | "residual";
+        };
         /** DeleteOp */
         DeleteOp: {
             /**
@@ -1334,6 +1385,24 @@ export interface components {
             uid: Brands.BlockUid;
             /** Base Subtree Hash */
             base_subtree_hash?: Brands.Sha256Hex | null;
+        };
+        /**
+         * DeletePreview
+         * @description GET /api/delete-preview: what deleting the page would rewrite. Counts
+         *     are of source blocks and the distinct pages holding them; a non-empty
+         *     `blockers` means DELETE would be refused with 409.
+         */
+        DeletePreview: {
+            /** Links */
+            links: number;
+            /** Link Pages */
+            link_pages: number;
+            /** Block Refs */
+            block_refs: number;
+            /** Block Ref Pages */
+            block_ref_pages: number;
+            /** Blockers */
+            blockers: components["schemas"]["DeleteBlockerModel"][];
         };
         /** DescribeStatusPayload */
         DescribeStatusPayload: {
@@ -2215,6 +2284,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageMeta"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_preview_api_delete_preview_get: {
+        parameters: {
+            query: {
+                title: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletePreview"];
                 };
             };
             /** @description Validation Error */

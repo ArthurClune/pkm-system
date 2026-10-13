@@ -36,6 +36,11 @@ pkm/
 │                               own pattern from
 ├── rename.py            Core   one-pass, opaque-value title-ref rewrite for page rename/merge;
 │                               callers pass the normalizer that spells their replacement keys
+├── unlink.py            Core   page-delete rewrite: inbound [[links]]/#tags become plain text,
+│                               ((refs)) become a copy of the target text; plans the rewrite
+│                               and reports blockers (query macro naming the page, a changed
+│                               leading attribute name, a ref left behind). Scans with the
+│                               refs.py spans, as rename.py does
 ├── title_migration.py   Core   boundary-space grouping, blockers, survivor plan + digest
 ├── todo.py              Core   {{TODO}}/{{DONE}} marker parsing (mirrors web/src/grammar/todo.ts)
 ├── changed.py           Core   /api/changed window parsing (date/ISO bounds, injected
@@ -196,9 +201,17 @@ Around that base model:
     (existing rows stay NULL) and re-creates the trigger.
   - `applied_batches(batch_id, request_hash, response)` — op idempotency.
   - `block_rewrites(uid, base_hash, after_hash, old_title, new_title,
-    created_at)` — what a rename, merge or the title migration did to one
-    block's text, replayed over a stale `update_text`. Pruned to 30 days on
-    every rewrite.
+    created_at, kind)` — what a rename, merge, the title migration or a page
+    delete did to one block's text, replayed over a stale `update_text`.
+    Pruned to 30 days on every rewrite. `kind` says what the title columns
+    mean; `db._ensure_schema_migrations` adds the column to an older table
+    (existing rows read `retitle`).
+
+    | `kind` | `old_title` | `new_title` |
+    |---|---|---|
+    | `retitle` | the old title | the new title (rename, merge, title migration) |
+    | `unlink` | the deleted page's title | empty |
+    | `inline` | the target block's uid | the text copied in place of `((uid))` |
   - `conflict_headers(target_uid, day, header_uid)` — today's daily-note
     conflict header for each block that has already had one, so a second
     conflict on the same block the same day appends under it instead of
@@ -259,6 +272,9 @@ cannot commit between that snapshot and the rename's `UPDATE`, which would
 leave its `[[Old]]` link unrewritten. Every early exit rolls back, and a busy
 lock returns 503 with `Retry-After`. With the lock held a title race cannot
 reach the `UPDATE`, so the route has no `IntegrityError` to 409 path.
+
+`DELETE /api/page/{title}` takes the lock the same way, for the same reason:
+the snapshot of referencing blocks must be taken inside the write transaction.
 
 `ops_apply._context_for` classifies each op once, with `ops_core.classify_skip` and,
 for a hashed edit, `classify_text_edit`. It then hands `plan_op` the context
@@ -366,7 +382,10 @@ second conflict on the same block the same day reuses its header's uid.
 identical, clean or conflict. It first replays any `block_rewrites` row
 `store.rewrite_snapshotted_blocks` left for that block
 (`ops_core.replay_title_rewrites`), so a device that never saw a rename
-cannot win with the old title and re-create the page it emptied. Only a
+cannot win with the old title and re-create the page it emptied. The replay
+covers all three `kind`s: a delete's `unlink` and `inline` steps run through
+`unlink.apply_delete_rewrite`, so a stale edit cannot bring back a link to a
+deleted page or a `((ref))` to a block that no longer exists. Only a
 conflict resolves (and may create) today's daily page. Hashless edits to a
 live block never touch it.
 
@@ -516,6 +535,31 @@ Page-level mutations (create, delete, rename, merge) live in `store.py` as
 composable functions that never commit; routes own the transaction.
 `POST /api/page/{title}/rename` rewrites all referencing block text via
 `rename.py`, and merges by concatenating blocks when `allow_merge` is set.
+
+`DELETE /api/page/{title}` goes through `store.delete_page_unlinking`, which
+plans with `unlink.plan_page_delete` (`store.plan_delete`) before any write:
+
+| Inbound reference | Delete does |
+|---|---|
+| `[[Title]]`, `#Title`, `#[[Title]]` | becomes plain text |
+| `((uid))` to a block of the page | replaced by a copy of that block's text (no task marker, no leading attribute, newlines folded), with its own refs resolved |
+| query macro naming the page | refused: 409 with `blockers` (`uid`, `page_title`, `text`, `reason`); nothing changes. `reason` is `query` |
+| unlinking would add or change the block's leading attribute name (`[[Title]]:: v`, `[[Title]] x:: v`) | refused the same way, `reason` = `attribute`: the block would become a property block and create the page it names |
+| rewritten text would still reference the page or one of its blocks | refused the same way, `reason` = `residual` |
+| leading `Title:: v` attribute naming the page | left as it is, and not counted in the preview's `links` |
+
+`unlink_title_refs` repeats until the text stops changing, because a nested
+legacy link (`[[[[Title]]]]`) loses one layer per pass. Each rewritten block
+gets `block_rewrites` rows (`unlink`, `inline`), its refs reindexed, and then
+the page rows go. The replay of an `unlink` row matches titles through the
+same `title_reader` canonicalisation the delete used. Otherwise a stale edit
+would keep a padded `[[ Title ]]` that the delete unlinked under plain-space
+canonicalisation, and recreate the page. `GET /api/delete-preview?title=` returns
+the same plan as counts plus the blockers without writing, for the web confirm.
+
+`cleanup_journal` spares any daily note with an incoming link: a `refs` row of
+any kind from a block on another page, or a `((ref))` to one of its blocks.
+It never rewrites a day, so a link to a journal day cannot dangle.
 
 `rename.py` keeps no copy of the grammar: it locates refs through
 `refs.strip_code()`, `refs.bracket_spans()`, `refs.tag_spans()` and
@@ -744,7 +788,8 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | GET | `/api/block/{uid}/backlinks` | Blocks referencing `((uid))`, grouped like page backlinks (unpaginated) |
 | GET | `/api/block-refs?uids=` | Resolve `((uid))` references on demand |
 | POST | `/api/pages` | Idempotent page create |
-| DELETE | `/api/page/{title}` | Delete page + blocks (+ sidebar entry); inbound links remain as text |
+| DELETE | `/api/page/{title}` | Delete page + blocks (+ sidebar entry); inbound links and tags become plain text and inbound `((refs))` become copies ([Page mutations](#page-mutations-and-the-sidebar)). 409 with `detail.blockers` when a query names the page, unlinking would change a leading attribute name, or a reference would be left; 503 with `Retry-After` when the write lock is busy |
+| GET | `/api/delete-preview?title=` | `DeletePreview`: `links`, `link_pages`, `block_refs`, `block_ref_pages` and `blockers`, what a delete would rewrite or be refused for; read-only; 404 if the page is missing |
 | POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`; 503 with `Retry-After` when the write lock is busy. Returns `RenamePageResponse` (`result: "renamed" \| "merged"`, `title`) |
 | GET | `/api/unlinked?title` | Unlinked mentions of a title |
 | GET | `/api/journal?before&days` | Daily-notes feed (infinite scroll); each day carries its blocks and a linked-references preview, and one `block_ref_counts` map covers all days |

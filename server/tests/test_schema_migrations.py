@@ -2,6 +2,8 @@
 predating the assets description columns in place."""
 import sqlite3
 
+import pytest
+
 from pkm.server.db import init_db, open_db
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
 
@@ -183,3 +185,32 @@ def test_fresh_journal_records_a_deleted_blocks_page(tmp_path):
     assert _delete_one(db_path, "uid_new02", 7) == [
         ("block", "uid_new02", 0, None), ("block", "uid_new02", 1, 7)]
 
+
+
+def test_block_rewrites_gains_kind_on_an_old_database(tmp_path):
+    db_path = tmp_path / "pkm.sqlite3"
+    con = sqlite3.connect(db_path)
+    con.executescript("""
+        CREATE TABLE block_rewrites(
+          uid        TEXT NOT NULL,
+          base_hash  TEXT NOT NULL,
+          after_hash TEXT NOT NULL,
+          old_title  TEXT NOT NULL,
+          new_title  TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        );
+        INSERT INTO block_rewrites VALUES ('u1', 'a', 'b', 'Old', 'New', 1);
+    """)
+    con.commit()
+    con.close()
+
+    init_db(db_path)
+
+    con = open_db(db_path)
+    cols = {r[1] for r in con.execute("PRAGMA table_info(block_rewrites)")}
+    assert "kind" in cols
+    assert con.execute("SELECT kind FROM block_rewrites").fetchone()[0] == "retitle"
+    with pytest.raises(sqlite3.IntegrityError):
+        con.execute("INSERT INTO block_rewrites VALUES"
+                    " ('u2', 'a', 'b', 'x', 'y', 1, 'bogus')")
+    con.close()

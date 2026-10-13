@@ -8,9 +8,11 @@ from collections.abc import Iterable, Mapping, Sequence
 
 from pkm.contracts.ops import BlockUid, PageId, SidebarEntryId, text_hash
 from pkm.refs import (CanonicalTitle, NormalizedTitle, extract,
-                      is_blank_title, title_syntax_reason)
+                      is_blank_title, normalize_title, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
-from pkm.server.sync_meta import read_title
+from pkm.server.sync_meta import read_title, title_reader
+from pkm.unlink import (DeleteBlocker, DeletePlan, SourceBlock,
+                        plan_page_delete)
 
 # How long a rename/merge rewrite record stays replayable (see
 # _prune_block_rewrites).
@@ -163,7 +165,7 @@ def _record_block_rewrite(
     """
     db.executemany(
         "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
-        " new_title, created_at) VALUES (?,?,?,?,?,?)",
+        " new_title, created_at, kind) VALUES (?,?,?,?,?,?,'retitle')",
         [
             (uid, text_hash(original_text), text_hash(new_text),
              old_title, new_title, now_ms)
@@ -327,3 +329,81 @@ def merge_page_rows(db: sqlite3.Connection, source_id: PageId,
         db, source_id, target_id, old_title, new_title, now_ms
     )
     rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms)
+
+
+class DeleteBlockedError(Exception):
+    """A delete the unlinking cannot perform without changing meaning."""
+
+    def __init__(self, blockers: Sequence[DeleteBlocker]) -> None:
+        super().__init__(f"delete blocked by {len(blockers)} block(s)")
+        self.blockers = tuple(blockers)
+
+
+def plan_delete(db: sqlite3.Connection, page_id: PageId,
+                title: CanonicalTitle) -> DeletePlan:
+    """What deleting this page would rewrite. Read-only."""
+    page_blocks = {
+        row["uid"]: row["text"]
+        for row in db.execute(
+            "SELECT uid, text FROM blocks WHERE page_id = ?", (page_id,))
+    }
+    rows = db.execute(
+        """SELECT b.uid, b.text, p.title AS page_title FROM blocks b
+             JOIN pages p ON p.id = b.page_id
+            WHERE b.page_id != ?
+              AND (b.uid IN (SELECT src_block_uid FROM refs
+                              WHERE target_page_id = ?)
+                   OR b.uid IN (SELECT br.src_block_uid FROM block_refs br
+                                  JOIN blocks t ON t.uid = br.target_block_uid
+                                 WHERE t.page_id = ?))
+            ORDER BY b.uid""",
+        (page_id, page_id, page_id),
+    ).fetchall()
+    sources = [SourceBlock(r["uid"], r["page_title"], r["text"]) for r in rows]
+    canonical = title_reader(db)
+    return plan_page_delete(
+        lambda raw: canonical(normalize_title(raw)) == title,
+        page_blocks, sources)
+
+
+def _record_delete_rewrite(
+    db: sqlite3.Connection, uid: BlockUid, original_text: str, new_text: str,
+    plan: DeletePlan, title: CanonicalTitle, now_ms: int,
+) -> None:
+    """Replay rows for one delete rewrite: an `unlink` row naming the deleted
+    title, and one `inline` row per block ref copied in. Every row carries
+    the before/after hashes of the whole rewrite."""
+    base, after = text_hash(original_text), text_hash(new_text)
+    rows: list[tuple[str, str, str]] = []
+    if uid in plan.unlinked:
+        rows.append(("unlink", title, ""))
+    rows.extend(("inline", target, copy)
+                for target, copy in plan.inlined.get(uid, {}).items())
+    db.executemany(
+        "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
+        " new_title, created_at, kind) VALUES (?,?,?,?,?,?,?)",
+        [(uid, base, after, old, new, now_ms, kind)
+         for kind, old, new in rows],
+    )
+
+
+def delete_page_unlinking(db: sqlite3.Connection, page_id: PageId,
+                          title: CanonicalTitle, now_ms: int) -> DeletePlan:
+    """Delete a page after turning inbound links into plain text and inbound
+    block refs into copies. Raises DeleteBlockedError before any write when a
+    source cannot be rewritten. Never commits."""
+    plan = plan_delete(db, page_id, title)
+    if plan.blockers:
+        raise DeleteBlockedError(plan.blockers)
+    for uid, new_text in plan.rewrites.items():
+        original = db.execute(
+            "SELECT text FROM blocks WHERE uid = ?", (uid,)).fetchone()["text"]
+        db.execute(
+            "UPDATE blocks SET text = ?, updated_at = ? WHERE uid = ?",
+            (new_text, now_ms, uid))
+        _record_delete_rewrite(
+            db, BlockUid(uid), original, new_text, plan, title, now_ms)
+        reindex_refs_for_text(db, BlockUid(uid), new_text, now_ms)
+    delete_page_rows(db, page_id, title)
+    _prune_block_rewrites(db, now_ms)
+    return plan

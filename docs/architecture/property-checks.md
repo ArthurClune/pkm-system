@@ -95,7 +95,7 @@ session cookies are rejected when issued in the future or more than a year ago.
 | `server/tests/props/harness.py` | test | non-fixture helpers every property needs: `template_db_path`, `fresh_app`, `FROZEN_NOW`, `MERGE_EXAMPLES`, `assert_unique_keys`/`assert_well_formed` |
 | `server/tests/props/strategies.py` | Functional Core | uid pools, trees with gapped keys, op and CLI-command strategies |
 | `server/tests/props/model.py` | Functional Core | the reference model (below) |
-| `server/tests/props/test_ops_state.py`, `test_planner_props.py` | test | the two properties |
+| `server/tests/props/test_ops_state.py`, `test_planner_props.py`, `test_unlink_props.py` | test | the three properties |
 | `server/tests/props/test_model.py` | test | unmarked, runs in the normal suite: pins the model's own behaviour |
 | `server/tests/props/test_smoke_props.py` | test | pins per-example `template_db` isolation across Hypothesis examples |
 
@@ -113,7 +113,7 @@ cannot pin every possible custom `-m` a future command might use.
 
 ## What the server properties check
 
-Both run in-process against a fresh app and a fresh copy of a seeded
+The first two run in-process against a fresh app and a fresh copy of a seeded
 template database per Hypothesis example. A state machine's `__init__`
 builds its own copy, rather than using a fixture: Hypothesis runs many
 examples inside one pytest test, and a function-scoped fixture would be
@@ -125,6 +125,7 @@ otherwise address.
 |---|---|---|---|
 | `test_ops_state.py` (`OpsMachine`, a `RuleBasedStateMachine`) | random `OpBatch`es through `POST /api/ops`, plus batch replay and batch-id reuse | `props/model.py`, a second implementation written from `backend.md` and `sync-and-offline.md`, not from `ops_core` | every pool block's `(page, parent_uid, order_idx, text, heading, collapsed, view_type)` matches the model; unique sibling keys; a well-formed tree; replay is byte-for-byte inert; reuse is a 409; every conflict-table text is kept under a `[[conflict]]` header; `refs`/`block_refs` match the extractor; the ack's `applied`/`skipped` match the model |
 | `test_planner_props.py` (`test_cli_batch_positions`) | a random `pkm batch` command list, run through the real CLI shell (`pkm.client.workflows.apply_batch`) against a seeded page | `props.model.positions_after`, a list-based reference for the `index` contract in [cli-and-mcp.md § Pure planners](cli-and-mcp.md#pure-planners) | sibling order matches the reference, except in groups a skipped op (cycle move, missing uid/parent, or a simulated concurrent delete) could legitimately leave off it; unique sibling keys; a well-formed tree |
+| `test_unlink_props.py` (`test_delete_rewrite_properties`) | random block texts (links, tags, `#[[..]]`, aliased links, `((refs))`, embeds, code spans, a leading `Name::`) over a small title and uid pool, as the deleted page's blocks and as inbound sources; pure, no app or database | the properties themselves, applied to `pkm.unlink.plan_page_delete` and `apply_delete_rewrite` | no rewritten source still references the page or its blocks; every source that does is rewritten or a blocker; other titles and block refs survive; a second pass is inert; replaying the rows `_record_delete_rewrite` writes over the original reproduces the rewrite and its hash. See [backend.md](backend.md) for the delete itself |
 
 The reference model must never import `ops_core`, `ops_apply` or `planning`
 (`test_model.py` pins this): it has to actually encode the documented

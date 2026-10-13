@@ -10,7 +10,7 @@ contract every client builds against, so they must not sit behind
 `pkm.server`."""
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, Union
 
@@ -20,7 +20,8 @@ from pkm.contracts.ops import (UID_RE, BlockOp, BlockUid, CreateOp,
                                SetViewTypeOp, UpdateTextOp, ViewType,
                                subtree_hash, text_hash)
 from pkm.contracts.responses import SkipReason
-from pkm.refs import CanonicalTitle, TitleSyntaxReason, extract, title_syntax_reason
+from pkm.refs import (CanonicalTitle, TitleSyntaxReason, extract,
+                      normalize_title, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
 from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        deleted_header_text,
@@ -28,6 +29,7 @@ from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        move_parent_missing_note,
                                        orphan_header_text,
                                        overwritten_header_text)
+from pkm.unlink import apply_delete_rewrite
 
 # Most renames a stale edit can be behind. Each step is one recorded
 # rewrite of the same block, so the bound only matters for a block renamed
@@ -76,34 +78,53 @@ def find_op_title_violation(
     return None
 
 
+RewriteKind = Literal["retitle", "unlink", "inline"]
+
+
 @dataclass(frozen=True)
 class BlockRewrite:
-    """One title a rename, merge or the title migration rewrote in one
-    block, with the sha256 of that block's text either side of the whole
-    rewrite. Rows of the server-only `block_rewrites` table, handed to the
-    planner as data."""
+    """One thing a rename, merge, the title migration or a page delete did
+    to one block, with the sha256 of that block's text either side of the
+    whole rewrite. Rows of the server-only `block_rewrites` table, handed to
+    the planner as data. `kind` says what the titles mean: `retitle` is
+    old_title -> new_title; `unlink` is a deleted page's title (new_title
+    empty); `inline` is a target block uid and the text copied in its place."""
     base_hash: str
     after_hash: str
     old_title: str
     new_title: str
+    kind: RewriteKind = "retitle"
 
 
-def _rewrite_steps(
-    rewrites: Sequence[BlockRewrite],
-) -> list[tuple[str, str, dict[str, str]]]:
+@dataclass
+class _RewriteStep:
+    base_hash: str
+    after_hash: str
+    retitles: dict[str, str]
+    unlinked: set[str]
+    inlines: dict[str, str]
+
+
+def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[_RewriteStep]:
     """Regroup records into the rewrites they came from: records sharing a
     before/after hash pair were one pass over the block, so their titles
-    replay as one map."""
-    steps: list[tuple[str, str, dict[str, str]]] = []
-    by_hashes: dict[tuple[str, str], dict[str, str]] = {}
+    replay together."""
+    steps: list[_RewriteStep] = []
+    by_hashes: dict[tuple[str, str], _RewriteStep] = {}
     for record in rewrites:
         key = (record.base_hash, record.after_hash)
-        titles = by_hashes.get(key)
-        if titles is None:
-            titles = {}
-            by_hashes[key] = titles
-            steps.append((record.base_hash, record.after_hash, titles))
-        titles[record.old_title] = record.new_title
+        step = by_hashes.get(key)
+        if step is None:
+            step = _RewriteStep(record.base_hash, record.after_hash,
+                                {}, set(), {})
+            by_hashes[key] = step
+            steps.append(step)
+        if record.kind == "unlink":
+            step.unlinked.add(normalize_title(record.old_title))
+        elif record.kind == "inline":
+            step.inlines[record.old_title] = record.new_title
+        elif record.kind == "retitle":
+            step.retitles[record.old_title] = record.new_title
     return steps
 
 
@@ -111,6 +132,7 @@ def replay_title_rewrites(
     text: str,
     base_hash: str,
     rewrites: Sequence[BlockRewrite],
+    canonical: Callable[[str], str] = normalize_title,
 ) -> tuple[str, str]:
     """Re-apply the renames this block already went through to an edit made
     before them, returning the edit's text and base hash as they would read
@@ -130,15 +152,28 @@ def replay_title_rewrites(
     `rewrites` is newest-record-first, which decides the winner in the
     unlikely case that two rewrites share a base hash (a block edited back
     to a previous text, then renamed again).
+
+    `canonical` is the title canonicalisation the delete matched with (the
+    shell passes the database's `title_reader`): an unlink step must treat
+    the same spellings as the deleted page as the delete did, or a padded
+    `[[ AI ]]` the delete unlinked under plain-space canonicalisation would
+    survive the replay and recreate the page. Retitle steps match verbatim,
+    as rename does, and ignore it.
     """
     steps = _rewrite_steps(rewrites)
     for _ in range(MAX_REPLAYED_REWRITES):
-        match = next((s for s in steps if s[0] == base_hash), None)
+        match = next((s for s in steps if s.base_hash == base_hash), None)
         if match is None:
             break
         steps = [s for s in steps if s is not match]
-        text = rewrite_title_refs_map(text, match[2])
-        base_hash = match[1]
+        if match.retitles:
+            text = rewrite_title_refs_map(text, match.retitles)
+        if match.unlinked or match.inlines:
+            unlinked = {canonical(title) for title in match.unlinked}
+            text = apply_delete_rewrite(
+                text, lambda raw: canonical(normalize_title(raw)) in unlinked,
+                match.inlines)
+        base_hash = match.after_hash
     return text, base_hash
 
 
@@ -161,9 +196,10 @@ class TextEditOutcome:
 def classify_text_edit(
     text: str, base_hash: str, current_text: str,
     rewrites: Sequence[BlockRewrite],
+    canonical: Callable[[str], str] = normalize_title,
 ) -> TextEditOutcome:
     replayed_text, replayed_hash = replay_title_rewrites(
-        text, base_hash, rewrites)
+        text, base_hash, rewrites, canonical)
     if replayed_text == current_text:
         return TextEditOutcome("identical", replayed_text)
     if text_hash(current_text) == replayed_hash:

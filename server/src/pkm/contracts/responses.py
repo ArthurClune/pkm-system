@@ -123,6 +123,29 @@ class RenamePageResponse(BaseModel):
     title: CanonicalTitle
 
 
+class DeleteBlockerModel(BaseModel):
+    """A block whose reference to the page a delete cannot rewrite. `query`:
+    a query macro names the page. `attribute`: unlinking would add or change
+    the block's leading `Name::` attribute (as for `[[page]]:: v`), turning
+    it into a property block. `residual`: the rewritten text would still
+    reference the page or one of its blocks."""
+    uid: str
+    page_title: str
+    text: str
+    reason: Literal["query", "attribute", "residual"]
+
+
+class DeletePreview(BaseModel):
+    """GET /api/delete-preview: what deleting the page would rewrite. Counts
+    are of source blocks and the distinct pages holding them; a non-empty
+    `blockers` means DELETE would be refused with 409."""
+    links: int
+    link_pages: int
+    block_refs: int
+    block_ref_pages: int
+    blockers: list[DeleteBlockerModel]
+
+
 class GroupItem(BaseModel):
     uid: BlockUid
     text: str

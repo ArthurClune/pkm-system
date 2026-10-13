@@ -1,12 +1,17 @@
 // pattern: Imperative Shell
-import { useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { apiDelete } from "../api/typedClient";
+import { ApiError } from "../api/client";
+import { apiDelete, apiGet } from "../api/typedClient";
 import { BlockStampsContext, SidebarContext } from "../contexts";
 import { encodeTitle, titleFromPathname } from "../paths";
 import { PAGE_ROUTE_PREFIX, ROUTES, routeMetaFor } from "../routeMeta";
 import { useDismiss } from "../useDismiss";
 import { useConfirm } from "./ConfirmDialog";
+import { DeleteBlockedDialog } from "./DeleteBlockedDialog";
+import {
+  deleteConfirmMessage, plainDeleteMessage, type DeleteBlocker, type DeletePreview,
+} from "./deletePageCopy";
 import { HelpCircleIcon, MoreHorizontalIcon, PanelLeftIcon } from "./icons";
 import { SearchBar } from "./SearchBar";
 
@@ -42,10 +47,31 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
   const navigate = useNavigate();
   const { confirm, dialog } = useConfirm();
 
+  // Blockers (blocks whose unlinking would break them) shown in place of the
+  // confirmation; the server enforces them too, so this is only the readable
+  // version of a refusal.
+  const [blockers, setBlockers] = useState<DeleteBlocker[] | null>(null);
+  const closeBlocked = useCallback(() => setBlockers(null), []);
+
+  const fetchPreview = async (t: string): Promise<DeletePreview | null> => {
+    try {
+      return await apiGet("/api/delete-preview", { query: { title: t } });
+    } catch {
+      return null;
+    }
+  };
+
   const handleDelete = async () => {
     if (title === null) return;
-    const ok = await confirm(`Delete "${title}"? This cannot be undone.`,
-      { confirmLabel: "Delete", danger: true });
+    const preview = await fetchPreview(title);
+    if (preview !== null && preview.blockers.length > 0) {
+      setMenuOpen(false);
+      setBlockers(preview.blockers);
+      return;
+    }
+    const message = preview === null
+      ? plainDeleteMessage(title) : deleteConfirmMessage(title, preview);
+    const ok = await confirm(message, { confirmLabel: "Delete", danger: true });
     if (!ok) return;
     // Clear any error from a previous attempt as this one starts, so a
     // retry never leaves a stale message sitting alongside (or instead of)
@@ -55,6 +81,15 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
       await apiDelete("/api/page/{title}", { path: { title } });
     } catch (e) {
       setMenuOpen(false);
+      // A 409 means blockers appeared after the preview; show them from a
+      // fresh preview rather than parsing the refusal.
+      if (e instanceof ApiError && e.status === 409) {
+        const fresh = await fetchPreview(title);
+        if (fresh !== null && fresh.blockers.length > 0) {
+          setBlockers(fresh.blockers);
+          return;
+        }
+      }
       // Matches PageTitle's `setError(String(e))` -- same shape of error,
       // same amount of detail, no second convention to learn.
       setDeleteError(`Couldn't delete "${title}": ${String(e)}`);
@@ -67,7 +102,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
   // Route changes (including away from /page/*) should never leave a stale
   // menu -- or a stale deletion error for a page the user has moved past --
   // open/visible.
-  useEffect(() => { setMenuOpen(false); setDeleteError(null); }, [pathname]);
+  useEffect(() => { setMenuOpen(false); setDeleteError(null); setBlockers(null); }, [pathname]);
 
   // Escape here does not preventDefault: the confirm dialog this menu opens
   // owns the keystroke while it is up, and the menu closing underneath it is
@@ -141,6 +176,10 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
           </div>
         )}
         {dialog}
+        {blockers !== null && title !== null && (
+          <DeleteBlockedDialog title={title} blockers={blockers}
+                               onClose={closeBlocked} />
+        )}
       </div>
       {deleteError !== null && (
         <p className="error upload-error top-bar-error" role="alert">

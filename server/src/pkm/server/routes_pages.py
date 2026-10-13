@@ -15,7 +15,8 @@ from pkm.contracts.ops import BlockUid
 from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
     BlockBacklinksPayload, BlockPayload, BlockRefsPayload, CurrentWorkPayload,
-    GroupsPayload, JournalPayload, PageMeta, PagePayload, RenamePageResponse)
+    DeleteBlockerModel, DeletePreview, GroupsPayload, JournalPayload,
+    PageMeta, PagePayload, RenamePageResponse)
 from pkm.refs import (CanonicalTitle, NormalizedTitle, is_blank_title,
                       title_syntax_reason)
 from pkm.server import notify
@@ -25,9 +26,11 @@ from pkm.server.daily import (is_page_empty, past_week_dates,
                               select_journal_days)
 from pkm.server.db import get_db
 from pkm.server.fts import phrase_query
-from pkm.server.store import (BlankTitleError, ForbiddenTitleError,
-                              delete_page_rows, fetch_page, get_or_create_page,
-                              merge_page_rows, rename_page_rows)
+from pkm.server.store import (BlankTitleError, DeleteBlockedError,
+                              ForbiddenTitleError, delete_page_rows,
+                              delete_page_unlinking, fetch_page,
+                              get_or_create_page, merge_page_rows,
+                              plan_delete, rename_page_rows)
 from pkm.server.sync_meta import read_title, title_reader
 from pkm.server.tree import build_tree, collect_block_ref_uids, find_node
 
@@ -267,17 +270,68 @@ def create_page(request: Request, body: CreatePageRequest,
     return dict(page)
 
 
-@router.delete("/api/page/{title:path}")
-def delete_page(request: Request, title: str,
-                db: sqlite3.Connection = Depends(get_db)) -> dict:
-    """Deletes the page, its blocks, and any sidebar entry for it. Inbound
-    [[links]] from other pages' block text are left as-is -- only the refs
-    rows pointing at this page disappear (via target_page_id CASCADE)."""
+def _blocker_models(blockers) -> list[DeleteBlockerModel]:
+    return [DeleteBlockerModel(uid=b.uid, page_title=b.page_title,
+                               text=b.text, reason=b.reason)
+            for b in blockers]
+
+
+@router.get("/api/delete-preview", response_model=DeletePreview)
+def delete_preview(title: str,
+                   db: sqlite3.Connection = Depends(get_db)) -> DeletePreview:
+    """What deleting the page would rewrite: how many [[links]] become plain
+    text and ((block refs)) become copies (blocks and distinct pages), and the
+    blocks that would make DELETE refuse (a query macro naming the page, or a
+    rewrite that would change the leading attribute name, as for
+    `[[page]]:: v`, or still reference the page). Read-only; 404 when the page does not exist. Not under
+    /api/page/ because GET /api/page/{title:path} would swallow it."""
     title = read_title(db, title)
     page = fetch_page(db, title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")
-    delete_page_rows(db, page["id"], title)
+    plan = plan_delete(db, page["id"], title)
+    return DeletePreview(
+        links=plan.links, link_pages=plan.link_pages,
+        block_refs=plan.block_refs, block_ref_pages=plan.block_ref_pages,
+        blockers=_blocker_models(plan.blockers))
+
+
+@router.delete("/api/page/{title:path}")
+def delete_page(request: Request, title: str,
+                db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """Deletes the page, its blocks, and any sidebar entry for it. Inbound
+    [[links]] and #tags in other pages' blocks become plain
+    text, and inbound ((block refs)) are replaced by a copy of the referenced
+    text. 409 with the offending blocks when a query macro names the page or
+    unlinking would change a block's leading attribute name (`[[page]]:: v`)
+    or still leave a reference, since those cannot be rewritten; nothing is
+    changed."""
+    # Same ordering rule as rename: the write lock precedes the snapshot of
+    # referencing blocks, so no batch can commit between snapshot and rewrite.
+    try:
+        db.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError as exc:
+        if "locked" not in str(exc):
+            raise
+        raise HTTPException(status_code=503, headers={"Retry-After": "1"},
+                            detail="database busy, retry") from exc
+    try:
+        title = read_title(db, title)
+        page = fetch_page(db, title)
+        if page is None:
+            raise HTTPException(status_code=404, detail="page not found")
+        delete_page_unlinking(db, page["id"], title, int(time.time() * 1000))
+    except DeleteBlockedError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail={
+            "message": "page is still referenced in ways a delete cannot"
+                       " rewrite",
+            "blockers": [b.model_dump()
+                         for b in _blocker_models(exc.blockers)],
+        }) from None
+    except BaseException:
+        db.rollback()
+        raise
     notify.commit_and_nudge_threadpool(request, db)
     return {"ok": True}
 
@@ -489,14 +543,18 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
             "block_ref_counts": _block_ref_counts(db, uids)}
 
 
-def _block_is_referenced(db: sqlite3.Connection, uid: str,
-                         page_id: int) -> bool:
-    """True if any block on another page embeds ((uid)). LIKE treats '_' in
-    uids as a wildcard; a false positive only spares a page, so that's an
-    acceptable (conservative) inaccuracy."""
+def _daily_is_linked(db: sqlite3.Connection, page_id: int) -> bool:
+    """True if a block on another page links, tags or attribute-references
+    the page (any `refs` kind), or ((embeds)) one of its blocks."""
     return db.execute(
-        "SELECT 1 FROM blocks WHERE page_id != ? AND text LIKE ? LIMIT 1",
-        (page_id, f"%(({uid}))%")).fetchone() is not None
+        "SELECT 1 FROM refs r JOIN blocks b ON b.uid = r.src_block_uid"
+        " WHERE r.target_page_id = ? AND b.page_id != ?"
+        " UNION ALL"
+        " SELECT 1 FROM block_refs br"
+        " JOIN blocks t ON t.uid = br.target_block_uid"
+        " JOIN blocks s ON s.uid = br.src_block_uid"
+        " WHERE t.page_id = ? AND s.page_id != ? LIMIT 1",
+        (page_id, page_id, page_id, page_id)).fetchone() is not None
 
 
 @router.post("/api/journal/cleanup")
@@ -505,9 +563,10 @@ def cleanup_journal(request: Request,
     """Deletes completely-empty daily pages from the 7 days before today
     (today is spared: the journal auto-creates it for composing). Stateless:
     every call re-checks the whole window, so a page emptied later by block
-    moves is caught on the next load. A page whose blank block is still
-    ((referenced)) from another page is spared -- deleting it would leave
-    the reference dangling."""
+    moves is caught on the next load. A day with any incoming link is
+    spared, never rewritten: a `refs` row of any kind (link, tag, attribute)
+    targeting the page, or a ((block ref)) to one of its blocks, from a
+    block on another page."""
     deleted: list[str] = []
     for d in past_week_dates(date.today()):
         title = _daily_title(d)
@@ -519,8 +578,7 @@ def cleanup_journal(request: Request,
             (page["id"],)).fetchall()
         if not is_page_empty([r["text"] for r in blocks]):
             continue
-        if any(_block_is_referenced(db, r["uid"], page["id"])
-               for r in blocks):
+        if _daily_is_linked(db, page["id"]):
             continue
         delete_page_rows(db, page["id"], title)
         deleted.append(title)

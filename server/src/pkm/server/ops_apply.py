@@ -12,7 +12,8 @@ from datetime import datetime
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp,
                                MoveOp, OpBatch, OrderIdx, PageId, UpdateTextOp)
-from pkm.refs import CanonicalTitle, NormalizedTitle, is_blank_title
+from pkm.refs import (CanonicalTitle, NormalizedTitle, is_blank_title,
+                      normalize_title)
 from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  BlockRewrite, ConflictLanding, CreateContext,
                                  DeleteBlocks, DeleteConflictContext,
@@ -33,7 +34,7 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  skip_report)
 from pkm.server.store import (BlankTitleError, fetch_page,
                               get_or_create_page, reindex_refs_for_text)
-from pkm.server.sync_meta import read_title
+from pkm.server.sync_meta import read_title, title_reader
 
 # Fallback title for an op's page_title that normalizes to "" (e.g. a
 # whitespace-only string -- pydantic's min_length=1 lets that through). The
@@ -90,14 +91,14 @@ def _block_info(db: sqlite3.Connection, uid: str) -> BlockInfo | None:
 
 def _block_rewrites(db: sqlite3.Connection,
                     uid: str) -> tuple[BlockRewrite, ...]:
-    """Every recorded rename/merge rewrite of this block, newest first --
-    the order `ops_core.replay_title_rewrites` walks the chain in."""
+    """Every recorded rename/merge/delete rewrite of this block, newest
+    first -- the order `ops_core.replay_title_rewrites` walks the chain in."""
     rows = db.execute(
-        "SELECT base_hash, after_hash, old_title, new_title"
+        "SELECT base_hash, after_hash, old_title, new_title, kind"
         " FROM block_rewrites WHERE uid = ?"
         " ORDER BY created_at DESC, rowid DESC", (uid,)).fetchall()
     return tuple(BlockRewrite(row["base_hash"], row["after_hash"],
-                              row["old_title"], row["new_title"])
+                              row["old_title"], row["new_title"], row["kind"])
                  for row in rows)
 
 
@@ -375,8 +376,13 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
             " JOIN pages p ON p.id = b.page_id WHERE b.uid = ?",
             (op.uid,)).fetchone()
         rewrites = _block_rewrites(db, op.uid)
+        # only an unlink replay matches titles the way the delete did; the
+        # flag read is skipped for edits with no unlink row to replay
+        canonical = (title_reader(db)
+                     if any(r.kind == "unlink" for r in rewrites)
+                     else normalize_title)
         outcome = classify_text_edit(op.text, op.base_text_hash,
-                                     row["text"], rewrites)
+                                     row["text"], rewrites, canonical)
         if outcome.kind != "conflict":
             return TextEditContext(block, outcome)
         # only a real conflict pays for today's daily page and its extra

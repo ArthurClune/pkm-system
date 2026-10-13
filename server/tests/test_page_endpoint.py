@@ -2,7 +2,10 @@ import sqlite3
 from datetime import date, timedelta
 from urllib.parse import quote
 
+import pytest
+
 from pkm.contracts.daily import title_for_date
+from pkm.contracts.ops import text_hash
 
 
 def test_get_past_daily_404s_and_creates_nothing(client):
@@ -229,28 +232,191 @@ def test_delete_page_removes_page_and_blocks_from_search(client):
     assert any(b["uid"] == "uid_b6" for b in still_there["blocks"])
 
 
-def test_delete_page_removes_inbound_refs_but_leaves_source_block_text(
+def test_delete_page_turns_inbound_links_into_plain_text(
         client, seeded_config):
-    import sqlite3
-
     # uid_b4 (page "July 7th, 2026") links to "Machine Learning" (page id 1).
     r = client.get("/api/page/July 7th, 2026")
     texts_before = [b["text"] for b in r.json()["blocks"]]
     assert "Studying [[Machine Learning]] today" in texts_before
 
-    client.delete("/api/page/Machine Learning")
+    assert client.delete("/api/page/Machine Learning").status_code == 200
 
     r = client.get("/api/page/July 7th, 2026")
     texts_after = [b["text"] for b in r.json()["blocks"]]
-    # The block text (and thus the literal [[link]]) is untouched.
-    assert texts_after == texts_before
+    assert "Studying Machine Learning today" in texts_after
+    assert "Studying [[Machine Learning]] today" not in texts_after
 
-    # But the refs row pointing at the now-deleted page is gone.
     con = sqlite3.connect(seeded_config.db_path)
     remaining = con.execute(
         "SELECT * FROM refs WHERE target_page_id = 1").fetchall()
     con.close()
     assert remaining == []
+
+
+def test_delete_preview_counts(client):
+    r = client.get("/api/delete-preview", params={"title": "Machine Learning"})
+    assert r.status_code == 200
+    assert r.json() == {"links": 1, "link_pages": 1, "block_refs": 1,
+                        "block_ref_pages": 1, "blockers": []}
+    # a preview writes nothing
+    assert client.get("/api/page/Machine Learning").status_code == 200
+
+
+def test_delete_preview_missing_page_404(client):
+    r = client.get("/api/delete-preview", params={"title": "No Such Page"})
+    assert r.status_code == 404
+
+
+def test_delete_preview_requires_auth(anon_client):
+    r = anon_client.get("/api/delete-preview", params={"title": "AI"})
+    assert r.status_code == 401
+
+
+def _add_query_block(client):
+    r = client.post("/api/ops", json={
+        "client_id": "c1", "batch_id": "batch_q0000001",
+        "ops": [{"op": "update_text", "uid": "uid_b4",
+                 "text": "{{query: {and: [[Machine Learning]] [[Paper]]}}}",
+                 "base_text_hash": text_hash("Studying [[Machine Learning]] today")}]})
+    assert r.status_code == 200, r.text
+
+
+def test_delete_refused_with_blockers_409(client):
+    _add_query_block(client)
+    r = client.get("/api/delete-preview", params={"title": "Machine Learning"})
+    assert [b["uid"] for b in r.json()["blockers"]] == ["uid_b4"]
+
+    r = client.delete("/api/page/Machine Learning")
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert detail["message"] == (
+        "page is still referenced in ways a delete cannot rewrite")
+    assert detail["blockers"] == [{
+        "uid": "uid_b4", "page_title": "July 7th, 2026",
+        "text": "{{query: {and: [[Machine Learning]] [[Paper]]}}}",
+        "reason": "query"}]
+    assert client.get("/api/page/Machine Learning").status_code == 200
+
+
+B4_SEED = "Studying [[Machine Learning]] today"
+
+
+def _set_b4(client, text):
+    r = client.post("/api/ops", json={
+        "client_id": "c1", "batch_id": "batch_b4000001",
+        "ops": [{"op": "update_text", "uid": "uid_b4", "text": text,
+                 "base_text_hash": text_hash(B4_SEED)}]})
+    assert r.status_code == 200, r.text
+
+
+def _b4_text(client):
+    page = client.get("/api/page/July 7th, 2026").json()
+    return next(b["text"] for b in page["blocks"] if b["uid"] == "uid_b4")
+
+
+def _rewrite_rows(seeded_config):
+    con = sqlite3.connect(seeded_config.db_path)
+    try:
+        return con.execute("SELECT count(*) FROM block_rewrites").fetchone()[0]
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("text,would_create", [
+    # unlinking would turn the block into a new `Machine Learning stuff::`
+    ("[[Machine Learning]] stuff:: v", "Machine Learning stuff"),
+    # unlinking would make the leading attribute name the page itself
+    ("[[Machine Learning]]:: v", None),
+])
+def test_delete_refused_when_unlinking_changes_the_leading_attribute(
+        client, seeded_config, text, would_create):
+    _set_b4(client, text)
+    r = client.delete("/api/page/Machine Learning")
+    assert r.status_code == 409
+    assert [(b["uid"], b["reason"]) for b in r.json()["detail"]["blockers"]] \
+        == [("uid_b4", "attribute")]
+    assert client.get("/api/page/Machine Learning").status_code == 200
+    if would_create is not None:
+        assert client.get(f"/api/page/{would_create}").status_code == 404
+    assert _b4_text(client) == text
+    assert _rewrite_rows(seeded_config) == 0
+
+
+def test_delete_inlines_an_embed_of_a_page_block(client):
+    _set_b4(client, "x {{embed: ((uid_b3))}} y")
+    assert client.delete("/api/page/Machine Learning").status_code == 200
+    assert _b4_text(client) == (
+        "x [[Attention Is All You Need]] is a [[Paper]] y")
+    assert client.get("/api/page/Machine Learning").status_code == 404
+
+
+def test_delete_rolls_back_every_rewrite_when_a_later_one_fails(
+        client, seeded_config, monkeypatch):
+    from pkm.server import store
+
+    real = store.reindex_refs_for_text
+    calls = []
+
+    def failing_second(db, uid, text, now_ms):
+        calls.append(uid)
+        if len(calls) == 2:
+            raise RuntimeError("disk on fire")
+        return real(db, uid, text, now_ms)
+
+    monkeypatch.setattr(store, "reindex_refs_for_text", failing_second)
+    with pytest.raises(RuntimeError, match="disk on fire"):
+        client.delete("/api/page/Machine Learning")
+    monkeypatch.setattr(store, "reindex_refs_for_text", real)
+
+    assert calls == ["uid_b4", "uid_b5"]
+    page = client.get("/api/page/July 7th, 2026").json()
+    assert {b["uid"]: b["text"] for b in page["blocks"]} == {
+        "uid_b4": B4_SEED, "uid_b5": "See ((uid_b3)) for details"}
+    assert client.get("/api/page/Machine Learning").status_code == 200
+    assert _rewrite_rows(seeded_config) == 0
+
+
+def test_delete_holds_the_write_lock_from_its_snapshot_on(
+        client, seeded_config, monkeypatch):
+    """A batch committing between the delete's snapshot of referencing
+    blocks and its rewrite would escape the unlink. The route must hold the
+    write lock across the snapshot."""
+    from pkm.server import store
+
+    real_plan = store.plan_delete
+    outcome = {}
+
+    def racing(db, page_id, title):
+        plan = real_plan(db, page_id, title)
+        con2 = sqlite3.connect(seeded_config.db_path)
+        con2.execute("PRAGMA busy_timeout=50")
+        try:
+            con2.execute("UPDATE blocks SET text = '[[Machine Learning]] late'"
+                         " WHERE uid = 'uid_b6'")
+            con2.commit()
+            outcome["locked"] = False
+        except sqlite3.OperationalError as exc:
+            outcome["locked"] = "locked" in str(exc)
+        finally:
+            con2.close()
+        return plan
+
+    monkeypatch.setattr(store, "plan_delete", racing)
+    assert client.delete("/api/page/Machine Learning").status_code == 200
+    assert outcome == {"locked": True}
+
+
+def test_delete_page_busy_returns_503(client, seeded_config):
+    con2 = sqlite3.connect(seeded_config.db_path, isolation_level=None)
+    con2.execute("BEGIN IMMEDIATE")
+    try:
+        r = client.delete("/api/page/Machine Learning")
+    finally:
+        con2.execute("ROLLBACK")
+        con2.close()
+    assert r.status_code == 503
+    assert r.headers["Retry-After"] == "1"
+    assert client.get("/api/page/Machine Learning").status_code == 200
 
 
 def test_delete_page_removes_sidebar_entry(client):

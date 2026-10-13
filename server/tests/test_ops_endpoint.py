@@ -1283,6 +1283,27 @@ def test_edit_after_a_rename_keeps_the_conflict_path_under_the_new_title(client)
     assert client.get("/api/page/AI").status_code == 404
 
 
+def test_stale_edit_of_a_padded_link_stays_unlinked_under_plain_space(
+        client, seeded_config):
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute("UPDATE sync_meta SET value = '1'"
+                " WHERE key = 'plain_space_title_canonicalization'")
+    con.commit()
+    con.close()
+    padded = "x [[ AI ]] y"
+    r = _post(client, {"op": "update_text", "uid": "uid_b1", "text": padded,
+                       "base_text_hash": text_hash(STALE_BASE)})
+    assert r.status_code == 200, r.text
+    assert client.delete("/api/page/AI").status_code == 200
+    assert _ml_texts(client)[0] == "x  AI  y"
+
+    _stale_push(client, padded, text="x [[ AI ]] y offline")
+
+    assert _ml_texts(client)[0] == "x  AI  y offline"
+    assert client.get("/api/page/AI").status_code == 404
+    assert client.get("/api/page/conflict").status_code == 404
+
+
 def test_rewrite_records_are_pruned_past_the_retention_window(
         client, seeded_config):
     from pkm.server.db import open_db
@@ -1301,3 +1322,13 @@ def test_rewrite_records_are_pruned_past_the_retention_window(
         "SELECT uid, old_title, new_title FROM block_rewrites")]
     con.close()
     assert rows == [("uid_b1", "AI", "Artificial Intelligence")]
+
+
+def test_stale_edit_replays_a_delete_unlink_instead_of_resurrecting_the_title(
+        client):
+    assert client.delete("/api/page/AI").status_code == 200
+    _stale_push(client, STALE_BASE)
+
+    assert _ml_texts(client)[0] == "Tags:: AI plus offline words"
+    assert client.get("/api/page/AI").status_code == 404
+    assert client.get("/api/page/conflict").status_code == 404

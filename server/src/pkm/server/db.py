@@ -31,6 +31,12 @@ def _ensure_schema_migrations(con: sqlite3.Connection) -> None:
                       ("describe_error", "TEXT")):
         if col not in asset_columns:
             con.execute(f"ALTER TABLE assets ADD COLUMN {col} {decl}")
+    rewrite_columns = {
+        row[1] for row in con.execute("PRAGMA table_info(block_rewrites)")}
+    if "kind" not in rewrite_columns:
+        con.execute(
+            "ALTER TABLE block_rewrites ADD COLUMN kind TEXT NOT NULL"
+            " DEFAULT 'retitle' CHECK(kind IN ('retitle','unlink','inline'))")
     _ensure_changes_page_id(con)
 
 

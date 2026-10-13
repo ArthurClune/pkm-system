@@ -138,17 +138,18 @@ it("closes the menu on Escape", () => {
 // standalone/PWA mode -- these exercise the in-app dialog that replaced it
 // (a real DOM dialog, not window.confirm, so this also proves the flow
 // doesn't depend on a native API iPad silently no-ops).
-it("picking 'Delete page…' shows an in-app confirm dialog, and cancelling makes no request", () => {
+it("picking 'Delete page…' shows an in-app confirm dialog, and cancelling sends no DELETE", async () => {
   const fetchMock = stubFetch([]);
   renderTopBar("/page/Paper");
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
 
-  const dialog = screen.getByRole("alertdialog");
+  const dialog = await screen.findByRole("alertdialog");
   expect(dialog).toHaveTextContent("Paper");
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
-  expect(fetchMock).not.toHaveBeenCalled();
+  expect(fetchMock).not.toHaveBeenCalledWith(expect.anything(),
+    expect.objectContaining({ method: "DELETE" }));
   expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(screen.getByRole("menu")).toBeInTheDocument(); // untouched: nothing happened
 });
@@ -158,6 +159,7 @@ it("confirming delete in the dialog sends DELETE to the page's URL, closes the m
   renderTopBar("/page/Machine%20Learning");
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  await screen.findByRole("alertdialog");
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   });
@@ -175,6 +177,7 @@ it("a failed delete closes the menu, does not navigate, and announces an actiona
   renderTopBar("/page/Paper");
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  await screen.findByRole("alertdialog");
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   });
@@ -196,6 +199,7 @@ it("dismissing the delete error removes it", async () => {
   renderTopBar("/page/Paper");
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  await screen.findByRole("alertdialog");
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   });
@@ -206,13 +210,20 @@ it("dismissing the delete error removes it", async () => {
 });
 
 it("retrying a failed delete clears the stale error and navigates on success", async () => {
-  const fetchMock = vi.fn()
-    .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "boom" }), { status: 500 }))
-    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+  // Previews fail (plain confirm fallback); only the DELETEs are sequenced.
+  const deletes = [
+    new Response(JSON.stringify({ detail: "boom" }), { status: 500 }),
+    new Response(JSON.stringify({ ok: true }), { status: 200 }),
+  ];
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => (
+    init?.method === "DELETE"
+      ? deletes.shift()!
+      : new Response(JSON.stringify({ detail: "no" }), { status: 500 })));
   vi.stubGlobal("fetch", fetchMock);
   renderTopBar("/page/Paper");
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  await screen.findByRole("alertdialog");
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   });
@@ -223,13 +234,14 @@ it("retrying a failed delete clears the stale error and navigates on success", a
   // successful retry must navigate exactly like a first-try success.
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  await screen.findByRole("alertdialog");
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   });
 
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.getByText("home")).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(deletes).toHaveLength(0);
 });
 
 it("navigating away clears a stale delete error", async () => {
@@ -247,6 +259,7 @@ it("navigating away clears a stale delete error", async () => {
   );
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  await screen.findByRole("alertdialog");
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   });
@@ -255,6 +268,102 @@ it("navigating away clears a stale delete error", async () => {
   fireEvent.click(screen.getByRole("link", { name: "go elsewhere" }));
 
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+const NO_BLOCKERS = { links: 0, link_pages: 0, block_refs: 0, block_ref_pages: 0, blockers: [] };
+const BLOCKERS = {
+  ...NO_BLOCKERS,
+  blockers: [
+    { uid: "u1", page_title: "Queries", text: "{{query: [[Paper]]}}", reason: "query" },
+    { uid: "u2", page_title: "Notes/Sub", text: "Paper:: x", reason: "attribute" },
+  ],
+};
+
+async function openDelete(path = "/page/Paper") {
+  renderTopBar(path);
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+}
+
+it("a preview with blockers shows the blocked dialog and never sends DELETE", async () => {
+  const fetchMock = stubFetch([["/api/delete-preview", BLOCKERS]]);
+  await openDelete();
+  const dialog = await screen.findByRole("dialog", { name: 'Can\'t delete "Paper"' });
+  expect(dialog).toHaveTextContent("Change these blocks first:");
+  expect(dialog).toHaveTextContent("a query names this page");
+  expect(dialog).toHaveTextContent("unlinking would make this an attribute");
+  expect(screen.getByRole("link", { name: "Queries" })).toHaveAttribute("href", "/page/Queries");
+  expect(screen.getByRole("link", { name: "Notes/Sub" })).toHaveAttribute("href", "/page/Notes/Sub");
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(fetchMock).not.toHaveBeenCalledWith(expect.anything(),
+    expect.objectContaining({ method: "DELETE" }));
+});
+
+it("a preview without blockers shows the counted confirm and DELETEs on confirm", async () => {
+  const fetchMock = stubFetch([
+    ["/api/delete-preview", { ...NO_BLOCKERS, links: 2, link_pages: 1 }],
+    ["/api/page/Paper", { ok: true }],
+  ]);
+  await openDelete();
+  const dialog = await screen.findByRole("alertdialog");
+  expect(dialog).toHaveTextContent("2 links on 1 page will become plain text.");
+  expect(fetchMock).toHaveBeenCalledWith("/api/delete-preview?title=Paper", expect.anything());
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  });
+  expect(fetchMock).toHaveBeenCalledWith("/api/page/Paper",
+    expect.objectContaining({ method: "DELETE" }));
+  expect(screen.getByText("home")).toBeInTheDocument();
+});
+
+it("a 409 from DELETE re-fetches the preview and shows the blocked dialog", async () => {
+  let previews = 0;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.startsWith("/api/delete-preview")) {
+      previews += 1;
+      return new Response(JSON.stringify(previews === 1 ? NO_BLOCKERS : BLOCKERS), { status: 200 });
+    }
+    if (init?.method === "DELETE") {
+      return new Response(JSON.stringify({ detail: "blocked" }), { status: 409 });
+    }
+    return new Response("{}", { status: 404 });
+  }));
+  await openDelete();
+  await screen.findByRole("alertdialog");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  });
+  expect(await screen.findByRole("dialog", { name: 'Can\'t delete "Paper"' })).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByText("page view here")).toBeInTheDocument();
+});
+
+it("a 409 whose re-fetched preview has no blockers falls back to the error line", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).startsWith("/api/delete-preview")) {
+      return new Response(JSON.stringify(NO_BLOCKERS), { status: 200 });
+    }
+    return new Response(JSON.stringify({ detail: "blocked" }), {
+      status: init?.method === "DELETE" ? 409 : 404 });
+  }));
+  await openDelete();
+  await screen.findByRole("alertdialog");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  });
+  expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't delete \"Paper\"");
+});
+
+it("the blocked dialog closes on Escape", async () => {
+  stubFetch([["/api/delete-preview", BLOCKERS]]);
+  await openDelete();
+  await screen.findByRole("dialog", { name: 'Can\'t delete "Paper"' });
+  expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
 });
 
 it("shows the current page title in the bar on page routes", () => {

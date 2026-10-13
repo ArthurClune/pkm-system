@@ -274,7 +274,10 @@ indents, auto-pairs and opens `[[` exactly as the key would. When the policy
 answers `none` for a character, `insertTypedChar` types it, since no native
 keystroke follows. The bar sits `keyboardInset` above the layout viewport's
 bottom, tracked from `visualViewport`, because iOS Safari does not shrink the
-layout viewport for the keyboard.
+layout viewport for the keyboard. On an iPhone `main.tsx` also adds
+`maximum-scale=1` to the viewport meta (`phoneViewportContent`). Without it,
+Safari zooms when the 15px block textarea takes focus, and the zoomed page
+pans the bar partly off screen.
 
 **A bar key acts on `pointerdown`, never on `click`.** It cancels
 `pointerdown` so the textarea keeps focus and the keyboard stays open, and iOS

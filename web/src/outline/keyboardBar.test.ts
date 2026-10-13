@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { insertTypedChar, isPhoneUserAgent, KEYBOARD_BAR_KEYS,
-         keyboardInset } from "./keyboardBar";
+         keyboardInset, phoneViewportContent } from "./keyboardBar";
 
 const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 26_5 like Mac OS X) "
   + "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1";
@@ -63,5 +63,17 @@ describe("keyboardInset", () => {
 
   it("is never negative", () => {
     expect(keyboardInset(800, 800, 20)).toBe(0);
+  });
+});
+
+describe("phoneViewportContent", () => {
+  it("caps the scale so focusing a block does not zoom the page", () => {
+    expect(phoneViewportContent("width=device-width, initial-scale=1"))
+      .toBe("width=device-width, initial-scale=1, maximum-scale=1");
+  });
+
+  it("leaves a viewport that already caps the scale alone", () => {
+    expect(phoneViewportContent("width=device-width, maximum-scale=2"))
+      .toBe("width=device-width, maximum-scale=2");
   });
 });

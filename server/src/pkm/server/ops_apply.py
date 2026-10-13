@@ -376,8 +376,11 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
             " JOIN pages p ON p.id = b.page_id WHERE b.uid = ?",
             (op.uid,)).fetchone()
         rewrites = _block_rewrites(db, op.uid)
-        # the flag read is skipped on the common path with nothing to replay
-        canonical = title_reader(db) if rewrites else normalize_title
+        # only an unlink replay matches titles the way the delete did; the
+        # flag read is skipped for edits with no unlink row to replay
+        canonical = (title_reader(db)
+                     if any(r.kind == "unlink" for r in rewrites)
+                     else normalize_title)
         outcome = classify_text_edit(op.text, op.base_text_hash,
                                      row["text"], rewrites, canonical)
         if outcome.kind != "conflict":

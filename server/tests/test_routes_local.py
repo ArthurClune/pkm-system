@@ -306,3 +306,96 @@ def test_is_dataless_reads_the_stat_flag(tmp_path, monkeypatch):
         m.setattr(routes_local, "_st_flags", lambda p: 0x40000000)
         assert routes_local._is_dataless(f) is True
     assert routes_local._is_dataless(tmp_path / "missing") is False
+
+
+NAV = {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document",
+       "Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
+
+
+def _assert_html_error(r, status):
+    assert r.status_code == status
+    assert r.headers["content-type"] == "text/html; charset=utf-8"
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_navigation_to_missing_file_gets_html_404(local_client):
+    r = local_client.get("/api/local/Papers/ML/nope.pdf", headers=NAV)
+    _assert_html_error(r, 404)
+    assert "Papers/ML/nope.pdf" in r.text
+
+
+def test_navigation_404_escapes_the_path(local_client):
+    r = local_client.get("/api/local/Papers/%3Cscript%3Ex%3C/script%3E.pdf", headers=NAV)
+    _assert_html_error(r, 404)
+    assert "<script>" not in r.text
+    assert "&lt;script&gt;" in r.text
+
+
+def test_navigation_404_for_rejected_path_is_html(local_client):
+    r = local_client.get("/api/local/Papers/..%2f..%2fsecret.txt", headers=NAV)
+    _assert_html_error(r, 404)
+    # same shape as a missing file: it only echoes what the client sent
+    assert "Papers/../../secret.txt" in r.text or "secret.txt" in r.text
+    assert "icloud" not in r.text.lower()
+
+
+def test_navigation_404_when_root_unset_is_html(client):
+    r = client.get("/api/local/Papers/x.pdf", headers=NAV)
+    _assert_html_error(r, 404)
+
+
+def test_navigation_to_evicted_file_gets_html_503(local_client, monkeypatch):
+    monkeypatch.setattr(routes_local, "_request_download", lambda p: None)
+    r = local_client.get("/api/local/Papers/Gone.pdf", headers=NAV)
+    _assert_html_error(r, 503)
+    assert r.headers["retry-after"] == "5"
+    assert "Papers/Gone.pdf" in r.text
+
+
+def test_navigation_to_dataless_file_gets_html_503(local_client, monkeypatch):
+    monkeypatch.setattr(routes_local, "_request_download", lambda p: None)
+    monkeypatch.setattr(routes_local, "_is_dataless", lambda p: True)
+    r = local_client.get("/api/local/Papers/ML/Title%20one.pdf", headers=NAV)
+    _assert_html_error(r, 503)
+    assert r.headers["retry-after"] == "5"
+
+
+def test_navigation_to_busy_prober_gets_html_503(local_client, monkeypatch):
+    monkeypatch.setattr(routes_local, "default_prober",
+                        OpenProber(opener=lambda p: None, timeout=0.2, cap=0))
+    r = local_client.get("/api/local/Papers/ML/Title%20one.pdf", headers=NAV)
+    _assert_html_error(r, 503)
+    assert r.headers["retry-after"] == "5"
+    assert "in flight" in r.text
+
+
+def test_navigation_to_unreadable_file_gets_html_503(local_client, blocking_prober):
+    r = local_client.get("/api/local/Papers/ML/Title%20one.pdf", headers=NAV)
+    _assert_html_error(r, 503)
+    assert "open this file" in r.text
+
+
+def test_accept_html_without_sec_fetch_gets_html(local_client):
+    r = local_client.get("/api/local/Papers/ML/nope.pdf",
+                         headers={"Accept": "text/html,*/*;q=0.8"})
+    _assert_html_error(r, 404)
+
+
+@pytest.mark.parametrize("headers", [
+    {}, {"Accept": "*/*"}, {"Accept": "application/json"},
+    {"Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty", "Accept": "*/*"},
+])
+def test_fetch_style_requests_keep_json_errors(local_client, headers):
+    r = local_client.get("/api/local/Papers/ML/nope.pdf", headers=headers)
+    assert r.status_code == 404
+    assert r.json() == {"detail": "not found"}
+    r = local_client.get("/api/local/Papers/Gone.pdf", headers=headers)
+    assert r.status_code == 503
+    assert r.json() == {"detail": "not downloaded on the host", "path": "Papers/Gone.pdf"}
+
+
+def test_navigation_to_existing_file_is_served_unchanged(local_client):
+    r = local_client.get("/api/local/Papers/ML/Title%20one.pdf", headers=NAV)
+    assert r.status_code == 200
+    assert r.content.startswith(b"%PDF")

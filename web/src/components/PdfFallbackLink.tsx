@@ -2,15 +2,17 @@
 // The plain link presentation of a PDF asset: shown before the lazy viewer
 // chunk arrives, as the degraded fallback when the chunk or the document
 // fails to load, and (with `onOpen`) as the click-to-load resting state of a
-// deferred embed. Props in, markup out; no I/O.
+// deferred embed. `onDownload` lets the shell intercept the link click (to
+// check the file before the browser saves it). Props in, markup out; no I/O.
 import type { MouseEvent } from "react";
 
-export function PdfFallbackLink({ href, label, note, onOpen }:
-    { href: string; label: string; note?: string; onOpen?: (e: MouseEvent) => void }) {
+export function PdfFallbackLink({ href, label, note, onOpen, onDownload }:
+    { href: string; label: string; note?: string; onOpen?: (e: MouseEvent) => void;
+      onDownload?: (e: MouseEvent) => void }) {
   return (
     <span className="pdf-embed">
       {!!note && <span className="pdf-error-note">{note}</span>}
-      <a href={href} download className="pdf-download">
+      <a href={href} download className="pdf-download" onClick={onDownload}>
         {label || "Download PDF"}
       </a>
       {onOpen !== undefined && (

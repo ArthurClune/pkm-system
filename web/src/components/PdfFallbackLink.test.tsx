@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { expect, it, vi } from "vitest";
 import { PdfFallbackLink } from "./PdfFallbackLink";
 
 const href = `/assets/${"ab".repeat(32)}/doc.pdf`;
@@ -34,4 +34,11 @@ it("shows the note only when given", () => {
   expect(screen.queryByText("Couldn't render this PDF.")).toBeNull();
   rerender(<PdfFallbackLink href={href} label="Notes" note="Couldn't render this PDF." />);
   expect(screen.getByText("Couldn't render this PDF.")).toBeInTheDocument();
+});
+
+it("passes link clicks to onDownload when given", () => {
+  const onDownload = vi.fn();
+  render(<PdfFallbackLink href={href} label="Notes" onDownload={onDownload} />);
+  fireEvent.click(screen.getByRole("link", { name: "Notes" }));
+  expect(onDownload).toHaveBeenCalledTimes(1);
 });

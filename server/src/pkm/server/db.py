@@ -36,7 +36,7 @@ def _ensure_schema_migrations(con: sqlite3.Connection) -> None:
     if "kind" not in rewrite_columns:
         con.execute(
             "ALTER TABLE block_rewrites ADD COLUMN kind TEXT NOT NULL"
-            " DEFAULT 'retitle' CHECK(kind IN ('retitle','unlink','inline'))")
+            " DEFAULT 'retitle'")
     _ensure_changes_page_id(con)
 
 

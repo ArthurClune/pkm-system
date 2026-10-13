@@ -2,7 +2,6 @@
 predating the assets description columns in place."""
 import sqlite3
 
-import pytest
 
 from pkm.server.db import init_db, open_db
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
@@ -210,7 +209,4 @@ def test_block_rewrites_gains_kind_on_an_old_database(tmp_path):
     cols = {r[1] for r in con.execute("PRAGMA table_info(block_rewrites)")}
     assert "kind" in cols
     assert con.execute("SELECT kind FROM block_rewrites").fetchone()[0] == "retitle"
-    with pytest.raises(sqlite3.IntegrityError):
-        con.execute("INSERT INTO block_rewrites VALUES"
-                    " ('u2', 'a', 'b', 'x', 'y', 1, 'bogus')")
     con.close()

@@ -207,8 +207,7 @@ CREATE TABLE IF NOT EXISTS applied_batches(
 --   retitle  old_title -> new_title (rename, merge, title migration)
 --   unlink   old_title = the deleted page's title, new_title = ''
 --   inline   old_title = the target block uid, new_title = the copied text
--- The allowed values are enforced by the BlockRewrite type in ops_core, not
--- by SQLite: a CHECK costs VM steps on every row a hub rename inserts.
+-- The allowed values are enforced by SQLite's CHECK and the RewriteKind type.
 -- store.rewrite_snapshotted_blocks writes a row per changed block per title
 -- it rewrote there, and ops_core.replay_title_rewrites
 -- replays them over a stale device's update_text so an unsynced edit cannot
@@ -226,6 +225,7 @@ CREATE TABLE IF NOT EXISTS block_rewrites(
   new_title  TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   kind       TEXT NOT NULL DEFAULT 'retitle'
+             CHECK(kind IN ('retitle','unlink','inline'))
 );
 CREATE INDEX IF NOT EXISTS idx_block_rewrites_uid
   ON block_rewrites(uid, base_hash);

@@ -1048,6 +1048,14 @@ def test_replay_unlink_normalizes_the_stored_title():
     assert text == "see A I more"
 
 
+def test_replay_skips_a_row_of_unknown_kind():
+    t0, t1 = "see [[Old]]", "see [[New]]"
+    rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "Old", "New",
+                             "bogus"),)  # pyrefly: ignore[bad-argument-type] (deliberately unknown kind: asserting the replay skips it)
+    text, _ = replay_title_rewrites("see [[Old]] more", text_hash(t0), rewrites)
+    assert text == "see [[Old]] more"
+
+
 def test_replay_applies_an_inline_step():
     t0, t1 = "see ((uid_p1))", "see copied"
     rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "uid_p1", "copied",

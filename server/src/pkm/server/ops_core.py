@@ -123,7 +123,7 @@ def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[_RewriteStep]:
             step.unlinked.add(normalize_title(record.old_title))
         elif record.kind == "inline":
             step.inlines[record.old_title] = record.new_title
-        else:
+        elif record.kind == "retitle":
             step.retitles[record.old_title] = record.new_title
     return steps
 

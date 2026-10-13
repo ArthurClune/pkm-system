@@ -32,7 +32,7 @@ from pkm.todo import with_state
 TitleMatch = Callable[[str], bool]
 
 _ALIAS_LABEL = re.compile(r"\[([^\[\]\n]*)\]\($")
-_NEWLINE_RUN = re.compile(r"[ \t]*\n\s*")
+_NEWLINE_RUN = re.compile(r"[ \t\r]*\n\s*")
 _REF_OR_EMBED = re.compile(
     rf"\{{\{{\s*(?:\[\[)?embed(?:\]\])?\s*:\s*\(\(({BLOCK_REF_TOKEN})\)\)\s*\}}\}}"
     rf"|\(\(({BLOCK_REF_TOKEN})\)\)"
@@ -57,7 +57,8 @@ def _unlink_tags(
 
 
 def _unlink_bracket(
-    text: str, clean: str, bracket: BracketSpan, spans: list[Span]
+    text: str, clean: str, is_target: TitleMatch, bracket: BracketSpan,
+    spans: list[Span],
 ) -> None:
     inner = text[bracket.inner_start:bracket.inner_end]
     if bracket.is_tag:
@@ -65,7 +66,18 @@ def _unlink_bracket(
         return
     alias = _ALIAS_LABEL.search(clean, 0, bracket.start)
     if alias is not None and clean[bracket.end:bracket.end + 1] == ")":
-        label = text[alias.start(1):alias.end(1)]
+        # The label replaces the whole `[label](` run, so spans already
+        # collected inside it are dropped and its tags are unlinked here:
+        # once the brackets go, a `#tag` at the label's start reads as one.
+        spans[:] = [s for s in spans if s[0] < alias.start()]
+        label_start, label_end = alias.span(1)
+        before = clean[alias.start() - 1:alias.start()]
+        probe = before + clean[label_start:label_end]
+        label = text[label_start:label_end]
+        for tag in sorted(tag_spans(probe, len(before)), key=lambda t: -t.start):
+            if is_target(tag.raw_title):
+                a, b = tag.start - len(before), tag.end - len(before)
+                label = label[:a] + tag.raw_title + label[b:]
         spans.append((alias.start(), bracket.end + 1, label))
         return
     spans.append((bracket.start, bracket.end, inner))
@@ -81,7 +93,7 @@ def _unlink_range(
     for bracket in brackets:
         _unlink_tags(text, clean, is_target, index, bracket.start, spans)
         if is_target(clean[bracket.inner_start:bracket.inner_end]):
-            _unlink_bracket(text, clean, bracket, spans)
+            _unlink_bracket(text, clean, is_target, bracket, spans)
         else:
             _unlink_range(
                 text, clean, is_target, bracket.inner_start,

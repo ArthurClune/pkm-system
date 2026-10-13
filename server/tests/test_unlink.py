@@ -20,6 +20,9 @@ def is_ai(raw: str) -> bool:
     ("#AI rules", "AI rules"),
     ("#[[AI]] rules", "AI rules"),
     ("[the field]([[AI]])", "the field"),
+    ("[#AI]([[AI]])", "AI"),
+    ("[x #AI y]([[AI]]) #AI", "x AI y AI"),
+    ("[#Other]([[AI]])", "#Other"),
     ("[[ AI ]]", "[[ AI ]]"),
     ("[[ai]] and [[AI]]", "[[ai]] and AI"),
     ("`[[AI]]` and [[AI]]", "`[[AI]]` and AI"),
@@ -47,6 +50,7 @@ def test_inline_block_refs_ignores_code():
 def test_plain_copy_strips_marker_attribute_and_newlines():
     assert plain_copy("{{[[TODO]]}} Status:: line one\n  line two") \
         == "line one line two"
+    assert plain_copy("a\r\nb") == "a b"
 
 
 def test_apply_delete_rewrite_composes():

@@ -3,6 +3,8 @@ from collections.abc import Sequence
 from datetime import date, timedelta
 
 from pkm.contracts.daily import title_for_date
+from pkm.contracts.ops import BlockUid
+from pkm.server.store import reindex_refs_for_text
 
 
 def _insert_page(db_path, page_id: int, title: str,
@@ -16,6 +18,21 @@ def _insert_page(db_path, page_id: int, title: str,
         " VALUES (?,?,?,?,?,?,?,?,?)",
         [(uid, page_id, None, i, text, None, 0, None, None)
          for i, (uid, text) in enumerate(blocks)])
+    con.commit()
+    con.close()
+
+
+def _insert_indexed_block(db_path, uid: str, page_id: int, text: str) -> None:
+    """A top-level block on an existing page, with its refs/block_refs rows
+    derived the way the server derives them."""
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    con.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        (uid, page_id, None, 5, text, None, 0, None, None))
+    reindex_refs_for_text(con, BlockUid(uid), text, 0)
     con.commit()
     con.close()
 
@@ -102,14 +119,29 @@ def test_spares_daily_whose_blank_block_is_referenced(client, seeded_config):
     title = _daily_title(_in_window_days_ago())
     _insert_page(seeded_config.db_path, 93, title, [("uid_r1", "  ")])
     # a block on another page (seeded page id 2, "AI") embeds ((uid_r1))
-    con = sqlite3.connect(seeded_config.db_path)
-    con.execute(
-        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
-        " heading, collapsed, created_at, updated_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?)",
-        ("uid_r2", 2, None, 5, "see ((uid_r1))", None, 0, None, None))
-    con.commit()
-    con.close()
+    _insert_indexed_block(seeded_config.db_path, "uid_r2", 2, "see ((uid_r1))")
+
+    r = client.post("/api/journal/cleanup")
+
+    assert r.json() == {"deleted": []}
+    assert _page_exists(seeded_config.db_path, title)
+
+
+def test_spares_empty_daily_with_inbound_link(client, seeded_config):
+    title = _daily_title(_in_window_days_ago())
+    _insert_page(seeded_config.db_path, 97, title)
+    _insert_indexed_block(seeded_config.db_path, "uid_l1", 2, f"see [[{title}]]")
+
+    r = client.post("/api/journal/cleanup")
+
+    assert r.json() == {"deleted": []}
+    assert _page_exists(seeded_config.db_path, title)
+
+
+def test_spares_empty_daily_with_inbound_tag(client, seeded_config):
+    title = _daily_title(_in_window_days_ago())
+    _insert_page(seeded_config.db_path, 98, title)
+    _insert_indexed_block(seeded_config.db_path, "uid_t1", 2, f"x #[[{title}]]")
 
     r = client.post("/api/journal/cleanup")
 

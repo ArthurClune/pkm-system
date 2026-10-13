@@ -540,14 +540,18 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
             "block_ref_counts": _block_ref_counts(db, uids)}
 
 
-def _block_is_referenced(db: sqlite3.Connection, uid: str,
-                         page_id: int) -> bool:
-    """True if any block on another page embeds ((uid)). LIKE treats '_' in
-    uids as a wildcard; a false positive only spares a page, so that's an
-    acceptable (conservative) inaccuracy."""
+def _daily_is_linked(db: sqlite3.Connection, page_id: int) -> bool:
+    """True if a block on another page links, tags or attribute-references
+    the page (any `refs` kind), or ((embeds)) one of its blocks."""
     return db.execute(
-        "SELECT 1 FROM blocks WHERE page_id != ? AND text LIKE ? LIMIT 1",
-        (page_id, f"%(({uid}))%")).fetchone() is not None
+        "SELECT 1 FROM refs r JOIN blocks b ON b.uid = r.src_block_uid"
+        " WHERE r.target_page_id = ? AND b.page_id != ?"
+        " UNION ALL"
+        " SELECT 1 FROM block_refs br"
+        " JOIN blocks t ON t.uid = br.target_block_uid"
+        " JOIN blocks s ON s.uid = br.src_block_uid"
+        " WHERE t.page_id = ? AND s.page_id != ? LIMIT 1",
+        (page_id, page_id, page_id, page_id)).fetchone() is not None
 
 
 @router.post("/api/journal/cleanup")
@@ -556,9 +560,10 @@ def cleanup_journal(request: Request,
     """Deletes completely-empty daily pages from the 7 days before today
     (today is spared: the journal auto-creates it for composing). Stateless:
     every call re-checks the whole window, so a page emptied later by block
-    moves is caught on the next load. A page whose blank block is still
-    ((referenced)) from another page is spared -- deleting it would leave
-    the reference dangling."""
+    moves is caught on the next load. A day with any incoming link is
+    spared, never rewritten: a `refs` row of any kind (link, tag, attribute)
+    targeting the page, or a ((block ref)) to one of its blocks, from a
+    block on another page."""
     deleted: list[str] = []
     for d in past_week_dates(date.today()):
         title = _daily_title(d)
@@ -570,8 +575,7 @@ def cleanup_journal(request: Request,
             (page["id"],)).fetchall()
         if not is_page_empty([r["text"] for r in blocks]):
             continue
-        if any(_block_is_referenced(db, r["uid"], page["id"])
-               for r in blocks):
+        if _daily_is_linked(db, page["id"]):
             continue
         delete_page_rows(db, page["id"], title)
         deleted.append(title)

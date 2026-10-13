@@ -635,7 +635,7 @@
     "/api/journal/cleanup": {
       "post": {
         "summary": "Cleanup Journal",
-        "description": "Deletes completely-empty daily pages from the 7 days before today\n(today is spared: the journal auto-creates it for composing). Stateless:\nevery call re-checks the whole window, so a page emptied later by block\nmoves is caught on the next load. A page whose blank block is still\n((referenced)) from another page is spared -- deleting it would leave\nthe reference dangling.",
+        "description": "Deletes completely-empty daily pages from the 7 days before today\n(today is spared: the journal auto-creates it for composing). Stateless:\nevery call re-checks the whole window, so a page emptied later by block\nmoves is caught on the next load. A day with any incoming link is\nspared, never rewritten: a `refs` row of any kind (link, tag, attribute)\ntargeting the page, or a ((block ref)) to one of its blocks, from a\nblock on another page.",
         "operationId": "cleanup_journal_api_journal_cleanup_post",
         "responses": {
           "200": {

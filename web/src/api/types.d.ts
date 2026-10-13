@@ -321,9 +321,10 @@ export interface paths {
          * @description Deletes completely-empty daily pages from the 7 days before today
          *     (today is spared: the journal auto-creates it for composing). Stateless:
          *     every call re-checks the whole window, so a page emptied later by block
-         *     moves is caught on the next load. A page whose blank block is still
-         *     ((referenced)) from another page is spared -- deleting it would leave
-         *     the reference dangling.
+         *     moves is caught on the next load. A day with any incoming link is
+         *     spared, never rewritten: a `refs` row of any kind (link, tag, attribute)
+         *     targeting the page, or a ((block ref)) to one of its blocks, from a
+         *     block on another page.
          */
         post: operations["cleanup_journal_api_journal_cleanup_post"];
         delete?: never;

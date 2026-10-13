@@ -279,6 +279,12 @@ layout viewport for the keyboard. On an iPhone `main.tsx` also adds
 Safari zooms when the 15px block textarea takes focus, and the zoomed page
 pans the bar partly off screen.
 
+In the iOS 26 Safari tab (not the home-screen app) the bar sits one address
+pill higher than on the keyboard. Safari excludes its floating address pill
+from the visual viewport, and a page cannot draw over browser chrome, so
+this is the lowest position where every key can be tapped. Safari's Top tab
+layout has no floating pill.
+
 **A bar key acts on `pointerdown`, never on `click`.** It cancels
 `pointerdown` so the textarea keeps focus and the keyboard stays open, and iOS
 WebKit then sends no click at all. Only a click with `detail === 0`

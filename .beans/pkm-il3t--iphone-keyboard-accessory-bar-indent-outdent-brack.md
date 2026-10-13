@@ -1,11 +1,11 @@
 ---
 # pkm-il3t
 title: 'iPhone keyboard accessory bar: indent, outdent, brackets'
-status: in-progress
+status: completed
 type: feature
 priority: normal
 created_at: 2026-10-13T07:22:21Z
-updated_at: 2026-10-13T07:48:49Z
+updated_at: 2026-10-13T08:31:09Z
 ---
 
 On iPhone only (not iPad, not a narrow desktop window), while editing a block, show a small bar above the on-screen keyboard with buttons → (Tab/indent), ← (Shift-Tab/outdent), (, ), [, ]. Each button does exactly what the key does on a desktop keyboard: indent/outdent the block, brackets go through the same auto-pair path.
@@ -16,7 +16,7 @@ On iPhone only (not iPad, not a narrow desktop window), while editing a block, s
 - [x] Unit tests
 - [x] Verify on iPhone simulator (touch taps on every key; soft-keyboard placement not reproducible there)
 - [x] Fix: Safari focus-zoom (15px textarea) panned the page and pushed the bar off screen; iPhone viewport gets maximum-scale=1
-- [ ] Arthur confirms placement over the real keyboard on his iPhone (open question: in Safari the bar sits above the floating address pill, which iOS 26 seems to exclude from the visual viewport)
+- [x] Arthur confirmed on his iPhone: correct in the home-screen app, focus zoom gone in both. In a Safari tab the bar sits above the floating address pill (excluded from the visual viewport); accepted, as Safari's Top tab layout or the home-screen app avoids it
 - [x] Docs (frontend.md / styling.md)
 
 ## Summary of Changes

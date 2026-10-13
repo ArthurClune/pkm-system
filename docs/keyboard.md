@@ -92,6 +92,17 @@ See "While blocks are selected" below for what you can do next.
 
 Ctrl+Cmd and Option/Alt arrow chords still work while the popup is open.
 
+### On an iPhone
+
+The iPhone keyboard has no Tab key, so while you edit a block a bar above the
+keyboard offers six keys. Each does what that key does on a hardware keyboard.
+
+| Key | Action |
+|---|---|
+| → | Indent (Tab) |
+| ← | Outdent (Shift+Tab) |
+| ( ) [ ] | Type the bracket, with the usual auto-closing and `[[` link popup |
+
 ## Slash commands
 
 Typing `/` at the start of a block or after a space opens the command menu,

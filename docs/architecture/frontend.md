@@ -85,6 +85,8 @@ web/src/
 │   ├── orderIdx.ts           Core         The one order-key arithmetic module (OrderIdx)
 │   ├── edits.ts / keyEdits.ts  Core       Structural and in-block edit planning
 │   ├── keyboardPolicy.ts     Core         Keystroke → semantic KeyDecision
+│   ├── keyboardBar.ts        Core         The iPhone keyboard bar's keys, phone check
+│   │                                      and keyboard inset
 │   ├── autocomplete.ts / refAtCaret.ts  Core  Completion contexts; live-caret rules
 │   ├── slashCommands.ts / calendar.ts   Core  Slash commands; the /date month grid
 │   ├── blockSelection.ts / history.ts / paste.ts / dnd.ts  Core  Selection, undo
@@ -110,7 +112,7 @@ web/src/
 │   │                         BlockInput), inline renderers (InlineSegments, MathSpan,
 │   │                         QueryBlock, BlockRef, MermaidDiagram, PdfViewer, CodeBlock,
 │   │                         roamTable, TableOfContents…) and chrome (TopBar, SidebarNav/Panel, SearchBar,
-│   │                         OfflineIndicator, Composer, BacklinksSection, BacklinkGroupList,
+│   │                         OfflineIndicator, Composer, KeyboardBar, BacklinksSection, BacklinkGroupList,
 │   │                         BlockRefBacklinksPopover, BlockMenu, DatePickerPopup…)
 │   ├── ExternalLinkInterceptor.tsx  Shell  Capture-phase document click listener,
 │   │                                       mounted only in iOS standalone (see below)

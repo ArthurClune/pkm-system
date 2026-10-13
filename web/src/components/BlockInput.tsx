@@ -18,7 +18,10 @@ import { applyCompletion, holdsDraftFlush } from "../outline/autocomplete";
 import { measureCaretDisplayLine } from "../outline/caretDisplayLine";
 import type { OutlineHandlers } from "../outline/handlers";
 import { type CaretOffset, type TextSelection } from "../outline/keyEdits";
-import { decideEditorKey } from "../outline/keyboardPolicy";
+import { insertTypedChar, isPhoneUserAgent,
+         type KeyboardBarKey } from "../outline/keyboardBar";
+import { decideEditorKey, type EditorKeyInput,
+         type KeyDecision } from "../outline/keyboardPolicy";
 import { isOutlinePaste, isOutlinePasteChord } from "../outline/paste";
 import { applySlashCommand, matchSlashCommands,
          resolveHeading } from "../outline/slashCommands";
@@ -29,6 +32,13 @@ import { titleForDate } from "../replica/daily";
 import { AutocompletePopup, buildRows, useTitleOptions,
          type AcRow } from "./AutocompletePopup";
 import { DatePickerPopup } from "./DatePickerPopup";
+import { KeyboardBar } from "./KeyboardBar";
+
+/** A keystroke as the policy reads it: key, modifiers and the measured
+ * display-line flags. Selection, draft and popup state are read live. */
+type KeyPress = Pick<EditorKeyInput, "key" | "code" | "metaKey" | "ctrlKey"
+  | "altKey" | "shiftKey" | "caretOnFirstDisplayLine"
+  | "caretOnLastDisplayLine">;
 
 export function BlockInput({ node, cursor, handlers, readOnly,
                              onRequestUpload }: {
@@ -234,19 +244,31 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       setDatePickerAt(null);
       return;
     }
+    const decision = decideKey({
+      key: e.key, code: e.code,
+      metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey,
+      shiftKey: e.shiftKey, caretOnFirstDisplayLine, caretOnLastDisplayLine,
+    }, el);
+    runDecision(decision, el, e);
+  };
+
+  const decideKey = (k: KeyPress, el: HTMLTextAreaElement): KeyDecision => {
     // A popup the caret has moved away from must not claim the key: Enter
     // stays a split, Tab stays an indent. resolve() drops the
     // stale context, so the policy is told the popup is closed.
     const acLive = ac.resolve(el) !== null;
-    const decision = decideEditorKey({
-      key: e.key, code: e.code,
-      metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey,
-      shiftKey: e.shiftKey,
+    return decideEditorKey({
+      ...k,
       selStart: el.selectionStart, selEnd: el.selectionEnd,
       draft: draft.text, readOnly,
       acRowsLength: acLive ? acRows.length : 0, acSelected: ac.selected,
-      caretOnFirstDisplayLine, caretOnLastDisplayLine,
     });
+  };
+
+  /** Carry out a key decision. `e` cancels the native keystroke; a bar
+   * press has none, so it passes a no-op. */
+  const runDecision = (decision: KeyDecision, el: HTMLTextAreaElement,
+                       e: { preventDefault: () => void }) => {
     switch (decision.type) {
       case "none":
         return;
@@ -350,6 +372,26 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     }
   };
 
+  // A bar key goes through the same policy as the key it names. When the
+  // policy leaves a character to the textarea there is no native keystroke
+  // to type it, so it is typed here.
+  const pressBarKey = (k: KeyboardBarKey) => {
+    const el = draft.ref.current;
+    if (!el) return;
+    outlinePasteArmedRef.current = false;
+    const decision = decideKey({
+      key: k.key, code: "", metaKey: false, ctrlKey: false, altKey: false,
+      shiftKey: k.shiftKey,
+    }, el);
+    if (decision.type === "none" && k.key.length === 1) {
+      applyKeyEdit(insertTypedChar(draft.text, el.selectionStart,
+                                   el.selectionEnd, k.key));
+      return;
+    }
+    runDecision(decision, el, { preventDefault: () => {} });
+  };
+  const onPhone = isPhoneUserAgent(navigator.userAgent);
+
   // The splice's run() flushes the draft before it edits the tree, so
   // settling afterwards loses nothing and shows the uploaded markdown.
   const uploadFiles = (at: number, files: File[]) => {
@@ -400,6 +442,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       {!readOnly && datePickerAt !== null && (
         <DatePickerPopup initial={new Date()} onPick={pickDate} />
       )}
+      {!readOnly && onPhone && <KeyboardBar onPress={pressBarKey} />}
     </div>
   );
 }

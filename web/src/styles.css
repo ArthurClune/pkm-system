@@ -1024,6 +1024,20 @@ mark.highlight { background: var(--color-highlight-bg); }
   .main-pane { padding-bottom: 96px; }
 }
 
+/* --- phone keyboard bar: rendered only on an iPhone (by user agent, not
+ * width), pinned to the top of the on-screen keyboard. KeyboardBar sets
+ * `bottom` to the keyboard's height; above the composer (40), below the
+ * completion popup (50). Keys are the shared pill, sized for a thumb.
+ * A touch on a key must not start iOS text selection over the labels, and
+ * two quick taps ("[" twice for a link) must not read as a double-tap zoom. --- */
+.keyboard-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
+  display: flex; gap: 6px; padding: 6px 8px;
+  background: var(--color-bg-surface); border-top: 1px solid var(--color-border);
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  touch-action: manipulation; }
+.keyboard-bar-key { flex: 1; min-width: 0; min-height: 36px; padding: 0;
+  font-size: 18px; }
+
 /* --- plan 6/7: block drag-and-drop --- */
 .drop-indicator {
   position: absolute;

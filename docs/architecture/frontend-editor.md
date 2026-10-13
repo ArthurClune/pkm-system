@@ -112,8 +112,8 @@ adoptability use. A stamp counts as a change, since `update_text` bumps
 holding raw markdown; every other block is rendered HTML (`EditableBlockTree` →
 `EditableBlock` → `BlockInput`, the last of these its own file). No
 `contenteditable` anywhere, so a 500-block page is one textarea plus static
-HTML. Phones get a bottom `Composer` (append-to-daily-note) instead of full
-outline editing.
+HTML. Phones edit the outline the same way, and also get a bottom `Composer`
+(append-to-daily-note).
 
 A keystroke batch re-renders every row, so a row's decisions must be
 constant-time. `EditableBlockTree` walks `ancestorChain(blocks, focus.uid)`
@@ -265,6 +265,21 @@ into `decideEditorKey`'s `META_WRAP_EDITS` table, never into ad-hoc event
 handlers. [keyboard.md](../keyboard.md) owns the shortcut list. App-global
 chords fire while a block is being edited, so a new editor key must not collide
 with one.
+
+On an iPhone, `BlockInput` also renders `KeyboardBar`: → ← ( ) [ ] in a strip
+on top of the on-screen keyboard. The check is `isPhoneUserAgent`, not a width
+query, so a narrow desktop window and an iPad never get it. A press is fed to
+`decideEditorKey` as the key it names (Tab, Shift-Tab or the character), so it
+indents, auto-pairs and opens `[[` exactly as the key would. When the policy
+answers `none` for a character, `insertTypedChar` types it, since no native
+keystroke follows. The bar sits `keyboardInset` above the layout viewport's
+bottom, tracked from `visualViewport`, because iOS Safari does not shrink the
+layout viewport for the keyboard.
+
+**A bar key acts on `pointerdown`, never on `click`.** It cancels
+`pointerdown` so the textarea keeps focus and the keyboard stays open, and iOS
+WebKit then sends no click at all. Only a click with `detail === 0`
+(VoiceOver's activation) acts on its own.
 
 ### Autocomplete
 

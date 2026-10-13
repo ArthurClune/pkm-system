@@ -10,7 +10,7 @@ contract every client builds against, so they must not sit behind
 `pkm.server`."""
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, Union
 
@@ -132,6 +132,7 @@ def replay_title_rewrites(
     text: str,
     base_hash: str,
     rewrites: Sequence[BlockRewrite],
+    canonical: Callable[[str], str] = normalize_title,
 ) -> tuple[str, str]:
     """Re-apply the renames this block already went through to an edit made
     before them, returning the edit's text and base hash as they would read
@@ -151,6 +152,13 @@ def replay_title_rewrites(
     `rewrites` is newest-record-first, which decides the winner in the
     unlikely case that two rewrites share a base hash (a block edited back
     to a previous text, then renamed again).
+
+    `canonical` is the title canonicalisation the delete matched with (the
+    shell passes the database's `title_reader`): an unlink step must treat
+    the same spellings as the deleted page as the delete did, or a padded
+    `[[ AI ]]` the delete unlinked under plain-space canonicalisation would
+    survive the replay and recreate the page. Retitle steps match verbatim,
+    as rename does, and ignore it.
     """
     steps = _rewrite_steps(rewrites)
     for _ in range(MAX_REPLAYED_REWRITES):
@@ -161,9 +169,9 @@ def replay_title_rewrites(
         if match.retitles:
             text = rewrite_title_refs_map(text, match.retitles)
         if match.unlinked or match.inlines:
-            unlinked = match.unlinked
+            unlinked = {canonical(title) for title in match.unlinked}
             text = apply_delete_rewrite(
-                text, lambda raw: normalize_title(raw) in unlinked,
+                text, lambda raw: canonical(normalize_title(raw)) in unlinked,
                 match.inlines)
         base_hash = match.after_hash
     return text, base_hash
@@ -188,9 +196,10 @@ class TextEditOutcome:
 def classify_text_edit(
     text: str, base_hash: str, current_text: str,
     rewrites: Sequence[BlockRewrite],
+    canonical: Callable[[str], str] = normalize_title,
 ) -> TextEditOutcome:
     replayed_text, replayed_hash = replay_title_rewrites(
-        text, base_hash, rewrites)
+        text, base_hash, rewrites, canonical)
     if replayed_text == current_text:
         return TextEditOutcome("identical", replayed_text)
     if text_hash(current_text) == replayed_hash:

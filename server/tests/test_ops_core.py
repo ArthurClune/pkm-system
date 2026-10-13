@@ -1027,6 +1027,27 @@ def test_replay_applies_an_unlink_step():
     assert base == text_hash(t1)
 
 
+def test_replay_unlink_matches_through_the_given_canonicaliser():
+    t0, t1 = "x [[ AI ]] y", "x  AI  y"
+    rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "AI", "", "unlink"),)
+    stale = "x [[ AI ]] y offline"
+    # default: today's normalize_title matching leaves the padded link
+    assert replay_title_rewrites(stale, text_hash(t0), rewrites)[0] == stale
+    text, base = replay_title_rewrites(
+        stale, text_hash(t0), rewrites,
+        canonical=lambda title: title.strip(" "))
+    assert text == "x  AI  y offline"
+    assert base == text_hash(t1)
+
+
+def test_replay_unlink_normalizes_the_stored_title():
+    t0, t1 = "see [[A I]]", "see A I"
+    rewrites = (
+        BlockRewrite(text_hash(t0), text_hash(t1), "A\tI", "", "unlink"),)
+    text, _ = replay_title_rewrites("see [[A I]] more", text_hash(t0), rewrites)
+    assert text == "see A I more"
+
+
 def test_replay_applies_an_inline_step():
     t0, t1 = "see ((uid_p1))", "see copied"
     rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "uid_p1", "copied",

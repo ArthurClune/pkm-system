@@ -12,7 +12,8 @@ from datetime import datetime
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp,
                                MoveOp, OpBatch, OrderIdx, PageId, UpdateTextOp)
-from pkm.refs import CanonicalTitle, NormalizedTitle, is_blank_title
+from pkm.refs import (CanonicalTitle, NormalizedTitle, is_blank_title,
+                      normalize_title)
 from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  BlockRewrite, ConflictLanding, CreateContext,
                                  DeleteBlocks, DeleteConflictContext,
@@ -33,7 +34,7 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  skip_report)
 from pkm.server.store import (BlankTitleError, fetch_page,
                               get_or_create_page, reindex_refs_for_text)
-from pkm.server.sync_meta import read_title
+from pkm.server.sync_meta import read_title, title_reader
 
 # Fallback title for an op's page_title that normalizes to "" (e.g. a
 # whitespace-only string -- pydantic's min_length=1 lets that through). The
@@ -375,8 +376,10 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
             " JOIN pages p ON p.id = b.page_id WHERE b.uid = ?",
             (op.uid,)).fetchone()
         rewrites = _block_rewrites(db, op.uid)
+        # the flag read is skipped on the common path with nothing to replay
+        canonical = title_reader(db) if rewrites else normalize_title
         outcome = classify_text_edit(op.text, op.base_text_hash,
-                                     row["text"], rewrites)
+                                     row["text"], rewrites, canonical)
         if outcome.kind != "conflict":
             return TextEditContext(block, outcome)
         # only a real conflict pays for today's daily page and its extra

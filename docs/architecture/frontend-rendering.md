@@ -123,9 +123,18 @@ instance's own id, and only the cached copy is normalised to
 | any, with a query string | a plain link; the query signals a download intent |
 
 Deferral keeps a page of `Local copy::` papers from parsing dozens of PDFs on
-render and pulling each one from iCloud on the host. A 503 from `/api/local/` (not
-downloaded yet, or not readable by the host) becomes one note through
-`pdfViewerCore.failureNote`, because pdf.js exposes the status and not the body.
+render and pulling each one from iCloud on the host. A file the host does not
+serve becomes a note, not a saved error body. `pdfViewerCore.hostFailureNote`
+maps the status to the note text: 404 is missing, 503 is not downloaded yet or
+not readable, and a fetch that never got an answer has its own note. The viewer
+reaches it through `failureNote`, because pdf.js exposes the status and not the
+body.
+
+The deferred link's `download` attribute would save whatever the server
+answers. So a tap on a `/api/local/` link first asks for one byte
+(`Range: bytes=0-0`; the route has no HEAD). Only a success starts the native
+download, through a temporary anchor, so the PDF is never buffered in the page.
+`/assets/` links keep the plain download.
 
 `PdfViewer` guards its load/reset race with a generation counter: a new `href`
 resets `doc`, `failure`, `expanded` and `currentPage` and bumps the counter

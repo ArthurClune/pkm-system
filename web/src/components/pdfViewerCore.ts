@@ -91,13 +91,26 @@ export function placeholderHeight(
   return Math.max(1, Math.round(width * (aspect ?? DEFAULT_PAGE_ASPECT)));
 }
 
+/** Note for a `/api/local/` file the host did not serve: its HTTP status, or
+ * null when the request never got an answer. 404 is a file outside the local
+ * documents folder; 503 is the server's "not downloaded yet, or the host
+ * can't open it" signal (the body that tells the two apart is not exposed). */
+export function hostFailureNote(status: number | null): string {
+  if (status === null) return "Couldn't reach the host to fetch this file.";
+  if (status === 404) return "This file isn't in the local documents folder on the host.";
+  if (status === 503) {
+    return "The host can't serve this file right now: it isn't downloaded yet, or the host isn't allowed to read it.";
+  }
+  return `The host couldn't serve this file (HTTP ${status}).`;
+}
+
 /** Fallback note for a document that failed to load. pdf.js surfaces an
- * HTTP failure as an error carrying `status`; 503 is the server's
- * "not downloaded yet, or the host can't open it" signal; the body that
- * tells the two apart is not exposed. */
+ * HTTP failure as an error carrying `status`; the two statuses the local
+ * route answers with get the host-side note, anything else (including
+ * non-HTTP render errors) is a render failure. */
 export function failureNote(err: unknown): string {
   const status = typeof err === "object" && err !== null && "status" in err
     ? (err as { status?: unknown }).status
     : undefined;
-  return status === 503 ? "The host can't serve this file right now: it isn't downloaded yet, or the host isn't allowed to read it." : "Couldn't render this PDF.";
+  return status === 404 || status === 503 ? hostFailureNote(status) : "Couldn't render this PDF.";
 }

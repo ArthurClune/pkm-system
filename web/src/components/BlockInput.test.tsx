@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { SidebarContext } from "../contexts";
 import { titleForDate } from "../replica/daily";
 import { block, ord, stubFetch } from "../test-helpers";
@@ -1148,4 +1148,99 @@ test("/goodlinks strips the trigger, blurs, and asks the engine with the trigger
   expect(h.onDraftChange).toHaveBeenLastCalledWith(NODE.uid, "");
   expect(h.onBlurBlock).toHaveBeenCalledWith(NODE.uid);
   expect(h.onGoodlinks).toHaveBeenCalledWith(NODE.uid, 0);
+});
+
+describe("the phone keyboard bar", () => {
+  const IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 26_5 like Mac OS X) "
+    + "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1";
+  const asPhone = () =>
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(IPHONE_UA);
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  const bar = () => screen.queryByRole("toolbar", { name: "Editing keys" });
+  // A tap as iOS WebKit delivers it: the key acts on pointerdown, which is
+  // cancelled so the textarea keeps focus (a blur would close the keyboard
+  // and end the edit), and with pointerdown cancelled no click follows.
+  const press = (name: string) => {
+    const button = screen.getByRole("button", { name });
+    expect(fireEvent.pointerDown(button)).toBe(false);
+    expect(fireEvent.mouseDown(button)).toBe(false);
+  };
+
+  test("is absent off a phone, even in a narrow window", () => {
+    mount(handlers());
+    expect(bar()).toBeNull();
+  });
+
+  test("is absent on a phone when the outline is read-only", () => {
+    asPhone();
+    mount(handlers(), 0, true);
+    expect(bar()).toBeNull();
+  });
+
+  test("→ and ← indent and outdent the block, like Tab and Shift-Tab", () => {
+    asPhone();
+    const h = handlers();
+    mount(h);
+    expect(bar()).not.toBeNull();
+    press("Indent");
+    expect(h.onIndent).toHaveBeenCalledWith(NODE.uid);
+    press("Outdent");
+    expect(h.onOutdent).toHaveBeenCalledWith(NODE.uid);
+  });
+
+  test("a browser that does send a pointer click still gets one press", () => {
+    asPhone();
+    const h = handlers();
+    mount(h);
+    press("Indent");
+    fireEvent.click(screen.getByRole("button", { name: "Indent" }), { detail: 1 });
+    expect(h.onIndent).toHaveBeenCalledTimes(1);
+  });
+
+  test("a click with no pointer behind it (VoiceOver) presses the key", () => {
+    asPhone();
+    const h = handlers();
+    mount(h);
+    fireEvent.click(screen.getByRole("button", { name: "Outdent" }), { detail: 0 });
+    expect(h.onOutdent).toHaveBeenCalledTimes(1);
+  });
+
+  test("( auto-closes at the caret, like typing it", () => {
+    asPhone();
+    const h = handlers();
+    mount(h, 5, false, { ...NODE, text: "hello" });
+    press("(");
+    const ta = focusedTextarea();
+    expect(ta.value).toBe("hello()");
+    expect(ta.selectionStart).toBe(6);
+  });
+
+  test("] steps over an auto-inserted closer", () => {
+    asPhone();
+    mount(handlers(), 1, false, { ...NODE, text: "[]" });
+    press("]");
+    const ta = focusedTextarea();
+    expect(ta.value).toBe("[]");
+    expect(ta.selectionStart).toBe(2);
+  });
+
+  test(") with nothing to step over inserts a plain )", () => {
+    asPhone();
+    const h = handlers();
+    mount(h, 2, false, { ...NODE, text: "ab" });
+    press(")");
+    expect(focusedTextarea().value).toBe("ab)");
+    expect(h.onDraftChange).toHaveBeenLastCalledWith(NODE.uid, "ab)");
+  });
+
+  test("[ twice opens a page link, holding the draft flush", () => {
+    asPhone();
+    const h = handlers();
+    mount(h, 0, false, { ...NODE, text: "" });
+    press("[");
+    press("[");
+    expect(focusedTextarea().value).toBe("[[]]");
+    expect(h.onDraftChange).toHaveBeenLastCalledWith(NODE.uid, "[[]]", true);
+  });
 });

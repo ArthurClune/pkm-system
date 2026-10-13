@@ -163,7 +163,7 @@ def _record_block_rewrite(
     """
     db.executemany(
         "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
-        " new_title, created_at) VALUES (?,?,?,?,?,?)",
+        " new_title, created_at, kind) VALUES (?,?,?,?,?,?,'retitle')",
         [
             (uid, text_hash(original_text), text_hash(new_text),
              old_title, new_title, now_ms)

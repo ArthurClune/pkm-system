@@ -28,6 +28,7 @@ from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  UpdateText, classify_skip,
                                  classify_text_edit, conflict_entry_effects,
                                  descendant_copy_effects, delete_diverged,
+                                 replay_title_rewrites,
                                  plan_op, skip_report)
 
 B = BlockInfo(uid=BlockUid("uid_b3"), page_id=PageId(1),
@@ -1015,3 +1016,34 @@ def test_cycle_note_appends_under_an_existing_header_for_the_block():
 def test_skip_report_names_the_op_and_where_its_note_landed(op, ctx,
                                                             expected):
     assert skip_report(3, op, ctx) == expected
+
+
+def test_replay_applies_an_unlink_step():
+    t0, t1 = "Tags:: #AI", "Tags:: AI"
+    rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "AI", "", "unlink"),)
+    text, base = replay_title_rewrites(
+        "Tags:: #AI plus", text_hash(t0), rewrites)
+    assert text == "Tags:: AI plus"
+    assert base == text_hash(t1)
+
+
+def test_replay_applies_an_inline_step():
+    t0, t1 = "see ((uid_p1))", "see copied"
+    rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "uid_p1", "copied",
+                             "inline"),)
+    text, base = replay_title_rewrites(
+        "see ((uid_p1)) more", text_hash(t0), rewrites)
+    assert text == "see copied more"
+    assert base == text_hash(t1)
+
+
+def test_replay_chains_unlink_then_retitle():
+    t0, t1, t2 = "#AI [[Paper]]", "AI [[Paper]]", "AI [[Papers]]"
+    rewrites = (
+        BlockRewrite(text_hash(t1), text_hash(t2), "Paper", "Papers"),
+        BlockRewrite(text_hash(t0), text_hash(t1), "AI", "", "unlink"),
+    )
+    text, base = replay_title_rewrites(
+        "#AI [[Paper]] x", text_hash(t0), rewrites)
+    assert text == "AI [[Papers]] x"
+    assert base == text_hash(t2)

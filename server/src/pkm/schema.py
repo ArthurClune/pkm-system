@@ -201,12 +201,17 @@ CREATE TABLE IF NOT EXISTS applied_batches(
   applied_at   INTEGER NOT NULL
 );
 
--- What a rename, merge or the title migration did to one block's text:
--- the sha256 of that text before and after, plus the one title
--- that moved. store.rewrite_snapshotted_blocks writes a row per changed
--- block per title it rewrote there, and ops_core.replay_title_rewrites
+-- What a rename, merge, the title migration or a page delete did to one
+-- block's text: the sha256 of that text before and after, plus what moved.
+-- `kind` says what old_title/new_title mean:
+--   retitle  old_title -> new_title (rename, merge, title migration)
+--   unlink   old_title = the deleted page's title, new_title = ''
+--   inline   old_title = the target block uid, new_title = the copied text
+-- store.rewrite_snapshotted_blocks writes a row per changed block per title
+-- it rewrote there, and ops_core.replay_title_rewrites
 -- replays them over a stale device's update_text so an unsynced edit cannot
--- carry the old title back and re-create the page it was renamed away from.
+-- carry the old title (or ref) back and re-create the page it was renamed
+-- or deleted away from.
 -- Push-time resolution only: no journal trigger, never replicated, and
 -- pruned to the last 30 days on every rewrite. No FK on uid -- a row
 -- outliving its block is inert, and the block may be deleted and its edit
@@ -217,7 +222,9 @@ CREATE TABLE IF NOT EXISTS block_rewrites(
   after_hash TEXT NOT NULL,
   old_title  TEXT NOT NULL,
   new_title  TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  kind       TEXT NOT NULL DEFAULT 'retitle'
+             CHECK(kind IN ('retitle','unlink','inline'))
 );
 CREATE INDEX IF NOT EXISTS idx_block_rewrites_uid
   ON block_rewrites(uid, base_hash);

@@ -162,3 +162,40 @@ it("closes expansion on a source change and recovers from a prior failure", () =
   rerender(<AssetImage src="/assets/c/z.png" alt="z" />);
   expect(screen.getByRole("img", { name: "z" })).toHaveAttribute("src", "/assets/c/z.png");
 });
+
+it("shows a loading placeholder until the image loads", () => {
+  render(<AssetImage src={ASSET} alt="photo" />);
+  expect(screen.getByText(/loading image/i)).toHaveTextContent("photo");
+  fireEvent.load(screen.getByRole("img", { name: "photo" }));
+  expect(screen.queryByText(/loading image/i)).toBeNull();
+  expect(screen.getByRole("img", { name: "photo" })).toBeInTheDocument();
+});
+
+it("replaces the loading placeholder with the offline one when the image fails", () => {
+  render(<AssetImage src="https://example.test/photo.png" alt="external" />);
+  expect(screen.getByText(/loading image/i)).toBeInTheDocument();
+  fireEvent.error(screen.getByRole("img", { name: "external" }));
+  expect(screen.queryByText(/loading image/i)).toBeNull();
+  expect(screen.getByText(/image unavailable offline/i)).toBeInTheDocument();
+});
+
+it("shows the loading placeholder again for a new source", () => {
+  const { rerender } = render(<AssetImage src="/assets/a/x.png" alt="x" />);
+  fireEvent.load(screen.getByRole("img", { name: "x" }));
+  rerender(<AssetImage src="/assets/b/y.png" alt="y" />);
+  expect(screen.getByText(/loading image/i)).toHaveTextContent("y");
+});
+
+it("skips the loading placeholder for an image the browser already holds", () => {
+  const complete = vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+  const width = vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(10);
+  try {
+    const { rerender } = render(<AssetImage src="/assets/a/x.png" alt="x" />);
+    expect(screen.queryByText(/loading image/i)).toBeNull();
+    rerender(<AssetImage src="/assets/b/y.png" alt="y" />);
+    expect(screen.queryByText(/loading image/i)).toBeNull();
+  } finally {
+    complete.mockRestore();
+    width.mockRestore();
+  }
+});

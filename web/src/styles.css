@@ -688,6 +688,11 @@ mark.highlight { background: var(--color-highlight-bg); }
   border: 1px dashed var(--color-border); border-radius: var(--radius-card);
   color: var(--color-text-muted); font-size: 13px; font-style: italic;
 }
+/* A pending image stands in for the img until it loads (see AssetImage.tsx).
+ * Its text stays hidden for a beat so an image served from the service-worker
+ * cache swaps in without flashing the label. */
+.asset-image-pending { animation: asset-image-pending-reveal 0s 250ms both; }
+@keyframes asset-image-pending-reveal { from { visibility: hidden; } }
 .pdf-embed { display: block; margin: 4px 0; }
 /* contain: layout makes the frame baseline-less. The frame sits in
  * a baseline-aligned .block-row, and iPadOS WebKit took the row's baseline

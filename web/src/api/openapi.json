@@ -302,7 +302,7 @@
       },
       "delete": {
         "summary": "Delete Page",
-        "description": "Deletes the page, its blocks, and any sidebar entry for it. Inbound\n[[links]] from other pages' block text are left as-is -- only the refs\nrows pointing at this page disappear (via target_page_id CASCADE).",
+        "description": "Deletes the page, its blocks, and any sidebar entry for it. Inbound\n[[links]] and #tags in other pages' blocks become plain\ntext, and inbound ((block refs)) are replaced by a copy of the referenced\ntext. 409 with the offending blocks when a query macro or attribute value\nnames the page, since those cannot be rewritten; nothing is changed.",
         "operationId": "delete_page_api_page__title__delete",
         "parameters": [
           {
@@ -363,6 +363,46 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PageMeta"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/delete-preview": {
+      "get": {
+        "summary": "Delete Preview",
+        "description": "What deleting the page would rewrite: how many [[links]] become plain\ntext and ((block refs)) become copies (blocks and distinct pages), and the\nblocks that would make DELETE refuse (query macros and attribute values\nnaming the page). Read-only; 404 when the page does not exist. Not under\n/api/page/ because GET /api/page/{title:path} would swallow it.",
+        "operationId": "delete_preview_api_delete_preview_get",
+        "parameters": [
+          {
+            "name": "title",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Title"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletePreview"
                 }
               }
             }
@@ -3126,6 +3166,39 @@
         ],
         "title": "CurrentWorkSection"
       },
+      "DeleteBlockerModel": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "page_title": {
+            "type": "string",
+            "title": "Page Title"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "query",
+              "attribute"
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "page_title",
+          "text",
+          "reason"
+        ],
+        "title": "DeleteBlockerModel",
+        "description": "A block whose reference to the page a delete cannot rewrite (a query\nmacro or an attribute value naming it)."
+      },
       "DeleteOp": {
         "properties": {
           "op": {
@@ -3159,6 +3232,43 @@
           "uid"
         ],
         "title": "DeleteOp"
+      },
+      "DeletePreview": {
+        "properties": {
+          "links": {
+            "type": "integer",
+            "title": "Links"
+          },
+          "link_pages": {
+            "type": "integer",
+            "title": "Link Pages"
+          },
+          "block_refs": {
+            "type": "integer",
+            "title": "Block Refs"
+          },
+          "block_ref_pages": {
+            "type": "integer",
+            "title": "Block Ref Pages"
+          },
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/DeleteBlockerModel"
+            },
+            "type": "array",
+            "title": "Blockers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "links",
+          "link_pages",
+          "block_refs",
+          "block_ref_pages",
+          "blockers"
+        ],
+        "title": "DeletePreview",
+        "description": "GET /api/delete-preview: what deleting the page would rewrite. Counts\nare of source blocks and the distinct pages holding them; a non-empty\n`blockers` means DELETE would be refused with 409."
       },
       "DescribeStatusPayload": {
         "properties": {

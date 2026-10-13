@@ -1301,3 +1301,13 @@ def test_rewrite_records_are_pruned_past_the_retention_window(
         "SELECT uid, old_title, new_title FROM block_rewrites")]
     con.close()
     assert rows == [("uid_b1", "AI", "Artificial Intelligence")]
+
+
+def test_stale_edit_replays_a_delete_unlink_instead_of_resurrecting_the_title(
+        client):
+    assert client.delete("/api/page/AI").status_code == 200
+    _stale_push(client, STALE_BASE)
+
+    assert _ml_texts(client)[0] == "Tags:: AI plus offline words"
+    assert client.get("/api/page/AI").status_code == 404
+    assert client.get("/api/page/conflict").status_code == 404

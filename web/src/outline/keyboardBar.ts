@@ -33,6 +33,15 @@ export function isPhoneUserAgent(ua: string): boolean {
   return /\b(iPhone|iPod)\b/.test(ua);
 }
 
+/** The viewport meta for a phone. iPhone Safari zooms the page when a field
+ * whose text is under 16px takes focus, and the block editor's is 15px. The
+ * zoom pans the page sideways and pushes the fixed keyboard bar partly off
+ * screen. `maximum-scale=1` stops that zoom; iOS still allows pinch zoom
+ * with it, but Android would not, hence phones only. */
+export function phoneViewportContent(content: string): string {
+  return /maximum-scale/.test(content) ? content : `${content}, maximum-scale=1`;
+}
+
 /** What typing `ch` does when the policy leaves it to the textarea: replace
  * the selection and put the caret after it. A bar press has no native
  * keystroke to fall back on, so the shell applies this instead. */

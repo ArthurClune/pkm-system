@@ -5,6 +5,7 @@ import { BrowserRouter } from "react-router-dom";
 import { registerSW } from "virtual:pwa-register";
 import { App } from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { isPhoneUserAgent, phoneViewportContent } from "./outline/keyboardBar";
 import { ROUTER_FUTURE_FLAGS } from "./router";
 import "./styles.css";
 
@@ -14,6 +15,11 @@ import "./styles.css";
 registerSW({ immediate: true });
 if (navigator.storage?.persist) {
   void navigator.storage.persist();
+}
+
+if (isPhoneUserAgent(navigator.userAgent)) {
+  const viewport = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+  if (viewport) viewport.content = phoneViewportContent(viewport.content);
 }
 
 createRoot(document.getElementById("root")!).render(

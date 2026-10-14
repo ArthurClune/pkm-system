@@ -138,10 +138,11 @@ def defuse_attribute(text: str, is_target: TitleMatch) -> str:
         return text
     name_end = attribute.start + len(attribute.raw_title)
     if "`" in attribute.raw_title:
-        # A value starting with `:` can extend the colon run into a new
-        # `::`, so repeat until the attribute is gone.
-        return defuse_attribute(
-            text[:attribute.end - 2] + text[attribute.end - 1:], is_target)
+        # The colons collapse to one: a value starting with `:` would
+        # otherwise extend the run into a new `::`. One pass, so a long run
+        # costs no recursion.
+        rest = text[attribute.end:].lstrip(":")
+        return text[:name_end] + ":" + rest
     return (text[:attribute.start] + "`" + text[attribute.start:name_end]
             + "`" + text[name_end:])
 

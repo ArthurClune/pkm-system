@@ -208,3 +208,8 @@ def test_unlink_stale_refs_defuses_a_leading_attribute(text, expected):
 
 def test_defuse_attribute_leaves_other_text_alone():
     assert defuse_attribute("see [[X]]", lambda raw: raw == "X") == "see [[X]]"
+
+
+def test_defuse_attribute_collapses_a_long_colon_run():
+    text = "a`b" + ":" * 5000 + " v"
+    assert defuse_attribute(text, lambda raw: raw == "a`b") == "a`b: v"

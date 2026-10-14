@@ -155,10 +155,12 @@ def apply_delete_rewrite(
     return unlink_title_refs(inline_block_refs(text, copies), is_target)
 
 
-# query: a query macro names the page; attribute: the rewrite would change
-# the block's leading `Name::` attribute; residual: the rewritten text would
-# still reference the page or one of its blocks.
-BlockerReason = Literal["query", "attribute", "residual"]
+# query: a query macro names the page; used_as_attribute: the block's
+# leading `Name::` attribute is the page, which a delete cannot rewrite and
+# the next edit would recreate; attribute: the rewrite would change the
+# block's leading attribute; residual: the rewritten text would still
+# reference the page or one of its blocks.
+BlockerReason = Literal["query", "used_as_attribute", "attribute", "residual"]
 
 
 @dataclass(frozen=True)
@@ -207,18 +209,11 @@ def _attribute_raw(text: str) -> str | None:
 
 
 def _still_refs_page(
-    is_target: TitleMatch, page_blocks: Mapping[str, str], original: str,
-    rewritten: str,
+    is_target: TitleMatch, page_blocks: Mapping[str, str], rewritten: str,
 ) -> bool:
-    """Whether the rewritten text references the page or its blocks, beyond
-    a leading attribute naming the page that the rewrite left as it was."""
     parsed = extract(rewritten)
-    kept_attribute = _attribute_raw(original) == _attribute_raw(rewritten)
-    return any(
-        is_target(ref.title)
-        and not (ref.kind == "attribute" and kept_attribute)
-        for ref in parsed.refs
-    ) or any(uid in page_blocks for uid in parsed.block_refs)
+    return any(is_target(ref.title) for ref in parsed.refs) \
+        or any(uid in page_blocks for uid in parsed.block_refs)
 
 
 def _blocker_reason(
@@ -229,11 +224,14 @@ def _blocker_reason(
     for _start, _end, expr in find_query_macros(clean):
         if any(is_target(ref.title) for ref in extract(expr).refs):
             return "query"
+    if any(is_target(ref.title) for ref in extract(source.text).refs
+           if ref.kind == "attribute"):
+        return "used_as_attribute"
     # A rewrite that adds or retitles the leading attribute would turn the
     # block into a property block and create the page it names.
     if _attribute_raw(source.text) != _attribute_raw(rewritten):
         return "attribute"
-    if _still_refs_page(is_target, page_blocks, source.text, rewritten):
+    if _still_refs_page(is_target, page_blocks, rewritten):
         return "residual"
     return None
 

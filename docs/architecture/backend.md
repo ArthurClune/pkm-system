@@ -544,9 +544,9 @@ plans with `unlink.plan_page_delete` (`store.plan_delete`) before any write:
 | `[[Title]]`, `#Title`, `#[[Title]]` | becomes plain text |
 | `((uid))` to a block of the page | replaced by a copy of that block's text (no task marker, no leading attribute, newlines folded), with its own refs resolved |
 | query macro naming the page | refused: 409 with `blockers` (`uid`, `page_title`, `text`, `reason`); nothing changes. `reason` is `query` |
+| leading `Title:: v` attribute naming the page | refused the same way, `reason` = `used_as_attribute`: the delete cannot rewrite the attribute, and the block's next edit would recreate the page |
 | unlinking would add or change the block's leading attribute name (`[[Title]]:: v`, `[[Title]] x:: v`) | refused the same way, `reason` = `attribute`: the block would become a property block and create the page it names |
 | rewritten text would still reference the page or one of its blocks | refused the same way, `reason` = `residual` |
-| leading `Title:: v` attribute naming the page | left as it is, and not counted in the preview's `links` |
 
 `unlink_title_refs` repeats until the text stops changing, because a nested
 legacy link (`[[[[Title]]]]`) loses one layer per pass. Each rewritten block
@@ -788,7 +788,7 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | GET | `/api/block/{uid}/backlinks` | Blocks referencing `((uid))`, grouped like page backlinks (unpaginated) |
 | GET | `/api/block-refs?uids=` | Resolve `((uid))` references on demand |
 | POST | `/api/pages` | Idempotent page create |
-| DELETE | `/api/page/{title}` | Delete page + blocks (+ sidebar entry); inbound links and tags become plain text and inbound `((refs))` become copies ([Page mutations](#page-mutations-and-the-sidebar)). 409 with `detail.blockers` when a query names the page, unlinking would change a leading attribute name, or a reference would be left; 503 with `Retry-After` when the write lock is busy |
+| DELETE | `/api/page/{title}` | Delete page + blocks (+ sidebar entry); inbound links and tags become plain text and inbound `((refs))` become copies ([Page mutations](#page-mutations-and-the-sidebar)). 409 with `detail.blockers` when a query names the page, a block uses the page as its leading attribute, unlinking would change a leading attribute name, or a reference would be left; 503 with `Retry-After` when the write lock is busy |
 | GET | `/api/delete-preview?title=` | `DeletePreview`: `links`, `link_pages`, `block_refs`, `block_ref_pages` and `blockers`, what a delete would rewrite or be refused for; read-only; 404 if the page is missing |
 | POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`; 503 with `Retry-After` when the write lock is busy. Returns `RenamePageResponse` (`result: "renamed" \| "merged"`, `title`) |
 | GET | `/api/unlinked?title` | Unlinked mentions of a title |

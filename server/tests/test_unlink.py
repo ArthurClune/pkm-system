@@ -135,19 +135,38 @@ def test_blocker_when_the_rewrite_changes_the_leading_attribute(text):
 def test_unchanged_leading_attribute_is_not_a_blocker():
     plan = plan_page_delete(is_ai, {}, [
         SourceBlock("s1", "A", "Status:: [[AI]]"),
-        SourceBlock("s2", "A", "AI:: see [[AI]]"),
+        SourceBlock("s2", "A", "Status:: see #AI"),
     ])
     assert plan.blockers == ()
-    assert plan.rewrites == {"s1": "Status:: AI", "s2": "AI:: see AI"}
+    assert plan.rewrites == {"s1": "Status:: AI", "s2": "Status:: see AI"}
 
 
-def test_leading_attribute_of_the_page_alone_is_not_counted_as_a_link():
-    plan = plan_page_delete(is_ai, {}, [
-        SourceBlock("s1", "A", "AI:: value"),
-        SourceBlock("s2", "B", "AI:: [[AI]]"),
+@pytest.mark.parametrize("text", [
+    "AI:: value",
+    " AI :: value",
+    "AI:: see [[AI]]",
+    "AI:: ((pg_p01))",
+])
+def test_blocker_when_the_page_is_used_as_an_attribute(text):
+    plan = plan_page_delete(is_ai, {"pg_p01": "copied"}, [
+        SourceBlock("a1", "A", text),
+        SourceBlock("ok", "B", "fine [[AI]]"),
     ])
-    assert (plan.links, plan.link_pages) == (1, 1)
-    assert plan.rewrites == {"s2": "AI:: AI"}
+    assert [(b.uid, b.reason) for b in plan.blockers] == [
+        ("a1", "used_as_attribute")]
+    assert plan.rewrites == {"ok": "fine AI"}
+
+
+def test_query_naming_the_page_outranks_its_use_as_an_attribute():
+    plan = plan_page_delete(is_ai, {}, [
+        SourceBlock("q1", "Q", "AI:: {{query: [[AI]]}}")])
+    assert [(b.uid, b.reason) for b in plan.blockers] == [("q1", "query")]
+
+
+def test_attribute_in_code_is_not_a_blocker():
+    plan = plan_page_delete(is_ai, {}, [
+        SourceBlock("c1", "C", "`AI`:: value [[AI]]")])
+    assert plan.blockers == ()
 
 
 def test_nested_legacy_links_unlink_to_a_fixpoint_in_the_plan():

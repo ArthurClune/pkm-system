@@ -31,6 +31,7 @@ it("adds both sentences in order", () => {
 
 it("labels each blocker reason", () => {
   expect(blockerReasonLabel("query")).toBe("a query names this page");
+  expect(blockerReasonLabel("used_as_attribute")).toBe("this page is used as an attribute");
   expect(blockerReasonLabel("attribute")).toBe("unlinking would make this an attribute");
   expect(blockerReasonLabel("residual")).toBe("unlinking would still leave a link to this page");
 });

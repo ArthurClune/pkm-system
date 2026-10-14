@@ -1356,10 +1356,11 @@ export interface components {
         /**
          * DeleteBlockerModel
          * @description A block whose reference to the page a delete cannot rewrite. `query`:
-         *     a query macro names the page. `attribute`: unlinking would add or change
-         *     the block's leading `Name::` attribute (as for `[[page]]:: v`), turning
-         *     it into a property block. `residual`: the rewritten text would still
-         *     reference the page or one of its blocks.
+         *     a query macro names the page. `used_as_attribute`: the block's leading
+         *     `Name::` attribute is the page. `attribute`: unlinking would add or
+         *     change the block's leading `Name::` attribute (as for `[[page]]:: v`),
+         *     turning it into a property block. `residual`: the rewritten text would
+         *     still reference the page or one of its blocks.
          */
         DeleteBlockerModel: {
             /** Uid */
@@ -1372,7 +1373,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "query" | "attribute" | "residual";
+            reason: "query" | "used_as_attribute" | "attribute" | "residual";
         };
         /** DeleteOp */
         DeleteOp: {

@@ -186,7 +186,7 @@ test("a reset commit rolls back schema rebuild when snapshot application fails",
     batch_id: "batch-retained",
     ops: [{ op: "delete", uid: "uid_b1",
             base_subtree_hash: subtreeHash([["uid_b1", "hello"]]) }],
-    poisoned: true,
+    poisoned: true, seen_seq: 5,
   }]);
   expect(t.db.select("SELECT id FROM pages WHERE id=999")).toEqual([]);
   expect(t.db.select("SELECT uid, text FROM blocks ORDER BY uid"))
@@ -1423,6 +1423,34 @@ test("an enqueue on a file without pending_seen creates it and keeps the batch",
   await handlers.enqueue(shiftingCreate("a"));
   expect(t.db.select("SELECT batch_id FROM pending_ops")).toEqual([{ batch_id: "a" }]);
   expect(t.db.select("SELECT batch_id FROM pending_seen")).toEqual([{ batch_id: "a" }]);
+});
+
+test("deleteBatch and nextBatch work on a file without pending_seen", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(TWO);
+  await handlers.enqueue(shiftingCreate("a"));
+  t.db.exec("DROP TABLE pending_seen");
+  const next = await handlers.nextBatch(undefined);
+  expect(next?.batch_id).toBe("a");
+  expect(next?.seen_seq).toBeUndefined();
+  await handlers.deleteBatch({ id: next!.id, batchId: bid("a") });
+  expect(t.db.select("SELECT batch_id FROM pending_ops")).toEqual([]);
+});
+
+test("pendingBatches carries seen_seq from pending_seen and omits it on a file without the table", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(TWO);
+  await handlers.enqueue(shiftingCreate("a"));
+  const seen = (await handlers.pendingBatches(undefined))[0].seen_seq;
+  expect(typeof seen).toBe("number");
+  t.db.exec("DROP TABLE pending_seen");
+  const row = t.db.select<{ id: number }>("SELECT id FROM pending_ops")[0];
+  expect(Object.keys((await handlers.pendingBatches(undefined))[0])).not.toContain("seen_seq");
+  expect(row.id).toBeGreaterThan(0);
 });
 
 const LEGACY_LEDGER =

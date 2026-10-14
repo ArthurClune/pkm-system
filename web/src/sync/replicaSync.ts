@@ -419,8 +419,10 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       const ack = (await fetchJson("/api/ops", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client_id: clientId, batch_id: b.batch_id,
-                               ops: b.ops }),
+        body: JSON.stringify({
+          client_id: clientId, batch_id: b.batch_id, ops: b.ops,
+          ...(b.seen_seq !== undefined ? { seen_seq: b.seen_seq } : {}),
+        }),
       })) as OpsAck;
       const reading = readOpsAck(ack);
       // This batch committed (skipped ops are not a rejection), same as the

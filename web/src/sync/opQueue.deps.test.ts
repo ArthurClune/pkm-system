@@ -63,7 +63,7 @@ describe("createOpQueue deps", () => {
     });
     const q = createOpQueue(replica, { post, clientId: "client-x" as ClientId });
     await q.drain();
-    expect(post.mock.calls.map((c) => c[0])).toEqual([
+    expect(post.mock.calls.map((c) => c[0])).toStrictEqual([
       { client_id: "client-x", batch_id: "with", ops: [op("aaaaaaaa")], seen_seq: 9 },
       { client_id: "client-x", batch_id: "without", ops: [op("bbbbbbbb")] },
     ]);

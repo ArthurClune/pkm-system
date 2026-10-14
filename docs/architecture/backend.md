@@ -338,9 +338,9 @@ Key mechanics:
   `{type:"seq", seq}` nudge to other clients (see
   [sync-and-offline.md](sync-and-offline.md)).
 
-Conflicts, missing targets and concurrent structure edits are what a batch
-meets when the tree changed after it was planned. None of them rejects the
-batch.
+Conflicts, missing targets, stale batches (a page deleted after the batch's
+`seen_seq`) and concurrent structure edits are what a batch meets when the
+tree changed after it was planned. None of them rejects the batch.
 
 ### Conflicts
 
@@ -416,7 +416,8 @@ An op whose block (or create/move parent) is gone never rejects its batch. A
 batch is atomic, so one such op would otherwise take every valid op in it
 down with a 400 and wedge the client's queue.
 `ops_core.classify_skip` sorts such an op before its context is read, so
-the daily page is resolved only when an entry lands:
+the daily page is resolved only when an entry lands. The last two rows are
+the stale-batch skips, described in [Stale batches](#stale-batches):
 
 | Op, situation | Outcome | `skipped` reason | Entry grouped under | Journalled |
 |---|---|---|---|---|
@@ -438,7 +439,8 @@ the ack's `skipped` list (`ops_core.skip_report`), with `note_page` null
 where nothing landed. `uid` is always the op's own uid, so a diverted
 create's entry names its new uid, not the missing parent's. A move's cycle
 skip (`move_cycle`) reports `cycle` instead; see
-[Concurrent structure edits](#concurrent-structure-edits).
+[Concurrent structure edits](#concurrent-structure-edits). A `stale_page`
+skip reports `page_deleted`.
 
 A follow-on op in the same batch sees a diverted create's block as missing
 too, so it lands rather than 400s. Only text survives a diversion. A

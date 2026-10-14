@@ -69,6 +69,9 @@ class Outcome:
     status: int
     skipped: tuple[SkipEntry, ...] = ()
     kept_texts: tuple[str, ...] = ()
+    # which rewrite-recording paths the batch's edits took, for the state
+    # machine's event tally; not part of what the client sees
+    paths: tuple[str, ...] = field(default=(), compare=False)
 
 
 class _Rejected(Exception):
@@ -175,11 +178,14 @@ class Rewrite:
     sharing a before/after hash pair (backend.md § Database). `unlinked`
     are deleted titles, `inlines` the `(uid, copied text)` pairs a page
     delete put in place of `((uid))`. A hashed edit whose base hash is
-    `base_hash` has this replayed onto its text first."""
+    `base_hash` has this replayed onto its text first. `before` is the
+    text `base_hash` hashes: what a device that missed the rewrite still
+    holds, which strategies re-send. It is not part of the rows."""
     base_hash: str
     after_hash: str
     unlinked: frozenset[str] = frozenset()
     inlines: tuple[tuple[str, str], ...] = ()
+    before: str = field(default="", compare=False)
 
     def replay(self, text: str) -> str:
         text = unlink_titles(inline_refs(text, dict(self.inlines)),
@@ -259,6 +265,8 @@ class Model:
         self.deleted: set[str] = set()
         self.rewrites: dict[str, list[Rewrite]] = {}
         self.deletions: list[tuple[str, int]] = []
+        # filled per batch for Outcome.paths
+        self._paths: list[str] = []
 
     @classmethod
     def from_rows(cls, pages: Iterable[str], rows: Iterable[MBlock]) -> Model:
@@ -294,6 +302,7 @@ class Model:
         stale = self.stale_titles(seen_seq)
         skipped: list[SkipEntry] = []
         kept: list[str] = []
+        self._paths = []
         try:
             if _title_violation(ops):
                 raise _Rejected
@@ -304,7 +313,7 @@ class Model:
             return Outcome(400)
         for text in kept:
             self._touch(text)
-        return Outcome(200, tuple(skipped), tuple(kept))
+        return Outcome(200, tuple(skipped), tuple(kept), tuple(self._paths))
 
     def delete_page(self, title: str, others: Mapping[str, str],
                     seq: int) -> PageDelete:
@@ -335,7 +344,7 @@ class Model:
                 self._record(uid, Rewrite(
                     text_hash(block.text), text_hash(new),
                     frozenset({title} if unlinked else ()),
-                    tuple(sorted(applied.items()))))
+                    tuple(sorted(applied.items())), block.text))
         self.pages.discard(title)
         self.deletions.append((title, seq))
         return plan
@@ -394,7 +403,8 @@ class Model:
             if after != text:
                 base = chain[-1].after_hash if chain else text_hash(sent)
                 chain.append(replace(step, base_hash=base,
-                                     after_hash=text_hash(after)))
+                                     after_hash=text_hash(after),
+                                     before=text))
             text = after
         if (not chain or text != written
                 or replay_chain(chain, sent, text_hash(sent))[0] != written):
@@ -560,7 +570,16 @@ class Model:
             self._write(block, text)
             self._record_written(block.uid, sent, text, stale, ())
             return
+        unreplayed = text
         text, base, replayed = self._replay(block.uid, text, base)
+        kind = ("identical" if text == block.text else
+                "clean" if text_hash(block.text) == base else "conflict")
+        if replayed:
+            self._paths.append(f"update_text replay: {kind}"
+                               + (", edit rewritten" if text != unreplayed
+                                  else ""))
+        elif kind == "identical" and text != sent:
+            self._paths.append("update_text: identical after stale unlink")
         if text == block.text:
             # Row "Incoming text equals current": no-op, whatever the hash.
             # Code, not docs: this is tested before the hash, so an

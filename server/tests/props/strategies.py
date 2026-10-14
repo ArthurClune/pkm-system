@@ -158,6 +158,23 @@ def _subtree_hash_field(draw: st.DrawFn, model: Model, uid: str) -> dict:
     return {"base_subtree_hash": subtree_hash(pairs)}
 
 
+def _edit_text(draw: st.DrawFn, model: Model, uid: str,
+               uids: Sequence[str], stale: Sequence[str]) -> str:
+    """An update_text's text: usually a fresh one, but for a block with
+    recorded rewrites sometimes the text a device that missed the rewrite
+    still holds (`Rewrite.before`), as is or extended. Re-sent with a
+    rewritten base hash, the replay rewrites it and, if the block was
+    written since, conflicts; re-sent stale, its unlink can land on the
+    block's current text, an identical edit that still records a row."""
+    befores = [r.before for r in model.rewrites.get(uid, ())]
+    choice = _weighted(draw, [(3, "fresh"), (1 if befores else 0, "before"),
+                              (1 if befores else 0, "extended")])
+    if choice == "fresh":
+        return draw(texts(uids, stale))
+    before = draw(st.sampled_from(befores))
+    return before if choice == "before" else f"{before} {draw(st.sampled_from(_WORDS))}"
+
+
 def _page(draw: st.DrawFn, stale: Sequence[str]) -> str:
     """A page title; in a stale batch, half the time one of its deleted
     `stale` titles, so its creates and moves reach the stale-page rows.
@@ -216,7 +233,7 @@ def op_for(draw: st.DrawFn, model: Model, uids: list[str],
         uid = _target(draw, model, uids)
         op: dict[str, Any] = {"op": kind, "uid": uid}
         if kind == "update_text":
-            op["text"] = draw(texts(uids, stale))
+            op["text"] = _edit_text(draw, model, uid, uids, stale)
             op.update(_text_hash_field(draw, model, uid))
             hint = draw(st.none() | st.sampled_from(PAGES))
             if hint is not None:

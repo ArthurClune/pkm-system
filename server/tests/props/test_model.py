@@ -433,6 +433,27 @@ def test_edit_based_on_a_page_deletes_rewrite_replays_its_inline():
     assert out == Outcome(200, (), ()) and m.blocks[B].text == "y copied"
 
 
+def test_recorded_rewrites_remember_the_text_they_rewrote():
+    m = deleted(blk(B, page="Beta", text="see [[Alpha]]"))
+    assert m.rewrites[B][0].before == "see [[Alpha]]"
+    m.apply([create(X, 0, text="Alpha:: v", page="Beta")], seen_seq=8)
+    assert m.rewrites[X][0].before == "Alpha:: v"
+
+
+def test_outcome_names_the_rewrite_paths_its_edits_took():
+    m = deleted(blk(B, page="Beta", text="Alpha w"))
+    out = m.apply([{"op": "update_text", "uid": B, "text": "[[Alpha]] w",
+                    "base_text_hash": text_hash("[[Alpha]] w")}], seen_seq=8)
+    assert out.paths == ("update_text: identical after stale unlink",)
+    assert B in m.rewrites
+    m = deleted(blk(B, page="Beta", text="see [[Alpha]]"))
+    m.apply([{"op": "update_text", "uid": B, "text": "online"}])
+    out = m.apply([{"op": "update_text", "uid": B, "text": "see [[Alpha]] x",
+                    "base_text_hash": text_hash("see [[Alpha]]")}])
+    assert out.paths == ("update_text replay: conflict, edit rewritten",)
+    assert out.kept_texts == ("online",) and m.blocks[B].text == "see Alpha x"
+
+
 def test_stale_conflicting_edit_keeps_the_current_text():
     m = deleted(blk(B, page="Beta", text="current"))
     out = m.apply([{"op": "update_text", "uid": B, "text": "[[Alpha]] mine",

@@ -28,7 +28,7 @@ from props.harness import (DAILY_TITLE, FROZEN_NOW, FreshApp,
                            assert_unique_keys, assert_well_formed, examples,
                            fresh_app, read_db, seed_ops, template_db_path)
 from props.model import MBlock, Model
-from props.strategies import PAGES, batch_for, seed_tree, uid_pool
+from props.strategies import PAGES, batch_for, seed_tree, texts, uid_pool
 
 pytestmark = pytest.mark.proptest
 
@@ -175,9 +175,64 @@ class OpsMachine(RuleBasedStateMachine):
                                      label="seen_seq")
                      if self.before_deletes else _head(self.app))
 
-    def _submit(self, data: st.DataObject, seen_seq: int | None) -> None:
+    @rule(data=st.data())
+    def offline_edit(self, data: st.DataObject) -> None:
+        """Another device writes a live block online, then an edit from a
+        device that missed something arrives:
+
+        - "conflict": the edit is of the text the block held before a
+          recorded rewrite (a page delete's or a stale unlink's), hashed on
+          it. The replay rewrites the edit, which then conflicts with the
+          online write, and the replayed steps are recorded.
+        - "stale identical": the online write is `D w` for a deleted title
+          D, and the edit, stale for every delete, is `[[D]] w` (or `#D w`,
+          or `D:: w` against `` `D`:: w ``). Its unlink makes it identical
+          to the block, and it still records that unlink, so the device's
+          next edit replays onto the block's text.
+
+        With neither possible it does nothing."""
         assert self.app is not None
+        live = sorted(self.model.blocks)
+        rewritten = [(uid, step) for uid, steps
+                     in sorted(self.model.rewrites.items())
+                     if uid in self.model.blocks for step in steps]
+        kinds = ([*(["conflict"] if rewritten else []),
+                  *(["stale identical"] if live and self.before_deletes
+                    else [])])
+        if not kinds:
+            return
+        word = data.draw(st.sampled_from(("apple", "river")), label="word")
+        if data.draw(st.sampled_from(kinds), label="offline") == "conflict":
+            uid, step = data.draw(st.sampled_from(rewritten), label="rewrite")
+            text = step.before
+            if data.draw(st.booleans(), label="extend"):
+                text += " " + word
+            self._send([{"op": "update_text", "uid": uid,
+                         "text": data.draw(texts(UIDS), label="online")}],
+                       None)
+            self._send([{"op": "update_text", "uid": uid, "text": text,
+                         "base_text_hash": step.base_hash}], None)
+            return
+        uid = data.draw(st.sampled_from(live), label="block")
+        title = data.draw(st.sampled_from(
+            sorted({t for t, _ in self.model.deletions})), label="deleted")
+        online, offline = data.draw(st.sampled_from((
+            (f"{title} {word}", f"[[{title}]] {word}"),
+            (f"{title} {word}", f"#{title} {word}"),
+            (f"`{title}`:: {word}", f"{title}:: {word}"))), label="form")
+        self._send([{"op": "update_text", "uid": uid, "text": online}], None)
+        self._send([{"op": "update_text", "uid": uid, "text": offline,
+                     "base_text_hash": text_hash(offline)}],
+                   self.before_deletes[0])
+
+    def _submit(self, data: st.DataObject, seen_seq: int | None) -> None:
         ops = data.draw(batch_for(self.model, UIDS, seen_seq), label="ops")
+        self._send(ops, seen_seq)
+
+    def _send(self, ops: list[dict], seen_seq: int | None) -> None:
+        """Post one batch and check the ack and the database against the
+        model's outcome."""
+        assert self.app is not None
         for label in _hash_events(self.model, ops, seen_seq):
             event(label)
         payload: dict[str, Any] = {"client_id": CLIENT_ID,
@@ -190,6 +245,8 @@ class OpsMachine(RuleBasedStateMachine):
         outcome = self.model.apply(ops, seen_seq)
         if self.model.rewrite_rows() != rewrites:
             event("batch: records a rewrite")
+        for path in outcome.paths:
+            event(path)
         before = _snapshot(self.app)
         r = self._post(payload)
         assert r.status_code == outcome.status, r.text
@@ -213,7 +270,10 @@ class OpsMachine(RuleBasedStateMachine):
     def delete_page(self, data: st.DataObject) -> None:
         """`DELETE /api/page/{title}`, through the route itself, so a page
         whose blocks it cannot rewrite is refused as in production. Three
-        times in four the title is a page that exists."""
+        times in four the title is a page that exists. Today's daily page
+        is never drawn: deleting it would take the conflict entries
+        `no_text_lost` checks with it, and a date title records no
+        `page_deletions` row, so it never makes a batch stale."""
         assert self.app is not None
         live = sorted(self.model.pages & set(PAGES))
         pool = (live if live and data.draw(st.integers(0, 3)) < 3

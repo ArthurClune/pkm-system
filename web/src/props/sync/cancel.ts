@@ -43,6 +43,7 @@ export function cancellable(server: ServerControl): Cancellable {
       snapshot: async () => { live(); return bound.snapshot(); },
       takeEcho: async () => { live(); return bound.takeEcho(); },
       setEchoTeeth: async (on) => { live(); await bound.setEchoTeeth(on); },
+      setStaleTeeth: async (on) => { live(); await bound.setStaleTeeth(on); },
       changes: async (since) => { live(); return bound.changes(since); },
       latestSeq: async () => { live(); return bound.latestSeq(); },
       postRaw: async (body) => { live(); return bound.postRaw(body); },

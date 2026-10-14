@@ -16,6 +16,7 @@ import fc from "fast-check";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { EDIT_TARGETS, type OpDraft, PAGE_TITLES } from "./arbitraries";
 import { cancellable, ExampleCancelled } from "./cancel";
+import { staleNamers } from "./deleteWins";
 import { BadBatch, commandsFor, connectTally, connectTiming, countSkipsWith, Edit,
          Fault, type FaultKind, NAMES, Nudge, Offline, Pull, Reload, Rename, SyncCommand,
          type World } from "./commands";
@@ -202,6 +203,13 @@ async function runExample(names: readonly string[], cmds: Commands,
     const snap = await guard.server.snapshot();
     if (snap.blocks.some((b) => b.text.includes("[[conflict]]"))) count("examples with a conflict");
     if (model.bad.size > 0) count("examples with a rejected batch");
+    const deletes = await guard.server.deletes();
+    if (deletes.length > 0 && staleNamers({
+      applied: await guard.server.applied(), deletes,
+      committed: new Map(all().flatMap((c) => [...c.transport.committed])),
+    }).length > 0) {
+      count("examples with a stale batch naming a deleted page");
+    }
     transcript.push("check");
     await checkQuiescent(all(), guard.server, model);
   };

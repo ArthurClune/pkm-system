@@ -24,6 +24,7 @@ import logging
 import os
 import shutil
 import signal
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -41,13 +42,15 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from pkm.contracts.ops import OpBatch
-from pkm.server import sync_meta
+from pkm.refs import CanonicalTitle
+from pkm.server import ops_apply, sync_meta
 from pkm.server.app import create_app
 from pkm.server.auth import require_auth
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
+from pkm.server.store import stale_titles
 
 PORT = int(os.environ.get("PROPTEST_PORT", "8978"))
 PASSWORD = "proptest-pw"
@@ -170,12 +173,30 @@ def build_template(path: Path) -> None:
         con.close()
 
 
+# Harness-only teeth for the sync oracle's "delete wins": while armed, every
+# batch is stale for no title, as before stale batches existed, so a stale
+# create or link re-creates a deleted page. ops_apply reads stale_titles
+# through its module global, which build_app points here; disarmed, it is
+# the real function. Module state, not per app: one harness app serves at a
+# time, and build_app and every reset disarm it.
+_stale_teeth = {"empty": False}
+
+
+def _stale_titles_with_teeth(db: sqlite3.Connection,
+                             seen_seq: int | None) -> frozenset[CanonicalTitle]:
+    return frozenset() if _stale_teeth["empty"] else stale_titles(db, seen_seq)
+
+
 class _ClockBody(BaseModel):
     ms: int
 
 
 class _TeethBody(BaseModel):
     drop_cross_page_title: bool
+
+
+class _StaleTeethBody(BaseModel):
+    empty: bool
 
 
 def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI:
@@ -219,6 +240,8 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         await broadcast(message)
 
     app.state.hub.broadcast = recording_broadcast
+    ops_apply.stale_titles = _stale_titles_with_teeth
+    _stale_teeth["empty"] = False
 
     @app.post("/__proptest/reset", dependencies=[Depends(require_auth)])
     def reset(request: Request) -> dict:
@@ -234,6 +257,7 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         clock.set_ms(START_MS)
         echo["ops"] = None
         echo["drop_cross_page_title"] = False
+        _stale_teeth["empty"] = False
         return {"db_path": str(db_path)}
 
     @app.post("/__proptest/clock", dependencies=[Depends(require_auth)])
@@ -298,6 +322,11 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     def echo_teeth(body: _TeethBody) -> dict:
         echo["drop_cross_page_title"] = body.drop_cross_page_title
         return {"drop_cross_page_title": body.drop_cross_page_title}
+
+    @app.post("/__proptest/stale/teeth", dependencies=[Depends(require_auth)])
+    def stale_teeth(body: _StaleTeethBody) -> dict:
+        _stale_teeth["empty"] = body.empty
+        return {"empty": body.empty}
 
     return app
 

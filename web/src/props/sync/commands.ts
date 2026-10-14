@@ -416,7 +416,9 @@ const DELETE_REFUSED = new Set([404, 409]);
 /** A page delete from the title pool: the delete route straight through
  * this client's network, not an op. Offline it runs and fails, as a user's
  * attempt does. Other clients' queued and later ops may still name the
- * deleted page, which is the race this draws. */
+ * deleted page, which is the race this draws. The page holding BAD_UID,
+ * under whatever title renames have given it, is spared: deleting it would
+ * turn every later BadBatch into a create that lands. */
 export class DeletePage extends SyncCommand {
   protected readonly kindName = "DeletePage";
   constructor(readonly client: string, readonly title: number) { super(); }
@@ -427,9 +429,16 @@ export class DeletePage extends SyncCommand {
 
   protected async act(_m: SyncModel, w: World): Promise<string> {
     const c = clientOf(w, this.client);
+    const title = pageTitle(this.title);
+    const snap = await w.server.snapshot();
+    const holder = snap.blocks.find((b) => b.uid === BAD_UID)?.page_id;
+    if (snap.pages.some((p) => p.id === holder && p.title === title)) {
+      w.count(`DeletePage spared: holds ${BAD_UID}`);
+      return `${this.toString()}: spared, holds ${BAD_UID}`;
+    }
     let outcome: string;
     try {
-      await c.transport.fetchJson(`/api/page/${encodeURIComponent(pageTitle(this.title))}`,
+      await c.transport.fetchJson(`/api/page/${encodeURIComponent(title)}`,
                                   { method: "DELETE" });
       outcome = "deleted";
     } catch (error: unknown) {

@@ -21,6 +21,7 @@ function fakeServer(calls: string[]): ServerControl {
     snapshot: async () => { await note("snapshot"); return {} as Snapshot; },
     takeEcho: async () => { await note("takeEcho"); return null; },
     setEchoTeeth: () => note("setEchoTeeth"),
+    setStaleTeeth: () => note("setStaleTeeth"),
     changes: async () => { await note("changes"); return {} as Changes; },
     latestSeq: async () => { await note("latestSeq"); return 7 as SyncSeq; },
     postRaw: async () => { await note("postRaw"); return new Response(null); },
@@ -33,7 +34,7 @@ function fakeServer(calls: string[]): ServerControl {
 const everyCall = (s: ServerControl): Promise<unknown>[] => [
   s.reset(), s.setClock(0), s.rotateGeneration(), s.applied(), s.snapshot(),
   s.latestSeq(), s.postRaw("{}"), s.renames(), s.postRename("Second", "Third"),
-  s.deletes(), s.postDelete("Second"),
+  s.deletes(), s.postDelete("Second"), s.setStaleTeeth(true),
 ];
 
 describe("cancellable", () => {
@@ -43,7 +44,7 @@ describe("cancellable", () => {
     expect(guard.server.cookie).toBe("session=x");
     await Promise.all(everyCall(guard.server));
     expect(await guard.server.latestSeq()).toBe(7);
-    expect(calls).toHaveLength(12);
+    expect(calls).toHaveLength(13);
     expect(guard.cancelled()).toBe(false);
   });
 

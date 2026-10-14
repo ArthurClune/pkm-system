@@ -47,6 +47,10 @@ export interface ServerControl {
   /** While on, recorded echoes lose the page_title of every move that names
    * one: a deliberate corruption for checking that a suite notices. */
   setEchoTeeth(on: boolean): Promise<void>;
+  /** While on, every batch is stale for no title, so a stale create or link
+   * re-creates a deleted page: a deliberate corruption for the oracle's
+   * teeth. A reset turns it off. */
+  setStaleTeeth(on: boolean): Promise<void>;
   /** GET /api/sync/changes?since=. */
   changes(since: SyncSeq): Promise<Changes>;
   /** The journal's latest seq. */
@@ -117,6 +121,7 @@ function control(cookie: string, signal?: AbortSignal): ServerControl {
     setEchoTeeth: async (on) => {
       await post("/__proptest/echo/teeth", { drop_cross_page_title: on });
     },
+    setStaleTeeth: async (on) => { await post("/__proptest/stale/teeth", { empty: on }); },
     changes: async (since) =>
       (await (await call(`/api/sync/changes?since=${since}`)).json()) as Changes,
     latestSeq: async () => {

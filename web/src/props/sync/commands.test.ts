@@ -1,6 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../../api/client";
+import { BAD_UID } from "./arbitraries";
 import { ExampleCancelled } from "./cancel";
 import { commandsFor, connectTally, connectTiming, DeletePage, Fault, Offline, offlineBack, Reload,
          Rename, type SyncCommand, type World } from "./commands";
@@ -47,8 +48,10 @@ describe("DeletePage", () => {
     expect(new Set(deletes.map((d) => d.title)).size).toBe(4);
   });
 
-  /** Runs a delete whose transport rejects with `error`, or resolves when null. */
-  async function outcomeOf(error: unknown): Promise<{ line: string; counted: string[]; url: string }> {
+  /** Runs a delete of Second whose transport rejects with `error`, or
+   * resolves when null, with BAD_UID on the page titled `badPage`. */
+  async function outcomeOf(error: unknown, badPage = "Proptest"):
+      Promise<{ line: string; counted: string[]; url: string }> {
     const counted: string[] = [];
     let url = "";
     const client = {
@@ -60,7 +63,11 @@ describe("DeletePage", () => {
         return {};
       } },
     } as unknown as HarnessClient;
-    const w = { ...stubWorld([]), clients: new Map([["A", client]]),
+    const server = { snapshot: () => Promise.resolve({
+      pages: [{ id: 1, title: badPage }, { id: 2, title: "Fourth" }],
+      blocks: [{ uid: "pt_seed_1", page_id: 2 }, { uid: BAD_UID, page_id: 1 }],
+    }) } as unknown as World["server"];
+    const w = { ...stubWorld([]), server, clients: new Map([["A", client]]),
                 count: (k: string) => { counted.push(k); } } as World;
     await new DeletePage("A", 1).run(initialModel(["A"]), w);
     return { line: w.transcript.join("\n"), counted, url };
@@ -75,6 +82,13 @@ describe("DeletePage", () => {
     expect((await outcomeOf(new ApiError(409, "/api/page/Second"))).counted).toEqual(["DeletePage refused 409"]);
     expect((await outcomeOf(new TypeError("fetch failed"))).counted).toEqual(["DeletePage failed offline"]);
     await expect(outcomeOf(new ApiError(500, "/api/page/Second"))).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("spares the page that holds BAD_UID, whatever it is titled now", async () => {
+    const spared = await outcomeOf(null, "Second");
+    expect(spared.url).toBe("");
+    expect(spared.counted).toEqual(["DeletePage spared: holds pt_seed_6"]);
+    expect(spared.line).toContain("spared");
   });
 });
 

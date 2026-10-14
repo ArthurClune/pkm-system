@@ -266,3 +266,32 @@ def test_echo_routes_need_auth(tmp_path: Path, clock: Clock) -> None:
     with TestClient(build_app(tmp_path, clock)) as anon:
         assert anon.post("/__proptest/echo/take").status_code == 401
         assert anon.post("/__proptest/echo/teeth", json={"drop_cross_page_title": True}).status_code == 401
+
+
+def _stale_create(batch_id: str) -> dict:
+    # seen_seq 0: made before every delete, so stale for each deleted title.
+    return {**_batch(batch_id, [
+        {"op": "create", "uid": f"pt_{batch_id}", "page_title": "Second", "parent_uid": None,
+         "order_idx": 0, "text": "stale"}]), "seen_seq": 0}
+
+
+def _titles(client: TestClient) -> set[str]:
+    return {p["title"] for p in client.get("/api/sync/snapshot").json()["pages"]}
+
+
+def test_stale_teeth_make_every_batch_fresh_until_reset(client: TestClient) -> None:
+    try:
+        assert client.post("/__proptest/stale/teeth", json={"empty": True}).status_code == 200
+        assert _delete(client, "Second") == 200
+        assert client.post("/api/ops", json=_stale_create("batch_stale_01")).status_code == 200
+        assert "Second" in _titles(client)
+    finally:
+        client.post("/__proptest/reset")
+    assert _delete(client, "Second") == 200
+    assert client.post("/api/ops", json=_stale_create("batch_stale_02")).status_code == 200
+    assert "Second" not in _titles(client)
+
+
+def test_stale_teeth_route_needs_auth(tmp_path: Path, clock: Clock) -> None:
+    with TestClient(build_app(tmp_path, clock)) as anon:
+        assert anon.post("/__proptest/stale/teeth", json={"empty": True}).status_code == 401

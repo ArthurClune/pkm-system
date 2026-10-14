@@ -3,8 +3,9 @@
 title: Page delete wins over stale offline edits
 status: todo
 type: feature
+priority: normal
 created_at: 2026-10-14T09:07:45Z
-updated_at: 2026-10-14T09:07:45Z
+updated_at: 2026-10-14T09:17:40Z
 ---
 
 Spec: docs/superpowers/specs/2026-10-14-page-delete-wins-design.md
@@ -13,7 +14,7 @@ A stale offline batch (built before its device saw a page delete) must not re-cr
 
 ## Todo
 
-- [ ] Plan
+- [x] Plan (docs/superpowers/plans/2026-10-14-page-delete-wins.md)
 - [ ] Server: page-deletion record (user deletes only; not dailies, cleanup_journal, merges), pruned with block_rewrites
 - [ ] Contract: optional seen-seq on OpBatch; regen openapi + types
 - [ ] Web: replica worker records the cursor at enqueue

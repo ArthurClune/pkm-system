@@ -6,7 +6,7 @@ from __future__ import annotations
 import dataclasses
 import secrets
 import sqlite3
-from collections.abc import Collection
+from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
 
 from pkm.contracts.daily import title_for_date
@@ -21,7 +21,7 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  ExistingHeader, FreshHeader, InsertBlock,
                                  JournalBlock, LandedSkipContext, MoveContext,
                                  OpContext, OpError, PageContext,
-                                 RecordConflictHeader, RecordRewrite,
+                                 RecordConflictHeader, RecordRewrite, RewriteStep,
                                  ReindexRefs,
                                  SetCollapsed, SetHeading, SetPageId,
                                  SetParent, SetViewType, ShiftSiblings, Skip,
@@ -104,6 +104,17 @@ def _block_rewrites(db: sqlite3.Connection,
     return tuple(BlockRewrite(row["base_hash"], row["after_hash"],
                               row["old_title"], row["new_title"], row["kind"])
                  for row in rows)
+
+
+def _replay_canonical(
+    db: sqlite3.Connection, replayed: Sequence[RewriteStep],
+) -> Callable[[str], str]:
+    """The title canonicalisation `ops_core.rewrite_effects` matches with in a
+    batch with no stale titles. The flag read is paid only when a replayed
+    step unlinks or inlines."""
+    if any(s.unlinked or s.inlines for s in replayed):
+        return title_reader(db)
+    return normalize_title
 
 
 def _parent_chain(db: sqlite3.Connection, uid: str) -> tuple[BlockUid, ...]:
@@ -407,7 +418,7 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int,
         # queries
         return TextConflictContext(
             block, outcome.text, row["text"], row["title"],
-            _conflict_landing(db, op.uid, now_ms))
+            _conflict_landing(db, op.uid, now_ms), outcome.replayed)
     return BlockContext(block)
 
 
@@ -550,11 +561,11 @@ def apply_batch(db: sqlite3.Connection, batch: OpBatch,
     skipped: list[dict] = []
     stale = stale_titles(db, batch.seen_seq)
     is_stale: TitleMatch | None = None
-    if stale:
-        canonical = title_reader(db)
+    stale_canonical = title_reader(db) if stale else None
+    if stale_canonical is not None:
 
         def is_stale(raw: str) -> bool:
-            return canonical(normalize_title(raw)) in stale
+            return stale_canonical(normalize_title(raw)) in stale
     for index, op in enumerate(batch.ops):
         sent = op
         if is_stale is not None:
@@ -564,11 +575,16 @@ def apply_batch(db: sqlite3.Connection, batch: OpBatch,
             op = unlink_stale_text(op, is_stale)
         ctx = _context_for(db, op, now_ms, is_stale)
         effects = plan_op(index, op, ctx)
-        outcome = (ctx.outcome if isinstance(ctx, TextEditContext)
-                   and ctx.outcome.replayed else None)
-        if outcome is not None or (is_stale is not None and op is not sent):
-            effects += rewrite_effects(sent, effects, stale or (),
-                                       title_reader(db), outcome)
+        replayed = (ctx.outcome.replayed
+                    if isinstance(ctx, TextEditContext) else
+                    ctx.replayed if isinstance(ctx, TextConflictContext)
+                    else ())
+        if replayed or (is_stale is not None and op is not sent):
+            effects += rewrite_effects(
+                sent, effects, stale,
+                stale_canonical or _replay_canonical(db, replayed),
+                replayed,
+                ctx.outcome.text if isinstance(ctx, TextEditContext) else None)
         for eff in effects:
             _execute(db, eff, now_ms)
         if isinstance(ctx, SKIPPED_CONTEXTS):

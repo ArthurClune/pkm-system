@@ -401,12 +401,12 @@ live block never touch it.
 A replay or a stale unlink makes the written text differ from the text the
 client sent, and the client stamps its next hashed edit from the text it
 sent. `ops_core.rewrite_effects` therefore records `block_rewrites` rows
-(`RecordRewrite`) for a clean or identical outcome: one group per pass (the
-stale unlink, then each replayed step), chained from `text_hash` of the text
-as sent to `text_hash` of the text written. The chain is checked to
-reproduce the written text before anything is recorded; a conflict records
-its stale unlink alone. A plain hashed edit, and a rename with no later
-edit, record nothing.
+(`RecordRewrite`), whatever the outcome (a conflict writes the replayed text
+too): one group per pass (the stale unlink, then each replayed step),
+chained from `text_hash` of the text as sent to `text_hash` of the text
+written. The chain is replayed from the recorded rows and must reproduce the
+written text before anything is recorded. A plain hashed edit, and a rename
+with no later edit, record nothing.
 
 `delete` carries an optional `base_subtree_hash`, taken over the uid and text
 of the block and every descendant

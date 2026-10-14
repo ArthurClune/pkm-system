@@ -9,7 +9,6 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                Sha256Hex, SetCollapsedOp, SetHeadingOp,
                                SetViewTypeOp, UpdateTextOp, subtree_hash,
                                text_hash)
-from pkm.unlink import unlink_stale_refs
 from pkm.refs import CanonicalTitle, NormalizedTitle, normalize_title
 from pkm.server.conflict_notes import (deleted_header_text,
                                        live_block_header_text,
@@ -36,6 +35,7 @@ from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  replay_title_rewrites,
                                  plan_op, skip_report, rewrite_effects,
                                  unlink_stale_text)
+from pkm.unlink import unlink_stale_refs
 
 B = BlockInfo(uid=BlockUid("uid_b3"), page_id=PageId(1),
              parent_uid=BlockUid("uid_b2"))
@@ -1225,7 +1225,8 @@ def _replay_effects(sent_text, base_text, rewrites, current, stale=()):
                                  rewrites)
     planned = (() if outcome.kind == "identical"
                else (UpdateText(_U1, outcome.text),))
-    return rewrite_effects(sent, planned, stale, normalize_title, outcome)
+    return rewrite_effects(sent, planned, stale, normalize_title,
+                           outcome.replayed, outcome.text)
 
 
 def test_rewrite_effects_chain_each_replayed_step_from_the_sent_text():
@@ -1235,17 +1236,20 @@ def test_rewrite_effects_chain_each_replayed_step_from_the_sent_text():
     [eff] = _replay_effects("[[A]] x", t0, rewrites, t2)
     assert eff == RecordRewrite(_U1, (
         BlockRewrite(text_hash("[[A]] x"), text_hash("[[B]] x"), "A", "B"),
-        BlockRewrite(text_hash("[[B]] x"), text_hash("[[C d]] x"), "B", "C d")))
+        BlockRewrite(text_hash("[[B]] x"), text_hash("[[C d]] x"),
+                     "B", "C d")))
 
 
 def test_rewrite_effects_cover_an_identical_replay_and_inlines():
     t0, t1 = "x ((uid_u0000002)) y", "x text y"
-    rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "uid_u0000002", "text",
+    ref = "uid_u0000002"
+    rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), ref, "text",
                              "inline"),)
-    [eff] = _replay_effects("x ((uid_u0000002)) y!", t0, rewrites, "x text y!")
+    [eff] = _replay_effects("x ((uid_u0000002)) y!", t0, rewrites,
+                            "x text y!")
     assert eff == RecordRewrite(_U1, (BlockRewrite(
-        text_hash("x ((uid_u0000002)) y!"), text_hash("x text y!"), "uid_u0000002", "text",
-        "inline"),))
+        text_hash("x ((uid_u0000002)) y!"), text_hash("x text y!"), ref,
+        "text", "inline"),))
 
 
 def test_rewrite_effects_cover_a_stale_unlink_before_a_replayed_rename():
@@ -1262,8 +1266,33 @@ def test_rewrite_effects_cover_a_stale_unlink_before_a_replayed_rename():
 def test_rewrite_effects_record_nothing_for_plain_clean_or_conflicting_edits():
     t0 = "[[A]]"
     assert _replay_effects("[[A]] x", t0, (), t0) == ()
+
+
+def test_rewrite_effects_record_a_conflicting_replay_from_its_written_text():
+    t0 = "[[A]]"
     rewrites = (BlockRewrite(text_hash(t0), text_hash("[[B]]"), "A", "B"),)
-    assert _replay_effects("[[A]] x", t0, rewrites, "[[B]] other") == ()
+    [eff] = _replay_effects("[[A]] x", t0, rewrites, "[[B]] other")
+    assert eff == RecordRewrite(_U1, (BlockRewrite(
+        text_hash("[[A]] x"), text_hash("[[B]] x"), "A", "B"),))
+
+
+def test_rewrite_effects_record_a_stale_unlink_that_is_identical_to_current():
+    sent = UpdateTextOp(op="update_text", uid=_U1, text="[[Z]] x",
+                        base_text_hash=text_hash("old"))
+    stale = {CanonicalTitle(NormalizedTitle("Z"))}
+    [eff] = rewrite_effects(sent, (), stale, normalize_title, (), "Z x")
+    assert eff == RecordRewrite(_U1, (BlockRewrite(
+        text_hash("[[Z]] x"), text_hash("Z x"), "Z", "", "unlink"),))
+
+
+def test_rewrite_effects_record_nothing_when_the_chain_misses_written():
+    t0 = "[[A]]"
+    rewrites = (BlockRewrite(text_hash(t0), text_hash("[[B]]"), "A", "B"),)
+    outcome = classify_text_edit("[[A]] x", text_hash(t0), "[[B]] x", rewrites)
+    sent = UpdateTextOp(op="update_text", uid=_U1, text="[[A]] x",
+                        base_text_hash=text_hash(t0))
+    assert rewrite_effects(sent, (), (), normalize_title, outcome.replayed,
+                           "[[B]] elsewhere") == ()
 
 
 def test_replay_of_a_real_delete_unlink_row_fences_a_leading_attribute():

@@ -99,7 +99,7 @@ class BlockRewrite:
 
 
 @dataclass
-class _RewriteStep:
+class RewriteStep:
     """One pass over a block: what `replay_title_rewrites` consumes."""
     base_hash: str
     after_hash: str
@@ -108,17 +108,17 @@ class _RewriteStep:
     inlines: dict[str, str]
 
 
-def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[_RewriteStep]:
+def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[RewriteStep]:
     """Regroup records into the rewrites they came from: records sharing a
     before/after hash pair were one pass over the block, so their titles
     replay together."""
-    steps: list[_RewriteStep] = []
-    by_hashes: dict[tuple[str, str], _RewriteStep] = {}
+    steps: list[RewriteStep] = []
+    by_hashes: dict[tuple[str, str], RewriteStep] = {}
     for record in rewrites:
         key = (record.base_hash, record.after_hash)
         step = by_hashes.get(key)
         if step is None:
-            step = _RewriteStep(record.base_hash, record.after_hash,
+            step = RewriteStep(record.base_hash, record.after_hash,
                                 {}, set(), {})
             by_hashes[key] = step
             steps.append(step)
@@ -170,7 +170,7 @@ def replay_title_rewrites(
     return text, base_hash
 
 
-def _replay_step(text: str, step: _RewriteStep,
+def _replay_step(text: str, step: RewriteStep,
                  canonical: Callable[[str], str]) -> str:
     if step.retitles:
         text = rewrite_title_refs_map(text, step.retitles)
@@ -188,11 +188,11 @@ def _replay_step(text: str, step: _RewriteStep,
 def _replay(
     text: str, base_hash: str, rewrites: Sequence[BlockRewrite],
     canonical: Callable[[str], str],
-) -> tuple[str, str, tuple[_RewriteStep, ...]]:
+) -> tuple[str, str, tuple[RewriteStep, ...]]:
     """`replay_title_rewrites`, also returning the steps it consumed in the
     order it walked them."""
     steps = _rewrite_steps(rewrites)
-    consumed: list[_RewriteStep] = []
+    consumed: list[RewriteStep] = []
     for _ in range(MAX_REPLAYED_REWRITES):
         match = next((s for s in steps if s.base_hash == base_hash), None)
         if match is None:
@@ -218,7 +218,7 @@ class TextEditOutcome:
     carrying the landing only a conflict pays for."""
     kind: Literal["identical", "clean", "conflict"]
     text: str
-    replayed: tuple[_RewriteStep, ...] = field(default=(), compare=False)
+    replayed: tuple[RewriteStep, ...] = field(default=(), compare=False)
 
 
 def classify_text_edit(
@@ -477,12 +477,13 @@ class TextConflictContext:
     """A hashed update_text on a live block that `classify_text_edit` found
     concurrent (check 5): `text`, the edit with rewrites replayed, wins, and
     `current_text` lands under a header naming `page_title`, the block's
-    own page."""
+    own page. `replayed` is the rewrite steps the replay consumed."""
     block: BlockInfo
     text: str
     current_text: str
     page_title: str
     landing: ConflictLanding
+    replayed: tuple[RewriteStep, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -812,7 +813,7 @@ def unlink_stale_text(op: BlockOp, is_stale: TitleMatch) -> BlockOp:
 
 def _rewrite_chain(
     sent: str, written: str, stale_titles: Collection[CanonicalTitle],
-    replayed: Sequence[_RewriteStep], canonical: Callable[[str], str],
+    replayed: Sequence[RewriteStep], canonical: Callable[[str], str],
 ) -> tuple[BlockRewrite, ...]:
     """Rows taking `sent` to `written` one pass at a time: the stale unlink
     first, then each replayed step, every pass hashed from the text before it
@@ -843,31 +844,34 @@ def _rewrite_chain(
                [*(("retitle", o, n) for o, n in step.retitles.items()),
                 *(("unlink", t, "") for t in sorted(step.unlinked)),
                 *(("inline", u, t) for u, t in step.inlines.items())])
-    return tuple(rows) if text == written else ()
+    if text != written or not rows:
+        return ()
+    # what a later edit will actually do: replay the recorded rows
+    if _replay(sent, text_hash(sent), rows, canonical)[0] != written:
+        return ()
+    return tuple(rows)
 
 
 def rewrite_effects(
     original: BlockOp, planned: tuple[Effect, ...],
     stale: Collection[CanonicalTitle],
     canonical: Callable[[str], str],
-    outcome: TextEditOutcome | None = None,
+    replayed: Sequence[RewriteStep] = (),
+    settled: str | None = None,
 ) -> tuple[Effect, ...]:
     """The rewrite rows for a create / update_text whose written text differs
     from the text the client sent, because of a stale unlink and / or a
     replayed rename or delete: `original` is the op as the client sent it,
     `planned` the effects of the op as applied, `stale` the canonical deleted
-    titles, `outcome` the replay classification of a hashed update_text.
-    Text that was parked rather than written to the op's uid leaves no rows,
-    and a conflicting edit records its stale unlink only."""
+    titles, `replayed` the steps a hashed update_text's replay consumed, and
+    `settled` the text a clean or identical edit leaves in the block (an
+    identical one plans no write). Text that was parked rather than written
+    to the op's uid leaves no rows."""
     if not isinstance(original, (CreateOp, UpdateTextOp)):
         return ()
     written = next((e.text for e in reversed(planned)
                     if isinstance(e, (InsertBlock, UpdateText))
-                    and e.uid == original.uid), None)
-    replayed: tuple[_RewriteStep, ...] = ()
-    if outcome is not None and outcome.kind != "conflict":
-        written = outcome.text
-        replayed = outcome.replayed
+                    and e.uid == original.uid), settled)
     if written is None:
         return ()
     titles = tuple(sorted(

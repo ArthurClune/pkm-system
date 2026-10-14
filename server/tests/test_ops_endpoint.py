@@ -1382,6 +1382,7 @@ def test_chained_edits_after_a_rename_replay_apply_clean(client, one_batch):
     assert _ml_texts(client)[0] == (
         "Tags:: #[[Artificial Intelligence]] plus offline words and more")
     assert _conflicts(client) == []
+    assert client.get("/api/page/AI").status_code == 404
 
 
 @pytest.mark.parametrize("one_batch", [False, True])
@@ -1434,3 +1435,38 @@ def test_rename_alone_records_only_its_own_rows(client, seeded_config):
 
     assert _rewrite_rows(seeded_config) == [
         ("uid_b1", "retitle", "AI", "Artificial Intelligence")]
+
+
+def test_chained_edits_after_a_replayed_conflict_keep_the_page_renamed(client):
+    _rename(client, "AI", "Artificial Intelligence")
+    r = _post(client, {"op": "update_text", "uid": "uid_b1",
+                       "text": "Tags:: #[[Artificial Intelligence]] fresh"})
+    assert r.status_code == 200
+
+    _chained_push(client, STALE_BASE, STALE_EDIT, STALE_EDIT + " and more")
+
+    assert _ml_texts(client)[0] == (
+        "Tags:: #[[Artificial Intelligence]] plus offline words and more")
+    [(_, lost)] = _conflicts(client)
+    assert lost == ["Tags:: #[[Artificial Intelligence]] fresh"]
+    assert client.get("/api/page/AI").status_code == 404
+
+
+def test_chained_edits_replaying_a_rename_and_a_stale_unlink_over_a_conflict(
+        client):
+    _rename(client, "AI", "Cognition")
+    r = _post(client, {"op": "update_text", "uid": "uid_b1",
+                       "text": "Tags:: #Cognition fresh"})
+    assert r.status_code == 200
+    seen = _latest_seq(client)
+    assert client.delete("/api/page/Paper").status_code == 200
+    first = "Tags:: #AI [[Paper]] x"
+
+    _chained_push(client, STALE_BASE, first, first + " y", seen_seq=seen,
+                  one_batch=True)
+
+    assert _ml_texts(client)[0] == "Tags:: #Cognition Paper x y"
+    [(_, lost)] = _conflicts(client)
+    assert lost == ["Tags:: #Cognition fresh"]
+    assert client.get("/api/page/AI").status_code == 404
+    assert client.get("/api/page/Paper").status_code == 404

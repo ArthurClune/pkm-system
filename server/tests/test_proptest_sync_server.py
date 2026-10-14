@@ -12,8 +12,8 @@ from fastapi.testclient import TestClient
 
 from pkm.server.app import create_app
 from proptest import sync_server
-from proptest.sync_server import (PASSWORD, SECOND_UIDS, SEED_UIDS, START_MS, Clock,
-                                  build_app)
+from proptest.sync_server import (FIXTURE_PAGE, FIXTURE_UIDS, PASSWORD, SECOND_UIDS,
+                                  SEED_UIDS, START_MS, Clock, build_app)
 
 
 @pytest.fixture()
@@ -47,20 +47,22 @@ def test_reset_gives_a_fresh_seeded_db(client: TestClient) -> None:
     assert r.status_code == 200
     snap = client.get("/api/sync/snapshot").json()
     blocks = snap["blocks"]
-    assert sorted(b["uid"] for b in blocks) == sorted(SEED_UIDS + SECOND_UIDS)
-    assert sorted(p["title"] for p in snap["pages"]) == ["Proptest", "Second"]
+    assert sorted(b["uid"] for b in blocks) == sorted(
+        SEED_UIDS + SECOND_UIDS + FIXTURE_UIDS)
+    assert sorted(p["title"] for p in snap["pages"]) == sorted(["Proptest", "Second", FIXTURE_PAGE])
     assert client.get("/__proptest/applied").json() == []
 
 
 def test_seed_is_ordered_and_has_refs_consistent_with_the_journal(client: TestClient) -> None:
     client.post("/__proptest/reset")
     con = sqlite3.connect(client.post("/__proptest/reset").json()["db_path"])
-    for title, uids in (("Proptest", SEED_UIDS), ("Second", SECOND_UIDS)):
+    for title, uids in (("Proptest", SEED_UIDS), ("Second", SECOND_UIDS),
+                        (FIXTURE_PAGE, FIXTURE_UIDS)):
         rows = con.execute(
             "SELECT b.uid, b.order_idx, b.parent_uid FROM blocks b JOIN pages p"
             " ON p.id = b.page_id WHERE p.title = ? ORDER BY b.order_idx", (title,)).fetchall()
         assert rows == [(uid, i * 10, None) for i, uid in enumerate(uids)]
-    assert con.execute("SELECT COUNT(*) FROM changes").fetchone()[0] >= 6
+    assert con.execute("SELECT COUNT(*) FROM changes").fetchone()[0] >= 9
     assert con.execute("SELECT COUNT(*) FROM applied_batches").fetchone()[0] == 0
 
 

@@ -10,8 +10,9 @@
 // uid an Edit has created. pt_seed_6 is the only block of page Fixture,
 // outside the title pool: it is never a target or a parent and its page is
 // never deleted or renamed, so it stays live on the server for the whole
-// example and a BadBatch's create of it is always a 400. A client creates only from its
-// own fresh uids, each at most once, so no Edit can meet a legitimate 400.
+// example and a BadBatch's create of it is always a 400. A client creates
+// only from its own fresh uids, each at most once, so no Edit can meet a
+// legitimate 400.
 //
 // Page titles come from a fixed pool that renames never change: a Rename
 // moves a title from one page to another, so a drawn title may name the

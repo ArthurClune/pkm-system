@@ -6,6 +6,7 @@
 import { afterEach, beforeAll, beforeEach, expect, test } from "vitest";
 import type { BatchId, BlockUid, OrderIdx } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
+import { FIXTURE_PAGE } from "./arbitraries";
 import { startClient, type HarnessClient } from "./harnessClient";
 import { checkQuiescent, CursorWatch, OracleError, type Expectation,
          type Invariant } from "./oracle";
@@ -286,7 +287,7 @@ async function badBatchScenario(): Promise<{
   const b = await start("B");
   const good = await a.edit(setText("pt_seed_1", "good before bad"));
   const bad = await a.edit([{
-    op: "create", uid: "pt_seed_6" as BlockUid, page_title: "Fixture",
+    op: "create", uid: "pt_seed_6" as BlockUid, page_title: FIXTURE_PAGE,
     parent_uid: null, order_idx: 60 as OrderIdx, text: "a create of a live uid",
   }]);
   const b1 = await b.edit(setText("pt_seed_2", "B alongside"));
@@ -344,7 +345,7 @@ test("quiesce waits for a lone client's poison repair", async () => {
     return deleteBatch(...args);
   };
   const bad = await a.edit([{
-    op: "create", uid: "pt_seed_6" as BlockUid, page_title: "Fixture",
+    op: "create", uid: "pt_seed_6" as BlockUid, page_title: FIXTURE_PAGE,
     parent_uid: null, order_idx: 60 as OrderIdx, text: "a create of a live uid",
   }]);
   await quiesce([a], server);

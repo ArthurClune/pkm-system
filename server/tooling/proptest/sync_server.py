@@ -155,10 +155,11 @@ class Clock:
 
 def build_template(path: Path) -> None:
     """A fresh DB holding page "Proptest" with five top-level blocks, page
-    "Second" with three and page "Fixture" with one, written through the real op pipeline so the change
-    journal and refs are as a client's creates would leave them, plus the
-    rename and delete logs (RENAME_LOG_DDL, DELETE_LOG_DDL). The app's schema setup is all IF NOT
-    EXISTS and leaves a table and trigger it does not know alone."""
+    "Second" with three and page "Fixture" with one, written through the real
+    op pipeline so the change journal and refs are as a client's creates would
+    leave them, plus the rename and delete logs (RENAME_LOG_DDL,
+    DELETE_LOG_DDL). The app's schema setup is all IF NOT EXISTS and leaves a
+    table and trigger it does not know alone."""
     init_db(path)
     con = open_db(path)
     try:

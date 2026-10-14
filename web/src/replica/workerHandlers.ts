@@ -512,10 +512,28 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         };
       });
     },
-    async applySnapshot(snapshot) {
+    async applySnapshot({ snapshot, expectedPendingIds }) {
       return gate.run(async () => {
-        noteDropped(applySnapshotToDb(await queueDb(), snapshot, nowMs()));
-        return null;
+        const d = await queueDb();
+        // snapshot.seq plays the role of a window's latest_seq: the server
+        // reads MAX(seq) in the same read transaction as the rows, so a
+        // snapshot at seq >= an acked batch's seq already carries that batch.
+        // One that predates an ack would be applied with the batch neither in
+        // it nor pending to replay, so the bootstrap refetches instead.
+        const covered = pendingSetStillCovered(
+          expectedPendingIds, allBatches(d).map((batch) => batch.id),
+          ackedSeqs, snapshot.seq);
+        // Bootstrap is single-flight and names its pending set afresh for
+        // every attempt, so an acked seq for an id outside this set was noted
+        // before the next fetch, which the server answers after that commit:
+        // drop it here to keep the map bounded.
+        const expected = new Set(expectedPendingIds);
+        for (const id of ackedSeqs.keys()) {
+          if (!expected.has(id)) ackedSeqs.delete(id);
+        }
+        if (!covered) return { status: "pending-changed" };
+        noteDropped(applySnapshotToDb(d, snapshot, nowMs()));
+        return { status: "applied" };
       });
     },
     async applyChanges({ feed, expectedPendingIds }) {

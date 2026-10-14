@@ -114,7 +114,7 @@ async function measurePass(
       newBatchId: () => { throw new Error("rebase scenario: every enqueue names its batch id"); },
     });
     await h.init(undefined);
-    await h.applySnapshot(snapshot);
+    await h.applySnapshot({ snapshot, expectedPendingIds: [] });
     for (const b of pendingBatches(pickTargets(snapshot, PAGE), snapshot)) {
       await h.enqueue({ ops: b.ops, batchId: b.batchId });
     }

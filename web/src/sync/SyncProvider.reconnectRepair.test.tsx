@@ -28,7 +28,7 @@ function rowReplica(): Replica {
   return {
     init: async () => ({ empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
                          pendingBatches: [] }),
-    applySnapshot: async () => undefined,
+    applySnapshot: async () => ({ status: "applied" as const }),
     applyChanges: async (f) => ({ status: "applied", cursor: f.next_since }),
     enqueue: async (ops) => {
       const id = nextId++ as PendingRowId;

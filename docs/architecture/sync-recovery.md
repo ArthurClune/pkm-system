@@ -21,7 +21,7 @@ replica is a cache and the queue is the user's intent.
 | The replica latches a non-null `availability` with durable rows still queued | `noteReplicaFailure`, on `isSessionFatal` evidence | The drain delivers only the lane; a later session delivers the durable rows, behind the lane's ops | A deferred `update_text` carries its `base_text_hash`, so it lands as a conflict and the newer text is kept; an op on a target the lane removed lands as a missing target | [A local write fails](#a-local-write-fails) |
 | The OPFS file cannot be opened | `openWithRetry`, `ensureMinimumCapacity` | Up to 6 attempts, then `unusable` for the session | `forceReinitIfPreviouslyFailed`; pool top-up before the open | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
 | The worker RPC breaks | `RpcLifecycleError`, read as `unreachable` | Ops kept; recovery barrier held | `unreachable` never lifts the barrier | [Availability: two values, one owner](#availability-two-values-one-owner) |
-| A window was fetched before an ack deleted its pending row | `pendingSetStillCovered` | Applied if the ack's `seq` is covered, else refetched | No window applies without the edits it lacks | [Windows and the pending queue](#windows-and-the-pending-queue) |
+| A window or a bootstrap snapshot was fetched before an ack deleted its pending row | `pendingSetStillCovered` | Applied if the ack's `seq` is covered, else refetched | No window or snapshot applies without the edits it lacks | [Windows and the pending queue](#windows-and-the-pending-queue) |
 | A window or snapshot already holds a batch whose row is still pending (a lost ack, or the batch's own nudge pulling first) | The payload's `applied_batches`, answering the ids the pull named | The named rows are deleted before the rewind and the replay, and settled as their acks would be | The server reads `applied_batches` in the payload's own read transaction; only rows in the pull's pending snapshot go | [A payload that already holds a pending batch](#a-payload-that-already-holds-a-pending-batch) |
 | Pending rows change while recovery runs | The fingerprint check in `commitRecovery` | Recovery aborts before anything is destroyed | Every mutating RPC passes the recovery gate | [Recovery never erases intent](#recovery-never-erases-intent) |
 | A re-applied pending batch dangles a foreign key | `targetedFkHit` screen, then a `PRAGMA foreign_key_check` diff, in `replayPending` | That batch rolls back locally; its row stays | The queue row is never deleted locally | [Recovery never erases intent](#recovery-never-erases-intent) |
@@ -224,6 +224,14 @@ with the current pending ids (`pendingSetStillCovered` in
 Rows are checked in order. On `pending-changed`, `pullLoop` refetches, at most
 `PENDING_CHANGED_CAP` (20) times, then throws `PullStarvedError`.
 
+A bootstrap snapshot takes the same check, with the snapshot's `seq` in place
+of `latest_seq`. `sync_snapshot` reads `MAX(seq)` in the same read transaction
+as the rows, so the argument below carries over. The check matters because the
+queue resumes before `replicaSync.start()`: the drain can post and ack a batch
+while an empty replica's first snapshot is still being fetched. On
+`pending-changed`, `bootstrap` re-reads the pending rows and refetches, under
+the same cap.
+
 Accepting a removal is safe because `sync_changes` reads `latest_seq` in the
 same read transaction as the window rows. A `latest_seq` at or past B's acked
 `seq` means the window and its continuation pages already carry B, which is all
@@ -241,7 +249,7 @@ The worker holds the acked seqs in memory (`ackedSeqs`), keyed by `pending_ops`
 row id. `deleteBatch` writes them only when its row matched, and so does a rebase commit that deletes
 acked rows in place (see [runRecovery](#runrecovery)). A file replacement writes
 none, because its rebuild clears them. The worker drops entries outside the
-latest snapshot on each `applyChanges`, and clears them all on a schema
+latest snapshot on each `applyChanges` and `applySnapshot`, and clears them all on a schema
 rebuild, which restarts the AUTOINCREMENT ids.
 
 That restart is why every delete and poison mark from the main thread names

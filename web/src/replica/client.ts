@@ -110,11 +110,24 @@ export interface ReplicaDiagnostics {
 
 export type { LocalApiRequest, LocalApiResult } from "./localApi/router";
 
+/** What the worker did with a snapshot: applied it, or refused it untouched
+ * because the pending set it was fetched against is no longer covered. */
+export type SnapshotApplyResult =
+  | { status: "applied" }
+  | { status: "pending-changed" };
+
 export interface Replica {
   /** Rejects with ReplicaUnusableError when the database cannot be opened;
    * the worker has latched that for the session. */
   init(): Promise<ReplicaInit>;
-  applySnapshot(snap: Snapshot): Promise<void>;
+  /** Applies a snapshot fetched while `expectedPendingIds` were the pending
+   * rows. Like `applyChanges`, the worker refuses it ("pending-changed",
+   * database untouched) when the pending set is not covered: a snapshot the
+   * server read before a since-acked batch committed lacks that batch, and
+   * the ack deleted the row that would have replayed it. The default `[]`
+   * suits a database with no pending rows. */
+  applySnapshot(snap: Snapshot,
+                expectedPendingIds?: readonly PendingRowId[]): Promise<SnapshotApplyResult>;
   applyChanges(feed: Changes,
                expectedPendingIds?: readonly PendingRowId[]): Promise<ApplyResult>;
   /** su05: persist + optimistically apply; returns pending count. The caller
@@ -171,10 +184,10 @@ export interface Replica {
  * nowhere else. */
 export type ReplicaRpc = {
   init: { payload: undefined; result: ReplicaInit };
-  /** The handler resolves `null`, and a `Promise<null>` is not a
-   * `Promise<void>`: `createReplica`'s wrapper drops the value, as
-   * `memReplica.ts`'s stub does. */
-  applySnapshot: { payload: Snapshot; result: null };
+  applySnapshot: {
+    payload: { snapshot: Snapshot; expectedPendingIds: readonly PendingRowId[] };
+    result: SnapshotApplyResult;
+  };
   applyChanges: {
     payload: { feed: Changes; expectedPendingIds: readonly PendingRowId[] };
     result: ApplyResult;
@@ -221,12 +234,9 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
   let disposing: Promise<void> | null = null;
   return {
     init: () => rpc.call("init"),
-    // .then(() => undefined): the worker resolves with `null` (see
-    // ReplicaRpc), and this is where that becomes the `void` this interface
-    // promises -- the value itself never crosses back out of this module.
-    applySnapshot: (snap) =>
-      rpc.call("applySnapshot", snap, { timeoutMs: RECOVERY_TIMEOUT_MS })
-        .then(() => undefined),
+    applySnapshot: (snapshot, expectedPendingIds = []) =>
+      rpc.call("applySnapshot", { snapshot, expectedPendingIds },
+               { timeoutMs: RECOVERY_TIMEOUT_MS }),
     applyChanges: (feed, expectedPendingIds = []) => rpc.call("applyChanges", {
       feed, expectedPendingIds,
     }),

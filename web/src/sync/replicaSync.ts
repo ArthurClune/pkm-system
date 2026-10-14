@@ -390,10 +390,25 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   /** `pending`: the rows init read, which a database queued into before its
    * first snapshot can hold. */
   const bootstrap = async (pending: readonly PendingBatch[]): Promise<void> => {
-    const snap = await fetchSnapshot(pending);
-    await replica.applySnapshot(snap);
-    adoptCursor(snap.seq, "snapshot");
-    settleApplied(snap.applied_batches ?? []);
+    let attempt = pending;
+    for (let tries = 1; ; tries += 1) {
+      // One read serves both: the ids named to the server are the ids the
+      // worker checks the snapshot against.
+      const snap = await fetchSnapshot(attempt);
+      const res = await replica.applySnapshot(snap, attempt.map((b) => b.id));
+      if (res.status === "applied") {
+        adoptCursor(snap.seq, "snapshot");
+        settleApplied(snap.applied_batches ?? []);
+        return;
+      }
+      // The pending set moved while the snapshot was out (a batch acked
+      // before the server's read): the worker refused it untouched.
+      if (tries >= PENDING_CHANGED_CAP) {
+        throw new PullStarvedError(
+          "bootstrap starved: pending batches kept changing");
+      }
+      attempt = await replica.pendingBatches();
+    }
   };
 
   const assertNormalRecoveryStillOwnsFlush = (): void => {

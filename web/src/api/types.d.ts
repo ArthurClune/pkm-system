@@ -1800,7 +1800,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "block_not_found" | "parent_not_found" | "cycle";
+            reason: "block_not_found" | "parent_not_found" | "cycle" | "page_deleted";
             /** Note Page */
             note_page: Brands.CanonicalTitle | null;
         };

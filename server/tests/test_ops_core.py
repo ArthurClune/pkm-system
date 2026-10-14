@@ -9,8 +9,11 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                Sha256Hex, SetCollapsedOp, SetHeadingOp,
                                SetViewTypeOp, UpdateTextOp, subtree_hash,
                                text_hash)
-from pkm.refs import CanonicalTitle, NormalizedTitle
-from pkm.server.conflict_notes import deleted_header_text
+from pkm.refs import CanonicalTitle, NormalizedTitle, normalize_title
+from pkm.server.conflict_notes import (deleted_header_text,
+                                       live_block_header_text,
+                                       orphan_header_text,
+                                       stale_page_move_note)
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
 from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
@@ -29,7 +32,7 @@ from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  classify_text_edit, conflict_entry_effects,
                                  descendant_copy_effects, delete_diverged,
                                  replay_title_rewrites,
-                                 plan_op, skip_report)
+                                 plan_op, skip_report, unlink_stale_text)
 
 B = BlockInfo(uid=BlockUid("uid_b3"), page_id=PageId(1),
              parent_uid=BlockUid("uid_b2"))
@@ -52,15 +55,18 @@ def _skip_ctx(op: BlockOp, *, block_exists: bool = False,
               header: ExistingHeader | None = None,
               hint_page_exists: bool = False,
               page_title: str = "Machine Learning",
-              subtree: tuple[BlockUid, ...] = (BlockUid("uid_b3"),)
+              subtree: tuple[BlockUid, ...] = (BlockUid("uid_b3"),),
+              page_stale: bool = False
               ) -> SkippedContext:
     """The context ops_apply._context_for builds for an op classify_skip
     flags, with the given reads."""
-    skip = classify_skip(op, block_exists, parent_exists, chain)
+    skip = classify_skip(op, block_exists, parent_exists, chain,
+                         page_stale=page_stale)
     assert skip is not None
     if skip.landing_uid is None:
         return SkipContext(skip)
-    if skip.kind in ("move_parent_missing", "move_cycle"):
+    if (skip.kind in ("move_parent_missing", "move_cycle")
+            or (skip.kind == "stale_page" and isinstance(op, MoveOp))):
         return StuckMoveContext(skip, _landing(header), page_title, subtree)
     return LandedSkipContext(skip, _landing(header), hint_page_exists)
 
@@ -1076,3 +1082,102 @@ def test_replay_chains_unlink_then_retitle():
         "#AI [[Paper]] x", text_hash(t0), rewrites)
     assert text == "AI [[Papers]] x"
     assert base == text_hash(t2)
+
+
+def _top_create(title: str, text: str) -> CreateOp:
+    return CreateOp(op="create", uid="uid_c0000001", page_title=title,
+                    parent_uid=None, order_idx=0, text=text)
+
+
+def _top_move(title: str) -> MoveOp:
+    return MoveOp(op="move", uid="uid_m0000001", page_title=title,
+                  parent_uid=None, order_idx=0)
+
+
+def test_unlink_stale_text_rewrites_create_and_update_text_only():
+    def is_x(raw: str) -> bool:
+        return normalize_title(raw) == "X"
+    create = _top_create("P", "see [[X]] and #X")
+    assert unlink_stale_text(create, is_x).text == "see X and X"
+    clean = _top_create("P", "see [[Y]]")
+    assert unlink_stale_text(clean, is_x) is clean
+    upd = UpdateTextOp(op="update_text", uid="uid_u0000001", text="[[X]]")
+    assert unlink_stale_text(upd, is_x).text == "X"
+    upd_clean = UpdateTextOp(op="update_text", uid="uid_u0000001",
+                             text="[[Y]]")
+    assert unlink_stale_text(upd_clean, is_x) is upd_clean
+    move = _top_move("X")
+    assert unlink_stale_text(move, is_x) is move
+    delete = DeleteOp(op="delete", uid="uid_d0000001")
+    assert unlink_stale_text(delete, is_x) is delete
+
+
+def test_classify_skip_stale_page():
+    assert classify_skip(_top_create("X", "t"), False, False,
+                         page_stale=True) == Skip("stale_page", "uid_c0000001")
+    assert classify_skip(_top_create("X", "  "), False, False,
+                         page_stale=True) == Skip("stale_page", None)
+    assert classify_skip(_top_move("X"), True, False,
+                         page_stale=True) == Skip("stale_page", "uid_m0000001")
+    assert classify_skip(_top_create("X", "t"), False, False) is None
+    assert classify_skip(_top_move("X"), True, False) is None
+    # a missing block's move stays an orphan, stale or not
+    assert classify_skip(_top_move("X"), False, False,
+                         page_stale=True) == Skip("orphan_structural",
+                                                  "uid_m0000001")
+    # an existing block's create is not re-created, so never stale
+    assert classify_skip(_top_create("X", "t"), True, False,
+                         page_stale=True) is None
+
+
+def test_plan_stale_create_parks_text_under_a_code_span_header():
+    op = _top_create("X", "kept text")
+    ctx = _skip_ctx(op, page_stale=True)
+    assert isinstance(ctx, LandedSkipContext)
+    assert plan_op(0, op, ctx) == (
+        JournalBlock(BlockUid("uid_c0000001"), True),
+        *conflict_entry_effects(BlockUid("uid_c0000001"), "kept text",
+                                orphan_header_text("X", False),
+                                ctx.landing))
+
+
+def test_plan_stale_blank_create_lands_nothing():
+    op = _top_create("X", " ")
+    ctx = _skip_ctx(op, page_stale=True)
+    assert isinstance(ctx, SkipContext)
+    assert plan_op(0, op, ctx) == (JournalBlock(BlockUid("uid_c0000001"),
+                                                True),)
+
+
+def test_plan_stale_move_keeps_block_and_notes_it():
+    op = _top_move("X")
+    subtree = (BlockUid("uid_kid"), BlockUid("uid_m0000001"))
+    ctx = _skip_ctx(op, block_exists=True, page_stale=True,
+                    page_title="Home", subtree=subtree)
+    assert isinstance(ctx, StuckMoveContext)
+    assert plan_op(0, op, ctx) == (
+        *conflict_entry_effects(
+            BlockUid("uid_m0000001"), stale_page_move_note("X"),
+            live_block_header_text("Home", "uid_m0000001"), ctx.landing),
+        JournalBlock(BlockUid("uid_m0000001"), False),
+        JournalBlock(BlockUid("uid_kid"), False))
+    assert not any(isinstance(e, JournalBlock) and e.deleted
+                   for e in plan_op(0, op, ctx))
+
+
+def test_plan_stale_context_must_fit_the_op():
+    move = _top_move("X")
+    skip = Skip("stale_page", "uid_m0000001")
+    with pytest.raises(AssertionError):
+        plan_op(0, move, LandedSkipContext(skip, _landing(), False))
+    create = _top_create("X", "t")
+    with pytest.raises(AssertionError):
+        plan_op(0, create, StuckMoveContext(
+            Skip("stale_page", "uid_c0000001"), _landing(), "Home", ()))
+
+
+def test_skip_report_stale_page_reason():
+    op = _top_create("X", "t")
+    assert skip_report(2, op, _skip_ctx(op, page_stale=True)) == {
+        "index": 2, "op": "create", "uid": "uid_c0000001",
+        "reason": "page_deleted", "note_page": _DAY}

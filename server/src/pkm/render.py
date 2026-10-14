@@ -224,6 +224,7 @@ _SKIP_REASON_TEXT: dict[SkipReason, str] = {
     "block_not_found": "block not found",
     "parent_not_found": "parent block not found",
     "cycle": "target is the block itself or one of its descendants",
+    "page_deleted": "the page was deleted before this device synced",
 }
 
 

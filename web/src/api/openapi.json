@@ -4294,7 +4294,8 @@
             "enum": [
               "block_not_found",
               "parent_not_found",
-              "cycle"
+              "cycle",
+              "page_deleted"
             ],
             "title": "Reason"
           },

@@ -578,7 +578,8 @@ class TitleMigrationApplyResponse(BaseModel):
 # `seq` existed reaches the wire as `seq: null` (the client reads that as
 # unknown, so refetches).
 
-SkipReason = Literal["block_not_found", "parent_not_found", "cycle"]
+SkipReason = Literal["block_not_found", "parent_not_found", "cycle",
+                    "page_deleted"]
 
 
 class SkippedOp(BaseModel):

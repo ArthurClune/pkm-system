@@ -28,8 +28,9 @@ from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        live_block_header_text,
                                        move_parent_missing_note,
                                        orphan_header_text,
-                                       overwritten_header_text)
-from pkm.unlink import apply_delete_rewrite
+                                       overwritten_header_text,
+                                       stale_page_move_note)
+from pkm.unlink import TitleMatch, apply_delete_rewrite, unlink_title_refs
 
 # Most renames a stale edit can be behind. Each step is one recorded
 # rewrite of the same block, so the bound only matters for a block renamed
@@ -208,7 +209,8 @@ def classify_text_edit(
 
 
 SkipKind = Literal["noop", "orphan_structural", "orphan_edit",
-                   "diverted_create", "move_parent_missing", "move_cycle"]
+                   "diverted_create", "move_parent_missing", "move_cycle",
+                   "stale_page"]
 
 
 @dataclass(frozen=True)
@@ -230,6 +232,9 @@ class Skip:
     - move_cycle: block and target both exist, but the target is the block
       or one of its descendants (two devices moved blocks under each other
       concurrently); it stays put and a note says why
+    - stale_page: a top-level create / move whose page was deleted before
+      the sending device saw the delete (`page_stale`); a create is not
+      applied and its text lands, a move leaves the block put with a note
 
     `landing_uid` is the uid today's daily-note entry groups under (its
     conflict_headers key), or None when nothing lands.
@@ -242,22 +247,32 @@ class Skip:
 
 def classify_skip(
     op: BlockOp, block_exists: bool, parent_exists: bool,
-    parent_chain: tuple[str, ...] = (),
+    parent_chain: tuple[str, ...] = (), page_stale: bool = False,
 ) -> Skip | None:
     """None when the op's targets exist and it plans normally.
     `block_exists` is whether op.uid names a block; `parent_exists` whether
     a create/move's parent_uid does (ignored when parent_uid is None);
     `parent_chain` a move's target parent and its ancestors (read only for
-    a move whose block and parent both exist)."""
+    a move whose block and parent both exist); `page_stale` whether the
+    page_title of a top-level create / move (parent_uid None) is a page
+    deleted since the batch's `seen_seq`."""
     if isinstance(op, CreatePageOp):
         return None
     if isinstance(op, CreateOp):
-        if block_exists or op.parent_uid is None or parent_exists:
+        if block_exists:
+            return None
+        if op.parent_uid is None:
+            if not page_stale:
+                return None
+            return Skip("stale_page", op.uid if op.text.strip() else None)
+        if parent_exists:
             return None
         # a blank create has lost nothing worth landing
         landing = op.parent_uid if op.text.strip() else None
         return Skip("diverted_create", landing)
     if block_exists:
+        if isinstance(op, MoveOp) and op.parent_uid is None and page_stale:
+            return Skip("stale_page", op.uid)
         if isinstance(op, MoveOp) and op.parent_uid is not None:
             if not parent_exists:
                 return Skip("move_parent_missing", op.uid)
@@ -505,6 +520,7 @@ def skip_report(index: int, op: BlockOp, ctx: SkippedContext) -> dict:
     kind = ctx.skip.kind
     reason: SkipReason = (
         "cycle" if kind == "move_cycle" else
+        "page_deleted" if kind == "stale_page" else
         "parent_not_found" if kind in ("diverted_create",
                                        "move_parent_missing")
         else "block_not_found")
@@ -678,10 +694,12 @@ def _plan_skip_own(op: BlockOp, ctx: SkippedContext) -> tuple[Effect, ...]:
     # the context type must fit the skip kind, not just the op: planned
     # anyway, a mismatch drops a note or tombstones a live block
     assert isinstance(ctx, SkipContext) == (skip.landing_uid is None)
+    stale_move = skip.kind == "stale_page" and isinstance(op, MoveOp)
     assert isinstance(ctx, StuckMoveContext) == (
-        skip.kind in ("move_parent_missing", "move_cycle"))
-    if isinstance(ctx, StuckMoveContext):       # move_parent_missing / move_cycle
-        assert isinstance(op, MoveOp) and op.parent_uid is not None
+        skip.kind in ("move_parent_missing", "move_cycle") or stale_move)
+    if isinstance(ctx, StuckMoveContext):  # move_parent_missing / move_cycle /
+        assert isinstance(op, MoveOp)      # stale_page
+        assert (op.parent_uid is None) == (skip.kind == "stale_page")
         # the whole moved subtree, root first. move_parent_missing: a
         # replica that applied the move loses all of it to the parent's
         # tombstone cascade. move_cycle: nothing is gone, and the block's
@@ -691,12 +709,16 @@ def _plan_skip_own(op: BlockOp, ctx: SkippedContext) -> tuple[Effect, ...]:
         # re-shipping: descendants a cross-page move re-paged, and the
         # target's children it shifted. Both lie inside this subtree.
         live = tuple(JournalBlock(u, False) for u in reversed(ctx.subtree))
-        if skip.kind == "move_parent_missing":
-            tombstones: tuple[Effect, ...] = (JournalBlock(op.parent_uid,
-                                                           True),)
+        tombstones: tuple[Effect, ...] = ()
+        if skip.kind == "stale_page":
+            # nothing is gone: the block stays on its page
+            assert op.page_title is not None
+            lost_text = stale_page_move_note(op.page_title)
+        elif skip.kind == "move_parent_missing":
+            assert op.parent_uid is not None
+            tombstones = (JournalBlock(op.parent_uid, True),)
             lost_text = move_parent_missing_note(op.parent_uid)
         else:
-            tombstones = ()
             lost_text = MOVE_CYCLE_NOTE
         header_text = live_block_header_text(ctx.page_title, op.uid)
         return (*tombstones,
@@ -708,7 +730,11 @@ def _plan_skip_own(op: BlockOp, ctx: SkippedContext) -> tuple[Effect, ...]:
         # ghost of it; one that deleted it already dropped its copy
         return ((JournalBlock(op.uid, True),)
                 if isinstance(op, SetCollapsedOp) else ())
-    if isinstance(op, CreateOp):                     # diverted_create
+    if isinstance(op, CreateOp) and skip.kind == "stale_page":
+        # a top-level create: no parent to tombstone, no ghost page
+        assert op.parent_uid is None
+        tombstones = (JournalBlock(op.uid, True),)
+    elif isinstance(op, CreateOp):                   # diverted_create
         assert op.parent_uid is not None
         tombstones = (JournalBlock(op.uid, True, ctx.ghost_page),
                       JournalBlock(op.parent_uid, True))
@@ -734,6 +760,16 @@ def _plan_skip_own(op: BlockOp, ctx: SkippedContext) -> tuple[Effect, ...]:
     return (*tombstones,
             *conflict_entry_effects(skip.landing_uid, lost_text, header_text,
                                     ctx.landing))
+
+
+def unlink_stale_text(op: BlockOp, is_stale: TitleMatch) -> BlockOp:
+    """A create / update_text from a batch that predates a page's delete
+    carries refs to it: unlink them as the delete did for the text it saw.
+    Any other op, or text with nothing to unlink, comes back unchanged."""
+    if not isinstance(op, (CreateOp, UpdateTextOp)):
+        return op
+    text = unlink_title_refs(op.text, is_stale)
+    return op if text == op.text else op.model_copy(update={"text": text})
 
 
 def impossible_uid_reason(op: BlockOp, skip: Skip) -> str | None:

@@ -46,9 +46,18 @@ def conflict_label(page_title: str | None, hint_page_exists: bool) -> str:
         return "(page unknown)"
     if hint_page_exists:
         return existing_page_label(page_title)
-    if "`" in page_title:
-        return "(page unknown)"
-    return f"`{page_title}` (page not found)"
+    span = missing_page_code_span(page_title)
+    return "(page unknown)" if span is None else f"{span} (page not found)"
+
+
+def missing_page_code_span(page_title: str | None) -> str | None:
+    """A page that does not exist, as inline code (which the ref extractor
+    never scans); None for an unusable title or one holding a backtick."""
+    if (page_title is None or not page_title.strip()
+            or title_syntax_reason(page_title) is not None
+            or "`" in page_title):
+        return None
+    return f"`{page_title}`"
 
 
 def overwritten_header_text(page_title: str, uid: str) -> str:
@@ -102,3 +111,10 @@ def move_parent_missing_note(parent_uid: str) -> str:
 
 
 MOVE_CYCLE_NOTE = "move skipped: would create a cycle"
+
+
+def stale_page_move_note(page_title: str) -> str:
+    """Note for a move whose destination page was deleted before the
+    device that sent it saw the delete: the block stays put."""
+    span = missing_page_code_span(page_title) or "(page unknown)"
+    return f"move skipped: page {span} was deleted"

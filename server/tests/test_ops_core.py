@@ -22,6 +22,7 @@ from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  ExistingHeader, FreshHeader, InsertBlock,
                                  JournalBlock, LandedSkipContext, MoveContext,
                                  OpError, PageContext, RecordConflictHeader,
+                                 RecordUnlinkRewrite,
                                  ReindexRefs, SetCollapsed, SetHeading,
                                  SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, Skip, SkipContext,
@@ -32,7 +33,8 @@ from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  classify_text_edit, conflict_entry_effects,
                                  descendant_copy_effects, delete_diverged,
                                  replay_title_rewrites,
-                                 plan_op, skip_report, unlink_stale_text)
+                                 plan_op, skip_report, stale_unlink_effects,
+                                 unlink_stale_text)
 
 B = BlockInfo(uid=BlockUid("uid_b3"), page_id=PageId(1),
              parent_uid=BlockUid("uid_b2"))
@@ -1098,11 +1100,15 @@ def test_unlink_stale_text_rewrites_create_and_update_text_only():
     def is_x(raw: str) -> bool:
         return normalize_title(raw) == "X"
     create = _top_create("P", "see [[X]] and #X")
-    assert unlink_stale_text(create, is_x).text == "see X and X"
+    unlinked_create = unlink_stale_text(create, is_x)
+    assert isinstance(unlinked_create, CreateOp)
+    assert unlinked_create.text == "see X and X"
     clean = _top_create("P", "see [[Y]]")
     assert unlink_stale_text(clean, is_x) is clean
     upd = UpdateTextOp(op="update_text", uid="uid_u0000001", text="[[X]]")
-    assert unlink_stale_text(upd, is_x).text == "X"
+    unlinked_upd = unlink_stale_text(upd, is_x)
+    assert isinstance(unlinked_upd, UpdateTextOp)
+    assert unlinked_upd.text == "X"
     upd_clean = UpdateTextOp(op="update_text", uid="uid_u0000001",
                              text="[[Y]]")
     assert unlink_stale_text(upd_clean, is_x) is upd_clean
@@ -1114,17 +1120,17 @@ def test_unlink_stale_text_rewrites_create_and_update_text_only():
 
 def test_classify_skip_stale_page():
     assert classify_skip(_top_create("X", "t"), False, False,
-                         page_stale=True) == Skip("stale_page", "uid_c0000001")
+                         page_stale=True) == Skip("stale_page", BlockUid("uid_c0000001"))
     assert classify_skip(_top_create("X", "  "), False, False,
                          page_stale=True) == Skip("stale_page", None)
     assert classify_skip(_top_move("X"), True, False,
-                         page_stale=True) == Skip("stale_page", "uid_m0000001")
+                         page_stale=True) == Skip("stale_page", BlockUid("uid_m0000001"))
     assert classify_skip(_top_create("X", "t"), False, False) is None
     assert classify_skip(_top_move("X"), True, False) is None
     # a missing block's move stays an orphan, stale or not
     assert classify_skip(_top_move("X"), False, False,
                          page_stale=True) == Skip("orphan_structural",
-                                                  "uid_m0000001")
+                                                  BlockUid("uid_m0000001"))
     # an existing block's create is not re-created, so never stale
     assert classify_skip(_top_create("X", "t"), True, False,
                          page_stale=True) is None
@@ -1167,13 +1173,13 @@ def test_plan_stale_move_keeps_block_and_notes_it():
 
 def test_plan_stale_context_must_fit_the_op():
     move = _top_move("X")
-    skip = Skip("stale_page", "uid_m0000001")
+    skip = Skip("stale_page", BlockUid("uid_m0000001"))
     with pytest.raises(AssertionError):
         plan_op(0, move, LandedSkipContext(skip, _landing(), False))
     create = _top_create("X", "t")
     with pytest.raises(AssertionError):
         plan_op(0, create, StuckMoveContext(
-            Skip("stale_page", "uid_c0000001"), _landing(), "Home", ()))
+            Skip("stale_page", BlockUid("uid_c0000001")), _landing(), "Home", ()))
 
 
 def test_skip_report_stale_page_reason():
@@ -1181,3 +1187,26 @@ def test_skip_report_stale_page_reason():
     assert skip_report(2, op, _skip_ctx(op, page_stale=True)) == {
         "index": 2, "op": "create", "uid": "uid_c0000001",
         "reason": "page_deleted", "note_page": _DAY}
+
+
+def test_stale_unlink_effects_record_one_row_per_unlinked_title():
+    sent = UpdateTextOp(op="update_text", uid=BlockUid("uid_u0000001"),
+                        text="[[X]] and [[Z]] and [[Y]]")
+    planned = (UpdateText(BlockUid("uid_u0000001"), "X and Z and [[Y]]"),)
+    stale = {CanonicalTitle(NormalizedTitle(t)) for t in "XZW"}
+    [eff] = stale_unlink_effects(sent, planned, stale, normalize_title)
+    assert eff == RecordUnlinkRewrite(
+        BlockUid("uid_u0000001"), text_hash(sent.text),
+        text_hash("X and Z and [[Y]]"),
+        tuple(CanonicalTitle(NormalizedTitle(t)) for t in "XZ"))
+
+
+def test_stale_unlink_effects_skip_parked_and_unchanged_text():
+    sent = UpdateTextOp(op="update_text", uid=BlockUid("uid_u0000001"),
+                        text="[[X]]")
+    stale = {CanonicalTitle(NormalizedTitle("X"))}
+    assert stale_unlink_effects(sent, (), stale, normalize_title) == ()
+    plain = UpdateTextOp(op="update_text", uid=BlockUid("uid_u0000001"),
+                         text="[[Y]]")
+    planned = (UpdateText(BlockUid("uid_u0000001"), "[[Y]]"),)
+    assert stale_unlink_effects(plain, planned, stale, normalize_title) == ()

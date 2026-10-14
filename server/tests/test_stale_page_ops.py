@@ -150,6 +150,40 @@ def test_stale_link_in_unhashed_and_hashed_update_text_becomes_plain(
     assert client.get(f"/api/page/{TITLE}").status_code == 404
 
 
+def _update(uid, text, base):
+    return {"op": "update_text", "uid": uid, "text": text,
+            "base_text_hash": text_hash(base)}
+
+
+def test_chained_hashed_edits_after_a_stale_unlink_apply_clean(
+        client, seeded_config):
+    linked = "see [[Machine Learning]]"
+    seen = _delete_ml(client, seeded_config)
+    r = _post(client,
+              _create("stale001", "", parent="uid_b4", title="July 7th, 2026"),
+              _update("stale001", linked, ""),
+              _update("stale001", linked + " tomorrow", linked),
+              seen_seq=seen)
+    assert r.status_code == 200
+    assert r.json()["skipped"] == []
+    assert _text(seeded_config, "stale001") == "see Machine Learning tomorrow"
+    assert _conflicts(client) == []
+
+
+def test_hashed_edit_after_a_stale_create_with_a_link_applies_clean(
+        client, seeded_config):
+    linked = "about [[Machine Learning]]"
+    seen = _delete_ml(client, seeded_config)
+    r = _post(client,
+              _create("stale001", linked, parent="uid_b4",
+                      title="July 7th, 2026"),
+              _update("stale001", linked + " more", linked),
+              seen_seq=seen)
+    assert r.status_code == 200
+    assert _text(seeded_config, "stale001") == "about Machine Learning more"
+    assert _conflicts(client) == []
+
+
 def test_parked_orphan_edit_text_is_unlinked(client, seeded_config):
     seen = _delete_ml(client, seeded_config)
     r = _post(client,

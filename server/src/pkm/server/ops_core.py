@@ -10,7 +10,7 @@ contract every client builds against, so they must not sit behind
 `pkm.server`."""
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, Union
 
@@ -614,6 +614,19 @@ class RecordConflictHeader:
 
 
 @dataclass(frozen=True)
+class RecordUnlinkRewrite:
+    """`block_rewrites` `unlink` rows for a stale unlink of uid's text: one
+    per title in `titles`, all sharing the hashes of the whole rewrite --
+    `base_hash` of the text as the client sent it, `after_hash` of the text
+    written -- so the client's next hashed edit replays onto the written
+    text instead of conflicting."""
+    uid: BlockUid
+    base_hash: str
+    after_hash: str
+    titles: tuple[CanonicalTitle, ...]
+
+
+@dataclass(frozen=True)
 class JournalBlock:
     """A changes-journal row for uid without writing the block. The feed
     hydrates each journalled uid from current state, so a live uid ships as
@@ -635,7 +648,7 @@ class JournalBlock:
 Effect = Union[ShiftSiblings, InsertBlock, UpdateText, SetParent,
                DeleteBlocks, SetCollapsed, SetHeading, SetViewType,
                ReindexRefs, TouchPage, SetPageId, RecordConflictHeader,
-               JournalBlock]
+               RecordUnlinkRewrite, JournalBlock]
 
 def conflict_entry_effects(
     target_uid: BlockUid, lost_text: str, header_text: str,
@@ -770,6 +783,35 @@ def unlink_stale_text(op: BlockOp, is_stale: TitleMatch) -> BlockOp:
         return op
     text = unlink_title_refs(op.text, is_stale)
     return op if text == op.text else op.model_copy(update={"text": text})
+
+
+def stale_unlink_effects(
+    original: BlockOp, planned: tuple[Effect, ...],
+    stale: Collection[CanonicalTitle],
+    canonical: Callable[[str], str],
+) -> tuple[Effect, ...]:
+    """The rewrite rows for a stale unlink that changed the text a create /
+    update_text then wrote: `original` is the op as the client sent it,
+    `planned` the effects of the unlinked op, `stale` the canonical deleted
+    titles. Text that was parked rather than written to the op's uid leaves
+    no rows."""
+    if not isinstance(original, (CreateOp, UpdateTextOp)):
+        return ()
+    written = next((e.text for e in reversed(planned)
+                    if isinstance(e, (InsertBlock, UpdateText))
+                    and e.uid == original.uid), None)
+    if written is None:
+        return ()
+    titles = tuple(sorted(
+        title for title in stale
+        if unlink_title_refs(
+            original.text,
+            lambda raw, t=title: canonical(normalize_title(raw)) == t)
+        != original.text))
+    if not titles:
+        return ()
+    return (RecordUnlinkRewrite(original.uid, text_hash(original.text),
+                                text_hash(written), titles),)
 
 
 def impossible_uid_reason(op: BlockOp, skip: Skip) -> str | None:

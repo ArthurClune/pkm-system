@@ -435,7 +435,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         // commits must not fail its first replay-log write: an older file
         // gets the tables it lacks. schema_version stays stale so the reset
         // still rebuilds them from CLIENT_DDL.
-        else if (!tableExists(d, "replay_log")) d.exec(CLIENT_DDL);
+        else if (!tableExists(d, "replay_log") || !tableExists(d, "pending_seen")) {
+          d.exec(CLIENT_DDL);
+        }
         return enqueueBatch(d, ops, nowMs(), batchId);
       });
     },

@@ -10,7 +10,7 @@
 // passive effects in one synchronous flush. So no method here may emit
 // synchronously.
 import { ApiError } from "../api/client";
-import type { BatchId, ClientId } from "../api/brands";
+import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { OpBatch, OpsAck } from "../api/payloads";
 import { apiPost } from "../api/typedClient";
@@ -176,8 +176,12 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
   const queueClientId = deps.clientId ?? clientId;
   const poisonStore = deps.poisonStore ?? defaultPoisonStore;
   const newBatchId = deps.newBatchId ?? ((): BatchId => newRawUid() as BatchId);
-  const postOps = (ops: BlockOp[], batchId: BatchId): Promise<OpsAck> =>
-    post({ client_id: queueClientId, batch_id: batchId, ops });
+  const postOps = (ops: BlockOp[], batchId: BatchId,
+                   seenSeq?: SyncSeq): Promise<OpsAck> =>
+    post({
+      client_id: queueClientId, batch_id: batchId, ops,
+      ...(seenSeq !== undefined ? { seen_seq: seenSeq } : {}),
+    });
   let poisonMarkIntents = poisonStore.read();
   // Connectivity + retry policy lives in the queueState core; this shell owns
   // the timer handle and dispatches events into it.
@@ -560,7 +564,7 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       }
       let ack: OpsAck;
       try {
-        ack = await postOps(batch.ops, batch.batch_id);
+        ack = await postOps(batch.ops, batch.batch_id, batch.seen_seq);
       } catch (error: unknown) {
         if (isTerminalRejection(error)) {
           return rejectDurableBatch(batch, error);

@@ -1414,6 +1414,17 @@ test("an enqueue on a file without replay_log creates the tables, records, and l
     .toEqual([{ value: "old" }]);
 });
 
+test("an enqueue on a file without pending_seen creates it and keeps the batch", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(TWO);
+  t.db.exec("DROP TABLE pending_seen");
+  await handlers.enqueue(shiftingCreate("a"));
+  expect(t.db.select("SELECT batch_id FROM pending_ops")).toEqual([{ batch_id: "a" }]);
+  expect(t.db.select("SELECT batch_id FROM pending_seen")).toEqual([{ batch_id: "a" }]);
+});
+
 const LEGACY_LEDGER =
   "CREATE TABLE effect_ledger(batch_id TEXT NOT NULL, uid TEXT NOT NULL," +
   " order_delta INTEGER NOT NULL DEFAULT 0, row_json TEXT, PRIMARY KEY (batch_id, uid))";

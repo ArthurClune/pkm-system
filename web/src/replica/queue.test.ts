@@ -10,6 +10,7 @@ import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
 import { sha256Hex, type Sha256Hex } from "./sha256";
 import { subtreeHash } from "./subtreeHash";
 import { openTestDb, type TestDb } from "./testDb";
+import { setMeta } from "./meta";
 import { ord, uid } from "../test-helpers";
 
 // Every test here picks an arbitrary batch-id string, same shape as the
@@ -365,5 +366,38 @@ describe("importPendingRows", () => {
     ]);
     expect(t.db.select("SELECT batch_id FROM pending_ops WHERE id = 1"))
       .toEqual([{ batch_id: "kept" }]);
+  });
+});
+
+describe("seen_seq", () => {
+  const op: BlockOp = { op: "set_collapsed", uid: uid("uid_q1"), collapsed: true };
+
+  test("a batch enqueued under a generation carries the cursor at enqueue", () => {
+    setMeta(t.db, "generation", "g");
+    setMeta(t.db, "cursor", "42");
+    enqueueBatch(t.db, [op], 1, bid("b1"));
+    setMeta(t.db, "cursor", "50");
+    expect(nextBatch(t.db)?.seen_seq).toBe(42);
+  });
+
+  test("a batch enqueued with no generation carries no seen_seq", () => {
+    setMeta(t.db, "cursor", "42");
+    enqueueBatch(t.db, [op], 1, bid("b1"));
+    expect(nextBatch(t.db)?.seen_seq).toBeUndefined();
+  });
+
+  test("deleteBatch removes the seen row with the batch", () => {
+    setMeta(t.db, "generation", "g");
+    enqueueBatch(t.db, [op], 1, bid("b1"));
+    const batch = nextBatch(t.db)!;
+    expect(deleteBatch(t.db, batch.id, batch.batch_id)).toBe(true);
+    expect(t.db.select("SELECT * FROM pending_seen")).toEqual([]);
+  });
+
+  test("allBatches reads only the stable columns", () => {
+    setMeta(t.db, "generation", "g");
+    enqueueBatch(t.db, [op], 1, bid("b1"));
+    expect(Object.keys(allBatches(t.db)[0]).sort())
+      .toEqual(["batch_id", "id", "ops", "poisoned"]);
   });
 });

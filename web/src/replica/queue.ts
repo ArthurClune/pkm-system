@@ -13,11 +13,12 @@
 // Poisoned batches (server terminal 4xx, see sync/rejection.ts) are set
 // aside, never retried forever (spec section 6).
 
-import type { BatchId, BlockUid, CanonicalTitle } from "../api/brands";
+import type { BatchId, BlockUid, CanonicalTitle, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { PendingBatch, PendingRowId, PoisonedBatch } from "./client";
 import { type ReplicaDb, rollbackToSavepoint } from "./db";
 import { applyLocalOps, LocalOpError } from "./localOps";
+import { getMeta } from "./meta";
 import { recordEnqueue } from "./replayLog";
 import { sha256Hex } from "./sha256";
 import { subtreeHash } from "./subtreeHash";
@@ -116,24 +117,32 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
       }
       db.exec("INSERT INTO pending_ops(batch_id, ops_json) VALUES (?, ?)",
               [batchId, JSON.stringify(augmented)]);
+      // a replica with no generation has no feed position to vouch for
+      if (getMeta(db, "generation") !== null) {
+        db.exec("INSERT OR REPLACE INTO pending_seen(batch_id, seen_seq)" +
+                " VALUES (?, ?)",
+                [batchId, Number(getMeta(db, "cursor") ?? 0)]);
+      }
     });
   }
   return { pending: pendingCount(db), batchId };
 }
 
 const toBatch = (r: { id: number; batch_id: string; ops_json: string;
-                      poisoned: number }): PendingBatch => ({
+                      poisoned: number; seen_seq?: number | null }): PendingBatch => ({
   id: r.id as PendingRowId,
   batch_id: r.batch_id as BatchId,
   ops: JSON.parse(r.ops_json) as BlockOp[],
   poisoned: r.poisoned !== 0,
+  ...(r.seen_seq != null ? { seen_seq: Number(r.seen_seq) as SyncSeq } : {}),
 });
 
 export function nextBatch(db: ReplicaDb): PendingBatch | null {
   const rows = db.select<{ id: number; batch_id: string; ops_json: string;
-                           poisoned: number }>(
-    "SELECT id, batch_id, ops_json, poisoned FROM pending_ops" +
-    " WHERE poisoned = 0 ORDER BY id LIMIT 1");
+                           poisoned: number; seen_seq: number | null }>(
+    "SELECT o.id, o.batch_id, o.ops_json, o.poisoned, s.seen_seq" +
+    " FROM pending_ops o LEFT JOIN pending_seen s ON s.batch_id = o.batch_id" +
+    " WHERE o.poisoned = 0 ORDER BY o.id LIMIT 1");
   return rows.length > 0 ? toBatch(rows[0]) : null;
 }
 
@@ -190,7 +199,10 @@ export function deleteBatch(db: ReplicaDb, id: PendingRowId, batchId: BatchId): 
   const matches = db.select<{ id: number }>(
     "SELECT id FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
   if (matches.length === 0) return false;
-  db.exec("DELETE FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
+  db.transaction(() => {
+    db.exec("DELETE FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
+    db.exec("DELETE FROM pending_seen WHERE batch_id = ?", [batchId]);
+  });
   return true;
 }
 

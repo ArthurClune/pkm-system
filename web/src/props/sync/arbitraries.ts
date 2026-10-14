@@ -6,10 +6,11 @@
 // takes the client's next fresh uid. Resolution is a pure function of the
 // drafts and the model, so a seed and path replay the same ops.
 //
-// The pool is every seed block but pt_seed_6, then page Second's blocks,
-// plus every uid an Edit has created. pt_seed_6 is never a target or a
-// parent, so it stays live on the server for the whole example and a
-// BadBatch's create of it is always a 400. A client creates only from its
+// The pool is the five seed blocks, then page Second's blocks, plus every
+// uid an Edit has created. pt_seed_6 is the only block of page Fixture,
+// outside the title pool: it is never a target or a parent and its page is
+// never deleted or renamed, so it stays live on the server for the whole
+// example and a BadBatch's create of it is always a 400. A client creates only from its
 // own fresh uids, each at most once, so no Edit can meet a legitimate 400.
 //
 // Page titles come from a fixed pool that renames never change: a Rename
@@ -23,15 +24,17 @@ import type { SyncModel } from "./model";
 
 export const SEED_PAGE = "Proptest";
 export const SEED_UIDS = ["pt_seed_1", "pt_seed_2", "pt_seed_3",
-                          "pt_seed_4", "pt_seed_5", "pt_seed_6"] as const;
-/** Live for the whole example: BadBatch creates it. */
+                          "pt_seed_4", "pt_seed_5"] as const;
+/** The only page outside PAGE_TITLES: nothing deletes, renames or edits it. */
+export const FIXTURE_PAGE = "Fixture";
+/** Live for the whole example: BadBatch creates it. It is on FIXTURE_PAGE, so
+ * a batch naming that page is never stale and reaches the uid check. */
 export const BAD_UID = "pt_seed_6";
 export const SECOND_PAGE = "Second";
 export const SECOND_UIDS = ["pt_sec_1", "pt_sec_2", "pt_sec_3"] as const;
-/** The seed blocks but BAD_UID, then Second's: a fixed scenario's pool
- * index of a seed block does not move when a page is added. */
-export const EDIT_TARGETS: readonly string[] =
-  [...SEED_UIDS.filter((u) => u !== BAD_UID), ...SECOND_UIDS];
+/** The seed blocks, then Second's: a fixed scenario's pool index of a seed
+ * block does not move when a page is added. */
+export const EDIT_TARGETS: readonly string[] = [...SEED_UIDS, ...SECOND_UIDS];
 /** The titles a create, a titled move or a Rename names: the two seeded
  * pages, then two that start out missing. No daily title, so every Rename
  * the server refuses is refused for a reason the generator meant. */
@@ -96,7 +99,7 @@ export const opDraft: fc.Arbitrary<OpDraft> = fc.record({
 export const editDrafts: fc.Arbitrary<OpDraft[]> =
   fc.array(opDraft, { minLength: 1, maxLength: 4 });
 
-/** Edit targets as the model stands: the seed blocks but pt_seed_6, then
+/** Edit targets as the model stands: the seed blocks, then
  * Second's, then the created uids. */
 export function targetPool(model: Pick<SyncModel, "createdUids">): string[] {
   return [...EDIT_TARGETS, ...model.createdUids];

@@ -286,7 +286,7 @@ async function badBatchScenario(): Promise<{
   const b = await start("B");
   const good = await a.edit(setText("pt_seed_1", "good before bad"));
   const bad = await a.edit([{
-    op: "create", uid: "pt_seed_6" as BlockUid, page_title: "Proptest",
+    op: "create", uid: "pt_seed_6" as BlockUid, page_title: "Fixture",
     parent_uid: null, order_idx: 60 as OrderIdx, text: "a create of a live uid",
   }]);
   const b1 = await b.edit(setText("pt_seed_2", "B alongside"));
@@ -344,7 +344,7 @@ test("quiesce waits for a lone client's poison repair", async () => {
     return deleteBatch(...args);
   };
   const bad = await a.edit([{
-    op: "create", uid: "pt_seed_6" as BlockUid, page_title: "Proptest",
+    op: "create", uid: "pt_seed_6" as BlockUid, page_title: "Fixture",
     parent_uid: null, order_idx: 60 as OrderIdx, text: "a create of a live uid",
   }]);
   await quiesce([a], server);

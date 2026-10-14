@@ -16,7 +16,7 @@ async function login(): Promise<string> {
   return (res.headers.getSetCookie()[0] ?? "").split(";")[0];
 }
 
-test("harness server resets to the seed blocks of both pages", async () => {
+test("harness server resets to the seed blocks of its three pages", async () => {
   // An earlier file may have left the server clock far past START_MS, and a
   // cookie issued there is in the future once the reset returns the clock:
   // the first login only buys the reset, the second is the one used.

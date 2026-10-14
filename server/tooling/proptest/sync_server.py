@@ -56,9 +56,13 @@ PORT = int(os.environ.get("PROPTEST_PORT", "8978"))
 PASSWORD = "proptest-pw"
 SALT = bytes.fromhex("22" * 16)
 SEED_PAGE = "Proptest"
-# pt_seed_6 is reserved: no generated Edit targets it, so it is live on the
-# server for the whole example and a create of it is always a 400 (BadBatch).
-SEED_UIDS = tuple(f"pt_seed_{i}" for i in range(1, 7))
+SEED_UIDS = tuple(f"pt_seed_{i}" for i in range(1, 6))
+# pt_seed_6 is reserved: it is the only block of FIXTURE_PAGE, which no title
+# pool draw, Rename, DeletePage or Edit names. It stays live on the server for
+# the whole example, so a create of it is always a 400 (BadBatch) and every
+# page in the title pool may be deleted.
+FIXTURE_PAGE = "Fixture"
+FIXTURE_UIDS = ("pt_seed_6",)
 # A second page, so moves and creates can cross pages.
 SECOND_PAGE = "Second"
 SECOND_UIDS = tuple(f"pt_sec_{i}" for i in range(1, 4))
@@ -150,8 +154,8 @@ class Clock:
 
 
 def build_template(path: Path) -> None:
-    """A fresh DB holding page "Proptest" with six top-level blocks and page
-    "Second" with three, written through the real op pipeline so the change
+    """A fresh DB holding page "Proptest" with five top-level blocks, page
+    "Second" with three and page "Fixture" with one, written through the real op pipeline so the change
     journal and refs are as a client's creates would leave them, plus the
     rename and delete logs (RENAME_LOG_DDL, DELETE_LOG_DDL). The app's schema setup is all IF NOT
     EXISTS and leaves a table and trigger it does not know alone."""
@@ -161,7 +165,8 @@ def build_template(path: Path) -> None:
         ops = [{"op": "create", "uid": uid, "page_title": title, "parent_uid": None,
                 "order_idx": i * 10, "text": f"{label} {i + 1}"}
                for title, label, uids in ((SEED_PAGE, "seed", SEED_UIDS),
-                                          (SECOND_PAGE, "second", SECOND_UIDS))
+                                          (SECOND_PAGE, "second", SECOND_UIDS),
+                                          (FIXTURE_PAGE, "fixture", FIXTURE_UIDS))
                for i, uid in enumerate(uids)]
         batch = OpBatch.model_validate({
             "client_id": "proptest-seed", "batch_id": "proptest-seed-batch", "ops": ops})

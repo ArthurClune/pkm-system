@@ -52,7 +52,7 @@ that launcher and never in `pkm.server.app`:
 
 | Route | Does |
 |---|---|
-| `POST /__proptest/reset` | restores the seeded database (six `pt_seed_N` blocks on the `Proptest` page, three `pt_sec_N` blocks on the `Second` page) and the clock |
+| `POST /__proptest/reset` | restores the seeded database (five `pt_seed_N` blocks on the `Proptest` page, three `pt_sec_N` blocks on the `Second` page, and `pt_seed_6` alone on the `Fixture` page) and the clock |
 | `POST /__proptest/clock` | moves the frozen server clock |
 | `POST /__proptest/rotate-generation` | rotates the sync `db_generation` |
 | `GET /__proptest/applied` | `applied_batches` rows in commit order, with `applied_at` |
@@ -151,7 +151,7 @@ through the same commands.
 | `Pull` | forces a catch-up | offline |
 | `Nudge` | a websocket `seq` frame: `latest`, `stale`, `duplicate` or `ahead` of the journal | offline |
 | `Rename` | a page rename from a fixed title pool (`Proptest`, `Second`, `Third`, `Fourth`) through the client's network, never a merge. The pool is a fixed list, so after renames a drawn title may name another page, or a page that no longer exists. The route refusing it (400, 404, 409) or a dead network is a counted outcome, not an error | the client is not in the example |
-| `DeletePage` | a page delete from the same title pool through the client's network, drawn as often as `Rename`. Other clients' queued batches may still name the page, which is the race it draws. The page holding `pt_seed_6` is spared under whatever title it has, so `BadBatch` stays a 400. A refusal (404, 409) or a dead network is a counted outcome | the client is not in the example |
+| `DeletePage` | a page delete from the same title pool through the client's network, drawn as often as `Rename`. Other clients' queued batches may still name the page, which is the race it draws. Every pool page may be deleted: `pt_seed_6` sits on `Fixture`, outside the title pool, so `BadBatch` (which names `Fixture`, never stale) stays a 400. A refusal (404, 409) or a dead network is a counted outcome | the client is not in the example |
 | `Reload` | a page reload: the worker and in-flight requests die, the database survives. Half the time an online client's new life connects 1 to 7 timer ticks after its mount begins, possibly mid-startup as the app's socket can; otherwise once the startup has finished (`connectTiming`, `HarnessClient.reload`) | ops would be lost by design (a non-empty lane or armed write failure) |
 | `RotateGeneration` | rotates `db_generation`, so every client's next pull rebases | never |
 | `CrossMidnight` | the server clock to 23:59:55 local, then ten seconds on; one crossing in four lands on a BST/GMT changeover | never |

@@ -4,7 +4,7 @@
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import type { BatchId, BlockUid, ClientId, OrderIdx } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
-import { BAD_UID, SEED_PAGE } from "./arbitraries";
+import { BAD_UID, FIXTURE_PAGE } from "./arbitraries";
 import { startClient, type HarnessClient } from "./harnessClient";
 import { quiesce } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
@@ -157,7 +157,7 @@ test("a lane rejection whose repair fails offline is retried on reconnect", asyn
   const release = a.transport.stall("/api/block/");
   a.failNextWrite();
   const bad = await a.edit([{
-    op: "create", uid: BAD_UID as BlockUid, page_title: SEED_PAGE,
+    op: "create", uid: BAD_UID as BlockUid, page_title: FIXTURE_PAGE,
     parent_uid: null, order_idx: 60 as OrderIdx, text: "a create of a live uid",
   }]);
   expect(a.unsentInMemory()).toBe(1);

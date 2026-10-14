@@ -1,11 +1,11 @@
 ---
 # pkm-ialr
 title: 'Property suite: move pt_seed_6 off the title pool so DeletePage can delete every page'
-status: in-progress
+status: completed
 type: task
 priority: low
 created_at: 2026-10-14T10:51:43Z
-updated_at: 2026-10-14T12:22:09Z
+updated_at: 2026-10-14T12:33:58Z
 ---
 
 Found in the pkm-wvac review. The sync property suite's DeletePage command never deletes the page that holds pt_seed_6 (outcome "spared"), because BadBatch depends on that block staying alive (its 400 comes from uid_taken). That page is the busiest one (most offline edits and creates land on it), so about a quarter of delete draws are wasted and the race is drawn in only ~5% of examples.

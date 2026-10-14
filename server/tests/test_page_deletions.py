@@ -54,6 +54,19 @@ def test_rows_past_retention_are_pruned(client, seeded_config):
     assert titles == ["Machine Learning"]
 
 
+def test_rename_leaves_old_rows_for_the_delete_path(client, seeded_config):
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute("INSERT INTO page_deletions VALUES ('Old', 1, 1)")
+    con.commit()
+    con.close()
+    r = client.post("/api/page/Machine Learning/rename",
+                    json={"new_title": "ML Renamed", "allow_merge": False})
+    assert r.status_code == 200
+    titles = [r[0] for r in _rows(seeded_config,
+                                  "SELECT title FROM page_deletions")]
+    assert titles == ["Old"]
+
+
 def test_stale_titles():
     db = sqlite3.connect(":memory:")
     db.executescript(DDL)

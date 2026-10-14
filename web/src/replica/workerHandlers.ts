@@ -79,11 +79,16 @@ function readPendingBatches(db: ReplicaDb): PendingBatch[] {
 /** An older file gets the client tables it lacks, so a queue handler that
  * runs before init() never meets a missing table. schema_version stays
  * stale, so init() still runs the reset that rebuilds them from CLIENT_DDL. */
-const ensureClientTables = (d: ReplicaDb): void => {
+const ensureClientTables = (d: ReplicaDb, ensured: WeakSet<ReplicaDb>): void => {
+  // Once per handle a worker has opened: a replaced file is a new handle,
+  // and a handle without sync_client_meta is never memoised, so a file that
+  // is still to be built is re-checked.
+  if (ensured.has(d)) return;
   if (!tableExists(d, "sync_client_meta")) return;
   if (!tableExists(d, "replay_log") || !tableExists(d, "pending_seen")) {
     d.exec(CLIENT_DDL);
   }
+  ensured.add(d);
 };
 
 function readDurablePendingRows(db: ReplicaDb): DurablePendingRow[] {
@@ -262,9 +267,10 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
    * is the rows' only copy and must not be adopted into a half-built file;
    * so does diagnostics, which only reads and must report on an unwell
    * database even when an adoption would fail. */
+  const ensuredHandles = new WeakSet<ReplicaDb>();
   const queueDb = async (): Promise<ReplicaDb> => {
     const d = await adoptLeftoverCarry(await db());
-    ensureClientTables(d);
+    ensureClientTables(d, ensuredHandles);
     return d;
   };
   // Batch row id -> the journal seq its server ack named, for batches deleted

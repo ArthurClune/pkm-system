@@ -15,8 +15,8 @@ from pkm.server.sync_meta import read_title, title_reader
 from pkm.unlink import (DeleteBlocker, DeletePlan, SourceBlock,
                         plan_page_delete)
 
-# How long a rename/merge rewrite record stays replayable (see
-# _prune_block_rewrites).
+# How long a rename/merge rewrite record and a page-deletion record stay
+# replayable (see _prune_block_rewrites, _prune_page_deletions).
 BLOCK_REWRITE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 
@@ -184,7 +184,13 @@ def _prune_block_rewrites(db: sqlite3.Connection, now_ms: int) -> None:
     bounded without a scheduled job."""
     cutoff = now_ms - BLOCK_REWRITE_RETENTION_MS
     db.execute("DELETE FROM block_rewrites WHERE created_at < ?", (cutoff,))
-    db.execute("DELETE FROM page_deletions WHERE deleted_at < ?", (cutoff,))
+
+
+def _prune_page_deletions(db: sqlite3.Connection, now_ms: int) -> None:
+    """Same retention as the rewrite records. Only the page-delete path runs
+    it: deleted_at is unindexed, so a rename must not pay a scan for it."""
+    db.execute("DELETE FROM page_deletions WHERE deleted_at < ?",
+               (now_ms - BLOCK_REWRITE_RETENTION_MS,))
 
 
 def rewrite_snapshotted_blocks(
@@ -414,6 +420,7 @@ def delete_page_unlinking(db: sqlite3.Connection, page_id: PageId,
             " SELECT ?, COALESCE(MAX(seq), 0), ? FROM changes",
             (title, now_ms))
     _prune_block_rewrites(db, now_ms)
+    _prune_page_deletions(db, now_ms)
     return plan
 
 

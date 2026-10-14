@@ -537,6 +537,7 @@ database) counts every recorded deletion as newer.
 | `create_page` for a stale title | dropped, not reported; the replica removes its local page (`dropStrandedLocalPages`) |
 | top-level `create` / `move` with a stale `page_title` | skipped as `stale_page`; the rows above |
 | `create` / `update_text` whose text links a stale title | the links become plain text (`ops_core.unlink_stale_text`), as the delete did for the text it saw; each stale title unlinked from text that was written adds an `unlink` row to `block_rewrites` (`RecordUnlinkRewrite`), so the client's next hashed edit replays onto the written text instead of conflicting |
+| `create` / `update_text` whose leading `Title::` attribute names a stale title | the name is code-fenced in place, `` `X`:: v `` (`unlink.defuse_attribute`), which indexes no ref; a name holding a backtick takes `:` for `::` instead. A real delete refuses such a block rather than rewriting it. The unlink replay defuses too, so the recorded row reproduces the fenced text |
 
 `stale_page` is the `SkipKind`; the ack reports it as `page_deleted`. A page
 re-created after its delete still matches by title until its deletion row is

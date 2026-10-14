@@ -127,6 +127,29 @@ def unlink_title_refs(text: str, is_target: TitleMatch) -> str:
     return text
 
 
+def defuse_attribute(text: str, is_target: TitleMatch) -> str:
+    """Keep a leading `Target:: v` from re-creating the page: the name is
+    code-fenced in place (`` `Target`:: v ``), which `extract` reads no ref
+    from. A name holding a backtick cannot be fenced (`strip_code` knows
+    only single-backtick spans), so its `::` becomes `:`. Any other
+    attribute comes back unchanged."""
+    attribute = attribute_title_span(strip_code(text))
+    if attribute is None or not is_target(attribute.raw_title):
+        return text
+    name_end = attribute.start + len(attribute.raw_title)
+    if "`" in attribute.raw_title:
+        return text[:attribute.end - 2] + text[attribute.end - 1:]
+    return (text[:attribute.start] + "`" + text[attribute.start:name_end]
+            + "`" + text[name_end:])
+
+
+def unlink_stale_refs(text: str, is_target: TitleMatch) -> str:
+    """`unlink_title_refs` plus the leading attribute it never touches: what
+    a stale offline text gets, since a rewrite of it may not leave the page
+    referenced. A real delete refuses attribute blocks instead."""
+    return defuse_attribute(unlink_title_refs(text, is_target), is_target)
+
+
 def inline_block_refs(text: str, copies: Mapping[str, str]) -> str:
     """Replace `((uid))` and a whole embed macro for each uid in `copies`."""
     if not copies:

@@ -30,7 +30,8 @@ from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        orphan_header_text,
                                        overwritten_header_text,
                                        stale_page_move_note)
-from pkm.unlink import TitleMatch, apply_delete_rewrite, unlink_title_refs
+from pkm.unlink import (TitleMatch, apply_delete_rewrite, defuse_attribute,
+                        unlink_stale_refs)
 
 # Most renames a stale edit can be behind. Each step is one recorded
 # rewrite of the same block, so the bound only matters for a block renamed
@@ -171,9 +172,12 @@ def replay_title_rewrites(
             text = rewrite_title_refs_map(text, match.retitles)
         if match.unlinked or match.inlines:
             unlinked = {canonical(title) for title in match.unlinked}
-            text = apply_delete_rewrite(
-                text, lambda raw: canonical(normalize_title(raw)) in unlinked,
-                match.inlines)
+            def is_deleted(raw: str) -> bool:
+                return canonical(normalize_title(raw)) in unlinked
+
+            text = defuse_attribute(
+                apply_delete_rewrite(text, is_deleted, match.inlines),
+                is_deleted)
         base_hash = match.after_hash
     return text, base_hash
 
@@ -781,7 +785,7 @@ def unlink_stale_text(op: BlockOp, is_stale: TitleMatch) -> BlockOp:
     Any other op, or text with nothing to unlink, comes back unchanged."""
     if not isinstance(op, (CreateOp, UpdateTextOp)):
         return op
-    text = unlink_title_refs(op.text, is_stale)
+    text = unlink_stale_refs(op.text, is_stale)
     return op if text == op.text else op.model_copy(update={"text": text})
 
 
@@ -804,7 +808,7 @@ def stale_unlink_effects(
         return ()
     titles = tuple(sorted(
         title for title in stale
-        if unlink_title_refs(
+        if unlink_stale_refs(
             original.text,
             lambda raw, t=title: canonical(normalize_title(raw)) == t)
         != original.text))

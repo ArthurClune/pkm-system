@@ -3184,6 +3184,7 @@
             "type": "string",
             "enum": [
               "query",
+              "used_as_attribute",
               "attribute",
               "residual"
             ],
@@ -3198,7 +3199,7 @@
           "reason"
         ],
         "title": "DeleteBlockerModel",
-        "description": "A block whose reference to the page a delete cannot rewrite. `query`:\na query macro names the page. `attribute`: unlinking would add or change\nthe block's leading `Name::` attribute (as for `[[page]]:: v`), turning\nit into a property block. `residual`: the rewritten text would still\nreference the page or one of its blocks."
+        "description": "A block whose reference to the page a delete cannot rewrite. `query`:\na query macro names the page. `used_as_attribute`: the block's leading\n`Name::` attribute is the page. `attribute`: unlinking would add or\nchange the block's leading `Name::` attribute (as for `[[page]]:: v`),\nturning it into a property block. `residual`: the rewritten text would\nstill reference the page or one of its blocks."
       },
       "DeleteOp": {
         "properties": {

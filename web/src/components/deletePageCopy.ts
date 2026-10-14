@@ -37,6 +37,8 @@ export function blockerReasonLabel(reason: DeleteBlocker["reason"]): string {
   switch (reason) {
     case "query":
       return "a query names this page";
+    case "used_as_attribute":
+      return "this page is used as an attribute";
     case "attribute":
       return "unlinking would make this an attribute";
     case "residual":

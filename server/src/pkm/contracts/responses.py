@@ -125,14 +125,15 @@ class RenamePageResponse(BaseModel):
 
 class DeleteBlockerModel(BaseModel):
     """A block whose reference to the page a delete cannot rewrite. `query`:
-    a query macro names the page. `attribute`: unlinking would add or change
-    the block's leading `Name::` attribute (as for `[[page]]:: v`), turning
-    it into a property block. `residual`: the rewritten text would still
-    reference the page or one of its blocks."""
+    a query macro names the page. `used_as_attribute`: the block's leading
+    `Name::` attribute is the page. `attribute`: unlinking would add or
+    change the block's leading `Name::` attribute (as for `[[page]]:: v`),
+    turning it into a property block. `residual`: the rewritten text would
+    still reference the page or one of its blocks."""
     uid: str
     page_title: str
     text: str
-    reason: Literal["query", "attribute", "residual"]
+    reason: Literal["query", "used_as_attribute", "attribute", "residual"]
 
 
 class DeletePreview(BaseModel):

@@ -342,6 +342,23 @@ def test_delete_refused_when_unlinking_changes_the_leading_attribute(
     assert _rewrite_rows(seeded_config) == 0
 
 
+def test_delete_refused_when_the_page_is_used_as_an_attribute(
+        client, seeded_config):
+    text = "Machine Learning:: supervised"
+    _set_b4(client, text)
+    preview = client.get(
+        "/api/delete-preview", params={"title": "Machine Learning"}).json()
+    assert [(b["uid"], b["reason"]) for b in preview["blockers"]] \
+        == [("uid_b4", "used_as_attribute")]
+    r = client.delete("/api/page/Machine Learning")
+    assert r.status_code == 409
+    assert [(b["uid"], b["reason"]) for b in r.json()["detail"]["blockers"]] \
+        == [("uid_b4", "used_as_attribute")]
+    assert client.get("/api/page/Machine Learning").status_code == 200
+    assert _b4_text(client) == text
+    assert _rewrite_rows(seeded_config) == 0
+
+
 def test_delete_inlines_an_embed_of_a_page_block(client):
     _set_b4(client, "x {{embed: ((uid_b3))}} y")
     assert client.delete("/api/page/Machine Learning").status_code == 200

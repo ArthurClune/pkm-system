@@ -83,6 +83,9 @@ export interface HarnessClient {
   /** Batches a failed local write has pushed into the lane, across lives:
    * how often writeFails fired. */
   lanePushes(): number;
+  /** The batch ids whose pending_ops INSERT failed, in order: the lane sends
+   * them from memory, unhashed, and their ops never reach the replica. */
+  readonly laneBatches: BatchId[];
   /** A page reload. Online, the new life connects `connectAt` ticks after
    * its mount begins (see StartOptions); offline, it does not connect. */
   reload(connectAt?: number): Promise<void>;
@@ -185,6 +188,7 @@ export async function startClient(
   let writeDb: ReplicaDb = db;
   let writeArmed = false;
   let lanePushes = 0;
+  const laneBatches: BatchId[] = [];
   let disposed = false;
 
   const buildLife = (doors: TransportLife): Life => {
@@ -427,13 +431,17 @@ export async function startClient(
         ...failing,
         exec(sql, params) {
           // The first matching INSERT is the one failingOnce throws on.
-          if (PENDING_INSERT.test(sql)) writeArmed = false;
+          if (writeArmed && PENDING_INSERT.test(sql)) {
+            writeArmed = false;
+            laneBatches.push(params?.[0] as BatchId);
+          }
           failing.exec(sql, params);
         },
       };
     },
     writeFailArmed: () => writeArmed,
     lanePushes: () => lanePushes,
+    laneBatches,
     async reload(at) {
       // Severed first: the old life's fetches fail now rather than after
       // the network answers, which also releases any recovery lease it holds.

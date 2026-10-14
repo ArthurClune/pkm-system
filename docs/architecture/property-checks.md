@@ -47,7 +47,7 @@ random seed. `--path`, `--replay-path` and `--file` apply to the web side only
 The web side starts the harness server, `server/tooling/proptest/sync_server.py`,
 on port 8978, waits for `/healthz`, runs vitest, and stops the server by PID.
 It refuses to run when 8978 is already in use. The server is the real
-`create_app` plus nine control routes the suites need, which exist only in
+`create_app` plus eleven control routes the suites need, which exist only in
 that launcher and never in `pkm.server.app`:
 
 | Route | Does |
@@ -57,10 +57,12 @@ that launcher and never in `pkm.server.app`:
 | `POST /__proptest/rotate-generation` | rotates the sync `db_generation` |
 | `GET /__proptest/applied` | `applied_batches` rows in commit order, with `applied_at` |
 | `GET /__proptest/renames` | every page retitle in commit order: the titles, the batch it followed (`after_batch_id`, null before the first) and the clock `at` it ran at, and `ord`, its place among renames and deletes together. A trigger the seeded database installs writes the log, because a rename is a route of its own, not a batch |
+| `GET /__proptest/conflicts` | every daily-note conflict header written (a top-level `[[conflict]] …` block insert, logged by a trigger), in commit order: its uid, its text as written, and the batch that wrote it. A later page delete inlines the header's `((uid))`, so the snapshot alone cannot say which block it was for |
 | `GET /__proptest/deletes` | every recorded page delete (a `page_deletions` insert) in commit order, shaped like the rename log and sharing its `ord`: the title, its journal `seq`, `after_batch_id`, `at`, and the `uids` of the blocks the page held |
 | `POST /__proptest/echo/take` | the ops of the last broadcast frame that carried any (the echo an open page would apply), cleared by the read; `null` when none arrived |
 | `POST /__proptest/echo/teeth` | arms a deliberately wrong echo that loses the `page_title` of every move that names one, for the ops teeth |
 | `POST /__proptest/stale/teeth` | while armed, every batch is stale for no title (`stale_titles` returns nothing), so a stale batch re-creates a deleted page; for the sync teeth. A reset disarms it |
+| `POST /__proptest/rewrites/teeth` | while armed, `rewrite_effects` gets no replayed steps, so a hashed edit whose rename or delete replay changed its text records no rewrite rows, and the same device's next edit of the block conflicts; for the sync teeth. A reset disarms it |
 
 The server clock starts at `START_MS`, 2026-03-01 12:00 Europe/London, never
 ticks, and moves only by `/__proptest/clock`. It never moves before `START_MS`
@@ -79,13 +81,13 @@ session cookies are rejected when issued in the future or more than a year ago.
 | `web/src/props/sync/cancel.ts` | Imperative Shell | one example's server handle, which refuses every call once the example is cancelled and aborts any request still on the wire, so an abandoned example cannot reach the server the next one has reset |
 | `web/src/props/sync/transport.ts` | Imperative Shell | one client's network to the server: one-shot faults, a window limit, and the deliberately broken modes the teeth tests use |
 | `web/src/props/sync/harnessClient.ts` | Imperative Shell | one simulated device: the real replica worker, op queue, replica sync, client runtime, legacy repair and reconnect flow, over an in-memory database that survives `reload()`. The legacy repair's outline sessions are stood in for by one page read through the client's transport, which fails while offline |
-| `web/src/props/sync/model.ts`, `arbitraries.ts`, `normalise.ts`, `deleteWins.ts` | Functional Core | the command model; op drafts and the uid pool; the common graph form replicas and snapshots are compared in; the delete wins invariant and the `seen_seq` a replayed body carries |
+| `web/src/props/sync/model.ts`, `arbitraries.ts`, `normalise.ts`, `deleteWins.ts`, `conflictNoise.ts` | Functional Core | the command model; op drafts and the uid pool; the common graph form replicas and snapshots are compared in; the delete wins invariant and the `seen_seq` a replayed body carries; the conflict noise invariant |
 | `web/src/props/sync/commands.ts` | Imperative Shell | one fast-check command class per row of the commands table below |
-| `web/src/props/sync/oracle.ts`, `quiesce.ts` | Imperative Shell | the seven invariants; bringing every client to rest |
+| `web/src/props/sync/oracle.ts`, `quiesce.ts` | Imperative Shell | the eight invariants; bringing every client to rest |
 | `web/src/props/sync/sync.prop.ts` | Imperative Shell | the property, the seventeen fixed scenarios, the tally |
 | `web/src/props/sync/teeth.prop.ts`, `harness.prop.ts`, `smoke.prop.ts` | test | the oracle's teeth; the harness client and transport self-tests; the server wiring |
 | `web/src/props/warnings.ts`, `warningsCapture.ts`, `warnings.test.ts` | Functional Core, Imperative Shell, test | the expected fault-warning kinds, their classification and summary line; the per-file `console.warn` capture every `*.prop.ts` calls; the unit tests (run under `pnpm test:unit`) |
-| `web/src/props/sync/normalise.test.ts`, `arbitraries.test.ts`, `deleteWins.test.ts` and the other `*.test.ts` there | test | unit tests that do run under `pnpm test:unit` |
+| `web/src/props/sync/normalise.test.ts`, `arbitraries.test.ts`, `deleteWins.test.ts`, `conflictNoise.test.ts` and the other `*.test.ts` there | test | unit tests that do run under `pnpm test:unit` |
 | `web/src/props/outline/arbitraries.ts`, `reading.ts`, `model.ts`, `run.ts`, `checks.ts` | Functional Core | start trees, selections, drops, paste forests and command sequences; the reading-view rows; the model of each command; the runner over the real commands and history; the per-step and whole-sequence checks |
 | `web/src/props/outline/outline.prop.ts`, `teeth.prop.ts` | Imperative Shell | the property and its budget; the seeded wrong commands it must catch. Neither imports `sync/env.ts` or needs the server |
 | `web/src/props/ops/arbitraries.ts`, `compare.ts` | Functional Core | the start state, its seeding ops, the raw-batch drafts and their resolution against a server graph, and example kinds; per-page trees from a snapshot, tree and graph diffs, and the pruning of server-minted rows |
@@ -144,7 +146,7 @@ through the same commands.
 
 | Command | Does | Skipped when |
 |---|---|---|
-| `Edit` | enqueues a batch of op drafts (create, update, move, delete) resolved against the model. A top-level create or move names a page from the title pool, or none. The uid pool spans both seeded pages | the client is not in the example |
+| `Edit` | enqueues a batch of op drafts (create, update, move, delete) resolved against the model. A top-level create or move names a page from the title pool, or none. The uid pool spans both seeded pages. One text in six leads with an attribute naming a pool title (`Second:: …`), which a Rename retitles, a stale batch has code-fenced, and a DeletePage of that title is refused over (409) | the client is not in the example |
 | `BadBatch` | enqueues a create of a uid that is live everywhere, which the server rejects with a 400 | a write failure is armed or the in-memory lane is non-empty |
 | `Offline` | cuts the client's network and draws its return: back online after 1, 2, 3 or 5 further commands (about three draws in four), or not until quiesce (about one in four). `SyncCommand.run` brings it back; skipped commands do not count. There is no `Online` command | already offline |
 | `Fault` | arms one fault: `dropAck` (lose the ack after commit), `duplicate` (send twice), `lostPull` (lose a changes response), `writeFails` (fail the next local write, which pushes ops into the in-memory lane) | `writeFails` already armed |
@@ -171,6 +173,7 @@ Cursor monotonic runs after every command instead.
 | per-client order | each client's batches landed in its enqueue order | a queue that reorders its own client's delivery |
 | desync/poison | no `onDesync`, and `onPoison` only for batches the model expects to be rejected | a recovery path taken for no reason; a valid batch rejected |
 | delete wins | no block a deleted page held is alive, and a deleted title exists at quiescence only if, after its last delete, a rename made it or a batch named it (a `page_title`, or a ref in its text) without being stale for it: no `seen_seq`, a `seen_seq` at or past the delete, or a deletion record old enough to be pruned | a stale batch re-creating a deleted page through a top-level create, a copied link, or parked text |
+| conflict noise | every check-5 header (`[[conflict]] … — overwritten by ((uid))`) is about a block whose text (a create or update_text) at least two writers wrote; other headers are exempt. A client's in-memory lane counts as a writer of its own: a failed local write (`writeFails`) goes out from the lane unhashed and never reaches the replica, so that client's next hashed edit of the block conflicts with its own lane text | a device's own edit chain conflicting with itself: rewrite rows a rename or delete replay failed to record, a replica that lost its own optimistic write |
 | serial replay | replaying the recorded request bodies in commit order, each at its `applied_at`, on a fresh server reproduces the final graph | server-side apply that depends on anything but the batch sequence and the clock |
 | cursor monotonic | no client's cursor goes below the highest it has shown, across reloads and recoveries | a cursor rewound by a recovery or a stale frame |
 
@@ -183,7 +186,8 @@ so each body's `seen_seq` is rewritten (`replaySeenSeq`). It becomes the
 replay's seq for the last delete the faulted `seen_seq` had reached, or 0
 before any. Each batch is then stale for the same titles in both runs. The
 replay resets the server, so the faulted run's snapshot, applied list,
-renames and deletes are read first, and delete wins runs before it. Ids the
+renames, deletes and conflict headers are read first, and delete wins and
+conflict noise run before it. Ids the
 server mints are compared by position.
 
 `teeth.prop.ts` checks the oracle can fail. Each broken transport mode
@@ -191,13 +195,20 @@ server mints are compared by position.
 that exists for it, a tampered recorded body must trip serial replay, and a
 clean run must pass. Serial replay has two more: an omitted rename, and a
 rename replayed after the wrong batch, must each trip it, and a run with a
-rename must replay clean. Delete wins has its own scenario. Offline, A splits a
-block (copying a link to `Second`) and creates on `Second`, B deletes `Second`,
-and A comes back stale. It must pass, and with `/__proptest/stale/teeth` armed it
-must trip delete wins. A page re-created by a batch that had seen the delete
-must pass. A delete record with shifted seqs must trip serial replay, which
-shows the replay maps `seen_seq` through the record. If a broken mode passes,
-the oracle is blind.
+rename must replay clean. Delete wins and conflict noise have scenarios of
+their own, run clean and with a harness teeth route armed:
+
+| Scenario | Clean | Armed |
+|---|---|---|
+| offline, A splits a block (copying a link to `Second`) and creates on `Second`; B deletes `Second`; A comes back stale | passes | `/__proptest/stale/teeth`: trips delete wins |
+| offline, A links `Second` from `pt_sec_1`, a block on `Second`; B deletes `Second`, so the edit's text is parked | passes, the parked text unlinked | `/__proptest/stale/teeth`: re-creates `Second`, trips delete wins |
+| A pulls B's delete of `Second`, then creates on `Second` | passes | — |
+| B links `Second` in `pt_seed_1`, then, offline, edits it before and after A renames `Second` | lands clean | `/__proptest/rewrites/teeth`: trips conflict noise |
+| A's lane write of a block, then A's durable edit of it | passes (the lane counts as a writer) | — |
+
+A delete record with shifted seqs must trip serial replay, which shows the
+replay maps `seen_seq` through the record. If a broken mode passes, the oracle
+is blind.
 
 One example in three draws a changes-feed window limit of one to five
 journal rows, so a catch-up crosses window boundaries, where block tombstones
@@ -379,13 +390,13 @@ not reproduce is not on its own evidence of a flaky harness (see above).
 
 Each sub-project's suite brings its own budget, so the gate's total grows as
 suites are added. Today the server side is about 3 minutes and the web side
-about 5 minutes (sync about 185 seconds, outline about 50, ops about 60, the teeth files about 8). The budget is set
+about 5.5 minutes (sync about 210 seconds, outline about 50, ops about 60, the teeth files about 10). The budget is set
 where the count is set:
 
 | Side | Count | Sized for |
 |---|---|---|
 | server | `props/harness.py`'s `MERGE_EXAMPLES` per property, `max_examples` under the `merge` profile | `proptest/check.sh server`, about 3 minutes |
-| web, sync | `NUM_RUNS` in `sync.prop.ts` (2100 examples) | about 3 minutes of `proptest/check.sh web` |
+| web, sync | `NUM_RUNS` in `sync.prop.ts` (2100 examples) | about 3.5 minutes of `proptest/check.sh web` |
 | web, outline | `NUM_RUNS` in `outline.prop.ts` (319,000 examples) | about 50 seconds of `proptest/check.sh web`, about 6,400 examples a second |
 | web, ops | `NUM_RUNS` in `ops.prop.ts` (2250 examples) | about 60 seconds of `proptest/check.sh web`, about 37 examples a second |
 
@@ -408,9 +419,18 @@ than a silent loss of coverage.
 
 The property's `afterAll` prints a tally covering every run, shrinks
 included: examples per client count and window limit, each command's runs and
-each skip by reason, op kinds, and examples with a conflict, a rejected
-batch, or a stale batch naming a deleted page (the race `DeletePage` exists
-to draw). `Online after k` counts offline periods that ended by their drawn
+each skip by reason, op kinds, and how many examples reached each case below.
+
+| Tally row (`examples with …`) | Counts examples where |
+|---|---|
+| `a conflict` | any `[[conflict]]` block exists at quiescence |
+| `a rejected batch` | a `BadBatch` was drawn |
+| `a stale batch naming a deleted page` | the race `DeletePage` exists to draw happened |
+| `a leading attribute` | an applied batch wrote a `Name:: …` text |
+| `an overwritten conflict` | a check-5 header was written |
+| `an overwritten conflict on a lane write` | conflict noise held only because a lane counts as a writer |
+
+`Online after k` counts offline periods that ended by their drawn
 return, and `Online at quiesce` those that lasted until quiesce (`, before its
 return` when the commands ran out first). `start` and `Reload` rows report
 where timed connects landed: mid-startup, after startup, offline (the timing

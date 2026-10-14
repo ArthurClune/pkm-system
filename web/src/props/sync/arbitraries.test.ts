@@ -1,7 +1,8 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { extractRefs } from "../../grammar/refs";
 import { BAD_UID, editDrafts, EDIT_TARGETS, opsFor, PAGE_TITLES, resolveOps, showDraft,
-         showOp, targetPool, type OpDraft } from "./arbitraries";
+         showOp, targetPool, text, type OpDraft } from "./arbitraries";
 import { countDown, FALL_BACK, freshPool, initialModel, londonMs, londonTime,
          midnightCrossing, SPRING_FORWARD, START_MS } from "./model";
 
@@ -120,6 +121,15 @@ describe("resolveOps", () => {
   it("draws every pool title, and no title for some", () => {
     const pages = fc.sample(editDrafts, { numRuns: 300, seed: 5 }).flat().map((d) => d.page);
     expect(new Set(pages)).toEqual(new Set([null, ...PAGE_TITLES.keys()]));
+  });
+
+  it("draws a leading attribute naming every pool title, in a minority of texts", () => {
+    const texts = fc.sample(text, { numRuns: 600, seed: 5 });
+    const attributes = texts.map((t) => extractRefs(t).refs.find((r) => r.kind === "attribute"))
+      .filter((r) => r !== undefined).map((r) => r.title);
+    expect(new Set(attributes)).toEqual(new Set(PAGE_TITLES));
+    expect(attributes.length).toBeGreaterThan(texts.length / 10);
+    expect(attributes.length).toBeLessThan(texts.length / 4);
   });
 });
 

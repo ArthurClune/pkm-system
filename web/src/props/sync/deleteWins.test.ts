@@ -121,6 +121,22 @@ describe("deleteWins", () => {
     expect(deleteWins(run(body(ops, 19)))).toHaveLength(1);
   });
 
+  test("a stale leading attribute re-creating the page is a finding", () => {
+    const ops = [{ op: "update_text", uid: "pt_seed_1", text: "Second:: note" }];
+    expect(deleteWins(run(body(ops, 19)))).toHaveLength(1);
+    expect(staleNamers(run(body(ops, 19)))).toEqual([id("b2")]);
+  });
+
+  test("a fenced attribute names nothing", () => {
+    const ops = [{ op: "update_text", uid: "pt_seed_1", text: "`Second`:: note" }];
+    expect(staleNamers(run(body(ops, 19)))).toEqual([]);
+  });
+
+  test("a leading attribute from a fresh batch justifies the page", () => {
+    const ops = [{ op: "update_text", uid: "pt_seed_1", text: "Second:: note" }];
+    expect(deleteWins(run(body(ops, 20)))).toEqual([]);
+  });
+
   test("nothing naming the page after the delete is a finding", () => {
     expect(deleteWins(run(body([])))).toHaveLength(1);
   });

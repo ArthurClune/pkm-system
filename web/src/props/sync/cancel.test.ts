@@ -18,10 +18,12 @@ function fakeServer(calls: string[]): ServerControl {
     applied: async () => { await note("applied"); return [] as { batch_id: BatchId; applied_at: number }[]; },
     renames: async () => { await note("renames"); return []; },
     deletes: async () => { await note("deletes"); return []; },
+    conflicts: async () => { await note("conflicts"); return []; },
     snapshot: async () => { await note("snapshot"); return {} as Snapshot; },
     takeEcho: async () => { await note("takeEcho"); return null; },
     setEchoTeeth: () => note("setEchoTeeth"),
     setStaleTeeth: () => note("setStaleTeeth"),
+    setRewriteTeeth: () => note("setRewriteTeeth"),
     changes: async () => { await note("changes"); return {} as Changes; },
     latestSeq: async () => { await note("latestSeq"); return 7 as SyncSeq; },
     postRaw: async () => { await note("postRaw"); return new Response(null); },
@@ -35,6 +37,7 @@ const everyCall = (s: ServerControl): Promise<unknown>[] => [
   s.reset(), s.setClock(0), s.rotateGeneration(), s.applied(), s.snapshot(),
   s.latestSeq(), s.postRaw("{}"), s.renames(), s.postRename("Second", "Third"),
   s.deletes(), s.postDelete("Second"), s.setStaleTeeth(true),
+  s.conflicts(), s.setRewriteTeeth(true),
 ];
 
 describe("cancellable", () => {
@@ -44,7 +47,7 @@ describe("cancellable", () => {
     expect(guard.server.cookie).toBe("session=x");
     await Promise.all(everyCall(guard.server));
     expect(await guard.server.latestSeq()).toBe(7);
-    expect(calls).toHaveLength(13);
+    expect(calls).toHaveLength(15);
     expect(guard.cancelled()).toBe(false);
   });
 

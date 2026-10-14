@@ -12,6 +12,9 @@
 //   delete wins       no block a deleted page held is alive, and a deleted
 //                     title exists only if a rename or a batch not stale for
 //                     it made it since (deleteWins.ts)
+//   conflict noise    every "overwritten" conflict header is about a block
+//                     at least two writers wrote: two clients, or a client
+//                     and its lane (conflictNoise.ts)
 //   serial replay     replaying the recorded bodies in commit order, each at
 //                     its applied_at, with every page rename and delete put
 //                     back after the batch it followed, at the clock it ran
@@ -19,10 +22,12 @@
 //                     seen_seq is moved to the replay's journal, so it is
 //                     stale for the same titles (replaySeenSeq)
 // The serial replay resets the server, so the faulted run's snapshot,
-// applied list, renames and deletes are read before it, and every other
-// invariant runs first; afterwards the server holds the replay's state.
-// CursorWatch is the seventh check, run after every command rather than here.
+// applied list, renames, deletes and conflict headers are read before it,
+// and every other invariant runs first; afterwards the server holds the
+// replay's state.
+// CursorWatch is the eighth check, run after every command rather than here.
 import type { BatchId, SyncSeq } from "../../api/brands";
+import { conflictNoise } from "./conflictNoise";
 import { deleteWins, replaySeenSeq, withSeenSeq } from "./deleteWins";
 import type { HarnessClient } from "./harnessClient";
 import { canonicaliseMintedUids, diffGraphs, fromReplica, fromSnapshot,
@@ -31,7 +36,7 @@ import type { DeleteRecord, RenameRecord, ServerControl } from "./serverControl"
 
 export type Invariant =
   | "convergence" | "accounting" | "per-client order" | "desync/poison"
-  | "delete wins" | "serial replay";
+  | "delete wins" | "conflict noise" | "serial replay";
 
 export class OracleError extends Error {
   override name = "OracleError";
@@ -218,6 +223,7 @@ export async function checkQuiescent(clients: HarnessClient[], server: ServerCon
   const applied = await server.applied();
   const renames = opts.renames ?? await server.renames();
   const deletes = opts.deletes ?? await server.deletes();
+  const conflicts = await server.conflicts();
   const committed = opts.committed ?? new Map(
     clients.flatMap((c) => [...c.transport.committed]));
   const results: [Invariant, Findings][] = [
@@ -227,6 +233,11 @@ export async function checkQuiescent(clients: HarnessClient[], server: ServerCon
     ["desync/poison", await evaluate(() => desyncPoison(clients, exp))],
     ["delete wins", await evaluate(() =>
       deleteWins({ applied, committed, renames, deletes, snapshot: faulted }))],
+    ["conflict noise", await evaluate(() => conflictNoise({
+      applied, conflicts,
+      committedBy: new Map(clients.map((c) => [c.name, c.transport.committed])),
+      lane: new Set(clients.flatMap((c) => c.laneBatches)),
+    }))],
     ["serial replay", await evaluate(() =>
       serialReplay(server, applied, faulted, committed, renames, deletes))],
   ];

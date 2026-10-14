@@ -29,7 +29,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from types import FrameType
@@ -41,7 +41,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-from pkm.contracts.ops import OpBatch
+from pkm.contracts.ops import BlockOp, OpBatch
 from pkm.refs import CanonicalTitle
 from pkm.server import ops_apply, sync_meta
 from pkm.server.app import create_app
@@ -50,6 +50,7 @@ from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
+from pkm.server.ops_core import Effect, RewriteStep, rewrite_effects
 from pkm.server.store import stale_titles
 
 PORT = int(os.environ.get("PROPTEST_PORT", "8978"))
@@ -133,6 +134,27 @@ CREATE TRIGGER proptest_deletes_ai AFTER INSERT ON page_deletions BEGIN
            WHERE kind = 'page' AND deleted = 1 ORDER BY seq DESC LIMIT 1) p;
 END;
 """
+
+# Harness-only: every daily-note conflict header the run wrote, in commit
+# order, with the batch that wrote it. A header is a top-level block whose
+# text starts `[[conflict]] `; it embeds `((uid))` of the block it is about,
+# but a later delete of that block's page inlines the ref, so the snapshot
+# alone cannot say which block a header was for. The ops route records the
+# batch in applied_batches after its effects, so the batch that wrote a
+# header is the first one after the highest rowid the trigger reads.
+CONFLICT_LOG_DDL = """
+CREATE TABLE proptest_conflicts(
+  header_uid  TEXT NOT NULL,
+  text        TEXT NOT NULL,
+  after_batch INTEGER NOT NULL
+);
+CREATE TRIGGER proptest_conflicts_ai AFTER INSERT ON blocks
+WHEN NEW.parent_uid IS NULL AND NEW.text LIKE '[[conflict]] %' BEGIN
+  INSERT INTO proptest_conflicts(header_uid, text, after_batch)
+  VALUES (NEW.uid, NEW.text,
+          (SELECT COALESCE(MAX(rowid), 0) FROM applied_batches));
+END;
+"""
 START_MS = int(datetime(2026, 3, 1, 12, 0, 0, tzinfo=ZoneInfo("Europe/London")).timestamp() * 1000)
 
 logger = logging.getLogger("pkm.proptest_server")
@@ -157,9 +179,9 @@ def build_template(path: Path) -> None:
     """A fresh DB holding page "Proptest" with five top-level blocks, page
     "Second" with three and page "Fixture" with one, written through the real
     op pipeline so the change journal and refs are as a client's creates would
-    leave them, plus the rename and delete logs (RENAME_LOG_DDL,
-    DELETE_LOG_DDL). The app's schema setup is all IF NOT EXISTS and leaves a
-    table and trigger it does not know alone."""
+    leave them, plus the rename, delete and conflict logs (RENAME_LOG_DDL,
+    DELETE_LOG_DDL, CONFLICT_LOG_DDL). The app's schema setup is all IF NOT
+    EXISTS and leaves a table and trigger it does not know alone."""
     init_db(path)
     con = open_db(path)
     try:
@@ -174,7 +196,7 @@ def build_template(path: Path) -> None:
         con.execute("BEGIN IMMEDIATE")
         apply_batch(con, batch, START_MS)
         con.commit()
-        con.executescript(RENAME_LOG_DDL + DELETE_LOG_DDL)
+        con.executescript(RENAME_LOG_DDL + DELETE_LOG_DDL + CONFLICT_LOG_DDL)
     finally:
         con.close()
 
@@ -193,6 +215,27 @@ def _stale_titles_with_teeth(db: sqlite3.Connection,
     return frozenset() if _stale_teeth["empty"] else stale_titles(db, seen_seq)
 
 
+# Harness-only teeth for the sync oracle's "conflict noise": while armed, a
+# hashed edit whose replay of a rename or delete changed the text it wrote
+# records no rewrite rows for that replay, as before such rows existed, so
+# the same device's next edit of the block, hashed against its own previous
+# text, matches nothing and lands a conflict. Stale-unlink rows are kept.
+# ops_apply reads rewrite_effects through its module global, which build_app
+# points here; disarmed, it is the real function. Reset disarms it, as it
+# does _stale_teeth.
+_rewrite_teeth = {"drop_replayed": False}
+
+
+def _rewrite_effects_with_teeth(original: BlockOp, planned: tuple[Effect, ...],
+                                stale: Collection[CanonicalTitle],
+                                canonical: Callable[[str], str],
+                                replayed: Sequence[RewriteStep] = (),
+                                settled: str | None = None) -> tuple[Effect, ...]:
+    if _rewrite_teeth["drop_replayed"]:
+        replayed = ()
+    return rewrite_effects(original, planned, stale, canonical, replayed, settled)
+
+
 class _ClockBody(BaseModel):
     ms: int
 
@@ -203,6 +246,10 @@ class _TeethBody(BaseModel):
 
 class _StaleTeethBody(BaseModel):
     empty: bool
+
+
+class _RewriteTeethBody(BaseModel):
+    drop_replayed: bool
 
 
 def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI:
@@ -248,6 +295,8 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     app.state.hub.broadcast = recording_broadcast
     ops_apply.stale_titles = _stale_titles_with_teeth
     _stale_teeth["empty"] = False
+    ops_apply.rewrite_effects = _rewrite_effects_with_teeth
+    _rewrite_teeth["drop_replayed"] = False
 
     @app.post("/__proptest/reset", dependencies=[Depends(require_auth)])
     def reset(request: Request) -> dict:
@@ -264,6 +313,7 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         echo["ops"] = None
         echo["drop_cross_page_title"] = False
         _stale_teeth["empty"] = False
+        _rewrite_teeth["drop_replayed"] = False
         return {"db_path": str(db_path)}
 
     @app.post("/__proptest/clock", dependencies=[Depends(require_auth)])
@@ -319,6 +369,19 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
             con.close()
         return [{**dict(r), "uids": json.loads(r["uids"])} for r in rows]
 
+    @app.get("/__proptest/conflicts", dependencies=[Depends(require_auth)])
+    def conflicts(request: Request) -> list[dict]:
+        con = open_db(request.app.state.config.db_path)
+        try:
+            rows = con.execute(
+                "SELECT c.header_uid, c.text,"
+                " (SELECT a.batch_id FROM applied_batches a WHERE a.rowid > c.after_batch"
+                "   ORDER BY a.rowid LIMIT 1) AS batch_id"
+                " FROM proptest_conflicts c ORDER BY c.rowid").fetchall()
+        finally:
+            con.close()
+        return [dict(r) for r in rows]
+
     @app.post("/__proptest/echo/take", dependencies=[Depends(require_auth)])
     def echo_take() -> dict:
         ops, echo["ops"] = echo["ops"], None
@@ -333,6 +396,11 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     def stale_teeth(body: _StaleTeethBody) -> dict:
         _stale_teeth["empty"] = body.empty
         return {"empty": body.empty}
+
+    @app.post("/__proptest/rewrites/teeth", dependencies=[Depends(require_auth)])
+    def rewrite_teeth(body: _RewriteTeethBody) -> dict:
+        _rewrite_teeth["drop_replayed"] = body.drop_replayed
+        return {"drop_replayed": body.drop_replayed}
 
     return app
 

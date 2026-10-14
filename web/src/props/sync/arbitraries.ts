@@ -75,12 +75,21 @@ const kind: fc.Arbitrary<OpKind> = fc.oneof(
 
 const WORDS = ["apple", "river", "note", "plan", "draft"];
 
+const tokens: fc.Arbitrary<string[]> = fc.array(
+  fc.oneof(fc.constantFrom(...WORDS), fc.constant("[[Alpha]]"),
+           fc.constant("#Beta"), fc.constant("[[Second]]")), { maxLength: 3 });
+
 /** Up to three tokens: words, page links, a tag. A link to Second is the
- * one a Rename of Second rewrites. */
-export const text: fc.Arbitrary<string> = fc
-  .array(fc.oneof(fc.constantFrom(...WORDS), fc.constant("[[Alpha]]"),
-                  fc.constant("#Beta"), fc.constant("[[Second]]")), { maxLength: 3 })
-  .map((tokens) => tokens.join(" "));
+ * one a Rename of Second rewrites. One text in six leads with an attribute
+ * naming a pool title (`Second:: …`): a Rename retitles it, a DeletePage
+ * of that title is refused while a block holds it, and a batch stale for
+ * the title has it code-fenced. Plain texts come first, so a shrink drops
+ * the attribute. */
+export const text: fc.Arbitrary<string> = fc.oneof(
+  { weight: 5, arbitrary: tokens.map((t) => t.join(" ")) },
+  { weight: 1, arbitrary: fc.tuple(fc.constantFrom(...PAGE_TITLES), tokens)
+      .map(([title, t]) => [`${title}::`, ...t].join(" ")) },
+);
 
 export const opDraft: fc.Arbitrary<OpDraft> = fc.record({
   kind,

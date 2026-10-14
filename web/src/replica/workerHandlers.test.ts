@@ -44,7 +44,7 @@ test("commit refuses changed durable rows and releases the recovery lease", asyn
     newBatchId: () => bid("batch-new"),
   });
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await handlers.enqueue({ ops: [{ op: "delete", uid: uid("uid_b1") }], batchId: bid("batch-1") });
   const lease = await handlers.prepareRecovery(undefined) as {
     token: string;
@@ -75,7 +75,7 @@ test("diagnostics reports counts, meta and integrity results even over a broken 
   const warn = quietWarn();
   const handlers = buildHandlers({ openDb: async () => t.db });
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   // What a corrupt replica looks like: the FTS index no longer agrees with
   // its content table (here, the only row's index entry is removed).
   t.db.exec("INSERT INTO blocks_fts(blocks_fts, rowid, text)" +
@@ -124,7 +124,7 @@ test("rebase preserves and reapplies stable pending rows, then rejects token reu
     newRecoveryToken: () => "lease-rebase",
   });
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await handlers.enqueue({
     ops: [{ op: "update_text", uid: uid("uid_b1"), text: "local pending" }],
     batchId: bid("batch-local"),
@@ -169,7 +169,7 @@ test("a reset commit rolls back schema rebuild when snapshot application fails",
     },
   });
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await handlers.enqueue({ ops: [{ op: "delete", uid: uid("uid_b1") }], batchId: bid("batch-retained") });
   await handlers.markPoisoned({ id: pid(1), error: "rejected", batchId: bid("batch-retained") });
   const blocksBefore = t.db.select("SELECT uid, text FROM blocks ORDER BY uid");
@@ -352,7 +352,7 @@ test("one failed open is replayed by EVERY handler, and opens only once", async 
     ["nextBatch", undefined],
     ["deleteBatch", { id: 1, batchId: "b" }],
     ["markPoisoned", { id: 1, error: "e", batchId: "b" }],
-    ["applySnapshot", SNAP],
+    ["applySnapshot", { snapshot: SNAP, expectedPendingIds: [] }],
     ["applyChanges", { feed: { reset: false, generation: "gen-1",
       plain_space_title_canonicalization: false, next_since: 0, latest_seq: 0,
       pages: [], blocks: [], sidebar: [], tombstones: [] },
@@ -441,7 +441,7 @@ test("enqueue persists a caller-provided batch id instead of minting one", async
     newBatchId: () => bid("batch-minted"),
   });
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await expect(handlers.enqueue({
     ops: [{ op: "delete", uid: uid("uid_b1") }], batchId: bid("caller-id"),
   })).resolves.toEqual({ pending: 1, batchId: "caller-id" });
@@ -458,13 +458,13 @@ test("a schema rebuild forgets acked seqs, since pending_ops ids restart", async
   const ids = () => t.db.select<{ id: number }>("SELECT id FROM pending_ops")
     .map((row) => row.id);
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await handlers.enqueue({ ops: [{ op: "delete", uid: uid("uid_b1") }], batchId: bid("a") });
   const [first] = ids();
   await handlers.deleteBatch({ id: pid(first), batchId: bid("a"), ackedSeq: seq(6) });
   await handlers.reset(undefined);
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await handlers.enqueue({ ops: [{ op: "delete", uid: uid("uid_b1") }], batchId: bid("b") });
   expect(ids()).toEqual([first]); // the id really is reused
   // the new row vanishes without an ack (an out-of-band removal)
@@ -487,7 +487,7 @@ test("a reset over a damaged file replaces the file and rebuilds into the new on
     openDb: async () => current, discardDbFile, nowMs: () => 10,
   });
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await handlers.enqueue({ ops: [{ op: "delete", uid: uid("uid_b1") }], batchId: bid("a") });
   const lease = await handlers.prepareRecovery(undefined) as {
     token: string; batches: unknown[];
@@ -579,7 +579,7 @@ async function poisonedQueueOverDamagedFile(options: {
     applySnapshot: options.applySnapshot,
   });
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await handlers.enqueue({
     ops: [{ op: "move", uid: uid("uid_gone"), parent_uid: uid("uid_b1"), order_idx: ord(1) }],
     batchId: bid("rejected"),
@@ -643,7 +643,7 @@ test("a rebase keeps the carried rows even if the snapshot then fails on the new
     },
   });
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await handlers.enqueue({ ops: [{ op: "delete", uid: uid("uid_b1") }], batchId: bid("kept") });
   isDamaged = true;
   failSnapshot = true;
@@ -1118,7 +1118,7 @@ async function leasedAckedAndOpen(
     applySnapshot: options.applySnapshot,
   });
   await handlers.init(undefined);
-  await handlers.applySnapshot(TWO);
+  await handlers.applySnapshot({ snapshot: TWO, expectedPendingIds: [] });
   await handlers.enqueue({
     ops: [{ op: "update_text", uid: uid("uid_b1"), text: "[[Old]] edited" }],
     batchId: bid("acked"),
@@ -1228,7 +1228,7 @@ async function drainDeleteQueuedBehindLease(options: { damaged: boolean }) {
     carry, nowMs: () => 10,
   });
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await handlers.enqueue({
     ops: [{ op: "update_text", uid: uid("uid_b1"), text: "sent" }], batchId: bid("x"),
   });
@@ -1275,7 +1275,7 @@ test("a delete that matches no row records no acked seq for its id", async () =>
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await handlers.enqueue({ ops: [{ op: "delete", uid: uid("uid_b1") }], batchId: bid("a") });
   // a stale delete for another batch that once held id 1
   await handlers.deleteBatch({ id: pid(1), batchId: bid("gone"), ackedSeq: seq(7) });
@@ -1312,7 +1312,7 @@ async function twoQueued() {
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await handlers.enqueue({
     ops: [{ op: "update_text", uid: uid("uid_b1"), text: "a" }], batchId: bid("a") });
   await handlers.enqueue({
@@ -1371,7 +1371,7 @@ test("a window read before a batch queued and acked during its fetch is refused"
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   // the pull reads no pending rows and fetches; meanwhile a batch is queued,
   // posted and acked at seq 9
   await handlers.enqueue({
@@ -1396,7 +1396,7 @@ test("a held ack the server never reaches costs one refetch", async () => {
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await handlers.enqueue({
     ops: [{ op: "update_text", uid: uid("uid_b1"), text: "mine" }], batchId: bid("a") });
   await handlers.deleteBatch({ id: pid(1), batchId: bid("a"), ackedSeq: seq(9) });
@@ -1411,12 +1411,44 @@ test("a held ack the server never reaches costs one refetch", async () => {
 
 test("applySnapshot drops the rows the snapshot names as applied", async () => {
   const { t, handlers } = await twoQueued();
-  await handlers.applySnapshot({ ...SNAP, seq: seq(7), applied_batches: [named("a", 7)] });
+  await handlers.applySnapshot({
+    snapshot: { ...SNAP, seq: seq(7), applied_batches: [named("a", 7)] },
+    expectedPendingIds: [pid(1), pid(2)],
+  });
   expect(pendingIds(t.db)).toEqual([{ batch_id: "b" }]);
   expect(textOf(t.db, "uid_b1")).toBe("b");
   await expect(handlers.applyChanges({
     feed: EMPTY_GEN1_FEED, expectedPendingIds: [pid(1), pid(2)],
   })).resolves.toEqual({ status: "applied", cursor: 7 });
+});
+
+test("applySnapshot is refused untouched when an ack exceeds the snapshot's seq", async () => {
+  const { t, handlers } = await twoQueued();
+  await handlers.deleteBatch({ id: pid(1), batchId: bid("a"), ackedSeq: seq(7) });
+  const before = textOf(t.db, "uid_b1");
+  await expect(handlers.applySnapshot({
+    snapshot: { ...SNAP, seq: seq(5) }, expectedPendingIds: [pid(1), pid(2)],
+  })).resolves.toEqual({ status: "pending-changed" });
+  expect(textOf(t.db, "uid_b1")).toBe(before);
+  expect(pendingIds(t.db)).toEqual([{ batch_id: "b" }]);
+});
+
+test("applySnapshot is refused untouched when a row was queued since its pending read", async () => {
+  const { t, handlers } = await twoQueued();
+  await expect(handlers.applySnapshot({
+    snapshot: SNAP, expectedPendingIds: [pid(1)],
+  })).resolves.toEqual({ status: "pending-changed" });
+  expect(pendingIds(t.db)).toEqual([{ batch_id: "a" }, { batch_id: "b" }]);
+  expect(textOf(t.db, "uid_b1")).toBe("b");
+});
+
+test("applySnapshot applies when the snapshot has reached every acked seq", async () => {
+  const { t, handlers } = await twoQueued();
+  await handlers.deleteBatch({ id: pid(1), batchId: bid("a"), ackedSeq: seq(7) });
+  await expect(handlers.applySnapshot({
+    snapshot: { ...SNAP, seq: seq(7) }, expectedPendingIds: [pid(1), pid(2)],
+  })).resolves.toEqual({ status: "applied" });
+  expect(pendingIds(t.db)).toEqual([{ batch_id: "b" }]);
 });
 
 test("a rebase commit drops the rows its snapshot names beside the acked ones", async () => {
@@ -1444,7 +1476,7 @@ test("an enqueue on a file without replay_log creates the tables, records, and l
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
-  await handlers.applySnapshot(TWO);
+  await handlers.applySnapshot({ snapshot: TWO, expectedPendingIds: [] });
   t.db.exec("DROP TABLE replay_log_refs");
   t.db.exec("DROP TABLE replay_log");
   t.db.exec("DROP TABLE replay_batches");
@@ -1461,7 +1493,7 @@ test("an enqueue on a file without pending_seen creates it and keeps the batch",
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
-  await handlers.applySnapshot(TWO);
+  await handlers.applySnapshot({ snapshot: TWO, expectedPendingIds: [] });
   t.db.exec("DROP TABLE pending_seen");
   const reopened = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await reopened.enqueue(shiftingCreate("a"));
@@ -1473,7 +1505,7 @@ test("deleteBatch and nextBatch work on a file without pending_seen", async () =
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
-  await handlers.applySnapshot(TWO);
+  await handlers.applySnapshot({ snapshot: TWO, expectedPendingIds: [] });
   await handlers.enqueue(shiftingCreate("a"));
   t.db.exec("DROP TABLE pending_seen");
   const reopened = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
@@ -1488,7 +1520,7 @@ test("pendingBatches carries seen_seq from pending_seen and omits it on a file w
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
-  await handlers.applySnapshot(TWO);
+  await handlers.applySnapshot({ snapshot: TWO, expectedPendingIds: [] });
   await handlers.enqueue(shiftingCreate("a"));
   const seen = (await handlers.pendingBatches(undefined))[0].seen_seq;
   expect(typeof seen).toBe("number");
@@ -1506,7 +1538,7 @@ test("an enqueue on a file with a legacy effect_ledger and no replay_log creates
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
-  await handlers.applySnapshot(TWO);
+  await handlers.applySnapshot({ snapshot: TWO, expectedPendingIds: [] });
   t.db.exec("DROP TABLE replay_log_refs");
   t.db.exec("DROP TABLE replay_log");
   t.db.exec("DROP TABLE replay_batches");
@@ -1524,7 +1556,7 @@ test("an enqueue on a file with a legacy effect_ledger beside replay_log records
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
-  await handlers.applySnapshot(TWO);
+  await handlers.applySnapshot({ snapshot: TWO, expectedPendingIds: [] });
   t.db.exec(LEGACY_LEDGER);
   // an index CLIENT_DDL would recreate: its absence afterwards shows the DDL did not rerun
   t.db.exec("DROP INDEX idx_replay_log_key");
@@ -1541,7 +1573,7 @@ test("deleteBatch without a seq, then a head window, reverts", async () => {
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
-  await handlers.applySnapshot(TWO);
+  await handlers.applySnapshot({ snapshot: TWO, expectedPendingIds: [] });
   await handlers.enqueue(shiftingCreate("a"));
   expect(orderOf(t.db, "uid_b2")).toBe(2);
   await handlers.deleteBatch({ id: pid(1), batchId: bid("a") });

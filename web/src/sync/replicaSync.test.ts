@@ -4,7 +4,7 @@ import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { SkippedOp } from "../api/payloads";
 import type {
-  DroppedBatch, PendingBatch, PendingRowId, Replica, ReplicaInit,
+  DroppedBatch, PendingBatch, PendingRowId, Replica, ReplicaInit, SnapshotApplyResult,
 } from "../replica/client";
 import { ReplicaError, ReplicaUnusableError } from "../replica/errors";
 import { uid } from "../test-helpers";
@@ -43,7 +43,8 @@ function fakeReplica(over: Partial<Replica> = {},
     init: () => rec("init", { empty: false, cursor: 5,
                               schemaMismatch: false, pendingBatches: [],
                               ...init } as ReplicaInit),
-    applySnapshot: () => rec("applySnapshot", undefined),
+    applySnapshot: () =>
+      rec<SnapshotApplyResult>("applySnapshot", { status: "applied" }),
     applyChanges: (f: Changes) =>
       rec<ApplyResult>("applyChanges", { status: "applied", cursor: f.next_since }),
     enqueue: () => rec("enqueue", { pending: 0, batchId: bid("batch-1") }),

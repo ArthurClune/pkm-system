@@ -151,7 +151,10 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
       return { empty: true, cursor: 0 as SyncSeq, schemaMismatch: false,
                pendingBatches: [] };
     },
-    applySnapshot: async () => { log.push("applySnapshot"); },
+    applySnapshot: async () => {
+      log.push("applySnapshot");
+      return { status: "applied" as const };
+    },
     applyChanges: async (f) => {
       log.push("applyChanges");
       return { status: "applied", cursor: f.next_since };

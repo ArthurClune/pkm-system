@@ -18,7 +18,7 @@ export function memReplica(over: Partial<Replica> = {}): Replica & {
     enqueued,
     init: async () => ({ empty: false, cursor: 0 as SyncSeq,
                          schemaMismatch: false, pendingBatches: [] }),
-    applySnapshot: async () => undefined,
+    applySnapshot: async () => ({ status: "applied" }),
     applyChanges: async () => ({ status: "applied", cursor: 0 as SyncSeq }),
     enqueue: async (ops, batchId) => {
       if (ops.length > 0) {

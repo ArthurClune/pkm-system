@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: low
 created_at: 2026-10-14T12:14:28Z
-updated_at: 2026-10-14T12:22:09Z
+updated_at: 2026-10-14T13:12:35Z
 ---
 
 Follow-up to pkm-ynze / pkm-wvac. The stale-batch rules are covered end to end by the web sync property suite (DeletePage racing offline edits, serial replay with a seen_seq mapping, the "delete wins" invariant, teeth) and by example tests (server/tests/test_stale_page_ops.py). Gaps a property run would not catch:
@@ -18,7 +18,7 @@ Follow-up to pkm-ynze / pkm-wvac. The stale-batch rules are covered end to end b
 
 ## Todo
 
-- [ ] Server ops model: draw page deletes and seen_seq; model staleness
+- [x] Server ops model: draw page deletes and seen_seq; model staleness (server texts also draw leading attributes now)
 - [ ] A conflict-noise check in the sync oracle (or ops model)
 - [ ] Draw leading-attribute texts once pkm-4g1a has a rule
 - [ ] Teeth: add the orphan-edit parked-text path

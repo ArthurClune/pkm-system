@@ -7,23 +7,33 @@ real server against. It must never import `pkm.server.*` or
 construction.
 
 The rules come from backend.md § The write path (Ordering), § Conflicts,
-§ Missing targets and § Concurrent structure edits, and sync-and-offline.md
-§ Conflicts at push time. Each rule below names the row it encodes. Where
-the docs are silent the rule follows the code, and says so.
+§ Missing targets, § Stale batches, § Concurrent structure edits and § Page
+mutations and the sidebar, and sync-and-offline.md § Conflicts at push
+time. Each rule below names the row it encodes. Where the docs are silent
+the rule follows the code, and says so.
 
 Ops are plain dicts in the wire shape of `pkm.contracts.ops`. The model
 tracks only the blocks the ops address; the conflict headers and copies
 the server writes on today's daily page are represented by
-`Outcome.kept_texts`, not as blocks."""
+`Outcome.kept_texts`, not as blocks.
+
+Text rewriting (a page delete's unlink and inline, a stale batch's unlink
+and fenced attribute, and their replay onto a later edit) is modelled over
+the strategies' vocabulary only: words, `[[Title]]`, `#Title`, `((uid))`
+and a leading `Title::` or `[[Title]]::`, never aliases, nesting, embeds
+or a link inside code. The attribute grammar itself comes from `pkm.refs`,
+which the derived-refs invariant already trusts."""
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import (Callable, Collection, Iterable, Iterator, Mapping,
+                             Sequence)
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from pkm.contracts.ops import UID_RE, subtree_hash, text_hash
-from pkm.refs import extract, is_blank_title, title_syntax_reason
+from pkm.refs import (attribute_title_span, extract, is_blank_title,
+                      strip_code, title_syntax_reason)
 
 # What a whitespace-only page_title resolves to: the ops path never rejects
 # a batch over a blank title (code: ops_apply.UNTITLED_PAGE_TITLE).
@@ -92,15 +102,163 @@ def _page_name(title: str) -> str:
     return UNTITLED if is_blank_title(title) else title
 
 
+# --- text rewriting ----------------------------------------------------------
+
+_LINK = re.compile(r"\[\[([^\[\]]+)\]\]")
+_TAG = re.compile(r"(?:^|(?<=[\s(]))#([\w/.\-]+)")
+_BLOCK_REF = re.compile(r"\(\(([^()\s]+)\)\)")
+
+
+def unlink_titles(text: str, titles: Collection[str]) -> str:
+    """backend.md § Page mutations: every `[[Title]]` and `#Title` naming
+    one of `titles` becomes plain `Title`. A leading `Title::` is not a
+    link and is left alone."""
+    def plain(m: re.Match[str]) -> str:
+        return m.group(1) if m.group(1) in titles else m.group(0)
+    return _TAG.sub(plain, _LINK.sub(plain, text))
+
+
+def attribute_name(text: str) -> str | None:
+    """The leading attribute's name as written, or None."""
+    span = attribute_title_span(strip_code(text))
+    return None if span is None else span.raw_title
+
+
+def fence_attribute(text: str, titles: Collection[str]) -> str:
+    """backend.md § Stale batches: a leading attribute naming one of
+    `titles` gets its name code-fenced in place (`` `X`:: v ``); a name
+    holding a backtick takes `:` for its `::` instead."""
+    span = attribute_title_span(strip_code(text))
+    if span is None or span.raw_title not in titles:
+        return text
+    name_end = span.start + len(span.raw_title)
+    if "`" in span.raw_title:
+        return text[:name_end] + ":" + text[span.end:].lstrip(":")
+    return (text[:span.start] + "`" + span.raw_title + "`"
+            + text[name_end:])
+
+
+def unlink_stale(text: str, titles: Collection[str]) -> str:
+    """What a stale batch writes for a text: links unlinked, then a leading
+    attribute naming a deleted title fenced."""
+    return fence_attribute(unlink_titles(text, titles), titles)
+
+
+def inline_refs(text: str, copies: Mapping[str, str]) -> str:
+    """Each `((uid))` with a copy becomes that copy, in one pass: a copy's
+    own refs are not rescanned."""
+    return _BLOCK_REF.sub(lambda m: copies.get(m.group(1), m.group(0)), text)
+
+
+def _plain_copy(text: str) -> str:
+    """backend.md § Page mutations: a block's copy drops its leading
+    attribute (generated texts carry no task marker or newline)."""
+    span = attribute_title_span(strip_code(text))
+    return text if span is None else text[span.end:].lstrip()
+
+
+def page_copies(title: str, page_texts: Mapping[str, str]) -> dict[str, str]:
+    """The text a page delete copies in place of a `((ref))` to each of the
+    page's blocks: the block's plain copy, with refs to the page's other
+    blocks resolved one level deep (deeper ones and cycles dropped, code:
+    unlink._build_copies) and links to the page unlinked."""
+    plain = {u: _plain_copy(t) for u, t in page_texts.items()}
+    blanks = {u: "" for u in page_texts}
+    return {u: unlink_titles(inline_refs(inline_refs(t, plain), blanks),
+                             {title})
+            for u, t in plain.items()}
+
+
+@dataclass(frozen=True)
+class Rewrite:
+    """One recorded rewrite of a block's text: the `block_rewrites` rows
+    sharing a before/after hash pair (backend.md § Database). `unlinked`
+    are deleted titles, `inlines` the `(uid, copied text)` pairs a page
+    delete put in place of `((uid))`. A hashed edit whose base hash is
+    `base_hash` has this replayed onto its text first."""
+    base_hash: str
+    after_hash: str
+    unlinked: frozenset[str] = frozenset()
+    inlines: tuple[tuple[str, str], ...] = ()
+
+    def replay(self, text: str) -> str:
+        text = unlink_titles(inline_refs(text, dict(self.inlines)),
+                             self.unlinked)
+        return fence_attribute(text, self.unlinked)
+
+    def rows(self, uid: str) -> set[tuple[str, str, str, str, str, str]]:
+        """As `(uid, base_hash, after_hash, kind, old_title, new_title)`."""
+        return ({(uid, self.base_hash, self.after_hash, "unlink", t, "")
+                 for t in self.unlinked}
+                | {(uid, self.base_hash, self.after_hash, "inline", u, c)
+                   for u, c in self.inlines})
+
+
+@dataclass(frozen=True)
+class PageDelete:
+    """What `DELETE /api/page/{title}` does. `blockers` maps each refused
+    block's uid to its reason; `copies` is what a 200 inlined in place of
+    a `((ref))` to each of the page's blocks."""
+    status: int
+    title: str = ""
+    blockers: Mapping[str, str] = field(default_factory=dict)
+    copies: Mapping[str, str] = field(default_factory=dict)
+
+    def rewrite(self, text: str) -> tuple[str, bool, dict[str, str]]:
+        """A referencing text as the delete leaves it, whether unlinking
+        changed it, and the copies it inlined."""
+        applied = {u: self.copies[u] for u in extract(text).block_refs
+                   if u in self.copies}
+        inlined = inline_refs(text, applied)
+        new = unlink_titles(inlined, {self.title})
+        return new, new != inlined, applied
+
+    def blocker(self, text: str) -> str | None:
+        """Why the delete refuses a referencing text, or None."""
+        if any(r.kind == "attribute" and r.title == self.title
+               for r in extract(text).refs):
+            return "used_as_attribute"
+        new = self.rewrite(text)[0]
+        if attribute_name(text) != attribute_name(new):
+            return "attribute"
+        parsed = extract(new)
+        if (any(r.title == self.title for r in parsed.refs)
+                or any(u in self.copies for u in parsed.block_refs)):
+            return "residual"
+        return None
+
+
+def replay_chain(steps: Sequence[Rewrite], text: str,
+                 base: str) -> tuple[str, str, list[Rewrite]]:
+    """Replay `steps` (newest first) onto an edit's `text`, following the
+    chain from its `base` hash: at most ten steps, each used once (code:
+    ops_core.MAX_REPLAYED_REWRITES). Returns the text, the hash the edit
+    now counts as based on, and the steps used, in order."""
+    left = list(steps)
+    used: list[Rewrite] = []
+    for _ in range(10):
+        match = next((s for s in left if s.base_hash == base), None)
+        if match is None:
+            break
+        left.remove(match)
+        used.append(match)
+        text, base = match.replay(text), match.after_hash
+    return text, base, used
+
+
 class Model:
     """The pool blocks as the server should hold them. `deleted` is every
-    uid an op removed and nothing has re-created since; strategies draw
-    "deleted" targets from it."""
+    uid an op or a page delete removed and nothing has re-created since;
+    strategies draw "deleted" targets from it. `pages` is every page that
+    exists, `rewrites` each uid's recorded rewrites, newest first, and
+    `deletions` each page delete as `(title, journal head after it)`."""
 
     def __init__(self) -> None:
         self.blocks: dict[str, MBlock] = {}
         self.pages: set[str] = set()
         self.deleted: set[str] = set()
+        self.rewrites: dict[str, list[Rewrite]] = {}
+        self.deletions: list[tuple[str, int]] = []
 
     @classmethod
     def from_rows(cls, pages: Iterable[str], rows: Iterable[MBlock]) -> Model:
@@ -109,26 +267,140 @@ class Model:
         for row in rows:
             m.blocks[row.uid] = row
             m.pages.add(row.page)
+            m._touch(row.text)
         return m
 
     def snapshot(self) -> dict[str, MBlock]:
         return dict(self.blocks)
 
-    def apply(self, ops: Sequence[Op]) -> Outcome:
+    def stale_titles(self, seen_seq: int | None) -> frozenset[str]:
+        """backend.md § Stale batches: the titles deleted after `seen_seq`;
+        none without one. A `seen_seq` past the journal head is not
+        modelled: the state machine never draws one."""
+        if seen_seq is None:
+            return frozenset()
+        return frozenset(t for t, seq in self.deletions if seq > seen_seq)
+
+    def rewrite_rows(self) -> set[tuple[str, str, str, str, str, str]]:
+        """Every `block_rewrites` row the model expects for its uids."""
+        return {row for uid, steps in self.rewrites.items()
+                for step in steps for row in step.rows(uid)}
+
+    def apply(self, ops: Sequence[Op], seen_seq: int | None = None) -> Outcome:
         """Apply one batch atomically: a 400 leaves the model unchanged
         (backend.md § The write path: one transaction per batch)."""
-        saved = (dict(self.blocks), set(self.pages), set(self.deleted))
+        saved = (dict(self.blocks), set(self.pages), set(self.deleted),
+                 {u: list(s) for u, s in self.rewrites.items()})
+        stale = self.stale_titles(seen_seq)
         skipped: list[SkipEntry] = []
         kept: list[str] = []
         try:
             if _title_violation(ops):
                 raise _Rejected
             for index, op in enumerate(ops):
-                self._apply_op(index, op, skipped, kept)
+                self._apply_op(index, op, skipped, kept, stale)
         except _Rejected:
-            self.blocks, self.pages, self.deleted = saved
+            self.blocks, self.pages, self.deleted, self.rewrites = saved
             return Outcome(400)
+        for text in kept:
+            self._touch(text)
         return Outcome(200, tuple(skipped), tuple(kept))
+
+    def delete_page(self, title: str, others: Mapping[str, str],
+                    seq: int) -> PageDelete:
+        """`DELETE /api/page/{title}` (backend.md § Page mutations and the
+        sidebar). `others` is the text of every block the model does not
+        track that is off the page (conflict entries, seed rows), since
+        they can refuse the delete too. A 200 removes the page and its
+        blocks, rewrites each referencing pool block and records its
+        rewrite, and records the deletion at journal head `seq`."""
+        if title not in self.pages:
+            return PageDelete(404)
+        on_page = {u: b.text for u, b in self.blocks.items()
+                   if b.page == title}
+        plan = PageDelete(200, title, {}, page_copies(title, on_page))
+        sources = {**{u: b.text for u, b in self.blocks.items()
+                      if b.page != title}, **others}
+        blockers = {u: reason for u, text in sources.items()
+                    if (reason := plan.blocker(text)) is not None}
+        if blockers:
+            return replace(plan, status=409, blockers=blockers)
+        for uid in on_page:
+            del self.blocks[uid]
+            self.deleted.add(uid)
+        for uid, block in list(self.blocks.items()):
+            new, unlinked, applied = plan.rewrite(block.text)
+            if new != block.text:
+                self.blocks[uid] = replace(block, text=new)
+                self._record(uid, Rewrite(
+                    text_hash(block.text), text_hash(new),
+                    frozenset({title} if unlinked else ()),
+                    tuple(sorted(applied.items()))))
+        self.pages.discard(title)
+        self.deletions.append((title, seq))
+        return plan
+
+    # --- rewrites -----------------------------------------------------------
+
+    def _touch(self, text: str) -> None:
+        """A written text's refs create the pages they name (code:
+        store.reindex_refs_for_text)."""
+        self.pages.update(r.title for r in extract(text).refs
+                          if not is_blank_title(r.title))
+
+    def _record(self, uid: str, step: Rewrite) -> None:
+        """Record a rewrite as the newest. Rows sharing its hash pair with
+        an older rewrite of the block replay as one step with it (code:
+        ops_core._rewrite_steps), where the older row's copy of a uid wins."""
+        steps = self.rewrites.setdefault(uid, [])
+        old = next((s for s in steps if (s.base_hash, s.after_hash)
+                    == (step.base_hash, step.after_hash)), None)
+        if old is not None:
+            steps.remove(old)
+            step = replace(step, unlinked=step.unlinked | old.unlinked,
+                           inlines=tuple(sorted(
+                               {**dict(step.inlines),
+                                **dict(old.inlines)}.items())))
+        steps.insert(0, step)
+
+    def _replay(self, uid: str, text: str,
+                base: str) -> tuple[str, str, list[Rewrite]]:
+        """backend.md § Database, `block_rewrites`: a hashed edit made
+        before recorded rewrites of its block has them replayed onto its
+        text first."""
+        return replay_chain(self.rewrites.get(uid, ()), text, base)
+
+    def _record_written(self, uid: str, sent: str, written: str,
+                        stale: Collection[str],
+                        replayed: Sequence[Rewrite]) -> None:
+        """backend.md § Stale batches: text written to `uid` that differs
+        from the text the client sent, because of a stale unlink or a
+        replay, records how the one became the other, so the client's next
+        hashed edit replays onto the written text. One rewrite per pass
+        that changed the text, chained by hash: the unlink of the stale
+        titles that changed it, then each replayed step. A chain that does
+        not reproduce the written text is not recorded (code:
+        ops_core._rewrite_chain)."""
+        titles = frozenset(t for t in stale if unlink_stale(sent, {t}) != sent)
+        if written == sent or not (titles or replayed):
+            return
+        chain: list[Rewrite] = []
+        text = sent
+        passes = [(lambda t: unlink_stale(t, titles), Rewrite("", "", titles))
+                  ] if titles else []
+        passes += [(step.replay, step) for step in replayed]
+        for rewrite, step in passes:
+            after = rewrite(text)
+            if after != text:
+                base = chain[-1].after_hash if chain else text_hash(sent)
+                chain.append(replace(step, base_hash=base,
+                                     after_hash=text_hash(after)))
+            text = after
+        if (not chain or text != written
+                or replay_chain(chain, sent, text_hash(sent))[0] != written):
+            return
+        for step in chain:
+            self._record(uid, step)
 
     # --- tree helpers -------------------------------------------------------
 
@@ -167,20 +439,31 @@ class Model:
     # --- ops ----------------------------------------------------------------
 
     def _apply_op(self, index: int, op: Op, skipped: list[SkipEntry],
-                  kept: list[str]) -> None:
+                  kept: list[str], stale: frozenset[str]) -> None:
         kind = op["op"]
         if kind == "create_page":
+            title = _page_name(op["page_title"])
+            # backend.md § Stale batches: a stale batch's create_page for a
+            # deleted title is dropped, and not reported.
+            if title in stale:
+                return
             # backend.md § The write path: create_page idempotently ensures
             # a page exists.
-            self.pages.add(_page_name(op["page_title"]))
+            self.pages.add(title)
             return
         uid = op["uid"]
 
         def skip(reason: str) -> None:
             skipped.append((index, kind, uid, reason))
 
+        # § Stale batches: a stale batch's create / update_text text has its
+        # links to deleted titles unlinked and a leading attribute naming
+        # one fenced, before anything else reads it.
+        text = (unlink_stale(op["text"], stale)
+                if kind in ("create", "update_text") and stale else
+                op.get("text", ""))
         if kind == "create":
-            self._create(op, uid, skip, kept)
+            self._create(op, uid, text, skip, kept, stale)
             return
         block = self.blocks.get(uid)
         if block is None:
@@ -197,13 +480,13 @@ class Model:
             skip("block_not_found")
             # § Missing targets, row `update_text`, block gone, hashed or
             # not: the text lands; a blank text lands nothing.
-            if kind == "update_text" and op["text"].strip():
-                kept.append(op["text"])
+            if kind == "update_text" and text.strip():
+                kept.append(text)
             return
         if kind == "update_text":
-            self._update_text(op, block, kept)
+            self._update_text(op, block, text, kept, stale)
         elif kind == "move":
-            self._move(op, block, skip)
+            self._move(op, block, skip, stale)
         elif kind == "delete":
             self._delete(op, uid, kept)
         elif kind == "set_collapsed":
@@ -215,7 +498,8 @@ class Model:
         else:
             raise AssertionError(f"unknown op kind: {kind}")
 
-    def _create(self, op: Op, uid: str, skip: SkipFn, kept: list[str]) -> None:
+    def _create(self, op: Op, uid: str, text: str, skip: SkipFn,
+                kept: list[str], stale: frozenset[str]) -> None:
         # backend.md § Missing targets: an invalid uid is a 400 -- for a
         # create, checked before anything else.
         if not _valid_uid(uid):
@@ -229,8 +513,8 @@ class Model:
             if not _valid_uid(parent):
                 raise _Rejected
             skip("parent_not_found")
-            if op["text"].strip():
-                kept.append(op["text"])
+            if text.strip():
+                kept.append(text)
             return
         # § Missing targets: "uid already exists" is a 400.
         if exists:
@@ -244,6 +528,14 @@ class Model:
             # § The write path: page_title places (and may create) the page
             # of a top-level create.
             page = _page_name(op["page_title"])
+            if page in stale:
+                # § Missing targets, row top-level `create` into a page
+                # deleted since `seen_seq`: not created; its text lands, a
+                # blank text lands nothing.
+                skip("page_deleted")
+                if text.strip():
+                    kept.append(text)
+                return
             self.pages.add(page)
         key = op["order_idx"]
         self._shift(page, parent, key)
@@ -251,24 +543,30 @@ class Model:
         # starts uncollapsed (ops_core.plan_op's InsertBlock).
         self.blocks[uid] = MBlock(
             uid=uid, page=page,
-            parent=parent, order_idx=key, text=op["text"],
+            parent=parent, order_idx=key, text=text,
             heading=op.get("heading"), collapsed=False,
             view_type=op.get("view_type"))
+        self._touch(text)
+        self._record_written(uid, op["text"], text, stale, ())
         self.deleted.discard(uid)
 
-    def _update_text(self, op: Op, block: MBlock, kept: list[str]) -> None:
-        text = op["text"]
+    def _update_text(self, op: Op, block: MBlock, text: str,
+                     kept: list[str], stale: frozenset[str]) -> None:
+        sent = op["text"]
         base = op.get("base_text_hash")
         if base is None:
             # sync-and-offline.md § Conflicts at push time, row "No hash
             # sent, block exists": unconditional last-write-wins.
-            self.blocks[block.uid] = replace(block, text=text)
+            self._write(block, text)
+            self._record_written(block.uid, sent, text, stale, ())
             return
+        text, base, replayed = self._replay(block.uid, text, base)
         if text == block.text:
             # Row "Incoming text equals current": no-op, whatever the hash.
             # Code, not docs: this is tested before the hash, so an
             # identical edit with a stale hash keeps nothing
             # (ops_core.classify_text_edit).
+            self._record_written(block.uid, sent, text, stale, replayed)
             return
         if text_hash(block.text) != base:
             # Row "Hashes differ" / backend.md § Conflicts, header row
@@ -276,9 +574,15 @@ class Model:
             # text is kept.
             kept.append(block.text)
         # Row "hash(current) == base_text_hash": clean apply.
-        self.blocks[block.uid] = replace(block, text=text)
+        self._write(block, text)
+        self._record_written(block.uid, sent, text, stale, replayed)
 
-    def _move(self, op: Op, block: MBlock, skip: SkipFn) -> None:
+    def _write(self, block: MBlock, text: str) -> None:
+        self.blocks[block.uid] = replace(block, text=text)
+        self._touch(text)
+
+    def _move(self, op: Op, block: MBlock, skip: SkipFn,
+              stale: frozenset[str]) -> None:
         parent = op.get("parent_uid")
         key = op["order_idx"]
         if parent is not None:
@@ -302,6 +606,11 @@ class Model:
             # the block stays on its page.
             title = op.get("page_title")
             page = _page_name(title) if title is not None else block.page
+            if title is not None and page in stale:
+                # § Missing targets, row top-level `move` onto a page
+                # deleted since `seen_seq`: the block stays put.
+                skip("page_deleted")
+                return
             self.pages.add(page)
         # § The write path, Ordering: shift the destination's siblings at or
         # after the key, then place the block. Its old group is left with a

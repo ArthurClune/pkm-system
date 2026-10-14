@@ -1,11 +1,11 @@
 ---
 # pkm-8dgu
 title: Property coverage gaps for stale-batch handling
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-10-14T12:14:28Z
-updated_at: 2026-10-14T12:14:28Z
+updated_at: 2026-10-14T12:22:09Z
 ---
 
 Follow-up to pkm-ynze / pkm-wvac. The stale-batch rules are covered end to end by the web sync property suite (DeletePage racing offline edits, serial replay with a seen_seq mapping, the "delete wins" invariant, teeth) and by example tests (server/tests/test_stale_page_ops.py). Gaps a property run would not catch:

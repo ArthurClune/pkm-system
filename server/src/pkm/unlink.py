@@ -138,7 +138,10 @@ def defuse_attribute(text: str, is_target: TitleMatch) -> str:
         return text
     name_end = attribute.start + len(attribute.raw_title)
     if "`" in attribute.raw_title:
-        return text[:attribute.end - 2] + text[attribute.end - 1:]
+        # A value starting with `:` can extend the colon run into a new
+        # `::`, so repeat until the attribute is gone.
+        return defuse_attribute(
+            text[:attribute.end - 2] + text[attribute.end - 1:], is_target)
     return (text[:attribute.start] + "`" + text[attribute.start:name_end]
             + "`" + text[name_end:])
 

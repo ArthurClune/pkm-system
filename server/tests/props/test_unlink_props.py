@@ -25,6 +25,7 @@ pytestmark = pytest.mark.proptest
 TARGET = "AI"
 TITLES = ["AI", "ai", "Paper", "Other Page", "AI Ethics"]
 BARE_TITLES = [t for t in TITLES if " " not in t]
+BACKTICK_TITLE = "a`b"
 PAGE_UIDS = [f"pg_blk_0{n}" for n in range(1, 5)]
 OTHER_UIDS = ["ot_blk_01", "ot_blk_02"]
 PAGES = ["Notes", "Log", "Journal"]
@@ -79,9 +80,10 @@ def block_text(draw) -> str:
 @st.composite
 def stale_text(draw) -> str:
     """A block text that may lead with an attribute naming any title."""
-    body = draw(block_text())
+    body = draw(st.sampled_from(["", ":", "::"])) + draw(block_text())
     shape = draw(st.sampled_from(["{}", "{}:: ", "[[{}]]:: ", "#{}:: ", "  {}:: "]))
-    return shape.format(draw(_title)) + body if shape != "{}" else body
+    title = draw(st.sampled_from([*TITLES, BACKTICK_TITLE]))
+    return shape.format(title) + body if shape != "{}" else body
 
 
 @st.composite
@@ -162,6 +164,9 @@ def test_delete_rewrite_properties(case):
 @settings(max_examples=examples("unlink"))
 @given(stale_text())
 def test_stale_unlink_leaves_no_ref_to_the_target(text):
-    result = unlink_stale_refs(text, is_target)
-    assert not any(is_target(ref.title) for ref in extract(result).refs), (
+    def target(raw: str) -> bool:
+        return is_target(raw) or raw == BACKTICK_TITLE
+
+    result = unlink_stale_refs(text, target)
+    assert not any(target(ref.title) for ref in extract(result).refs), (
         f"{text!r} -> {result!r}")

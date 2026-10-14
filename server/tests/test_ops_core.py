@@ -1210,3 +1210,11 @@ def test_stale_unlink_effects_skip_parked_and_unchanged_text():
                          text="[[Y]]")
     planned = (UpdateText(BlockUid("uid_u0000001"), "[[Y]]"),)
     assert stale_unlink_effects(plain, planned, stale, normalize_title) == ()
+
+
+def test_replay_of_a_real_delete_unlink_row_fences_a_leading_attribute():
+    t0 = "old"
+    rewrites = (BlockRewrite(text_hash(t0), text_hash("new"), "X", "",
+                             "unlink"),)
+    text, _ = replay_title_rewrites("X:: v see [[X]]", text_hash(t0), rewrites)
+    assert text == "`X`:: v see X"

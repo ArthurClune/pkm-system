@@ -194,6 +194,7 @@ def test_blocker_when_the_rewrite_still_refs_a_page_block():
     ("[[X]]:: v", "`X`:: v"),
     ("#X:: v", "`X`:: v"),
     ("a`b:: v", "a`b: v"),
+    ("a`b::: v", "a`b: v"),
     ("Live:: [[X]]", "Live:: X"),
     ("Live:: v", "Live:: v"),
     ("plain [[X]]", "plain X"),

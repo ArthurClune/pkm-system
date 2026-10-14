@@ -161,6 +161,9 @@ def replay_title_rewrites(
     `[[ AI ]]` the delete unlinked under plain-space canonicalisation would
     survive the replay and recreate the page. Retitle steps match verbatim,
     as rename does, and ignore it.
+
+    The unlink step also defuses a leading attribute naming the deleted page
+    (`X:: v` becomes `` `X`:: v ``), so the replayed text never re-creates it.
     """
     steps = _rewrite_steps(rewrites)
     for _ in range(MAX_REPLAYED_REWRITES):

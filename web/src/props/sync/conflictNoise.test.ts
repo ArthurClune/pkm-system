@@ -56,11 +56,6 @@ describe("textEditors", () => {
     expect([...editors.get("pt_A_1") ?? []]).toEqual(["A"]);
   });
 
-  test("a lane batch writes as the client's lane, not the client", () => {
-    const editors = textEditors(run({ lane: new Set([id("a1")]) }));
-    expect([...editors.get("pt_seed_1") ?? []].sort()).toEqual(["A's lane", "B"]);
-  });
-
   test("a batch that never applied edits nothing", () => {
     const editors = textEditors(run({ applied: [{ batch_id: id("a1") }] }));
     expect([...editors.get("pt_seed_1") ?? []]).toEqual(["A"]);
@@ -77,14 +72,42 @@ describe("conflictNoise", () => {
       "a2 overwrote pt_seed_2 as a conflict (header h1), but only A wrote its text"]);
   });
 
-  test("a client's lane and its durable edits are two writers", () => {
-    const committedBy = new Map([["A", new Map([
-      [id("a1"), body([setText("pt_seed_2")])], [id("a2"), body([setText("pt_seed_2")])]])]]);
-    const applied = [{ batch_id: id("a1") }, { batch_id: id("a2") }];
-    expect(conflictNoise(run({ applied, committedBy, conflicts: [overwritten("pt_seed_2")] })))
-      .toHaveLength(1);
-    expect(conflictNoise(run({ applied, committedBy, conflicts: [overwritten("pt_seed_2")],
-                               lane: new Set([id("a1")]) }))).toEqual([]);
+  describe("a lane write", () => {
+    // A writes pt_seed_2 from its lane (a1), then durably twice (a2, a3).
+    const laneRun = (conflictBatch: string, lane = [id("a1")]): ConflictNoiseRun => run({
+      applied: [{ batch_id: id("a1") }, { batch_id: id("a2") }, { batch_id: id("a3") }],
+      committedBy: new Map([["A", new Map([
+        [id("a1"), body([setText("pt_seed_2")])], [id("a2"), body([setText("pt_seed_2")])],
+        [id("a3"), body([setText("pt_seed_2")])]])]]),
+      lane: new Set(lane),
+      conflicts: [overwritten("pt_seed_2", conflictBatch)],
+    });
+
+    test("excuses its client's next durable write of the block", () => {
+      expect(conflictNoise(laneRun("a2"))).toEqual([]);
+    });
+
+    test("excuses nothing after that write", () => {
+      expect(conflictNoise(laneRun("a3"))).toEqual([
+        "a3 overwrote pt_seed_2 as a conflict (header h1), but only A wrote its text"]);
+    });
+
+    test("excuses nothing without a lane batch", () => {
+      expect(conflictNoise(laneRun("a2", []))).toHaveLength(1);
+    });
+
+    test("excuses nothing when the lane wrote another block", () => {
+      const r = laneRun("a2");
+      const committedBy = new Map([["A", new Map([...r.committedBy.get("A") ?? [],
+                                                   [id("a1"), body([setText("pt_seed_1")])]])]]);
+      expect(conflictNoise({ ...r, committedBy })).toHaveLength(1);
+    });
+  });
+
+  test("a header with no recorded batch is still judged", () => {
+    expect(conflictNoise(run({ conflicts: [{ ...overwritten("pt_seed_2"), batch_id: null }] })))
+      .toEqual(["an unrecorded batch overwrote pt_seed_2 as a conflict (header h1)," +
+                " but only A wrote its text"]);
   });
 
   test("a block no client wrote is noise too", () => {

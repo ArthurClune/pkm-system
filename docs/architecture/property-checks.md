@@ -173,7 +173,7 @@ Cursor monotonic runs after every command instead.
 | per-client order | each client's batches landed in its enqueue order | a queue that reorders its own client's delivery |
 | desync/poison | no `onDesync`, and `onPoison` only for batches the model expects to be rejected | a recovery path taken for no reason; a valid batch rejected |
 | delete wins | no block a deleted page held is alive, and a deleted title exists at quiescence only if, after its last delete, a rename made it or a batch named it (a `page_title`, or a ref in its text) without being stale for it: no `seen_seq`, a `seen_seq` at or past the delete, or a deletion record old enough to be pruned | a stale batch re-creating a deleted page through a top-level create, a copied link, or parked text |
-| conflict noise | every check-5 header (`[[conflict]] … — overwritten by ((uid))`) is about a block whose text (a create or update_text) at least two writers wrote; other headers are exempt. A client's in-memory lane counts as a writer of its own: a failed local write (`writeFails`) goes out from the lane unhashed and never reaches the replica, so that client's next hashed edit of the block conflicts with its own lane text | a device's own edit chain conflicting with itself: rewrite rows a rename or delete replay failed to record, a replica that lost its own optimistic write |
+| conflict noise | every check-5 header (`[[conflict]] … — overwritten by ((uid))`) is about a block whose text (a create or update_text) at least two clients wrote; other headers are exempt. One single-client conflict is allowed: a failed local write (`writeFails`) goes out from the lane unhashed and never reaches the replica, so that client's next durable write of the block conflicts with its own lane text. Only that write is excused | a device's own edit chain conflicting with itself: rewrite rows a rename or delete replay failed to record, a replica that lost its own optimistic write |
 | serial replay | replaying the recorded request bodies in commit order, each at its `applied_at`, on a fresh server reproduces the final graph | server-side apply that depends on anything but the batch sequence and the clock |
 | cursor monotonic | no client's cursor goes below the highest it has shown, across reloads and recoveries | a cursor rewound by a recovery or a stale frame |
 
@@ -204,7 +204,7 @@ their own, run clean and with a harness teeth route armed:
 | offline, A links `Second` from `pt_sec_1`, a block on `Second`; B deletes `Second`, so the edit's text is parked | passes, the parked text unlinked | `/__proptest/stale/teeth`: re-creates `Second`, trips delete wins |
 | A pulls B's delete of `Second`, then creates on `Second` | passes | — |
 | B links `Second` in `pt_seed_1`, then, offline, edits it before and after A renames `Second` | lands clean | `/__proptest/rewrites/teeth`: trips conflict noise |
-| A's lane write of a block, then A's durable edit of it | passes (the lane counts as a writer) | — |
+| A's lane write of a block, then A's durable edit of it | passes (the lane exemption) | — |
 
 A delete record with shifted seqs must trip serial replay, which shows the
 replay maps `seen_seq` through the record. If a broken mode passes, the oracle
@@ -428,7 +428,7 @@ each skip by reason, op kinds, and how many examples reached each case below.
 | `a stale batch naming a deleted page` | the race `DeletePage` exists to draw happened |
 | `a leading attribute` | an applied batch wrote a `Name:: …` text |
 | `an overwritten conflict` | a check-5 header was written |
-| `an overwritten conflict on a lane write` | conflict noise held only because a lane counts as a writer |
+| `an overwritten conflict on a lane write` | conflict noise held only because of the lane exemption |
 
 `Online after k` counts offline periods that ended by their drawn
 return, and `Online at quiesce` those that lasted until quiesce (`, before its

@@ -221,8 +221,8 @@ async function runExample(names: readonly string[], cmds: Commands,
     if (conflicts.some((c) => overwrittenTarget(c.text) !== null)) {
       count("examples with an overwritten conflict");
     }
-    // An overwritten conflict that is noise unless a client's lane counts as
-    // a writer of its own: the one single-device cause the invariant allows.
+    // An overwritten conflict that is noise but for the lane exemption: the
+    // one single-device cause the invariant allows.
     const noise = { applied, conflicts,
                     committedBy: new Map(all().map((c) => [c.name, c.transport.committed])) };
     if (conflictNoise({ ...noise, lane: new Set() }).length >
@@ -233,7 +233,7 @@ async function runExample(names: readonly string[], cmds: Commands,
       count("examples with a leading attribute");
     }
     transcript.push("check");
-    await checkQuiescent(all(), guard.server, model);
+    await checkQuiescent(all(), guard.server, model, { applied, conflicts });
   };
   let abandon = (): void => undefined;
   const abandoned = new Promise<typeof ABANDONED>((resolve) => {

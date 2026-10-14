@@ -31,11 +31,12 @@ export interface DeleteRecord {
 
 /** One daily-note conflict header the run wrote, in commit order: its uid,
  * its text as written (before any later rewrite of it), and the batch that
- * wrote it. */
+ * wrote it (null when no applied batch followed the write, which only a
+ * route other than POST /api/ops could do). */
 export interface ConflictRecord {
   header_uid: string;
   text: string;
-  batch_id: BatchId;
+  batch_id: BatchId | null;
 }
 
 export interface ServerControl {

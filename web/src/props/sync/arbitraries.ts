@@ -83,9 +83,10 @@ const tokens: fc.Arbitrary<string[]> = fc.array(
  * one a Rename of Second rewrites. One text in six leads with an attribute
  * naming a pool title (`Second:: …`): a Rename retitles it, a DeletePage
  * of that title is refused while a block holds it, and a batch stale for
- * the title has it code-fenced. Plain texts come first, so a shrink drops
- * the attribute. */
+ * the title has it code-fenced. Plain texts come first and the oneof
+ * shrinks across its branches, so a shrink drops the attribute. */
 export const text: fc.Arbitrary<string> = fc.oneof(
+  { withCrossShrink: true },
   { weight: 5, arbitrary: tokens.map((t) => t.join(" ")) },
   { weight: 1, arbitrary: fc.tuple(fc.constantFrom(...PAGE_TITLES), tokens)
       .map(([title, t]) => [`${title}::`, ...t].join(" ")) },

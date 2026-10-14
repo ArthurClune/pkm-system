@@ -85,7 +85,7 @@ export interface HarnessClient {
   lanePushes(): number;
   /** The batch ids whose pending_ops INSERT failed, in order: the lane sends
    * them from memory, unhashed, and their ops never reach the replica. */
-  readonly laneBatches: BatchId[];
+  readonly laneBatches: readonly BatchId[];
   /** A page reload. Online, the new life connects `connectAt` ticks after
    * its mount begins (see StartOptions); offline, it does not connect. */
   reload(connectAt?: number): Promise<void>;

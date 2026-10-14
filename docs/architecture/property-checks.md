@@ -47,7 +47,7 @@ random seed. `--path`, `--replay-path` and `--file` apply to the web side only
 The web side starts the harness server, `server/tooling/proptest/sync_server.py`,
 on port 8978, waits for `/healthz`, runs vitest, and stops the server by PID.
 It refuses to run when 8978 is already in use. The server is the real
-`create_app` plus seven control routes the suites need, which exist only in
+`create_app` plus nine control routes the suites need, which exist only in
 that launcher and never in `pkm.server.app`:
 
 | Route | Does |
@@ -56,9 +56,11 @@ that launcher and never in `pkm.server.app`:
 | `POST /__proptest/clock` | moves the frozen server clock |
 | `POST /__proptest/rotate-generation` | rotates the sync `db_generation` |
 | `GET /__proptest/applied` | `applied_batches` rows in commit order, with `applied_at` |
-| `GET /__proptest/renames` | every page retitle in commit order: the titles, the batch it followed (`after_batch_id`, null before the first) and the clock `at` it ran at. A trigger the seeded database installs writes the log, because a rename is a route of its own, not a batch |
+| `GET /__proptest/renames` | every page retitle in commit order: the titles, the batch it followed (`after_batch_id`, null before the first) and the clock `at` it ran at, and `ord`, its place among renames and deletes together. A trigger the seeded database installs writes the log, because a rename is a route of its own, not a batch |
+| `GET /__proptest/deletes` | every recorded page delete (a `page_deletions` insert) in commit order, shaped like the rename log and sharing its `ord`: the title, its journal `seq`, `after_batch_id`, `at`, and the `uids` of the blocks the page held |
 | `POST /__proptest/echo/take` | the ops of the last broadcast frame that carried any (the echo an open page would apply), cleared by the read; `null` when none arrived |
 | `POST /__proptest/echo/teeth` | arms a deliberately wrong echo that loses the `page_title` of every move that names one, for the ops teeth |
+| `POST /__proptest/stale/teeth` | while armed, every batch is stale for no title (`stale_titles` returns nothing), so a stale batch re-creates a deleted page; for the sync teeth. A reset disarms it |
 
 The server clock starts at `START_MS`, 2026-03-01 12:00 Europe/London, never
 ticks, and moves only by `/__proptest/clock`. It never moves before `START_MS`
@@ -77,13 +79,13 @@ session cookies are rejected when issued in the future or more than a year ago.
 | `web/src/props/sync/cancel.ts` | Imperative Shell | one example's server handle, which refuses every call once the example is cancelled and aborts any request still on the wire, so an abandoned example cannot reach the server the next one has reset |
 | `web/src/props/sync/transport.ts` | Imperative Shell | one client's network to the server: one-shot faults, a window limit, and the deliberately broken modes the teeth tests use |
 | `web/src/props/sync/harnessClient.ts` | Imperative Shell | one simulated device: the real replica worker, op queue, replica sync, client runtime, legacy repair and reconnect flow, over an in-memory database that survives `reload()`. The legacy repair's outline sessions are stood in for by one page read through the client's transport, which fails while offline |
-| `web/src/props/sync/model.ts`, `arbitraries.ts`, `normalise.ts` | Functional Core | the command model; op drafts and the uid pool; the common graph form replicas and snapshots are compared in |
+| `web/src/props/sync/model.ts`, `arbitraries.ts`, `normalise.ts`, `deleteWins.ts` | Functional Core | the command model; op drafts and the uid pool; the common graph form replicas and snapshots are compared in; the delete wins invariant and the `seen_seq` a replayed body carries |
 | `web/src/props/sync/commands.ts` | Imperative Shell | one fast-check command class per row of the commands table below |
-| `web/src/props/sync/oracle.ts`, `quiesce.ts` | Imperative Shell | the six invariants; bringing every client to rest |
+| `web/src/props/sync/oracle.ts`, `quiesce.ts` | Imperative Shell | the seven invariants; bringing every client to rest |
 | `web/src/props/sync/sync.prop.ts` | Imperative Shell | the property, the seventeen fixed scenarios, the tally |
 | `web/src/props/sync/teeth.prop.ts`, `harness.prop.ts`, `smoke.prop.ts` | test | the oracle's teeth; the harness client and transport self-tests; the server wiring |
 | `web/src/props/warnings.ts`, `warningsCapture.ts`, `warnings.test.ts` | Functional Core, Imperative Shell, test | the expected fault-warning kinds, their classification and summary line; the per-file `console.warn` capture every `*.prop.ts` calls; the unit tests (run under `pnpm test:unit`) |
-| `web/src/props/sync/normalise.test.ts`, `arbitraries.test.ts` | test | unit tests that do run under `pnpm test:unit` |
+| `web/src/props/sync/normalise.test.ts`, `arbitraries.test.ts`, `deleteWins.test.ts` and the other `*.test.ts` there | test | unit tests that do run under `pnpm test:unit` |
 | `web/src/props/outline/arbitraries.ts`, `reading.ts`, `model.ts`, `run.ts`, `checks.ts` | Functional Core | start trees, selections, drops, paste forests and command sequences; the reading-view rows; the model of each command; the runner over the real commands and history; the per-step and whole-sequence checks |
 | `web/src/props/outline/outline.prop.ts`, `teeth.prop.ts` | Imperative Shell | the property and its budget; the seeded wrong commands it must catch. Neither imports `sync/env.ts` or needs the server |
 | `web/src/props/ops/arbitraries.ts`, `compare.ts` | Functional Core | the start state, its seeding ops, the raw-batch drafts and their resolution against a server graph, and example kinds; per-page trees from a snapshot, tree and graph diffs, and the pruning of server-minted rows |
@@ -149,6 +151,7 @@ through the same commands.
 | `Pull` | forces a catch-up | offline |
 | `Nudge` | a websocket `seq` frame: `latest`, `stale`, `duplicate` or `ahead` of the journal | offline |
 | `Rename` | a page rename from a fixed title pool (`Proptest`, `Second`, `Third`, `Fourth`) through the client's network, never a merge. The pool is a fixed list, so after renames a drawn title may name another page, or a page that no longer exists. The route refusing it (400, 404, 409) or a dead network is a counted outcome, not an error | the client is not in the example |
+| `DeletePage` | a page delete from the same title pool through the client's network, drawn as often as `Rename`. Other clients' queued batches may still name the page, which is the race it draws. The page holding `pt_seed_6` is spared under whatever title it has, so `BadBatch` stays a 400. A refusal (404, 409) or a dead network is a counted outcome | the client is not in the example |
 | `Reload` | a page reload: the worker and in-flight requests die, the database survives. Half the time an online client's new life connects 1 to 7 timer ticks after its mount begins, possibly mid-startup as the app's socket can; otherwise once the startup has finished (`connectTiming`, `HarnessClient.reload`) | ops would be lost by design (a non-empty lane or armed write failure) |
 | `RotateGeneration` | rotates `db_generation`, so every client's next pull rebases | never |
 | `CrossMidnight` | the server clock to 23:59:55 local, then ten seconds on; one crossing in four lands on a BST/GMT changeover | never |
@@ -167,21 +170,34 @@ Cursor monotonic runs after every command instead.
 | accounting | `applied_batches` holds exactly the batches the model expects, no rejected batch landed, every rejected batch was reported poisoned, and no pending or poisoned rows remain | a dropped, double-applied or re-id'd batch; a rejection that was never surfaced |
 | per-client order | each client's batches landed in its enqueue order | a queue that reorders its own client's delivery |
 | desync/poison | no `onDesync`, and `onPoison` only for batches the model expects to be rejected | a recovery path taken for no reason; a valid batch rejected |
+| delete wins | no block a deleted page held is alive, and a deleted title exists at quiescence only if, after its last delete, a rename made it or a batch named it (a `page_title`, or a ref in its text) without being stale for it: no `seen_seq`, a `seen_seq` at or past the delete, or a deletion record old enough to be pruned | a stale batch re-creating a deleted page through a top-level create, a copied link, or parked text |
 | serial replay | replaying the recorded request bodies in commit order, each at its `applied_at`, on a fresh server reproduces the final graph | server-side apply that depends on anything but the batch sequence and the clock |
 | cursor monotonic | no client's cursor goes below the highest it has shown, across reloads and recoveries | a cursor rewound by a recovery or a stale frame |
 
-Serial replay puts each page rename back between the two batches it fell
-between, at the clock it ran at, using `/__proptest/renames`. A rename that
-followed a batch that never applied is itself a finding. The replay resets the
-server, so the faulted run's snapshot, applied list and renames are read
-first. Ids the server mints are compared by position.
+Serial replay puts each page rename and delete back between the two batches
+it fell between, in `ord` order, at the clock it ran at, using
+`/__proptest/renames` and `/__proptest/deletes`. One that followed a batch
+that never applied is itself a finding, and so is a replayed delete the route
+refuses. The replay's journal need not number rows as the faulted run's did,
+so each body's `seen_seq` is rewritten (`replaySeenSeq`). It becomes the
+replay's seq for the last delete the faulted `seen_seq` had reached, or 0
+before any. Each batch is then stale for the same titles in both runs. The
+replay resets the server, so the faulted run's snapshot, applied list,
+renames and deletes are read first, and delete wins runs before it. Ids the
+server mints are compared by position.
 
 `teeth.prop.ts` checks the oracle can fail. Each broken transport mode
 (`dropBatch`, `reidBatch`, `holdBatch`, `skipWindow`) must trip the invariant
 that exists for it, a tampered recorded body must trip serial replay, and a
 clean run must pass. Serial replay has two more: an omitted rename, and a
 rename replayed after the wrong batch, must each trip it, and a run with a
-rename must replay clean. If a broken mode passes, the oracle is blind.
+rename must replay clean. Delete wins has its own scenario. Offline, A splits a
+block (copying a link to `Second`) and creates on `Second`, B deletes `Second`,
+and A comes back stale. It must pass, and with `/__proptest/stale/teeth` armed it
+must trip delete wins. A page re-created by a batch that had seen the delete
+must pass. A delete record with shifted seqs must trip serial replay, which
+shows the replay maps `seen_seq` through the record. If a broken mode passes,
+the oracle is blind.
 
 One example in three draws a changes-feed window limit of one to five
 journal rows, so a catch-up crosses window boundaries, where block tombstones
@@ -363,7 +379,7 @@ not reproduce is not on its own evidence of a flaky harness (see above).
 
 Each sub-project's suite brings its own budget, so the gate's total grows as
 suites are added. Today the server side is about 3 minutes and the web side
-about 5 minutes (sync about 170 seconds, outline about 50, ops about 60, the teeth files about 8). The budget is set
+about 5 minutes (sync about 185 seconds, outline about 50, ops about 60, the teeth files about 8). The budget is set
 where the count is set:
 
 | Side | Count | Sized for |
@@ -392,8 +408,9 @@ than a silent loss of coverage.
 
 The property's `afterAll` prints a tally covering every run, shrinks
 included: examples per client count and window limit, each command's runs and
-each skip by reason, op kinds, and examples with a conflict or a rejected
-batch. `Online after k` counts offline periods that ended by their drawn
+each skip by reason, op kinds, and examples with a conflict, a rejected
+batch, or a stale batch naming a deleted page (the race `DeletePage` exists
+to draw). `Online after k` counts offline periods that ended by their drawn
 return, and `Online at quiesce` those that lasted until quiesce (`, before its
 return` when the commands ran out first). `start` and `Reload` rows report
 where timed connects landed: mid-startup, after startup, offline (the timing

@@ -49,6 +49,27 @@ describe("createOpQueue deps", () => {
     q.dispose();
   });
 
+  test("a durable batch's seen_seq rides the post; one without omits the key", async () => {
+    const post = vi.fn(async (_body: OpBatch) => ack());
+    const batches = [
+      { id: 1 as PendingRowId, batch_id: bid("with"), ops: [op("aaaaaaaa")],
+        poisoned: false, seen_seq: 9 as SyncSeq },
+      { id: 2 as PendingRowId, batch_id: bid("without"), ops: [op("bbbbbbbb")],
+        poisoned: false },
+    ];
+    const replica = memReplica({
+      nextBatch: async () => batches[0] ?? null,
+      deleteBatch: vi.fn(async () => { batches.shift(); return { pending: batches.length, matched: true }; }),
+    });
+    const q = createOpQueue(replica, { post, clientId: "client-x" as ClientId });
+    await q.drain();
+    expect(post.mock.calls.map((c) => c[0])).toStrictEqual([
+      { client_id: "client-x", batch_id: "with", ops: [op("aaaaaaaa")], seen_seq: 9 },
+      { client_id: "client-x", batch_id: "without", ops: [op("bbbbbbbb")] },
+    ]);
+    q.dispose();
+  });
+
   test("reads and writes poison intents through deps.poisonStore", async () => {
     const stored: PoisonEvent = {
       id: 7 as PendingRowId, batch_id: "old-batch" as BatchId, ops: [op("bbbbbbbb")],

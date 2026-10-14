@@ -345,3 +345,16 @@ def test_filled_delete_then_bare_replays_with_one_effect(client):
     r2 = client.post("/api/ops", json=bare)
     assert r2.status_code == 200
     assert r2.json() == r1.json()  # replayed ack, same seq: no second delete
+
+
+def test_seen_seq_is_not_part_of_the_batch_hashes(client):
+    plain = OpBatch.model_validate(BATCH)
+    seen = OpBatch.model_validate(dict(BATCH, seen_seq=7))
+    assert seen.seen_seq == 7 and plain.seen_seq is None
+    assert batch_request_hash(plain) == batch_request_hash(seen)
+    assert batch_replay_hash(plain) == batch_replay_hash(seen)
+    r1 = client.post("/api/ops", json=BATCH)
+    assert r1.status_code == 200
+    r2 = client.post("/api/ops", json=dict(BATCH, seen_seq=7))
+    assert r2.status_code == 200
+    assert r2.json() == r1.json()

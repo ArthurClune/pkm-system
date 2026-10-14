@@ -65,8 +65,31 @@ function readPendingBatches(db: ReplicaDb): PendingBatch[] {
   // reads only the migration-stable columns so a newer client can always
   // extract wire-format JSON from an older database.
   if (!tableExists(db, "pending_ops")) return [];
-  return allBatches(db);
+  const batches = allBatches(db);
+  // The cursor is read separately and only when its table exists: an older
+  // file flushes without it.
+  if (!tableExists(db, "pending_seen")) return batches;
+  const seen = new Map(db.select<{ batch_id: string; seen_seq: number }>(
+    "SELECT batch_id, seen_seq FROM pending_seen",
+  ).map((r) => [r.batch_id, Number(r.seen_seq) as SyncSeq]));
+  return batches.map((b) => seen.has(b.batch_id)
+    ? { ...b, seen_seq: seen.get(b.batch_id) } : b);
 }
+
+/** An older file gets the client tables it lacks, so a queue handler that
+ * runs before init() never meets a missing table. schema_version stays
+ * stale, so init() still runs the reset that rebuilds them from CLIENT_DDL. */
+const ensureClientTables = (d: ReplicaDb, ensured: WeakSet<ReplicaDb>): void => {
+  // Once per handle a worker has opened: a replaced file is a new handle,
+  // and a handle without sync_client_meta is never memoised, so a file that
+  // is still to be built is re-checked.
+  if (ensured.has(d)) return;
+  if (!tableExists(d, "sync_client_meta")) return;
+  if (!tableExists(d, "replay_log") || !tableExists(d, "pending_seen")) {
+    d.exec(CLIENT_DDL);
+  }
+  ensured.add(d);
+};
 
 function readDurablePendingRows(db: ReplicaDb): DurablePendingRow[] {
   if (!tableExists(db, "pending_ops")) return [];
@@ -244,7 +267,12 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
    * is the rows' only copy and must not be adopted into a half-built file;
    * so does diagnostics, which only reads and must report on an unwell
    * database even when an adoption would fail. */
-  const queueDb = async (): Promise<ReplicaDb> => adoptLeftoverCarry(await db());
+  const ensuredHandles = new WeakSet<ReplicaDb>();
+  const queueDb = async (): Promise<ReplicaDb> => {
+    const d = await adoptLeftoverCarry(await db());
+    ensureClientTables(d, ensuredHandles);
+    return d;
+  };
   // Batch row id -> the journal seq its server ack named, for batches deleted
   // on an ack, or dropped because a sync payload named them as already
   // applied (the payload carries the stored ack's seq). applyChanges
@@ -431,11 +459,6 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         // An existing database (any version) is left alone — init() owns
         // schema-mismatch detection and recovery.
         if (!tableExists(d, "sync_client_meta")) installSchema(d);
-        // The stale-schema reset runs from start(), so an enqueue before it
-        // commits must not fail its first replay-log write: an older file
-        // gets the tables it lacks. schema_version stays stale so the reset
-        // still rebuilds them from CLIENT_DDL.
-        else if (!tableExists(d, "replay_log")) d.exec(CLIENT_DDL);
         return enqueueBatch(d, ops, nowMs(), batchId);
       });
     },

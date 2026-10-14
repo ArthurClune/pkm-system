@@ -30,6 +30,6 @@ test("a malformed skipped field reads as no skips", () => {
 test("SkipReason is exactly the shared fixture's reasons", () => {
   // A reason added to or removed from the server's SkipReason changes the
   // generated union, and this record then fails to type-check.
-  const reasons: Record<SkipReason, true> = { block_not_found: true, parent_not_found: true, cycle: true };
+  const reasons: Record<SkipReason, true> = { block_not_found: true, parent_not_found: true, cycle: true, page_deleted: true };
   expect(Object.keys(reasons)).toEqual(fixture.skip_reasons);
 });

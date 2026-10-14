@@ -9,23 +9,29 @@
 //                     as poisoned, and no pending or poisoned rows remain
 //   per-client order  each client's batches landed in its enqueue order
 //   desync/poison     no onDesync, and onPoison only for expected rejections
+//   delete wins       no block a deleted page held is alive, and a deleted
+//                     title exists only if a rename or a batch not stale for
+//                     it made it since (deleteWins.ts)
 //   serial replay     replaying the recorded bodies in commit order, each at
-//                     its applied_at, with every page rename put back after
-//                     the batch it followed, at the clock it ran at, on a
-//                     fresh server reproduces the graph
+//                     its applied_at, with every page rename and delete put
+//                     back after the batch it followed, at the clock it ran
+//                     at, on a fresh server reproduces the graph. Each body's
+//                     seen_seq is moved to the replay's journal, so it is
+//                     stale for the same titles (replaySeenSeq)
 // The serial replay resets the server, so the faulted run's snapshot,
-// applied list and renames are read before it, and afterwards the server
-// holds the replay's state.
-// CursorWatch is the sixth check, run after every command rather than here.
+// applied list, renames and deletes are read before it, and every other
+// invariant runs first; afterwards the server holds the replay's state.
+// CursorWatch is the seventh check, run after every command rather than here.
 import type { BatchId, SyncSeq } from "../../api/brands";
+import { deleteWins, replaySeenSeq, withSeenSeq } from "./deleteWins";
 import type { HarnessClient } from "./harnessClient";
 import { canonicaliseMintedUids, diffGraphs, fromReplica, fromSnapshot,
          type NormalGraph, opUids } from "./normalise";
-import type { RenameRecord, ServerControl } from "./serverControl";
+import type { DeleteRecord, RenameRecord, ServerControl } from "./serverControl";
 
 export type Invariant =
   | "convergence" | "accounting" | "per-client order" | "desync/poison"
-  | "serial replay";
+  | "delete wins" | "serial replay";
 
 export class OracleError extends Error {
   override name = "OracleError";
@@ -48,6 +54,9 @@ export interface CheckOptions {
   /** The page renames the serial replay puts back; by default the
    * server's record of them. */
   renames?: readonly RenameRecord[];
+  /** The page deletes the serial replay puts back; by default the server's
+   * record of them. */
+  deletes?: readonly DeleteRecord[];
 }
 
 type Applied = { batch_id: BatchId; applied_at: number }[];
@@ -122,19 +131,35 @@ function desyncPoison(clients: HarnessClient[], exp: Expectation): Findings {
   ]);
 }
 
-async function serialReplay(server: ServerControl, applied: Applied,
-                            faulted: Awaited<ReturnType<ServerControl["snapshot"]>>,
+type Faulted = Awaited<ReturnType<ServerControl["snapshot"]>>;
+
+/** A rename or a delete: no batch, so each goes back between the two
+ * batches it fell between in the faulted run, in the order they committed. */
+type RouteEvent = { rename: RenameRecord } | { delete: DeleteRecord };
+
+const eventOf = (e: RouteEvent): RenameRecord | DeleteRecord =>
+  "rename" in e ? e.rename : e.delete;
+
+const showEvent = (e: RouteEvent): string => "rename" in e
+  ? `rename ${e.rename.old_title} -> ${e.rename.new_title}`
+  : `delete ${e.delete.title}`;
+
+async function serialReplay(server: ServerControl, applied: Applied, faulted: Faulted,
                             committed: ReadonlyMap<BatchId, string>,
-                            renames: readonly RenameRecord[]): Promise<Findings> {
+                            renames: readonly RenameRecord[],
+                            deletes: readonly DeleteRecord[]): Promise<Findings> {
   const unrecorded = applied.filter((r) => !committed.has(r.batch_id));
   if (unrecorded.length > 0) {
     return [`no recorded body for applied batches: ${list(unrecorded.map((r) => r.batch_id))}`];
   }
+  const events: RouteEvent[] = [
+    ...renames.map((r) => ({ rename: r })), ...deletes.map((d) => ({ delete: d })),
+  ].sort((a, b) => eventOf(a).ord - eventOf(b).ord);
   const landed = new Set<BatchId | null>([null, ...applied.map((r) => r.batch_id)]);
-  const stray = renames.filter((r) => !landed.has(r.after_batch_id));
+  const stray = events.filter((e) => !landed.has(eventOf(e).after_batch_id));
   if (stray.length > 0) {
-    return [`renames after a batch that never applied: ${
-      list(stray.map((r) => `${r.old_title} -> ${r.new_title} after ${r.after_batch_id}`))}`];
+    return [`renames or deletes after a batch that never applied: ${
+      list(stray.map((e) => `${showEvent(e)} after ${eventOf(e).after_batch_id}`))}`];
   }
   const out: Findings = [];
   await server.reset();
@@ -144,24 +169,30 @@ async function serialReplay(server: ServerControl, applied: Applied,
   for (const row of applied) {
     for (const uid of opUids(committed.get(row.batch_id) ?? "{}")) known.add(uid);
   }
-  // A rename is no batch: it goes back between the two batches it fell
-  // between in the faulted run, in the order the renames committed.
-  const renamesAfter = async (batch: BatchId | null): Promise<void> => {
-    for (const r of renames.filter((x) => x.after_batch_id === batch)) {
-      await server.setClock(r.at);
-      const res = await server.postRename(r.old_title, r.new_title);
-      if (!res.ok) {
-        out.push(`replaying rename ${r.old_title} -> ${r.new_title} got ${res.status}:` +
-                 ` ${await res.text()}`);
-      }
+  const faultedSeqs = deletes.map((d) => d.seq);
+  let replayedSeqs: number[] = [];
+  const eventsAfter = async (batch: BatchId | null): Promise<void> => {
+    for (const e of events.filter((x) => eventOf(x).after_batch_id === batch)) {
+      await server.setClock(eventOf(e).at);
+      const res = "rename" in e
+        ? await server.postRename(e.rename.old_title, e.rename.new_title)
+        : await server.postDelete(e.delete.title);
+      if (!res.ok) out.push(`replaying ${showEvent(e)} got ${res.status}: ${await res.text()}`);
+      if ("delete" in e) replayedSeqs = (await server.deletes()).map((d) => d.seq);
     }
   };
-  await renamesAfter(null);
+  await eventsAfter(null);
   for (const row of applied) {
     await server.setClock(row.applied_at);
-    const res = await server.postRaw(committed.get(row.batch_id) ?? "");
+    const recorded = committed.get(row.batch_id) ?? "";
+    const body = withSeenSeq(recorded, (seen) =>
+      replaySeenSeq(seen, faultedSeqs, replayedSeqs, faulted.seq));
+    if (body === null) {
+      out.push(`replaying ${row.batch_id}: the replay lacks a delete its seen_seq had passed`);
+    }
+    const res = await server.postRaw(body ?? recorded);
     if (!res.ok) out.push(`replaying ${row.batch_id} got ${res.status}: ${await res.text()}`);
-    await renamesAfter(row.batch_id);
+    await eventsAfter(row.batch_id);
   }
   const replayed = await server.snapshot();
   const diff = diffGraphs(
@@ -186,6 +217,7 @@ export async function checkQuiescent(clients: HarnessClient[], server: ServerCon
   const faulted = await server.snapshot();
   const applied = await server.applied();
   const renames = opts.renames ?? await server.renames();
+  const deletes = opts.deletes ?? await server.deletes();
   const committed = opts.committed ?? new Map(
     clients.flatMap((c) => [...c.transport.committed]));
   const results: [Invariant, Findings][] = [
@@ -193,7 +225,10 @@ export async function checkQuiescent(clients: HarnessClient[], server: ServerCon
     ["accounting", await evaluate(() => accounting(clients, applied, exp))],
     ["per-client order", await evaluate(() => perClientOrder(applied, exp))],
     ["desync/poison", await evaluate(() => desyncPoison(clients, exp))],
-    ["serial replay", await evaluate(() => serialReplay(server, applied, faulted, committed, renames))],
+    ["delete wins", await evaluate(() =>
+      deleteWins({ applied, committed, renames, deletes, snapshot: faulted }))],
+    ["serial replay", await evaluate(() =>
+      serialReplay(server, applied, faulted, committed, renames, deletes))],
   ];
   const failed = results.filter(([, findings]) => findings.length > 0);
   if (failed.length === 0) return;

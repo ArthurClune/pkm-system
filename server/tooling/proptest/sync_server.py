@@ -2,7 +2,7 @@
 """Test-only launcher for the web sync property harness: the real pkm app on
 port 8978 plus a few /__proptest/* control routes that reset the database,
 move the server clock, rotate the sync generation, and read applied_batches
-and the page renames in commit order. The routes live here and never in
+and the page renames and deletes in commit order. The routes live here and never in
 pkm.server.app.
 
 Run (cwd server/, as proptest/check.sh runs run.py):
@@ -19,10 +19,12 @@ import atexit
 import copy
 import dataclasses
 import itertools
+import json
 import logging
 import os
 import shutil
 import signal
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -40,13 +42,15 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from pkm.contracts.ops import OpBatch
-from pkm.server import sync_meta
+from pkm.refs import CanonicalTitle
+from pkm.server import ops_apply, sync_meta
 from pkm.server.app import create_app
 from pkm.server.auth import require_auth
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
+from pkm.server.store import stale_titles
 
 PORT = int(os.environ.get("PROPTEST_PORT", "8978"))
 PASSWORD = "proptest-pw"
@@ -75,13 +79,54 @@ CREATE TABLE proptest_renames(
   old_title   TEXT NOT NULL,
   new_title   TEXT NOT NULL,
   after_batch INTEGER NOT NULL,
-  at          INTEGER NOT NULL
+  at          INTEGER NOT NULL,
+  ord         INTEGER NOT NULL
 );
 CREATE TRIGGER proptest_renames_au AFTER UPDATE OF title ON pages
 WHEN OLD.title IS NOT NEW.title BEGIN
-  INSERT INTO proptest_renames(old_title, new_title, after_batch, at)
+  INSERT INTO proptest_renames(old_title, new_title, after_batch, at, ord)
   VALUES (OLD.title, NEW.title,
-          (SELECT COALESCE(MAX(rowid), 0) FROM applied_batches), NEW.updated_at);
+          (SELECT COALESCE(MAX(rowid), 0) FROM applied_batches), NEW.updated_at,
+          MAX(COALESCE((SELECT MAX(ord) FROM proptest_renames), 0),
+              COALESCE((SELECT MAX(ord) FROM proptest_deletes), 0)) + 1);
+END;
+"""
+
+# Harness-only: every recorded user page delete (a page_deletions insert, so
+# daily notes and merges are absent), in commit order, shaped like the rename
+# log and sharing its `ord` counter so the replay can interleave the two.
+# `uids` is the JSON array of block uids the delete removed. The page's
+# blocks are gone before page_deletions is written, so the trigger reads
+# them from the change journal: delete_page_rows journals the block deletes
+# (carrying the page id) directly before the page's own delete row, and the
+# run of those rows ending at that row is exactly this delete's blocks;
+# blocks an earlier op removed sit before a row of another kind.
+DELETE_LOG_DDL = """
+CREATE TABLE proptest_deletes(
+  title       TEXT NOT NULL,
+  seq         INTEGER NOT NULL,
+  after_batch INTEGER NOT NULL,
+  at          INTEGER NOT NULL,
+  ord         INTEGER NOT NULL,
+  uids        TEXT NOT NULL
+);
+CREATE TRIGGER proptest_deletes_ai AFTER INSERT ON page_deletions BEGIN
+  INSERT INTO proptest_deletes(title, seq, after_batch, at, ord, uids)
+  SELECT NEW.title, NEW.seq,
+         (SELECT COALESCE(MAX(rowid), 0) FROM applied_batches), NEW.deleted_at,
+         MAX(COALESCE((SELECT MAX(ord) FROM proptest_renames), 0),
+             COALESCE((SELECT MAX(ord) FROM proptest_deletes), 0)) + 1,
+         (SELECT COALESCE(json_group_array(entity_id), '[]') FROM (
+            SELECT c.entity_id FROM changes c
+             WHERE c.kind = 'block' AND c.deleted = 1 AND c.page_id = CAST(p.entity_id AS INTEGER)
+               AND c.seq < p.seq
+               AND c.seq > COALESCE((SELECT MAX(o.seq) FROM changes o
+                                      WHERE o.seq < p.seq
+                                        AND NOT (o.kind = 'block' AND o.deleted = 1
+                                                 AND o.page_id = c.page_id)), 0)
+             ORDER BY c.seq))
+    FROM (SELECT seq, entity_id FROM changes
+           WHERE kind = 'page' AND deleted = 1 ORDER BY seq DESC LIMIT 1) p;
 END;
 """
 START_MS = int(datetime(2026, 3, 1, 12, 0, 0, tzinfo=ZoneInfo("Europe/London")).timestamp() * 1000)
@@ -108,7 +153,7 @@ def build_template(path: Path) -> None:
     """A fresh DB holding page "Proptest" with six top-level blocks and page
     "Second" with three, written through the real op pipeline so the change
     journal and refs are as a client's creates would leave them, plus the
-    rename log (RENAME_LOG_DDL). The app's schema setup is all IF NOT
+    rename and delete logs (RENAME_LOG_DDL, DELETE_LOG_DDL). The app's schema setup is all IF NOT
     EXISTS and leaves a table and trigger it does not know alone."""
     init_db(path)
     con = open_db(path)
@@ -123,9 +168,23 @@ def build_template(path: Path) -> None:
         con.execute("BEGIN IMMEDIATE")
         apply_batch(con, batch, START_MS)
         con.commit()
-        con.executescript(RENAME_LOG_DDL)
+        con.executescript(RENAME_LOG_DDL + DELETE_LOG_DDL)
     finally:
         con.close()
+
+
+# Harness-only teeth for the sync oracle's "delete wins": while armed, every
+# batch is stale for no title, as before stale batches existed, so a stale
+# create or link re-creates a deleted page. ops_apply reads stale_titles
+# through its module global, which build_app points here; disarmed, it is
+# the real function. Module state, not per app: one harness app serves at a
+# time, and build_app and every reset disarm it.
+_stale_teeth = {"empty": False}
+
+
+def _stale_titles_with_teeth(db: sqlite3.Connection,
+                             seen_seq: int | None) -> frozenset[CanonicalTitle]:
+    return frozenset() if _stale_teeth["empty"] else stale_titles(db, seen_seq)
 
 
 class _ClockBody(BaseModel):
@@ -134,6 +193,10 @@ class _ClockBody(BaseModel):
 
 class _TeethBody(BaseModel):
     drop_cross_page_title: bool
+
+
+class _StaleTeethBody(BaseModel):
+    empty: bool
 
 
 def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI:
@@ -177,6 +240,8 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         await broadcast(message)
 
     app.state.hub.broadcast = recording_broadcast
+    ops_apply.stale_titles = _stale_titles_with_teeth
+    _stale_teeth["empty"] = False
 
     @app.post("/__proptest/reset", dependencies=[Depends(require_auth)])
     def reset(request: Request) -> dict:
@@ -192,6 +257,7 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         clock.set_ms(START_MS)
         echo["ops"] = None
         echo["drop_cross_page_title"] = False
+        _stale_teeth["empty"] = False
         return {"db_path": str(db_path)}
 
     @app.post("/__proptest/clock", dependencies=[Depends(require_auth)])
@@ -226,13 +292,26 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
             # The batch each followed by id: the serial replay walks
             # /__proptest/applied's list, which names batches, not rowids.
             rows = con.execute(
-                "SELECT r.old_title, r.new_title, a.batch_id AS after_batch_id, r.at"
+                "SELECT r.old_title, r.new_title, a.batch_id AS after_batch_id, r.at, r.ord"
                 " FROM proptest_renames r"
                 " LEFT JOIN applied_batches a ON a.rowid = r.after_batch"
                 " ORDER BY r.rowid").fetchall()
         finally:
             con.close()
         return [dict(r) for r in rows]
+
+    @app.get("/__proptest/deletes", dependencies=[Depends(require_auth)])
+    def deletes(request: Request) -> list[dict]:
+        con = open_db(request.app.state.config.db_path)
+        try:
+            rows = con.execute(
+                "SELECT d.title, d.seq, a.batch_id AS after_batch_id, d.at, d.ord, d.uids"
+                " FROM proptest_deletes d"
+                " LEFT JOIN applied_batches a ON a.rowid = d.after_batch"
+                " ORDER BY d.rowid").fetchall()
+        finally:
+            con.close()
+        return [{**dict(r), "uids": json.loads(r["uids"])} for r in rows]
 
     @app.post("/__proptest/echo/take", dependencies=[Depends(require_auth)])
     def echo_take() -> dict:
@@ -243,6 +322,11 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     def echo_teeth(body: _TeethBody) -> dict:
         echo["drop_cross_page_title"] = body.drop_cross_page_title
         return {"drop_cross_page_title": body.drop_cross_page_title}
+
+    @app.post("/__proptest/stale/teeth", dependencies=[Depends(require_auth)])
+    def stale_teeth(body: _StaleTeethBody) -> dict:
+        _stale_teeth["empty"] = body.empty
+        return {"empty": body.empty}
 
     return app
 

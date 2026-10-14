@@ -245,6 +245,22 @@ CREATE TABLE IF NOT EXISTS conflict_headers(
   PRIMARY KEY (target_uid, day)
 );
 
+-- The title of each page a user deleted and the journal seq the delete left
+-- behind. A stale device's batch (seen_seq below that seq) must not
+-- re-create the page from edits made before it saw the delete, so the push
+-- consults this table (store.stale_titles). Daily-note titles, the journal
+-- cleanup and rename merges record nothing. Push-time resolution only,
+-- like block_rewrites: no journal trigger, never replicated, and pruned to
+-- the last 30 days on every recorded delete. No uniqueness: a page deleted,
+-- re-created and deleted again leaves two rows, and the larger seq wins.
+CREATE TABLE IF NOT EXISTS page_deletions(
+  title      TEXT NOT NULL,
+  seq        INTEGER NOT NULL,
+  deleted_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_page_deletions_seq
+  ON page_deletions(seq);
+
 -- Generation token: a rebuilt database (importer swap) repopulates
 -- the journal, so a stale client cursor usually sits BELOW latest_seq and the
 -- since>latest reset check never fires -- a replica would silently pull from

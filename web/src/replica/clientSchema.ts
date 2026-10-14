@@ -24,6 +24,14 @@ CREATE TABLE IF NOT EXISTS pending_ops(
   error    TEXT
 );
 
+-- The sync cursor a batch was built under. Separate from pending_ops so that
+-- table keeps its migration-stable shape. A batch with no row here goes out
+-- without seen_seq: a carried batch, or one flushed from an older file.
+CREATE TABLE IF NOT EXISTS pending_seen(
+  batch_id TEXT PRIMARY KEY,
+  seen_seq INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS replay_log(
   id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id TEXT NOT NULL,
   kind TEXT NOT NULL CHECK(kind IN ('block','page')), key TEXT NOT NULL,

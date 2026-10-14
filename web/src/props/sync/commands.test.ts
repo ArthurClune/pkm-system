@@ -1,7 +1,9 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { ApiError } from "../../api/client";
+import { BAD_UID } from "./arbitraries";
 import { ExampleCancelled } from "./cancel";
-import { commandsFor, connectTally, connectTiming, Fault, Offline, offlineBack, Reload,
+import { commandsFor, connectTally, connectTiming, DeletePage, Fault, Offline, offlineBack, Reload,
          Rename, type SyncCommand, type World } from "./commands";
 import type { HarnessClient } from "./harnessClient";
 import { initialModel } from "./model";
@@ -34,6 +36,59 @@ describe("Rename", () => {
     expect(renames.length).toBeGreaterThan(0);
     for (const r of renames) expect(r.from).not.toBe(r.to);
     expect(new Set(renames.map((r) => `${r.from}${r.to}`)).size).toBe(12);
+  });
+});
+
+describe("DeletePage", () => {
+  it("names its title, and is drawn", () => {
+    expect(new DeletePage("A", 1).toString()).toBe("DeletePage(A, Second)");
+    const deletes = fc.sample(commandsFor(["A"])[0], { numRuns: 3000, seed: 7 })
+      .filter((c): c is DeletePage => c instanceof DeletePage);
+    expect(deletes.length).toBeGreaterThan(0);
+    expect(new Set(deletes.map((d) => d.title)).size).toBe(4);
+  });
+
+  /** Runs a delete of Second whose transport rejects with `error`, or
+   * resolves when null, with BAD_UID on the page titled `badPage`. */
+  async function outcomeOf(error: unknown, badPage = "Proptest"):
+      Promise<{ line: string; counted: string[]; url: string }> {
+    const counted: string[] = [];
+    let url = "";
+    const client = {
+      writeFailArmed: () => false,
+      unsentInMemory: () => 0,
+      transport: { fetchJson: async (u: string, init: RequestInit) => {
+        url = `${init.method} ${u}`;
+        if (error !== null) throw error;
+        return {};
+      } },
+    } as unknown as HarnessClient;
+    const server = { snapshot: () => Promise.resolve({
+      pages: [{ id: 1, title: badPage }, { id: 2, title: "Fourth" }],
+      blocks: [{ uid: "pt_seed_1", page_id: 2 }, { uid: BAD_UID, page_id: 1 }],
+    }) } as unknown as World["server"];
+    const w = { ...stubWorld([]), server, clients: new Map([["A", client]]),
+                count: (k: string) => { counted.push(k); } } as World;
+    await new DeletePage("A", 1).run(initialModel(["A"]), w);
+    return { line: w.transcript.join("\n"), counted, url };
+  }
+
+  it("deletes through the client's transport and counts each outcome", async () => {
+    const ok = await outcomeOf(null);
+    expect(ok.url).toBe("DELETE /api/page/Second");
+    expect(ok.counted).toEqual(["DeletePage deleted"]);
+    expect(ok.line).toContain("deleted");
+    expect((await outcomeOf(new ApiError(404, "/api/page/Second"))).counted).toEqual(["DeletePage refused 404"]);
+    expect((await outcomeOf(new ApiError(409, "/api/page/Second"))).counted).toEqual(["DeletePage refused 409"]);
+    expect((await outcomeOf(new TypeError("fetch failed"))).counted).toEqual(["DeletePage failed offline"]);
+    await expect(outcomeOf(new ApiError(500, "/api/page/Second"))).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("spares the page that holds BAD_UID, whatever it is titled now", async () => {
+    const spared = await outcomeOf(null, "Second");
+    expect(spared.url).toBe("");
+    expect(spared.counted).toEqual(["DeletePage spared: holds pt_seed_6"]);
+    expect(spared.line).toContain("spared");
   });
 });
 

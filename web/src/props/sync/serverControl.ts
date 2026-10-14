@@ -13,6 +13,20 @@ export interface RenameRecord {
   new_title: string;
   after_batch_id: BatchId | null;
   at: number;
+  /** Position among renames and deletes together, in commit order. */
+  ord: number;
+}
+
+/** One recorded user page delete, in commit order: the batch it followed
+ * (null: before every batch), the journal seq it was made at, the server
+ * clock it ran at, and the uids of the blocks it removed. */
+export interface DeleteRecord {
+  title: string;
+  seq: number;
+  after_batch_id: BatchId | null;
+  at: number;
+  ord: number;
+  uids: string[];
 }
 
 export interface ServerControl {
@@ -24,6 +38,8 @@ export interface ServerControl {
   applied(): Promise<{ batch_id: BatchId; applied_at: number }[]>;
   /** Every page retitle, in commit order. */
   renames(): Promise<RenameRecord[]>;
+  /** Every recorded page delete, in commit order. */
+  deletes(): Promise<DeleteRecord[]>;
   snapshot(): Promise<Snapshot>;
   /** The ops of the last broadcast frame since the previous take or reset
    * (null: none), then forgets them. */
@@ -31,6 +47,10 @@ export interface ServerControl {
   /** While on, recorded echoes lose the page_title of every move that names
    * one: a deliberate corruption for checking that a suite notices. */
   setEchoTeeth(on: boolean): Promise<void>;
+  /** While on, every batch is stale for no title, so a stale create or link
+   * re-creates a deleted page: a deliberate corruption for the oracle's
+   * teeth. A reset turns it off. */
+  setStaleTeeth(on: boolean): Promise<void>;
   /** GET /api/sync/changes?since=. */
   changes(since: SyncSeq): Promise<Changes>;
   /** The journal's latest seq. */
@@ -40,6 +60,8 @@ export interface ServerControl {
   /** POST the rename route as the SPA does (no merge), for replaying a
    * recorded rename. */
   postRename(from: string, to: string): Promise<Response>;
+  /** DELETE the page as the SPA does, for replaying a recorded delete. */
+  postDelete(title: string): Promise<Response>;
   /** The same control whose every request is aborted when `signal` fires, so
    * a request already on the wire cannot commit after its owner gave up. */
   withSignal(signal: AbortSignal): ServerControl;
@@ -89,6 +111,8 @@ function control(cookie: string, signal?: AbortSignal): ServerControl {
         { batch_id: BatchId; applied_at: number }[],
     renames: async () =>
       (await (await call("/__proptest/renames")).json()) as RenameRecord[],
+    deletes: async () =>
+      (await (await call("/__proptest/deletes")).json()) as DeleteRecord[],
     snapshot: async () =>
       (await (await call("/api/sync/snapshot")).json()) as Snapshot,
     takeEcho: async () =>
@@ -97,6 +121,7 @@ function control(cookie: string, signal?: AbortSignal): ServerControl {
     setEchoTeeth: async (on) => {
       await post("/__proptest/echo/teeth", { drop_cross_page_title: on });
     },
+    setStaleTeeth: async (on) => { await post("/__proptest/stale/teeth", { empty: on }); },
     changes: async (since) =>
       (await (await call(`/api/sync/changes?since=${since}`)).json()) as Changes,
     latestSeq: async () => {
@@ -115,6 +140,12 @@ function control(cookie: string, signal?: AbortSignal): ServerControl {
         method: "POST",
         headers: { "content-type": "application/json", cookie },
         body: JSON.stringify({ new_title: to, allow_merge: false }),
+        signal,
+      }),
+    postDelete: (title) => fetch(
+      `${BASE_URL}/api/page/${encodeURIComponent(title)}`, {
+        method: "DELETE",
+        headers: { cookie },
         signal,
       }),
     withSignal: (next) => control(cookie, next),

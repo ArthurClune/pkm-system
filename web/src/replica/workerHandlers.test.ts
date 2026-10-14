@@ -186,7 +186,7 @@ test("a reset commit rolls back schema rebuild when snapshot application fails",
     batch_id: "batch-retained",
     ops: [{ op: "delete", uid: "uid_b1",
             base_subtree_hash: subtreeHash([["uid_b1", "hello"]]) }],
-    poisoned: true,
+    poisoned: true, seen_seq: 5,
   }]);
   expect(t.db.select("SELECT id FROM pages WHERE id=999")).toEqual([]);
   expect(t.db.select("SELECT uid, text FROM blocks ORDER BY uid"))
@@ -1407,11 +1407,53 @@ test("an enqueue on a file without replay_log creates the tables, records, and l
   t.db.exec("DROP TABLE replay_log");
   t.db.exec("DROP TABLE replay_batches");
   t.db.exec("INSERT OR REPLACE INTO sync_client_meta(key, value) VALUES ('schema_version', 'old')");
-  await handlers.enqueue(shiftingCreate("a"));
+  const reopened = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await reopened.enqueue(shiftingCreate("a"));
   expect(t.db.select("SELECT batch_id FROM replay_log WHERE batch_id = 'a'").length)
     .toBeGreaterThan(0);
   expect(t.db.select("SELECT value FROM sync_client_meta WHERE key = 'schema_version'"))
     .toEqual([{ value: "old" }]);
+});
+
+test("an enqueue on a file without pending_seen creates it and keeps the batch", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(TWO);
+  t.db.exec("DROP TABLE pending_seen");
+  const reopened = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await reopened.enqueue(shiftingCreate("a"));
+  expect(t.db.select("SELECT batch_id FROM pending_ops")).toEqual([{ batch_id: "a" }]);
+  expect(t.db.select("SELECT batch_id FROM pending_seen")).toEqual([{ batch_id: "a" }]);
+});
+
+test("deleteBatch and nextBatch work on a file without pending_seen", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(TWO);
+  await handlers.enqueue(shiftingCreate("a"));
+  t.db.exec("DROP TABLE pending_seen");
+  const reopened = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  const next = await reopened.nextBatch(undefined);
+  expect(next?.batch_id).toBe("a");
+  expect(next?.seen_seq).toBeUndefined();
+  await reopened.deleteBatch({ id: next!.id, batchId: bid("a") });
+  expect(t.db.select("SELECT batch_id FROM pending_ops")).toEqual([]);
+});
+
+test("pendingBatches carries seen_seq from pending_seen and omits it on a file without the table", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(TWO);
+  await handlers.enqueue(shiftingCreate("a"));
+  const seen = (await handlers.pendingBatches(undefined))[0].seen_seq;
+  expect(typeof seen).toBe("number");
+  t.db.exec("DROP TABLE pending_seen");
+  const row = t.db.select<{ id: number }>("SELECT id FROM pending_ops")[0];
+  expect(Object.keys((await handlers.pendingBatches(undefined))[0])).not.toContain("seen_seq");
+  expect(row.id).toBeGreaterThan(0);
 });
 
 const LEGACY_LEDGER =
@@ -1428,7 +1470,8 @@ test("an enqueue on a file with a legacy effect_ledger and no replay_log creates
   t.db.exec("DROP TABLE replay_batches");
   t.db.exec(LEGACY_LEDGER);
   t.db.exec("INSERT INTO effect_ledger(batch_id, uid) VALUES ('old', 'u')");
-  await handlers.enqueue(shiftingCreate("a"));
+  const reopened = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await reopened.enqueue(shiftingCreate("a"));
   expect(t.db.select("SELECT batch_id FROM replay_log WHERE batch_id = 'a'").length)
     .toBeGreaterThan(0);
   expect(t.db.select("SELECT batch_id, uid FROM effect_ledger"))
@@ -1463,4 +1506,41 @@ test("deleteBatch without a seq, then a head window, reverts", async () => {
   await expect(handlers.applyChanges({ feed: EMPTY_GEN1_FEED, expectedPendingIds: [] }))
     .resolves.toMatchObject({ status: "applied" });
   expect(orderOf(t.db, "uid_b2")).toBe(1);
+});
+
+const schemaChecks = (db: ReplicaDb) => {
+  let count = 0;
+  const counted = {
+    ...db,
+    select<T>(sql: string, params?: Parameters<ReplicaDb["select"]>[1]): T[] {
+      if (/sqlite_master/.test(sql)) count += 1;
+      return db.select<T>(sql, params);
+    },
+    transaction: (fn: () => void) => db.transaction(fn),
+  } as ReplicaDb;
+  return { db: counted, count: () => count };
+};
+
+test("queue handlers check the client tables once per database handle", async () => {
+  const t = await openRawTestDb();
+  const spy = schemaChecks(t.db);
+  const handlers = buildHandlers({ openDb: async () => spy.db });
+  await handlers.init(undefined);
+  await handlers.pendingCount(undefined);
+  const before = spy.count();
+  await handlers.pendingCount(undefined);
+  await handlers.pendingCount(undefined);
+  expect(spy.count() - before).toBe(0);
+});
+
+test("a reopened file missing pending_seen is ensured before the first queue call", async () => {
+  const t = await openRawTestDb();
+  const first = buildHandlers({ openDb: async () => t.db });
+  await first.init(undefined);
+  await first.pendingCount(undefined);
+  t.db.exec("DROP TABLE pending_seen");
+  const reopened = buildHandlers({ openDb: async () => t.db });
+  await reopened.pendingCount(undefined);
+  expect(t.db.select(
+    "SELECT 1 FROM sqlite_master WHERE name='pending_seen'")).toHaveLength(1);
 });

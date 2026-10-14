@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
-// Does the oracle have teeth? Each deliberately broken transport must make
-// checkQuiescent fail with the invariant that exists to catch it; a clean run
-// and a correctly handled bad batch must pass. If a broken scenario passes,
+// Does the oracle have teeth? Each deliberately broken transport or server
+// must make checkQuiescent fail with the invariant that exists to catch it; a
+// clean run and a correctly handled bad batch must pass. If a broken scenario passes,
 // the oracle is blind and the gate fails before the property runs.
 import { afterEach, beforeAll, beforeEach, expect, test } from "vitest";
 import type { BatchId, BlockUid, OrderIdx } from "../../api/brands";
@@ -174,6 +174,91 @@ test("a rename replayed after the wrong batch trips serial replay", async () => 
   expect(rename.after_batch_id).not.toBe(a2);
   expect(await failures("misplaced rename", checkQuiescent(
     [a, b], server, exp, { committed, renames: [{ ...rename, after_batch_id: a2 }] })))
+    .toContain("serial replay");
+});
+
+/** B deletes Second while A, offline, has two batches made before it: a
+ * split that copies a link to Second onto a new Proptest block, and a
+ * top-level create on Second whose text links it. Both come back stale for
+ * Second, so the server must unlink the links and park the create, and
+ * Second stays deleted. */
+async function staleDeleteScenario(): Promise<{
+  a: HarnessClient; b: HarnessClient; exp: Expectation;
+}> {
+  const a = await start("A");
+  const b = await start("B");
+  a.offline();
+  const a1 = await a.edit([
+    { op: "update_text", uid: "pt_seed_1" as BlockUid, text: "left [[Second]]" },
+    { op: "create", uid: "pt_A_1" as BlockUid, page_title: "Proptest", parent_uid: null,
+      order_idx: 5 as OrderIdx, text: "right [[Second]]" },
+  ]);
+  const a2 = await a.edit([{
+    op: "create", uid: "pt_A_2" as BlockUid, page_title: "Second", parent_uid: null,
+    order_idx: 0 as OrderIdx, text: "parked [[Second]]",
+  }]);
+  await b.transport.fetchJson("/api/page/Second", { method: "DELETE" });
+  await a.online();
+  await a.queue.drain();
+  await quiesce([a, b], server);
+  expect((await server.deletes()).map((d) => d.title)).toEqual(["Second"]);
+  return {
+    a, b,
+    exp: { good: new Map([["A", [a1, a2]], ["B", []]]), bad: new Set() },
+  };
+}
+
+const pageTitles = async (): Promise<string[]> =>
+  (await server.snapshot()).pages.map((p) => p.title);
+
+test("a run where stale batches meet a page delete replays clean", async () => {
+  const { a, b, exp } = await staleDeleteScenario();
+  expect(await pageTitles()).not.toContain("Second");
+  expect(await failures("stale delete", checkQuiescent([a, b], server, exp))).toEqual([]);
+});
+
+test("stale batches re-creating a deleted page trip delete wins", async () => {
+  // The server as it was before stale batches: every batch is fresh.
+  await server.setStaleTeeth(true);
+  const { a, b, exp } = await staleDeleteScenario();
+  expect(await pageTitles()).toContain("Second");
+  expect(await failures("stale teeth", checkQuiescent([a, b], server, exp)))
+    .toContain("delete wins");
+});
+
+/** B deletes Second; A pulls the delete and only then creates on Second,
+ * which may re-create it. */
+async function freshRecreateScenario(): Promise<{
+  a: HarnessClient; b: HarnessClient; exp: Expectation;
+}> {
+  const a = await start("A");
+  const b = await start("B");
+  await b.transport.fetchJson("/api/page/Second", { method: "DELETE" });
+  await a.pull();
+  const a1 = await a.edit([{
+    op: "create", uid: "pt_A_1" as BlockUid, page_title: "Second", parent_uid: null,
+    order_idx: 0 as OrderIdx, text: "after the delete",
+  }]);
+  await a.queue.drain();
+  await quiesce([a, b], server);
+  return {
+    a, b,
+    exp: { good: new Map([["A", [a1]], ["B", []]]), bad: new Set() },
+  };
+}
+
+test("a page re-created by a batch that had seen its delete passes", async () => {
+  const { a, b, exp } = await freshRecreateScenario();
+  expect(await pageTitles()).toContain("Second");
+  expect(await failures("fresh re-create", checkQuiescent([a, b], server, exp))).toEqual([]);
+});
+
+test("a replay that ignores the delete record's seqs trips serial replay", async () => {
+  // Seqs past every batch's seen_seq: the replay maps A's seen_seq to before
+  // the delete, so A's create is stale there and parks instead.
+  const { a, b, exp } = await freshRecreateScenario();
+  const deletes = (await server.deletes()).map((d) => ({ ...d, seq: d.seq + 1000 }));
+  expect(await failures("shifted delete seqs", checkQuiescent([a, b], server, exp, { deletes })))
     .toContain("serial replay");
 });
 

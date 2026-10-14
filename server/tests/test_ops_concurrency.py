@@ -21,8 +21,8 @@ def test_concurrent_page_delete_cannot_land_inside_the_batch(
     real_context_for = ops_apply._context_for
     ai_title = CanonicalTitle(NormalizedTitle("AI"))
 
-    def racing(db, op, now_ms):
-        ctx = real_context_for(db, op, now_ms)  # sees uid_b6 still on "AI"
+    def racing(db, op, now_ms, is_stale=None):
+        ctx = real_context_for(db, op, now_ms, is_stale)  # sees uid_b6 still on "AI"
         con2 = open_db(seeded_config.db_path)
         con2.execute("PRAGMA busy_timeout=50")
         with pytest.raises(sqlite3.OperationalError, match="locked"):

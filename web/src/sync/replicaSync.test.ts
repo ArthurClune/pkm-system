@@ -574,6 +574,26 @@ describe("poison recovery ownership", () => {
 });
 
 describe("recovery flushes and the shared coordinator", () => {
+  test("a recovery flush posts seen_seq when the batch has one and omits the key otherwise", async () => {
+    const posted: unknown[] = [];
+    const replica = fakeReplica({}, {
+      schemaMismatch: true,
+      pendingBatches: [
+        { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uid("uid_a1") }], poisoned: false, seen_seq: (4 as SyncSeq) },
+        { id: (2 as PendingRowId), batch_id: bid("b-2"), ops: [{ op: "delete", uid: uid("uid_a2") }], poisoned: false },
+      ],
+    });
+    const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/ops") { posted.push(JSON.parse(String(init?.body))); return { ok: true }; }
+      if (path === "/api/sync/snapshot") return SNAP;
+      return feed();
+    });
+    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState: () => undefined });
+    await sync.start();
+    expect(posted.map((b) => "seen_seq" in (b as object))).toEqual([true, false]);
+    expect((posted[0] as { seen_seq: number }).seen_seq).toBe(4);
+  });
+
   test("schema mismatch flushes pending batches before reset, in order", async () => {
     const posted: unknown[] = [];
     const replica = fakeReplica({}, {

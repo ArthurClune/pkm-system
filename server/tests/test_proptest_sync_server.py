@@ -151,9 +151,9 @@ def test_renames_are_logged_after_the_last_applied_batch_at_the_server_clock(
         (0,), (con.execute("SELECT MAX(rowid) FROM applied_batches").fetchone()[0],)]
     assert client.get("/__proptest/renames").json() == [
         {"old_title": "Second", "new_title": "Third", "after_batch_id": None,
-         "at": START_MS + 1000},
+         "at": START_MS + 1000, "ord": 1},
         {"old_title": "Third", "new_title": "Second", "after_batch_id": "batch_extra_02",
-         "at": START_MS + 2000},
+         "at": START_MS + 2000, "ord": 2},
     ]
     # The log is the harness's own: the snapshot the oracle compares has no
     # trace of it, and a reset empties it.
@@ -165,6 +165,47 @@ def test_renames_are_logged_after_the_last_applied_batch_at_the_server_clock(
 def test_renames_route_needs_auth(tmp_path: Path, clock: Clock) -> None:
     with TestClient(build_app(tmp_path, clock)) as anon:
         assert anon.get("/__proptest/renames").status_code == 401
+
+
+def _delete(client: TestClient, title: str) -> int:
+    return client.delete(f"/api/page/{title}").status_code
+
+
+def test_deletes_are_logged_with_the_uids_the_page_held_in_order_with_renames(
+        client: TestClient) -> None:
+    con = sqlite3.connect(client.post("/__proptest/reset").json()["db_path"])
+    assert client.get("/__proptest/deletes").json() == []
+    client.post("/__proptest/clock", json={"ms": START_MS + 1000})
+    assert _rename(client, "Second", "Third") == 200
+    _post(client, "pt_extra_1", "batch_extra_01")
+    client.post("/__proptest/clock", json={"ms": START_MS + 2000})
+    # A block removed by an op before the delete is not what the delete removed.
+    gone = {"client_id": "t", "batch_id": "batch_gone_01", "ops": [
+        {"op": "delete", "uid": "pt_seed_1"}]}
+    assert client.post("/api/ops", json=gone).status_code == 200
+    assert _delete(client, "Proptest") == 200
+    assert _delete(client, "Nowhere") == 404
+    assert _rename(client, "Third", "Second") == 200
+    deletes = client.get("/__proptest/deletes").json()
+    assert len(deletes) == 1
+    record = deletes[0]
+    assert record["title"] == "Proptest"
+    assert record["after_batch_id"] == "batch_gone_01"
+    assert record["at"] == START_MS + 2000
+    assert record["seq"] == con.execute(
+        "SELECT seq FROM page_deletions WHERE title = 'Proptest'").fetchone()[0]
+    assert sorted(record["uids"]) == sorted(
+        [u for u in SEED_UIDS if u != "pt_seed_1"] + ["pt_extra_1"])
+    renames = client.get("/__proptest/renames").json()
+    assert [r["ord"] for r in renames] == [1, 3]
+    assert record["ord"] == 2
+    client.post("/__proptest/reset")
+    assert client.get("/__proptest/deletes").json() == []
+
+
+def test_deletes_route_needs_auth(tmp_path: Path, clock: Clock) -> None:
+    with TestClient(build_app(tmp_path, clock)) as anon:
+        assert anon.get("/__proptest/deletes").status_code == 401
 
 
 def _take(client: TestClient) -> list[dict] | None:
@@ -225,3 +266,32 @@ def test_echo_routes_need_auth(tmp_path: Path, clock: Clock) -> None:
     with TestClient(build_app(tmp_path, clock)) as anon:
         assert anon.post("/__proptest/echo/take").status_code == 401
         assert anon.post("/__proptest/echo/teeth", json={"drop_cross_page_title": True}).status_code == 401
+
+
+def _stale_create(batch_id: str) -> dict:
+    # seen_seq 0: made before every delete, so stale for each deleted title.
+    return {**_batch(batch_id, [
+        {"op": "create", "uid": f"pt_{batch_id}", "page_title": "Second", "parent_uid": None,
+         "order_idx": 0, "text": "stale"}]), "seen_seq": 0}
+
+
+def _titles(client: TestClient) -> set[str]:
+    return {p["title"] for p in client.get("/api/sync/snapshot").json()["pages"]}
+
+
+def test_stale_teeth_make_every_batch_fresh_until_reset(client: TestClient) -> None:
+    try:
+        assert client.post("/__proptest/stale/teeth", json={"empty": True}).status_code == 200
+        assert _delete(client, "Second") == 200
+        assert client.post("/api/ops", json=_stale_create("batch_stale_01")).status_code == 200
+        assert "Second" in _titles(client)
+    finally:
+        client.post("/__proptest/reset")
+    assert _delete(client, "Second") == 200
+    assert client.post("/api/ops", json=_stale_create("batch_stale_02")).status_code == 200
+    assert "Second" not in _titles(client)
+
+
+def test_stale_teeth_route_needs_auth(tmp_path: Path, clock: Clock) -> None:
+    with TestClient(build_app(tmp_path, clock)) as anon:
+        assert anon.post("/__proptest/stale/teeth", json={"empty": True}).status_code == 401

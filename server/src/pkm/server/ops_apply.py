@@ -21,7 +21,8 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  ExistingHeader, FreshHeader, InsertBlock,
                                  JournalBlock, LandedSkipContext, MoveContext,
                                  OpContext, OpError, PageContext,
-                                 RecordConflictHeader, ReindexRefs,
+                                 RecordConflictHeader, RecordUnlinkRewrite,
+                                 ReindexRefs,
                                  SetCollapsed, SetHeading, SetPageId,
                                  SetParent, SetViewType, ShiftSiblings, Skip,
                                  SkipContext, SkippedContext,
@@ -31,10 +32,13 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  classify_skip, classify_text_edit,
                                  delete_diverged,
                                  find_op_title_violation, plan_op,
-                                 skip_report)
+                                 skip_report, stale_unlink_effects,
+                                 unlink_stale_text)
 from pkm.server.store import (BlankTitleError, fetch_page,
-                              get_or_create_page, reindex_refs_for_text)
+                              get_or_create_page, reindex_refs_for_text,
+                              stale_titles)
 from pkm.server.sync_meta import read_title, title_reader
+from pkm.unlink import TitleMatch
 
 # Fallback title for an op's page_title that normalizes to "" (e.g. a
 # whitespace-only string -- pydantic's min_length=1 lets that through). The
@@ -305,7 +309,13 @@ def _skip_context(db: sqlite3.Connection, op, skip: Skip,
         return SkipContext(skip, ghost_page)
     if isinstance(op, UpdateTextOp):
         hint_page_exists = _hint_page_exists(db, op.page_title)
-    if skip.kind in ("move_parent_missing", "move_cycle"):
+    if skip.kind == "stale_page" and isinstance(op, CreateOp):
+        # the header names the deleted page as a code span even when a
+        # newer batch has re-created it since
+        return LandedSkipContext(
+            skip, _conflict_landing(db, skip.landing_uid, now_ms), False,
+            _destination_siblings(db, op, skip, parent_exists), ghost_page)
+    if skip.kind in ("move_parent_missing", "move_cycle", "stale_page"):
         assert block is not None  # the block exists; its target does not fit
         page_title = _require_page_title(db, block.page_id)
         subtree = _subtree_deepest_first(db, op.uid)
@@ -318,10 +328,12 @@ def _skip_context(db: sqlite3.Connection, op, skip: Skip,
         ghost_page)
 
 
-def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
+def _context_for(db: sqlite3.Connection, op, now_ms: int,
+                 is_stale: TitleMatch | None = None) -> OpContext:
     """Read what `op` needs, classify it once (classify_skip, then
     classify_text_edit for a hashed edit), and return the context type
-    that classification calls for."""
+    that classification calls for. `is_stale` matches the titles of pages
+    deleted after the batch's `seen_seq`; None when there are none."""
     if isinstance(op, CreatePageOp):
         page = _resolve_page(db, op.page_title, now_ms)
         return PageContext(PageId(page["id"]))
@@ -333,7 +345,13 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
     chain = (_parent_chain(db, parent.uid)
              if isinstance(op, MoveOp) and block is not None
              and parent is not None else ())
-    skip = classify_skip(op, block is not None, parent is not None, chain)
+    # only a top-level create / move places by page_title
+    page_stale = (is_stale is not None
+                  and isinstance(op, (CreateOp, MoveOp))
+                  and op.parent_uid is None and op.page_title is not None
+                  and is_stale(op.page_title))
+    skip = classify_skip(op, block is not None, parent is not None, chain,
+                         page_stale)
     if skip is not None:
         return _skip_context(db, op, skip, block, parent is not None,
                              now_ms)
@@ -446,6 +464,12 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
             "INSERT OR REPLACE INTO conflict_headers(target_uid, day,"
             " header_uid) VALUES (?,?,?)",
             (eff.target_uid, eff.day, eff.header_uid))
+    elif isinstance(eff, RecordUnlinkRewrite):
+        db.executemany(
+            "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
+            " new_title, created_at, kind) VALUES (?,?,?,?,'',?,'unlink')",
+            [(eff.uid, eff.base_hash, eff.after_hash, title, now_ms)
+             for title in eff.titles])
     elif isinstance(eff, JournalBlock):
         # the same row the blocks triggers write (schema.py SERVER_DDL)
         db.execute(
@@ -524,9 +548,26 @@ def apply_batch(db: sqlite3.Connection, batch: OpBatch,
         )
     broadcast_ops: list[dict] = []
     skipped: list[dict] = []
+    stale = stale_titles(db, batch.seen_seq)
+    is_stale: TitleMatch | None = None
+    if stale:
+        canonical = title_reader(db)
+
+        def is_stale(raw: str) -> bool:
+            return canonical(normalize_title(raw)) in stale
     for index, op in enumerate(batch.ops):
-        ctx = _context_for(db, op, now_ms)
-        for eff in plan_op(index, op, ctx):
+        sent = op
+        if is_stale is not None:
+            if isinstance(op, CreatePageOp) and is_stale(op.page_title):
+                # the replica's local page goes through dropStrandedLocalPages
+                continue
+            op = unlink_stale_text(op, is_stale)
+        ctx = _context_for(db, op, now_ms, is_stale)
+        effects = plan_op(index, op, ctx)
+        if is_stale is not None and op is not sent:
+            effects += stale_unlink_effects(sent, effects, stale,
+                                            title_reader(db))
+        for eff in effects:
             _execute(db, eff, now_ms)
         if isinstance(ctx, SKIPPED_CONTEXTS):
             skipped.append(skip_report(index, op, ctx))

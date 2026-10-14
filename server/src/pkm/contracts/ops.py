@@ -202,6 +202,9 @@ class OpBatch(BaseModel):
     # now fail loudly (422) instead of corrupting silently.
     batch_id: BatchId = Field(min_length=8, max_length=64)
     ops: list[BlockOp] = Field(min_length=1, max_length=500)
+    # The client's sync cursor when the batch's ops were built; absent means
+    # built against current server state.
+    seen_seq: int | None = Field(default=None, ge=0)
 
 
 def text_hash(text: str) -> Sha256Hex:

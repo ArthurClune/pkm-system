@@ -1602,6 +1602,8 @@ export interface components {
             batch_id: Brands.BatchId;
             /** Ops */
             ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"] | components["schemas"]["SetViewTypeOp"] | components["schemas"]["CreatePageOp"])[];
+            /** Seen Seq */
+            seen_seq?: number | null;
         };
         /**
          * OpsAck
@@ -1798,7 +1800,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "block_not_found" | "parent_not_found" | "cycle";
+            reason: "block_not_found" | "parent_not_found" | "cycle" | "page_deleted";
             /** Note Page */
             note_page: Brands.CanonicalTitle | null;
         };

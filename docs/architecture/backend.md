@@ -212,6 +212,15 @@ Around that base model:
     | `retitle` | the old title | the new title (rename, merge, title migration) |
     | `unlink` | the deleted page's title | empty |
     | `inline` | the target block's uid | the text copied in place of `((uid))` |
+  - `page_deletions(title, seq, deleted_at)` — one row per user-deleted
+    page: its title and the journal head after the delete. A batch whose
+    `seen_seq` is below that `seq` is stale for the title
+    ([Stale batches](#stale-batches)). Written by
+    `store.delete_page_unlinking` only, so daily-note titles, journal
+    cleanup, merges and the title migration record nothing. Pruned with
+    a later page delete on the same 30-day window as `block_rewrites`
+    (renames prune `block_rewrites` alone); no index on `title`, and no
+    journal trigger.
   - `conflict_headers(target_uid, day, header_uid)` — today's daily-note
     conflict header for each block that has already had one, so a second
     conflict on the same block the same day appends under it instead of
@@ -231,8 +240,8 @@ Around that base model:
 ## The write path
 
 `POST /api/ops` is the transactional block-operation write path. Clients send
-an `OpBatch` (`client_id`, a required `batch_id` of 8–64 characters, and
-1–500 ops) of block-level operations. A batch without a `batch_id` is a 422:
+an `OpBatch` (`client_id`, a required `batch_id` of 8–64 characters,
+1–500 ops, and an optional `seen_seq`) of block-level operations. A batch without a `batch_id` is a 422:
 an id-less batch cannot be deduplicated, so any retry or replay re-applies it.
 
 | Op | Does |
@@ -331,9 +340,9 @@ Key mechanics:
   `{type:"seq", seq}` nudge to other clients (see
   [sync-and-offline.md](sync-and-offline.md)).
 
-Conflicts, missing targets and concurrent structure edits are what a batch
-meets when the tree changed after it was planned. None of them rejects the
-batch.
+Conflicts, missing targets, stale batches (a page deleted after the batch's
+`seen_seq`) and concurrent structure edits are what a batch meets when the
+tree changed after it was planned. None of them rejects the batch.
 
 ### Conflicts
 
@@ -409,7 +418,8 @@ An op whose block (or create/move parent) is gone never rejects its batch. A
 batch is atomic, so one such op would otherwise take every valid op in it
 down with a 400 and wedge the client's queue.
 `ops_core.classify_skip` sorts such an op before its context is read, so
-the daily page is resolved only when an entry lands:
+the daily page is resolved only when an entry lands. The last two rows are
+the stale-batch skips, described in [Stale batches](#stale-batches):
 
 | Op, situation | Outcome | `skipped` reason | Entry grouped under | Journalled |
 |---|---|---|---|---|
@@ -419,6 +429,8 @@ the daily page is resolved only when an entry lands:
 | `update_text`, block gone, hashed or not | text lands (header table above); a blank text lands nothing | `block_not_found` | the block's uid | the uid |
 | `create`, parent gone | block not created; its text lands, header labelled from the op's `page_title`; a blank text lands nothing | `parent_not_found` | the parent's uid | created uid, with the page the client placed it on (below), and parent uid |
 | `move`, block exists, parent gone | block stays put; child `move skipped: target parent <uid> not found` | `parent_not_found` | the block's uid | the parent uid, then every block of the moved subtree |
+| top-level `create` into a page deleted since `seen_seq` | block not created; its text lands, header naming the deleted page; a blank text lands nothing | `page_deleted` | the create's own uid | the created uid |
+| top-level `move` onto a page deleted since `seen_seq`, block exists | block stays put; child note naming the deleted page | `page_deleted` | the block's uid | every block of the moved subtree |
 
 Grouping by uid means an orphaned edit and a skipped op on the same block
 share one header, whichever landed first. Notes name uids as plain text,
@@ -429,7 +441,8 @@ the ack's `skipped` list (`ops_core.skip_report`), with `note_page` null
 where nothing landed. `uid` is always the op's own uid, so a diverted
 create's entry names its new uid, not the missing parent's. A move's cycle
 skip (`move_cycle`) reports `cycle` instead; see
-[Concurrent structure edits](#concurrent-structure-edits).
+[Concurrent structure edits](#concurrent-structure-edits). A `stale_page`
+skip reports `page_deleted`.
 
 A follow-on op in the same batch sees a diverted create's block as missing
 too, so it lands rather than 400s. Only text survives a diversion. A
@@ -510,6 +523,25 @@ returns `None` — "plans normally" — the moment the uid is live, before it
 looks at the parent). The "parent gone" row above only applies when the
 uid is free.
 
+### Stale batches
+
+A page delete is a journal event, and an offline device that never pulled it
+still holds edits against the page. `OpBatch.seen_seq` is the sync cursor the
+client built the batch under. `apply_batch` asks `store.stale_titles` for the
+titles in `page_deletions` with a larger `seq`, and a batch without
+`seen_seq` pays no query. A `seen_seq` beyond the journal head (a replaced
+database) counts every recorded deletion as newer.
+
+| Op in a stale batch | Outcome |
+|---|---|
+| `create_page` for a stale title | dropped, not reported; the replica removes its local page (`dropStrandedLocalPages`) |
+| top-level `create` / `move` with a stale `page_title` | skipped as `stale_page`; the rows above |
+| `create` / `update_text` whose text links a stale title | the links become plain text (`ops_core.unlink_stale_text`), as the delete did for the text it saw; each stale title unlinked from text that was written adds an `unlink` row to `block_rewrites` (`RecordUnlinkRewrite`), so the client's next hashed edit replays onto the written text instead of conflicting |
+
+`stale_page` is the `SkipKind`; the ack reports it as `page_deleted`. A page
+re-created after its delete still matches by title until its deletion row is
+pruned.
+
 ### Concurrent structure edits
 
 Another device may reshape the tree between an op's enqueue and its push:
@@ -554,7 +586,9 @@ gets `block_rewrites` rows (`unlink`, `inline`), its refs reindexed, and then
 the page rows go. The replay of an `unlink` row matches titles through the
 same `title_reader` canonicalisation the delete used. Otherwise a stale edit
 would keep a padded `[[ Title ]]` that the delete unlinked under plain-space
-canonicalisation, and recreate the page. `GET /api/delete-preview?title=` returns
+canonicalisation, and recreate the page. `store.delete_page_unlinking` also
+records the title in `page_deletions`, so a stale offline batch cannot
+re-create the page ([Stale batches](#stale-batches)). `GET /api/delete-preview?title=` returns
 the same plan as counts plus the blockers without writing, for the web confirm.
 
 `cleanup_journal` spares any daily note with an incoming link: a `refs` row of
@@ -781,7 +815,7 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | GET | `/{path}` *(public)* | SPA fallback: serves `web_dist` (index.html no-cache, hashed bundles under `/app-assets/`) |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
-| POST | `/api/ops` | Apply an `OpBatch` transactionally. Response model `OpsAck`: `{ok, ts, applied, seq, skipped}`. `applied` counts every op processed, skipped ones included. `seq` is the journal max read inside the batch's own transaction. `skipped` is always a list (empty for a clean batch) of `{index, op, uid, reason, note_page}`, where `reason` is a `SkipReason` (`block_not_found`, `parent_not_found` or `cycle`) and `note_page` is the daily page the entry landed on, or null. A replayed `batch_id` returns its stored ack through the model, so an ack stored before `seq` existed replays `seq: null` (clients read that as unknown), and one stored before `skipped` existed replays `skipped: []` |
+| POST | `/api/ops` | Apply an `OpBatch` transactionally. Response model `OpsAck`: `{ok, ts, applied, seq, skipped}`. `applied` counts every op processed, skipped ones included. `seq` is the journal max read inside the batch's own transaction. `skipped` is always a list (empty for a clean batch) of `{index, op, uid, reason, note_page}`, where `reason` is a `SkipReason` (`block_not_found`, `parent_not_found`, `cycle` or `page_deleted`) and `note_page` is the daily page the entry landed on, or null. A replayed `batch_id` returns its stored ack through the model, so an ack stored before `seq` existed replays `seq: null` (clients read that as unknown), and one stored before `skipped` existed replays `skipped: []` |
 | **Pages & blocks** | | |
 | GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree + paginated backlinks + `block_ref_counts` (daily pages auto-created). Backlinks and unlinked mentions both skip blocks on the page itself |
 | GET | `/api/block/{uid}` | One block subtree with page context + breadcrumbs |

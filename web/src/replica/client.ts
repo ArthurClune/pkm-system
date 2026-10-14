@@ -31,6 +31,9 @@ export interface PendingBatch {
   batch_id: BatchId;
   ops: BlockOp[];
   poisoned: boolean;
+  /** The replica's sync cursor when the batch was enqueued; absent for a
+   * batch built with no generation or carried from an older file. */
+  seen_seq?: SyncSeq;
 }
 
 /** Durable rejected-row details used to resume authoritative repair after a

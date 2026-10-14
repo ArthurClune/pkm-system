@@ -7,7 +7,8 @@ from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        live_block_header_text,
                                        move_parent_missing_note,
                                        orphan_header_text,
-                                       overwritten_header_text)
+                                       overwritten_header_text,
+                                       stale_page_move_note)
 
 
 @pytest.mark.parametrize(
@@ -78,3 +79,11 @@ def test_deleted_header_links_the_page():
 def test_deleted_header_fences_a_title_that_does_not_link_back():
     assert deleted_header_text("Project X]") == (
         "[[conflict]] `Project X]` — deleted while edited elsewhere")
+
+
+@pytest.mark.parametrize("title, note", [
+    ("Old Title", "move skipped: page `Old Title` was deleted"),
+    ("a`b", "move skipped: page (page unknown) was deleted"),
+])
+def test_stale_page_move_note_names_the_page_as_code(title, note):
+    assert stale_page_move_note(title) == note

@@ -408,6 +408,58 @@ export class Rename extends SyncCommand {
   }
 }
 
+/** Statuses the delete route refuses a drawn delete with: 404 when no page
+ * has the title (deleted already, or never made), 409 when the page is in
+ * use as an attribute. */
+const DELETE_REFUSED = new Set([404, 409]);
+
+/** A page delete from the title pool: the delete route straight through
+ * this client's network, not an op. Offline it runs and fails, as a user's
+ * attempt does. Other clients' queued and later ops may still name the
+ * deleted page, which is the race this draws. The page holding BAD_UID,
+ * under whatever title renames have given it, is spared: deleting it would
+ * turn every later BadBatch into a create that lands. */
+export class DeletePage extends SyncCommand {
+  protected readonly kindName = "DeletePage";
+  constructor(readonly client: string, readonly title: number) { super(); }
+
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return notStarted(m, this.client);
+  }
+
+  protected async act(_m: SyncModel, w: World): Promise<string> {
+    const c = clientOf(w, this.client);
+    const title = pageTitle(this.title);
+    const snap = await w.server.snapshot();
+    const holder = snap.blocks.find((b) => b.uid === BAD_UID)?.page_id;
+    if (snap.pages.some((p) => p.id === holder && p.title === title)) {
+      w.count(`DeletePage spared: holds ${BAD_UID}`);
+      return `${this.toString()}: spared, holds ${BAD_UID}`;
+    }
+    let outcome: string;
+    try {
+      await c.transport.fetchJson(`/api/page/${encodeURIComponent(title)}`,
+                                  { method: "DELETE" });
+      outcome = "deleted";
+    } catch (error: unknown) {
+      if (error instanceof ApiError && DELETE_REFUSED.has(error.status)) {
+        outcome = `refused ${error.status}`;
+      } else if (error instanceof TypeError) {
+        // The transport's dead network: offline, as the model says.
+        outcome = "failed offline";
+      } else {
+        throw error;
+      }
+    }
+    w.count(`DeletePage ${outcome}`);
+    return `${this.toString()}: ${outcome}`;
+  }
+
+  toString(): string {
+    return `DeletePage(${this.client}, ${pageTitle(this.title)})`;
+  }
+}
+
 /** A Rename's two titles: any pool title, and a different one. */
 const renameTitles: fc.Arbitrary<[number, number]> = fc.tuple(
   fc.nat({ max: PAGE_TITLES.length - 1 }), fc.integer({ min: 1, max: PAGE_TITLES.length - 1 }),
@@ -442,8 +494,8 @@ export const connectTiming: fc.Arbitrary<number | undefined> =
 /** Every command, naming only `names` (the clients the example starts), so
  * no draw is spent on a client the example lacks. Weighted as calibrated:
  * Edit 10, Pull 3, Nudge 3, Offline 3, Fault 3, Reload 2, BadBatch 1,
- * RotateGeneration 1, CrossMidnight 1, Rename 1, so a BadBatch is about one
- * command in twenty-eight. An Offline's three units buy a whole offline
+ * RotateGeneration 1, CrossMidnight 1, Rename 1, DeletePage 1, so a BadBatch is
+ * about one command in twenty-nine. An Offline's three units buy a whole offline
  * period, its return included. */
 export function commandsFor(names: readonly string[]): fc.Arbitrary<SyncCommand>[] {
   const client = fc.constantFrom(...names);
@@ -467,5 +519,7 @@ export function commandsFor(names: readonly string[]): fc.Arbitrary<SyncCommand>
       ).map((day) => new CrossMidnight(day)) },
     { weight: 1, arbitrary: fc.tuple(client, renameTitles)
         .map(([c, [from, to]]) => new Rename(c, from, to)) },
+    { weight: 1, arbitrary: fc.tuple(client, fc.nat({ max: PAGE_TITLES.length - 1 }))
+        .map(([c, t]) => new DeletePage(c, t)) },
   )];
 }

@@ -73,6 +73,12 @@ Success is the 2xx, and the client's own state arrives through the same changes
 pull every other client uses. The client reads the ack's `seq` and
 `skipped`. `seq` goes to the pending-row delete, so a pull already in flight can accept its window (see
 [sync-recovery.md § Windows and the pending queue](sync-recovery.md#windows-and-the-pending-queue)).
+Each batch also carries `seen_seq`, the replica's cursor when it was enqueued: the server uses it to
+drop edits that predate a page delete ([backend.md § Stale batches](backend.md#stale-batches)).
+`replica/queue.ts::enqueueBatch` records it in `pending_seen(batch_id, seen_seq)`, only when the replica has a
+generation. A batch with no row, such as a carried one, posts without it and the server treats it as current.
+The in-memory fallback lane (`opQueue.ts` `deliverLaneHead` / `deliverLaneAhead`) always posts without `seen_seq`, so a lane copy is never stale, including the copy of a batch whose enqueue reply was lost, which can reach the server before the durable copy.
+`opQueue.ts` and the recovery flush in `replicaSync.ts` both read it back from the queue row.
 A non-empty `skipped` bumps `resyncGeneration` regardless of replica state (see
 [When views refetch](#when-views-refetch)): a replica-backed tab's own feed
 tombstones the row, but nothing else refetches the view for it.
@@ -423,7 +429,8 @@ A conflict copy is never discarded: conflict blocks are ordinary blocks, so
 they reach every client through the feed and are findable through search and
 the `[[conflict]]` page's backlinks. The first row's replay, from records in the server-only
 `block_rewrites` table, stops a device that never saw a rename, or a page delete's unlink and inline rewrites, from carrying
-the old title or block ref back. A missing target never rejects its batch, so another
+the old title or block ref back. A stale batch's `create` into a deleted page is a different case: the
+server-only `page_deletions` table and the batch's `seen_seq` skip it as `page_deleted`. A missing target never rejects its batch, so another
 device's delete cannot poison the queue; how the replica then drops its
 optimistic ghost is in
 [sync-recovery.md § Ops on blocks the server no longer has](sync-recovery.md#ops-on-blocks-the-server-no-longer-has).
@@ -476,7 +483,7 @@ transaction rolls back.
 One file, `/pkm-replica.sqlite3`, in a dedicated worker on the OPFS SAHPool VFS,
 holds both the graph copy (the server's `BASE_DDL`, replicated via the generated
 `web/src/replica/baseSchema.gen.ts`) and the client-only tables `pending_ops`,
-`sync_client_meta`, `replay_log`, `replay_log_refs` and `replay_batches`.
+`pending_seen`, `sync_client_meta`, `replay_log`, `replay_log_refs` and `replay_batches`.
 The last three are described in
 [sync-recovery.md § The replay log](sync-recovery.md#the-replay-log).
 A second file, `/pkm-replica-carry.sqlite3`, holds the pending queue across a

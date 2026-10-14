@@ -3778,6 +3778,18 @@
             "maxItems": 500,
             "minItems": 1,
             "title": "Ops"
+          },
+          "seen_seq": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seen Seq"
           }
         },
         "type": "object",
@@ -4282,7 +4294,8 @@
             "enum": [
               "block_not_found",
               "parent_not_found",
-              "cycle"
+              "cycle",
+              "page_deleted"
             ],
             "title": "Reason"
           },

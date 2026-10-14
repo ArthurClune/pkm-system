@@ -219,6 +219,8 @@ class TextEditOutcome:
     kind: Literal["identical", "clean", "conflict"]
     text: str
     replayed: tuple[RewriteStep, ...] = field(default=(), compare=False)
+    canonical: Callable[[str], str] = field(default=normalize_title,
+                                            compare=False)
 
 
 def classify_text_edit(
@@ -229,10 +231,10 @@ def classify_text_edit(
     replayed_text, replayed_hash, steps = _replay(
         text, base_hash, rewrites, canonical)
     if replayed_text == current_text:
-        return TextEditOutcome("identical", replayed_text, steps)
+        return TextEditOutcome("identical", replayed_text, steps, canonical)
     if text_hash(current_text) == replayed_hash:
-        return TextEditOutcome("clean", replayed_text, steps)
-    return TextEditOutcome("conflict", replayed_text, steps)
+        return TextEditOutcome("clean", replayed_text, steps, canonical)
+    return TextEditOutcome("conflict", replayed_text, steps, canonical)
 
 
 SkipKind = Literal["noop", "orphan_structural", "orphan_edit",
@@ -477,13 +479,14 @@ class TextConflictContext:
     """A hashed update_text on a live block that `classify_text_edit` found
     concurrent (check 5): `text`, the edit with rewrites replayed, wins, and
     `current_text` lands under a header naming `page_title`, the block's
-    own page. `replayed` is the rewrite steps the replay consumed."""
+    own page. `replayed` and `canonical` are as on the outcome."""
     block: BlockInfo
     text: str
     current_text: str
     page_title: str
     landing: ConflictLanding
     replayed: tuple[RewriteStep, ...] = ()
+    canonical: Callable[[str], str] = normalize_title
 
 
 @dataclass(frozen=True)

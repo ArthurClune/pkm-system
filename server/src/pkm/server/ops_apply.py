@@ -6,7 +6,7 @@ from __future__ import annotations
 import dataclasses
 import secrets
 import sqlite3
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Collection
 from datetime import datetime
 
 from pkm.contracts.daily import title_for_date
@@ -104,17 +104,6 @@ def _block_rewrites(db: sqlite3.Connection,
     return tuple(BlockRewrite(row["base_hash"], row["after_hash"],
                               row["old_title"], row["new_title"], row["kind"])
                  for row in rows)
-
-
-def _replay_canonical(
-    db: sqlite3.Connection, replayed: Sequence[RewriteStep],
-) -> Callable[[str], str]:
-    """The title canonicalisation `ops_core.rewrite_effects` matches with in a
-    batch with no stale titles. The flag read is paid only when a replayed
-    step unlinks or inlines."""
-    if any(s.unlinked or s.inlines for s in replayed):
-        return title_reader(db)
-    return normalize_title
 
 
 def _parent_chain(db: sqlite3.Connection, uid: str) -> tuple[BlockUid, ...]:
@@ -418,7 +407,8 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int,
         # queries
         return TextConflictContext(
             block, outcome.text, row["text"], row["title"],
-            _conflict_landing(db, op.uid, now_ms), outcome.replayed)
+            _conflict_landing(db, op.uid, now_ms), outcome.replayed,
+            canonical)
     return BlockContext(block)
 
 
@@ -575,14 +565,17 @@ def apply_batch(db: sqlite3.Connection, batch: OpBatch,
             op = unlink_stale_text(op, is_stale)
         ctx = _context_for(db, op, now_ms, is_stale)
         effects = plan_op(index, op, ctx)
-        replayed = (ctx.outcome.replayed
-                    if isinstance(ctx, TextEditContext) else
-                    ctx.replayed if isinstance(ctx, TextConflictContext)
-                    else ())
+        replayed: tuple[RewriteStep, ...] = ()
+        replay_canonical = normalize_title
+        if isinstance(ctx, TextEditContext):
+            replayed = ctx.outcome.replayed
+            replay_canonical = ctx.outcome.canonical
+        elif isinstance(ctx, TextConflictContext):
+            replayed = ctx.replayed
+            replay_canonical = ctx.canonical
         if replayed or (is_stale is not None and op is not sent):
             effects += rewrite_effects(
-                sent, effects, stale,
-                stale_canonical or _replay_canonical(db, replayed),
+                sent, effects, stale, stale_canonical or replay_canonical,
                 replayed,
                 ctx.outcome.text if isinstance(ctx, TextEditContext) else None)
         for eff in effects:

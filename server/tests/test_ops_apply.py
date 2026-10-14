@@ -656,6 +656,43 @@ def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
                       (day,)).fetchone() is None
 
 
+def _flag_reads(db, op) -> int:
+    seen: list[str] = []
+    db.set_trace_callback(seen.append)
+    apply_batch(db, _batch(op), NOW)
+    db.set_trace_callback(None)
+    return sum("sync_meta" in sql and "SELECT" in sql for sql in seen)
+
+
+def _rewritten_block(db, uid, kind, t0, t1):
+    db.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,0,?,?)", (uid, 1, None, 99, t1, None, NOW, NOW))
+    db.execute(
+        "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
+        " new_title, created_at, kind) VALUES (?,?,?,?,?,?,?)",
+        (uid, text_hash(t0), text_hash(t1), "Old",
+         "" if kind == "unlink" else "New", NOW, kind))
+    db.commit()
+
+
+def test_replay_reads_the_title_flag_no_more_often_for_a_delete_than_a_rename(
+        db):
+    # the unlink replay's one flag read serves both the classification and
+    # the rewrite rows, so it costs no more than the rename path's reads
+    _rewritten_block(db, "rew_ren1", "retitle", "see [[Old]]", "see [[New]]")
+    _rewritten_block(db, "rew_del1", "unlink", "see [[Old]]", "see Old")
+    rename = _flag_reads(db, {
+        "op": "update_text", "uid": "rew_ren1", "text": "see [[Old]] x",
+        "base_text_hash": text_hash("see [[Old]]")})
+    delete = _flag_reads(db, {
+        "op": "update_text", "uid": "rew_del1", "text": "see [[Old]] x",
+        "base_text_hash": text_hash("see [[Old]]")})
+
+    assert delete <= rename
+
+
 def test_stale_hash_identical_text_does_not_create_daily_page(db):
     # Device 2 pushes text device 1 already synced, under a stale base
     # hash -- check 2 (identical), never a conflict, so no daily page gets

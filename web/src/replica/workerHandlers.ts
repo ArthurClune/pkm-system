@@ -479,7 +479,10 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         // A delete that matched nothing cannot say which batch its seq was
         // for, so it records none and forgets any seq held for the id:
         // forgetting costs at most one refetch, vouching wrongly would let a
-        // window apply over a batch it does not carry.
+        // window apply over a batch it does not carry. Forgetting also drops
+        // that seq as a reason to refuse a window; that is safe because a
+        // delete matches nothing only after a payload that carried the batch
+        // (an applied_batches drop or a rebase settle) removed its row.
         const matched = deleteBatch(d, id, batchId);
         noteAck(id, matched ? ackedSeq : undefined);
         return { pending: pendingCount(d) };

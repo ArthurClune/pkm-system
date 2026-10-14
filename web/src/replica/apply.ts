@@ -506,7 +506,7 @@ function owedBlockTombstones(earlier: readonly BlockUid[],
  * delete made between the windows may have recorded it after its own
  * window's drop. The window at the head is sure to have applied every
  * journal row of an acked commit (the worker refuses a window whose
- * latest_seq is short of an ack it has processed: pendingGuard.ts), so it
+ * latest_seq is short of an acked seq it holds: pendingGuard.ts), so it
  * rewinds every record that remains
  * (the rows the server never re-ships). That rewind follows the upserts and
  * the drop: a block an acked batch created and this window ships keeps its

@@ -214,7 +214,7 @@ to reapply would drop B's optimistic edit. So the worker compares the snapshot
 with the current pending ids (`pendingSetStillCovered` in
 `web/src/replica/pendingGuard.ts`):
 
-| Pending ids since the snapshot | Result |
+| Condition | Result |
 |---|---|
 | any acked `seq` the worker holds is past the window's `latest_seq` | `pending-changed` |
 | unchanged | window applied |

@@ -1392,6 +1392,23 @@ test("a window read before a batch queued and acked during its fetch is refused"
   expect(textOf(t.db, "uid_b1")).toBe("mine");
 });
 
+test("a held ack the server never reaches costs one refetch", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(SNAP);
+  await handlers.enqueue({
+    ops: [{ op: "update_text", uid: uid("uid_b1"), text: "mine" }], batchId: bid("a") });
+  await handlers.deleteBatch({ id: pid(1), batchId: bid("a"), ackedSeq: seq(9) });
+  // a restored server whose journal stops short of the ack
+  const restored = { ...EMPTY_GEN1_FEED, next_since: seq(5), latest_seq: seq(5) };
+  await expect(handlers.applyChanges({ feed: restored, expectedPendingIds: [] }))
+    .resolves.toEqual({ status: "pending-changed" });
+  // the refusal itself dropped the seq, so the refetch applies
+  await expect(handlers.applyChanges({ feed: restored, expectedPendingIds: [] }))
+    .resolves.toEqual({ status: "applied", cursor: 5 });
+});
+
 test("applySnapshot drops the rows the snapshot names as applied", async () => {
   const { t, handlers } = await twoQueued();
   await handlers.applySnapshot({ ...SNAP, seq: seq(7), applied_batches: [named("a", 7)] });

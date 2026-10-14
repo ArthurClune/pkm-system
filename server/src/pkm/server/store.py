@@ -6,6 +6,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
 
+from pkm.contracts.daily import date_for_title
 from pkm.contracts.ops import BlockUid, PageId, SidebarEntryId, text_hash
 from pkm.refs import (CanonicalTitle, NormalizedTitle, extract,
                       is_blank_title, normalize_title, title_syntax_reason)
@@ -181,8 +182,9 @@ def _prune_block_rewrites(db: sqlite3.Connection, now_ms: int) -> None:
     edit made before the rewrite it describes, and no offline queue survives
     a month, so old rows are dead weight -- and pruning here keeps the table
     bounded without a scheduled job."""
-    db.execute("DELETE FROM block_rewrites WHERE created_at < ?",
-               (now_ms - BLOCK_REWRITE_RETENTION_MS,))
+    cutoff = now_ms - BLOCK_REWRITE_RETENTION_MS
+    db.execute("DELETE FROM block_rewrites WHERE created_at < ?", (cutoff,))
+    db.execute("DELETE FROM page_deletions WHERE deleted_at < ?", (cutoff,))
 
 
 def rewrite_snapshotted_blocks(
@@ -405,5 +407,26 @@ def delete_page_unlinking(db: sqlite3.Connection, page_id: PageId,
             db, BlockUid(uid), original, new_text, plan, title, now_ms)
         reindex_refs_for_text(db, BlockUid(uid), new_text, now_ms)
     delete_page_rows(db, page_id, title)
+    if date_for_title(title) is None:
+        # After the delete, so the seq covers the journal rows it wrote.
+        db.execute(
+            "INSERT INTO page_deletions(title, seq, deleted_at)"
+            " SELECT ?, COALESCE(MAX(seq), 0), ? FROM changes",
+            (title, now_ms))
     _prune_block_rewrites(db, now_ms)
     return plan
+
+
+def stale_titles(db: sqlite3.Connection,
+                 seen_seq: int | None) -> frozenset[CanonicalTitle]:
+    """Titles deleted after the journal position a batch was made against.
+    None means the client did not say, so nothing is stale and no query
+    runs. A seen_seq beyond the journal's head comes from a replaced
+    database: every recorded deletion is then newer than what it saw."""
+    if seen_seq is None:
+        return frozenset()
+    rows = db.execute(
+        "SELECT DISTINCT title FROM page_deletions WHERE seq > ?"
+        "  OR ? > (SELECT COALESCE(MAX(seq), 0) FROM changes)",
+        (seen_seq, seen_seq)).fetchall()
+    return frozenset(CanonicalTitle(r[0]) for r in rows)

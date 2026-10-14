@@ -218,7 +218,9 @@ Around that base model:
     ([Stale batches](#stale-batches)). Written by
     `store.delete_page_unlinking` only, so daily-note titles, journal
     cleanup, merges and the title migration record nothing. Pruned with
-    `block_rewrites`; no index on `title`, and no journal trigger.
+    a later page delete on the same 30-day window as `block_rewrites`
+    (renames prune `block_rewrites` alone); no index on `title`, and no
+    journal trigger.
   - `conflict_headers(target_uid, day, header_uid)` — today's daily-note
     conflict header for each block that has already had one, so a second
     conflict on the same block the same day appends under it instead of
@@ -534,7 +536,7 @@ database) counts every recorded deletion as newer.
 |---|---|
 | `create_page` for a stale title | dropped, not reported; the replica removes its local page (`dropStrandedLocalPages`) |
 | top-level `create` / `move` with a stale `page_title` | skipped as `stale_page`; the rows above |
-| `create` / `update_text` whose text links a stale title | the links become plain text (`ops_core.unlink_stale_text`), as the delete did for the text it saw |
+| `create` / `update_text` whose text links a stale title | the links become plain text (`ops_core.unlink_stale_text`), as the delete did for the text it saw; each stale title unlinked from text that was written adds an `unlink` row to `block_rewrites` (`RecordUnlinkRewrite`), so the client's next hashed edit replays onto the written text instead of conflicting |
 
 `stale_page` is the `SkipKind`; the ack reports it as `page_deleted`. A page
 re-created after its delete still matches by title until its deletion row is

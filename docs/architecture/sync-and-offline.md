@@ -77,6 +77,7 @@ Each batch also carries `seen_seq`, the replica's cursor when it was enqueued: t
 drop edits that predate a page delete ([backend.md § Stale batches](backend.md#stale-batches)).
 `replica/queue.ts::enqueueBatch` records it in `pending_seen(batch_id, seen_seq)`, only when the replica has a
 generation. A batch with no row, such as a carried one, posts without it and the server treats it as current.
+The in-memory fallback lane (`opQueue.ts` `deliverLaneHead` / `deliverLaneAhead`) always posts without `seen_seq`, so a lane copy is never stale, including the copy of a batch whose enqueue reply was lost, which can reach the server before the durable copy.
 `opQueue.ts` and the recovery flush in `replicaSync.ts` both read it back from the queue row.
 A non-empty `skipped` bumps `resyncGeneration` regardless of replica state (see
 [When views refetch](#when-views-refetch)): a replica-backed tab's own feed

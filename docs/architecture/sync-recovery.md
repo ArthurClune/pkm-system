@@ -216,16 +216,26 @@ with the current pending ids (`pendingSetStillCovered` in
 
 | Pending ids since the snapshot | Result |
 |---|---|
+| any acked `seq` the worker holds is past the window's `latest_seq` | `pending-changed` |
 | unchanged | window applied |
-| some removed, each deleted on an ack whose `seq` ≤ the window's `latest_seq` | window applied |
-| any other removal, an addition, or a reorder | `pending-changed`: `pullLoop` refetches, at most `PENDING_CHANGED_CAP` (20) times, then throws `PullStarvedError` |
+| some removed, each deleted on an ack with a `seq` | window applied |
+| any other removal, an addition, or a reorder | `pending-changed` |
 
-The second row is safe because `sync_changes` reads `latest_seq` in the same
-read transaction as the window rows. A `latest_seq` at or past B's acked `seq`
-means the window and its continuation pages already carry B, which is all a
-refetch would add. It is also the common case after every save: the WS nudge
+Rows are checked in order. On `pending-changed`, `pullLoop` refetches, at most
+`PENDING_CHANGED_CAP` (20) times, then throws `PullStarvedError`.
+
+Accepting a removal is safe because `sync_changes` reads `latest_seq` in the
+same read transaction as the window rows. A `latest_seq` at or past B's acked
+`seq` means the window and its continuation pages already carry B, which is all
+a refetch would add. It is also the common case after every save: the WS nudge
 starts a pull while the batch is still pending, and the HTTP ack lands during
 the fetch.
+
+**Every held ack is checked, not only the removed rows'.** A batch queued after
+the snapshot and acked during the fetch leaves the pending ids unchanged, yet
+the window can predate its commit. Applied, that window would let the head
+window's `rewind("all")` put the batch's rows back to their pre-images, and the
+next edit would be hashed against the old text.
 
 The worker holds the acked seqs in memory (`ackedSeqs`), keyed by `pending_ops`
 row id. `deleteBatch` writes them only when its row matched, and so does a rebase commit that deletes

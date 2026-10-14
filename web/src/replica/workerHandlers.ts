@@ -277,7 +277,8 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
   // on an ack, or dropped because a sync payload named them as already
   // applied (the payload carries the stored ack's seq). applyChanges
   // consults it to accept a window fetched while such a batch was still
-  // pending (see pendingGuard.ts). In memory only: a worker
+  // pending, and to refuse one the server answered before an acked commit
+  // (see pendingGuard.ts). In memory only: a worker
   // restart starts a fresh pull with a fresh pending snapshot.
   const ackedSeqs = new Map<PendingRowId, SyncSeq>();
   /** Record the seq an ack named for a deleted row, or forget the row when
@@ -521,8 +522,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         const covered = pendingSetStillCovered(
           expectedPendingIds, currentPendingIds, ackedSeqs, feed.latest_seq);
         // pullLoop is single-flight and snapshots the pending set afresh for
-        // every window, so an acked seq for an id outside this snapshot can
-        // never be consulted again: drop it here to keep the map bounded.
+        // every window, so an acked seq for an id outside this snapshot was
+        // noted before the next window's fetch, which the server answers
+        // after that commit: drop it here to keep the map bounded.
         const expected = new Set(expectedPendingIds);
         for (const id of ackedSeqs.keys()) {
           if (!expected.has(id)) ackedSeqs.delete(id);

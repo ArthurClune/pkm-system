@@ -40,6 +40,14 @@ test("a removal with no recorded acked seq is not covered", () => {
   expect(covered([1, 2], [], seqs([[1, 3]]), 10)).toBe(false);
 });
 
+test("a batch queued after the snapshot and acked past the window is not covered", () => {
+  // the pull read no pending rows; row 3 was queued and acked during its fetch
+  expect(covered([], [], seqs([[3, 27]]), 21)).toBe(false);
+  expect(covered([1], [1], seqs([[3, 27]]), 21)).toBe(false);
+  // an ack the window has reached is carried by it
+  expect(covered([], [], seqs([[3, 21]]), 21)).toBe(true);
+});
+
 test("an added batch is never covered", () => {
   expect(covered([1], [1, 2], seqs([]), 10)).toBe(false);
   expect(covered([1], [2], seqs([[1, 3]]), 10)).toBe(false);

@@ -13,7 +13,11 @@ Shrunk: `Nudge(A, ahead), Edit(A, upd pt_seed_3 "Proptest::"), Pull(C), Edit(A, 
 
 ## Todo
 
-- [ ] Vitest regression beside web/src/replica reproducing the stale-window rewind
-- [ ] Fix: a window is "at the head" for an acked frozen record only once latest_seq reaches that ack's seq
-- [ ] proptest/check.sh web --file sync passes repeatedly (seed 1199270201 included)
-- [ ] troubleshooting.md row; sync-and-offline.md note if the invariant changes
+- [x] Vitest regression beside web/src/replica reproducing the stale-window rewind
+- [x] Fix: the worker refuses (pending-changed) any window whose latest_seq is short of an ack it holds, not only a removed row's (pendingGuard.ts); the suggested per-record head rule was not needed
+- [x] proptest/check.sh web --file sync passes repeatedly (seed 1199270201 included)
+- [x] troubleshooting.md row; sync-and-offline.md note if the invariant changes
+
+## Resolution
+
+Root cause was a hole in the pending guard (`pendingSetStillCovered`), not in `applyWindow`. The pull snapshots the pending ids before its fetch; a batch queued after that snapshot and acked during the fetch leaves the ids unchanged, so the guard accepted a window the server answered before the batch committed. Every window's correctness, not just the head rewind, rests on the guard: such a window could also ship a row the batch touched at its pre-batch state. The guard now checks every acked seq the worker holds against the window's `latest_seq`, so the window is refetched. No schema, query or per-window DB work added.

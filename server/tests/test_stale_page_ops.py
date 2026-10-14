@@ -248,3 +248,41 @@ def test_seen_seq_beyond_latest_is_stale(client, seeded_config):
               seen_seq=_seq(seeded_config) + 1000)
     assert r.json()["skipped"][0]["reason"] == "page_deleted"
     assert client.get(f"/api/page/{TITLE}").status_code == 404
+
+
+def test_stale_update_text_leading_attribute_is_fenced_and_page_stays_deleted(
+        client, seeded_config):
+    seen = _delete_ml(client, seeded_config)
+    r = _post(client,
+              _create("stale001", "", parent="uid_b4", title="July 7th, 2026"),
+              _update("stale001", f"{TITLE}:: v", ""),
+              seen_seq=seen)
+    assert r.status_code == 200
+    assert _text(seeded_config, "stale001") == f"`{TITLE}`:: v"
+    assert client.get(f"/api/page/{TITLE}").status_code == 404
+
+
+def test_stale_create_with_linked_attribute_is_fenced_and_chains_clean(
+        client, seeded_config):
+    text = f"[[{TITLE}]]:: v"
+    seen = _delete_ml(client, seeded_config)
+    r = _post(client,
+              _create("stale001", text, parent="uid_b4",
+                      title="July 7th, 2026"),
+              _update("stale001", text + " more", text),
+              seen_seq=seen)
+    assert r.status_code == 200
+    assert r.json()["skipped"] == []
+    assert _text(seeded_config, "stale001") == f"`{TITLE}`:: v more"
+    assert client.get(f"/api/page/{TITLE}").status_code == 404
+    assert _conflicts(client) == []
+
+
+def test_stale_top_level_create_with_attribute_parks_the_fenced_text(
+        client, seeded_config):
+    seen = _delete_ml(client, seeded_config)
+    r = _post(client, _create("stale001", f"{TITLE}:: v"), seen_seq=seen)
+    assert r.status_code == 200
+    [(_, children)] = _conflicts(client)
+    assert children == [f"`{TITLE}`:: v"]
+    assert client.get(f"/api/page/{TITLE}").status_code == 404

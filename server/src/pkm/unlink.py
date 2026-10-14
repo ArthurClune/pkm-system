@@ -6,9 +6,11 @@ block ref into the page's block copied in place. Spans come from the same
 scanners `refs.extract()` uses (bracket_spans, tag_spans,
 attribute_title_span), never a second grammar, and are spliced back to
 front on `strip_code()` output whose offsets index the original text, as
-`rename.py` does. A leading `Title::` attribute is never touched; a rewrite
-that would add or change one, a query macro naming the page, and a rewrite
-that would still reference the page are reported as blockers instead.
+`rename.py` does. The delete never touches a leading `Title::` attribute; a
+rewrite that would add or change one, a query macro naming the page, and a
+rewrite that would still reference the page are reported as blockers instead.
+The stale path (`unlink_stale_refs`) has no blockers to report, so
+`defuse_attribute` fences a leading attribute naming the page in backticks.
 """
 from __future__ import annotations
 
@@ -125,6 +127,33 @@ def unlink_title_refs(text: str, is_target: TitleMatch) -> str:
             break
         text = unlinked
     return text
+
+
+def defuse_attribute(text: str, is_target: TitleMatch) -> str:
+    """Keep a leading `Target:: v` from re-creating the page: the name is
+    code-fenced in place (`` `Target`:: v ``), which `extract` reads no ref
+    from. A name holding a backtick cannot be fenced (`strip_code` knows
+    only single-backtick spans), so its `::` becomes `:`. Any other
+    attribute comes back unchanged."""
+    attribute = attribute_title_span(strip_code(text))
+    if attribute is None or not is_target(attribute.raw_title):
+        return text
+    name_end = attribute.start + len(attribute.raw_title)
+    if "`" in attribute.raw_title:
+        # The colons collapse to one: a value starting with `:` would
+        # otherwise extend the run into a new `::`. One pass, so a long run
+        # costs no recursion.
+        rest = text[attribute.end:].lstrip(":")
+        return text[:name_end] + ":" + rest
+    return (text[:attribute.start] + "`" + text[attribute.start:name_end]
+            + "`" + text[name_end:])
+
+
+def unlink_stale_refs(text: str, is_target: TitleMatch) -> str:
+    """`unlink_title_refs` plus the leading attribute it never touches: what
+    a stale offline text gets, since a rewrite of it may not leave the page
+    referenced. A real delete refuses attribute blocks instead."""
+    return defuse_attribute(unlink_title_refs(text, is_target), is_target)
 
 
 def inline_block_refs(text: str, copies: Mapping[str, str]) -> str:

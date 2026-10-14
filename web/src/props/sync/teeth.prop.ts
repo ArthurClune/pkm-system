@@ -6,6 +6,7 @@
 import { afterEach, beforeAll, beforeEach, expect, test } from "vitest";
 import type { BatchId, BlockUid, OrderIdx } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
+import { FIXTURE_PAGE } from "./arbitraries";
 import { startClient, type HarnessClient } from "./harnessClient";
 import { checkQuiescent, CursorWatch, OracleError, type Expectation,
          type Invariant } from "./oracle";
@@ -226,6 +227,108 @@ test("stale batches re-creating a deleted page trip delete wins", async () => {
     .toContain("delete wins");
 });
 
+/** A, offline, links Second from pt_sec_1, a block on Second, and B
+ * deletes Second. The edit's block is gone, so the server parks its text on
+ * the daily page, and the batch is stale for Second, so the parked text
+ * links nothing: Second stays deleted. */
+async function orphanEditScenario(): Promise<{
+  a: HarnessClient; b: HarnessClient; exp: Expectation;
+}> {
+  const a = await start("A");
+  const b = await start("B");
+  a.offline();
+  const a1 = await a.edit(setText("pt_sec_1", "parked [[Second]]"));
+  await b.transport.fetchJson("/api/page/Second", { method: "DELETE" });
+  await a.online();
+  await a.queue.drain();
+  await quiesce([a, b], server);
+  expect((await server.deletes()).map((d) => d.title)).toEqual(["Second"]);
+  expect((await server.snapshot()).blocks.some((blk) => blk.text.startsWith("parked ")))
+    .toBe(true);
+  return {
+    a, b,
+    exp: { good: new Map([["A", [a1]], ["B", []]]), bad: new Set() },
+  };
+}
+
+test("a stale edit of a block on the deleted page parks its text unlinked", async () => {
+  const { a, b, exp } = await orphanEditScenario();
+  expect(await pageTitles()).not.toContain("Second");
+  expect(await failures("stale orphan edit", checkQuiescent([a, b], server, exp))).toEqual([]);
+});
+
+test("a parked stale edit re-creating a deleted page trips delete wins", async () => {
+  await server.setStaleTeeth(true);
+  const { a, b, exp } = await orphanEditScenario();
+  expect(await pageTitles()).toContain("Second");
+  expect(await failures("stale orphan teeth", checkQuiescent([a, b], server, exp)))
+    .toContain("delete wins");
+});
+
+/** B, the only client to write pt_seed_1, links Second there; offline, it
+ * edits the block again, A renames Second to Third, and B edits once more
+ * before it sees the rename. B's first offline edit is replayed through the
+ * rename. The second is hashed against the text the first sent, so it lands
+ * clean only if the server recorded what that replay wrote. */
+async function chainedEditScenario(): Promise<{
+  a: HarnessClient; b: HarnessClient; exp: Expectation;
+}> {
+  const a = await start("A");
+  const b = await start("B");
+  const b1 = await b.edit(setText("pt_seed_1", "[[Second]] one"));
+  await b.queue.drain();
+  b.offline();
+  const b2 = await b.edit(setText("pt_seed_1", "[[Second]] two"));
+  await a.transport.fetchJson(`/api/page/${encodeURIComponent("Second")}/rename`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ new_title: "Third", allow_merge: false }),
+  });
+  const b3 = await b.edit(setText("pt_seed_1", "[[Second]] three"));
+  await b.online();
+  await b.queue.drain();
+  await quiesce([a, b], server);
+  return {
+    a, b,
+    exp: { good: new Map([["A", []], ["B", [b1, b2, b3]]]), bad: new Set() },
+  };
+}
+
+test("a device's edit chain across a rename lands clean", async () => {
+  const { a, b, exp } = await chainedEditScenario();
+  const text = (await server.snapshot()).blocks.find((blk) => blk.uid === "pt_seed_1")?.text;
+  expect(text).toBe("[[Third]] three");
+  expect(await server.conflicts()).toEqual([]);
+  expect(await failures("chained edits", checkQuiescent([a, b], server, exp))).toEqual([]);
+});
+
+test("a chain that loses the replay's rewrite rows trips conflict noise", async () => {
+  // The server as it was before replays recorded what they wrote.
+  await server.setRewriteTeeth(true);
+  const { a, b, exp } = await chainedEditScenario();
+  expect((await server.conflicts()).map((c) => c.text)).toEqual(
+    ["[[conflict]] [[Proptest]] — overwritten by ((pt_seed_1))"]);
+  expect(await failures("rewrite teeth", checkQuiescent([a, b], server, exp)))
+    .toContain("conflict noise");
+});
+
+test("a client's own edit after its lane write is not conflict noise", async () => {
+  // The failed local write goes out from the lane unhashed and never reaches
+  // the replica, so the next edit is hashed against the text before it and
+  // conflicts with A's own lane text: the one single-device conflict the
+  // invariant allows.
+  const a = await start("A");
+  a.failNextWrite();
+  const a1 = await a.edit(setText("pt_seed_4", "from the lane"));
+  const a2 = await a.edit(setText("pt_seed_4", "durable"));
+  await quiesce([a], server);
+  expect(a.laneBatches).toEqual([a1]);
+  expect((await server.conflicts()).map((c) => c.text)).toEqual(
+    ["[[conflict]] [[Proptest]] — overwritten by ((pt_seed_4))"]);
+  const exp: Expectation = { good: new Map([["A", [a1, a2]]]), bad: new Set() };
+  expect(await failures("lane", checkQuiescent([a], server, exp))).toEqual([]);
+});
+
 /** B deletes Second; A pulls the delete and only then creates on Second,
  * which may re-create it. */
 async function freshRecreateScenario(): Promise<{
@@ -286,7 +389,7 @@ async function badBatchScenario(): Promise<{
   const b = await start("B");
   const good = await a.edit(setText("pt_seed_1", "good before bad"));
   const bad = await a.edit([{
-    op: "create", uid: "pt_seed_6" as BlockUid, page_title: "Proptest",
+    op: "create", uid: "pt_seed_6" as BlockUid, page_title: FIXTURE_PAGE,
     parent_uid: null, order_idx: 60 as OrderIdx, text: "a create of a live uid",
   }]);
   const b1 = await b.edit(setText("pt_seed_2", "B alongside"));
@@ -344,7 +447,7 @@ test("quiesce waits for a lone client's poison repair", async () => {
     return deleteBatch(...args);
   };
   const bad = await a.edit([{
-    op: "create", uid: "pt_seed_6" as BlockUid, page_title: "Proptest",
+    op: "create", uid: "pt_seed_6" as BlockUid, page_title: FIXTURE_PAGE,
     parent_uid: null, order_idx: 60 as OrderIdx, text: "a create of a live uid",
   }]);
   await quiesce([a], server);

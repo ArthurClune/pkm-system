@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import uuid
 from datetime import date
 from pathlib import Path
 
@@ -1332,3 +1333,140 @@ def test_stale_edit_replays_a_delete_unlink_instead_of_resurrecting_the_title(
     assert _ml_texts(client)[0] == "Tags:: AI plus offline words"
     assert client.get("/api/page/AI").status_code == 404
     assert client.get("/api/page/conflict").status_code == 404
+
+
+# --- chained offline edits after a replay --------------------------------
+#
+# The replica stamps edit N+1's base hash from its own text after edit N,
+# which still holds the old title: the server must have recorded that hash.
+
+
+def _chained_push(client, base_text, *texts, seen_seq=None, one_batch=False):
+    """Edits of uid_b1, each hashed against the text of the one before as
+    the client sent it, starting from `base_text`."""
+    ops, base = [], base_text
+    for text in texts:
+        ops.append({"op": "update_text", "uid": "uid_b1", "text": text,
+                    "base_text_hash": text_hash(base)})
+        base = text
+    batches = [ops] if one_batch else [[op] for op in ops]
+    for i, batch in enumerate(batches):
+        body = {"client_id": "c1", "batch_id": f"chain_{uuid.uuid4().hex}",
+                "ops": batch}
+        if seen_seq is not None:
+            body["seen_seq"] = seen_seq
+        r = client.post("/api/ops", json=body)
+        assert r.status_code == 200, r.text
+
+
+def _rewrite_rows(seeded_config):
+    from pkm.server.db import open_db
+
+    con = open_db(seeded_config.db_path)
+    try:
+        return [tuple(r) for r in con.execute(
+            "SELECT uid, kind, old_title, new_title FROM block_rewrites"
+            " ORDER BY rowid")]
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("one_batch", [False, True])
+def test_chained_edits_after_a_rename_replay_apply_clean(client, one_batch):
+    _rename(client, "AI", "Artificial Intelligence")
+    second = STALE_EDIT + " and more"
+
+    _chained_push(client, STALE_BASE, STALE_EDIT, second,
+                  one_batch=one_batch)
+
+    assert _ml_texts(client)[0] == (
+        "Tags:: #[[Artificial Intelligence]] plus offline words and more")
+    assert _conflicts(client) == []
+    assert client.get("/api/page/AI").status_code == 404
+
+
+@pytest.mark.parametrize("one_batch", [False, True])
+def test_chained_edits_after_a_delete_replay_apply_clean(client, one_batch):
+    assert client.delete("/api/page/AI").status_code == 200
+
+    _chained_push(client, STALE_BASE, STALE_EDIT, STALE_EDIT + " and more",
+                  one_batch=one_batch)
+
+    assert _ml_texts(client)[0] == "Tags:: AI plus offline words and more"
+    assert _conflicts(client) == []
+
+
+def test_chained_edits_after_a_two_step_rename_replay_apply_clean(client):
+    _rename(client, "AI", "Artificial Intelligence")
+    _rename(client, "Artificial Intelligence", "Cognition")
+
+    _chained_push(client, STALE_BASE, STALE_EDIT, STALE_EDIT + " and more",
+                  STALE_EDIT + " and more still")
+
+    assert _ml_texts(client)[0] == (
+        "Tags:: #[[Cognition]] plus offline words and more still")
+    assert _conflicts(client) == []
+
+
+def test_chained_edits_replaying_a_rename_and_a_stale_unlink_apply_clean(
+        client):
+    _rename(client, "AI", "Cognition")
+    seen = _latest_seq(client)
+    assert client.delete("/api/page/Paper").status_code == 200
+    first = "Tags:: #AI [[Paper]] x"
+
+    _chained_push(client, STALE_BASE, first, first + " y", seen_seq=seen,
+                  one_batch=True)
+
+    assert _ml_texts(client)[0] == "Tags:: #Cognition Paper x y"
+    assert _conflicts(client) == []
+    assert client.get("/api/page/Paper").status_code == 404
+
+
+def test_plain_hashed_edit_records_no_rewrite_row(client, seeded_config):
+    _chained_push(client, STALE_BASE, "Tags:: #AI plain edit")
+
+    assert _ml_texts(client)[0] == "Tags:: #AI plain edit"
+    assert _rewrite_rows(seeded_config) == []
+
+
+def test_rename_alone_records_only_its_own_rows(client, seeded_config):
+    _rename(client, "AI", "Artificial Intelligence")
+
+    assert _rewrite_rows(seeded_config) == [
+        ("uid_b1", "retitle", "AI", "Artificial Intelligence")]
+
+
+def test_chained_edits_after_a_replayed_conflict_keep_the_page_renamed(client):
+    _rename(client, "AI", "Artificial Intelligence")
+    r = _post(client, {"op": "update_text", "uid": "uid_b1",
+                       "text": "Tags:: #[[Artificial Intelligence]] fresh"})
+    assert r.status_code == 200
+
+    _chained_push(client, STALE_BASE, STALE_EDIT, STALE_EDIT + " and more")
+
+    assert _ml_texts(client)[0] == (
+        "Tags:: #[[Artificial Intelligence]] plus offline words and more")
+    [(_, lost)] = _conflicts(client)
+    assert lost == ["Tags:: #[[Artificial Intelligence]] fresh"]
+    assert client.get("/api/page/AI").status_code == 404
+
+
+def test_chained_edits_replaying_a_rename_and_a_stale_unlink_over_a_conflict(
+        client):
+    _rename(client, "AI", "Cognition")
+    r = _post(client, {"op": "update_text", "uid": "uid_b1",
+                       "text": "Tags:: #Cognition fresh"})
+    assert r.status_code == 200
+    seen = _latest_seq(client)
+    assert client.delete("/api/page/Paper").status_code == 200
+    first = "Tags:: #AI [[Paper]] x"
+
+    _chained_push(client, STALE_BASE, first, first + " y", seen_seq=seen,
+                  one_batch=True)
+
+    assert _ml_texts(client)[0] == "Tags:: #Cognition Paper x y"
+    [(_, lost)] = _conflicts(client)
+    assert lost == ["Tags:: #Cognition fresh"]
+    assert client.get("/api/page/AI").status_code == 404
+    assert client.get("/api/page/Paper").status_code == 404

@@ -1,12 +1,14 @@
 import pytest
 
-from pkm.refs import canonicalize_title, normalize_title
+from pkm.refs import canonicalize_title, extract, normalize_title
 from pkm.unlink import (
     SourceBlock,
     apply_delete_rewrite,
     inline_block_refs,
     plain_copy,
     plan_page_delete,
+    defuse_attribute,
+    unlink_stale_refs,
     unlink_title_refs,
 )
 
@@ -184,3 +186,30 @@ def test_blocker_when_the_rewrite_still_refs_a_page_block():
         SourceBlock("s1", "A", "((abcd[[AI]]xyz))")])
     assert [(b.uid, b.reason) for b in plan.blockers] == [("s1", "residual")]
     assert plan.rewrites == {}
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("X:: v", "`X`:: v"),
+    ("  X:: v", "  `X`:: v"),
+    ("[[X]]:: v", "`X`:: v"),
+    ("#X:: v", "`X`:: v"),
+    ("a`b:: v", "a`b: v"),
+    ("a`b::: v", "a`b: v"),
+    ("Live:: [[X]]", "Live:: X"),
+    ("Live:: v", "Live:: v"),
+    ("plain [[X]]", "plain X"),
+])
+def test_unlink_stale_refs_defuses_a_leading_attribute(text, expected):
+    result = unlink_stale_refs(text, lambda raw: normalize_title(raw) == "X"
+                               or raw == "a`b")
+    assert result == expected
+    assert not any(ref.title == "X" for ref in extract(result).refs)
+
+
+def test_defuse_attribute_leaves_other_text_alone():
+    assert defuse_attribute("see [[X]]", lambda raw: raw == "X") == "see [[X]]"
+
+
+def test_defuse_attribute_collapses_a_long_colon_run():
+    text = "a`b" + ":" * 5000 + " v"
+    assert defuse_attribute(text, lambda raw: raw == "a`b") == "a`b: v"

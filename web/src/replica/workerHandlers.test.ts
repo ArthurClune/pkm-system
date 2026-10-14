@@ -1367,6 +1367,48 @@ test("a row queued after the pull read its ids is never dropped", async () => {
   expect(pendingIds(t.db)).toEqual([{ batch_id: "a" }, { batch_id: "b" }, { batch_id: "c" }]);
 });
 
+test("a window read before a batch queued and acked during its fetch is refused", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(SNAP);
+  // the pull reads no pending rows and fetches; meanwhile a batch is queued,
+  // posted and acked at seq 9
+  await handlers.enqueue({
+    ops: [{ op: "update_text", uid: uid("uid_b1"), text: "mine" }], batchId: bid("a") });
+  await handlers.deleteBatch({ id: pid(1), batchId: bid("a"), ackedSeq: seq(9) });
+  // the server answered at seq 5, before the batch committed
+  await expect(handlers.applyChanges({
+    feed: { ...EMPTY_GEN1_FEED, next_since: seq(5), latest_seq: seq(5) },
+    expectedPendingIds: [],
+  })).resolves.toEqual({ status: "pending-changed" });
+  expect(textOf(t.db, "uid_b1")).toBe("mine");
+  // the refetch, read after the commit, ships the batch's row
+  await expect(handlers.applyChanges({
+    feed: { ...EMPTY_GEN1_FEED, next_since: seq(9), latest_seq: seq(9),
+            blocks: [{ ...SNAP.blocks[0], text: "mine", updated_at: 10 }] },
+    expectedPendingIds: [],
+  })).resolves.toEqual({ status: "applied", cursor: 9 });
+  expect(textOf(t.db, "uid_b1")).toBe("mine");
+});
+
+test("a held ack the server never reaches costs one refetch", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(SNAP);
+  await handlers.enqueue({
+    ops: [{ op: "update_text", uid: uid("uid_b1"), text: "mine" }], batchId: bid("a") });
+  await handlers.deleteBatch({ id: pid(1), batchId: bid("a"), ackedSeq: seq(9) });
+  // a restored server whose journal stops short of the ack
+  const restored = { ...EMPTY_GEN1_FEED, next_since: seq(5), latest_seq: seq(5) };
+  await expect(handlers.applyChanges({ feed: restored, expectedPendingIds: [] }))
+    .resolves.toEqual({ status: "pending-changed" });
+  // the refusal itself dropped the seq, so the refetch applies
+  await expect(handlers.applyChanges({ feed: restored, expectedPendingIds: [] }))
+    .resolves.toEqual({ status: "applied", cursor: 5 });
+});
+
 test("applySnapshot drops the rows the snapshot names as applied", async () => {
   const { t, handlers } = await twoQueued();
   await handlers.applySnapshot({ ...SNAP, seq: seq(7), applied_batches: [named("a", 7)] });

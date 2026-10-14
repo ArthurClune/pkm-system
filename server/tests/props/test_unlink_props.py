@@ -17,7 +17,7 @@ from pkm.contracts.ops import text_hash
 from pkm.refs import extract, normalize_title
 from pkm.server.ops_core import BlockRewrite, replay_title_rewrites
 from pkm.unlink import (DeletePlan, SourceBlock, apply_delete_rewrite,
-                        plan_page_delete)
+                        plan_page_delete, unlink_stale_refs)
 from props.harness import examples
 
 pytestmark = pytest.mark.proptest
@@ -25,6 +25,7 @@ pytestmark = pytest.mark.proptest
 TARGET = "AI"
 TITLES = ["AI", "ai", "Paper", "Other Page", "AI Ethics"]
 BARE_TITLES = [t for t in TITLES if " " not in t]
+BACKTICK_TITLE = "a`b"
 PAGE_UIDS = [f"pg_blk_0{n}" for n in range(1, 5)]
 OTHER_UIDS = ["ot_blk_01", "ot_blk_02"]
 PAGES = ["Notes", "Log", "Journal"]
@@ -74,6 +75,15 @@ def block_text(draw) -> str:
     if draw(st.booleans()) and draw(st.integers(0, 3)) == 0:
         out = f"{draw(st.sampled_from(['Paper', 'Other Page']))}:: {out}"
     return out
+
+
+@st.composite
+def stale_text(draw) -> str:
+    """A block text that may lead with an attribute naming any title."""
+    body = draw(st.sampled_from(["", ":", "::"])) + draw(block_text())
+    shape = draw(st.sampled_from(["{}", "{}:: ", "[[{}]]:: ", "#{}:: ", "  {}:: "]))
+    title = draw(st.sampled_from([*TITLES, BACKTICK_TITLE]))
+    return shape.format(title) + body if shape != "{}" else body
 
 
 @st.composite
@@ -149,3 +159,14 @@ def test_delete_rewrite_properties(case):
         assert replay_title_rewrites(
             original, text_hash(original), rows[::-1]
         ) == (new, text_hash(new)), (original, new)
+
+
+@settings(max_examples=examples("unlink"))
+@given(stale_text())
+def test_stale_unlink_leaves_no_ref_to_the_target(text):
+    def target(raw: str) -> bool:
+        return is_target(raw) or raw == BACKTICK_TITLE
+
+    result = unlink_stale_refs(text, target)
+    assert not any(target(ref.title) for ref in extract(result).refs), (
+        f"{text!r} -> {result!r}")

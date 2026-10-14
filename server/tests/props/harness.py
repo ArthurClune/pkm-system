@@ -32,7 +32,7 @@ DAILY_TITLE = title_for_date(FROZEN_NOW.date())
 
 # Per-test example counts under the `merge` profile, sized so
 # `proptest/check.sh server` runs in about 3 minutes.
-MERGE_EXAMPLES: dict[str, int] = {"smoke": 4, "ops_state": 420, "planner": 1050,
+MERGE_EXAMPLES: dict[str, int] = {"smoke": 4, "ops_state": 380, "planner": 1050,
                                  "unlink": 1000}
 
 

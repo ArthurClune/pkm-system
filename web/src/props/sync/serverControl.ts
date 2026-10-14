@@ -29,6 +29,16 @@ export interface DeleteRecord {
   uids: string[];
 }
 
+/** One daily-note conflict header the run wrote, in commit order: its uid,
+ * its text as written (before any later rewrite of it), and the batch that
+ * wrote it (null when no applied batch followed the write, which only a
+ * route other than POST /api/ops could do). */
+export interface ConflictRecord {
+  header_uid: string;
+  text: string;
+  batch_id: BatchId | null;
+}
+
 export interface ServerControl {
   cookie: string;
   reset(): Promise<void>;
@@ -40,6 +50,8 @@ export interface ServerControl {
   renames(): Promise<RenameRecord[]>;
   /** Every recorded page delete, in commit order. */
   deletes(): Promise<DeleteRecord[]>;
+  /** Every conflict header written, in commit order. */
+  conflicts(): Promise<ConflictRecord[]>;
   snapshot(): Promise<Snapshot>;
   /** The ops of the last broadcast frame since the previous take or reset
    * (null: none), then forgets them. */
@@ -51,6 +63,11 @@ export interface ServerControl {
    * re-creates a deleted page: a deliberate corruption for the oracle's
    * teeth. A reset turns it off. */
   setStaleTeeth(on: boolean): Promise<void>;
+  /** While on, a hashed edit whose replay of a rename or delete changed the
+   * text it wrote records no rewrite rows for it, so the same device's next
+   * edit of the block conflicts: a deliberate corruption for the oracle's
+   * teeth. A reset turns it off. */
+  setRewriteTeeth(on: boolean): Promise<void>;
   /** GET /api/sync/changes?since=. */
   changes(since: SyncSeq): Promise<Changes>;
   /** The journal's latest seq. */
@@ -113,6 +130,8 @@ function control(cookie: string, signal?: AbortSignal): ServerControl {
       (await (await call("/__proptest/renames")).json()) as RenameRecord[],
     deletes: async () =>
       (await (await call("/__proptest/deletes")).json()) as DeleteRecord[],
+    conflicts: async () =>
+      (await (await call("/__proptest/conflicts")).json()) as ConflictRecord[],
     snapshot: async () =>
       (await (await call("/api/sync/snapshot")).json()) as Snapshot,
     takeEcho: async () =>
@@ -122,6 +141,9 @@ function control(cookie: string, signal?: AbortSignal): ServerControl {
       await post("/__proptest/echo/teeth", { drop_cross_page_title: on });
     },
     setStaleTeeth: async (on) => { await post("/__proptest/stale/teeth", { empty: on }); },
+    setRewriteTeeth: async (on) => {
+      await post("/__proptest/rewrites/teeth", { drop_replayed: on });
+    },
     changes: async (since) =>
       (await (await call(`/api/sync/changes?since=${since}`)).json()) as Changes,
     latestSeq: async () => {

@@ -41,15 +41,28 @@ def uid_pool(n: int) -> list[str]:
     return [f"pool{i:04d}" for i in range(n)]
 
 
-def texts(uids: Sequence[str] | None = None) -> st.SearchStrategy[str]:
+@st.composite
+def texts(draw: st.DrawFn, uids: Sequence[str] | None = None,
+          linked: Sequence[str] = ()) -> str:
     """Short texts of up to three tokens: plain words, `[[Alpha]]`, `#Beta`,
     a `((uid))` ref to a pool block (`uids`, default the first eight of
-    `uid_pool`); no tokens gives ""."""
+    `uid_pool`), and a `[[link]]` or `#tag` to each `linked` title; no
+    tokens gives "". About 1 in 8 leads with an attribute naming a page,
+    `Gamma:: ` or `[[Gamma]]:: `, which a stale batch fences and a page
+    delete refuses or rewrites."""
     pool = list(uids) if uids else uid_pool(8)
+    extra = [f"[[{t}]]" for t in linked] + [f"#{t}" for t in linked]
     token = st.one_of(st.sampled_from(_WORDS), st.just("[[Alpha]]"),
                       st.just("#Beta"),
-                      st.sampled_from(pool).map(lambda u: f"(({u}))"))
-    return st.lists(token, max_size=3).map(" ".join)
+                      st.sampled_from(pool).map(lambda u: f"(({u}))"),
+                      *([st.sampled_from(extra)] if extra else []))
+    body = " ".join(draw(st.lists(token, max_size=3)))
+    if draw(st.integers(0, 7)) < 7:
+        return body
+    name = draw(st.sampled_from(PAGES))
+    if draw(st.booleans()):
+        name = f"[[{name}]]"
+    return f"{name}:: {body}"
 
 
 def _weighted(draw: st.DrawFn, options: Sequence[tuple[int, T]]) -> T:
@@ -116,12 +129,19 @@ def _stale(text: str) -> str:
 
 
 def _text_hash_field(draw: st.DrawFn, model: Model, uid: str) -> dict:
-    """base_text_hash: correct, stale (the hash of a different text) or
-    absent. A missing block has no current text; "correct" there hashes ""."""
+    """base_text_hash: correct, stale (the hash of a different text),
+    absent, or the base of a rewrite recorded for the block (the hash of a
+    text the client sent before a page delete or a stale unlink rewrote
+    it, which the server replays). A missing block has no current text;
+    "correct" there hashes ""."""
     current = model.blocks[uid].text if uid in model.blocks else ""
-    choice = _weighted(draw, [(1, "correct"), (1, "stale"), (1, "absent")])
+    rewritten = [r.base_hash for r in model.rewrites.get(uid, ())]
+    choice = _weighted(draw, [(1, "correct"), (1, "stale"), (1, "absent"),
+                              (2 if rewritten else 0, "rewritten")])
     if choice == "absent":
         return {}
+    if choice == "rewritten":
+        return {"base_text_hash": draw(st.sampled_from(rewritten))}
     text = current if choice == "correct" else _stale(current)
     return {"base_text_hash": text_hash(text)}
 
@@ -138,7 +158,34 @@ def _subtree_hash_field(draw: st.DrawFn, model: Model, uid: str) -> dict:
     return {"base_subtree_hash": subtree_hash(pairs)}
 
 
-def _create_op(draw: st.DrawFn, model: Model, uids: Sequence[str]) -> dict:
+def _edit_text(draw: st.DrawFn, model: Model, uid: str,
+               uids: Sequence[str], stale: Sequence[str]) -> str:
+    """An update_text's text: usually a fresh one, but for a block with
+    recorded rewrites sometimes the text a device that missed the rewrite
+    still holds (`Rewrite.before`), as is or extended. Re-sent with a
+    rewritten base hash, the replay rewrites it and, if the block was
+    written since, conflicts; re-sent stale, its unlink can land on the
+    block's current text, an identical edit that still records a row."""
+    befores = [r.before for r in model.rewrites.get(uid, ())]
+    choice = _weighted(draw, [(3, "fresh"), (1 if befores else 0, "before"),
+                              (1 if befores else 0, "extended")])
+    if choice == "fresh":
+        return draw(texts(uids, stale))
+    before = draw(st.sampled_from(befores))
+    return before if choice == "before" else f"{before} {draw(st.sampled_from(_WORDS))}"
+
+
+def _page(draw: st.DrawFn, stale: Sequence[str]) -> str:
+    """A page title; in a stale batch, half the time one of its deleted
+    `stale` titles, so its creates and moves reach the stale-page rows.
+    Its texts link them too (`texts`' `linked`)."""
+    if stale and draw(st.booleans()):
+        return draw(st.sampled_from(stale))
+    return draw(st.sampled_from(PAGES))
+
+
+def _create_op(draw: st.DrawFn, model: Model, uids: Sequence[str],
+               stale: Sequence[str]) -> dict:
     """A create of a uid that is not live (1 in 40 is live, a 400), at top
     level or under a live, deleted or never-existed parent."""
     free = [u for u in uids if u not in model.blocks]
@@ -147,11 +194,11 @@ def _create_op(draw: st.DrawFn, model: Model, uids: Sequence[str]) -> dict:
         draw, [(39 if free else 0, free), (1 if taken else 0, taken)])))
     parent = _weighted(draw, [(3, None), (7, "target")])
     return {"op": "create", "uid": uid,
-            "page_title": draw(st.sampled_from(PAGES)),
+            "page_title": _page(draw, stale),
             "parent_uid": (None if parent is None
                            else _target(draw, model, uids)),
             "order_idx": _order_idx(draw, model),
-            "text": draw(texts(uids)),
+            "text": draw(texts(uids, stale)),
             "heading": draw(_HEADINGS), "view_type": draw(_VIEW_TYPES)}
 
 
@@ -169,7 +216,8 @@ def _move_parent(draw: st.DrawFn, model: Model, uids: Sequence[str],
 
 
 @st.composite
-def op_for(draw: st.DrawFn, model: Model, uids: list[str]) -> dict:
+def op_for(draw: st.DrawFn, model: Model, uids: list[str],
+           stale: Sequence[str] = ()) -> dict:
     """One op of the eight kinds, in the wire shape of pkm.contracts.ops,
     drawn against `model` as it stands. `create` is drawn less often than
     the rest: the uid pool is only 8-12 wide, so a uniform draw exhausts
@@ -178,14 +226,14 @@ def op_for(draw: st.DrawFn, model: Model, uids: list[str]) -> dict:
     the 400 path is reached that way too."""
     kind = _weighted(draw, [*((4, k) for k in _KINDS[1:]), (1, "create")])
     if kind == "create_page":
-        return {"op": "create_page", "page_title": draw(st.sampled_from(PAGES))}
+        return {"op": "create_page", "page_title": _page(draw, stale)}
     if kind == "create":
-        op = _create_op(draw, model, uids)
+        op = _create_op(draw, model, uids, stale)
     else:
         uid = _target(draw, model, uids)
         op: dict[str, Any] = {"op": kind, "uid": uid}
         if kind == "update_text":
-            op["text"] = draw(texts(uids))
+            op["text"] = _edit_text(draw, model, uid, uids, stale)
             op.update(_text_hash_field(draw, model, uid))
             hint = draw(st.none() | st.sampled_from(PAGES))
             if hint is not None:
@@ -193,7 +241,7 @@ def op_for(draw: st.DrawFn, model: Model, uids: list[str]) -> dict:
         elif kind == "move":
             op["parent_uid"] = _move_parent(draw, model, uids, uid)
             op["order_idx"] = _order_idx(draw, model)
-            title = draw(st.none() | st.sampled_from(PAGES))
+            title = _page(draw, stale) if draw(st.booleans()) else None
             if title is not None:
                 op["page_title"] = title
         elif kind == "delete":
@@ -210,19 +258,22 @@ def op_for(draw: st.DrawFn, model: Model, uids: list[str]) -> dict:
 
 
 @st.composite
-def batch_for(draw: st.DrawFn, model: Model, uids: list[str]) -> list[dict]:
+def batch_for(draw: st.DrawFn, model: Model, uids: list[str],
+              seen_seq: int | None = None) -> list[dict]:
     """1-20 ops, each drawn against the model as the earlier ops in this
     batch leave it, so a batch can edit a block it created, move a block
     into one it just made, delete then re-create, and so on. Works on a
-    `copy.deepcopy` of `model`, applying each drawn op to the copy before
-    drawing the next; the copy is then discarded, so `model` is untouched
-    and the caller applies the whole batch to it."""
+    `copy.deepcopy` of `model`, applying each drawn op to the copy (under
+    the batch's `seen_seq`) before drawing the next; the copy is then
+    discarded, so `model` is untouched and the caller applies the whole
+    batch to it."""
     sim = copy.deepcopy(model)
+    stale = sorted(model.stale_titles(seen_seq))
     ops: list[dict] = []
     for _ in range(draw(st.integers(1, 20))):
-        op = draw(op_for(sim, uids))
+        op = draw(op_for(sim, uids, stale))
         ops.append(op)
-        sim.apply([op])
+        sim.apply([op], seen_seq)
     return ops
 
 

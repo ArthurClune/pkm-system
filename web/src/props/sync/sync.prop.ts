@@ -14,8 +14,10 @@
 // often each fault was armed and fired, is printed once, after the file.
 import fc from "fast-check";
 import { afterAll, beforeAll, expect, test } from "vitest";
+import { extractRefs } from "../../grammar/refs";
 import { EDIT_TARGETS, type OpDraft, PAGE_TITLES } from "./arbitraries";
 import { cancellable, ExampleCancelled } from "./cancel";
+import { conflictNoise, overwrittenTarget } from "./conflictNoise";
 import { staleNamers } from "./deleteWins";
 import { BadBatch, commandsFor, connectTally, connectTiming, countSkipsWith, Edit,
          Fault, type FaultKind, NAMES, Nudge, Offline, Pull, Reload, Rename, SyncCommand,
@@ -112,6 +114,12 @@ const windowLimit: fc.Arbitrary<number | undefined> = fc.oneof(
   { weight: 1, arbitrary: fc.integer({ min: 1, max: 5 }) },
 );
 
+/** Whether a recorded body writes a text that leads with an attribute. */
+const leadsWithAttribute = (body: string): boolean =>
+  ((JSON.parse(body) as { ops?: { text?: unknown }[] }).ops ?? []).some((op) =>
+    typeof op.text === "string" &&
+    extractRefs(op.text).refs.some((r) => r.kind === "attribute"));
+
 /** An error as the report shows it. */
 const showError = (error: unknown): string =>
   error instanceof Error ? `${error.name}: ${error.message}` : String(error);
@@ -203,15 +211,29 @@ async function runExample(names: readonly string[], cmds: Commands,
     const snap = await guard.server.snapshot();
     if (snap.blocks.some((b) => b.text.includes("[[conflict]]"))) count("examples with a conflict");
     if (model.bad.size > 0) count("examples with a rejected batch");
+    const applied = await guard.server.applied();
+    const committed = new Map(all().flatMap((c) => [...c.transport.committed]));
     const deletes = await guard.server.deletes();
-    if (deletes.length > 0 && staleNamers({
-      applied: await guard.server.applied(), deletes,
-      committed: new Map(all().flatMap((c) => [...c.transport.committed])),
-    }).length > 0) {
+    if (deletes.length > 0 && staleNamers({ applied, deletes, committed }).length > 0) {
       count("examples with a stale batch naming a deleted page");
     }
+    const conflicts = await guard.server.conflicts();
+    if (conflicts.some((c) => overwrittenTarget(c.text) !== null)) {
+      count("examples with an overwritten conflict");
+    }
+    // An overwritten conflict that is noise but for the lane exemption: the
+    // one single-device cause the invariant allows.
+    const noise = { applied, conflicts,
+                    committedBy: new Map(all().map((c) => [c.name, c.transport.committed])) };
+    if (conflictNoise({ ...noise, lane: new Set() }).length >
+        conflictNoise({ ...noise, lane: new Set(all().flatMap((c) => c.laneBatches)) }).length) {
+      count("examples with an overwritten conflict on a lane write");
+    }
+    if ([...committed.values()].some((body) => leadsWithAttribute(body))) {
+      count("examples with a leading attribute");
+    }
     transcript.push("check");
-    await checkQuiescent(all(), guard.server, model);
+    await checkQuiescent(all(), guard.server, model, { applied, conflicts });
   };
   let abandon = (): void => undefined;
   const abandoned = new Promise<typeof ABANDONED>((resolve) => {

@@ -158,7 +158,7 @@ transaction:
 | 5. Block upserts | Deferred FKs make their order irrelevant for references. |
 | 6. `dropWindowRecords` for every block uid the window ships live or owes a tombstone (including one an earlier window deferred), and every page it ships | The server's row supersedes the local one, so an acked batch's record on it has nothing left to restore. |
 | 7. Block tombstones, in the window at the journal head only | The moves out land before the local cascade runs (below). |
-| 8. `rewind("all")`, at the head window only | Settles the records acked batches left. After 6, so records the window made redundant are gone. |
+| 8. `rewind("all")`, at the head window only | Settles the records acked batches left. After 6, so records the window made redundant are gone. Safe only because the worker refuses a window whose `latest_seq` is short of an acked `seq` it holds ([Windows and the pending queue](sync-recovery.md#windows-and-the-pending-queue)). |
 | 9. Sidebar upserts, cursor, deferred-tombstone record, plain-space flag, `reconcileActivationPageTitles`, then `replayPending` | The queue replays over the window's final rows, each batch as a first apply at its enqueue time. |
 | 10. `dropStrandedLocalPages` | Deletes a negative-id page no block, ref, `replay_log` record or today's daily title names. At the head window only (an acked `create_page` batch no longer names its page, and the server's may ship in a later window). After 9, since a replay re-makes the pages it needs. |
 

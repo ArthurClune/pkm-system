@@ -10,10 +10,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from pkm.contracts.ops import text_hash
 from pkm.server.app import create_app
 from proptest import sync_server
-from proptest.sync_server import (PASSWORD, SECOND_UIDS, SEED_UIDS, START_MS, Clock,
-                                  build_app)
+from proptest.sync_server import (FIXTURE_PAGE, FIXTURE_UIDS, PASSWORD, SECOND_UIDS,
+                                  SEED_UIDS, START_MS, Clock, build_app)
 
 
 @pytest.fixture()
@@ -47,20 +48,22 @@ def test_reset_gives_a_fresh_seeded_db(client: TestClient) -> None:
     assert r.status_code == 200
     snap = client.get("/api/sync/snapshot").json()
     blocks = snap["blocks"]
-    assert sorted(b["uid"] for b in blocks) == sorted(SEED_UIDS + SECOND_UIDS)
-    assert sorted(p["title"] for p in snap["pages"]) == ["Proptest", "Second"]
+    assert sorted(b["uid"] for b in blocks) == sorted(
+        SEED_UIDS + SECOND_UIDS + FIXTURE_UIDS)
+    assert sorted(p["title"] for p in snap["pages"]) == sorted(["Proptest", "Second", FIXTURE_PAGE])
     assert client.get("/__proptest/applied").json() == []
 
 
 def test_seed_is_ordered_and_has_refs_consistent_with_the_journal(client: TestClient) -> None:
     client.post("/__proptest/reset")
     con = sqlite3.connect(client.post("/__proptest/reset").json()["db_path"])
-    for title, uids in (("Proptest", SEED_UIDS), ("Second", SECOND_UIDS)):
+    for title, uids in (("Proptest", SEED_UIDS), ("Second", SECOND_UIDS),
+                        (FIXTURE_PAGE, FIXTURE_UIDS)):
         rows = con.execute(
             "SELECT b.uid, b.order_idx, b.parent_uid FROM blocks b JOIN pages p"
             " ON p.id = b.page_id WHERE p.title = ? ORDER BY b.order_idx", (title,)).fetchall()
         assert rows == [(uid, i * 10, None) for i, uid in enumerate(uids)]
-    assert con.execute("SELECT COUNT(*) FROM changes").fetchone()[0] >= 6
+    assert con.execute("SELECT COUNT(*) FROM changes").fetchone()[0] >= 9
     assert con.execute("SELECT COUNT(*) FROM applied_batches").fetchone()[0] == 0
 
 
@@ -295,3 +298,75 @@ def test_stale_teeth_make_every_batch_fresh_until_reset(client: TestClient) -> N
 def test_stale_teeth_route_needs_auth(tmp_path: Path, clock: Clock) -> None:
     with TestClient(build_app(tmp_path, clock)) as anon:
         assert anon.post("/__proptest/stale/teeth", json={"empty": True}).status_code == 401
+
+
+def _edit(batch_id: str, text: str, base: str | None = None) -> dict:
+    op: dict = {"op": "update_text", "uid": SEED_UIDS[0], "text": text}
+    if base is not None:
+        op["base_text_hash"] = text_hash(base)
+    return _batch(batch_id, [op])
+
+
+def _chained_edits_after_a_rename(client: TestClient) -> None:
+    """One device's chain: it wrote [[Second]] into the block, Second was
+    renamed, and two more edits it made before seeing the rename arrive."""
+    assert client.post("/api/ops", json=_edit("batch_chain_01", "[[Second]] a")).status_code == 200
+    assert _rename(client, "Second", "Third") == 200
+    for batch_id, (base, text) in (("batch_chain_02", ("[[Second]] a", "[[Second]] b")),
+                                   ("batch_chain_03", ("[[Second]] b", "[[Second]] c"))):
+        r = client.post("/api/ops", json=_edit(batch_id, text, base))
+        assert r.status_code == 200, r.text
+
+
+def _text_of(client: TestClient, uid: str) -> str:
+    return next(b["text"] for b in client.get("/api/sync/snapshot").json()["blocks"]
+                if b["uid"] == uid)
+
+
+def test_conflicts_are_logged_with_the_batch_that_wrote_the_header(client: TestClient) -> None:
+    assert client.get("/__proptest/conflicts").json() == []
+    _post(client, "pt_extra_1", "batch_extra_01")
+    edits = [("batch_conflict_01", "theirs"), ("batch_conflict_02", "mine")]
+    for batch_id, text in edits:
+        r = client.post("/api/ops", json=_edit(batch_id, text, "seed 1"))
+        assert r.status_code == 200, r.text
+    logged = client.get("/__proptest/conflicts").json()
+    assert len(logged) == 1
+    assert logged[0]["batch_id"] == "batch_conflict_02"
+    assert logged[0]["text"].endswith(f" — overwritten by (({SEED_UIDS[0]}))")
+    header = next(b for b in client.get("/api/sync/snapshot").json()["blocks"]
+                  if b["uid"] == logged[0]["header_uid"])
+    assert header["text"] == logged[0]["text"] and header["parent_uid"] is None
+    # The log keeps the header's uid after a page delete inlines its ref.
+    assert _delete(client, "Proptest") == 200
+    assert _text_of(client, logged[0]["header_uid"]) != logged[0]["text"]
+    assert client.get("/__proptest/conflicts").json() == logged
+    assert "proptest_conflicts" not in client.get("/api/sync/snapshot").text
+    client.post("/__proptest/reset")
+    assert client.get("/__proptest/conflicts").json() == []
+
+
+def test_conflicts_route_needs_auth(tmp_path: Path, clock: Clock) -> None:
+    with TestClient(build_app(tmp_path, clock)) as anon:
+        assert anon.get("/__proptest/conflicts").status_code == 401
+
+
+def test_rewrite_teeth_drop_the_replay_rows_until_reset(client: TestClient) -> None:
+    try:
+        assert client.post("/__proptest/rewrites/teeth",
+                           json={"drop_replayed": True}).status_code == 200
+        _chained_edits_after_a_rename(client)
+        logged = client.get("/__proptest/conflicts").json()
+        assert [c["batch_id"] for c in logged] == ["batch_chain_03"]
+        assert logged[0]["text"].endswith(f"(({SEED_UIDS[0]}))")
+    finally:
+        client.post("/__proptest/reset")
+    _chained_edits_after_a_rename(client)
+    assert client.get("/__proptest/conflicts").json() == []
+    assert _text_of(client, SEED_UIDS[0]) == "[[Third]] c"
+
+
+def test_rewrite_teeth_route_needs_auth(tmp_path: Path, clock: Clock) -> None:
+    with TestClient(build_app(tmp_path, clock)) as anon:
+        assert anon.post("/__proptest/rewrites/teeth",
+                         json={"drop_replayed": True}).status_code == 401

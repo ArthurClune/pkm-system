@@ -164,11 +164,25 @@ describe("deleteWins", () => {
     expect(deleteWins(r)).toHaveLength(1);
   });
 
-  test("a stale batch may re-create the page once its deletion row may be pruned", () => {
+  test("a stale batch may re-create the page once a later delete may have pruned its row", () => {
+    const r = run(body([createOn("Second")], 10), {
+      deletes: [del(), del({ title: "Third", seq: 22, after_batch_id: id("b1"), ord: 2,
+                             at: 1000 + 31 * DAY, uids: [] })] });
+    expect(deleteWins(r)).toEqual([]);
+  });
+
+  test("a batch clock past the retention window prunes nothing, so the delete is still checked", () => {
     const r = run(body([createOn("Second")], 10), {
       applied: [{ batch_id: id("b1"), applied_at: 1000 },
                 { batch_id: id("b2"), applied_at: 1000 + 31 * DAY }] });
-    expect(deleteWins(r)).toEqual([]);
+    expect(deleteWins(r)).toHaveLength(1);
+  });
+
+  test("a rename clock past the retention window prunes nothing either", () => {
+    const r = run(body([createOn("Second")], 10), {
+      renames: [rename({ old_title: "Fourth", new_title: "Fifth", at: 1000 + 31 * DAY,
+                         after_batch_id: id("b1") })] });
+    expect(deleteWins(r)).toHaveLength(1);
   });
 
   test("reports every violation", () => {

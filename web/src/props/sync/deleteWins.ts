@@ -18,7 +18,7 @@ import type { DeleteRecord, RenameRecord } from "./serverControl";
 export const BEYOND_ANY_SEQ = Number.MAX_SAFE_INTEGER;
 
 /** The server prunes a deletion record this long after the delete
- * (BLOCK_REWRITE_RETENTION_MS), whenever a rename or delete runs. */
+ * (BLOCK_REWRITE_RETENTION_MS), and only when a later page delete runs. */
 const DELETION_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** The seen_seq to replay `seen` with. `faulted` and `replayed` are the
@@ -107,16 +107,16 @@ export function deleteWins(run: DeleteWinsRun): string[] {
     if (!existing.has(title)) continue;
     if (run.renames.some((r) => r.new_title === title && r.ord > d.ord)) continue;
     const from = firstAfter(d);
-    // The latest clock any rename, delete or batch since `d` ran at, up to
-    // and including batch i: past d.at plus the retention, d's row may be gone.
-    const laterEvents = [...run.renames, ...run.deletes].filter((e) => e.ord > d.ord);
+    // The latest clock any later delete ran at, up to and including batch i:
+    // only a delete prunes, so past d.at plus the retention d's row may be gone.
+    const laterDeletes = run.deletes.filter((e) => e.ord > d.ord);
     let clock = d.at;
     const stale: string[] = [];
     let fresh = false;
     for (let i = from; i < run.applied.length && !fresh; i++) {
       const row = run.applied[i];
-      clock = Math.max(clock, row.applied_at,
-                       ...laterEvents.filter((e) => firstAfter(e) <= i).map((e) => e.at));
+      clock = Math.max(clock,
+                       ...laterDeletes.filter((e) => firstAfter(e) <= i).map((e) => e.at));
       const body = parse(run.committed.get(row.batch_id));
       if (!body.ops.some((op) => names(op, title))) continue;
       if (body.seen === undefined || body.seen >= d.seq ||

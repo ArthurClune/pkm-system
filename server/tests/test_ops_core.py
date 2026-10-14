@@ -9,6 +9,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                Sha256Hex, SetCollapsedOp, SetHeadingOp,
                                SetViewTypeOp, UpdateTextOp, subtree_hash,
                                text_hash)
+from pkm.unlink import unlink_stale_refs
 from pkm.refs import CanonicalTitle, NormalizedTitle, normalize_title
 from pkm.server.conflict_notes import (deleted_header_text,
                                        live_block_header_text,
@@ -22,7 +23,7 @@ from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  ExistingHeader, FreshHeader, InsertBlock,
                                  JournalBlock, LandedSkipContext, MoveContext,
                                  OpError, PageContext, RecordConflictHeader,
-                                 RecordUnlinkRewrite,
+                                 RecordRewrite,
                                  ReindexRefs, SetCollapsed, SetHeading,
                                  SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, Skip, SkipContext,
@@ -33,7 +34,7 @@ from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  classify_text_edit, conflict_entry_effects,
                                  descendant_copy_effects, delete_diverged,
                                  replay_title_rewrites,
-                                 plan_op, skip_report, stale_unlink_effects,
+                                 plan_op, skip_report, rewrite_effects,
                                  unlink_stale_text)
 
 B = BlockInfo(uid=BlockUid("uid_b3"), page_id=PageId(1),
@@ -1189,27 +1190,80 @@ def test_skip_report_stale_page_reason():
         "reason": "page_deleted", "note_page": _DAY}
 
 
-def test_stale_unlink_effects_record_one_row_per_unlinked_title():
+def test_rewrite_effects_record_one_row_per_unlinked_title():
     sent = UpdateTextOp(op="update_text", uid=BlockUid("uid_u0000001"),
                         text="[[X]] and [[Z]] and [[Y]]")
     planned = (UpdateText(BlockUid("uid_u0000001"), "X and Z and [[Y]]"),)
     stale = {CanonicalTitle(NormalizedTitle(t)) for t in "XZW"}
-    [eff] = stale_unlink_effects(sent, planned, stale, normalize_title)
-    assert eff == RecordUnlinkRewrite(
-        BlockUid("uid_u0000001"), text_hash(sent.text),
-        text_hash("X and Z and [[Y]]"),
-        tuple(CanonicalTitle(NormalizedTitle(t)) for t in "XZ"))
+    [eff] = rewrite_effects(sent, planned, stale, normalize_title)
+    after = text_hash("X and Z and [[Y]]")
+    assert eff == RecordRewrite(BlockUid("uid_u0000001"), tuple(
+        BlockRewrite(text_hash(sent.text), after, t, "", "unlink")
+        for t in "XZ"))
 
 
-def test_stale_unlink_effects_skip_parked_and_unchanged_text():
+def test_rewrite_effects_skip_parked_and_unchanged_text():
     sent = UpdateTextOp(op="update_text", uid=BlockUid("uid_u0000001"),
                         text="[[X]]")
     stale = {CanonicalTitle(NormalizedTitle("X"))}
-    assert stale_unlink_effects(sent, (), stale, normalize_title) == ()
+    assert rewrite_effects(sent, (), stale, normalize_title) == ()
     plain = UpdateTextOp(op="update_text", uid=BlockUid("uid_u0000001"),
                          text="[[Y]]")
     planned = (UpdateText(BlockUid("uid_u0000001"), "[[Y]]"),)
-    assert stale_unlink_effects(plain, planned, stale, normalize_title) == ()
+    assert rewrite_effects(plain, planned, stale, normalize_title) == ()
+
+
+_U1 = BlockUid("uid_u0000001")
+
+
+def _replay_effects(sent_text, base_text, rewrites, current, stale=()):
+    sent = UpdateTextOp(op="update_text", uid=_U1, text=sent_text,
+                        base_text_hash=text_hash(base_text))
+    unlinked = unlink_stale_refs(
+        sent_text, lambda raw: CanonicalTitle(normalize_title(raw)) in stale)
+    outcome = classify_text_edit(unlinked, text_hash(base_text), current,
+                                 rewrites)
+    planned = (() if outcome.kind == "identical"
+               else (UpdateText(_U1, outcome.text),))
+    return rewrite_effects(sent, planned, stale, normalize_title, outcome)
+
+
+def test_rewrite_effects_chain_each_replayed_step_from_the_sent_text():
+    t0, t1, t2 = "[[A]]", "[[B]]", "[[C d]]"
+    rewrites = (BlockRewrite(text_hash(t1), text_hash(t2), "B", "C d"),
+                BlockRewrite(text_hash(t0), text_hash(t1), "A", "B"))
+    [eff] = _replay_effects("[[A]] x", t0, rewrites, t2)
+    assert eff == RecordRewrite(_U1, (
+        BlockRewrite(text_hash("[[A]] x"), text_hash("[[B]] x"), "A", "B"),
+        BlockRewrite(text_hash("[[B]] x"), text_hash("[[C d]] x"), "B", "C d")))
+
+
+def test_rewrite_effects_cover_an_identical_replay_and_inlines():
+    t0, t1 = "x ((uid_u0000002)) y", "x text y"
+    rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "uid_u0000002", "text",
+                             "inline"),)
+    [eff] = _replay_effects("x ((uid_u0000002)) y!", t0, rewrites, "x text y!")
+    assert eff == RecordRewrite(_U1, (BlockRewrite(
+        text_hash("x ((uid_u0000002)) y!"), text_hash("x text y!"), "uid_u0000002", "text",
+        "inline"),))
+
+
+def test_rewrite_effects_cover_a_stale_unlink_before_a_replayed_rename():
+    t0, t1 = "[[A]]", "[[B]]"
+    rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "A", "B"),)
+    stale = {CanonicalTitle(NormalizedTitle("Z"))}
+    [eff] = _replay_effects("[[A]] [[Z]]", t0, rewrites, t1, stale)
+    assert eff == RecordRewrite(_U1, (
+        BlockRewrite(text_hash("[[A]] [[Z]]"), text_hash("[[A]] Z"), "Z", "",
+                     "unlink"),
+        BlockRewrite(text_hash("[[A]] Z"), text_hash("[[B]] Z"), "A", "B")))
+
+
+def test_rewrite_effects_record_nothing_for_plain_clean_or_conflicting_edits():
+    t0 = "[[A]]"
+    assert _replay_effects("[[A]] x", t0, (), t0) == ()
+    rewrites = (BlockRewrite(text_hash(t0), text_hash("[[B]]"), "A", "B"),)
+    assert _replay_effects("[[A]] x", t0, rewrites, "[[B]] other") == ()
 
 
 def test_replay_of_a_real_delete_unlink_row_fences_a_leading_attribute():

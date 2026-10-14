@@ -21,7 +21,7 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  ExistingHeader, FreshHeader, InsertBlock,
                                  JournalBlock, LandedSkipContext, MoveContext,
                                  OpContext, OpError, PageContext,
-                                 RecordConflictHeader, RecordUnlinkRewrite,
+                                 RecordConflictHeader, RecordRewrite,
                                  ReindexRefs,
                                  SetCollapsed, SetHeading, SetPageId,
                                  SetParent, SetViewType, ShiftSiblings, Skip,
@@ -32,7 +32,7 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  classify_skip, classify_text_edit,
                                  delete_diverged,
                                  find_op_title_violation, plan_op,
-                                 skip_report, stale_unlink_effects,
+                                 skip_report, rewrite_effects,
                                  unlink_stale_text)
 from pkm.server.store import (BlankTitleError, fetch_page,
                               get_or_create_page, reindex_refs_for_text,
@@ -464,12 +464,12 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
             "INSERT OR REPLACE INTO conflict_headers(target_uid, day,"
             " header_uid) VALUES (?,?,?)",
             (eff.target_uid, eff.day, eff.header_uid))
-    elif isinstance(eff, RecordUnlinkRewrite):
+    elif isinstance(eff, RecordRewrite):
         db.executemany(
             "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
-            " new_title, created_at, kind) VALUES (?,?,?,?,'',?,'unlink')",
-            [(eff.uid, eff.base_hash, eff.after_hash, title, now_ms)
-             for title in eff.titles])
+            " new_title, created_at, kind) VALUES (?,?,?,?,?,?,?)",
+            [(eff.uid, r.base_hash, r.after_hash, r.old_title, r.new_title,
+              now_ms, r.kind) for r in eff.rewrites])
     elif isinstance(eff, JournalBlock):
         # the same row the blocks triggers write (schema.py SERVER_DDL)
         db.execute(
@@ -564,9 +564,11 @@ def apply_batch(db: sqlite3.Connection, batch: OpBatch,
             op = unlink_stale_text(op, is_stale)
         ctx = _context_for(db, op, now_ms, is_stale)
         effects = plan_op(index, op, ctx)
-        if is_stale is not None and op is not sent:
-            effects += stale_unlink_effects(sent, effects, stale,
-                                            title_reader(db))
+        outcome = (ctx.outcome if isinstance(ctx, TextEditContext)
+                   and ctx.outcome.replayed else None)
+        if outcome is not None or (is_stale is not None and op is not sent):
+            effects += rewrite_effects(sent, effects, stale or (),
+                                       title_reader(db), outcome)
         for eff in effects:
             _execute(db, eff, now_ms)
         if isinstance(ctx, SKIPPED_CONTEXTS):

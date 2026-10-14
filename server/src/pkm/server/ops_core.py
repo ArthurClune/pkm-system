@@ -11,7 +11,7 @@ contract every client builds against, so they must not sit behind
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Union
 
 from pkm.contracts.ops import (UID_RE, BlockOp, BlockUid, CreateOp,
@@ -100,6 +100,7 @@ class BlockRewrite:
 
 @dataclass
 class _RewriteStep:
+    """One pass over a block: what `replay_title_rewrites` consumes."""
     base_hash: str
     after_hash: str
     retitles: dict[str, str]
@@ -165,24 +166,42 @@ def replay_title_rewrites(
     The unlink step also defuses a leading attribute naming the deleted page
     (`X:: v` becomes `` `X`:: v ``), so the replayed text never re-creates it.
     """
+    text, base_hash, _ = _replay(text, base_hash, rewrites, canonical)
+    return text, base_hash
+
+
+def _replay_step(text: str, step: _RewriteStep,
+                 canonical: Callable[[str], str]) -> str:
+    if step.retitles:
+        text = rewrite_title_refs_map(text, step.retitles)
+    if step.unlinked or step.inlines:
+        unlinked = {canonical(title) for title in step.unlinked}
+
+        def is_deleted(raw: str) -> bool:
+            return canonical(normalize_title(raw)) in unlinked
+
+        text = defuse_attribute(
+            apply_delete_rewrite(text, is_deleted, step.inlines), is_deleted)
+    return text
+
+
+def _replay(
+    text: str, base_hash: str, rewrites: Sequence[BlockRewrite],
+    canonical: Callable[[str], str],
+) -> tuple[str, str, tuple[_RewriteStep, ...]]:
+    """`replay_title_rewrites`, also returning the steps it consumed in the
+    order it walked them."""
     steps = _rewrite_steps(rewrites)
+    consumed: list[_RewriteStep] = []
     for _ in range(MAX_REPLAYED_REWRITES):
         match = next((s for s in steps if s.base_hash == base_hash), None)
         if match is None:
             break
         steps = [s for s in steps if s is not match]
-        if match.retitles:
-            text = rewrite_title_refs_map(text, match.retitles)
-        if match.unlinked or match.inlines:
-            unlinked = {canonical(title) for title in match.unlinked}
-            def is_deleted(raw: str) -> bool:
-                return canonical(normalize_title(raw)) in unlinked
-
-            text = defuse_attribute(
-                apply_delete_rewrite(text, is_deleted, match.inlines),
-                is_deleted)
+        consumed.append(match)
+        text = _replay_step(text, match, canonical)
         base_hash = match.after_hash
-    return text, base_hash
+    return text, base_hash, tuple(consumed)
 
 
 @dataclass(frozen=True)
@@ -199,6 +218,7 @@ class TextEditOutcome:
     carrying the landing only a conflict pays for."""
     kind: Literal["identical", "clean", "conflict"]
     text: str
+    replayed: tuple[_RewriteStep, ...] = field(default=(), compare=False)
 
 
 def classify_text_edit(
@@ -206,13 +226,13 @@ def classify_text_edit(
     rewrites: Sequence[BlockRewrite],
     canonical: Callable[[str], str] = normalize_title,
 ) -> TextEditOutcome:
-    replayed_text, replayed_hash = replay_title_rewrites(
+    replayed_text, replayed_hash, steps = _replay(
         text, base_hash, rewrites, canonical)
     if replayed_text == current_text:
-        return TextEditOutcome("identical", replayed_text)
+        return TextEditOutcome("identical", replayed_text, steps)
     if text_hash(current_text) == replayed_hash:
-        return TextEditOutcome("clean", replayed_text)
-    return TextEditOutcome("conflict", replayed_text)
+        return TextEditOutcome("clean", replayed_text, steps)
+    return TextEditOutcome("conflict", replayed_text, steps)
 
 
 SkipKind = Literal["noop", "orphan_structural", "orphan_edit",
@@ -621,16 +641,14 @@ class RecordConflictHeader:
 
 
 @dataclass(frozen=True)
-class RecordUnlinkRewrite:
-    """`block_rewrites` `unlink` rows for a stale unlink of uid's text: one
-    per title in `titles`, all sharing the hashes of the whole rewrite --
-    `base_hash` of the text as the client sent it, `after_hash` of the text
-    written -- so the client's next hashed edit replays onto the written
-    text instead of conflicting."""
+class RecordRewrite:
+    """`block_rewrites` rows for a rewrite of uid's text the client has not
+    seen -- a stale unlink, a replayed rename or delete, or both: `rewrites`
+    all share the hashes of the whole rewrite (`base_hash` of the text as the
+    client sent it, `after_hash` of the text written), so the client's next
+    hashed edit replays onto the written text instead of conflicting."""
     uid: BlockUid
-    base_hash: str
-    after_hash: str
-    titles: tuple[CanonicalTitle, ...]
+    rewrites: tuple[BlockRewrite, ...]
 
 
 @dataclass(frozen=True)
@@ -655,7 +673,7 @@ class JournalBlock:
 Effect = Union[ShiftSiblings, InsertBlock, UpdateText, SetParent,
                DeleteBlocks, SetCollapsed, SetHeading, SetViewType,
                ReindexRefs, TouchPage, SetPageId, RecordConflictHeader,
-               RecordUnlinkRewrite, JournalBlock]
+               RecordRewrite, JournalBlock]
 
 def conflict_entry_effects(
     target_uid: BlockUid, lost_text: str, header_text: str,
@@ -792,21 +810,64 @@ def unlink_stale_text(op: BlockOp, is_stale: TitleMatch) -> BlockOp:
     return op if text == op.text else op.model_copy(update={"text": text})
 
 
-def stale_unlink_effects(
+def _rewrite_chain(
+    sent: str, written: str, stale_titles: Collection[CanonicalTitle],
+    replayed: Sequence[_RewriteStep], canonical: Callable[[str], str],
+) -> tuple[BlockRewrite, ...]:
+    """Rows taking `sent` to `written` one pass at a time: the stale unlink
+    first, then each replayed step, every pass hashed from the text before it
+    to the text after it. Chaining the passes, rather than folding them into
+    one row, keeps each rendering exactly as the original rewrite made it
+    (a rename to a title with spaces adds brackets a folded map would not).
+    Nothing when the passes do not reproduce `written`."""
+    rows: list[BlockRewrite] = []
+    text = sent
+    base = text_hash(sent)
+
+    def record(after_text: str, records: Sequence[tuple[RewriteKind, str, str]]):
+        nonlocal text, base
+        after = text_hash(after_text)
+        if after_text != text:
+            rows.extend(BlockRewrite(base, after, old, new, kind)
+                        for kind, old, new in records)
+            base = after
+        text = after_text
+
+    if stale_titles:
+        titles = set(stale_titles)
+        record(unlink_stale_refs(
+            sent, lambda raw: canonical(normalize_title(raw)) in titles),
+            [("unlink", t, "") for t in sorted(titles)])
+    for step in replayed:
+        record(_replay_step(text, step, canonical),
+               [*(("retitle", o, n) for o, n in step.retitles.items()),
+                *(("unlink", t, "") for t in sorted(step.unlinked)),
+                *(("inline", u, t) for u, t in step.inlines.items())])
+    return tuple(rows) if text == written else ()
+
+
+def rewrite_effects(
     original: BlockOp, planned: tuple[Effect, ...],
     stale: Collection[CanonicalTitle],
     canonical: Callable[[str], str],
+    outcome: TextEditOutcome | None = None,
 ) -> tuple[Effect, ...]:
-    """The rewrite rows for a stale unlink that changed the text a create /
-    update_text then wrote: `original` is the op as the client sent it,
-    `planned` the effects of the unlinked op, `stale` the canonical deleted
-    titles. Text that was parked rather than written to the op's uid leaves
-    no rows."""
+    """The rewrite rows for a create / update_text whose written text differs
+    from the text the client sent, because of a stale unlink and / or a
+    replayed rename or delete: `original` is the op as the client sent it,
+    `planned` the effects of the op as applied, `stale` the canonical deleted
+    titles, `outcome` the replay classification of a hashed update_text.
+    Text that was parked rather than written to the op's uid leaves no rows,
+    and a conflicting edit records its stale unlink only."""
     if not isinstance(original, (CreateOp, UpdateTextOp)):
         return ()
     written = next((e.text for e in reversed(planned)
                     if isinstance(e, (InsertBlock, UpdateText))
                     and e.uid == original.uid), None)
+    replayed: tuple[_RewriteStep, ...] = ()
+    if outcome is not None and outcome.kind != "conflict":
+        written = outcome.text
+        replayed = outcome.replayed
     if written is None:
         return ()
     titles = tuple(sorted(
@@ -815,10 +876,11 @@ def stale_unlink_effects(
             original.text,
             lambda raw, t=title: canonical(normalize_title(raw)) == t)
         != original.text))
-    if not titles:
+    if not (titles or replayed) or written == original.text:
         return ()
-    return (RecordUnlinkRewrite(original.uid, text_hash(original.text),
-                                text_hash(written), titles),)
+    rows = _rewrite_chain(original.text, written, titles, replayed,
+                          canonical)
+    return (RecordRewrite(original.uid, rows),) if rows else ()
 
 
 def impossible_uid_reason(op: BlockOp, skip: Skip) -> str | None:

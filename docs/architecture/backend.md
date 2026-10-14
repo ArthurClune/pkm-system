@@ -398,6 +398,16 @@ deleted page or a `((ref))` to a block that no longer exists. Only a
 conflict resolves (and may create) today's daily page. Hashless edits to a
 live block never touch it.
 
+A replay or a stale unlink makes the written text differ from the text the
+client sent, and the client stamps its next hashed edit from the text it
+sent. `ops_core.rewrite_effects` therefore records `block_rewrites` rows
+(`RecordRewrite`) for a clean or identical outcome: one group per pass (the
+stale unlink, then each replayed step), chained from `text_hash` of the text
+as sent to `text_hash` of the text written. The chain is checked to
+reproduce the written text before anything is recorded; a conflict records
+its stale unlink alone. A plain hashed edit, and a rename with no later
+edit, record nothing.
+
 `delete` carries an optional `base_subtree_hash`, taken over the uid and text
 of the block and every descendant
 ([canonical form](sync-and-offline.md#conflicts-at-push-time)). Order and
@@ -536,7 +546,7 @@ database) counts every recorded deletion as newer.
 |---|---|
 | `create_page` for a stale title | dropped, not reported; the replica removes its local page (`dropStrandedLocalPages`) |
 | top-level `create` / `move` with a stale `page_title` | skipped as `stale_page`; the rows above |
-| `create` / `update_text` whose text links a stale title | the links become plain text (`ops_core.unlink_stale_text`), as the delete did for the text it saw; each stale title unlinked from text that was written adds an `unlink` row to `block_rewrites` (`RecordUnlinkRewrite`), so the client's next hashed edit replays onto the written text instead of conflicting |
+| `create` / `update_text` whose text links a stale title | the links become plain text (`ops_core.unlink_stale_text`), as the delete did for the text it saw; the rows `ops_core.rewrite_effects` records are described under `classify_text_edit` above |
 | `create` / `update_text` whose leading `Title::` attribute names a stale title | the name is code-fenced in place, `` `X`:: v `` (`unlink.defuse_attribute`), which indexes no ref; a name holding a backtick takes `:` for `::` instead. A real delete refuses such a block rather than rewriting it. The unlink replay defuses too, so the recorded row reproduces the fenced text |
 
 `stale_page` is the `SkipKind`; the ack reports it as `page_deleted`. A page

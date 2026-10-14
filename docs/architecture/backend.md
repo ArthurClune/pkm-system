@@ -203,7 +203,9 @@ Around that base model:
   - `block_rewrites(uid, base_hash, after_hash, old_title, new_title,
     created_at, kind)` — what a rename, merge, the title migration or a page
     delete did to one block's text, replayed over a stale `update_text`.
-    Pruned to 30 days on every rewrite. `kind` says what the title columns
+    The ops path also writes it (a stale unlink and a replay chain, through
+    `ops_core.rewrite_effects`; see [Conflicts](#conflicts)). Pruned to 30
+    days by a rename or a page delete. `kind` says what the title columns
     mean; `db._ensure_schema_migrations` adds the column to an older table
     (existing rows read `retitle`).
 

@@ -6,9 +6,11 @@ block ref into the page's block copied in place. Spans come from the same
 scanners `refs.extract()` uses (bracket_spans, tag_spans,
 attribute_title_span), never a second grammar, and are spliced back to
 front on `strip_code()` output whose offsets index the original text, as
-`rename.py` does. A leading `Title::` attribute is never touched; a rewrite
-that would add or change one, a query macro naming the page, and a rewrite
-that would still reference the page are reported as blockers instead.
+`rename.py` does. The delete never touches a leading `Title::` attribute; a
+rewrite that would add or change one, a query macro naming the page, and a
+rewrite that would still reference the page are reported as blockers instead.
+The stale path (`unlink_stale_refs`) has no blockers to report, so
+`defuse_attribute` fences a leading attribute naming the page in backticks.
 """
 from __future__ import annotations
 

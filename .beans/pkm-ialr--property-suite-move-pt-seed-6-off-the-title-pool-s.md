@@ -14,6 +14,6 @@ Cleaner: seed pt_seed_6 on its own page outside PAGE_TITLES (e.g. "Fixture") in 
 
 ## Todo
 
-- [ ] Move pt_seed_6 to a non-pool page in the harness template
-- [ ] Drop DeletePage's spared outcome
-- [ ] Re-run proptest/check.sh web --file sync and compare the stale-race tally
+- [x] Move pt_seed_6 to a non-pool page in the harness template
+- [x] Drop DeletePage's spared outcome
+- [x] Re-run proptest/check.sh web --file sync and compare the stale-race tally

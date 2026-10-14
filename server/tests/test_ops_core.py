@@ -35,6 +35,7 @@ from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  replay_title_rewrites,
                                  plan_op, skip_report, rewrite_effects,
                                  unlink_stale_text)
+from pkm.server.ops_core import MAX_REPLAYED_REWRITES
 from pkm.unlink import unlink_stale_refs
 
 B = BlockInfo(uid=BlockUid("uid_b3"), page_id=PageId(1),
@@ -1293,6 +1294,18 @@ def test_rewrite_effects_record_nothing_when_the_chain_misses_written():
                         base_text_hash=text_hash(t0))
     assert rewrite_effects(sent, (), (), normalize_title, outcome.replayed,
                            "[[B]] elsewhere") == ()
+
+
+def test_rewrite_effects_record_nothing_when_the_chain_outruns_the_replay_cap():
+    texts = [f"[[A{i}]]" for i in range(MAX_REPLAYED_REWRITES + 1)]
+    rewrites = tuple(
+        BlockRewrite(text_hash(a), text_hash(b), a[2:-2], b[2:-2])
+        for a, b in zip(texts, texts[1:]))[::-1]
+    stale = {CanonicalTitle(NormalizedTitle("Z"))}
+    # the stale unlink plus ten replayed renames is an 11-step chain, one more
+    # than a later replay of the recorded rows can walk
+    assert _replay_effects(f"{texts[0]} [[Z]]", texts[0], rewrites,
+                           texts[-1], stale) == ()
 
 
 def test_replay_of_a_real_delete_unlink_row_fences_a_leading_attribute():

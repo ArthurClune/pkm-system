@@ -1,11 +1,11 @@
 ---
 # pkm-8dgu
 title: Property coverage gaps for stale-batch handling
-status: in-progress
+status: completed
 type: task
 priority: low
 created_at: 2026-10-14T12:14:28Z
-updated_at: 2026-10-14T13:34:21Z
+updated_at: 2026-10-14T14:40:34Z
 ---
 
 Follow-up to pkm-ynze / pkm-wvac. The stale-batch rules are covered end to end by the web sync property suite (DeletePage racing offline edits, serial replay with a seen_seq mapping, the "delete wins" invariant, teeth) and by example tests (server/tests/test_stale_page_ops.py). Gaps a property run would not catch:
@@ -25,4 +25,8 @@ Follow-up to pkm-ynze / pkm-wvac. The stale-batch rules are covered end to end b
 
 ## Finding: a pull overlapping a post loses the post's optimistic text
 
-The conflict-noise invariant fails on about one gate run in three. A changes window the server answered before batch X committed, but which arrives after X's ack, is applied as at the head (next_since >= latest_seq), so applyWindow rewinds X's frozen records (rewind(db, "all")): the replica reads the pre-X text until the next window. A same-client edit enqueued in that gap is hashed against the pre-X text and lands a spurious overwritten conflict. Shrunk examples: Nudge(B, ahead), Edit(B, update pt_seed_4 ""), DeletePage(A, Second), Edit(B, update pt_seed_4 "[[Alpha]]"); and Nudge(A, ahead), Edit(A, update pt_seed_3 "Proptest::"), Pull(C), Edit(A, update pt_seed_3 ""). Not fixed here.
+The conflict-noise invariant fails on about one gate run in three. A changes window the server answered before batch X committed, but which arrives after X's ack, is applied as at the head (next_since >= latest_seq), so applyWindow rewinds X's frozen records (rewind(db, "all")): the replica reads the pre-X text until the next window. A same-client edit enqueued in that gap is hashed against the pre-X text and lands a spurious overwritten conflict. Shrunk examples: Nudge(B, ahead), Edit(B, update pt_seed_4 ""), DeletePage(A, Second), Edit(B, update pt_seed_4 "[[Alpha]]"); and Nudge(A, ahead), Edit(A, update pt_seed_3 "Proptest::"), Pull(C), Edit(A, update pt_seed_3 ""). Fixed under pkm-26y7.
+
+## Summary of Changes
+
+The server ops model draws page deletes, seen_seq and leading attributes; the sync oracle checks conflict noise; the teeth cover the orphan-edit parked-text path. The window race the conflict-noise check found was fixed under pkm-26y7.

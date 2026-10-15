@@ -264,6 +264,114 @@ test("Ctrl-Cmd arrows select to block edge, then whole blocks", async ({ page })
   await expect(selectedRows).toHaveCount(2);
 });
 
+test.describe("Shift selection in a multi-line block", () => {
+  // "line one\nline two\nline three": logical lines start at 0, 9, 18 and
+  // end at 8, 17, 28
+  const MULTI = "line one\nline two\nline three";
+  let title = "";
+
+  test.afterEach(async ({ page }) => {
+    if (title) await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
+  });
+
+  const selection = (page: Page) =>
+    input(page).evaluate((el: HTMLTextAreaElement) =>
+      [el.selectionStart, el.selectionEnd]);
+  const select = (page: Page, start: number, end: number) =>
+    input(page).evaluate((el: HTMLTextAreaElement, [s, e]) =>
+      el.setSelectionRange(s, e), [start, end]);
+
+  /** "above", the multi-line block, "below"; leaves the middle one focused. */
+  async function setup(page: Page) {
+    title = `ShiftSelect${Date.now()}`;
+    await login(page);
+    const createRes = await page.request.post("/api/pages", { data: { title } });
+    expect(createRes.ok()).toBeTruthy();
+    await page.goto(`/page/${encodeURIComponent(title)}`);
+    await page.getByText("Click to start writing…").click();
+    await input(page).fill("above");
+    await input(page).press("Enter");
+    await input(page).fill(MULTI);
+    await input(page).press("Enter");
+    await input(page).fill("below");
+    const rows = page.locator(".block-tree > .block > .block-row");
+    await expect(rows).toHaveCount(3);
+    await rows.nth(1).locator(".block-text").click();
+    await expect(input(page)).toHaveValue(MULTI);
+    return rows;
+  }
+
+  test("Shift-Cmd-Left/Right extend line by line over logical lines", async ({ page }) => {
+    await setup(page);
+
+    // native selection stops at the line start and dead-ends on the second
+    // press; each press here adds one more logical line, then stops at 0
+    await select(page, 23, 23);
+    for (const start of [18, 9, 0, 0]) {
+      await input(page).press("Shift+Meta+ArrowLeft");
+      await expect.poll(() => selection(page)).toEqual([start, 23]);
+    }
+
+    await select(page, 3, 3);
+    for (const end of [8, 17, 28, 28]) {
+      await input(page).press("Shift+Meta+ArrowRight");
+      await expect.poll(() => selection(page)).toEqual([3, end]);
+    }
+
+    // a soft-wrapped line is one logical line: select to its real start,
+    // not the display line's
+    const long = "word ".repeat(120).trim();
+    await input(page).fill(long);
+    await select(page, long.length, long.length);
+    await input(page).press("Shift+Meta+ArrowLeft");
+    await expect.poll(() => selection(page)).toEqual([0, long.length]);
+    await expect(input(page)).toBeFocused();
+  });
+
+  test("Shift-Up/Down with text selected escalate to a block selection at the edge", async ({ page }) => {
+    const rows = await setup(page);
+    const selectedRows = page.locator(".block-row.selected");
+
+    // Shift-Left/Right at the block edges stay in the block (checked after
+    // each press: a jump up then back down would otherwise cancel out)
+    await select(page, 0, 0);
+    await input(page).press("Shift+ArrowLeft");
+    await expect(input(page)).toHaveValue(MULTI);
+    await select(page, MULTI.length, MULTI.length);
+    await input(page).press("Shift+ArrowRight");
+    await expect(input(page)).toHaveValue(MULTI);
+    await expect(input(page)).toBeFocused();
+
+    // away from the top line, Shift-Up extends the text selection natively
+    await select(page, 20, 24);
+    await input(page).press("Shift+ArrowUp");
+    await expect(selectedRows).toHaveCount(0);
+    await expect(input(page)).toBeFocused();
+    const [start, end] = await selection(page);
+    expect(start).toBeLessThan(20);
+    expect(end).toBe(24);
+
+    // on the last line, Shift-Down takes the block and the one below
+    await select(page, 20, 24);
+    await input(page).press("Shift+ArrowDown");
+    await expect(selectedRows).toHaveCount(2);
+    await expect(selectedRows.last()).toHaveAttribute("data-uid",
+      (await rows.nth(2).getAttribute("data-uid"))!);
+    await expect(page.locator(".block-tree")).toBeFocused();
+
+    // on the first line, Shift-Up takes the block and the one above
+    await page.keyboard.press("Escape");
+    await expect(selectedRows).toHaveCount(0);
+    await rows.nth(1).locator(".block-text").click();
+    await select(page, 2, 6);
+    await input(page).press("Shift+ArrowUp");
+    await expect(selectedRows).toHaveCount(2);
+    await expect(selectedRows.first()).toHaveAttribute("data-uid",
+      (await rows.nth(0).getAttribute("data-uid"))!);
+    await expect(page.locator(".block-tree")).toBeFocused();
+  });
+});
+
 test("can click back into a line after emptying it", async ({ page }) => {
   await login(page);
   const today = page.locator(".journal-day").first();

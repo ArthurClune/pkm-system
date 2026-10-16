@@ -36,12 +36,12 @@ class ImageDescriber(Protocol):
 
 class DescribeService:
     def __init__(self, config: Config, describer: ImageDescriber | None,
-                 reason: str | None):
+                 reason: str | None) -> None:
         self._config = config
         self._describer = describer
         self.reason = reason
         self._queue: asyncio.Queue[str] = asyncio.Queue()
-        self._task: asyncio.Task | None = None
+        self._task: asyncio.Task[None] | None = None
         self._shutdown_task: asyncio.Task[None] | None = None
         self._closed = False
         # SHAs currently queued or mid-attempt; guards at most one ordinary

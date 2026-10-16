@@ -8,10 +8,14 @@ The export layout the paths assume (writer.py owns it):
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING
 
 from pkm.filenames import truncate_utf8
 from pkm.refs import BLOCK_REF_TOKEN
+
+if TYPE_CHECKING:
+    from pkm.server.tree import TreeNode
 
 _ASSET_LINK_RE = re.compile(r"\]\(/assets/")
 _BLOCK_REF_RE = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
@@ -43,11 +47,11 @@ def page_filename(title: str, taken: set[str]) -> str:
     return name
 
 
-def render_page(title: str, tree: list[dict],
+def render_page(title: str, tree: Sequence[TreeNode],
                 uid_to_text: Mapping[str, str]) -> str:
     lines = [f"# {title}", ""]
 
-    def walk(nodes: list[dict], depth: int) -> None:
+    def walk(nodes: Sequence[TreeNode], depth: int) -> None:
         pad = "  " * depth
         for node in nodes:
             text = rewrite_asset_links(

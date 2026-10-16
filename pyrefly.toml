@@ -5,3 +5,13 @@ disable-project-excludes-heuristics = true
 project-excludes = ["**/node_modules", "**/__pycache__", "**/.venv/**/*"]
 use-ignore-files = false
 search-path = ["server/tests", "server/tooling"]
+
+# Production code may not leave a type argument or parameter implicitly Any:
+# `dict` must say `dict[str, object]` (or name a model), so data from outside
+# is narrowed before use. Tests are exempt.
+[[sub-config]]
+matches = "server/src/**"
+[sub-config.errors]
+implicit-any-type-argument = true
+implicit-any-parameter = true
+implicit-any-empty-container = true

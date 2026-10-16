@@ -20,7 +20,7 @@ def batch_request_hash(batch: OpBatch) -> str:
     return hashlib.sha256(canon.encode()).hexdigest()
 
 
-def _canonical_op(op: BlockOp) -> dict:
+def _canonical_op(op: BlockOp) -> dict[str, object]:
     """The op as hashed. applied_batches keeps these hashes across deploys,
     so an op that doesn't use a field added later must hash as it did
     before the field existed: any new optional op field is left out here
@@ -52,7 +52,7 @@ def batch_replay_hash(batch: OpBatch) -> str:
     return hashlib.sha256(canon.encode()).hexdigest()
 
 
-def _canonical_replay_op(op: BlockOp) -> dict:
+def _canonical_replay_op(op: BlockOp) -> dict[str, object]:
     """`_canonical_op`, minus base_text_hash/page_title on update_text
     and base_subtree_hash on delete: guard/label metadata the worker
     fills into the durable copy of a batch, never the fallback-lane copy,

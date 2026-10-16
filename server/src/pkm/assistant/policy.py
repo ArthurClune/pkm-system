@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Literal
 
 from pkm.contracts.responses import AssistantModel
@@ -111,7 +111,7 @@ _SUMMARY_KEYS: dict[str, tuple[str, str]] = {
 }
 
 
-def tool_summary(short: str, tool_input: dict) -> str:
+def tool_summary(short: str, tool_input: Mapping[str, object]) -> str:
     if short == "todos":
         return "listing TODOs"
     if short == "changed_blocks":
@@ -126,7 +126,7 @@ def tool_summary(short: str, tool_input: dict) -> str:
     return short
 
 
-def _batch_lines(commands: list) -> list[str]:
+def _batch_lines(commands: Sequence[object]) -> list[str]:
     """One line per command, mirroring mcp.server.batch's
     {"command": ..., "params": {...}} items."""
     lines = [f"batch: {len(commands)} operation(s)"]
@@ -140,7 +140,7 @@ def _batch_lines(commands: list) -> list[str]:
     return lines
 
 
-def ops_preview(short: str, tool_input: dict) -> str:
+def ops_preview(short: str, tool_input: Mapping[str, object]) -> str:
     # `batch` gets a per-operation listing; everything else falls through to
     # the generic dump of every argument. A batch payload we can't read as a
     # list of commands falls through too: this branch once looked

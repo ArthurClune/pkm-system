@@ -49,7 +49,7 @@ CLOSE_TIMEOUT = 2.0  # generous: best-effort, and only ever delays a drop
 class _Client:
     def __init__(self, ws: WebSocket) -> None:
         self.ws = ws
-        self.queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=QUEUE_SIZE)
+        self.queue: asyncio.Queue[dict[str, object]] = asyncio.Queue(maxsize=QUEUE_SIZE)
         self.drain_task: asyncio.Task[None] | None = None
 
 
@@ -90,7 +90,7 @@ class Hub:
         if client is not None and client.drain_task is not None:
             client.drain_task.cancel()
 
-    async def broadcast(self, message: dict) -> None:
+    async def broadcast(self, message: dict[str, object]) -> None:
         # No await in this loop -- required so two overlapping
         # broadcast() calls always enqueue in call order for a given
         # client, which is what gives per-client FIFO ordering without a

@@ -492,5 +492,5 @@ def test_seq_frame_is_typed_and_validated():
     con.executescript(DDL)
     frame = seq_frame(con)
     assert frame == {"type": "seq", "seq": 0}
-    assert SeqFrame(**frame).seq == 0
+    assert SeqFrame.model_validate(frame).seq == 0
     con.close()

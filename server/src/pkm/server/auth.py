@@ -125,7 +125,7 @@ def login_page() -> str:
 
 @router.post("/api/login")
 def login(body: LoginBody, request: Request, response: Response,
-          config: Config = Depends(get_config)) -> dict:
+          config: Config = Depends(get_config)) -> dict[str, object]:
     throttle: LoginThrottle = request.app.state.login_throttle
     source = request.client.host if request.client else "unknown"
     mono_ms = int(time.monotonic() * 1000)

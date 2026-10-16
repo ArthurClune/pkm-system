@@ -53,7 +53,7 @@ def enabled_reason(api_key: str | None, config_enabled: bool) -> str | None:
     return None
 
 
-def request_payload(model: str, mime: str, image_b64: str) -> dict:
+def request_payload(model: str, mime: str, image_b64: str) -> dict[str, Any]:
     return {
         "model": model,
         "max_tokens": 500,
@@ -68,12 +68,14 @@ def request_payload(model: str, mime: str, image_b64: str) -> dict:
     }
 
 
-def parse_description(body: Any) -> str:
+def parse_description(body: object) -> str:
     """Extract the completion text; ValueError on any unexpected shape."""
-    try:
-        text = body["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
+    choices = body.get("choices") if isinstance(body, dict) else None
+    first = choices[0] if isinstance(choices, list) and choices else None
+    message = first.get("message") if isinstance(first, dict) else None
+    if not isinstance(message, dict) or "content" not in message:
         raise ValueError("unexpected response shape")
+    text = message["content"]
     if not isinstance(text, str) or not text.strip():
         raise ValueError("empty completion")
     return text.strip()[:MAX_DESCRIPTION_CHARS]

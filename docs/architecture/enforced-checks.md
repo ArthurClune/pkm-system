@@ -33,7 +33,7 @@ clone enables them. `--no-verify` bypasses both.
 
 | Step | Fails when |
 |---|---|
-| `lint` (`eslint.config.js`) | a hook dependency array drifts, a promise floats or is misused, a non-Error is thrown, a caught error is untyped, `apiFetch` is imported outside the transport boundary, or a disable directive is stale |
+| `lint` (`eslint.config.js`) | a hook dependency array drifts, a promise floats or is misused, a non-Error is thrown, a caught error is untyped, `apiFetch` is imported outside the transport boundary, an `any` flows through production code (written, assigned, returned, passed, called or member-accessed), or a disable directive is stale |
 | `check:fcis` (`tooling/fcis.mjs`) | a Functional Core module imports an Imperative Shell one at runtime ([overview.md](overview.md#functional-core--imperative-shell)) |
 | `test:coverage` | statements or lines under 95%, branches under 91%, functions under 89% (`vite.config.ts`) |
 | `genTypes.drift.test.ts` | `types.d.ts` no longer matches `openapi.json` |
@@ -41,7 +41,10 @@ clone enables them. `--no-verify` bypasses both.
 
 Server type and lint checks are separate commands, not part of pytest:
 `uv run pyrefly check` and `uv run ruff check` (ruff `E501` at 120 shares the
-`noqa: E501` override with `pre-commit`).
+`noqa: E501` override with `pre-commit`). In `server/src`, pyrefly rejects an
+implicit `Any` (`implicit-any-*`) and ruff rejects a missing annotation or a
+bare `Any` (`ANN`); tests and tooling are exempt. The typing policy is in
+[backend.md](backend.md#testing).
 
 ## Before a merge
 

@@ -137,8 +137,9 @@ def _plan_sql(node: QueryNode, expand: bool = False) -> tuple[str, list[str]]:
     if node.kind == "not":  # only reachable nested inside and
         return _plan_sql(node.children[0], expand)
     wrap = "SELECT uid FROM ({})"
+    parts: list[str] = []
+    params: list[str] = []
     if node.kind == "or":
-        parts, params = [], []
         for c in node.children:
             sql, p = _plan_sql(c, expand)
             parts.append(wrap.format(sql))
@@ -149,7 +150,6 @@ def _plan_sql(node: QueryNode, expand: bool = False) -> tuple[str, list[str]]:
     negatives = [c.children[0] for c in node.children if c.kind == "not"]
     if not positives:
         raise QueryParseError("and needs at least one non-negated operand")
-    parts, params = [], []
     for c in positives:
         sql, p = _plan_sql(c, expand)
         parts.append(wrap.format(sql))

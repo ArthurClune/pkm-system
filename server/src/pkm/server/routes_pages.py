@@ -21,7 +21,7 @@ from pkm.refs import (CanonicalTitle, NormalizedTitle, is_blank_title,
                       title_syntax_reason)
 from pkm.server import notify
 from pkm.server.auth import require_auth
-from pkm.server.grouping import group_backlinks, group_by_page
+from pkm.server.grouping import BacklinkGroup, group_backlinks, group_by_page
 from pkm.server.daily import (is_page_empty, past_week_dates,
                               select_journal_days)
 from pkm.server.db import get_db
@@ -33,6 +33,7 @@ from pkm.server.store import (BlankTitleError, DeleteBlockedError,
                               plan_delete, rename_page_rows)
 from pkm.server.sync_meta import read_title, title_reader
 from pkm.server.tree import build_tree, collect_block_ref_uids, find_node
+from pkm.unlink import DeleteBlocker
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -56,7 +57,7 @@ def _daily_title(d: date) -> CanonicalTitle:
     return CanonicalTitle(NormalizedTitle(title_for_date(d)))
 
 
-def _block_ref_texts(db: sqlite3.Connection, texts: list[str]) -> dict:
+def _block_ref_texts(db: sqlite3.Connection, texts: list[str]) -> dict[str, object]:
     return _resolve_ref_uids(db, collect_block_ref_uids(texts))
 
 
@@ -74,11 +75,11 @@ def _block_ref_counts(db: sqlite3.Connection,
              GROUP BY target_block_uid""", uids)}
 
 
-def _resolve_ref_uids(db: sqlite3.Connection, uids: Sequence[str]) -> dict:
+def _resolve_ref_uids(db: sqlite3.Connection, uids: Sequence[str]) -> dict[str, object]:
     """Resolve ((refs)) transitively: a referenced block's text may itself
     contain ((refs)) the client renders nested, so follow the chain. The
     seen set makes cycles (and repeated missing uids) terminate."""
-    out: dict = {}
+    out: dict[str, object] = {}
     seen: set[str] = set()
     pending = uids
     while True:
@@ -119,7 +120,7 @@ def _fetch_ancestors(db: sqlite3.Connection, uids: list[str]) -> dict[str, list[
 
 
 def _backlinks(db: sqlite3.Connection, page_id: int,
-               offset: int, limit: int) -> tuple[list[dict], int, list[str]]:
+               offset: int, limit: int) -> tuple[list[BacklinkGroup], int, list[str]]:
     """A page's own blocks are never its linked references, even when they
     reference it (Roam-style `{{[[TODO]]}}` markers on the TODO page do)
     -- the same `b.page_id != ?` rule unlinked references apply.
@@ -154,7 +155,7 @@ def _backlinks(db: sqlite3.Connection, page_id: int,
 
 @router.get("/api/block-refs", response_model=BlockRefsPayload)
 def get_block_refs(uids: str,
-                   db: sqlite3.Connection = Depends(get_db)) -> dict:
+                   db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     """On-demand ((uid)) resolution for refs pasted after the page payload
     loaded. `uids` is comma-separated; unknown uids are omitted
     (the client renders them unresolved, same as the payload path)."""
@@ -172,7 +173,7 @@ def get_block_refs(uids: str,
 
 @router.get("/api/block/{uid}/backlinks", response_model=BlockBacklinksPayload)
 def get_block_backlinks(uid: str,
-                        db: sqlite3.Connection = Depends(get_db)) -> dict:
+                        db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     """The ((uid)) badge's popover read: who references this
     block. Same group shape and ordering as page backlinks; the count badge
     itself rides the page/journal payloads (block_ref_counts)."""
@@ -194,7 +195,7 @@ def get_block_backlinks(uid: str,
 
 
 @router.get("/api/block/{uid}", response_model=BlockPayload)
-def get_block(uid: str, db: sqlite3.Connection = Depends(get_db)) -> dict:
+def get_block(uid: str, db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     """One block's subtree plus its page and ancestor texts (the CLI/MCP
     `get <uid>` read; pages remain the only other read unit)."""
     if not _UID_RE.fullmatch(uid):
@@ -223,7 +224,7 @@ def get_block(uid: str, db: sqlite3.Connection = Depends(get_db)) -> dict:
 
 @router.get("/api/page/{title:path}", response_model=PagePayload)
 def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 20,
-             db: sqlite3.Connection = Depends(get_db)) -> dict:
+             db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     bl_limit = max(1, min(bl_limit, 100))
     title = read_title(db, title)
     page = fetch_page(db, title)
@@ -253,7 +254,7 @@ def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 2
 
 @router.post("/api/pages", response_model=PageMeta)
 def create_page(request: Request, body: CreatePageRequest,
-                db: sqlite3.Connection = Depends(get_db)) -> dict:
+                db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     """Idempotent: creating an existing page returns its row, not an error."""
     # get_or_create_page is the shared boundary that defines "blank" (a
     # whitespace-only title normalizes to "" there); this route is
@@ -270,7 +271,7 @@ def create_page(request: Request, body: CreatePageRequest,
     return dict(page)
 
 
-def _blocker_models(blockers) -> list[DeleteBlockerModel]:
+def _blocker_models(blockers: Sequence[DeleteBlocker]) -> list[DeleteBlockerModel]:
     return [DeleteBlockerModel(uid=b.uid, page_title=b.page_title,
                                text=b.text, reason=b.reason)
             for b in blockers]
@@ -299,7 +300,7 @@ def delete_preview(title: str,
 
 @router.delete("/api/page/{title:path}")
 def delete_page(request: Request, title: str,
-                db: sqlite3.Connection = Depends(get_db)) -> dict:
+                db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     """Deletes the page, its blocks, and any sidebar entry for it. Inbound
     [[links]] and #tags in other pages' blocks become plain
     text, and inbound ((block refs)) are replaced by a copy of the referenced
@@ -339,7 +340,7 @@ def delete_page(request: Request, title: str,
 
 @router.post("/api/page/{title:path}/rename", response_model=RenamePageResponse)
 def rename_page(request: Request, title: str, body: RenamePageRequest,
-                db: sqlite3.Connection = Depends(get_db)) -> dict:
+                db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     """Rename a page, rewriting every [[link]]/#tag/attr:: in block text.
     When the new title is taken: 409 unless allow_merge is true, in which
     case the source page is concatenated onto the target (source's
@@ -405,7 +406,7 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
 
 @router.get("/api/unlinked", response_model=GroupsPayload)
 def get_unlinked(title: str, limit: int = 20, offset: int = 0,
-                 db: sqlite3.Connection = Depends(get_db)) -> dict:
+                 db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     limit = max(1, min(limit, 100))
     title = read_title(db, title)
     page = fetch_page(db, title)
@@ -437,7 +438,7 @@ _CURRENT_WORK_SECTIONS = [
 
 @router.get("/api/current-work", response_model=CurrentWorkPayload)
 def get_current_work(now_ms: int | None = None,
-                     db: sqlite3.Connection = Depends(get_db)) -> dict:
+                     db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     now = now_ms if now_ms is not None else int(time.time() * 1000)
     sections = []
     for section_id, title, min_age, max_age in _CURRENT_WORK_SECTIONS:
@@ -487,7 +488,7 @@ JOURNAL_BACKLINK_PREVIEW = 5
 
 @router.get("/api/journal", response_model=JournalPayload)
 def get_journal(request: Request, before: str | None = None, days: int = 7,
-                db: sqlite3.Connection = Depends(get_db)) -> dict:
+                db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     """Newest-first batch of non-empty daily pages. The head
     batch (no `before`) starts with today — auto-created so there is a
     page to compose into, even when empty — followed by the most recent
@@ -561,7 +562,7 @@ def _daily_is_linked(db: sqlite3.Connection, page_id: int) -> bool:
 
 @router.post("/api/journal/cleanup")
 def cleanup_journal(request: Request,
-                    db: sqlite3.Connection = Depends(get_db)) -> dict:
+                    db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     """Deletes completely-empty daily pages from the 7 days before today
     (today is spared: the journal auto-creates it for composing). Stateless:
     every call re-checks the whole window, so a page emptied later by block

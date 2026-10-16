@@ -1043,6 +1043,11 @@ When measuring a slow request, prefer these durations to client-side timing.
   `PkmClient` wired to the in-process app.
 - `uv run pyrefly check` type-checks (pyright is configured as a second
   opinion) and `uv run ruff check` lints, at line length 120.
+- In `server/src`, both refuse an implicit `Any`: pyrefly's `implicit-any-*`
+  errors and ruff's `ANN` rules are on, with tests and tooling exempt. Data
+  from outside the app is typed `object` and narrowed before use. The one
+  sanctioned `Any` is `SchemaRow` (`pkm/schema.py`): a row read from our own
+  schema, whose column types the DDL fixes.
 - `server/tooling/perfcheck` is the performance gate behind `perf/check.sh`:
   see [performance-checks.md](performance-checks.md).
 - `server/tooling/commentlint` is the comment-rot lint behind

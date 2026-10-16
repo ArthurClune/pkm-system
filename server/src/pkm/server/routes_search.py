@@ -27,7 +27,7 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 @router.get("/api/search", response_model=SearchPayload)
 def search(q: str = "", limit: int = 20, exact: bool = False,
-           db: sqlite3.Connection = Depends(get_db)) -> dict:
+           db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     limit = max(1, min(limit, 100))
     if not q.strip():
         return {"pages": [], "blocks": []}
@@ -51,7 +51,7 @@ def search(q: str = "", limit: int = 20, exact: bool = False,
 
 @router.get("/api/query", response_model=QueryPayload)
 def run_query(expr: str, expand: bool = False,
-              db: sqlite3.Connection = Depends(get_db)) -> dict:
+              db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     try:
         node = parse_canonical_query(db, expr)
         sql, params = plan_sql(node, expand)
@@ -76,7 +76,7 @@ def run_query(expr: str, expand: bool = False,
 
 @router.get("/api/titles", response_model=TitlesPayload)
 def titles(q: str = "", limit: int = 10,
-           db: sqlite3.Connection = Depends(get_db)) -> dict:
+           db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     """Page-title completion for the editor's [[ / # popup."""
     limit = max(1, min(limit, 50))
     needle = q.strip()
@@ -104,7 +104,7 @@ def _page_filter(title: CanonicalTitle) -> tuple[str, CanonicalTitle]:
 
 @router.get("/api/todos", response_model=GroupsPayload)
 def todos(page: str | None = None,
-          db: sqlite3.Connection = Depends(get_db)) -> dict:
+          db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     """Blocks whose text starts with a {{TODO}} marker, grouped by page.
     SQL narrows to TODO-containing candidates; the shared
     pkm.todo matcher (the grammar's block-start rule, both bracket
@@ -128,7 +128,7 @@ def todos(page: str | None = None,
 @router.get("/api/changed", response_model=ChangedPayload)
 def changed(since: str, until: str | None = None, page: str | None = None,
            limit: int = 500,
-           db: sqlite3.Connection = Depends(get_db)) -> dict:
+           db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     """Blocks touched in [since, until), grouped by page in the order
     each page was first touched. `since`/`until` are each
     either a 'YYYY-MM-DD' date (local midnight) or a full ISO datetime
@@ -147,7 +147,7 @@ def changed(since: str, until: str | None = None, page: str | None = None,
            "       b.created_at, b.updated_at"
            "  FROM blocks b JOIN pages p ON p.id = b.page_id"
            " WHERE b.updated_at >= ? AND b.updated_at < ?")
-    params: list = [since_ms, until_ms]
+    params: list[object] = [since_ms, until_ms]
     if page is not None:
         clause, bound = _page_filter(read_title(db, page))
         sql += clause

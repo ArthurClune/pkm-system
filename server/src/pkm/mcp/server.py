@@ -122,7 +122,7 @@ def update_block(uid: str, text: str | None = None,
     return f"updated ^{uid}"
 
 
-def batch(commands: list[dict]) -> str:
+def batch(commands: list[dict[str, object]]) -> str:
     """Apply several commands in ONE atomic transaction. Each item is
     {"command": ..., "params": {...}} with commands: create (page, text,
     parent?, index?, as?), todo (like create, {{TODO}}-prefixed), update

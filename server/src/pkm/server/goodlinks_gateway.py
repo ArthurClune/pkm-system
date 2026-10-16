@@ -9,6 +9,8 @@ refusing a save (any other 4xx on POST). A 404 on a read is an ordinary
 "not there" and comes back as None."""
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import httpx2
 
 from pkm.goodlinks import GoodlinksId
@@ -59,9 +61,12 @@ class GoodlinksGateway:
     def close(self) -> None:
         self._http.close()
 
-    def _request(self, method: str, path: str, **kw) -> httpx2.Response:
+    def _request(self, method: str, path: str, *,
+                 params: Mapping[str, str] | None = None,
+                 json: Mapping[str, object] | None = None) -> httpx2.Response:
         try:
-            r = self._http.request(method, path, headers=self._headers, **kw)
+            r = self._http.request(method, path, headers=self._headers,
+                                   params=params, json=json)
         except httpx2.TransportError as e:
             raise GoodlinksUnavailable(str(e)) from e
         if r.status_code >= 500:
@@ -70,8 +75,9 @@ class GoodlinksGateway:
             raise GoodlinksUnauthorized(f"goodlinks answered {r.status_code}")
         return r
 
-    def _read(self, path: str, **kw) -> httpx2.Response | None:
-        r = self._request("GET", path, **kw)
+    def _read(self, path: str, *,
+              params: Mapping[str, str] | None = None) -> httpx2.Response | None:
+        r = self._request("GET", path, params=params)
         if r.status_code == 404:
             return None
         if r.status_code >= 400:

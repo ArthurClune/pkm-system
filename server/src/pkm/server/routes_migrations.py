@@ -19,6 +19,7 @@ from pkm.server.title_migration import (
     AlreadyActiveTitleMigration,
     BlockedTitleMigration,
     StaleTitleMigration,
+    TitleMigrationPlan,
     apply_title_migration,
     audit_title_migration,
 )
@@ -26,7 +27,7 @@ from pkm.server.title_migration import (
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 
-def _audit_payload(plan) -> dict:
+def _audit_payload(plan: TitleMigrationPlan) -> dict[str, object]:
     return {
         "active": plan.active,
         "digest": plan.digest,
@@ -65,7 +66,7 @@ def _audit_payload(plan) -> dict:
 )
 def audit_title_canonicalization(
     db: sqlite3.Connection = Depends(get_db),
-) -> dict:
+) -> dict[str, object]:
     return _audit_payload(audit_title_migration(db))
 
 
@@ -77,7 +78,7 @@ def apply_title_canonicalization(
     request: Request,
     body: TitleMigrationApplyRequest,
     db: sqlite3.Connection = Depends(get_db),
-) -> dict:
+) -> dict[str, object]:
     try:
         outcome = apply_title_migration(
             db, body.audit_digest, now_ms=int(time.time() * 1000)

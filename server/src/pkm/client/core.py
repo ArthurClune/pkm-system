@@ -43,7 +43,7 @@ def cookie_header(token: str) -> dict[str, str]:
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str) -> None:
         super().__init__(f"{status}: {message}")
         self.status = status
         self.message = message
@@ -62,7 +62,7 @@ class ResponseSchemaError(ApiError):
     `status` is 0, the same "no meaningful HTTP status" value transport
     failures use."""
 
-    def __init__(self, method: str, path: str, detail: str):
+    def __init__(self, method: str, path: str, detail: str) -> None:
         super().__init__(
             0, f"unexpected response from {method} {path}: {detail}"
                " — this client and the server disagree about the payload"

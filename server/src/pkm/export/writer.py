@@ -168,7 +168,7 @@ def _stage_assets(wanted: dict[Sha256Hex, tuple[str, int]], *, assets_dir: Path,
 
 
 def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
-                 export_dir: Path) -> dict:
+                 export_dir: Path) -> dict[str, int]:
     pages_dir = export_dir / "pages"
     journal_dir = export_dir / "journal"
     assets_dir = export_dir / "assets"

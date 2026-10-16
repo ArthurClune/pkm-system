@@ -14,10 +14,11 @@ its own typed groups.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from pkm.refs import CanonicalTitle
+from pkm.schema import SchemaRow
 from pkm.server.query import CanonicalQueryNode, QueryNode, parse_query
 from pkm.server.sync_meta import title_reader
 
@@ -59,7 +60,7 @@ class QueryMatches:
     the plan independently of `rows` so that a caller which ever limits the
     rows still reports the full match count."""
     total: int
-    rows: Sequence[Mapping]  # sqlite3.Row, typed as grouping.py reads it
+    rows: Sequence[SchemaRow]
 
 
 def count_matches(db: sqlite3.Connection, sql: str,

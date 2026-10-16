@@ -29,12 +29,19 @@ from pkm.refs import extract
 RECOVERY_PAGE_TITLE = "Import recovery: unreachable blocks"
 
 
+PageRow = tuple[int, str, int | None, int | None]
+BlockRow = tuple[str, int, str | None, int, str, int | None, int, int | None,
+                 int | None, str | None]
+RefRow = tuple[str, int, str]
+BlockRefRow = tuple[str, str]
+
+
 @dataclass(frozen=True)
 class Rows:
-    pages: list[tuple]
-    blocks: list[tuple]
-    refs: list[tuple]
-    block_refs: list[tuple]
+    pages: list[PageRow]
+    blocks: list[BlockRow]
+    refs: list[RefRow]
+    block_refs: list[BlockRefRow]
     implicit_page_count: int
     block_ref_count: int
     embed_count: int
@@ -102,10 +109,10 @@ def _collect_mermaid_candidates(
 
 
 def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
-    pages: list[tuple] = []
-    blocks: list[tuple] = []
-    refs: list[tuple] = []
-    block_refs: list[tuple] = []
+    pages: list[PageRow] = []
+    blocks: list[BlockRow] = []
+    refs: list[RefRow] = []
+    block_refs: list[BlockRefRow] = []
     page_ids: dict[str, int] = {}
     counts = {"block_ref": 0, "embed": 0}
     block_ref_sources = _collect_block_ref_sources(export)

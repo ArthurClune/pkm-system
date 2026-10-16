@@ -36,12 +36,12 @@ class RenderError(ValueError):
 
 
 def resolve_ref_texts(text: str, ref_map: RefMap,
-                      _seen: frozenset = frozenset()) -> str:
+                      _seen: frozenset[str] = frozenset()) -> str:
     """Inline ((uid)) tokens from `ref_map` (a payload's block_ref_texts)
     as '"resolved text" ((uid))' — text visible, uid kept for follow-up.
     Recurses into resolved text; a uid already being expanded stays a bare
     token, so ref cycles terminate. Unknown uids are left untouched."""
-    def _sub(m: re.Match) -> str:
+    def _sub(m: re.Match[str]) -> str:
         # The regex matches BLOCK_REF_TOKEN's shape, so the capture is a
         # well-formed uid; whether it names a live block is what the
         # ref_map lookup below actually decides.

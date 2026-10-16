@@ -86,8 +86,8 @@ def _parse(text: str, pos: int) -> tuple[object, int]:
     return _parse_atom(text, pos)
 
 
-def _parse_map(text: str, pos: int) -> tuple[dict, int]:
-    items = []
+def _parse_map(text: str, pos: int) -> tuple[dict[object, object], int]:
+    items: list[object] = []
     item_starts: list[int] = []
     while True:
         pos = _skip_ws(text, pos)
@@ -113,8 +113,8 @@ def _parse_map(text: str, pos: int) -> tuple[dict, int]:
     return dict(zip(items[::2], items[1::2], strict=True)), pos + 1
 
 
-def _parse_seq(text: str, pos: int, closer: str) -> tuple[list, int]:
-    items: list = []
+def _parse_seq(text: str, pos: int, closer: str) -> tuple[list[object], int]:
+    items: list[object] = []
     while True:
         pos = _skip_ws(text, pos)
         if pos >= len(text):

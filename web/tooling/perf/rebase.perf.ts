@@ -148,7 +148,8 @@ test("rebase: feed windows applied over a pending queue", async () => {
       throw new Error(`rebase scenario: ${name} is unstable: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
     }
     scenarios[name] = Object.fromEntries(
-      Object.entries(a).map(([metric, value]) => [metric, { class: "exact" as const, value }]));
+      (Object.keys(a) as (keyof SqlCounts)[]).map(
+        (metric) => [metric, { class: "exact" as const, value: a[metric] }]));
   });
   const tmp = `${OUT}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(scenarios, null, 2)}\n`);

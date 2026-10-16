@@ -48,7 +48,7 @@ class Phase:
 
 @dataclass(frozen=True)
 class TurnDone:
-    usage: dict | None = None
+    usage: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)

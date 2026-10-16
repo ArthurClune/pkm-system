@@ -563,10 +563,12 @@ Playwright e2e against that build.**
   of a page, the reliable way to wait for a write before a reload.
   `playwright.config.ts` launches `server/tests/e2e_serve.py` on `E2E_PORT`
   (default 8975).
-- **Lint** (flat, type-aware ESLint): two rule families — React Hooks
-  correctness, and promise/error safety (`no-floating-promises`,
-  `no-misused-promises`, `only-throw-error`, unknown catch variables). There
-  are zero `eslint-disable` comments in `web/src`.
+- **Lint** (flat, type-aware ESLint): `web/eslint.config.js` owns the rule
+  list and names its four families in its header: React Hooks correctness,
+  promise/error safety, API-boundary imports, and no `any` in production
+  code. `tooling/lintConfig.test.ts` proves each rule fires on a fixture.
+  The no-`any` family means a parsed JSON value is `unknown` until narrowed,
+  or typed by the generated API types.
 - **Budgets** (`web/tooling/budgets.json` + `viteBudgetPlugin.ts`): the build
   fails if the eager entry, largest asset, total output, service-worker
   precache, or the per-library owned bytes (mermaid/pdfjs/katex chunk

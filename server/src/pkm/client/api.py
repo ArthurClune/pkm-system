@@ -17,7 +17,7 @@ import os
 import secrets
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypedDict, TypeVar, Unpack
 from urllib.parse import quote
 
 import httpx2
@@ -39,6 +39,11 @@ from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload)
 from pkm.refs import normalize_title
+
+if TYPE_CHECKING:
+    # httpx2's own parameter types, from a private module: never import it
+    # at runtime, where a rename upstream would break the client's import.
+    from httpx2._types import QueryParamTypes, RequestFiles
 
 CLIENT_ID = ClientId("pkm-cli")
 _BACKLINK_MAX_ATTEMPTS = 5
@@ -112,15 +117,22 @@ def _detail(r: httpx2.Response) -> object:
         return r.text
 
 
+class _RequestKwargs(TypedDict, total=False):
+    params: QueryParamTypes
+    json: object
+    files: RequestFiles
+
+
 class PkmClient:
     def __init__(self, config: CliConfig,
-                 http: httpx2.Client | None = None):
+                 http: httpx2.Client | None = None) -> None:
         self._config = config
         self._http = http if http is not None else httpx2.Client(
             base_url=config.url, timeout=30)
         self._headers = cookie_header(config.token)
 
-    def _request(self, method: str, path: str, model: type[M], **kw) -> M:
+    def _request(self, method: str, path: str, model: type[M],
+                 **kw: Unpack[_RequestKwargs]) -> M:
         """One request, decoded into `model`. A body that isn't JSON, or
         that doesn't satisfy the contract, raises ResponseSchemaError --
         the client refuses to hand a half-understood payload onward."""
@@ -256,7 +268,7 @@ class PkmClient:
 
     def search(self, q: str, limit: int = 20,
                exact: bool = False) -> SearchPayload:
-        params: dict = {"q": q, "limit": limit}
+        params: dict[str, str | int] = {"q": q, "limit": limit}
         if exact:
             params["exact"] = "true"
         return self._request("GET", "/api/search", SearchPayload,
@@ -269,13 +281,14 @@ class PkmClient:
         return self._request("GET", "/api/query", QueryPayload, params=params)
 
     def todos(self, page: str | None = None) -> GroupsPayload:
-        params = {} if page is None else {"page": normalize_title(page)}
+        params: dict[str, str] = (
+            {} if page is None else {"page": normalize_title(page)})
         return self._request("GET", "/api/todos", GroupsPayload,
                              params=params)
 
     def changed(self, since: str, until: str | None = None,
                page: str | None = None, limit: int = 500) -> ChangedPayload:
-        params: dict = {"since": since, "limit": limit}
+        params: dict[str, str | int] = {"since": since, "limit": limit}
         if until is not None:
             params["until"] = until
         if page is not None:
@@ -343,7 +356,7 @@ class PkmClient:
                              AssetDeleteAck)
 
     def scan_assets(self, force: bool = False) -> ScanPayload:
-        params = {"force": "true"} if force else {}
+        params: dict[str, str] = {"force": "true"} if force else {}
         return self._request("POST", "/api/assets/scan", ScanPayload,
                              params=params)
 

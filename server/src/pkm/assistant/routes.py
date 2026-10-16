@@ -49,7 +49,7 @@ KEEPALIVE_INTERVAL_S = 15.0
 TEARDOWN_TIMEOUT_S = 30.0
 
 
-async def _wait_out(work: asyncio.Task) -> bool:
+async def _wait_out[T](work: asyncio.Future[T]) -> bool:
     """Wait for `work`, absorbing cancellations aimed at this coroutine.
 
     Returns True if `work` finished, False if the wait gave up on it.
@@ -198,7 +198,7 @@ def get_service(request: Request) -> AssistantService:
 
 
 @router.get("/api/assistant/models", response_model=AssistantModels)
-def list_models(service: AssistantService = Depends(get_service)) -> dict:
+def list_models(service: AssistantService = Depends(get_service)) -> dict[str, object]:
     """Models the picker may offer; glm appears only when a z.ai key is
     configured, so the UI can hide rather than error on it. The default is
     glm when offered, sonnet otherwise."""
@@ -208,7 +208,7 @@ def list_models(service: AssistantService = Depends(get_service)) -> dict:
 @router.post("/api/assistant/conversations", response_model=AssistantConversation)
 async def create_conversation(
     body: CreateConversationRequest, service: AssistantService = Depends(get_service)
-) -> dict:
+) -> dict[str, object]:
     try:
         cid, model = await service.create(body.model)
     except ValueError as exc:
@@ -243,7 +243,7 @@ async def confirm_tool(
     conversation_id: str,
     body: ConfirmRequestBody,
     service: AssistantService = Depends(get_service),
-) -> dict:
+) -> dict[str, object]:
     try:
         service.confirm(ConversationId(conversation_id), body.confirm_id, body.allow)
     except UnknownConversationError as exc:
@@ -253,7 +253,7 @@ async def confirm_tool(
 
 async def delete_conversation(
     conversation_id: str, service: AssistantService = Depends(get_service)
-) -> dict:
+) -> dict[str, object]:
     await service.delete(ConversationId(conversation_id))
     return {"ok": True}
 

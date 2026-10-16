@@ -15,7 +15,7 @@ outside every shell for the same reason this module does."""
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -32,7 +32,7 @@ from pkm.planning import (asset_block_text, create_page_ops, find_block,
 from pkm.todo import TaskMark
 
 
-def _uids():
+def _uids() -> Iterator[str]:
     return iter(new_uid, None)
 
 

@@ -47,7 +47,17 @@ line-length = 120
 [tool.ruff.lint]
 # E501 is the code half of the pre-commit line-length rule (server/tooling/commentlint),
 # enabled here so editors flag it live; `# noqa: E501` is the shared override.
-extend-select = ["E501"]
+#
+# ANN: production code annotates every signature, so an untyped value cannot
+# reach a function unnoticed. A bare `Any` parameter or return needs a
+# `# noqa: ANN401` naming the external API that forces it; prefer `object`
+# and narrow. ANN401 does not see a nested `Any` (`dict[str, Any]`), so that
+# is review's job. Tests and tooling are exempt.
+extend-select = ["E501", "ANN"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN"]
+"tooling/**" = ["ANN"]
 
 [tool.uv]
 # claude-agent-sdk is exempt from the global uv cooldown (exclude-newer =

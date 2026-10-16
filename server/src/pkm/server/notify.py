@@ -40,7 +40,7 @@ def seq_frame(
     *,
     force: bool = False,
     generation: str | None = None,
-) -> dict:
+) -> dict[str, object]:
     if force and generation is None:
         raise ValueError("forced seq frame requires a generation")
     seq = SyncSeq(db.execute(

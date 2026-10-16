@@ -453,7 +453,8 @@ class ChangesPayload(BaseModel):
     applied_batches: list[AppliedBatch] = Field(default_factory=list)
 
     @model_serializer(mode="wrap")
-    def _serialize(self, handler: SerializerFunctionWrapHandler):
+    def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
+        # No return annotation: pydantic reads it into the OpenAPI schema.
         return _omit_empty_applied(self, handler)
 
 
@@ -476,7 +477,8 @@ class SnapshotPayload(BaseModel):
     applied_batches: list[AppliedBatch] = Field(default_factory=list)
 
     @model_serializer(mode="wrap")
-    def _serialize(self, handler: SerializerFunctionWrapHandler):
+    def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
+        # No return annotation: pydantic reads it into the OpenAPI schema.
         return _omit_empty_applied(self, handler)
 
 

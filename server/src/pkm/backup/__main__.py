@@ -46,7 +46,7 @@ def sqlite_backup(live_db: Path, dest: Path) -> None:
 
 
 def git_commit_export(export_dir: Path, day: date) -> str:
-    def git(*a: str) -> subprocess.CompletedProcess:
+    def git(*a: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(["git", *GIT_ID, "-C", str(export_dir), *a],
                               capture_output=True, text=True, check=True)
     if not (export_dir / ".git").is_dir():

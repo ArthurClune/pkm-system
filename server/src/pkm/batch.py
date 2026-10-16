@@ -30,7 +30,7 @@ from pkm.planning import (BuildError, Planner, parse_uid_spec, plan_update,
 _ALIAS_SPEC = re.compile(r"^\{\{(.+)\}\}$")
 
 
-def _nested_items(items: list, depth: int = 0) -> list[tuple[int, str]]:
+def _nested_items(items: Sequence[NestedItem], depth: int = 0) -> list[tuple[int, str]]:
     """Flatten a validated `outline` item list (`NestedItem`: a leaf string,
     or a list one level deeper) into (depth, text) pairs, depth-first. Shape
     is guaranteed by `OutlineParams.items` before this ever runs, so unlike

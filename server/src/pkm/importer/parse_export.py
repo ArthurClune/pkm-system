@@ -48,7 +48,7 @@ class Export:
     orphan_blocks: tuple[Block, ...] = ()
 
 
-def _view_type(value: Any) -> Literal["numbered", "document"] | None:
+def _view_type(value: object) -> Literal["numbered", "document"] | None:
     if value == ":numbered":
         return "numbered"
     if value == ":document":
@@ -56,7 +56,7 @@ def _view_type(value: Any) -> Literal["numbered", "document"] | None:
     return None
 
 
-def _heading(value: Any) -> int | None:
+def _heading(value: int | None) -> int | None:
     """Roam's own API has a zero heading level meaning "no heading",
     distinct from the attribute being absent; some exports write it
     either way. 0 means the same thing absent means everywhere else this

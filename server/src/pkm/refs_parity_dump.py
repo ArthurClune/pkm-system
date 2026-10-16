@@ -57,7 +57,7 @@ CASES = [
 ]
 
 
-def fixture() -> dict:
+def fixture() -> dict[str, list[dict[str, object]]]:
     return {"cases": [
         {
             "text": text,

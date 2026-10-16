@@ -26,7 +26,8 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from pkm.export.markdown import rewrite_asset_links
+from pkm.export.markdown import (TreeNodes, node_children, node_text,
+                                 rewrite_asset_links)
 from pkm.refs import BLOCK_REF_TOKEN
 
 BLOCK_REF_MAX_DEPTH = 3
@@ -113,13 +114,14 @@ def resolve_text(text: str, uid_to_text: Mapping[str, str],
     incremented depth. Anything beyond its own cap (BLOCK_REF_MAX_DEPTH /
     QUERY_MAX_DEPTH) -- or missing from the precomputed maps entirely --
     is left exactly as written."""
-    query_macros = find_query_macros(text) if depth < QUERY_MAX_DEPTH else []
+    query_macros: list[tuple[int, int, str]] = (
+        find_query_macros(text) if depth < QUERY_MAX_DEPTH else [])
     query_spans = [(s, e) for s, e, _ in query_macros]
 
     def _inside_a_query(pos: int) -> bool:
         return any(s <= pos < e for s, e in query_spans)
 
-    ref_matches = (
+    ref_matches: list[re.Match[str]] = (
         [m for m in _BLOCK_REF_RE.finditer(text) if not _inside_a_query(m.start())]
         if depth < BLOCK_REF_MAX_DEPTH else [])
 
@@ -146,7 +148,7 @@ def resolve_text(text: str, uid_to_text: Mapping[str, str],
     return "".join(out)
 
 
-def render_page_resolved(title: str, tree: list[dict],
+def render_page_resolved(title: str, tree: TreeNodes,
                          uid_to_text: Mapping[str, str],
                          query_results: Mapping[str, QueryResult]) -> str:
     """Like markdown.render_page, but ((refs)) resolve recursively to plain
@@ -154,15 +156,15 @@ def render_page_resolved(title: str, tree: list[dict],
     matching results -- the end-user export's rendering mode."""
     lines = [f"# {title}", ""]
 
-    def walk(nodes: list[dict], depth: int) -> None:
+    def walk(nodes: TreeNodes, depth: int) -> None:
         pad = "  " * depth
         for node in nodes:
             text = rewrite_asset_links(
-                resolve_text(node["text"], uid_to_text, query_results, 0))
+                resolve_text(node_text(node), uid_to_text, query_results, 0))
             first, *rest = text.split("\n")
             lines.append(f"{pad}- {first}")
             lines.extend(f"{pad}  {line}" for line in rest)
-            walk(node["children"], depth + 1)
+            walk(node_children(node), depth + 1)
 
     walk(tree, 0)
     return "\n".join(lines) + "\n"

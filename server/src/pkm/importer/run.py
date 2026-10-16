@@ -129,7 +129,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"warning: --files dir missing or empty: {files_dir}", file=sys.stderr)
         files_dir = None
 
-    by_name, paths = _index_files(files_dir) if files_dir else ({}, {})
+    by_name: dict[str, Asset] = {}
+    paths: dict[Sha256Hex, Path] = {}
+    if files_dir:
+        by_name, paths = _index_files(files_dir)
     unique_assets = {a.sha256: a for a in by_name.values()}
     used: set[Sha256Hex] = set()
     missing: set[str] = set()

@@ -8,7 +8,7 @@ The export layout the paths assume (writer.py owns it):
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from pkm.filenames import truncate_utf8
 from pkm.refs import BLOCK_REF_TOKEN
@@ -43,19 +43,37 @@ def page_filename(title: str, taken: set[str]) -> str:
     return name
 
 
-def render_page(title: str, tree: list[dict],
+TreeNodes = Sequence[Mapping[str, object]]
+
+
+def node_text(node: Mapping[str, object]) -> str:
+    """A tree node's text; build_tree passes the row value through untyped."""
+    text = node["text"]
+    if not isinstance(text, str):
+        raise TypeError(f"block text is {type(text).__name__}, not str")
+    return text
+
+
+def node_children(node: Mapping[str, object]) -> TreeNodes:
+    children = node["children"]
+    if not isinstance(children, list):
+        raise TypeError(f"block children is {type(children).__name__}, not list")
+    return children
+
+
+def render_page(title: str, tree: TreeNodes,
                 uid_to_text: Mapping[str, str]) -> str:
     lines = [f"# {title}", ""]
 
-    def walk(nodes: list[dict], depth: int) -> None:
+    def walk(nodes: TreeNodes, depth: int) -> None:
         pad = "  " * depth
         for node in nodes:
             text = rewrite_asset_links(
-                resolve_block_refs(node["text"], uid_to_text))
+                resolve_block_refs(node_text(node), uid_to_text))
             first, *rest = text.split("\n")
             lines.append(f"{pad}- {first}")
             lines.extend(f"{pad}  {line}" for line in rest)
-            walk(node["children"], depth + 1)
+            walk(node_children(node), depth + 1)
 
     walk(tree, 0)
     return "\n".join(lines) + "\n"

@@ -24,6 +24,7 @@ from claude_agent_sdk import (
     ResultMessage,
     StreamEvent,
     TextBlock,
+    ToolPermissionContext,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
@@ -85,7 +86,7 @@ class TurnMapper:
         self._saw_delta = False
         self._tool_names: dict[str, str] = {}
 
-    def map(self, msg: Any) -> list[AssistantEvent]:
+    def map(self, msg: object) -> list[AssistantEvent]:
         if isinstance(msg, StreamEvent):
             event = msg.event
             if event.get("type") == "content_block_delta":
@@ -137,7 +138,7 @@ class TurnMapper:
 class ClaudeConversation:
     def __init__(self, config_path: Path) -> None:
         self._config_path = config_path
-        self._client: Any = None
+        self._client: ClaudeSDKClient | None = None
         self._queue: asyncio.Queue[AssistantEvent] = asyncio.Queue()
         self._pending: dict[ConfirmId, asyncio.Future[bool]] = {}
         self._confirm_seq = 0
@@ -148,10 +149,17 @@ class ClaudeConversation:
         # ends and retires rather than reuses a handle gone unhealthy.
         self.healthy = True
 
-    def attach(self, client: Any) -> None:
+    def attach(self, client: ClaudeSDKClient) -> None:
         self._client = client
 
-    async def can_use_tool(self, tool_name: str, tool_input: dict, context: Any) -> Any:
+    def _live_client(self) -> ClaudeSDKClient:
+        if self._client is None:
+            raise RuntimeError("no harness client attached")
+        return self._client
+
+    async def can_use_tool(
+        self, tool_name: str, tool_input: dict[str, object], context: ToolPermissionContext | None
+    ) -> PermissionResultAllow | PermissionResultDeny:
         kind = classify_tool(tool_name)
         if kind == "read":
             return PermissionResultAllow()
@@ -188,7 +196,7 @@ class ClaudeConversation:
         # not leak into the next turn
         while not self._queue.empty():
             self._queue.get_nowait()
-        await self._client.query(text)
+        await self._live_client().query(text)
         mapper = TurnMapper()
         pump = asyncio.create_task(self._pump(mapper))
         self._pump_task = pump
@@ -245,7 +253,7 @@ class ClaudeConversation:
         # harness wedged for any other reason must not hold up this cleanup
         # either.
         try:
-            await asyncio.wait_for(self._client.interrupt(), INTERRUPT_TIMEOUT_S)
+            await asyncio.wait_for(self._live_client().interrupt(), INTERRUPT_TIMEOUT_S)
         except TimeoutError:
             logger.warning(
                 "assistant interrupt not acknowledged in %ss; abandoning the turn "
@@ -277,7 +285,7 @@ class ClaudeConversation:
             self.healthy = False
 
     async def _pump(self, mapper: TurnMapper) -> None:
-        stream = self._client.receive_response()
+        stream = self._live_client().receive_response()
         pending: asyncio.Task[Any] | None = None
         try:
             while True:
@@ -322,7 +330,7 @@ class ClaudeConversation:
             "assistant turn stalled: no SDK message for %ss; interrupting", STALL_TIMEOUT_S
         )
         try:
-            await asyncio.wait_for(self._client.interrupt(), INTERRUPT_TIMEOUT_S)
+            await asyncio.wait_for(self._live_client().interrupt(), INTERRUPT_TIMEOUT_S)
         except TimeoutError:
             # same verdict as _abandon_turn: an unacknowledged interrupt is
             # not proof the subprocess stopped, so retire the handle

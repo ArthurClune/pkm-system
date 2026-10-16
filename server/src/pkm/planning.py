@@ -202,7 +202,7 @@ class Planner:
     fetched -- is the caller's job (see `_BatchCtx.resolve_parent`); this
     class only positions blocks."""
 
-    def __init__(self, uids: Iterator[str]):
+    def __init__(self, uids: Iterator[str]) -> None:
         self._uids = uids
         self._siblings: dict[SiblingKey, list[tuple[str, OrderIdx]]] = {}
         self._location: dict[str, SiblingKey] = {}

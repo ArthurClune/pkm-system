@@ -16,7 +16,7 @@ _TIMEOUT_SECONDS = 60.0
 
 class OpenAIDescriber:
     def __init__(self, api_key: str, model: str,
-                 http: httpx2.AsyncClient | None = None):
+                 http: httpx2.AsyncClient | None = None) -> None:
         self._model = model
         self._http = http if http is not None else httpx2.AsyncClient(
             timeout=_TIMEOUT_SECONDS)

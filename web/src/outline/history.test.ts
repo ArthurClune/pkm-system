@@ -230,7 +230,8 @@ it("keeps a deleted subtree's create group in parent-first order when reversed",
     { op: "delete", uid: uid("b") },
   ];
   const inverse = invertOps(tree(), PAGE, ops)!;
-  // group order reversed, but within the delete-inverse parents precede children
+  // group order reversed, but within the delete-inverse parents precede
+  // children
   expect(inverse.map((o) => o.op))
     .toEqual(["create", "create", "set_collapsed", "update_text"]);
   expect(inverse[0]).toMatchObject({ uid: "b" });

@@ -49,7 +49,10 @@ export function treeProblems(blocks: readonly BlockNode[]): string[] {
         if (n.order_idx === prev.order_idx) {
           problems.push(`siblings ${prev.uid} and ${n.uid} under ${where} share order_idx ${n.order_idx}`);
         } else if (n.order_idx < prev.order_idx) {
-          problems.push(`siblings under ${where} not sorted by order_idx: ${prev.uid} (${prev.order_idx}) before ${n.uid} (${n.order_idx})`);
+          problems.push(
+            `siblings under ${where} not sorted by order_idx: `
+            + `${prev.uid} (${prev.order_idx}) before ${n.uid} (${n.order_idx})`,
+          );
         }
       }
       walk(n.children, n.uid);
@@ -65,9 +68,9 @@ const rowEqual = (a: Row, b: Row): boolean =>
 
 /**
  * null when the rows are equal, else the first differing index with both rows.
- * Deliberately exact: a null view type differs from "document" here (the meaning
- * check compares a command's effect field by field); `structural` is what folds them.
- */
+ * Deliberately exact: a null view type differs from "document" here (the
+ * meaning check compares a command's effect field by field); `structural` is
+ * what folds them. */
 export function rowsDiff(expected: readonly Row[], actual: readonly Row[]): string | null {
   const n = Math.min(expected.length, actual.length);
   for (let i = 0; i < n; i++) {

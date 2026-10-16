@@ -58,7 +58,8 @@ const REF_TEXT: fc.Arbitrary<string> = fc.oneof(
   fc.nat(UID_POOL.length - 1).map((n) => `((${UID_POOL[n]}))`),
 );
 
-/** The outline suite's texts, plus page and block refs about one time in four. */
+/** The outline suite's texts, plus page and block refs about one time in
+ * four. */
 export const TEXT: fc.Arbitrary<string> = fc.oneof(
   { arbitrary: BLOCK_TEXT, weight: 3 },
   { arbitrary: REF_TEXT, weight: 1 },

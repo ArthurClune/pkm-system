@@ -303,11 +303,11 @@ function RefCountBadge({ uid, count, onOpen }: {
 
 /** Memoised, and the tree above keeps every prop it passes stable for as long
  * as the rendered tree is unchanged. Safe because block trees are immutable:
- * `applyOps` clones the whole tree and mutates only the clone (outline/tree.ts),
- * so a changed block always arrives as a new object. The gain is on the renders
- * that are NOT edits — a Sync context update, a sibling day's fetch, a menu
- * opening — where the Journal would otherwise re-render every row of every
- * mounted day. */
+ * `applyOps` clones the whole tree and mutates only the clone
+ * (outline/tree.ts), so a changed block always arrives as a new object. The
+ * gain is on the renders that are NOT edits — a Sync context update, a
+ * sibling day's fetch, a menu opening — where the Journal would otherwise
+ * re-render every row of every mounted day. */
 const EditableBlock = memo(function EditableBlock(
                         { node, focus, selected, focusChain, handlers, readOnly,
                           fallback, onRequestUpload, viewMode, number,

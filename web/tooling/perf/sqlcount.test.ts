@@ -80,7 +80,8 @@ describe("installCounter", () => {
       raw.exec("INSERT INTO t VALUES (2)");
     });
     expect(counts.statements).toBe(2);
-    // per firing: the "-- TRIGGER t_ai" line and the "-- INSERT INTO log ..." body line
+    // per firing: the "-- TRIGGER t_ai" line and the "-- INSERT INTO log ..."
+    // body line
     expect(counts.trigger_statements).toBe(4);
     c.uninstall();
   });

@@ -3,7 +3,8 @@ import pytest
 from pkm.edn import parse_edn
 from pkm.importer.parse_export import parse_export
 
-EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "Machine Learning" 536870913]
   [1 :block/uid "uid-page1x" 536870913]
@@ -72,7 +73,8 @@ def test_single_orphan_block_is_recoverable():
     assert orphan.children == ()
 
 
-NESTED_ORPHAN_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+NESTED_ORPHAN_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "Page" 1]
   [1 :block/children 2 1]
@@ -113,7 +115,8 @@ def test_no_orphans_is_an_empty_tuple():
     assert export.orphan_block_count == 0
 
 
-STRINGLESS_PARENT_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+STRINGLESS_PARENT_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "Page" 1]
   [1 :block/children 2 1]
@@ -145,7 +148,8 @@ def test_orphan_under_a_stringless_parent_is_still_recovered():
     assert recovered.text == "real orphan child text"
 
 
-CYCLIC_ORPHAN_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+CYCLIC_ORPHAN_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "Page" 1]
   [1 :block/children 2 1]
@@ -185,7 +189,8 @@ def test_cyclic_orphan_group_is_recovered_not_dropped():
     assert _collect_uids(export.orphan_blocks) == {"uid-cycle-a", "uid-cycle-b"}
 
 
-CYCLE_WITH_BRANCH_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+CYCLE_WITH_BRANCH_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "Page" 1]
   [1 :block/children 2 1]

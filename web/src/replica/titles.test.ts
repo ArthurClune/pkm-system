@@ -101,7 +101,8 @@ describe("title brands", () => {
     type PageMetaTitle = components["schemas"]["PageMeta"]["title"];
     const fromWire: PageMetaTitle = title("Page");
     const normalized: NormalizedTitle = fromWire;
-    // @ts-expect-error a NormalizedTitle is not a generated CanonicalTitle field
+    // @ts-expect-error a NormalizedTitle is not a generated CanonicalTitle
+    // field
     const back: PageMetaTitle = normTitle("Page");
     // @ts-expect-error a raw string is not a generated CanonicalTitle field
     const raw: PageMetaTitle = "Page";

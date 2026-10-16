@@ -98,7 +98,8 @@ it("Shift+click on a result row opens it in the sidebar, does not navigate", asy
   expect(screen.queryByRole("listitem")).toBeNull();
 });
 
-it("Shift+Enter on a block-snippet row opens the containing page in the sidebar with the block as flash target", async () => {
+it("Shift+Enter on a block-snippet row opens the containing "
+  + "page in the sidebar with the block as flash target", async () => {
   stubFetch([["/api/search?q=paper", results]]);
   const openInSidebar = vi.fn();
   const input = renderBar(openInSidebar);

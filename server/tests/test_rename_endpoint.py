@@ -370,7 +370,8 @@ def test_retitle_without_rewrite_changes_only_page_and_sidebar_title(seeded_conf
 
 
 def test_append_without_rewrite_preserves_stable_subtrees_and_target_sidebar(seeded_config):
-    """Mutation caught: append descendants as tops or discard target's pinned entry."""
+    """Mutation caught: append descendants as tops or discard target's pinned
+    entry."""
     db = open_db(seeded_config.db_path)
     db.executescript(
         """
@@ -406,7 +407,8 @@ def test_append_without_rewrite_preserves_stable_subtrees_and_target_sidebar(see
 
 
 def test_rewrite_snapshots_updates_and_reindexes_each_block_once(seeded_config):
-    """Mutation caught: sequential source rewrites update/index intermediate text."""
+    """Mutation caught: sequential source rewrites update/index intermediate
+    text."""
     db = open_db(seeded_config.db_path)
     original = "[[AI]] then [[Paper]] and [[Machine Learning]]"
     db.execute(

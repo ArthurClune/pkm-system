@@ -411,7 +411,9 @@ it("a concurrent loadAll's groups survive a loadMore that started from a stale s
   await act(async () => {
     loadMoreBatch.resolve(jsonResponse(pagePayload("T", [], {
       backlinks: {
-        groups: [{ page_id: pageId(2), page_title: title("B"), items: [{ uid: uid("b1"), text: "b", breadcrumbs: [] }] }],
+        groups: [
+          { page_id: pageId(2), page_title: title("B"), items: [{ uid: uid("b1"), text: "b", breadcrumbs: [] }] },
+        ],
         total_pages: 3, offset: 1, limit: 1,
       },
     })));

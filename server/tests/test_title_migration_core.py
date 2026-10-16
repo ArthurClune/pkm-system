@@ -104,7 +104,8 @@ def _expected_digest(inventory: TitleMigrationInventory) -> str:
             seen_canonicals.append(canonical)
 
     for canonical in sorted(seen_canonicals):
-        padded_pages = [page for page in pages if page.title != page.title.strip(" ") and page.title.strip(" ") == canonical]
+        padded_pages = [page for page in pages
+                        if page.title != page.title.strip(" ") and page.title.strip(" ") == canonical]
         clean_twin = clean_pages.get(canonical)
         survivor = clean_twin or min(padded_pages, key=lambda page: page.page_id)
         group_pages = list(padded_pages)
@@ -237,7 +238,8 @@ def test_build_title_migration_plan_groups_padded_titles_deterministically():
 
 
 def test_build_title_migration_plan_normalizes_control_whitespace_before_plain_space_grouping():
-    """Mutation caught: replace canonicalize_title(..., plain_space=True) with title.strip(" ")."""
+    """Mutation caught: replace canonicalize_title(..., plain_space=True) with
+    title.strip(" ")."""
     plan = build_title_migration_plan(_control_whitespace_inventory())
 
     assert [group.canonical_title for group in plan.groups] == ["Acme", "acme"]
@@ -264,7 +266,8 @@ def test_build_title_migration_plan_normalizes_control_whitespace_before_plain_s
 
 
 def test_build_title_migration_plan_digest_tracks_control_whitespace_groups_and_blockers():
-    """Mutation caught: replace canonicalize_title(..., plain_space=True) with title.strip(" ")."""
+    """Mutation caught: replace canonicalize_title(..., plain_space=True) with
+    title.strip(" ")."""
     inventory = _control_whitespace_inventory()
     plan = build_title_migration_plan(inventory)
 
@@ -328,7 +331,8 @@ def test_build_title_migration_plan_digest_tracks_control_whitespace_groups_and_
 
 
 def test_build_title_migration_plan_classifies_and_orders_invalid_title_blockers():
-    """Mutation caught: ignore unpadded syntax or group a padded forbidden title."""
+    """Mutation caught: ignore unpadded syntax or group a padded forbidden
+    title."""
     plan = build_title_migration_plan(
         _inventory(
             InventoryPage(page_id=9, title=_ct("   ")),

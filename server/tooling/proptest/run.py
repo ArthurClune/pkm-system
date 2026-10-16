@@ -38,7 +38,8 @@ def changed_paths(repo: Path) -> list[str]:
 
 def _run_server(repo: Path, seed: int | None, path: str | None = None,
                 replay_path: str | None = None, file: str | None = None) -> int:
-    # Hypothesis replays from the seed alone: path, replay_path and file are web-only.
+    # Hypothesis replays from the seed alone: path, replay_path and file are
+    # web-only.
     cmd = ["uv", "run", "pytest", "-m", "proptest", "--no-cov", "-q", "tests/props"]
     if seed is not None:
         cmd.append(f"--hypothesis-seed={seed}")
@@ -62,9 +63,9 @@ def web_command(seed: int | None, file: str | None = None) -> list[str]:
 
 def web_env(port: int, seed: int | None, path: str | None,
             replay_path: str | None) -> dict[str, str]:
-    """What the props suite reads (web/src/props/env.ts and sync/env.ts): the server,
-    and, to replay a failure, fast-check's seed, path and command replay
-    path."""
+    """What the props suite reads (web/src/props/env.ts and sync/env.ts): the
+    server, and, to replay a failure, fast-check's seed, path and command
+    replay path."""
     env = {"PROPTEST_BASE_URL": f"http://127.0.0.1:{port}",
            "PROPTEST_PASSWORD": WEB_PASSWORD}
     if seed is not None:

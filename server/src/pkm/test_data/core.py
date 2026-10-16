@@ -29,7 +29,8 @@ ASSET_PLACEHOLDER_RE = re.compile(r"\{\{asset:([^{}]+)\}\}")
 
 
 class SourceValidationError(ValueError):
-    """Raised when the committed graph source violates its schema or invariants."""
+    """Raised when the committed graph source violates its schema or
+    invariants."""
 
 
 class BlockSource(BaseModel):
@@ -113,7 +114,8 @@ def expand_asset_placeholders(text: str, assets_by_name: Mapping[str, Asset]) ->
 
 
 def deduplicate_assets_by_sha(assets_by_name: Mapping[str, Asset]) -> tuple[Asset, ...]:
-    """Collapse differently named assets that share content into one row per SHA-256.
+    """Collapse differently named assets that share content into one row per
+    SHA-256.
 
     The `assets` table is keyed by content hash, so two fixture files with
     identical bytes but different names must collapse to a single row. The
@@ -127,7 +129,8 @@ def deduplicate_assets_by_sha(assets_by_name: Mapping[str, Asset]) -> tuple[Asse
 
 
 def build_rows(source: GraphSource, assets_by_name: Mapping[str, Asset]) -> PreparedGraph:
-    """Convert a validated source graph into importer rows and sidebar positions."""
+    """Convert a validated source graph into importer rows and sidebar
+    positions."""
     export = Export(
         pages=tuple(_build_page(page) for page in source.pages),
         orphan_block_count=0,

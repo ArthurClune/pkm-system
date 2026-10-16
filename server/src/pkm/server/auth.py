@@ -25,16 +25,15 @@ COOKIE_MAX_AGE = 365 * 24 * 3600
 # this), so without a bound, concurrent unauthenticated login attempts
 # could run dozens of scrypt computations at once. This caps it process-wide.
 MAX_CONCURRENT_SCRYPT = 4
-# How long a request will wait for a scrypt slot before giving up. This
-# bound is what stops a login flood starving the app: `login()` is a sync `def`, so
-# FastAPI runs it in the shared worker-thread pool every other sync route
-# also uses. Without a timeout, an attacker just needs to open enough
-# concurrent connections to /api/login (zero scrypt cost -- they sit
-# blocked in acquire()) to occupy every worker thread beyond the
-# MAX_CONCURRENT_SCRYPT actually computing, freezing the whole app, not
-# just login. Per-source backoff cannot prevent this on its own: it only
-# engages after a failure is recorded, which requires having gotten a
-# slot and finished a password check first.
+# How long a request will wait for a scrypt slot before giving up. This bound is
+# what stops a login flood starving the app: `login()` is a sync `def`, so
+# FastAPI runs it in the shared worker-thread pool every other sync route also
+# uses. Without a timeout, an attacker just needs to open enough concurrent
+# connections to /api/login (zero scrypt cost -- they sit blocked in acquire())
+# to occupy every worker thread beyond the MAX_CONCURRENT_SCRYPT actually
+# computing, freezing the whole app, not just login. Per-source backoff cannot
+# prevent this on its own: it only engages after a failure is recorded, which
+# requires having gotten a slot and finished a password check first.
 SCRYPT_ACQUIRE_TIMEOUT_S = 2.0
 # Hard cap on tracked sources: record_failure prunes lapsed entries first
 # and, if that alone didn't free room, evicts the least-recently-touched

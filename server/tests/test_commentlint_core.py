@@ -40,7 +40,8 @@ def test_history_generated_and_unrelated_files_are_not(path):
     assert not is_scanned(path)
 
 
-# -- what counts as a comment ---------------------------------------------------
+# -- what counts as a comment
+# ---------------------------------------------------
 
 def spans(text, ext):
     return [(line, comment) for line, comment in comment_spans(text, ext)]
@@ -68,6 +69,10 @@ def test_python_single_line_docstring_is_a_comment():
     assert spans(f'{Q}Module doc.{Q}\nx = 1\n', ".py") == [(1, 'Module doc.')]
 
 
+def test_python_assigned_triple_quoted_string_is_data_not_a_comment():
+    assert spans(f'DDL = {Q}\nCREATE TABLE t (x);\n{Q}\n# real\n', ".py") == [(4, " real")]
+
+
 def test_shell_hash_comments_are_comments():
     assert spans("#!/bin/sh\necho hi # trailing\n", ".sh") == [(1, "!/bin/sh"), (2, " trailing")]
 
@@ -78,6 +83,20 @@ def test_ts_line_comment_is_the_rest_of_the_line():
 
 def test_ts_url_in_a_string_is_not_a_comment():
     assert spans('fetch("https://example.org/x");\n', ".ts") == []
+
+
+def test_ts_block_opener_inside_a_string_opens_nothing():
+    text = '<Route path="/page/*" />\nconst a = 1; // why\nconst b = \'/*\'; /* real */\n'
+    assert spans(text, ".ts") == [(2, " why"), (3, " real ")]
+
+
+def test_ts_template_literal_spans_lines_and_hides_comment_markers():
+    text = "const sql = `\n  -- not // a comment /* either\n`;\n// after\n"
+    assert spans(text, ".ts") == [(4, " after")]
+
+
+def test_ts_escaped_quote_does_not_end_the_string():
+    assert spans('const s = "a \\" // b"; // c\n', ".ts") == [(1, " c")]
 
 
 def test_ts_block_comment_spans_lines():
@@ -94,14 +113,15 @@ def test_markdown_is_prose_throughout():
     assert spans("# Title\n\nBody line.\n", ".md") == [(1, "# Title"), (3, "Body line.")]
 
 
-# -- the three rules ------------------------------------------------------------
+# -- the three rules
+# ------------------------------------------------------------
 
 def rules_hit(text, path="web/src/x.ts"):
     return [v.rule for v in check_text(path, text)]
 
 
 def test_rule_names_are_stable():
-    assert set(RULES) == {"bean-id", "line-number", "orphan-pointer"}
+    assert set(RULES) == {"bean-id", "line-number", "orphan-pointer", "line-length"}
 
 
 @pytest.mark.parametrize("comment", [
@@ -183,7 +203,7 @@ def test_orphan_pointer(comment):
     "// Feed application (offline-editing-design.md §3)",
 ])
 def test_pointer_with_a_path_or_md_filename_is_not(comment):
-    assert rules_hit(comment) == []
+    assert "orphan-pointer" not in rules_hit(comment)
 
 
 @pytest.mark.parametrize("comment", [
@@ -217,7 +237,52 @@ def test_unscanned_path_has_no_violations():
     assert check_text("docs/troubleshooting.md", "row for pkm-ab12 (line 3)") == []
 
 
-# -- the report -----------------------------------------------------------------
+# -- line length
+# ------------------------------------------------------------------
+
+def test_a_comment_line_wraps_at_80():
+    assert rules_hit("// " + "x" * 77) == []
+    assert rules_hit("// " + "x" * 78) == ["line-length"]
+
+
+def test_a_code_line_wraps_at_120():
+    assert rules_hit("const a = '" + "x" * 107 + "';") == []
+    assert rules_hit("const a = '" + "x" * 108 + "';") == ["line-length"]
+
+
+def test_code_with_a_trailing_comment_is_a_code_line():
+    assert rules_hit("const a = 1; // " + "why " * 22) == []
+
+
+def test_block_and_docstring_interiors_are_comment_lines():
+    assert rules_hit("/**\n * " + "x" * 78 + "\n */") == ["line-length"]
+    assert rules_hit(f"def f():\n    {Q}\n    " + "x" * 77 + f"\n    {Q}\n", "server/src/pkm/x.py") == ["line-length"]
+
+
+def test_an_assigned_triple_quoted_string_is_code():
+    assert rules_hit(f"DDL = {Q}\n" + "x" * 100 + f"\n{Q}\n", "server/src/pkm/x.py") == []
+
+
+def test_markdown_lines_are_exempt():
+    assert rules_hit("| " + "x" * 200 + " |", "docs/architecture/backend.md") == []
+
+
+@pytest.mark.parametrize("line", [
+    "// https://example.org/" + "x" * 80 + "  noqa: E501",
+    "const a = '" + "x" * 120 + "'; // noqa: E501",
+    "    # " + "x" * 90 + "  # noqa: E501",
+])
+def test_noqa_e501_exempts_the_line(line):
+    assert rules_hit(line, "server/src/pkm/x.py" if line.lstrip().startswith("#") else "web/src/x.ts") == []
+
+
+def test_line_length_violation_carries_the_whole_line():
+    [v] = check_text("web/src/a.ts", "  // " + "y" * 90 + "\n")
+    assert v.rule == "line-length" and v.text == "// " + "y" * 90
+
+
+# -- the report
+# -----------------------------------------------------------------
 
 def test_report_names_each_site_and_the_remedy_once_per_rule():
     report = format_report([

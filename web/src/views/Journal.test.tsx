@@ -9,7 +9,17 @@ import {
   repairActiveOutlineSessions,
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
-import { READ_INIT, block, journalBacklinks, jsonResponse, makeSync, pageId, stubFetch, title, uid } from "../test-helpers";
+import {
+  READ_INIT,
+  block,
+  journalBacklinks,
+  jsonResponse,
+  makeSync,
+  pageId,
+  stubFetch,
+  title,
+  uid,
+} from "../test-helpers";
 import { Journal } from "./Journal";
 
 class FakeIntersectionObserver {

@@ -62,7 +62,8 @@ export function createReconnectFlow(deps: {
 }): ReconnectFlow {
   let intent = false;
   // Rides with the intent, not the call: a stale-views drain that gets through
-  // out of band must still resync unconditionally when observeDrain finishes it.
+  // out of band must still resync unconditionally when observeDrain finishes
+  // it.
   let staleViews = false;
   let finishRun: Promise<void> | null = null;
 

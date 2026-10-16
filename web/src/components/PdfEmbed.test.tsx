@@ -78,7 +78,9 @@ it("not deferred: no Open button, the viewer mounts on its own", async () => {
 
 const localHref = "/api/local/Papers/doc.pdf";
 const NOT_FOUND = "This file isn't in the local documents folder on the host.";
-const UNAVAILABLE = "The host can't serve this file right now: it isn't downloaded yet, or the host isn't allowed to read it.";
+const UNAVAILABLE =
+  "The host can't serve this file right now: "
+  + "it isn't downloaded yet, or the host isn't allowed to read it.";
 
 function stubFetch(impl: () => Promise<Response>) {
   const f = vi.fn(impl);

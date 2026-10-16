@@ -189,10 +189,10 @@ const EMPTY_FEED = { reset: false, generation: "g1", next_since: 5,
 
 /** A fake server journal: a seq that advances when something is written to the
  * server, and the changes window a pull then reads. Needed because a reconnect
- * bumps resyncGeneration only when its pull actually advances the replica's cursor —
- * EMPTY_FEED is a server with nothing to say, which is exactly the case no
- * view has to refetch for, so a test about a reconnect that MUST refetch has
- * to give the server something new. */
+ * bumps resyncGeneration only when its pull actually advances the replica's
+ * cursor — EMPTY_FEED is a server with nothing to say, which is exactly the
+ * case no view has to refetch for, so a test about a reconnect that MUST
+ * refetch has to give the server something new. */
 function fakeServerJournal() {
   let latest = EMPTY_FEED.latest_seq;
   return {
@@ -239,7 +239,8 @@ describe("replica bootstrap and nudges", () => {
     expect(changeCalls).toEqual(["/api/sync/changes?since=9"]);
   });
 
-  test("a forced equal-cursor generation nudge immediately reboots an active replica without moving its cursor", async () => {
+  test("a forced equal-cursor generation nudge immediately "
+    + "reboots an active replica without moving its cursor", async () => {
     let localGeneration = "g1";
     let localActivation = false;
     let localCursor = 9 as SyncSeq;
@@ -1055,8 +1056,8 @@ describe("poison repair and startup marks", () => {
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
     };
     replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
-    // The mark RPC itself fails every time (not a match failure): the row
-    // stays unpoisoned and deliverable, reaching problem.repair === "mark-failed"
+    // The mark RPC itself fails every time (not a match failure): the row stays
+    // unpoisoned and deliverable, reaching problem.repair === "mark-failed"
     // mid-session, exactly the branch discardProblem's fix must release.
     replica.markPoisoned = async () => {
       throw new Error("Access Handles cannot be created");
@@ -1084,9 +1085,9 @@ describe("poison repair and startup marks", () => {
     await vi.waitFor(() => { expect(badBatchPosts).toBeGreaterThan(1); });
 
     // Ownership was actually released, not merely "will heal once redelivered":
-    // resetLocalData's own barrier guard must no longer see a repair in progress,
-    // even though the re-POST above has not yet had a chance to reject and
-    // repair its own way to a release.
+    // resetLocalData's own barrier guard must no longer see a repair in
+    // progress, even though the re-POST above has not yet had a chance to
+    // reject and repair its own way to a release.
     await act(async () => { await sync.resetReplica(true); });
     // syncState's "reset-failed" case stores the message in `resetError`, not
     // `error` (that field is the stalled-base default and stays ""); discarding
@@ -1526,22 +1527,22 @@ describe("an unopenable replica", () => {
     // Ops are retained by the availability TYPE of the enqueue failure, not by
     // matching specific error messages: a message not on any whitelist must
     // still deliver, not silently drop the edit and rebase the active outline
-    // to server state.
-    // Deliberately does NOT pin sync.problem — a delivery problem can legitimately
-    // take precedence over the background replica-unusable report.
+    // to server state. Deliberately does NOT pin sync.problem — a delivery
+    // problem can legitimately take precedence over the background
+    // replica-unusable report.
     const { posts } = await runDead("OPFS is not available in this browser");
     expect(posts).toHaveLength(1);
   });
 
   test("an online-only session's update_text still carries a base_text_hash",
   async () => {
-    // What this can and cannot prove: SyncProvider.enqueue takes whatever ops it
-    // is given. The provider is NOT where base_text_hash is stamped, and must not
-    // be — there is no block tree here to hash against. Stamping is pinned by
-    // baseTextHash.test.ts and by the useOutline/undoManager tests. What THIS
-    // test pins is the lane: with no replica, the in-memory fallback posts
-    // head.ops verbatim, so a lane that stripped or reordered op fields would
-    // strand the conflict guard exactly where it is needed most.
+    // What this can and cannot prove: SyncProvider.enqueue takes whatever ops
+    // it is given. The provider is NOT where base_text_hash is stamped, and
+    // must not be — there is no block tree here to hash against. Stamping is
+    // pinned by baseTextHash.test.ts and by the useOutline/undoManager tests.
+    // What THIS test pins is the lane: with no replica, the in-memory fallback
+    // posts head.ops verbatim, so a lane that stripped or reordered op fields
+    // would strand the conflict guard exactly where it is needed most.
     const bodies: Array<{ ops: Array<Record<string, unknown>> }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -1564,8 +1565,8 @@ describe("an unopenable replica", () => {
                       base_text_hash: sha256Hex("hello") }]);
     });
     await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
-    // The VALUE, not just the field: a lane that carried the property through but
-    // mangled its contents would guard nothing.
+    // The VALUE, not just the field: a lane that carried the property through
+    // but mangled its contents would guard nothing.
     expect(bodies[0].ops[0].base_text_hash).toEqual(sha256Hex("hello"));
   });
 
@@ -1599,8 +1600,8 @@ describe("an unopenable replica", () => {
 
   test("a replica that cannot be opened never starts syncing", async () => {
     // Why this is safe without a `disabled` flag: the worker latches its failed
-    // open until close(), so start() -> init() rejects for the whole session and
-    // can never resume delivery with poison discovery SKIPPED — the exact
+    // open until close(), so start() -> init() rejects for the whole session
+    // and can never resume delivery with poison discovery SKIPPED — the exact
     // ordering hazard the recovery barrier exists to prevent. The commitment
     // lives where the commitment happens.
     //
@@ -2106,7 +2107,8 @@ describe("offline and cold start", () => {
     let answerCount!: (n: number) => void;
     const durableRead = new Promise<number>((r) => { answerCount = r; });
     // The mount-time read of a previous session's durable rows, held open until
-    // the test releases it: a real worker RPC can easily land after a keystroke.
+    // the test releases it: a real worker RPC can easily land after a
+    // keystroke.
     replica.pendingCount = () => durableRead;
     replica.enqueue = async (_ops, batchId) => ({ pending: 1, batchId });
     // Parks the drain, so nothing else moves the count in this test.
@@ -2233,12 +2235,12 @@ describe("ownership and StrictMode lifecycle", () => {
   });
 
   test("StrictMode effect replay leaves exactly one live connect lifecycle", async () => {
-    // The replayed setup builds a second socket and a second reconnect flow; the
-    // first mount's cleanup must have detached its own (mountedRef false, drain
-    // observer cleared, socket closed) or a reconnect would finish twice and bump
-    // resyncGeneration twice. Deliberately paired with "StrictMode effect replay keeps
-    // the queue live": that one pins what replay must NOT tear down, this one
-    // pins what it must not leave running.
+    // The replayed setup builds a second socket and a second reconnect flow;
+    // the first mount's cleanup must have detached its own (mountedRef false,
+    // drain observer cleared, socket closed) or a reconnect would finish twice
+    // and bump resyncGeneration twice. Deliberately paired with "StrictMode
+    // effect replay keeps the queue live": that one pins what replay must NOT
+    // tear down, this one pins what it must not leave running.
     vi.useFakeTimers();
     try {
       let sync!: Sync;
@@ -2498,7 +2500,8 @@ describe("reconnect pulls and resync", () => {
     vi.useFakeTimers();
     try {
       // The other half of the narrowing: the moment the server has something,
-      // the views must hear about it, so this must not be a blanket suppression.
+      // the views must hear about it, so this must not be a blanket
+      // suppression.
       const journal = fakeServerJournal();
       vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
@@ -2825,8 +2828,8 @@ describe("unmount cleanup", () => {
 });
 
 describe("the unload guard", () => {
-  // The guard is armed from the in-memory lane, never from `pending`.
-  // The unit tests either side of this one prove the lane count is right and the
+  // The guard is armed from the in-memory lane, never from `pending`. The unit
+  // tests either side of this one prove the lane count is right and the
   // listener obeys its argument; only these two prove SyncProvider hands the
   // guard the lane count and not the total, which is the substitution a future
   // edit is most likely to make.
@@ -2841,7 +2844,8 @@ describe("the unload guard", () => {
     const replica = {
       ...fakeReplicaForProvider(),
       // What a full disk reaches this layer as: the opfs-sahpool VFS reports it
-      // as a bare I/O error, so it is retained like any other failure to persist.
+      // as a bare I/O error, so it is retained like any other failure to
+      // persist.
       enqueue: async () => { throw new Error("SQLITE_IOERR: disk I/O error"); },
     };
     let sync!: Sync;
@@ -2868,8 +2872,8 @@ describe("the unload guard", () => {
     act(() => { sync.enqueue([{ op: "delete", uid: uid("u1") }]); });
     await act(async () => { await sync.settled(); });
 
-    // Undelivered, so it shows in the offline banner's count — but it is on disk
-    // and a reload will still find it.
+    // Undelivered, so it shows in the offline banner's count — but it is on
+    // disk and a reload will still find it.
     expect(sync.pending).toBe(1);
     expect(sync.unsentInMemory).toBe(0);
     expect(dispatchUnload().defaultPrevented).toBe(false);

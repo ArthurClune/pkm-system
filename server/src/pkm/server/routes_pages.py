@@ -284,8 +284,9 @@ def delete_preview(title: str,
     text and ((block refs)) become copies (blocks and distinct pages), and the
     blocks that would make DELETE refuse (a query macro naming the page, or a
     rewrite that would change the leading attribute name, as for
-    `[[page]]:: v`, or still reference the page). Read-only; 404 when the page does not exist. Not under
-    /api/page/ because GET /api/page/{title:path} would swallow it."""
+    `[[page]]:: v`, or still reference the page). Read-only; 404 when the page
+    does not exist. Not under /api/page/ because GET /api/page/{title:path}
+    would swallow it."""
     title = read_title(db, title)
     page = fetch_page(db, title)
     if page is None:

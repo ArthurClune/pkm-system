@@ -14,7 +14,8 @@ from pkm.refs import title_syntax_reason
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_export.edn"
 
-MERGE_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+MERGE_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "Acme" 1]
   [1 :block/children 2 1]
@@ -37,7 +38,8 @@ MERGE_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.ty
   [21 :block/order 0 1]
  ]}"""
 
-ORDINARY_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ORDINARY_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "Solo" 1]
   [1 :block/children 2 1]
@@ -46,7 +48,8 @@ ORDINARY_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db
   [2 :block/order 0 1]
  ]}"""
 
-TITLE_SYNTAX_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+TITLE_SYNTAX_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "#Project" 1]
   [1 :create/time 100 1]
@@ -73,7 +76,8 @@ TITLE_SYNTAX_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType
   [21 :block/order 0 1]
  ]}"""
 
-EXTRACTOR_NORMALIZATION_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+EXTRACTOR_NORMALIZATION_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "Source" 1]
   [1 :block/children 2 1]
@@ -87,16 +91,20 @@ EXTRACTOR_NORMALIZATION_EXPORT = """#datascript/DB {:schema {:block/children {:d
   [3 :block/order 0 1]
  ]}"""
 
-MALFORMED_TITLE_EXPORT = """#datascript/DB {:schema {}
+MALFORMED_TITLE_EXPORT = """\
+#datascript/DB {:schema {}
  :datoms [[1 :node/title "Bad [[Title" 1]]}"""
 
-BLANK_MARKER_TITLE_EXPORT = """#datascript/DB {:schema {}
+BLANK_MARKER_TITLE_EXPORT = """\
+#datascript/DB {:schema {}
  :datoms [[1 :node/title "[[#]]" 1]]}"""
 
-POST_SANITIZATION_MALFORMED_TITLE_EXPORT = """#datascript/DB {:schema {}
+POST_SANITIZATION_MALFORMED_TITLE_EXPORT = """\
+#datascript/DB {:schema {}
  :datoms [[1 :node/title "[#[" 1]]}"""
 
-DUPLICATE_UID_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+DUPLICATE_UID_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "Tree" 1]
   [1 :block/children 2 1]
@@ -109,7 +117,8 @@ DUPLICATE_UID_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinal
   [3 :block/order 1 1]
  ]}"""
 
-MULTI_PARENT_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+MULTI_PARENT_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "Tree" 1]
   [1 :block/children 2 1]
@@ -127,7 +136,8 @@ MULTI_PARENT_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinali
   [4 :block/order 0 1]
  ]}"""
 
-SHORT_UID_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+SHORT_UID_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "Tree" 1]
   [1 :block/children 2 1]
@@ -136,7 +146,8 @@ SHORT_UID_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinality 
   [2 :block/order 0 1]
  ]}"""
 
-DISALLOWED_CHAR_UID_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+DISALLOWED_CHAR_UID_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "Tree" 1]
   [1 :block/children 2 1]
@@ -165,7 +176,8 @@ def test_end_to_end_import(tmp_path):
     assert titles == {"Machine Learning", "July 8th, 2026", "Tags", "AI",
                       "Generative Models", "Attention Is All You Need",
                       "query", "Paper", RECOVERY_PAGE_TITLE}
-    # the fixture's one orphan block ("uid-orphan") is now preserved, not dropped
+    # the fixture's one orphan block ("uid-orphan") is now preserved, not
+    # dropped
     assert con.execute("SELECT count(*) FROM blocks").fetchone()[0] == 8
 
     # asset url rewritten to content-addressed path
@@ -209,7 +221,8 @@ def test_orphan_block_is_preserved_not_silently_dropped(tmp_path):
     assert page_id == recovery_page_id
 
 
-ORPHAN_CLASSES_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ORPHAN_CLASSES_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "Page" 1]
   [1 :block/children 2 1]

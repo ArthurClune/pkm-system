@@ -15,9 +15,11 @@ import { useBlockRefText } from "./useBlockRefText";
 test("resolves refs from the seed map without fetching", () => {
   const fetchMock = stubFetch([]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockRefProvider seed={{ ref_aa1: { text: "seeded", page_title: title("P") } }}>
-      <BlockRef uid={uid("ref_aa1")} depth={0} />
-    </BlockRefProvider></MemoryRouter>);
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BlockRefProvider seed={{ ref_aa1: { text: "seeded", page_title: title("P") } }}>
+        <BlockRef uid={uid("ref_aa1")} depth={0} />
+      </BlockRefProvider>
+    </MemoryRouter>);
   expect(screen.getByText("seeded")).toBeInTheDocument();
   expect(fetchMock).not.toHaveBeenCalled();
 });
@@ -83,9 +85,11 @@ test("the seed map wins over stale fetched entries", async () => {
     </BlockRefProvider></MemoryRouter>);
   await waitFor(() => expect(screen.getByText("old text")).toBeInTheDocument());
   rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockRefProvider seed={{ ref_ee5: { text: "payload text", page_title: title("P") } }}>
-      <BlockRef uid={uid("ref_ee5")} depth={0} />
-    </BlockRefProvider></MemoryRouter>);
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BlockRefProvider seed={{ ref_ee5: { text: "payload text", page_title: title("P") } }}>
+        <BlockRef uid={uid("ref_ee5")} depth={0} />
+      </BlockRefProvider>
+    </MemoryRouter>);
   expect(screen.getByText("payload text")).toBeInTheDocument();
 });
 

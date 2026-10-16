@@ -57,7 +57,8 @@ def test_trailing_punctuation_on_unknown_url():
 
 
 def test_uid_prefix_fallback_matches_roam_download_naming():
-    # download file "-0yUy7-KXY-IMG_0659.jpeg" indexed under its 10-char uid prefix
+    # download file "-0yUy7-KXY-IMG_0659.jpeg" indexed under its 10-char uid
+    # prefix
     idx = {"-0yuy7-kxy":
           Asset(Sha256Hex("b" * 64), "-0yUy7-KXY-IMG_0659.jpeg", "image/jpeg", 5)}
     url = ("https://firebasestorage.googleapis.com/v0/b/x/o/"

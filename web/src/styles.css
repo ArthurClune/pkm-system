@@ -361,8 +361,8 @@ button { font: inherit; }
 .nav-sidebar-add { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 /* the shared .input-control fill is --color-bg-subtle, which is exactly
  * .left-nav's background, so this is the one field that needs the surface
- * colour at rest to read as a field at all. Focus then can't shift
- * the fill; the border-colour change and .input-control's focus ring carry it. */
+ * colour at rest to read as a field at all. Focus then can't shift the fill;
+ * the border-colour change and .input-control's focus ring carry it. */
 .nav-sidebar-add input { padding: 4px 6px; background: var(--color-bg-surface); }
 .nav-sidebar-add button[type="submit"] { align-self: flex-start; padding: 3px 10px; }
 .content-area { flex: 1; min-width: 0; display: flex; flex-direction: column;
@@ -424,7 +424,8 @@ button { font: inherit; }
   color: var(--color-text-secondary); font-size: 14px; }
 .editor-notice button { padding: 1px 8px; font-size: 13px; }
 
-/* top bar: spans the main pane, houses the search bar + the page ("...") menu */
+/* top bar: spans the main pane, houses the search bar + the page ("...")
+ * menu */
 .top-bar { display: flex; justify-content: flex-end; align-items: center; gap: 8px;
   width: var(--pane-width); margin: 0 auto 0 var(--pane-left); padding: 8px 4px; }
 /* ghost buttons: quiet until hovered, so the bar reads as one surface
@@ -590,10 +591,12 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
 /* an attribute whose page is namespaced (AWS/Region::) would otherwise take
  * the tree colour: the [data-ns] rules above out-rank ".attribute a" */
 .attribute a.page-link[data-ns] { color: var(--color-text-muted); }
-.inline-code { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: var(--radius-control);
+.inline-code { background: var(--color-bg-subtle); border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
   padding: 0 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px; }
-.code-block { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: var(--radius-card);
+.code-block { background: var(--color-bg-subtle); border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
   padding: 10px 12px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .code-block code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .roam-table-scroll { display: block; width: 100%; overflow-x: auto; margin: 4px 0; }
@@ -643,11 +646,11 @@ p.settings-note { font-size: 13px; color: var(--color-text-muted); margin-top: 6
   to { background: transparent; }
 }
 mark.highlight { background: var(--color-highlight-bg); }
-/* Embedded images stop at two-thirds of the text column: a photo at
- * full column width dominates the page. An external URL renders as a bare
- * <img> and an uploaded /assets/ image is wrapped in the expansion trigger, so
- * both boxes carry the cap -- whichever is outermost decides the width. The
- * wrapped image then fills its trigger, or the two caps would multiply to 4/9. */
+/* Embedded images stop at two-thirds of the text column: a photo at full column
+ * width dominates the page. An external URL renders as a bare <img> and an
+ * uploaded /assets/ image is wrapped in the expansion trigger, so both boxes
+ * carry the cap -- whichever is outermost decides the width. The wrapped image
+ * then fills its trigger, or the two caps would multiply to 4/9. */
 .asset-image { max-width: 67%; border-radius: var(--radius-card); display: block; margin: 4px 0; }
 .asset-image-trigger { appearance: none; display: block; max-width: 67%; margin: 4px 0;
   padding: 0; border: 0; border-radius: var(--radius-card); background: transparent;
@@ -734,7 +737,8 @@ mark.highlight { background: var(--color-highlight-bg); }
 .mermaid-diagram svg { max-width: 100%; }
 .mermaid-diagram-error-note { color: var(--color-text-muted); font-size: 13px; margin: 0 0 4px; }
 .math-display { display: block; overflow-x: auto; }
-.math-error { background: var(--color-bg-subtle); border-radius: var(--radius-control); padding: 0 3px; color: var(--color-text-muted); }
+.math-error { background: var(--color-bg-subtle); border-radius: var(--radius-control); padding: 0 3px;
+  color: var(--color-text-muted); }
 /* The wrapper is the true layout box, sized at the visible (scaled) target
  * dimensions; the iframe inside is laid out at full (1/scale) size and
  * visually scaled down to exactly fill the wrapper. 600px is a placeholder
@@ -877,7 +881,8 @@ mark.highlight { background: var(--color-highlight-bg); }
 .panel-close:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .hamburger { display: none; position: fixed;
   top: calc(var(--app-banner-height) + 10px); left: 10px; z-index: 30;
-  background: var(--color-bg-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-control);
+  background: var(--color-bg-surface); border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
   padding: 4px 8px; cursor: pointer; color: var(--color-text); }
 .hamburger:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 
@@ -1032,9 +1037,9 @@ mark.highlight { background: var(--color-highlight-bg); }
 /* --- phone keyboard bar: rendered only on an iPhone (by user agent, not
  * width), pinned to the top of the on-screen keyboard. KeyboardBar sets
  * `bottom` to the keyboard's height; above the composer (40), below the
- * completion popup (50). Keys are the shared pill, sized for a thumb.
- * A touch on a key must not start iOS text selection over the labels, and
- * two quick taps ("[" twice for a link) must not read as a double-tap zoom. --- */
+ * completion popup (50). Keys are the shared pill, sized for a thumb. A touch
+ * on a key must not start iOS text selection over the labels, and two quick
+ * taps ("[" twice for a link) must not read as a double-tap zoom. --- */
 .keyboard-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
   display: flex; gap: 6px; padding: 6px 8px;
   background: var(--color-bg-surface); border-top: 1px solid var(--color-border);
@@ -1052,9 +1057,10 @@ mark.highlight { background: var(--color-highlight-bg); }
   pointer-events: none;
   z-index: 5;
 }
-/* iPadOS Safari routes presses (touch AND trackpad pointer) through the touch
- * gesture system: without these, a press on the handle is claimed by scroll
- * panning / text selection / the long-press callout and dragstart never fires. */
+/* iPadOS Safari routes presses (touch AND trackpad pointer) through the
+ * touch gesture system: without these, a press on the handle is claimed by
+ * scroll panning / text selection / the long-press callout and dragstart
+ * never fires. */
 .bullet[draggable="true"] { cursor: grab; position: relative;
   touch-action: none; -webkit-touch-callout: none;
   -webkit-user-select: none; user-select: none; }
@@ -1088,17 +1094,23 @@ mark.highlight { background: var(--color-highlight-bg); }
   border-bottom: 1px solid var(--color-border);
 }
 .assistant-title { font-weight: 600; margin-right: auto; }
-.assistant-model { display: flex; align-items: center; gap: 4px; font-size: 0.85em; color: var(--color-text-secondary); }
-.assistant-close { background: none; border: none; font-size: 1.2em; cursor: pointer; color: var(--color-text-secondary); }
+.assistant-model { display: flex; align-items: center; gap: 4px; font-size: 0.85em;
+  color: var(--color-text-secondary); }
+.assistant-close { background: none; border: none; font-size: 1.2em; cursor: pointer;
+  color: var(--color-text-secondary); }
 .assistant-close:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .assistant-messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .assistant-msg { white-space: pre-wrap; overflow-wrap: anywhere; }
-.assistant-msg-user { align-self: flex-end; background: var(--color-bg-subtle); border-radius: var(--radius-card); padding: 6px 10px; max-width: 85%; }
+.assistant-msg-user { align-self: flex-end; background: var(--color-bg-subtle);
+  border-radius: var(--radius-card); padding: 6px 10px; max-width: 85%; }
 .assistant-tool-line { font-size: 0.85em; color: var(--color-text-secondary); font-style: italic; }
-.assistant-confirm-card { border: 1px solid var(--color-border-input); border-radius: var(--radius-card); padding: 10px; }
+.assistant-confirm-card { border: 1px solid var(--color-border-input); border-radius: var(--radius-card);
+  padding: 10px; }
 .assistant-confirm-title { font-weight: 600; margin-bottom: 6px; }
-.assistant-confirm-card pre { overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85em; margin: 0 0 8px; }
-.assistant-preview-toggle { background: none; border: none; padding: 0; margin: 0 0 8px; color: var(--color-link); font-size: 0.85em; cursor: pointer; text-decoration: underline; }
+.assistant-confirm-card pre { overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-size: 0.85em; margin: 0 0 8px; }
+.assistant-preview-toggle { background: none; border: none; padding: 0; margin: 0 0 8px;
+  color: var(--color-link); font-size: 0.85em; cursor: pointer; text-decoration: underline; }
 .assistant-preview-toggle:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .assistant-confirm-actions { display: flex; gap: 8px; }
 .assistant-error { color: var(--color-error); font-size: 0.9em; }

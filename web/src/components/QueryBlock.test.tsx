@@ -124,13 +124,15 @@ it("keeps only the current expr's results when a superseded expr resolves late",
   const { rerender } = renderExpr(EXPR_A);
   rerender(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr={EXPR_B} /></MemoryRouter>);
 
-  // The obsolete expr's own fetch is still in flight when the current one settles first.
+  // The obsolete expr's own fetch is still in flight when the current one
+  // settles first.
   b.resolve(jsonResponse({
     groups: [{ page_id: 2, page_title: "Beta page", items: [{ uid: "b1", text: "b" }] }], total: 1,
   }));
   expect(await screen.findByText("Beta page")).toBeInTheDocument();
 
-  // The obsolete expr's response arrives late; it must not overwrite the current state.
+  // The obsolete expr's response arrives late; it must not overwrite the
+  // current state.
   await act(async () => {
     a.resolve(jsonResponse({
       groups: [{ page_id: 1, page_title: "Alpha page", items: [{ uid: "a1", text: "a" }] }], total: 1,
@@ -155,7 +157,8 @@ it("ignores a stale generation's rejection while the current generation is still
   const { rerender } = renderExpr(EXPR_A);
   rerender(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr={EXPR_B} /></MemoryRouter>);
 
-  // The obsolete expr's request fails while the current expr's own request is still pending.
+  // The obsolete expr's request fails while the current expr's own request is
+  // still pending.
   await act(async () => {
     a.reject(new Error("stale network failure"));
     await Promise.resolve().then(() => Promise.resolve());

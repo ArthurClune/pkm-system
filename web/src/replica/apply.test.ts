@@ -643,10 +643,10 @@ describe("applyChanges: a title moving between ids inside one window", () => {
 
 describe("applyChanges: a page id deleted and reused inside one window", () => {
   // SQLite gives the next insert max(id)+1, so deleting the highest page id
-  // frees it for reuse, and the server ships
-  // such an id as a tombstone and a live row in one window. Page tombstones lead:
-  // the page's cascade clears what hung off the old page, then the upserts
-  // bring back everything the window ships for the new one.
+  // frees it for reuse, and the server ships such an id as a tombstone and a
+  // live row in one window. Page tombstones lead: the page's cascade clears
+  // what hung off the old page, then the upserts bring back everything the
+  // window ships for the new one.
   test("the tombstone clears the old page's blocks and other blocks' refs before the new page lands", () => {
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11, blocks: [block("uid_on_ai", 2)],

@@ -168,7 +168,8 @@ def _parse_hex4(text: str, pos: int) -> int:
 
 
 def _parse_unicode_escape(text: str, pos: int) -> tuple[str, int]:
-    """pos points at the backslash of a \\uXXXX escape; returns (char, new_pos)."""
+    """pos points at the backslash of a \\uXXXX escape; returns (char,
+    new_pos)."""
     escape_start = pos
     cp = _parse_hex4(text, pos + 2)
     pos += 6

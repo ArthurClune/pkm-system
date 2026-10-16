@@ -107,7 +107,8 @@ describe("toggleEmphasis", () => {
   });
 
   it("does not treat a bare marker-only selection as wrapped", () => {
-    // "**" selected (0..2): startsWith and endsWith overlap — must wrap, not strip
+    // "**" selected (0..2): startsWith and endsWith overlap — must wrap, not
+    // strip
     expect(toggleEmphasis("**", 0, 2, "**"))
       .toEqual({ text: "******", selStart: 2, selEnd: 4 });
   });

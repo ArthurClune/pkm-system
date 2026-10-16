@@ -42,7 +42,8 @@ it("tracks an OS preference change while on system", async () => {
   await waitFor(() => expect(result.current).toBe("dark"));
 });
 
-it("shares one MutationObserver across every subscriber, propagates a flip to all, and tears it down only once the last unmounts", async () => {
+it("shares one MutationObserver across every subscriber, propagates "
+  + "a flip to all, and tears it down only once the last unmounts", async () => {
   const mql = stubMatchMedia(false);
   document.documentElement.setAttribute("data-theme", "system");
 

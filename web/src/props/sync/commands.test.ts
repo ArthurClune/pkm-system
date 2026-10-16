@@ -46,7 +46,8 @@ describe("DeletePage", () => {
       .filter((c): c is DeletePage => c instanceof DeletePage);
     expect(deletes.length).toBeGreaterThan(0);
     expect(new Set(deletes.map((d) => d.title)).size).toBe(4);
-    // Every pool page is a delete target; the page holding BAD_UID is not in the pool.
+    // Every pool page is a delete target; the page holding BAD_UID is not in
+    // the pool.
     expect(PAGE_TITLES).not.toContain(FIXTURE_PAGE);
   });
 

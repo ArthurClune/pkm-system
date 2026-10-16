@@ -319,7 +319,8 @@ describe("drop", () => {
   });
 
   it("drop at a child depth under a collapsed row throws", () => {
-    // allowedDepths offers no child depth after a collapsed row: b would land hidden in a.
+    // allowedDepths offers no child depth after a collapsed row: b would land
+    // hidden in a.
     const before = page(t("a", { collapsed: true }, t("a1")), t("b"));
     expect(() => expectedRows(before, drop(us("b"), 1, 1))).toThrow(/^model: /);
   });

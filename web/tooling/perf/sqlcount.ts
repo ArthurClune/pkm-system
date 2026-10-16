@@ -53,7 +53,8 @@ export function aliases(sql: string): Map<string, string> {
 
 /** Plan rows that read a real table with no index. CTEs, constant rows and
  * FTS virtual tables are not table scans in the sense that matters. `names`
- * resolves aliases; a CTE alias resolves to the CTE, which is not in `tables`. */
+ * resolves aliases; a CTE alias resolves to the CTE, which is not in
+ * `tables`. */
 export function fullScans(
   details: readonly string[],
   tables: ReadonlySet<string>,

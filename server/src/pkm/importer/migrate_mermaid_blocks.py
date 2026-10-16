@@ -1,5 +1,6 @@
 # pattern: Imperative Shell
-"""One-off migration: python -m pkm.importer.migrate_mermaid_blocks --db PATH [--dry-run]
+"""One-off migration:
+python -m pkm.importer.migrate_mermaid_blocks --db PATH [--dry-run]
 
 Fixes already-imported Roam mermaid diagrams. The Roam importer used to
 import a mermaid component block ({{[[mermaid]]}}, diagram source as child

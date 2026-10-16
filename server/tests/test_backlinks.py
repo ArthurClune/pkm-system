@@ -13,7 +13,8 @@ def test_page_endpoint_includes_backlinks(client):
 
 
 def test_backlink_breadcrumbs(client):
-    # uid_b3 is nested under uid_b2 ("Papers") — backlinks of "Paper" show the chain
+    # uid_b3 is nested under uid_b2 ("Papers") — backlinks of "Paper" show the
+    # chain
     body = client.get("/api/page/Paper").json()
     [group] = body["backlinks"]["groups"]
     assert group["page_title"] == "Machine Learning"

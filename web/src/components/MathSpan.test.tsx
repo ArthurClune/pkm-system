@@ -70,7 +70,8 @@ it("reuses cached KaTeX HTML across a remount, never re-invoking katex.renderToS
   expect(mockRenderToString).toHaveBeenCalledTimes(1); // still 1: never invoked again
 });
 
-it("keys the cache on display mode as well as tex: inline and display renders of the same tex don't share a cache entry", async () => {
+it("keys the cache on display mode as well as tex: inline and "
+  + "display renders of the same tex don't share a cache entry", async () => {
   mockRenderToString.mockImplementation((_tex: string, opts: { displayMode: boolean }) => (
     `<span class="katex">${opts.displayMode ? "display" : "inline"}</span>`
   ));

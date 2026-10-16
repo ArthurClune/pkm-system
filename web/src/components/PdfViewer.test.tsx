@@ -75,7 +75,10 @@ vi.mock("react-pdf", async () => {
   };
   function Document({ file, onLoadSuccess, onLoadError, loading, children }: {
     file?: string;
-    onLoadSuccess?: (pdf: { numPages: number; getPage: () => Promise<{ getViewport: (o: { scale: number }) => Viewport }> }) => void;
+    onLoadSuccess?: (pdf: {
+      numPages: number;
+      getPage: () => Promise<{ getViewport: (o: { scale: number }) => Viewport }>;
+    }) => void;
     onLoadError?: (err: unknown) => void;
     loading?: ReactNode;
     children?: ReactNode;
@@ -382,7 +385,9 @@ it("a 503 from /api/local reads as a host-side failure rather than a render fail
   failWith = { status: 503 };
   render(<PdfViewer href={href} label="Notes" />);
   await act(async () => {});
-  expect(screen.getByText("The host can't serve this file right now: it isn't downloaded yet, or the host isn't allowed to read it.")).toBeInTheDocument();
+  expect(screen.getByText(
+    "The host can't serve this file right now: "
+    + "it isn't downloaded yet, or the host isn't allowed to read it.")).toBeInTheDocument();
   expect(screen.queryByText("Couldn't render this PDF.")).toBeNull();
   expect(screen.getByRole("link", { name: "Notes" })).toHaveAttribute("href", href);
 });
@@ -542,10 +547,11 @@ it("overlay mode: locks body scrolling on mount and restores the prior value on 
 
 it("StrictMode double-invocation still guards a slow getPage(1) from the previous document", async () => {
   // The render-time gen bump + reset (see PdfViewer.tsx) relies on being
-  // idempotent under React's double-invoked renders/effects in StrictMode
-  // (app is wrapped in it: main.tsx). Pin that down mechanically rather
-  // than by reasoning, matching this codebase's convention for
-  // lifecycle-order-sensitive code (SyncProvider.test.tsx, EditablePage.test.tsx).
+  // idempotent under React's double-invoked renders/effects in StrictMode (app
+  // is wrapped in it: main.tsx). Pin that down mechanically rather than by
+  // reasoning, matching this codebase's convention for
+  // lifecycle-order-sensitive code (SyncProvider.test.tsx,
+  // EditablePage.test.tsx).
   manual = true;
   const { rerender } = render(
     <StrictMode><PdfViewer href={href} label="A" /></StrictMode>,

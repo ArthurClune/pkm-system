@@ -237,7 +237,8 @@ describe("the log across acks, poison and upgrades", () => {
     expect(db.select("SELECT COUNT(*) AS n FROM replay_log")).toEqual([{ n: 0 }]);
   });
 
-  test("a poisoned middle batch's effects leave at the next window and the later batch's dependent op is skipped alone", async () => {
+  test("a poisoned middle batch's effects leave at the next window "
+    + "and the later batch's dependent op is skipped alone", async () => {
     const server = { pages: [page(1, "Page One")], blocks: [block("a"), block("b", at(1))] };
     const b1 = batch("b1", { op: "update_text", uid: u("a"), text: "edited a" });
     const b3 = batch("b3", create("c", 0, "p2"),

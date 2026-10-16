@@ -55,7 +55,9 @@ it("a wrong API token says so rather than 'not running'", async () => {
 it("an article with no reader copy keeps the bar and original link but renders no iframe", async () => {
   stub(async () => jsonResponse({ ...ARTICLE, html: "" }));
   render(<GoodlinksReader linkId={ID} onClose={vi.fn()} />);
-  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Goodlinks has no reader copy of this page"));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+    "Goodlinks has no reader "
+    + "copy of this page"));
   expect(screen.queryByTitle("UML My Part")).not.toBeInTheDocument();
   expect(document.querySelector("iframe")).toBeNull();
   expect(screen.getByText("UML My Part")).toBeInTheDocument();

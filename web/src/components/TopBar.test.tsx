@@ -418,9 +418,9 @@ function renderTopBarWithStamps(stamps: boolean, toggle = vi.fn()) {
 }
 
 // The label carries the state, so it names the action available now, not the
-// state you are in: off -> "Show timestamps", on -> "Hide timestamps". Asserting
-// the opposite label is absent is the part that matters -- a reserved checkmark
-// slot would leave both readings plausible.
+// state you are in: off -> "Show timestamps", on -> "Hide timestamps".
+// Asserting the opposite label is absent is the part that matters -- a reserved
+// checkmark slot would leave both readings plausible.
 it("labels the timestamps item 'Show timestamps' when the preference is off", () => {
   renderTopBarWithStamps(false);
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));

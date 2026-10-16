@@ -1,6 +1,7 @@
 """The committed shared/fixtures/shim_parity.json must match what the live
-routes return today; the TS offline shim replays the same file. Regenerate:
-`uv run python -m pkm.server.shim_parity_dump > ../shared/fixtures/shim_parity.json`."""
+routes return today; the TS offline shim replays the same file. Regenerate with
+`uv run python -m pkm.server.shim_parity_dump`, writing stdout to
+shared/fixtures/shim_parity.json."""
 import json
 from pathlib import Path
 

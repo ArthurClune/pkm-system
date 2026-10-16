@@ -248,7 +248,8 @@ def test_env_init_cleans_up_its_tempdir_when_make_client_raises(monkeypatch, sma
 
 
 def test_cached_fixture_is_opened_read_only(monkeypatch, small_fixture):
-    # the cached fixture is shared across sessions; only private copies are written
+    # the cached fixture is shared across sessions; only private copies are
+    # written
     real, opened = backend.sqlite3.connect, []
 
     def spy(target, *a, **k):

@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
-// Does the oracle have teeth? Each deliberately broken transport or server
-// must make checkQuiescent fail with the invariant that exists to catch it; a
-// clean run and a correctly handled bad batch must pass. If a broken scenario passes,
+// Does the oracle have teeth? Each deliberately broken transport or server must
+// make checkQuiescent fail with the invariant that exists to catch it; a clean
+// run and a correctly handled bad batch must pass. If a broken scenario passes,
 // the oracle is blind and the gate fails before the property runs.
 import { afterEach, beforeAll, beforeEach, expect, test } from "vitest";
 import type { BatchId, BlockUid, OrderIdx } from "../../api/brands";

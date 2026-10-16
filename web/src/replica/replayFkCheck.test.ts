@@ -19,13 +19,15 @@ const fkKeys = (db: ReplicaDb): Set<string> =>
     .map((v) => JSON.stringify([v.table, v.rowid, v.parent, v.fkid])));
 
 class Undo extends Error {}
-/** Run inside the wrapper's transaction (so applyLocalOps joins it), then roll back. */
+/** Run inside the wrapper's transaction (so applyLocalOps joins it), then roll
+ * back. */
 const inTxn = (db: ReplicaDb, fn: () => void): void => {
   try { db.transaction(() => { fn(); throw new Undo(); }); }
   catch (e) { if (!(e instanceof Undo)) throw e; }
 };
 
-/** The replay's first pass: each op under its own savepoint, a throw rolls it back. */
+/** The replay's first pass: each op under its own savepoint, a throw rolls it
+ * back. */
 const replay = (db: ReplicaDb, ops: BlockOp[], batchId: string): void => {
   for (const op of ops) {
     db.exec("SAVEPOINT replay_op");

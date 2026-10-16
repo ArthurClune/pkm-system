@@ -2,8 +2,8 @@
 // Pure text/caret transforms for editor keystrokes: bracket auto-pairing
 // (typing one of [ ( { ` " ' ), Cmd-K markdown-link wrapping, and Cmd-B/Cmd-I
 // emphasis toggling. Each returns the new textarea value plus the selection to
-// restore afterwards, or null to let the keystroke fall through to the browser's
-// default handling.
+// restore afterwards, or null to let the keystroke fall through to the
+// browser's default handling.
 //
 // These are intentionally stateless: "skip over an auto-inserted closing
 // bracket" is inferred from "the next character already equals the one being
@@ -31,7 +31,8 @@ const CLOSERS = new Set(["]", ")", "}"]);
 const WORD_RE = /\w/;
 
 /** All characters that trigger bracket handling (so the caller can decide
- * whether a keystroke is even a candidate before consulting selection state). */
+ * whether a keystroke is even a candidate before consulting selection
+ * state). */
 export const BRACKET_CHARS: ReadonlySet<string> = new Set([
   ...Object.keys(OPEN_TO_CLOSE), ...CLOSERS, ...SYMMETRIC,
 ]);
@@ -95,11 +96,12 @@ export function wrapLink(
 /** Cmd-B / Cmd-I: toggle an emphasis marker pair ("**" bold, "__" italic —
  * Roam-style, matching grammar/tokenize.ts) around the selection. A wrapped
  * selection (markers just outside, or included in the selection) unwraps;
- * anything else wraps, keeping the inner text selected so toggles stack and
- * a second press undoes. A bare caret inserts an empty pair with the caret
- * centered; pressed again there, it deletes the pair. Multi-line selections are
- * wrapped literally but will not render as emphasis (the tokenizer skips emphasis
- * spanning newlines) — deliberate, matching the "user gets what they selected" stance. */
+ * anything else wraps, keeping the inner text selected so toggles stack and a
+ * second press undoes. A bare caret inserts an empty pair with the caret
+ * centered; pressed again there, it deletes the pair. Multi-line selections
+ * are wrapped literally but will not render as emphasis (the tokenizer skips
+ * emphasis spanning newlines) — deliberate, matching the "user gets what they
+ * selected" stance. */
 export function toggleEmphasis(
   text: string, selStart: CaretOffset, selEnd: CaretOffset, marker: "**" | "__",
 ): TextSelection {

@@ -1161,7 +1161,8 @@ test("an acked row without a seq vouches for no window", async () => {
 test("an ack that matches no row by id and batch id deletes nothing", async () => {
   const { t, commit } = await leasedAckedAndOpen();
   await expect(commit([
-    { id: (1 as PendingRowId), batch_id: bid("open"), seq: (7 as SyncSeq) }, { id: (9 as PendingRowId), batch_id: bid("acked"), seq: (7 as SyncSeq) },
+    { id: (1 as PendingRowId), batch_id: bid("open"), seq: (7 as SyncSeq) },
+    { id: (9 as PendingRowId), batch_id: bid("acked"), seq: (7 as SyncSeq) },
   ])).resolves.toBeNull();
   expect(pendingIds(t.db)).toEqual([{ batch_id: "acked" }, { batch_id: "open" }]);
   expect(textOf(t.db, "uid_b1")).toBe("[[Old]] edited");
@@ -1472,7 +1473,8 @@ const shiftingCreate = (id: string) => ({
 const orderOf = (db: ReplicaDb, u: string): unknown =>
   db.select<{ order_idx: number }>("SELECT order_idx FROM blocks WHERE uid = ?", [u])[0]?.order_idx;
 
-test("an enqueue on a file without replay_log creates the tables, records, and leaves schema_version stale", async () => {
+test("an enqueue on a file without replay_log creates the "
+  + "tables, records, and leaves schema_version stale", async () => {
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
@@ -1534,7 +1536,8 @@ const LEGACY_LEDGER =
   "CREATE TABLE effect_ledger(batch_id TEXT NOT NULL, uid TEXT NOT NULL," +
   " order_delta INTEGER NOT NULL DEFAULT 0, row_json TEXT, PRIMARY KEY (batch_id, uid))";
 
-test("an enqueue on a file with a legacy effect_ledger and no replay_log creates the replay tables and leaves the ledger alone", async () => {
+test("an enqueue on a file with a legacy effect_ledger and no "
+  + "replay_log creates the replay tables and leaves the ledger alone", async () => {
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
@@ -1552,13 +1555,15 @@ test("an enqueue on a file with a legacy effect_ledger and no replay_log creates
     .toEqual([{ batch_id: "old", uid: "u" }]);
 });
 
-test("an enqueue on a file with a legacy effect_ledger beside replay_log records without reinstalling the schema", async () => {
+test("an enqueue on a file with a legacy effect_ledger beside "
+  + "replay_log records without reinstalling the schema", async () => {
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
   await handlers.applySnapshot({ snapshot: TWO, expectedPendingIds: [] });
   t.db.exec(LEGACY_LEDGER);
-  // an index CLIENT_DDL would recreate: its absence afterwards shows the DDL did not rerun
+  // an index CLIENT_DDL would recreate: its absence afterwards shows the DDL
+  // did not rerun
   t.db.exec("DROP INDEX idx_replay_log_key");
   await handlers.enqueue(shiftingCreate("a"));
   expect(t.db.select("SELECT batch_id FROM replay_log WHERE batch_id = 'a'").length)

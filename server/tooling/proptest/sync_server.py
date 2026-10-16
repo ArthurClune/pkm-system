@@ -2,8 +2,8 @@
 """Test-only launcher for the web sync property harness: the real pkm app on
 port 8978 plus a few /__proptest/* control routes that reset the database,
 move the server clock, rotate the sync generation, and read applied_batches
-and the page renames and deletes in commit order. The routes live here and never in
-pkm.server.app.
+and the page renames and deletes in commit order. The routes live here and
+never in pkm.server.app.
 
 Run (cwd server/, as proptest/check.sh runs run.py):
     TZ=Europe/London PYTHONPATH=tooling uv run python -m proptest.sync_server

@@ -1,10 +1,10 @@
 import pytest
 
-from pkm.goodlinks import (GOODLINKS_PREFIX, candidate_urls, extract_goodlinks_hrefs,
-                           goodlinks_href, is_link_id, link_id_from_href,
-                           sanitize_article, search_match, search_query)
+from pkm.goodlinks import (GOODLINKS_PREFIX, GoodlinksId, candidate_urls,
+                           extract_goodlinks_hrefs, goodlinks_href, link_id_from_href,
+                           parse_link_id, sanitize_article, search_match, search_query)
 
-ID = "e4966bb2483b5c78f658398c0ae7b03f"
+ID = GoodlinksId("e4966bb2483b5c78f658398c0ae7b03f")
 
 
 @pytest.mark.parametrize("value,ok", [
@@ -15,8 +15,8 @@ ID = "e4966bb2483b5c78f658398c0ae7b03f"
     ("check", False),
     ("", False),
 ])
-def test_is_link_id(value, ok):
-    assert is_link_id(value) is ok
+def test_parse_link_id(value, ok):
+    assert parse_link_id(value) == (value if ok else None)
 
 
 def test_href_round_trip():

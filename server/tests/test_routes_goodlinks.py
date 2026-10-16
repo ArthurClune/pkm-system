@@ -3,7 +3,7 @@ import sqlite3
 from fastapi.testclient import TestClient
 
 from conftest import GL_ID
-from pkm.goodlinks import goodlinks_href
+from pkm.goodlinks import GoodlinksId, goodlinks_href
 from pkm.server.app import create_app
 
 
@@ -88,6 +88,13 @@ def test_resolve_when_goodlinks_down_is_503(goodlinks_client, fake_goodlinks):
     assert r.json() == {"detail": "Goodlinks is not running on the host"}
 
 
+def test_resolve_when_goodlinks_returns_a_link_without_an_id_is_503(goodlinks_client, fake_goodlinks):
+    del fake_goodlinks.links[GL_ID]["id"]
+    r = resolve(goodlinks_client, "https://tratt.net/uml.html")
+    assert r.status_code == 503
+    assert r.json() == {"detail": "Goodlinks is not running on the host"}
+
+
 def test_resolve_rejects_empty_url(goodlinks_client):
     assert resolve(goodlinks_client, "").status_code == 422
 
@@ -128,6 +135,13 @@ def test_article_without_content_returns_meta_and_empty_html(goodlinks_client, f
     assert body["url"] == "https://paywall.example/p"
 
 
+def test_article_when_goodlinks_returns_a_link_without_a_url_is_503(goodlinks_client, fake_goodlinks):
+    del fake_goodlinks.links[GL_ID]["url"]
+    r = goodlinks_client.get(f"/api/goodlinks/{GL_ID}")
+    assert r.status_code == 503
+    assert r.json() == {"detail": "Goodlinks is not running on the host"}
+
+
 def test_article_unknown_id_is_404(goodlinks_client):
     assert goodlinks_client.get("/api/goodlinks/" + "0" * 32).status_code == 404
 
@@ -163,7 +177,7 @@ def _seed_goodlinks_links(db_path):
     con = sqlite3.connect(db_path)
     rows = [
         ("uid_g1", 1, None, 10, f"Local copy:: [Goodlinks]({goodlinks_href(GL_ID)})"),
-        ("uid_g2", 1, None, 11, f"Local copy:: [Goodlinks]({goodlinks_href('0' * 32)})"),
+        ("uid_g2", 1, None, 11, f"Local copy:: [Goodlinks]({goodlinks_href(GoodlinksId('0' * 32))})"),
         ("uid_g3", 2, None, 10, "see /api/goodlinks/not-hex and [dup](" + goodlinks_href(GL_ID) + ")"),
         ("uid_g4", 2, None, 11, "no goodlinks here"),
     ]

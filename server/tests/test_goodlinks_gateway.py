@@ -3,11 +3,12 @@ import json
 import httpx2
 import pytest
 
+from pkm.goodlinks import GoodlinksId
 from pkm.server.goodlinks_gateway import (GoodlinksGateway, GoodlinksRejected,
                                           GoodlinksUnauthorized, GoodlinksUnavailable)
 
 BASE = "http://goodlinks.test/api/v1"
-ID = "e4966bb2483b5c78f658398c0ae7b03f"
+ID = GoodlinksId("e4966bb2483b5c78f658398c0ae7b03f")
 LINK = {"id": ID, "url": "https://a.example/p", "title": "A", "addedAt": "2025-02-13T19:51:00Z"}
 
 
@@ -121,3 +122,21 @@ def test_save_non_json_2xx_body_is_unavailable():
 def test_link_non_json_2xx_body_is_unavailable():
     with pytest.raises(GoodlinksUnavailable):
         gateway(lambda r: httpx2.Response(200, text="not json")).link(ID)
+
+
+@pytest.mark.parametrize("body", [[LINK], "a string", 7])
+def test_non_object_json_2xx_body_is_unavailable(body):
+    gw = gateway(lambda r: httpx2.Response(200, json=body))
+    for call in (lambda: gw.lookup("x"), lambda: gw.link(ID), lambda: gw.search("x"),
+                 lambda: gw.save("https://a.example/p")):
+        with pytest.raises(GoodlinksUnavailable):
+            call()
+
+
+def test_search_drops_results_that_are_not_objects():
+    gw = gateway(lambda r: httpx2.Response(200, json={"data": [LINK, "junk", 3, None]}))
+    assert gw.search("a.example/p") == [LINK]
+
+
+def test_search_with_non_list_data_is_empty():
+    assert gateway(lambda r: httpx2.Response(200, json={"data": "nope"})).search("x") == []

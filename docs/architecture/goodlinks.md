@@ -35,9 +35,10 @@ GoodLinks' local API listens on `localhost:9428`, the host Mac's loopback
 interface only. The iPad reaches it the way it reaches `/api/local/`: through
 the server, which holds the bearer token and forwards requests via
 `goodlinks_gateway.py`. That means the GoodLinks app itself must be running
-on the host for any of this to work. When it is not running, or answers a
-2xx request with a body that is not valid JSON, `GoodlinksGateway` raises
-`GoodlinksUnavailable` and every route answers 503. A 401 or 403 from
+on the host for any of this to work. When it is not running,
+`GoodlinksGateway` raises `GoodlinksUnavailable` and every route answers 503.
+A 2xx answer that is not a usable link gets the same 503: a body that is not
+a JSON object, or a link without a string `id` or `url`. A 401 or 403 from
 GoodLinks on any request, a wrong or revoked token, raises
 `GoodlinksUnauthorized` instead, which every route answers with a 503 of its
 own detail, "Goodlinks rejected the API token". Both 503 causes are logged

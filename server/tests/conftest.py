@@ -5,6 +5,7 @@ import pytest
 from fake_engine import FakeEngine
 from fastapi.testclient import TestClient
 
+from pkm.goodlinks import GoodlinksId
 from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
@@ -269,7 +270,7 @@ class FakeGoodlinks:
         return httpx2.Response(404, json={"error": "Not Found"})
 
 
-GL_ID = "e4966bb2483b5c78f658398c0ae7b03f"
+GL_ID = GoodlinksId("e4966bb2483b5c78f658398c0ae7b03f")
 
 
 @pytest.fixture()

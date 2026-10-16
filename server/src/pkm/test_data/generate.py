@@ -133,7 +133,8 @@ def _restore_claimed_output(claim: _OutputClaim, output_dir: Path, exc: Exceptio
 
 
 def _publish_staged(staging_dir: Path, output_dir: Path) -> None:
-    """Atomically publish a staged data directory without discarding live data."""
+    """Atomically publish a staged data directory without discarding live
+    data."""
     claim = _claim_output(output_dir)
     try:
         if claim.backup_dir is not None:
@@ -150,7 +151,8 @@ def _publish_staged(staging_dir: Path, output_dir: Path) -> None:
 
 
 def generate(source_path: Path, output_dir: Path) -> None:
-    """Build and publish a synthetic PKM data directory from one graph source."""
+    """Build and publish a synthetic PKM data directory from one graph
+    source."""
     if output_dir.is_symlink() or (output_dir.exists() and not output_dir.is_dir()):
         raise ValueError(f"output path is not a regular directory: {output_dir}")
 

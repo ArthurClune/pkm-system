@@ -154,7 +154,8 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
   });
 
-  test("a block moved under a ghost keeps its subtree when the ghost's tombstone and the re-shipped subtree share a window", () => {
+  test("a block moved under a ghost keeps its subtree when the "
+    + "ghost's tombstone and the re-shipped subtree share a window", () => {
     // The client moved uid_b2 (child uid_b3) under uid_ghost_p, a parent the
     // server never had; both batches are acked. The server skips the move
     // and journals the parent's tombstone first, then every row of the moved

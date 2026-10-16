@@ -1,6 +1,7 @@
 // Seed the throwaway e2e server (port E2E_PORT, default 8977) with realistic
 // content for the runtime-performance measurement:
-//   - "Perf Big Page": ~300 nested blocks, [[links]], 2 mermaid, 1 katex, 1 code
+//   - "Perf Big Page": ~300 nested blocks, [[links]], 2 mermaid, 1 katex,
+//     1 code
 //   - 30 daily-journal pages x ~10 blocks
 // Run: node seed.mjs
 const BASE = `http://127.0.0.1:${process.env.E2E_PORT ?? "8977"}`;
@@ -39,10 +40,13 @@ const MONTHS = ["January","February","March","April","May","June","July",
 const suffix = (d) => (d % 100 >= 10 && d % 100 <= 20) ? "th" : ({1:"st",2:"nd",3:"rd"}[d % 10] ?? "th");
 const titleForDate = (dt) => `${MONTHS[dt.getMonth()]} ${dt.getDate()}${suffix(dt.getDate())}, ${dt.getFullYear()}`;
 
-const MERMAID = "```mermaid\ngraph TD\n  A[Client] --> B[Replica]\n  B --> C[Server]\n  C --> D[(SQLite)]\n  B --> E[Op queue]\n  E --> C\n```";
-const MERMAID2 = "```mermaid\nsequenceDiagram\n  Client->>Server: POST /api/ops\n  Server-->>Client: seq nudge\n  Client->>Server: GET /api/sync/changes\n```";
+const MERMAID = "```mermaid\ngraph TD\n  A[Client] --> B[Replica]\n  B --> C[Server]\n  C --> D[(SQLite)]\n"
+  + "  B --> E[Op queue]\n  E --> C\n```";
+const MERMAID2 = "```mermaid\nsequenceDiagram\n  Client->>Server: POST /api/ops\n  Server-->>Client: seq nudge\n"
+  + "  Client->>Server: GET /api/sync/changes\n```";
 const KATEX = "$$\\sum_{i=1}^{n} \\frac{i^2}{n^3} \\to \\frac{1}{3} \\quad (n \\to \\infty)$$";
-const CODE = "```python\ndef apply_batch(db, batch, now):\n    for op in batch.ops:\n        plan = plan_op(db, op)\n        execute(db, plan, now)\n    return broadcast(batch)\n```";
+const CODE = "```python\ndef apply_batch(db, batch, now):\n    for op in batch.ops:\n        plan = plan_op(db, op)\n"
+  + "        execute(db, plan, now)\n    return broadcast(batch)\n```";
 
 async function main() {
   await api("/api/login", { method: "POST", body: JSON.stringify({ password: PASSWORD }) });
@@ -72,8 +76,15 @@ async function main() {
       else if (s === 7 && c === 0) text = MERMAID2;
       else if (s === 11 && c === 0) text = KATEX;
       else if (s === 15 && c === 0) text = CODE;
-      else if (c % 3 === 0) text = `Note ${s}.${c} — see [[${dailyTitles[(s + c) % 30]}]] and [[Perf Reference ${c}]] for the retry cadence.`;
-      else text = `Observation ${s}.${c}: the drain backoff escalates 250ms, 1s, 5s while the socket reconnects on a fixed two second timer, which means a degraded link produces a steady stream of work rather than an exponential falloff.`;
+      else if (c % 3 === 0) {
+        text = `Note ${s}.${c} — see [[${dailyTitles[(s + c) % 30]}]] `
+          + `and [[Perf Reference ${c}]] for the retry cadence.`;
+      } else {
+        text = `Observation ${s}.${c}: the drain backoff escalates 250ms, 1s, 5s `
+          + `while the socket reconnects on a fixed two second timer, which means `
+          + `a degraded link produces a steady stream of work rather than an `
+          + `exponential falloff.`;
+      }
       ops.push({ op: "create", uid: uid(), page_title: BIG, parent_uid: parent,
                  order_idx: c, text });
       created++;
@@ -91,7 +102,8 @@ async function main() {
         op: "create", uid: uid(), page_title: title, parent_uid: null, order_idx: b,
         text: b === 0
           ? `Daily log ${i}: worked on [[Perf Big Page]] sync instrumentation`
-          : `- item ${b}: measured op-queue drain latency and websocket reconnect churn under a degraded link (entry ${i}.${b})`,
+          : `- item ${b}: measured op-queue drain latency and websocket reconnect churn `
+            + `under a degraded link (entry ${i}.${b})`,
       });
     }
   }

@@ -9,7 +9,20 @@ import {
 } from "../outline/outlineSessions";
 import { performUndo, resetHistory } from "../outline/undoManager";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, journalBacklinks, jsonResponse, makeSync, ord, pageId, pagePayload, READ_INIT, servePageApplyingSent, stubFetch, title, uid } from "../test-helpers";
+import {
+  block,
+  journalBacklinks,
+  jsonResponse,
+  makeSync,
+  ord,
+  pageId,
+  pagePayload,
+  READ_INIT,
+  servePageApplyingSent,
+  stubFetch,
+  title,
+  uid,
+} from "../test-helpers";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
 import { BlockStampsContext } from "../contexts";
 import { Journal } from "./Journal";

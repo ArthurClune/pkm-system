@@ -19,14 +19,19 @@ it("adds the link sentence, plural", () => {
 
 it("adds the block reference sentence, singular and plural", () => {
   expect(deleteConfirmMessage("Paper", { ...base, block_refs: 1, block_ref_pages: 1 })).toBe(
-    'Delete "Paper"? This cannot be undone. 1 block reference on 1 page will be replaced with a copy of the text they point to.');
+
+      'Delete "Paper"? This cannot be undone. 1 block reference on 1 page '
+      + 'will be replaced with a copy of the text they point to.');
   expect(deleteConfirmMessage("Paper", { ...base, block_refs: 4, block_ref_pages: 2 })).toBe(
-    'Delete "Paper"? This cannot be undone. 4 block references on 2 pages will be replaced with a copy of the text they point to.');
+
+      'Delete "Paper"? This cannot be undone. 4 block references on 2 pages '
+      + 'will be replaced with a copy of the text they point to.');
 });
 
 it("adds both sentences in order", () => {
   expect(deleteConfirmMessage("P", { ...base, links: 2, link_pages: 2, block_refs: 1, block_ref_pages: 1 })).toBe(
-    'Delete "P"? This cannot be undone. 2 links on 2 pages will become plain text. 1 block reference on 1 page will be replaced with a copy of the text they point to.');
+    'Delete "P"? This cannot be undone. 2 links on 2 pages will become plain text. '
+    + '1 block reference on 1 page will be replaced with a copy of the text they point to.');
 });
 
 it("labels each blocker reason", () => {

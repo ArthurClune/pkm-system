@@ -21,7 +21,8 @@ async function login(page: Page) {
 const askInput = (page: Page) =>
   page.getByRole("region", { name: "Assistant" }).getByPlaceholder(/ask about your notes/i);
 
-test("clicking an asset link in an assistant reply opens the referencing block; shift-click opens it in the sidebar", async ({ page }) => {
+test("clicking an asset link in an assistant reply opens the "
+  + "referencing block; shift-click opens it in the sidebar", async ({ page }) => {
   await login(page);
 
   const stamp = Date.now();

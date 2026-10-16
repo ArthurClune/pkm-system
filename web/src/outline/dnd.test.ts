@@ -63,11 +63,12 @@ it("resolveDrop picks parent and order_idx from the chosen depth", () => {
   expect(resolveDrop(page(), "P", OTHER, { boundary: 3, depth: 3 }))
     .toEqual({ parent_uid: "c", order_idx: 0, page_title: "P" });
   // boundary 1 = after a (b is a's child at depth 1); depth 0 → top level.
-  // First row at/after boundary with parent null (depth 0) is d with order_idx 1
-  // → insert before d at top level
+  // First row at/after boundary with parent null (depth 0) is d with order_idx
+  // 1 → insert before d at top level
   expect(resolveDrop(page(), "P", OTHER, { boundary: 1, depth: 0 }))
     .toEqual({ parent_uid: null, order_idx: 1, page_title: "P" });
-  // boundary 5 = end of outline, after f; depth 1 → child of f (childless) → first child
+  // boundary 5 = end of outline, after f; depth 1 → child of f (childless) →
+  // first child
   expect(resolveDrop(page(), "P", OTHER, { boundary: 5, depth: 1 }))
     .toEqual({ parent_uid: "f", order_idx: 0, page_title: "P" });
 });

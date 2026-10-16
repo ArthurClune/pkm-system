@@ -198,8 +198,8 @@ describe("start, bootstrap and feed pulls", () => {
 
   test("appliedVersion answers 'cannot tell' only for a database that is gone, "
      + "not for a pull that failed", async () => {
-    // The asymmetry the resync narrowing rests on. An ordinary failed pull keeps
-    // a number: the cursor still remembers what was applied, so the next
+    // The asymmetry the resync narrowing rests on. An ordinary failed pull
+    // keeps a number: the cursor still remembers what was applied, so the next
     // successful pull re-reads the same window and reports the change then. The
     // worker's latched open failure keeps no such promise -- every later pull
     // replays it until close() -- so the answer has to become null or views
@@ -230,15 +230,15 @@ describe("start, bootstrap and feed pulls", () => {
   });
 
   test("resetLocalData cannot revive a session whose replica cannot open", async () => {
-    // The explicit `disabled` guard is gone; prepareRecovery rejects on the latch
-    // before resetLocalData can set `started` or force mode "ready". The
+    // The explicit `disabled` guard is gone; prepareRecovery rejects on the
+    // latch before resetLocalData can set `started` or force mode "ready". The
     // rejection propagating by identity is not the property under test -- a
     // reorder that moved `started = true` above prepareRecovery() would still
     // let that rejection through unchanged while leaving the session revived.
-    // `started` has no external getter, so the tripwire is behavioural: a start()
-    // call afterwards takes the `if (started)` branch straight into pull() and
-    // hits the changes feed, instead of re-running doStart() -> init() and
-    // reporting "no-replica" with no fetch at all.
+    // `started` has no external getter, so the tripwire is behavioural: a
+    // start() call afterwards takes the `if (started)` branch straight into
+    // pull() and hits the changes feed, instead of re-running doStart() ->
+    // init() and reporting "no-replica" with no fetch at all.
     const feeds: string[] = [];
     const replica = fakeReplica();
     const unusable = new ReplicaUnusableError("no openable database");
@@ -304,7 +304,9 @@ describe("start, bootstrap and feed pulls", () => {
       feed({ next_since: (9 as SyncSeq), latest_seq: (9 as SyncSeq) }),
     ];
     const fetchJson = vi.fn(async (path: string) => {
-      if (path.startsWith("/api/sync/changes")) return windows.shift() ?? feed({ next_since: (9 as SyncSeq), latest_seq: (9 as SyncSeq) });
+      if (path.startsWith("/api/sync/changes")) {
+        return windows.shift() ?? feed({ next_since: (9 as SyncSeq), latest_seq: (9 as SyncSeq) });
+      }
       throw new Error(`unexpected ${path}`);
     });
     const { onState } = collector();
@@ -580,7 +582,13 @@ describe("recovery flushes and the shared coordinator", () => {
     const replica = fakeReplica({}, {
       schemaMismatch: true,
       pendingBatches: [
-        { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uid("uid_a1") }], poisoned: false, seen_seq: (4 as SyncSeq) },
+        {
+          id: (1 as PendingRowId),
+          batch_id: bid("b-1"),
+          ops: [{ op: "delete", uid: uid("uid_a1") }],
+          poisoned: false,
+          seen_seq: (4 as SyncSeq),
+        },
         { id: (2 as PendingRowId), batch_id: bid("b-2"), ops: [{ op: "delete", uid: uid("uid_a2") }], poisoned: false },
       ],
     });
@@ -1116,9 +1124,9 @@ describe("pull retries and the stall report", () => {
   test("OfflineError pull failures never stall, however many retries", async () => {
     // The offline gateway throws a real OfflineError (status 0, extends
     // ApiError) for any route it does not serve locally -- the classifier used
-    // to accept any ApiError, so three offline pulls crossed STALL_AFTER_FAILURES
-    // and raised the "Local sync is stuck / Reset local data" banner for a plain
-    // network outage.
+    // to accept any ApiError, so three offline pulls crossed
+    // STALL_AFTER_FAILURES and raised the "Local sync is stuck / Reset local
+    // data" banner for a plain network outage.
     vi.useFakeTimers();
     try {
       const replica = fakeReplica();
@@ -1167,9 +1175,9 @@ describe("pull retries and the stall report", () => {
       await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * 4);
       expect(fetchJson.mock.calls.length).toBe(callsWhileOffline);
 
-      // Reconnect: the reconnect flow calls start() again on the next successful
-      // connect (reconnectFlow.ts), which resumes the pull without needing the
-      // suppressed retry timer.
+      // Reconnect: the reconnect flow calls start() again on the next
+      // successful connect (reconnectFlow.ts), which resumes the pull without
+      // needing the suppressed retry timer.
       offline = false;
       fail = false;
       await sync.start();
@@ -1181,9 +1189,10 @@ describe("pull retries and the stall report", () => {
   });
 
   test("an unavailable-shaped pull failure never stalls", async () => {
-    // A session reporting `stalled` on top of `no-replica` lets computeEditability
-    // flip the whole session read-only, so an availability failure must not count
-    // toward the stall threshold — however many times it happens.
+    // A session reporting `stalled` on top of `no-replica` lets
+    // computeEditability flip the whole session read-only, so an availability
+    // failure must not count toward the stall threshold — however many times it
+    // happens.
     const states: ReplicaState[] = [];
     const replica = fakeReplica();
     replica.pendingBatches = () =>
@@ -1467,7 +1476,8 @@ describe("resetLocalData", () => {
     sync.stop();
   });
 
-  test("resetLocalData rejects immediately when poison owns recovery, without touching the queue or lease", async () => {
+  test("resetLocalData rejects immediately when poison "
+    + "owns recovery, without touching the queue or lease", async () => {
     const replica = fakeReplica();
     let signalPoisonPending: () => void = () => undefined;
     const queue = {

@@ -771,7 +771,8 @@ export function isOutlineSessionActive(title: string): boolean {
 }
 
 /** Force every active outline through a post-settlement authoritative read,
- * rebase wholly later unresolved writes, and only then release legacy delivery. */
+ * rebase wholly later unresolved writes, and only then release legacy
+ * delivery. */
 export function repairActiveOutlineSessions(
   onStable?: () => void,
 ): Promise<void> {

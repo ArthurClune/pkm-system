@@ -340,7 +340,8 @@ it("ctrl-cmd-t does not toggle the block-stamp column", async () => {
   expect(container.querySelector(".block-stamp")).toBeNull();
 });
 
-it("clicking the sidebar toggle collapses the left nav and persists the choice; clicking again restores it", async () => {
+it("clicking the sidebar toggle collapses the left nav "
+  + "and persists the choice; clicking again restores it", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
   const nav = screen.getByRole("navigation");
@@ -455,7 +456,11 @@ it("both a collapsed left nav and an absent right sidebar apply both classes tog
 
 it("unknown route renders the not-found view", () => {
   stubFetch([]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/definitely/not/a/route"]}><App /></MemoryRouter>);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/definitely/not/a/route"]}>
+      <App />
+    </MemoryRouter>,
+  );
   expect(screen.getByText("Page not found")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Go to Daily Notes" })).toBeInTheDocument();
 });

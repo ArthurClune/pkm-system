@@ -1,5 +1,6 @@
 # pattern: Imperative Shell
-"""Importer CLI: EDN export + files dir -> data dir (sqlite + assets + report)."""
+"""Importer CLI: EDN export + files dir -> data dir (sqlite + assets +
+report)."""
 from __future__ import annotations
 
 import argparse
@@ -189,8 +190,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: import refused: {blocked_migration}", file=sys.stderr)
         return 2
 
-    # All fallible preflight work (parsing, row-building, populating the
-    # tmp db, copying assets, title activation, rendering and writing the report) must
+    # All fallible preflight work (parsing, row-building, populating the tmp db,
+    # copying assets, title activation, rendering and writing the report) must
     # complete before either atomic swap below. If any of it raises, the
     # existing pkm.sqlite3 and import-report.txt are untouched -- a report
     # failure must never hide behind an already-published database.

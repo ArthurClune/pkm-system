@@ -163,7 +163,8 @@ it("ignores a resolved handle for an actor the href has since moved away from", 
   await waitFor(() => expect(embedSrc(container)?.pathname).toBe(
     `/embed/${dids["beta.bsky.social"]}/app.bsky.feed.post/bbb222`));
 
-  // alpha's stale resolution arrives late; the href has moved on, so it must not be adopted.
+  // alpha's stale resolution arrives late; the href has moved on, so it must
+  // not be adopted.
   await act(async () => {
     pending.get("alpha.bsky.social")!.resolve(jsonResponse({ did: dids["alpha.bsky.social"] }));
     await Promise.resolve();

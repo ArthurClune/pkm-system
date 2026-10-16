@@ -154,7 +154,8 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
         {assistant.status === "busy" && (
           <div className="assistant-tool-line">
             {assistant.phase
-              ? `${assistant.phase.label ?? "thinking"}… ${elapsedLabel({ sinceMs: assistant.phase.since, nowMs: now })}`
+              ? `${assistant.phase.label ?? "thinking"}… `
+                + elapsedLabel({ sinceMs: assistant.phase.since, nowMs: now })
               : "thinking…"}
           </div>
         )}

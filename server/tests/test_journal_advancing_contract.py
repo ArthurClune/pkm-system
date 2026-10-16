@@ -289,7 +289,8 @@ def test_journal_advancing_route_emits_seq_nudge(name, setup, action, client,
 
 def test_zero_group_title_activation_forces_an_equal_cursor_replica_pull(
         client, seeded_config):
-    """Mutation caught: send an ordinary equal-cursor seq after metadata rotation."""
+    """Mutation caught: send an ordinary equal-cursor seq after metadata
+    rotation."""
     audit = client.get("/api/migrations/title-canonicalization").json()
     assert audit["groups"] == []
 

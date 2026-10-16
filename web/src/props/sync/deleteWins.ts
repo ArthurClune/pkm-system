@@ -108,7 +108,8 @@ export function deleteWins(run: DeleteWinsRun): string[] {
     if (run.renames.some((r) => r.new_title === title && r.ord > d.ord)) continue;
     const from = firstAfter(d);
     // The latest clock any later delete ran at, up to and including batch i:
-    // only a delete prunes, so past d.at plus the retention d's row may be gone.
+    // only a delete prunes, so past d.at plus the retention d's row may be
+    // gone.
     const laterDeletes = run.deletes.filter((e) => e.ord > d.ord);
     let clock = d.at;
     const stale: string[] = [];

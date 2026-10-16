@@ -1048,5 +1048,7 @@ When measuring a slow request, prefer these durations to client-side timing.
 - `server/tooling/commentlint` is the comment-rot lint behind
   `.githooks/pre-commit`: a staged source file or architecture doc whose
   comments carry a bean id, a line number or a spec/plan pointer with no path
-  fails the commit. Stdlib only, so the hook runs under the system `python3`;
+  fails the commit. So does a source line over 80 columns in a comment or 120
+  elsewhere; `noqa: E501` exempts a line, and ruff's `E501` shares it. Stdlib
+  only, so the hook runs under the system `python3`;
   `python3 -m commentlint.run --all` sweeps the tree.

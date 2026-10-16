@@ -7,8 +7,10 @@
 // brand adds a second key instead of a second `__brand`, because two
 // different `__brand` literals intersect to `never`:
 //
-//   export type NormalizedTitle = string & { readonly __brand: "NormalizedTitle" };
-//   export type CanonicalTitle = NormalizedTitle & { readonly __canonical: true };
+//   export type NormalizedTitle =
+//     string & { readonly __brand: "NormalizedTitle" };
+//   export type CanonicalTitle =
+//     NormalizedTitle & { readonly __canonical: true };
 //
 // A CanonicalTitle then passes wherever a NormalizedTitle is expected, and
 // not the reverse.

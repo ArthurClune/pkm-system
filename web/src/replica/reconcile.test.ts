@@ -188,7 +188,8 @@ describe("reconcile on feed page delivery", () => {
     }), now);
     applyChanges(t.db, feed({ next_since: 12 as SyncSeq, latest_seq: 12 as SyncSeq }), now);
 
-    // the server's updated_at stands; the local page's pre-image is not put on it
+    // the server's updated_at stands; the local page's pre-image is not put on
+    // it
     expect(t.db.select("SELECT id, updated_at FROM pages WHERE id = 8"))
       .toEqual([{ id: 8, updated_at: 99 }]);
   });

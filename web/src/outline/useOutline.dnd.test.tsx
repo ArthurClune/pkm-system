@@ -197,7 +197,8 @@ it("dnd.insertSubtreeLocal inserts at the target and sends no ops", () => {
   expect(sync.sent).toEqual([]);
 });
 
-it("a remote parent-based cross-page move (server-resolved page_title) removes from the source and refetches the target", async () => {
+it("a remote parent-based cross-page move (server-resolved "
+  + "page_title) removes from the source and refetches the target", async () => {
   // The server enriches a bare parent-based cross-page move with the resolved
   // target title before broadcasting (see ops_apply._broadcast_op). The client
   // then handles it off op.page_title with no special casing: the source drops

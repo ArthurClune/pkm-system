@@ -1,5 +1,6 @@
 # pattern: Imperative Shell
-"""In-memory conversation registry: caps, idle reaping, per-conversation lock."""
+"""In-memory conversation registry: caps, idle reaping, per-conversation
+lock."""
 
 from __future__ import annotations
 
@@ -114,9 +115,9 @@ class AssistantService:
                     # A page reload orphans the client's conversation id without
                     # deleting it server-side; repeated reloads would otherwise
                     # exhaust the cap and 409 every create for up to idle_ttl.
-                    # Evicting the least-recently-used IDLE (non-busy) conversation
-                    # avoids that lockout; if every conversation is actively
-                    # streaming, fall through to the cap error below.
+                    # Evicting the least-recently-used IDLE (non-busy)
+                    # conversation avoids that lockout; if every conversation is
+                    # actively streaming, fall through to the cap error below.
                     evicted = self._evict_oldest_idle()
                     if evicted is not None:
                         to_close.append(evicted)

@@ -93,11 +93,11 @@ export function useBlockDraft(
   resumeRef.current = resume;
   const onUnmountRef = useRef(onUnmount);
   onUnmountRef.current = onUnmount;
-  // Whether the user has typed edits not yet committed to the block tree.
-  // Focus alone is not a draft: while dirty, remote text still lands on the
-  // tree but the textarea keeps the local draft (the draft's flush carries its
-  // base hash, so the server keeps the remote text as a conflict copy); with
-  // no dirty draft the textarea adopts tree changes. draftRef mirrors `draft` so
+  // Whether the user has typed edits not yet committed to the block tree. Focus
+  // alone is not a draft: while dirty, remote text still lands on the tree but
+  // the textarea keeps the local draft (the draft's flush carries its base
+  // hash, so the server keeps the remote text as a conflict copy); with no
+  // dirty draft the textarea adopts tree changes. draftRef mirrors `draft` so
   // the adoption effect can read it without re-subscribing on every keystroke.
   const dirtyRef = useRef(resumedText !== null);
   const draftRef = useRef(draft);

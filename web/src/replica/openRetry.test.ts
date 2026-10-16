@@ -70,7 +70,7 @@ describe("openWithRetry", () => {
   // dist/index.mjs:
   //   if (initPromises[vfsName]) try { return await initPromises[vfsName]; }
   //   catch (e) {
-  //     if (options.forceReinitIfPreviouslyFailed) delete initPromises[vfsName];
+  //     if (options.forceReinitIfPreviouslyFailed) delete initPromises[vfsName]; noqa: E501
   //     else throw e;
   //   }
   // This fake reproduces exactly that contract, so the two tests below show

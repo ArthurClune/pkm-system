@@ -107,7 +107,9 @@ def test_create_conversation_options_and_config_file(tmp_path):
     assert cfg["token"].startswith("v1.")
     asyncio.run(conv.close())
     assert not cfg_path.exists()  # config file removed on close
-    assert client.connected is False  # pyrefly: ignore[unnecessary-comparison] (narrowing from the earlier assert survives the close() that clears it)
+    # pyrefly's narrowing from the earlier assert survives the close() that
+    # clears it
+    assert client.connected is False  # pyrefly: ignore[unnecessary-comparison]
 
 
 def test_glm_routes_to_zai_endpoint(tmp_path):
@@ -859,7 +861,8 @@ def test_turn_mapper_emits_tool_finished_from_tool_result():
     user_msg = UserMessage(content=[ToolResultBlock(tool_use_id="t1", content="ok")])
     assert mapper.map(user_msg) == [ToolFinished(name="search")]
 
-    # an unrecognised tool_use_id (e.g. mapper created fresh mid-turn) falls back to "tool"
+    # an unrecognised tool_use_id (e.g. mapper created fresh mid-turn) falls
+    # back to "tool"
     unknown_msg = UserMessage(content=[ToolResultBlock(tool_use_id="unknown", content="ok")])
     assert mapper.map(unknown_msg) == [ToolFinished(name="tool")]
 

@@ -143,9 +143,10 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
                       (.block-menu-item-check) indents the label in both states,
                       which in a menu this narrow wrapped "Show timestamps" onto
                       two lines while every sibling item sat flush. A flipped
-                      label needs no slot, so all four items share one left edge.
-                      Hence role=menuitem, not menuitemcheckbox -- there is no
-                      checked state to announce once the text carries it. */}
+                      label needs no slot, so all four items share one left
+                      edge. Hence role=menuitem, not menuitemcheckbox -- there
+                      is no checked state to announce once the text carries
+                      it. */}
                   <button type="button" role="menuitem" onClick={toggleStamps}>
                     {stamps ? "Hide timestamps" : "Show timestamps"}
                   </button>

@@ -60,7 +60,8 @@ def test_timing_flags_past_factor_and_never_lowers_the_baseline():
     assert compare(base, doc({"s": {"median_ms": tm(19.9)}})).findings == ()
     assert kinds(compare(base, doc({"s": {"median_ms": tm(20.1)}}))) == {("s", "median_ms"): "candidate"}
     assert compare(base, doc({"s": {"median_ms": tm(6.0)}})).findings == ()
-    # machine load moves timings both ways, so one fast run is reported, not recorded
+    # machine load moves timings both ways, so one fast run is reported, not
+    # recorded
     c = compare(base, doc({"s": {"median_ms": tm(4.9)}}))
     assert kinds(c) == {("s", "median_ms"): "faster"}
     assert c.new_baseline == base

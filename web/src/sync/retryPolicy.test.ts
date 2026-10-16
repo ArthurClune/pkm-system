@@ -59,7 +59,8 @@ describe("planRetry", () => {
 
   it("prefers the mark retry over a repair for a mark-failed rejection", () => {
     // Precedence, not coincidence: repairing rows whose poison mark never
-    // landed would rebase over batches the queue still believes are deliverable.
+    // landed would rebase over batches the queue still believes are
+    // deliverable.
     expect(planRetry(
       { kind: "rejected-batch", event, repair: "mark-failed", error: "x" },
       closed,

@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
-// A React class component with its own lifecycle state (getDerivedStateFromError),
-// not a pure rendering decision.
+// A React class component with its own lifecycle state
+// (getDerivedStateFromError), not a pure rendering decision.
 import { Component, type ReactNode } from "react";
 
 interface State {

@@ -76,7 +76,8 @@ it("falls back to stock mermaid rendering when beautiful-mermaid rejects", async
   expect(mockRender.mock.calls[0][1]).toBe(code);
 });
 
-it("renders concurrent instances with distinct real ids, never the cache placeholder, so stock mermaid's DOM-based render never collides", async () => {
+it("renders concurrent instances with distinct real ids, never the cache "
+  + "placeholder, so stock mermaid's DOM-based render never collides", async () => {
   mockBmRender.mockRejectedValue(new Error("nope"));
   // The mock stands in for what real mermaid.render() does: bake the id
   // argument into the returned SVG's own id attribute. If both instances
@@ -172,7 +173,8 @@ it("reuses a cached render across a remount, never awaiting the loader module on
   expect(mockBmRender).toHaveBeenCalledTimes(1); // still 1: never invoked again
 });
 
-it("keys the cache on theme as well as code: a theme flip still re-renders instead of reusing the other theme's SVG", async () => {
+it("keys the cache on theme as well as code: a theme flip "
+  + "still re-renders instead of reusing the other theme's SVG", async () => {
   const code = "graph TD\ncache-per-theme";
   document.documentElement.setAttribute("data-theme", "light");
   mockBmRender.mockResolvedValueOnce('<svg data-testid="light-svg"></svg>');

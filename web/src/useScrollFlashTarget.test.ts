@@ -139,7 +139,8 @@ it("does nothing when a root was given but has not mounted yet", () => {
 });
 
 it("scrolls again when the same uid is navigated to a second time", () => {
-  // A toc entry clicked twice: the hash is unchanged, only the navigation is new.
+  // A toc entry clicked twice: the hash is unchanged, only the navigation is
+  // new.
   block("abc123");
   const { rerender } = renderHook(
     ({ navigation }: { navigation: string }) =>

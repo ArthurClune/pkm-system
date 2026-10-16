@@ -1,5 +1,6 @@
 # pattern: Imperative Shell
-"""Claude Agent SDK adapter: harness subprocess confined to the pkm MCP tools."""
+"""Claude Agent SDK adapter: harness subprocess confined to the pkm MCP
+tools."""
 
 from __future__ import annotations
 

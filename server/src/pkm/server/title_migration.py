@@ -153,7 +153,8 @@ def _inventory_title_migration(db: sqlite3.Connection) -> TitleMigrationInventor
 
 
 def audit_title_migration(db: sqlite3.Connection) -> TitleMigrationPlan:
-    """Build a stable migration plan in an owned, side-effect-free read transaction."""
+    """Build a stable migration plan in an owned, side-effect-free read
+    transaction."""
     if db.in_transaction:
         raise RuntimeError("title migration audit cannot run inside a caller transaction")
     db.execute("BEGIN")
@@ -166,7 +167,8 @@ def audit_title_migration(db: sqlite3.Connection) -> TitleMigrationPlan:
 def apply_title_migration(
     db: sqlite3.Connection, expected_digest: Sha256Hex, now_ms: int
 ) -> TitleMigrationOutcome:
-    """Re-audit, migrate, activate, and rotate generation in one write transaction."""
+    """Re-audit, migrate, activate, and rotate generation in one write
+    transaction."""
     if db.in_transaction:
         raise RuntimeError("title migration apply cannot run inside a caller transaction")
 

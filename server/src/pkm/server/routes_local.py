@@ -158,7 +158,8 @@ def check_local_links(db: sqlite3.Connection = Depends(get_db),
     return LocalCheckPayload(enabled=True, total=total, ok=ok, problems=problems)
 
 
-_NOT_DOWNLOADED = "The file isn't downloaded on the host yet. The host has asked iCloud for it; try again in a few seconds."
+_NOT_DOWNLOADED = ("The file isn't downloaded on the host yet. The host has asked iCloud for it; "
+                   "try again in a few seconds.")
 _NOT_FOUND_MESSAGE = "That file isn't in the local documents folder on the host."
 _OPEN_FAILED = "The host can't open this file; the server log has the reason."
 _OPEN_BUSY = "Too many file opens are in flight on the host; try again shortly."

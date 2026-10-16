@@ -1,6 +1,7 @@
 // pattern: Imperative Shell
-// The sync property's commands, one class per drawn command (an Offline
-// carries its own return), each acting on the real clients and server through the harness.
+// The sync property's commands, one class per drawn command (an Offline carries
+// its own return), each acting on the real clients and server through the
+// harness.
 //
 // Every command's run ends the same way (SyncCommand.run): a client whose
 // Offline drew a return and whose countdown this command finished comes back
@@ -484,12 +485,12 @@ export const offlineBack: fc.Arbitrary<OfflineBack> = fc.oneof(
 export const connectTiming: fc.Arbitrary<number | undefined> =
   fc.option(fc.integer({ min: 1, max: 7 }), { nil: undefined, freq: 2 });
 
-/** Every command, naming only `names` (the clients the example starts), so
- * no draw is spent on a client the example lacks. Weighted as calibrated:
- * Edit 10, Pull 3, Nudge 3, Offline 3, Fault 3, Reload 2, BadBatch 1,
- * RotateGeneration 1, CrossMidnight 1, Rename 1, DeletePage 1, so a BadBatch is
- * about one command in twenty-nine. An Offline's three units buy a whole offline
- * period, its return included. */
+/** Every command, naming only `names` (the clients the example starts), so no
+ * draw is spent on a client the example lacks. Weighted as calibrated: Edit
+ * 10, Pull 3, Nudge 3, Offline 3, Fault 3, Reload 2, BadBatch 1,
+ * RotateGeneration 1, CrossMidnight 1, Rename 1, DeletePage 1, so a BadBatch
+ * is about one command in twenty-nine. An Offline's three units buy a whole
+ * offline period, its return included. */
 export function commandsFor(names: readonly string[]): fc.Arbitrary<SyncCommand>[] {
   const client = fc.constantFrom(...names);
   return [fc.oneof(

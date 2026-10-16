@@ -19,15 +19,21 @@ const unknown: BacklinkBatchState = { groups: [], totalPages: Infinity, refTexts
 it("walks multiple batches, growing groups and total pages as it goes", async () => {
   const fetchBatch = vi.fn()
     .mockResolvedValueOnce(batch({
-      groups: [{ page_id: pageId(1), page_title: title("A"), items: [{ uid: uid("u1"), text: "one", breadcrumbs: [] }] }],
+      groups: [
+        { page_id: pageId(1), page_title: title("A"), items: [{ uid: uid("u1"), text: "one", breadcrumbs: [] }] },
+      ],
       total_pages: 3,
     }))
     .mockResolvedValueOnce(batch({
-      groups: [{ page_id: pageId(2), page_title: title("B"), items: [{ uid: uid("u2"), text: "two", breadcrumbs: [] }] }],
+      groups: [
+        { page_id: pageId(2), page_title: title("B"), items: [{ uid: uid("u2"), text: "two", breadcrumbs: [] }] },
+      ],
       total_pages: 3,
     }))
     .mockResolvedValueOnce(batch({
-      groups: [{ page_id: pageId(3), page_title: title("C"), items: [{ uid: uid("u3"), text: "three", breadcrumbs: [] }] }],
+      groups: [
+        { page_id: pageId(3), page_title: title("C"), items: [{ uid: uid("u3"), text: "three", breadcrumbs: [] }] },
+      ],
       total_pages: 3,
     }));
 
@@ -54,13 +60,16 @@ it("walks multiple batches, growing groups and total pages as it goes", async ()
 it("dedupes items a later batch repeats for an already-seen page", async () => {
   const fetchBatch = vi.fn()
     .mockResolvedValueOnce(batch({
-      groups: [{ page_id: pageId(9), page_title: title("Src"), items: [{ uid: uid("s1"), text: "one", breadcrumbs: [] }] }],
+      groups: [
+        { page_id: pageId(9), page_title: title("Src"), items: [{ uid: uid("s1"), text: "one", breadcrumbs: [] }] },
+      ],
       total_pages: 2,
     }))
     .mockResolvedValueOnce(batch({
       // same page, one repeated item + one new item
       groups: [{ page_id: pageId(9), page_title: title("Src"),
-                 items: [{ uid: uid("s1"), text: "one", breadcrumbs: [] }, { uid: uid("s2"), text: "two", breadcrumbs: [] }] }],
+                 items: [{ uid: uid("s1"), text: "one", breadcrumbs: [] },
+                         { uid: uid("s2"), text: "two", breadcrumbs: [] }] }],
       total_pages: 2,
     }));
 
@@ -72,7 +81,11 @@ it("dedupes items a later batch repeats for an already-seen page", async () => {
 
   expect(result).not.toBe("stale");
   expect((result as BacklinkBatchState).groups).toEqual([
-    { page_id: pageId(9), page_title: "Src", items: [{ uid: "s1", text: "one", breadcrumbs: [] }, { uid: "s2", text: "two", breadcrumbs: [] }] },
+    {
+      page_id: pageId(9),
+      page_title: "Src",
+      items: [{ uid: "s1", text: "one", breadcrumbs: [] }, { uid: "s2", text: "two", breadcrumbs: [] }],
+    },
   ]);
 });
 
@@ -81,7 +94,13 @@ it("stops without applying a batch once the caller reports staleness", async () 
   const fetchBatch = vi.fn(async () => {
     calls += 1;
     return batch({
-      groups: [{ page_id: pageId(calls), page_title: title(`P${calls}`), items: [{ uid: uid(`u${calls}`), text: "x", breadcrumbs: [] }] }],
+      groups: [
+        {
+          page_id: pageId(calls),
+          page_title: title(`P${calls}`),
+          items: [{ uid: uid(`u${calls}`), text: "x", breadcrumbs: [] }],
+        },
+      ],
       total_pages: 3,
     });
   });
@@ -101,7 +120,9 @@ it("stops without applying a batch once the caller reports staleness", async () 
 it("propagates a batch fetch failure without applying any partial progress", async () => {
   const fetchBatch = vi.fn()
     .mockResolvedValueOnce(batch({
-      groups: [{ page_id: pageId(1), page_title: title("A"), items: [{ uid: uid("u1"), text: "one", breadcrumbs: [] }] }],
+      groups: [
+        { page_id: pageId(1), page_title: title("A"), items: [{ uid: uid("u1"), text: "one", breadcrumbs: [] }] },
+      ],
       total_pages: 3,
     }))
     .mockRejectedValueOnce(new Error("network down"));
@@ -128,7 +149,8 @@ it("stops on an empty batch even though the reported total says there's more", a
 
 it("stops when a non-empty batch yields no new distinct group (no-growth termination)", async () => {
   const fetchBatch = vi.fn().mockResolvedValueOnce(batch({
-    // merges into the page already present in the starting state -- group count doesn't grow
+    // merges into the page already present in the starting state -- group count
+    // doesn't grow
     groups: [{ page_id: pageId(1), page_title: title("A"), items: [{ uid: uid("u2"), text: "two", breadcrumbs: [] }] }],
     total_pages: 5,
   }));
@@ -156,11 +178,21 @@ it("stops when a non-empty batch yields no new distinct group (no-growth termina
 it("merges block_ref_texts across batches", async () => {
   const fetchBatch = vi.fn()
     .mockResolvedValueOnce(batch(
-      { groups: [{ page_id: pageId(1), page_title: title("A"), items: [{ uid: uid("u1"), text: "one", breadcrumbs: [] }] }], total_pages: 2 },
+      {
+        groups: [
+          { page_id: pageId(1), page_title: title("A"), items: [{ uid: uid("u1"), text: "one", breadcrumbs: [] }] },
+        ],
+        total_pages: 2,
+      },
       { r1: { text: "ref one", page_title: title("A") } },
     ))
     .mockResolvedValueOnce(batch(
-      { groups: [{ page_id: pageId(2), page_title: title("B"), items: [{ uid: uid("u2"), text: "two", breadcrumbs: [] }] }], total_pages: 2 },
+      {
+        groups: [
+          { page_id: pageId(2), page_title: title("B"), items: [{ uid: uid("u2"), text: "two", breadcrumbs: [] }] },
+        ],
+        total_pages: 2,
+      },
       { r2: { text: "ref two", page_title: title("B") } },
     ));
 
@@ -179,7 +211,9 @@ it("merges block_ref_texts across batches", async () => {
 
 it("fetches a single batch and stops when nextLimit only allows one (loadMore-style)", async () => {
   const fetchBatch = vi.fn().mockResolvedValueOnce(batch({
-    groups: [{ page_id: pageId(4), page_title: title("D"), items: [{ uid: uid("u4"), text: "four", breadcrumbs: [] }] }],
+    groups: [
+      { page_id: pageId(4), page_title: title("D"), items: [{ uid: uid("u4"), text: "four", breadcrumbs: [] }] },
+    ],
     total_pages: 9,
   }));
   const starting: BacklinkBatchState = { groups: [], totalPages: 9, refTexts: {} };

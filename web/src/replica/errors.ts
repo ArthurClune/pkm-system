@@ -72,9 +72,9 @@ export class RpcLifecycleError extends Error {
  * because delivering past an unrepaired rejection is the hazard the barrier
  * guards.
  *
- * | value        | meaning                          | retain? | may lift barrier? |
- * | unusable     | openDb() failed: no database      | yes     | YES               |
- * | unreachable  | the RPC is broken: could not ask  | yes     | NO                |
+ * value       | meaning                          | retain? | may lift barrier?
+ * unusable    | openDb() failed: no database     | yes     | YES
+ * unreachable | the RPC is broken: could not ask | yes     | NO
  *
  * Only `unusable` ever crosses the wire (the worker reporting its own failed
  * open). `unreachable` is generated client-side, so the two levels come from

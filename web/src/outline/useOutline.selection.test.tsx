@@ -201,7 +201,8 @@ function manyBlocks() {
 // window.confirm is suppressed by iPadOS Safari in standalone/PWA
 // mode, so the large-selection prompt goes through the app's own useConfirm
 // dialog (a real, awaited DOM dialog) rather than window.confirm.
-it("deleting more than 20 selected blocks requires confirmation via the in-app dialog, and honours cancel", async () => {
+it("deleting more than 20 selected blocks requires "
+  + "confirmation via the in-app dialog, and honours cancel", async () => {
   const confirmSpy = vi.spyOn(window, "confirm");
   const sync = makeSync();
   const getOutline = setup(sync, "Page", manyBlocks());

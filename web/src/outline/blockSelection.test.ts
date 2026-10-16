@@ -184,7 +184,8 @@ describe("startSelection", () => {
     const blocks = [
       block("t", "{{table}}", { children: [block("c", "c", { children: [inner] })] }),
     ];
-    // the outer table is invalid only if a cell has two children; here it is valid
+    // the outer table is invalid only if a cell has two children; here it is
+    // valid
     expect(startSelection(blocks, uid("ic"), null)).toEqual({ anchor: "t", head: "t" });
   });
 

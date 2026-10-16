@@ -19,7 +19,8 @@ const indexOf = (rows: readonly Row[], uid: BlockUid): number => {
   return i;
 };
 
-/** One past the end of row i's subtree: row i and the following rows deeper than it. */
+/** One past the end of row i's subtree: row i and the following rows deeper
+ * than it. */
 const subtreeEnd = (rows: readonly Row[], i: number): number => {
   let j = i + 1;
   while (j < rows.length && rows[j].depth > rows[i].depth) j++;
@@ -49,7 +50,8 @@ const parentOf = (rows: readonly Row[], i: number): number | null => {
   return null;
 };
 
-/** rows[start, end) moved to sit before what was rows[at]; `at` lies outside the block. */
+/** rows[start, end) moved to sit before what was rows[at]; `at` lies outside
+ * the block. */
 const moveBlock = (rows: readonly Row[], start: number, end: number, at: number): Row[] => {
   const rest = [...rows.slice(0, start), ...rows.slice(end)];
   rest.splice(at > start ? at - (end - start) : at, 0, ...rows.slice(start, end));
@@ -57,7 +59,8 @@ const moveBlock = (rows: readonly Row[], start: number, end: number, at: number)
 };
 
 /** A row is hidden exactly when one of its ancestors is collapsed. Matches
- * readingRows only while no table macro is drawn: a collapsed Roam table hides nothing. */
+ * readingRows only while no table macro is drawn: a collapsed Roam table hides
+ * nothing. */
 const rehide = (rows: readonly Row[]): Row[] => {
   const ancestors: Row[] = [];
   return rows.map((r) => {
@@ -97,13 +100,15 @@ const runsOf = (rows: readonly Row[], roots: readonly number[]): number[][] => {
   return runs;
 };
 
-/** The rows as a reader sees them after the change; a change no row shows is a noop. */
+/** The rows as a reader sees them after the change; a change no row shows is a
+ * noop. */
 const settle = (before: readonly Row[], after: readonly Row[]): Expected => {
   const rows = rehide(after);
   return rowsDiff(before, rows) === null ? NOOP : { kind: "rows", rows };
 };
 
-/** Every row of the given roots' subtrees shifted by delta, reading order unchanged. */
+/** Every row of the given roots' subtrees shifted by delta, reading order
+ * unchanged. */
 const shiftSubtrees = (rows: Row[], roots: readonly number[], delta: number): void => {
   for (const i of roots) {
     const end = subtreeEnd(rows, i);
@@ -162,7 +167,8 @@ function outdent(before: readonly Row[], uids: readonly BlockUid[]): Expected {
   const rows = [...before];
   shiftSubtrees(rows, runs.flat(), -1);
   // The siblings after a run keep their depth, so they now read as children of
-  // its last root; runs are maximal, so a next sibling is never another run's root.
+  // its last root; runs are maximal, so a next sibling is never another run's
+  // root.
   for (const run of runs) {
     const last = run[run.length - 1];
     if (nextSibling(before, last) !== null) expand(rows, last);
@@ -207,7 +213,8 @@ function moveRun(rows: readonly Row[], run: readonly BlockUid[], dir: Direction,
   if (!cross || parent === null) return null;
   const neighbour = dir === "up" ? previousSibling(rows, parent) : nextSibling(rows, parent);
   if (neighbour === null) return null;
-  // Up: the neighbour's subtree ends where the parent starts. Down: right after the neighbour.
+  // Up: the neighbour's subtree ends where the parent starts. Down: right after
+  // the neighbour.
   const moved = moveBlock(rows, first, end, dir === "up" ? parent : neighbour + 1);
   expand(moved, indexOf(moved, rows[neighbour].uid));
   return moved;
@@ -245,14 +252,16 @@ function drop(before: readonly Row[], uids: readonly BlockUid[], position: DropP
     blocks.push(block);
   }
   const rest = before.filter((_, j) => !dragged.has(j));
-  // Lifting whole subtrees out leaves every other row's ancestors, so its hidden flag, as it was.
+  // Lifting whole subtrees out leaves every other row's ancestors, so its
+  // hidden flag, as it was.
   const visible = rest.flatMap((r, j) => (r.hidden ? [] : [j]));
   const at = position.boundary < visible.length ? visible[position.boundary] : rest.length;
   const rows = [...rest.slice(0, at), ...blocks.flat(), ...rest.slice(at)];
   const same = structural(rows).join("\n") === structural(before).join("\n");
   if (same) return NOOP;
   const after = rehide(rows);
-  // A legal depth never puts a dragged root under a collapsed row (allowedDepths).
+  // A legal depth never puts a dragged root under a collapsed row
+  // (allowedDepths).
   for (const uid of uids) {
     if (after[indexOf(after, uid)].hidden) throw new Error(`model: drop hides ${uid}`);
   }
@@ -285,7 +294,8 @@ function paste(before: readonly Row[], uid: BlockUid, from: number, to: number,
   ]);
 }
 
-/** A null view type reads as "document", so setting "document" on it changes nothing. */
+/** A null view type reads as "document", so setting "document" on it changes
+ * nothing. */
 function viewType(before: readonly Row[], uid: BlockUid, value: NonNullable<Row["viewType"]>): Expected {
   if ((before[indexOf(before, uid)].viewType ?? "document") === value) return NOOP;
   return setField(before, uid, { viewType: value });

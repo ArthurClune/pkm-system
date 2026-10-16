@@ -1,5 +1,6 @@
 // pattern: Imperative Shell
-// Gated frontend perf check (spec: docs/superpowers/specs/2026-09-26-perf-regression-checks-design.md).
+// Gated frontend perf check (spec:
+// docs/superpowers/specs/2026-09-26-perf-regression-checks-design.md).
 // Headless, counts first. Run through perfcheck.run, which starts the fixture
 // server on 8977 and sets PERF_FROZEN_NOW / PERF_FIXTURE_HASH / PERF_COMMIT.
 // Every metric declares its class here; changing one is a reviewed change.
@@ -181,7 +182,10 @@ async function assertNewestJournalDay(page) {
   const want = dailyTitle(new Date(FROZEN));
   const first = await page.locator("section.journal-day").first().innerText();
   if (!first.includes(want)) {
-    throw new Error(`fixture's newest journal day is not ${want}: first journal day reads ${JSON.stringify(first.slice(0, 40))}`);
+    throw new Error(
+      `fixture's newest journal day is not ${want}: `
+      + `first journal day reads ${JSON.stringify(first.slice(0, 40))}`,
+    );
   }
 }
 
@@ -614,8 +618,8 @@ async function main() {
       await ctx.close();
     }
     if (ONLY.has("R")) await run("R/rebase", () => rebase());
-    // node runs Playwright and R's sqlite-wasm engine, whose counts do not depend on it,
-    // so it is information, not comparability env
+    // node runs Playwright and R's sqlite-wasm engine, whose counts do not
+    // depend on it, so it is information, not comparability env
     const doc = { commit: process.env.PERF_COMMIT ?? "working-tree",
                   fixture_hash: process.env.PERF_FIXTURE_HASH ?? "unknown",
                   env: { chromium: browser.version() }, node: process.version, scenarios };

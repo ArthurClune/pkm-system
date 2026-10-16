@@ -383,7 +383,7 @@
     "/api/delete-preview": {
       "get": {
         "summary": "Delete Preview",
-        "description": "What deleting the page would rewrite: how many [[links]] become plain\ntext and ((block refs)) become copies (blocks and distinct pages), and the\nblocks that would make DELETE refuse (a query macro naming the page, or a\nrewrite that would change the leading attribute name, as for\n`[[page]]:: v`, or still reference the page). Read-only; 404 when the page does not exist. Not under\n/api/page/ because GET /api/page/{title:path} would swallow it.",
+        "description": "What deleting the page would rewrite: how many [[links]] become plain\ntext and ((block refs)) become copies (blocks and distinct pages), and the\nblocks that would make DELETE refuse (a query macro naming the page, or a\nrewrite that would change the leading attribute name, as for\n`[[page]]:: v`, or still reference the page). Read-only; 404 when the page\ndoes not exist. Not under /api/page/ because GET /api/page/{title:path}\nwould swallow it.",
         "operationId": "delete_preview_api_delete_preview_get",
         "parameters": [
           {

@@ -286,14 +286,14 @@ function replayOps(db: ReplicaDb, b: PendingBatch, stamp: number,
  * is in the same payload -- there is nothing left for this collapse to
  * hide.
  *
- * Deliberately unscoped, and the slow path only (replayPending reaches it
- * for a batch targetedFkHit flagged). Narrowing it to `foreign_key_check(blocks)`
+ * Deliberately unscoped, and the slow path only (replayPending reaches it for a
+ * batch targetedFkHit flagged). Narrowing it to `foreign_key_check(blocks)`
  * looks like a free win but is not: `blocks`, `refs` and `block_refs` all bear
  * FKs, so a correct scoped check must run all three, and the unscoped pragma
  * already visits only FK-bearing tables -- measured at 1 000/5 000/20 000
  * blocks, whole-database (0.32/1.72/7.54 ms) equals the sum of the three scoped
- * checks (0.32/1.72/7.41 ms) within noise. Scoping to `blocks` alone
- * would drop exactly the two tables the paragraph above is about. */
+ * checks (0.32/1.72/7.41 ms) within noise. Scoping to `blocks` alone would drop
+ * exactly the two tables the paragraph above is about. */
 const fkViolations = (db: ReplicaDb): Set<string> =>
   new Set(db.select<{ table: string; rowid: SqlValue; parent: string;
                       fkid: number }>("PRAGMA foreign_key_check")
@@ -394,10 +394,10 @@ type TitledTableFor<Id extends PageId | SidebarEntryId> =
   Id extends PageId ? "pages" : "sidebar_entries";
 
 /** `pages.title` and `sidebar_entries.title` are UNIQUE, and a window is a
- * set of CURRENT rows: it can carry two rows that traded titles, or a
- * tombstone for the row that used to own a title beside the row that took it
- * over. Page and sidebar tombstones are applied before upserts (applyWindow),
- * which covers the second shape; this covers the first. For each incoming row, any OTHER
+ * set of CURRENT rows: it can carry two rows that traded titles, or a tombstone
+ * for the row that used to own a title beside the row that took it over. Page
+ * and sidebar tombstones are applied before upserts (applyWindow), which covers
+ * the second shape; this covers the first. For each incoming row, any OTHER
  * positive-id local row holding its title is moved to a placeholder first, so
  * the upsert lands, and the holder's own upsert (later in the same window)
  * restores its real title. Negative ids are offline-created pages, which

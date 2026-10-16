@@ -3,8 +3,9 @@
 title: Assistant web search
 status: draft
 type: feature
+priority: deferred
 created_at: 2026-10-08T10:28:58Z
-updated_at: 2026-10-08T10:28:58Z
+updated_at: 2026-10-16T18:46:51Z
 ---
 
 Give the embedded assistant web search. Parked 2026-10-08 while Arthur thinks through the security trade-off; brainstorming had started (architectural path: needs a short spec, because it changes the trust boundary in docs/SECURITY.md).

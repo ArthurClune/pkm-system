@@ -23,12 +23,15 @@ the innermost ((uid)) / {{query: ...}} is left raw.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from pkm.export.markdown import (TreeNodes, node_children, node_text,
-                                 rewrite_asset_links)
+from pkm.export.markdown import rewrite_asset_links
 from pkm.refs import BLOCK_REF_TOKEN
+
+if TYPE_CHECKING:
+    from pkm.server.tree import TreeNode
 
 BLOCK_REF_MAX_DEPTH = 3
 QUERY_MAX_DEPTH = 2
@@ -148,7 +151,7 @@ def resolve_text(text: str, uid_to_text: Mapping[str, str],
     return "".join(out)
 
 
-def render_page_resolved(title: str, tree: TreeNodes,
+def render_page_resolved(title: str, tree: Sequence[TreeNode],
                          uid_to_text: Mapping[str, str],
                          query_results: Mapping[str, QueryResult]) -> str:
     """Like markdown.render_page, but ((refs)) resolve recursively to plain
@@ -156,15 +159,15 @@ def render_page_resolved(title: str, tree: TreeNodes,
     matching results -- the end-user export's rendering mode."""
     lines = [f"# {title}", ""]
 
-    def walk(nodes: TreeNodes, depth: int) -> None:
+    def walk(nodes: Sequence[TreeNode], depth: int) -> None:
         pad = "  " * depth
         for node in nodes:
             text = rewrite_asset_links(
-                resolve_text(node_text(node), uid_to_text, query_results, 0))
+                resolve_text(node["text"], uid_to_text, query_results, 0))
             first, *rest = text.split("\n")
             lines.append(f"{pad}- {first}")
             lines.extend(f"{pad}  {line}" for line in rest)
-            walk(node_children(node), depth + 1)
+            walk(node["children"], depth + 1)
 
     walk(tree, 0)
     return "\n".join(lines) + "\n"

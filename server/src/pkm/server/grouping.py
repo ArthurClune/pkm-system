@@ -12,50 +12,53 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import TypedDict
 
+from pkm.changed import ChangeStatus
+from pkm.schema import SchemaRow
+
 
 class GroupItem(TypedDict):
-    uid: object
-    text: object
+    uid: str
+    text: str
 
 
 class ChangedItem(TypedDict):
-    uid: object
-    text: object
-    created_at: object
-    updated_at: object
-    status: object
+    uid: str
+    text: str
+    created_at: int | None
+    updated_at: int | None
+    status: ChangeStatus
 
 
 class BacklinkItem(TypedDict):
-    uid: object
-    text: object
+    uid: str
+    text: str
     breadcrumbs: list[str]
 
 
 class PageGroup(TypedDict):
-    page_id: object
-    page_title: object
+    page_id: int
+    page_title: str
     items: list[GroupItem]
 
 
 class ChangedGroup(TypedDict):
-    page_id: object
-    page_title: object
+    page_id: int
+    page_title: str
     items: list[ChangedItem]
 
 
 class BacklinkGroup(TypedDict):
-    page_id: object
-    page_title: object
+    page_id: int
+    page_title: str
     items: list[BacklinkItem]
 
 
-def group_by_page(rows: Sequence[Mapping[str, object]]) -> list[PageGroup]:
+def group_by_page(rows: Sequence[SchemaRow]) -> list[PageGroup]:
     """Rows of `uid, text, page_id, page_title` -> page groups. Shared by
     query results, todos and unlinked references, whose items are the bare
     `{uid, text}` pair."""
     groups: list[PageGroup] = []
-    index: dict[object, list[GroupItem]] = {}
+    index: dict[int, list[GroupItem]] = {}
     for r in rows:
         items = index.get(r["page_id"])
         if items is None:
@@ -67,7 +70,7 @@ def group_by_page(rows: Sequence[Mapping[str, object]]) -> list[PageGroup]:
     return groups
 
 
-def group_changed(rows: Sequence[Mapping[str, object]]) -> list[ChangedGroup]:
+def group_changed(rows: Sequence[SchemaRow]) -> list[ChangedGroup]:
     """Rows of `uid, text, page_id, page_title, created_at, updated_at,
     status` -> page groups in first-appearance order, for /api/changed.
     Kept separate from `group_by_page` rather than generalised onto it:
@@ -75,7 +78,7 @@ def group_changed(rows: Sequence[Mapping[str, object]]) -> list[ChangedGroup]:
     already return; changing its item shape would ripple into all of
     them for one caller's extra fields."""
     groups: list[ChangedGroup] = []
-    index: dict[object, list[ChangedItem]] = {}
+    index: dict[int, list[ChangedItem]] = {}
     for r in rows:
         items = index.get(r["page_id"])
         if items is None:
@@ -91,13 +94,13 @@ def group_changed(rows: Sequence[Mapping[str, object]]) -> list[ChangedGroup]:
     return groups
 
 
-def group_backlinks(rows: Sequence[Mapping[str, object]],
-                    ancestors: Mapping[object, list[str]]
+def group_backlinks(rows: Sequence[SchemaRow],
+                    ancestors: Mapping[str, list[str]]
                     ) -> list[BacklinkGroup]:
     """Rows of `uid, text, src_page_id, src_page_title` -> page groups whose
     items also carry the block's breadcrumb trail."""
     groups: list[BacklinkGroup] = []
-    index: dict[object, list[BacklinkItem]] = {}
+    index: dict[int, list[BacklinkItem]] = {}
     for r in rows:
         items = index.get(r["src_page_id"])
         if items is None:

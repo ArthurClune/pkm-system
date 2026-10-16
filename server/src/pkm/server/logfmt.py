@@ -18,7 +18,7 @@ def request_line(client: str | None, method: str, path: str,
 
 
 def uvicorn_log_config(log_dir: Path | None = None,
-                       keep_days: int = 30) -> dict[str, object]:
+                       keep_days: int = 30) -> dict[str, Any]:
     """uvicorn's default logging dictconfig, plus timestamps on every
     formatter and a parent `pkm` logger wired to the default (stderr)
     handler at INFO, so every `pkm.*` child - `pkm.assets`, `pkm.assistant`,

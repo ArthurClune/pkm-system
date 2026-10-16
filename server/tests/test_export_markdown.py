@@ -1,9 +1,6 @@
+from conftest import tree_node as node
 from pkm.export.markdown import (page_filename, render_page,
                                  resolve_block_refs, rewrite_asset_links)
-
-
-def node(text, children=()):
-    return {"text": text, "children": list(children)}
 
 
 def test_render_nested_outline():

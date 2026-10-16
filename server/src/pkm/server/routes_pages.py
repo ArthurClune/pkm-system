@@ -21,7 +21,7 @@ from pkm.refs import (CanonicalTitle, NormalizedTitle, is_blank_title,
                       title_syntax_reason)
 from pkm.server import notify
 from pkm.server.auth import require_auth
-from pkm.server.grouping import group_backlinks, group_by_page
+from pkm.server.grouping import BacklinkGroup, group_backlinks, group_by_page
 from pkm.server.daily import (is_page_empty, past_week_dates,
                               select_journal_days)
 from pkm.server.db import get_db
@@ -120,7 +120,7 @@ def _fetch_ancestors(db: sqlite3.Connection, uids: list[str]) -> dict[str, list[
 
 
 def _backlinks(db: sqlite3.Connection, page_id: int,
-               offset: int, limit: int) -> tuple[list[dict[str, object]], int, list[str]]:
+               offset: int, limit: int) -> tuple[list[BacklinkGroup], int, list[str]]:
     """A page's own blocks are never its linked references, even when they
     reference it (Roam-style `{{[[TODO]]}}` markers on the TODO page do)
     -- the same `b.page_id != ?` rule unlinked references apply.

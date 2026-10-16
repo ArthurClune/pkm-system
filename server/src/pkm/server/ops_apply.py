@@ -8,7 +8,7 @@ import secrets
 import sqlite3
 from collections.abc import Collection
 from datetime import datetime
-from typing import Union, cast
+from typing import Union
 
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
@@ -309,10 +309,8 @@ def _skip_context(db: sqlite3.Connection, op: _AddressedOp, skip: Skip,
     pays for today's daily page only when an entry lands."""
     hint_page_exists = False
     ghost_page: PageId | None = None
-    if skip.kind == "diverted_create":
-        # classify_skip reports diverted_create only for a CreateOp
-        hint_page_exists, ghost_page = _diverted_create_page(
-            db, cast(CreateOp, op))
+    if skip.kind == "diverted_create" and isinstance(op, CreateOp):
+        hint_page_exists, ghost_page = _diverted_create_page(db, op)
     if skip.landing_uid is None:
         return SkipContext(skip, ghost_page)
     if isinstance(op, UpdateTextOp):

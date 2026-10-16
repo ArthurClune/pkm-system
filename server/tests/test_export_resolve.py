@@ -3,13 +3,10 @@
 executed to their matching results. Unlike pkm.export.markdown.render_page
 (the backup renderer, untested here -- see test_export_markdown.py), which
 keeps the raw query command and one-level, parens-wrapped ref resolution."""
+from conftest import tree_node as node
 from pkm.export.resolve import (
     QueryResult, QueryResultGroup, QueryResultItem, find_query_macros,
     render_page_resolved, render_query_result, resolve_text)
-
-
-def node(text, children=()):
-    return {"text": text, "children": list(children)}
 
 
 # -- find_query_macros --------------------------------------------------

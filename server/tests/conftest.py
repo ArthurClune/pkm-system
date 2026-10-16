@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import pytest
@@ -10,6 +10,7 @@ from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
 from pkm.server.db import init_db, open_db
+from pkm.server.tree import TreeNode
 
 TEST_PASSWORD = "test-pw"
 TEST_SALT = bytes.fromhex("00" * 16)
@@ -306,3 +307,11 @@ def goodlinks_pkm_client(goodlinks_client):
     token = goodlinks_client.cookies["pkm_session"]
     goodlinks_client.cookies.clear()
     return PkmClient(CliConfig(url="http://testserver", token=token), http=goodlinks_client)
+
+
+def tree_node(text: str, children: Sequence[TreeNode] = ()) -> TreeNode:
+    """A build_tree() node for renderer tests that only care about text and
+    nesting."""
+    return {"uid": "", "text": text, "heading": None, "view_type": None,
+            "collapsed": False, "order_idx": 0, "created_at": None,
+            "updated_at": None, "children": list(children)}

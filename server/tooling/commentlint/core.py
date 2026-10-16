@@ -1,0 +1,188 @@
+# pattern: Functional Core
+"""Find the comments that rot.
+
+A comment that explains the code beside it holds up; one that points
+elsewhere by bean id, by position or by a document's nickname goes stale
+without anyone noticing. Three rules, applied to comment text only (and to
+every line of an architecture doc, which is all prose):
+
+- bean-id: history lives in git, the beans and docs/troubleshooting.md.
+- line-number: a position moves on every edit above it; name the symbol.
+- orphan-pointer: a spec or plan named by section number or nickname
+  cannot be followed; the pointer is a `docs/` path or a `.md` filename,
+  which also exempts the line.
+
+Stdlib only and runnable under the system `python3`: the hook must not
+depend on a synced venv."""
+from __future__ import annotations
+
+import re
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+
+CODE_ROOTS = ("web/src", "web/e2e", "web/tooling", "server/src", "server/tests", "server/tooling",
+              "perf", "proptest")
+DOC_ROOTS = ("docs/architecture",)
+CODE_EXTENSIONS = frozenset({".py", ".ts", ".tsx", ".mjs", ".js", ".css", ".sh"})
+# Generated files are fixed at their source; perf baseline reports are records
+# of a measurement and are named after the bean that asked for it.
+EXCLUDED_SUFFIXES = (".gen.ts", ".d.ts")
+EXCLUDED_DIRS = ("web/tooling/perf/baselines/",)
+
+RULES = {
+    "bean-id": "bean ids: state the rule the comment enforces; the history is in git, the bean and "
+               "docs/troubleshooting.md",
+    "line-number": "line numbers: they move on every edit above them; name the function, selector or "
+                   "constant instead",
+    "orphan-pointer": "spec/plan pointers: name the document by path (docs/...) so the reference can be "
+                      "followed, or drop it",
+}
+
+# Bean ids are `pkm-` plus four lowercase alphanumerics. A further hyphen,
+# underscore or path separator makes it a file or directory name instead.
+_BEAN_ID = re.compile(r"\bpkm-[a-z0-9]{4}\b(?![-/_])")
+_NOT_BEAN_IDS = frozenset({"pkm-perf", "pkm-data"})
+_LINE_NUMBER = re.compile(
+    r"\bline ~?\d+\b"
+    r"|\blines ~?\d+\s*[-–—]\s*\d+\b"
+    r"|[\w./-]+\.(?:py|ts|tsx|mjs|js|css|md|sh):\d+\b",
+    re.IGNORECASE)
+_ORPHAN_POINTER = re.compile(
+    r"\bspec(?:ification)?s?\s+sections?\b"
+    r"|\bspec\s*§"
+    r"|\bplan[- ]\d+(?:/\d+)?\b"
+    r"|\bper the (?:spec|plan)\b"
+    r"|\bsee (?:the )?(?:spec|plan)\b"
+    r"|\bdesign docs?\b",
+    re.IGNORECASE)
+_PATH_POINTER = re.compile(r"\bdocs/|\b[\w-]+\.md\b")
+
+_HASH_COMMENT = re.compile(r"(?:^|(?<=\s))#(.*)")
+_SLASH_COMMENT = re.compile(r"(?:^|(?<=\s))//(.*)")
+_TRIPLE_QUOTE = re.compile(r'"""|\'\'\'')
+
+
+@dataclass(frozen=True)
+class Violation:
+    path: str
+    line: int
+    rule: str
+    text: str
+
+
+def is_scanned(path: str) -> bool:
+    """Whether the lint reads this repo-relative path at all."""
+    if path.endswith(EXCLUDED_SUFFIXES) or any(path.startswith(d) for d in EXCLUDED_DIRS):
+        return False
+    suffix = PurePosixPath(path).suffix
+    if _under(path, DOC_ROOTS):
+        return suffix == ".md"
+    return _under(path, CODE_ROOTS) and suffix in CODE_EXTENSIONS
+
+
+def _under(path: str, roots: Iterable[str]) -> bool:
+    return any(path == root or path.startswith(root + "/") for root in roots)
+
+
+def comment_spans(text: str, suffix: str) -> Iterator[tuple[int, str]]:
+    """(line number, comment text) for every non-blank comment in `text`,
+    where comments are what the language of `suffix` makes them."""
+    lines = text.splitlines()
+    if suffix == ".md":
+        raw = ((n, line) for n, line in enumerate(lines, 1))
+    elif suffix == ".py":
+        raw = _python_comments(lines)
+    elif suffix == ".sh":
+        raw = ((n, m.group(1)) for n, line in enumerate(lines, 1) if (m := _HASH_COMMENT.search(line)))
+    else:
+        raw = _slash_comments(lines)
+    return ((n, piece) for n, piece in raw if piece.strip())
+
+
+def _python_comments(lines: list[str]) -> Iterator[tuple[int, str]]:
+    """`#` comments and triple-quoted strings: docstrings are prose, and the
+    pointers that rot live there as readily as in comments."""
+    in_string = False
+    for n, line in enumerate(lines, 1):
+        pos = 0
+        while True:
+            if in_string:
+                close = _TRIPLE_QUOTE.search(line, pos)
+                end = close.start() if close else len(line)
+                yield n, line[pos:end]
+                if not close:
+                    break
+                in_string, pos = False, close.end()
+            else:
+                opener = _TRIPLE_QUOTE.search(line, pos)
+                comment = _HASH_COMMENT.search(line, pos)
+                if comment and (not opener or comment.start() < opener.start()):
+                    yield n, comment.group(1)
+                    break
+                if not opener:
+                    break
+                in_string, pos = True, opener.end()
+
+
+def _slash_comments(lines: list[str]) -> Iterator[tuple[int, str]]:
+    """`//` to end of line and `/* */` blocks, for TypeScript, JavaScript
+    and CSS alike. A `//` run on from code (`https://`) is not a comment."""
+    in_block = False
+    for n, line in enumerate(lines, 1):
+        pos = 0
+        while True:
+            if in_block:
+                close = line.find("*/", pos)
+                end = len(line) if close < 0 else close
+                yield n, line[pos:end]
+                if close < 0:
+                    break
+                in_block, pos = False, close + 2
+            else:
+                opener = line.find("/*", pos)
+                comment = _SLASH_COMMENT.search(line, pos)
+                if comment and (opener < 0 or comment.start() < opener):
+                    yield n, comment.group(1)
+                    break
+                if opener < 0:
+                    break
+                in_block, pos = True, opener + 2
+
+
+def check_text(path: str, text: str) -> list[Violation]:
+    """Every rule each comment of `path` breaks, in file order."""
+    if not is_scanned(path):
+        return []
+    out: list[Violation] = []
+    for n, comment in comment_spans(text, PurePosixPath(path).suffix):
+        for rule in _rules_broken(comment):
+            out.append(Violation(path, n, rule, comment.strip()))
+    return out
+
+
+def _rules_broken(comment: str) -> list[str]:
+    broken = []
+    if any(m.group(0) not in _NOT_BEAN_IDS for m in _BEAN_ID.finditer(comment)):
+        broken.append("bean-id")
+    if _LINE_NUMBER.search(comment):
+        broken.append("line-number")
+    if _ORPHAN_POINTER.search(comment) and not _PATH_POINTER.search(comment):
+        broken.append("orphan-pointer")
+    return broken
+
+
+def format_report(violations: list[Violation]) -> str:
+    """One line per site, then the remedy for each rule hit; empty when clean."""
+    if not violations:
+        return ""
+    sites = [f"{v.path}:{v.line}: {v.rule}: {v.text}" for v in violations]
+    remedies = [f"  {RULES[rule]}" for rule in RULES if any(v.rule == rule for v in violations)]
+    return "\n".join([
+        "pre-commit: comments must not carry what rots.",
+        *sites,
+        "",
+        *remedies,
+        "",
+        "Fix the sites above and commit again. To bypass in a genuine emergency: git commit --no-verify",
+    ]) + "\n"

@@ -1045,3 +1045,8 @@ When measuring a slow request, prefer these durations to client-side timing.
   opinion) and `uv run ruff check` lints, at line length 120.
 - `server/tooling/perfcheck` is the performance gate behind `perf/check.sh`:
   see [performance-checks.md](performance-checks.md).
+- `server/tooling/commentlint` is the comment-rot lint behind
+  `.githooks/pre-commit`: a staged source file or architecture doc whose
+  comments carry a bean id, a line number or a spec/plan pointer with no path
+  fails the commit. Stdlib only, so the hook runs under the system `python3`;
+  `python3 -m commentlint.run --all` sweeps the tree.

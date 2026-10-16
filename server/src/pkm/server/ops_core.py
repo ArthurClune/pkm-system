@@ -343,9 +343,9 @@ class FreshHeader:
 
 @dataclass(frozen=True)
 class ConflictLanding:
-    """Where text an op could not apply lands (offline-editing-design.md §2): the entry
-    `entry_uid` under today's header for the target block, or under a fresh
-    one. `daily_title` is the day key conflict_headers records."""
+    """Where text an op could not apply lands (offline-editing-design.md §2):
+    the entry `entry_uid` under today's header for the target block, or under
+    a fresh one. `daily_title` is the day key conflict_headers records."""
     daily_page_id: PageId
     daily_title: CanonicalTitle
     entry_uid: BlockUid
@@ -415,10 +415,10 @@ class DeleteConflictContext:
 
 
 def delete_diverged(base_subtree_hash: str, rows: Sequence[SubtreeRow]) -> bool:
-    """Whether the subtree's current (uid, text) pairs no longer hash to
-    what the deleting device last saw -- offline-editing-design.md §1's canonical hash,
-    order-independent so a reorder or re-parenting inside the subtree never
-    diverges it."""
+    """Whether the subtree's current (uid, text) pairs no longer hash to what
+    the deleting device last saw -- offline-editing-design.md §1's canonical
+    hash, order-independent so a reorder or re-parenting inside the subtree
+    never diverges it."""
     return subtree_hash((row.uid, row.text) for row in rows) != base_subtree_hash
 
 
@@ -427,12 +427,12 @@ def descendant_copy_effects(
     copy_uids: Mapping[BlockUid, BlockUid], daily_page_id: PageId,
 ) -> tuple[Effect, ...]:
     """InsertBlock + ReindexRefs for every row but the root (the root's copy
-    goes through `conflict_entry_effects` instead), walked from `root_uid`
-    in pre-order so a parent's copy always lands before its children's, and
+    goes through `conflict_entry_effects` instead), walked from `root_uid` in
+    pre-order so a parent's copy always lands before its children's, and
     renumbered 0..n per parent by `(order_idx, uid)` -- fresh uids nested as
-    the subtree was, text only (offline-editing-design.md §3). The root is left out of
-    the child map: a corrupted tree whose root's parent lies inside the
-    subtree must not lead the walk back into its start."""
+    the subtree was, text only (offline-editing-design.md §3). The root is
+    left out of the child map: a corrupted tree whose root's parent lies
+    inside the subtree must not lead the walk back into its start."""
     children: dict[BlockUid | None, list[SubtreeRow]] = {}
     for row in rows:
         if row.uid != root_uid:
@@ -683,8 +683,8 @@ def conflict_entry_effects(
     target_uid: BlockUid, lost_text: str, header_text: str,
     landing: ConflictLanding,
 ) -> tuple[Effect, ...]:
-    """Lost text landing in today's daily note (offline-editing-design.md §2): appended
-    under today's existing header for this target if there is one,
+    """Lost text landing in today's daily note (offline-editing-design.md §2):
+    appended under today's existing header for this target if there is one,
     otherwise a fresh header is created and recorded so later conflicts on
     the same block land under it too."""
     header = landing.header

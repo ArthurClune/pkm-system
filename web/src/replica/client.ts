@@ -166,7 +166,8 @@ export interface Replica {
   /** Release a prepared lease without destructive work. */
   abortRecovery(token: string): Promise<void>;
   /** Drop and reinstall the schema. Caller enforces the non-empty-queue
-   * guard (offline-editing-design.md §6): never call with unsynced pending ops. */
+   * guard (offline-editing-design.md §6): never call with unsynced pending ops.
+   */
   reset(): Promise<void>;
   /** Read-only self-report for the corruption path; never rejects for a
    * broken index, only for a database that cannot be opened at all. */

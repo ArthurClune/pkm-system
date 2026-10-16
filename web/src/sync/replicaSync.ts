@@ -1,11 +1,11 @@
 // pattern: Imperative Shell
-// Drives the replica from the server (offline-editing-design.md §3): snapshot bootstrap,
-// nudge-driven windowed pulls, and the guarded re-bootstrap paths (feed
-// reset / generation flip / schema-version mismatch). The guardrail from
-// the epic: a re-bootstrap NEVER tears down a database whose pending queue
-// is non-empty — queued batches are flushed to the server first (batch_id
-// dedup makes replayed flushes safe), and a failed flush keeps the old
-// database: degraded beats data loss.
+// Drives the replica from the server (offline-editing-design.md §3): snapshot
+// bootstrap, nudge-driven windowed pulls, and the guarded re-bootstrap paths
+// (feed reset / generation flip / schema-version mismatch). The guardrail from
+// the epic: a re-bootstrap NEVER tears down a database whose pending queue is
+// non-empty — queued batches are flushed to the server first (batch_id dedup
+// makes replayed flushes safe), and a failed flush keeps the old database:
+// degraded beats data loss.
 
 import type { ApiFetchOptions } from "../api/client";
 import type { BatchId, ClientId, SyncSeq } from "../api/brands";

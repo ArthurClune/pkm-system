@@ -1637,18 +1637,19 @@ describe("an unopenable replica", () => {
 });
 
 describe("the poison gate and repair problems", () => {
-  /** Models the real worker's open memoisation (`dbPromise` in workerHandlers.ts): one
-   * failed open is cached and replayed to every handler, and — crucially — is
-   * NOT cleared by any handler's rejection, including `init()`'s. Contention
-   * here would clear after the first real attempt, so a worker that re-armed
-   * its open WOULD succeed on a second attempt; that this double never does
-   * is the property `workerHandlers.test.ts` pins directly ("a failed open
-   * stays latched"). This test guards the other half: that the provider does
-   * not reach the database by some other route once the barrier is lifted.
+  /** Models the real worker's open memoisation (`dbPromise` in
+   * workerHandlers.ts): one failed open is cached and replayed to every
+   * handler, and — crucially — is NOT cleared by any handler's rejection,
+   * including `init()`'s. Contention here would clear after the first real
+   * attempt, so a worker that re-armed its open WOULD succeed on a second
+   * attempt; that this double never does is the property
+   * `workerHandlers.test.ts` pins directly ("a failed open stays latched").
+   * This test guards the other half: that the provider does not reach the
+   * database by some other route once the barrier is lifted.
    * `unopenableReplica()` above is permanently dead and cannot express the
    * race at all. The internal `db()` rejection must be a
-   * `ReplicaUnusableError` (not a plain `Error`), because `availabilityOf`
-   * — not a second call to `init()` — is what SyncProvider consults to decide
+   * `ReplicaUnusableError` (not a plain `Error`), because `availabilityOf` —
+   * not a second call to `init()` — is what SyncProvider consults to decide
    * "unusable"; a plain `Error` would make this test pass vacuously by never
    * lifting the barrier at all. */
   function racingReplica(): Replica & { log: string[] } {

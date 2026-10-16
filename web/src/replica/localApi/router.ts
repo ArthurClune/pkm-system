@@ -1,8 +1,8 @@
 // pattern: Imperative Shell
-// The offline shim's route table (offline-editing-design.md §4): matches the requests
-// the app makes and serves them from the replica with the same OpenAPI
-// shapes the server returns. Unmatched routes report handled:false — the
-// caller surfaces a clear online-only error. Runs inside the worker.
+// The offline shim's route table (offline-editing-design.md §4): matches the
+// requests the app makes and serves them from the replica with the same OpenAPI
+// shapes the server returns. Unmatched routes report handled:false — the caller
+// surfaces a clear online-only error. Runs inside the worker.
 
 import type { BatchId, BlockUid, CanonicalTitle,
               SidebarEntryId } from "../../api/brands";

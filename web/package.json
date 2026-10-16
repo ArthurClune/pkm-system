@@ -12,8 +12,9 @@
     "typecheck": "tsc && tsc -p tsconfig.apitypes.json",
     "lint": "eslint src tooling",
     "check:fcis": "node tooling/fcis.mjs",
+    "lint:comments": "PYTHONPATH=../server/tooling python3 -m commentlint.run --all",
     "e2e": "pnpm build && node tooling/runPlaywright.mjs",
-    "verify": "pnpm typecheck && pnpm lint && pnpm check:fcis && pnpm test:coverage && vite build && node tooling/runPlaywright.mjs",
+    "verify": "pnpm typecheck && pnpm lint && pnpm lint:comments && pnpm check:fcis && pnpm test:coverage && vite build && node tooling/runPlaywright.mjs",
     "gen-types": "node tooling/genTypes.mjs"
   },
   "dependencies": {

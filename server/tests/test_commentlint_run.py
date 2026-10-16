@@ -100,3 +100,10 @@ def test_the_hook_runs_the_lint_from_any_checkout(repo: Path):
 
 def test_the_hook_is_executable():
     assert HOOK.stat().st_mode & 0o111
+
+
+def test_the_tracked_tree_is_clean(capsys):
+    """The sweep the hook would run, over this checkout: a clone that never set
+    core.hooksPath, and a merge commit (which no pre-commit hook sees), still
+    fail here."""
+    assert main(["--all"], REPO) == 0, capsys.readouterr().err

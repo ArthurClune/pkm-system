@@ -1050,5 +1050,7 @@ When measuring a slow request, prefer these durations to client-side timing.
   comments carry a bean id, a line number or a spec/plan pointer with no path
   fails the commit. So does a source line over 80 columns in a comment or 120
   elsewhere; `noqa: E501` exempts a line, and ruff's `E501` shares it. Stdlib
-  only, so the hook runs under the system `python3`;
-  `python3 -m commentlint.run --all` sweeps the tree.
+  only, so the hook runs under the system `python3`.
+  `python3 -m commentlint.run --all` sweeps the tree; `pytest`
+  (`test_the_tracked_tree_is_clean`) and `pnpm verify` (`lint:comments`) run
+  that sweep too, so a clone without the hook still fails on a dirty tree.

@@ -460,8 +460,9 @@ def get_current_work(now_ms: int | None = None,
 
 
 # Non-empty = any block with non-whitespace text; the trim char set matches
-# is_page_empty()'s strip() for ASCII whitespace, and the offline shim runs
-# the identical SQL so both engines agree byte-for-byte (offline-editing-design.md §7).
+# is_page_empty()'s strip() for ASCII whitespace, and the offline shim runs the
+# identical SQL so both engines agree byte-for-byte (offline-editing-design.md
+# §7).
 _NONEMPTY_DAILY_SQL = (
     "SELECT title FROM pages WHERE EXISTS ("
     " SELECT 1 FROM blocks b WHERE b.page_id = pages.id"
@@ -478,8 +479,8 @@ _REFERENCED_DAILY_SQL = (
 # How many referencing pages each journal day carries inline. A scroll full of
 # days each listing every referencing page would be noisy; the day's own
 # BacklinksSection pages the rest from /api/page on demand. The offline shim
-# uses the same number (offline-editing-design.md §7), and the web client reads the limit
-# back off the payload rather than hardcoding it.
+# uses the same number (offline-editing-design.md §7), and the web client reads
+# the limit back off the payload rather than hardcoding it.
 JOURNAL_BACKLINK_PREVIEW = 5
 
 

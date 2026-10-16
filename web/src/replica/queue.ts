@@ -1,17 +1,17 @@
 // pattern: Imperative Shell
-// The durable op queue (offline-editing-design.md §3): pending batches live INSIDE the
-// replica database as wire-format JSON, so queued offline edits survive
-// tab refresh and browser restart. update_text captures a current
-// base_text_hash only when one is not already supplied; explicit
-// snapshot hashes are preserved, and a user's own edit chain therefore
-// flushes cleanly (op N leaves the text op N+1's hash matches). When it
-// fills a hash it also fills a missing page_title, from the replica's own
-// pages table, so the daily-note conflict header the server writes on a
-// missing block can name the page. delete captures a base_subtree_hash of
-// the block and its descendants the same way, only when none is supplied,
-// so a delete after its child's delete in one batch hashes what that left.
-// Poisoned batches (server terminal 4xx, see sync/rejection.ts) are set
-// aside, never retried forever (offline-editing-design.md §6).
+// The durable op queue (offline-editing-design.md §3): pending batches live
+// INSIDE the replica database as wire-format JSON, so queued offline edits
+// survive tab refresh and browser restart. update_text captures a current
+// base_text_hash only when one is not already supplied; explicit snapshot
+// hashes are preserved, and a user's own edit chain therefore flushes cleanly
+// (op N leaves the text op N+1's hash matches). When it fills a hash it also
+// fills a missing page_title, from the replica's own pages table, so the
+// daily-note conflict header the server writes on a missing block can name the
+// page. delete captures a base_subtree_hash of the block and its descendants
+// the same way, only when none is supplied, so a delete after its child's
+// delete in one batch hashes what that left. Poisoned batches (server terminal
+// 4xx, see sync/rejection.ts) are set aside, never retried forever
+// (offline-editing-design.md §6).
 
 import type { BatchId, BlockUid, CanonicalTitle, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";

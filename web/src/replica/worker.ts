@@ -1,10 +1,10 @@
 /// <reference lib="webworker" />
 // pattern: Imperative Shell
-// The replica worker: owns the sqlite-wasm database on the opfs-sahpool
-// VFS (no COOP/COEP needed — offline-editing-design.md §3) and serves the RPC surface.
+// The replica worker: owns the sqlite-wasm database on the opfs-sahpool VFS (no
+// COOP/COEP needed — offline-editing-design.md §3) and serves the RPC surface.
 // Browser-only glue, excluded from unit coverage; all logic lives in the
-// modules it wires together (workerHandlers/apply/queue/localApi), which
-// are tested against real sqlite-wasm in Node.
+// modules it wires together (workerHandlers/apply/queue/localApi), which are
+// tested against real sqlite-wasm in Node.
 
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 import { type Oo1DbLike, type ReplicaDb, wrapSqlite } from "./db";

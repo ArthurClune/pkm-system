@@ -123,10 +123,10 @@ CREATE TABLE IF NOT EXISTS sidebar_entries(
 
 BASE_DDL += SIDEBAR_ENTRIES_DDL
 
-# Server-only DDL: the change journal (offline sync) and batch
-# idempotency records. Deliberately NOT part of BASE_DDL: the client
-# replica is built from BASE_DDL alone -- installing these triggers there
-# would grow an unused local journal on every upsert (offline-editing-design.md §3).
+# Server-only DDL: the change journal (offline sync) and batch idempotency
+# records. Deliberately NOT part of BASE_DDL: the client replica is built from
+# BASE_DDL alone -- installing these triggers there would grow an unused local
+# journal on every upsert (offline-editing-design.md §3).
 #
 # Journal rows come from row-level triggers, not per-route code: a single
 # op touches many rows beyond its target (sibling shifts, subtree moves,

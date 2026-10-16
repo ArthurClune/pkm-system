@@ -130,14 +130,13 @@ def _with_parent_closure(db: sqlite3.Connection,
 
 def _block_payloads(db: sqlite3.Connection,
                     uids: list[str]) -> tuple[list[SyncBlock], set[int]]:
-    """Hydrate blocks + their refs, plus their transitive parent-block
-    closure. Also return every page id a shipped block depends
-    on: ref target pages (offline-editing-design.md §1 -- a window boundary can split a
-    block+refs from the implicitly-created page it points at) and each
-    shipped block's OWN page (a block moved to a brand-new page has the
-    same hazard). Fetched via chunked `WHERE uid IN (...)` set queries
-    rather than one query per uid -- a legal window/snapshot
-    can carry thousands of uids."""
+    """Hydrate blocks + their refs, plus their transitive parent-block closure.
+    Also return every page id a shipped block depends on: ref target pages
+    (offline-editing-design.md §1 -- a window boundary can split a block+refs
+    from the implicitly-created page it points at) and each shipped block's
+    OWN page (a block moved to a brand-new page has the same hazard). Fetched
+    via chunked `WHERE uid IN (...)` set queries rather than one query per
+    uid -- a legal window/snapshot can carry thousands of uids."""
     if not uids:
         return [], set()
     block_rows = _blocks_by_uid(db, uids)

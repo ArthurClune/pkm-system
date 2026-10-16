@@ -495,8 +495,8 @@ def test_missing_block_appends_under_todays_header():
 
 
 def test_check_2_identical_text_is_noop_even_with_stale_hash():
-    # device 2 pushes the same text device 1 already synced: base hash is
-    # stale but the content matches -- never a conflict (offline-editing-design.md §2)
+    # device 2 pushes the same text device 1 already synced: base hash is stale
+    # but the content matches -- never a conflict (offline-editing-design.md §2)
     op = _op(text="same", base="anything else")
     assert plan_op(0, op, _text_ctx(op, "same")) == ()
 

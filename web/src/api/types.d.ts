@@ -1312,9 +1312,10 @@ export interface components {
         };
         /**
          * CreatePageOp
-         * @description Durable push path for offline page creation (offline-editing-design.md §1): an
-         *     empty page created offline has no block op to carry its title, so page
-         *     creation is itself an op -- get_or_create semantics, safely replayable.
+         * @description Durable push path for offline page creation (offline-editing-design.md
+         *     §1): an empty page created offline has no block op to carry its title, so
+         *     page creation is itself an op -- get_or_create semantics, safely
+         *     replayable.
          */
         CreatePageOp: {
             /**

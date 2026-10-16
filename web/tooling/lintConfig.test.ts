@@ -84,6 +84,64 @@ const cases: readonly FixtureCase[] = [
       '  return apiGet("/api/current-work");\n' +
       "}\n",
   },
+  {
+    file: "explicit-any.ts",
+    rule: "@typescript-eslint/no-explicit-any",
+    corrected:
+      "export function show(value: unknown): string {\n" +
+      "  return String(value);\n" +
+      "}\n",
+  },
+  {
+    file: "unsafe-assignment.ts",
+    rule: "@typescript-eslint/no-unsafe-assignment",
+    corrected:
+      "export function isNull(s: string): boolean {\n" +
+      "  const v: unknown = JSON.parse(s);\n" +
+      "  return v === null;\n" +
+      "}\n",
+  },
+  {
+    file: "unsafe-member-access.ts",
+    rule: "@typescript-eslint/no-unsafe-member-access",
+    corrected:
+      "export function idOf(s: string): unknown {\n" +
+      "  const v: unknown = JSON.parse(s);\n" +
+      '  if (typeof v === "object" && v !== null && "id" in v) return v.id;\n' +
+      "  return undefined;\n" +
+      "}\n",
+  },
+  {
+    file: "unsafe-return.ts",
+    rule: "@typescript-eslint/no-unsafe-return",
+    corrected:
+      "export function load(s: string): string[] {\n" +
+      "  const v: unknown = JSON.parse(s);\n" +
+      "  if (!Array.isArray(v)) return [];\n" +
+      '  return v.filter((x): x is string => typeof x === "string");\n' +
+      "}\n",
+  },
+  {
+    file: "unsafe-argument.ts",
+    rule: "@typescript-eslint/no-unsafe-argument",
+    corrected:
+      "function take(n: number): number {\n" +
+      "  return n;\n" +
+      "}\n" +
+      "export function run(s: string): number {\n" +
+      "  const v: unknown = JSON.parse(s);\n" +
+      '  return typeof v === "number" ? take(v) : 0;\n' +
+      "}\n",
+  },
+  {
+    file: "unsafe-call.ts",
+    rule: "@typescript-eslint/no-unsafe-call",
+    corrected:
+      "export function run(s: string): unknown {\n" +
+      "  const v: unknown = JSON.parse(s);\n" +
+      '  return typeof v === "function" ? v.name : undefined;\n' +
+      "}\n",
+  },
 ];
 
 // Each ESLint spawn here takes ~2s under coverage instrumentation, close

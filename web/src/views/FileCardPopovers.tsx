@@ -27,8 +27,8 @@ export function FileRefsPopover({ refs, x, y, onClose }: {
       apiGet("/api/block-refs", { query: { uids: uids.join(",") } })))
       .then((payloads) => {
         if (cancelled) return;
-        const texts = Object.assign(
-          {}, ...payloads.map((p) => p.block_ref_texts));
+        const texts: Parameters<typeof refGroups>[1] = {};
+        for (const p of payloads) Object.assign(texts, p.block_ref_texts);
         setGroups(refGroups(refs, texts));
       })
       .catch((fetchFailure: unknown) => {

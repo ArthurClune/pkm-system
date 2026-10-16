@@ -1,5 +1,5 @@
 // Flat, type-aware ESLint config (config file: exempt from the FCIS header
-// rule). Enforces exactly three policy families, no more:
+// rule). Enforces exactly four policy families, no more:
 //   * React Hooks correctness (rules-of-hooks, exhaustive-deps) so hook
 //     dependency arrays cannot silently drift out of sync with the effect
 //     body -- this is what lets Task 10 delete every exhaustive-deps
@@ -10,6 +10,9 @@
 //     handlers), thrown non-Errors, and untyped caught errors.
 //   * API-boundary import control: concrete JSON requests use typedClient;
 //     raw apiFetch stays at the transport boundary.
+//   * No `any` flowing through production code (no-explicit-any and the
+//     no-unsafe-* rules): an untyped JSON value reaching code that assumes
+//     its shape fails at runtime instead of at the type check.
 // reportUnusedDisableDirectives is an error so a stale suppression can never
 // linger: the "zero exhaustive-deps suppressions" invariant is enforced by
 // tooling, not by convention.
@@ -35,7 +38,7 @@ export default tseslint.config(
   },
   // base only: registers the typescript-eslint parser + plugin so the
   // @typescript-eslint/* rules below resolve, WITHOUT pulling in any of the
-  // recommended rule sets (that would be rule sprawl beyond the three named
+  // recommended rule sets (that would be rule sprawl beyond the four named
   // policy families this task is scoped to).
   tseslint.configs.base,
   {
@@ -66,6 +69,12 @@ export default tseslint.config(
       "@typescript-eslint/no-misused-promises": "error",
       "@typescript-eslint/only-throw-error": "error",
       "@typescript-eslint/use-unknown-in-catch-callback-variable": "error",
+      "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/no-unsafe-assignment": "error",
+      "@typescript-eslint/no-unsafe-member-access": "error",
+      "@typescript-eslint/no-unsafe-return": "error",
+      "@typescript-eslint/no-unsafe-argument": "error",
+      "@typescript-eslint/no-unsafe-call": "error",
       "no-restricted-imports": ["error", {
         patterns: [{
           group: ["**/api/client"],

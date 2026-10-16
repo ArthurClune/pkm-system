@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Mapping
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
@@ -53,12 +54,22 @@ def get_goodlinks(request: Request) -> GoodlinksGateway:
     return gw
 
 
-def _link_payload(raw: dict, created: bool) -> GoodlinksLink:
-    link_id = parse_link_id(str(raw["id"]))
+def _required_str(raw: Mapping[str, object], key: str) -> str:
+    """A field every GoodLinks link carries. One that is missing, empty or
+    not a string means GoodLinks answered with something other than a link,
+    which callers treat like any other unusable answer."""
+    value = raw.get(key)
+    if not isinstance(value, str) or not value:
+        raise GoodlinksUnavailable(f"goodlinks returned a link without a usable {key!r}: {value!r}")
+    return value
+
+
+def _link_payload(raw: Mapping[str, object], created: bool) -> GoodlinksLink:
+    link_id = parse_link_id(_required_str(raw, "id"))
     if link_id is None:
         raise GoodlinksUnavailable(f"goodlinks returned a malformed link id: {raw.get('id')!r}")
     return GoodlinksLink(id=link_id, title=str(raw.get("title") or ""),
-                         url=str(raw["url"]), added_at=str(raw.get("addedAt") or ""),
+                         url=_required_str(raw, "url"), added_at=str(raw.get("addedAt") or ""),
                          created=created)
 
 
@@ -128,6 +139,7 @@ def get_article(link_id: str, response: Response,
         meta = gw.link(parsed_id)
         if meta is None:
             raise _NOT_FOUND
+        url = _required_str(meta, "url")
         # A known link with no reader copy (extraction failed, a paywall, a
         # PDF, a page saved seconds ago) still returns its metadata, so the
         # reader can offer the original link.
@@ -139,6 +151,6 @@ def get_article(link_id: str, response: Response,
     # The article can change if it is re-saved, and GoodLinks is local and
     # fast, so nothing is cached.
     response.headers["Cache-Control"] = "private, no-store"
-    return GoodlinksArticle(id=parsed_id, title=str(meta.get("title") or ""), url=str(meta["url"]),
+    return GoodlinksArticle(id=parsed_id, title=str(meta.get("title") or ""), url=url,
                             added_at=str(meta.get("addedAt") or ""),
                             html=sanitize_article(html) if html is not None else "")

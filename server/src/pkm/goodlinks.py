@@ -13,6 +13,7 @@ not listed is dropped, and that is the intended behaviour."""
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from typing import NewType
 from urllib.parse import urlsplit, urlunsplit
 
@@ -58,11 +59,7 @@ def parse_link_id(value: str) -> GoodlinksId | None:
     return GoodlinksId(value) if _ID_RE.fullmatch(value) else None
 
 
-def is_link_id(value: str) -> bool:
-    return parse_link_id(value) is not None
-
-
-def goodlinks_href(link_id: str) -> str:
+def goodlinks_href(link_id: GoodlinksId) -> str:
     return GOODLINKS_PREFIX + link_id
 
 
@@ -128,7 +125,8 @@ def _matches_candidate(url: str, candidate: str) -> bool:
     return remainder.startswith("?") or remainder.startswith("#")
 
 
-def search_match(candidates: list[str], results: list[dict]) -> dict | None:
+def search_match(candidates: Sequence[str],
+                 results: Sequence[Mapping[str, object]]) -> Mapping[str, object] | None:
     """A search result counts only when exactly one result's URL equals a
     candidate, or extends it starting with `?` or `#`. Two hits is
     ambiguity, zero is a miss; the caller never guesses."""

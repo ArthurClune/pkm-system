@@ -32,8 +32,8 @@ from pkm.server.store import (BlankTitleError, DeleteBlockedError,
                               get_or_create_page, merge_page_rows,
                               plan_delete, rename_page_rows)
 from pkm.server.sync_meta import read_title, title_reader
-from pkm.unlink import DeleteBlocker
 from pkm.server.tree import build_tree, collect_block_ref_uids, find_node
+from pkm.unlink import DeleteBlocker
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 

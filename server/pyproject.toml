@@ -45,8 +45,10 @@ markers = ["proptest: heavyweight property checks, run by proptest/check.sh only
 line-length = 120
 
 # Production code annotates every signature, so an untyped value cannot reach
-# a function unnoticed. `Any` needs a `# noqa: ANN401` naming the external API
-# that forces it; prefer `object` and narrow. Tests and tooling are exempt.
+# a function unnoticed. A bare `Any` parameter or return needs a `# noqa: ANN401`
+# naming the external API that forces it; prefer `object` and narrow. ANN401
+# does not see a nested `Any` (`dict[str, Any]`), so that is review's job.
+# Tests and tooling are exempt.
 [tool.ruff.lint]
 extend-select = ["ANN"]
 

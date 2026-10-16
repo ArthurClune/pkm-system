@@ -82,7 +82,7 @@ async def post_ops(request: Request,
     # lists every op whose target no longer exists (ops_core.skip_report),
     # and is empty for a clean batch.
     response: dict[str, object] = {"ok": True, "ts": now, "applied": len(batch.ops), "seq": seq,
-                "skipped": result.skipped}
+                                   "skipped": result.skipped}
     # No IntegrityError branch here: BEGIN IMMEDIATE has been held since
     # before the dedupe SELECT above, so a second submission of this same
     # batch_id cannot reach this INSERT concurrently -- it blocks on the

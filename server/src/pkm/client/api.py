@@ -17,11 +17,10 @@ import os
 import secrets
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, TypedDict, TypeVar, Unpack
+from typing import TYPE_CHECKING, Any, TypedDict, TypeVar, Unpack
 from urllib.parse import quote
 
 import httpx2
-from httpx2._types import QueryParamTypes, RequestFiles
 from pydantic import BaseModel, ValidationError
 
 from pkm.client.core import (ApiError, CliConfig, ConfigError,
@@ -40,6 +39,11 @@ from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload)
 from pkm.refs import normalize_title
+
+if TYPE_CHECKING:
+    # httpx2's own parameter types, from a private module: never import it
+    # at runtime, where a rename upstream would break the client's import.
+    from httpx2._types import QueryParamTypes, RequestFiles
 
 CLIENT_ID = ClientId("pkm-cli")
 _BACKLINK_MAX_ATTEMPTS = 5

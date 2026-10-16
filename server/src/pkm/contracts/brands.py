@@ -22,7 +22,6 @@ every subtype explicitly. gen-types accepts a marker only on a string or
 integer schema, so a `float` NewType must not be branded."""
 from __future__ import annotations
 
-
 from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema

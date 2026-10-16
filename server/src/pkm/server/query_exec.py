@@ -58,7 +58,7 @@ class QueryMatches:
     the plan independently of `rows` so that a caller which ever limits the
     rows still reports the full match count."""
     total: int
-    rows: Sequence[Mapping]  # sqlite3.Row, typed as grouping.py reads it
+    rows: Sequence[Mapping[str, object]]  # sqlite3.Row, typed as grouping.py reads it
 
 
 def count_matches(db: sqlite3.Connection, sql: str,

@@ -41,7 +41,7 @@ MAX_REPLAYED_REWRITES = 10
 
 
 class OpError(ValueError):
-    def __init__(self, index: int, reason: str):
+    def __init__(self, index: int, reason: str) -> None:
         super().__init__(f"op {index}: {reason}")
         self.index = index
         self.reason = reason
@@ -542,7 +542,7 @@ OpContext = Union[PageContext, CreateContext, MoveContext, DeleteContext,
                   StuckMoveContext]
 
 
-def skip_report(index: int, op: BlockOp, ctx: SkippedContext) -> dict:
+def skip_report(index: int, op: BlockOp, ctx: SkippedContext) -> dict[str, object]:
     """The ack's `skipped` entry for an op `classify_skip` flagged: which
     op, which uid, why, and the daily page its entry landed on (None when
     nothing landed). It is the only signal a caller that sends uids
@@ -828,7 +828,7 @@ def _rewrite_chain(
     text = sent
     base = text_hash(sent)
 
-    def record(after_text: str, records: Sequence[tuple[RewriteKind, str, str]]):
+    def record(after_text: str, records: Sequence[tuple[RewriteKind, str, str]]) -> None:
         nonlocal text, base
         after = text_hash(after_text)
         if after_text != text:

@@ -3,26 +3,47 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from typing import TypedDict
 
 from pkm.refs import extract
 
 
-def build_tree(rows: Sequence[Mapping]) -> list[dict]:
+class TreeNode(TypedDict):
+    """One block of a build_tree() result. Scalar fields are passed through
+    from the row as read, so they are `object` here."""
+    uid: object
+    text: object
+    heading: object
+    view_type: object
+    collapsed: bool
+    order_idx: object
+    created_at: object
+    updated_at: object
+    children: list[TreeNode]
+
+
+def _order_idx(row: Mapping[str, object]) -> int:
+    idx = row["order_idx"]
+    assert isinstance(idx, int)
+    return idx
+
+
+def build_tree(rows: Sequence[Mapping[str, object]]) -> list[TreeNode]:
     known = {r["uid"] for r in rows}
-    by_parent: dict[str | None, list[Mapping]] = {}
+    by_parent: dict[object, list[Mapping[str, object]]] = {}
     for r in rows:
         parent = r["parent_uid"] if r["parent_uid"] in known else None
         by_parent.setdefault(parent, []).append(r)
 
-    def nodes(parent: str | None) -> list[dict]:
+    def nodes(parent: object) -> list[TreeNode]:
         items = by_parent.get(parent, [])
         if parent is None:
             # Separate normal roots from orphans (blocks with missing parents)
             normal = [r for r in items if r["parent_uid"] is None]
             orphans = [r for r in items if r["parent_uid"] is not None]
-            children = sorted(normal, key=lambda r: r["order_idx"]) + sorted(orphans, key=lambda r: r["order_idx"])
+            children = sorted(normal, key=_order_idx) + sorted(orphans, key=_order_idx)
         else:
-            children = sorted(items, key=lambda r: r["order_idx"])
+            children = sorted(items, key=_order_idx)
         return [{
             "uid": r["uid"],
             "text": r["text"],
@@ -38,7 +59,7 @@ def build_tree(rows: Sequence[Mapping]) -> list[dict]:
     return nodes(None)
 
 
-def find_node(nodes: list[dict], uid: str) -> dict | None:
+def find_node(nodes: Sequence[TreeNode], uid: str) -> TreeNode | None:
     """Depth-first search of a build_tree() result for the node with `uid`."""
     for node in nodes:
         if node["uid"] == uid:

@@ -8,10 +8,13 @@ import secrets
 import sqlite3
 from collections.abc import Collection
 from datetime import datetime
+from typing import Union, cast
 
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp,
-                               MoveOp, OpBatch, OrderIdx, PageId, UpdateTextOp)
+from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
+                               DeleteOp, MoveOp, OpBatch, OrderIdx, PageId,
+                               SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
+                               UpdateTextOp)
 from pkm.refs import (CanonicalTitle, NormalizedTitle, is_blank_title,
                       normalize_title)
 from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
@@ -40,6 +43,9 @@ from pkm.server.store import (BlankTitleError, fetch_page,
 from pkm.server.sync_meta import read_title, title_reader
 from pkm.unlink import TitleMatch
 
+# Every op that addresses a block by uid: BlockOp minus create_page.
+_AddressedOp = Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
+                     SetCollapsedOp, SetHeadingOp, SetViewTypeOp]
 # Fallback title for an op's page_title that normalizes to "" (e.g. a
 # whitespace-only string -- pydantic's min_length=1 lets that through). The
 # ops path must never reject a batch over this (an offline client
@@ -245,7 +251,7 @@ def _deleted_block_page(db: sqlite3.Connection, uid: str) -> PageId | None:
     return PageId(row["page_id"]) if row is not None else None
 
 
-def _destination_siblings(db: sqlite3.Connection, op, skip: Skip,
+def _destination_siblings(db: sqlite3.Connection, op: _AddressedOp, skip: Skip,
                           parent_exists: bool) -> tuple[BlockUid, ...]:
     """The live blocks of a skipped create's or move's destination sibling
     group, where the client's local apply placed the op (placement.ts),
@@ -295,7 +301,7 @@ def _diverted_create_page(db: sqlite3.Connection,
     return False, _deleted_block_page(db, op.parent_uid)
 
 
-def _skip_context(db: sqlite3.Connection, op, skip: Skip,
+def _skip_context(db: sqlite3.Connection, op: _AddressedOp, skip: Skip,
                   block: BlockInfo | None, parent_exists: bool,
                   now_ms: int) -> SkippedContext:
     """Context for an op classify_skip flagged. Resolves no op page_title
@@ -304,7 +310,9 @@ def _skip_context(db: sqlite3.Connection, op, skip: Skip,
     hint_page_exists = False
     ghost_page: PageId | None = None
     if skip.kind == "diverted_create":
-        hint_page_exists, ghost_page = _diverted_create_page(db, op)
+        # classify_skip reports diverted_create only for a CreateOp
+        hint_page_exists, ghost_page = _diverted_create_page(
+            db, cast(CreateOp, op))
     if skip.landing_uid is None:
         return SkipContext(skip, ghost_page)
     if isinstance(op, UpdateTextOp):
@@ -328,7 +336,7 @@ def _skip_context(db: sqlite3.Connection, op, skip: Skip,
         ghost_page)
 
 
-def _context_for(db: sqlite3.Connection, op, now_ms: int,
+def _context_for(db: sqlite3.Connection, op: BlockOp, now_ms: int,
                  is_stale: TitleMatch | None = None) -> OpContext:
     """Read what `op` needs, classify it once (classify_skip, then
     classify_text_edit for a hashed edit), and return the context type
@@ -496,7 +504,7 @@ def _require_page_title(db: sqlite3.Connection, page_id: PageId) -> CanonicalTit
     return title
 
 
-def _broadcast_page_title(db: sqlite3.Connection, op,
+def _broadcast_page_title(db: sqlite3.Connection, op: BlockOp,
                           ctx: OpContext) -> str | None:
     if isinstance(ctx, (CreateContext, PageContext)):
         return _require_page_title(db, ctx.page_id)
@@ -514,7 +522,8 @@ def _broadcast_page_title(db: sqlite3.Connection, op,
     return _require_page_title(db, PageId(row["page_id"]))
 
 
-def _broadcast_op(db: sqlite3.Connection, op, ctx: OpContext) -> dict:
+def _broadcast_op(db: sqlite3.Connection, op: BlockOp,
+                  ctx: OpContext) -> dict[str, object]:
     """The op as broadcast to remote clients.
 
     For create/create_page and any move that lands on a different page, the
@@ -534,8 +543,8 @@ class AppliedBatch:
     classified as skipped. A skipped op is not echoed as if it were applied; its
     daily-note entry and journal rows reach other clients through the
     feed."""
-    broadcast_ops: list[dict]
-    skipped: list[dict]
+    broadcast_ops: list[dict[str, object]]
+    skipped: list[dict[str, object]]
 
 
 def apply_batch(db: sqlite3.Connection, batch: OpBatch,
@@ -547,8 +556,8 @@ def apply_batch(db: sqlite3.Connection, batch: OpBatch,
             violation.op_index,
             f"unsupported {violation.source} title syntax: {violation.title!r}",
         )
-    broadcast_ops: list[dict] = []
-    skipped: list[dict] = []
+    broadcast_ops: list[dict[str, object]] = []
+    skipped: list[dict[str, object]] = []
     stale = stale_titles(db, batch.seen_seq)
     is_stale: TitleMatch | None = None
     stale_canonical = title_reader(db) if stale else None

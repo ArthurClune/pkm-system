@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
 
 from fastapi import Request
@@ -148,7 +149,7 @@ def get_config(request: Request) -> Config:
     return request.app.state.config
 
 
-def get_db(request: Request):
+def get_db(request: Request) -> Iterator[sqlite3.Connection]:
     con = open_db(request.app.state.config.db_path)
     try:
         yield con

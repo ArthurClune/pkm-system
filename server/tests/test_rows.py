@@ -47,7 +47,8 @@ def test_block_rows_shape_and_order():
 
 
 def test_numbered_children_view_reaches_the_flat_block_row():
-    raw = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+    raw = """\
+#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
      :datoms [[1 :node/title "P" 1]
               [1 :block/children 2 1]
               [2 :block/uid "uid-view1" 1]

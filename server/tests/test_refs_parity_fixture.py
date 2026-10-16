@@ -1,7 +1,7 @@
 """The committed shared/fixtures/refs_parity.json must match what refs.py
 produces today; the TS port (web/src/replica/refs.ts) replays the same file.
-Regenerate with:
-`uv run python -m pkm.refs_parity_dump > ../shared/fixtures/refs_parity.json`."""
+Regenerate with `uv run python -m pkm.refs_parity_dump`, writing stdout to
+shared/fixtures/refs_parity.json."""
 import json
 from pathlib import Path
 

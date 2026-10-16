@@ -111,7 +111,8 @@ def _state(db: sqlite3.Connection) -> dict[str, list[tuple[object, ...]]]:
 
 
 def test_audit_inventories_only_migration_rows_without_side_effects():
-    """Mutation caught: inventory all pages/partial refs or commit audit state."""
+    """Mutation caught: inventory all pages/partial refs or commit audit
+    state."""
     db = _database()
     _seed_migration_graph(db)
     before = _state(db)
@@ -149,7 +150,8 @@ def test_audit_inventories_only_migration_rows_without_side_effects():
 
 
 def test_audit_inventories_every_invalid_title_as_reasoned_blocker():
-    """Mutation caught: select only padded migration candidates and clean twins."""
+    """Mutation caught: select only padded migration candidates and clean
+    twins."""
     db = _database()
     db.executemany(
         "INSERT INTO pages(id, title) VALUES (?, ?)",
@@ -190,7 +192,8 @@ def test_audit_inventories_every_invalid_title_as_reasoned_blocker():
 
 
 def test_audit_and_apply_include_orphan_canonical_sidebar_identity():
-    """Mutation caught: omit an orphan canonical sidebar from migration inventory."""
+    """Mutation caught: omit an orphan canonical sidebar from migration
+    inventory."""
     db = _database()
     db.executemany(
         "INSERT INTO pages(id, title) VALUES (?, ?)",
@@ -221,7 +224,8 @@ def test_audit_and_apply_include_orphan_canonical_sidebar_identity():
 
 
 def test_apply_detects_stale_digest_when_orphan_canonical_sidebar_changes():
-    """Mutation caught: omit a surviving canonical orphan's order from the digest."""
+    """Mutation caught: omit a surviving canonical orphan's order from the
+    digest."""
     db = _database()
     db.execute("INSERT INTO pages(id, title) VALUES (1, ' Beta ')")
     db.execute(
@@ -271,7 +275,8 @@ def test_private_inventory_never_changes_caller_transaction_ownership():
 
 
 def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transaction():
-    """Mutation caught: merge by group order, rewrite incrementally, or rotate later."""
+    """Mutation caught: merge by group order, rewrite incrementally, or rotate
+    later."""
     db = _database()
     _seed_migration_graph(db)
     plan = audit_title_migration(db)
@@ -343,7 +348,8 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
 
 
 def test_apply_rejects_stale_digest_without_mutation():
-    """Mutation caught: trust the audit digest without re-inventory under write lock."""
+    """Mutation caught: trust the audit digest without re-inventory under write
+    lock."""
     db = _database()
     _seed_migration_graph(db)
     before = _state(db)
@@ -385,7 +391,8 @@ def test_apply_rejects_invalid_title_blocker_without_mutation(title, reason):
 
 
 def test_apply_rejects_already_active_database_without_rotation():
-    """Mutation caught: reapply migration after activation and rotate generation again."""
+    """Mutation caught: reapply migration after activation and rotate generation
+    again."""
     db = _database()
     _seed_migration_graph(db)
     db.execute(
@@ -402,7 +409,8 @@ def test_apply_rejects_already_active_database_without_rotation():
 
 
 def test_apply_rolls_back_all_effects_when_rewrite_fails(monkeypatch):
-    """Mutation caught: activate before rewrite/reindex or commit partial writes."""
+    """Mutation caught: activate before rewrite/reindex or commit partial
+    writes."""
     db = _database()
     _seed_migration_graph(db)
     plan = audit_title_migration(db)
@@ -430,7 +438,8 @@ def test_apply_rolls_back_all_effects_when_rewrite_fails(monkeypatch):
 
 
 def test_apply_rolls_back_all_effects_when_base_exception_propagates(monkeypatch):
-    """Mutation caught: catch Exception and strand partial writes on BaseException."""
+    """Mutation caught: catch Exception and strand partial writes on
+    BaseException."""
     db = _database()
     _seed_migration_graph(db)
     plan = audit_title_migration(db)
@@ -452,7 +461,8 @@ def test_apply_rolls_back_all_effects_when_base_exception_propagates(monkeypatch
 
 
 def test_apply_rolls_back_earlier_sources_when_sqlite_aborts_later_delete():
-    """Mutation caught: commit each source append rather than the complete migration."""
+    """Mutation caught: commit each source append rather than the complete
+    migration."""
     db = _database()
     _seed_migration_graph(db)
     db.executescript(
@@ -475,7 +485,8 @@ def test_apply_rolls_back_earlier_sources_when_sqlite_aborts_later_delete():
 
 
 def test_apply_refuses_to_rollback_a_caller_owned_transaction():
-    """Mutation caught: attempt nested BEGIN then roll back the caller's transaction."""
+    """Mutation caught: attempt nested BEGIN then roll back the caller's
+    transaction."""
     db = _database()
     _seed_migration_graph(db)
     plan = audit_title_migration(db)

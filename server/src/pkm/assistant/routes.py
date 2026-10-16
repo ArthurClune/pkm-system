@@ -39,10 +39,10 @@ SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 KEEPALIVE_INTERVAL_S = 15.0
 
 
-# How long a single teardown step may hold the response task before that step
-# is left to finish on its own. `_abandon_stream` runs `_wait_out` twice
-# (the pending read, then `aclose()`), each against its own fresh deadline, so
-# the worst case across both steps is ~2x this. `claude_engine.INTERRUPT_TIMEOUT_S`
+# How long a single teardown step may hold the response task before that step is
+# left to finish on its own. `_abandon_stream` runs `_wait_out` twice (the
+# pending read, then `aclose()`), each against its own fresh deadline, so the
+# worst case across both steps is ~2x this. `claude_engine.INTERRUPT_TIMEOUT_S`
 # plus the SDK transport's own bounded close (~20s worst case) is what one step
 # can honestly cost; past that something is wedged in a way waiting will not
 # fix, and the wait below is not free (see _wait_out).
@@ -137,7 +137,8 @@ async def _abandon_stream(
 async def _with_keepalive(
     stream: AsyncGenerator[AssistantEvent, None], interval: float
 ) -> AsyncGenerator[str, None]:
-    """Encode `stream`, emitting a comment frame every `interval` idle seconds."""
+    """Encode `stream`, emitting a comment frame every `interval` idle
+    seconds."""
     pending: asyncio.Task[AssistantEvent] | None = None
     try:
         while True:

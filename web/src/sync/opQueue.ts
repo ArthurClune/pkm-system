@@ -50,8 +50,8 @@ export interface WriteTicket {
   id: TicketId;
   scope: readonly string[];
   settled: Promise<WriteOutcome>;
-  /** Resolves only when this ticket's server POST is acknowledged or reaches
-   * a terminal failure. Persistence settlement alone is not server causality. */
+  /** Resolves only when this ticket's server POST is acknowledged or reaches a
+   * terminal failure. Persistence settlement alone is not server causality. */
   delivered: Promise<DeliveryOutcome>;
 }
 

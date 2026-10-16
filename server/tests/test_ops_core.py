@@ -287,10 +287,11 @@ def test_plan_set_heading():
 
 
 def test_set_heading_op_rejects_out_of_range():
+    # out of range on purpose: asserting ValidationError
     with pytest.raises(ValidationError):
-        SetHeadingOp(op="set_heading", uid="uid_b2", heading=5)  # pyrefly: ignore[bad-argument-type] (deliberately out of range: asserting ValidationError)
+        SetHeadingOp(op="set_heading", uid="uid_b2", heading=5)  # pyrefly: ignore[bad-argument-type]
     with pytest.raises(ValidationError):
-        SetHeadingOp(op="set_heading", uid="uid_b2", heading=0)  # pyrefly: ignore[bad-argument-type] (deliberately out of range: asserting ValidationError)
+        SetHeadingOp(op="set_heading", uid="uid_b2", heading=0)  # pyrefly: ignore[bad-argument-type]
 
 
 def test_plan_set_view_type_and_reject_unknown_value():
@@ -304,8 +305,9 @@ def test_plan_set_view_type_and_reject_unknown_value():
                          view_type="document"),
         BlockContext(BlockInfo(BlockUid("uid_b2"), PageId(1), None)),
     ) == (SetViewType(BlockUid("uid_b2"), "document"), TouchPage(PageId(1)))
+    # invalid on purpose: asserting ValidationError
     with pytest.raises(ValidationError):
-        SetViewTypeOp(op="set_view_type", uid="uid_b2", view_type="table")  # pyrefly: ignore[bad-argument-type] (deliberately invalid: asserting ValidationError)
+        SetViewTypeOp(op="set_view_type", uid="uid_b2", view_type="table")  # pyrefly: ignore[bad-argument-type]
 
 
 def test_op_error_carries_index():
@@ -1060,8 +1062,9 @@ def test_replay_unlink_normalizes_the_stored_title():
 
 def test_replay_skips_a_row_of_unknown_kind():
     t0, t1 = "see [[Old]]", "see [[New]]"
+    # an unknown kind on purpose: asserting the replay skips it
     rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "Old", "New",
-                             "bogus"),)  # pyrefly: ignore[bad-argument-type] (deliberately unknown kind: asserting the replay skips it)
+                             "bogus"),)  # pyrefly: ignore[bad-argument-type]
     text, _ = replay_title_rewrites("see [[Old]] more", text_hash(t0), rewrites)
     assert text == "see [[Old]] more"
 

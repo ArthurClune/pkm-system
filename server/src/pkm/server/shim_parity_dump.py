@@ -3,9 +3,10 @@
 deterministic seed graph plus the exact JSON the FastAPI read routes return
 for a set of requests. The TS local-API handlers (web/src/replica/localApi)
 replay the same requests over a replica loaded with the same seed and must
-produce identical JSON. Regenerate with:
-uv run python -m pkm.server.shim_parity_dump > ../shared/fixtures/shim_parity.json
-Guarded by tests/test_shim_parity_fixture.py."""
+produce identical JSON. Regenerate with `uv run python -m
+pkm.server.shim_parity_dump`, writing stdout to
+shared/fixtures/shim_parity.json. Guarded by
+tests/test_shim_parity_fixture.py."""
 from __future__ import annotations
 
 import json
@@ -36,7 +37,8 @@ SEED = {
         [6, "July 9th, 2026", None, None],
     ],
     "blocks": [
-        # [uid, page_id, parent_uid, order_idx, text, heading, collapsed, created, updated]
+        # [uid, page_id, parent_uid, order_idx, text, heading, collapsed,
+        # created, updated]
         ["uid_b1", 1, None, 0, "Tags:: #AI", None, 0, 1000, 2000],
         ["uid_b2", 1, None, 1, "Papers", 2, 0, 1000, 2000],
         ["uid_b3", 1, "uid_b2", 0, "[[Attention Is All You Need]] is a [[Paper]]",

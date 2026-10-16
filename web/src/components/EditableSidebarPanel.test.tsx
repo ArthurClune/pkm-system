@@ -9,7 +9,19 @@ import {
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
-import { block, jsonResponse, makeSync, ord, pagePayload, READ_INIT, reserveOutlineEditor, servePageApplyingSent, stubFetch, title, uid } from "../test-helpers";
+import {
+  block,
+  jsonResponse,
+  makeSync,
+  ord,
+  pagePayload,
+  READ_INIT,
+  reserveOutlineEditor,
+  servePageApplyingSent,
+  stubFetch,
+  title,
+  uid,
+} from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { EditablePage } from "../views/EditablePage";
 import { PageView } from "../views/PageView";

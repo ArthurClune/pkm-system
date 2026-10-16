@@ -44,6 +44,11 @@ markers = ["proptest: heavyweight property checks, run by proptest/check.sh only
 [tool.ruff]
 line-length = 120
 
+[tool.ruff.lint]
+# E501 is the code half of the pre-commit line-length rule (server/tooling/commentlint),
+# enabled here so editors flag it live; `# noqa: E501` is the shared override.
+extend-select = ["E501"]
+
 [tool.uv]
 # claude-agent-sdk is exempt from the global uv cooldown (exclude-newer =
 # "5 days"). Its bundled CLI maps the assistant's model aliases to model ids,

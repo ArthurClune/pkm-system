@@ -1,5 +1,6 @@
 # pattern: Imperative Shell
-"""Write data/config.json: python -m pkm.server.setup --data-dir ../data --password PW"""
+"""Write data/config.json:
+python -m pkm.server.setup --data-dir ../data --password PW"""
 from __future__ import annotations
 
 import argparse

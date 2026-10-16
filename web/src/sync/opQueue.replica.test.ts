@@ -437,8 +437,8 @@ describe("an enqueue the replica cannot persist", () => {
   });
 
   test("an RPC timeout retains the op but does not latch the replica off", async () => {
-    // A timeout rejects one request and leaves the RPC client usable, so it must
-    // not be mistaken for a dead replica: the next drain still asks.
+    // A timeout rejects one request and leaves the RPC client usable, so it
+    // must not be mistaken for a dead replica: the next drain still asks.
     fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
     let enqueues = 0;
@@ -1210,7 +1210,8 @@ describe("fallback lane ordering against durable batches", () => {
   // vanishes outside the normal successful-delete path — and once wrong it let
   // a durable batch persisted after a lane entry overtake it. ---
 
-  test("a durable batch delivered but never deleted, then dropped out of band, cannot overtake the lane entry it stood ahead of",
+  test("a durable batch delivered but never deleted, then dropped out "
+    + "of band, cannot overtake the lane entry it stood ahead of",
   async () => {
     // Traced cause: X's POST succeeds but its deleteBatch throws
     // (a worker hiccup), so X's row survives in pending_ops — until something
@@ -1508,11 +1509,11 @@ describe("out-of-band flushes", () => {
 
   test("a rebase-flushed durable queue leaves no phantom ahead of a later retained op",
   async () => {
-    // A rebase flushes the durable queue behind the queue's back, so the batches
-    // counted ahead of a retained entry simply vanish. Observing an empty
-    // durable queue clears those counts — including the running count of batches
-    // persisted since the last entry, or the *next* entry appended would inherit
-    // a phantom and let a newer durable batch overtake it.
+    // A rebase flushes the durable queue behind the queue's back, so the
+    // batches counted ahead of a retained entry simply vanish. Observing an
+    // empty durable queue clears those counts — including the running count of
+    // batches persisted since the last entry, or the *next* entry appended
+    // would inherit a phantom and let a newer durable batch overtake it.
     const { bodies } = fetchSeq([
       () => jsonResponse({ detail: "busy" }, 503),
       () => jsonResponse({ ok: true }),
@@ -2037,7 +2038,8 @@ describe("onDesync", () => {
     try {
       q.setOnline(true);
       await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
-      // nobody drains again from the outside: the resume's own kick must deliver
+      // nobody drains again from the outside: the resume's own kick must
+      // deliver
       await expect(later.delivered).resolves.toEqual({ status: "delivered" });
       expect((bodies[1].body as { ops: unknown[] }).ops).toEqual([op("later")]);
     } finally {
@@ -2072,7 +2074,8 @@ describe("onDesync", () => {
 
 describe("in-flight kicks", () => {
   /** A fetch whose first POST parks until released, so a test can act while one
-   * batch is genuinely in flight. `started` resolves once that POST is entered. */
+   * batch is genuinely in flight. `started` resolves once that POST is
+   * entered. */
   function gatedFetch(firstResponse: () => Response) {
     const started = deferred<void>();
     const release = deferred<void>();

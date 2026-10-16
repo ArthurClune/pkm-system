@@ -27,7 +27,8 @@ describe("sha256Hex", () => {
   });
 
   test("handles messages spanning the 55/56-byte padding boundary", () => {
-    // printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' | shasum -a 256
+    // printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' |
+    // shasum -a 256
     expect(sha256Hex("a".repeat(56))).toBe(
       "b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a");
   });

@@ -39,7 +39,8 @@ interface Mutant {
 const MEANING = ["meaning"];
 const HISTORY = ["undo-stack", "undo-all", "redo-all"];
 
-/** The real result with `ops` swapped for `mutate(ops)`, its tree re-derived. */
+/** The real result with `ops` swapped for `mutate(ops)`, its tree
+ * re-derived. */
 function mutated(before: BlockNode[], result: EditResult,
                  mutate: (ops: BlockOp[]) => BlockOp[]): EditResult {
   const ops = mutate(result.ops);

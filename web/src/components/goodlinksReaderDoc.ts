@@ -31,7 +31,8 @@ export function formatSaved(iso: string): string {
 export function readerDocument(html: string, palette: ReaderPalette): string {
   const css = [
     `html { background: ${palette.bg}; color: ${palette.text}; }`,
-    "body { margin: 0 auto; padding: 24px 20px 64px; max-width: 42rem; font: 17px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }",
+    "body { margin: 0 auto; padding: 24px 20px 64px; max-width: 42rem; "
+      + "font: 17px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }",
     `a { color: ${palette.link}; }`,
     "img { max-width: 100%; height: auto; }",
     "pre { overflow-x: auto; padding: 12px; }",
@@ -39,5 +40,7 @@ export function readerDocument(html: string, palette: ReaderPalette): string {
     "td, th { border: 1px solid currentColor; padding: 4px 8px; }",
     "blockquote { margin: 0; padding-left: 1em; border-left: 3px solid currentColor; opacity: .85; }",
   ].join("\n");
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><style>${css}</style></head><body>${html}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8">`
+    + `<meta name="referrer" content="no-referrer"><style>${css}</style>`
+    + `</head><body>${html}</body></html>`;
 }

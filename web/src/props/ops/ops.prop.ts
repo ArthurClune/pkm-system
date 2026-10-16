@@ -22,7 +22,8 @@ captureFaultWarnings("ops");
 
 /** Examples per gate run, sized so this file takes about 60 seconds inside
  * `proptest/check.sh web`: clean runs measured about 37 examples a second
- * there (each example drives a real server and a replica, plus a fresh one for check R). */
+ * there (each example drives a real server and a replica, plus a fresh one for
+ * check R). */
 export const NUM_RUNS = 2250;
 /** The whole property, shrinking included. Cut off while shrinking, it fails
  * with the smallest counterexample so far; cut off before any failure, it

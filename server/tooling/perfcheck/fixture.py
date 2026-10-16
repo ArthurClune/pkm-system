@@ -219,7 +219,8 @@ def generate(seed: int = 1, scale: float = 1.0) -> Fixture:
         when = year_start + (i * 365 * DAY_MS) // len(g.topics)
         g.page(topic, size, when)
 
-    # Plant exact-count search terms into existing creates (deterministic spots).
+    # Plant exact-count search terms into existing creates (deterministic
+    # spots).
     rare_spots = g.rng.sample(range(len(g.creates)), 3)
     phrase_spots = g.rng.sample([i for i in range(len(g.creates)) if i not in rare_spots], 12)
     for i in rare_spots:

@@ -31,6 +31,7 @@ test("an ack for an id no row holds is dropped", () => {
 
 test("two acks for one row settle it once", () => {
   expect(splitAckedRows([r1, r2], [
-    { id: (2 as PendingRowId), batch_id: bid("b"), seq: (8 as SyncSeq) }, { id: (2 as PendingRowId), batch_id: bid("b"), seq: null },
+    { id: (2 as PendingRowId), batch_id: bid("b"), seq: (8 as SyncSeq) },
+    { id: (2 as PendingRowId), batch_id: bid("b"), seq: null },
   ])).toEqual({ settled: [{ id: 2, batch_id: "b", seq: 8 }], remaining: [r1] });
 });

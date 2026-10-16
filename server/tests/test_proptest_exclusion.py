@@ -15,7 +15,8 @@ PROPERTY_FILES = ("test_smoke_props.py", "test_ops_state.py", "test_planner_prop
 
 
 def test_default_run_deselects_every_property():
-    # test_model.py lives in props/ unmarked on purpose: it guards the model on every commit
+    # test_model.py lives in props/ unmarked on purpose: it guards the model on
+    # every commit
     result = _collect()
     assert result.returncode == 0, result.stdout + result.stderr
     lines = [line for line in result.stdout.splitlines() if "::" in line]

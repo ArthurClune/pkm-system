@@ -25,7 +25,9 @@ function renderPage(blocks = [
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}><EditablePage title={title("P")} initial={blocks} /></MemoryRouter>
+        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+          <EditablePage title={title("P")} initial={blocks} />
+        </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
   return sync;
@@ -229,7 +231,9 @@ it("dragging is disabled when read-only", () => {
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}><EditablePage title={title("P")} initial={[block("u1", "x")]} /></MemoryRouter>
+        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+          <EditablePage title={title("P")} initial={[block("u1", "x")]} />
+        </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
   expect(document.querySelector(".bullet")).toHaveAttribute("draggable", "false");

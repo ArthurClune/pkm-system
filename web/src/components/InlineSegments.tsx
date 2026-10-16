@@ -1,10 +1,11 @@
 // pattern: Imperative Shell
-// Dispatches each tokenized segment to its renderer. isPdfHref/isDeferredPdfHref/
-// isSafeHref/pdfLabelFromHref below are pure, and goodlinksIdFromHref lives in
-// goodlinks.ts, but the module as a whole composes several Imperative Shell
-// components (AssetImage, BlockRef, PageLink, TodoCheckbox, BlueskyEmbed,
-// MermaidDiagram, QueryBlock, GoodlinksLink) that read React context, fetch,
-// or navigate, so it's a shell rather than a pure rendering decision.
+// Dispatches each tokenized segment to its renderer. isPdfHref,
+// isDeferredPdfHref, isSafeHref and pdfLabelFromHref below are pure, and
+// goodlinksIdFromHref lives in goodlinks.ts, but the module as a whole composes
+// several Imperative Shell components (AssetImage, BlockRef, PageLink,
+// TodoCheckbox, BlueskyEmbed, MermaidDiagram, QueryBlock, GoodlinksLink) that
+// read React context, fetch, or navigate, so it's a shell rather than a pure
+// rendering decision.
 import type { BlockSegment } from "../grammar/tokenize";
 import { AssetImage } from "./AssetImage";
 import { AssetLink } from "./AssetLink";

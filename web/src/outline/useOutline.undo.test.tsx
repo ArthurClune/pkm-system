@@ -173,9 +173,9 @@ it("run() records UNSTAMPED ops, so a redo hashes the current text", () => {
   // undoManager.dispatch would PRESERVE that stale hash (it only fills in an
   // undefined one) — so this redo would claim to be replacing "alpha" when the
   // block really reads "two", and the server would land a spurious daily-note
-  // [[conflict]] header against another tab's edit. Driven through the handlers on purpose:
-  // recordHistory's argument is the thing under test, so an entry built by
-  // calling recordHistory() directly would prove nothing here.
+  // [[conflict]] header against another tab's edit. Driven through the handlers
+  // on purpose: recordHistory's argument is the thing under test, so an entry
+  // built by calling recordHistory() directly would prove nothing here.
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
   act(() => outline().handlers.onFocusBlock(uid("a"), 5));
@@ -292,7 +292,8 @@ it("typing in a cell of a collapsed table keeps focus there through a flush and 
   }
 });
 
-it("a remote collapse of the typed block's parent moves focus to the parent, and the draft still lands on the block", () => {
+it("a remote collapse of the typed block's parent moves focus "
+  + "to the parent, and the draft still lands on the block", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, [
     block("p", "parent", { order_idx: ord(0),

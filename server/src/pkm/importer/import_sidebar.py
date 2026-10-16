@@ -1,5 +1,6 @@
 # pattern: Imperative Shell
-"""Idempotent sidebar-entries import: python -m pkm.importer.import_sidebar --data-dir DATA
+"""Idempotent sidebar-entries import:
+python -m pkm.importer.import_sidebar --data-dir DATA
 
 Inserts the fixed, ordered SIDEBAR_ENTRIES list below into an existing
 database, skipping any title already present. Opens the target database

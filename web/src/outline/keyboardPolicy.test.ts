@@ -197,7 +197,8 @@ describe("decideEditorKey block selection", () => {
   });
 
   it("keeps native extension while the selection is away from the edge", () => {
-    // The moving end can still travel within the block, so the platform owns it.
+    // The moving end can still travel within the block, so the platform owns
+    // it.
     expect(decideEditorKey(input({
       key: "ArrowUp", shiftKey: true, draft: "one\ntwo", selStart: 5, selEnd: 6,
     }))).toEqual({ type: "none" });

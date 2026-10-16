@@ -164,7 +164,9 @@ describe("placeholderHeight", () => {
 
 describe("failureNote", () => {
   it("names the not-downloaded-or-unreadable case on a 503", () => {
-    expect(failureNote({ status: 503 })).toBe("The host can't serve this file right now: it isn't downloaded yet, or the host isn't allowed to read it.");
+    expect(failureNote({ status: 503 })).toBe(
+      "The host can't serve this file right now: "
+      + "it isn't downloaded yet, or the host isn't allowed to read it.");
   });
   it("names the missing file on a 404", () => {
     expect(failureNote({ status: 404 })).toBe("This file isn't in the local documents folder on the host.");
@@ -178,7 +180,9 @@ describe("failureNote", () => {
 describe("hostFailureNote", () => {
   it("maps the statuses the host answers with", () => {
     expect(hostFailureNote(404)).toBe("This file isn't in the local documents folder on the host.");
-    expect(hostFailureNote(503)).toBe("The host can't serve this file right now: it isn't downloaded yet, or the host isn't allowed to read it.");
+    expect(hostFailureNote(503)).toBe(
+      "The host can't serve this file right now: "
+      + "it isn't downloaded yet, or the host isn't allowed to read it.");
     expect(hostFailureNote(500)).toBe("The host couldn't serve this file (HTTP 500).");
   });
   it("reads a null status as the host being unreachable", () => {

@@ -59,7 +59,8 @@ def frontend_letters(names: Iterable[str]) -> str:
 
 
 def next_steps(side: str, verdicts: Iterable[str]) -> list[str]:
-    """One "what next" line per verdict present that has advice, in a fixed order."""
+    """One "what next" line per verdict present that has advice, in a fixed
+    order."""
     present = set(verdicts)
     return [line.format(side=side) for verdict, line in _NEXT.items() if verdict in present]
 

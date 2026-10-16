@@ -25,7 +25,8 @@ function structuralDiff(expected: readonly Row[], actual: readonly Row[]): strin
 const valid = (blocks: readonly BlockNode[]): string[] =>
   treeProblems(blocks).map((p) => `valid: ${p}`);
 
-/** Ops that change the tree they ran on exactly when the tree after differs from it. */
+/** Ops that change the tree they ran on exactly when the tree after differs
+ * from it. */
 function changedProblems(step: Step): string[] {
   const changed = applyOpsWithChange(step.base, step.ops, PAGE_TITLE).changed;
   if (changed !== blocksEqual(step.base, step.after)) return [];
@@ -34,7 +35,8 @@ function changedProblems(step: Step): string[] {
     : "silent: its ops change nothing on the tree they ran on, but the tree after differs"];
 }
 
-/** A returned focus names a row that is shown, with its caret inside the text. */
+/** A returned focus names a row that is shown, with its caret inside the
+ * text. */
 function focusProblems(step: Step, afterRows: readonly Row[]): string[] {
   if (!step.focus) return [];
   const { uid, cursor } = step.focus;

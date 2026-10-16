@@ -288,7 +288,8 @@ def append_page_without_rewrite(
     new_title: CanonicalTitle,
     now_ms: int,
 ) -> int:
-    """Append a source page's stable top-level order and preserve its subtrees."""
+    """Append a source page's stable top-level order and preserve its
+    subtrees."""
     moved = db.execute(
         "SELECT count(*) FROM blocks WHERE page_id = ?", (source_id,)
     ).fetchone()[0]
@@ -331,7 +332,8 @@ def merge_page_rows(db: sqlite3.Connection, source_id: PageId,
                     target_id: PageId,
                     old_title: CanonicalTitle, new_title: CanonicalTitle,
                     now_ms: int) -> None:
-    """Merge a page while preserving stable blocks, subtrees, refs and sidebar."""
+    """Merge a page while preserving stable blocks, subtrees, refs and
+    sidebar."""
     snapshots = _snapshot_referencing_blocks(db, source_id)
     append_page_without_rewrite(
         db, source_id, target_id, old_title, new_title, now_ms

@@ -13,8 +13,8 @@ _FIREBASE_URL = re.compile(
     r"https://firebasestorage\.googleapis\.com/[^\s\)\]\}\"']+"
 )
 
-# Roam's linked-files download names files "<10-char-uid>-<original name>.<ext>",
-# while firebase URLs in block text use "<10-char-uid>.<ext>" or
+# Roam's linked-files download names files "<10-char-uid>-<original
+# name>.<ext>", while firebase URLs in block text use "<10-char-uid>.<ext>" or
 # "<10-char-uid>.<truncated original>.<ext>" as the basename. Matching on just
 # the leading uid prefix is what lets the two naming schemes line up.
 UID_PREFIX_LEN = 10

@@ -206,8 +206,9 @@ export interface paths {
          *     text and ((block refs)) become copies (blocks and distinct pages), and the
          *     blocks that would make DELETE refuse (a query macro naming the page, or a
          *     rewrite that would change the leading attribute name, as for
-         *     `[[page]]:: v`, or still reference the page). Read-only; 404 when the page does not exist. Not under
-         *     /api/page/ because GET /api/page/{title:path} would swallow it.
+         *     `[[page]]:: v`, or still reference the page). Read-only; 404 when the page
+         *     does not exist. Not under /api/page/ because GET /api/page/{title:path}
+         *     would swallow it.
          */
         get: operations["delete_preview_api_delete_preview_get"];
         put?: never;

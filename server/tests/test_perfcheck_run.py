@@ -84,7 +84,8 @@ def test_incomparable_advice_names_the_right_command():
     # fixture_hash and chromium come from the branch even in a merge-base run
     assert run_core.incomparable_advice("fixture_hash differs (baseline a, now b)") == "rebaseline"
     assert run_core.incomparable_advice("env differs (chromium: 120.0 -> 121.0)") == "rebaseline"
-    # python/sqlite come from the merge-base worktree's own venv: --rebaseline refuses again
+    # python/sqlite come from the merge-base worktree's own venv: --rebaseline
+    # refuses again
     assert run_core.incomparable_advice("env differs (python: 3.11.2 -> 3.12.0)") == "bootstrap"
     assert run_core.incomparable_advice("env differs (sqlite: 3.40.0 -> 3.45.0)") == "bootstrap"
     assert run_core.incomparable_advice(
@@ -234,7 +235,8 @@ def _doc(scenarios):
 
 class _FakeRunner:
     """Hands out canned result docs: head runs from one list, merge-base runs
-    (told apart by their worktree) from another, recording each call's `only`."""
+    (told apart by their worktree) from another, recording each call's
+    `only`."""
     def __init__(self, head_docs, mb_docs, mb_wt):
         self.head_docs, self.mb_docs, self.mb_wt = list(head_docs), list(mb_docs), mb_wt
         self.head_only, self.mb_only = [], []
@@ -249,7 +251,8 @@ class _FakeRunner:
 
 
 def _load(monkeypatch, loads, cpus=10):
-    """Patch the load sampler to hand out `loads` in order, then repeat the last."""
+    """Patch the load sampler to hand out `loads` in order, then repeat the
+    last."""
     queue = list(loads)
     monkeypatch.setattr(run, "_load1", lambda: queue.pop(0) if len(queue) > 1 else queue[0])
     monkeypatch.setattr(run, "_cpus", lambda: cpus)

@@ -342,7 +342,8 @@ export async function runExample(server: ServerControl, ex: Example,
 
     if (ex.kind === "command") {
       const run = runSequence(ex.start.pages["Outline Props"], ex.commands,
-                              // Two digits at least: a uid needs six characters.
+                              // Two digits at least: a uid needs six
+                              // characters.
                               { mintPrefix: "opsn0" });
       for (const b of run.batches) learn(b.ops);
       const others = TITLE_POOL.filter((t) => t !== "Outline Props");

@@ -23,7 +23,8 @@ def _paths(out: bytes) -> list[str]:
 
 
 def staged_paths(repo: Path) -> list[str]:
-    """Files the index adds, copies, modifies or renames; a deletion has no content to lint."""
+    """Files the index adds, copies, modifies or renames; a deletion has no
+    content to lint."""
     return _paths(_git(repo, "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"))
 
 

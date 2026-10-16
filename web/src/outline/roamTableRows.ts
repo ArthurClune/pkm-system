@@ -1,5 +1,6 @@
 // pattern: Functional Core
-// Normalize Roam table macro trees into rectangular row data for later renderers.
+// Normalize Roam table macro trees into rectangular row data for later
+// renderers.
 import type { BlockNode } from "../api/payloads";
 
 export type RoamTableRows = (BlockNode | null)[][];

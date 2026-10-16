@@ -111,7 +111,9 @@ test("cold start offline: SW shell + replica content + asset cache", async ({ pa
   await day.locator(".block-text").first().click();
   await caretToEnd(page);
   await input(page).press("Enter");
-  await input(page).fill("![ghost](/assets/0000000000000000000000000000000000000000000000000000000000000000/ghost.png)");
+  await input(page).fill(
+    "![ghost](/assets/0000000000000000000000000000000000000000000000000000000000000000"
+    + "/ghost.png)");
   await input(page).press("Escape");
   await expect(page.getByText(/image unavailable offline/)).toBeVisible();
 });

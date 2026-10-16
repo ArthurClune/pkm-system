@@ -12,6 +12,13 @@ every line of an architecture doc, which is all prose):
   cannot be followed; the pointer is a `docs/` path or a `.md` filename,
   which also exempts the line.
 
+A fourth rule, line-length, applies to every line of a scanned source
+file (not markdown, whose tables cannot wrap): a comment line -- one where
+only a comment marker precedes the text, or the inside of a block comment
+or docstring -- is at most COMMENT_WIDTH columns, any other line at most
+CODE_WIDTH. A line carrying `noqa: E501` is exempt; ruff's E501 shares
+the override on the Python side.
+
 Stdlib only and runnable under the system `python3`: the hook must not
 depend on a synced venv."""
 from __future__ import annotations
@@ -29,6 +36,9 @@ CODE_EXTENSIONS = frozenset({".py", ".ts", ".tsx", ".mjs", ".js", ".css", ".sh"}
 # of a measurement and are named after the bean that asked for it.
 EXCLUDED_SUFFIXES = (".gen.ts", ".d.ts")
 EXCLUDED_DIRS = ("web/tooling/perf/baselines/",)
+COMMENT_WIDTH = 80
+CODE_WIDTH = 120
+NOQA = "noqa: E501"
 
 RULES = {
     "bean-id": "bean ids: state the rule the comment enforces; the history is in git, the bean and "
@@ -37,6 +47,8 @@ RULES = {
                    "constant instead",
     "orphan-pointer": "spec/plan pointers: name the document by path (docs/...) so the reference can be "
                       "followed, or drop it",
+    "line-length": f"line length: a comment line is at most {COMMENT_WIDTH} columns and any other line "
+                   f"{CODE_WIDTH}; a line that cannot wrap (a URL, exact copy) carries `{NOQA}`",
 }
 
 # Bean ids are `pkm-` plus four lowercase alphanumerics. A further hyphen,
@@ -59,8 +71,9 @@ _ORPHAN_POINTER = re.compile(
 _PATH_POINTER = re.compile(r"\bdocs/|\b[\w-]+\.md\b")
 
 _HASH_COMMENT = re.compile(r"(?:^|(?<=\s))#(.*)")
-_SLASH_COMMENT = re.compile(r"(?:^|(?<=\s))//(.*)")
 _TRIPLE_QUOTE = re.compile(r'"""|\'\'\'')
+# What may precede a comment's text on a line that is only a comment.
+_MARKERS = frozenset({"", "#", "//", "/*", "/**", "*", '"""', "'''", "///"})
 
 
 @dataclass(frozen=True)
@@ -88,29 +101,44 @@ def _under(path: str, roots: Iterable[str]) -> bool:
 def comment_spans(text: str, suffix: str) -> Iterator[tuple[int, str]]:
     """(line number, comment text) for every non-blank comment in `text`,
     where comments are what the language of `suffix` makes them."""
+    return ((n, piece) for n, _, piece in _spans(text, suffix))
+
+
+def comment_lines(text: str, suffix: str) -> set[int]:
+    """The lines that are only a comment: a marker and the text, or the inside
+    of a block comment or docstring. Code with a trailing comment is not one."""
+    lines = text.splitlines()
+    return {n for n, col, _ in _spans(text, suffix) if lines[n - 1][:col].strip() in _MARKERS}
+
+
+def _spans(text: str, suffix: str) -> Iterator[tuple[int, int, str]]:
+    """(line number, column the comment text starts at, comment text)."""
     lines = text.splitlines()
     if suffix == ".md":
-        raw = ((n, line) for n, line in enumerate(lines, 1))
+        raw: Iterator[tuple[int, int, str]] = ((n, 0, line) for n, line in enumerate(lines, 1))
     elif suffix == ".py":
         raw = _python_comments(lines)
     elif suffix == ".sh":
-        raw = ((n, m.group(1)) for n, line in enumerate(lines, 1) if (m := _HASH_COMMENT.search(line)))
+        raw = ((n, m.start(1), m.group(1)) for n, line in enumerate(lines, 1) if (m := _HASH_COMMENT.search(line)))
     else:
         raw = _slash_comments(lines)
-    return ((n, piece) for n, piece in raw if piece.strip())
+    return ((n, col, piece) for n, col, piece in raw if piece.strip())
 
 
-def _python_comments(lines: list[str]) -> Iterator[tuple[int, str]]:
-    """`#` comments and triple-quoted strings: docstrings are prose, and the
-    pointers that rot live there as readily as in comments."""
+def _python_comments(lines: list[str]) -> Iterator[tuple[int, int, str]]:
+    """`#` comments and docstrings: docstrings are prose, and the pointers that
+    rot live there as readily as in comments. A triple-quoted string that does
+    not open its line (`DDL = \"\"\"`) is data, not prose, and is skipped."""
     in_string = False
+    prose = False
     for n, line in enumerate(lines, 1):
         pos = 0
         while True:
             if in_string:
                 close = _TRIPLE_QUOTE.search(line, pos)
                 end = close.start() if close else len(line)
-                yield n, line[pos:end]
+                if prose:
+                    yield n, pos, line[pos:end]
                 if not close:
                     break
                 in_string, pos = False, close.end()
@@ -118,46 +146,70 @@ def _python_comments(lines: list[str]) -> Iterator[tuple[int, str]]:
                 opener = _TRIPLE_QUOTE.search(line, pos)
                 comment = _HASH_COMMENT.search(line, pos)
                 if comment and (not opener or comment.start() < opener.start()):
-                    yield n, comment.group(1)
+                    yield n, comment.start(1), comment.group(1)
                     break
                 if not opener:
                     break
                 in_string, pos = True, opener.end()
+                prose = line[:opener.start()].strip() == ""
 
 
-def _slash_comments(lines: list[str]) -> Iterator[tuple[int, str]]:
+def _slash_comments(lines: list[str]) -> Iterator[tuple[int, int, str]]:
     """`//` to end of line and `/* */` blocks, for TypeScript, JavaScript
-    and CSS alike. A `//` run on from code (`https://`) is not a comment."""
+    and CSS alike. String literals are skipped, so `"/page/*"` opens no block
+    and `"https://"` no line comment; a template literal may span lines, a
+    quoted string ends with its line."""
     in_block = False
+    quote: str | None = None
     for n, line in enumerate(lines, 1):
-        pos = 0
-        while True:
+        i = 0
+        if quote in ("'", '"'):
+            quote = None
+        while i < len(line):
             if in_block:
-                close = line.find("*/", pos)
+                close = line.find("*/", i)
                 end = len(line) if close < 0 else close
-                yield n, line[pos:end]
+                yield n, i, line[i:end]
                 if close < 0:
                     break
-                in_block, pos = False, close + 2
+                in_block, i = False, close + 2
+            elif quote:
+                if line[i] == "\\":
+                    i += 2
+                    continue
+                if line[i] == quote:
+                    quote = None
+                i += 1
             else:
-                opener = line.find("/*", pos)
-                comment = _SLASH_COMMENT.search(line, pos)
-                if comment and (opener < 0 or comment.start() < opener):
-                    yield n, comment.group(1)
+                two = line[i:i + 2]
+                if two == "//":
+                    yield n, i + 2, line[i + 2:]
                     break
-                if opener < 0:
-                    break
-                in_block, pos = True, opener + 2
+                if two == "/*":
+                    in_block, i = True, i + 2
+                    continue
+                if line[i] in ("'", '"', "`"):
+                    quote = line[i]
+                i += 1
 
 
 def check_text(path: str, text: str) -> list[Violation]:
     """Every rule each comment of `path` breaks, in file order."""
     if not is_scanned(path):
         return []
+    suffix = PurePosixPath(path).suffix
+    lines = text.splitlines()
     out: list[Violation] = []
-    for n, comment in comment_spans(text, PurePosixPath(path).suffix):
-        for rule in _rules_broken(comment):
-            out.append(Violation(path, n, rule, comment.strip()))
+    prose = comment_lines(text, suffix) if suffix != ".md" else set()
+    comments: dict[int, list[str]] = {}
+    for n, _, piece in _spans(text, suffix):
+        comments.setdefault(n, []).append(piece)
+    for n, line in enumerate(lines, 1):
+        for comment in comments.get(n, ()):
+            for rule in _rules_broken(comment):
+                out.append(Violation(path, n, rule, comment.strip()))
+        if suffix != ".md" and NOQA not in line and len(line) > (COMMENT_WIDTH if n in prose else CODE_WIDTH):
+            out.append(Violation(path, n, "line-length", line.strip()))
     return out
 
 

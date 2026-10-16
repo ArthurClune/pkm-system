@@ -2,8 +2,9 @@
 """Parse a `{{query}}` expression with canonical operand titles, and run
 a planned one against the database.
 
-Planning stays pure in `query.py`; canonicalising operands reads the title
-flag and executing a plan is I/O, so both live here. Every surface that executes one comes through this module -- the live
+Planning stays pure in `query.py`; canonicalising operands reads the title flag
+and executing a plan is I/O, so both live here. Every surface that executes one
+comes through this module -- the live
 `/api/query` endpoint (routes_search) and the resolved single-page markdown
 export (routes_export) -- so the source-block exclusion, the total and the
 row ordering cannot drift apart between them. Result *shaping* stays with

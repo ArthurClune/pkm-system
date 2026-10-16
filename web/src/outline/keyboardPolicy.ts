@@ -163,7 +163,8 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
       return { type: "select-whole-block" };
     }
   }
-  // Autocomplete popup owns the unmodified arrows / Enter / Tab / Escape while open.
+  // Autocomplete popup owns the unmodified arrows / Enter / Tab / Escape while
+  // open.
   if (i.acRowsLength > 0) {
     const acAction = autocompleteKeyAction(i);
     if (acAction === "move-down") {

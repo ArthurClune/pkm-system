@@ -10,7 +10,8 @@ import type { Snapshot, SyncBlock } from "../../src/replica/apply";
 export interface Targets {
   /** Deleted by the pending queue, with a subtree of about 20 blocks. */
   deleteRoot: BlockUid;
-  /** Eight blocks the pending queue edits; the overlap window edits the first. */
+  /** Eight blocks the pending queue edits; the overlap window edits the
+   * first. */
   editUids: BlockUid[];
   /** Three blocks the pending queue moves under moveParent. */
   moveUids: BlockUid[];

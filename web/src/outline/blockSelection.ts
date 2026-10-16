@@ -32,8 +32,9 @@ export function startSelection(
   return { anchor, head: head ?? anchor };
 }
 
-/** The visible uids the selection covers, in document order (inclusive of both
- * ends). Empty if either end is no longer visible (e.g. a subtree collapsed). */
+/** The visible uids the selection covers, in document order (inclusive of
+ * both ends). Empty if either end is no longer visible (e.g. a subtree
+ * collapsed). */
 export function selectedUids(blocks: BlockNode[], sel: BlockSelection): BlockUid[] {
   const order = selectableUids(blocks);
   const a = order.indexOf(sel.anchor);
@@ -55,11 +56,11 @@ export function extendSelection(
   return next ? { anchor: sel.anchor, head: next } : sel;
 }
 
-/** The selected blocks' text joined with newlines in document order, each
- * line indented with one tab per depth level relative to the shallowest
- * selected block — what lands on the clipboard when the selection
- * is copied, and what parseOutlineForest round-trips back into structure.
- * A selected Roam table brings its whole subtree so it pastes back as a table. */
+/** The selected blocks' text joined with newlines in document order, each line
+ * indented with one tab per depth level relative to the shallowest selected
+ * block — what lands on the clipboard when the selection is copied, and what
+ * parseOutlineForest round-trips back into structure. A selected Roam table
+ * brings its whole subtree so it pastes back as a table. */
 export function selectionText(blocks: BlockNode[], sel: BlockSelection): string {
   const uids = selectedUids(blocks, sel);
   const depths = new Map<BlockUid, number>();

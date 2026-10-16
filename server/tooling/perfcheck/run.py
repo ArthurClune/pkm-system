@@ -184,7 +184,8 @@ class FrontendRunner:
 
     def check_command(self, worktree: Path, only: list[str] | None, commit: str,
                       out: Path) -> tuple[list[str], dict[str, str]]:
-        # the harness is always this checkout's; PERF_WEB_ROOT is the code measured
+        # the harness is always this checkout's; PERF_WEB_ROOT is the code
+        # measured
         cmd = ["node", str(self.repo / "web" / "tooling" / "perf" / "check.mjs"),
                "--out", str(out)]
         if only:
@@ -208,12 +209,14 @@ class FrontendRunner:
             # in one worktree share this path, and either straddling the
             # lock would let one run delete or read the other's result file
             out.unlink(missing_ok=True)
-            # the lock only covers perf checks, so look again right before binding
+            # the lock only covers perf checks, so look again right before
+            # binding
             self.ensure_port_free()
             instance = secrets.token_hex(8)
             cmd, env = self.server_command(worktree, fixture, instance)
             with (self.out_dir / "fixture-server.log").open("w") as log:
-                # own process group, so a hung server can be killed with its uv parent
+                # own process group, so a hung server can be killed with its uv
+                # parent
                 server = subprocess.Popen(cmd, env=env, cwd=self.repo / "server", stdout=log,
                                           stderr=subprocess.STDOUT, start_new_session=True)
             try:

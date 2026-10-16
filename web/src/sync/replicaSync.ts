@@ -823,7 +823,8 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     onSeq(seq, force = false) {
       if (pulling) {
         // a window is in flight; its server-side latest_seq or metadata may
-        // predate this nudge, so ask for one trailing pull instead of dropping it
+        // predate this nudge, so ask for one trailing pull instead of dropping
+        // it
         again = true;
         return;
       }

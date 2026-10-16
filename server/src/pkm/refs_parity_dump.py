@@ -1,5 +1,6 @@
 # pattern: Imperative Shell
-"""Dump ref-extraction parity fixtures for the TS port (spec section 3):
+"""Dump ref-extraction parity fixtures for the TS port
+(offline-editing-design.md §3):
 uv run python -m pkm.refs_parity_dump > ../shared/fixtures/refs_parity.json
 The web replica extracts refs locally for offline edits; these cases pin
 refs.py's exact semantics so the TS port cannot drift. Guarded by

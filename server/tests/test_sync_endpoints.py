@@ -190,9 +190,9 @@ def test_feed_hydrates_sidebar_entries(client):
 
 
 def test_cross_page_subtree_move_journals_every_subtree_row(client):
-    """Spec section 7: a cross-page move rewrites the whole subtree's
-    page_id, and the journal must carry every affected descendant so
-    replicas relocate the subtree, not just the moved root."""
+    """offline-editing-design.md §7: a cross-page move rewrites the whole
+    subtree's page_id, and the journal must carry every affected descendant
+    so replicas relocate the subtree, not just the moved root."""
     start = _drain(client)["latest_seq"]
     r = client.post("/api/ops", json={"client_id": "c1", "batch_id": "cross_subtree1",
                                       "ops": [

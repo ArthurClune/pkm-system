@@ -119,6 +119,11 @@ Rules and the escape hatches (`Mixed (needs refactoring)` etc.) are in
 `AGENTS.md`; invoke the `howto-functional-vs-imperative` skill for structural
 work.
 
+Comments follow one rule across both sides, machine-checked by
+`.githooks/pre-commit` ([backend.md](backend.md#testing)): a comment explains
+the code beside it and carries no bean id, line number or spec/plan pointer
+that is not a path, because those are the comments that go stale unnoticed.
+
 ### One grammar, two languages, pinned by fixtures
 
 Roam-flavoured markdown (`[[links]]`, `#tags`, `Attr::`, `((block refs))`,

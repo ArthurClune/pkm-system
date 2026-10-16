@@ -1,14 +1,13 @@
 // pattern: Imperative Shell
-// Uploaded-asset image. Viewed assets are runtime-cached by the service
-// worker (spec section 5); one that was never viewed can't load offline,
+// Uploaded-asset image. Viewed assets are runtime-cached by the service worker
+// (offline-editing-design.md §5); one that was never viewed can't load offline,
 // so a failed load renders a labelled placeholder instead of a broken img.
 // Until the image loads or fails it has no size, and on a stalled connection
 // that can take as long as the network's own timeout: a pending placeholder
-// fills the gap so the block never reads as an empty bullet.
-// Uploaded /assets/ images also expand fullscreen via the shared
-// ImageOverlay. Inside InertMediaContext (popover rows whose whole row is
-// the click target) the expand trigger is skipped and the image renders
-// inline only.
+// fills the gap so the block never reads as an empty bullet. Uploaded /assets/
+// images also expand fullscreen via the shared ImageOverlay. Inside
+// InertMediaContext (popover rows whose whole row is the click target) the
+// expand trigger is skipped and the image renders inline only.
 import { useCallback, useContext, useLayoutEffect, useRef, useState } from "react";
 import { InertMediaContext } from "../contexts";
 import { ImageOverlay } from "./ImageOverlay";

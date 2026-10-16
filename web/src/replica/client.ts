@@ -55,7 +55,7 @@ export interface ReplicaInit {
   empty: boolean;
   cursor: SyncSeq;
   /** stored schema_version differs from this build's: recovery required
-   * (flush pendingBatches first — spec section 6) */
+   * (flush pendingBatches first — offline-editing-design.md §6) */
   schemaMismatch: boolean;
   /** read BEFORE any teardown, per the epic guardrail */
   pendingBatches: PendingBatch[];
@@ -166,7 +166,8 @@ export interface Replica {
   /** Release a prepared lease without destructive work. */
   abortRecovery(token: string): Promise<void>;
   /** Drop and reinstall the schema. Caller enforces the non-empty-queue
-   * guard (spec section 6): never call with unsynced pending ops. */
+   * guard (offline-editing-design.md §6): never call with unsynced pending ops.
+   */
   reset(): Promise<void>;
   /** Read-only self-report for the corruption path; never rejects for a
    * broken index, only for a database that cannot be opened at all. */

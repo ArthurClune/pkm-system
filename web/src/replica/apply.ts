@@ -1,15 +1,14 @@
 // pattern: Imperative Shell
-// Feed application (spec sections 3 and 1): snapshot bootstrap and windowed
-// changes upserts. Each window applies in ONE transaction: it rewinds the
-// pending batches' effects (rewind.ts), applies page and sidebar tombstones
-// -> pages -> blocks -> block tombstones -> sidebar, then replays the
-// pending batches as a first apply, under transaction-scoped deferred FKs
-// so intra-window row order never matters for FKs; it matters for the
-// UNIQUE titles, which is why page and sidebar tombstones lead and
-// colliding titles are parked, and for the block cascade, which is why
-// block tombstones follow the upserts and wait for the window that reaches
-// the journal head (applyWindow).
-// Upserts are idempotent -- re-pulling any window is safe. The
+// Feed application (offline-editing-design.md §3 and §1): snapshot bootstrap
+// and windowed changes upserts. Each window applies in ONE transaction: it
+// rewinds the pending batches' effects (rewind.ts), applies page and sidebar
+// tombstones -> pages -> blocks -> block tombstones -> sidebar, then replays
+// the pending batches as a first apply, under transaction-scoped deferred FKs
+// so intra-window row order never matters for FKs; it matters for the UNIQUE
+// titles, which is why page and sidebar tombstones lead and colliding titles
+// are parked, and for the block cascade, which is why block tombstones follow
+// the upserts and wait for the window that reaches the journal head
+// (applyWindow). Upserts are idempotent -- re-pulling any window is safe. The
 // base schema's FTS triggers maintain the local search index on every upsert.
 //
 // Deferred FKs move every violation to the outer COMMIT, so neither the

@@ -1,11 +1,11 @@
 // pattern: Imperative Shell
-// Drives the replica from the server (spec section 3): snapshot bootstrap,
-// nudge-driven windowed pulls, and the guarded re-bootstrap paths (feed
-// reset / generation flip / schema-version mismatch). The guardrail from
-// the epic: a re-bootstrap NEVER tears down a database whose pending queue
-// is non-empty — queued batches are flushed to the server first (batch_id
-// dedup makes replayed flushes safe), and a failed flush keeps the old
-// database: degraded beats data loss.
+// Drives the replica from the server (offline-editing-design.md §3): snapshot
+// bootstrap, nudge-driven windowed pulls, and the guarded re-bootstrap paths
+// (feed reset / generation flip / schema-version mismatch). The guardrail from
+// the epic: a re-bootstrap NEVER tears down a database whose pending queue is
+// non-empty — queued batches are flushed to the server first (batch_id dedup
+// makes replayed flushes safe), and a failed flush keeps the old database:
+// degraded beats data loss.
 
 import type { ApiFetchOptions } from "../api/client";
 import type { BatchId, ClientId, SyncSeq } from "../api/brands";
@@ -421,7 +421,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   ): Promise<void> => {
     for (const b of batches) {
       // poisoned batches were already rejected by the server; retrying
-      // them forever would wedge recovery (spec section 6)
+      // them forever would wedge recovery (offline-editing-design.md §6)
       if (b.poisoned) continue;
       beforePost();
       // This flush knows nothing about the lane on its own: ask

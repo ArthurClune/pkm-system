@@ -1,9 +1,9 @@
 # pattern: Imperative Shell
-"""Dump offline-shim parity fixtures (spec section 7): a deterministic
-seed graph plus the exact JSON the FastAPI read routes return for a set of
-requests. The TS local-API handlers (web/src/replica/localApi) replay the
-same requests over a replica loaded with the same seed and must produce
-identical JSON. Regenerate with:
+"""Dump offline-shim parity fixtures (offline-editing-design.md §7): a
+deterministic seed graph plus the exact JSON the FastAPI read routes return
+for a set of requests. The TS local-API handlers (web/src/replica/localApi)
+replay the same requests over a replica loaded with the same seed and must
+produce identical JSON. Regenerate with:
 uv run python -m pkm.server.shim_parity_dump > ../shared/fixtures/shim_parity.json
 Guarded by tests/test_shim_parity_fixture.py."""
 from __future__ import annotations

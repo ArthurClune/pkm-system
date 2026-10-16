@@ -42,9 +42,9 @@ async function login(page: Page) {
 }
 
 /** Pages this spec created, newest first. The e2e DB is shared between specs
- * (rename.spec.ts:21-22), and this is the only spec that seeds PAST daily
- * notes: left behind, they turn `/` from one `.journal-day` into four for
- * every spec that runs after this one. */
+ * (see appendJournalBlock in rename.spec.ts), and this is the only spec that
+ * seeds PAST daily notes: left behind, they turn `/` from one `.journal-day`
+ * into four for every spec that runs after this one. */
 const created: string[] = [];
 
 async function createPage(page: Page, title: string) {

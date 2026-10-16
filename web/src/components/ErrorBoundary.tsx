@@ -8,7 +8,7 @@ interface State {
   message: string;
 }
 
-/** Root render-error net (plan-4 carry-forward): editing state raises the
+/** Root render-error net: editing state raises the
  * odds of a render throw; fail to a message + reload link, not a white
  * screen. */
 export class ErrorBoundary extends Component<{ children: ReactNode }, State> {

@@ -1,8 +1,8 @@
 # pattern: Imperative Shell
-"""Post-commit WS nudges. Invariant (spec section 1): every transaction
-that advances changes.seq emits a nudge -- strictly AFTER a successful
-commit. Nudges are best-effort signals; the client's cursor pull is the
-correctness mechanism, and Hub.broadcast drops connections whose send
+"""Post-commit WS nudges. Invariant (offline-editing-design.md §1): every
+transaction that advances changes.seq emits a nudge -- strictly AFTER a
+successful commit. Nudges are best-effort signals; the client's cursor pull
+is the correctness mechanism, and Hub.broadcast drops connections whose send
 fails, so a lost nudge becomes a reconnect + catch-up pull."""
 from __future__ import annotations
 

@@ -34,7 +34,7 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
       setError(null);
     } catch (e: unknown) {
       if (guard.isStale(token)) return;
-      // query blocks are online-only in v1 (spec section 4)
+      // query blocks are online-only in v1 (offline-editing-design.md §4)
       setError(e instanceof OfflineError ? "query unavailable offline"
                                          : String(e));
     }

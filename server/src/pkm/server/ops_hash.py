@@ -12,7 +12,7 @@ from pkm.contracts.ops import BlockOp, DeleteOp, OpBatch, UpdateTextOp
 
 def batch_request_hash(batch: OpBatch) -> str:
     """Canonical content hash binding a batch_id to one payload forever
-    (spec section 1): replay with a different payload is rejected, so a
+    (offline-editing-design.md §1): replay with a different payload is rejected, so a
     buggy client can't silently swap the ops behind an acknowledged id."""
     canon = json.dumps([_canonical_op(op) for op in batch.ops],
                        sort_keys=True, separators=(",", ":"))

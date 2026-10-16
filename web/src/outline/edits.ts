@@ -3,9 +3,9 @@
 // tree after applying it (via applyOps — the ops ARE the local mutation, so
 // optimistic state can't diverge from what the server will do), and where
 // focus lands. MoveOp.order_idx is "insert before the block currently at
-// order_idx, counted BEFORE the moved block is removed" (plan-3 contract
-// note) — order_idx values are always read off the tree, never array
-// positions, because the server leaves gaps.
+// order_idx, counted BEFORE the moved block is removed" — order_idx values
+// are always read off the tree, never array positions, because the server
+// leaves gaps.
 import type { BlockUid, CanonicalTitle, OrderIdx } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, SetHeadingOp, SetViewTypeOp } from "../api/ops";

@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// Negative-id page reconciliation (spec section 3). Pages created offline
+// Negative-id page reconciliation (offline-editing-design.md §3). Pages created offline
 // get temporary negative ids; when the feed delivers the authoritative row
 // for the same title, the negative row can't simply be upserted (it owns
 // the UNIQUE title) and must not be deleted first with children attached

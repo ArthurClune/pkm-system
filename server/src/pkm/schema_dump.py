@@ -1,5 +1,5 @@
 # pattern: Imperative Shell
-"""Dump BASE_DDL as a TS artifact for the client replica (spec section 3):
+"""Dump BASE_DDL as a TS artifact for the client replica (offline-editing-design.md §3):
 uv run python -m pkm.schema_dump > ../web/src/replica/baseSchema.gen.ts
 Only the base schema is exported -- exporting SERVER_DDL would install the
 server's journal triggers in the replica. Guarded by

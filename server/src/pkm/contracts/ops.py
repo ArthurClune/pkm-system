@@ -151,7 +151,7 @@ class MoveOp(BaseModel):
 class DeleteOp(BaseModel):
     op: Literal["delete"]
     uid: BlockUid
-    # sha256 of the subtree this delete was based on (spec section 1):
+    # sha256 of the subtree this delete was based on (offline-editing-design.md §1):
     # the (uid, text) pairs of the block and its descendants, as of the
     # tree the deleting device last saw. Absent => legacy client or a uid
     # the batch itself created, LWW-apply as always (plain delete, no
@@ -182,7 +182,7 @@ class SetViewTypeOp(BaseModel):
 
 
 class CreatePageOp(BaseModel):
-    """Durable push path for offline page creation (spec section 1): an
+    """Durable push path for offline page creation (offline-editing-design.md §1): an
     empty page created offline has no block op to carry its title, so page
     creation is itself an op -- get_or_create semantics, safely replayable."""
     op: Literal["create_page"]
@@ -213,7 +213,7 @@ def text_hash(text: str) -> Sha256Hex:
 
 def subtree_hash(pairs: Iterable[tuple[str, str]]) -> Sha256Hex:
     """Canonical hash of a subtree's (uid, text) pairs, order-independent
-    (spec section 1). Each text is hashed on its own rather than
+    (offline-editing-design.md §1). Each text is hashed on its own rather than
     JSON-encoding the pairs, because Python and JS escape JSON strings
     differently -- text_hash / sha256Hex already agree. Uids are ASCII
     (UID_RE), so both languages' default sorts agree too."""

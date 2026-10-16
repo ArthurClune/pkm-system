@@ -9,7 +9,7 @@ import { isPhoneUserAgent, phoneViewportContent } from "./outline/keyboardBar";
 import { ROUTER_FUTURE_FLAGS } from "./router";
 import "./styles.css";
 
-// Offline shell (spec section 5): the service worker precaches the SPA and
+// Offline shell (offline-editing-design.md §5): the service worker precaches the SPA and
 // runtime-caches viewed /assets/; persistent storage keeps the replica's
 // OPFS database (and the SW caches) off the browser's eviction list.
 registerSW({ immediate: true });

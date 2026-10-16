@@ -1,5 +1,5 @@
 # pattern: Imperative Shell
-"""Post-commit WS nudges. Invariant (spec section 1): every transaction
+"""Post-commit WS nudges. Invariant (offline-editing-design.md §1): every transaction
 that advances changes.seq emits a nudge -- strictly AFTER a successful
 commit. Nudges are best-effort signals; the client's cursor pull is the
 correctness mechanism, and Hub.broadcast drops connections whose send

@@ -1,4 +1,4 @@
-"""Plan-4 carry-forward: the committed web/src/api/openapi.json (source of the
+"""The committed web/src/api/openapi.json (source of the
 generated types.d.ts) must match the live schema, or the TS op types the
 editor sends with are stale.
 

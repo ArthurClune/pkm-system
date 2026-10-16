@@ -643,7 +643,7 @@ describe("useAssistant", () => {
   });
 
   test("newChat clears the transcript synchronously, as the panel's click does", async () => {
-    // AssistantPanel calls `void assistant.newChat()` (AssistantPanel.tsx:100),
+    // AssistantPanel's New chat button calls `void assistant.newChat()`,
     // so an empty chat must appear on the click -- not after the abort has
     // unwound and the DELETE has resolved.
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });

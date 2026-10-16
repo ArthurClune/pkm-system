@@ -1,6 +1,6 @@
 """The committed web/src/replica/baseSchema.gen.ts must embed exactly
 schema.BASE_DDL, or the client replica's schema drifts from the server's
-(spec section 3). Regenerate with:
+(offline-editing-design.md §3). Regenerate with:
 `uv run python -m pkm.schema_dump > ../web/src/replica/baseSchema.gen.ts`."""
 from pathlib import Path
 

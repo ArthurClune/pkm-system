@@ -167,7 +167,7 @@ export function Journal() {
   // after the loadMore effect above, so the journal GET is dispatched
   // first — but the two requests still race on the server over separate
   // connections, which is why deletions may not be reflected in this view
-  // (see spec's Concurrency and staleness section).
+  // (see empty-daily-cleanup-design.md, Concurrency and staleness).
   useEffect(() => {
     void apiPost("/api/journal/cleanup")
       .catch(() => {});

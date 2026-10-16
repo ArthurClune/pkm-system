@@ -1,5 +1,5 @@
 """subtree_hash pins the canonical (uid, text) hash a guarded delete
-checks against (spec section 1). shared/fixtures/subtree_hash.json is the
+checks against (offline-editing-design.md §1). shared/fixtures/subtree_hash.json is the
 cross-language pin: the web unit test asserts the same hashes."""
 import json
 from pathlib import Path

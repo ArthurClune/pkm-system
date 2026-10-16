@@ -124,8 +124,8 @@ const META_WRAP_EDITS: Partial<Record<string,
 
 type Modifiers = Pick<EditorKeyInput, "metaKey" | "ctrlKey" | "altKey" | "shiftKey">;
 
-/** Shift+Cmd with no Ctrl/Alt: the subtree-move (line 177 below) and
- * line-wise selection (line ~187) chords share this exact shape. */
+/** Shift+Cmd with no Ctrl/Alt: decideEditorKey's subtree-move and
+ * line-wise selection chords share this exact shape. */
 const isShiftMetaOnly = (i: Modifiers): boolean =>
   i.shiftKey && i.metaKey && !i.ctrlKey && !i.altKey;
 

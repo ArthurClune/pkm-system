@@ -53,7 +53,7 @@ class ClientDiagnosticsRequest(BaseModel):
 
 
 @router.post("/api/client/diagnostics")
-def client_diagnostics(body: ClientDiagnosticsRequest) -> dict:
+def client_diagnostics(body: ClientDiagnosticsRequest) -> dict[str, object]:
     """Record a replica's self-report in the server log.
 
     A browser replica that finds its database corrupt rebuilds itself from a

@@ -97,7 +97,7 @@ def search_assets(q: str = "", limit: int = 50, offset: int = 0,
                   = Query("", alias="type"),
                   from_ms: int | None = None, to_ms: int | None = None,
                   linked: Literal["all", "linked", "orphan"] = "all",
-                  db: sqlite3.Connection = Depends(get_db)) -> dict:
+                  db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     """LIKE search over description + filename. Empty q lists
     most-recent uploads. LIKE, not FTS: personal-scale table, and no
     offline-parity burden. Adds type/date/linked filters,
@@ -108,7 +108,7 @@ def search_assets(q: str = "", limit: int = 50, offset: int = 0,
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
     where_parts: list[str] = []
-    params: list = []
+    params: list[object] = []
     needle = q.strip()
     if needle:
         esc = (needle.replace("\\", "\\\\")
@@ -160,7 +160,7 @@ def search_assets(q: str = "", limit: int = 50, offset: int = 0,
 
 
 def _delete_if_unreferenced(request: Request, sha: Sha256Hex,
-                            db: sqlite3.Connection, config: Config) -> dict:
+                            db: sqlite3.Connection, config: Config) -> dict[str, object]:
     try:
         db.execute("BEGIN IMMEDIATE")
     except sqlite3.OperationalError as exc:
@@ -191,7 +191,7 @@ def _delete_if_unreferenced(request: Request, sha: Sha256Hex,
 def delete_asset(request: Request, sha256: str,
                  if_unreferenced: bool = False,
                  db: sqlite3.Connection = Depends(get_db),
-                 config: Config = Depends(get_config)) -> dict:
+                 config: Config = Depends(get_config)) -> dict[str, object]:
     """Delete an asset: strip every reference token from block text
     (blocks left empty with no children are deleted outright — asset
     deletion must never cascade away real content, so emptied parents
@@ -367,7 +367,7 @@ async def _stream_to_temp(file: _ChunkReadable, tmp_path: Path,
 @router.post("/api/assets", response_model=AssetUploadResponse)
 async def upload_asset(request: Request, file: UploadFile,
                        db: sqlite3.Connection = Depends(get_db),
-                       config: Config = Depends(get_config)) -> dict:
+                       config: Config = Depends(get_config)) -> dict[str, object]:
     declared_mime = file.content_type or "application/octet-stream"
     if declared_mime not in ALLOWED_UPLOAD_MIME:
         raise HTTPException(status_code=415,

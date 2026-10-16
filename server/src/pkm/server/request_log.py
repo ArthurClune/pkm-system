@@ -10,16 +10,18 @@ from __future__ import annotations
 import logging
 import time
 
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
 from pkm.server.logfmt import request_line
 
 logger = logging.getLogger("pkm.access")
 
 
 class RequestLogMiddleware:
-    def __init__(self, app) -> None:
+    def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    async def __call__(self, scope, receive, send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -29,7 +31,7 @@ class RequestLogMiddleware:
         if scope.get("query_string"):
             path += "?" + scope["query_string"].decode("latin-1")
 
-        async def send_and_capture_status(message) -> None:
+        async def send_and_capture_status(message: Message) -> None:
             nonlocal status
             if message["type"] == "http.response.start":
                 status = message["status"]

@@ -23,7 +23,7 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 @router.post("/api/ops", response_model=OpsAck)
 async def post_ops(request: Request,
                    batch: OpBatch,
-                   db: sqlite3.Connection = Depends(get_db)) -> dict:
+                   db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
     """One SQLite transaction covers the batch_id dedupe check through the
     commit, so a concurrent delete_page/rename_page/cleanup_journal commit
     (their own connections, on the threadpool) can no longer land between
@@ -81,7 +81,7 @@ async def post_ops(request: Request,
     # `applied` counts every op processed, skipped ones included; `skipped`
     # lists every op whose target no longer exists (ops_core.skip_report),
     # and is empty for a clean batch.
-    response = {"ok": True, "ts": now, "applied": len(batch.ops), "seq": seq,
+    response: dict[str, object] = {"ok": True, "ts": now, "applied": len(batch.ops), "seq": seq,
                 "skipped": result.skipped}
     # No IntegrityError branch here: BEGIN IMMEDIATE has been held since
     # before the dedupe SELECT above, so a second submission of this same

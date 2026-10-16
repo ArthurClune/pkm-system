@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -76,7 +77,7 @@ def _default_describe_service(config: Config) -> DescribeService:
 
 
 @asynccontextmanager
-async def _lifespan(app: FastAPI):
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.describe.start()
     yield
     try:
@@ -133,7 +134,7 @@ def create_app(
     api = APIRouter(dependencies=[Depends(require_auth)])
 
     @api.get("/api/openapi.json")
-    def openapi_schema() -> dict:
+    def openapi_schema() -> dict[str, object]:
         return app.openapi()
 
     app.include_router(api)
@@ -152,7 +153,7 @@ def create_app(
     app.include_router(assistant_router)
 
     @app.get("/healthz")
-    def healthz() -> dict:
+    def healthz() -> dict[str, object]:
         return {"ok": True}
 
     if config.web_dist is not None:

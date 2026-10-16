@@ -113,7 +113,7 @@ CASES = [
 ]
 
 
-def fixture() -> dict:
+def fixture() -> dict[str, object]:
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "pkm.sqlite3"
         init_db(db_path)

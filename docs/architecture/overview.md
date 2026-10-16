@@ -29,6 +29,7 @@ in [`docs/design.md`](../design.md) and the specs under
 | [sqlite-wasm-patch.md](sqlite-wasm-patch.md) | The temporary sqlite-wasm patch for hot-journal rollback: what it changes, how it is applied, upgrading, upstream status |
 | [performance-checks.md](performance-checks.md) | The `perf/check.sh` regression gate: fixture, scenarios, metric classes, confirmation, shared state |
 | [property-checks.md](property-checks.md) | The `proptest/check.sh` property-based gate, server and web sides: what each property checks, running it, reading a failure |
+| [enforced-checks.md](enforced-checks.md) | Every check that fails mechanically — on commit, on every test run, before a merge, by hand — and the doc that owns each |
 | [troubleshooting.md](../troubleshooting.md) | Known failures indexed by symptom, each with its cause and the section that owns it |
 
 ## System context

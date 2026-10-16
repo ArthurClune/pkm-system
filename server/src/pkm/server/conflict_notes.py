@@ -32,7 +32,7 @@ def existing_page_label(title: str) -> str:
 
 
 def conflict_label(page_title: str | None, hint_page_exists: bool) -> str:
-    """Label for check 1's client page-title hint (spec section 2). It
+    """Label for check 1's client page-title hint (offline-editing-design.md §2). It
     never fails the op, and it must not produce a `[[link]]` to a page that
     does not exist, or the ref indexer creates one:
 
@@ -68,7 +68,7 @@ def overwritten_header_text(page_title: str, uid: str) -> str:
 
 
 def deleted_header_text(page_title: str) -> str:
-    """Header for a subtree whose delete diverged (spec section 3): names
+    """Header for a subtree whose delete diverged (offline-editing-design.md §3): names
     the block's own page, read from its row before the delete. It cannot
     embed `((uid))` like `live_block_header_text` -- by the time this lands
     the block is gone, so there is nothing left for the ref to point at."""

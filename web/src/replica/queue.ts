@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// The durable op queue (spec section 3): pending batches live INSIDE the
+// The durable op queue (offline-editing-design.md §3): pending batches live INSIDE the
 // replica database as wire-format JSON, so queued offline edits survive
 // tab refresh and browser restart. update_text captures a current
 // base_text_hash only when one is not already supplied; explicit
@@ -11,7 +11,7 @@
 // the block and its descendants the same way, only when none is supplied,
 // so a delete after its child's delete in one batch hashes what that left.
 // Poisoned batches (server terminal 4xx, see sync/rejection.ts) are set
-// aside, never retried forever (spec section 6).
+// aside, never retried forever (offline-editing-design.md §6).
 
 import type { BatchId, BlockUid, CanonicalTitle, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
@@ -148,7 +148,7 @@ export function nextBatch(db: ReplicaDb): PendingBatch | null {
 
 /** All queued batches, oldest first, poisoned included — the recovery
  * flush wants the full picture. Reads only the migration-stable columns
- * (spec section 6 guardrail). */
+ * (offline-editing-design.md §6 guardrail). */
 export function allBatches(db: ReplicaDb): PendingBatch[] {
   return db.select<{ id: number; batch_id: string; ops_json: string;
                      poisoned: number }>(

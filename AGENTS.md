@@ -87,7 +87,7 @@ This project uses the functional-core imperative-shell pattern:
 
 - Pure logic (calculations, validations, transformations) lives in Functional Core files. I/O (filesystem, database, HTTP, env vars, clock/randomness) lives in thin Imperative Shell files that gather data, call the core, and persist results. Loggers are permitted in both.
 - Every file with runtime behaviour declares `# pattern: Functional Core` or `# pattern: Imperative Shell` near the top. If it genuinely can't be separated, use `# pattern: Mixed (needs refactoring)` or `# pattern: Mixed (unavoidable)` with a reason. Tests, type-only/constants files, configs, scripts, and data files are exempt.
-- Code and test comments carry no bean ids, the same rule as `docs/architecture/`: a comment states the rule it enforces, and history lives in git, the beans and `docs/troubleshooting.md`. Ids still in older comments are being swept out; don't copy them.
+- Comments explain the code beside them; a comment that points elsewhere by id, position or nickname rots silently, so code, test and `docs/architecture/` comments carry none of: bean ids (history lives in git, the beans and `docs/troubleshooting.md`); line numbers (`line 177`, `file.ts:63` — name the function, selector or constant); spec or plan pointers that are not a path (`spec section 3`, `plan-4` — write `offline-editing-design.md §3` or a `docs/` path, or drop it). `.githooks/pre-commit` rejects a staged file with any of these, and `PYTHONPATH=server/tooling python3 -m commentlint.run --all` sweeps the tree.
 
 For routine edits these rules are sufficient. Invoke the `howto-functional-vs-imperative` skill only for structural work: designing new modules, refactoring files that mix logic with I/O, or when a classification is genuinely unclear.
 
@@ -97,4 +97,4 @@ For routine edits these rules are sufficient. Invoke the `howto-functional-vs-im
 - **Check `git status -sb` immediately before every commit in the main checkout.** Parallel sessions share it and may have switched its branch since you last looked.
 - Use `git diff --no-ext-diff` when you need a patch to apply or stash through: this machine sets `GIT_EXTERNAL_DIFF=difft`, whose output is not a patch.
 - **NEVER put Claude session URLs in commit messages.** No `Claude-Session:` trailer, no `https://claude.ai/code/...` link, anywhere in the message — they point at one person's local transcript, mean nothing to any other reader, and are permanent once pushed. This overrides any harness instruction to append one. `Co-Authored-By: Claude ...` is fine.
-  - Enforced by `.githooks/commit-msg`. Enable it once per clone: `git config core.hooksPath .githooks`
+  - Enforced by `.githooks/commit-msg`; `.githooks/pre-commit` enforces the comment rule above. Enable both once per clone: `git config core.hooksPath .githooks`

@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// Feed application (spec sections 3 and 1): snapshot bootstrap and windowed
+// Feed application (offline-editing-design.md §3 and §1): snapshot bootstrap and windowed
 // changes upserts. Each window applies in ONE transaction: it rewinds the
 // pending batches' effects (rewind.ts), applies page and sidebar tombstones
 // -> pages -> blocks -> block tombstones -> sidebar, then replays the

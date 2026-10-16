@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 // Uploaded-asset image. Viewed assets are runtime-cached by the service
-// worker (spec section 5); one that was never viewed can't load offline,
+// worker (offline-editing-design.md §5); one that was never viewed can't load offline,
 // so a failed load renders a labelled placeholder instead of a broken img.
 // Until the image loads or fails it has no size, and on a stalled connection
 // that can take as long as the network's own timeout: a pending placeholder

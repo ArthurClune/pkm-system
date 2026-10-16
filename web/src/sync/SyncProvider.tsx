@@ -5,7 +5,7 @@
 // state may have diverged (rejected batch, or reconnect after a gap):
 // views refetch authoritative state via useResync. The replica is kept warm
 // from the changes feed via WS seq nudges; reconnect ordering is flush
-// pending ops -> pull feed -> resync bump (spec sections 3/6).
+// pending ops -> pull feed -> resync bump (offline-editing-design.md §3/§6).
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef,
          useState, type ReactNode } from "react";
 import type { BlockOp } from "../api/ops";
@@ -54,7 +54,7 @@ export interface SyncHealth {
  * re-render for a change that cannot alter what it may do. */
 export interface SyncEditability {
   /** Editing allowed: always when connected; offline only when the replica
-   * is ready and local storage can still persist edits (spec section 6). */
+   * is ready and local storage can still persist edits (offline-editing-design.md §6). */
   canEdit: boolean;
   /** Why editing is blocked, when it is. */
   readOnlyReason?: string;
@@ -378,7 +378,7 @@ export function SyncProvider({ children, replica }: {
     });
   }, [applySync, replicaState.mode]);
 
-  // Offline routing (spec section 4): while the socket is down, apiFetch
+  // Offline routing (offline-editing-design.md §4): while the socket is down, apiFetch
   // serves shimmed reads (and page create) from the replica. statusRef/modeRef
   // (declared at the top of the component) keep the gateway's view of
   // status/mode current without re-registering.
@@ -453,7 +453,7 @@ export function SyncProvider({ children, replica }: {
 
   // Connected: editing always allowed (server-authoritative, as before).
   // Offline: allowed only with a ready replica, otherwise the editor is frozen
-  // with a reason (spec section 6). The rule lives in the syncState core.
+  // with a reason (offline-editing-design.md §6). The rule lives in the syncState core.
   const { canEdit, readOnlyReason } =
     computeEditability(status, replicaState.mode);
 

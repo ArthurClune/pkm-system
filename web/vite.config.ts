@@ -16,7 +16,7 @@ const apiTarget = `http://127.0.0.1:${process.env.PKM_API_PORT ?? "8974"}`;
 export default defineConfig({
   plugins: [
     react(),
-    // Offline app shell (spec section 5): precache the built SPA so a cold
+    // Offline app shell (offline-editing-design.md §5): precache the built SPA so a cold
     // start works with no network; runtime-cache viewed uploads from
     // /assets/ with an LRU cap. /api is NEVER cached — reads route through
     // the replica shim when offline, and the sync protocol must always see

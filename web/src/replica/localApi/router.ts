@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// The offline shim's route table (spec section 4): matches the requests
+// The offline shim's route table (offline-editing-design.md §4): matches the requests
 // the app makes and serves them from the replica with the same OpenAPI
 // shapes the server returns. Unmatched routes report handled:false — the
 // caller surfaces a clear online-only error. Runs inside the worker.
@@ -100,7 +100,7 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
       return err(422, `unsupported page-title syntax: ${JSON.stringify(title)}`);
     }
     // local negative id now; the durable create_page op carries the title
-    // to the server (get_or_create there — spec section 1)
+    // to the server (get_or_create there — offline-editing-design.md §1)
     getOrCreateLocalPage(db, title, req.nowMs);
     enqueueBatch(db, [{ op: "create_page", page_title: title }], req.nowMs,
                  deps.newBatchId());

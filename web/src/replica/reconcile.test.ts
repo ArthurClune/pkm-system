@@ -1,5 +1,5 @@
 // @vitest-environment node
-// Negative-id page reconciliation (spec section 3): when the feed delivers
+// Negative-id page reconciliation (offline-editing-design.md §3): when the feed delivers
 // the authoritative row for a page created offline, children and refs are
 // remapped inside the window transaction — never a cascade delete.
 import { beforeEach, describe, expect, test } from "vitest";

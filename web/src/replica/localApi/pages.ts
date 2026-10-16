@@ -3,7 +3,7 @@
 // routes_pages.py read paths over the replica. Daily pages auto-create
 // LOCALLY (negative id, no push): the server re-creates them on any
 // online visit, and a daily page with content pushes via its block ops'
-// page_title anyway (spec section 1).
+// page_title anyway (offline-editing-design.md §1).
 
 import type { BlockUid, CanonicalTitle, PageId } from "../../api/brands";
 import type { BacklinkGroup, BlockBacklinksPayload, BlockGroup, CurrentWorkPage,

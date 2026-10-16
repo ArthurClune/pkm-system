@@ -8,7 +8,7 @@ test("flips TODO to DONE and back, preserving the bracket variant", () => {
 });
 
 test("mixed-bracket leniencies are echoed back as-is", () => {
-  // The tokenizer accepts these independently (documented plan-4 leniency);
+  // The tokenizer accepts these independently (a deliberate leniency);
   // Roam never emits them, but a toggle must not corrupt them.
   expect(toggleTodo("{{[[TODO}} x")).toBe("{{[[DONE}} x");
   expect(toggleTodo("{{TODO]]}} x")).toBe("{{DONE]]}} x");

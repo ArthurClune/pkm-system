@@ -1637,7 +1637,7 @@ describe("an unopenable replica", () => {
 });
 
 describe("the poison gate and repair problems", () => {
-  /** Models the real worker's open memoisation (`workerHandlers.ts:63`): one
+  /** Models the real worker's open memoisation (`dbPromise` in workerHandlers.ts): one
    * failed open is cached and replayed to every handler, and — crucially — is
    * NOT cleared by any handler's rejection, including `init()`'s. Contention
    * here would clear after the first real attempt, so a worker that re-armed

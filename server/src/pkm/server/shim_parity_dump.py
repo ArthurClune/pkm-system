@@ -1,5 +1,5 @@
 # pattern: Imperative Shell
-"""Dump offline-shim parity fixtures (spec section 7): a deterministic
+"""Dump offline-shim parity fixtures (offline-editing-design.md §7): a deterministic
 seed graph plus the exact JSON the FastAPI read routes return for a set of
 requests. The TS local-API handlers (web/src/replica/localApi) replay the
 same requests over a replica loaded with the same seed and must produce

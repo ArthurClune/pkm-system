@@ -1,5 +1,5 @@
 # pattern: Imperative Shell
-"""Serve content-addressed assets (upload arrives in plan 3)."""
+"""Serve content-addressed assets ."""
 from __future__ import annotations
 
 import hashlib

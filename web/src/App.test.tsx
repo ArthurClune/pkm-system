@@ -501,8 +501,8 @@ it("renders the Files view at /files", async () => {
   ).toBeInTheDocument();
 });
 
-// This exercises useRouteTitle() as actually mounted inside App
-// (App.tsx:59), not via a synthetic probe -- useRouteTitle.test.tsx covers
+// This exercises useRouteTitle() as actually mounted inside App,
+// not via a synthetic probe -- useRouteTitle.test.tsx covers
 // the hook in isolation, but only a real <App/> render proves the wiring
 // itself wasn't dropped.
 it("sets the browser title from the centralized route table as App navigates between static routes", async () => {

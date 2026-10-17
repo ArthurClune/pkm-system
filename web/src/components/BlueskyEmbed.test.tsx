@@ -1,7 +1,8 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { defer, jsonResponse } from "../test-helpers";
+import { defer, jsonResponse, stubIosStandaloneNavigator } from "../test-helpers";
 import { BlueskyEmbed } from "./BlueskyEmbed";
+import { ExternalLinkInterceptor } from "./ExternalLinkInterceptor";
 
 const DID = "did:plc:z72i7hdynmk6r22z27h6tvur";
 
@@ -211,4 +212,36 @@ it("resolves the DID for a valid href after starting from an invalid href", () =
   rerender(<BlueskyEmbed href={validHref} />);
   expect(container.querySelector("iframe.bluesky-embed")).not.toBeNull();
   expect(embedSrc(container)?.pathname).toBe(`/embed/${DID}/app.bsky.feed.post/valid123`);
+});
+
+it("in the iOS standalone app, a tap on the embed opens the post in Safari", () => {
+  // the iframe is cross-origin, so a tap inside it never reaches the
+  // interceptor and would open the in-app browser; an anchor over it does
+  const restore = stubIosStandaloneNavigator();
+  try {
+    stubResolve({ ok: true, did: DID });
+    const href = `https://bsky.app/profile/${DID}/post/3k2abc123xy`;
+    const navigate = vi.fn();
+    const { container } = render(
+      <><ExternalLinkInterceptor navigate={navigate} /><BlueskyEmbed href={href} /></>,
+    );
+    const tap = embedBox(container)!.querySelector<HTMLAnchorElement>("a.bluesky-embed-tap");
+    expect(tap).not.toBeNull();
+    fireEvent.click(tap!);
+    expect(navigate).toHaveBeenCalledWith(`x-safari-${href}`);
+  } finally {
+    restore();
+  }
+});
+
+it("outside the iOS standalone app, the embed stays interactive", () => {
+  const restore = stubIosStandaloneNavigator({ standalone: false });
+  try {
+    stubResolve({ ok: true, did: DID });
+    const href = `https://bsky.app/profile/${DID}/post/3k2abc123xy`;
+    const { container } = render(<BlueskyEmbed href={href} />);
+    expect(embedBox(container)!.querySelector("a")).toBeNull();
+  } finally {
+    restore();
+  }
 });

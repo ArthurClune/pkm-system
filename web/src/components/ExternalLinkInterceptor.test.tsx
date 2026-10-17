@@ -1,36 +1,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { stubIosStandaloneNavigator } from "../test-helpers";
 import { ExternalLinkInterceptor } from "./ExternalLinkInterceptor";
-
-/** Stub the bits of `navigator` the predicate reads, for the duration of one
- * test. jsdom's own `navigator` properties are configurable, so
- * `Object.defineProperty` can override them cleanly and this restores the
- * originals afterwards. */
-function stubIosStandaloneNavigator(over: {
-  platform?: string;
-  maxTouchPoints?: number;
-  standalone?: boolean;
-} = {}) {
-  const props: Record<string, PropertyDescriptor> = {};
-  const values: Record<string, unknown> = {
-    platform: over.platform ?? "iPhone",
-    maxTouchPoints: over.maxTouchPoints ?? 5,
-    standalone: over.standalone ?? true,
-  };
-  for (const [key, value] of Object.entries(values)) {
-    props[key] = Object.getOwnPropertyDescriptor(window.navigator, key) ?? {
-      configurable: true, enumerable: true, writable: true, value: undefined,
-    };
-    Object.defineProperty(window.navigator, key, {
-      configurable: true, enumerable: true, value,
-    });
-  }
-  return () => {
-    for (const [key, descriptor] of Object.entries(props)) {
-      Object.defineProperty(window.navigator, key, descriptor);
-    }
-  };
-}
 
 /** Anchor clicks that the interceptor is expected to leave alone still hit a
  * real `<a>`; jsdom logs "Not implemented: navigation" for any such click

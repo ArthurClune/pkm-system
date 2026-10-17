@@ -743,7 +743,8 @@ mark.highlight { background: var(--color-highlight-bg); }
  * dimensions; the iframe inside is laid out at full (1/scale) size and
  * visually scaled down to exactly fill the wrapper. 600px is a placeholder
  * height for before the embed page reports its real height. */
-.bluesky-embed-box { --bluesky-scale: 0.5; display: block; width: 100%;
+.bluesky-embed-box { --bluesky-scale: 0.5; display: block; position: relative;
+  width: 100%;
   max-width: calc(550px * var(--bluesky-scale));
   height: calc(var(--bluesky-height, 600px) * var(--bluesky-scale));
   margin: 4px 0; }
@@ -754,6 +755,8 @@ mark.highlight { background: var(--color-highlight-bg); }
   height: calc(100% / var(--bluesky-scale)); border: none;
   border-radius: var(--radius-card); transform: scale(var(--bluesky-scale));
   transform-origin: top left; }
+/* iOS standalone only: covers the embed so a tap reaches the app */
+.bluesky-embed-tap { position: absolute; inset: 0; }
 .todo-checkbox { margin-right: 6px; vertical-align: middle; }
 .query-pending { color: var(--color-text-muted); font-style: italic; }
 

@@ -21,7 +21,7 @@ Plan: docs/superpowers/plans/2026-10-17-brand-check.md
 
 - [x] Task 1: registry and row vocabulary
 - [x] Task 2: the Db wrapper, everywhere
-- [ ] Task 3: server core reads through select
+- [x] Task 3: server core reads through select
 - [ ] Task 4: routes read through select and return their models
 - [ ] Task 5: reads outside pkm/server
 - [ ] Task 6: narrow Db.execute

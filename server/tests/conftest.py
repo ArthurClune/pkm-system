@@ -6,6 +6,7 @@ import pytest
 from fake_engine import FakeEngine
 from fastapi.testclient import TestClient
 
+from pkm.contracts.ops import BlockUid, OrderIdx
 from pkm.goodlinks import GoodlinksId
 from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
@@ -316,6 +317,6 @@ def goodlinks_pkm_client(goodlinks_client):
 def tree_node(text: str, children: Sequence[TreeNode] = ()) -> TreeNode:
     """A build_tree() node for renderer tests that only care about text and
     nesting."""
-    return {"uid": "", "text": text, "heading": None, "view_type": None,
-            "collapsed": False, "order_idx": 0, "created_at": None,
-            "updated_at": None, "children": list(children)}
+    return {"uid": BlockUid(""), "text": text, "heading": None,
+            "view_type": None, "collapsed": False, "order_idx": OrderIdx(0),
+            "created_at": None, "updated_at": None, "children": list(children)}

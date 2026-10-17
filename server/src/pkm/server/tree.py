@@ -3,34 +3,36 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import TypedDict
+from typing import TypedDict, cast
 
+from pkm.contracts.ops import BlockUid, OrderIdx, ViewType
+from pkm.contracts.responses import StoredHeading
 from pkm.refs import extract
-from pkm.schema import SchemaRow
+from pkm.rows import Row
 
 
 class TreeNode(TypedDict):
-    """One block of a build_tree() result, typed as the blocks table
-    declares its columns."""
-    uid: str
+    """One block of a build_tree() result; the same fields as
+    `contracts.BlockNode`."""
+    uid: BlockUid
     text: str
-    heading: int | None
-    view_type: str | None
+    heading: StoredHeading
+    view_type: ViewType | None
     collapsed: bool
-    order_idx: int
+    order_idx: OrderIdx
     created_at: int | None
     updated_at: int | None
     children: list[TreeNode]
 
 
-def build_tree(rows: Sequence[SchemaRow]) -> list[TreeNode]:
+def build_tree(rows: Sequence[Row]) -> list[TreeNode]:
     known = {r["uid"] for r in rows}
-    by_parent: dict[str | None, list[SchemaRow]] = {}
+    by_parent: dict[BlockUid | None, list[Row]] = {}
     for r in rows:
         parent = r["parent_uid"] if r["parent_uid"] in known else None
         by_parent.setdefault(parent, []).append(r)
 
-    def nodes(parent: str | None) -> list[TreeNode]:
+    def nodes(parent: BlockUid | None) -> list[TreeNode]:
         items = by_parent.get(parent, [])
         if parent is None:
             # Separate normal roots from orphans (blocks with missing parents)
@@ -42,8 +44,8 @@ def build_tree(rows: Sequence[SchemaRow]) -> list[TreeNode]:
         return [{
             "uid": r["uid"],
             "text": r["text"],
-            "heading": r["heading"],
-            "view_type": r["view_type"],
+            "heading": cast(StoredHeading, r["heading"]),
+            "view_type": cast(ViewType | None, r["view_type"]),
             "collapsed": bool(r["collapsed"]),
             "order_idx": r["order_idx"],
             "created_at": r["created_at"],
@@ -54,7 +56,7 @@ def build_tree(rows: Sequence[SchemaRow]) -> list[TreeNode]:
     return nodes(None)
 
 
-def find_node(nodes: Sequence[TreeNode], uid: str) -> TreeNode | None:
+def find_node(nodes: Sequence[TreeNode], uid: BlockUid) -> TreeNode | None:
     """Depth-first search of a build_tree() result for the node with `uid`."""
     for node in nodes:
         if node["uid"] == uid:

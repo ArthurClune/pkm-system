@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from pkm.database import Db
 from pkm.refs import CanonicalTitle
-from pkm.schema import SchemaRow
+from pkm.rows import Row
 from pkm.server.query import CanonicalQueryNode, QueryNode, parse_query
 from pkm.server.sync_meta import title_reader
 
@@ -60,28 +60,30 @@ class QueryMatches:
     the plan independently of `rows` so that a caller which ever limits the
     rows still reports the full match count."""
     total: int
-    rows: Sequence[SchemaRow]
+    rows: Sequence[Row]
 
 
 def count_matches(db: Db, sql: str,
                   params: Sequence[str]) -> int:
     """How many blocks a plan matches, its own macro blocks excluded."""
-    return db.execute(
-        f"""SELECT count(*) FROM ({sql}) m
+    row = db.select_one(
+        f"""SELECT count(*) AS n FROM ({sql}) m
               JOIN blocks b ON b.uid = m.uid
              WHERE {_SOURCE_FILTER}""",
-        params).fetchone()[0]
+        params)
+    assert row is not None  # an aggregate always yields a row
+    return row["n"]
 
 
 def execute_plan(db: Db, sql: str,
                  params: Sequence[str]) -> QueryMatches:
     """Total and matching rows for a `query.plan_sql` plan."""
     total = count_matches(db, sql, params)
-    rows = db.execute(
+    rows = db.select(
         f"""SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
               FROM ({sql}) m JOIN blocks b ON b.uid = m.uid
               JOIN pages p ON p.id = b.page_id
              WHERE {_SOURCE_FILTER}
              ORDER BY p.title, b.uid""",
-        params).fetchall()
+        params)
     return QueryMatches(total=total, rows=rows)

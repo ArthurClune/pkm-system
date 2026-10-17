@@ -54,16 +54,16 @@ def test_delete_inlines_block_refs(db):
 
 
 def test_delete_block_with_link_and_ref_is_rewritten_once(db):
-    _add_block(db, "uid_x", "[[Machine Learning]] ((uid_b3))")
+    _add_block(db, "uid_xray", "[[Machine Learning]] ((uid_b3))")
     delete_page_unlinking(db, PageId(1), TITLE, NOW)
-    assert _text(db, "uid_x") == (
+    assert _text(db, "uid_xray") == (
         "Machine Learning [[Attention Is All You Need]] is a [[Paper]]")
     pairs = db.execute(
         "SELECT DISTINCT base_hash, after_hash FROM block_rewrites"
-        " WHERE uid = 'uid_x'").fetchall()
+        " WHERE uid = 'uid_xray'").fetchall()
     assert len(pairs) == 1
     kinds = {r[0] for r in db.execute(
-        "SELECT kind FROM block_rewrites WHERE uid = 'uid_x'")}
+        "SELECT kind FROM block_rewrites WHERE uid = 'uid_xray'")}
     assert kinds == {"unlink", "inline"}
 
 
@@ -88,15 +88,15 @@ def test_delete_records_replay_rows(db):
 
 def test_delete_refused_by_query_blocker(db):
     query = "{{query: {and: [[Machine Learning]]}}}"
-    _add_block(db, "uid_q", query)
+    _add_block(db, "uid_query", query)
     before = _text(db, "uid_b4")
     with pytest.raises(DeleteBlockedError) as err:
         delete_page_unlinking(db, PageId(1), TITLE, NOW)
     assert [(b.uid, b.reason) for b in err.value.blockers] == [
-        ("uid_q", "query")]
+        ("uid_query", "query")]
     assert db.execute("SELECT 1 FROM pages WHERE id = 1").fetchone()
     assert _text(db, "uid_b4") == before
-    assert _text(db, "uid_q") == query
+    assert _text(db, "uid_query") == query
     assert db.execute("SELECT count(*) FROM block_rewrites").fetchone()[0] == 0
 
 

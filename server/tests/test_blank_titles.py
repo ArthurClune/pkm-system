@@ -441,13 +441,13 @@ def test_padded_title_is_preserved_and_reused_exactly(tmp_path):
 
     # Same padded title again -> the SAME page, not a fresh duplicate.
     reused = get_or_create_page(db, padded, 200)
-    assert reused["id"] == original["id"]
+    assert reused["page_id"] == original["page_id"]
     assert reused["title"] == padded  # padding untouched in storage too
 
     # A stripped variant is a genuinely different title (exact match only)
     # -- it must NOT hijack the padded page's content.
     stripped = get_or_create_page(db, "EvilCorp", 300)
-    assert stripped["id"] != original["id"]
+    assert stripped["page_id"] != original["page_id"]
     db.close()
 
 

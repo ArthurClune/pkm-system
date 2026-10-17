@@ -12,6 +12,7 @@ from pkm.database import Db
 from pkm.refs import (CanonicalTitle, NormalizedTitle, extract,
                       is_blank_title, normalize_title, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
+from pkm.rows import Row
 from pkm.server.sync_meta import read_title, title_reader
 from pkm.unlink import (DeleteBlocker, DeletePlan, SourceBlock,
                         plan_page_delete)
@@ -37,14 +38,14 @@ class BlankTitleError(ValueError):
     -- substitute a fixed fallback title (see ops_apply.py)."""
 
 
-def fetch_page(db: Db, title: CanonicalTitle) -> sqlite3.Row | None:
-    return db.execute(
-        "SELECT id, title, created_at, updated_at FROM pages WHERE title = ?",
-        (title,)).fetchone()
+def fetch_page(db: Db, title: CanonicalTitle) -> Row | None:
+    return db.select_one(
+        "SELECT id AS page_id, title, created_at, updated_at FROM pages"
+        " WHERE title = ?", (title,))
 
 
 def get_or_create_page(db: Db, title: str,
-                       now_ms: int) -> sqlite3.Row:
+                       now_ms: int) -> Row:
     """Canonicalize at the choke point shared by every creation path.
 
     Control whitespace is always normalized because such titles are
@@ -91,7 +92,7 @@ def index_ref(db: Db, src_uid: BlockUid,
     except BlankTitleError:
         return
     db.execute("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
-              (src_uid, page["id"], ref_kind))
+              (src_uid, page["page_id"], ref_kind))
 
 
 def reindex_block_refs(db: Db, src_uid: BlockUid,
@@ -138,13 +139,13 @@ def delete_page_rows(db: Db, page_id: PageId,
 def _snapshot_referencing_blocks(
     db: Db, page_id: PageId
 ) -> tuple[tuple[BlockUid, str], ...]:
-    rows = db.execute(
+    rows = db.select(
         """SELECT DISTINCT b.uid, b.text FROM refs r
              JOIN blocks b ON b.uid = r.src_block_uid
             WHERE r.target_page_id = ?
             ORDER BY b.uid""",
         (page_id,),
-    ).fetchall()
+    )
     return tuple((row["uid"], row["text"]) for row in rows)
 
 
@@ -257,8 +258,9 @@ def retitle_sidebar_entry(db: Db, old_title: CanonicalTitle,
     """Follow a rename/merge in the title-keyed sidebar table. If an entry
     already exists under the new title (merge target pinned, or an orphan),
     the old entry is dropped instead of violating UNIQUE(title)."""
-    if db.execute("SELECT 1 FROM sidebar_entries WHERE title = ?",
-                  (new_title,)).fetchone() is not None:
+    if db.select_one(
+            "SELECT id AS sidebar_entry_id FROM sidebar_entries"
+            " WHERE title = ?", (new_title,)) is not None:
         db.execute("DELETE FROM sidebar_entries WHERE title = ?",
                    (old_title,))
     else:
@@ -291,19 +293,20 @@ def append_page_without_rewrite(
 ) -> int:
     """Append a source page's stable top-level order and preserve its
     subtrees."""
-    moved = db.execute(
-        "SELECT count(*) FROM blocks WHERE page_id = ?", (source_id,)
-    ).fetchone()[0]
-    base = db.execute(
-        "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM blocks"
-        " WHERE page_id = ? AND parent_uid IS NULL",
-        (target_id,),
-    ).fetchone()[0]
-    tops = db.execute(
+    counted = db.select_one(
+        "SELECT count(*) AS n FROM blocks WHERE page_id = ?", (source_id,))
+    next_top = db.select_one(
+        "SELECT COALESCE(MAX(order_idx) + 1, 0) AS next_order_idx"
+        " FROM blocks WHERE page_id = ? AND parent_uid IS NULL",
+        (target_id,))
+    assert counted is not None and next_top is not None  # aggregates
+    moved = counted["n"]
+    base = next_top["next_order_idx"]
+    tops = db.select(
         "SELECT uid FROM blocks WHERE page_id = ? AND parent_uid IS NULL"
         " ORDER BY order_idx, uid",
         (source_id,),
-    ).fetchall()
+    )
     for offset, row in enumerate(tops):
         db.execute(
             "UPDATE blocks SET page_id = ?, order_idx = ?, updated_at = ?"
@@ -353,12 +356,12 @@ class DeleteBlockedError(Exception):
 def plan_delete(db: Db, page_id: PageId,
                 title: CanonicalTitle) -> DeletePlan:
     """What deleting this page would rewrite. Read-only."""
-    page_blocks = {
+    page_blocks: dict[str, str] = {
         row["uid"]: row["text"]
-        for row in db.execute(
+        for row in db.select(
             "SELECT uid, text FROM blocks WHERE page_id = ?", (page_id,))
     }
-    rows = db.execute(
+    rows = db.select(
         """SELECT b.uid, b.text, p.title AS page_title FROM blocks b
              JOIN pages p ON p.id = b.page_id
             WHERE b.page_id != ?
@@ -369,7 +372,7 @@ def plan_delete(db: Db, page_id: PageId,
                                  WHERE t.page_id = ?))
             ORDER BY b.uid""",
         (page_id, page_id, page_id),
-    ).fetchall()
+    )
     sources = [SourceBlock(r["uid"], r["page_title"], r["text"]) for r in rows]
     canonical = title_reader(db)
     return plan_page_delete(
@@ -407,8 +410,10 @@ def delete_page_unlinking(db: Db, page_id: PageId,
     if plan.blockers:
         raise DeleteBlockedError(plan.blockers)
     for uid, new_text in plan.rewrites.items():
-        original = db.execute(
-            "SELECT text FROM blocks WHERE uid = ?", (uid,)).fetchone()["text"]
+        current = db.select_one(
+            "SELECT text FROM blocks WHERE uid = ?", (uid,))
+        assert current is not None  # plan_delete read it in this transaction
+        original = current["text"]
         db.execute(
             "UPDATE blocks SET text = ?, updated_at = ? WHERE uid = ?",
             (new_text, now_ms, uid))
@@ -435,8 +440,8 @@ def stale_titles(db: Db,
     database: every recorded deletion is then newer than what it saw."""
     if seen_seq is None:
         return frozenset()
-    rows = db.execute(
+    rows = db.select(
         "SELECT DISTINCT title FROM page_deletions WHERE seq > ?"
         "  OR ? > (SELECT COALESCE(MAX(seq), 0) FROM changes)",
-        (seen_seq, seen_seq)).fetchall()
-    return frozenset(CanonicalTitle(r[0]) for r in rows)
+        (seen_seq, seen_seq))
+    return frozenset(r["title"] for r in rows)

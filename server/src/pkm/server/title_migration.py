@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 from pkm.contracts.ops import BlockUid, PageId, Sha256Hex
 from pkm.database import Db
-from pkm.refs import target_canonical_title, title_syntax_reason
+from pkm.refs import RefKind, target_canonical_title, title_syntax_reason
 from pkm.title_migration import (
     InventoryBlock,
     InventoryPage,
@@ -64,7 +65,8 @@ def _inventory_title_migration(db: Db) -> TitleMigrationInventory:
     This private gatherer never begins, commits, or rolls back. Audit and apply
     deliberately own different transaction modes and call this same function.
     """
-    page_rows = db.execute("SELECT id, title FROM pages ORDER BY id").fetchall()
+    page_rows = db.select(
+        "SELECT id AS page_id, title FROM pages ORDER BY id")
     candidate_rows = [
         row
         for row in page_rows
@@ -89,18 +91,18 @@ def _inventory_title_migration(db: Db) -> TitleMigrationInventory:
         or row["title"] in canonical_titles
         or row in forbidden_rows
     ]
-    page_ids = {row["id"] for row in selected_rows}
+    page_ids = {row["page_id"] for row in selected_rows}
     page_titles = {row["title"] for row in selected_rows}
 
-    all_ref_rows = db.execute(
+    all_ref_rows = db.select(
         "SELECT src_block_uid, target_page_id, kind FROM refs"
-    ).fetchall()
+    )
     inbound_uids = {
         row["src_block_uid"] for row in all_ref_rows if row["target_page_id"] in page_ids
     }
-    all_block_rows = db.execute(
+    all_block_rows = db.select(
         "SELECT uid, page_id, parent_uid, order_idx, text FROM blocks"
-    ).fetchall()
+    )
     selected_block_rows = [
         row
         for row in all_block_rows
@@ -111,16 +113,17 @@ def _inventory_title_migration(db: Db) -> TitleMigrationInventory:
     ]
     selected_sidebar_rows = [
         row
-        for row in db.execute(
-            "SELECT id, title, order_idx FROM sidebar_entries"
-        ).fetchall()
+        for row in db.select(
+            "SELECT id AS sidebar_entry_id, title,"
+            " order_idx AS sidebar_order_idx FROM sidebar_entries"
+        )
         if row["title"] in page_titles or row["title"] in canonical_titles
     ]
 
     return TitleMigrationInventory(
         active=plain_space_title_canonicalization_active(db),
         pages=tuple(
-            InventoryPage(page_id=row["id"], title=row["title"])
+            InventoryPage(page_id=row["page_id"], title=row["title"])
             for row in selected_rows
         ),
         blocks=tuple(
@@ -137,15 +140,15 @@ def _inventory_title_migration(db: Db) -> TitleMigrationInventory:
             InventoryRef(
                 src_block_uid=row["src_block_uid"],
                 target_page_id=row["target_page_id"],
-                kind=row["kind"],
+                kind=cast(RefKind, row["kind"]),
             )
             for row in selected_ref_rows
         ),
         sidebars=tuple(
             InventorySidebar(
-                sidebar_id=row["id"],
+                sidebar_id=row["sidebar_entry_id"],
                 title=row["title"],
-                order_idx=row["order_idx"],
+                order_idx=row["sidebar_order_idx"],
             )
             for row in selected_sidebar_rows
         ),

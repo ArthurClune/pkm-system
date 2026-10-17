@@ -35,7 +35,7 @@ def test_get_or_create_page(tmp_path):
     page = get_or_create_page(db, "New Page", 123)
     assert page["title"] == "New Page" and page["created_at"] == 123
     again = get_or_create_page(db, "New Page", 456)
-    assert again["id"] == page["id"] and again["created_at"] == 123
+    assert again["page_id"] == page["page_id"] and again["created_at"] == 123
     assert db.in_transaction  # helper must NOT have committed
     db.rollback()
     new_page_title = CanonicalTitle(NormalizedTitle("New Page"))

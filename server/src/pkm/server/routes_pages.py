@@ -20,6 +20,7 @@ from pkm.contracts.responses import (
 from pkm.database import Db
 from pkm.refs import (CanonicalTitle, NormalizedTitle, is_blank_title,
                       title_syntax_reason)
+from pkm.rows import Row
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.grouping import BacklinkGroup, group_backlinks, group_by_page
@@ -101,7 +102,14 @@ def _resolve_ref_uids(db: Db, uids: Sequence[str]
         pending = collect_block_ref_uids([r["text"] for r in rows])
 
 
-def _fetch_ancestors(db: Db, uids: list[str]) -> dict[str, list[str]]:
+def _page_meta(page: Row) -> PageMeta:
+    return PageMeta(id=page["page_id"], title=page["title"],
+                    created_at=page["created_at"],
+                    updated_at=page["updated_at"])
+
+
+def _fetch_ancestors(db: Db, uids: list[BlockUid]
+                     ) -> dict[BlockUid, list[str]]:
     if not uids:
         return {}
     marks = ",".join("?" * len(uids))
@@ -117,7 +125,7 @@ def _fetch_ancestors(db: Db, uids: list[str]) -> dict[str, list[str]]:
             )
             SELECT start_uid, text, depth FROM anc
              WHERE depth > 0 ORDER BY start_uid, depth DESC""", uids).fetchall()
-    out: dict[str, list[str]] = {}
+    out: dict[BlockUid, list[str]] = {}
     for r in rows:  # depth only orders root-first; UID_RE excludes commas.
         out.setdefault(r["start_uid"], []).append(r["text"])
     return out
@@ -213,7 +221,8 @@ def get_block(uid: str, db: Db = Depends(get_db)) -> dict[str, object]:
     blocks = db.execute(
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (row["page_id"],)).fetchall()
-    node = find_node(build_tree(blocks), uid)
+    block_uid = BlockUid(uid)
+    node = find_node(build_tree(blocks), block_uid)
     assert node is not None  # the block row exists on this page
     texts = [r["text"] for r in blocks]
     return {
@@ -221,7 +230,7 @@ def get_block(uid: str, db: Db = Depends(get_db)) -> dict[str, object]:
                  "created_at": row["created_at"],
                  "updated_at": row["updated_at"]},
         "block": node,
-        "breadcrumbs": _fetch_ancestors(db, [uid]).get(uid, []),
+        "breadcrumbs": _fetch_ancestors(db, [block_uid]).get(block_uid, []),
         "block_ref_texts": _block_ref_texts(db, texts),
     }
 
@@ -242,10 +251,10 @@ def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 2
         notify.commit_and_nudge_threadpool(request, db)
     blocks = db.execute(
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
-        (page["id"],)).fetchall()
-    groups, total, bl_texts = _backlinks(db, page["id"], bl_offset, bl_limit)
+        (page["page_id"],)).fetchall()
+    groups, total, bl_texts = _backlinks(db, page["page_id"], bl_offset, bl_limit)
     return {
-        "page": dict(page),
+        "page": _page_meta(page),
         "blocks": build_tree(blocks),
         "backlinks": {"groups": groups, "total_pages": total,
                       "offset": bl_offset, "limit": bl_limit},
@@ -272,7 +281,7 @@ def create_page(request: Request, body: CreatePageRequest,
     except ForbiddenTitleError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     notify.commit_and_nudge_threadpool(request, db)
-    return PageMeta.model_validate(dict(page))
+    return _page_meta(page)
 
 
 def _blocker_models(blockers: Sequence[DeleteBlocker]) -> list[DeleteBlockerModel]:
@@ -295,7 +304,7 @@ def delete_preview(title: str,
     page = fetch_page(db, title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")
-    plan = plan_delete(db, page["id"], title)
+    plan = plan_delete(db, page["page_id"], title)
     return DeletePreview(
         links=plan.links, link_pages=plan.link_pages,
         block_refs=plan.block_refs, block_ref_pages=plan.block_ref_pages,
@@ -326,7 +335,7 @@ def delete_page(request: Request, title: str,
         page = fetch_page(db, title)
         if page is None:
             raise HTTPException(status_code=404, detail="page not found")
-        delete_page_unlinking(db, page["id"], title, int(time.time() * 1000))
+        delete_page_unlinking(db, page["page_id"], title, int(time.time() * 1000))
     except DeleteBlockedError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail={
@@ -392,13 +401,13 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
         # sidebar entries without tripping UNIQUE(title).
         target = fetch_page(db, new_title)
         if target is None:
-            rename_page_rows(db, page["id"], title, new_title, now_ms)
+            rename_page_rows(db, page["page_id"], title, new_title, now_ms)
             result = "renamed"
         elif not body.allow_merge:
             raise HTTPException(status_code=409,
                                 detail=f"page {new_title!r} already exists")
         else:
-            merge_page_rows(db, page["id"], target["id"], title, new_title,
+            merge_page_rows(db, page["page_id"], target["page_id"], title, new_title,
                             now_ms)
             result = "merged"
     except BaseException:
@@ -423,7 +432,7 @@ def get_unlinked(title: str, limit: int = 20, offset: int = 0,
                 AND NOT EXISTS (SELECT 1 FROM refs r
                                  WHERE r.src_block_uid = b.uid
                                    AND r.target_page_id = ?)"""
-    params = (phrase_query(title), page["id"], page["id"])
+    params = (phrase_query(title), page["page_id"], page["page_id"])
     total = db.execute(f"SELECT count(*) {where}", params).fetchone()[0]
     rows = db.execute(
         f"""SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
@@ -535,9 +544,9 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
             continue
         blocks = db.execute(
             f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
-            (page["id"],)).fetchall()
+            (page["page_id"],)).fetchall()
         groups, total, bl_texts = _backlinks(
-            db, page["id"], 0, JOURNAL_BACKLINK_PREVIEW)
+            db, page["page_id"], 0, JOURNAL_BACKLINK_PREVIEW)
         texts.extend(r["text"] for r in blocks)
         texts.extend(bl_texts)
         uids.extend(r["uid"] for r in blocks)
@@ -582,12 +591,12 @@ def cleanup_journal(request: Request,
             continue
         blocks = db.execute(
             "SELECT uid, text FROM blocks WHERE page_id = ?",
-            (page["id"],)).fetchall()
+            (page["page_id"],)).fetchall()
         if not is_page_empty([r["text"] for r in blocks]):
             continue
-        if _daily_is_linked(db, page["id"]):
+        if _daily_is_linked(db, page["page_id"]):
             continue
-        delete_page_rows(db, page["id"], title)
+        delete_page_rows(db, page["page_id"], title)
         deleted.append(title)
     db.commit()
     # Guarded (unlike most routes' unconditional nudge): this route is

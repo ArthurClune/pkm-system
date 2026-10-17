@@ -8,10 +8,10 @@ from pkm.refs import CanonicalTitle, canonicalize_title
 
 
 def plain_space_title_canonicalization_active(db: Db) -> bool:
-    row = db.execute(
-        "SELECT value FROM sync_meta WHERE key = 'plain_space_title_canonicalization'"
-    ).fetchone()
-    return row is not None and row[0] == "1"
+    row = db.select_one(
+        "SELECT value AS sync_meta_value FROM sync_meta"
+        " WHERE key = 'plain_space_title_canonicalization'")
+    return row is not None and row["sync_meta_value"] == "1"
 
 
 def read_title(db: Db, title: str) -> CanonicalTitle:
@@ -43,12 +43,17 @@ def set_plain_space_title_canonicalization(
 
 
 def database_generation(db: Db) -> str:
-    row = db.execute("SELECT value FROM sync_meta WHERE key = 'db_generation'").fetchone()
-    return row[0] if row is not None else ""
+    row = db.select_one(
+        "SELECT value AS sync_meta_value FROM sync_meta"
+        " WHERE key = 'db_generation'")
+    return row["sync_meta_value"] if row is not None else ""
 
 
 def rotate_database_generation(db: Db) -> str:
-    generation = db.execute("SELECT lower(hex(randomblob(16)))").fetchone()[0]
+    fresh = db.select_one(
+        "SELECT lower(hex(randomblob(16))) AS sync_meta_value")
+    assert fresh is not None  # a bare SELECT always yields a row
+    generation = fresh["sync_meta_value"]
     db.execute(
         "INSERT INTO sync_meta(key, value) VALUES (?, ?) "
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",

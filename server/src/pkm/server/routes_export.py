@@ -131,7 +131,7 @@ def export_page_markdown(title: str,
         raise HTTPException(status_code=404, detail="page not found")
     blocks = db.execute(
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
-        (page["id"],)).fetchall()
+        (page["page_id"],)).fetchall()
     texts = [r["text"] for r in blocks]
     uid_to_text, query_results = _gather_resolution_data(db, texts)
     body = render_page_resolved(page["title"], build_tree(blocks),

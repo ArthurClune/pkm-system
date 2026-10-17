@@ -66,9 +66,9 @@ def seq_frame(
 ) -> SeqFrame:
     if force and generation is None:
         raise ValueError("forced seq frame requires a generation")
-    seq = SyncSeq(db.execute(
-        "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0])
-    return SeqFrame(seq=seq, force=force, generation=generation)
+    row = db.select_one("SELECT COALESCE(MAX(seq), 0) AS seq FROM changes")
+    assert row is not None  # an aggregate always yields a row
+    return SeqFrame(seq=row["seq"], force=force, generation=generation)
 
 
 async def nudge(request: Request, db: Db) -> None:

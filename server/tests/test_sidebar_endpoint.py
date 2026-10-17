@@ -163,6 +163,12 @@ class _GatedConnection:
             return _SnapshotCursor(cursor, self._gate)
         return cursor
 
+    def select(self, sql, params=()):
+        return self._connection.select(sql, params)
+
+    def select_one(self, sql, params=()):
+        return self._connection.select_one(sql, params)
+
     def commit(self):
         self._connection.commit()
 

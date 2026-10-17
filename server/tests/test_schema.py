@@ -2,6 +2,7 @@ import sqlite3
 
 import pytest
 
+from pkm.database import connect
 from pkm.schema import DDL
 from pkm.server.sync_meta import (database_generation,
                                   plain_space_title_canonicalization_active,
@@ -11,7 +12,7 @@ from pkm.server.sync_meta import (database_generation,
 
 @pytest.fixture()
 def db():
-    con = sqlite3.connect(":memory:")
+    con = connect(":memory:")
     con.executescript(DDL)
     yield con
     con.close()

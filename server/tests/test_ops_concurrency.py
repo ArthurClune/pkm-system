@@ -28,7 +28,7 @@ def test_concurrent_page_delete_cannot_land_inside_the_batch(
         with pytest.raises(sqlite3.OperationalError, match="locked"):
             page = fetch_page(con2, ai_title)
             assert page is not None
-            delete_page_rows(con2, page["id"], ai_title)
+            delete_page_rows(con2, page["page_id"], ai_title)
         con2.close()
         return ctx
 
@@ -59,7 +59,7 @@ def test_concurrent_rename_cannot_resurrect_the_old_title(
         page = fetch_page(con2, ml_title)
         assert page is not None
         with pytest.raises(sqlite3.OperationalError, match="locked"):
-            rename_page_rows(con2, page["id"], ml_title,
+            rename_page_rows(con2, page["page_id"], ml_title,
                              ml_renamed_title, 1_800_000_000_000)
         con2.close()
         return exists

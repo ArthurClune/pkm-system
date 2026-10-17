@@ -134,7 +134,7 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
         if source is None:
             raise RuntimeError(
                 f"perf fixture: {RENAME_SOURCE_TITLE!r} missing before its seeded rename")
-        rename_page_rows(con, source["id"], rename_source_title,
+        rename_page_rows(con, source["page_id"], rename_source_title,
                          rename_target_title, RENAME_APPLIED_AT_MS)
         con.commit()
         con.executemany(

@@ -3,7 +3,8 @@
 // the whole surface is testable without a real Worker or OPFS.
 
 import type { BatchId, SyncSeq } from "../api/brands";
-import { INITIAL_SEQ, mintBatchId, parseSyncSeq } from "../ids";
+import { INITIAL_SEQ, parseSyncSeq } from "../ids";
+import { newBatchId as freshBatchId } from "../uid";
 import type { Snapshot } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import { splitAckedRows } from "./ackedRows";
@@ -300,7 +301,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
   };
   const nowMs = deps.nowMs ?? (() => Date.now());
   const clockMs = deps.clockMs ?? (() => Date.now());
-  const newBatchId = deps.newBatchId ?? (() => mintBatchId(crypto.randomUUID()));
+  const newBatchId = deps.newBatchId ?? freshBatchId;
   const applySnapshotToDb = deps.applySnapshot ?? applySnapshot;
   const gate = createRecoveryGate(
     deps.newRecoveryToken ?? (() => crypto.randomUUID()));

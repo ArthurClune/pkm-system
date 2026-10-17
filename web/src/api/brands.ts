@@ -30,9 +30,9 @@ export type Sha256Hex = string & { readonly __brand: "Sha256Hex" };
 export type SyncSeq = number & { readonly __brand: "SyncSeq" };
 
 // The per-tab sync identity (sync/opQueue.ts `clientId`, minted once per
-// tab through `mintClientId`) and the replay-dedup key an OpBatch shares
-// with the pending_ops row it came from (minted through `mintBatchId`, both
-// in ids.ts, and the server's client/workflows.py `_batch_id`). Both are
+// tab through `newClientId`) and the replay-dedup key an OpBatch shares
+// with the pending_ops row it came from (minted through `newBatchId`, both
+// in uid.ts, and the server's client/workflows.py `_batch_id`). Both are
 // bare uid-shaped strings placed next to each other in one request body
 // (OpBatch.client_id/batch_id) -- distinct brands so the two, or a batch id
 // and a row id, can never swap at a call site. Crosses HTTP through

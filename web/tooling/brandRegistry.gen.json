@@ -234,33 +234,30 @@
       "web/src/grammar/scan.ts",
       "web/src/replica/db.ts",
       "web/src/sync/wire.ts",
-      "web/src/sync/socket.ts",
       "web/src/replica/pendingOps.ts"
     ],
     "PageId": [
       "server/src/pkm/contracts/",
       "server/src/pkm/server/sync_core.py",
-      "web/src/ids.ts",
       "web/src/outline/missingPage.ts",
       "web/src/replica/db.ts",
       "web/src/sync/wire.ts"
     ],
     "SidebarEntryId": [
       "server/src/pkm/contracts/",
-      "web/src/ids.ts",
       "web/src/replica/db.ts",
       "web/src/sync/wire.ts"
     ],
     "ClientId": [
       "server/src/pkm/contracts/",
       "server/src/pkm/client/api.py",
-      "web/src/ids.ts",
-      "web/src/sync/socket.ts"
+      "web/src/uid.ts",
+      "web/src/sync/wire.ts"
     ],
     "BatchId": [
       "server/src/pkm/contracts/",
       "server/src/pkm/client/workflows.py",
-      "web/src/ids.ts",
+      "web/src/uid.ts",
       "web/src/replica/db.ts",
       "web/src/sync/wire.ts"
     ],
@@ -272,7 +269,6 @@
       "web/src/outline/orderIdx.ts",
       "web/src/replica/db.ts",
       "web/src/sync/wire.ts",
-      "web/src/sync/socket.ts",
       "web/src/replica/pendingOps.ts"
     ],
     "SidebarOrderIdx": [
@@ -286,17 +282,15 @@
       "server/src/pkm/assets_core.py",
       "server/src/pkm/title_migration.py",
       "web/src/replica/sha256.ts",
-      "web/src/grammar/tokenize.ts",
       "web/src/replica/db.ts",
-      "web/src/sync/socket.ts",
+      "web/src/sync/wire.ts",
       "web/src/replica/pendingOps.ts"
     ],
     "SyncSeq": [
       "server/src/pkm/contracts/",
       "web/src/ids.ts",
       "web/src/replica/db.ts",
-      "web/src/sync/wire.ts",
-      "web/src/sync/socket.ts"
+      "web/src/sync/wire.ts"
     ],
     "ConversationId": [
       "server/src/pkm/contracts/",

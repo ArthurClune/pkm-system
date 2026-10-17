@@ -77,13 +77,13 @@ WEB_BRANDS: tuple[str, ...] = (
 _CONTRACTS = "server/src/pkm/contracts/"
 # The web's own mint points, shared by several brands.
 # The one place a replica DB row's untyped values become the branded
-# `Columns` types, after `row_problems` has checked each against its shape.
+# `Columns` types. `row_problems` checks each row's shape only under tests;
+# production trusts the `select` typing.
 _WEB_ROWS = "web/src/replica/db.ts"
-# The sync wire: HTTP bodies are read as the generated contract's types,
-# which carry the brands the server minted.
+# The sync wire: HTTP bodies, WebSocket frames and tombstone entity ids are
+# read as the generated contract's types, which carry the brands the server
+# minted.
 _WEB_WIRE = "web/src/sync/wire.ts"
-# The one place a WebSocket frame is narrowed to the notify frame types.
-_WEB_WS = "web/src/sync/socket.ts"
 # A stored op list is shape-checked, then read as `BlockOp[]`.
 _WEB_PENDING_OPS = "web/src/replica/pendingOps.ts"
 MINT_SITES: dict[str, tuple[str, ...]] = {
@@ -99,37 +99,33 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
         # The journal stores every entity id as text; `window_block_uids`
         # parses them back.
         "server/src/pkm/server/sync_core.py",
-        # `parseBlockUid` and `blockUidOfEntity` parse a uid out of text.
+        # `parseBlockUid` parses a uid out of text.
         "web/src/ids.ts",
         # `newUid` mints a random uid.
         "web/src/uid.ts",
         # The tokenizer's block-ref match is uid-shaped by construction.
         "web/src/grammar/scan.ts",
-        _WEB_ROWS, _WEB_WIRE, _WEB_WS, _WEB_PENDING_OPS,
+        _WEB_ROWS, _WEB_WIRE, _WEB_PENDING_OPS,
     ),
     "PageId": (
         _CONTRACTS,
         # `window_page_ids` parses the journal's text entity ids.
         "server/src/pkm/server/sync_core.py",
-        # `pageIdOfEntity` parses a tombstone's text entity id.
-        "web/src/ids.ts",
         # The stand-in page for a failed read carries a sentinel id.
         "web/src/outline/missingPage.ts",
         _WEB_ROWS, _WEB_WIRE,
     ),
     "SidebarEntryId": (
         _CONTRACTS,
-        # `sidebarEntryIdOfEntity` parses a tombstone's text entity id.
-        "web/src/ids.ts",
         _WEB_ROWS, _WEB_WIRE,
     ),
     # `CLIENT_ID` is the CLI's fixed identity on the sync wire; the web mints
-    # one per tab (`mintClientId`).
+    # one per tab (`newClientId`).
     "ClientId": (_CONTRACTS, "server/src/pkm/client/api.py",
-                 "web/src/ids.ts", _WEB_WS),
-    # `_batch_id` mints one id per client batch; so does `mintBatchId`.
+                 "web/src/uid.ts", _WEB_WIRE),
+    # `_batch_id` mints one id per client batch; so does `newBatchId`.
     "BatchId": (_CONTRACTS, "server/src/pkm/client/workflows.py",
-                "web/src/ids.ts", _WEB_ROWS, _WEB_WIRE),
+                "web/src/uid.ts", _WEB_ROWS, _WEB_WIRE),
     # Order keys are assigned where a position becomes a key: the planner
     # (`next_order_idx`, `_land`), the importer (export order) and the
     # conflict/copy effects (a fresh child list starts at 0). The web's
@@ -138,18 +134,18 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
                  "server/src/pkm/importer/rows.py",
                  "server/src/pkm/server/ops_core.py",
                  "web/src/outline/orderIdx.ts",
-                 _WEB_ROWS, _WEB_WIRE, _WEB_WS, _WEB_PENDING_OPS),
+                 _WEB_ROWS, _WEB_WIRE, _WEB_PENDING_OPS),
     # The importer appends sidebar entries one past the current max.
     "SidebarOrderIdx": (_CONTRACTS, "server/src/pkm/importer/sidebar_rows.py",
                         _WEB_ROWS, _WEB_WIRE),
     # assets_core parses and digests; title_migration digests its plan; the
-    # web's `sha256Hex` digests text and the tokenizer reads a link's hash.
+    # web's `sha256Hex` digests text and `parseSha256Hex` reads a hash.
     "Sha256Hex": (_CONTRACTS, "server/src/pkm/assets_core.py",
                   "server/src/pkm/title_migration.py",
-                  "web/src/replica/sha256.ts", "web/src/grammar/tokenize.ts",
-                  _WEB_ROWS, _WEB_WS, _WEB_PENDING_OPS),
+                  "web/src/replica/sha256.ts",
+                  _WEB_ROWS, _WEB_WIRE, _WEB_PENDING_OPS),
     # `parseSyncSeq` reads a cursor out of an untrusted value.
-    "SyncSeq": (_CONTRACTS, "web/src/ids.ts", _WEB_ROWS, _WEB_WIRE, _WEB_WS),
+    "SyncSeq": (_CONTRACTS, "web/src/ids.ts", _WEB_ROWS, _WEB_WIRE),
     # A fresh random id per assistant conversation.
     "ConversationId": (_CONTRACTS, "server/src/pkm/assistant/service.py"),
     # A process-local counter keys each pending confirm; the web narrows the

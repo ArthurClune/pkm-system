@@ -19,27 +19,10 @@
 // old fixed 2 s loop retried a dead link 30 times a minute for as long as the
 // tab was open, foreground or not, which is what keeps a mobile radio out of
 // low power.
-import type { ClientId, SyncSeq } from "../api/brands";
-import type { BlockOp } from "../api/ops";
 import { reconnectDelayMs } from "./reconnectBackoff";
+import { wsFrameOfWire, type WsBatch, type WsSeq } from "./wire";
 
-export interface WsBatch {
-  client_id: ClientId;
-  ts: number;
-  ops: BlockOp[];
-}
-
-/** Post-commit journal nudge (server notify.SeqFrame): the replica pulls
- * the changes feed when one arrives. A forced frame carries the real journal
- * maximum plus the committed generation and pulls even at an equal cursor;
- * it never fabricates a future sequence. Best-effort — the cursor pull on
- * reconnect is the correctness mechanism. */
-export interface WsSeq {
-  type: "seq";
-  seq: SyncSeq;
-  force?: boolean;
-  generation?: string;
-}
+export type { WsBatch, WsSeq } from "./wire";
 
 export interface SocketHandle {
   close(): void;
@@ -186,14 +169,10 @@ export function connectSocket(opts: {
       // Proof of life by evidence: any frame at all is earlier proof than
       // STABLE_MS, so it wins the race.
       if (stableTimer !== null) { clearStableTimer(); priorFailures = 0; }
-      const msg = JSON.parse(String(ev.data)) as unknown;
-      if (!msg) return;
-      if ((msg as WsSeq).type === "seq") {
-        opts.onSeq?.(msg as WsSeq);
-        return;
-      }
-      if (!Array.isArray((msg as WsBatch).ops)) return;
-      opts.onBatch(msg as WsBatch);
+      const msg = wsFrameOfWire(String(ev.data));
+      if (msg === null) return;
+      if (msg.kind === "seq") opts.onSeq?.(msg.frame);
+      else opts.onBatch(msg.frame);
     };
     sock.onclose = () => {
       // A stableTimer still pending means the socket died before proving

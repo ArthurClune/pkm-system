@@ -17,8 +17,8 @@ import { apiPost } from "../api/typedClient";
 import type { PendingBatch, Replica } from "../replica/client";
 import { availabilityOf, isSessionFatal, ReplicaError,
          type ReplicaAvailability } from "../replica/errors";
-import { mintBatchId, mintClientId, mintTicketId } from "../ids";
-import { newRawUid } from "../uid";
+import { mintTicketId } from "../ids";
+import { newBatchId as freshBatchId, newClientId } from "../uid";
 import { listeners } from "./listeners";
 import { readOpsAck, type OpsAckReading } from "./opsAck";
 import { append, clearMarks, createOutbox, forget, headPrecedes, laneHead,
@@ -31,7 +31,7 @@ import { createQueueState, terminalReason, transitionQueue,
          type QueueEvent } from "./queueState";
 import { isTerminalRejection } from "./rejection";
 
-export const clientId = mintClientId(newRawUid());
+export const clientId = newClientId();
 
 export type WriteOutcome =
   | { status: "persisted"; pending: number }
@@ -176,7 +176,7 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
   const post = deps.post ?? defaultPost;
   const queueClientId = deps.clientId ?? clientId;
   const poisonStore = deps.poisonStore ?? defaultPoisonStore;
-  const newBatchId = deps.newBatchId ?? ((): BatchId => mintBatchId(newRawUid()));
+  const newBatchId = deps.newBatchId ?? freshBatchId;
   const postOps = (ops: BlockOp[], batchId: BatchId,
                    seenSeq?: SyncSeq): Promise<OpsAck> =>
     post({

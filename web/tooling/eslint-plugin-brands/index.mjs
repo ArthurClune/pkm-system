@@ -57,6 +57,8 @@ function isExempt(path) {
     || testSupport.some((m) => m(path));
 }
 
+const SET_TYPES = new Set(["Set", "ReadonlySet"]);
+const MAP_TYPES = new Set(["Map", "ReadonlyMap"]);
 const SUBTYPE_KEY = "__canonical";
 const SUBTYPE_BRAND = "CanonicalTitle";
 const SUBTYPE_PARENT = "NormalizedTitle";
@@ -127,8 +129,9 @@ function ownBrand(checker, type) {
 }
 
 // Rule 1's check: the declared type is one of `wanted`, null/undefined, or an
-// array/tuple of those, or a union of such. A union with the base type, or a
-// brand merely nested in a container or object, does not pass.
+// array/tuple/Set of those, a Map or index-signature type keyed by one, or a
+// union of such. A union with the base type, or a brand merely nested in an
+// object, does not pass.
 function declaresBrand(checker, type, wanted) {
   if (type.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) return true;
   if (type.isUnion()) {
@@ -140,6 +143,18 @@ function declaresBrand(checker, type, wanted) {
     const elems = checker.getTypeArguments(type);
     return elems.length > 0
       && elems.every((e) => declaresBrand(checker, e, wanted));
+  }
+  const name = type.symbol?.name;
+  if (SET_TYPES.has(name) || MAP_TYPES.has(name)) {
+    // A Set's element, or a Map's key, is the id; a Map's value is not.
+    const [first] = checker.getTypeArguments(type);
+    return first !== undefined && declaresBrand(checker, first, wanted);
+  }
+  if (type.getProperties().length === 0) {
+    // `Record<BlockUid, X>`: an index signature keyed by the brand.
+    const infos = checker.getIndexInfosOfType(type);
+    return infos.length > 0
+      && infos.every((i) => declaresBrand(checker, i.keyType, wanted));
   }
   return false;
 }

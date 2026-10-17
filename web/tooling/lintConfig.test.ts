@@ -226,6 +226,15 @@ const cases: readonly FixtureCase[] = [
       "}\n" +
       "export function c(uids: BlockUid[] | undefined): void {\n" +
       "  void uids;\n" +
+      "}\n" +
+      "export function d(uids: ReadonlySet<BlockUid>): void {\n" +
+      "  void uids;\n" +
+      "}\n" +
+      "export function e(uid: Map<BlockUid, string>): void {\n" +
+      "  void uid;\n" +
+      "}\n" +
+      "export function f(uid: Record<BlockUid, string>): void {\n" +
+      "  void uid;\n" +
       "}\n",
   },
 ];

@@ -234,9 +234,9 @@ function opsTouchPage(blocks: BlockNode[], ops: BlockOp[],
 }
 
 /** One depth-first pass, stopping at the first uid the batch names. */
-function holdsAny(nodes: BlockNode[], named: ReadonlySet<BlockUid>): boolean {
+function holdsAny(nodes: BlockNode[], uids: ReadonlySet<BlockUid>): boolean {
   for (const n of nodes) {
-    if (named.has(n.uid) || holdsAny(n.children, named)) return true;
+    if (uids.has(n.uid) || holdsAny(n.children, uids)) return true;
   }
   return false;
 }

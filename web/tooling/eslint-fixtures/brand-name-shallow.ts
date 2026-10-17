@@ -6,8 +6,8 @@ export function union(uid: BlockUid | string): void {
 export function mixed(uid: string | { x: BlockUid }): void {
   void uid;
 }
-export function map(uid: Map<BlockUid, string>): void {
-  void uid;
+export function set(uids: ReadonlySet<string>): void {
+  void uids;
 }
 export function tuple(uids: [BlockUid, string]): void {
   void uids;

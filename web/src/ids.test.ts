@@ -1,8 +1,5 @@
 import { expect, it } from "vitest";
-import {
-  blockUidOfEntity, INITIAL_SEQ, mintBatchId, mintClientId, mintTicketId,
-  pageIdOfEntity, parseBlockUid, parseSyncSeq, sidebarEntryIdOfEntity,
-} from "./ids";
+import { INITIAL_SEQ, mintTicketId, parseBlockUid, parseSyncSeq } from "./ids";
 import type { BlockUid } from "./api/brands";
 
 it("parses a well-formed uid", () => {
@@ -34,14 +31,6 @@ it("parses a sync seq only from a finite number", () => {
   expect(INITIAL_SEQ).toBe(0);
 });
 
-it("mints the per-tab and per-batch ids and a numbered ticket id", () => {
-  expect(mintClientId("c1")).toBe("c1");
-  expect(mintBatchId("b1")).toBe("b1");
+it("mints a numbered ticket id", () => {
   expect(mintTicketId(3)).toBe("write-3");
-});
-
-it("reads a tombstone's text entity id as its kind", () => {
-  expect(blockUidOfEntity("abcdef")).toBe("abcdef");
-  expect(pageIdOfEntity("12")).toBe(12);
-  expect(sidebarEntryIdOfEntity("5")).toBe(5);
 });

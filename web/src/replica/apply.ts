@@ -40,7 +40,8 @@ import { foreignKeyViolations, type ReplicaDb, rollbackToSavepoint,
 import { applyLocalOps } from "./localOps";
 import { deleteMeta, getMeta, setMeta,
          setPlainSpaceTitleCanonicalization } from "./meta";
-import { blockUidOfEntity, pageIdOfEntity, sidebarEntryIdOfEntity } from "../ids";
+import { parseBlockUid } from "../ids";
+import { tombstoneIdOfWire, type TombstoneId } from "../sync/wire";
 import { allBatches, deleteBatch } from "./queue";
 import { dropStrandedLocalPages, reconcileActivationPageTitles,
          reconcilePage } from "./reconcile";
@@ -431,27 +432,30 @@ export function assertNoParkedTitles<Id extends PageId | SidebarEntryId>(
 }
 
 /** Deletes one tombstone's row; its FK cascades take what hangs off it. */
-function applyTombstone(db: ReplicaDb, tomb: SyncTombstone): void {
+function applyTombstone(db: ReplicaDb, tomb: TombstoneId): void {
   if (tomb.kind === "block") {
-    // entity_id is one TEXT wire field for three kinds; a block
-    // tombstone's value is a block uid.
-    db.exec("DELETE FROM blocks WHERE uid = ?",
-            [blockUidOfEntity(tomb.entity_id)]);
+    db.exec("DELETE FROM blocks WHERE uid = ?", [tomb.id]);
   } else if (tomb.kind === "page") {
-    db.exec("DELETE FROM pages WHERE id = ?",
-            [pageIdOfEntity(tomb.entity_id)]);
-  } else if (tomb.kind === "sidebar") {
-    db.exec("DELETE FROM sidebar_entries WHERE id = ?",
-            [sidebarEntryIdOfEntity(tomb.entity_id)]);
+    db.exec("DELETE FROM pages WHERE id = ?", [tomb.id]);
   } else {
-    // A kind this build doesn't know (an older replica meeting a kind a
-    // newer server added): skip it rather than fall through to a
-    // sidebar delete, which would destroy an unrelated row. The `never`
-    // assignment makes an unhandled EntityKind a compile error here.
-    const unhandled: never = tomb.kind;
-    console.warn("applyWindow: unknown tombstone kind, skipping",
-                 unhandled);
+    db.exec("DELETE FROM sidebar_entries WHERE id = ?", [tomb.id]);
   }
+}
+
+/** The wire tombstones this build understands. A kind it doesn't know (an
+ * older replica meeting a kind a newer server added) is skipped, never
+ * treated as a sidebar delete, which would destroy an unrelated row;
+ * tombstoneIdOfWire's exhaustive switch makes a new EntityKind a compile
+ * error there. */
+function knownTombstones(tombs: readonly SyncTombstone[]): TombstoneId[] {
+  return tombs.flatMap((tomb) => {
+    const id = tombstoneIdOfWire(tomb);
+    if (id === null) {
+      console.warn("applyWindow: unknown tombstone kind, skipping", tomb.kind);
+      return [];
+    }
+    return [id];
+  });
 }
 
 /** The sync_client_meta key holding the block tombstones a catch-up has
@@ -468,7 +472,11 @@ function recordedBlockTombstones(recorded: string | null,
   if (recorded === null) return [];
   const rec = JSON.parse(recorded) as Record<string, unknown>;
   if (cursor === null || String(rec.cursor) !== cursor) return [];
-  return (rec.uids as string[]).map(blockUidOfEntity);
+  if (!Array.isArray(rec.uids)) return [];
+  return rec.uids.flatMap((u: unknown) => {
+    const uid = typeof u === "string" ? parseBlockUid(u) : null;
+    return uid === null ? [] : [uid];
+  });
 }
 
 /** The block tombstones still owed after a window: those recorded by
@@ -567,15 +575,15 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
   return db.transaction(() => {
     db.exec("PRAGMA defer_foreign_keys = ON");
     const recorded = getMeta(db, DEFERRED_BLOCK_TOMBSTONES);
+    const tombs = knownTombstones(feed.tombstones);
     const owed = owedBlockTombstones(
       recordedBlockTombstones(recorded, getMeta(db, "cursor")), feed.blocks,
-      feed.tombstones.filter((tm) => tm.kind === "block")
-        .map((tm) => blockUidOfEntity(tm.entity_id)));
+      tombs.flatMap((tm) => tm.kind === "block" ? [tm.id] : []));
     const atHead = feed.next_since >= feed.latest_seq;
     const dropped = dropAppliedPending(db, feed.applied_batches, droppable);
     pruneReplayBatches(db);
     const freed = rewind(db, "pending");
-    for (const tomb of feed.tombstones) {
+    for (const tomb of tombs) {
       if (tomb.kind !== "block") applyTombstone(db, tomb);
     }
     const parkedPages = parkTakenTitles(db, "pages", feed.pages);
@@ -585,7 +593,7 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
     dropWindowRecords(db, { uids: [...feed.blocks.map((b) => b.uid), ...owed],
                             pageIds: feed.pages.map((p) => p.id) });
     if (atHead) {
-      for (const u of owed) applyTombstone(db, { kind: "block", entity_id: u });
+      for (const id of owed) applyTombstone(db, { kind: "block", id });
       // only acked batches' records remain: the pending ones were rewound
       for (const [title, id] of rewind(db, "all")) freed.set(title, id);
     }

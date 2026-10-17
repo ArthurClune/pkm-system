@@ -13,7 +13,9 @@ import { useOutline, type Outline } from "./useOutline";
 vi.mock("../uid", () => {
   let n = 0;
   const next = () => `n${++n}`;
-  return { newUid: next, newRawUid: next };
+  return {
+    newUid: next, newRawUid: next, newClientId: next, newBatchId: next,
+  };
 });
 
 function Harness({ pageTitle, initial, onReady }: {

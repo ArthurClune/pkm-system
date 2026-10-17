@@ -5,7 +5,7 @@ status: in-progress
 type: feature
 priority: normal
 created_at: 2026-10-16T18:03:46Z
-updated_at: 2026-10-16T18:38:02Z
+updated_at: 2026-10-17T21:43:01Z
 ---
 
 A type checker cannot catch a GoodlinksId passed through a str parameter (pkm-6rx1). Add a brand registry naming, per brand, its mint sites and the parameter/field names that must carry it. Two rules: (1) a parameter or field with a registered name must use the brand (line-level opt-out for untrusted route params that are parsed); (2) the brand constructor / `as Brand` cast appears only in its mint files and tests. Server: Python AST rule in the commit-time check being added alongside the comment check (bean ids / line numbers in comments). Web: eslint no-restricted-syntax selectors generated from the same registry, with lintConfig fixtures. Must also run from pytest and pnpm verify, not only the commit hook. Wait for the comment-check work to land, then build into its framework.
@@ -33,3 +33,8 @@ Plan: docs/superpowers/plans/2026-10-17-brand-check.md
 - [x] Task 12: ESLint brands plugin
 - [x] Task 13: fix every web violation
 - [ ] Task 14: web docs, gates, final review
+
+
+## Status 2026-10-17
+- Phase 1 (Tasks 1-9) merged to local main as 466c6a5d (not pushed, not deployed).
+- Phase 2 (Tasks 10-13) done on feat/brand-check-web; Task 14 docs, gates and final review done; the merge is held: Arthur decided pkm-78r0 (no brand-rule exemptions for tooling, the perf harness or tests) and the first four items of pkm-e9q8 (plugin walk-arounds) land on the branch first.

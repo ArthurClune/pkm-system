@@ -139,6 +139,14 @@ CAST_SITES: tuple[str, ...] = (
 # lint treats them as tests, exempt from the name, mint and cast rules.
 TEST_SUPPORT: tuple[str, ...] = (
     "server/src/pkm/test_data/",
+    # Web test support: hand-built rows, arbitraries and in-memory fakes
+    # that only tests and the property gate import.
+    "web/src/test-helpers.ts",
+    "web/src/props/",
+    "web/src/replica/replayArbs.ts",
+    "web/src/sync/memReplica.ts",
+    # The perf harness is test tooling and never ships.
+    "web/tooling/perf/",
 )
 
 # Glob patterns for files where a line may carry `# brand: untrusted --

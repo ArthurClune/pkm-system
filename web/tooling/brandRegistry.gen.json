@@ -286,7 +286,12 @@
     ]
   },
   "testSupport": [
-    "server/src/pkm/test_data/"
+    "server/src/pkm/test_data/",
+    "web/src/test-helpers.ts",
+    "web/src/props/",
+    "web/src/replica/replayArbs.ts",
+    "web/src/sync/memReplica.ts",
+    "web/tooling/perf/"
   ],
   "optOutFiles": [
     "server/src/pkm/**/routes_*.py",

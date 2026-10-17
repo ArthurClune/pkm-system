@@ -3,7 +3,7 @@
 // brand rules (docs/architecture/enforced-checks.md#brand-rules):
 //   * brands/name-carries-brand: a parameter, property signature or class
 //     property whose name means a brand (uid, pageId, sha ...) must be
-//     declared with a type that contains that brand.
+//     declared with exactly that brand (or null, or an array of it).
 //   * brands/no-brand-assertion: `as`/`<T>` toward a type that contains a
 //     brand is reported outside the brand's mint sites.
 // Both read tooling/brandRegistry.gen.json, generated from the server's
@@ -84,15 +84,46 @@ function brandsOf(checker, type) {
         return f.hasNoDefaultLib || f.isDeclarationFile
           && /node_modules|typescript\/lib/.test(f.fileName);
       });
-      if (!foreign) {
+      // A lib mapped type (Partial, Pick, Record ...) takes its properties
+      // from the caller's type argument, so it is always walked.
+      const mapped = (t.objectFlags & ts.ObjectFlags.Mapped) !== 0;
+      if (!foreign || mapped) {
         for (const prop of t.getProperties()) {
           walk(checker.getTypeOfSymbol(prop));
         }
+        for (const info of checker.getIndexInfosOfType(t)) walk(info.type);
       }
+      t.aliasTypeArguments?.forEach(walk);
     }
   };
   walk(type);
   return found;
+}
+
+// The brand literal a type itself carries (not one nested inside it).
+function ownBrand(checker, type) {
+  const brand = type.getProperty("__brand");
+  if (!brand) return null;
+  const bt = checker.getTypeOfSymbol(brand);
+  return bt.isStringLiteral() ? bt.value : null;
+}
+
+// Rule 1's check: the declared type is one of `wanted`, null/undefined, or an
+// array/tuple of those, or a union of such. A union with the base type, or a
+// brand merely nested in a container or object, does not pass.
+function declaresBrand(checker, type, wanted) {
+  if (type.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) return true;
+  if (type.isUnion()) {
+    return type.types.every((m) => declaresBrand(checker, m, wanted));
+  }
+  const own = ownBrand(checker, type);
+  if (own !== null) return wanted.includes(own);
+  if (checker.isArrayType(type) || checker.isTupleType(type)) {
+    const elems = checker.getTypeArguments(type);
+    return elems.length > 0
+      && elems.every((e) => declaresBrand(checker, e, wanted));
+  }
+  return false;
 }
 
 function servicesOf(context) {
@@ -149,8 +180,7 @@ const nameCarriesBrand = {
       const wanted = registry.names[name];
       if (!wanted) return;
       const type = checker.getTypeAtLocation(tsNode);
-      const have = cachedBrands(checker, type);
-      if (wanted.some((b) => have.has(b))) return;
+      if (declaresBrand(checker, type, wanted)) return;
       if (optedOut(context.sourceCode, anchor)) {
         if (mayOptOut) return;
         context.report({
@@ -217,7 +247,7 @@ const noBrandAssertion = {
       }
       const type = checker.getTypeAtLocation(esTreeNodeToTSNodeMap.get(target));
       const outside = [...cachedBrands(checker, type)].filter(
-        (b) => !(mintSites.get(b) ?? []).some((m) => m(path)),
+        (b) => !isMintSite(b, path),
       );
       if (outside.length === 0) return;
       const parsers = outside.map((b) => PARSERS[b]).filter(Boolean);
@@ -233,6 +263,12 @@ const noBrandAssertion = {
     return { TSAsExpression: check, TSTypeAssertion: check };
   },
 };
+
+function isMintSite(brand, path) {
+  return (mintSites.get(brand) ?? []).some((m) => m(path));
+}
+
+export { isExempt, isMintSite, pathMatcher, repoPath };
 
 export default {
   rules: {

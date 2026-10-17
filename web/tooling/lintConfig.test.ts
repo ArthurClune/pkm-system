@@ -8,6 +8,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
+import {
+  isExempt,
+  isMintSite,
+  pathMatcher,
+  repoPath,
+} from "./eslint-plugin-brands/index.mjs";
 
 const toolingDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = dirname(toolingDir);
@@ -196,6 +202,32 @@ const cases: readonly FixtureCase[] = [
       "  return uid;\n" +
       "}\n",
   },
+  {
+    file: "brand-assertion-mapped.ts",
+    rule: "brands/no-brand-assertion",
+    count: 4,
+    corrected:
+      'import type { BlockUid } from "../../src/api/brands";\n' +
+      "export function keep(v: Record<string, BlockUid>): unknown {\n" +
+      "  return v;\n" +
+      "}\n",
+  },
+  {
+    file: "brand-name-shallow.ts",
+    rule: "brands/name-carries-brand",
+    count: 5,
+    corrected:
+      'import type { BlockUid } from "../../src/api/brands";\n' +
+      "export function a(uid: BlockUid | null): void {\n" +
+      "  void uid;\n" +
+      "}\n" +
+      "export function b(uids: readonly BlockUid[]): void {\n" +
+      "  void uids;\n" +
+      "}\n" +
+      "export function c(uids: BlockUid[] | undefined): void {\n" +
+      "  void uids;\n" +
+      "}\n",
+  },
 ];
 
 // Each ESLint spawn here takes ~2s under coverage instrumentation, close
@@ -229,4 +261,57 @@ describe("eslint flat config", () => {
         .toHaveLength(0);
     }
   }, ESLINT_TIMEOUT_MS);
+});
+
+describe("brands plugin paths", () => {
+  const violating =
+    'import type { BlockUid } from "../api/brands";\n' +
+    "export function f(uid: string, x: string): BlockUid {\n" +
+    "  void uid;\n" +
+    "  return x as BlockUid;\n" +
+    "}\n";
+  const brandIds = async (rel: string): Promise<string[]> => {
+    const results = await makeLinter().lintText(violating, {
+      filePath: join(webRoot, rel),
+    });
+    return results
+      .flatMap((r) => r.messages.map((m) => m.ruleId ?? ""))
+      .filter((id) => id.startsWith("brands/"));
+  };
+
+  it("reports the violating text in a production file", async () => {
+    expect(await brandIds("src/sync/opQueue.ts")).toEqual([
+      "brands/name-carries-brand",
+      "brands/no-brand-assertion",
+    ]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("exempts test-support files", async () => {
+    expect(await brandIds("src/sync/memReplica.ts")).toEqual([]);
+    expect(await brandIds("src/replica/replayArbs.ts")).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("normalises absolute paths against the repo root", () => {
+    const abs = (rel: string): string => join(webRoot, rel);
+    expect(repoPath(abs("src/ids.ts"))).toBe("web/src/ids.ts");
+    expect(isExempt(repoPath(abs("src/props/ops/a.ts")))).toBe(true);
+    expect(isExempt(repoPath(abs("src/foo.test.ts")))).toBe(true);
+    expect(isExempt(repoPath(abs("tooling/perf/x.ts")))).toBe(true);
+    expect(isExempt(repoPath(abs("src/ids.ts")))).toBe(false);
+    expect(isExempt(repoPath(abs("tooling/eslint-fixtures/a.ts"))))
+      .toBe(false);
+  });
+
+  it("matches mint sites per brand only", () => {
+    expect(isMintSite("BlockUid", "server/src/pkm/planning.py")).toBe(true);
+    expect(isMintSite("SyncSeq", "server/src/pkm/planning.py")).toBe(false);
+    expect(isMintSite("SyncSeq", "server/src/pkm/contracts/x.py"))
+      .toBe(true);
+  });
+
+  it("globs: ** crosses directories, * does not", () => {
+    const m = pathMatcher("a/**/routes_*.py");
+    expect(m("a/b/c/routes_x.py")).toBe(true);
+    expect(m("a/b/routes_x/y.py")).toBe(false);
+  });
 });

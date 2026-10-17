@@ -69,12 +69,19 @@ export function catalogNames(
 }
 
 export interface WrapOptions {
-  /** Check every selected row against the `Columns` vocabulary. */
+  /** `false` skips the row check, which otherwise runs under test. */
   checkRows?: boolean;
 }
 
+/** The row check exists only in test mode: the mode test folds to a constant
+ * at build time, so the production worker bundle drops `rowCheck` and the
+ * generated vocabulary behind it. */
+const ROW_CHECK = import.meta.env.MODE === "test"
+  ? { rowProblems, rowCheckMessage }
+  : null;
+
 export function wrapSqlite(raw: Oo1DbLike, opts: WrapOptions = {}): ReplicaDb {
-  const checkRows = opts.checkRows ?? import.meta.env.MODE === "test";
+  const rowCheck = opts.checkRows === false ? null : ROW_CHECK;
   let inTxn = false;
   const db: ReplicaDb = {
     exec(sql, params) {
@@ -82,11 +89,11 @@ export function wrapSqlite(raw: Oo1DbLike, opts: WrapOptions = {}): ReplicaDb {
     },
     select<K extends keyof Columns = never>(sql: string, params?: SqlValue[]) {
       const rows = raw.selectObjects(sql, params);
-      if (checkRows) {
+      if (rowCheck !== null) {
         for (const row of rows) {
-          const problems = rowProblems(row);
+          const problems = rowCheck.rowProblems(row);
           if (problems.length > 0) {
-            throw new Error(rowCheckMessage(sql, problems));
+            throw new Error(rowCheck.rowCheckMessage(sql, problems));
           }
         }
       }

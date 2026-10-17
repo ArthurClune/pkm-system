@@ -10,7 +10,7 @@ import { sha256Hex } from "./sha256";
 // "sqlite3_step() rc= ..." lines via testDb.ts, plus the wrapper's); each test
 // that provokes one spies and asserts it.
 const quietWarn = () => vi.spyOn(console, "warn").mockImplementation(() => undefined);
-afterEach(() => { vi.restoreAllMocks(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 describe("sha256Hex", () => {
   test("matches known vectors", () => {
@@ -200,5 +200,23 @@ describe("meta", () => {
     setMeta(t.db, "cursor", "43");
     expect(getMeta(t.db, "cursor")).toBe("43");
     t.close();
+  });
+});
+
+describe("the row check outside test mode", () => {
+  const badRows = { exec: () => undefined, selectObjects: () => [{ nope: 1 }] };
+
+  test("is on under test and throws on a bad row", async () => {
+    const { wrapSqlite } = await import("./db");
+    expect(() => wrapSqlite(badRows).select("SELECT 1 AS nope"))
+      .toThrow(/not a registered row key/);
+  });
+
+  test("is not built into a production module, so a bad row passes", async () => {
+    vi.stubEnv("MODE", "production");
+    vi.resetModules();
+    const { wrapSqlite } = await import("./db");
+    expect(wrapSqlite(badRows).select("SELECT 1 AS nope")).toEqual([{ nope: 1 }]);
+    vi.resetModules();
   });
 });

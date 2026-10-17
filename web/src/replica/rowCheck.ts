@@ -5,9 +5,17 @@ import { BRAND_SHAPES, COLUMN_META, type ColumnMeta } from "./columns.gen";
 
 type Cell = string | number | null | Uint8Array | boolean | undefined;
 
-const SHAPES = new Map<string, RegExp>();
-for (const [brand, { pattern }] of Object.entries(BRAND_SHAPES)) {
-  if (pattern !== null) SHAPES.set(brand, new RegExp(`^(?:${pattern})$`));
+// Built on first use so importing this module has no side effect and a
+// bundle that never calls `rowProblems` can drop it.
+let shapes: Map<string, RegExp> | null = null;
+function shapeOf(brand: string): RegExp | undefined {
+  if (shapes === null) {
+    shapes = new Map();
+    for (const [name, { pattern }] of Object.entries(BRAND_SHAPES)) {
+      if (pattern !== null) shapes.set(name, new RegExp(`^(?:${pattern})$`));
+    }
+  }
+  return shapes.get(brand);
 }
 
 function baseProblem(key: string, base: string, value: Cell): string | null {
@@ -48,7 +56,7 @@ export function rowProblems(row: Record<string, Cell>): string[] {
         + "normalise it in the query or fix the data");
       continue;
     }
-    const shape = meta.brand === null ? undefined : SHAPES.get(meta.brand);
+    const shape = meta.brand === null ? undefined : shapeOf(meta.brand);
     if (shape !== undefined && !shape.test(String(value))) {
       problems.push(`${key}: ${JSON.stringify(value)} is not a valid ${meta.brand}`);
     }

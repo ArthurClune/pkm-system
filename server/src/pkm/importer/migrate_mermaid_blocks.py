@@ -71,12 +71,13 @@ class Plan:
 
 
 def _load_subtree(con: Db, parent_uid: str) -> tuple[_Node, ...]:
-    rows = con.execute(
+    rows = con.select(
         "SELECT uid, text FROM blocks WHERE parent_uid = ? ORDER BY order_idx",
         (parent_uid,),
-    ).fetchall()
+    )
     return tuple(
-        _Node(text=text, children=_load_subtree(con, uid)) for uid, text in rows
+        _Node(text=r["text"], children=_load_subtree(con, r["uid"]))
+        for r in rows
     )
 
 
@@ -87,12 +88,12 @@ def _subtree_uids(con: Db, parent_uid: str) -> set[str]:
     uids: set[str] = set()
     frontier = [parent_uid]
     while frontier:
-        children = con.execute(
+        children = con.select(
             "SELECT uid FROM blocks WHERE parent_uid = ?", (frontier.pop(),)
-        ).fetchall()
-        for (uid,) in children:
-            uids.add(uid)
-            frontier.append(uid)
+        )
+        for child in children:
+            uids.add(child["uid"])
+            frontier.append(child["uid"])
     return uids
 
 
@@ -100,9 +101,9 @@ def _all_block_ref_sources(con: Db) -> dict[str, set[str]]:
     """Map every ((uid)) target found in any block's text in the whole
     database to the set of source block uids that reference it."""
     sources: dict[str, set[str]] = {}
-    for uid, text in con.execute("SELECT uid, text FROM blocks").fetchall():
-        for target in extract(text).block_refs:
-            sources.setdefault(target, set()).add(uid)
+    for row in con.select("SELECT uid, text FROM blocks"):
+        for target in extract(row["text"]).block_refs:
+            sources.setdefault(target, set()).add(row["uid"])
     return sources
 
 
@@ -111,8 +112,9 @@ def plan_migration(con: Db) -> Plan:
     ref_sources = _all_block_ref_sources(con)
     candidate_fences: list[tuple[str, str]] = []
     component_descendants: dict[str, set[str]] = {}
-    rows = con.execute("SELECT uid, text FROM blocks ORDER BY rowid").fetchall()
-    for uid, text in rows:
+    rows = con.select("SELECT uid, text FROM blocks ORDER BY rowid")
+    for row in rows:
+        uid, text = row["uid"], row["text"]
         if not is_mermaid_trigger(text):
             continue  # skip the tree fetch below for the common case
         children = _load_subtree(con, uid)
@@ -138,10 +140,10 @@ def convert_candidates(con: Db,
                         candidates: Sequence[tuple[str, str]]) -> None:
     """Apply the conversions. Caller owns the transaction (commits/rolls
     back) and must have PRAGMA foreign_keys=ON set on `con`."""
-    mermaid_page = con.execute(
-        "SELECT id FROM pages WHERE title = ?", (MERMAID_PAGE_TITLE,)
-    ).fetchone()
-    mermaid_page_id = mermaid_page[0] if mermaid_page else None
+    mermaid_page = con.select_one(
+        "SELECT id AS page_id FROM pages WHERE title = ?",
+        (MERMAID_PAGE_TITLE,))
+    mermaid_page_id = mermaid_page["page_id"] if mermaid_page else None
 
     for uid, fence in candidates:
         con.execute("UPDATE blocks SET text = ? WHERE uid = ?", (fence, uid))

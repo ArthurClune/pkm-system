@@ -30,9 +30,13 @@ def import_sidebar_entries(con: Db) -> int:
     preserving SIDEBAR_ENTRIES order. Returns the number inserted. Caller
     owns the transaction (commits/rolls back)."""
     con.execute(SIDEBAR_ENTRIES_DDL)  # ensure table exists on older dbs
-    existing = {r[0] for r in con.execute("SELECT title FROM sidebar_entries")}
-    next_order = con.execute(
-        "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM sidebar_entries").fetchone()[0]
+    existing: set[str] = {
+        r["title"] for r in con.select("SELECT title FROM sidebar_entries")}
+    latest = con.select_one(
+        "SELECT COALESCE(MAX(order_idx) + 1, 0) AS next_sidebar_order_idx"
+        " FROM sidebar_entries")
+    assert latest is not None
+    next_order = latest["next_sidebar_order_idx"]
     rows = missing_entry_rows(existing, SIDEBAR_ENTRIES, next_order)
     con.executemany(
         "INSERT INTO sidebar_entries(title, order_idx) VALUES (?, ?)", rows)

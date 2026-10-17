@@ -83,16 +83,16 @@ def _backfill_block_refs(con: Db) -> None:
     single commit: a failure aborts startup rather than leaving a
     half-filled index that silently undercounts. The write path owns all
     rows after the marker is set."""
-    done = con.execute(
-        "SELECT value FROM sync_meta WHERE key = 'block_refs_backfilled'"
-    ).fetchone()
-    if done is not None and done[0] == "1":
+    done = con.select_one(
+        "SELECT value AS sync_meta_value FROM sync_meta"
+        " WHERE key = 'block_refs_backfilled'")
+    if done is not None and done["sync_meta_value"] == "1":
         return
-    for uid, text in con.execute("SELECT uid, text FROM blocks"):
-        targets = extract(text).block_refs
+    for row in con.select("SELECT uid, text FROM blocks"):
+        targets = extract(row["text"]).block_refs
         if targets:
             con.executemany("INSERT OR IGNORE INTO block_refs VALUES (?,?)",
-                            [(uid, t) for t in targets])
+                            [(row["uid"], t) for t in targets])
     con.execute(
         "INSERT INTO sync_meta(key, value) VALUES ('block_refs_backfilled','1')"
         " ON CONFLICT(key) DO UPDATE SET value = '1'")

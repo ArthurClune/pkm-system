@@ -176,22 +176,23 @@ def export_graph(db: Db, live_assets_dir: Path,
     _remove_abandoned_staging(export_dir)
     (export_dir / ".gitignore").write_text(GITIGNORE, encoding="utf-8")
 
-    texts = [r["text"] for r in db.execute("SELECT text FROM blocks")]
+    texts = [r["text"] for r in db.select("SELECT text FROM blocks")]
     uid_to_text: dict[str, str] = {}
     for uid in collect_block_ref_uids(texts):
-        row = db.execute("SELECT text FROM blocks WHERE uid = ?",
-                         (uid,)).fetchone()
+        row = db.select_one("SELECT text FROM blocks WHERE uid = ?", (uid,))
         if row is not None:
             uid_to_text[uid] = row["text"]
 
     counts = {"pages": 0, "journal": 0, "assets_pruned": 0}
     rendered: dict[tuple[str, str], str] = {}  # (kind, filename) -> body
     taken: set[str] = set()
-    for page in db.execute("SELECT id, title FROM pages ORDER BY title"):
-        rows = db.execute(
-            "SELECT uid, parent_uid, order_idx, text, heading, collapsed,"
+    for page in db.select(
+            "SELECT id AS page_id, title FROM pages ORDER BY title"):
+        rows = db.select(
+            "SELECT uid, parent_uid, order_idx, text,"
+            " NULLIF(heading, 0) AS heading, collapsed,"
             " created_at, updated_at, view_type FROM blocks WHERE page_id = ?",
-            (page["id"],)).fetchall()
+            (page["page_id"],))
         body = render_page(page["title"], build_tree(rows), uid_to_text)
         day = date_for_title(page["title"])
         if day is not None:
@@ -202,8 +203,8 @@ def export_graph(db: Db, live_assets_dir: Path,
             counts["pages"] += 1
 
     wanted: dict[Sha256Hex, tuple[str, int]] = {
-        Sha256Hex(row["sha256"]): (safe_filename(row["filename"]), row["size"])
-        for row in db.execute("SELECT sha256, filename, size FROM assets")}
+        row["sha256"]: (safe_filename(row["filename"]), row["size"])
+        for row in db.select("SELECT sha256, filename, size FROM assets")}
     previously_present = ({d.name for d in assets_dir.iterdir() if d.is_dir()}
                           if assets_dir.is_dir() else set())
     counts["assets_pruned"] = len(previously_present - wanted.keys())

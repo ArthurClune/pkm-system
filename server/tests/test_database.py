@@ -101,3 +101,20 @@ def test_backup_to_copies(tmp_path: Path) -> None:
     db.backup_to(dest)
     copy = connect(dest)
     assert copy.select("SELECT text FROM blocks") == [{"text": "hello world"}]
+
+
+def test_read_only_with_uri_refuses_a_target_that_could_write(
+        tmp_path: Path) -> None:
+    _db(tmp_path).close()
+    with pytest.raises(ValueError, match="read_only"):
+        connect(f"file:{tmp_path / 't.db'}", read_only=True, uri=True)
+
+
+def test_read_only_path_with_uri_metacharacters(tmp_path: Path) -> None:
+    odd = tmp_path / "a?b#c%d"
+    odd.mkdir()
+    _db(odd).close()
+    ro = connect(odd / "t.db", read_only=True)
+    assert ro.select("SELECT uid FROM blocks")
+    with pytest.raises(sqlite3.OperationalError):
+        ro.execute("DELETE FROM blocks")

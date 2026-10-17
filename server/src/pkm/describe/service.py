@@ -143,7 +143,7 @@ class DescribeService:
         if not force:
             sql += " AND describe_error IS NULL"
         queued = 0
-        for row in db.execute(sql).fetchall():
+        for row in db.select(sql):
             if self._enqueue_if_eligible(row["sha256"], row["mime"], row["size"]):
                 queued += 1
         return queued
@@ -179,9 +179,9 @@ class DescribeService:
         assert self._describer is not None
         con = open_db(self._config.db_path)
         try:
-            row = con.execute(
+            row = con.select_one(
                 "SELECT mime, size, description FROM assets WHERE sha256 = ?",
-                (sha,)).fetchone()
+                (sha,))
             if row is None or row["description"] is not None:
                 return
             action = describe_action(row["mime"], row["size"])

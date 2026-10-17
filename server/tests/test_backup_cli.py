@@ -20,7 +20,7 @@ def data_dir(tmp_path):
     con.execute("INSERT INTO pages VALUES (1, 'Alpha', NULL, NULL)")
     con.execute("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
                 " heading, collapsed, created_at, updated_at) VALUES "
-                "('u1', 1, NULL, 0, 'hello', NULL, 0, NULL, NULL)")
+                "('blk001', 1, NULL, 0, 'hello', NULL, 0, NULL, NULL)")
     con.commit()
     con.close()
     (d / "assets").mkdir()

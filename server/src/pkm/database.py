@@ -111,8 +111,13 @@ def _check_message(sql: str, problems: list[str]) -> str:
 def connect(path: Path | str, *, read_only: bool = False, uri: bool = False,
             check_same_thread: bool = True) -> Db:
     """Open `path` as a `Db`. The raw connection keeps sqlite3.Row rows
-    while `execute` still hands out cursors; `select` ignores the factory."""
-    target = f"file:{path}?mode=ro" if read_only and not uri else str(path)
+    while `execute` still hands out cursors; `select` ignores the factory.
+    `read_only` builds its own `mode=ro` URI from `path`, so it cannot be
+    combined with a caller-supplied URI."""
+    if read_only and uri:
+        raise ValueError("read_only builds its own URI; pass a plain path")
+    target = (Path(path).resolve().as_uri() + "?mode=ro"
+              if read_only else str(path))
     con = sqlite3.connect(target, uri=uri or read_only,
                           check_same_thread=check_same_thread)
     con.row_factory = sqlite3.Row

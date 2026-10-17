@@ -1,20 +1,28 @@
 # pattern: Imperative Shell
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Callable
 
+from pkm.contracts.ops import SyncSeq
+from pkm.database import Db
 from pkm.refs import CanonicalTitle, canonicalize_title
 
 
-def plain_space_title_canonicalization_active(db: sqlite3.Connection) -> bool:
-    row = db.execute(
-        "SELECT value FROM sync_meta WHERE key = 'plain_space_title_canonicalization'"
-    ).fetchone()
-    return row is not None and row[0] == "1"
+def plain_space_title_canonicalization_active(db: Db) -> bool:
+    row = db.select_one(
+        "SELECT value AS sync_meta_value FROM sync_meta"
+        " WHERE key = 'plain_space_title_canonicalization'")
+    return row is not None and row["sync_meta_value"] == "1"
 
 
-def read_title(db: sqlite3.Connection, title: str) -> CanonicalTitle:
+def latest_seq(db: Db) -> SyncSeq:
+    """The journal head: the highest `changes.seq`, 0 for an empty journal."""
+    row = db.select_one("SELECT COALESCE(MAX(seq), 0) AS seq FROM changes")
+    assert row is not None  # an aggregate always yields a row
+    return row["seq"]
+
+
+def read_title(db: Db, title: str) -> CanonicalTitle:
     """Canonicalize a title arriving as a lookup key (URL path, query
     param, request body). Every title used to key a `pages` row goes
     through this, so routes never compare a raw/normalized title against
@@ -22,7 +30,7 @@ def read_title(db: sqlite3.Connection, title: str) -> CanonicalTitle:
     return title_reader(db)(title)
 
 
-def title_reader(db: sqlite3.Connection) -> Callable[[str], CanonicalTitle]:
+def title_reader(db: Db) -> Callable[[str], CanonicalTitle]:
     """`read_title` for a request that canonicalises several titles: the
     flag is read once, not once per title. The sole general mint point for
     `CanonicalTitle` -- `canonicalize_title` alone only produces
@@ -33,7 +41,7 @@ def title_reader(db: sqlite3.Connection) -> Callable[[str], CanonicalTitle]:
 
 
 def set_plain_space_title_canonicalization(
-    db: sqlite3.Connection, active: bool
+    db: Db, active: bool
 ) -> None:
     db.execute(
         "INSERT INTO sync_meta(key, value) VALUES (?, ?) "
@@ -42,13 +50,18 @@ def set_plain_space_title_canonicalization(
     )
 
 
-def database_generation(db: sqlite3.Connection) -> str:
-    row = db.execute("SELECT value FROM sync_meta WHERE key = 'db_generation'").fetchone()
-    return row[0] if row is not None else ""
+def database_generation(db: Db) -> str:
+    row = db.select_one(
+        "SELECT value AS sync_meta_value FROM sync_meta"
+        " WHERE key = 'db_generation'")
+    return row["sync_meta_value"] if row is not None else ""
 
 
-def rotate_database_generation(db: sqlite3.Connection) -> str:
-    generation = db.execute("SELECT lower(hex(randomblob(16)))").fetchone()[0]
+def rotate_database_generation(db: Db) -> str:
+    fresh = db.select_one(
+        "SELECT lower(hex(randomblob(16))) AS sync_meta_value")
+    assert fresh is not None  # a bare SELECT always yields a row
+    generation = fresh["sync_meta_value"]
     db.execute(
         "INSERT INTO sync_meta(key, value) VALUES (?, ?) "
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",

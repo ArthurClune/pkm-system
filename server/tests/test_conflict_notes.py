@@ -1,6 +1,6 @@
 import pytest
 
-from pkm.contracts.ops import MoveOp, SetHeadingOp, SetViewTypeOp
+from pkm.contracts.ops import BlockUid, MoveOp, SetHeadingOp, SetViewTypeOp
 from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        conflict_label, deleted_header_text,
                                        existing_page_label,
@@ -44,12 +44,12 @@ def test_existing_page_label_falls_back_when_a_link_would_not_read_back():
 
 
 def test_headers_name_the_page_and_embed_or_name_the_block():
-    assert overwritten_header_text("Paper", "uid_b3") == (
+    assert overwritten_header_text("Paper", BlockUid("uid_b3")) == (
         "[[conflict]] [[Paper]] — overwritten by ((uid_b3))")
     assert orphan_header_text("Old", False) == (
         "[[conflict]] `Old` (page not found) — edit to a block the server"
         " no longer has")
-    assert live_block_header_text("Paper", "uid_b3") == (
+    assert live_block_header_text("Paper", BlockUid("uid_b3")) == (
         "[[conflict]] [[Paper]] — ((uid_b3))")
 
 
@@ -66,7 +66,7 @@ def test_block_missing_note_names_what_was_skipped():
 
 
 def test_move_notes_say_why_the_block_stayed_put():
-    assert move_parent_missing_note("ghost_p1") == (
+    assert move_parent_missing_note(BlockUid("ghost_p1")) == (
         "move skipped: target parent ghost_p1 not found")
     assert MOVE_CYCLE_NOTE == "move skipped: would create a cycle"
 

@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 from conftest import TEST_PASSWORD, make_config, seed_db
 from fastapi.testclient import TestClient
 
+from rawread import read
 from pkm.contracts.daily import title_for_date
 from pkm.server.app import create_app
 from pkm.server.config import Config
@@ -113,7 +114,7 @@ def assert_unique_keys(db_path: Path) -> None:
     """No two siblings (same page, same parent) share an order_idx: the
     write path's shift-then-place keeps keys unique, never contiguous."""
     with read_db(db_path) as con:
-        dupes = con.execute(
+        dupes = read(con,
             "SELECT page_id, parent_uid, order_idx, COUNT(*) FROM blocks"
             " GROUP BY page_id, parent_uid, order_idx"
             " HAVING COUNT(*) > 1").fetchall()

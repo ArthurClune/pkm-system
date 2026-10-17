@@ -5,6 +5,7 @@
 // Chrome, clamping and dismissal come from the shared Popover shell.
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import type { BlockUid } from "../api/brands";
 import { apiGet } from "../api/typedClient";
 import type { BacklinkGroup } from "../api/payloads";
 import { pagePath } from "../paths";
@@ -12,7 +13,7 @@ import { Popover } from "../Popover";
 import { BacklinkGroupList } from "./BacklinkGroupList";
 
 export function BlockRefBacklinksPopover({ uid, x, y, onClose }: {
-  uid: string; x: number; y: number; onClose: () => void;
+  uid: BlockUid; x: number; y: number; onClose: () => void;
 }) {
   const navigate = useNavigate();
   const [groups, setGroups] = useState<BacklinkGroup[] | null>(null);

@@ -1,8 +1,7 @@
 # pattern: Functional Core
-"""Pydantic models describing the JSON route contracts. Most are declared as
-`response_model=` on read routes so the shapes reach OpenAPI and, from there,
-web/src/api/types.d.ts. The routes still return plain dicts of the same shape;
-these models are the contract, not a payload redesign.
+"""Pydantic models describing the JSON route contracts. Every JSON route
+returns one of them (declared as `response_model=` or by return annotation),
+so the shapes reach OpenAPI and, from there, web/src/api/types.d.ts.
 
 They are also what `PkmClient` validates every response with, so a payload
 that drifts from this file fails on the client with a named field rather
@@ -21,7 +20,8 @@ from pydantic import (BaseModel, BeforeValidator, Field,
 from pkm.changed import ChangeStatus
 from pkm.contracts.brands import brand
 from pkm.contracts.ops import (BatchId, BlockUid, HeadingLevel, OpKind, OrderIdx,
-                               PageId, Sha256Hex, SidebarEntryId, ViewType)
+                               PageId, Sha256Hex, SidebarEntryId,
+                               SidebarOrderIdx, SyncSeq, ViewType)
 from pkm.goodlinks import GoodlinksId
 from pkm.refs import CanonicalTitle, RefKind
 
@@ -130,7 +130,7 @@ class DeleteBlockerModel(BaseModel):
     change the block's leading `Name::` attribute (as for `[[page]]:: v`),
     turning it into a property block. `residual`: the rewritten text would
     still reference the page or one of its blocks."""
-    uid: str
+    uid: BlockUid
     page_title: str
     text: str
     reason: Literal["query", "used_as_attribute", "attribute", "residual"]
@@ -391,17 +391,7 @@ class SyncPage(BaseModel):
 class SyncSidebarEntry(BaseModel):
     id: SidebarEntryId
     title: CanonicalTitle
-    order_idx: int
-
-
-# The changes-journal sequence number (`changes.seq`), distinct from a
-# plain int so a reset counter or a local lane seq can never pass as a
-# sync cursor. Minted only where a route reads MAX(seq) from the changes
-# table (routes_sync.py, routes_ops.py, sync_core.dedupe_window,
-# notify.seq_frame); the web's twin brand is `SyncSeq` in
-# web/src/api/brands.ts.
-SyncSeq = NewType("SyncSeq", int)
-brand(SyncSeq)
+    order_idx: SidebarOrderIdx
 
 
 # Matches the changes table's CHECK(kind IN (...)) in schema.py.
@@ -565,20 +555,10 @@ class TitleMigrationApplyResponse(BaseModel):
 
 # -- Write acks ----------------------------------------------------------
 #
-# `AssetDeleteAck` is NOT declared as `response_model=` on its route, and
-# should not be: no generated client reads it, so attaching it would add a
-# component to the published OpenAPI schema for nothing. It exists because
-# the CLI/MCP client does read it -- `applied` is printed as "applied N
-# ops" on the sibling ack below -- and reading it through a model is what
-# makes the read type-checked. tests/test_client_contracts.py asserts it
-# still matches what its live route returns, which is the thing a
-# `response_model` would otherwise have enforced.
-#
-# `OpsAck` IS the `response_model` of POST /api/ops: the web reads its
-# `seq` and `skipped` through the generated TypeScript type, and a
-# replayed stored ack passes through it too, so an ack stored before
-# `seq` existed reaches the wire as `seq: null` (the client reads that as
-# unknown, so refetches).
+# `OpsAck` is the response of POST /api/ops: the web reads its `seq` and
+# `skipped` through the generated TypeScript type, and a replayed stored
+# ack passes through it too, so an ack stored before `seq` existed reaches
+# the wire as `seq: null` (the client reads that as unknown, so refetches).
 
 SkipReason = Literal["block_not_found", "parent_not_found", "cycle",
                     "page_deleted"]
@@ -619,3 +599,13 @@ class AssetDeleteAck(BaseModel):
     """DELETE /api/assets/{sha256} (routes_assets.py)."""
     deleted: bool
     refs_removed: int
+
+
+class OkAck(BaseModel):
+    """The body of a write route that has nothing to report but success."""
+    ok: bool
+
+
+class JournalCleanupResponse(BaseModel):
+    """POST /api/journal/cleanup: the empty daily pages it removed."""
+    deleted: list[CanonicalTitle]

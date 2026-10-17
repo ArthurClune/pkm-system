@@ -7,38 +7,39 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Literal, Mapping
 
-from pkm.contracts.ops import Sha256Hex
+from pkm.contracts.ops import (BlockUid, OrderIdx, PageId, Sha256Hex,
+                               SidebarEntryId, SidebarOrderIdx)
 from pkm.refs import (CanonicalTitle, RefKind, is_blank_title,
                       target_canonical_title, title_syntax_reason)
 
 
 @dataclass(frozen=True)
 class InventoryPage:
-    page_id: int
+    page_id: PageId
     title: CanonicalTitle
 
 
 @dataclass(frozen=True)
 class InventoryBlock:
-    uid: str
-    page_id: int
-    parent_uid: str | None
-    order_idx: int
+    uid: BlockUid
+    page_id: PageId
+    parent_uid: BlockUid | None
+    order_idx: OrderIdx
     text: str
 
 
 @dataclass(frozen=True)
 class InventoryRef:
-    src_block_uid: str
-    target_page_id: int
+    src_block_uid: BlockUid
+    target_page_id: PageId
     kind: RefKind
 
 
 @dataclass(frozen=True)
 class InventorySidebar:
-    sidebar_id: int
+    sidebar_id: SidebarEntryId
     title: CanonicalTitle
-    order_idx: int
+    order_idx: SidebarOrderIdx
 
 
 @dataclass(frozen=True)
@@ -55,7 +56,7 @@ TitleMigrationBlockerReason = Literal["all_space", "forbidden_syntax"]
 
 @dataclass(frozen=True)
 class TitleMigrationBlocker:
-    page_id: int
+    page_id: PageId
     title: CanonicalTitle
     reason: TitleMigrationBlockerReason
 

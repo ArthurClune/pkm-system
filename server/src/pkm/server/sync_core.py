@@ -50,7 +50,8 @@ from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from typing import NamedTuple, TypeVar
 
-from pkm.contracts.responses import EntityKind, SyncSeq
+from pkm.contracts.ops import NO_SEQ, BlockUid, PageId, SyncSeq
+from pkm.contracts.responses import EntityKind
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -83,8 +84,8 @@ class Window:
     tombstoned: frozenset[tuple[EntityKind, str]]
 
 
-def missing_parent_uids(parent_uids: Iterable[str | None],
-                        known: set[str]) -> set[str]:
+def missing_parent_uids(parent_uids: Iterable[K | None],
+                        known: set[K]) -> set[K]:
     """Parent uids referenced but not yet in `known`. `known` is every uid
     already fetched-or-queried this walk (not just found ones) -- callers
     must add the returned set to `known` before computing the next
@@ -106,7 +107,7 @@ def dedupe_window(rows: Sequence[ChangeRow]) -> Window:
     """Rows are seq order."""
     seen: dict[tuple[EntityKind, str], None] = {}  # insertion-ordered set
     deleted_keys: set[tuple[EntityKind, str]] = set()
-    last_seq = SyncSeq(0)
+    last_seq = NO_SEQ
     for seq, kind, entity_id, deleted in rows:
         last_seq = seq
         seen.setdefault((kind, entity_id), None)
@@ -137,3 +138,16 @@ def tombstoned_ids(win: Window, kind: EntityKind) -> list[str]:
     """Ids of `kind` with a delete row in the window, in window order."""
     return [e for k, e in win.entities
             if k == kind and (k, e) in win.tombstoned]
+
+
+# The journal stores every entity id as text; these parse the typed ids back.
+def window_block_uids(win: Window) -> list[BlockUid]:
+    return [BlockUid(e) for k, e in win.entities if k == "block"]
+
+
+def window_page_ids(win: Window) -> list[PageId]:
+    return [PageId(int(e)) for k, e in win.entities if k == "page"]
+
+
+def tombstoned_page_ids(win: Window) -> list[PageId]:
+    return [PageId(int(e)) for e in tombstoned_ids(win, "page")]

@@ -7,7 +7,6 @@ recursively to plain text and executes {{query: ...}} macros, per
 pkm.export.resolve -- unlike the whole-db zip, which reuses the nightly
 backup's Core renderer unchanged (raw query command, one-level,
 parens-wrapped ref resolution)."""
-import sqlite3
 import zipfile
 from io import BytesIO
 from pathlib import Path
@@ -16,6 +15,7 @@ from urllib.parse import quote
 import pytest
 from app_seed import seeded_client
 
+from pkm.database import connect
 from pkm.server import routes_export
 from pkm.server.sync_meta import set_plain_space_title_canonicalization
 
@@ -50,7 +50,7 @@ def test_export_page_markdown_404s_for_missing_page(client):
 
 def test_export_page_markdown_normalizes_routable_control_whitespace(
         client, seeded_config):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
         (99, "Ctrl Title", 100, 100),
@@ -73,7 +73,7 @@ def test_export_page_markdown_normalizes_routable_control_whitespace(
 def test_export_page_markdown_canonicalizes_padded_title_when_plain_space_migration_is_active(
         client, seeded_config):
     canonical = "Legacy Export"
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
         (99, canonical, 100, 100),
@@ -97,7 +97,7 @@ def test_export_page_markdown_canonicalizes_padded_title_when_plain_space_migrat
 def test_export_page_markdown_preserves_inactive_padded_exact_reads(
         client, seeded_config):
     padded = " Legacy Export "
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
         (99, padded, 100, 100),
@@ -195,7 +195,7 @@ def test_export_page_markdown_query_operand_is_canonicalised(tmp_path):
              None, 0, None, None),
         ],
         refs=[("uid_m1", 2, "tag")])
-    con = sqlite3.connect(tmp_path / "pkm.sqlite3")
+    con = connect(tmp_path / "pkm.sqlite3")
     set_plain_space_title_canonicalization(con, True)
     con.commit()
     con.close()

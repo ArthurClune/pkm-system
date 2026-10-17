@@ -119,7 +119,8 @@ def head_commit(repo: Path) -> str:
 
 
 def _base_env() -> dict[str, str]:
-    return {**os.environ, "TZ": TZ}
+    # the row check is off: perf measures what production runs
+    return {**os.environ, "TZ": TZ, "PKM_ROW_CHECK": "0"}
 
 
 def _python(worktree: Path) -> list[str]:

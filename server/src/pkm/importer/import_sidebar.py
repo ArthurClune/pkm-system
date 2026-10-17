@@ -10,9 +10,9 @@ to run against a live WAL-mode server."""
 from __future__ import annotations
 
 import argparse
-import sqlite3
 from pathlib import Path
 
+from pkm.database import Db, connect
 from pkm.importer.sidebar_rows import missing_entry_rows
 from pkm.schema import SIDEBAR_ENTRIES_DDL
 
@@ -25,14 +25,18 @@ SIDEBAR_ENTRIES = (
 )
 
 
-def import_sidebar_entries(con: sqlite3.Connection) -> int:
+def import_sidebar_entries(con: Db) -> int:
     """Insert any SIDEBAR_ENTRIES titles missing from sidebar_entries,
     preserving SIDEBAR_ENTRIES order. Returns the number inserted. Caller
     owns the transaction (commits/rolls back)."""
     con.execute(SIDEBAR_ENTRIES_DDL)  # ensure table exists on older dbs
-    existing = {r[0] for r in con.execute("SELECT title FROM sidebar_entries")}
-    next_order = con.execute(
-        "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM sidebar_entries").fetchone()[0]
+    existing: set[str] = {
+        r["title"] for r in con.select("SELECT title FROM sidebar_entries")}
+    latest = con.select_one(
+        "SELECT COALESCE(MAX(order_idx) + 1, 0) AS next_sidebar_order_idx"
+        " FROM sidebar_entries")
+    assert latest is not None
+    next_order = latest["next_sidebar_order_idx"]
     rows = missing_entry_rows(existing, SIDEBAR_ENTRIES, next_order)
     con.executemany(
         "INSERT INTO sidebar_entries(title, order_idx) VALUES (?, ?)", rows)
@@ -47,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     db_path = Path(args.data_dir) / "pkm.sqlite3"
 
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     try:
         con.execute("BEGIN")
         inserted = import_sidebar_entries(con)

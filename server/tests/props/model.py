@@ -213,8 +213,9 @@ class PageDelete:
     def rewrite(self, text: str) -> tuple[str, bool, dict[str, str]]:
         """A referencing text as the delete leaves it, whether unlinking
         changed it, and the copies it inlined."""
-        applied = {u: self.copies[u] for u in extract(text).block_refs
-                   if u in self.copies}
+        applied: dict[str, str] = {u: self.copies[u]
+                                   for u in extract(text).block_refs
+                                   if u in self.copies}
         inlined = inline_refs(text, applied)
         new = unlink_titles(inlined, {self.title})
         return new, new != inlined, applied

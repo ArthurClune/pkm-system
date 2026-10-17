@@ -198,34 +198,35 @@ def get_service(request: Request) -> AssistantService:
 
 
 @router.get("/api/assistant/models", response_model=AssistantModels)
-def list_models(service: AssistantService = Depends(get_service)) -> dict[str, object]:
+def list_models(service: AssistantService = Depends(get_service)) -> AssistantModels:
     """Models the picker may offer; glm appears only when a z.ai key is
     configured, so the UI can hide rather than error on it. The default is
     glm when offered, sonnet otherwise."""
-    return {"models": service.available_models, "default": service.default_model}
+    return AssistantModels(models=service.available_models,
+                           default=service.default_model)
 
 
 @router.post("/api/assistant/conversations", response_model=AssistantConversation)
 async def create_conversation(
     body: CreateConversationRequest, service: AssistantService = Depends(get_service)
-) -> dict[str, object]:
+) -> AssistantConversation:
     try:
         cid, model = await service.create(body.model)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ConversationLimitError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return {"id": cid, "model": model}
+    return AssistantConversation(id=cid, model=model)
 
 
 @router.post("/api/assistant/conversations/{conversation_id}/messages")
 async def send_message(
-    conversation_id: str,
+    conversation_id: ConversationId,
     body: SendMessageRequest,
     service: AssistantService = Depends(get_service),
 ) -> StreamingResponse:
     try:
-        stream = service.send(ConversationId(conversation_id), body.text)
+        stream = service.send(conversation_id, body.text)
     except UnknownConversationError as exc:
         raise HTTPException(status_code=404, detail="unknown conversation") from exc
     except BusyError as exc:
@@ -240,22 +241,22 @@ async def send_message(
 
 @router.post("/api/assistant/conversations/{conversation_id}/confirm", response_model=AssistantAck)
 async def confirm_tool(
-    conversation_id: str,
+    conversation_id: ConversationId,
     body: ConfirmRequestBody,
     service: AssistantService = Depends(get_service),
-) -> dict[str, object]:
+) -> AssistantAck:
     try:
-        service.confirm(ConversationId(conversation_id), body.confirm_id, body.allow)
+        service.confirm(conversation_id, body.confirm_id, body.allow)
     except UnknownConversationError as exc:
         raise HTTPException(status_code=404, detail="unknown conversation") from exc
-    return {"ok": True}
+    return AssistantAck(ok=True)
 
 
 async def delete_conversation(
-    conversation_id: str, service: AssistantService = Depends(get_service)
-) -> dict[str, object]:
-    await service.delete(ConversationId(conversation_id))
-    return {"ok": True}
+    conversation_id: ConversationId, service: AssistantService = Depends(get_service)
+) -> AssistantAck:
+    await service.delete(conversation_id)
+    return AssistantAck(ok=True)
 
 
 # Registered under both DELETE (the RESTful shape) and POST (because

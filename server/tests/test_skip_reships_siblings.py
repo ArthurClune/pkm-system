@@ -4,6 +4,7 @@ the server shifted nothing, so only journal rows for them bring the
 replica's keys back to the server's."""
 import pytest
 
+from rawread import read
 from pkm.server.db import open_db
 
 PAGE = "Sib Page"
@@ -42,7 +43,7 @@ def _feed_since(client, seq):
 def _journalled_since(seeded_config, seq):
     con = open_db(seeded_config.db_path)
     try:
-        return [(r["entity_id"], r["deleted"]) for r in con.execute(
+        return [(r["entity_id"], r["deleted"]) for r in read(con,
             "SELECT entity_id, deleted FROM changes WHERE seq > ?"
             " AND kind = 'block' ORDER BY seq", (seq,))]
     finally:
@@ -55,15 +56,15 @@ def _block_state(seeded_config):
     one of them.)"""
     con = open_db(seeded_config.db_path)
     try:
-        blocks = [tuple(r) for r in con.execute(
+        blocks = [tuple(r) for r in read(con,
             "SELECT * FROM blocks WHERE uid LIKE 'sib\\_%' ESCAPE '\\'"
             " ORDER BY uid")]
-        refs = [tuple(r) for r in con.execute(
+        refs = [tuple(r) for r in read(con,
             "SELECT * FROM refs WHERE src_block_uid LIKE 'sib\\_%' ESCAPE '\\'"
             " ORDER BY 1, 2, 3")]
-        block_refs = [tuple(r) for r in con.execute(
+        block_refs = [tuple(r) for r in read(con,
             "SELECT * FROM block_refs ORDER BY 1, 2")]
-        fts = [tuple(r) for r in con.execute(
+        fts = [tuple(r) for r in read(con,
             "SELECT rowid, text FROM blocks_fts WHERE blocks_fts MATCH 'text'"
             " ORDER BY rowid")]
         return blocks, refs, block_refs, fts
@@ -191,7 +192,7 @@ def test_title_naming_no_page_reships_nothing_and_creates_no_page(
     assert journalled & {"sib_s1", "sib_s3", "sib_s4"} == set()
     con = open_db(seeded_config.db_path)
     try:
-        assert con.execute("SELECT 1 FROM pages WHERE title = ?",
+        assert read(con, "SELECT 1 FROM pages WHERE title = ?",
                            ("Not A Page Yet",)).fetchone() is None
     finally:
         con.close()
@@ -237,7 +238,7 @@ def test_orphan_move_under_a_gone_parent_reships_nothing(client, seeded_config):
 def _page_id(seeded_config, title):
     con = open_db(seeded_config.db_path)
     try:
-        return con.execute("SELECT id FROM pages WHERE title = ?",
+        return read(con, "SELECT id FROM pages WHERE title = ?",
                            (title,)).fetchone()["id"]
     finally:
         con.close()
@@ -246,7 +247,7 @@ def _page_id(seeded_config, title):
 def _tombstone_pages(seeded_config, uid):
     con = open_db(seeded_config.db_path)
     try:
-        return [r["page_id"] for r in con.execute(
+        return [r["page_id"] for r in read(con,
             "SELECT page_id FROM changes WHERE entity_id = ? AND deleted = 1"
             " ORDER BY seq", (uid,))]
     finally:

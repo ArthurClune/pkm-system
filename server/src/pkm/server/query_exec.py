@@ -13,13 +13,14 @@ its own typed groups.
 """
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from pkm.database import Db
 from pkm.refs import CanonicalTitle
-from pkm.schema import SchemaRow
-from pkm.server.query import CanonicalQueryNode, QueryNode, parse_query
+from pkm.rows import Row
+from pkm.server.query import (CanonicalQueryNode, QueryNode, page_operands,
+                              parse_query)
 from pkm.server.sync_meta import title_reader
 
 # Excludes a query's own matching blocks from its results: a block whose
@@ -31,16 +32,23 @@ _SOURCE_FILTER = (
 )
 
 
-def parse_canonical_query(db: sqlite3.Connection,
+def parse_canonical_query(db: Db,
                           expr: str) -> CanonicalQueryNode:
     """`parse_query`, with every [[Page]] operand canonicalised. Operands
     are compared against `pages.title`, so `[[ Foo ]]` (spaces inside the
     brackets) must reach the plan as the canonical "Foo", the page the same
     [[ Foo ]] link resolves to. Raises `QueryParseError` like
-    `parse_query`. The sole mint point for `CanonicalQueryNode` -- `plan_sql`
+    `parse_query`. The general mint point for `CanonicalQueryNode` -- `plan_sql`
     takes nothing else, so a tree that skipped this never reaches SQL."""
     node = parse_query(expr)
     return CanonicalQueryNode(_canonical_titles(title_reader(db), node))
+
+
+def page_queries(node: CanonicalQueryNode) -> dict[str, CanonicalQueryNode]:
+    """Each [[Page]] operand of a canonical tree as a tree of its own, keyed
+    by its title: canonical because it is drawn out of `node`."""
+    return {title: CanonicalQueryNode(QueryNode("page", title))
+            for title in page_operands(node)}
 
 
 def _canonical_titles(canonical: Callable[[str], CanonicalTitle],
@@ -60,28 +68,30 @@ class QueryMatches:
     the plan independently of `rows` so that a caller which ever limits the
     rows still reports the full match count."""
     total: int
-    rows: Sequence[SchemaRow]
+    rows: Sequence[Row]
 
 
-def count_matches(db: sqlite3.Connection, sql: str,
+def count_matches(db: Db, sql: str,
                   params: Sequence[str]) -> int:
     """How many blocks a plan matches, its own macro blocks excluded."""
-    return db.execute(
-        f"""SELECT count(*) FROM ({sql}) m
+    row = db.select_one(
+        f"""SELECT count(*) AS n FROM ({sql}) m
               JOIN blocks b ON b.uid = m.uid
              WHERE {_SOURCE_FILTER}""",
-        params).fetchone()[0]
+        params)
+    assert row is not None  # an aggregate always yields a row
+    return row["n"]
 
 
-def execute_plan(db: sqlite3.Connection, sql: str,
+def execute_plan(db: Db, sql: str,
                  params: Sequence[str]) -> QueryMatches:
     """Total and matching rows for a `query.plan_sql` plan."""
     total = count_matches(db, sql, params)
-    rows = db.execute(
+    rows = db.select(
         f"""SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
               FROM ({sql}) m JOIN blocks b ON b.uid = m.uid
               JOIN pages p ON p.id = b.page_id
              WHERE {_SOURCE_FILTER}
              ORDER BY p.title, b.uid""",
-        params).fetchall()
+        params)
     return QueryMatches(total=total, rows=rows)

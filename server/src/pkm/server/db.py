@@ -2,12 +2,12 @@
 """SQLite connection helper and FastAPI dependencies."""
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
 from fastapi import Request
 
+from pkm.database import Db, connect
 from pkm.refs import extract
 from pkm.schema import BLOCKS_CHG_AD_TRIGGER, DDL
 from pkm.server.config import Config
@@ -20,20 +20,19 @@ from pkm.server.config import Config
 BUSY_TIMEOUT_MS = 5000
 
 
-def _ensure_schema_migrations(con: sqlite3.Connection) -> None:
+def _ensure_schema_migrations(con: Db) -> None:
     """Apply additive migrations that cannot be expressed with IF NOT EXISTS."""
-    columns = {row[1] for row in con.execute("PRAGMA table_info(blocks)")}
+    columns = con.table_columns("blocks")
     if "view_type" not in columns:
         con.execute(
             "ALTER TABLE blocks ADD COLUMN view_type TEXT "
             "CHECK(view_type IN ('numbered','document'))")
-    asset_columns = {row[1] for row in con.execute("PRAGMA table_info(assets)")}
+    asset_columns = con.table_columns("assets")
     for col, decl in (("description", "TEXT"), ("described_at", "INTEGER"),
                       ("describe_error", "TEXT")):
         if col not in asset_columns:
             con.execute(f"ALTER TABLE assets ADD COLUMN {col} {decl}")
-    rewrite_columns = {
-        row[1] for row in con.execute("PRAGMA table_info(block_rewrites)")}
+    rewrite_columns = con.table_columns("block_rewrites")
     if "kind" not in rewrite_columns:
         con.execute(
             "ALTER TABLE block_rewrites ADD COLUMN kind TEXT NOT NULL"
@@ -41,23 +40,21 @@ def _ensure_schema_migrations(con: sqlite3.Connection) -> None:
     _ensure_changes_page_id(con)
 
 
-def _ensure_changes_page_id(con: sqlite3.Connection) -> None:
+def _ensure_changes_page_id(con: Db) -> None:
     """Bring a journal that predates `changes.page_id` up to date: the
     column (NULL on every existing row) and a delete trigger that fills
     it. The trigger is checked on its own, not through the column, so a
     startup interrupted between the two finishes the job on the next one."""
-    columns = {row[1] for row in con.execute("PRAGMA table_info(changes)")}
+    columns = con.table_columns("changes")
     if "page_id" not in columns:
         con.execute("ALTER TABLE changes ADD COLUMN page_id INTEGER")
-    trigger = con.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'trigger'"
-        " AND name = 'blocks_chg_ad'").fetchone()
-    if trigger is None or "page_id" not in trigger[0]:
+    trigger = con.trigger_sql("blocks_chg_ad")
+    if trigger is None or "page_id" not in trigger:
         con.execute("DROP TRIGGER IF EXISTS blocks_chg_ad")
         con.execute(BLOCKS_CHG_AD_TRIGGER)
 
 
-def _backfill_created_at(con: sqlite3.Connection) -> None:
+def _backfill_created_at(con: Db) -> None:
     """Fill NULL blocks.created_at from the block's page, for
     blocks that predate created_at existing (old Roam imports lacking
     :create/time). MIN() of the page's created_at and the block's own
@@ -78,7 +75,7 @@ def _backfill_created_at(con: sqlite3.Connection) -> None:
         " WHERE created_at IS NULL AND updated_at IS NOT NULL")
 
 
-def _backfill_block_refs(con: sqlite3.Connection) -> None:
+def _backfill_block_refs(con: Db) -> None:
     """One-time historical catch-up. Blocks written before
     ops_apply maintained block_refs are indexed exactly once, guarded by a
     sync_meta marker rather than "table is empty" -- an empty table is a
@@ -86,16 +83,16 @@ def _backfill_block_refs(con: sqlite3.Connection) -> None:
     single commit: a failure aborts startup rather than leaving a
     half-filled index that silently undercounts. The write path owns all
     rows after the marker is set."""
-    done = con.execute(
-        "SELECT value FROM sync_meta WHERE key = 'block_refs_backfilled'"
-    ).fetchone()
-    if done is not None and done[0] == "1":
+    done = con.select_one(
+        "SELECT value AS sync_meta_value FROM sync_meta"
+        " WHERE key = 'block_refs_backfilled'")
+    if done is not None and done["sync_meta_value"] == "1":
         return
-    for uid, text in con.execute("SELECT uid, text FROM blocks"):
-        targets = extract(text).block_refs
+    for row in con.select("SELECT uid, text FROM blocks"):
+        targets = extract(row["text"]).block_refs
         if targets:
             con.executemany("INSERT OR IGNORE INTO block_refs VALUES (?,?)",
-                            [(uid, t) for t in targets])
+                            [(row["uid"], t) for t in targets])
     con.execute(
         "INSERT INTO sync_meta(key, value) VALUES ('block_refs_backfilled','1')"
         " ON CONFLICT(key) DO UPDATE SET value = '1'")
@@ -123,7 +120,7 @@ def init_db(path: Path) -> None:
     migrations above it is guarded to be a no-op past the first run.
     _backfill_block_refs() catches up the `((uid))` index once,
     guarded by a sync_meta marker."""
-    con = sqlite3.connect(path)
+    con = connect(path)
     try:
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA recursive_triggers=ON")
@@ -136,9 +133,8 @@ def init_db(path: Path) -> None:
         con.close()
 
 
-def open_db(path: Path) -> sqlite3.Connection:
-    con = sqlite3.connect(path, check_same_thread=False)
-    con.row_factory = sqlite3.Row
+def open_db(path: Path) -> Db:
+    con = connect(path, check_same_thread=False)
     con.execute("PRAGMA foreign_keys=ON")
     con.execute("PRAGMA recursive_triggers=ON")
     con.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
@@ -149,7 +145,7 @@ def get_config(request: Request) -> Config:
     return request.app.state.config
 
 
-def get_db(request: Request) -> Iterator[sqlite3.Connection]:
+def get_db(request: Request) -> Iterator[Db]:
     con = open_db(request.app.state.config.db_path)
     try:
         yield con

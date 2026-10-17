@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from rawread import read
 from pkm.backup.__main__ import main
 from pkm.backup.rotation import backup_name
 from pkm.schema import DDL
@@ -20,7 +21,7 @@ def data_dir(tmp_path):
     con.execute("INSERT INTO pages VALUES (1, 'Alpha', NULL, NULL)")
     con.execute("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
                 " heading, collapsed, created_at, updated_at) VALUES "
-                "('u1', 1, NULL, 0, 'hello', NULL, 0, NULL, NULL)")
+                "('blk001', 1, NULL, 0, 'hello', NULL, 0, NULL, NULL)")
     con.commit()
     con.close()
     (d / "assets").mkdir()
@@ -43,7 +44,7 @@ def test_backup_creates_snapshot_export_and_commit(data_dir, tmp_path):
                  "--backups-dir", str(backups)]) == 0
     dated = backups / "sqlite" / backup_name(date.today())
     con = sqlite3.connect(f"file:{dated}?mode=ro", uri=True)
-    assert con.execute("SELECT COUNT(*) FROM blocks").fetchone()[0] == 1
+    assert read(con, "SELECT COUNT(*) FROM blocks").fetchone()[0] == 1
     con.close()
     assert (backups / "export" / "pages" / "Alpha.md").is_file()
     assert git_commits(backups / "export") == 1

@@ -2,23 +2,24 @@
 """Full-text search (query evaluation joins in Task 8)."""
 from __future__ import annotations
 
-import sqlite3
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from pkm.changed import ChangedWindowError, classify, local_tz, parse_window
 from pkm.contracts.responses import (
-    ChangedPayload, GroupsPayload, QueryPayload, SearchPayload, TitlesPayload)
+    ChangedPayload, GroupsPayload, QueryPayload, SearchBlockHit,
+    SearchPageHit, SearchPayload, TitlesPayload)
+from pkm.database import Db
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.fts import escape_fts_query
-from pkm.server.grouping import group_by_page, group_changed
+from pkm.server.grouping import ChangedRow, group_by_page, group_changed
 from pkm.refs import CanonicalTitle
 from pkm.server.query import (
-    CanonicalQueryNode, QueryNode, page_operands, plan_sql, QueryParseError)
+    plan_sql, QueryParseError)
 from pkm.server.query_exec import (
-    count_matches, execute_plan, parse_canonical_query)
+    count_matches, execute_plan, page_queries, parse_canonical_query)
 from pkm.server.sync_meta import read_title
 from pkm.todo import is_todo
 
@@ -27,17 +28,20 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 @router.get("/api/search", response_model=SearchPayload)
 def search(q: str = "", limit: int = 20, exact: bool = False,
-           db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+           db: Db = Depends(get_db)) -> SearchPayload:
     limit = max(1, min(limit, 100))
     if not q.strip():
-        return {"pages": [], "blocks": []}
+        return SearchPayload(pages=[], blocks=[])
     match = escape_fts_query(q, exact)
-    pages = [dict(r) for r in db.execute(
-        """SELECT p.id, p.title FROM pages_fts f
+    pages = [SearchPageHit(id=r["page_id"], title=r["title"])
+             for r in db.select(
+        """SELECT p.id AS page_id, p.title FROM pages_fts f
             JOIN pages p ON p.id = f.rowid
            WHERE pages_fts MATCH ? ORDER BY rank LIMIT ?""",
-        (match, limit)).fetchall()]
-    blocks = [dict(r) for r in db.execute(
+        (match, limit))]
+    blocks = [SearchBlockHit(uid=r["uid"], page_title=r["page_title"],
+                             snippet=r["snippet"])
+              for r in db.select(
         """SELECT b.uid, p.title AS page_title,
                   snippet(blocks_fts, 0, '<mark>', '</mark>', '…', 16)
                     AS snippet
@@ -45,13 +49,13 @@ def search(q: str = "", limit: int = 20, exact: bool = False,
              JOIN blocks b ON b.rowid = f.rowid
              JOIN pages p ON p.id = b.page_id
             WHERE blocks_fts MATCH ? ORDER BY rank LIMIT ?""",
-        (match, limit)).fetchall()]
-    return {"pages": pages, "blocks": blocks}
+        (match, limit))]
+    return SearchPayload(pages=pages, blocks=blocks)
 
 
 @router.get("/api/query", response_model=QueryPayload)
 def run_query(expr: str, expand: bool = False,
-              db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+              db: Db = Depends(get_db)) -> QueryPayload:
     try:
         node = parse_canonical_query(db, expr)
         sql, params = plan_sql(node, expand)
@@ -61,22 +65,19 @@ def run_query(expr: str, expand: bool = False,
     # counted the same way as the whole expression's total, keyed by the
     # canonical title each operand resolved to (not the raw [[...]] text),
     # so a hint for "[[ Foo ]]" reads the same as one for "[[Foo]]".
-    # page_operands(node) draws titles out of the already-canonical node, so
-    # wrapping each single-page tree built from one is a genuine mint, not a
-    # bypass of parse_canonical_query.
     ref_counts = {
-        title: count_matches(
-            db, *plan_sql(CanonicalQueryNode(QueryNode("page", title)), expand))
-        for title in page_operands(node)
+        title: count_matches(db, *plan_sql(operand, expand))
+        for title, operand in page_queries(node).items()
     }
     matches = execute_plan(db, sql, params)
-    return {"groups": group_by_page(matches.rows), "total": matches.total,
-            "ref_counts": ref_counts}
+    return QueryPayload.model_validate(
+        {"groups": group_by_page(matches.rows), "total": matches.total,
+         "ref_counts": ref_counts})
 
 
 @router.get("/api/titles", response_model=TitlesPayload)
 def titles(q: str = "", limit: int = 10,
-           db: sqlite3.Connection = Depends(get_db)) -> TitlesPayload:
+           db: Db = Depends(get_db)) -> TitlesPayload:
     """Page-title completion for the editor's [[ / # popup."""
     limit = max(1, min(limit, 50))
     needle = q.strip()
@@ -85,15 +86,14 @@ def titles(q: str = "", limit: int = 10,
     esc = (needle.replace("\\", "\\\\")
                  .replace("%", "\\%")
                  .replace("_", "\\_"))
-    rows = db.execute(
+    rows = db.select(
         r"""SELECT title FROM pages
              WHERE title LIKE ? ESCAPE '\'
              ORDER BY (CASE WHEN title LIKE ? ESCAPE '\' THEN 0 ELSE 1 END),
                       length(title), title
              LIMIT ?""",
-        (f"%{esc}%", f"{esc}%", limit)).fetchall()
-    return TitlesPayload(
-        titles=[CanonicalTitle(r["title"]) for r in rows])
+        (f"%{esc}%", f"{esc}%", limit))
+    return TitlesPayload(titles=[r["title"] for r in rows])
 
 
 def _page_filter(title: CanonicalTitle) -> tuple[str, CanonicalTitle]:
@@ -105,7 +105,7 @@ def _page_filter(title: CanonicalTitle) -> tuple[str, CanonicalTitle]:
 
 @router.get("/api/todos", response_model=GroupsPayload)
 def todos(page: str | None = None,
-          db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+          db: Db = Depends(get_db)) -> GroupsPayload:
     """Blocks whose text starts with a {{TODO}} marker, grouped by page.
     SQL narrows to TODO-containing candidates; the shared
     pkm.todo matcher (the grammar's block-start rule, both bracket
@@ -121,15 +121,15 @@ def todos(page: str | None = None,
         sql += clause
         params.append(bound)
     sql += " ORDER BY p.title, b.uid"
-    rows = [r for r in db.execute(sql, params).fetchall()
-            if is_todo(r["text"])]
-    return {"groups": group_by_page(rows), "total": len(rows)}
+    rows = [r for r in db.select(sql, params) if is_todo(r["text"])]
+    return GroupsPayload.model_validate(
+        {"groups": group_by_page(rows), "total": len(rows)})
 
 
 @router.get("/api/changed", response_model=ChangedPayload)
 def changed(since: str, until: str | None = None, page: str | None = None,
            limit: int = 500,
-           db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+           db: Db = Depends(get_db)) -> ChangedPayload:
     """Blocks touched in [since, until), grouped by page in the order
     each page was first touched. `since`/`until` are each
     either a 'YYYY-MM-DD' date (local midnight) or a full ISO datetime
@@ -153,11 +153,16 @@ def changed(since: str, until: str | None = None, page: str | None = None,
         clause, bound = _page_filter(read_title(db, page))
         sql += clause
         params.append(bound)
-    total = db.execute(
-        f"SELECT COUNT(*) FROM ({sql})", params).fetchone()[0]
+    counted = db.select_one(f"SELECT COUNT(*) AS n FROM ({sql})", params)
+    assert counted is not None  # an aggregate always yields a row
     sql += " ORDER BY b.updated_at, b.uid LIMIT ?"
-    rows = [dict(r) for r in db.execute(sql, [*params, limit]).fetchall()]
-    for r in rows:
-        r["status"] = classify(r["created_at"], since_ms=since_ms, until_ms=until_ms)
-    return {"groups": group_changed(rows), "total": total,
-            "since": since_ms, "until": until_ms}
+    rows = [ChangedRow(
+        uid=r["uid"], text=r["text"], page_id=r["page_id"],
+        page_title=r["page_title"], created_at=r["created_at"],
+        updated_at=r["updated_at"],
+        status=classify(r["created_at"], since_ms=since_ms,
+                        until_ms=until_ms))
+            for r in db.select(sql, [*params, limit])]
+    return ChangedPayload.model_validate(
+        {"groups": group_changed(rows), "total": counted["n"],
+         "since": since_ms, "until": until_ms})

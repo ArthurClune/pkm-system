@@ -1,8 +1,10 @@
+import secrets
 from datetime import datetime
 from typing import get_args
 
 import pytest
 
+from rawread import read
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (BlockUid, OpBatch, OrderIdx, Sha256Hex,
                                subtree_hash, text_hash)
@@ -53,27 +55,27 @@ def test_create_inserts_shifts_and_derives_refs(db):
          "view_type": "numbered"},
     ), NOW)
     db.commit()
-    rows = db.execute(
+    rows = read(db,
         "SELECT uid, order_idx FROM blocks WHERE page_id = 1"
         "  AND parent_uid IS NULL ORDER BY order_idx").fetchall()
     assert [(r["uid"], r["order_idx"]) for r in rows] == \
         [("newuid1", 0), ("uid_b1", 1), ("uid_b2", 2)]
-    assert db.execute(
+    assert read(db,
         "SELECT view_type FROM blocks WHERE uid = 'newuid1'"
     ).fetchone()[0] == "numbered"
     # implicit page creation + refs
-    new_page = db.execute(
+    new_page = read(db,
         "SELECT id FROM pages WHERE title = 'Brand New'").fetchone()
     assert new_page is not None
-    kinds = {(r["target_page_id"], r["kind"]) for r in db.execute(
+    kinds = {(r["target_page_id"], r["kind"]) for r in read(db,
         "SELECT target_page_id, kind FROM refs WHERE src_block_uid='newuid1'")}
     assert kinds == {(new_page["id"], "link"), (2, "tag")}
     # FTS row exists (triggers)
-    hit = db.execute("SELECT rowid FROM blocks_fts WHERE blocks_fts"
+    hit = read(db, "SELECT rowid FROM blocks_fts WHERE blocks_fts"
                      " MATCH '\"Brand\"'").fetchall()
     assert len(hit) == 1
     # page touched
-    assert db.execute("SELECT updated_at FROM pages WHERE id=1"
+    assert read(db, "SELECT updated_at FROM pages WHERE id=1"
                       ).fetchone()[0] == NOW
 
 
@@ -82,22 +84,22 @@ def test_update_text_rederives_refs_and_fts(db):
         {"op": "update_text", "uid": "uid_b4", "text": "now [[Paper]] only"},
     ), NOW)
     db.commit()
-    refs = db.execute("SELECT target_page_id, kind FROM refs"
+    refs = read(db, "SELECT target_page_id, kind FROM refs"
                       " WHERE src_block_uid='uid_b4'").fetchall()
     assert [(r[0], r[1]) for r in refs] == [(4, "link")]  # ML link gone
-    assert db.execute("SELECT count(*) FROM blocks_fts WHERE blocks_fts"
+    assert read(db, "SELECT count(*) FROM blocks_fts WHERE blocks_fts"
                       " MATCH '\"Studying\"'").fetchone()[0] == 0
 
 
 def test_delete_removes_subtree_and_fts(db):
     apply_batch(db, _batch({"op": "delete", "uid": "uid_b2"}), NOW)
     db.commit()
-    left = {r[0] for r in db.execute(
+    left = {r[0] for r in read(db,
         "SELECT uid FROM blocks WHERE page_id = 1")}
     assert left == {"uid_b1"}          # uid_b2 and child uid_b3 gone
-    assert db.execute("SELECT count(*) FROM refs WHERE src_block_uid='uid_b3'"
+    assert read(db, "SELECT count(*) FROM refs WHERE src_block_uid='uid_b3'"
                       ).fetchone()[0] == 0
-    assert db.execute("SELECT count(*) FROM blocks_fts WHERE blocks_fts"
+    assert read(db, "SELECT count(*) FROM blocks_fts WHERE blocks_fts"
                       " MATCH '\"Papers\"'").fetchone()[0] == 0
 
 
@@ -106,11 +108,11 @@ def test_move_reparents_and_shifts(db):
         {"op": "move", "uid": "uid_b3", "parent_uid": None, "order_idx": 0},
     ), NOW)
     db.commit()
-    row = db.execute("SELECT parent_uid, order_idx FROM blocks"
+    row = read(db, "SELECT parent_uid, order_idx FROM blocks"
                      " WHERE uid='uid_b3'").fetchone()
     assert row["parent_uid"] is None and row["order_idx"] == 0
     # uid_b1/uid_b2 shifted to make room
-    assert db.execute("SELECT order_idx FROM blocks WHERE uid='uid_b1'"
+    assert read(db, "SELECT order_idx FROM blocks WHERE uid='uid_b1'"
                       ).fetchone()[0] == 1
 
 
@@ -126,11 +128,11 @@ def test_set_collapsed_does_not_bump_block_or_page_updated_at(db):
     ), NOW)
     db.commit()
 
-    row = db.execute("SELECT collapsed, updated_at FROM blocks"
+    row = read(db, "SELECT collapsed, updated_at FROM blocks"
                      " WHERE uid='uid_b2'").fetchone()
     assert row["collapsed"] == 1                # the toggle did apply...
     assert row["updated_at"] == 1_000            # ...but not a "real" change
-    assert db.execute("SELECT updated_at FROM pages WHERE id=1"
+    assert read(db, "SELECT updated_at FROM pages WHERE id=1"
                       ).fetchone()[0] == 1_000
 
     # contrast: a real edit on the same block/page DOES bump both.
@@ -138,9 +140,9 @@ def test_set_collapsed_does_not_bump_block_or_page_updated_at(db):
         {"op": "update_text", "uid": "uid_b2", "text": "Papers (renamed)"},
     ), NOW)
     db.commit()
-    assert db.execute("SELECT updated_at FROM blocks WHERE uid='uid_b2'"
+    assert read(db, "SELECT updated_at FROM blocks WHERE uid='uid_b2'"
                       ).fetchone()[0] == NOW
-    assert db.execute("SELECT updated_at FROM pages WHERE id=1"
+    assert read(db, "SELECT updated_at FROM pages WHERE id=1"
                       ).fetchone()[0] == NOW
 
 
@@ -148,12 +150,12 @@ def test_set_collapsed_still_journals_a_change_but_no_page_touch(db):
     # The AFTER UPDATE trigger fires on every column change regardless of
     # whether updated_at moved, so collapse-only batches still sync -- but
     # unlike update_text (test above), no page row is touched either.
-    before = db.execute("SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
+    before = read(db, "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
     apply_batch(db, _batch(
         {"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
     ), NOW)
     db.commit()
-    rows = db.execute("SELECT kind, entity_id FROM changes WHERE seq > ?",
+    rows = read(db, "SELECT kind, entity_id FROM changes WHERE seq > ?",
                       (before,)).fetchall()
     assert ("block", "uid_b2") in {(r["kind"], r["entity_id"]) for r in rows}
     assert not any(r["kind"] == "page" for r in rows)
@@ -256,7 +258,7 @@ def test_move_cycle_against_db_chain(db):
          "order_idx": 0}), NOW)
     assert [s.reason for s in result.skipped] == ["cycle"]
     assert result.broadcast_ops == []
-    row = db.execute("SELECT parent_uid, order_idx FROM blocks"
+    row = read(db, "SELECT parent_uid, order_idx FROM blocks"
                      " WHERE uid = 'uid_b2'").fetchone()
     assert (row["parent_uid"], row["order_idx"]) == (None, 1)
 
@@ -273,7 +275,7 @@ def test_move_root_under_own_descendant_is_always_a_cycle(db, depth):
         {"op": "move", "uid": "level0", "parent_uid": deepest,
          "order_idx": 0}), NOW)
     assert [s.reason for s in result.skipped] == ["cycle"]
-    assert db.execute("SELECT parent_uid FROM blocks WHERE uid = 'level0'"
+    assert read(db, "SELECT parent_uid FROM blocks WHERE uid = 'level0'"
                       ).fetchone()[0] is None
 
 
@@ -288,11 +290,11 @@ def test_cross_page_move_updates_every_descendant(db, depth):
         {"op": "move", "uid": "level0", "parent_uid": None, "order_idx": 0,
          "page_title": "AI"}), NOW)
     db.commit()
-    ai_page_id = db.execute(
+    ai_page_id = read(db,
         "SELECT id FROM pages WHERE title='AI'").fetchone()[0]
     uids = [f"level{i}" for i in range(depth)]
     placeholders = ",".join("?" * depth)
-    rows = db.execute(
+    rows = read(db,
         f"SELECT uid, page_id FROM blocks WHERE uid IN ({placeholders})",
         uids).fetchall()
     assert len(rows) == depth
@@ -308,7 +310,7 @@ def test_delete_removes_entire_deep_subtree(db, depth):
     db.commit()
     apply_batch(db, _batch({"op": "delete", "uid": "level0"}), NOW)
     db.commit()
-    remaining = db.execute(
+    remaining = read(db,
         "SELECT count(*) FROM blocks WHERE uid LIKE 'level%'").fetchone()[0]
     assert remaining == 0
 
@@ -330,11 +332,11 @@ def test_parent_chain_and_subtree_terminate_on_preexisting_cycle(db):
     db.commit()
     expected = {"cycle0", "cycle1", "cycle2", "cycle3", "cycle4"}
 
-    chain = _parent_chain(db, "cycle4")
+    chain = _parent_chain(db, BlockUid("cycle4"))
     assert set(chain) == expected
     assert len(chain) == len(expected)          # no duplicate re-walks
 
-    subtree = _subtree_deepest_first(db, "cycle0")
+    subtree = _subtree_deepest_first(db, BlockUid("cycle0"))
     assert set(subtree) == expected
     assert len(subtree) == len(expected)
 
@@ -350,7 +352,7 @@ def test_subtree_rows_is_deepest_first_with_columns(db):
          "parent_uid": "uid_b3", "order_idx": 0, "text": "grandchild"},
     ), NOW)
     db.commit()
-    rows = _subtree_rows(db, "uid_b2")
+    rows = _subtree_rows(db, BlockUid("uid_b2"))
     assert rows[0] == SubtreeRow(BlockUid("rows_g1"), BlockUid("uid_b3"), OrderIdx(0),
                                  "grandchild")
     assert set(rows[1:3]) == {
@@ -360,8 +362,8 @@ def test_subtree_rows_is_deepest_first_with_columns(db):
                    "second child")}
     assert rows[3] == SubtreeRow(BlockUid("uid_b2"), None, OrderIdx(1), "Papers")
     assert (sorted(r.uid for r in rows)
-            == sorted(_subtree_deepest_first(db, "uid_b2")))
-    assert _subtree_rows(db, "no_such_uid") == ()
+            == sorted(_subtree_deepest_first(db, BlockUid("uid_b2"))))
+    assert _subtree_rows(db, BlockUid("no_such_uid")) == ()
 
 
 def test_subtree_rows_terminates_on_preexisting_cycle(db):
@@ -370,7 +372,7 @@ def test_subtree_rows_terminates_on_preexisting_cycle(db):
     db.commit()
     db.execute("UPDATE blocks SET parent_uid = 'cycrow4' WHERE uid = 'cycrow0'")
     db.commit()
-    rows = _subtree_rows(db, "cycrow0")
+    rows = _subtree_rows(db, BlockUid("cycrow0"))
     assert sorted(r.uid for r in rows) == [f"cycrow{i}" for i in range(5)]
 
 
@@ -385,9 +387,9 @@ def test_diverged_delete_of_a_preexisting_cycle_copies_each_block_once(db):
     apply_batch(db, _batch({"op": "delete", "uid": "cycdel0",
                             "base_subtree_hash": Sha256Hex("0" * 64)}), NOW)
     db.commit()
-    assert db.execute("SELECT count(*) FROM blocks WHERE uid LIKE 'cycdel%'"
+    assert read(db, "SELECT count(*) FROM blocks WHERE uid LIKE 'cycdel%'"
                       ).fetchone()[0] == 0
-    copies = db.execute(
+    copies = read(db,
         "SELECT b.text FROM blocks b JOIN pages p ON p.id = b.page_id"
         " WHERE p.title = ? AND b.text IN ('n0', 'n1', 'n2')",
         (NOW_DAY,)).fetchall()
@@ -406,7 +408,7 @@ def test_diverged_delete_mints_header_then_root_then_descendants(
     db.commit()
     minted = iter(["hdrmint00001", "rootmint0001", "descmint0001",
                    "descmint0002"])
-    monkeypatch.setattr(ops_apply.secrets, "token_urlsafe",
+    monkeypatch.setattr(secrets, "token_urlsafe",
                         lambda n: next(minted))
     op = OpBatch.model_validate({"client_id": "t", "batch_id": "mint_order",
         "ops": [{"op": "delete", "uid": "uid_b2",
@@ -426,25 +428,25 @@ def test_set_heading_updates_and_clears(db):
         {"op": "set_heading", "uid": "uid_b2", "heading": 1},
     ), NOW)
     db.commit()
-    assert db.execute("SELECT heading FROM blocks WHERE uid='uid_b2'"
+    assert read(db, "SELECT heading FROM blocks WHERE uid='uid_b2'"
                       ).fetchone()[0] == 1
     apply_batch(db, _batch(
         {"op": "set_heading", "uid": "uid_b2", "heading": None},
     ), NOW)
     db.commit()
-    assert db.execute("SELECT heading FROM blocks WHERE uid='uid_b2'"
+    assert read(db, "SELECT heading FROM blocks WHERE uid='uid_b2'"
                       ).fetchone()[0] is None
 
 
 def test_set_view_type_updates_metadata_without_changing_block_state(db):
-    before = db.execute(
+    before = read(db,
         "SELECT text, parent_uid, order_idx, collapsed FROM blocks"
         " WHERE uid='uid_b2'").fetchone()
     apply_batch(db, _batch(
         {"op": "set_view_type", "uid": "uid_b2", "view_type": "numbered"},
     ), NOW)
     db.commit()
-    row = db.execute(
+    row = read(db,
         "SELECT text, parent_uid, order_idx, collapsed, view_type FROM blocks"
         " WHERE uid='uid_b2'").fetchone()
     assert tuple(row[:4]) == tuple(before)
@@ -457,14 +459,14 @@ def test_conflict_uids_retry_until_alphanumeric_first_char(db, monkeypatch):
     # make either unaddressable via a bare CLI argument.
     candidates = iter(["-leadingdash1", "goodheader12",
                        "_underscore12", "goodchild123"])
-    monkeypatch.setattr(ops_apply.secrets, "token_urlsafe",
+    monkeypatch.setattr(secrets, "token_urlsafe",
                         lambda n: next(candidates))
     apply_batch(db, _batch(
         {"op": "update_text", "uid": "uid_b1", "text": "offline edit",
          "base_text_hash": text_hash("some stale base")},
     ), NOW)
     db.commit()
-    child = db.execute(
+    child = read(db,
         "SELECT b.uid, b.parent_uid FROM blocks b JOIN pages p"
         " ON p.id = b.page_id WHERE b.text = 'Tags:: #AI' AND p.title = ?",
         (NOW_DAY,)).fetchone()
@@ -546,12 +548,12 @@ def test_find_op_title_violation_rejects_outer_nested_ref_first():
 
 def test_apply_batch_preflights_every_op_before_context_or_mutation(db):
     before = {
-        "pages": db.execute("SELECT * FROM pages ORDER BY id").fetchall(),
-        "blocks": db.execute("SELECT * FROM blocks ORDER BY uid").fetchall(),
-        "refs": db.execute(
+        "pages": read(db, "SELECT * FROM pages ORDER BY id").fetchall(),
+        "blocks": read(db, "SELECT * FROM blocks ORDER BY uid").fetchall(),
+        "refs": read(db,
             "SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"
         ).fetchall(),
-        "changes": db.execute("SELECT * FROM changes ORDER BY seq").fetchall(),
+        "changes": read(db, "SELECT * FROM changes ORDER BY seq").fetchall(),
     }
 
     with pytest.raises(OpError) as exc:
@@ -568,12 +570,12 @@ def test_apply_batch_preflights_every_op_before_context_or_mutation(db):
         "unsupported reference title syntax: 'New #Old'",
     )
     after = {
-        "pages": db.execute("SELECT * FROM pages ORDER BY id").fetchall(),
-        "blocks": db.execute("SELECT * FROM blocks ORDER BY uid").fetchall(),
-        "refs": db.execute(
+        "pages": read(db, "SELECT * FROM pages ORDER BY id").fetchall(),
+        "blocks": read(db, "SELECT * FROM blocks ORDER BY uid").fetchall(),
+        "refs": read(db,
             "SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"
         ).fetchall(),
-        "changes": db.execute("SELECT * FROM changes ORDER BY seq").fetchall(),
+        "changes": read(db, "SELECT * FROM changes ORDER BY seq").fetchall(),
     }
     assert after == before
 
@@ -587,7 +589,7 @@ def test_op_error_index_reports_failing_op(db):
         ), NOW)
     assert e.value.index == 1
     db.rollback()
-    assert db.execute("SELECT collapsed FROM blocks WHERE uid='uid_b2'"
+    assert read(db, "SELECT collapsed FROM blocks WHERE uid='uid_b2'"
                       ).fetchone()[0] == 0  # rollback undid op 0
 
 
@@ -626,6 +628,16 @@ def test_replay_leaves_an_unrecorded_base_hash_untouched():
         "[[T0]] edited", stale, ()) == ("[[T0]] edited", stale)
 
 
+def test_replay_ignores_an_inline_record_whose_key_is_no_uid():
+    before, after = "[[Gone]] ((abc123def))", "Gone copy"
+    record = ops_core.BlockRewrite(
+        base_hash=text_hash(before), after_hash=text_hash(after),
+        old_title="not a uid", new_title="copy", kind="inline")
+
+    assert ops_core.replay_title_rewrites(
+        before, text_hash(before), (record,)) == (before, text_hash(after))
+
+
 def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
     # A block with recorded rename rewrites still applies cleanly when the
     # replayed edit matches the live text's hash -- having block_rewrites at
@@ -649,18 +661,18 @@ def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
     ), NOW)
     db.commit()
 
-    assert db.execute("SELECT text FROM blocks WHERE uid='rew_uid1'"
+    assert read(db, "SELECT text FROM blocks WHERE uid='rew_uid1'"
                       ).fetchone()[0] == "see [[New]] page plus extra"
     day = NOW_DAY
-    assert db.execute("SELECT id FROM pages WHERE title = ?",
+    assert read(db, "SELECT id FROM pages WHERE title = ?",
                       (day,)).fetchone() is None
 
 
 def _flag_reads(db, op) -> int:
     seen: list[str] = []
-    db.set_trace_callback(seen.append)
+    db.raw.set_trace_callback(seen.append)
     apply_batch(db, _batch(op), NOW)
-    db.set_trace_callback(None)
+    db.raw.set_trace_callback(None)
     return sum("sync_meta" in sql and "SELECT" in sql for sql in seen)
 
 
@@ -703,10 +715,10 @@ def test_stale_hash_identical_text_does_not_create_daily_page(db):
     ), NOW)
     db.commit()
 
-    assert db.execute("SELECT text FROM blocks WHERE uid='uid_b1'"
+    assert read(db, "SELECT text FROM blocks WHERE uid='uid_b1'"
                       ).fetchone()[0] == "Tags:: #AI"
     day = NOW_DAY
-    assert db.execute("SELECT id FROM pages WHERE title = ?",
+    assert read(db, "SELECT id FROM pages WHERE title = ?",
                       (day,)).fetchone() is None
 
 
@@ -718,7 +730,7 @@ def test_second_conflict_same_day_reuses_header_and_mints_no_stray_conflict_uid(
     # one, and must not mint a conflict_uid it never uses.
     uids = iter(["headerabc123", "childabc1234", "childdef5678",
                 "unusedghij12"])
-    monkeypatch.setattr(ops_apply.secrets, "token_urlsafe",
+    monkeypatch.setattr(secrets, "token_urlsafe",
                         lambda n: next(uids))
 
     apply_batch(db, _batch(
@@ -736,15 +748,15 @@ def test_second_conflict_same_day_reuses_header_and_mints_no_stray_conflict_uid(
     # child only for the second -- the 4th candidate is never drawn.
     assert next(uids) == "unusedghij12"
 
-    header_uid = db.execute(
+    header_uid = read(db,
         "SELECT header_uid FROM conflict_headers WHERE target_uid='uid_b1'"
     ).fetchone()["header_uid"]
     assert header_uid == "headerabc123"
-    children = db.execute(
+    children = read(db,
         "SELECT text FROM blocks WHERE parent_uid = ? ORDER BY order_idx",
         (header_uid,)).fetchall()
     assert [r["text"] for r in children] == ["Tags:: #AI", "offline edit 1"]
-    assert db.execute("SELECT text FROM blocks WHERE uid='uid_b1'"
+    assert read(db, "SELECT text FROM blocks WHERE uid='uid_b1'"
                       ).fetchone()[0] == "offline edit 2"
 
 
@@ -766,13 +778,13 @@ def test_replay_applies_one_multi_title_rewrite_as_a_single_step():
 
 
 def _journal_rows_since(db, seq):
-    return [(r["entity_id"], r["deleted"]) for r in db.execute(
+    return [(r["entity_id"], r["deleted"]) for r in read(db,
         "SELECT entity_id, deleted FROM changes WHERE seq > ? AND kind = 'block'"
         " ORDER BY seq", (seq,))]
 
 
 def _max_seq(db):
-    return db.execute("SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
+    return read(db, "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
 
 
 def test_skipped_ops_are_not_broadcast_as_applied(db):
@@ -809,7 +821,7 @@ def test_noop_batch_journals_the_ghost_without_a_daily_page(db):
     db.commit()
     assert _journal_rows_since(db, before) == [("ghost_nb1", 1)]
     day = NOW_DAY
-    assert db.execute("SELECT id FROM pages WHERE title = ?",
+    assert read(db, "SELECT id FROM pages WHERE title = ?",
                       (day,)).fetchone() is None
 
 
@@ -823,7 +835,7 @@ def test_move_to_missing_parent_journals_the_live_block_and_the_parent(db):
     rows = _journal_rows_since(db, before)
     assert rows[0] == ("ghost_mp1", 1)   # the tombstone leads
     assert rows[-1] == ("uid_b3", 0)
-    row = db.execute("SELECT parent_uid, order_idx FROM blocks"
+    row = read(db, "SELECT parent_uid, order_idx FROM blocks"
                      " WHERE uid = 'uid_b3'").fetchone()
     assert (row["parent_uid"], row["order_idx"]) == ("uid_b2", 0)
 
@@ -835,7 +847,7 @@ def test_move_to_missing_parent_journals_the_live_block_and_the_parent(db):
 # that would nest a block under its own descendant is skipped with a note.
 
 def _page_id(db, title):
-    row = db.execute("SELECT id FROM pages WHERE title = ?",
+    row = read(db, "SELECT id FROM pages WHERE title = ?",
                      (title,)).fetchone()
     return row["id"] if row is not None else None
 
@@ -849,7 +861,7 @@ def test_create_under_a_parent_on_another_page_follows_the_parent(db):
          "parent_uid": "uid_b6", "order_idx": 0, "text": "typed child"},
     ), NOW)
     db.commit()
-    row = db.execute("SELECT page_id, parent_uid FROM blocks"
+    row = read(db, "SELECT page_id, parent_uid FROM blocks"
                      " WHERE uid = 'follow_c1'").fetchone()
     assert (row["page_id"], row["parent_uid"]) == (2, "uid_b6")
     assert result.skipped == []
@@ -868,7 +880,7 @@ def test_move_with_a_stale_page_title_follows_the_parent(db):
          "order_idx": 0, "page_title": "Stale Page"},
     ), NOW)
     db.commit()
-    row = db.execute("SELECT page_id, parent_uid FROM blocks"
+    row = read(db, "SELECT page_id, parent_uid FROM blocks"
                      " WHERE uid = 'uid_b4'").fetchone()
     assert (row["page_id"], row["parent_uid"]) == (2, "uid_b6")
     assert result.skipped == []
@@ -999,12 +1011,12 @@ def test_conflict_landing_uses_the_batch_clock(db):
         ), now_ms)
         db.commit()
 
-    landed = db.execute(
+    landed = read(db,
         "SELECT id, created_at FROM pages WHERE title = ?",
         (title_for_date(evening.date()),)).fetchone()
     assert landed is not None
     assert landed["created_at"] == now_ms
-    assert db.execute("SELECT 1 FROM blocks WHERE page_id = ?",
+    assert read(db, "SELECT 1 FROM blocks WHERE page_id = ?",
                       (landed["id"],)).fetchone() is not None
-    assert db.execute("SELECT id FROM pages WHERE title = ?", (
+    assert read(db, "SELECT id FROM pages WHERE title = ?", (
         title_for_date(morning.date()),)).fetchone() is None

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from pkm.edn import Tagged
+from pkm.contracts.ops import BlockUid
 
 CONSUMED_ATTRS: frozenset[str] = frozenset({
     ":node/title", ":block/uid", ":block/string", ":block/order",
@@ -17,7 +18,7 @@ CONSUMED_ATTRS: frozenset[str] = frozenset({
 
 @dataclass(frozen=True)
 class Block:
-    uid: str
+    uid: BlockUid
     text: str
     heading: int | None
     view_type: Literal["numbered", "document"] | None

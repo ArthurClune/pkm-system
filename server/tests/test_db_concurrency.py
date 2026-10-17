@@ -4,7 +4,9 @@ write transaction."""
 import sqlite3
 import threading
 
+from rawread import read
 from pkm.contracts.ops import CreateOp, OpBatch
+from pkm.database import connect
 from pkm.schema import DDL
 from pkm.server.db import open_db
 from pkm.server.ops_apply import apply_batch
@@ -18,7 +20,7 @@ def _fresh_non_wal_db(path) -> None:
     # exact state in which the original bug appeared, because switching a
     # database's journal_mode to WAL requires an exclusive lock, and the
     # per-connection open_db() used to attempt that switch on every call.
-    con = sqlite3.connect(path)
+    con = connect(path)
     con.executescript(DDL)
     con.commit()
     con.close()
@@ -28,7 +30,7 @@ def test_open_db_survives_writer_transaction_on_a_fresh_database(tmp_path):
     db_path = tmp_path / "t.sqlite3"
     _fresh_non_wal_db(db_path)
 
-    writer = sqlite3.connect(db_path)
+    writer = connect(db_path)
     writer.execute("BEGIN IMMEDIATE")
     writer.execute("UPDATE pages SET updated_at = updated_at")
     try:
@@ -36,7 +38,7 @@ def test_open_db_survives_writer_transaction_on_a_fresh_database(tmp_path):
         # other schema-level lock, so it must succeed immediately even
         # though the writer's transaction is still open.
         con = open_db(db_path)
-        assert con.execute("SELECT 1").fetchone()[0] == 1
+        assert read(con, "SELECT 1").fetchone()[0] == 1
         con.close()
     finally:
         writer.commit()
@@ -47,8 +49,7 @@ def test_concurrent_open_db_calls_survive_an_in_flight_ops_transaction(tmp_path)
     db_path = tmp_path / "t.sqlite3"
     _fresh_non_wal_db(db_path)
 
-    writer = sqlite3.connect(db_path)
-    writer.row_factory = sqlite3.Row
+    writer = connect(db_path)
     writer.execute("BEGIN IMMEDIATE")
     apply_batch(writer, OpBatch(client_id="writer", batch_id="concurrent_test1",
                                 ops=[
@@ -74,7 +75,7 @@ def test_concurrent_open_db_calls_survive_an_in_flight_ops_transaction(tmp_path)
         try:
             con = open_db(db_path)
             barrier.wait(timeout=5)
-            count = con.execute("SELECT COUNT(*) FROM blocks").fetchone()[0]
+            count = read(con, "SELECT COUNT(*) FROM blocks").fetchone()[0]
             con.close()
             with lock:
                 reader_counts.append(count)

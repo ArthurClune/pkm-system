@@ -1,18 +1,23 @@
+from pkm.contracts.ops import BlockUid, OrderIdx, ViewType
+from pkm.rows import Row, StoredHeadingLevel
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
+
+def _row(uid: str, parent: str | None, idx: int, text: str,
+         heading: StoredHeadingLevel | None, view_type: ViewType | None,
+         collapsed: int) -> Row:
+    return {"uid": BlockUid(uid),
+            "parent_uid": BlockUid(parent) if parent else None,
+            "order_idx": OrderIdx(idx), "text": text, "heading": heading,
+            "view_type": view_type, "collapsed": collapsed,
+            "created_at": None, "updated_at": None}
+
+
 ROWS = [
-    {"uid": "r2", "parent_uid": None, "order_idx": 1, "text": "second",
-     "heading": 2, "view_type": "numbered", "collapsed": 1,
-     "created_at": None, "updated_at": None},
-    {"uid": "r1", "parent_uid": None, "order_idx": 0, "text": "first",
-     "heading": None, "view_type": None, "collapsed": 0,
-     "created_at": None, "updated_at": None},
-    {"uid": "c1", "parent_uid": "r2", "order_idx": 0, "text": "child",
-     "heading": None, "view_type": "document", "collapsed": 0,
-     "created_at": None, "updated_at": None},
-    {"uid": "ghost", "parent_uid": "missing", "order_idx": 0, "text": "orphan",
-     "heading": None, "view_type": None, "collapsed": 0,
-     "created_at": None, "updated_at": None},
+    _row("r2", None, 1, "second", 2, "numbered", 1),
+    _row("r1", None, 0, "first", None, None, 0),
+    _row("c1", "r2", 0, "child", None, "document", 0),
+    _row("ghost", "missing", 0, "orphan", None, None, 0),
 ]
 
 
@@ -34,3 +39,14 @@ def test_build_tree_exposes_order_idx():
     tree = build_tree(ROWS)
     assert [n["order_idx"] for n in tree] == [0, 1, 0]
     assert tree[1]["children"][0]["order_idx"] == 0
+
+
+def test_tree_collapsed_is_bool():
+    tree = build_tree(ROWS)
+    assert tree[1]["collapsed"] is True
+    assert tree[0]["collapsed"] is False
+
+
+def test_build_tree_reads_a_legacy_heading_zero_as_none():
+    (node,) = build_tree([_row("h0", None, 0, "legacy", 0, None, 0)])
+    assert node["heading"] is None

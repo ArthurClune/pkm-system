@@ -5,6 +5,7 @@ import pytest
 
 from perfcheck import backend
 from perfcheck.build import build
+from rawread import read
 
 
 @pytest.fixture(scope="module")
@@ -76,7 +77,7 @@ def test_writes_hit_a_fresh_copy(small_fixture):
         backend._count_once(env, paste, set())
         con = sqlite3.connect(env.db)
         try:
-            n = con.execute("SELECT COUNT(*) FROM blocks WHERE uid LIKE 'pp%'").fetchone()[0]
+            n = read(con, "SELECT COUNT(*) FROM blocks WHERE uid LIKE 'pp%'").fetchone()[0]
         finally:
             con.close()
         assert n == 50
@@ -85,7 +86,7 @@ def test_writes_hit_a_fresh_copy(small_fixture):
     # the shared, cached fixture file itself must never be written to
     con = sqlite3.connect(small_fixture)
     try:
-        assert con.execute("SELECT COUNT(*) FROM blocks WHERE uid LIKE 'pp%'").fetchone()[0] == 0
+        assert read(con, "SELECT COUNT(*) FROM blocks WHERE uid LIKE 'pp%'").fetchone()[0] == 0
     finally:
         con.close()
 
@@ -115,11 +116,11 @@ def test_hashed_clean_edit_lands_the_new_text(small_fixture):
 
     lm = backend.generate(1, 0.02).landmarks
     with _run_scenario(small_fixture, "ops/edit-hashed-clean") as con:
-        text = con.execute("SELECT text FROM blocks WHERE uid = ?",
+        text = read(con, "SELECT text FROM blocks WHERE uid = ?",
                            (lm.hashed_edit_uid,)).fetchone()[0]
         assert text == HASHED_EDIT_TEXT + " (clean edit)"
         # a clean apply never lands a conflict entry
-        assert con.execute("SELECT COUNT(*) FROM conflict_headers").fetchone()[0] == 0
+        assert read(con, "SELECT COUNT(*) FROM conflict_headers").fetchone()[0] == 0
 
 
 def test_hashed_identical_edit_is_a_true_noop(small_fixture):
@@ -128,13 +129,13 @@ def test_hashed_identical_edit_is_a_true_noop(small_fixture):
     lm = backend.generate(1, 0.02).landmarks
     before = sqlite3.connect(small_fixture)
     try:
-        updated_at_before = before.execute(
+        updated_at_before = read(before,
             "SELECT updated_at FROM blocks WHERE uid = ?",
             (lm.hashed_edit_uid,)).fetchone()[0]
     finally:
         before.close()
     with _run_scenario(small_fixture, "ops/edit-hashed-identical") as con:
-        text, updated_at = con.execute(
+        text, updated_at = read(con,
             "SELECT text, updated_at FROM blocks WHERE uid = ?",
             (lm.hashed_edit_uid,)).fetchone()
         assert text == HASHED_EDIT_TEXT
@@ -146,12 +147,12 @@ def test_hashed_conflict_lands_the_loser_and_keeps_the_winner(small_fixture):
 
     lm = backend.generate(1, 0.02).landmarks
     with _run_scenario(small_fixture, "ops/edit-hashed-conflict") as con:
-        text = con.execute("SELECT text FROM blocks WHERE uid = ?",
+        text = read(con, "SELECT text FROM blocks WHERE uid = ?",
                            (lm.hashed_edit_uid,)).fetchone()[0]
         assert text == HASHED_EDIT_TEXT + " (stale offline edit)"  # incoming wins
-        headers = con.execute("SELECT target_uid FROM conflict_headers").fetchall()
+        headers = read(con, "SELECT target_uid FROM conflict_headers").fetchall()
         assert headers == [(lm.hashed_edit_uid,)]
-        lost = con.execute(
+        lost = read(con,
             "SELECT text FROM blocks WHERE parent_uid IN"
             " (SELECT header_uid FROM conflict_headers)").fetchall()
         assert lost == [(HASHED_EDIT_TEXT,)]  # the old text, preserved
@@ -162,24 +163,24 @@ def test_rename_replay_applies_cleanly_onto_the_renamed_text(small_fixture):
 
     lm = backend.generate(1, 0.02).landmarks
     with _run_scenario(small_fixture, "ops/edit-rename-replay") as con:
-        text = con.execute("SELECT text FROM blocks WHERE uid = ?",
+        text = read(con, "SELECT text FROM blocks WHERE uid = ?",
                            (lm.rename_ref_uid,)).fetchone()[0]
         expected = (RENAME_REF_TEXT.replace("Perf Rename Source", RENAME_TARGET_TITLE)
                     + " (offline edit predating the rename)")
         assert text == expected
         # replayed cleanly, not as a conflict
-        assert con.execute("SELECT COUNT(*) FROM conflict_headers").fetchone()[0] == 0
+        assert read(con, "SELECT COUNT(*) FROM conflict_headers").fetchone()[0] == 0
 
 
 def test_edit_missing_block_lands_an_orphan_entry(small_fixture):
     from perfcheck.fixture import MISSING_BLOCK_UID
 
     with _run_scenario(small_fixture, "ops/edit-missing-block") as con:
-        assert con.execute("SELECT COUNT(*) FROM blocks WHERE uid = ?",
+        assert read(con, "SELECT COUNT(*) FROM blocks WHERE uid = ?",
                            (MISSING_BLOCK_UID,)).fetchone()[0] == 0
-        headers = con.execute("SELECT target_uid FROM conflict_headers").fetchall()
+        headers = read(con, "SELECT target_uid FROM conflict_headers").fetchall()
         assert headers == [(MISSING_BLOCK_UID,)]
-        lost = con.execute(
+        lost = read(con,
             "SELECT text FROM blocks WHERE parent_uid IN"
             " (SELECT header_uid FROM conflict_headers)").fetchone()[0]
         assert lost == "orphaned edit, block already gone"
@@ -189,11 +190,11 @@ def test_create_missing_parent_diverts_the_text(small_fixture):
     from perfcheck.fixture import MISSING_PARENT_UID
 
     with _run_scenario(small_fixture, "ops/create-missing-parent") as con:
-        assert con.execute("SELECT COUNT(*) FROM blocks WHERE parent_uid = ?",
+        assert read(con, "SELECT COUNT(*) FROM blocks WHERE parent_uid = ?",
                            (MISSING_PARENT_UID,)).fetchone()[0] == 0
-        headers = con.execute("SELECT target_uid FROM conflict_headers").fetchall()
+        headers = read(con, "SELECT target_uid FROM conflict_headers").fetchall()
         assert headers == [(MISSING_PARENT_UID,)]
-        lost = con.execute(
+        lost = read(con,
             "SELECT text FROM blocks WHERE parent_uid IN"
             " (SELECT header_uid FROM conflict_headers)").fetchone()[0]
         assert lost == "diverted create, parent already gone"
@@ -205,19 +206,19 @@ def test_move_missing_parent_journals_the_subtree(small_fixture):
     lm = backend.generate(1, 0.02).landmarks
     before = sqlite3.connect(small_fixture)
     try:
-        parent_before = before.execute(
+        parent_before = read(before,
             "SELECT parent_uid FROM blocks WHERE uid = ?", (lm.move_uid,)).fetchone()[0]
     finally:
         before.close()
     with _run_scenario(small_fixture, "ops/move-missing-parent") as con:
         # the block stays exactly where it was: the move never applied
-        parent = con.execute("SELECT parent_uid FROM blocks WHERE uid = ?",
+        parent = read(con, "SELECT parent_uid FROM blocks WHERE uid = ?",
                              (lm.move_uid,)).fetchone()[0]
         assert parent == parent_before
         assert parent != MISSING_PARENT_UID
-        headers = con.execute("SELECT target_uid FROM conflict_headers").fetchall()
+        headers = read(con, "SELECT target_uid FROM conflict_headers").fetchall()
         assert headers == [(lm.move_uid,)]
-        n_journalled = con.execute(
+        n_journalled = read(con,
             "SELECT COUNT(*) FROM changes WHERE entity_id = ?",
             (lm.move_uid,)).fetchone()[0]
         assert n_journalled >= 1

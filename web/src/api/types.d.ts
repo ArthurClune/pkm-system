@@ -995,6 +995,16 @@ export interface components {
             /** Skipped */
             skipped: components["schemas"]["SkippedOp"][];
         };
+        /**
+         * AssetDeleteAck
+         * @description DELETE /api/assets/{sha256} (routes_assets.py).
+         */
+        AssetDeleteAck: {
+            /** Deleted */
+            deleted: boolean;
+            /** Refs Removed */
+            refs_removed: number;
+        };
         /** AssetRef */
         AssetRef: {
             /** Uid */
@@ -1366,7 +1376,7 @@ export interface components {
          */
         DeleteBlockerModel: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Page Title */
             page_title: string;
             /** Text */
@@ -1515,6 +1525,14 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * JournalCleanupResponse
+         * @description POST /api/journal/cleanup: the empty daily pages it removed.
+         */
+        JournalCleanupResponse: {
+            /** Deleted */
+            deleted: Brands.CanonicalTitle[];
+        };
+        /**
          * JournalDay
          * @description One day of the journal scroll, complete: the day renders from this
          *     alone. `backlinks` is a preview page of the day's linked references
@@ -1596,6 +1614,14 @@ export interface components {
             /** Page Title */
             page_title?: string | null;
         };
+        /**
+         * OkAck
+         * @description The body of a write route that has nothing to report but success.
+         */
+        OkAck: {
+            /** Ok */
+            ok: boolean;
+        };
         /** OpBatch */
         OpBatch: {
             /** Client Id */
@@ -1605,7 +1631,7 @@ export interface components {
             /** Ops */
             ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"] | components["schemas"]["SetViewTypeOp"] | components["schemas"]["CreatePageOp"])[];
             /** Seen Seq */
-            seen_seq?: number | null;
+            seen_seq?: Brands.SyncSeq | null;
         };
         /**
          * OpsAck
@@ -1876,7 +1902,7 @@ export interface components {
             /** Title */
             title: Brands.CanonicalTitle;
             /** Order Idx */
-            order_idx: number;
+            order_idx: Brands.SidebarOrderIdx;
         };
         /** SyncTombstone */
         SyncTombstone: {
@@ -2038,9 +2064,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OkAck"];
                 };
             };
             /** @description Validation Error */
@@ -2069,9 +2093,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": unknown;
                 };
             };
         };
@@ -2145,7 +2167,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                uid: string;
+                uid: Brands.BlockUid;
             };
             cookie?: never;
         };
@@ -2176,7 +2198,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                uid: string;
+                uid: Brands.BlockUid;
             };
             cookie?: never;
         };
@@ -2253,9 +2275,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OkAck"];
                 };
             };
             /** @description Validation Error */
@@ -2479,9 +2499,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JournalCleanupResponse"];
                 };
             };
         };
@@ -2687,9 +2705,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OkAck"];
                 };
             };
             /** @description Validation Error */
@@ -2722,9 +2738,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["SidebarNavEntry"];
                 };
             };
             /** @description Validation Error */
@@ -2755,9 +2769,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OkAck"];
                 };
             };
             /** @description Validation Error */
@@ -2790,9 +2802,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OkAck"];
                 };
             };
             /** @description Validation Error */
@@ -2809,7 +2819,7 @@ export interface operations {
     sync_changes_api_sync_changes_get: {
         parameters: {
             query?: {
-                since?: number;
+                since?: Brands.SyncSeq;
                 limit?: number;
                 /** @description Batch ids the client still holds as pending. The response's applied_batches names those this payload already holds. */
                 pending?: string[] | null;
@@ -2916,7 +2926,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                sha256: string;
+                sha256: Brands.Sha256Hex;
             };
             cookie?: never;
         };
@@ -2928,9 +2938,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AssetDeleteAck"];
                 };
             };
             /** @description Validation Error */
@@ -2982,7 +2990,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                sha256: string;
+                sha256: Brands.Sha256Hex;
                 filename: string;
             };
             cookie?: never;
@@ -3151,7 +3159,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                link_id: string;
+                link_id: Brands.GoodlinksId;
             };
             cookie?: never;
         };
@@ -3390,7 +3398,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                conversation_id: string;
+                conversation_id: Brands.ConversationId;
             };
             cookie?: never;
         };
@@ -3425,7 +3433,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                conversation_id: string;
+                conversation_id: Brands.ConversationId;
             };
             cookie?: never;
         };
@@ -3460,7 +3468,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                conversation_id: string;
+                conversation_id: Brands.ConversationId;
             };
             cookie?: never;
         };
@@ -3491,7 +3499,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                conversation_id: string;
+                conversation_id: Brands.ConversationId;
             };
             cookie?: never;
         };
@@ -3532,9 +3540,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OkAck"];
                 };
             };
         };

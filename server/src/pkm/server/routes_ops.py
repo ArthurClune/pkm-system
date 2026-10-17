@@ -8,7 +8,8 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from pkm.contracts.ops import OpBatch
-from pkm.contracts.responses import OpsAck, SyncSeq
+from pkm.contracts.responses import OpsAck
+from pkm.database import Db
 from pkm.server import notify
 from pkm.server.notify import OpsFrame
 from pkm.server.auth import require_auth
@@ -16,6 +17,7 @@ from pkm.server.db import get_db
 from pkm.server.ops_apply import apply_batch
 from pkm.server.ops_core import OpError
 from pkm.server.ops_hash import batch_replay_hash, batch_request_hash
+from pkm.server.sync_meta import latest_seq
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -23,7 +25,7 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 @router.post("/api/ops", response_model=OpsAck)
 async def post_ops(request: Request,
                    batch: OpBatch,
-                   db: sqlite3.Connection = Depends(get_db)) -> OpsAck:
+                   db: Db = Depends(get_db)) -> OpsAck:
     """One SQLite transaction covers the batch_id dedupe check through the
     commit, so a concurrent delete_page/rename_page/cleanup_journal commit
     (their own connections, on the threadpool) can no longer land between
@@ -32,7 +34,7 @@ async def post_ops(request: Request,
     Retry-After rather than surfacing the raw sqlite3.OperationalError."""
     now = int(time.time() * 1000)
     try:
-        db.execute("BEGIN IMMEDIATE")
+        db.begin_immediate()
     except sqlite3.OperationalError as exc:
         if "locked" not in str(exc):
             raise
@@ -40,9 +42,9 @@ async def post_ops(request: Request,
                             detail="database busy, retry") from exc
     rhash = batch_request_hash(batch)
     replay_hash = batch_replay_hash(batch)
-    row = db.execute(
+    row = db.select_one(
         "SELECT request_hash, response FROM applied_batches"
-        " WHERE batch_id = ?", (batch.batch_id,)).fetchone()
+        " WHERE batch_id = ?", (batch.batch_id,))
     if row is not None:
         # request_hash holds one of two kinds: the strict hash,
         # for a row written before this change (a pre-deploy retry must
@@ -76,8 +78,7 @@ async def post_ops(request: Request,
     # sync window's latest_seq: a window whose latest_seq has reached it
     # already carries this batch. Acks stored before this field
     # existed replay without it; clients treat a missing seq as unknown.
-    seq = SyncSeq(db.execute(
-        "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0])
+    seq = latest_seq(db)
     # `applied` counts every op processed, skipped ones included; `skipped`
     # lists every op whose target no longer exists (ops_core.skip_report),
     # and is empty for a clean batch.

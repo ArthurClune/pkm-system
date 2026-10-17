@@ -12,19 +12,27 @@ from __future__ import annotations
 
 import hashlib
 import re
+import secrets
 from collections.abc import Iterable
 from typing import Annotated, Literal, NewType, Union
 
 from pydantic import BaseModel, Field
 
 from pkm.contracts.brands import brand
-from pkm.refs import BLOCK_REF_TOKEN
+
+# A block uid's shape, the body of UID_RE below ({6,32}): a run outside it
+# can never have been minted, so render.py, export/markdown.py and
+# export/resolve.py import this (through pkm.refs) rather than keeping
+# their own ((token)) pattern -- a token too long to be a real uid is then
+# plain text on every surface, not just here. Web's grammar/scan.ts mirrors
+# it by hand.
+BLOCK_REF_TOKEN = r"[a-zA-Z0-9_-]{6,32}"
 
 # `\Z` anchors to the true end of the string; a bare `$` also matches just
 # before a trailing "\n", which let a uid like "abcdef\n" slip past a
 # `.match()` call site that should have refused it. Every call site uses
 # `.fullmatch()` regardless, so the anchor is defense in depth, not the
-# only guard. Built from `refs.BLOCK_REF_TOKEN` so the wire-validation
+# only guard. Built from `BLOCK_REF_TOKEN` so the wire-validation
 # shape and the ((ref))-recognition shape can't drift apart independently.
 UID_RE = re.compile(rf"^{BLOCK_REF_TOKEN}\Z")
 ViewType = Literal["numbered", "document"]
@@ -32,6 +40,9 @@ ViewType = Literal["numbered", "document"]
 # A block's heading level; None (kept separate, not part of this alias)
 # means plain text. 1-3 only -- the editor offers no deeper levels.
 HeadingLevel = Literal[1, 2, 3]
+
+# What a block_rewrites row records; see the table in schema.py.
+RewriteKind = Literal["retitle", "unlink", "inline"]
 
 # Every BlockOp's `op` discriminator, widened back to a plain union for
 # contexts (SkippedOp.op) that report on an op without being one -- each
@@ -67,10 +78,22 @@ SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}\Z")
 # (ops_core.plan_op) or a skipped op (ops_core.impossible_uid_reason); an
 # op addressing an existing block never re-checks its uid's shape. Minted
 # by the web (web/src/uid.ts's newUid, most uids in practice), the CLI/MCP
-# client (client.api.new_uid), the server (ops_apply._new_uid), and
+# client and the server (both `new_uid`), and
 # Roam's own exported uids.
 BlockUid = NewType("BlockUid", str)
 brand(BlockUid)
+
+
+def new_uid() -> BlockUid:
+    """A fresh random uid: 12 urlsafe chars, matching UID_RE. The alphabet
+    includes '-' and '_', which argparse would treat as an option prefix in
+    a bare CLI argument, so retry until the first char is alphanumeric."""
+    while True:
+        uid = secrets.token_urlsafe(9)
+        if uid[0].isalnum():
+            return BlockUid(uid)
+
+
 # pages.id. Minted only by SQLite (an INTEGER PRIMARY KEY) and, for an
 # import, by the importer's own row-building counter.
 PageId = NewType("PageId", int)
@@ -103,6 +126,25 @@ brand(BatchId)
 # typed field, and at descendant_copy_effects' dense renumber (ops_core.py).
 OrderIdx = NewType("OrderIdx", int)
 brand(OrderIdx)
+
+# A sidebar entry's order key (sidebar_entries.order_idx): the server
+# assigns it and clients reorder by array position, so it never meets block
+# order code -- its own brand keeps a block's OrderIdx from standing in for
+# it and the reverse.
+SidebarOrderIdx = NewType("SidebarOrderIdx", int)
+brand(SidebarOrderIdx)
+
+
+# The changes-journal sequence number (`changes.seq`), distinct from a
+# plain int so a reset counter or a local lane seq can never pass as a
+# sync cursor. Minted only where a route reads MAX(seq) from the changes
+# table (routes_sync.py, routes_ops.py, sync_core.dedupe_window,
+# notify.seq_frame); the web's twin brand is `SyncSeq` in
+# web/src/api/brands.ts.
+SyncSeq = NewType("SyncSeq", int)
+brand(SyncSeq)
+# The cursor before any journal row: a client that has synced nothing.
+NO_SEQ = SyncSeq(0)
 
 
 class CreateOp(BaseModel):
@@ -205,7 +247,7 @@ class OpBatch(BaseModel):
     ops: list[BlockOp] = Field(min_length=1, max_length=500)
     # The client's sync cursor when the batch's ops were built; absent means
     # built against current server state.
-    seen_seq: int | None = Field(default=None, ge=0)
+    seen_seq: SyncSeq | None = Field(default=None, ge=SyncSeq(0))
 
 
 def text_hash(text: str) -> Sha256Hex:

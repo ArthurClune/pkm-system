@@ -8,7 +8,7 @@ from pathlib import Path
 from hypothesis import given, settings, strategies as st
 
 from pkm.batch import validate_batch
-from pkm.contracts.ops import UID_RE, OpBatch, subtree_hash, text_hash
+from pkm.contracts.ops import BlockUid, OpBatch, UID_RE, subtree_hash, text_hash
 from props.harness import DAILY_TITLE
 from props.model import (MBlock, Model, Outcome, Rewrite, positions_after,
                          replay_chain, unlink_stale)
@@ -488,12 +488,12 @@ def test_text_model_matches_the_unlinker_on_generated_texts(data):
     text = data.draw(texts(pool, (title,)))
     assert unlink_stale(text, {title}) == unlink_stale_refs(
         text, lambda raw: normalize_title(raw) == title)
-    page = dict(zip(pool[:3], data.draw(st.lists(texts(pool), min_size=3,
-                                                 max_size=3))))
+    page = {BlockUid(u): t for u, t in zip(pool[:3], data.draw(st.lists(
+        texts(pool), min_size=3, max_size=3)))}
     sources = dict(zip(pool[3:], data.draw(st.lists(
         texts(pool, (title,)), min_size=3, max_size=3))))
     plan = plan_page_delete(lambda raw: normalize_title(raw) == title, page,
-                            [SourceBlock(u, "Other", t)
+                            [SourceBlock(BlockUid(u), "Other", t)
                              for u, t in sources.items()])
     m = Model.from_rows(PAGES, [blk(u, page=title, text=t)
                                 for u, t in page.items()])

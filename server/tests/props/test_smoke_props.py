@@ -4,6 +4,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from props.harness import examples, fresh_app
+from rawread import read
 
 pytestmark = pytest.mark.proptest
 
@@ -18,7 +19,7 @@ def test_each_example_gets_its_own_db(template_db, n):
         assert r.status_code == 200
         con = sqlite3.connect(app.config.db_path)
         try:
-            titles = [row[0] for row in con.execute("SELECT title FROM pages").fetchall()]
+            titles = [row[0] for row in read(con, "SELECT title FROM pages").fetchall()]
         finally:
             con.close()
         assert sum(t.startswith("Smoke ") for t in titles) == 1   # no leakage from earlier examples

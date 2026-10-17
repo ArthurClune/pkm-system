@@ -2,10 +2,10 @@
 """Transactional database inventory and apply shell for title migration."""
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass
 
-from pkm.contracts.ops import BlockUid, PageId, Sha256Hex
+from pkm.contracts.ops import Sha256Hex
+from pkm.database import Db
 from pkm.refs import target_canonical_title, title_syntax_reason
 from pkm.title_migration import (
     InventoryBlock,
@@ -58,13 +58,14 @@ class AlreadyActiveTitleMigration(RuntimeError):
     """Raised when plain-space title canonicalization is already active."""
 
 
-def _inventory_title_migration(db: sqlite3.Connection) -> TitleMigrationInventory:
+def _inventory_title_migration(db: Db) -> TitleMigrationInventory:
     """Gather migration-relevant rows inside the caller's transaction.
 
     This private gatherer never begins, commits, or rolls back. Audit and apply
     deliberately own different transaction modes and call this same function.
     """
-    page_rows = db.execute("SELECT id, title FROM pages ORDER BY id").fetchall()
+    page_rows = db.select(
+        "SELECT id AS page_id, title FROM pages ORDER BY id")
     candidate_rows = [
         row
         for row in page_rows
@@ -89,18 +90,19 @@ def _inventory_title_migration(db: sqlite3.Connection) -> TitleMigrationInventor
         or row["title"] in canonical_titles
         or row in forbidden_rows
     ]
-    page_ids = {row["id"] for row in selected_rows}
+    page_ids = {row["page_id"] for row in selected_rows}
     page_titles = {row["title"] for row in selected_rows}
 
-    all_ref_rows = db.execute(
-        "SELECT src_block_uid, target_page_id, kind FROM refs"
-    ).fetchall()
+    all_ref_rows = db.select(
+        "SELECT src_block_uid, target_page_id,"
+        " kind AS ref_kind FROM refs"
+    )
     inbound_uids = {
         row["src_block_uid"] for row in all_ref_rows if row["target_page_id"] in page_ids
     }
-    all_block_rows = db.execute(
+    all_block_rows = db.select(
         "SELECT uid, page_id, parent_uid, order_idx, text FROM blocks"
-    ).fetchall()
+    )
     selected_block_rows = [
         row
         for row in all_block_rows
@@ -111,16 +113,17 @@ def _inventory_title_migration(db: sqlite3.Connection) -> TitleMigrationInventor
     ]
     selected_sidebar_rows = [
         row
-        for row in db.execute(
-            "SELECT id, title, order_idx FROM sidebar_entries"
-        ).fetchall()
+        for row in db.select(
+            "SELECT id AS sidebar_entry_id, title,"
+            " order_idx AS sidebar_order_idx FROM sidebar_entries"
+        )
         if row["title"] in page_titles or row["title"] in canonical_titles
     ]
 
     return TitleMigrationInventory(
         active=plain_space_title_canonicalization_active(db),
         pages=tuple(
-            InventoryPage(page_id=row["id"], title=row["title"])
+            InventoryPage(page_id=row["page_id"], title=row["title"])
             for row in selected_rows
         ),
         blocks=tuple(
@@ -137,22 +140,22 @@ def _inventory_title_migration(db: sqlite3.Connection) -> TitleMigrationInventor
             InventoryRef(
                 src_block_uid=row["src_block_uid"],
                 target_page_id=row["target_page_id"],
-                kind=row["kind"],
+                kind=row["ref_kind"],
             )
             for row in selected_ref_rows
         ),
         sidebars=tuple(
             InventorySidebar(
-                sidebar_id=row["id"],
+                sidebar_id=row["sidebar_entry_id"],
                 title=row["title"],
-                order_idx=row["order_idx"],
+                order_idx=row["sidebar_order_idx"],
             )
             for row in selected_sidebar_rows
         ),
     )
 
 
-def audit_title_migration(db: sqlite3.Connection) -> TitleMigrationPlan:
+def audit_title_migration(db: Db) -> TitleMigrationPlan:
     """Build a stable migration plan in an owned, side-effect-free read
     transaction."""
     if db.in_transaction:
@@ -165,7 +168,7 @@ def audit_title_migration(db: sqlite3.Connection) -> TitleMigrationPlan:
 
 
 def apply_title_migration(
-    db: sqlite3.Connection, expected_digest: Sha256Hex, now_ms: int
+    db: Db, expected_digest: Sha256Hex, now_ms: int
 ) -> TitleMigrationOutcome:
     """Re-audit, migrate, activate, and rotate generation in one write
     transaction."""
@@ -174,7 +177,7 @@ def apply_title_migration(
 
     transaction_started = False
     try:
-        db.execute("BEGIN IMMEDIATE")
+        db.begin_immediate()
         transaction_started = True
         plan = build_title_migration_plan(_inventory_title_migration(db))
         if plan.digest != expected_digest:
@@ -198,7 +201,7 @@ def apply_title_migration(
         }
         block_text_by_uid = {block.uid: block.text for block in plan.blocks}
         snapshots = tuple(
-            (BlockUid(uid), block_text_by_uid[uid])
+            (uid, block_text_by_uid[uid])
             for uid in sorted(inbound_uids)
         )
         # rewrite_snapshotted_blocks matches replacement keys against raw
@@ -213,7 +216,7 @@ def apply_title_migration(
             if not group.has_clean_twin:
                 retitle_page_without_rewrite(
                     db,
-                    PageId(group.survivor.page_id),
+                    group.survivor.page_id,
                     group.survivor.title,
                     group.canonical_title,
                     now_ms,
@@ -233,7 +236,7 @@ def apply_title_migration(
         blocks_moved = 0
         for source_id, old_title, target_id, new_title in sources:
             blocks_moved += append_page_without_rewrite(
-                db, PageId(source_id), PageId(target_id), old_title,
+                db, source_id, target_id, old_title,
                 new_title, now_ms
             )
 

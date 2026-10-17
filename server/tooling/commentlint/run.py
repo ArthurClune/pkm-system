@@ -1,7 +1,7 @@
 # pattern: Imperative Shell
-"""`.githooks/pre-commit` entry point: lint the staged copy of every staged
-file the rules cover, or with `--all` the working copy of every tracked
-file, and print the report to stderr.
+"""`.githooks/pre-commit` entry point: lint (comment rot and brand names)
+the staged copy of every staged file the rules cover, or with `--all` the
+working copy of every tracked file, and print the report to stderr.
 
 The staged copy, not the working tree, is what the commit will contain, so
 a partially staged file is judged on what is going in."""
@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from brandlint import core as brandlint
+from brandlint.registry import load_registry
 from commentlint.core import Violation, check_text, format_report, is_scanned
 
 
@@ -47,11 +49,14 @@ def main(argv: list[str], repo: Path | None = None) -> int:
     whole_tree = "--all" in argv
     paths = tree_paths(repo) if whole_tree else staged_paths(repo)
     read = _tree_text if whole_tree else _staged_text
+    registry = load_registry(repo)
     violations: list[Violation] = []
     for path in paths:
         if is_scanned(path):
-            violations.extend(check_text(path, read(repo, path)))
-    sys.stderr.write(format_report(violations))
+            text = read(repo, path)
+            violations.extend(check_text(path, text))
+            violations.extend(brandlint.check_text(path, text, registry))
+    sys.stderr.write(format_report(violations, brandlint.RULES))
     return 1 if violations else 0
 
 

@@ -8,12 +8,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import e2e_serve
+from rawread import read
 
 
 def test_prepare_db_empty(tmp_path):
     db = e2e_serve.prepare_db(tmp_path, None)
     con = sqlite3.connect(db)
-    assert con.execute("SELECT COUNT(*) FROM blocks").fetchone()[0] == 0
+    assert read(con, "SELECT COUNT(*) FROM blocks").fetchone()[0] == 0
 
 
 def test_prepare_db_copies_source(tmp_path):

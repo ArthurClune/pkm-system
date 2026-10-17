@@ -439,6 +439,7 @@ openapi-typescript CLI would turn every brand back into `string`.
 | `PageId` | row mappers reading a page id column (`replica/localOps.ts`, `localApi/pages.ts`, `localApi/search.ts`, `reconcile.ts`); `localOps.ts`'s `getOrCreateLocalPage` mints a negative id for an offline page, the sign carrying that meaning; `apply.ts`'s tombstone mint; `outline/missingPage.ts`'s `MISSING_PAGE_ID` sentinel |
 | `SidebarEntryId` | row mappers reading `sidebar_entries.id` (`localApi/router.ts`'s `sidebarPayload`); `apply.ts`'s tombstone mint |
 | `OrderIdx` | `outline/orderIdx.ts` (`FIRST_ORDER_IDX`, `orderIdxAfter`, `orderIdxAfterLast`, `orderIdxPlus`, `freshChildOrderIdx` — the one order-key arithmetic in the web); `outline/edits.ts`'s `orderIdxAfterPosition`, the dense position→order-key conversion; row mappers reading `blocks.order_idx` (`replica/localApi/tree.ts`'s `BlockRow`, `replica/localOps.ts`) |
+| `SidebarOrderIdx` | carried from generated response types (`sidebar_entries.order_idx`); minted only in web test helpers (`test-helpers.ts`) |
 | `NormalizedTitle` | `grammar/scan.ts`'s `normalizeRefTitle` and hashtag token, `replica/titles.ts`'s `canonicalizeTitle` |
 | `CanonicalTitle` | row mappers reading `pages.title` / `sidebar_entries.title`, `replica/meta.ts`'s `canonicalTitle`/`titleReader` (which read the live plain-space flag), `replica/daily.ts`'s `titleForDate`/`dailyTitle` |
 | `Sha256Hex` | `replica/sha256.ts`'s `sha256Hex`, `replica/subtreeHash.ts`'s `subtreeHash`; the asset-link token (`grammar/tokenize.ts`) |

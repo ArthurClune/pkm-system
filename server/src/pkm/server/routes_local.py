@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sqlite3
 import subprocess
 from pathlib import Path
 from typing import Literal
@@ -33,6 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from pkm.contracts.responses import LocalCheckPayload, LocalCheckProblem
+from pkm.database import Db
 from pkm.local_docs import (LOCAL_PREFIX, clean_relative, disposition_for,
                             error_page_html, extract_local_hrefs, is_within,
                             media_type_for, resolve_relative, wants_html_error)
@@ -136,18 +136,19 @@ def _classify(root: Path, href: str) -> Literal[
 
 
 @router.get("/api/local/check", response_model=LocalCheckPayload)
-def check_local_links(db: sqlite3.Connection = Depends(get_db),
+def check_local_links(db: Db = Depends(get_db),
                       config: Config = Depends(get_config)) -> LocalCheckPayload:
     if config.local_docs_root is None:
         return LocalCheckPayload(enabled=False, total=0, ok=0, problems=[])
     root = config.local_docs_root.resolve()
-    rows = db.execute(
+    rows = db.select(
         "SELECT b.uid, p.title, b.text FROM blocks b JOIN pages p ON p.id = b.page_id"
-        " WHERE instr(b.text, ?) > 0 ORDER BY p.title, b.uid", (LOCAL_PREFIX,)).fetchall()
+        " WHERE instr(b.text, ?) > 0 ORDER BY p.title, b.uid", (LOCAL_PREFIX,))
     total = ok = 0
     problems: list[LocalCheckProblem] = []
-    for uid, title, text in rows:
-        for href in extract_local_hrefs(text):
+    for row in rows:
+        uid, title = row["uid"], row["title"]
+        for href in extract_local_hrefs(row["text"]):
             total += 1
             status = _classify(root, href)
             if status == "ok":

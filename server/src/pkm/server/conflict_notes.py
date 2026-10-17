@@ -6,7 +6,7 @@ create it; notes name uids as plain text, since a `((ref))` to a block that
 does not exist renders broken."""
 from __future__ import annotations
 
-from pkm.contracts.ops import MoveOp, SetHeadingOp, SetViewTypeOp
+from pkm.contracts.ops import BlockUid, MoveOp, SetHeadingOp, SetViewTypeOp
 from pkm.refs import extract, normalize_title, title_syntax_reason
 
 
@@ -60,7 +60,7 @@ def missing_page_code_span(page_title: str | None) -> str | None:
     return f"`{page_title}`"
 
 
-def overwritten_header_text(page_title: str, uid: str) -> str:
+def overwritten_header_text(page_title: str, uid: BlockUid) -> str:
     """Header for check 5: the live block's own page, read straight from
     its row -- always a real title, never a client-supplied hint."""
     return (f"[[conflict]] {existing_page_label(page_title)}"
@@ -87,7 +87,7 @@ def orphan_header_text(page_title: str | None, hint_page_exists: bool) -> str:
            " — edit to a block the server no longer has")
 
 
-def live_block_header_text(page_title: str, uid: str) -> str:
+def live_block_header_text(page_title: str, uid: BlockUid) -> str:
     """Header for a change to a live block that could not be applied (a
     move whose target parent is gone): names the block's own page, read
     from its row like check 5's, and embeds the block itself."""
@@ -107,7 +107,7 @@ def block_missing_note(op: MoveOp | SetHeadingOp | SetViewTypeOp) -> str:
     return f"{_BLOCK_MISSING_WHAT[type(op)]} skipped: block {op.uid} not found"
 
 
-def move_parent_missing_note(parent_uid: str) -> str:
+def move_parent_missing_note(parent_uid: BlockUid) -> str:
     return f"move skipped: target parent {parent_uid} not found"
 
 

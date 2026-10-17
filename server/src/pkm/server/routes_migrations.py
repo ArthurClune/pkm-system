@@ -2,7 +2,6 @@
 """Authenticated title-canonicalization audit/apply routes."""
 from __future__ import annotations
 
-import sqlite3
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -12,6 +11,7 @@ from pkm.contracts.responses import (
     TitleMigrationApplyResponse,
     TitleMigrationAuditPayload,
 )
+from pkm.database import Db
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
@@ -27,8 +27,8 @@ from pkm.server.title_migration import (
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 
-def _audit_payload(plan: TitleMigrationPlan) -> dict[str, object]:
-    return {
+def _audit_payload(plan: TitleMigrationPlan) -> TitleMigrationAuditPayload:
+    return TitleMigrationAuditPayload.model_validate({
         "active": plan.active,
         "digest": plan.digest,
         "groups": [
@@ -57,7 +57,7 @@ def _audit_payload(plan: TitleMigrationPlan) -> dict[str, object]:
             }
             for blocker in plan.blockers
         ],
-    }
+    })
 
 
 @router.get(
@@ -65,8 +65,8 @@ def _audit_payload(plan: TitleMigrationPlan) -> dict[str, object]:
     response_model=TitleMigrationAuditPayload,
 )
 def audit_title_canonicalization(
-    db: sqlite3.Connection = Depends(get_db),
-) -> dict[str, object]:
+    db: Db = Depends(get_db),
+) -> TitleMigrationAuditPayload:
     return _audit_payload(audit_title_migration(db))
 
 
@@ -77,8 +77,8 @@ def audit_title_canonicalization(
 def apply_title_canonicalization(
     request: Request,
     body: TitleMigrationApplyRequest,
-    db: sqlite3.Connection = Depends(get_db),
-) -> dict[str, object]:
+    db: Db = Depends(get_db),
+) -> TitleMigrationApplyResponse:
     try:
         outcome = apply_title_migration(
             db, body.audit_digest, now_ms=int(time.time() * 1000)
@@ -95,7 +95,7 @@ def apply_title_canonicalization(
         force=True,
         generation=outcome.generation,
     )
-    return {
+    return TitleMigrationApplyResponse.model_validate({
         "digest": outcome.digest,
         "groups_applied": outcome.groups_applied,
         "pages_retitled": outcome.pages_retitled,
@@ -103,4 +103,4 @@ def apply_title_canonicalization(
         "blocks_moved": outcome.blocks_moved,
         "blocks_rewritten": outcome.blocks_rewritten,
         "generation": outcome.generation,
-    }
+    })

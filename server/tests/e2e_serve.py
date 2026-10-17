@@ -30,7 +30,6 @@ import logging
 import os
 import shutil
 import signal
-import sqlite3
 import sys
 import tempfile
 import threading
@@ -47,6 +46,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 import fake_goodlinks_server
 from fake_engine import FakeEngine
+from pkm.database import connect
 from pkm.schema import DDL
 from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
@@ -122,7 +122,7 @@ def prepare_db(data: Path, from_db: Path | None) -> Path:
     if from_db is not None:
         shutil.copyfile(from_db, db_path)
     else:
-        con = sqlite3.connect(db_path)
+        con = connect(db_path)
         con.executescript(DDL)
         con.commit()
         con.close()
@@ -135,6 +135,8 @@ def main() -> int:
     web_dist = Path(os.environ["E2E_WEB_DIST"]) if os.environ.get("E2E_WEB_DIST") else root / "web" / "dist"
     assert (web_dist / "index.html").is_file(), \
         "web/dist missing - run `pnpm build` first (the e2e script does)"
+    # perfcheck sets this to 0: perf measures what production runs
+    os.environ.setdefault("PKM_ROW_CHECK", "1")
     data = Path(tempfile.mkdtemp(prefix="pkm-e2e-"))
     atexit.register(shutil.rmtree, data, ignore_errors=True)
 

@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from pkm.contracts.ops import SidebarEntryId
-from pkm.contracts.responses import SidebarNavEntry, SidebarNavPayload
+from pkm.contracts.responses import OkAck, SidebarNavEntry, SidebarNavPayload
+from pkm.database import Db
 from pkm.importer.sidebar_rows import next_order_idx, reorder_is_valid
-from pkm.refs import CanonicalTitle, is_blank_title
+from pkm.refs import is_blank_title
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
@@ -29,27 +30,28 @@ class ReorderSidebarEntriesRequest(BaseModel):
 
 
 @router.get("/api/sidebar", response_model=SidebarNavPayload)
-def get_sidebar(db: sqlite3.Connection = Depends(get_db)) -> SidebarNavPayload:
-    rows = db.execute(
-        "SELECT id, title FROM sidebar_entries ORDER BY order_idx").fetchall()
+def get_sidebar(db: Db = Depends(get_db)) -> SidebarNavPayload:
+    rows = db.select(
+        "SELECT id AS sidebar_entry_id, title FROM sidebar_entries"
+        " ORDER BY order_idx")
     return SidebarNavPayload(entries=[
-        SidebarNavEntry(id=SidebarEntryId(r["id"]),
-                        title=CanonicalTitle(r["title"])) for r in rows])
+        SidebarNavEntry(id=r["sidebar_entry_id"], title=r["title"])
+        for r in rows])
 
 
-@router.post("/api/sidebar")
+@router.post("/api/sidebar", response_model=SidebarNavEntry)
 def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
-                      db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+                      db: Db = Depends(get_db)) -> SidebarNavEntry:
     title = read_title(db, body.title)
     if is_blank_title(title):
         raise HTTPException(status_code=422, detail="title must not be blank")
-    db.execute("BEGIN IMMEDIATE")
-    existing = db.execute(
-        "SELECT title, order_idx FROM sidebar_entries").fetchall()
+    db.begin_immediate()
+    existing = db.select(
+        "SELECT title, order_idx AS sidebar_order_idx FROM sidebar_entries")
     if any(r["title"] == title for r in existing):
         db.rollback()
         raise HTTPException(status_code=409, detail="entry already exists")
-    order_idx = next_order_idx([r["order_idx"] for r in existing])
+    order_idx = next_order_idx([r["sidebar_order_idx"] for r in existing])
     try:
         entry_id = insert_sidebar_entry(db, title, order_idx)
     except sqlite3.IntegrityError:
@@ -57,25 +59,25 @@ def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
         raise HTTPException(
             status_code=409, detail="entry already exists") from None
     notify.commit_and_nudge_threadpool(request, db)
-    return {"id": entry_id, "title": title}
+    return SidebarNavEntry(id=entry_id, title=title)
 
 
-@router.delete("/api/sidebar/{entry_id}")
+@router.delete("/api/sidebar/{entry_id}", response_model=OkAck)
 def delete_sidebar_entry(request: Request, entry_id: SidebarEntryId,
-                         db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+                         db: Db = Depends(get_db)) -> OkAck:
     cur = db.execute("DELETE FROM sidebar_entries WHERE id = ?", (entry_id,))
     if cur.rowcount == 0:
         db.rollback()
         raise HTTPException(status_code=404, detail="entry not found")
     notify.commit_and_nudge_threadpool(request, db)
-    return {"ok": True}
+    return OkAck(ok=True)
 
 
-@router.put("/api/sidebar")
+@router.put("/api/sidebar", response_model=OkAck)
 def reorder_sidebar_entries(request: Request, body: ReorderSidebarEntriesRequest,
-                            db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
-    existing_ids = {SidebarEntryId(r["id"]) for r in
-                    db.execute("SELECT id FROM sidebar_entries").fetchall()}
+                            db: Db = Depends(get_db)) -> OkAck:
+    existing_ids = {r["sidebar_entry_id"] for r in db.select(
+        "SELECT id AS sidebar_entry_id FROM sidebar_entries")}
     if not reorder_is_valid(existing_ids, body.order):
         raise HTTPException(
             status_code=400,
@@ -84,4 +86,4 @@ def reorder_sidebar_entries(request: Request, body: ReorderSidebarEntriesRequest
         "UPDATE sidebar_entries SET order_idx = ? WHERE id = ?",
         [(idx, entry_id) for idx, entry_id in enumerate(body.order)])
     notify.commit_and_nudge_threadpool(request, db)
-    return {"ok": True}
+    return OkAck(ok=True)

@@ -5,7 +5,8 @@ from typing import cast
 import pytest
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from pkm.contracts.responses import SyncSeq
+from pkm.contracts.ops import SyncSeq
+from pkm.database import connect
 from pkm.server.notify import SeqFrame
 
 
@@ -493,13 +494,11 @@ def test_daily_autocreate_on_get_emits_seq_nudge(client):
 def test_seq_frame_is_typed_and_validated():
     """The WS nudge frame is built from a typed model, not an ad-hoc dict
     literal."""
-    import sqlite3
 
     from pkm.schema import DDL
     from pkm.server.notify import seq_frame
 
-    con = sqlite3.connect(":memory:")
-    con.row_factory = sqlite3.Row
+    con = connect(":memory:")
     con.executescript(DDL)
     frame = seq_frame(con)
     assert frame.wire() == {"type": "seq", "seq": 0}

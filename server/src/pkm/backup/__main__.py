@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import argparse
 import os
-import sqlite3
 import subprocess
 from datetime import date
 from pathlib import Path
 
 from pkm.backup.rotation import backup_name, prune_list
+from pkm.database import Db, connect
 from pkm.export.writer import export_graph
 from pkm.server.config import load_config
 
@@ -25,21 +25,15 @@ from pkm.server.config import load_config
 GIT_ID = ["-c", "user.name=pkm-backup", "-c", "user.email=pkm-backup@localhost"]
 
 
-def open_ro(path: Path) -> sqlite3.Connection:
-    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-    con.row_factory = sqlite3.Row
-    return con
+def open_ro(path: Path) -> Db:
+    return connect(path, read_only=True)
 
 
 def sqlite_backup(live_db: Path, dest: Path) -> None:
     tmp = dest.with_name(dest.name + ".tmp")
     src = open_ro(live_db)
     try:
-        dst = sqlite3.connect(tmp)
-        try:
-            src.backup(dst)
-        finally:
-            dst.close()
+        src.backup_to(tmp)
     finally:
         src.close()
     os.replace(tmp, dest)

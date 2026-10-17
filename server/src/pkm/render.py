@@ -13,6 +13,7 @@ import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime, tzinfo
 
+from pkm.contracts.ops import BlockUid
 from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
                                      BlockPayload, BlockRefText, ChangedPayload,
                                      GoodlinksCheckPayload, GroupsPayload,
@@ -22,8 +23,7 @@ from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
                                      TitleMigrationAuditPayload,
                                      TitleMigrationBlocker,
                                      TitleMigrationPage, walk_blocks)
-from pkm.contracts.ops import BlockUid
-from pkm.refs import BLOCK_REF_TOKEN
+from pkm.refs import BLOCK_REF_TOKEN, parse_block_uid
 
 _REF_TOKEN = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
 _SECTION_MARKER = re.compile(r"^(#{1,3}) (.*)$")
@@ -42,18 +42,18 @@ def resolve_ref_texts(text: str, ref_map: RefMap,
     Recurses into resolved text; a uid already being expanded stays a bare
     token, so ref cycles terminate. Unknown uids are left untouched."""
     def _sub(m: re.Match[str]) -> str:
-        # The regex matches BLOCK_REF_TOKEN's shape, so the capture is a
-        # well-formed uid; whether it names a live block is what the
-        # ref_map lookup below actually decides.
-        uid = BlockUid(m.group(1))
-        if uid in _seen or uid not in ref_map:
+        # The regex matches BLOCK_REF_TOKEN's shape, so the capture parses;
+        # whether it names a live block is what the ref_map lookup below
+        # actually decides.
+        uid = parse_block_uid(m.group(1))
+        if uid is None or uid in _seen or uid not in ref_map:
             return m.group(0)
         inner = resolve_ref_texts(ref_map[uid].text, ref_map, _seen | {uid})
         return f'"{inner}" (({uid}))'
     return _REF_TOKEN.sub(_sub, text)
 
 
-def _line(text: str, heading: int | None, depth: int, uid: str,
+def _line(text: str, heading: int | None, depth: int, uid: BlockUid,
           include_uids: bool) -> str:
     body = f"{'#' * heading} {text}" if heading else text
     suffix = f"  ^{uid}" if include_uids else ""

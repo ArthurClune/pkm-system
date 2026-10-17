@@ -27,6 +27,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from pkm.contracts.ops import BlockUid
 from pkm.export.markdown import rewrite_asset_links
 from pkm.refs import BLOCK_REF_TOKEN
 
@@ -44,7 +45,7 @@ _QUERY_PREFIX_RE = re.compile(r"\{\{(?:\[\[)?query(?:\]\])?:\s*")
 
 @dataclass(frozen=True)
 class QueryResultItem:
-    uid: str
+    uid: BlockUid
     text: str
 
 

@@ -26,6 +26,12 @@ for the pattern.
 
 ```
 pkm/
+├── database.py          Shell  `Db`, the typed connection every feature holds, `connect()`,
+│                               `RowCheckError` (see Typed database access)
+├── rows.py              Core   `Row`, the vocabulary of a database row (one typed key
+│                               per name a query may return) and `row_problems`
+├── brand_registry.py    Core   Import-free data the brand lint and `rows.py` read:
+│                               NAMES, MINT_SITES, CAST_SITES, COLUMN_KEYS, SHAPES
 ├── schema.py            Core   Single source of DDL: BASE_DDL (replicated to clients)
 │                               + SERVER_DDL (journal, idempotency, rewrites) = DDL
 ├── refs.py              Core   Ref grammar: [[links]], #tags, attr::, ((refs)), {{embeds}}
@@ -62,8 +68,8 @@ pkm/
 │                               file for assets_core.asset_needs_repair() to judge
 │
 ├── contracts/           Core   The wire contract, depended on by BOTH sides:
-│                               ops.py (op models + UID_RE + text_hash +
-│                               BlockUid/PageId/SidebarEntryId NewTypes),
+│                               ops.py (op models + UID_RE + text_hash + new_uid +
+│                               the BlockUid/PageId/SidebarEntryId/SyncSeq NewTypes),
 │                               responses.py (JSON response models),
 │                               daily.py (date <-> "July 8th, 2026" titles)
 │
@@ -96,7 +102,7 @@ Inside `pkm/server/`:
 |---|---|---|
 | `app.py` | Shell | App factory `create_app(config)`: runs `init_db()`, builds the `AssistantService` (engine injectable), mounts routers, serves the SPA |
 | `config.py` | Shell | Frozen `Config` loaded from the data dir's `config.json` |
-| `db.py` | Shell | `init_db()`/`open_db()`, per-request connection dependency, column migrations |
+| `db.py` | Shell | `init_db()`/`open_db()` (both return a `Db`), per-request connection dependency, column migrations |
 | `auth.py` / `auth_core.py` / `throttle_core.py` | Shell / Core / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens; per-source login backoff policy (see [Auth](#auth)) |
 | `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_local.py`, `routes_goodlinks.py`, `routes_export.py`, `routes_migrations.py` | Shell | The HTTP surface (table below) |
 | `goodlinks_gateway.py` | Shell | httpx2 edge to the GoodLinks local API |
@@ -121,8 +127,58 @@ constructs their services and mounts their routers alongside these.
 
 One SQLite file (`pkm.sqlite3`) in the data directory. WAL mode and schema are
 applied once at startup by `init_db()` (`server/db.py`), never per request.
-Request handlers get a fresh connection each (`check_same_thread=False`, `Row`
-factory, `foreign_keys=ON`, `recursive_triggers=ON`, `busy_timeout=5000`).
+Request handlers get a fresh `Db` each (`check_same_thread=False`,
+`foreign_keys=ON`, `recursive_triggers=ON`, `busy_timeout=5000`).
+
+### Typed database access
+
+Feature code holds a `Db` (`pkm/database.py`), never a `sqlite3.Connection`.
+The raw connection returns tuples, and `Db` wraps it so every read is typed
+and every write is a different method.
+
+| Method | Returns |
+|---|---|
+| `select(sql, params)` / `select_one` | `list[Row]` / `Row \| None`: dicts keyed by the column names the query returns |
+| `execute` / `executemany` | `WriteResult(rowcount, lastrowid)`; writes only |
+| `begin_immediate`, `commit`, `rollback`, `executescript`, `close` | transaction control |
+| `table_columns`, `trigger_sql`, `backup_to` | catalog reads and the backup API, which bypass the row check |
+| `raw` | the connection, for tests and tooling; the `raw-sqlite` rule rejects it elsewhere |
+
+`Row` (`pkm/rows.py`) is a `TypedDict` with one key per name a query may
+return, each typed with its brand (`uid: BlockUid`, `page_id: PageId`) or
+`Literal` domain (`view_type: ViewType | None`). A key keeps one meaning and
+one nullability everywhere, so a column that differs from the key of the same
+name is read under an alias:
+
+| Column | Row key |
+|---|---|
+| `pages.id` / `sidebar_entries.id` | `page_id` / `sidebar_entry_id` |
+| `sidebar_entries.order_idx` | `sidebar_order_idx` |
+| `kind` of `refs`, `block_rewrites`, `changes` | `ref_kind`, `rewrite_kind`, `change_kind` |
+| `changes.page_id` (nullable) | `change_page_id` |
+| a computed value | the alias the query gives it (`COUNT(*) AS n`, `... AS page_title`) |
+
+`brand_registry.COLUMN_KEYS` lists the table-level aliases, `SHAPES` the
+regex a branded value must match, and `CLIENT_KEYS` the web-only keys of the
+replica's tables.
+
+When `PKM_ROW_CHECK=1`, `select` checks each row with `row_problems` and
+raises `RowCheckError` on an unregistered column, a NULL in a non-null key, a
+wrong base type, a value outside a `Literal` or a value that fails its brand
+shape. `conftest.py`, `e2e_serve.py` and the proptest sync server turn it on;
+`perfcheck` forces it off so timings measure what production runs. A
+`RowCheckError` is fixed in the query (alias the column, `COALESCE` an
+aggregate) or the data, never by loosening `row_problems`.
+
+A key admits every value its column stores. `heading` is
+`StoredHeadingLevel | None`, which includes the 0 an old Roam import stored
+for "no heading". `heading_level` maps that 0 to `None` where a row becomes a
+`TreeNode` or a `SyncBlock`, so the wire never carries it. Rewriting it in SQL
+(`NULLIF`) would cost VM steps on every block row a page or sync read returns.
+
+`Row` is the typed core of a read, not a wire type: handlers copy the keys
+they need into a response model. The brand lint's rules are in
+[enforced-checks.md](enforced-checks.md#brand-rules).
 
 `pkm/schema.py` holds two DDL blocks. `BASE_DDL` is the data model below, and
 is **replicated verbatim to browser clients** via the generated
@@ -384,7 +440,7 @@ is linked only when `[[Page]]` reads back through `refs.extract` as that same
 title (`conflict_notes.existing_page_label`). A title ending in `]` or holding
 paired backticks reads back as another title, which the ref indexer would
 create. Such a title is shown in inline code instead, or as `(page unknown)`
-if it holds a backtick. Header and child uids are minted (`ops_apply._new_uid`)
+if it holds a backtick. Header and child uids are minted (`contracts.ops.new_uid`)
 with an alphanumeric first character so the CLI can address them without `--`
 (see [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)); a
 second conflict on the same block the same day reuses its header's uid.
@@ -761,7 +817,9 @@ Tailscale IP only (default port 8974).
 Authoritative sources: the `routes_*.py` modules and the generated
 `web/src/api/openapi.json` (see
 [Generated artifacts](#generated-artifacts-and-parity-fixtures)). Response
-models are Pydantic classes in `pkm/contracts/responses.py`; the generated TS
+models are Pydantic classes in `pkm/contracts/responses.py`. Every JSON
+handler returns one, and `test_routes_models` rejects a bare `dict` return.
+The generated TS
 types derive from them and `PkmClient` validates every response against them,
 so a drifting payload fails in the CLI and MCP client too. A field that only
 ever holds a fixed set of strings (or small ints) is typed as a `Literal`,
@@ -799,9 +857,8 @@ consume the value afterward (`ShiftSiblings`, `SetParent`, `InsertBlock`,
 | Brand(s) | Declared in | Base |
 |---|---|---|
 | `Sha256Hex`, `ClientId`, `BatchId`, `BlockUid` | `contracts/ops.py` | `str` |
-| `PageId`, `SidebarEntryId` | `contracts/ops.py` | `int` |
-| `OrderIdx` | `contracts/ops.py` | `int` |
-| `SyncSeq` | `contracts/responses.py` | `int` |
+| `PageId`, `SidebarEntryId`, `SyncSeq` | `contracts/ops.py` | `int` |
+| `OrderIdx`, `SidebarOrderIdx` | `contracts/ops.py` | `int` |
 | `ConversationId`, `ConfirmId` | `contracts/responses.py` | `str` |
 | `GoodlinksId` | `goodlinks.py` | `str` |
 | `NormalizedTitle` | `refs.py` | `str` |
@@ -812,9 +869,9 @@ own `INTEGER PRIMARY KEY`, distinct from `pages.id` even though every entry
 names a page. `OrderIdx` is a block's sparse sibling order key
 (`blocks.order_idx`), not a position: a delete leaves a gap rather than
 renumbering, so two siblings' keys need not be adjacent.
-`sidebar_entries.order_idx` stays a plain `int` — the server assigns it and
-the web reorders sidebar entries by array position, so it never meets block
-order code. The web's own brand definitions, and where each is minted on
+`sidebar_entries.order_idx` is `SidebarOrderIdx`, not `OrderIdx` — the
+server assigns it and the web reorders sidebar entries by array position, so
+it never meets block order code. The web's own brand definitions, and where each is minted on
 that side, are in [frontend.md § API layer](frontend.md#api-layer).
 
 Every endpoint requires the session cookie unless marked public, and
@@ -822,9 +879,9 @@ FastAPI's `/docs` and `/redoc` are disabled.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/login` *(public)* | Password → signed session cookie |
+| POST | `/api/login` *(public)* | Password → signed session cookie; `OkAck` |
 | GET | `/login` *(public)* | Inline HTML login form |
-| GET | `/healthz` *(public)* | Liveness check |
+| GET | `/healthz` *(public)* | Liveness check; `OkAck` (`{ok}`) |
 | GET | `/{path}` *(public)* | SPA fallback: serves `web_dist` (index.html no-cache, hashed bundles under `/app-assets/`) |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
@@ -835,12 +892,12 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | GET | `/api/block/{uid}/backlinks` | Blocks referencing `((uid))`, grouped like page backlinks (unpaginated) |
 | GET | `/api/block-refs?uids=` | Resolve `((uid))` references on demand |
 | POST | `/api/pages` | Idempotent page create |
-| DELETE | `/api/page/{title}` | Delete page + blocks (+ sidebar entry); inbound links and tags become plain text and inbound `((refs))` become copies ([Page mutations](#page-mutations-and-the-sidebar)). 409 with `detail.blockers` when a query names the page, a block uses the page as its leading attribute, unlinking would change a leading attribute name, or a reference would be left; 503 with `Retry-After` when the write lock is busy |
+| DELETE | `/api/page/{title}` | Delete page + blocks (+ sidebar entry), returning `OkAck`; inbound links and tags become plain text and inbound `((refs))` become copies ([Page mutations](#page-mutations-and-the-sidebar)). 409 with `detail.blockers` when a query names the page, a block uses the page as its leading attribute, unlinking would change a leading attribute name, or a reference would be left; 503 with `Retry-After` when the write lock is busy |
 | GET | `/api/delete-preview?title=` | `DeletePreview`: `links`, `link_pages`, `block_refs`, `block_ref_pages` and `blockers`, what a delete would rewrite or be refused for; read-only; 404 if the page is missing |
 | POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`; 503 with `Retry-After` when the write lock is busy. Returns `RenamePageResponse` (`result: "renamed" \| "merged"`, `title`) |
 | GET | `/api/unlinked?title` | Unlinked mentions of a title |
 | GET | `/api/journal?before&days` | Daily-notes feed (infinite scroll); each day carries its blocks and a linked-references preview, and one `block_ref_counts` map covers all days |
-| POST | `/api/journal/cleanup` | Prune empty daily pages (spares today + referenced blocks) |
+| POST | `/api/journal/cleanup` | Prune empty daily pages (spares today + referenced blocks); `JournalCleanupResponse` (`deleted`: the titles removed) |
 | GET | `/api/current-work` | Recently edited pages, bucketed by age |
 | **Migrations** | | |
 | GET | `/api/migrations/title-canonicalization` | Side-effect-free `TitleMigrationAuditPayload`: `active`, digest, grouped survivor/source plans and counts, and blockers whose `reason` is `all_space` or `forbidden_syntax` |
@@ -852,11 +909,11 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | GET | `/api/todos?page` | `{{TODO}}` blocks grouped by page |
 | GET | `/api/changed?since&until&page&limit` | Blocks whose `updated_at` falls in `[since, until)`, grouped by page in first-touched order; `since`/`until` are each a date or ISO datetime, `until` exclusive and defaulting to now; each item carries `created_at`/`updated_at`/`status` (`new` if `created_at` is in the window, else `edited`); 400 on an unparseable or empty window |
 | **Sidebar** | | |
-| GET / POST / PUT / DELETE | `/api/sidebar`… | Pinned pages: list / pin / reorder (permutation-validated) / unpin |
+| GET / POST / PUT / DELETE | `/api/sidebar`… | Pinned pages: list (`SidebarNavPayload`) / pin (`SidebarNavEntry`) / reorder (permutation-validated, `OkAck`) / unpin (`OkAck`) |
 | **Sync** (see [sync-and-offline.md](sync-and-offline.md)) | | |
 | GET | `/api/sync/snapshot?pending` | Full graph bootstrap + `seq` + `generation` + title-canonicalization activation; `applied_batches` names which `pending` batch ids (repeated param) the payload already holds, each `{batch_id, seq, skipped}` from its stored ack, read in the payload's own read transaction; left out when empty, so a request naming nothing gets the old payload |
 | GET | `/api/sync/changes?since&limit&pending` | Windowed incremental feed with the same generation/activation metadata and the same `applied_batches` answer (never on a `reset` answer) |
-| POST | `/api/client/diagnostics` | A replica's self-report before it rebuilds a corrupt database; logged as one `pkm.sync` WARNING line, nothing written |
+| POST | `/api/client/diagnostics` | A replica's self-report before it rebuilds a corrupt database; logged as one `pkm.sync` WARNING line, nothing written; `OkAck` |
 | WS | `/api/ws` | Push nudges: applied-op broadcasts + real `seq` hints; title generation rotation adds `force:true,generation` without fabricating a cursor |
 | **Assistant** (SSE — see [assistant.md](assistant.md)) | | |
 | GET | `/api/assistant/models` | Models the picker may offer + the default; `glm` appears only when a z.ai key is configured |
@@ -871,7 +928,7 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | GET | `/api/assets/describe-status` | Whether image descriptions are enabled, and why not if disabled |
 | POST | `/api/assets/scan?force` | Enqueue undescribed (or, with `force`, previously-failed) eligible images |
 | GET | `/api/assets/search?q&limit&offset&type&from_ms&to_ms&linked` | `LIKE` search over asset description + filename, filtered and paginated, with a `total` (backs the `/files` browser) |
-| DELETE | `/api/assets/{sha256}` | Delete an asset, stripping its reference tokens from block text; `?if_unreferenced=true` instead refuses with 409 while any block references it, and strips nothing |
+| DELETE | `/api/assets/{sha256}` | Delete an asset (`AssetDeleteAck`: `deleted`, `refs_removed`), stripping its reference tokens from block text; `?if_unreferenced=true` instead refuses with 409 while any block references it, and strips nothing |
 | POST | `/api/assets/export.zip` | Zip the selected assets (form-encoded `sha256s`, download) |
 | **Local documents** (`routes_local.py`) | | |
 | GET | `/api/local/check` | Every `/api/local/` href in block text, classified `ok` / `missing` / `evicted` / `invalid` / `unreadable` / `unchecked` against disk (a dataless file is `evicted` and is never opened; any other file is probe-opened: a failed probe is `unreadable`, a full probe cap is `unchecked`); `enabled: false` when `local_docs_root` is unset |
@@ -1045,11 +1102,12 @@ When measuring a slow request, prefer these durations to client-side timing.
   opinion) and `uv run ruff check` lints, at line length 120.
 - In `server/src`, both refuse an implicit `Any`: pyrefly's `implicit-any-*`
   errors and ruff's `ANN` rules are on, with tests and tooling exempt. Data
-  from outside the app is typed `object` and narrowed before use. The one
-  sanctioned `Any` is `SchemaRow` (`pkm/schema.py`): a row read from our own
-  schema, whose column types the DDL fixes.
+  from outside the app is typed `object` and narrowed before use. Rows read
+  from our own schema are `pkm.rows.Row` dicts, returned by `Db.select`.
 - `server/tooling/perfcheck` is the performance gate behind `perf/check.sh`:
   see [performance-checks.md](performance-checks.md).
+- `server/tooling/brandlint` is the brand lint, run by the same hook and
+  sweep as `commentlint`: see [enforced-checks.md](enforced-checks.md#brand-rules).
 - `server/tooling/commentlint` is the comment-rot lint behind
   `.githooks/pre-commit`: a staged source file or architecture doc whose
   comments carry a bean id, a line number or a spec/plan pointer with no path

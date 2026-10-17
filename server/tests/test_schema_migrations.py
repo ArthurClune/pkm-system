@@ -4,6 +4,7 @@ import sqlite3
 
 import pytest
 
+from rawread import read
 from pkm.server.db import init_db, open_db
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
 
@@ -29,9 +30,9 @@ def test_existing_assets_table_gains_description_columns(tmp_path):
     init_db(db_path)  # IF-NOT-EXISTS DDL skips the table; migration must ALTER it
 
     con = open_db(db_path)
-    cols = {r[1] for r in con.execute("PRAGMA table_info(assets)")}
+    cols = {r[1] for r in read(con, "PRAGMA table_info(assets)")}
     assert {"description", "described_at", "describe_error"} <= cols
-    row = con.execute("SELECT description, described_at, describe_error"
+    row = read(con, "SELECT description, described_at, describe_error"
                       " FROM assets").fetchone()
     assert tuple(row) == (None, None, None)
     con.close()
@@ -41,7 +42,7 @@ def test_fresh_db_has_description_columns(tmp_path):
     db_path = tmp_path / "pkm.sqlite3"
     init_db(db_path)
     con = open_db(db_path)
-    cols = {r[1] for r in con.execute("PRAGMA table_info(assets)")}
+    cols = {r[1] for r in read(con, "PRAGMA table_info(assets)")}
     assert {"description", "described_at", "describe_error"} <= cols
     con.close()
 
@@ -56,7 +57,7 @@ def test_existing_db_gains_plain_space_title_canonicalization_metadata(tmp_path)
     init_db(db_path)
 
     con = open_db(db_path)
-    row = con.execute(
+    row = read(con,
         "SELECT value FROM sync_meta WHERE key = 'plain_space_title_canonicalization'"
     ).fetchone()
     assert row is not None
@@ -83,9 +84,9 @@ def test_block_refs_backfill_fills_historical_rows(tmp_path):
 
     init_db(db_path)  # idempotent second run performs the catch-up
     con = open_db(db_path)
-    rows = {tuple(r) for r in con.execute(
+    rows = {tuple(r) for r in read(con,
         "SELECT src_block_uid, target_block_uid FROM block_refs")}
-    marker = con.execute(
+    marker = read(con,
         "SELECT value FROM sync_meta WHERE key = 'block_refs_backfilled'"
     ).fetchone()[0]
     con.close()
@@ -108,7 +109,7 @@ def test_block_refs_backfill_is_guarded(tmp_path):
 
     init_db(db_path)  # marker present: must NOT re-scan
     con = open_db(db_path)
-    rows = list(con.execute("SELECT * FROM block_refs"))
+    rows = list(read(con, "SELECT * FROM block_refs"))
     con.close()
     assert rows == []  # write path owns post-marker rows, not startup
 
@@ -148,7 +149,7 @@ def _delete_one(db_path, uid, page_id):
         (uid, page_id))
     con.execute("DELETE FROM blocks WHERE uid = ?", (uid,))
     con.commit()
-    rows = [tuple(r) for r in con.execute(
+    rows = [tuple(r) for r in read(con,
         "SELECT kind, entity_id, deleted, page_id FROM changes"
         " WHERE entity_id = ? ORDER BY seq", (uid,))]
     con.close()
@@ -163,11 +164,11 @@ def test_existing_journal_gains_the_tombstone_page_and_its_trigger(tmp_path):
     init_db(db_path)  # and a second startup changes nothing
 
     con = open_db(db_path)
-    assert "page_id" in {r[1] for r in con.execute("PRAGMA table_info(changes)")}
-    old = con.execute("SELECT deleted, page_id FROM changes"
+    assert "page_id" in {r[1] for r in read(con, "PRAGMA table_info(changes)")}
+    old = read(con, "SELECT deleted, page_id FROM changes"
                       " WHERE entity_id = 'uid_old01' AND deleted = 1").fetchone()
     assert tuple(old) == (1, None)
-    assert con.execute(
+    assert read(con,
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger'"
         " AND name = 'blocks_chg_ad'").fetchone()[0] == 1
     con.close()
@@ -207,9 +208,9 @@ def test_block_rewrites_gains_kind_on_an_old_database(tmp_path):
     init_db(db_path)
 
     con = open_db(db_path)
-    cols = {r[1] for r in con.execute("PRAGMA table_info(block_rewrites)")}
+    cols = {r[1] for r in read(con, "PRAGMA table_info(block_rewrites)")}
     assert "kind" in cols
-    assert con.execute("SELECT kind FROM block_rewrites").fetchone()[0] == "retitle"
+    assert read(con, "SELECT kind FROM block_rewrites").fetchone()[0] == "retitle"
     with pytest.raises(sqlite3.IntegrityError):
         con.execute("INSERT INTO block_rewrites VALUES"
                     " ('u2', 'a', 'b', 'x', 'y', 1, 'bogus')")

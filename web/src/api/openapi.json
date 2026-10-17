@@ -43,9 +43,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Login Api Login Post"
+                  "$ref": "#/components/schemas/OkAck"
                 }
               }
             }
@@ -72,11 +70,7 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Openapi Schema Api Openapi Json Get"
-                }
+                "schema": {}
               }
             }
           }
@@ -174,6 +168,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "BlockUid",
               "title": "Uid"
             }
           }
@@ -214,6 +209,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "BlockUid",
               "title": "Uid"
             }
           }
@@ -321,9 +317,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Delete Page Api Page  Title  Delete"
+                  "$ref": "#/components/schemas/OkAck"
                 }
               }
             }
@@ -643,9 +637,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Cleanup Journal Api Journal Cleanup Post"
+                  "$ref": "#/components/schemas/JournalCleanupResponse"
                 }
               }
             }
@@ -978,9 +970,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Reorder Sidebar Entries Api Sidebar Put"
+                  "$ref": "#/components/schemas/OkAck"
                 }
               }
             }
@@ -1016,9 +1006,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Add Sidebar Entry Api Sidebar Post"
+                  "$ref": "#/components/schemas/SidebarNavEntry"
                 }
               }
             }
@@ -1058,9 +1046,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Delete Sidebar Entry Api Sidebar  Entry Id  Delete"
+                  "$ref": "#/components/schemas/OkAck"
                 }
               }
             }
@@ -1099,9 +1085,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Client Diagnostics Api Client Diagnostics Post"
+                  "$ref": "#/components/schemas/OkAck"
                 }
               }
             }
@@ -1131,6 +1115,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "x-brand": "SyncSeq",
               "default": 0,
               "title": "Since"
             }
@@ -1387,6 +1372,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "Sha256Hex",
               "title": "Sha256"
             }
           },
@@ -1407,9 +1393,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Delete Asset Api Assets  Sha256  Delete"
+                  "$ref": "#/components/schemas/AssetDeleteAck"
                 }
               }
             }
@@ -1474,6 +1458,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "Sha256Hex",
               "title": "Sha256"
             }
           },
@@ -1669,6 +1654,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "GoodlinksId",
               "title": "Link Id"
             }
           }
@@ -1931,6 +1917,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "ConversationId",
               "title": "Conversation Id"
             }
           }
@@ -1978,6 +1965,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "ConversationId",
               "title": "Conversation Id"
             }
           }
@@ -2027,6 +2015,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "ConversationId",
               "title": "Conversation Id"
             }
           }
@@ -2064,6 +2053,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "ConversationId",
               "title": "Conversation Id"
             }
           }
@@ -2102,9 +2092,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Healthz Healthz Get"
+                  "$ref": "#/components/schemas/OkAck"
                 }
               }
             }
@@ -2164,6 +2152,25 @@
         ],
         "title": "AppliedBatch",
         "description": "One of the client's pending batches (the `pending` query param of\n/api/sync/changes and /api/sync/snapshot) that the payload already holds:\nits applied_batches row is in the same read transaction that hydrated the\npayload, and a batch's writes commit with that row. `seq` and `skipped`\nare its stored ack's, read through OpsAck, so an ack stored before those\nfields existed reads as None / []."
+      },
+      "AssetDeleteAck": {
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "title": "Deleted"
+          },
+          "refs_removed": {
+            "type": "integer",
+            "title": "Refs Removed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deleted",
+          "refs_removed"
+        ],
+        "title": "AssetDeleteAck",
+        "description": "DELETE /api/assets/{sha256} (routes_assets.py)."
       },
       "AssetRef": {
         "properties": {
@@ -3170,7 +3177,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "page_title": {
             "type": "string",
@@ -3508,6 +3516,24 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "JournalCleanupResponse": {
+        "properties": {
+          "deleted": {
+            "items": {
+              "type": "string",
+              "x-brand": "CanonicalTitle"
+            },
+            "type": "array",
+            "title": "Deleted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "title": "JournalCleanupResponse",
+        "description": "POST /api/journal/cleanup: the empty daily pages it removed."
+      },
       "JournalDay": {
         "properties": {
           "date": {
@@ -3716,6 +3742,20 @@
         ],
         "title": "MoveOp"
       },
+      "OkAck": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "title": "OkAck",
+        "description": "The body of a write route that has nothing to report but success."
+      },
       "OpBatch": {
         "properties": {
           "client_id": {
@@ -3783,7 +3823,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "minimum": 0.0
+                "minimum": 0.0,
+                "x-brand": "SyncSeq"
               },
               {
                 "type": "null"
@@ -4574,7 +4615,8 @@
           },
           "order_idx": {
             "type": "integer",
-            "title": "Order Idx"
+            "title": "Order Idx",
+            "x-brand": "SidebarOrderIdx"
           }
         },
         "type": "object",

@@ -21,7 +21,9 @@ from hypothesis.stateful import (RuleBasedStateMachine, initialize, invariant,
                                  precondition, rule)
 
 from conftest import SEED_BLOCKS
+from rawread import read
 from pkm.contracts.ops import subtree_hash, text_hash
+from pkm.database import Db
 from pkm.refs import canonicalize_title, extract, is_blank_title
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
 from props.harness import (DAILY_TITLE, FROZEN_NOW, FreshApp,
@@ -75,7 +77,7 @@ def _snapshot(app: FreshApp) -> tuple[Any, ...]:
     head."""
     with read_db(app.config.db_path) as con:
         return tuple(
-            con.execute(sql).fetchall() for sql in (
+            read(con, sql).fetchall() for sql in (
                 "SELECT * FROM blocks ORDER BY uid",
                 "SELECT * FROM pages ORDER BY id",
                 "SELECT * FROM refs ORDER BY 1, 2, 3",
@@ -87,7 +89,7 @@ def _snapshot(app: FreshApp) -> tuple[Any, ...]:
 
 def _head(app: FreshApp) -> int:
     with read_db(app.config.db_path) as con:
-        return con.execute(
+        return read(con,
             "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
 
 
@@ -95,7 +97,7 @@ def _untracked_texts(app: FreshApp, page: str) -> dict[str, str]:
     """The text of every block the model does not track (conflict
     entries, seed rows) that is off `page`."""
     with read_db(app.config.db_path) as con:
-        return dict(con.execute(
+        return dict(read(con,
             "SELECT b.uid, b.text FROM blocks b"
             " JOIN pages p ON p.id = b.page_id"
             f" WHERE p.title <> ? AND b.uid NOT IN ({','.join('?' * len(UIDS))})",
@@ -338,7 +340,7 @@ class OpsMachine(RuleBasedStateMachine):
         the model says, and no pool block the model lacks is."""
         assert self.app is not None
         with read_db(self.app.config.db_path) as con:
-            rows = con.execute(
+            rows = read(con,
                 "SELECT b.uid, p.title, b.parent_uid, b.order_idx, b.text,"
                 " b.heading, b.collapsed, b.view_type"
                 " FROM blocks b JOIN pages p ON p.id = b.page_id"
@@ -367,7 +369,7 @@ class OpsMachine(RuleBasedStateMachine):
                 "SELECT uid, base_hash, after_hash, kind, old_title,"
                 " new_title FROM block_rewrites"
                 f" WHERE uid IN ({','.join('?' * len(UIDS))})", UIDS))
-            deletions = con.execute(
+            deletions = read(con,
                 "SELECT title, seq FROM page_deletions ORDER BY rowid"
             ).fetchall()
         assert pages == self.model.pages & set(PAGES)
@@ -413,7 +415,8 @@ class OpsMachine(RuleBasedStateMachine):
         extracts to, and no row outlives its source block."""
         assert self.app is not None
         with read_db(self.app.config.db_path) as con:
-            plain_space = plain_space_title_canonicalization_active(con)
+            plain_space = plain_space_title_canonicalization_active(
+                Db(con, check_rows=True))
             texts = dict(con.execute("SELECT uid, text FROM blocks"))
             refs: dict[str, set[tuple[str, str]]] = {}
             for src, title, kind in con.execute(

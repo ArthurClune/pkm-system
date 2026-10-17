@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from rawread import read
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import Sha256Hex, subtree_hash, text_hash
 
@@ -128,7 +129,7 @@ def _write_state(config):
     con = sqlite3.connect(config.db_path)
     try:
         return {
-            table: con.execute(query).fetchall()
+            table: read(con, query).fetchall()
             for table, query in queries.items()
         }
     finally:
@@ -235,7 +236,7 @@ def test_cross_page_move_under_parent(client, seeded_config):
     assert r.status_code == 200
     con = sqlite3.connect(seeded_config.db_path)
     con.row_factory = sqlite3.Row
-    row = con.execute(
+    row = read(con,
         "SELECT page_id, parent_uid FROM blocks WHERE uid='uid_b4'").fetchone()
     assert row["page_id"] == 1 and row["parent_uid"] == "uid_b2"
     con.close()
@@ -249,10 +250,10 @@ def test_cross_page_move_top_level_auto_creates_page(client, seeded_config):
     assert r.status_code == 200
     con = sqlite3.connect(seeded_config.db_path)
     con.row_factory = sqlite3.Row
-    page = con.execute(
+    page = read(con,
         "SELECT id FROM pages WHERE title='July 1st, 2026'").fetchone()
     assert page is not None
-    row = con.execute(
+    row = read(con,
         "SELECT page_id, parent_uid FROM blocks WHERE uid='uid_b4'").fetchone()
     assert row["page_id"] == page["id"] and row["parent_uid"] is None
     con.close()
@@ -272,7 +273,7 @@ def test_cross_page_move_subtree_and_backlinks_survive(client, seeded_config):
     pages = {r_["uid"]: r_["page_id"] for r_ in con.execute(
         "SELECT uid, page_id FROM blocks WHERE uid IN ('uid_b2','uid_b3')")}
     assert pages == {"uid_b2": 3, "uid_b3": 3}
-    refs = con.execute(
+    refs = read(con,
         "SELECT count(*) FROM refs WHERE src_block_uid='uid_b3'").fetchone()[0]
     assert refs == 2
     con.close()
@@ -297,9 +298,9 @@ def test_batch_rollback_undoes_auto_created_page(client, seeded_config):
     assert r.json()["detail"]["index"] == 1
     con = sqlite3.connect(seeded_config.db_path)
     con.row_factory = sqlite3.Row
-    assert con.execute(
+    assert read(con,
         "SELECT id FROM pages WHERE title='Brand New Page'").fetchone() is None
-    row = con.execute(
+    row = read(con,
         "SELECT page_id, parent_uid FROM blocks WHERE uid='uid_b4'").fetchone()
     assert row["page_id"] == 3 and row["parent_uid"] is None  # move undone
     con.close()
@@ -397,7 +398,7 @@ def test_clean_hashed_edit_does_not_create_todays_daily_page(
     assert r.status_code == 200
     # checked in the DB: a GET of today's page would itself create it
     con = open_db(seeded_config.db_path)
-    row = con.execute("SELECT 1 FROM pages WHERE title = ?",
+    row = read(con, "SELECT 1 FROM pages WHERE title = ?",
                       (title_for_date(date.today()),)).fetchone()
     con.close()
     assert row is None
@@ -492,7 +493,7 @@ def test_orphan_conflict_hint_naming_a_renamed_away_page_does_not_recreate_it(
         ("[[conflict]] `Machine Learning` (page not found)" + ORPHAN_SUFFIX,
          ["edited after rename"])]
     con = open_db(seeded_config.db_path)
-    row = con.execute("SELECT 1 FROM pages WHERE title = ?",
+    row = read(con, "SELECT 1 FROM pages WHERE title = ?",
                       ("Machine Learning",)).fetchone()
     con.close()
     assert row is None
@@ -550,7 +551,7 @@ def test_new_day_starts_a_fresh_header_and_prunes(client, seeded_config):
     assert _conflicts(client, day1) == [(label, ["day one"])]
     assert _conflicts(client, day2) == [(label, ["day two"])]
     con = open_db(seeded_config.db_path)
-    days = [r["day"] for r in con.execute("SELECT day FROM conflict_headers")]
+    days = [r["day"] for r in read(con, "SELECT day FROM conflict_headers")]
     con.close()
     assert days == [title_for_date(day2)]
 
@@ -768,10 +769,10 @@ def test_diverged_delete_never_lands_under_a_header_it_deletes(
          [("root, edited elsewhere",
            [("one", []), (overwritten, [("root", [])])])])]
     con = open_db(seeded_config.db_path)
-    dangling = con.execute(
+    dangling = read(con,
         "SELECT uid FROM blocks WHERE parent_uid IS NOT NULL"
         " AND parent_uid NOT IN (SELECT uid FROM blocks)").fetchall()
-    gone = con.execute(
+    gone = read(con,
         "SELECT uid FROM blocks WHERE uid IN (?, ?, ?)",
         (r_uid, c_uid, header["uid"])).fetchall()
     con.close()
@@ -823,7 +824,7 @@ def _feed_since(client, seq):
 def _page_exists(seeded_config, title):
     from pkm.server.db import open_db
     con = open_db(seeded_config.db_path)
-    row = con.execute("SELECT 1 FROM pages WHERE title = ?",
+    row = read(con, "SELECT 1 FROM pages WHERE title = ?",
                       (title,)).fetchone()
     con.close()
     return row is not None
@@ -984,7 +985,7 @@ def test_tombstones_lead_the_journal_rows_a_skipped_op_writes(
                           "parent_uid": "uid_ghostP", "order_idx": 0}
                  ).status_code == 200
     con = open_db(seeded_config.db_path)
-    rows = [(r["entity_id"], r["deleted"]) for r in con.execute(
+    rows = [(r["entity_id"], r["deleted"]) for r in read(con,
         "SELECT entity_id, deleted FROM changes WHERE seq > ? AND"
         " kind = 'block' ORDER BY seq", (start,))]
     con.close()
@@ -1319,7 +1320,7 @@ def test_rewrite_records_are_pruned_past_the_retention_window(
     _rename(client, "AI", "Artificial Intelligence")
 
     con = open_db(seeded_config.db_path)
-    rows = [(r["uid"], r["old_title"], r["new_title"]) for r in con.execute(
+    rows = [(r["uid"], r["old_title"], r["new_title"]) for r in read(con,
         "SELECT uid, old_title, new_title FROM block_rewrites")]
     con.close()
     assert rows == [("uid_b1", "AI", "Artificial Intelligence")]
@@ -1364,7 +1365,7 @@ def _rewrite_rows(seeded_config):
 
     con = open_db(seeded_config.db_path)
     try:
-        return [tuple(r) for r in con.execute(
+        return [tuple(r) for r in read(con,
             "SELECT uid, kind, old_title, new_title FROM block_rewrites"
             " ORDER BY rowid")]
     finally:

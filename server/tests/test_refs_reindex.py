@@ -10,11 +10,12 @@ they run.
 """
 from __future__ import annotations
 
-import sqlite3
 
 import pytest
 
+from rawread import read
 from pkm.contracts.ops import BlockUid, OpBatch
+from pkm.database import Db
 from pkm.server import ops_apply, store
 from pkm.server.db import open_db
 from pkm.server.ops_apply import apply_batch
@@ -57,7 +58,7 @@ def _spy(monkeypatch, module, name: str) -> list[tuple]:
     return calls
 
 
-def _update_text(con: sqlite3.Connection, uid: str, text: str,
+def _update_text(con: Db, uid: str, text: str,
                  now_ms: int) -> None:
     apply_batch(
         con,
@@ -66,15 +67,15 @@ def _update_text(con: sqlite3.Connection, uid: str, text: str,
         now_ms)
 
 
-def _ref_titles(con: sqlite3.Connection, uid: str) -> set[tuple[str, str]]:
-    return {(row["title"], row["kind"]) for row in con.execute(
+def _ref_titles(con: Db, uid: str) -> set[tuple[str, str]]:
+    return {(row["title"], row["kind"]) for row in read(con,
         "SELECT p.title AS title, r.kind AS kind FROM refs r"
         " JOIN pages p ON p.id = r.target_page_id"
         " WHERE r.src_block_uid = ?", (uid,))}
 
 
-def _block_ref_targets(con: sqlite3.Connection, uid: str) -> set[str]:
-    return {row[0] for row in con.execute(
+def _block_ref_targets(con: Db, uid: str) -> set[str]:
+    return {row[0] for row in read(con,
         "SELECT target_block_uid FROM block_refs WHERE src_block_uid = ?",
         (uid,))}
 
@@ -136,14 +137,14 @@ def test_composition_skips_a_blank_ref_without_minting_a_page(con):
     reindex_refs_for_text(con, BlockUid("uid_b4"), "hello [[   ]] world", 1)
 
     assert _ref_titles(con, "uid_b4") == set()
-    assert con.execute(
+    assert read(con,
         "SELECT count(*) FROM pages WHERE trim(title) = ''").fetchone()[0] == 0
 
 
 def test_composition_creates_a_missing_page_stamped_with_now_ms(con):
     reindex_refs_for_text(con, BlockUid("uid_b4"), "[[Brand New Page]]", 9999)
 
-    row = con.execute(
+    row = read(con,
         "SELECT created_at, updated_at FROM pages WHERE title = ?",
         ("Brand New Page",)).fetchone()
     assert (row["created_at"], row["updated_at"]) == (9999, 9999)
@@ -159,7 +160,7 @@ def test_composition_never_commits(con, seeded_config):
     reindex_refs_for_text(con, BlockUid("uid_b4"), "[[Uncommitted Page]]", 1)
     con.rollback()
 
-    assert con.execute(
+    assert read(con,
         "SELECT count(*) FROM pages WHERE title = ?",
         ("Uncommitted Page",)).fetchone()[0] == 0
     assert _ref_titles(con, "uid_b4") == {("Machine Learning", "link")}

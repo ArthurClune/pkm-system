@@ -107,3 +107,56 @@ def test_the_tracked_tree_is_clean(capsys):
     core.hooksPath, and a merge commit (which no pre-commit hook sees), still
     fail here."""
     assert main(["--all"], REPO) == 0, capsys.readouterr().err
+
+
+MINIMAL_REGISTRY = '''NAMES = {"uid": ("BlockUid",)}
+SHAPES = {"BlockUid": ("text", None)}
+MINT_SITES = {"BlockUid": ()}
+CAST_SITES = ()
+TEST_SUPPORT = ()
+OPT_OUT_FILES = ()
+'''
+
+
+def stage_brand_repo(repo: Path, source: str) -> None:
+    write(repo, "server/src/pkm/brand_registry.py", MINIMAL_REGISTRY)
+    write(repo, "server/src/pkm/store.py", source)
+    git(repo, "add", "server")
+
+
+def test_a_brand_name_violation_fails_with_its_remedy(repo: Path, capsys):
+    stage_brand_repo(repo, "def f(uid: str) -> None: ...\n")
+    assert main([], repo) == 1
+    err = capsys.readouterr().err
+    assert "server/src/pkm/store.py:1: brand-name:" in err
+    assert "read the value from a `select()` row" in err
+
+
+def test_an_escape_hatch_violation_fails_with_its_remedy(repo: Path, capsys):
+    stage_brand_repo(repo, "x = BlockUid(raw)\n")
+    assert main([], repo) == 1
+    err = capsys.readouterr().err
+    assert "server/src/pkm/store.py:1: brand-mint:" in err
+    assert "parse" in err
+
+
+def test_a_clean_brand_file_passes_silently(repo: Path, capsys):
+    stage_brand_repo(repo, "def f(uid: BlockUid) -> None: ...\n")
+    assert main([], repo) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_the_header_names_only_the_families_that_fired(repo: Path, capsys):
+    stage_brand_repo(repo, "def f(uid: str) -> None: ...\n")
+    main([], repo)
+    header = capsys.readouterr().err.splitlines()[0]
+    assert "brand rules" in header and "rots" not in header
+    write(repo, "web/src/a.ts", "// see line 40\n")
+    git(repo, "add", "web")
+    main([], repo)
+    header = capsys.readouterr().err.splitlines()[0]
+    assert "rots" in header and "brand rules" in header
+    git(repo, "reset", "-q", "server")
+    main([], repo)
+    header = capsys.readouterr().err.splitlines()[0]
+    assert "rots" in header and "brand rules" not in header

@@ -69,6 +69,7 @@ from datetime import date
 
 import pytest
 
+from rawread import read
 from pkm.contracts.daily import title_for_date
 from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.server import store
@@ -441,13 +442,13 @@ def test_padded_title_is_preserved_and_reused_exactly(tmp_path):
 
     # Same padded title again -> the SAME page, not a fresh duplicate.
     reused = get_or_create_page(db, padded, 200)
-    assert reused["id"] == original["id"]
+    assert reused["page_id"] == original["page_id"]
     assert reused["title"] == padded  # padding untouched in storage too
 
     # A stripped variant is a genuinely different title (exact match only)
     # -- it must NOT hijack the padded page's content.
     stripped = get_or_create_page(db, "EvilCorp", 300)
-    assert stripped["id"] != original["id"]
+    assert stripped["page_id"] != original["page_id"]
     db.close()
 
 
@@ -462,7 +463,7 @@ def test_create_page_op_reuses_a_pre_existing_padded_title(
         "INSERT INTO pages(title, created_at, updated_at) VALUES (?,?,?)",
         (padded, 100, 100))
     con.commit()
-    original_id = con.execute(
+    original_id = read(con,
         "SELECT id FROM pages WHERE title = ?", (padded,)).fetchone()[0]
     con.close()
 
@@ -470,9 +471,9 @@ def test_create_page_op_reuses_a_pre_existing_padded_title(
     assert r.status_code == 200
 
     con = sqlite3.connect(seeded_config.db_path)
-    rows = con.execute(
+    rows = read(con,
         "SELECT id FROM pages WHERE title = ?", (padded,)).fetchall()
-    stripped_rows = con.execute(
+    stripped_rows = read(con,
         "SELECT id FROM pages WHERE title = ?", (padded.strip(),)).fetchall()
     con.close()
     assert rows == [(original_id,)]      # reused, not duplicated
@@ -495,7 +496,7 @@ def test_create_op_with_spaces_only_ref_in_text_does_not_500(
     assert r.status_code == 200
     assert _blank_titles(seeded_config) == []
     con = sqlite3.connect(seeded_config.db_path)
-    ref_count = con.execute(
+    ref_count = read(con,
         "SELECT count(*) FROM refs WHERE src_block_uid = ?",
         ("spacesref1",)).fetchone()[0]
     con.close()

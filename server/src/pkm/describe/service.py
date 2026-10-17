@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sqlite3
 import time
 from typing import Protocol
 
+from pkm.contracts.ops import Sha256Hex
+from pkm.database import Db
 from pkm.describe.core import describe_action
 from pkm.server.config import Config
 from pkm.server.db import open_db
@@ -40,7 +41,7 @@ class DescribeService:
         self._config = config
         self._describer = describer
         self.reason = reason
-        self._queue: asyncio.Queue[str] = asyncio.Queue()
+        self._queue: asyncio.Queue[Sha256Hex] = asyncio.Queue()
         self._task: asyncio.Task[None] | None = None
         self._shutdown_task: asyncio.Task[None] | None = None
         self._closed = False
@@ -50,7 +51,7 @@ class DescribeService:
         # concurrency guard, not a history of past failures, so an
         # explicit force-retry (scan(force=True)) still reaches a sha once
         # its prior attempt has actually finished.
-        self._active: set[str] = set()
+        self._active: set[Sha256Hex] = set()
 
     @property
     def enabled(self) -> bool:
@@ -126,14 +127,14 @@ class DescribeService:
             if self._describer is not None:
                 await self._describer.close()
 
-    def maybe_enqueue(self, sha256: str, mime: str, size: int) -> None:
+    def maybe_enqueue(self, sha256: Sha256Hex, mime: str, size: int) -> None:
         """Fire-and-forget enqueue on upload; no-op when disabled, the mime
         can never be described (oversized still enqueues so the failure is
         recorded honestly), or the sha is already queued/in-flight."""
         if self.enabled:
             self._enqueue_if_eligible(sha256, mime, size)
 
-    def scan(self, db: sqlite3.Connection, force: bool = False) -> int:
+    def scan(self, db: Db, force: bool = False) -> int:
         """Enqueue every undescribed eligible asset; force retries failures.
         Skips any sha already queued/in-flight -- a repeat scan
         before the worker drains must not double up an attempt."""
@@ -143,12 +144,12 @@ class DescribeService:
         if not force:
             sql += " AND describe_error IS NULL"
         queued = 0
-        for row in db.execute(sql).fetchall():
+        for row in db.select(sql):
             if self._enqueue_if_eligible(row["sha256"], row["mime"], row["size"]):
                 queued += 1
         return queued
 
-    def _enqueue_if_eligible(self, sha256: str, mime: str, size: int) -> bool:
+    def _enqueue_if_eligible(self, sha256: Sha256Hex, mime: str, size: int) -> bool:
         """Shared enqueue ritual for `maybe_enqueue` and `scan`: skip a mime
         that can never be described, and skip a sha already queued or
         mid-attempt so a repeat call never double-queues it.
@@ -175,13 +176,13 @@ class DescribeService:
                 self._active.discard(sha)
                 self._queue.task_done()
 
-    async def _process(self, sha: str) -> None:
+    async def _process(self, sha: Sha256Hex) -> None:
         assert self._describer is not None
         con = open_db(self._config.db_path)
         try:
-            row = con.execute(
+            row = con.select_one(
                 "SELECT mime, size, description FROM assets WHERE sha256 = ?",
-                (sha,)).fetchone()
+                (sha,))
             if row is None or row["description"] is not None:
                 return
             action = describe_action(row["mime"], row["size"])
@@ -205,7 +206,7 @@ class DescribeService:
         finally:
             con.close()
 
-    def _record(self, con: sqlite3.Connection, sha: str, *,
+    def _record(self, con: Db, sha: Sha256Hex, *,
                 description: str | None = None,
                 error: str | None = None) -> None:
         con.execute(

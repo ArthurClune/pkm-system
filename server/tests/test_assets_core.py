@@ -3,6 +3,7 @@ import hashlib
 
 import pytest
 
+from rawread import read
 from pkm.assets_core import (
     asset_needs_repair, export_limit_violation, mime_category, sha256_hex,
     strip_asset_tokens, type_where, zip_arcnames)
@@ -132,7 +133,7 @@ def test_type_where_matches_mime_category(mime, category):
     db.execute("CREATE TABLE assets (mime TEXT)")
     db.execute("INSERT INTO assets VALUES (?)", (mime,))
     frag, params = type_where(category)
-    n = db.execute(f"SELECT count(*) FROM assets WHERE {frag}",
+    n = read(db, f"SELECT count(*) FROM assets WHERE {frag}",
                    params).fetchone()[0]
     assert (n == 1) == (mime_category(mime) == category)
 

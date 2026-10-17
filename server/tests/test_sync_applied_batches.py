@@ -7,6 +7,7 @@ import sqlite3
 
 from pkm.server.db import open_db
 from pkm.server.routes_sync import sync_changes, sync_snapshot
+from pkm.contracts.ops import SyncSeq
 
 
 def _post(client, batch_id, ops):
@@ -86,18 +87,18 @@ def test_a_reset_answer_names_nothing(client):
 
 def _traced(con, fn):
     queries: list[str] = []
-    con.set_trace_callback(queries.append)
+    con.raw.set_trace_callback(queries.append)
     try:
         return fn(), queries
     finally:
-        con.set_trace_callback(None)
+        con.raw.set_trace_callback(None)
 
 
 def test_no_applied_batches_query_without_pending_ids(seeded_config):
     con = open_db(seeded_config.db_path)
     try:
         _, changes_sql = _traced(
-            con, lambda: sync_changes(since=0, limit=1000, db=con))
+            con, lambda: sync_changes(since=SyncSeq(0), limit=1000, db=con))
         _, snapshot_sql = _traced(con, lambda: sync_snapshot(db=con))
     finally:
         con.close()
@@ -108,7 +109,7 @@ def test_one_applied_batches_query_for_a_few_pending_ids(seeded_config):
     con = open_db(seeded_config.db_path)
     try:
         _, sql = _traced(con, lambda: sync_changes(
-            since=0, limit=1000, pending=["a1234567", "b1234567"], db=con))
+            since=SyncSeq(0), limit=1000, pending=["a1234567", "b1234567"], db=con))
     finally:
         con.close()
     assert sum("applied_batches" in q for q in sql) == 1
@@ -139,17 +140,17 @@ def _commit_during(con, path, batch_id, marker):
             done = True
             _commit_elsewhere(path, batch_id)
 
-    con.set_trace_callback(trace)
-    return lambda: con.set_trace_callback(None)
+    con.raw.set_trace_callback(trace)
+    return lambda: con.raw.set_trace_callback(None)
 
 
 def test_changes_read_applied_batches_in_the_window_read_transaction(
         seeded_config):
     con = open_db(seeded_config.db_path)
     stop = _commit_during(con, seeded_config.db_path, "late_batch",
-                          "SELECT seq, kind, entity_id, deleted FROM changes")
+                          "SELECT seq, kind AS change_kind, entity_id")
     try:
-        feed = sync_changes(since=0, limit=1000, pending=["late_batch"], db=con)
+        feed = sync_changes(since=SyncSeq(0), limit=1000, pending=["late_batch"], db=con)
     finally:
         stop()
         con.close()
@@ -157,7 +158,7 @@ def test_changes_read_applied_batches_in_the_window_read_transaction(
     assert feed.applied_batches == []
     con = open_db(seeded_config.db_path)
     try:
-        again = sync_changes(since=0, limit=1000, pending=["late_batch"], db=con)
+        again = sync_changes(since=SyncSeq(0), limit=1000, pending=["late_batch"], db=con)
     finally:
         con.close()
     assert [a.batch_id for a in again.applied_batches] == ["late_batch"]

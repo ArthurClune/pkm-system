@@ -2,7 +2,9 @@ import sqlite3
 
 import pytest
 
+from rawread import read
 from pkm.contracts.ops import Sha256Hex
+from pkm.database import Db, connect
 from pkm.schema import DDL
 from pkm.server.sync_meta import (
     database_generation,
@@ -20,16 +22,15 @@ from pkm.server.title_migration import (
 )
 
 
-def _database() -> sqlite3.Connection:
-    db = sqlite3.connect(":memory:")
-    db.row_factory = sqlite3.Row
+def _database() -> Db:
+    db = connect(":memory:")
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA recursive_triggers=ON")
     db.executescript(DDL)
     return db
 
 
-def _seed_migration_graph(db: sqlite3.Connection) -> None:
+def _seed_migration_graph(db: Db) -> None:
     db.executemany(
         "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
         [
@@ -90,11 +91,11 @@ def _seed_migration_graph(db: sqlite3.Connection) -> None:
     db.commit()
 
 
-def _rows(db: sqlite3.Connection, table: str) -> list[tuple[object, ...]]:
-    return sorted(tuple(row) for row in db.execute(f"SELECT * FROM {table}"))
+def _rows(db: Db, table: str) -> list[tuple[object, ...]]:
+    return sorted(tuple(row) for row in read(db, f"SELECT * FROM {table}"))
 
 
-def _state(db: sqlite3.Connection) -> dict[str, list[tuple[object, ...]]]:
+def _state(db: Db) -> dict[str, list[tuple[object, ...]]]:
     return {
         table: _rows(db, table)
         for table in (
@@ -215,10 +216,10 @@ def test_audit_and_apply_include_orphan_canonical_sidebar_identity():
 
     apply_title_migration(db, plan.digest, now_ms=9_999)
 
-    assert [tuple(row) for row in db.execute(
+    assert [tuple(row) for row in read(db,
         "SELECT id, title, order_idx FROM sidebar_entries ORDER BY id"
     )] == [(12, "Beta", 2)]
-    assert [tuple(row) for row in db.execute(
+    assert [tuple(row) for row in read(db,
         "SELECT id, title FROM pages ORDER BY id"
     )] == [(1, "Beta")]
 
@@ -257,7 +258,7 @@ def test_audit_refuses_to_terminate_a_caller_owned_transaction():
         audit_title_migration(db)
 
     assert db.in_transaction is True
-    assert db.execute("SELECT count(*) FROM pages WHERE title='caller-owned'").fetchone()[0] == 1
+    assert read(db, "SELECT count(*) FROM pages WHERE title='caller-owned'").fetchone()[0] == 1
     db.rollback()
 
 
@@ -282,7 +283,7 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
     plan = audit_title_migration(db)
     old_generation = database_generation(db)
     trace: list[str] = []
-    db.set_trace_callback(trace.append)
+    db.raw.set_trace_callback(trace.append)
 
     outcome = apply_title_migration(db, plan.digest, now_ms=10_000)
 
@@ -301,7 +302,7 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
     ]
     assert plain_space_title_canonicalization_active(db) is True
     assert database_generation(db) != old_generation
-    assert [tuple(row) for row in db.execute(
+    assert [tuple(row) for row in read(db,
         "SELECT id, title FROM pages ORDER BY id"
     )] == [
         (1, "Acme"),
@@ -310,37 +311,37 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
         (7, "Unrelated"),
         (8, "\u00a0Gamma\u00a0"),
     ]
-    assert [tuple(row) for row in db.execute(
+    assert [tuple(row) for row in read(db,
         "SELECT uid, order_idx FROM blocks WHERE page_id=1 AND parent_uid IS NULL "
         "ORDER BY order_idx"
     )] == [("target-root", 0), ("source-leading", 1), ("source-trailing", 2)]
-    assert [tuple(row) for row in db.execute(
+    assert [tuple(row) for row in read(db,
         "SELECT uid, order_idx FROM blocks WHERE page_id=4 AND parent_uid IS NULL "
         "ORDER BY order_idx"
     )] == [("beta-first", 0), ("beta-second", 1)]
-    assert tuple(db.execute(
+    assert tuple(read(db,
         "SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid='child-leading'"
     ).fetchone()) == (1, "source-leading", 0)
-    assert db.execute("SELECT text FROM blocks WHERE uid='inbound'").fetchone()[0] == (
+    assert read(db, "SELECT text FROM blocks WHERE uid='inbound'").fetchone()[0] == (
         "[[Acme]] + [[Acme]] + [[Beta]] + [[Beta]] + [[Unrelated]]"
     )
-    assert db.execute(
+    assert read(db,
         "SELECT text FROM blocks WHERE uid='source-leading'"
     ).fetchone()[0] == "self [[Acme]] and [[Unrelated]]"
-    assert [tuple(row) for row in db.execute(
+    assert [tuple(row) for row in read(db,
         "SELECT target_page_id, kind FROM refs WHERE src_block_uid='inbound' "
         "ORDER BY target_page_id, kind"
     )] == [(1, "link"), (4, "link"), (7, "link")]
-    assert [tuple(row) for row in db.execute(
+    assert [tuple(row) for row in read(db,
         "SELECT id, title, order_idx FROM sidebar_entries ORDER BY id"
     )] == [(1, "Acme", 0), (3, "Beta", 2), (4, "Unrelated", 3)]
-    assert db.execute(
+    assert read(db,
         "SELECT count(*) FROM pages_fts WHERE pages_fts MATCH '\"Beta\"'"
     ).fetchone()[0] == 1
-    assert db.execute(
+    assert read(db,
         "SELECT count(*) FROM pages_fts WHERE pages_fts MATCH '\"Acme\"'"
     ).fetchone()[0] == 1
-    assert db.execute(
+    assert read(db,
         "SELECT count(*) FROM blocks_fts JOIN blocks ON blocks.rowid=blocks_fts.rowid "
         "WHERE blocks.uid='inbound' AND blocks_fts MATCH '\"Acme\"'"
     ).fetchone()[0] == 1
@@ -497,5 +498,5 @@ def test_apply_refuses_to_rollback_a_caller_owned_transaction():
         apply_title_migration(db, plan.digest, now_ms=10_006)
 
     assert db.in_transaction is True
-    assert db.execute("SELECT count(*) FROM pages WHERE title='caller-owned'").fetchone()[0] == 1
+    assert read(db, "SELECT count(*) FROM pages WHERE title='caller-owned'").fetchone()[0] == 1
     db.rollback()

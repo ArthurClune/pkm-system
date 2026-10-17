@@ -14,7 +14,6 @@ reader copy of is the ordinary payload with empty `html`."""
 from __future__ import annotations
 
 import logging
-import sqlite3
 from collections.abc import Mapping
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -22,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pkm.contracts.responses import (GoodlinksArticle, GoodlinksCheckPayload,
                                      GoodlinksCheckProblem, GoodlinksLink,
                                      GoodlinksResolveRequest)
+from pkm.database import Db
 from pkm.goodlinks import (GOODLINKS_PREFIX, GoodlinksId, candidate_urls,
                            extract_goodlinks_hrefs, link_id_from_href, parse_link_id,
                            sanitize_article, search_match, search_query)
@@ -98,19 +98,20 @@ def resolve_link(body: GoodlinksResolveRequest,
 
 @router.get("/api/goodlinks/check", response_model=GoodlinksCheckPayload)
 def check_goodlinks_links(request: Request,
-                          db: sqlite3.Connection = Depends(get_db)) -> GoodlinksCheckPayload:
+                          db: Db = Depends(get_db)) -> GoodlinksCheckPayload:
     gw: GoodlinksGateway | None = request.app.state.goodlinks
     if gw is None:
         return GoodlinksCheckPayload(enabled=False, total=0, ok=0, problems=[])
-    rows = db.execute(
+    rows = db.select(
         "SELECT b.uid, p.title, b.text FROM blocks b JOIN pages p ON p.id = b.page_id"
-        " WHERE instr(b.text, ?) > 0 ORDER BY p.title, b.uid", (GOODLINKS_PREFIX,)).fetchall()
+        " WHERE instr(b.text, ?) > 0 ORDER BY p.title, b.uid", (GOODLINKS_PREFIX,))
     total = ok = 0
     problems: list[GoodlinksCheckProblem] = []
     known: dict[GoodlinksId, bool] = {}
     try:
-        for uid, title, text in rows:
-            for href in extract_goodlinks_hrefs(text):
+        for row in rows:
+            uid, title = row["uid"], row["title"]
+            for href in extract_goodlinks_hrefs(row["text"]):
                 total += 1
                 link_id = link_id_from_href(href)
                 if link_id is None:
@@ -130,7 +131,7 @@ def check_goodlinks_links(request: Request,
 
 
 @router.get("/api/goodlinks/{link_id}", response_model=GoodlinksArticle)
-def get_article(link_id: str, response: Response,
+def get_article(link_id: GoodlinksId, response: Response,
                 gw: GoodlinksGateway = Depends(get_goodlinks)) -> GoodlinksArticle:
     parsed_id = parse_link_id(link_id)
     if parsed_id is None:

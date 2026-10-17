@@ -11,11 +11,15 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-
 import sqlite3
+from typing import TYPE_CHECKING, cast
+
 from fastapi import Request
 
 from pkm.server.db import open_db
+
+if TYPE_CHECKING:
+    from pkm.database import Db
 
 PROGRESS_N = 1000
 
@@ -52,11 +56,15 @@ class Tracer:
             self._tally.ticks += 1
         return 0
 
-    def get_db(self, request: Request) -> Iterator[sqlite3.Connection]:
+    def get_db(self, request: Request) -> Iterator[Db]:
+        # A merge-base run measures the base's pkm, whose open_db returns the
+        # sqlite3 connection itself; the branch's returns a Db wrapping it.
+        # So pkm.database is imported for typing only.
         con = open_db(request.app.state.config.db_path)
         if self._tally is not None:
-            con.set_trace_callback(self._on_sql)
-            con.set_progress_handler(self._on_progress, PROGRESS_N)
+            raw = cast(sqlite3.Connection, getattr(con, "raw", con))
+            raw.set_trace_callback(self._on_sql)
+            raw.set_progress_handler(self._on_progress, PROGRESS_N)
         try:
             yield con
         finally:

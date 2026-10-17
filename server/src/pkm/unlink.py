@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Literal, Mapping, Sequence
 
+from pkm.contracts.ops import BlockUid
 from pkm.export.resolve import find_query_macros
 from pkm.refs import (
     BLOCK_REF_TOKEN,
@@ -25,6 +26,7 @@ from pkm.refs import (
     attribute_title_span,
     bracket_spans,
     extract,
+    parse_block_uid,
     strip_code,
     tag_spans,
 )
@@ -156,14 +158,14 @@ def unlink_stale_refs(text: str, is_target: TitleMatch) -> str:
     return defuse_attribute(unlink_title_refs(text, is_target), is_target)
 
 
-def inline_block_refs(text: str, copies: Mapping[str, str]) -> str:
+def inline_block_refs(text: str, copies: Mapping[BlockUid, str]) -> str:
     """Replace `((uid))` and a whole embed macro for each uid in `copies`."""
     if not copies:
         return text
     spans: list[Span] = []
     for match in _REF_OR_EMBED.finditer(strip_code(text)):
-        uid = match.group(1) or match.group(2)
-        if uid in copies:
+        uid = parse_block_uid(match.group(1) or match.group(2))
+        if uid is not None and uid in copies:
             spans.append((match.start(), match.end(), copies[uid]))
     return _splice(text, spans)
 
@@ -179,7 +181,7 @@ def plain_copy(text: str) -> str:
 
 
 def apply_delete_rewrite(
-    text: str, is_target: TitleMatch, copies: Mapping[str, str]
+    text: str, is_target: TitleMatch, copies: Mapping[BlockUid, str]
 ) -> str:
     return unlink_title_refs(inline_block_refs(text, copies), is_target)
 
@@ -194,7 +196,7 @@ BlockerReason = Literal["query", "used_as_attribute", "attribute", "residual"]
 
 @dataclass(frozen=True)
 class DeleteBlocker:
-    uid: str
+    uid: BlockUid
     page_title: str
     text: str
     reason: BlockerReason
@@ -202,16 +204,16 @@ class DeleteBlocker:
 
 @dataclass(frozen=True)
 class SourceBlock:
-    uid: str
+    uid: BlockUid
     page_title: str
     text: str
 
 
 @dataclass(frozen=True)
 class DeletePlan:
-    rewrites: Mapping[str, str]
-    unlinked: frozenset[str]
-    inlined: Mapping[str, Mapping[str, str]]
+    rewrites: Mapping[BlockUid, str]
+    unlinked: frozenset[BlockUid]
+    inlined: Mapping[BlockUid, Mapping[BlockUid, str]]
     links: int
     link_pages: int
     block_refs: int
@@ -220,13 +222,13 @@ class DeletePlan:
 
 
 def _build_copies(
-    is_target: TitleMatch, page_blocks: Mapping[str, str]
-) -> dict[str, str]:
+    is_target: TitleMatch, page_blocks: Mapping[BlockUid, str]
+) -> dict[BlockUid, str]:
     plain = {uid: plain_copy(text) for uid, text in page_blocks.items()}
     blanks = {uid: "" for uid in page_blocks}
-    copies: dict[str, str] = {}
-    for uid, text in plain.items():
-        text = inline_block_refs(text, plain)
+    copies: dict[BlockUid, str] = {}
+    for uid in page_blocks:
+        text = inline_block_refs(plain[uid], plain)
         text = inline_block_refs(text, blanks)
         copies[uid] = unlink_title_refs(text, is_target)
     return copies
@@ -238,7 +240,7 @@ def _attribute_raw(text: str) -> str | None:
 
 
 def _still_refs_page(
-    is_target: TitleMatch, page_blocks: Mapping[str, str], rewritten: str,
+    is_target: TitleMatch, page_blocks: Mapping[BlockUid, str], rewritten: str,
 ) -> bool:
     parsed = extract(rewritten)
     return any(is_target(ref.title) for ref in parsed.refs) \
@@ -246,7 +248,7 @@ def _still_refs_page(
 
 
 def _blocker_reason(
-    is_target: TitleMatch, page_blocks: Mapping[str, str],
+    is_target: TitleMatch, page_blocks: Mapping[BlockUid, str],
     source: SourceBlock, rewritten: str,
 ) -> BlockerReason | None:
     clean = strip_code(source.text)
@@ -267,13 +269,13 @@ def _blocker_reason(
 
 def plan_page_delete(
     is_target: TitleMatch,
-    page_blocks: Mapping[str, str],
+    page_blocks: Mapping[BlockUid, str],
     sources: Sequence[SourceBlock],
 ) -> DeletePlan:
     copies = _build_copies(is_target, page_blocks)
-    rewrites: dict[str, str] = {}
-    unlinked: set[str] = set()
-    inlined: dict[str, Mapping[str, str]] = {}
+    rewrites: dict[BlockUid, str] = {}
+    unlinked: set[BlockUid] = set()
+    inlined: dict[BlockUid, Mapping[BlockUid, str]] = {}
     blockers: list[DeleteBlocker] = []
     link_pages: set[str] = set()
     ref_pages: set[str] = set()

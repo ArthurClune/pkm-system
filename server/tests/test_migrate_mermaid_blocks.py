@@ -1,5 +1,6 @@
 import sqlite3
 
+from rawread import read
 from pkm.importer.mermaid_preservation import PreservedRef
 from pkm.importer.migrate_mermaid_blocks import _print_preserved, main, plan_migration
 from pkm.server.db import init_db, open_db
@@ -242,7 +243,7 @@ def test_fts_reflects_migration(tmp_path):
     # the source line is now inside the fenced parent block (searching
     # "flowchart" alone would also hit uid_ref_line1's untouched, unrelated
     # "flowchart LR" -- that block is correctly preserved, not a collision)
-    hits = con.execute(
+    hits = read(con,
         "SELECT blocks.uid FROM blocks_fts JOIN blocks ON blocks.rowid = blocks_fts.rowid"
         " WHERE blocks_fts MATCH 'TB'"
     ).fetchall()
@@ -250,7 +251,7 @@ def test_fts_reflects_migration(tmp_path):
 
     # the deleted child blocks no longer show up in search at all (searching
     # "detail" alone would also hit uid_citer's unrelated "for detail" text)
-    hits = con.execute(
+    hits = read(con,
         "SELECT blocks.uid FROM blocks_fts JOIN blocks ON blocks.rowid = blocks_fts.rowid"
         " WHERE blocks_fts MATCH 'nested'"
     ).fetchall()

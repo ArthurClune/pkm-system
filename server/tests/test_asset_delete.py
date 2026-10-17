@@ -1,5 +1,6 @@
 """DELETE /api/assets/{sha256}: strips links, deletes emptied leaf
 blocks, removes row + file."""
+from rawread import read
 from pkm.server.db import open_db
 
 
@@ -22,7 +23,7 @@ def _create_block(client, uid, page_title, text, parent_uid=None,
 
 def _block_text(config, uid):
     db = open_db(config.db_path)
-    row = db.execute("SELECT text FROM blocks WHERE uid = ?",
+    row = read(db, "SELECT text FROM blocks WHERE uid = ?",
                      (uid,)).fetchone()
     db.close()
     return None if row is None else row["text"]
@@ -139,7 +140,7 @@ def test_if_unreferenced_deletes_an_orphan(client, seeded_config):
     assert r.json() == {"deleted": True, "refs_removed": 0}
     assert not path.exists()
     db = open_db(seeded_config.db_path)
-    row = db.execute("SELECT 1 FROM assets WHERE sha256 = ?",
+    row = read(db, "SELECT 1 FROM assets WHERE sha256 = ?",
                      (a["sha256"],)).fetchone()
     db.close()
     assert row is None
@@ -155,7 +156,7 @@ def test_if_unreferenced_refuses_a_referenced_asset(client, seeded_config):
     assert _block_text(seeded_config, "cond001") == text
     assert _asset_path(seeded_config, a["sha256"]).is_file()
     db = open_db(seeded_config.db_path)
-    row = db.execute("SELECT 1 FROM assets WHERE sha256 = ?",
+    row = read(db, "SELECT 1 FROM assets WHERE sha256 = ?",
                      (a["sha256"],)).fetchone()
     db.close()
     assert row is not None
@@ -191,7 +192,7 @@ def test_if_unreferenced_answers_503_while_the_write_lock_is_held(
     assert r.headers["Retry-After"] == "1"
     assert _asset_path(seeded_config, a["sha256"]).is_file()
     db = open_db(seeded_config.db_path)
-    row = db.execute("SELECT 1 FROM assets WHERE sha256 = ?",
+    row = read(db, "SELECT 1 FROM assets WHERE sha256 = ?",
                      (a["sha256"],)).fetchone()
     db.close()
     assert row is not None

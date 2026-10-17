@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
+from rawread import read
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import text_hash
 
@@ -15,7 +16,7 @@ _counter = 0
 def _seq(config) -> int:
     con = sqlite3.connect(config.db_path)
     try:
-        return con.execute("SELECT MAX(seq) FROM changes").fetchone()[0]
+        return read(con, "SELECT MAX(seq) FROM changes").fetchone()[0]
     finally:
         con.close()
 
@@ -48,7 +49,7 @@ def _conflicts(client):
 def _text(config, uid):
     con = sqlite3.connect(config.db_path)
     try:
-        row = con.execute("SELECT text FROM blocks WHERE uid = ?",
+        row = read(con, "SELECT text FROM blocks WHERE uid = ?",
                           (uid,)).fetchone()
         return row[0] if row else None
     finally:
@@ -95,7 +96,7 @@ def test_stale_top_level_move_leaves_block_and_notes_it(
     assert r.json()["skipped"][0]["reason"] == "page_deleted"
     assert client.get(f"/api/page/{TITLE}").status_code == 404
     con = sqlite3.connect(seeded_config.db_path)
-    assert con.execute("SELECT page_id FROM blocks WHERE uid = 'uid_b6'"
+    assert read(con, "SELECT page_id FROM blocks WHERE uid = 'uid_b6'"
                        ).fetchone()[0] == 2
     con.close()
     assert len(_conflicts(client)) == 1

@@ -21,9 +21,10 @@ import os
 import sys
 import tempfile
 import time
-from collections.abc import Generator, Iterable
+from collections.abc import Generator, Iterable, Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import pkm
 from pkm.contracts.ops import OpBatch
@@ -134,7 +135,13 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
         if source is None:
             raise RuntimeError(
                 f"perf fixture: {RENAME_SOURCE_TITLE!r} missing before its seeded rename")
-        rename_page_rows(con, source["id"], rename_source_title,
+        # a merge-base run builds with the base's pkm, whose page rows are
+        # keyed `id` rather than `page_id`
+        # Exists for merge-base runs older than the typed rows; it can go
+        # once the merge base has `page_id`.
+        row: Mapping[str, Any] = source
+        page_id = row["page_id"] if "page_id" in row.keys() else row["id"]
+        rename_page_rows(con, page_id, rename_source_title,
                          rename_target_title, RENAME_APPLIED_AT_MS)
         con.commit()
         con.executemany(

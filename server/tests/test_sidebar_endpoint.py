@@ -2,6 +2,7 @@ import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
+from rawread import read
 from pkm.server.db import get_db, open_db
 
 
@@ -153,13 +154,21 @@ class _GatedConnection:
         self._connection = connection
         self._gate = gate
 
+    def begin_immediate(self):
+        self._gate.before_begin()
+        self._connection.begin_immediate()
+
     def execute(self, sql, parameters=()):
-        if sql == "BEGIN IMMEDIATE":
-            self._gate.before_begin()
         cursor = self._connection.execute(sql, parameters)
         if sql == _SNAPSHOT_SQL:
             return _SnapshotCursor(cursor, self._gate)
         return cursor
+
+    def select(self, sql, params=()):
+        return self._connection.select(sql, params)
+
+    def select_one(self, sql, params=()):
+        return self._connection.select_one(sql, params)
 
     def commit(self):
         self._connection.commit()
@@ -207,7 +216,7 @@ def test_concurrent_different_titles_get_distinct_append_indexes(
     assert [r.status_code for r in responses] == [200, 200]
 
     con = sqlite3.connect(seeded_config.db_path)
-    rows = con.execute(
+    rows = read(con,
         "SELECT title, order_idx FROM sidebar_entries"
         " WHERE title IN ('Crypto', 'Databases') ORDER BY order_idx"
     ).fetchall()
@@ -225,7 +234,7 @@ def test_concurrent_same_title_returns_one_conflict(
     assert conflict.json() == {"detail": "entry already exists"}
 
     con = sqlite3.connect(seeded_config.db_path)
-    count = con.execute(
+    count = read(con,
         "SELECT count(*) FROM sidebar_entries WHERE title = 'Crypto'"
     ).fetchone()[0]
     con.close()

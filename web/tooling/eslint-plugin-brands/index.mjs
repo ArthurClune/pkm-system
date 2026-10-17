@@ -1,4 +1,4 @@
-// pattern: Functional Core
+// pattern: Imperative Shell
 // ESLint rules that keep brands honest on the web, the twin of the server's
 // brand rules (docs/architecture/enforced-checks.md#brand-rules):
 //   * brands/name-carries-brand: a parameter, property signature or class
@@ -22,13 +22,16 @@ const registry = JSON.parse(
 );
 
 // A registry path: a trailing "/" is a directory prefix, otherwise a glob
-// where `**` crosses directories and `*` does not.
+// where `**/` is zero or more directories, a bare `**` crosses directories
+// and `*` does not (the server lint's `_glob_to_regex` translation).
 function pathMatcher(pattern) {
   if (pattern.endsWith("/")) return (p) => p.startsWith(pattern);
   const body = pattern
     .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*\//g, "\u0001")
     .replace(/\*\*/g, "\u0000")
     .replace(/\*/g, "[^/]*")
+    .replace(/\u0001/g, "(?:.*/)?")
     .replace(/\u0000/g, ".*");
   const re = new RegExp(`^${body}$`);
   return (p) => re.test(p);
@@ -54,6 +57,10 @@ function isExempt(path) {
     || testSupport.some((m) => m(path));
 }
 
+const SUBTYPE_KEY = "__canonical";
+const SUBTYPE_BRAND = "CanonicalTitle";
+const SUBTYPE_PARENT = "NormalizedTitle";
+
 // The brand names a type carries: every `__brand` property whose type is a
 // string literal, found through unions, intersections, type arguments (array,
 // tuple, Set, Promise ...) and object properties. Properties of library and
@@ -65,6 +72,17 @@ function brandsOf(checker, type) {
     if (seen.has(t)) return;
     seen.add(t);
     if (t.isUnionOrIntersection()) {
+      // A subtype brand adds a `__canonical` key to its parent's brand
+      // (api/brands.ts), so the intersection names the subtype, which has
+      // its own mint sites, not the parent.
+      if (t.isIntersection() && t.types.some((m) => m.getProperty(SUBTYPE_KEY))) {
+        const inner = new Set();
+        for (const m of t.types) brandsOf(checker, m).forEach((b) => inner.add(b));
+        inner.delete(SUBTYPE_PARENT);
+        inner.add(SUBTYPE_BRAND);
+        inner.forEach((b) => found.add(b));
+        return;
+      }
       t.types.forEach(walk);
       return;
     }
@@ -144,16 +162,45 @@ function cachedBrands(checker, type) {
   return found;
 }
 
-function optedOut(sourceCode, node) {
-  const marker = /^\s*brand: untrusted -- \S/;
+// "reason" for `// brand: untrusted -- <why>` on the node's line or the one
+// above, "bare" for the marker with no reason, null when there is none.
+function optOutOf(sourceCode, node) {
   const line = node.loc.start.line;
-  return sourceCode.getAllComments().some(
-    (c) => marker.test(c.value)
-      && (c.loc.end.line === line || c.loc.end.line === line - 1),
-  );
+  let found = null;
+  for (const c of sourceCode.getAllComments()) {
+    if (c.loc.end.line !== line && c.loc.end.line !== line - 1) continue;
+    if (/^\s*brand: untrusted -- \S/.test(c.value)) return "reason";
+    if (/^\s*brand: untrusted\b/.test(c.value)) found = "bare";
+  }
+  return found;
 }
 
-const PARSERS = { BlockUid: "parseBlockUid" };
+// The brand-specific parser, where the web has one.
+const MODULES_SHOWN = 3;
+const PARSERS = { BlockUid: "parseBlockUid", SyncSeq: "parseSyncSeq" };
+
+// "parseBlockUid, or mint it in web/src/uid.ts" from the registry's web mint
+// modules for these brands.
+function remedy(brands) {
+  const parsers = brands.map((b) => PARSERS[b]).filter(Boolean);
+  const modules = [...new Set(brands.flatMap(
+    (b) => (registry.mintSites[b] ?? []).filter((p) => p.startsWith("web/")),
+  ))];
+  const parts = [];
+  if (parsers.length) parts.push(`parse it with ${parsers.join(", ")}`);
+  if (modules.length) {
+    const shown = modules.slice(0, MODULES_SHOWN).join(", ");
+    parts.push(`mint it in ${shown}${modules.length > MODULES_SHOWN ? " ..." : ""}`);
+  }
+  else parts.push("register a web mint site for it in the brand registry");
+  return parts.join(", or ");
+}
+
+// `BlockUid` or `BlockUid[]`, by whether the name is a plural.
+function brandText(name, wanted) {
+  const text = wanted.join(" or ");
+  return /(uids|ids)$/i.test(name) ? `${text}[]` : text;
+}
 
 const nameCarriesBrand = {
   meta: {
@@ -162,11 +209,13 @@ const nameCarriesBrand = {
     messages: {
       missing:
         "`{{name}}` must be `{{brand}}`: read it from a replica `select` row, "
-        + "take it from a generated API type, or parse it with the brand's "
-        + "parser (e.g. parseBlockUid in src/ids.ts)",
+        + "take it from a generated API type, or {{remedy}}",
       optOut:
         "`{{name}}` must be `{{brand}}`: `brand: untrusted` is allowed only "
         + "in the registry's opt-out files, not here",
+      noReason:
+        "`{{name}}` is `brand: untrusted` with no reason: add a reason after "
+        + "`--` saying what untrusted input is parsed here",
     },
   },
   create(context) {
@@ -181,20 +230,17 @@ const nameCarriesBrand = {
       if (!wanted) return;
       const type = checker.getTypeAtLocation(tsNode);
       if (declaresBrand(checker, type, wanted)) return;
-      if (optedOut(context.sourceCode, anchor)) {
-        if (mayOptOut) return;
-        context.report({
-          node: anchor,
-          messageId: "optOut",
-          data: { name, brand: wanted.join(" or ") },
-        });
-        return;
-      }
-      context.report({
-        node: anchor,
-        messageId: "missing",
-        data: { name, brand: wanted.join(" or ") },
-      });
+      const data = {
+        name,
+        brand: brandText(name, wanted),
+        remedy: remedy(wanted),
+      };
+      const optOut = optOutOf(context.sourceCode, anchor);
+      if (optOut === "reason" && mayOptOut) return;
+      let messageId = "missing";
+      if (optOut === "reason") messageId = "optOut";
+      else if (optOut === "bare" && mayOptOut) messageId = "noReason";
+      context.report({ node: anchor, messageId, data });
     };
     const keyName = (member) => {
       const key = member.key;
@@ -231,8 +277,8 @@ const noBrandAssertion = {
     schema: [],
     messages: {
       assertion:
-        "assert to {{brand}} only at its mint site; parse it{{parser}} or "
-        + "read it from `select`",
+        "assert to {{brand}} only at its mint site: {{remedy}}, or read it "
+        + "from `select`",
     },
   },
   create(context) {
@@ -250,13 +296,12 @@ const noBrandAssertion = {
         (b) => !isMintSite(b, path),
       );
       if (outside.length === 0) return;
-      const parsers = outside.map((b) => PARSERS[b]).filter(Boolean);
       context.report({
         node,
         messageId: "assertion",
         data: {
           brand: outside.join(", "),
-          parser: parsers.length ? ` (${parsers.join(", ")})` : "",
+          remedy: remedy(outside),
         },
       });
     };

@@ -5,11 +5,12 @@ import { MemoryRouter } from "react-router-dom";
 import { expect, it } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { TableOfContents } from "./TableOfContents";
+import { uid } from "../test-helpers";
 import type { TocEntry } from "./tocEntries";
 
-function entry(uid: string, text: string, level: 1 | 2 | 3,
+function entry(entryUid: string, text: string, level: 1 | 2 | 3,
                children: TocEntry[] = []): TocEntry {
-  return { uid, text, level, children };
+  return { uid: uid(entryUid), text, level, children };
 }
 
 function mount(entries: TocEntry[]) {

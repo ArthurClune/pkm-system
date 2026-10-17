@@ -8,7 +8,7 @@ export interface PoisonEvent extends PoisonedBatch {}
 
 export function validPoisonEvent(value: unknown): value is PoisonEvent {
   if (typeof value !== "object" || value === null) return false;
-  const event = value as Partial<PoisonEvent>;
+  const event = value as Record<string, unknown>;
   return Number.isInteger(event.id) && typeof event.batch_id === "string" &&
     Array.isArray(event.ops) && typeof event.status === "number" &&
     typeof event.message === "string";

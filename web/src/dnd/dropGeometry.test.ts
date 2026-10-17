@@ -74,12 +74,12 @@ describe("cachedRectFor", () => {
   const measured = { drag, rowCount: 3, containerTop: 0, containerLeft: 0,
                      rects: [{ top: 0, bottom: 20 }, null,
                              { top: 40, bottom: 60 }],
-                     uids: ["u1", "u2", "u3"] };
+                     uids: [uid("u1"), uid("u2"), uid("u3")] };
 
   it("hands back the rect measured for that uid, including a known miss", () => {
-    expect(cachedRectFor(measured, 0, "u1")).toEqual({ top: 0, bottom: 20 });
+    expect(cachedRectFor(measured, 0, uid("u1"))).toEqual({ top: 0, bottom: 20 });
     // null is an answer -- "this row has no element" -- not an empty slot
-    expect(cachedRectFor(measured, 1, "u2")).toBeNull();
+    expect(cachedRectFor(measured, 1, uid("u2"))).toBeNull();
   });
 
   it("treats a rect measured for a different uid as unmeasured", () => {
@@ -87,12 +87,12 @@ describe("cachedRectFor", () => {
     // one remote create and one remote delete slide every uid up an index, and
     // every cached rect then describes the wrong block. Nothing else in the
     // cache notices, so the per-row uid is what catches it.
-    expect(cachedRectFor(measured, 0, "u2")).toBeUndefined();
-    expect(cachedRectFor(measured, 1, "u3")).toBeUndefined();
+    expect(cachedRectFor(measured, 0, uid("u2"))).toBeUndefined();
+    expect(cachedRectFor(measured, 1, uid("u3"))).toBeUndefined();
   });
 
   it("treats a never-measured index as unmeasured", () => {
-    expect(cachedRectFor(measured, 7, "u8")).toBeUndefined();
+    expect(cachedRectFor(measured, 7, uid("u8"))).toBeUndefined();
   });
 });
 

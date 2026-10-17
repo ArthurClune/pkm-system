@@ -20,6 +20,7 @@ import type { PendingBatch, PendingRowId, PoisonedBatch } from "./client";
 import { type ReplicaDb, rollbackToSavepoint } from "./db";
 import { applyLocalOps, LocalOpError } from "./localOps";
 import { getMeta } from "./meta";
+import { parsePendingOps } from "./pendingOps";
 import { recordEnqueue } from "./replayLog";
 import { sha256Hex } from "./sha256";
 import { subtreeHash } from "./subtreeHash";
@@ -134,7 +135,7 @@ const toBatch = (r: Pick<Columns, "pending_row_id" | "batch_id" | "ops_json"
 ): PendingBatch => ({
   id: r.pending_row_id,
   batch_id: r.batch_id,
-  ops: JSON.parse(r.ops_json) as BlockOp[],
+  ops: parsePendingOps(r.ops_json),
   poisoned: r.poisoned !== 0,
   ...(r.joined_seen_seq != null ? { seen_seq: r.joined_seen_seq } : {}),
 });
@@ -183,7 +184,7 @@ export function poisonedBatches(db: ReplicaDb): PoisonedBatch[] {
   ).map((row) => ({
     id: row.pending_row_id,
     batch_id: row.batch_id,
-    ops: JSON.parse(row.ops_json) as BlockOp[],
+    ops: parsePendingOps(row.ops_json),
     ...poisonDetails(row.pending_error),
   }));
 }

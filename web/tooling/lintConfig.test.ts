@@ -309,9 +309,67 @@ describe("brands plugin paths", () => {
       .toBe(true);
   });
 
+  it("globs: **/ is zero or more directories", () => {
+    const m = pathMatcher("web/src/**/x.ts");
+    expect(m("web/src/x.ts")).toBe(true);
+    expect(m("web/src/a/b/x.ts")).toBe(true);
+    expect(m("web/src/a/xx.ts")).toBe(false);
+  });
+
   it("globs: ** crosses directories, * does not", () => {
     const m = pathMatcher("a/**/routes_*.py");
     expect(m("a/b/c/routes_x.py")).toBe(true);
     expect(m("a/b/routes_x/y.py")).toBe(false);
   });
+});
+
+describe("brands plugin judgement", () => {
+  const messagesFor = async (
+    rel: string, text: string,
+  ): Promise<{ ruleId: string; message: string }[]> => {
+    const results = await makeLinter().lintText(text, {
+      filePath: join(webRoot, rel),
+    });
+    return results
+      .flatMap((r) => r.messages)
+      .filter((m) => m.ruleId?.startsWith("brands/"))
+      .map((m) => ({ ruleId: m.ruleId ?? "", message: m.message }));
+  };
+
+  it("governs a subtype brand by its own mint sites", async () => {
+    const text =
+      'import type { CanonicalTitle } from "../api/brands";\n' +
+      "export const t = (s: string) => s as CanonicalTitle;\n";
+    // scan.ts mints NormalizedTitle, not its CanonicalTitle subtype.
+    const inScan = await messagesFor("src/grammar/scan.ts", text);
+    expect(inScan.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(inScan[0].message).toContain("CanonicalTitle");
+    expect(inScan[0].message).not.toContain("NormalizedTitle");
+    expect(await messagesFor("src/replica/daily.ts", text)).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("names the parser and the mint module in the remedy", async () => {
+    const text =
+      'import type { BlockUid } from "../api/brands";\n' +
+      "export const f = (s: string) => s as BlockUid;\n" +
+      "export function g(uids: string[]): void {\n" +
+      "  void uids;\n" +
+      "}\n";
+    const found = await messagesFor("src/sync/opQueue.ts", text);
+    expect(found).toHaveLength(2);
+    expect(found[0].message).toContain("parseBlockUid");
+    expect(found[0].message).toContain("web/src/ids.ts");
+    expect(found[1].message).toContain("`BlockUid[]`");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("asks for a reason when an opt-out file's marker has none", async () => {
+    const text =
+      "// brand: untrusted\n" +
+      "export function f(uid: string): string {\n" +
+      "  return uid;\n" +
+      "}\n";
+    const found = await messagesFor("tooling/viteBudgetPlugin.ts", text);
+    expect(found).toHaveLength(1);
+    expect(found[0].message).toContain("add a reason");
+  }, ESLINT_TIMEOUT_MS);
 });

@@ -17,6 +17,7 @@ import { apiPost } from "../api/typedClient";
 import type { PendingBatch, Replica } from "../replica/client";
 import { availabilityOf, isSessionFatal, ReplicaError,
          type ReplicaAvailability } from "../replica/errors";
+import { mintBatchId, mintClientId, mintTicketId } from "../ids";
 import { newRawUid } from "../uid";
 import { listeners } from "./listeners";
 import { readOpsAck, type OpsAckReading } from "./opsAck";
@@ -30,7 +31,7 @@ import { createQueueState, terminalReason, transitionQueue,
          type QueueEvent } from "./queueState";
 import { isTerminalRejection } from "./rejection";
 
-export const clientId = newRawUid() as ClientId;
+export const clientId = mintClientId(newRawUid());
 
 export type WriteOutcome =
   | { status: "persisted"; pending: number }
@@ -144,7 +145,7 @@ function ticket(scope: readonly string[] | undefined,
                 settled: Promise<WriteOutcome>,
                 delivered: Promise<DeliveryOutcome>): WriteTicket {
   return {
-    id: `write-${nextTicket++}` as TicketId,
+    id: mintTicketId(nextTicket++),
     scope: scope ?? [], settled, delivered,
   };
 }
@@ -175,7 +176,7 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
   const post = deps.post ?? defaultPost;
   const queueClientId = deps.clientId ?? clientId;
   const poisonStore = deps.poisonStore ?? defaultPoisonStore;
-  const newBatchId = deps.newBatchId ?? ((): BatchId => newRawUid() as BatchId);
+  const newBatchId = deps.newBatchId ?? ((): BatchId => mintBatchId(newRawUid()));
   const postOps = (ops: BlockOp[], batchId: BatchId,
                    seenSeq?: SyncSeq): Promise<OpsAck> =>
     post({

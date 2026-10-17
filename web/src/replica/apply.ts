@@ -40,6 +40,7 @@ import { foreignKeyViolations, type ReplicaDb, rollbackToSavepoint,
 import { applyLocalOps } from "./localOps";
 import { deleteMeta, getMeta, setMeta,
          setPlainSpaceTitleCanonicalization } from "./meta";
+import { blockUidOfEntity, pageIdOfEntity, sidebarEntryIdOfEntity } from "../ids";
 import { allBatches, deleteBatch } from "./queue";
 import { dropStrandedLocalPages, reconcileActivationPageTitles,
          reconcilePage } from "./reconcile";
@@ -435,13 +436,13 @@ function applyTombstone(db: ReplicaDb, tomb: SyncTombstone): void {
     // entity_id is one TEXT wire field for three kinds; a block
     // tombstone's value is a block uid.
     db.exec("DELETE FROM blocks WHERE uid = ?",
-            [tomb.entity_id as BlockUid]);
+            [blockUidOfEntity(tomb.entity_id)]);
   } else if (tomb.kind === "page") {
     db.exec("DELETE FROM pages WHERE id = ?",
-            [Number(tomb.entity_id) as PageId]);
+            [pageIdOfEntity(tomb.entity_id)]);
   } else if (tomb.kind === "sidebar") {
     db.exec("DELETE FROM sidebar_entries WHERE id = ?",
-            [Number(tomb.entity_id) as SidebarEntryId]);
+            [sidebarEntryIdOfEntity(tomb.entity_id)]);
   } else {
     // A kind this build doesn't know (an older replica meeting a kind a
     // newer server added): skip it rather than fall through to a
@@ -465,8 +466,9 @@ const DEFERRED_BLOCK_TOMBSTONES = "deferred_block_tombstones";
 function recordedBlockTombstones(recorded: string | null,
                                  cursor: string | null): BlockUid[] {
   if (recorded === null) return [];
-  const rec = JSON.parse(recorded) as { cursor: number; uids: BlockUid[] };
-  return cursor !== null && String(rec.cursor) === cursor ? rec.uids : [];
+  const rec = JSON.parse(recorded) as Record<string, unknown>;
+  if (cursor === null || String(rec.cursor) !== cursor) return [];
+  return (rec.uids as string[]).map(blockUidOfEntity);
 }
 
 /** The block tombstones still owed after a window: those recorded by
@@ -568,7 +570,7 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
     const owed = owedBlockTombstones(
       recordedBlockTombstones(recorded, getMeta(db, "cursor")), feed.blocks,
       feed.tombstones.filter((tm) => tm.kind === "block")
-        .map((tm) => tm.entity_id as BlockUid));
+        .map((tm) => blockUidOfEntity(tm.entity_id)));
     const atHead = feed.next_since >= feed.latest_seq;
     const dropped = dropAppliedPending(db, feed.applied_batches, droppable);
     pruneReplayBatches(db);

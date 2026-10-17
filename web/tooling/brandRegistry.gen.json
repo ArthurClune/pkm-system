@@ -228,40 +228,75 @@
       "server/src/pkm/batch.py",
       "server/src/pkm/planning.py",
       "server/src/pkm/refs.py",
-      "server/src/pkm/server/sync_core.py"
+      "server/src/pkm/server/sync_core.py",
+      "web/src/ids.ts",
+      "web/src/uid.ts",
+      "web/src/grammar/scan.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts",
+      "web/src/sync/socket.ts",
+      "web/src/replica/pendingOps.ts"
     ],
     "PageId": [
       "server/src/pkm/contracts/",
-      "server/src/pkm/server/sync_core.py"
+      "server/src/pkm/server/sync_core.py",
+      "web/src/ids.ts",
+      "web/src/outline/missingPage.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts"
     ],
     "SidebarEntryId": [
-      "server/src/pkm/contracts/"
+      "server/src/pkm/contracts/",
+      "web/src/ids.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts"
     ],
     "ClientId": [
       "server/src/pkm/contracts/",
-      "server/src/pkm/client/api.py"
+      "server/src/pkm/client/api.py",
+      "web/src/ids.ts",
+      "web/src/sync/socket.ts"
     ],
     "BatchId": [
       "server/src/pkm/contracts/",
-      "server/src/pkm/client/workflows.py"
+      "server/src/pkm/client/workflows.py",
+      "web/src/ids.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts"
     ],
     "OrderIdx": [
       "server/src/pkm/contracts/",
       "server/src/pkm/planning.py",
       "server/src/pkm/importer/rows.py",
-      "server/src/pkm/server/ops_core.py"
+      "server/src/pkm/server/ops_core.py",
+      "web/src/outline/orderIdx.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts",
+      "web/src/sync/socket.ts",
+      "web/src/replica/pendingOps.ts"
     ],
     "SidebarOrderIdx": [
       "server/src/pkm/contracts/",
-      "server/src/pkm/importer/sidebar_rows.py"
+      "server/src/pkm/importer/sidebar_rows.py",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts"
     ],
     "Sha256Hex": [
       "server/src/pkm/contracts/",
       "server/src/pkm/assets_core.py",
-      "server/src/pkm/title_migration.py"
+      "server/src/pkm/title_migration.py",
+      "web/src/replica/sha256.ts",
+      "web/src/grammar/tokenize.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/socket.ts",
+      "web/src/replica/pendingOps.ts"
     ],
     "SyncSeq": [
-      "server/src/pkm/contracts/"
+      "server/src/pkm/contracts/",
+      "web/src/ids.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts",
+      "web/src/sync/socket.ts"
     ],
     "ConversationId": [
       "server/src/pkm/contracts/",
@@ -269,20 +304,43 @@
     ],
     "ConfirmId": [
       "server/src/pkm/contracts/",
-      "server/src/pkm/assistant/claude_engine.py"
+      "server/src/pkm/assistant/claude_engine.py",
+      "web/src/assistant/sse.ts"
     ],
     "GoodlinksId": [
-      "server/src/pkm/contracts/"
+      "server/src/pkm/contracts/",
+      "web/src/components/goodlinks.ts"
     ],
     "NormalizedTitle": [
-      "server/src/pkm/contracts/"
+      "server/src/pkm/contracts/",
+      "web/src/grammar/scan.ts",
+      "web/src/replica/titles.ts"
     ],
     "CanonicalTitle": [
       "server/src/pkm/contracts/",
-      "server/src/pkm/server/sync_meta.py"
+      "server/src/pkm/server/sync_meta.py",
+      "web/src/replica/meta.ts",
+      "web/src/replica/daily.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts"
     ],
     "CanonicalQueryNode": [
       "server/src/pkm/server/query_exec.py"
+    ],
+    "PendingRowId": [
+      "web/src/replica/db.ts"
+    ],
+    "TicketId": [
+      "web/src/ids.ts"
+    ],
+    "RequestId": [
+      "web/src/outline/outlineState.ts"
+    ],
+    "Revision": [
+      "web/src/outline/outlineState.ts"
+    ],
+    "ParkedTitle": [
+      "web/src/replica/apply.ts"
     ]
   },
   "testSupport": [
@@ -295,6 +353,7 @@
   ],
   "optOutFiles": [
     "server/src/pkm/**/routes_*.py",
-    "server/src/pkm/**/routes.py"
+    "server/src/pkm/**/routes.py",
+    "web/tooling/viteBudgetPlugin.ts"
   ]
 }

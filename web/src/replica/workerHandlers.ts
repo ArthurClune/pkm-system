@@ -3,6 +3,7 @@
 // the whole surface is testable without a real Worker or OPFS.
 
 import type { BatchId, SyncSeq } from "../api/brands";
+import { INITIAL_SEQ, mintBatchId, parseSyncSeq } from "../ids";
 import type { Snapshot } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import { splitAckedRows } from "./ackedRows";
@@ -299,7 +300,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
   };
   const nowMs = deps.nowMs ?? (() => Date.now());
   const clockMs = deps.clockMs ?? (() => Date.now());
-  const newBatchId = deps.newBatchId ?? (() => crypto.randomUUID() as BatchId);
+  const newBatchId = deps.newBatchId ?? (() => mintBatchId(crypto.randomUUID()));
   const applySnapshotToDb = deps.applySnapshot ?? applySnapshot;
   const gate = createRecoveryGate(
     deps.newRecoveryToken ?? (() => crypto.randomUUID()));
@@ -493,7 +494,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         if (fresh) installSchema(d);
         return {
           empty: getMeta(d, "generation") === null,
-          cursor: Number(getMeta(d, "cursor") ?? 0) as SyncSeq,
+          cursor: parseSyncSeq(Number(getMeta(d, "cursor") ?? 0)) ?? INITIAL_SEQ,
           schemaMismatch: getMeta(d, "schema_version") !== SCHEMA_VERSION,
           pendingBatches,
         };

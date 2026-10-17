@@ -43,13 +43,13 @@ const initial: Backlinks = {
 
 it("mergeGroups merges batches by page_id and dedupes items", () => {
   const merged = mergeGroups(
-    [{ page_id: pageId(1), page_title: "A", items: [{ uid: "u1", text: "one" }] }],
-    [{ page_id: pageId(1), page_title: "A", items: [{ uid: "u1", text: "one" }, { uid: "u2", text: "two" }] },
-     { page_id: pageId(2), page_title: "B", items: [{ uid: "u3", text: "three" }] }],
+    [{ page_id: pageId(1), page_title: "A", items: [{ uid: uid("u1"), text: "one" }] }],
+    [{ page_id: pageId(1), page_title: "A", items: [{ uid: uid("u1"), text: "one" }, { uid: uid("u2"), text: "two" }] },
+     { page_id: pageId(2), page_title: "B", items: [{ uid: uid("u3"), text: "three" }] }],
   );
   expect(merged).toEqual([
-    { page_id: pageId(1), page_title: "A", items: [{ uid: "u1", text: "one" }, { uid: "u2", text: "two" }] },
-    { page_id: pageId(2), page_title: "B", items: [{ uid: "u3", text: "three" }] },
+    { page_id: pageId(1), page_title: "A", items: [{ uid: uid("u1"), text: "one" }, { uid: uid("u2"), text: "two" }] },
+    { page_id: pageId(2), page_title: "B", items: [{ uid: uid("u3"), text: "three" }] },
   ]);
 });
 

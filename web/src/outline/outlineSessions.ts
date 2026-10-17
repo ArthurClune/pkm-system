@@ -25,6 +25,7 @@ import {
   type OutlineState,
   type ReadToken,
   type RequestId,
+  type Revision,
 } from "./outlineState";
 import {
   createParentReadElection,
@@ -69,7 +70,7 @@ const LOADER_PRECEDENCE: readonly OutlineLoaderKind[] =
 
 export interface SharedOutlineSnapshot {
   blocks: BlockNode[];
-  revision: number;
+  revision: Revision;
 }
 
 export interface EditorLease {
@@ -313,12 +314,13 @@ function requestAuthoritative(
  * the returned promise exists: the epoch owns the next controller, so every
  * older automatic or manual token is invalidated at once and only then does
  * this wait for the existing transport to wind down. */
-function repairTargetFor(session: Session): RepairTarget {
+function repairTargetFor(sessionOf: () => Session): RepairTarget {
   return {
-    currentState: () => session.state,
-    isActive: () => session.handles > 0,
-    settle: () => { maybeDeleteSession(session); },
+    currentState: () => sessionOf().state,
+    isActive: () => sessionOf().handles > 0,
+    settle: () => { maybeDeleteSession(sessionOf()); },
     repairRead: () => {
+      const session = sessionOf();
       const previous = session.authoritativeRead;
       session.authoritativeAgain = false;
       startAuthoritativeRead(session);
@@ -437,16 +439,14 @@ function canBootstrapExistingSession(session: Session): boolean {
     !session.authoritativeAgain;
 }
 
-/** Both attached machines query the session they belong to, so the session
- * exists before they do; nothing reads either field before this returns. */
-type SessionCore = Omit<Session, "election" | "repairTarget">;
-
 function createSession(
   title: string,
   bootstrap: BlockNode[] | null,
 ): Session {
   const state = createOutlineState(title, bootstrap ?? []);
-  const core: SessionCore = {
+  // Both attached machines query the session they belong to, so each reads
+  // it through a closure: nothing touches `session` before this returns.
+  const session: Session = {
     title,
     state,
     snapshot: { blocks: state.blocks, revision: state.revision },
@@ -463,19 +463,18 @@ function createSession(
     loaders: new Map(),
     trackedWrites: new Set(),
     manualReads: new Set(),
+    election: createParentReadElection({
+      title,
+      latestRequestId: () => session.state.latestRequestId,
+      hasActivatedCapture: (requestId) =>
+        session.activatedCaptures.has(requestId),
+      manualReadCount: () => session.manualReads.size,
+      hasManualRead: (requestId) => session.manualReads.has(requestId),
+      repairActive: isRepairActive,
+      publishedBlocks: () => session.snapshot.blocks,
+    }),
+    repairTarget: repairTargetFor(() => session),
   };
-  const session = core as Session;
-  session.election = createParentReadElection({
-    title,
-    latestRequestId: () => session.state.latestRequestId,
-    hasActivatedCapture: (requestId) =>
-      session.activatedCaptures.has(requestId),
-    manualReadCount: () => session.manualReads.size,
-    hasManualRead: (requestId) => session.manualReads.has(requestId),
-    repairActive: isRepairActive,
-    publishedBlocks: () => session.snapshot.blocks,
-  });
-  session.repairTarget = repairTargetFor(session);
   return session;
 }
 

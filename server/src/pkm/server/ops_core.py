@@ -103,7 +103,7 @@ class RewriteStep:
     after_hash: Sha256Hex
     retitles: dict[str, str]
     unlinked: set[str]
-    inlines: dict[str, str]
+    inlines: dict[BlockUid, str]
 
 
 def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[RewriteStep]:
@@ -123,7 +123,8 @@ def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[RewriteStep]:
         if record.kind == "unlink":
             step.unlinked.add(normalize_title(record.old_title))
         elif record.kind == "inline":
-            step.inlines[record.old_title] = record.new_title
+            # An inline record keeps the block-ref's uid in old_title.
+            step.inlines[BlockUid(record.old_title)] = record.new_title
         elif record.kind == "retitle":
             step.retitles[record.old_title] = record.new_title
     return steps

@@ -37,10 +37,16 @@ def parse_canonical_query(db: Db,
     are compared against `pages.title`, so `[[ Foo ]]` (spaces inside the
     brackets) must reach the plan as the canonical "Foo", the page the same
     [[ Foo ]] link resolves to. Raises `QueryParseError` like
-    `parse_query`. The sole mint point for `CanonicalQueryNode` -- `plan_sql`
+    `parse_query`. The general mint point for `CanonicalQueryNode` -- `plan_sql`
     takes nothing else, so a tree that skipped this never reaches SQL."""
     node = parse_query(expr)
     return CanonicalQueryNode(_canonical_titles(title_reader(db), node))
+
+
+def single_page_query(title: str) -> CanonicalQueryNode:
+    """The tree for one page operand drawn out of a canonical node by
+    `page_operands`, so its title is already canonical."""
+    return CanonicalQueryNode(QueryNode("page", title))
 
 
 def _canonical_titles(canonical: Callable[[str], CanonicalTitle],

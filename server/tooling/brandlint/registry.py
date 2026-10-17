@@ -18,6 +18,8 @@ class Registry:
     opt_out_files: tuple[str, ...]
     test_support: tuple[str, ...]
     shapes: dict[str, tuple[str, str | None]] = field(default_factory=dict)
+    mint_sites: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    cast_sites: tuple[str, ...] = ()
 
 
 def load_registry(repo: Path) -> Registry:
@@ -34,4 +36,6 @@ def load_registry(repo: Path) -> Registry:
         opt_out_files=tuple(module.OPT_OUT_FILES),
         test_support=tuple(module.TEST_SUPPORT),
         shapes=dict(module.SHAPES),
+        mint_sites=dict(module.MINT_SITES),
+        cast_sites=tuple(module.CAST_SITES),
     )

@@ -232,10 +232,14 @@ def format_report(violations: list[Violation], extra_rules: dict[str, str] | Non
     rules = {**RULES, **(extra_rules or {})}
     sites = [f"{v.path}:{v.line}: {v.rule}: {v.text}" for v in violations]
     remedies = [f"  {rules[rule]}" for rule in rules if any(v.rule == rule for v in violations)]
+    fired = [
+        label for label, names in (("comments must not carry what rots", set(RULES)),
+                                   ("names and escape hatches must follow the brand rules",
+                                    set(extra_rules or {})))
+        if any(v.rule in names for v in violations)
+    ]
     return "\n".join([
-        "pre-commit: comments must not carry what rots" + (
-            ", and names must carry their brand." if any(v.rule in (extra_rules or {}) for v in violations)
-            else "."),
+        f"pre-commit: {', and '.join(fired)}.",
         *sites,
         "",
         *remedies,

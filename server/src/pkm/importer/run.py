@@ -4,7 +4,6 @@ report)."""
 from __future__ import annotations
 
 import argparse
-import hashlib
 import mimetypes
 import os
 import shutil
@@ -12,6 +11,7 @@ import sys
 import time
 from pathlib import Path
 
+from pkm.assets_core import sha256_hex
 from pkm.assets_disk import asset_on_disk_needs_repair
 from pkm.contracts.ops import Sha256Hex
 from pkm.database import connect
@@ -39,7 +39,7 @@ def _index_files(files_dir: Path) -> tuple[dict[str, Asset], dict[Sha256Hex, Pat
     all_files = sorted(p for p in files_dir.rglob("*") if p.is_file())
     for path in all_files:
         data = path.read_bytes()
-        sha = Sha256Hex(hashlib.sha256(data).hexdigest())
+        sha = sha256_hex(data)
         mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         # Lookup keys stay on the raw name (Roam's export text references
         # it); only the stored/displayed filename needs bounding, since a

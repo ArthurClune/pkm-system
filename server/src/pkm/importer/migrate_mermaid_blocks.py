@@ -43,6 +43,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from pkm.contracts.ops import BlockUid
 from pkm.database import Db, connect
 from pkm.importer.mermaid import convert_to_fence, is_mermaid_trigger
 from pkm.importer.mermaid_preservation import (
@@ -50,7 +51,6 @@ from pkm.importer.mermaid_preservation import (
     plan_mermaid_preservation,
 )
 from pkm.refs import extract
-from pkm.contracts.ops import BlockUid
 
 MERMAID_PAGE_TITLE = "mermaid"
 
@@ -82,11 +82,11 @@ def _load_subtree(con: Db, parent_uid: BlockUid) -> tuple[_Node, ...]:
     )
 
 
-def _subtree_uids(con: Db, parent_uid: BlockUid) -> set[str]:
+def _subtree_uids(con: Db, parent_uid: BlockUid) -> set[BlockUid]:
     """Every descendant uid (not including parent_uid itself), gathered
     with plain parent_uid lookups rather than _load_subtree/_Node since
     those deliberately don't carry the uid a caller would need here."""
-    uids: set[str] = set()
+    uids: set[BlockUid] = set()
     frontier = [parent_uid]
     while frontier:
         children = con.select(
@@ -112,7 +112,7 @@ def plan_migration(con: Db) -> Plan:
     """Plan globally safe Mermaid conversions from database-backed inputs."""
     ref_sources = _all_block_ref_sources(con)
     candidate_fences: list[tuple[str, str]] = []
-    component_descendants: dict[str, set[str]] = {}
+    component_descendants: dict[str, set[BlockUid]] = {}
     rows = con.select("SELECT uid, text FROM blocks ORDER BY rowid")
     for row in rows:
         uid, text = row["uid"], row["text"]

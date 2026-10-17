@@ -50,8 +50,8 @@ from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from typing import NamedTuple, TypeVar
 
-from pkm.contracts.ops import BlockUid, PageId
-from pkm.contracts.responses import EntityKind, SyncSeq
+from pkm.contracts.ops import NO_SEQ, BlockUid, PageId, SyncSeq
+from pkm.contracts.responses import EntityKind
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -107,7 +107,7 @@ def dedupe_window(rows: Sequence[ChangeRow]) -> Window:
     """Rows are seq order."""
     seen: dict[tuple[EntityKind, str], None] = {}  # insertion-ordered set
     deleted_keys: set[tuple[EntityKind, str]] = set()
-    last_seq = SyncSeq(0)
+    last_seq = NO_SEQ
     for seq, kind, entity_id, deleted in rows:
         last_seq = seq
         seen.setdefault((kind, entity_id), None)
@@ -140,7 +140,7 @@ def tombstoned_ids(win: Window, kind: EntityKind) -> list[str]:
             if k == kind and (k, e) in win.tombstoned]
 
 
-# The journal stores every entity id as text; these read the typed ids back.
+# The journal stores every entity id as text; these parse the typed ids back.
 def window_block_uids(win: Window) -> list[BlockUid]:
     return [BlockUid(e) for k, e in win.entities if k == "block"]
 

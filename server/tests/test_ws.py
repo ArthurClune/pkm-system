@@ -5,7 +5,7 @@ from typing import cast
 import pytest
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from pkm.contracts.responses import SyncSeq
+from pkm.contracts.ops import SyncSeq
 from pkm.database import connect
 from pkm.server.notify import SeqFrame
 

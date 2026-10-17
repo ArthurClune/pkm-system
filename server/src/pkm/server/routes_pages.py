@@ -19,8 +19,8 @@ from pkm.contracts.responses import (
     DeleteBlockerModel, DeletePreview, GroupsPayload, JournalCleanupResponse,
     JournalPayload, OkAck, PageMeta, PagePayload, RenamePageResponse)
 from pkm.database import Db
-from pkm.refs import (CanonicalTitle, NormalizedTitle, is_blank_title,
-                      title_syntax_reason)
+from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
+                      parse_block_uid, title_syntax_reason)
 from pkm.rows import Row
 from pkm.server import notify
 from pkm.server.auth import require_auth
@@ -55,10 +55,7 @@ class RenamePageRequest(BaseModel):
 
 
 def _daily_title(d: date) -> CanonicalTitle:
-    """title_for_date's fixed format never has control whitespace or
-    boundary padding -- all canonicalize_title ever changes -- so it is
-    already canonical under either plain_space setting."""
-    return CanonicalTitle(NormalizedTitle(title_for_date(d)))
+    return canonical_daily_title(title_for_date(d))
 
 
 def _block_ref_texts(db: Db,
@@ -178,12 +175,13 @@ def get_block_refs(uids: str,  # brand: untrusted -- comma-separated query
     wanted = [u for u in uids.split(",") if u]
     if len(wanted) > 50:
         raise HTTPException(status_code=422, detail="too many uids")
+    checked: list[BlockUid] = []
     for uid in wanted:
-        if not _UID_RE.fullmatch(uid):
+        parsed = parse_block_uid(uid)
+        if parsed is None:
             raise HTTPException(status_code=422,
                                 detail=f"malformed uid: {uid!r}")
-    # Every entry just matched UID_RE's shape.
-    checked = [BlockUid(u) for u in wanted]
+        checked.append(parsed)
     return BlockRefsPayload(block_ref_texts=_resolve_ref_uids(db, checked))
 
 

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Iterable, Iterator, Literal, NewType
 
 from pkm.contracts.brands import brand
+from pkm.contracts.ops import BLOCK_REF_TOKEN, UID_RE, BlockUid
 
 # A title that has been through normalize_title: control whitespace
 # collapsed, no other byte changed. Not every str is one -- minted only by
@@ -46,12 +47,6 @@ _ATTRIBUTE = re.compile(r"([^\[\]{}:\n]+?)::")
 _TAG_NAME = r"[\w/.\-]+"
 _BARE_TAG = re.compile(_TAG_NAME)
 _HASHTAG = re.compile(rf"(?:^|(?<=[\s(]))#({_TAG_NAME})")
-# A block uid's shape, matching contracts.ops.UID_RE's {6,32} bound: a run
-# outside it can never have been minted, so render.py, export/markdown.py
-# and export/resolve.py import this rather than keeping their own ((token))
-# pattern -- a token too long to be a real uid is then plain text on every
-# surface, not just here. Web's grammar/scan.ts mirrors it by hand.
-BLOCK_REF_TOKEN = r"[a-zA-Z0-9_-]{6,32}"
 _BLOCK_REF = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
 _EMBED = re.compile(r"\{\{\s*(?:\[\[)?embed(?:\]\])?\s*[:}]")
 # Control whitespace in a page title makes the page unreachable.
@@ -100,6 +95,18 @@ def canonicalize_title(title: str, *, plain_space: bool) -> NormalizedTitle:
     return normalized
 
 
+def parse_block_uid(text: str) -> BlockUid | None:
+    """`text` as a BlockUid, or None when it is not a well-formed uid."""
+    return BlockUid(text) if UID_RE.fullmatch(text) else None
+
+
+def canonical_daily_title(day: str) -> CanonicalTitle:
+    """A `title_for_date` title as the canonical title it already is: its
+    fixed format never has control whitespace or boundary padding, all
+    `canonicalize_title` ever changes, under either plain_space setting."""
+    return CanonicalTitle(NormalizedTitle(day))
+
+
 def target_canonical_title(title: str) -> CanonicalTitle:
     """The title's identity once plain-space canonicalization is active --
     what the one-time title migration (`pkm/title_migration.py`,
@@ -144,7 +151,7 @@ class Ref:
 @dataclass(frozen=True)
 class ParsedRefs:
     refs: tuple[Ref, ...]
-    block_refs: tuple[str, ...]
+    block_refs: tuple[BlockUid, ...]
     embeds: int
 
 
@@ -354,6 +361,8 @@ def extract(text: str) -> ParsedRefs:
                and not seen.add((r.title, r.kind))]
     return ParsedRefs(
         refs=tuple(deduped),
-        block_refs=tuple(m.group(1) for m in _BLOCK_REF.finditer(clean)),
+        # The pattern is UID_RE's shape, so each capture is a uid.
+        block_refs=tuple(BlockUid(m.group(1))
+                         for m in _BLOCK_REF.finditer(clean)),
         embeds=len(_EMBED.findall(clean)),
     )

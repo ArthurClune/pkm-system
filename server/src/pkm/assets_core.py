@@ -12,7 +12,7 @@ import re
 from pathlib import PurePosixPath
 from typing import Literal
 
-from pkm.contracts.ops import Sha256Hex
+from pkm.contracts.ops import SHA256_HEX_RE, Sha256Hex
 
 AssetCategory = Literal["image", "pdf", "document", "other"]
 
@@ -150,6 +150,16 @@ def sha256_hex(data: bytes) -> Sha256Hex:
     """The digest callers compare against a content-addressed asset's
     known sha256."""
     return Sha256Hex(hashlib.sha256(data).hexdigest())
+
+
+def parse_sha256(text: str) -> Sha256Hex | None:
+    """`text` as a Sha256Hex, or None when it is not 64 lowercase hex."""
+    return Sha256Hex(text) if SHA256_HEX_RE.fullmatch(text) else None
+
+
+def hasher_hex(hasher: "hashlib._Hash") -> Sha256Hex:
+    """The digest of a streaming sha256 hasher."""
+    return Sha256Hex(hasher.hexdigest())
 
 
 def asset_needs_repair(expected_sha256: Sha256Hex, expected_size: int,

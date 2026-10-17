@@ -11,7 +11,8 @@ from pkm.title_migration import (
     TitleMigrationInventory,
     build_title_migration_plan,
 )
-from pkm.contracts.ops import BlockUid, OrderIdx, PageId, SidebarOrderIdx
+from pkm.contracts.ops import (BlockUid, OrderIdx, PageId, SidebarEntryId,
+                               SidebarOrderIdx)
 
 
 def _ct(title: str) -> CanonicalTitle:
@@ -71,7 +72,7 @@ def _digest_inventory() -> TitleMigrationInventory:
             InventoryRef(src_block_uid=BlockUid("inbound"), target_page_id=PageId(3), kind="link"),
             InventoryRef(src_block_uid=BlockUid("inbound"), target_page_id=PageId(2), kind="link"),
         ),
-        sidebars=(InventorySidebar(sidebar_id=4, title=_ct("Acme "), order_idx=SidebarOrderIdx(7)),),
+        sidebars=(InventorySidebar(sidebar_id=SidebarEntryId(4), title=_ct("Acme "), order_idx=SidebarOrderIdx(7)),),
     )
 
 
@@ -425,7 +426,7 @@ def test_build_title_migration_plan_digest_is_canonical_and_order_independent():
             InventoryRef(src_block_uid=BlockUid("inbound"), target_page_id=PageId(2), kind="link"),
             InventoryRef(src_block_uid=BlockUid("inbound"), target_page_id=PageId(3), kind="link"),
         ),
-        sidebars=(InventorySidebar(sidebar_id=4, title=_ct("Acme "), order_idx=SidebarOrderIdx(7)),),
+        sidebars=(InventorySidebar(sidebar_id=SidebarEntryId(4), title=_ct("Acme "), order_idx=SidebarOrderIdx(7)),),
     )
 
     plan = build_title_migration_plan(inventory)
@@ -538,7 +539,7 @@ def test_build_title_migration_plan_digest_changes_when_relevant_data_changes():
     )).digest != baseline
     assert build_title_migration_plan(replace(
         inventory,
-        sidebars=(InventorySidebar(sidebar_id=4, title=_ct("Acme "), order_idx=SidebarOrderIdx(8)),),
+        sidebars=(InventorySidebar(sidebar_id=SidebarEntryId(4), title=_ct("Acme "), order_idx=SidebarOrderIdx(8)),),
     )).digest != baseline
     assert build_title_migration_plan(replace(
         inventory,

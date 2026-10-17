@@ -16,11 +16,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from pkm.contracts.ops import BlockUid, OrderIdx
 from pkm.importer.mermaid import convert_to_fence
 from pkm.importer.mermaid_preservation import plan_mermaid_preservation
 from pkm.importer.parse_export import Block, Export
 from pkm.refs import extract
-from pkm.contracts.ops import BlockUid, OrderIdx
 
 # Deterministic landing page for block subtrees the export left unreachable
 # from any page (see Export.orphan_blocks): rather than silently dropping

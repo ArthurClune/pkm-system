@@ -18,8 +18,8 @@ from typing import (Literal, NamedTuple, NewType, TypedDict, Union, get_args,
 from pkm.brand_registry import SHAPES
 from pkm.contracts.ops import (BatchId, BlockUid, HeadingLevel, OrderIdx,
                                PageId, RewriteKind, Sha256Hex, SidebarEntryId,
-                               SidebarOrderIdx, ViewType)
-from pkm.contracts.responses import EntityKind, SyncSeq
+                               SidebarOrderIdx, SyncSeq, ViewType)
+from pkm.contracts.responses import EntityKind
 from pkm.refs import CanonicalTitle, RefKind
 
 

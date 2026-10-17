@@ -27,9 +27,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from pkm.contracts.ops import BlockUid
 from pkm.export.markdown import rewrite_asset_links
 from pkm.refs import BLOCK_REF_TOKEN
-from pkm.contracts.ops import BlockUid
 
 if TYPE_CHECKING:
     from pkm.server.tree import TreeNode

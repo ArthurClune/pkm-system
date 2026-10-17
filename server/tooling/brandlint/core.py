@@ -1,5 +1,7 @@
 # pattern: Functional Core
 """Rule 1: a parameter or field whose name means a brand carries it.
+Rule 2: a brand is minted, `cast` used, `model_construct` called and raw
+sqlite touched only where the registry says.
 
 `def f(uid: str)` and `page_id: int` in a dataclass, TypedDict or model
 are violations; an annotation passes when any name in it, or in a string
@@ -28,6 +30,15 @@ RULES = {
     "brand-name": "a name that means a brand must carry it: read the value from a `select()` row, take it "
                   "from a contract model, or parse it with the brand's parser; untrusted route input may "
                   "carry `# brand: untrusted -- <reason>`",
+    "brand-mint": "a brand is minted only at its registered parse points: read the value from a `select()` "
+                  "row, take it from a contract model, or parse it with a `parse_*` function in a "
+                  "MINT_SITES file",
+    "brand-cast": "`cast` is allowed only in CAST_SITES files: read the value from a `select()` row or "
+                  "narrow it with a parser instead of asserting a type",
+    "model-construct": "`model_construct` skips validation: build the model with its constructor or "
+                       "`model_validate`",
+    "raw-sqlite": "raw sqlite belongs to pkm.database: use `Db` (`select`, `select_one`, `execute`, "
+                  "`executemany`) instead of `sqlite3.connect`, cursors or `.raw`",
     "brand-parse": "brandlint could not parse this file; it needs Python >= 3.12 (PEP 695 syntax): run it "
                    "under a newer python3",
     "brand-opt-out": "`# brand: untrusted -- <reason>` is allowed only in route modules (routes_*.py) and "
@@ -152,8 +163,54 @@ def _annotated_names(tree: ast.AST):
                     yield stmt.target.id, stmt.annotation, stmt.lineno, stmt.end_lineno or stmt.lineno
 
 
+DATABASE_FILE = "server/src/pkm/database.py"
+
+
+def _site_allowed(path: str, sites: tuple[str, ...]) -> bool:
+    return any(path == site or (site.endswith("/") and path.startswith(site)) for site in sites)
+
+
+def _declared_brands(tree: ast.AST) -> set[str]:
+    """Names this file binds with `X = NewType(...)`."""
+    return {
+        node.targets[0].id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign) and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and isinstance(node.value, ast.Call) and _leaf(node.value.func) == "NewType"
+    }
+
+
+def _escape_hatches(path: str, tree: ast.AST, registry: Registry) -> list[tuple[int, str, str]]:
+    """(line, rule, source text) for every rule-2 site in `tree`."""
+    brands = set(registry.shapes) | set(registry.mint_sites)
+    declared = _declared_brands(tree)
+    cast_ok = _site_allowed(path, registry.cast_sites)
+    sqlite_ok = path == DATABASE_FILE
+    out: list[tuple[int, str, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            name = _leaf(node.func) or ""
+            if name in brands and name not in declared \
+                    and not _site_allowed(path, registry.mint_sites.get(name, ())):
+                out.append((node.lineno, "brand-mint", f"`{name}(...)` outside its mint sites"))
+            elif name == "cast" and not cast_ok:
+                out.append((node.lineno, "brand-cast", "`cast(...)` outside CAST_SITES"))
+            elif name == "model_construct" and isinstance(node.func, ast.Attribute):
+                out.append((node.lineno, "model-construct", "`.model_construct(...)` skips validation"))
+            elif name == "cursor" and isinstance(node.func, ast.Attribute) and not sqlite_ok:
+                out.append((node.lineno, "raw-sqlite", "`.cursor()` outside pkm.database"))
+        elif isinstance(node, ast.Attribute) and not sqlite_ok:
+            on_sqlite = isinstance(node.value, ast.Name) and node.value.id == "sqlite3"
+            if node.attr == "raw" or (on_sqlite and node.attr in ("connect", "Connection", "Cursor")):
+                text = "`.raw` outside pkm.database" if node.attr == "raw" \
+                    else f"`sqlite3.{node.attr}` outside pkm.database"
+                out.append((node.lineno, "raw-sqlite", text))
+    return out
+
+
 def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
-    """Every rule-1 violation in `text`, in file order."""
+    """Every brand-lint violation in `text`, in file order."""
     if not in_scope(path, registry):
         return []
     try:
@@ -182,4 +239,6 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
         if problem is None or any(n in opted for n in range(first, last + 1)):
             continue
         out.append(Violation(path, first, "brand-name", f"{problem}: {lines[first - 1].strip()}"))
+    for line, rule, what in _escape_hatches(path, tree, registry):
+        out.append(Violation(path, line, rule, f"{what}: {lines[line - 1].strip()}"))
     return sorted(out, key=lambda v: v.line)

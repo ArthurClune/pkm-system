@@ -12,11 +12,11 @@ import logging
 import time
 from typing import Protocol
 
+from pkm.contracts.ops import Sha256Hex
 from pkm.database import Db
 from pkm.describe.core import describe_action
 from pkm.server.config import Config
 from pkm.server.db import open_db
-from pkm.contracts.ops import Sha256Hex
 
 log = logging.getLogger("pkm.describe")
 

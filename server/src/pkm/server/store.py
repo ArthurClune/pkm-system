@@ -250,8 +250,11 @@ def insert_sidebar_entry(db: Db, title: CanonicalTitle,
     cur = db.execute(
         "INSERT INTO sidebar_entries(title, order_idx) VALUES (?, ?)",
         (title, order_idx))
-    assert cur.lastrowid is not None  # INSERT always assigns one
-    return SidebarEntryId(cur.lastrowid)
+    row = db.select_one(
+        "SELECT id AS sidebar_entry_id FROM sidebar_entries WHERE rowid = ?",
+        (cur.lastrowid,))
+    assert row is not None  # the row just inserted
+    return row["sidebar_entry_id"]
 
 
 def retitle_sidebar_entry(db: Db, old_title: CanonicalTitle,

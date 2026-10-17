@@ -16,7 +16,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                UpdateTextOp)
 from pkm.contracts.responses import SkippedOp
 from pkm.database import Db
-from pkm.refs import (CanonicalTitle, NormalizedTitle, is_blank_title,
+from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
                       normalize_title)
 from pkm.rows import Row
 from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
@@ -208,9 +208,7 @@ def _conflict_landing(db: Db, target_uid: BlockUid,
     subtree would take the copies down with it. The fresh header is then
     recorded in its place."""
     day = title_for_date(datetime.fromtimestamp(now_ms / 1000).date())
-    # title_for_date's fixed format is already canonical under either
-    # plain_space setting, the same argument _daily_title makes.
-    daily_title = CanonicalTitle(NormalizedTitle(day))
+    daily_title = canonical_daily_title(day)
     daily = get_or_create_page(db, day, now_ms)
     daily_page_id = daily["page_id"]
     next_top = db.select_one(

@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import Any, Literal, Mapping
 
 from pkm.contracts.ops import (BlockUid, OrderIdx, PageId, Sha256Hex,
-                               SidebarOrderIdx)
+                               SidebarEntryId, SidebarOrderIdx)
 from pkm.refs import (CanonicalTitle, RefKind, is_blank_title,
                       target_canonical_title, title_syntax_reason)
 
@@ -37,7 +37,7 @@ class InventoryRef:
 
 @dataclass(frozen=True)
 class InventorySidebar:
-    sidebar_id: int
+    sidebar_id: SidebarEntryId
     title: CanonicalTitle
     order_idx: SidebarOrderIdx
 

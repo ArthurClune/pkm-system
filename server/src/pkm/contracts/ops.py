@@ -18,13 +18,20 @@ from typing import Annotated, Literal, NewType, Union
 from pydantic import BaseModel, Field
 
 from pkm.contracts.brands import brand
-from pkm.refs import BLOCK_REF_TOKEN
+
+# A block uid's shape, the body of UID_RE below ({6,32}): a run outside it
+# can never have been minted, so render.py, export/markdown.py and
+# export/resolve.py import this (through pkm.refs) rather than keeping
+# their own ((token)) pattern -- a token too long to be a real uid is then
+# plain text on every surface, not just here. Web's grammar/scan.ts mirrors
+# it by hand.
+BLOCK_REF_TOKEN = r"[a-zA-Z0-9_-]{6,32}"
 
 # `\Z` anchors to the true end of the string; a bare `$` also matches just
 # before a trailing "\n", which let a uid like "abcdef\n" slip past a
 # `.match()` call site that should have refused it. Every call site uses
 # `.fullmatch()` regardless, so the anchor is defense in depth, not the
-# only guard. Built from `refs.BLOCK_REF_TOKEN` so the wire-validation
+# only guard. Built from `BLOCK_REF_TOKEN` so the wire-validation
 # shape and the ((ref))-recognition shape can't drift apart independently.
 UID_RE = re.compile(rf"^{BLOCK_REF_TOKEN}\Z")
 ViewType = Literal["numbered", "document"]
@@ -123,6 +130,8 @@ brand(SidebarOrderIdx)
 # web/src/api/brands.ts.
 SyncSeq = NewType("SyncSeq", int)
 brand(SyncSeq)
+# The cursor before any journal row: a client that has synced nothing.
+NO_SEQ = SyncSeq(0)
 
 
 class CreateOp(BaseModel):

@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Literal, Mapping, Sequence
 
+from pkm.contracts.ops import BlockUid
 from pkm.export.resolve import find_query_macros
 from pkm.refs import (
     BLOCK_REF_TOKEN,
@@ -25,11 +26,11 @@ from pkm.refs import (
     attribute_title_span,
     bracket_spans,
     extract,
+    parse_block_uid,
     strip_code,
     tag_spans,
 )
 from pkm.todo import with_state
-from pkm.contracts.ops import BlockUid
 
 # Given a title as written, is it the deleted page.
 TitleMatch = Callable[[str], bool]
@@ -157,14 +158,14 @@ def unlink_stale_refs(text: str, is_target: TitleMatch) -> str:
     return defuse_attribute(unlink_title_refs(text, is_target), is_target)
 
 
-def inline_block_refs(text: str, copies: Mapping[str, str]) -> str:
+def inline_block_refs(text: str, copies: Mapping[BlockUid, str]) -> str:
     """Replace `((uid))` and a whole embed macro for each uid in `copies`."""
     if not copies:
         return text
     spans: list[Span] = []
     for match in _REF_OR_EMBED.finditer(strip_code(text)):
-        uid = match.group(1) or match.group(2)
-        if uid in copies:
+        uid = parse_block_uid(match.group(1) or match.group(2))
+        if uid is not None and uid in copies:
             spans.append((match.start(), match.end(), copies[uid]))
     return _splice(text, spans)
 
@@ -180,7 +181,7 @@ def plain_copy(text: str) -> str:
 
 
 def apply_delete_rewrite(
-    text: str, is_target: TitleMatch, copies: Mapping[str, str]
+    text: str, is_target: TitleMatch, copies: Mapping[BlockUid, str]
 ) -> str:
     return unlink_title_refs(inline_block_refs(text, copies), is_target)
 
@@ -212,7 +213,7 @@ class SourceBlock:
 class DeletePlan:
     rewrites: Mapping[BlockUid, str]
     unlinked: frozenset[BlockUid]
-    inlined: Mapping[BlockUid, Mapping[str, str]]
+    inlined: Mapping[BlockUid, Mapping[BlockUid, str]]
     links: int
     link_pages: int
     block_refs: int
@@ -223,8 +224,8 @@ class DeletePlan:
 def _build_copies(
     is_target: TitleMatch, page_blocks: Mapping[BlockUid, str]
 ) -> dict[BlockUid, str]:
-    plain: dict[str, str] = {uid: plain_copy(text) for uid, text in page_blocks.items()}
-    blanks: dict[str, str] = {uid: "" for uid in page_blocks}
+    plain = {uid: plain_copy(text) for uid, text in page_blocks.items()}
+    blanks = {uid: "" for uid in page_blocks}
     copies: dict[BlockUid, str] = {}
     for uid in page_blocks:
         text = inline_block_refs(plain[uid], plain)
@@ -272,11 +273,9 @@ def plan_page_delete(
     sources: Sequence[SourceBlock],
 ) -> DeletePlan:
     copies = _build_copies(is_target, page_blocks)
-    # A block ref is matched as text, so the copies are looked up as such.
-    copy_by_ref: dict[str, str] = {**copies}
     rewrites: dict[BlockUid, str] = {}
     unlinked: set[BlockUid] = set()
-    inlined: dict[BlockUid, Mapping[str, str]] = {}
+    inlined: dict[BlockUid, Mapping[BlockUid, str]] = {}
     blockers: list[DeleteBlocker] = []
     link_pages: set[str] = set()
     ref_pages: set[str] = set()
@@ -289,8 +288,7 @@ def plan_page_delete(
                if ref.kind != "attribute"):
             links += 1
             link_pages.add(source.page_title)
-        applied = {u: copy_by_ref[u] for u in parsed.block_refs
-                   if u in copy_by_ref}
+        applied = {u: copies[u] for u in parsed.block_refs if u in copies}
         if applied:
             block_refs += 1
             ref_pages.add(source.page_title)

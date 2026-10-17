@@ -17,9 +17,10 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
+from pkm.contracts.ops import NO_SEQ, BlockUid, PageId, SyncSeq
 from pkm.contracts.responses import (AppliedBatch, ChangesPayload, EntityKind,
                                         OkAck, OpsAck, SnapshotPayload,
-                                        SyncBlock, SyncPage, SyncRef, SyncSeq,
+                                        SyncBlock, SyncPage, SyncRef,
                                         SyncSidebarEntry, SyncTombstone)
 from pkm.database import Db
 from pkm.rows import Row
@@ -33,7 +34,6 @@ from pkm.server.sync_meta import (
     database_generation,
     plain_space_title_canonicalization_active,
 )
-from pkm.contracts.ops import BlockUid, PageId
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -87,8 +87,8 @@ def _blocks_by_uid(db: Db,
 
 
 def _refs_by_block(db: Db,
-                   uids: list[BlockUid]) -> dict[str, list[SyncRef]]:
-    out: dict[str, list[SyncRef]] = {}
+                   uids: list[BlockUid]) -> dict[BlockUid, list[SyncRef]]:
+    out: dict[BlockUid, list[SyncRef]] = {}
     for chunk in chunk_ids(uids):
         marks = ",".join("?" * len(chunk))
         # refs is WITHOUT ROWID, keyed on (src_block_uid, target_page_id,
@@ -264,7 +264,7 @@ def _sidebar_payloads(db: Db,
 
 
 @router.get("/api/sync/changes", response_model=ChangesPayload)
-def sync_changes(since: SyncSeq = SyncSeq(0), limit: int = 1000,
+def sync_changes(since: SyncSeq = NO_SEQ, limit: int = 1000,
                  pending: PendingIds = None,
                  db: Db = Depends(get_db)) -> ChangesPayload:
     """One window of the change journal after `since`, hydrated to current

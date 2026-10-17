@@ -102,7 +102,8 @@ def test_files_outside_product_python_are_not_checked(path: str):
 
 
 def test_every_rule_has_a_remedy_that_names_the_fix():
-    assert set(RULES) == {"brand-name", "brand-opt-out", "brand-parse"}
+    assert set(RULES) == {"brand-name", "brand-opt-out", "brand-parse", "brand-mint",
+                          "brand-cast", "model-construct", "raw-sqlite"}
     assert "select()" in RULES["brand-name"] and "untrusted" in RULES["brand-name"]
 
 

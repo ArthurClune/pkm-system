@@ -1,4 +1,5 @@
-from pkm.contracts.responses import EntityKind, SyncSeq
+from pkm.contracts.ops import SyncSeq
+from pkm.contracts.responses import EntityKind
 from pkm.server.sync_core import (CHUNK_SIZE, ChangeRow, chunk_ids,
                                     dedupe_window, hydrate_in_order,
                                     missing_parent_uids, tombstone_entities,

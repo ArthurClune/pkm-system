@@ -33,6 +33,7 @@ NAMES: dict[str, tuple[str, ...]] = {
     "src_page_id": ("PageId",),
     # Row ids and order keys
     "sidebar_entry_id": ("SidebarEntryId",),
+    "sidebar_id": ("SidebarEntryId",),
     "order_idx": ("OrderIdx", "SidebarOrderIdx"),
     "sidebar_order_idx": ("SidebarOrderIdx",),
     # Sync
@@ -74,23 +75,60 @@ WEB_BRANDS: tuple[str, ...] = (
 # brand at the wire.
 _CONTRACTS = "server/src/pkm/contracts/"
 MINT_SITES: dict[str, tuple[str, ...]] = {
-    # batch.py: `_alias_uid` turns a command's uid-or-`{{alias}}` text into
-    # the uid it names.
-    "BlockUid": (_CONTRACTS, "server/src/pkm/batch.py"),
-    "PageId": (_CONTRACTS,),
+    "BlockUid": (
+        _CONTRACTS,
+        # `_alias_uid` turns a command's uid-or-`{{alias}}` text into the
+        # uid it names.
+        "server/src/pkm/batch.py",
+        # `parse_uid_spec` reads the uid out of a `((uid))` parent spec.
+        "server/src/pkm/planning.py",
+        # `render` reads uids from `((uid))` tokens matched by
+        # BLOCK_REF_TOKEN.
+        "server/src/pkm/render.py",
+        # `extract` and `parse_block_uid` are the text-to-uid parsers.
+        "server/src/pkm/refs.py",
+        # Fresh uids: `new_uid` (CLI/MCP client) and `_new_uid` (conflict
+        # headers) mint random ones.
+        "server/src/pkm/client/api.py",
+        "server/src/pkm/server/ops_apply.py",
+        # The journal stores every entity id as text; `window_block_uids`
+        # parses them back.
+        "server/src/pkm/server/sync_core.py",
+        # A block_rewrites "inline" record keeps a block-ref uid in its
+        # old_title column.
+        "server/src/pkm/server/ops_core.py",
+    ),
+    "PageId": (
+        _CONTRACTS,
+        # `window_page_ids` parses the journal's text entity ids.
+        "server/src/pkm/server/sync_core.py",
+    ),
     "SidebarEntryId": (_CONTRACTS,),
-    "ClientId": (_CONTRACTS,),
-    "BatchId": (_CONTRACTS,),
-    "OrderIdx": (_CONTRACTS,),
-    "SidebarOrderIdx": (_CONTRACTS,),
+    # `CLIENT_ID` is the CLI's fixed identity on the sync wire.
+    "ClientId": (_CONTRACTS, "server/src/pkm/client/api.py"),
+    # `_batch_id` mints one id per client batch.
+    "BatchId": (_CONTRACTS, "server/src/pkm/client/workflows.py"),
+    # Order keys are assigned where a position becomes a key: the planner
+    # (`next_order_idx`, `_land`), the importer (export order) and the
+    # conflict/copy effects (a fresh child list starts at 0).
+    "OrderIdx": (_CONTRACTS, "server/src/pkm/planning.py",
+                 "server/src/pkm/importer/rows.py",
+                 "server/src/pkm/server/ops_core.py"),
+    # The importer appends sidebar entries one past the current max.
+    "SidebarOrderIdx": (_CONTRACTS, "server/src/pkm/importer/sidebar_rows.py"),
+    # assets_core parses and digests; title_migration digests its plan.
     "Sha256Hex": (_CONTRACTS, "server/src/pkm/assets_core.py",
                   "server/src/pkm/title_migration.py"),
     "SyncSeq": (_CONTRACTS,),
-    "ConversationId": (_CONTRACTS,),
-    "ConfirmId": (_CONTRACTS,),
+    # A fresh random id per assistant conversation.
+    "ConversationId": (_CONTRACTS, "server/src/pkm/assistant/service.py"),
+    # A process-local counter keys each pending confirm.
+    "ConfirmId": (_CONTRACTS, "server/src/pkm/assistant/claude_engine.py"),
     "GoodlinksId": (_CONTRACTS,),
     "NormalizedTitle": (_CONTRACTS,),
-    "CanonicalTitle": (_CONTRACTS,),
+    # `title_reader` is the one general mint: it alone knows the database's
+    # live plain-space flag.
+    "CanonicalTitle": (_CONTRACTS, "server/src/pkm/server/sync_meta.py"),
 }
 
 # Server files where `typing.cast` is allowed.
@@ -101,11 +139,10 @@ CAST_SITES: tuple[str, ...] = (
     # guarantees (HeadingLevel, TaskMark).
     "server/src/pkm/planning.py",
     "server/src/pkm/todo.py",
-    # A validation error's `loc` is documented as a tuple of str | int.
-    "server/src/pkm/test_data/core.py",
 )
 
-# Files that build fixtures for tests; the lint treats them as tests.
+# Fixture builders that ship under server/src but only tests import; the
+# lint treats them as tests, exempt from the name, mint and cast rules.
 TEST_SUPPORT: tuple[str, ...] = (
     "server/src/pkm/test_data/",
 )

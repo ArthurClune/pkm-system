@@ -19,9 +19,9 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Upl
 from fastapi.responses import FileResponse
 
 from pkm.assets_core import (
-    AssetCategory, export_limit_violation, strip_asset_tokens, type_where,
-    zip_arcnames)
-from pkm.contracts.ops import SHA256_HEX_RE, Sha256Hex
+    AssetCategory, export_limit_violation, hasher_hex, parse_sha256,
+    strip_asset_tokens, type_where, zip_arcnames)
+from pkm.contracts.ops import Sha256Hex
 from pkm.contracts.responses import (
     AssetDeleteAck, AssetRef, AssetSearchItem, AssetSearchPayload,
     AssetUploadResponse)
@@ -213,9 +213,9 @@ def delete_asset(request: Request, sha256: Sha256Hex,
     The reference check and the delete share one write transaction, so a
     block that starts referencing the asset cannot slip in between. Undo
     history is its caller, releasing an upload once redo is gone."""
-    if not SHA256_HEX_RE.fullmatch(sha256):
+    sha = parse_sha256(sha256)
+    if sha is None:
         raise HTTPException(status_code=404, detail="asset not found")
-    sha = Sha256Hex(sha256)
     if if_unreferenced:
         return _delete_if_unreferenced(request, sha, db, config)
     row = db.select_one("SELECT sha256 FROM assets WHERE sha256 = ?", (sha,))
@@ -273,9 +273,9 @@ def export_assets(sha256s: list[str] = Form(default=[]),
     chosen: list[tuple[Sha256Hex, str, Path]] = []
     total_bytes = 0
     for candidate in dict.fromkeys(sha256s):
-        if not SHA256_HEX_RE.fullmatch(candidate):
+        sha = parse_sha256(candidate)
+        if sha is None:
             continue
-        sha = Sha256Hex(candidate)
         row = db.select_one("SELECT filename, size FROM assets WHERE sha256 = ?",
                             (sha,))
         if row is None:
@@ -314,9 +314,9 @@ def export_assets(sha256s: list[str] = Form(default=[]),
 def get_asset(sha256: Sha256Hex, filename: str,
               db: Db = Depends(get_db),
               config: Config = Depends(get_config)) -> FileResponse:
-    if not SHA256_HEX_RE.fullmatch(sha256):
+    sha = parse_sha256(sha256)
+    if sha is None:
         raise HTTPException(status_code=404, detail="asset not found")
-    sha = Sha256Hex(sha256)
     row = db.select_one("SELECT mime, filename FROM assets WHERE sha256 = ?",
                         (sha,))
     path = config.assets_dir / sha[:2] / sha
@@ -362,7 +362,7 @@ async def _stream_to_temp(file: _ChunkReadable, tmp_path: Path,
                 raise HTTPException(status_code=413, detail="upload too large")
             out.write(chunk)
             hasher.update(chunk)
-    return Sha256Hex(hasher.hexdigest()), total, first_chunk
+    return hasher_hex(hasher), total, first_chunk
 
 
 @router.post("/api/assets", response_model=AssetUploadResponse)

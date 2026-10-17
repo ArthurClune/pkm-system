@@ -12,8 +12,7 @@ import anyio.from_thread
 from fastapi import Request
 from pydantic import BaseModel
 
-from pkm.contracts.ops import ClientId
-from pkm.contracts.responses import SyncSeq
+from pkm.contracts.ops import ClientId, SyncSeq
 from pkm.database import Db
 
 

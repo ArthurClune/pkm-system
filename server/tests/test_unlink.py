@@ -40,7 +40,7 @@ def test_unlink_title_refs(text, expected):
 
 
 def test_inline_block_refs_replaces_ref_and_embed():
-    copies = {"uid_x1": "copied"}
+    copies = {BlockUid("uid_x1"): "copied"}
     assert inline_block_refs(
         "a ((uid_x1)) b {{embed: ((uid_x1))}} c "
         "{{[[embed]]: ((uid_x1))}} ((uid_y1))", copies
@@ -48,7 +48,7 @@ def test_inline_block_refs_replaces_ref_and_embed():
 
 
 def test_inline_block_refs_ignores_code():
-    assert inline_block_refs("`((uid_x1))` ((uid_x1))", {"uid_x1": "c"}) \
+    assert inline_block_refs("`((uid_x1))` ((uid_x1))", {BlockUid("uid_x1"): "c"}) \
         == "`((uid_x1))` c"
 
 
@@ -59,7 +59,7 @@ def test_plain_copy_strips_marker_attribute_and_newlines():
 
 
 def test_apply_delete_rewrite_composes():
-    assert apply_delete_rewrite("[[AI]] ((uid_x1))", is_ai, {"uid_x1": "[[AI]]!"}) \
+    assert apply_delete_rewrite("[[AI]] ((uid_x1))", is_ai, {BlockUid("uid_x1"): "[[AI]]!"}) \
         == "AI AI!"
 
 

@@ -35,7 +35,8 @@ import type { components } from "../api/types";
 import { appliedPendingRows } from "./ackedRows";
 import { reindexBlockRefs } from "./blockRefs";
 import type { DroppedBatch, PendingBatch, PendingRowId } from "./client";
-import { type ReplicaDb, rollbackToSavepoint, type SqlValue } from "./db";
+import { foreignKeyViolations, type ReplicaDb, rollbackToSavepoint,
+         type SqlValue } from "./db";
 import { applyLocalOps } from "./localOps";
 import { deleteMeta, getMeta, setMeta,
          setPlainSpaceTitleCanonicalization } from "./meta";
@@ -295,9 +296,7 @@ function replayOps(db: ReplicaDb, b: PendingBatch, stamp: number,
  * checks (0.32/1.72/7.41 ms) within noise. Scoping to `blocks` alone would drop
  * exactly the two tables the paragraph above is about. */
 const fkViolations = (db: ReplicaDb): Set<string> =>
-  new Set(db.introspect<{ table: string; rowid: SqlValue; parent: string;
-                         fkid: number }>("PRAGMA foreign_key_check")
-    .map((v) => JSON.stringify([v.table, v.rowid, v.parent, v.fkid])));
+  new Set(foreignKeyViolations(db));
 
 const addsFkViolation = (before: Set<string>, after: Set<string>): boolean => {
   for (const v of after) if (!before.has(v)) return true;

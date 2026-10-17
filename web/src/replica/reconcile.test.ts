@@ -29,8 +29,8 @@ beforeEach(async () => {
     { op: "create", uid: uid("uid_l2"), page_title: "Offline Page", parent_uid: uid("uid_l1"),
       order_idx: ord(0), text: "a child" },
   ], 50, "t" as BatchId);
-  negId = t.db.introspect<{ id: number }>(
-    "SELECT id FROM pages WHERE title = 'Offline Page'")[0].id;
+  negId = (t.db.introspect(
+    "SELECT id FROM pages WHERE title = 'Offline Page'") as { id: number }[])[0].id;
   expect(negId).toBeLessThan(0);
 });
 

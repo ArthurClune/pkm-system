@@ -55,6 +55,8 @@ describe("wrapSqlite + installSchema", () => {
 
   test("select names Columns keys and nothing else", async () => {
     const t = await openTestDb();
+    // @ts-expect-error no key named, so no column is typed
+    expect(t.db.select("SELECT 1 AS n")[0].n).toBe(1);
     // @ts-expect-error "nope" is not a Columns key
     expect(() => t.db.select<"nope">("SELECT 1 AS nope")).toThrow(/nope/);
     expect(t.db.select<"n">("SELECT 1 AS n")[0].n).toBe(1);
@@ -142,8 +144,8 @@ describe("wrapSqlite + installSchema", () => {
 
   test("installs base + client tables with working FTS triggers", async () => {
     const t = await openTestDb();
-    const names = t.db.introspect<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'table'")
+    const names = (t.db.introspect(
+      "SELECT name FROM sqlite_master WHERE type = 'table'") as { name: string }[])
       .map((r) => r.name);
     for (const table of ["pages", "blocks", "refs", "sidebar_entries",
                          "sync_client_meta", "pending_ops"]) {
@@ -161,8 +163,8 @@ describe("wrapSqlite + installSchema", () => {
 
   test("does not install server-only journal tables", async () => {
     const t = await openTestDb();
-    const names = t.db.introspect<{ name: string }>(
-      "SELECT name FROM sqlite_master").map((r) => r.name);
+    const names = (t.db.introspect(
+      "SELECT name FROM sqlite_master") as { name: string }[]).map((r) => r.name);
     expect(names).not.toContain("changes");
     expect(names).not.toContain("applied_batches");
     t.close();
@@ -170,8 +172,8 @@ describe("wrapSqlite + installSchema", () => {
 
   test("installSchema creates replay_log, replay_log_refs and replay_batches with their indexes", async () => {
     const t = await openTestDb();
-    const names = t.db.introspect<{ name: string }>(
-      "SELECT name FROM sqlite_master").map((r) => r.name);
+    const names = (t.db.introspect(
+      "SELECT name FROM sqlite_master") as { name: string }[]).map((r) => r.name);
     for (const n of ["replay_log", "replay_log_refs", "replay_batches",
                      "idx_replay_log_key", "idx_replay_log_refs_log"]) {
       expect(names).toContain(n);

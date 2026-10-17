@@ -258,9 +258,9 @@ test("schema reset removes obsolete user and virtual-table objects atomically", 
     input: { kind: "reset", snapshot: SNAP },
   });
 
-  expect(t.db.introspect<{ name: string }>(
+  expect((t.db.introspect(
     "SELECT name FROM sqlite_master WHERE name LIKE 'obsolete_%' ORDER BY name",
-  )).toEqual([]);
+  ) as { name: string }[])).toEqual([]);
   expect(t.db.introspect("PRAGMA foreign_keys")).toEqual([{ foreign_keys: 1 }]);
 });
 
@@ -455,7 +455,7 @@ test("a schema rebuild forgets acked seqs, since pending_ops ids restart", async
   // recorded before a rebuild must not vouch for a new row that reuses its id.
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
-  const ids = () => t.db.introspect<{ id: number }>("SELECT id FROM pending_ops")
+  const ids = () => (t.db.introspect("SELECT id FROM pending_ops") as { id: number }[])
     .map((row) => row.id);
   await handlers.init(undefined);
   await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
@@ -589,7 +589,7 @@ async function poisonedQueueOverDamagedFile(options: {
     batchId: bid("valid"),
   });
   await handlers.markPoisoned({ id: pid(1), error: "HTTP 400", batchId: bid("rejected") });
-  const rowsBefore = damaged.db.introspect<DurablePendingRow>(DURABLE_ROWS);
+  const rowsBefore = (damaged.db.introspect(DURABLE_ROWS) as unknown as DurablePendingRow[]);
   isDamaged = true;
   const lease = await handlers.prepareRecovery(undefined) as { token: string };
   const commit = (acked: AckedBatch[] = []) => handlers.commitRecovery({
@@ -728,7 +728,7 @@ test("a snapshot failure after the import leaves no carry to resurrect drained r
   failOn = fresh.db;
   await expect(commit()).rejects.toThrow("snapshot apply failed");
   expectFileReplaced(warn);
-  expect(fresh.db.introspect<{ id: number }>(DURABLE_ROWS).map((row) => row.id))
+  expect((fresh.db.introspect(DURABLE_ROWS) as { id: number }[]).map((row) => row.id))
     .toEqual([1, 2]);
   expect(carry?.exists()).toBe(false);
   await handlers.deleteBatch({ id: pid(1), batchId: bid("rejected") });
@@ -832,7 +832,7 @@ test("a local-API write served first by a restarted worker keeps the carried ids
   await expect(next.localApi({
     method: "POST", path: "/api/pages", body: { title: "Offline" }, nowMs: 1,
   })).resolves.toMatchObject({ handled: true, status: 200 });
-  expect(fresh.db.introspect<{ id: number }>("SELECT id FROM pending_ops ORDER BY id")
+  expect((fresh.db.introspect("SELECT id FROM pending_ops ORDER BY id") as { id: number }[])
     .map((row) => row.id)).toEqual([1, 2, 3]);
 });
 
@@ -1024,7 +1024,7 @@ async () => {
   const batches = await handlers.pendingBatches(undefined) as { batch_id: string }[];
   expect(replaced()).toBe(true);
   expect(batches.map((batch) => batch.batch_id)).toEqual(["one", "two"]);
-  expect(fresh.db.introspect<{ id: number }>("SELECT id FROM pending_ops ORDER BY id")
+  expect((fresh.db.introspect("SELECT id FROM pending_ops ORDER BY id") as { id: number }[])
     .map((row) => row.id)).toEqual([1, 2]);
   expect(carry.exists()).toBe(false);
   warn.mockRestore();
@@ -1109,7 +1109,7 @@ const EMPTY_GEN1_FEED: Changes = {
   next_since: seq(7), latest_seq: seq(7), pages: [], blocks: [], sidebar: [], tombstones: [],
 };
 const textOf = (db: ReplicaDb, uid: string): unknown =>
-  db.introspect<{ text: string }>("SELECT text FROM blocks WHERE uid = ?", [uid])[0]?.text;
+  (db.introspect("SELECT text FROM blocks WHERE uid = ?", [uid]) as { text: string }[])[0]?.text;
 const pendingIds = (db: ReplicaDb): unknown =>
   db.select("SELECT batch_id FROM pending_ops ORDER BY id");
 
@@ -1478,7 +1478,7 @@ const shiftingCreate = (id: string) => ({
   batchId: bid(id),
 });
 const orderOf = (db: ReplicaDb, u: string): unknown =>
-  db.introspect<{ order_idx: number }>("SELECT order_idx FROM blocks WHERE uid = ?", [u])[0]?.order_idx;
+  (db.introspect("SELECT order_idx FROM blocks WHERE uid = ?", [u]) as { order_idx: number }[])[0]?.order_idx;
 
 test("an enqueue on a file without replay_log creates the "
   + "tables, records, and leaves schema_version stale", async () => {
@@ -1534,7 +1534,7 @@ test("pendingBatches carries seen_seq from pending_seen and omits it on a file w
   const seen = (await handlers.pendingBatches(undefined))[0].seen_seq;
   expect(typeof seen).toBe("number");
   t.db.exec("DROP TABLE pending_seen");
-  const row = t.db.introspect<{ id: number }>("SELECT id FROM pending_ops")[0];
+  const row = (t.db.introspect("SELECT id FROM pending_ops") as { id: number }[])[0];
   expect(Object.keys((await handlers.pendingBatches(undefined))[0])).not.toContain("seen_seq");
   expect(row.id).toBeGreaterThan(0);
 });

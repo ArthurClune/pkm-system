@@ -62,9 +62,9 @@ beforeEach(async () => {
 });
 
 const targets = (uid: string): string[] =>
-  t.db.introspect<{ target_block_uid: string }>(
+  (t.db.introspect(
     "SELECT target_block_uid FROM block_refs WHERE src_block_uid = ?" +
-    " ORDER BY target_block_uid", [uid]).map((r) => r.target_block_uid);
+    " ORDER BY target_block_uid", [uid]) as { target_block_uid: string }[]).map((r) => r.target_block_uid);
 
 const updateText = (uid: string, text: string): void =>
   applyLocalOps(t.db, [{ op: "update_text", uid, text } as BlockOp], 7000, { batchId: "t" as BatchId });

@@ -39,17 +39,17 @@ type LogRow = {
   batch_id: string; kind: string; key: string;
   pre: unknown; pre_page_id: number | null;
 };
-const log = (): LogRow[] => t.db.introspect<{
+const log = (): LogRow[] => (t.db.introspect("SELECT batch_id, kind, key, pre_json, pre_page_id FROM replay_log" +
+   " ORDER BY id") as {
   batch_id: string; kind: string; key: string; pre_json: string | null;
   pre_page_id: number | null;
-}>("SELECT batch_id, kind, key, pre_json, pre_page_id FROM replay_log" +
-   " ORDER BY id").map(({ pre_json, ...r }) => ({
+}[]).map(({ pre_json, ...r }) => ({
   ...r, pre: pre_json === null ? null : JSON.parse(pre_json) as unknown }));
-const logRefs = () => t.db.introspect<{
-  batch_id: string; key: string; target_page_id: number; kind: string;
-}>("SELECT l.batch_id, l.key, r.target_page_id, r.kind" +
+const logRefs = () => (t.db.introspect("SELECT l.batch_id, l.key, r.target_page_id, r.kind" +
    " FROM replay_log_refs r JOIN replay_log l ON l.id = r.log_id" +
-   " ORDER BY l.id, r.target_page_id, r.kind");
+   " ORDER BY l.id, r.target_page_id, r.kind") as {
+  batch_id: string; key: string; target_page_id: number; kind: string;
+}[]);
 const keys = () => log().map((r) => [r.batch_id, r.kind, r.key]);
 
 describe("recording", () => {

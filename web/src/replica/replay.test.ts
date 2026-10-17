@@ -109,9 +109,9 @@ const firstApply = async (server: ReplicaState,
   dump(await replicaOf(server, batches));
 
 const order = (db: ReplicaDb, parent: string | null = null): string[] =>
-  db.introspect<{ uid: string }>(
+  (db.introspect(
     "SELECT uid FROM blocks WHERE page_id = 1 AND parent_uid IS ?" +
-    " ORDER BY order_idx, uid", [parent]).map((r) => r.uid);
+    " ORDER BY order_idx, uid", [parent]) as { uid: string }[]).map((r) => r.uid);
 
 describe("a window replays pending batches as a first apply", () => {
   test("order: create X at 0 then move it to 1, over a window that ships another device's Y at 0", async () => {
@@ -245,8 +245,8 @@ describe("the log across acks, poison and upgrades", () => {
                      { op: "update_text", uid: u("tuid-b"), text: "edited b" });
     const db = await replicaOf(server, [b1, batch("b2", create("tuid-p2", 0)), b3]);
     expect(order(db, "tuid-p2")).toEqual(["tuid-c"]);
-    const poisoned = db.introspect<{ id: number }>(
-      "SELECT id FROM pending_ops WHERE batch_id = 'b2'")[0];
+    const poisoned = (db.introspect(
+      "SELECT id FROM pending_ops WHERE batch_id = 'b2'") as { id: number }[])[0];
     markPoisoned(db, poisoned.id as PendingRowId, "rejected", bid("b2"));
 
     expect(applyChanges(db, window({ pages: [], blocks: [] }, 11, { latest: 12 }),

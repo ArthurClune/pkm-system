@@ -95,8 +95,8 @@ describe("enqueueBatch", () => {
       { op: "update_text", uid: uid("uid_q1"), text: "edited once" },
     ], 99, bid("batch-aaaa"));
     expect(res.pending).toBe(1);
-    const row = t.db.introspect<{ batch_id: string; ops_json: string }>(
-      "SELECT batch_id, ops_json FROM pending_ops")[0];
+    const row = (t.db.introspect(
+      "SELECT batch_id, ops_json FROM pending_ops") as { batch_id: string; ops_json: string }[])[0];
     expect(row.batch_id).toBe(bid("batch-aaaa"));
     const ops = JSON.parse(row.ops_json) as UpdateTextOp[];
     expect(ops[0].base_text_hash).toBe(sha256Hex("original text"));
@@ -113,8 +113,8 @@ describe("enqueueBatch", () => {
       base_text_hash: "snapshot-hash" as Sha256Hex,
     }], 99, bid("batch-explicit"));
 
-    const ops = JSON.parse(t.db.introspect<{ ops_json: string }>(
-      "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
+    const ops = JSON.parse((t.db.introspect(
+      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as UpdateTextOp[];
     expect(ops[0].base_text_hash).toBe("snapshot-hash");
     expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_q1'"))
       .toEqual([{ text: "linked snapshot" }]);
@@ -148,8 +148,8 @@ describe("enqueueBatch", () => {
       { op: "update_text", uid: uid("uid_q1"), text: "v2" },
       { op: "update_text", uid: uid("uid_q1"), text: "v3" },
     ], 99, bid("batch-bbbb"));
-    const ops = JSON.parse(t.db.introspect<{ ops_json: string }>(
-      "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
+    const ops = JSON.parse((t.db.introspect(
+      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as UpdateTextOp[];
     expect(ops[0].base_text_hash).toBe(sha256Hex("original text"));
     expect(ops[1].base_text_hash).toBe(sha256Hex("v2"));
   });
@@ -160,8 +160,8 @@ describe("enqueueBatch", () => {
         order_idx: ord(1), text: "brand new" },
       { op: "update_text", uid: uid("uid_q2"), text: "edited new" },
     ], 99, bid("batch-cccc"));
-    const ops = JSON.parse(t.db.introspect<{ ops_json: string }>(
-      "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
+    const ops = JSON.parse((t.db.introspect(
+      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as UpdateTextOp[];
     expect(ops[1].base_text_hash).toBe(sha256Hex("brand new"));
   });
 
@@ -174,8 +174,8 @@ describe("enqueueBatch", () => {
     enqueueBatch(t.db, [
       { op: "update_text", uid: uid("uid_q1"), text: "edited once" },
     ], 99, bid("batch-title"));
-    const ops = JSON.parse(t.db.introspect<{ ops_json: string }>(
-      "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
+    const ops = JSON.parse((t.db.introspect(
+      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as UpdateTextOp[];
     expect(ops[0].page_title).toBe("AI");
   });
 
@@ -183,8 +183,8 @@ describe("enqueueBatch", () => {
     enqueueBatch(t.db, [
       { op: "update_text", uid: uid("uid_ghost"), text: "edited before hydration" },
     ], 99, bid("batch-title-ghost"));
-    const ops = JSON.parse(t.db.introspect<{ ops_json: string }>(
-      "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
+    const ops = JSON.parse((t.db.introspect(
+      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as UpdateTextOp[];
     expect(ops[0].page_title).toBeUndefined();
   });
 
@@ -193,8 +193,8 @@ describe("enqueueBatch", () => {
       op: "update_text", uid: uid("uid_q1"), text: "edited",
       page_title: "Explicit Page",
     }], 99, bid("batch-title-explicit"));
-    const ops = JSON.parse(t.db.introspect<{ ops_json: string }>(
-      "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
+    const ops = JSON.parse((t.db.introspect(
+      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as UpdateTextOp[];
     expect(ops[0].page_title).toBe("Explicit Page");
   });
 
@@ -208,8 +208,8 @@ describe("enqueueBatch", () => {
       base_text_hash: sha256Hex("original text"),
     }];
     enqueueBatch(t.db, ops, 99, bid("batch-lane-copy"));
-    expect(t.db.introspect<{ ops_json: string }>(
-      "SELECT ops_json FROM pending_ops")[0].ops_json)
+    expect((t.db.introspect(
+      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json)
       .toBe(JSON.stringify(ops));
   });
 });
@@ -224,8 +224,8 @@ describe("enqueueBatch on delete", () => {
       " ('tuid-g', 1, 'uid_c1', 0, 'grandchild')," +
       " ('uid_c2', 1, 'tuid-r', 1, '')");
   };
-  const storedOps = () => JSON.parse(t.db.introspect<{ ops_json: string }>(
-    "SELECT ops_json FROM pending_ops")[0].ops_json) as DeleteOp[];
+  const storedOps = () => JSON.parse((t.db.introspect(
+    "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as DeleteOp[];
 
   test("fills a delete's subtree hash from the replica before the optimistic apply", () => {
     seedSubtree();
@@ -258,8 +258,8 @@ describe("enqueueBatch on delete", () => {
       { op: "delete", uid: uid("tuid-r"), base_subtree_hash: "feedface" as Sha256Hex },
     ];
     enqueueBatch(t.db, ops, 99, bid("batch-del-hashed"));
-    expect(t.db.introspect<{ ops_json: string }>(
-      "SELECT ops_json FROM pending_ops")[0].ops_json)
+    expect((t.db.introspect(
+      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json)
       .toBe(JSON.stringify(ops));
   });
 
@@ -355,8 +355,8 @@ describe("importPendingRows", () => {
     queue.importPendingRows(t.db, rows);
     expect(readRows()).toEqual(rows);
     enqueueBatch(t.db, [{ op: "delete", uid: uid("tuid-x") }], 10, bid("after"));
-    expect(t.db.introspect<{ id: number }>(
-      "SELECT id FROM pending_ops WHERE batch_id = 'after'")).toEqual([{ id: 8 }]);
+    expect((t.db.introspect(
+      "SELECT id FROM pending_ops WHERE batch_id = 'after'") as { id: number }[])).toEqual([{ id: 8 }]);
   });
 
   test("importPendingRows ignores a row whose id is already present", () => {

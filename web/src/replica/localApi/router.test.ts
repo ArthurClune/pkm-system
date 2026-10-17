@@ -368,8 +368,8 @@ describe("create page", () => {
     ) as { id: number; title: string };
     expect(body.title).toBe("  Fresh Page  ");
     expect(body.id).toBeLessThan(0);
-    const rows = t.db.introspect<{ batch_id: string; ops_json: string }>(
-      "SELECT batch_id, ops_json FROM pending_ops");
+    const rows = (t.db.introspect(
+      "SELECT batch_id, ops_json FROM pending_ops") as { batch_id: string; ops_json: string }[]);
     expect(rows).toHaveLength(1);
     expect(rows[0].batch_id).toBe("batch-1");
     expect(JSON.parse(rows[0].ops_json)).toEqual(
@@ -385,8 +385,8 @@ describe("create page", () => {
     ) as { id: number; title: string };
     expect(body.title).toBe("Active Post");
     expect(body.id).toBeLessThan(0);
-    const queued = t.db.introspect<{ ops_json: string }>(
-      "SELECT ops_json FROM pending_ops");
+    const queued = (t.db.introspect(
+      "SELECT ops_json FROM pending_ops") as { ops_json: string }[]);
     expect(JSON.parse(queued[0].ops_json)).toEqual(
       [{ op: "create_page", page_title: "Active Post" }]);
   });
@@ -401,11 +401,11 @@ describe("create page", () => {
            { newBatchId: () => "batch-nl" as BatchId }), 200,
     ) as { id: number; title: string };
     expect(body.title).toBe("Levels of AGI: the Path");
-    expect(t.db.introspect<{ title: string }>(
+    expect((t.db.introspect(
       "SELECT title FROM pages WHERE title LIKE 'Levels%'",
-    )).toEqual([{ title: "Levels of AGI: the Path" }]);
-    const rows = t.db.introspect<{ ops_json: string }>(
-      "SELECT ops_json FROM pending_ops");
+    ) as { title: string }[])).toEqual([{ title: "Levels of AGI: the Path" }]);
+    const rows = (t.db.introspect(
+      "SELECT ops_json FROM pending_ops") as { ops_json: string }[]);
     expect(JSON.parse(rows[0].ops_json)).toEqual(
       [{ op: "create_page", page_title: "Levels of AGI: the Path" }]);
   });

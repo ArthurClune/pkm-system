@@ -14,8 +14,8 @@ import { applyLocalOps } from "./localOps";
 import { openTestDb, type TestDb } from "./testDb";
 
 const fkKeys = (db: ReplicaDb): Set<string> =>
-  new Set(db.introspect<{ table: string; rowid: SqlValue; parent: string; fkid: number }>(
-    "PRAGMA foreign_key_check")
+  new Set((db.introspect(
+    "PRAGMA foreign_key_check") as { table: string; rowid: SqlValue; parent: string; fkid: number }[])
     .map((v) => JSON.stringify([v.table, v.rowid, v.parent, v.fkid])));
 
 class Undo extends Error {}

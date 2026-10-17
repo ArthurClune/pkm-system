@@ -59,9 +59,9 @@ const ftsIntact = (db: ReplicaDb = t.db) => {
   db.exec("INSERT INTO pages_fts(pages_fts, rank) VALUES('integrity-check', 1)");
 };
 const logSize = () =>
-  t.db.introspect<{ n: number }>("SELECT COUNT(*) AS n FROM replay_log")[0].n;
+  (t.db.introspect("SELECT COUNT(*) AS n FROM replay_log") as { n: number }[])[0].n;
 const pageIds = () =>
-  t.db.introspect<{ id: number }>("SELECT id FROM pages ORDER BY id").map((r) => r.id);
+  (t.db.introspect("SELECT id FROM pages ORDER BY id") as { id: number }[]).map((r) => r.id);
 const pend = (...ids: string[]) => {
   for (const id of ids) {
     t.db.exec("INSERT INTO pending_ops(batch_id, ops_json) VALUES (?, '[]')", [id]);
@@ -163,8 +163,9 @@ describe("rewind", () => {
   });
 
   test("restoring a parent row does not cascade its children", () => {
-    const rowids = () => t.db.introspect<{ uid: string; rowid: number }>(
-      "SELECT uid, rowid FROM blocks WHERE uid IN ('tuid-c1', 'tuid-c11', 'tuid-c2') ORDER BY uid");
+    const rowids = () => (t.db.introspect(
+      "SELECT uid, rowid FROM blocks WHERE uid IN ('tuid-c1', 'tuid-c11', 'tuid-c2') ORDER BY uid") as
+      { uid: string; rowid: number }[]);
     const before = dump();
     const ids = rowids();
     inTx(() => {
@@ -174,7 +175,7 @@ describe("rewind", () => {
     expect(dump()).toEqual(before);
     expect(rowids()).toEqual(ids);
     ftsIntact();
-    expect(t.db.introspect<{ rowid: number }>("SELECT rowid FROM blocks_fts WHERE blocks_fts MATCH 'c11'"))
+    expect((t.db.introspect("SELECT rowid FROM blocks_fts WHERE blocks_fts MATCH 'c11'") as { rowid: number }[]))
       .toEqual([{ rowid: ids[1].rowid }]);
   });
 

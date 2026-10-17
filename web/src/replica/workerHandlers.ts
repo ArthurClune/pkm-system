@@ -13,7 +13,7 @@ import type {
   ReplicaRpc,
 } from "./client";
 import { CLIENT_DDL, SCHEMA_VERSION, installSchema } from "./clientSchema";
-import type { ReplicaDb } from "./db";
+import { catalogNames, type ReplicaDb, quickCheck, sqliteVersion } from "./db";
 import { isCorruptionMessage, isUnreadableFileMessage,
          ReplicaUnusableError } from "./errors";
 import { getMeta } from "./meta";
@@ -140,11 +140,10 @@ const ftsIntegrity = (db: ReplicaDb, table: string): string => probe(
 function collectDiagnostics(db: ReplicaDb): ReplicaDiagnostics {
   return {
     sqliteVersion: probe(
-      () => db.introspect<{ v: string }>("SELECT sqlite_version() AS v")[0].v,
+      () => sqliteVersion(db),
       (message) => message),
     quickCheck: probe(
-      () => db.introspect<{ quick_check: string }>("PRAGMA quick_check(5)")
-        .map((row) => row.quick_check),
+      () => quickCheck(db),
       (message) => [message]),
     integrity: {
       blocks_fts: ftsIntegrity(db, "blocks_fts"),
@@ -332,35 +331,19 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
     try {
       d.transaction(() => {
         for (const type of ["trigger", "view", "index"] as const) {
-          const objects = d.introspect<{ name: string }>(
-            "SELECT name FROM sqlite_master WHERE type = ?" +
-            " AND name NOT LIKE 'sqlite_%'" +
-            (type === "index" ? " AND sql IS NOT NULL" : "") +
-            " ORDER BY name",
-            [type],
-          );
           const keyword = type.toUpperCase();
-          for (const object of objects) {
-            d.exec(`DROP ${keyword} IF EXISTS ${quoteIdentifier(object.name)}`);
+          for (const name of catalogNames(d, type)) {
+            d.exec(`DROP ${keyword} IF EXISTS ${quoteIdentifier(name)}`);
           }
         }
         // Drop virtual roots first; SQLite removes their implementation-owned
         // shadow tables. Re-query afterward so only genuinely remaining user
         // tables are dropped directly.
-        const virtualTables = d.introspect<{ name: string }>(
-          "SELECT name FROM sqlite_master WHERE type = 'table'" +
-          " AND name NOT LIKE 'sqlite_%'" +
-          " AND upper(sql) LIKE 'CREATE VIRTUAL TABLE%' ORDER BY name",
-        );
-        for (const table of virtualTables) {
-          d.exec(`DROP TABLE IF EXISTS ${quoteIdentifier(table.name)}`);
+        for (const name of catalogNames(d, "virtual")) {
+          d.exec(`DROP TABLE IF EXISTS ${quoteIdentifier(name)}`);
         }
-        const tables = d.introspect<{ name: string }>(
-          "SELECT name FROM sqlite_master WHERE type = 'table'" +
-          " AND name NOT LIKE 'sqlite_%' ORDER BY name",
-        );
-        for (const table of tables) {
-          d.exec(`DROP TABLE IF EXISTS ${quoteIdentifier(table.name)}`);
+        for (const name of catalogNames(d, "table")) {
+          d.exec(`DROP TABLE IF EXISTS ${quoteIdentifier(name)}`);
         }
         installSchema(d);
         if (snapshot) applySnapshotToDb(d, snapshot, nowMs());

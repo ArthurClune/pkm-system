@@ -69,12 +69,12 @@ beforeEach(async () => {
 });
 
 const count = (sql: string): number =>
-  Number(t.db.introspect<{ n: number }>(sql)[0].n);
+  Number((t.db.introspect(sql) as { n: number }[])[0].n);
 
 const ftsHits = (term: string): string[] =>
-  t.db.introspect<{ uid: string }>(
+  (t.db.introspect(
     "SELECT b.uid FROM blocks b JOIN blocks_fts f ON f.rowid = b.rowid" +
-    " WHERE blocks_fts MATCH ?", [term]).map((r) => r.uid);
+    " WHERE blocks_fts MATCH ?", [term]) as { uid: string }[]).map((r) => r.uid);
 
 describe("applySnapshot", () => {
   test("accepts authoritative page titles with forbidden local-write syntax", () => {
@@ -703,9 +703,9 @@ describe("applyChanges: in one window, a block tombstone's cascade reaches only 
   // only the ancestor's row ships: the window's upserts have to take the
   // subtree out from under the tombstoned block before its local cascade
   // runs.
-  const tree = () => t.db.introspect<{ uid: string; page_id: number;
-                                   parent_uid: string | null }>(
-    "SELECT uid, page_id, parent_uid FROM blocks ORDER BY uid");
+  const tree = () => (t.db.introspect(
+    "SELECT uid, page_id, parent_uid FROM blocks ORDER BY uid") as { uid: string; page_id: number;
+                                   parent_uid: string | null }[]);
   beforeEach(() => {
     // uid_p > uid_c > uid_g on Machine Learning, and a page that will go
     applyChanges(t.db, emptyFeed({
@@ -822,8 +822,9 @@ describe("applyChanges: block tombstones wait for the window that reaches the jo
   // absent now and its delete row lies in a later window), so D's
   // tombstone, cascaded at once, would take the stale D > A > K > L, and
   // L's row never changes to ship again.
-  const tree = () => t.db.introspect<{ uid: string; parent_uid: string | null }>(
-    "SELECT uid, parent_uid FROM blocks WHERE uid LIKE 'uid_dd_%' ORDER BY uid");
+  const tree = () => (t.db.introspect(
+    "SELECT uid, parent_uid FROM blocks WHERE uid LIKE 'uid_dd_%' ORDER BY uid") as
+      { uid: string; parent_uid: string | null }[]);
   const deferred = (): string[] | null => {
     const raw = getMeta(t.db, "deferred_block_tombstones");
     return raw === null ? null : (JSON.parse(raw) as { uids: string[] }).uids;
@@ -1051,9 +1052,9 @@ describe("applyChanges: a replayed batch whose create already applied keeps its 
   // A window rewinds the pending create before the replay, so the replay's
   // INSERT finds no row of its own; where the window shipped the row (the
   // echo), the create alone fails and the batch's other ops still land.
-  const topLevel = () => t.db.introspect<{ uid: string; order_idx: number }>(
+  const topLevel = () => (t.db.introspect(
     "SELECT uid, order_idx FROM blocks WHERE page_id = 1" +
-    " AND parent_uid IS NULL ORDER BY order_idx, uid");
+    " AND parent_uid IS NULL ORDER BY order_idx, uid") as { uid: string; order_idx: number }[]);
   const enqueueCreateAndEdit = () => enqueueBatch(t.db, [
     { op: "create", uid: uid("uid_new1"), page_title: "Machine Learning",
       parent_uid: null, order_idx: ord(1), text: "fresh" },
@@ -1141,9 +1142,9 @@ describe("applyChanges: a replayed batch whose create already applied keeps its 
 });
 
 describe("applyChanges: a replayed move leaves its siblings where its first apply put them", () => {
-  const topLevel = () => t.db.introspect<{ uid: string; order_idx: number }>(
+  const topLevel = () => (t.db.introspect(
     "SELECT uid, order_idx FROM blocks WHERE page_id = 1" +
-    " AND parent_uid IS NULL ORDER BY order_idx, uid");
+    " AND parent_uid IS NULL ORDER BY order_idx, uid") as { uid: string; order_idx: number }[]);
 
   test("sibling order_idx is stable across windows", () => {
     enqueueBatch(t.db, [
@@ -1185,10 +1186,10 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
   // The server no longer 400s these batches (a 400 used to buy a snapshot
   // repair that also cleaned the optimistic state), so the replica has to
   // reach the server's rows from the feed alone.
-  const tree = () => t.db.introspect<{ uid: string; page_id: number;
+  const tree = () => (t.db.introspect(
+    "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid") as { uid: string; page_id: number;
                                    parent_uid: string | null;
-                                   order_idx: number }>(
-    "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid");
+                                   order_idx: number }[]);
   // Another device moved uid_b2 (and its child uid_b3) under uid_b1 before
   // our move of uid_b1 under uid_b3 reached the server, so ours would
   // nest uid_b1 under its own descendant: the server skips it.
@@ -1352,8 +1353,8 @@ describe("applyChanges: a window that names a pending batch as applied drops it 
   const ut = (u: string, text: string): BlockOp =>
     ({ op: "update_text", uid: uid(u), text });
   type Row = { uid: string; parent_uid: string | null; order_idx: number; text: string };
-  const rows = (db: ReplicaDb): Row[] => db.introspect<Row>(
-    "SELECT uid, parent_uid, order_idx, text FROM blocks ORDER BY uid");
+  const rows = (db: ReplicaDb): Row[] => (db.introspect(
+    "SELECT uid, parent_uid, order_idx, text FROM blocks ORDER BY uid") as Row[]);
   const asSync = (db: ReplicaDb, keep: (u: string) => boolean = () => true): SyncBlock[] =>
     rows(db).filter((r) => keep(r.uid)).map((r) => block(r.uid, 1, {
       parent_uid: r.parent_uid as BlockUid | null, order_idx: ord(r.order_idx),
@@ -1528,14 +1529,15 @@ describe("applyChanges: the replay log", () => {
 
   /** `batch:kind:key` per record, in (batch, kind, key) order. */
   const logKeys = (): string[] =>
-    t.db.introspect<{ batch_id: string; kind: string; key: string }>(
-      "SELECT batch_id, kind, key FROM replay_log ORDER BY batch_id, kind, key")
+    (t.db.introspect(
+      "SELECT batch_id, kind, key FROM replay_log ORDER BY batch_id, kind, key") as
+      { batch_id: string; kind: string; key: string }[])
       .map((r) => `${r.batch_id}:${r.kind}:${r.key}`);
   /** A page's top level as `uid` + `order_idx`, in order. */
   const keys = (rawPageId: number): string =>
-    t.db.introspect<{ uid: string; order_idx: number }>(
+    (t.db.introspect(
       "SELECT uid, order_idx FROM blocks WHERE page_id = ? AND parent_uid IS NULL" +
-      " ORDER BY order_idx, uid", [rawPageId])
+      " ORDER BY order_idx, uid", [rawPageId]) as { uid: string; order_idx: number }[])
       .map((r) => `${r.uid}${r.order_idx}`).join(" ");
 
   const createTop = (u: string, o: number, pageTitle = "P"): BlockOp =>
@@ -1796,8 +1798,8 @@ describe("applyChanges: the replay log", () => {
     applyLocalOps(srv.db, batch, 2, { batchId: bid("srv") });
     const serverRows = (db: ReplicaDb) => db.select(
       "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid");
-    const echo = srv.db.introspect<{ uid: string; order_idx: number }>(
-      "SELECT uid, order_idx FROM blocks WHERE page_id = 1")
+    const echo = (srv.db.introspect(
+      "SELECT uid, order_idx FROM blocks WHERE page_id = 1") as { uid: string; order_idx: number }[])
       .map((r) => block(r.uid, 1, { order_idx: ord(r.order_idx) }));
     enqueueBatch(t.db, batch, 2, bid("b1"));
 
@@ -1831,12 +1833,13 @@ describe("applyChanges: a create or move the two sides place in different groups
     block(rawUid, rawPageId, { order_idx: ord(o), ...over });
   /** One sibling group as `uid@order_idx`, in order. */
   const group = (rawPageId: number, parent: string | null = null): string =>
-    t.db.introspect<{ uid: string; order_idx: number }>(
+    (t.db.introspect(
       "SELECT uid, order_idx FROM blocks WHERE page_id = ? AND parent_uid IS ?" +
-      " ORDER BY order_idx, uid", [rawPageId, parent])
+      " ORDER BY order_idx, uid", [rawPageId, parent]) as { uid: string; order_idx: number }[])
       .map((r) => `${r.uid}@${r.order_idx}`).join(" ");
   const titles = (): Array<{ id: number; title: string }> =>
-    t.db.introspect("SELECT id, title FROM pages ORDER BY id");
+    t.db.introspect("SELECT id, title FROM pages ORDER BY id") as
+      Array<{ id: number; title: string }>;
   const logRows = (): number => count("SELECT COUNT(*) AS n FROM replay_log");
 
   const enqueueAndAck = (ops: BlockOp[]): void => {
@@ -1994,12 +1997,13 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
       sidebar: [],
     }, 1);
   });
-  const tree = () => t.db.introspect<{ uid: string; parent_uid: string | null }>(
-    "SELECT uid, parent_uid FROM blocks WHERE uid IN ('tuid-p', 'tuid-k', 'tuid-g') ORDER BY uid");
+  const tree = () => (t.db.introspect(
+    "SELECT uid, parent_uid FROM blocks WHERE uid IN ('tuid-p', 'tuid-k', 'tuid-g') ORDER BY uid") as
+      { uid: string; parent_uid: string | null }[]);
   /** The block records, as `batch:uid`. */
-  const records = () => t.db.introspect<{ batch_id: string; key: string }>(
+  const records = () => (t.db.introspect(
     "SELECT batch_id, key FROM replay_log WHERE kind = 'block'" +
-    " ORDER BY batch_id, key").map((r) => `${r.batch_id}:${r.key}`);
+    " ORDER BY batch_id, key") as { batch_id: string; key: string }[]).map((r) => `${r.batch_id}:${r.key}`);
   const deleteP: BlockOp = { op: "delete", uid: uid("tuid-p") };
   const kMovedOut = block("tuid-k", 1, { order_idx: ord(1) });
   const pTomb: SyncTombstone = { kind: "block", entity_id: "tuid-p" };
@@ -2070,7 +2074,7 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
     enqueueBatch(t.db, [
       { op: "create", uid: uid("tuid-x"), page_title: "P", parent_uid: null,
         order_idx: ord(1), text: "[[New]]" }], 2, bid("b1"));
-    const [local] = t.db.introspect<{ id: number }>("SELECT id FROM pages WHERE title = 'New'");
+    const [local] = (t.db.introspect("SELECT id FROM pages WHERE title = 'New'") as { id: number }[]);
     expect(local.id).toBeLessThan(0);
     // a recorded ref by hand: g's snapshot row carries none, and the delete's
     // record needs one to the local page for replay_log_refs to remap

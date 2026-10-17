@@ -12,10 +12,10 @@ export interface ReplicaDb {
   exec(sql: string, params?: SqlValue[]): void;
   /** Rows carrying exactly the named `Columns` keys; with the row check on
    * a column that is not a key, or a value that does not fit it, throws. */
-  select<K extends keyof Columns>(sql: string, params?: SqlValue[]): Pick<Columns, K>[];
-  /** Unchecked rows, for PRAGMA and catalog introspection whose column
-   * names are SQLite's own and belong to no `Columns` key. */
-  introspect<T = Row>(sql: string, params?: SqlValue[]): T[];
+  select<K extends keyof Columns = never>(sql: string, params?: SqlValue[]): Pick<Columns, K>[];
+  /** Raw, unchecked rows under SQLite's own column names. Production code
+   * reads the catalog through the helpers below, never through this. */
+  introspect(sql: string, params?: SqlValue[]): Row[];
   /** BEGIN/COMMIT with ROLLBACK on throw; nested calls join the outer
    * transaction (SQLite has no nested BEGIN). */
   transaction<T>(fn: () => T): T;
@@ -41,6 +41,33 @@ export function rollbackToSavepoint(
   }
 }
 
+/** Each violation of `PRAGMA foreign_key_check` as one identity string
+ * (table, rowid, parent, fkid), so two checks can be compared. */
+export const foreignKeyViolations = (db: ReplicaDb): string[] =>
+  db.introspect("PRAGMA foreign_key_check")
+    .map((v) => JSON.stringify([v.table, v.rowid, v.parent, v.fkid]));
+
+export const quickCheck = (db: ReplicaDb): string[] =>
+  db.introspect("PRAGMA quick_check(5)").map((r) => String(r.quick_check));
+
+export const sqliteVersion = (db: ReplicaDb): string =>
+  String(db.introspect("SELECT sqlite_version() AS v")[0].v);
+
+/** Names of the user-owned catalog objects of one kind, by name; `virtual`
+ * is the virtual tables, `table` every user table. */
+export function catalogNames(
+  db: ReplicaDb, kind: "trigger" | "view" | "index" | "table" | "virtual",
+): string[] {
+  const where = kind === "virtual"
+    ? "type = 'table' AND upper(sql) LIKE 'CREATE VIRTUAL TABLE%'"
+    : kind === "index" ? "type = 'index' AND sql IS NOT NULL"
+    : `type = '${kind}'`;
+  return db.introspect(
+    `SELECT name FROM sqlite_master WHERE ${where}` +
+    " AND name NOT LIKE 'sqlite_%' ORDER BY name",
+  ).map((r) => String(r.name));
+}
+
 export interface WrapOptions {
   /** Check every selected row against the `Columns` vocabulary. */
   checkRows?: boolean;
@@ -53,7 +80,7 @@ export function wrapSqlite(raw: Oo1DbLike, opts: WrapOptions = {}): ReplicaDb {
     exec(sql, params) {
       raw.exec(params ? { sql, bind: params } : { sql });
     },
-    select<K extends keyof Columns>(sql: string, params?: SqlValue[]) {
+    select<K extends keyof Columns = never>(sql: string, params?: SqlValue[]) {
       const rows = raw.selectObjects(sql, params);
       if (checkRows) {
         for (const row of rows) {
@@ -65,8 +92,8 @@ export function wrapSqlite(raw: Oo1DbLike, opts: WrapOptions = {}): ReplicaDb {
       }
       return rows as unknown as Pick<Columns, K>[];
     },
-    introspect<T = Row>(sql: string, params?: SqlValue[]) {
-      return raw.selectObjects(sql, params) as T[];
+    introspect(sql: string, params?: SqlValue[]) {
+      return raw.selectObjects(sql, params);
     },
     transaction<T>(fn: () => T): T {
       if (inTxn) return fn();

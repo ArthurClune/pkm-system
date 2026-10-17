@@ -54,14 +54,14 @@ const emptyFeed = (over: Partial<Changes> = {}): Changes => ({
 });
 
 const uids = (db: ReplicaDb): string[] =>
-  db.introspect<{ uid: string }>("SELECT uid FROM blocks ORDER BY uid")
+  (db.introspect("SELECT uid FROM blocks ORDER BY uid") as { uid: string }[])
     .map((r) => r.uid);
 
 /** Batch ids still queued, poisoned rows included: the queue is the user's
  * intent, so nothing on this path may delete one. */
 const queuedBatchIds = (db: ReplicaDb): string[] =>
-  db.introspect<{ batch_id: string }>(
-    "SELECT batch_id FROM pending_ops ORDER BY id").map((r) => r.batch_id);
+  (db.introspect(
+    "SELECT batch_id FROM pending_ops ORDER BY id") as { batch_id: string }[]).map((r) => r.batch_id);
 
 // Tests that fail a COMMIT or a statement on purpose spy on console.warn and
 // assert what the engine and applyChanges log; the engine's own
@@ -316,8 +316,8 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
         parent_uid: uid("uid_b2"), order_idx: ord(1), text: "x" },
     ], 5, bid("batch-x"));
     // the typed API mints a uid; a crafted or old-build row need not
-    const queued = JSON.parse(t.db.introspect<{ ops_json: string }>(
-      "SELECT ops_json FROM pending_ops")[0].ops_json) as Record<string, unknown>[];
+    const queued = JSON.parse((t.db.introspect(
+      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as Record<string, unknown>[];
     queued[0].uid = null;
     t.db.exec("UPDATE pending_ops SET ops_json = ?", [JSON.stringify(queued)]);
     enqueueBatch(t.db, [
@@ -407,12 +407,13 @@ describe("the replica schema's foreign keys", () => {
   test("are exactly the ones targetedFkHit's clauses cover", () => {
     // Adding or changing an FK means revisiting targetedFkHit in apply.ts:
     // it checks the rows a replayed batch wrote against these and no others.
-    const tables = t.db.introspect<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name");
-    const fks = tables.flatMap(({ name }) => t.db.introspect<{
-      from: string; table: string; to: string; on_delete: string }>(
+    const tables = (t.db.introspect(
+      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name") as { name: string }[]);
+    const fks = tables.flatMap(({ name }) => (t.db.introspect(
       `SELECT "from", "table", "to", on_delete FROM pragma_foreign_key_list(?)`,
-      [name]).map((f) => `${name}.${f.from} -> ${f.table}.${f.to} ${f.on_delete}`))
+      [name]) as {
+      from: string; table: string; to: string; on_delete: string }[])
+      .map((f) => `${name}.${f.from} -> ${f.table}.${f.to} ${f.on_delete}`))
       .sort();
     expect(fks, "an FK changed: revisit targetedFkHit in replica/apply.ts").toEqual([
       "block_refs.src_block_uid -> blocks.uid CASCADE",

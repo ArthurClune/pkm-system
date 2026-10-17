@@ -10,10 +10,10 @@ import { fakeCarryFiles, openRawTestDb } from "./testDb";
 interface TableInfo { name: string; type: string; notnull: number; pk: number }
 
 const tablesOf = (db: ReplicaDb) =>
-  db.introspect<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table'")
+  (db.introspect("SELECT name FROM sqlite_master WHERE type='table'") as { name: string }[])
     .map((r) => r.name);
 const infoOf = (db: ReplicaDb, table: string) =>
-  db.introspect<TableInfo>(`PRAGMA table_info(${table})`);
+  (db.introspect(`PRAGMA table_info(${table})`) as unknown as TableInfo[]);
 
 test("every client column has a key of the same base type and nullability", async () => {
   const { db, close } = await openRawTestDb();

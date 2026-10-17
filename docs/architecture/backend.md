@@ -879,7 +879,7 @@ FastAPI's `/docs` and `/redoc` are disabled.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/login` *(public)* | Password → signed session cookie |
+| POST | `/api/login` *(public)* | Password → signed session cookie; `OkAck` |
 | GET | `/login` *(public)* | Inline HTML login form |
 | GET | `/healthz` *(public)* | Liveness check; `OkAck` (`{ok}`) |
 | GET | `/{path}` *(public)* | SPA fallback: serves `web_dist` (index.html no-cache, hashed bundles under `/app-assets/`) |

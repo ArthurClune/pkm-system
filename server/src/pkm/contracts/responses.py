@@ -21,7 +21,8 @@ from pydantic import (BaseModel, BeforeValidator, Field,
 from pkm.changed import ChangeStatus
 from pkm.contracts.brands import brand
 from pkm.contracts.ops import (BatchId, BlockUid, HeadingLevel, OpKind, OrderIdx,
-                               PageId, Sha256Hex, SidebarEntryId, ViewType)
+                               PageId, Sha256Hex, SidebarEntryId,
+                               SidebarOrderIdx, ViewType)
 from pkm.goodlinks import GoodlinksId
 from pkm.refs import CanonicalTitle, RefKind
 
@@ -391,7 +392,7 @@ class SyncPage(BaseModel):
 class SyncSidebarEntry(BaseModel):
     id: SidebarEntryId
     title: CanonicalTitle
-    order_idx: int
+    order_idx: SidebarOrderIdx
 
 
 # The changes-journal sequence number (`changes.seq`), distinct from a

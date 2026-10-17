@@ -94,8 +94,12 @@ export type CanonicalTitle = NormalizedTitle & { readonly __canonical: true };
 // among its siblings under its parent (or at the page's top level), not a
 // dense array position -- a delete leaves a gap rather than renumbering, so
 // two siblings' keys are never assumed adjacent. `sidebar_entries.order_idx`
-// is a plain number, not this brand: the server assigns it and the web
-// reorders by array position, so it never meets block order code. Every
+// is `SidebarOrderIdx`, not this brand. Every
 // arithmetic site goes through outline/orderIdx.ts; a test literal standing
 // in for one casts `as OrderIdx` inside a fixture helper.
 export type OrderIdx = number & { readonly __brand: "OrderIdx" };
+
+// A sidebar entry's order key (`sidebar_entries.order_idx`): the server
+// assigns it and the web reorders by array position, so it never meets block
+// order code. Its own brand keeps a block's OrderIdx from standing in for it.
+export type SidebarOrderIdx = number & { readonly __brand: "SidebarOrderIdx" };

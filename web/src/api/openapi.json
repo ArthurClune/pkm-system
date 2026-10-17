@@ -4574,7 +4574,8 @@
           },
           "order_idx": {
             "type": "integer",
-            "title": "Order Idx"
+            "title": "Order Idx",
+            "x-brand": "SidebarOrderIdx"
           }
         },
         "type": "object",

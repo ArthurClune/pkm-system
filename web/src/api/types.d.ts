@@ -1876,7 +1876,7 @@ export interface components {
             /** Title */
             title: Brands.CanonicalTitle;
             /** Order Idx */
-            order_idx: number;
+            order_idx: Brands.SidebarOrderIdx;
         };
         /** SyncTombstone */
         SyncTombstone: {

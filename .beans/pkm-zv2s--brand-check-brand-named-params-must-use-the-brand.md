@@ -19,7 +19,7 @@ tree.TreeNode and grouping's TypedDicts type uid/view_type/order_idx/heading as 
 Spec: docs/superpowers/specs/2026-10-17-brand-check-design.md
 Plan: docs/superpowers/plans/2026-10-17-brand-check.md
 
-- [ ] Task 1: registry and row vocabulary
+- [x] Task 1: registry and row vocabulary
 - [ ] Task 2: the Db wrapper, everywhere
 - [ ] Task 3: server core reads through select
 - [ ] Task 4: routes read through select and return their models

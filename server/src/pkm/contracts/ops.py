@@ -104,6 +104,13 @@ brand(BatchId)
 OrderIdx = NewType("OrderIdx", int)
 brand(OrderIdx)
 
+# A sidebar entry's order key (sidebar_entries.order_idx): the server
+# assigns it and clients reorder by array position, so it never meets block
+# order code -- its own brand keeps a block's OrderIdx from standing in for
+# it and the reverse.
+SidebarOrderIdx = NewType("SidebarOrderIdx", int)
+brand(SidebarOrderIdx)
+
 
 class CreateOp(BaseModel):
     op: Literal["create"]

@@ -4,7 +4,7 @@ import { applyOps } from "./outline/tree";
 import type { BlockOp } from "./api/ops";
 import type { Backlinks, BlockNode, PagePayload } from "./api/payloads";
 import type { BlockUid, CanonicalTitle, NormalizedTitle, OrderIdx, PageId,
-             SidebarEntryId } from "./api/brands";
+             SidebarEntryId, SidebarOrderIdx } from "./api/brands";
 import type { WsBatch } from "./sync/socket";
 import type { Sync, SyncStatus } from "./sync/SyncProvider";
 import type { TicketId, WriteTicket } from "./sync/opQueue";
@@ -18,6 +18,7 @@ export function entryId(n: number): SidebarEntryId { return n as SidebarEntryId;
 export function normTitle(s: string): NormalizedTitle { return s as NormalizedTitle; }
 export function title(s: string): CanonicalTitle { return s as CanonicalTitle; }
 export function ord(n: number): OrderIdx { return n as OrderIdx; }
+export function sidebarOrd(n: number): SidebarOrderIdx { return n as SidebarOrderIdx; }
 
 /** Hold the outline editor for `title` so a test's own mount cannot win the
  * lease, and return the release. Sessions are global to the module, so the

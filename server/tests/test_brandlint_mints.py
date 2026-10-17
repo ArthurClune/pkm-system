@@ -71,6 +71,11 @@ def test_model_construct_is_flagged_everywhere_in_scope():
     "def f(c: sqlite3.Connection): ...",
     "def f(c: sqlite3.Cursor): ...",
     "db.raw.execute('select 1')",
+    "from sqlite3 import connect",
+    "from sqlite3 import Connection",
+    "from sqlite3 import Cursor as C",
+    "from sqlite3 import IntegrityError, connect",
+    "import sqlite3 as sq",
 ])
 def test_raw_sqlite_outside_database_is_flagged(source: str):
     assert rules(source + "\n") == ["raw-sqlite"]
@@ -83,6 +88,22 @@ def test_raw_sqlite_outside_database_is_flagged(source: str):
 ])
 def test_raw_sqlite_in_database_is_clean(source: str):
     assert rules(source + "\n", DATABASE) == []
+
+
+@pytest.mark.parametrize("source", [
+    "from sqlite3 import connect",
+    "import sqlite3 as sq",
+])
+def test_raw_sqlite_imports_in_database_are_clean(source: str):
+    assert rules(source + "\n", DATABASE) == []
+
+
+@pytest.mark.parametrize("source", [
+    "import sqlite3\ntry:\n    pass\nexcept sqlite3.IntegrityError:\n    pass",
+    "from sqlite3 import IntegrityError",
+])
+def test_importing_sqlite_for_its_errors_is_clean(source: str):
+    assert rules(source + "\n") == []
 
 
 def test_sqlite_exception_classes_are_not_raw_access():

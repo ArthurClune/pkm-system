@@ -32,6 +32,7 @@ from pkm.server.sync_core import (ChangeRow, chunk_ids, dedupe_window,
                                     window_page_ids)
 from pkm.server.sync_meta import (
     database_generation,
+    latest_seq,
     plain_space_title_canonicalization_active,
 )
 
@@ -211,13 +212,6 @@ def _page_payloads(db: Db, ids: set[PageId]) -> list[SyncPage]:
     return hydrate_in_order(ordered, by_id)
 
 
-def _latest_seq(db: Db) -> SyncSeq:
-    row = db.select_one(
-        "SELECT COALESCE(MAX(seq), 0) AS latest_seq FROM changes")
-    assert row is not None  # an aggregate always yields a row
-    return row["latest_seq"]
-
-
 def _applied_batches(db: Db,
                      pending: list[str] | None) -> list[AppliedBatch]:
     """The `pending` ids that have an applied_batches row, in request order,
@@ -273,7 +267,7 @@ def sync_changes(since: SyncSeq = NO_SEQ, limit: int = 1000,
     try:
         generation = database_generation(db)
         plain_space_active = plain_space_title_canonicalization_active(db)
-        latest = _latest_seq(db)
+        latest = latest_seq(db)
         if since > latest:
             # cursor from a different/rebuilt database (importer swap):
             # the client must re-bootstrap from the snapshot
@@ -355,7 +349,7 @@ def sync_snapshot(pending: PendingIds = None,
     ids it already holds."""
     db.execute("BEGIN")
     try:
-        seq = _latest_seq(db)
+        seq = latest_seq(db)
         uids = [r["uid"] for r in db.select("SELECT uid FROM blocks")]
         blocks, _ = _block_payloads(db, uids)
         pages = [_sync_page(r) for r in db.select(

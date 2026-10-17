@@ -181,6 +181,9 @@ def _declared_brands(tree: ast.AST) -> set[str]:
     }
 
 
+SQLITE_RAW_NAMES = ("connect", "Connection", "Cursor")
+
+
 def _escape_hatches(path: str, tree: ast.AST, registry: Registry) -> list[tuple[int, str, str]]:
     """(line, rule, source text) for every rule-2 site in `tree`."""
     brands = set(registry.shapes) | set(registry.mint_sites) | registry.declared
@@ -189,7 +192,14 @@ def _escape_hatches(path: str, tree: ast.AST, registry: Registry) -> list[tuple[
     sqlite_ok = path == DATABASE_FILE
     out: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
+        if isinstance(node, ast.ImportFrom) and node.module == "sqlite3" and not sqlite_ok:
+            raw = [a.name for a in node.names if a.name in SQLITE_RAW_NAMES]
+            if raw:
+                out.append((node.lineno, "raw-sqlite", f"`from sqlite3 import {raw[0]}` outside pkm.database"))
+        elif isinstance(node, ast.Import) and not sqlite_ok:
+            if any(a.name == "sqlite3" and a.asname for a in node.names):
+                out.append((node.lineno, "raw-sqlite", "`import sqlite3 as ...` outside pkm.database"))
+        elif isinstance(node, ast.Call):
             name = _leaf(node.func) or ""
             if name in brands and name not in declared \
                     and not _site_allowed(path, registry.mint_sites.get(name, ())):
@@ -202,7 +212,7 @@ def _escape_hatches(path: str, tree: ast.AST, registry: Registry) -> list[tuple[
                 out.append((node.lineno, "raw-sqlite", "`.cursor()` outside pkm.database"))
         elif isinstance(node, ast.Attribute) and not sqlite_ok:
             on_sqlite = isinstance(node.value, ast.Name) and node.value.id == "sqlite3"
-            if node.attr == "raw" or (on_sqlite and node.attr in ("connect", "Connection", "Cursor")):
+            if node.attr == "raw" or (on_sqlite and node.attr in SQLITE_RAW_NAMES):
                 text = "`.raw` outside pkm.database" if node.attr == "raw" \
                     else f"`sqlite3.{node.attr}` outside pkm.database"
                 out.append((node.lineno, "raw-sqlite", text))
@@ -218,8 +228,8 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
     except SyntaxError as exc:
         v = sys.version_info
         return [Violation(path, exc.lineno or 1, "brand-parse",
-                          f"cannot parse under Python {v.major}.{v.minor}.{v.micro}; brandlint needs "
-                          f"Python >= 3.12 ({exc.msg})")]
+                          f"{exc.msg}: does not parse under Python {v.major}.{v.minor}.{v.micro} "
+                          "(brandlint needs >= 3.12 for PEP 695 syntax)")]
     lines = text.splitlines()
     allowed = _opt_out_allowed(path, registry)
     out: list[Violation] = []

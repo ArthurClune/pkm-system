@@ -137,6 +137,8 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
                 f"perf fixture: {RENAME_SOURCE_TITLE!r} missing before its seeded rename")
         # a merge-base run builds with the base's pkm, whose page rows are
         # keyed `id` rather than `page_id`
+        # Exists for merge-base runs older than the typed rows; it can go
+        # once the merge base has `page_id`.
         row: Mapping[str, Any] = source
         page_id = row["page_id"] if "page_id" in row.keys() else row["id"]
         rename_page_rows(con, page_id, rename_source_title,

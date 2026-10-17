@@ -17,6 +17,7 @@ from pkm.server.db import get_db
 from pkm.server.ops_apply import apply_batch
 from pkm.server.ops_core import OpError
 from pkm.server.ops_hash import batch_replay_hash, batch_request_hash
+from pkm.server.sync_meta import latest_seq
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -77,10 +78,7 @@ async def post_ops(request: Request,
     # sync window's latest_seq: a window whose latest_seq has reached it
     # already carries this batch. Acks stored before this field
     # existed replay without it; clients treat a missing seq as unknown.
-    head = db.select_one(
-        "SELECT COALESCE(MAX(seq), 0) AS latest_seq FROM changes")
-    assert head is not None  # an aggregate always yields a row
-    seq = head["latest_seq"]
+    seq = latest_seq(db)
     # `applied` counts every op processed, skipped ones included; `skipped`
     # lists every op whose target no longer exists (ops_core.skip_report),
     # and is empty for a clean batch.

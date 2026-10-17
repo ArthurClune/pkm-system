@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from pkm.contracts.ops import SyncSeq
 from pkm.database import Db
 from pkm.refs import CanonicalTitle, canonicalize_title
 
@@ -12,6 +13,13 @@ def plain_space_title_canonicalization_active(db: Db) -> bool:
         "SELECT value AS sync_meta_value FROM sync_meta"
         " WHERE key = 'plain_space_title_canonicalization'")
     return row is not None and row["sync_meta_value"] == "1"
+
+
+def latest_seq(db: Db) -> SyncSeq:
+    """The journal head: the highest `changes.seq`, 0 for an empty journal."""
+    row = db.select_one("SELECT COALESCE(MAX(seq), 0) AS seq FROM changes")
+    assert row is not None  # an aggregate always yields a row
+    return row["seq"]
 
 
 def read_title(db: Db, title: str) -> CanonicalTitle:

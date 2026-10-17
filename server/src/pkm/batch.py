@@ -255,8 +255,10 @@ def delete_uids(commands: Sequence[BatchCommand]) -> list[BlockUid]:
     for cmd in commands:
         if isinstance(cmd, DeleteCommand):
             spec = cmd.params.uid_spec
-            if not _ALIAS_SPEC.match(spec) and spec not in seen:
-                seen.append(BlockUid(spec))
+            if not _ALIAS_SPEC.match(spec):
+                uid = _alias_uid(spec, {})
+                if uid not in seen:
+                    seen.append(uid)
     return seen
 
 

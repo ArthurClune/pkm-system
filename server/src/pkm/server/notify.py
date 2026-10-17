@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from pkm.contracts.ops import ClientId, SyncSeq
 from pkm.database import Db
+from pkm.server.sync_meta import latest_seq
 
 
 class SeqFrame(BaseModel):
@@ -65,9 +66,7 @@ def seq_frame(
 ) -> SeqFrame:
     if force and generation is None:
         raise ValueError("forced seq frame requires a generation")
-    row = db.select_one("SELECT COALESCE(MAX(seq), 0) AS seq FROM changes")
-    assert row is not None  # an aggregate always yields a row
-    return SeqFrame(seq=row["seq"], force=force, generation=generation)
+    return SeqFrame(seq=latest_seq(db), force=force, generation=generation)
 
 
 async def nudge(request: Request, db: Db) -> None:

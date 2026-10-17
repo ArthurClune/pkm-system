@@ -45,6 +45,7 @@ NAMES: dict[str, tuple[str, ...]] = {
     "goodlinks_id": ("GoodlinksId",),
     "conversation_id": ("ConversationId",),
     "confirm_id": ("ConfirmId",),
+    "sha": ("Sha256Hex",),
     "sha256": ("Sha256Hex",),
     "expected_sha256": ("Sha256Hex",),
     "actual_sha256": ("Sha256Hex",),

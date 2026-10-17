@@ -131,7 +131,7 @@ def check_goodlinks_links(request: Request,
 
 
 @router.get("/api/goodlinks/{link_id}", response_model=GoodlinksArticle)
-def get_article(link_id: str, response: Response,
+def get_article(link_id: GoodlinksId, response: Response,
                 gw: GoodlinksGateway = Depends(get_goodlinks)) -> GoodlinksArticle:
     parsed_id = parse_link_id(link_id)
     if parsed_id is None:

@@ -128,3 +128,17 @@ def test_execute_returns_write_result(tmp_path: Path) -> None:
     assert result.rowcount == 1
     assert result.lastrowid is not None
     assert db.execute("DELETE FROM blocks").rowcount == 2
+
+
+def test_select_one_of_a_returning_write_stays_in_the_callers_transaction(
+        tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    row = db.select_one(
+        "INSERT INTO blocks VALUES ('zzzzzzzzz', 't') RETURNING uid AS uid")
+    assert row == {"uid": "zzzzzzzzz"}
+    assert db.in_transaction
+    db.rollback()
+    assert [r["uid"] for r in db.select("SELECT uid FROM blocks")] == ["abcdefghi"]
+    db.select_one("INSERT INTO blocks VALUES ('yyyyyyyyy', 't') RETURNING uid AS uid")
+    db.commit()
+    assert len(db.select("SELECT uid FROM blocks")) == 2

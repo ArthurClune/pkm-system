@@ -32,8 +32,7 @@ def _tables(db: sqlite3.Connection) -> list[str]:
     return [n for n in names
             if not n.startswith("sqlite_")
             and not any(n.startswith(f + "_") and
-                        n.endswith(reg.FTS_SHADOW_SUFFIXES) for f in fts)
-            and n not in fts]
+                        n.endswith(reg.FTS_SHADOW_SUFFIXES) for f in fts)]
 
 
 def _columns():
@@ -58,8 +57,11 @@ def test_key_types_match_the_ddl():
         spec = rows.KEYS.get(key)
         if spec is None:
             continue
-        want = {"TEXT": str, "INTEGER": int}[ctype]
-        nullable = notnull == 0 and pk == 0
+        # FTS columns declare no type and no NOT NULL; they hold text, and
+        # the key says so.
+        fts = table.endswith("_fts")
+        want = {"TEXT": str, "INTEGER": int, "": str}[ctype]
+        nullable = notnull == 0 and pk == 0 and not fts
         if spec.base is not want or spec.nullable != nullable:
             wrong.append(f"{table}.{col}")
     assert wrong == []

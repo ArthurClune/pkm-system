@@ -247,12 +247,9 @@ def insert_sidebar_entry(db: Db, title: CanonicalTitle,
     own sidebar_entries write, so a route can't bind a raw title here.
     Raises `sqlite3.IntegrityError` on a `UNIQUE(title)` collision; never
     commits, the caller owns the transaction."""
-    cur = db.execute(
-        "INSERT INTO sidebar_entries(title, order_idx) VALUES (?, ?)",
-        (title, order_idx))
     row = db.select_one(
-        "SELECT id AS sidebar_entry_id FROM sidebar_entries WHERE rowid = ?",
-        (cur.lastrowid,))
+        "INSERT INTO sidebar_entries(title, order_idx) VALUES (?, ?)"
+        " RETURNING id AS sidebar_entry_id", (title, order_idx))
     assert row is not None  # the row just inserted
     return row["sidebar_entry_id"]
 

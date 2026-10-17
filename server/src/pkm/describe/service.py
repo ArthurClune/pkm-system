@@ -41,7 +41,7 @@ class DescribeService:
         self._config = config
         self._describer = describer
         self.reason = reason
-        self._queue: asyncio.Queue[str] = asyncio.Queue()
+        self._queue: asyncio.Queue[Sha256Hex] = asyncio.Queue()
         self._task: asyncio.Task[None] | None = None
         self._shutdown_task: asyncio.Task[None] | None = None
         self._closed = False
@@ -51,7 +51,7 @@ class DescribeService:
         # concurrency guard, not a history of past failures, so an
         # explicit force-retry (scan(force=True)) still reaches a sha once
         # its prior attempt has actually finished.
-        self._active: set[str] = set()
+        self._active: set[Sha256Hex] = set()
 
     @property
     def enabled(self) -> bool:
@@ -176,7 +176,7 @@ class DescribeService:
                 self._active.discard(sha)
                 self._queue.task_done()
 
-    async def _process(self, sha: str) -> None:
+    async def _process(self, sha: Sha256Hex) -> None:
         assert self._describer is not None
         con = open_db(self._config.db_path)
         try:
@@ -206,7 +206,7 @@ class DescribeService:
         finally:
             con.close()
 
-    def _record(self, con: Db, sha: str, *,
+    def _record(self, con: Db, sha: Sha256Hex, *,
                 description: str | None = None,
                 error: str | None = None) -> None:
         con.execute(

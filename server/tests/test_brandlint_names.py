@@ -17,6 +17,15 @@ def rules(text: str, path: str = PRODUCT) -> list[str]:
     return [v.rule for v in check_text(path, text, REGISTRY)]
 
 
+@pytest.mark.parametrize("source", [
+    "def f(sha: str) -> None: ...",
+    "def f(sha: Sha256Hex) -> None: ...",
+])
+def test_sha_is_a_sha256_name(source: str):
+    expected = ["brand-name"] if "str" in source else []
+    assert rules(source + "\n") == expected
+
+
 def test_an_untyped_brand_name_parameter_is_flagged():
     assert rules("def f(uid: str) -> None: ...\n") == ["brand-name"]
 
@@ -140,5 +149,7 @@ def test_an_int_brand_rejects_int_in_a_union():
 def test_unparseable_source_is_a_loud_violation_naming_the_interpreter():
     [v] = check_text(PRODUCT, "def f(:\n", REGISTRY)
     assert v.rule == "brand-parse"
-    assert "Python >= 3.12" in v.text and "cannot parse under Python 3." in v.text
+    assert "does not parse under Python 3." in v.text
+    assert "needs >= 3.12 for PEP 695 syntax" in v.text
+    assert "invalid syntax" in v.text
     assert "brand-parse" in RULES

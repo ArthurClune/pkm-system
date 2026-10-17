@@ -3159,7 +3159,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                link_id: string;
+                link_id: Brands.GoodlinksId;
             };
             cookie?: never;
         };

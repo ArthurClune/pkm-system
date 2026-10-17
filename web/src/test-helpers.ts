@@ -275,3 +275,33 @@ export function makeSync(status: SyncStatus = "connected",
     ...over,
   };
 }
+
+/** Stub the bits of `navigator` the predicate reads, for the duration of one
+ * test. jsdom's own `navigator` properties are configurable, so
+ * `Object.defineProperty` can override them cleanly and this restores the
+ * originals afterwards. */
+export function stubIosStandaloneNavigator(over: {
+  platform?: string;
+  maxTouchPoints?: number;
+  standalone?: boolean;
+} = {}) {
+  const props: Record<string, PropertyDescriptor> = {};
+  const values: Record<string, unknown> = {
+    platform: over.platform ?? "iPhone",
+    maxTouchPoints: over.maxTouchPoints ?? 5,
+    standalone: over.standalone ?? true,
+  };
+  for (const [key, value] of Object.entries(values)) {
+    props[key] = Object.getOwnPropertyDescriptor(window.navigator, key) ?? {
+      configurable: true, enumerable: true, writable: true, value: undefined,
+    };
+    Object.defineProperty(window.navigator, key, {
+      configurable: true, enumerable: true, value,
+    });
+  }
+  return () => {
+    for (const [key, descriptor] of Object.entries(props)) {
+      Object.defineProperty(window.navigator, key, descriptor);
+    }
+  };
+}

@@ -1,5 +1,6 @@
 // pattern: Imperative Shell
 import { type CSSProperties, useEffect, useId, useState } from "react";
+import { isIosStandalone } from "../externalLink";
 import { blueskyEmbedSrc, parseBlueskyPostUrl } from "./bluesky";
 
 const EMBED_ORIGIN = "https://embed.bsky.app";
@@ -107,6 +108,14 @@ export function BlueskyEmbed({ href }: { href: string }) {
         // embed.js, which uses no sandbox at all
         sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       />
+      {/* The installed iOS app opens a popup from this cross-origin iframe in
+          its in-app browser, and the click never reaches the document, so
+          ExternalLinkInterceptor cannot send it to Safari. An anchor over
+          the embed takes the tap instead: every tap opens the post itself. */}
+      {isIosStandalone(window.navigator) && (
+        <a className="bluesky-embed-tap" href={href} target="_blank" rel="noreferrer"
+           aria-label="Open post in Safari" />
+      )}
     </div>
   );
 }

@@ -325,6 +325,11 @@ holds, and rewrites the click's navigation to the undocumented
 Hrefs stay canonical `https://`, so copy link, share and every other browser
 are unaffected.
 
+A tap inside a cross-origin iframe never reaches that listener, so
+`BlueskyEmbed` lays a `.bluesky-embed-tap` anchor to the post over its iframe
+when `isIosStandalone` holds. Every tap on the embed then opens the post
+itself in Safari, not the author or link the tap landed on.
+
 ### The `/files` browser
 
 `/files` is a plain table over `/api/assets/search`, with filters (text over

@@ -5,11 +5,12 @@
 // online visit, and a daily page with content pushes via its block ops'
 // page_title anyway (offline-editing-design.md §1).
 
-import type { BlockUid, CanonicalTitle, PageId } from "../../api/brands";
+import type { BlockUid, PageId } from "../../api/brands";
 import type { BacklinkGroup, BlockBacklinksPayload, BlockGroup, CurrentWorkPage,
               CurrentWorkPayload, GroupsPayload, PageMeta,
               PagePayload } from "../../api/payloads";
 import { titleForDate } from "../daily";
+import type { Columns } from "../columns.gen";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
 import { canonicalTitle } from "../meta";
@@ -17,35 +18,24 @@ import { phraseQuery } from "./fts";
 import { BLOCK_COLS, type BlockRow, blockRefCounts, blockRefTexts, buildTree,
          fetchAncestors } from "./tree";
 
-// db.select<T> ASSERTS its type argument (`selectObjects(...) as T[]`), so
-// handing it a generated model would check nothing. Every query that feeds a
-// response therefore names a local row type and maps into a checked object
-// literal: that map is what turns a renamed or added server-side field into
-// a compile error here. A row's `pages.title` column is a CanonicalTitle:
-// every write to it stores the canonical form.
-interface PageRow {
-  id: PageId;
-  title: CanonicalTitle;
-  created_at: number | null;
-  updated_at: number | null;
-}
+// db.select names `Columns` keys, so a row's types are the vocabulary's and
+// the row check verifies them. Every query that feeds a response still maps
+// into a checked object literal: that map is what turns a renamed or added
+// server-side field into a compile error here.
 
 const fetchPage = (db: ReplicaDb, requested: string): PageMeta | null => {
-  const rows = db.select<PageRow>(
-    "SELECT id, title, created_at, updated_at FROM pages WHERE title = ?",
+  const rows = db.select<"page_id" | "title" | "created_at" | "updated_at">(
+    "SELECT id AS page_id, title, created_at, updated_at FROM pages" +
+    " WHERE title = ?",
     [canonicalTitle(db, requested)]);
   if (rows.length === 0) return null;
   const row = rows[0];
-  return { id: row.id, title: row.title, created_at: row.created_at,
+  return { id: row.page_id, title: row.title, created_at: row.created_at,
            updated_at: row.updated_at };
 };
 
-interface BacklinkRow {
-  uid: BlockUid;
-  text: string;
-  src_page_id: PageId;
-  src_page_title: CanonicalTitle;
-}
+type BacklinkRow = Pick<Columns, "uid" | "text" | "src_page_id"
+  | "src_page_title">;
 
 const HOUR_MS = 60 * 60 * 1000;
 const CURRENT_WORK_SECTIONS = [
@@ -64,11 +54,11 @@ const CURRENT_WORK_SECTIONS = [
 export function backlinks(db: ReplicaDb, pageId: PageId, offset: number,
                           limit: number):
     { groups: BacklinkGroup[]; total: number; texts: string[] } {
-  const total = Number(db.select<{ n: number }>(
+  const total = Number(db.select<"n">(
     `SELECT count(DISTINCT b.page_id) AS n FROM refs r
       JOIN blocks b ON b.uid = r.src_block_uid
      WHERE r.target_page_id = ? AND b.page_id != ?`, [pageId, pageId])[0].n);
-  const pageIds = db.select<{ page_id: PageId }>(
+  const pageIds = db.select<"page_id">(
     `SELECT DISTINCT b.page_id FROM refs r
       JOIN blocks b ON b.uid = r.src_block_uid
       JOIN pages p ON p.id = b.page_id
@@ -77,7 +67,7 @@ export function backlinks(db: ReplicaDb, pageId: PageId, offset: number,
      LIMIT ? OFFSET ?`, [pageId, pageId, limit, offset]).map((r) => r.page_id);
   if (pageIds.length === 0) return { groups: [], total, texts: [] };
   const marks = pageIds.map(() => "?").join(",");
-  const rows = db.select<BacklinkRow>(
+  const rows = db.select<keyof BacklinkRow>(
     `SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
        FROM refs r
        JOIN blocks b ON b.uid = r.src_block_uid
@@ -112,10 +102,10 @@ function groupBacklinkRows(rows: BacklinkRow[],
 /** null = block not found: the router 404s. */
 export function blockBacklinks(db: ReplicaDb,
                                uid: BlockUid): BlockBacklinksPayload | null {
-  const exists = db.select<{ one: number }>(
-    "SELECT 1 AS one FROM blocks WHERE uid = ?", [uid]);
+  const exists = db.select<"n">(
+    "SELECT 1 AS n FROM blocks WHERE uid = ?", [uid]);
   if (exists.length === 0) return null;
-  const rows = db.select<BacklinkRow>(
+  const rows = db.select<keyof BacklinkRow>(
     `SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
        FROM block_refs r
        JOIN blocks b ON b.uid = r.src_block_uid
@@ -140,7 +130,7 @@ export function pagePayload(db: ReplicaDb, requested: string, blOffset: number,
     page = fetchPage(db, title);
     if (page === null) return null; // unreachable
   }
-  const blocks = db.select<BlockRow>(
+  const blocks = db.select<keyof BlockRow>(
     `SELECT ${BLOCK_COLS} FROM blocks WHERE page_id = ?`, [page.id]);
   const bl = backlinks(db, page.id, blOffset, limit);
   return {
@@ -168,10 +158,9 @@ export function unlinked(db: ReplicaDb, requested: string, limit: number,
                                    WHERE r.src_block_uid = b.uid
                                      AND r.target_page_id = ?)`;
   const params = [phraseQuery(title), page.id, page.id];
-  const total = Number(db.select<{ n: number }>(
+  const total = Number(db.select<"n">(
     `SELECT count(*) AS n ${where}`, params)[0].n);
-  const rows = db.select<{ uid: BlockUid; text: string; page_id: PageId;
-                           page_title: CanonicalTitle }>(
+  const rows = db.select<"uid" | "text" | "page_id" | "page_title">(
     `SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
      ${where} ORDER BY p.title, b.uid LIMIT ? OFFSET ?`,
     [...params, lim, offset]);
@@ -199,17 +188,16 @@ export function currentWorkPayload(db: ReplicaDb,
       return {
         id: section.id,
         title: section.title,
-        // the WHERE clause is what makes updated_at non-null here
-        pages: db.select<{ id: PageId; title: CanonicalTitle;
-                           updated_at: number }>(
-          `SELECT id, title, updated_at FROM pages
+        // the WHERE clause is what makes the page's edit time non-null
+        pages: db.select<"page_id" | "title" | "edited_at">(
+          `SELECT id AS page_id, title, updated_at AS edited_at FROM pages
              WHERE updated_at IS NOT NULL
                AND updated_at ${lowerOperator} ?
                AND updated_at <= ?
              ORDER BY updated_at DESC, title`,
           [newerThan, olderThan],
         ).map((row): CurrentWorkPage => ({
-          id: row.id, title: row.title, updated_at: row.updated_at,
+          id: row.page_id, title: row.title, updated_at: row.edited_at,
         })),
       };
     }),

@@ -57,7 +57,7 @@ export interface WorkerDeps {
 }
 
 const tableExists = (db: ReplicaDb, name: string): boolean =>
-  db.select("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name=?",
+  db.select("SELECT 1 AS n FROM sqlite_master WHERE type='table' AND name=?",
             [name]).length > 0;
 
 function readPendingBatches(db: ReplicaDb): PendingBatch[] {
@@ -69,9 +69,9 @@ function readPendingBatches(db: ReplicaDb): PendingBatch[] {
   // The cursor is read separately and only when its table exists: an older
   // file flushes without it.
   if (!tableExists(db, "pending_seen")) return batches;
-  const seen = new Map(db.select<{ batch_id: string; seen_seq: number }>(
+  const seen = new Map(db.select<"batch_id" | "seen_seq">(
     "SELECT batch_id, seen_seq FROM pending_seen",
-  ).map((r) => [r.batch_id, Number(r.seen_seq) as SyncSeq]));
+  ).map((r) => [r.batch_id, r.seen_seq]));
   return batches.map((b) => seen.has(b.batch_id)
     ? { ...b, seen_seq: seen.get(b.batch_id) } : b);
 }
@@ -93,10 +93,14 @@ const ensureClientTables = (d: ReplicaDb, ensured: WeakSet<ReplicaDb>): void => 
 
 function readDurablePendingRows(db: ReplicaDb): DurablePendingRow[] {
   if (!tableExists(db, "pending_ops")) return [];
-  return db.select<DurablePendingRow>(
-    "SELECT id, batch_id, ops_json, poisoned, error" +
-    " FROM pending_ops ORDER BY id",
-  );
+  return db.select<"pending_row_id" | "batch_id" | "ops_json" | "poisoned"
+    | "pending_error">(
+    "SELECT id AS pending_row_id, batch_id, ops_json, poisoned," +
+    " error AS pending_error FROM pending_ops ORDER BY id",
+  ).map((r) => ({
+    id: r.pending_row_id, batch_id: r.batch_id, ops_json: r.ops_json,
+    poisoned: r.poisoned, error: r.pending_error,
+  }));
 }
 
 const messageOf = (error: unknown): string =>
@@ -117,7 +121,7 @@ const probe = <T>(fn: () => T, fallback: (message: string) => T): T => {
 };
 
 const countRows = (db: ReplicaDb, table: string): number => probe(
-  () => Number(db.select<{ n: number }>(
+  () => Number(db.select<"n">(
     `SELECT count(*) AS n FROM ${quoteIdentifier(table)}`)[0].n),
   () => -1);
 
@@ -136,10 +140,10 @@ const ftsIntegrity = (db: ReplicaDb, table: string): string => probe(
 function collectDiagnostics(db: ReplicaDb): ReplicaDiagnostics {
   return {
     sqliteVersion: probe(
-      () => db.select<{ v: string }>("SELECT sqlite_version() AS v")[0].v,
+      () => db.introspect<{ v: string }>("SELECT sqlite_version() AS v")[0].v,
       (message) => message),
     quickCheck: probe(
-      () => db.select<{ quick_check: string }>("PRAGMA quick_check(5)")
+      () => db.introspect<{ quick_check: string }>("PRAGMA quick_check(5)")
         .map((row) => row.quick_check),
       (message) => [message]),
     integrity: {
@@ -328,7 +332,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
     try {
       d.transaction(() => {
         for (const type of ["trigger", "view", "index"] as const) {
-          const objects = d.select<{ name: string }>(
+          const objects = d.introspect<{ name: string }>(
             "SELECT name FROM sqlite_master WHERE type = ?" +
             " AND name NOT LIKE 'sqlite_%'" +
             (type === "index" ? " AND sql IS NOT NULL" : "") +
@@ -343,7 +347,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         // Drop virtual roots first; SQLite removes their implementation-owned
         // shadow tables. Re-query afterward so only genuinely remaining user
         // tables are dropped directly.
-        const virtualTables = d.select<{ name: string }>(
+        const virtualTables = d.introspect<{ name: string }>(
           "SELECT name FROM sqlite_master WHERE type = 'table'" +
           " AND name NOT LIKE 'sqlite_%'" +
           " AND upper(sql) LIKE 'CREATE VIRTUAL TABLE%' ORDER BY name",
@@ -351,7 +355,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         for (const table of virtualTables) {
           d.exec(`DROP TABLE IF EXISTS ${quoteIdentifier(table.name)}`);
         }
-        const tables = d.select<{ name: string }>(
+        const tables = d.introspect<{ name: string }>(
           "SELECT name FROM sqlite_master WHERE type = 'table'" +
           " AND name NOT LIKE 'sqlite_%' ORDER BY name",
         );

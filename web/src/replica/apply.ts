@@ -233,7 +233,7 @@ function replayPending(db: ReplicaDb, nowMs: number, freed: FreedPages): void {
  * The schema-pin test fails when a table gains an FK, which is the cue to
  * revisit these clauses. */
 export const targetedFkHit = (db: ReplicaDb, batchId: BatchId): boolean =>
-  db.select<{ hit: number }>(
+  db.select<"n">(
     `WITH u(key) AS (SELECT key FROM replay_log
                       WHERE batch_id = ?1 AND kind = 'block'),
           p(id)  AS (SELECT CAST(key AS INTEGER) FROM replay_log
@@ -245,8 +245,8 @@ export const targetedFkHit = (db: ReplicaDb, batchId: BatchId): boolean =>
        OR EXISTS(SELECT 1 FROM u
                   WHERE NOT EXISTS(SELECT 1 FROM blocks WHERE uid = u.key)
                     AND EXISTS(SELECT 1 FROM blocks WHERE parent_uid = u.key))
-       AS hit`,
-    [batchId])[0].hit === 1;
+       AS n`,
+    [batchId])[0].n === 1;
 
 /** Apply a batch's ops one at a time, each under its own savepoint, rolling
  * back an op that throws and, given a baseline, one that adds an FK
@@ -295,8 +295,8 @@ function replayOps(db: ReplicaDb, b: PendingBatch, stamp: number,
  * checks (0.32/1.72/7.41 ms) within noise. Scoping to `blocks` alone would drop
  * exactly the two tables the paragraph above is about. */
 const fkViolations = (db: ReplicaDb): Set<string> =>
-  new Set(db.select<{ table: string; rowid: SqlValue; parent: string;
-                      fkid: number }>("PRAGMA foreign_key_check")
+  new Set(db.introspect<{ table: string; rowid: SqlValue; parent: string;
+                         fkid: number }>("PRAGMA foreign_key_check")
     .map((v) => JSON.stringify([v.table, v.rowid, v.parent, v.fkid])));
 
 const addsFkViolation = (before: Set<string>, after: Set<string>): boolean => {
@@ -408,13 +408,15 @@ export function parkTakenTitles<Id extends PageId | SidebarEntryId>(
     incoming: readonly { id: Id; title: CanonicalTitle }[]): Id[] {
   const parked: Id[] = [];
   for (const row of incoming) {
-    const holders = db.select<{ id: Id }>(
-      `SELECT id FROM ${table} WHERE title = ? AND id != ? AND id >= 0`,
-      [row.title, row.id]);
+    const key = table === "pages" ? "page_id" : "sidebar_entry_id";
+    const holders = db.select<typeof key>(
+      `SELECT id AS ${key} FROM ${table}` +
+      " WHERE title = ? AND id != ? AND id >= 0",
+      [row.title, row.id]).map((h) => h[key] as Id);
     for (const holder of holders) {
       db.exec(`UPDATE ${table} SET title = ? WHERE id = ?`,
-              [parkedTitle(holder.id), holder.id]);
-      parked.push(holder.id);
+              [parkedTitle(holder), holder]);
+      parked.push(holder);
     }
   }
   return parked;
@@ -423,7 +425,7 @@ export function parkTakenTitles<Id extends PageId | SidebarEntryId>(
 export function assertNoParkedTitles<Id extends PageId | SidebarEntryId>(
     db: ReplicaDb, table: TitledTableFor<Id>, parked: readonly Id[]): void {
   const still = parked.filter((id) => db.select(
-    `SELECT 1 AS x FROM ${table} WHERE id = ? AND title = ?`,
+    `SELECT 1 AS n FROM ${table} WHERE id = ? AND title = ?`,
     [id, parkedTitle(id)]).length > 0);
   if (still.length > 0) throw new StaleTitleHolderError(table, still);
 }

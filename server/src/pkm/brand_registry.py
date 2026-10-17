@@ -211,6 +211,15 @@ CLIENT_KEYS: dict[str, tuple[str, bool]] = {
     "pre_page_id": ("PageId", True),
     "log_id": ("number", False),
     "enqueued_ms": ("number", False),
+    # Computed names of the client's own queries.
+    "start_uid": ("BlockUid", False),
+    "depth": ("number", False),
+    "has_pre": ("number", False),
+    "present": ("number", False),
+    "text_changed": ("number", False),
+    "pre_text": ("string", True),
+    "edited_at": ("number", False),
+    "joined_seen_seq": ("SyncSeq", True),
 }
 
 # SQLite's FTS5 shadow tables carry no data of ours.

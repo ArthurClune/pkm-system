@@ -29,7 +29,7 @@ beforeEach(async () => {
     { op: "create", uid: uid("uid_l2"), page_title: "Offline Page", parent_uid: uid("uid_l1"),
       order_idx: ord(0), text: "a child" },
   ], 50, "t" as BatchId);
-  negId = t.db.select<{ id: number }>(
+  negId = t.db.introspect<{ id: number }>(
     "SELECT id FROM pages WHERE title = 'Offline Page'")[0].id;
   expect(negId).toBeLessThan(0);
 });
@@ -57,7 +57,7 @@ describe("reconcile on feed page delivery", () => {
       pages: [{ id: pageId(7), title: title("Offline Page"), created_at: 9, updated_at: 9 }],
     }));
     // negative row replaced by the authoritative one
-    expect(t.db.select("SELECT id FROM pages WHERE title = 'Offline Page'"))
+    expect(t.db.introspect("SELECT id FROM pages WHERE title = 'Offline Page'"))
       .toEqual([{ id: 7 }]);
     // local-only blocks (feed hasn't delivered them yet) survived, remapped
     expect(t.db.select(
@@ -105,7 +105,7 @@ describe("reconcile on feed page delivery", () => {
       t.db.exec("INSERT INTO pages(id, title) VALUES (7, 'Offline Page')");
     });
 
-    expect(t.db.select("SELECT id FROM pages WHERE id = ?", [negId])).toEqual([]);
+    expect(t.db.introspect("SELECT id FROM pages WHERE id = ?", [negId])).toEqual([]);
     expect(t.db.select(
       "SELECT uid FROM blocks WHERE page_id = 7 ORDER BY uid"))
       .toEqual([{ uid: "uid_l1" }, { uid: "uid_l2" }]);
@@ -129,7 +129,7 @@ describe("reconcile on feed page delivery", () => {
 
     // the page t minted is the server's now, so its record goes; u's
     // pre-images name the server id
-    expect(t.db.select(
+    expect(t.db.introspect(
       "SELECT batch_id, kind, key, pre_page_id FROM replay_log" +
       " ORDER BY batch_id, kind, key"))
       .toEqual([
@@ -139,9 +139,9 @@ describe("reconcile on feed page delivery", () => {
         { batch_id: "u", kind: "page", key: "7", pre_page_id: null },
       ]);
     expect(t.db.select(
-      "SELECT l.key, r.target_page_id, r.kind FROM replay_log_refs r" +
-      " JOIN replay_log l ON l.id = r.log_id"))
-      .toEqual([{ key: "uid_l2", target_page_id: 7, kind: "link" }]);
+      "SELECT l.key AS replay_key, r.target_page_id, r.kind AS ref_kind" +
+      " FROM replay_log_refs r JOIN replay_log l ON l.id = r.log_id"))
+      .toEqual([{ replay_key: "uid_l2", target_page_id: 7, ref_kind: "link" }]);
   });
 
   test("a settled batch's record on a reconciled local page restores onto the server id at the head window", () => {
@@ -149,8 +149,8 @@ describe("reconcile on feed page delivery", () => {
     // a row on the local page with no record of its own (its creating
     // batch's records already gone), which a later acked batch moves away
     t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
-              " VALUES ('uid_s', ?, NULL, 1, 'kept')", [negId]);
-    applyLocalOps(t.db, [{ op: "move", uid: uid("uid_s"), parent_uid: null,
+              " VALUES ('tuid-s', ?, NULL, 1, 'kept')", [negId]);
+    applyLocalOps(t.db, [{ op: "move", uid: uid("tuid-s"), parent_uid: null,
                            order_idx: ord(0), page_title: "AI" }],
                   60, { batchId: "u" as BatchId });
 
@@ -162,7 +162,7 @@ describe("reconcile on feed page delivery", () => {
     expect(applyChanges(t.db, feed({ next_since: 12 as SyncSeq, latest_seq: 12 as SyncSeq })))
       .toEqual({ status: "applied", cursor: 12 });
 
-    expect(t.db.select("SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid = 'uid_s'"))
+    expect(t.db.select("SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid = 'tuid-s'"))
       .toEqual([{ page_id: 7, parent_uid: null, order_idx: 1 }]);
   });
 
@@ -173,7 +173,7 @@ describe("reconcile on feed page delivery", () => {
     enqueueBatch(t.db, [{ op: "create", uid: uid("uid_d1"), page_title: daily,
                           parent_uid: null, order_idx: ord(0), text: "d" }],
                  now, "d" as BatchId);
-    expect(t.db.select("SELECT key FROM replay_log WHERE batch_id = 'd' AND kind = 'page'"))
+    expect(t.db.introspect("SELECT key FROM replay_log WHERE batch_id = 'd' AND kind = 'page'"))
       .toEqual([{ key: String(local) }]);
     ackNext();
     ackNext();
@@ -190,7 +190,7 @@ describe("reconcile on feed page delivery", () => {
 
     // the server's updated_at stands; the local page's pre-image is not put on
     // it
-    expect(t.db.select("SELECT id, updated_at FROM pages WHERE id = 8"))
+    expect(t.db.introspect("SELECT id, updated_at FROM pages WHERE id = 8"))
       .toEqual([{ id: 8, updated_at: 99 }]);
   });
 });

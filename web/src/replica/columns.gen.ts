@@ -73,6 +73,14 @@ export interface Columns {
   pre_page_id: PageId | null;
   log_id: number;
   enqueued_ms: number;
+  start_uid: BlockUid;
+  depth: number;
+  has_pre: number;
+  present: number;
+  text_changed: number;
+  pre_text: string | null;
+  edited_at: number;
+  joined_seen_seq: SyncSeq | null;
 }
 
 export interface ColumnMeta {
@@ -151,6 +159,14 @@ export const COLUMN_META: { readonly [K in keyof Columns]: ColumnMeta } = {
   pre_page_id: { brand: "PageId", base: "int", nullable: true, literals: null },
   log_id: { brand: null, base: "int", nullable: false, literals: null },
   enqueued_ms: { brand: null, base: "int", nullable: false, literals: null },
+  start_uid: { brand: "BlockUid", base: "text", nullable: false, literals: null },
+  depth: { brand: null, base: "int", nullable: false, literals: null },
+  has_pre: { brand: null, base: "int", nullable: false, literals: null },
+  present: { brand: null, base: "int", nullable: false, literals: null },
+  text_changed: { brand: null, base: "int", nullable: false, literals: null },
+  pre_text: { brand: null, base: "text", nullable: true, literals: null },
+  edited_at: { brand: null, base: "int", nullable: false, literals: null },
+  joined_seen_seq: { brand: "SyncSeq", base: "int", nullable: true, literals: null },
 };
 
 /** Table -> {column: key} for columns whose key is not their

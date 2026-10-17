@@ -200,7 +200,7 @@ test("reset destroys the database and reinstalls a fresh schema", async () => {
   const init = await replica.init();
   expect(init.empty).toBe(true);
   expect(init.schemaMismatch).toBe(false);
-  const rows = current().db.select("SELECT value FROM sync_client_meta WHERE key='schema_version'");
+  const rows = current().db.introspect("SELECT value FROM sync_client_meta WHERE key='schema_version'");
   expect(rows).toEqual([{ value: SCHEMA_VERSION }]);
 });
 
@@ -403,7 +403,7 @@ test("a recovery lease gates enqueue and offline POST until the fresh database i
   expect(enqueueSettled).toBe(false);
   expect(localPostSettled).toBe(false);
   expect(t.db.select("SELECT COUNT(*) AS n FROM pending_ops")).toEqual([{ n: 0 }]);
-  expect(t.db.select("SELECT id FROM pages WHERE title='Offline Page'")).toEqual([]);
+  expect(t.db.introspect("SELECT id FROM pages WHERE title='Offline Page'")).toEqual([]);
 
   await replica.commitRecovery(lease.token, { kind: "reset", snapshot: SNAP });
   await Promise.all([enqueue, localPost]);

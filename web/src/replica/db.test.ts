@@ -38,8 +38,32 @@ describe("wrapSqlite + installSchema", () => {
   test("select round-trips typed rows", async () => {
     const t = await openTestDb();
     t.db.exec("INSERT INTO pages(id, title) VALUES (?, ?)", [1, "AI"]);
-    expect(t.db.select("SELECT id, title FROM pages")).toEqual(
-      [{ id: 1, title: "AI" }]);
+    expect(t.db.select("SELECT id AS page_id, title FROM pages")).toEqual(
+      [{ page_id: 1, title: "AI" }]);
+    t.close();
+  });
+
+  test("select with the check on throws on SELECT text AS uid", async () => {
+    const t = await openTestDb();
+    t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
+    expect(() => t.db.select("SELECT title AS uid FROM pages"))
+      .toThrow(/row check failed.*uid: "AI" is not a valid BlockUid/);
+    expect(() => t.db.select("SELECT id FROM pages"))
+      .toThrow(/id: not a registered row key/);
+    t.close();
+  });
+
+  test("select names Columns keys and nothing else", async () => {
+    const t = await openTestDb();
+    // @ts-expect-error "nope" is not a Columns key
+    expect(() => t.db.select<"nope">("SELECT 1 AS nope")).toThrow(/nope/);
+    expect(t.db.select<"n">("SELECT 1 AS n")[0].n).toBe(1);
+    t.close();
+  });
+
+  test("introspect returns the engine's own columns unchecked", async () => {
+    const t = await openTestDb();
+    expect(t.db.introspect("PRAGMA table_info(pages)")[0]).toHaveProperty("name");
     t.close();
   });
 
@@ -118,7 +142,7 @@ describe("wrapSqlite + installSchema", () => {
 
   test("installs base + client tables with working FTS triggers", async () => {
     const t = await openTestDb();
-    const names = t.db.select<{ name: string }>(
+    const names = t.db.introspect<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type = 'table'")
       .map((r) => r.name);
     for (const table of ["pages", "blocks", "refs", "sidebar_entries",
@@ -137,7 +161,7 @@ describe("wrapSqlite + installSchema", () => {
 
   test("does not install server-only journal tables", async () => {
     const t = await openTestDb();
-    const names = t.db.select<{ name: string }>(
+    const names = t.db.introspect<{ name: string }>(
       "SELECT name FROM sqlite_master").map((r) => r.name);
     expect(names).not.toContain("changes");
     expect(names).not.toContain("applied_batches");
@@ -146,7 +170,7 @@ describe("wrapSqlite + installSchema", () => {
 
   test("installSchema creates replay_log, replay_log_refs and replay_batches with their indexes", async () => {
     const t = await openTestDb();
-    const names = t.db.select<{ name: string }>(
+    const names = t.db.introspect<{ name: string }>(
       "SELECT name FROM sqlite_master").map((r) => r.name);
     for (const n of ["replay_log", "replay_log_refs", "replay_batches",
                      "idx_replay_log_key", "idx_replay_log_refs_log"]) {

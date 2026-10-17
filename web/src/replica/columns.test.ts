@@ -4,15 +4,16 @@ import { BASE_SCHEMA } from "./baseSchema.gen";
 import { createCarryStore } from "./carryStore";
 import { COLUMN_KEYS, COLUMN_META, type Columns } from "./columns.gen";
 import { CLIENT_DDL } from "./clientSchema";
+import type { ReplicaDb } from "./db";
 import { fakeCarryFiles, openRawTestDb } from "./testDb";
 
 interface TableInfo { name: string; type: string; notnull: number; pk: number }
 
-const tablesOf = (db: { select<T>(sql: string): T[] }) =>
-  db.select<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table'")
+const tablesOf = (db: ReplicaDb) =>
+  db.introspect<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table'")
     .map((r) => r.name);
-const infoOf = (db: { select<T>(sql: string): T[] }, table: string) =>
-  db.select<TableInfo>(`PRAGMA table_info(${table})`);
+const infoOf = (db: ReplicaDb, table: string) =>
+  db.introspect<TableInfo>(`PRAGMA table_info(${table})`);
 
 test("every client column has a key of the same base type and nullability", async () => {
   const { db, close } = await openRawTestDb();

@@ -2,12 +2,20 @@
 // Narrow interface over a sqlite-wasm oo1 DB so every module that touches
 // replica SQL is testable against a real in-memory database in Node.
 
+import type { Columns } from "./columns.gen";
+import { rowCheckMessage, rowProblems } from "./rowCheck";
+
 export type SqlValue = string | number | null | Uint8Array;
 export type Row = Record<string, SqlValue>;
 
 export interface ReplicaDb {
   exec(sql: string, params?: SqlValue[]): void;
-  select<T = Row>(sql: string, params?: SqlValue[]): T[];
+  /** Rows carrying exactly the named `Columns` keys; with the row check on
+   * a column that is not a key, or a value that does not fit it, throws. */
+  select<K extends keyof Columns>(sql: string, params?: SqlValue[]): Pick<Columns, K>[];
+  /** Unchecked rows, for PRAGMA and catalog introspection whose column
+   * names are SQLite's own and belong to no `Columns` key. */
+  introspect<T = Row>(sql: string, params?: SqlValue[]): T[];
   /** BEGIN/COMMIT with ROLLBACK on throw; nested calls join the outer
    * transaction (SQLite has no nested BEGIN). */
   transaction<T>(fn: () => T): T;
@@ -33,13 +41,31 @@ export function rollbackToSavepoint(
   }
 }
 
-export function wrapSqlite(raw: Oo1DbLike): ReplicaDb {
+export interface WrapOptions {
+  /** Check every selected row against the `Columns` vocabulary. */
+  checkRows?: boolean;
+}
+
+export function wrapSqlite(raw: Oo1DbLike, opts: WrapOptions = {}): ReplicaDb {
+  const checkRows = opts.checkRows ?? import.meta.env.MODE === "test";
   let inTxn = false;
   const db: ReplicaDb = {
     exec(sql, params) {
       raw.exec(params ? { sql, bind: params } : { sql });
     },
-    select<T>(sql: string, params?: SqlValue[]) {
+    select<K extends keyof Columns>(sql: string, params?: SqlValue[]) {
+      const rows = raw.selectObjects(sql, params);
+      if (checkRows) {
+        for (const row of rows) {
+          const problems = rowProblems(row);
+          if (problems.length > 0) {
+            throw new Error(rowCheckMessage(sql, problems));
+          }
+        }
+      }
+      return rows as unknown as Pick<Columns, K>[];
+    },
+    introspect<T = Row>(sql: string, params?: SqlValue[]) {
       return raw.selectObjects(sql, params) as T[];
     },
     transaction<T>(fn: () => T): T {

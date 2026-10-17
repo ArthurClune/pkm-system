@@ -27,7 +27,7 @@ beforeEach(async () => {
     " ('uid_r2c', 1, 'uid_r2', 0, 'child of second')");
 });
 
-const rows = <T>(sql: string): T[] => t.db.select<T>(sql);
+const rows = <T>(sql: string): T[] => t.db.introspect<T>(sql);
 const blockRow = (uid: string) =>
   rows<{ page_id: number; parent_uid: string | null; order_idx: number;
          text: string; collapsed: number; heading: number | null;

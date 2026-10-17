@@ -62,7 +62,7 @@ beforeEach(async () => {
 });
 
 const targets = (uid: string): string[] =>
-  t.db.select<{ target_block_uid: string }>(
+  t.db.introspect<{ target_block_uid: string }>(
     "SELECT target_block_uid FROM block_refs WHERE src_block_uid = ?" +
     " ORDER BY target_block_uid", [uid]).map((r) => r.target_block_uid);
 

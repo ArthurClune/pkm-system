@@ -14,7 +14,7 @@ import { applyLocalOps } from "./localOps";
 import { openTestDb, type TestDb } from "./testDb";
 
 const fkKeys = (db: ReplicaDb): Set<string> =>
-  new Set(db.select<{ table: string; rowid: SqlValue; parent: string; fkid: number }>(
+  new Set(db.introspect<{ table: string; rowid: SqlValue; parent: string; fkid: number }>(
     "PRAGMA foreign_key_check")
     .map((v) => JSON.stringify([v.table, v.rowid, v.parent, v.fkid])));
 

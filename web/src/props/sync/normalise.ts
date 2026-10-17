@@ -77,38 +77,29 @@ export function fromSnapshot(s: Snapshot, opts: NormaliseOptions = {}): NormalGr
   };
 }
 
-interface BlockRow {
-  uid: string;
-  page: string | null;
-  page_id: number;
-  parent_uid: string | null;
-  order_idx: number;
-  text: string;
-  heading: number | null;
-  collapsed: number;
-  view_type: string | null;
-}
 
 /** The replica's graph tables, without timestamps. */
 export function fromReplica(db: ReplicaDb): NormalGraph {
-  const pages = db.select<{ title: string }>("SELECT title FROM pages")
+  const pages = db.select<"title">("SELECT title FROM pages")
     .map((p) => p.title).sort();
   const refs = new Map<string, string[]>();
-  for (const r of db.select<{ uid: string; kind: string; title: string | null;
-                               target: number }>(
-    "SELECT r.src_block_uid AS uid, r.kind, p.title, r.target_page_id AS target" +
+  for (const r of db.select<"uid" | "ref_kind" | "title">(
+    "SELECT r.src_block_uid AS uid, r.kind AS ref_kind," +
+    " COALESCE(p.title, '?page ' || r.target_page_id) AS title" +
     " FROM refs r LEFT JOIN pages p ON p.id = r.target_page_id")) {
     const list = refs.get(r.uid) ?? [];
-    list.push(`${r.kind}:${r.title ?? `?page ${r.target}`}`);
+    list.push(`${r.ref_kind}:${r.title}`);
     refs.set(r.uid, list);
   }
-  const blocks = db.select<BlockRow>(
-    "SELECT b.uid, p.title AS page, b.page_id, b.parent_uid, b.order_idx," +
+  const blocks = db.select<"uid" | "title" | "parent_uid" | "order_idx" | "text" | "heading"
+    | "collapsed" | "view_type">(
+    "SELECT b.uid, COALESCE(p.title, '?page ' || b.page_id) AS title," +
+    " b.parent_uid, b.order_idx," +
     " b.text, b.heading, b.collapsed, b.view_type" +
     " FROM blocks b LEFT JOIN pages p ON p.id = b.page_id",
   ).map((b): NormalBlock => ({
     uid: b.uid,
-    page: b.page ?? `?page ${b.page_id}`,
+    page: b.title,
     parent_uid: b.parent_uid,
     order_idx: b.order_idx,
     text: b.text,

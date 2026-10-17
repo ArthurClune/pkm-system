@@ -39,13 +39,13 @@ type LogRow = {
   batch_id: string; kind: string; key: string;
   pre: unknown; pre_page_id: number | null;
 };
-const log = (): LogRow[] => t.db.select<{
+const log = (): LogRow[] => t.db.introspect<{
   batch_id: string; kind: string; key: string; pre_json: string | null;
   pre_page_id: number | null;
 }>("SELECT batch_id, kind, key, pre_json, pre_page_id FROM replay_log" +
    " ORDER BY id").map(({ pre_json, ...r }) => ({
   ...r, pre: pre_json === null ? null : JSON.parse(pre_json) as unknown }));
-const logRefs = () => t.db.select<{
+const logRefs = () => t.db.introspect<{
   batch_id: string; key: string; target_page_id: number; kind: string;
 }>("SELECT l.batch_id, l.key, r.target_page_id, r.kind" +
    " FROM replay_log_refs r JOIN replay_log l ON l.id = r.log_id" +
@@ -130,7 +130,7 @@ describe("drops", () => {
     recordPage(t.db, b1, P, false);
     clearReplayLog(t.db);
     expect(log()).toEqual([]);
-    expect(t.db.select("SELECT 1 FROM replay_log_refs")).toEqual([]);
+    expect(t.db.select("SELECT 1 AS n FROM replay_log_refs")).toEqual([]);
   });
 
   test("pruneReplayBatches keeps only batches still queued", () => {

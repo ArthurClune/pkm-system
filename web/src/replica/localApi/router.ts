@@ -4,8 +4,7 @@
 // shapes the server returns. Unmatched routes report handled:false — the caller
 // surfaces a clear online-only error. Runs inside the worker.
 
-import type { BatchId, BlockUid, CanonicalTitle,
-              SidebarEntryId } from "../../api/brands";
+import type { BatchId, BlockUid } from "../../api/brands";
 import type { BlockRefsPayload, SidebarNavEntry, SidebarNavPayload,
               TitlesPayload } from "../../api/payloads";
 import { parseBlockUid } from "../../ids";
@@ -124,10 +123,10 @@ export function blockRefsPayload(db: ReplicaDb,
 
 export function sidebarPayload(db: ReplicaDb): SidebarNavPayload {
   // mapped, not asserted -- see the note on PageRow in pages.ts
-  const rows = db.select<{ id: SidebarEntryId; title: CanonicalTitle }>(
-    "SELECT id, title FROM sidebar_entries ORDER BY order_idx");
+  const rows = db.select<"sidebar_entry_id" | "title">(
+    "SELECT id AS sidebar_entry_id, title FROM sidebar_entries ORDER BY order_idx");
   return { entries: rows.map((row): SidebarNavEntry => ({
-    id: row.id, title: row.title })) };
+    id: row.sidebar_entry_id, title: row.title })) };
 }
 
 export function titlesPayload(db: ReplicaDb, qStr: string,
@@ -137,7 +136,7 @@ export function titlesPayload(db: ReplicaDb, qStr: string,
   if (needle.length === 0) return { titles: [] };
   const esc = needle.replaceAll("\\", "\\\\").replaceAll("%", "\\%")
     .replaceAll("_", "\\_");
-  const rows = db.select<{ title: CanonicalTitle }>(
+  const rows = db.select<"title">(
     `SELECT title FROM pages
       WHERE title LIKE ? ESCAPE '\\'
       ORDER BY (CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END),

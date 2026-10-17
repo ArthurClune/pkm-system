@@ -13,6 +13,21 @@ import type { TicketId, WriteTicket } from "./sync/opQueue";
  * plain literal for a value the production code only ever mints, so the
  * cast belongs here rather than at each test's call site. */
 export function uid(s: string): BlockUid { return s as BlockUid; }
+
+/** A uid-shaped (`[a-zA-Z0-9_-]{6,32}`) value derived from `tag`: distinct
+ * per tag, stable across runs, and readable in a failure ("a" is "tuid-a").
+ * A test that seeds a replica needs it, since the row check rejects a short
+ * literal like "a". SQL text that cannot call it spells the same value. */
+export function uidOf(tag: string): BlockUid {
+  const safe = tag.replace(/[^a-zA-Z0-9_-]/g, "_");
+  if (safe === tag && tag.length <= 27) return `tuid-${tag}` as BlockUid;
+  // FNV-1a keeps a sanitised or truncated tag distinct from its neighbours.
+  let h = 0x811c9dc5;
+  for (let i = 0; i < tag.length; i++) {
+    h = Math.imul(h ^ tag.charCodeAt(i), 0x01000193) >>> 0;
+  }
+  return `tuid-${safe.slice(0, 14)}-${h.toString(36)}` as BlockUid;
+}
 export function pageId(n: number): PageId { return n as PageId; }
 export function entryId(n: number): SidebarEntryId { return n as SidebarEntryId; }
 export function normTitle(s: string): NormalizedTitle { return s as NormalizedTitle; }

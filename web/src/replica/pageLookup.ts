@@ -18,9 +18,9 @@ export const localPageTitle = (db: ReplicaDb, title: string): CanonicalTitle =>
   storedPageTitle(titleReader(db), title);
 
 export const pageIdByTitle = (db: ReplicaDb, title: CanonicalTitle): PageId | null => {
-  const rows = db.select<{ id: PageId }>(
-    "SELECT id FROM pages WHERE title = ?", [title]);
-  return rows.length > 0 ? rows[0].id : null;
+  const rows = db.select<"page_id">(
+    "SELECT id AS page_id FROM pages WHERE title = ?", [title]);
+  return rows.length > 0 ? rows[0].page_id : null;
 };
 
 /** The page getOrCreateLocalPage would return for `title`, if it exists

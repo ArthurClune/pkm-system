@@ -27,14 +27,14 @@ beforeEach(async () => {
   t.db.exec(
     "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading," +
     " collapsed, created_at, updated_at, view_type) VALUES" +
-    " ('a', 1, NULL, 0, 'see [[S]] ((uid-c1x))', 2, 0, 50, 100, 'numbered')," +
-    " ('b', 1, NULL, 1, 'b', NULL, 0, 50, 100, NULL)," +
-    " ('c', 1, NULL, 2, 'c', NULL, 1, 50, 100, 'document')," +
-    " ('c1', 1, 'c', 0, 'c1', NULL, 0, 50, 111, NULL)," +
-    " ('c11', 1, 'c1', 0, 'c11', NULL, 0, 50, 111, NULL)," +
-    " ('c2', 1, 'c', 1, 'c2 [[T]]', NULL, 0, 50, 111, NULL)");
-  t.db.exec("INSERT INTO refs VALUES ('a', 2, 'link'), ('c2', 3, 'link')");
-  t.db.exec("INSERT INTO block_refs VALUES ('a', 'uid-c1x')");
+    " ('tuid-a', 1, NULL, 0, 'see [[S]] ((uid-c1x))', 2, 0, 50, 100, 'numbered')," +
+    " ('tuid-b', 1, NULL, 1, 'tuid-b', NULL, 0, 50, 100, NULL)," +
+    " ('tuid-c', 1, NULL, 2, 'tuid-c', NULL, 1, 50, 100, 'document')," +
+    " ('tuid-c1', 1, 'tuid-c', 0, 'tuid-c1', NULL, 0, 50, 111, NULL)," +
+    " ('tuid-c11', 1, 'tuid-c1', 0, 'tuid-c11', NULL, 0, 50, 111, NULL)," +
+    " ('tuid-c2', 1, 'tuid-c', 1, 'c2 [[T]]', NULL, 0, 50, 111, NULL)");
+  t.db.exec("INSERT INTO refs VALUES ('tuid-a', 2, 'link'), ('tuid-c2', 3, 'link')");
+  t.db.exec("INSERT INTO block_refs VALUES ('tuid-a', 'uid-c1x')");
 });
 
 /** Production rewinds inside applyWindow's transaction, which defers FKs;
@@ -47,10 +47,10 @@ const dump = (db: ReplicaDb = t.db) => ({
   blocks: db.select(
     "SELECT uid, page_id, parent_uid, order_idx, text, heading, collapsed," +
     " created_at, updated_at, view_type FROM blocks ORDER BY uid"),
-  pages: db.select(
+  pages: db.introspect(
     "SELECT id, title, created_at, updated_at FROM pages ORDER BY id"),
   refs: db.select(
-    "SELECT src_block_uid, target_page_id, kind FROM refs ORDER BY 1, 2, 3"),
+    "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3"),
   blockRefs: db.select(
     "SELECT src_block_uid, target_block_uid FROM block_refs ORDER BY 1, 2"),
 });
@@ -59,9 +59,9 @@ const ftsIntact = (db: ReplicaDb = t.db) => {
   db.exec("INSERT INTO pages_fts(pages_fts, rank) VALUES('integrity-check', 1)");
 };
 const logSize = () =>
-  t.db.select<{ n: number }>("SELECT COUNT(*) AS n FROM replay_log")[0].n;
+  t.db.introspect<{ n: number }>("SELECT COUNT(*) AS n FROM replay_log")[0].n;
 const pageIds = () =>
-  t.db.select<{ id: number }>("SELECT id FROM pages ORDER BY id").map((r) => r.id);
+  t.db.introspect<{ id: number }>("SELECT id FROM pages ORDER BY id").map((r) => r.id);
 const pend = (...ids: string[]) => {
   for (const id of ids) {
     t.db.exec("INSERT INTO pending_ops(batch_id, ops_json) VALUES (?, '[]')", [id]);
@@ -130,9 +130,9 @@ describe("rewind", () => {
     inTx(() => {
       mint(b1, -1, "N");
       touch(b1, P);
-      setText(b1, "a", "now [[N]] ((uid-bbx))", [[-1, "link"]]);
+      setText(b1, "tuid-a", "now [[N]] ((uid-bbx))", [[-1, "link"]]);
       t.db.exec("UPDATE blocks SET heading = NULL, collapsed = 1," +
-                " view_type = 'document' WHERE uid = 'a'");
+                " view_type = 'document' WHERE uid = 'tuid-a'");
       rewind(t.db, "all");
     });
     expect(dump()).toEqual(before);
@@ -144,7 +144,7 @@ describe("rewind", () => {
     const before = dump();
     inTx(() => {
       touch(b1, P);
-      del(b1, "c11", "c2", "c1", "c");
+      del(b1, "tuid-c11", "tuid-c2", "tuid-c1", "tuid-c");
       rewind(t.db, "all");
     });
     expect(dump()).toEqual(before);
@@ -154,8 +154,8 @@ describe("rewind", () => {
   test("a created row is deleted after a moved child is restored elsewhere", () => {
     const before = dump();
     inTx(() => {
-      create(b1, "x", null, 1);
-      move(b1, "c", "x", 0);
+      create(b1, "tuid-x", null, 1);
+      move(b1, "tuid-c", "tuid-x", 0);
       rewind(t.db, "all");
     });
     expect(dump()).toEqual(before);
@@ -163,18 +163,18 @@ describe("rewind", () => {
   });
 
   test("restoring a parent row does not cascade its children", () => {
-    const rowids = () => t.db.select(
-      "SELECT uid, rowid FROM blocks WHERE uid IN ('c1', 'c11', 'c2') ORDER BY uid");
+    const rowids = () => t.db.introspect<{ uid: string; rowid: number }>(
+      "SELECT uid, rowid FROM blocks WHERE uid IN ('tuid-c1', 'tuid-c11', 'tuid-c2') ORDER BY uid");
     const before = dump();
     const ids = rowids();
     inTx(() => {
-      setText(b1, "c", "c edited");
+      setText(b1, "tuid-c", "c edited");
       rewind(t.db, "all");
     });
     expect(dump()).toEqual(before);
     expect(rowids()).toEqual(ids);
     ftsIntact();
-    expect(t.db.select("SELECT rowid FROM blocks_fts WHERE blocks_fts MATCH 'c11'"))
+    expect(t.db.introspect<{ rowid: number }>("SELECT rowid FROM blocks_fts WHERE blocks_fts MATCH 'c11'"))
       .toEqual([{ rowid: ids[1].rowid }]);
   });
 
@@ -182,8 +182,8 @@ describe("rewind", () => {
     const before = dump();
     pend("b1", "b2");
     inTx(() => {
-      setText(b1, "a", "one");
-      setText(b2, "a", "two");
+      setText(b1, "tuid-a", "one");
+      setText(b2, "tuid-a", "two");
       rewind(t.db, "pending");
     });
     expect(dump()).toEqual(before);
@@ -194,9 +194,9 @@ describe("rewind", () => {
   test("scope pending leaves a settled batch's records and rows", () => {
     pend("b2");
     const after = inTx(() => {
-      setText(b1, "a", "one");
+      setText(b1, "tuid-a", "one");
       const settled = dump();
-      setText(b2, "b", "bee [[S]]", [[2, "link"]]);
+      setText(b2, "tuid-b", "bee [[S]]", [[2, "link"]]);
       rewind(t.db, "pending");
       return settled;
     });
@@ -211,11 +211,11 @@ describe("rewind", () => {
       mint(b1, -1, "N");
       mint(b1, -2, "U");
       mint(b1, -3, "V");
-      setText(b1, "a", "[[N]] [[V]]", [[-1, "link"], [-3, "link"]]);
+      setText(b1, "tuid-a", "[[N]] [[V]]", [[-1, "link"], [-3, "link"]]);
       // rows the window shipped: not recorded, so not rewound
       t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
-                " VALUES ('z', -2, NULL, 0, 'z')");
-      t.db.exec("INSERT INTO refs VALUES ('b', -3, 'link')");
+                " VALUES ('tuid-z', -2, NULL, 0, 'tuid-z')");
+      t.db.exec("INSERT INTO refs VALUES ('tuid-b', -3, 'link')");
       return rewind(t.db, "all");
     });
     expect(freed).toEqual(new Map([["N", -1]]));
@@ -225,17 +225,17 @@ describe("rewind", () => {
 
   test("a recorded ref to a page that no longer exists is not restored", () => {
     inTx(() => {
-      setText(b1, "a", "plain");
+      setText(b1, "tuid-a", "plain");
       // a page tombstone the window applied
       t.db.exec("DELETE FROM pages WHERE id = 2");
       rewind(t.db, "all");
     });
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'a'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'tuid-a'"))
       .toEqual([{ text: "see [[S]] ((uid-c1x))" }]);
     expect(t.db.select("SELECT src_block_uid FROM refs ORDER BY 1"))
-      .toEqual([{ src_block_uid: "c2" }]);
+      .toEqual([{ src_block_uid: "tuid-c2" }]);
     expect(t.db.select("SELECT src_block_uid, target_block_uid FROM block_refs"))
-      .toEqual([{ src_block_uid: "a", target_block_uid: "uid-c1x" }]);
+      .toEqual([{ src_block_uid: "tuid-a", target_block_uid: "uid-c1x" }]);
     ftsIntact();
   });
 
@@ -244,19 +244,19 @@ describe("rewind", () => {
     inTx(() => {
       // c1 leaves c for the top level, then c's subtree is deleted: after the
       // rewind c1 (present, updated) must hang under c (absent, re-inserted)
-      move(b1, "c1", null, 3);
-      del(b1, "c2");
-      del(b1, "c");
-      expect(t.db.select("SELECT uid FROM blocks WHERE uid IN ('c', 'c2')")).toEqual([]);
+      move(b1, "tuid-c1", null, 3);
+      del(b1, "tuid-c2");
+      del(b1, "tuid-c");
+      expect(t.db.select("SELECT uid FROM blocks WHERE uid IN ('tuid-c', 'tuid-c2')")).toEqual([]);
       rewind(t.db, "all");
     });
     expect(t.db.select(
       "SELECT uid, page_id, parent_uid, order_idx FROM blocks" +
-      " WHERE uid IN ('c', 'c1', 'c11', 'c2') ORDER BY uid")).toEqual([
-      { uid: "c", page_id: 1, parent_uid: null, order_idx: 2 },
-      { uid: "c1", page_id: 1, parent_uid: "c", order_idx: 0 },
-      { uid: "c11", page_id: 1, parent_uid: "c1", order_idx: 0 },
-      { uid: "c2", page_id: 1, parent_uid: "c", order_idx: 1 },
+      " WHERE uid IN ('tuid-c', 'tuid-c1', 'tuid-c11', 'tuid-c2') ORDER BY uid")).toEqual([
+      { uid: "tuid-c", page_id: 1, parent_uid: null, order_idx: 2 },
+      { uid: "tuid-c1", page_id: 1, parent_uid: "tuid-c", order_idx: 0 },
+      { uid: "tuid-c11", page_id: 1, parent_uid: "tuid-c1", order_idx: 0 },
+      { uid: "tuid-c2", page_id: 1, parent_uid: "tuid-c", order_idx: 1 },
     ]);
     expect(dump()).toEqual(before);
     expect(logSize()).toBe(0);
@@ -265,25 +265,25 @@ describe("rewind", () => {
 
   test("a rewound block whose parent is gone is dropped", () => {
     inTx(() => {
-      move(b1, "c1", null, 3);
+      move(b1, "tuid-c1", null, 3);
       // a block tombstone the window applied: c no longer holds c1
-      t.db.exec("DELETE FROM blocks WHERE uid = 'c'");
+      t.db.exec("DELETE FROM blocks WHERE uid = 'tuid-c'");
       rewind(t.db, "all");
     });
     expect(t.db.select("SELECT uid FROM blocks ORDER BY uid"))
-      .toEqual([{ uid: "a" }, { uid: "b" }]);
+      .toEqual([{ uid: "tuid-a" }, { uid: "tuid-b" }]);
     expect(logSize()).toBe(0);
     ftsIntact();
   });
 
   test("a deleted row whose parent is gone is never placed", () => {
     inTx(() => {
-      del(b1, "c11", "c1");
-      t.db.exec("DELETE FROM blocks WHERE uid = 'c'");
+      del(b1, "tuid-c11", "tuid-c1");
+      t.db.exec("DELETE FROM blocks WHERE uid = 'tuid-c'");
       rewind(t.db, "all");
     });
     expect(t.db.select("SELECT uid FROM blocks ORDER BY uid"))
-      .toEqual([{ uid: "a" }, { uid: "b" }]);
+      .toEqual([{ uid: "tuid-a" }, { uid: "tuid-b" }]);
     expect(logSize()).toBe(0);
     ftsIntact();
   });
@@ -327,15 +327,15 @@ describe("rewind", () => {
   });
 
   test("a rewound delete of a block with a link and a ((uid)) ref restores its refs and block_refs", () => {
-    // 'a' holds [[S]] and ((uid-c1x)). Rewind is a window-path step, so it
+    // 'tuid-a' holds [[S]] and ((uid-c1x)). Rewind is a window-path step, so it
     // runs with FKs on; the reset rebuild clears the log instead.
     const before = dump();
-    enqueueBatch(t.db, [{ op: "delete", uid: u("a") }], 500, b1);
+    enqueueBatch(t.db, [{ op: "delete", uid: u("tuid-a") }], 500, b1);
     expect(dump().refs).toEqual([
-      { src_block_uid: "c2", target_page_id: 3, kind: "link" }]);
+      { src_block_uid: "tuid-c2", target_page_id: 3, ref_kind: "link" }]);
     expect(dump().blockRefs).toEqual([]);
     inTx(() => rewind(t.db, "all"));
     expect(dump()).toEqual(before);
-    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+    expect(t.db.introspect("PRAGMA foreign_key_check")).toEqual([]);
   });
 });

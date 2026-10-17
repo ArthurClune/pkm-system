@@ -63,7 +63,7 @@ beforeEach(async () => {
 });
 
 const titles = (): string[] =>
-  t.db.select<{ title: string }>("SELECT title FROM pages ORDER BY title")
+  t.db.introspect<{ title: string }>("SELECT title FROM pages ORDER BY title")
     .map((r) => r.title);
 
 const enqueue = (ops: BlockOp[], name: string): void => {
@@ -168,12 +168,12 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
 describe("applyChanges: a local page something keeps stays", () => {
   test("a pending create_page page with nothing on it survives the head window", () => {
     enqueue([{ op: "create_page", page_title: "Draft" }], "b-page");
-    const [before] = t.db.select<{ id: number }>(
+    const [before] = t.db.introspect<{ id: number }>(
       "SELECT id FROM pages WHERE title = 'Draft'");
 
     applyChanges(t.db, window(), NOW);
 
-    expect(t.db.select("SELECT id FROM pages WHERE title = 'Draft'"))
+    expect(t.db.introspect("SELECT id FROM pages WHERE title = 'Draft'"))
       .toEqual([before]);
   });
 
@@ -326,7 +326,7 @@ describe("applyChanges: dropping stranded local pages waits for the head window"
       next_since: 12, latest_seq: 12, pages: [page(7, "Draft")],
     }), NOW);
 
-    expect(t.db.select<{ id: number }>(
+    expect(t.db.introspect<{ id: number }>(
       "SELECT id FROM pages WHERE title = 'Draft'")).toEqual([{ id: 7 }]);
   });
 });

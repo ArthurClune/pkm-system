@@ -11,18 +11,18 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
+from collections.abc import Sequence
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from pkm.contracts.ops import BatchId
 from pkm.contracts.responses import (AppliedBatch, ChangesPayload, EntityKind,
-                                        OpsAck, SnapshotPayload, SyncBlock,
-                                        SyncPage, SyncRef, SyncSeq,
+                                        OkAck, OpsAck, SnapshotPayload,
+                                        SyncBlock, SyncPage, SyncRef, SyncSeq,
                                         SyncSidebarEntry, SyncTombstone)
 from pkm.database import Db
+from pkm.rows import Row
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.sync_core import (ChangeRow, chunk_ids, dedupe_window,
@@ -53,8 +53,8 @@ class ClientDiagnosticsRequest(BaseModel):
     client: dict[str, Any]
 
 
-@router.post("/api/client/diagnostics")
-def client_diagnostics(body: ClientDiagnosticsRequest) -> dict[str, object]:
+@router.post("/api/client/diagnostics", response_model=OkAck)
+def client_diagnostics(body: ClientDiagnosticsRequest) -> OkAck:
     """Record a replica's self-report in the server log.
 
     A browser replica that finds its database corrupt rebuilds itself from a
@@ -67,16 +67,17 @@ def client_diagnostics(body: ClientDiagnosticsRequest) -> dict[str, object]:
     """
     logger.warning("client diagnostics %s",
                    json.dumps(body.model_dump(), sort_keys=True))
-    return {"ok": True}
+    return OkAck(ok=True)
 
 
 def _blocks_by_uid(db: Db,
-                   uids: list[str]) -> dict[str, sqlite3.Row]:
-    out: dict[str, sqlite3.Row] = {}
+                   uids: Sequence[str]) -> dict[str, Row]:
+    out: dict[str, Row] = {}
     for chunk in chunk_ids(uids):
         marks = ",".join("?" * len(chunk))
-        for row in db.execute(
-                "SELECT uid, page_id, parent_uid, order_idx, text, heading,"
+        for row in db.select(
+                "SELECT uid, page_id, parent_uid, order_idx, text,"
+                " NULLIF(heading, 0) AS heading,"
                 " collapsed, created_at, updated_at, view_type"
                 f" FROM blocks WHERE uid IN ({marks})", chunk):
             out[row["uid"]] = row
@@ -93,19 +94,20 @@ def _refs_by_block(db: Db,
         # ref list in the same order the old single-uid query returned
         # (that query had no ORDER BY either, but a WITHOUT ROWID table's
         # scan is a btree walk in primary-key order already).
-        for row in db.execute(
-                "SELECT src_block_uid, target_page_id, kind FROM refs"
+        for row in db.select(
+                "SELECT src_block_uid, target_page_id, kind AS ref_kind"
+                " FROM refs"
                 f" WHERE src_block_uid IN ({marks})"
                 " ORDER BY src_block_uid, target_page_id, kind", chunk):
             out.setdefault(row["src_block_uid"], []).append(
                 SyncRef(target_page_id=row["target_page_id"],
-                        kind=row["kind"]))
+                        kind=row["ref_kind"]))
     return out
 
 
 def _with_parent_closure(db: Db,
-                         block_rows: dict[str, sqlite3.Row]
-                         ) -> dict[str, sqlite3.Row]:
+                         block_rows: dict[str, Row]
+                         ) -> dict[str, Row]:
     """Extend block_rows with every ancestor block (parent, grandparent,
     ...) not already present, walking the parent_uid chain to a fixpoint
     via chunked queries: a window whose journal rows predate a
@@ -130,7 +132,7 @@ def _with_parent_closure(db: Db,
 
 
 def _block_payloads(db: Db,
-                    uids: list[str]) -> tuple[list[SyncBlock], set[int]]:
+                    uids: Sequence[str]) -> tuple[list[SyncBlock], set[int]]:
     """Hydrate blocks + their refs, plus their transitive parent-block closure.
     Also return every page id a shipped block depends on: ref target pages
     (offline-editing-design.md §1 -- a window boundary can split a block+refs
@@ -176,16 +178,22 @@ def _reused_page_dependents(db: Db,
     uids: list[str] = []
     for chunk in chunk_ids(page_ids):
         marks = ",".join("?" * len(chunk))
-        uids.extend(r["uid"] for r in db.execute(
+        uids.extend(r["uid"] for r in db.select(
             f"SELECT uid FROM blocks WHERE page_id IN ({marks})"
             " ORDER BY uid", chunk))
     for chunk in chunk_ids(page_ids):
         marks = ",".join("?" * len(chunk))
-        uids.extend(r["src_block_uid"] for r in db.execute(
+        uids.extend(r["src_block_uid"] for r in db.select(
             "SELECT DISTINCT src_block_uid FROM refs"
             f" WHERE target_page_id IN ({marks}) ORDER BY src_block_uid",
             chunk))
     return list(dict.fromkeys(uids))
+
+
+def _sync_page(row: Row) -> SyncPage:
+    return SyncPage(id=row["page_id"], title=row["title"],
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"])
 
 
 def _page_payloads(db: Db, ids: set[int]) -> list[SyncPage]:
@@ -195,11 +203,18 @@ def _page_payloads(db: Db, ids: set[int]) -> list[SyncPage]:
     by_id: dict[int, SyncPage] = {}
     for chunk in chunk_ids(ordered):
         marks = ",".join("?" * len(chunk))
-        for row in db.execute(
-                "SELECT id, title, created_at, updated_at FROM pages"
-                f" WHERE id IN ({marks})", chunk):
-            by_id[row["id"]] = SyncPage(**dict(row))
+        for row in db.select(
+                "SELECT id AS page_id, title, created_at, updated_at"
+                f" FROM pages WHERE id IN ({marks})", chunk):
+            by_id[row["page_id"]] = _sync_page(row)
     return hydrate_in_order(ordered, by_id)
+
+
+def _latest_seq(db: Db) -> SyncSeq:
+    row = db.select_one(
+        "SELECT COALESCE(MAX(seq), 0) AS latest_seq FROM changes")
+    assert row is not None  # an aggregate always yields a row
+    return row["latest_seq"]
 
 
 def _applied_batches(db: Db,
@@ -216,14 +231,19 @@ def _applied_batches(db: Db,
     found: dict[str, AppliedBatch] = {}
     for chunk in chunk_ids(ids):
         marks = ",".join("?" * len(chunk))
-        for row in db.execute(
+        for row in db.select(
                 "SELECT batch_id, response FROM applied_batches"
                 f" WHERE batch_id IN ({marks})", chunk):
             ack = OpsAck.model_validate(json.loads(row["response"]))
             found[row["batch_id"]] = AppliedBatch(
-                batch_id=BatchId(row["batch_id"]), seq=ack.seq,
+                batch_id=row["batch_id"], seq=ack.seq,
                 skipped=ack.skipped)
     return hydrate_in_order(ids, found)
+
+
+def _sync_sidebar_entry(row: Row) -> SyncSidebarEntry:
+    return SyncSidebarEntry(id=row["sidebar_entry_id"], title=row["title"],
+                            order_idx=row["sidebar_order_idx"])
 
 
 def _sidebar_payloads(db: Db,
@@ -233,10 +253,11 @@ def _sidebar_payloads(db: Db,
     by_id: dict[int, SyncSidebarEntry] = {}
     for chunk in chunk_ids(ids):
         marks = ",".join("?" * len(chunk))
-        for row in db.execute(
-                "SELECT id, title, order_idx FROM sidebar_entries"
+        for row in db.select(
+                "SELECT id AS sidebar_entry_id, title,"
+                " order_idx AS sidebar_order_idx FROM sidebar_entries"
                 f" WHERE id IN ({marks})", chunk):
-            by_id[row["id"]] = SyncSidebarEntry(**dict(row))
+            by_id[row["sidebar_entry_id"]] = _sync_sidebar_entry(row)
     return hydrate_in_order(ids, by_id)
 
 
@@ -251,8 +272,7 @@ def sync_changes(since: int = 0, limit: int = 1000,
     try:
         generation = database_generation(db)
         plain_space_active = plain_space_title_canonicalization_active(db)
-        latest = SyncSeq(db.execute(
-            "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0])
+        latest = _latest_seq(db)
         if since > latest:
             # cursor from a different/rebuilt database (importer swap):
             # the client must re-bootstrap from the snapshot
@@ -267,12 +287,13 @@ def sync_changes(since: int = 0, limit: int = 1000,
                 sidebar=[],
                 tombstones=[],
             )
-        rows = db.execute(
-            "SELECT seq, kind, entity_id, deleted FROM changes WHERE seq > ?"
-            " ORDER BY seq LIMIT ?", (since, limit)).fetchall()
+        rows = db.select(
+            "SELECT seq, kind AS change_kind, entity_id, deleted"
+            " FROM changes WHERE seq > ? ORDER BY seq LIMIT ?",
+            (since, limit))
         win = dedupe_window([
-            ChangeRow(seq=SyncSeq(r["seq"]), kind=r["kind"],
-                     entity_id=r["entity_id"], deleted=r["deleted"])
+            ChangeRow(seq=r["seq"], kind=r["change_kind"],
+                      entity_id=r["entity_id"], deleted=r["deleted"])
             for r in rows])
         block_uids = [e for k, e in win.entities if k == "block"]
         page_ids = {int(e) for k, e in win.entities if k == "page"}
@@ -333,14 +354,14 @@ def sync_snapshot(pending: PendingIds = None,
     ids it already holds."""
     db.execute("BEGIN")
     try:
-        seq = SyncSeq(db.execute(
-            "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0])
-        uids = [r["uid"] for r in db.execute("SELECT uid FROM blocks")]
+        seq = _latest_seq(db)
+        uids = [r["uid"] for r in db.select("SELECT uid FROM blocks")]
         blocks, _ = _block_payloads(db, uids)
-        pages = [SyncPage(**dict(r)) for r in db.execute(
-            "SELECT id, title, created_at, updated_at FROM pages")]
-        sidebar = [SyncSidebarEntry(**dict(r)) for r in db.execute(
-            "SELECT id, title, order_idx FROM sidebar_entries")]
+        pages = [_sync_page(r) for r in db.select(
+            "SELECT id AS page_id, title, created_at, updated_at FROM pages")]
+        sidebar = [_sync_sidebar_entry(r) for r in db.select(
+            "SELECT id AS sidebar_entry_id, title,"
+            " order_idx AS sidebar_order_idx FROM sidebar_entries")]
         return SnapshotPayload(
             generation=database_generation(db),
             plain_space_title_canonicalization=(

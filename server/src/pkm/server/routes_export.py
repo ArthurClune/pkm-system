@@ -102,9 +102,9 @@ def _gather_resolution_data(
         if uids:
             visited_uids.update(uids)
             marks = ",".join("?" * len(uids))
-            rows = db.execute(
+            rows = db.select(
                 f"SELECT uid, text FROM blocks WHERE uid IN ({marks})",
-                uids).fetchall()
+                uids)
             for r in rows:
                 uid_to_text[r["uid"]] = r["text"]
                 next_texts.append(r["text"])
@@ -130,9 +130,9 @@ def export_page_markdown(title: str,
     page = fetch_page(db, title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")
-    blocks = db.execute(
+    blocks = db.select(
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
-        (page["page_id"],)).fetchall()
+        (page["page_id"],))
     texts = [r["text"] for r in blocks]
     uid_to_text, query_results = _gather_resolution_data(db, texts)
     body = render_page_resolved(page["title"], build_tree(blocks),

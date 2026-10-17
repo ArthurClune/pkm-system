@@ -102,15 +102,16 @@ def check_goodlinks_links(request: Request,
     gw: GoodlinksGateway | None = request.app.state.goodlinks
     if gw is None:
         return GoodlinksCheckPayload(enabled=False, total=0, ok=0, problems=[])
-    rows = db.execute(
+    rows = db.select(
         "SELECT b.uid, p.title, b.text FROM blocks b JOIN pages p ON p.id = b.page_id"
-        " WHERE instr(b.text, ?) > 0 ORDER BY p.title, b.uid", (GOODLINKS_PREFIX,)).fetchall()
+        " WHERE instr(b.text, ?) > 0 ORDER BY p.title, b.uid", (GOODLINKS_PREFIX,))
     total = ok = 0
     problems: list[GoodlinksCheckProblem] = []
     known: dict[GoodlinksId, bool] = {}
     try:
-        for uid, title, text in rows:
-            for href in extract_goodlinks_hrefs(text):
+        for row in rows:
+            uid, title = row["uid"], row["title"]
+            for href in extract_goodlinks_hrefs(row["text"]):
                 total += 1
                 link_id = link_id_from_href(href)
                 if link_id is None:

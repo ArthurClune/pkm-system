@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from pkm.contracts.responses import OkAck
 from pkm.server.auth_core import sign_session, verify_password, verify_session
 from pkm.server.config import Config
 from pkm.server.db import get_config
@@ -123,9 +124,9 @@ def login_page() -> str:
     return _LOGIN_HTML
 
 
-@router.post("/api/login")
+@router.post("/api/login", response_model=OkAck)
 def login(body: LoginBody, request: Request, response: Response,
-          config: Config = Depends(get_config)) -> dict[str, object]:
+          config: Config = Depends(get_config)) -> OkAck:
     throttle: LoginThrottle = request.app.state.login_throttle
     source = request.client.host if request.client else "unknown"
     mono_ms = int(time.monotonic() * 1000)
@@ -152,4 +153,4 @@ def login(body: LoginBody, request: Request, response: Response,
     response.set_cookie(COOKIE_NAME, token, max_age=COOKIE_MAX_AGE,
                         httponly=True, secure=config.cookie_secure,
                         samesite="lax", path="/")
-    return {"ok": True}
+    return OkAck(ok=True)

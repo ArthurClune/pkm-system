@@ -22,7 +22,9 @@ from pkm.assets_core import (
     AssetCategory, export_limit_violation, strip_asset_tokens, type_where,
     zip_arcnames)
 from pkm.contracts.ops import SHA256_HEX_RE, Sha256Hex
-from pkm.contracts.responses import AssetSearchPayload, AssetUploadResponse
+from pkm.contracts.responses import (
+    AssetDeleteAck, AssetRef, AssetSearchItem, AssetSearchPayload,
+    AssetUploadResponse)
 from pkm.database import Db
 from pkm.describe.core import derive_status
 from pkm.filenames import safe_filename
@@ -74,22 +76,22 @@ MAX_EXPORT_TOTAL_BYTES = 1024 ** 3  # 1 GiB
 
 
 def referencing_blocks(db: Db,
-                       sha256: Sha256Hex) -> list[dict[str, str]]:
+                       sha256: Sha256Hex) -> list[AssetRef]:
     """All blocks whose text contains the asset's sha, with their page
     titles. FTS5 unicode61 keeps a 64-hex sha as one token, so an
     exact-phrase MATCH on the sha finds every block embedding the
     /assets/<sha>/<filename> URL (same trick the client uses).
     Uncapped: shared with the delete-warning/orphan checks, which
     need the complete list."""
-    rows = db.execute(
+    rows = db.select(
         """SELECT b.uid, p.title AS page_title
              FROM blocks_fts f
              JOIN blocks b ON b.rowid = f.rowid
              JOIN pages p ON p.id = b.page_id
             WHERE blocks_fts MATCH ?
             ORDER BY p.title, b.uid""",
-        (phrase_query(sha256),)).fetchall()
-    return [{"uid": r["uid"], "page_title": r["page_title"]} for r in rows]
+        (phrase_query(sha256),))
+    return [AssetRef(uid=r["uid"], page_title=r["page_title"]) for r in rows]
 
 
 @router.get("/api/assets/search", response_model=AssetSearchPayload)
@@ -98,7 +100,7 @@ def search_assets(q: str = "", limit: int = 50, offset: int = 0,
                   = Query("", alias="type"),
                   from_ms: int | None = None, to_ms: int | None = None,
                   linked: Literal["all", "linked", "orphan"] = "all",
-                  db: Db = Depends(get_db)) -> dict[str, object]:
+                  db: Db = Depends(get_db)) -> AssetSearchPayload:
     """LIKE search over description + filename. Empty q lists
     most-recent uploads. LIKE, not FTS: personal-scale table, and no
     offline-parity burden. Adds type/date/linked filters,
@@ -133,35 +135,35 @@ def search_assets(q: str = "", limit: int = 50, offset: int = 0,
               " description, describe_error FROM assets ")
     order = "ORDER BY created_at IS NULL, created_at DESC, sha256 "
     if linked == "all":
-        total = db.execute(f"SELECT count(*) FROM assets {where}",
-                           params).fetchone()[0]
-        rows = db.execute(select + where + order + "LIMIT ? OFFSET ?",
-                          (*params, limit, offset)).fetchall()
-        hits = [(r, referencing_blocks(db, Sha256Hex(r["sha256"])))
-                for r in rows]
+        counted = db.select_one(f"SELECT count(*) AS n FROM assets {where}",
+                                params)
+        assert counted is not None  # an aggregate always yields a row
+        total = counted["n"]
+        rows = db.select(select + where + order + "LIMIT ? OFFSET ?",
+                         (*params, limit, offset))
+        hits = [(r, referencing_blocks(db, r["sha256"])) for r in rows]
     else:
-        rows = db.execute(select + where + order, params).fetchall()
-        pairs = [(r, referencing_blocks(db, Sha256Hex(r["sha256"])))
-                for r in rows]
+        rows = db.select(select + where + order, params)
+        pairs = [(r, referencing_blocks(db, r["sha256"])) for r in rows]
         want_linked = linked == "linked"
         wanted = [(r, refs) for r, refs in pairs
                   if bool(refs) == want_linked]
         total = len(wanted)
         hits = wanted[offset:offset + limit]
-    return {"total": total, "assets": [{
-        "sha256": r["sha256"], "filename": r["filename"],
-        "mime": r["mime"], "size": r["size"],
-        "created_at": r["created_at"],
-        "url": f"/assets/{r['sha256']}/{r['filename']}",
-        "description": r["description"],
-        "status": derive_status(r["description"], r["describe_error"]),
-        "describe_error": r["describe_error"],
-        "refs": refs,
-    } for r, refs in hits]}
+    return AssetSearchPayload(total=total, assets=[AssetSearchItem(
+        sha256=r["sha256"], filename=r["filename"],
+        mime=r["mime"], size=r["size"],
+        created_at=r["created_at"],
+        url=f"/assets/{r['sha256']}/{r['filename']}",
+        description=r["description"],
+        status=derive_status(r["description"], r["describe_error"]),
+        describe_error=r["describe_error"],
+        refs=refs,
+    ) for r, refs in hits])
 
 
 def _delete_if_unreferenced(request: Request, sha: Sha256Hex,
-                            db: Db, config: Config) -> dict[str, object]:
+                            db: Db, config: Config) -> AssetDeleteAck:
     try:
         db.begin_immediate()
     except sqlite3.OperationalError as exc:
@@ -169,8 +171,7 @@ def _delete_if_unreferenced(request: Request, sha: Sha256Hex,
             raise
         raise HTTPException(status_code=503, headers={"Retry-After": "1"},
                             detail="database busy, retry") from exc
-    row = db.execute("SELECT sha256 FROM assets WHERE sha256 = ?",
-                     (sha,)).fetchone()
+    row = db.select_one("SELECT sha256 FROM assets WHERE sha256 = ?", (sha,))
     if row is None:
         db.rollback()
         raise HTTPException(status_code=404, detail="asset not found")
@@ -185,14 +186,14 @@ def _delete_if_unreferenced(request: Request, sha: Sha256Hex,
     except OSError:
         logger.warning("could not remove asset file %s", path)
     notify.nudge_threadpool(request, db)
-    return {"deleted": True, "refs_removed": 0}
+    return AssetDeleteAck(deleted=True, refs_removed=0)
 
 
 @router.delete("/api/assets/{sha256}")
 def delete_asset(request: Request, sha256: str,
                  if_unreferenced: bool = False,
                  db: Db = Depends(get_db),
-                 config: Config = Depends(get_config)) -> dict[str, object]:
+                 config: Config = Depends(get_config)) -> AssetDeleteAck:
     """Delete an asset: strip every reference token from block text
     (blocks left empty with no children are deleted outright — asset
     deletion must never cascade away real content, so emptied parents
@@ -217,29 +218,28 @@ def delete_asset(request: Request, sha256: str,
     sha = Sha256Hex(sha256)
     if if_unreferenced:
         return _delete_if_unreferenced(request, sha, db, config)
-    row = db.execute("SELECT sha256 FROM assets WHERE sha256 = ?",
-                     (sha,)).fetchone()
+    row = db.select_one("SELECT sha256 FROM assets WHERE sha256 = ?", (sha,))
     if row is None:
         raise HTTPException(status_code=404, detail="asset not found")
     now_ms = int(time.time() * 1000)
     refs_removed = 0
     for ref in referencing_blocks(db, sha):
-        block = db.execute("SELECT text FROM blocks WHERE uid = ?",
-                           (ref["uid"],)).fetchone()
+        block = db.select_one("SELECT text FROM blocks WHERE uid = ?",
+                              (ref.uid,))
         if block is None:
             continue
         new_text = strip_asset_tokens(block["text"], sha)
         if new_text == block["text"]:
             continue
         refs_removed += 1
-        has_children = db.execute(
-            "SELECT 1 FROM blocks WHERE parent_uid = ? LIMIT 1",
-            (ref["uid"],)).fetchone() is not None
+        has_children = db.select_one(
+            "SELECT uid FROM blocks WHERE parent_uid = ? LIMIT 1",
+            (ref.uid,)) is not None
         if not new_text and not has_children:
-            db.execute("DELETE FROM blocks WHERE uid = ?", (ref["uid"],))
+            db.execute("DELETE FROM blocks WHERE uid = ?", (ref.uid,))
         else:
             db.execute("UPDATE blocks SET text = ?, updated_at = ?"
-                       " WHERE uid = ?", (new_text, now_ms, ref["uid"]))
+                       " WHERE uid = ?", (new_text, now_ms, ref.uid))
     db.execute("DELETE FROM assets WHERE sha256 = ?", (sha,))
     db.commit()
     path = config.assets_dir / sha[:2] / sha
@@ -248,7 +248,7 @@ def delete_asset(request: Request, sha256: str,
     except OSError:
         logger.warning("could not remove asset file %s", path)
     notify.nudge_threadpool(request, db)
-    return {"deleted": True, "refs_removed": refs_removed}
+    return AssetDeleteAck(deleted=True, refs_removed=refs_removed)
 
 
 @router.post("/api/assets/export.zip")
@@ -276,8 +276,8 @@ def export_assets(sha256s: list[str] = Form(default=[]),
         if not SHA256_HEX_RE.fullmatch(candidate):
             continue
         sha = Sha256Hex(candidate)
-        row = db.execute("SELECT filename, size FROM assets WHERE sha256 = ?",
-                         (sha,)).fetchone()
+        row = db.select_one("SELECT filename, size FROM assets WHERE sha256 = ?",
+                            (sha,))
         if row is None:
             continue
         path = config.assets_dir / sha[:2] / sha
@@ -317,8 +317,8 @@ def get_asset(sha256: str, filename: str,
     if not SHA256_HEX_RE.fullmatch(sha256):
         raise HTTPException(status_code=404, detail="asset not found")
     sha = Sha256Hex(sha256)
-    row = db.execute("SELECT mime, filename FROM assets WHERE sha256 = ?",
-                     (sha,)).fetchone()
+    row = db.select_one("SELECT mime, filename FROM assets WHERE sha256 = ?",
+                        (sha,))
     path = config.assets_dir / sha[:2] / sha
     if row is None or not path.is_file():
         raise HTTPException(status_code=404, detail="asset not found")
@@ -368,7 +368,8 @@ async def _stream_to_temp(file: _ChunkReadable, tmp_path: Path,
 @router.post("/api/assets", response_model=AssetUploadResponse)
 async def upload_asset(request: Request, file: UploadFile,
                        db: Db = Depends(get_db),
-                       config: Config = Depends(get_config)) -> dict[str, object]:
+                       config: Config = Depends(get_config)
+                       ) -> AssetUploadResponse:
     declared_mime = file.content_type or "application/octet-stream"
     if declared_mime not in ALLOWED_UPLOAD_MIME:
         raise HTTPException(status_code=415,
@@ -398,16 +399,17 @@ async def upload_asset(request: Request, file: UploadFile,
     # was already stored (and possibly already referenced by other blocks),
     # in which case deleting it on a later failure would destroy something
     # this call never created.
-    existing = db.execute(
-        "SELECT 1 FROM assets WHERE sha256 = ?", (sha,)).fetchone() is not None
+    existing = db.select_one(
+        "SELECT sha256 FROM assets WHERE sha256 = ?", (sha,)) is not None
     db.execute("INSERT OR IGNORE INTO assets(sha256, filename, mime, size,"
                " created_at) VALUES (?,?,?,?,?)",
                (sha, filename, mime, size, int(time.time() * 1000)))
     db.commit()
-    row = db.execute(
-        "SELECT filename, mime, size FROM assets WHERE sha256 = ?",
-        (sha,)).fetchone()
+    row = db.select_one(
+        "SELECT filename, mime, size FROM assets WHERE sha256 = ?", (sha,))
+    assert row is not None  # inserted (or already present) just above
     request.app.state.describe.maybe_enqueue(sha, mime, size)
-    return {"sha256": sha, "filename": row["filename"], "mime": row["mime"],
-            "size": row["size"], "url": f"/assets/{sha}/{row['filename']}",
-            "existing": existing}
+    return AssetUploadResponse(
+        sha256=sha, filename=row["filename"], mime=row["mime"],
+        size=row["size"], url=f"/assets/{sha}/{row['filename']}",
+        existing=existing)

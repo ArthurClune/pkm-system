@@ -8,13 +8,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from pkm.assistant.engine import AgentEngine
 from pkm.assistant.policy import available_models
 from pkm.assistant.routes import router as assistant_router
 from pkm.assistant.service import AssistantService
+from pkm.contracts.responses import OkAck
 from pkm.describe.core import enabled_reason
 from pkm.describe.openai_client import OpenAIDescriber
 from pkm.describe.routes import router as describe_router
@@ -134,8 +135,8 @@ def create_app(
     api = APIRouter(dependencies=[Depends(require_auth)])
 
     @api.get("/api/openapi.json")
-    def openapi_schema() -> dict[str, object]:
-        return app.openapi()
+    def openapi_schema() -> JSONResponse:
+        return JSONResponse(app.openapi())
 
     app.include_router(api)
     app.include_router(ops_router)
@@ -152,9 +153,9 @@ def create_app(
     app.include_router(ws_router)
     app.include_router(assistant_router)
 
-    @app.get("/healthz")
-    def healthz() -> dict[str, object]:
-        return {"ok": True}
+    @app.get("/healthz", response_model=OkAck)
+    def healthz() -> OkAck:
+        return OkAck(ok=True)
 
     if config.web_dist is not None:
         app.mount("/app-assets",

@@ -995,6 +995,16 @@ export interface components {
             /** Skipped */
             skipped: components["schemas"]["SkippedOp"][];
         };
+        /**
+         * AssetDeleteAck
+         * @description DELETE /api/assets/{sha256} (routes_assets.py).
+         */
+        AssetDeleteAck: {
+            /** Deleted */
+            deleted: boolean;
+            /** Refs Removed */
+            refs_removed: number;
+        };
         /** AssetRef */
         AssetRef: {
             /** Uid */
@@ -1515,6 +1525,14 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * JournalCleanupResponse
+         * @description POST /api/journal/cleanup: the empty daily pages it removed.
+         */
+        JournalCleanupResponse: {
+            /** Deleted */
+            deleted: Brands.CanonicalTitle[];
+        };
+        /**
          * JournalDay
          * @description One day of the journal scroll, complete: the day renders from this
          *     alone. `backlinks` is a preview page of the day's linked references
@@ -1595,6 +1613,14 @@ export interface components {
             order_idx: Brands.OrderIdx;
             /** Page Title */
             page_title?: string | null;
+        };
+        /**
+         * OkAck
+         * @description The body of a write route that has nothing to report but success.
+         */
+        OkAck: {
+            /** Ok */
+            ok: boolean;
         };
         /** OpBatch */
         OpBatch: {
@@ -2038,9 +2064,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OkAck"];
                 };
             };
             /** @description Validation Error */
@@ -2069,9 +2093,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": unknown;
                 };
             };
         };
@@ -2145,7 +2167,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                uid: string;
+                uid: Brands.BlockUid;
             };
             cookie?: never;
         };
@@ -2176,7 +2198,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                uid: string;
+                uid: Brands.BlockUid;
             };
             cookie?: never;
         };
@@ -2253,9 +2275,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OkAck"];
                 };
             };
             /** @description Validation Error */
@@ -2479,9 +2499,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JournalCleanupResponse"];
                 };
             };
         };
@@ -2687,9 +2705,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OkAck"];
                 };
             };
             /** @description Validation Error */
@@ -2722,9 +2738,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["SidebarNavEntry"];
                 };
             };
             /** @description Validation Error */
@@ -2755,9 +2769,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OkAck"];
                 };
             };
             /** @description Validation Error */
@@ -2790,9 +2802,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OkAck"];
                 };
             };
             /** @description Validation Error */
@@ -2928,9 +2938,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AssetDeleteAck"];
                 };
             };
             /** @description Validation Error */
@@ -3532,9 +3540,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OkAck"];
                 };
             };
         };

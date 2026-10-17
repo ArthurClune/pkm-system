@@ -6,17 +6,18 @@ import sqlite3
 import time
 from collections.abc import Sequence
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from pkm.contracts.daily import date_for_title, title_for_date
-from pkm.contracts.ops import BlockUid
+from pkm.contracts.ops import BlockUid, PageId
 from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
     BlockBacklinksPayload, BlockPayload, BlockRefsPayload, BlockRefText, CurrentWorkPayload,
-    DeleteBlockerModel, DeletePreview, GroupsPayload, JournalPayload,
-    PageMeta, PagePayload, RenamePageResponse)
+    DeleteBlockerModel, DeletePreview, GroupsPayload, JournalCleanupResponse,
+    JournalPayload, OkAck, PageMeta, PagePayload, RenamePageResponse)
 from pkm.database import Db
 from pkm.refs import (CanonicalTitle, NormalizedTitle, is_blank_title,
                       title_syntax_reason)
@@ -66,14 +67,14 @@ def _block_ref_texts(db: Db,
 
 
 def _block_ref_counts(db: Db,
-                      uids: list[str]) -> dict[str, int]:
+                      uids: list[BlockUid]) -> dict[BlockUid, int]:
     """Incoming ((ref)) count per uid, nonzero entries only.
     One GROUP BY against idx_block_refs_target; src rows CASCADE with their
     block, so every counted row has a live source."""
     if not uids:
         return {}
     marks = ",".join("?" * len(uids))
-    return {r["target_block_uid"]: r["n"] for r in db.execute(
+    return {r["target_block_uid"]: r["n"] for r in db.select(
         f"""SELECT target_block_uid, count(*) AS n FROM block_refs
              WHERE target_block_uid IN ({marks})
              GROUP BY target_block_uid""", uids)}
@@ -93,13 +94,13 @@ def _resolve_ref_uids(db: Db, uids: Sequence[str]
             return out
         seen.update(new)
         marks = ",".join("?" * len(new))
-        rows = db.execute(
+        rows = db.select(
             f"SELECT b.uid, b.text, p.title AS page_title FROM blocks b"
             f" JOIN pages p ON p.id = b.page_id WHERE b.uid IN ({marks})",
-            new).fetchall()
+            new)
         for r in rows:
-            out[BlockUid(r["uid"])] = BlockRefText(
-                text=r["text"], page_title=CanonicalTitle(r["page_title"]))
+            out[r["uid"]] = BlockRefText(
+                text=r["text"], page_title=r["page_title"])
         pending = collect_block_ref_uids([r["text"] for r in rows])
 
 
@@ -114,7 +115,7 @@ def _fetch_ancestors(db: Db, uids: list[BlockUid]
     if not uids:
         return {}
     marks = ",".join("?" * len(uids))
-    rows = db.execute(
+    rows = db.select(
         f"""WITH RECURSIVE anc(start_uid, uid, parent_uid, text, depth, path) AS (
               SELECT uid, uid, parent_uid, text, 0, ',' || uid || ',' FROM blocks
                WHERE uid IN ({marks})
@@ -124,43 +125,45 @@ def _fetch_ancestors(db: Db, uids: list[BlockUid]
                 FROM anc a JOIN blocks b ON b.uid = a.parent_uid
                WHERE instr(a.path, ',' || b.uid || ',') = 0
             )
-            SELECT start_uid, text, depth FROM anc
-             WHERE depth > 0 ORDER BY start_uid, depth DESC""", uids).fetchall()
+            SELECT start_uid AS uid, text FROM anc
+             WHERE depth > 0 ORDER BY start_uid, depth DESC""", uids)
     out: dict[BlockUid, list[str]] = {}
     for r in rows:  # depth only orders root-first; UID_RE excludes commas.
-        out.setdefault(r["start_uid"], []).append(r["text"])
+        out.setdefault(r["uid"], []).append(r["text"])
     return out
 
 
-def _backlinks(db: Db, page_id: int,
+def _backlinks(db: Db, page_id: PageId,
                offset: int, limit: int) -> tuple[list[BacklinkGroup], int, list[str]]:
     """A page's own blocks are never its linked references, even when they
     reference it (Roam-style `{{[[TODO]]}}` markers on the TODO page do)
     -- the same `b.page_id != ?` rule unlinked references apply.
     The shim's `backlinks()` mirrors these three queries."""
-    total = db.execute(
-        """SELECT count(DISTINCT b.page_id) FROM refs r
+    counted = db.select_one(
+        """SELECT count(DISTINCT b.page_id) AS n FROM refs r
             JOIN blocks b ON b.uid = r.src_block_uid
            WHERE r.target_page_id = ? AND b.page_id != ?""",
-        (page_id, page_id)).fetchone()[0]
-    page_ids = [r[0] for r in db.execute(
+        (page_id, page_id))
+    assert counted is not None  # an aggregate always yields a row
+    total = counted["n"]
+    page_ids = [r["page_id"] for r in db.select(
         """SELECT DISTINCT b.page_id FROM refs r
             JOIN blocks b ON b.uid = r.src_block_uid
             JOIN pages p ON p.id = b.page_id
            WHERE r.target_page_id = ? AND b.page_id != ?
            ORDER BY p.updated_at DESC NULLS LAST, p.title
-           LIMIT ? OFFSET ?""", (page_id, page_id, limit, offset)).fetchall()]
+           LIMIT ? OFFSET ?""", (page_id, page_id, limit, offset))]
     if not page_ids:
         return [], total, []
     marks = ",".join("?" * len(page_ids))
-    rows = db.execute(
+    rows = db.select(
         f"""SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
               FROM refs r
               JOIN blocks b ON b.uid = r.src_block_uid
               JOIN pages p ON p.id = b.page_id
              WHERE r.target_page_id = ? AND b.page_id IN ({marks})
              ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid""",
-        [page_id, *page_ids]).fetchall()
+        [page_id, *page_ids])
     ancestors = _fetch_ancestors(db, [r["uid"] for r in rows])
     return (group_backlinks(rows, ancestors), total,
             [r["text"] for r in rows])
@@ -185,60 +188,58 @@ def get_block_refs(uids: str,
 
 
 @router.get("/api/block/{uid}/backlinks", response_model=BlockBacklinksPayload)
-def get_block_backlinks(uid: str,
-                        db: Db = Depends(get_db)) -> dict[str, object]:
+def get_block_backlinks(uid: BlockUid,
+                        db: Db = Depends(get_db)) -> BlockBacklinksPayload:
     """The ((uid)) badge's popover read: who references this
     block. Same group shape and ordering as page backlinks; the count badge
     itself rides the page/journal payloads (block_ref_counts)."""
     if not _UID_RE.fullmatch(uid):
         raise HTTPException(status_code=422, detail=f"malformed uid: {uid!r}")
-    if db.execute("SELECT 1 FROM blocks WHERE uid = ?",
-                  (uid,)).fetchone() is None:
+    if db.select_one("SELECT uid FROM blocks WHERE uid = ?",
+                     (uid,)) is None:
         raise HTTPException(status_code=404, detail="block not found")
-    rows = db.execute(
+    rows = db.select(
         """SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
              FROM block_refs r
              JOIN blocks b ON b.uid = r.src_block_uid
              JOIN pages p ON p.id = b.page_id
             WHERE r.target_block_uid = ?
             ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid""",
-        (uid,)).fetchall()
+        (uid,))
     ancestors = _fetch_ancestors(db, [r["uid"] for r in rows])
-    return {"groups": group_backlinks(rows, ancestors)}
+    return BlockBacklinksPayload.model_validate(
+        {"groups": group_backlinks(rows, ancestors)})
 
 
 @router.get("/api/block/{uid}", response_model=BlockPayload)
-def get_block(uid: str, db: Db = Depends(get_db)) -> dict[str, object]:
+def get_block(uid: BlockUid, db: Db = Depends(get_db)) -> BlockPayload:
     """One block's subtree plus its page and ancestor texts (the CLI/MCP
     `get <uid>` read; pages remain the only other read unit)."""
     if not _UID_RE.fullmatch(uid):
         raise HTTPException(status_code=422, detail=f"malformed uid: {uid!r}")
-    row = db.execute(
-        "SELECT b.page_id, p.id, p.title, p.created_at, p.updated_at"
+    row = db.select_one(
+        "SELECT p.id AS page_id, p.title, p.created_at, p.updated_at"
         "  FROM blocks b JOIN pages p ON p.id = b.page_id WHERE b.uid = ?",
-        (uid,)).fetchone()
+        (uid,))
     if row is None:
         raise HTTPException(status_code=404, detail="block not found")
-    blocks = db.execute(
+    blocks = db.select(
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
-        (row["page_id"],)).fetchall()
-    block_uid = BlockUid(uid)
-    node = find_node(build_tree(blocks), block_uid)
+        (row["page_id"],))
+    node = find_node(build_tree(blocks), uid)
     assert node is not None  # the block row exists on this page
     texts = [r["text"] for r in blocks]
-    return {
-        "page": {"id": row["id"], "title": row["title"],
-                 "created_at": row["created_at"],
-                 "updated_at": row["updated_at"]},
+    return BlockPayload.model_validate({
+        "page": _page_meta(row),
         "block": node,
-        "breadcrumbs": _fetch_ancestors(db, [block_uid]).get(block_uid, []),
+        "breadcrumbs": _fetch_ancestors(db, [uid]).get(uid, []),
         "block_ref_texts": _block_ref_texts(db, texts),
-    }
+    })
 
 
 @router.get("/api/page/{title:path}", response_model=PagePayload)
 def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 20,
-             db: Db = Depends(get_db)) -> dict[str, object]:
+             db: Db = Depends(get_db)) -> PagePayload:
     bl_limit = max(1, min(bl_limit, 100))
     title = read_title(db, title)
     page = fetch_page(db, title)
@@ -250,11 +251,11 @@ def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 2
             raise HTTPException(status_code=404, detail="page not found")
         page = get_or_create_page(db, title, int(time.time() * 1000))
         notify.commit_and_nudge_threadpool(request, db)
-    blocks = db.execute(
+    blocks = db.select(
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
-        (page["page_id"],)).fetchall()
+        (page["page_id"],))
     groups, total, bl_texts = _backlinks(db, page["page_id"], bl_offset, bl_limit)
-    return {
+    return PagePayload.model_validate({
         "page": _page_meta(page),
         "blocks": build_tree(blocks),
         "backlinks": {"groups": groups, "total_pages": total,
@@ -263,7 +264,7 @@ def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 2
             db, [r["text"] for r in blocks] + bl_texts),
         "block_ref_counts": _block_ref_counts(
             db, [r["uid"] for r in blocks]),
-    }
+    })
 
 
 @router.post("/api/pages", response_model=PageMeta)
@@ -314,7 +315,7 @@ def delete_preview(title: str,
 
 @router.delete("/api/page/{title:path}")
 def delete_page(request: Request, title: str,
-                db: Db = Depends(get_db)) -> dict[str, object]:
+                db: Db = Depends(get_db)) -> OkAck:
     """Deletes the page, its blocks, and any sidebar entry for it. Inbound
     [[links]] and #tags in other pages' blocks become plain
     text, and inbound ((block refs)) are replaced by a copy of the referenced
@@ -349,12 +350,12 @@ def delete_page(request: Request, title: str,
         db.rollback()
         raise
     notify.commit_and_nudge_threadpool(request, db)
-    return {"ok": True}
+    return OkAck(ok=True)
 
 
 @router.post("/api/page/{title:path}/rename", response_model=RenamePageResponse)
 def rename_page(request: Request, title: str, body: RenamePageRequest,
-                db: Db = Depends(get_db)) -> dict[str, object]:
+                db: Db = Depends(get_db)) -> RenamePageResponse:
     """Rename a page, rewriting every [[link]]/#tag/attr:: in block text.
     When the new title is taken: 409 unless allow_merge is true, in which
     case the source page is concatenated onto the target (source's
@@ -366,6 +367,7 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
     # (existence, target, the snapshot of referencing blocks), so a batch
     # cannot commit between that snapshot and the rewrite and escape it:
     # it is ordered wholly before or wholly after the rename.
+    result: Literal["renamed", "merged"]
     try:
         db.begin_immediate()
     except sqlite3.OperationalError as exc:
@@ -415,12 +417,12 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
         db.rollback()
         raise
     notify.commit_and_nudge_threadpool(request, db)
-    return {"result": result, "title": new_title}
+    return RenamePageResponse(result=result, title=new_title)
 
 
 @router.get("/api/unlinked", response_model=GroupsPayload)
 def get_unlinked(title: str, limit: int = 20, offset: int = 0,
-                 db: Db = Depends(get_db)) -> dict[str, object]:
+                 db: Db = Depends(get_db)) -> GroupsPayload:
     limit = max(1, min(limit, 100))
     title = read_title(db, title)
     page = fetch_page(db, title)
@@ -434,12 +436,14 @@ def get_unlinked(title: str, limit: int = 20, offset: int = 0,
                                  WHERE r.src_block_uid = b.uid
                                    AND r.target_page_id = ?)"""
     params = (phrase_query(title), page["page_id"], page["page_id"])
-    total = db.execute(f"SELECT count(*) {where}", params).fetchone()[0]
-    rows = db.execute(
+    counted = db.select_one(f"SELECT count(*) AS n {where}", params)
+    assert counted is not None  # an aggregate always yields a row
+    rows = db.select(
         f"""SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
             {where} ORDER BY p.title, b.uid LIMIT ? OFFSET ?""",
-        (*params, limit, offset)).fetchall()
-    return {"groups": group_by_page(rows), "total": total}
+        (*params, limit, offset))
+    return GroupsPayload.model_validate(
+        {"groups": group_by_page(rows), "total": counted["n"]})
 
 
 _HOUR_MS = 60 * 60 * 1000
@@ -452,27 +456,28 @@ _CURRENT_WORK_SECTIONS = [
 
 @router.get("/api/current-work", response_model=CurrentWorkPayload)
 def get_current_work(now_ms: int | None = None,
-                     db: Db = Depends(get_db)) -> dict[str, object]:
+                     db: Db = Depends(get_db)) -> CurrentWorkPayload:
     now = now_ms if now_ms is not None else int(time.time() * 1000)
     sections = []
     for section_id, title, min_age, max_age in _CURRENT_WORK_SECTIONS:
         newer_than = now - max_age
         older_than = now - min_age
         lower_operator = ">=" if max_age == 7 * 24 * _HOUR_MS else ">"
-        rows = db.execute(
-            f"""SELECT id, title, updated_at FROM pages
+        rows = db.select(
+            f"""SELECT id AS page_id, title, updated_at FROM pages
                 WHERE updated_at IS NOT NULL
                   AND updated_at {lower_operator} ?
                   AND updated_at <= ?
                 ORDER BY updated_at DESC, title""",
             (newer_than, older_than),
-        ).fetchall()
+        )
         sections.append({
             "id": section_id,
             "title": title,
-            "pages": [dict(r) for r in rows],
+            "pages": [{"id": r["page_id"], "title": r["title"],
+                       "updated_at": r["updated_at"]} for r in rows],
         })
-    return {"sections": sections}
+    return CurrentWorkPayload.model_validate({"sections": sections})
 
 
 # Non-empty = any block with non-whitespace text; the trim char set matches
@@ -502,7 +507,7 @@ JOURNAL_BACKLINK_PREVIEW = 5
 
 @router.get("/api/journal", response_model=JournalPayload)
 def get_journal(request: Request, before: str | None = None, days: int = 7,
-                db: Db = Depends(get_db)) -> dict[str, object]:
+                db: Db = Depends(get_db)) -> JournalPayload:
     """Newest-first batch of non-empty daily pages. The head
     batch (no `before`) starts with today — auto-created so there is a
     page to compose into, even when empty — followed by the most recent
@@ -528,24 +533,24 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
         get_or_create_page(db, title_for_date(today), int(time.time() * 1000))
         notify.commit_and_nudge_threadpool(request, db)
     nonempty: set[date] = set()
-    for row in db.execute(_NONEMPTY_DAILY_SQL).fetchall():
+    for row in db.select(_NONEMPTY_DAILY_SQL):
         d = date_for_title(row["title"])
         if d is not None:
             nonempty.add(d)
-    for row in db.execute(_REFERENCED_DAILY_SQL).fetchall():
+    for row in db.select(_REFERENCED_DAILY_SQL):
         d = date_for_title(row["title"])
         if d is not None:
             nonempty.add(d)
     out = []
     texts: list[str] = []
-    uids: list[str] = []
+    uids: list[BlockUid] = []
     for d in select_journal_days(nonempty, today, cursor, days):
         page = fetch_page(db, _daily_title(d))
         if page is None:  # pragma: no cover - selected days exist
             continue
-        blocks = db.execute(
+        blocks = db.select(
             f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
-            (page["page_id"],)).fetchall()
+            (page["page_id"],))
         groups, total, bl_texts = _backlinks(
             db, page["page_id"], 0, JOURNAL_BACKLINK_PREVIEW)
         texts.extend(r["text"] for r in blocks)
@@ -556,27 +561,28 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
                     "backlinks": {"groups": groups, "total_pages": total,
                                   "offset": 0,
                                   "limit": JOURNAL_BACKLINK_PREVIEW}})
-    return {"days": out, "block_ref_texts": _block_ref_texts(db, texts),
-            "block_ref_counts": _block_ref_counts(db, uids)}
+    return JournalPayload.model_validate({
+        "days": out, "block_ref_texts": _block_ref_texts(db, texts),
+        "block_ref_counts": _block_ref_counts(db, uids)})
 
 
-def _daily_is_linked(db: Db, page_id: int) -> bool:
+def _daily_is_linked(db: Db, page_id: PageId) -> bool:
     """True if a block on another page links, tags or attribute-references
     the page (any `refs` kind), or ((embeds)) one of its blocks."""
-    return db.execute(
-        "SELECT 1 FROM refs r JOIN blocks b ON b.uid = r.src_block_uid"
+    return db.select_one(
+        "SELECT 1 AS n FROM refs r JOIN blocks b ON b.uid = r.src_block_uid"
         " WHERE r.target_page_id = ? AND b.page_id != ?"
         " UNION ALL"
-        " SELECT 1 FROM block_refs br"
+        " SELECT 1 AS n FROM block_refs br"
         " JOIN blocks t ON t.uid = br.target_block_uid"
         " JOIN blocks s ON s.uid = br.src_block_uid"
         " WHERE t.page_id = ? AND s.page_id != ? LIMIT 1",
-        (page_id, page_id, page_id, page_id)).fetchone() is not None
+        (page_id, page_id, page_id, page_id)) is not None
 
 
 @router.post("/api/journal/cleanup")
 def cleanup_journal(request: Request,
-                    db: Db = Depends(get_db)) -> dict[str, object]:
+                    db: Db = Depends(get_db)) -> JournalCleanupResponse:
     """Deletes completely-empty daily pages from the 7 days before today
     (today is spared: the journal auto-creates it for composing). Stateless:
     every call re-checks the whole window, so a page emptied later by block
@@ -584,15 +590,15 @@ def cleanup_journal(request: Request,
     spared, never rewritten: a `refs` row of any kind (link, tag, attribute)
     targeting the page, or a ((block ref)) to one of its blocks, from a
     block on another page."""
-    deleted: list[str] = []
+    deleted: list[CanonicalTitle] = []
     for d in past_week_dates(date.today()):
         title = _daily_title(d)
         page = fetch_page(db, title)
         if page is None:
             continue
-        blocks = db.execute(
+        blocks = db.select(
             "SELECT uid, text FROM blocks WHERE page_id = ?",
-            (page["page_id"],)).fetchall()
+            (page["page_id"],))
         if not is_page_empty([r["text"] for r in blocks]):
             continue
         if _daily_is_linked(db, page["page_id"]):
@@ -607,4 +613,4 @@ def cleanup_journal(request: Request,
     # broadcast a no-op frame to every connected replica on each load.
     if deleted:
         notify.nudge_threadpool(request, db)
-    return {"deleted": deleted}
+    return JournalCleanupResponse(deleted=deleted)

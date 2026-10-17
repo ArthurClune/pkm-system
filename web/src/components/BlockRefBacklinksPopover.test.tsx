@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
+import type { BlockUid } from "../api/brands";
 import { apiGet } from "../api/typedClient";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { BlockRefBacklinksPopover } from "./BlockRefBacklinksPopover";
@@ -10,6 +11,7 @@ vi.mock("../api/typedClient", async (importOriginal) => {
   return { ...actual, apiGet: vi.fn() };
 });
 const mockApiGet = vi.mocked(apiGet);
+const UID = "uid_t1" as BlockUid;
 
 // Same location-probe pattern as BlockRef.test.tsx: assert where a click
 // actually navigated to, not just that some handler fired.
@@ -44,7 +46,7 @@ function mockPopoverRect(width: number, height: number) {
 it("clamps a popover opened near the right/bottom edges into the viewport", async () => {
   mockPopoverRect(480, 300);
   mockApiGet.mockResolvedValueOnce({ groups: [] });
-  render(<BlockRefBacklinksPopover uid="uid_t1" x={2000} y={1500}
+  render(<BlockRefBacklinksPopover uid={UID} x={2000} y={1500}
                                    onClose={vi.fn()} />, { wrapper });
   await screen.findByText(/no.*references/i);
   const popover = screen.getByRole("dialog", { name: "References" });
@@ -55,7 +57,7 @@ it("clamps a popover opened near the right/bottom edges into the viewport", asyn
 it("keeps an in-viewport anchor position unchanged", async () => {
   mockPopoverRect(300, 150);
   mockApiGet.mockResolvedValueOnce({ groups: [] });
-  render(<BlockRefBacklinksPopover uid="uid_t1" x={40} y={60}
+  render(<BlockRefBacklinksPopover uid={UID} x={40} y={60}
                                    onClose={vi.fn()} />, { wrapper });
   await screen.findByText(/no.*references/i);
   const popover = screen.getByRole("dialog", { name: "References" });
@@ -68,7 +70,7 @@ it("fetches and renders referencing blocks", async () => {
     page_id: 2, page_title: "Source Page",
     items: [{ uid: "uid_s1", text: "see ((uid_t1))", breadcrumbs: ["Parent"] }],
   }] });
-  render(<BlockRefBacklinksPopover uid="uid_t1" x={10} y={20}
+  render(<BlockRefBacklinksPopover uid={UID} x={10} y={20}
                                    onClose={vi.fn()} />, { wrapper });
   expect(await screen.findByText("Source Page")).toBeInTheDocument();
   expect(screen.getByText("Parent")).toBeInTheDocument();
@@ -78,14 +80,14 @@ it("fetches and renders referencing blocks", async () => {
 
 it("shows a verbose error when the fetch fails", async () => {
   mockApiGet.mockRejectedValueOnce(new Error("boom"));
-  render(<BlockRefBacklinksPopover uid="uid_t1" x={0} y={0}
+  render(<BlockRefBacklinksPopover uid={UID} x={0} y={0}
                                    onClose={vi.fn()} />, { wrapper });
   expect(await screen.findByText(/boom/)).toBeInTheDocument();
 });
 
 it("shows a stale-badge message when there are no references", async () => {
   mockApiGet.mockResolvedValueOnce({ groups: [] });
-  render(<BlockRefBacklinksPopover uid="uid_t1" x={0} y={0}
+  render(<BlockRefBacklinksPopover uid={UID} x={0} y={0}
                                    onClose={vi.fn()} />, { wrapper });
   expect(await screen.findByText(/no references.*badge may be stale/i)).toBeInTheDocument();
 });
@@ -93,7 +95,7 @@ it("shows a stale-badge message when there are no references", async () => {
 it("Escape closes", async () => {
   mockApiGet.mockResolvedValueOnce({ groups: [] });
   const onClose = vi.fn();
-  render(<BlockRefBacklinksPopover uid="uid_t1" x={0} y={0}
+  render(<BlockRefBacklinksPopover uid={UID} x={0} y={0}
                                    onClose={onClose} />, { wrapper });
   await screen.findByText(/no.*references/i);
   fireEvent.keyDown(document, { key: "Escape" });
@@ -103,7 +105,7 @@ it("Escape closes", async () => {
 it("outside mousedown closes", async () => {
   mockApiGet.mockResolvedValueOnce({ groups: [] });
   const onClose = vi.fn();
-  render(<BlockRefBacklinksPopover uid="uid_t1" x={0} y={0}
+  render(<BlockRefBacklinksPopover uid={UID} x={0} y={0}
                                    onClose={onClose} />, { wrapper });
   await screen.findByText(/no.*references/i);
   fireEvent.mouseDown(document.body);
@@ -116,7 +118,7 @@ it("navigates on Enter when the item itself is focused", async () => {
     items: [{ uid: "uid_s1", text: "mentions it here", breadcrumbs: [] }],
   }] });
   const onClose = vi.fn();
-  render(<BlockRefBacklinksPopover uid="uid_t1" x={0} y={0}
+  render(<BlockRefBacklinksPopover uid={UID} x={0} y={0}
                                    onClose={onClose} />, { wrapper });
   const item = await screen.findByRole("link", { name: "mentions it here" });
   fireEvent.keyDown(item, { key: "Enter" });
@@ -130,7 +132,7 @@ it("navigates to the referencing page and hash on click, and closes", async () =
     items: [{ uid: "uid_s1", text: "mentions it here", breadcrumbs: [] }],
   }] });
   const onClose = vi.fn();
-  render(<BlockRefBacklinksPopover uid="uid_t1" x={0} y={0}
+  render(<BlockRefBacklinksPopover uid={UID} x={0} y={0}
                                    onClose={onClose} />, { wrapper });
   fireEvent.click(await screen.findByRole("link", { name: "mentions it here" }));
   expect(onClose).toHaveBeenCalled();

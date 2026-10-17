@@ -147,7 +147,7 @@ def test_changes_read_applied_batches_in_the_window_read_transaction(
         seeded_config):
     con = open_db(seeded_config.db_path)
     stop = _commit_during(con, seeded_config.db_path, "late_batch",
-                          "SELECT seq, kind, entity_id, deleted FROM changes")
+                          "SELECT seq, kind AS change_kind, entity_id")
     try:
         feed = sync_changes(since=0, limit=1000, pending=["late_batch"], db=con)
     finally:

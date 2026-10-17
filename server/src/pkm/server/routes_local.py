@@ -141,13 +141,14 @@ def check_local_links(db: Db = Depends(get_db),
     if config.local_docs_root is None:
         return LocalCheckPayload(enabled=False, total=0, ok=0, problems=[])
     root = config.local_docs_root.resolve()
-    rows = db.execute(
+    rows = db.select(
         "SELECT b.uid, p.title, b.text FROM blocks b JOIN pages p ON p.id = b.page_id"
-        " WHERE instr(b.text, ?) > 0 ORDER BY p.title, b.uid", (LOCAL_PREFIX,)).fetchall()
+        " WHERE instr(b.text, ?) > 0 ORDER BY p.title, b.uid", (LOCAL_PREFIX,))
     total = ok = 0
     problems: list[LocalCheckProblem] = []
-    for uid, title, text in rows:
-        for href in extract_local_hrefs(text):
+    for row in rows:
+        uid, title = row["uid"], row["title"]
+        for href in extract_local_hrefs(row["text"]):
             total += 1
             status = _classify(root, href)
             if status == "ok":

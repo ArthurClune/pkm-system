@@ -8,7 +8,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from pkm.contracts.ops import OpBatch
-from pkm.contracts.responses import OpsAck, SyncSeq
+from pkm.contracts.responses import OpsAck
 from pkm.database import Db
 from pkm.server import notify
 from pkm.server.notify import OpsFrame
@@ -41,9 +41,9 @@ async def post_ops(request: Request,
                             detail="database busy, retry") from exc
     rhash = batch_request_hash(batch)
     replay_hash = batch_replay_hash(batch)
-    row = db.execute(
+    row = db.select_one(
         "SELECT request_hash, response FROM applied_batches"
-        " WHERE batch_id = ?", (batch.batch_id,)).fetchone()
+        " WHERE batch_id = ?", (batch.batch_id,))
     if row is not None:
         # request_hash holds one of two kinds: the strict hash,
         # for a row written before this change (a pre-deploy retry must
@@ -77,8 +77,10 @@ async def post_ops(request: Request,
     # sync window's latest_seq: a window whose latest_seq has reached it
     # already carries this batch. Acks stored before this field
     # existed replay without it; clients treat a missing seq as unknown.
-    seq = SyncSeq(db.execute(
-        "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0])
+    head = db.select_one(
+        "SELECT COALESCE(MAX(seq), 0) AS latest_seq FROM changes")
+    assert head is not None  # an aggregate always yields a row
+    seq = head["latest_seq"]
     # `applied` counts every op processed, skipped ones included; `skipped`
     # lists every op whose target no longer exists (ops_core.skip_report),
     # and is empty for a clean batch.

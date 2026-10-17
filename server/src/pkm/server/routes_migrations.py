@@ -27,8 +27,8 @@ from pkm.server.title_migration import (
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 
-def _audit_payload(plan: TitleMigrationPlan) -> dict[str, object]:
-    return {
+def _audit_payload(plan: TitleMigrationPlan) -> TitleMigrationAuditPayload:
+    return TitleMigrationAuditPayload.model_validate({
         "active": plan.active,
         "digest": plan.digest,
         "groups": [
@@ -57,7 +57,7 @@ def _audit_payload(plan: TitleMigrationPlan) -> dict[str, object]:
             }
             for blocker in plan.blockers
         ],
-    }
+    })
 
 
 @router.get(
@@ -66,7 +66,7 @@ def _audit_payload(plan: TitleMigrationPlan) -> dict[str, object]:
 )
 def audit_title_canonicalization(
     db: Db = Depends(get_db),
-) -> dict[str, object]:
+) -> TitleMigrationAuditPayload:
     return _audit_payload(audit_title_migration(db))
 
 
@@ -78,7 +78,7 @@ def apply_title_canonicalization(
     request: Request,
     body: TitleMigrationApplyRequest,
     db: Db = Depends(get_db),
-) -> dict[str, object]:
+) -> TitleMigrationApplyResponse:
     try:
         outcome = apply_title_migration(
             db, body.audit_digest, now_ms=int(time.time() * 1000)
@@ -95,7 +95,7 @@ def apply_title_canonicalization(
         force=True,
         generation=outcome.generation,
     )
-    return {
+    return TitleMigrationApplyResponse.model_validate({
         "digest": outcome.digest,
         "groups_applied": outcome.groups_applied,
         "pages_retitled": outcome.pages_retitled,
@@ -103,4 +103,4 @@ def apply_title_canonicalization(
         "blocks_moved": outcome.blocks_moved,
         "blocks_rewritten": outcome.blocks_rewritten,
         "generation": outcome.generation,
-    }
+    })

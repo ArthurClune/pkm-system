@@ -1027,7 +1027,7 @@ def test_cycle_note_appends_under_an_existing_header_for_the_block():
 ])
 def test_skip_report_names_the_op_and_where_its_note_landed(op, ctx,
                                                             expected):
-    assert skip_report(3, op, ctx) == expected
+    assert skip_report(3, op, ctx).model_dump() == expected
 
 
 def test_replay_applies_an_unlink_step():
@@ -1189,7 +1189,7 @@ def test_plan_stale_context_must_fit_the_op():
 
 def test_skip_report_stale_page_reason():
     op = _top_create("X", "t")
-    assert skip_report(2, op, _skip_ctx(op, page_stale=True)) == {
+    assert skip_report(2, op, _skip_ctx(op, page_stale=True)).model_dump() == {
         "index": 2, "op": "create", "uid": "uid_c0000001",
         "reason": "page_deleted", "note_page": _DAY}
 

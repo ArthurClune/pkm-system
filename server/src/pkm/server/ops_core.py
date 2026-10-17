@@ -19,7 +19,7 @@ from pkm.contracts.ops import (UID_RE, BlockOp, BlockUid, CreateOp,
                                PageId, SetCollapsedOp, SetHeadingOp,
                                SetViewTypeOp, UpdateTextOp, ViewType,
                                subtree_hash, text_hash)
-from pkm.contracts.responses import SkipReason
+from pkm.contracts.responses import SkipReason, SkippedOp
 from pkm.refs import (CanonicalTitle, TitleSyntaxReason, extract,
                       normalize_title, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
@@ -542,7 +542,7 @@ OpContext = Union[PageContext, CreateContext, MoveContext, DeleteContext,
                   StuckMoveContext]
 
 
-def skip_report(index: int, op: BlockOp, ctx: SkippedContext) -> dict[str, object]:
+def skip_report(index: int, op: BlockOp, ctx: SkippedContext) -> SkippedOp:
     """The ack's `skipped` entry for an op `classify_skip` flagged: which
     op, which uid, why, and the daily page its entry landed on (None when
     nothing landed). It is the only signal a caller that sends uids
@@ -555,9 +555,10 @@ def skip_report(index: int, op: BlockOp, ctx: SkippedContext) -> dict[str, objec
         "parent_not_found" if kind in ("diverted_create",
                                        "move_parent_missing")
         else "block_not_found")
-    return {"index": index, "op": op.op, "uid": op.uid, "reason": reason,
-            "note_page": (None if isinstance(ctx, SkipContext)
-                          else ctx.landing.daily_title)}
+    return SkippedOp(
+        index=index, op=op.op, uid=op.uid, reason=reason,
+        note_page=(None if isinstance(ctx, SkipContext)
+                   else ctx.landing.daily_title))
 
 
 @dataclass(frozen=True)

@@ -5,6 +5,17 @@ from typing import cast
 import pytest
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from pkm.contracts.responses import SyncSeq
+from pkm.server.notify import SeqFrame
+
+
+def _frame(n: int) -> SeqFrame:
+    return SeqFrame(seq=SyncSeq(n))
+
+
+def _wire(n: int) -> dict[str, object]:
+    return {"type": "seq", "seq": n}
+
 
 class _GoodWS:
     def __init__(self):
@@ -245,16 +256,16 @@ def test_broadcast_drops_bad_connections_and_still_delivers(monkeypatch):
         good, raising, stalling = _GoodWS(), _RaisingWS(), _StallingWS()
         for conn in (raising, stalling, good):
             await hub.connect(cast(WebSocket, conn))
-        await hub.broadcast({"ok": 1})
+        await hub.broadcast(_frame(1))
         # delivery now happens on each client's own drain task, not
         # synchronously inside broadcast() -- wait for it to land.
-        await _until(lambda: good.sent == [{"ok": 1}])
+        await _until(lambda: good.sent == [_wire(1)])
         await _until(lambda: set(hub._conns) == {good})
         # Hub-initiated drops (send failure/timeout) must close the
         # socket, or a real client would never see `onclose` fire and
         # reconnect.
         await _until(lambda: raising.closed and stalling.closed)
-        assert good.sent == [{"ok": 1}]
+        assert good.sent == [_wire(1)]
         assert set(hub._conns) == {good}
         assert raising.closed
         assert stalling.closed
@@ -279,7 +290,7 @@ def test_broadcast_does_not_block_on_stalled_clients(monkeypatch):
         for conn in stalling:
             await hub.connect(cast(WebSocket, conn))
         start = time.monotonic()
-        await hub.broadcast({"ok": 1})
+        await hub.broadcast(_frame(1))
         elapsed = time.monotonic() - start
         # sequentially-with-timeout would cost 10 * 0.2s = 2s; a
         # non-blocking hand-off should return in well under one timeout.
@@ -301,10 +312,10 @@ def test_broadcast_preserves_per_client_order_when_first_send_is_slow():
         await hub.connect(cast(WebSocket, client))
         # fired concurrently, not awaited one after another, so a naive
         # unordered concurrent fan-out could let seq 2 win the race
-        await asyncio.gather(hub.broadcast({"seq": 1}),
-                             hub.broadcast({"seq": 2}))
+        await asyncio.gather(hub.broadcast(_frame(1)),
+                             hub.broadcast(_frame(2)))
         await _until(lambda: len(client.sent) == 2)
-        assert client.sent == [{"seq": 1}, {"seq": 2}]
+        assert client.sent == [_wire(1), _wire(2)]
 
     asyncio.run(_run())
 
@@ -326,7 +337,7 @@ def test_broadcast_disconnects_client_whose_queue_overflows(monkeypatch):
         # No awaits occur between these calls, so the client's drain
         # task never gets a turn to dequeue -- the queue genuinely fills.
         for i in range(5):
-            await hub.broadcast({"seq": i})
+            await hub.broadcast(_frame(i))
         assert cast(WebSocket, client) not in hub._conns
         # The close is fired via asyncio.create_task (broadcast()'s
         # enqueue loop can't await it), so give it a turn to run.
@@ -354,7 +365,7 @@ def test_default_thresholds_keep_a_backlogged_client():
         # than argued, since the exact depth depends only on whether the
         # drain task took one frame before blocking on its send.
         for i in range(32):
-            await hub.broadcast({"seq": i})
+            await hub.broadcast(_frame(i))
         queued = hub._clients[cast(WebSocket, client)].queue.qsize()
         assert queued > 8, f"backlog never built: {queued} queued"
         assert cast(WebSocket, client) in hub._conns
@@ -372,9 +383,9 @@ def test_default_send_timeout_waits_out_a_slow_send():
         hub = ws_module.Hub()
         client = _SlowThenFastWS(first_delay=1.2)
         await hub.connect(cast(WebSocket, client))
-        await hub.broadcast({"seq": 1})
-        await hub.broadcast({"seq": 2})
-        await _until(lambda: client.sent == [{"seq": 1}, {"seq": 2}],
+        await hub.broadcast(_frame(1))
+        await hub.broadcast(_frame(2))
+        await _until(lambda: client.sent == [_wire(1), _wire(2)],
                      timeout=5.0)
         assert cast(WebSocket, client) in hub._conns
 
@@ -398,7 +409,7 @@ def test_drain_close_survives_concurrent_broadcast_overflow(monkeypatch):
         await hub.connect(cast(WebSocket, client))
         # One message is enough to make the drain task dequeue it, fail
         # on send_json, and start closing.
-        await hub.broadcast({"seq": 0})
+        await hub.broadcast(_frame(0))
         await client.close_started.wait()
         # The close is now in flight (blocked on release_close). Fire
         # several overlapping broadcasts targeting the same client --
@@ -406,7 +417,7 @@ def test_drain_close_survives_concurrent_broadcast_overflow(monkeypatch):
         # is exactly the concurrent path that used to reach back in and
         # cancel the drain task mid-close.
         for i in range(5):
-            await hub.broadcast({"seq": i})
+            await hub.broadcast(_frame(i))
         client.release_close.set()
         await _until(lambda: client.closed)
         assert client.closed
@@ -485,12 +496,12 @@ def test_seq_frame_is_typed_and_validated():
     import sqlite3
 
     from pkm.schema import DDL
-    from pkm.server.notify import SeqFrame, seq_frame
+    from pkm.server.notify import seq_frame
 
     con = sqlite3.connect(":memory:")
     con.row_factory = sqlite3.Row
     con.executescript(DDL)
     frame = seq_frame(con)
-    assert frame == {"type": "seq", "seq": 0}
-    assert SeqFrame.model_validate(frame).seq == 0
+    assert frame.wire() == {"type": "seq", "seq": 0}
+    assert frame.seq == 0
     con.close()

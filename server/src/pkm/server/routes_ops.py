@@ -2,7 +2,6 @@
 """POST /api/ops — the only write path. One transaction per batch."""
 from __future__ import annotations
 
-import json
 import sqlite3
 import time
 
@@ -11,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pkm.contracts.ops import OpBatch
 from pkm.contracts.responses import OpsAck, SyncSeq
 from pkm.server import notify
+from pkm.server.notify import OpsFrame
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.ops_apply import apply_batch
@@ -23,7 +23,7 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 @router.post("/api/ops", response_model=OpsAck)
 async def post_ops(request: Request,
                    batch: OpBatch,
-                   db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+                   db: sqlite3.Connection = Depends(get_db)) -> OpsAck:
     """One SQLite transaction covers the batch_id dedupe check through the
     commit, so a concurrent delete_page/rename_page/cleanup_journal commit
     (their own connections, on the threadpool) can no longer land between
@@ -64,7 +64,7 @@ async def post_ops(request: Request,
         db.rollback()
         # replay: the stored ack, passed through OpsAck like a fresh one, so
         # a row stored before seq/skipped existed gains seq: null / [] here
-        return json.loads(row["response"])
+        return OpsAck.model_validate_json(row["response"])
     try:
         result = apply_batch(db, batch, now)
     except OpError as e:
@@ -81,8 +81,8 @@ async def post_ops(request: Request,
     # `applied` counts every op processed, skipped ones included; `skipped`
     # lists every op whose target no longer exists (ops_core.skip_report),
     # and is empty for a clean batch.
-    response: dict[str, object] = {"ok": True, "ts": now, "applied": len(batch.ops), "seq": seq,
-                                   "skipped": result.skipped}
+    response = OpsAck(ok=True, ts=now, applied=len(batch.ops), seq=seq,
+                      skipped=result.skipped)
     # No IntegrityError branch here: BEGIN IMMEDIATE has been held since
     # before the dedupe SELECT above, so a second submission of this same
     # batch_id cannot reach this INSERT concurrently -- it blocks on the
@@ -90,12 +90,9 @@ async def post_ops(request: Request,
     # ordinary dedupe SELECT once this transaction commits and releases it.
     db.execute(
         "INSERT INTO applied_batches VALUES (?,?,?,?)",
-        (batch.batch_id, replay_hash, json.dumps(response), now))
+        (batch.batch_id, replay_hash, response.model_dump_json(), now))
     db.commit()
-    await request.app.state.hub.broadcast({
-        "client_id": batch.client_id,
-        "ts": now,
-        "ops": result.broadcast_ops,
-    })
+    await request.app.state.hub.broadcast(OpsFrame(
+        client_id=batch.client_id, ts=now, ops=result.broadcast_ops))
     await notify.nudge(request, db)
     return response

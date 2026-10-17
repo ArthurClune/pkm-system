@@ -579,3 +579,20 @@ def test_unauthenticated_client_gets_login_hint(anon_client):
         bad.get_page("AI")
     assert str(exc.value) == (
         "401: session expired or missing — run `pkm login`")
+
+
+@pytest.mark.parametrize("body", ["[1, 2]", '"oops"', "null", "7"])
+def test_error_with_a_non_object_json_body_keeps_the_status(body):
+    """An error body that is valid JSON but not an object (a proxy's array
+    or string) must surface as an ApiError, not an AttributeError."""
+    import httpx2
+
+    http = httpx2.Client(
+        base_url="http://pkm.test",
+        transport=httpx2.MockTransport(
+            lambda request: httpx2.Response(502, text=body)))
+    client = PkmClient(CliConfig(url="http://pkm.test", token="t"), http=http)
+    with pytest.raises(ApiError) as e:
+        client.get_page("Home")
+    assert e.value.status == 502
+    assert body in str(e.value)

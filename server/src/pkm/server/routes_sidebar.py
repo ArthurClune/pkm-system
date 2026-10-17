@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from pkm.contracts.ops import SidebarEntryId
-from pkm.contracts.responses import SidebarNavPayload
+from pkm.contracts.responses import SidebarNavEntry, SidebarNavPayload
 from pkm.importer.sidebar_rows import next_order_idx, reorder_is_valid
-from pkm.refs import is_blank_title
+from pkm.refs import CanonicalTitle, is_blank_title
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
@@ -29,10 +29,12 @@ class ReorderSidebarEntriesRequest(BaseModel):
 
 
 @router.get("/api/sidebar", response_model=SidebarNavPayload)
-def get_sidebar(db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+def get_sidebar(db: sqlite3.Connection = Depends(get_db)) -> SidebarNavPayload:
     rows = db.execute(
         "SELECT id, title FROM sidebar_entries ORDER BY order_idx").fetchall()
-    return {"entries": [dict(r) for r in rows]}
+    return SidebarNavPayload(entries=[
+        SidebarNavEntry(id=SidebarEntryId(r["id"]),
+                        title=CanonicalTitle(r["title"])) for r in rows])
 
 
 @router.post("/api/sidebar")

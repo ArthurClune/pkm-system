@@ -5,7 +5,7 @@ OpenAI request payload, response parsing, and status derivation. All I/O
 describe/service.py."""
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal, TypedDict
 
 # The image subset of ALLOWED_UPLOAD_MIME that OpenAI vision accepts
 # (png/jpeg/webp/gif). HEIC and SVG are uploadable but not describable, so
@@ -53,7 +53,33 @@ def enabled_reason(api_key: str | None, config_enabled: bool) -> str | None:
     return None
 
 
-def request_payload(model: str, mime: str, image_b64: str) -> dict[str, Any]:
+class _TextPart(TypedDict):
+    type: Literal["text"]
+    text: str
+
+
+class _ImageUrl(TypedDict):
+    url: str
+
+
+class _ImagePart(TypedDict):
+    type: Literal["image_url"]
+    image_url: _ImageUrl
+
+
+class _Message(TypedDict):
+    role: Literal["user"]
+    content: list[_TextPart | _ImagePart]
+
+
+class RequestPayload(TypedDict):
+    """The chat-completions body for one image description."""
+    model: str
+    max_tokens: int
+    messages: list[_Message]
+
+
+def request_payload(model: str, mime: str, image_b64: str) -> RequestPayload:
     return {
         "model": model,
         "max_tokens": 500,

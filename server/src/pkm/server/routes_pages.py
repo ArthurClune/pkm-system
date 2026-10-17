@@ -14,7 +14,7 @@ from pkm.contracts.daily import date_for_title, title_for_date
 from pkm.contracts.ops import BlockUid
 from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
-    BlockBacklinksPayload, BlockPayload, BlockRefsPayload, CurrentWorkPayload,
+    BlockBacklinksPayload, BlockPayload, BlockRefsPayload, BlockRefText, CurrentWorkPayload,
     DeleteBlockerModel, DeletePreview, GroupsPayload, JournalPayload,
     PageMeta, PagePayload, RenamePageResponse)
 from pkm.refs import (CanonicalTitle, NormalizedTitle, is_blank_title,
@@ -57,7 +57,8 @@ def _daily_title(d: date) -> CanonicalTitle:
     return CanonicalTitle(NormalizedTitle(title_for_date(d)))
 
 
-def _block_ref_texts(db: sqlite3.Connection, texts: list[str]) -> dict[str, object]:
+def _block_ref_texts(db: sqlite3.Connection,
+                     texts: list[str]) -> dict[BlockUid, BlockRefText]:
     return _resolve_ref_uids(db, collect_block_ref_uids(texts))
 
 
@@ -75,11 +76,12 @@ def _block_ref_counts(db: sqlite3.Connection,
              GROUP BY target_block_uid""", uids)}
 
 
-def _resolve_ref_uids(db: sqlite3.Connection, uids: Sequence[str]) -> dict[str, object]:
+def _resolve_ref_uids(db: sqlite3.Connection, uids: Sequence[str]
+                      ) -> dict[BlockUid, BlockRefText]:
     """Resolve ((refs)) transitively: a referenced block's text may itself
     contain ((refs)) the client renders nested, so follow the chain. The
     seen set makes cycles (and repeated missing uids) terminate."""
-    out: dict[str, object] = {}
+    out: dict[BlockUid, BlockRefText] = {}
     seen: set[str] = set()
     pending = uids
     while True:
@@ -93,7 +95,8 @@ def _resolve_ref_uids(db: sqlite3.Connection, uids: Sequence[str]) -> dict[str, 
             f" JOIN pages p ON p.id = b.page_id WHERE b.uid IN ({marks})",
             new).fetchall()
         for r in rows:
-            out[r["uid"]] = {"text": r["text"], "page_title": r["page_title"]}
+            out[BlockUid(r["uid"])] = BlockRefText(
+                text=r["text"], page_title=CanonicalTitle(r["page_title"]))
         pending = collect_block_ref_uids([r["text"] for r in rows])
 
 
@@ -155,7 +158,7 @@ def _backlinks(db: sqlite3.Connection, page_id: int,
 
 @router.get("/api/block-refs", response_model=BlockRefsPayload)
 def get_block_refs(uids: str,
-                   db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+                   db: sqlite3.Connection = Depends(get_db)) -> BlockRefsPayload:
     """On-demand ((uid)) resolution for refs pasted after the page payload
     loaded. `uids` is comma-separated; unknown uids are omitted
     (the client renders them unresolved, same as the payload path)."""
@@ -168,7 +171,7 @@ def get_block_refs(uids: str,
                                 detail=f"malformed uid: {uid!r}")
     # Every entry just matched UID_RE's shape.
     checked = [BlockUid(u) for u in wanted]
-    return {"block_ref_texts": _resolve_ref_uids(db, checked)}
+    return BlockRefsPayload(block_ref_texts=_resolve_ref_uids(db, checked))
 
 
 @router.get("/api/block/{uid}/backlinks", response_model=BlockBacklinksPayload)
@@ -254,7 +257,7 @@ def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 2
 
 @router.post("/api/pages", response_model=PageMeta)
 def create_page(request: Request, body: CreatePageRequest,
-                db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+                db: sqlite3.Connection = Depends(get_db)) -> PageMeta:
     """Idempotent: creating an existing page returns its row, not an error."""
     # get_or_create_page is the shared boundary that defines "blank" (a
     # whitespace-only title normalizes to "" there); this route is
@@ -268,7 +271,7 @@ def create_page(request: Request, body: CreatePageRequest,
     except ForbiddenTitleError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     notify.commit_and_nudge_threadpool(request, db)
-    return dict(page)
+    return PageMeta.model_validate(dict(page))
 
 
 def _blocker_models(blockers: Sequence[DeleteBlocker]) -> list[DeleteBlockerModel]:

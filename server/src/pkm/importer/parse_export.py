@@ -56,15 +56,18 @@ def _view_type(value: object) -> Literal["numbered", "document"] | None:
     return None
 
 
-def _heading(value: int | None) -> int | None:
+def _heading(value: object) -> int | None:
     """Roam's own API has a zero heading level meaning "no heading",
     distinct from the attribute being absent; some exports write it
     either way. 0 means the same thing absent means everywhere else this
     app stores a heading, so it is normalized at parse time rather than
     carried through as a value no heading-producing path here ever
     writes itself (CreateOp/SetHeadingOp.heading only accept 1-3 or
-    null)."""
-    return None if value == 0 else value
+    null). A value that is not an integer (bool included) is malformed and
+    reads as absent."""
+    if isinstance(value, bool) or not isinstance(value, int) or value == 0:
+        return None
+    return value
 
 
 def parse_export(db: object) -> Export:

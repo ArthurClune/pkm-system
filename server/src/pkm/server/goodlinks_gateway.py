@@ -45,7 +45,7 @@ def _json(r: httpx2.Response) -> dict[str, object]:
 
 def _error_detail(r: httpx2.Response) -> str:
     try:
-        body = r.json()
+        body: object = r.json()
     except ValueError:
         return r.text.strip() or f"status {r.status_code}"
     if isinstance(body, dict) and isinstance(body.get("error"), str):

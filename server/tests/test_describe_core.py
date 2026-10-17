@@ -40,7 +40,9 @@ def test_request_payload_shape():
     assert p["model"] == "gpt-4o-mini"
     content = p["messages"][0]["content"]
     assert content[0]["type"] == "text"
-    assert content[1]["image_url"]["url"] == "data:image/png;base64,QUJD"
+    image = content[1]
+    assert image["type"] == "image_url"
+    assert image["image_url"]["url"] == "data:image/png;base64,QUJD"
 
 
 def test_parse_description_happy_path():

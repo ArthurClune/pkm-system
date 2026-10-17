@@ -39,7 +39,8 @@ export interface WorkerDeps {
   /** Where a rebase commits the queue before a file replacement unlinks the
    * old file. Without one, a rebase never replaces the file. */
   carry?: CarryStore;
-  /** Injectable for tests; the worker uses Date.now/crypto.randomUUID.
+  /** Injectable for tests; the worker uses Date.now, uid.ts's
+   * newBatchId and crypto.randomUUID (recovery tokens).
    * nowMs and clockMs both default to Date.now and are two names for the
    * same wall clock, kept distinct because they measure different things:
    * nowMs is the data-stamp clock (what gets written as updated_at/inserted

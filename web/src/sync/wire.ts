@@ -33,7 +33,13 @@ export function tombstoneIdOfWire(tomb: SyncTombstone): TombstoneId | null {
     case "page": return { kind: "page", id: Number(tomb.entity_id) as PageId };
     case "sidebar":
       return { kind: "sidebar", id: Number(tomb.entity_id) as SidebarEntryId };
-    default: return null;
+    default: {
+      // Never reached for a kind this build knows; a kind added to the
+      // contract fails to compile here until it is handled above.
+      const unhandled: never = tomb.kind;
+      void unhandled;
+      return null;
+    }
   }
 }
 

@@ -13,6 +13,30 @@ clone enables them. `--no-verify` bypasses both.
 |---|---|---|
 | `commit-msg` | a Claude session URL or `Claude-Session:` trailer in the message | `AGENTS.md` § Git |
 | `pre-commit` | in any staged source file or architecture doc: a bean id, a line number or a spec/plan pointer with no path in a comment; a comment line over 80 columns or any other line over 120 (`noqa: E501` exempts a line) | [backend.md](backend.md#testing), `server/tooling/commentlint` |
+| `pre-commit` | in a staged `server/src` file: a parameter, field or key named like a brand and not carrying it (`uid: str`); a brand constructed or `cast` outside its registered sites; `model_construct`; raw `sqlite3` outside `pkm.database` | [Brand rules](#brand-rules), `server/tooling/brandlint` |
+
+### Brand rules
+
+`server/tooling/brandlint` runs inside `commentlint.run`, so the hook, the
+`--all` sweep, `test_the_tracked_tree_is_clean` and `lint:comments` all apply
+it. The data it reads is `server/src/pkm/brand_registry.py`, which is
+import-free so the hook loads it under a bare `python3`. The hook needs
+Python 3.12 or newer: an older interpreter cannot parse a file using PEP 695
+syntax and reports `brand-parse` instead of skipping the file.
+
+| Rule | Fails when | Registry data |
+|---|---|---|
+| `brand-name` | an annotation does not name one of the brands listed for that parameter, field or key name, or also allows its bare base type or `Any` in a union | `NAMES` |
+| `brand-opt-out` | `# brand: untrusted -- <reason>` appears outside a route module, or has no reason | `OPT_OUT_FILES` |
+| `brand-mint` | a `NewType` declared under `server/src/pkm` is constructed outside its sites | `MINT_SITES` |
+| `brand-cast` | `typing.cast` is called outside `CAST_SITES` | `CAST_SITES` |
+| `model-construct` | a pydantic model is built with `model_construct` | none |
+| `raw-sqlite` | `sqlite3.connect`, a cursor or `.raw` is used outside `pkm.database` | none |
+| `brand-parse` | a file cannot be parsed (usually Python older than 3.12) | none |
+
+`server/src/pkm/test_data/` counts as test code and is exempt
+(`TEST_SUPPORT`). The database side of the same vocabulary is in
+[backend.md](backend.md#typed-database-access).
 
 ## On every test run
 
@@ -24,6 +48,10 @@ clone enables them. `--no-verify` bypasses both.
 | `test_the_tracked_tree_is_clean` | the whole checkout breaks a `pre-commit` rule, so a clone without the hook, or a merge commit, still fails |
 | generated artifacts | `openapi.json`, `baseSchema.gen.ts` or a `shared/fixtures/*.json` parity file is stale — see the [table](backend.md#generated-artifacts-and-parity-fixtures) |
 | `test_openapi_sync` | a JSON route has no `response_model` |
+| `test_routes_models` | a route handler is annotated to return a bare `dict` |
+| row check (`PKM_ROW_CHECK=1`, set by `conftest.py`) | a `Db.select` row has a column that is not a `Row` key, or a value that does not fit its key's type, nullability, `Literal` members or brand shape; raises `RowCheckError` |
+| `test_rows_vocabulary` | a column of the DDL has no row key, a key's type disagrees with the DDL, a `NAMES` entry names an undeclared brand, or a declared server brand lacks a `SHAPES` or `MINT_SITES` entry |
+| `test_brandlint_names`, `test_brandlint_mints` | a brand rule stops flagging its violation, or flags a registered site |
 | `test_request_log` | a declared `pkm.*` logger resolves to no handler |
 | `test_proptest_exclusion` | a property test runs in the default suite |
 

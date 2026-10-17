@@ -87,7 +87,7 @@ non-empty, and `cmd_batch` then exits 1. The MCP `batch` tool shares
 `workflows.apply_batch`, so it fetches and stamps the same way.
 
 Every uid minter resamples until the first character is alphanumeric:
-`client/api.py::new_uid`, `server/ops_apply.py::_new_uid` and
+`contracts/ops.py::new_uid` (shared by the client and the server) and
 `web/src/uid.ts::newUid` (via `uidCore.ts::isAlphanumericByte`). `UID_RE`
 (`contracts/ops.py`) still accepts a leading `-` or `_`, so a block minted before
 that rule stays addressable; any tightening must apply to newly-minted uids only.

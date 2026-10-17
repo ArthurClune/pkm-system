@@ -13,6 +13,7 @@ import anyio.from_thread
 from fastapi import Request
 from pydantic import BaseModel
 
+from pkm.contracts.ops import ClientId
 from pkm.contracts.responses import SyncSeq
 
 
@@ -46,7 +47,7 @@ class SeqFrame(BaseModel):
 class OpsFrame(BaseModel):
     """The WS frame that echoes a committed batch's applied ops to the
     other clients (the writer's own `client_id` lets it skip the echo)."""
-    client_id: str
+    client_id: ClientId
     ts: int
     ops: list[dict[str, object]]
 

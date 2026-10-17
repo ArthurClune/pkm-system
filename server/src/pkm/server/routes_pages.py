@@ -39,7 +39,8 @@ from pkm.unlink import DeleteBlocker
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
-_BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
+_BLOCK_COLS = ("uid, parent_uid, order_idx, text, NULLIF(heading, 0) AS heading,"
+               " collapsed,"
                " created_at, updated_at, view_type")
 
 

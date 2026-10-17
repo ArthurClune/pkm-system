@@ -1,10 +1,11 @@
-from pkm.contracts.ops import BlockUid, OrderIdx
+from pkm.contracts.ops import BlockUid, HeadingLevel, OrderIdx, ViewType
 from pkm.rows import Row
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
 
 def _row(uid: str, parent: str | None, idx: int, text: str,
-         heading: int | None, view_type: str | None, collapsed: int) -> Row:
+         heading: HeadingLevel | None, view_type: ViewType | None,
+         collapsed: int) -> Row:
     return {"uid": BlockUid(uid),
             "parent_uid": BlockUid(parent) if parent else None,
             "order_idx": OrderIdx(idx), "text": text, "heading": heading,

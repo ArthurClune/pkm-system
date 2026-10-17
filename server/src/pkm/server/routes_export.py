@@ -48,7 +48,8 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 # Matches the column set build_tree() reads (see routes_pages._BLOCK_COLS) --
 # kept as its own copy rather than a cross-module import since it's a plain
 # SQL literal, not shared behaviour.
-_BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
+_BLOCK_COLS = ("uid, parent_uid, order_idx, text, NULLIF(heading, 0) AS heading,"
+              " collapsed,"
               " created_at, updated_at, view_type")
 
 

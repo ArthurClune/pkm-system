@@ -12,14 +12,15 @@ from __future__ import annotations
 import re
 import types
 from collections.abc import Mapping
-from typing import (NamedTuple, NewType, TypedDict, Union, get_args,
+from typing import (Literal, NamedTuple, NewType, TypedDict, Union, get_args,
                     get_origin, get_type_hints)
 
 from pkm.brand_registry import SHAPES
-from pkm.contracts.ops import (BatchId, BlockUid, OrderIdx, PageId,
-                               Sha256Hex, SidebarEntryId, SidebarOrderIdx)
-from pkm.contracts.responses import SyncSeq
-from pkm.refs import CanonicalTitle
+from pkm.contracts.ops import (BatchId, BlockUid, HeadingLevel, OrderIdx,
+                               PageId, RewriteKind, Sha256Hex, SidebarEntryId,
+                               SidebarOrderIdx, ViewType)
+from pkm.contracts.responses import EntityKind, SyncSeq
+from pkm.refs import CanonicalTitle, RefKind
 
 
 class Row(TypedDict, total=False):
@@ -33,13 +34,13 @@ class Row(TypedDict, total=False):
     parent_uid: BlockUid | None
     order_idx: OrderIdx
     text: str
-    heading: int | None
+    heading: HeadingLevel | None
     collapsed: int
-    view_type: str | None
+    view_type: ViewType | None
     # refs, block_refs
     src_block_uid: BlockUid
     target_page_id: PageId
-    kind: str
+    ref_kind: RefKind
     target_block_uid: BlockUid
     # assets
     sha256: Sha256Hex
@@ -57,6 +58,7 @@ class Row(TypedDict, total=False):
     entity_id: str
     deleted: int
     change_page_id: PageId | None
+    change_kind: EntityKind
     # applied_batches
     batch_id: BatchId
     request_hash: str
@@ -65,6 +67,7 @@ class Row(TypedDict, total=False):
     # block_rewrites
     base_hash: Sha256Hex
     after_hash: Sha256Hex
+    rewrite_kind: RewriteKind
     old_title: str
     new_title: str
     rewrite_created_at: int
@@ -92,6 +95,8 @@ class KeySpec(NamedTuple):
     base: type  # str or int
     brand: str | None
     nullable: bool
+    # The allowed values of a Literal key, else None.
+    literals: tuple[object, ...] | None = None
 
 
 def _unwrap(hint: object) -> KeySpec:
@@ -105,8 +110,12 @@ def _unwrap(hint: object) -> KeySpec:
     while isinstance(hint, NewType):
         brand = brand or hint.__name__
         hint = hint.__supertype__
+    literals: tuple[object, ...] | None = None
+    if get_origin(hint) is Literal:
+        literals = get_args(hint)
+        (hint,) = {type(v) for v in literals}
     assert hint is str or hint is int, hint
-    return KeySpec(hint, brand, nullable)
+    return KeySpec(hint, brand, nullable, literals)
 
 
 KEYS: dict[str, KeySpec] = {
@@ -125,6 +134,10 @@ def _value_problem(key: str, spec: KeySpec, value: object) -> str | None:
     if not isinstance(value, spec.base):
         return (f"{key}: expected {spec.base.__name__}, "
                 f"got {type(value).__name__}")
+    if spec.literals is not None and value not in spec.literals:
+        allowed = ", ".join(repr(v) for v in spec.literals)
+        return (f"{key}: {value!r} is not one of {allowed}; normalise it in "
+                f"the query (e.g. NULLIF) or fix the data")
     shape = _SHAPE_RES.get(spec.brand or "")
     if shape is not None and not shape.fullmatch(str(value)):
         return f"{key}: {value!r} is not a valid {spec.brand}"

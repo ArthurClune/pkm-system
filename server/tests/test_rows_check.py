@@ -41,3 +41,15 @@ def test_a_sha_must_be_lowercase_hex_of_full_length():
 
 def test_a_subtype_brand_reads_as_its_base():
     assert row_problems({"title": "Some page"}) == []
+
+
+def test_a_literal_member_is_fine():
+    assert row_problems({"rewrite_kind": "unlink", "heading": 2,
+                         "view_type": None}) == []
+
+
+def test_a_value_outside_a_literal_is_reported():
+    (problem,) = row_problems({"heading": 0})
+    assert "heading" in problem and "1, 2, 3" in problem
+    (problem,) = row_problems({"ref_kind": "nope"})
+    assert "ref_kind" in problem and "'link'" in problem

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
 
 from pkm.contracts.ops import BlockUid, PageId, Sha256Hex
 from pkm.database import Db
-from pkm.refs import RefKind, target_canonical_title, title_syntax_reason
+from pkm.refs import target_canonical_title, title_syntax_reason
 from pkm.title_migration import (
     InventoryBlock,
     InventoryPage,
@@ -95,7 +94,8 @@ def _inventory_title_migration(db: Db) -> TitleMigrationInventory:
     page_titles = {row["title"] for row in selected_rows}
 
     all_ref_rows = db.select(
-        "SELECT src_block_uid, target_page_id, kind FROM refs"
+        "SELECT src_block_uid, target_page_id,"
+        " kind AS ref_kind FROM refs"
     )
     inbound_uids = {
         row["src_block_uid"] for row in all_ref_rows if row["target_page_id"] in page_ids
@@ -140,7 +140,7 @@ def _inventory_title_migration(db: Db) -> TitleMigrationInventory:
             InventoryRef(
                 src_block_uid=row["src_block_uid"],
                 target_page_id=row["target_page_id"],
-                kind=cast(RefKind, row["kind"]),
+                kind=row["ref_kind"],
             )
             for row in selected_ref_rows
         ),

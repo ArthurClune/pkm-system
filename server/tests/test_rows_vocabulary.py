@@ -95,3 +95,12 @@ def test_block_uid_shape_is_the_ref_token_and_the_wire_pattern():
 @pytest.mark.parametrize("name", sorted(reg.NAMES))
 def test_names_are_snake_case(name):
     assert re.fullmatch(r"[a-z][a-z0-9_]*", name)
+
+
+def test_a_literal_key_takes_its_base_type_from_its_members():
+    literal_keys = {k: s for k, s in rows.KEYS.items()
+                    if s.literals is not None}
+    assert {"heading", "view_type", "ref_kind", "rewrite_kind",
+            "change_kind"} <= set(literal_keys)
+    for key, spec in literal_keys.items():
+        assert all(type(v) is spec.base for v in spec.literals or ()), key

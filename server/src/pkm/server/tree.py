@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import TypedDict, cast
+from typing import TypedDict
 
 from pkm.contracts.ops import BlockUid, OrderIdx, ViewType
 from pkm.contracts.responses import StoredHeading
@@ -44,8 +44,8 @@ def build_tree(rows: Sequence[Row]) -> list[TreeNode]:
         return [{
             "uid": r["uid"],
             "text": r["text"],
-            "heading": cast(StoredHeading, r["heading"]),
-            "view_type": cast(ViewType | None, r["view_type"]),
+            "heading": r["heading"],
+            "view_type": r["view_type"],
             "collapsed": bool(r["collapsed"]),
             "order_idx": r["order_idx"],
             "created_at": r["created_at"],

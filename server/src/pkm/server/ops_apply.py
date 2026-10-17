@@ -7,7 +7,7 @@ import dataclasses
 import secrets
 from collections.abc import Collection
 from datetime import datetime
-from typing import Union, cast
+from typing import Union
 
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
@@ -26,8 +26,7 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  ExistingHeader, FreshHeader, InsertBlock,
                                  JournalBlock, LandedSkipContext, MoveContext,
                                  OpContext, OpError, PageContext,
-                                 RecordConflictHeader, RecordRewrite, RewriteKind,
-                                 RewriteStep,
+                                 RecordConflictHeader, RecordRewrite, RewriteStep,
                                  ReindexRefs,
                                  SetCollapsed, SetHeading, SetPageId,
                                  SetParent, SetViewType, ShiftSiblings, Skip,
@@ -105,12 +104,12 @@ def _block_rewrites(db: Db,
     """Every recorded rename/merge/delete rewrite of this block, newest
     first -- the order `ops_core.replay_title_rewrites` walks the chain in."""
     rows = db.select(
-        "SELECT base_hash, after_hash, old_title, new_title, kind"
-        " FROM block_rewrites WHERE uid = ?"
+        "SELECT base_hash, after_hash, old_title, new_title,"
+        " kind AS rewrite_kind FROM block_rewrites WHERE uid = ?"
         " ORDER BY created_at DESC, rowid DESC", (uid,))
     return tuple(BlockRewrite(row["base_hash"], row["after_hash"],
                               row["old_title"], row["new_title"],
-                              cast(RewriteKind, row["kind"]))
+                              row["rewrite_kind"])
                  for row in rows)
 
 

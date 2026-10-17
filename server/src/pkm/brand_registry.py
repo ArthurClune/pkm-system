@@ -119,12 +119,15 @@ OPT_OUT_FILES: tuple[str, ...] = (
 # registered here, and a bare `id` always becomes a named row id.
 COLUMN_KEYS: dict[str, dict[str, str]] = {
     "pages": {"id": "page_id"},
+    # One name, one meaning: three tables carry a `kind` of different types.
+    "refs": {"kind": "ref_kind"},
     "sidebar_entries": {"id": "sidebar_entry_id",
                         "order_idx": "sidebar_order_idx"},
     # Nullable here, NOT NULL in blocks.
-    "changes": {"page_id": "change_page_id"},
+    "changes": {"page_id": "change_page_id", "kind": "change_kind"},
     # NOT NULL here, nullable in pages, blocks and assets.
-    "block_rewrites": {"created_at": "rewrite_created_at"},
+    "block_rewrites": {"created_at": "rewrite_created_at",
+                       "kind": "rewrite_kind"},
     "sync_meta": {"key": "sync_meta_key", "value": "sync_meta_value"},
     # Client-only tables (web/src/replica/clientSchema.ts).
     "pending_ops": {"id": "pending_row_id", "error": "pending_error"},

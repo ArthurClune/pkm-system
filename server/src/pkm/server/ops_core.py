@@ -16,8 +16,8 @@ from typing import Literal, Union
 
 from pkm.contracts.ops import (UID_RE, BlockOp, BlockUid, CreateOp,
                                CreatePageOp, DeleteOp, MoveOp, OrderIdx,
-                               PageId, SetCollapsedOp, SetHeadingOp,
-                               SetViewTypeOp, UpdateTextOp, ViewType,
+                               PageId, RewriteKind, SetCollapsedOp,
+                               SetHeadingOp, SetViewTypeOp, UpdateTextOp, ViewType,
                                subtree_hash, text_hash)
 from pkm.contracts.responses import SkipReason, SkippedOp
 from pkm.refs import (CanonicalTitle, TitleSyntaxReason, extract,
@@ -79,8 +79,6 @@ def find_op_title_violation(
                     )
     return None
 
-
-RewriteKind = Literal["retitle", "unlink", "inline"]
 
 
 @dataclass(frozen=True)

@@ -33,6 +33,9 @@ ViewType = Literal["numbered", "document"]
 # means plain text. 1-3 only -- the editor offers no deeper levels.
 HeadingLevel = Literal[1, 2, 3]
 
+# What a block_rewrites row records; see the table in schema.py.
+RewriteKind = Literal["retitle", "unlink", "inline"]
+
 # Every BlockOp's `op` discriminator, widened back to a plain union for
 # contexts (SkippedOp.op) that report on an op without being one -- each
 # per-op class below still pins its own single-value Literal, which is

@@ -80,7 +80,7 @@ def _block_ref_counts(db: Db,
              GROUP BY target_block_uid""", uids)}
 
 
-def _resolve_ref_uids(db: Db, uids: Sequence[str]
+def _resolve_ref_uids(db: Db, uids: Sequence[BlockUid]
                       ) -> dict[BlockUid, BlockRefText]:
     """Resolve ((refs)) transitively: a referenced block's text may itself
     contain ((refs)) the client renders nested, so follow the chain. The
@@ -170,7 +170,7 @@ def _backlinks(db: Db, page_id: PageId,
 
 
 @router.get("/api/block-refs", response_model=BlockRefsPayload)
-def get_block_refs(uids: str,
+def get_block_refs(uids: str,  # brand: untrusted -- comma-separated query
                    db: Db = Depends(get_db)) -> BlockRefsPayload:
     """On-demand ((uid)) resolution for refs pasted after the page payload
     loaded. `uids` is comma-separated; unknown uids are omitted

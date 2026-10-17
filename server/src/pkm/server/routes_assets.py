@@ -190,7 +190,7 @@ def _delete_if_unreferenced(request: Request, sha: Sha256Hex,
 
 
 @router.delete("/api/assets/{sha256}")
-def delete_asset(request: Request, sha256: str,
+def delete_asset(request: Request, sha256: Sha256Hex,
                  if_unreferenced: bool = False,
                  db: Db = Depends(get_db),
                  config: Config = Depends(get_config)) -> AssetDeleteAck:
@@ -311,7 +311,7 @@ def export_assets(sha256s: list[str] = Form(default=[]),
 
 
 @router.get("/assets/{sha256}/{filename}")
-def get_asset(sha256: str, filename: str,
+def get_asset(sha256: Sha256Hex, filename: str,
               db: Db = Depends(get_db),
               config: Config = Depends(get_config)) -> FileResponse:
     if not SHA256_HEX_RE.fullmatch(sha256):

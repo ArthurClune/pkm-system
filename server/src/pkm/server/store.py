@@ -7,7 +7,8 @@ import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
 
 from pkm.contracts.daily import date_for_title
-from pkm.contracts.ops import BlockUid, PageId, SidebarEntryId, text_hash
+from pkm.contracts.ops import (BlockUid, PageId, SidebarEntryId,
+                               SidebarOrderIdx, SyncSeq, text_hash)
 from pkm.database import Db
 from pkm.refs import (CanonicalTitle, NormalizedTitle, extract,
                       is_blank_title, normalize_title, title_syntax_reason)
@@ -240,7 +241,7 @@ def rewrite_referencing_blocks(db: Db, page_id: PageId,
 
 
 def insert_sidebar_entry(db: Db, title: CanonicalTitle,
-                         order_idx: int) -> SidebarEntryId:
+                         order_idx: SidebarOrderIdx) -> SidebarEntryId:
     """The one way a sidebar entry's title is written on creation -- a typed
     choke point alongside `retitle_sidebar_entry` and `delete_page_rows`'s
     own sidebar_entries write, so a route can't bind a raw title here.
@@ -356,7 +357,7 @@ class DeleteBlockedError(Exception):
 def plan_delete(db: Db, page_id: PageId,
                 title: CanonicalTitle) -> DeletePlan:
     """What deleting this page would rewrite. Read-only."""
-    page_blocks: dict[str, str] = {
+    page_blocks: dict[BlockUid, str] = {
         row["uid"]: row["text"]
         for row in db.select(
             "SELECT uid, text FROM blocks WHERE page_id = ?", (page_id,))
@@ -418,8 +419,8 @@ def delete_page_unlinking(db: Db, page_id: PageId,
             "UPDATE blocks SET text = ?, updated_at = ? WHERE uid = ?",
             (new_text, now_ms, uid))
         _record_delete_rewrite(
-            db, BlockUid(uid), original, new_text, plan, title, now_ms)
-        reindex_refs_for_text(db, BlockUid(uid), new_text, now_ms)
+            db, uid, original, new_text, plan, title, now_ms)
+        reindex_refs_for_text(db, uid, new_text, now_ms)
     delete_page_rows(db, page_id, title)
     if date_for_title(title) is None:
         # After the delete, so the seq covers the journal rows it wrote.
@@ -433,7 +434,7 @@ def delete_page_unlinking(db: Db, page_id: PageId,
 
 
 def stale_titles(db: Db,
-                 seen_seq: int | None) -> frozenset[CanonicalTitle]:
+                 seen_seq: SyncSeq | None) -> frozenset[CanonicalTitle]:
     """Titles deleted after the journal position a batch was made against.
     None means the client did not say, so nothing is stale and no query
     runs. A seen_seq beyond the journal's head comes from a replaced

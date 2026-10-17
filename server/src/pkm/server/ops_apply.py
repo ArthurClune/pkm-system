@@ -90,7 +90,7 @@ def _hint_page_exists(db: Db, page_title: str | None) -> bool:
     return fetch_page(db, read_title(db, page_title)) is not None
 
 
-def _block_info(db: Db, uid: str) -> BlockInfo | None:
+def _block_info(db: Db, uid: BlockUid) -> BlockInfo | None:
     row = db.select_one(
         "SELECT uid, page_id, parent_uid FROM blocks WHERE uid = ?",
         (uid,))
@@ -100,7 +100,7 @@ def _block_info(db: Db, uid: str) -> BlockInfo | None:
 
 
 def _block_rewrites(db: Db,
-                    uid: str) -> tuple[BlockRewrite, ...]:
+                    uid: BlockUid) -> tuple[BlockRewrite, ...]:
     """Every recorded rename/merge/delete rewrite of this block, newest
     first -- the order `ops_core.replay_title_rewrites` walks the chain in."""
     rows = db.select(
@@ -113,7 +113,7 @@ def _block_rewrites(db: Db,
                  for row in rows)
 
 
-def _parent_chain(db: Db, uid: str) -> tuple[BlockUid, ...]:
+def _parent_chain(db: Db, uid: BlockUid) -> tuple[BlockUid, ...]:
     """uid and every ancestor above it, root last. Each block has exactly one
     parent, so this is a single path -- but a corrupted DB could already
     contain a cycle, so recursion is guarded by a visited-path check (`path`)
@@ -134,7 +134,7 @@ def _parent_chain(db: Db, uid: str) -> tuple[BlockUid, ...]:
 
 
 def _subtree_deepest_first(db: Db,
-                           uid: str) -> tuple[BlockUid, ...]:
+                           uid: BlockUid) -> tuple[BlockUid, ...]:
     """uid and every descendant, deepest first (children before parents, as
     DeleteBlocks and SetPageId both require). Same visited-path guard as
     _parent_chain: a proper tree can't revisit a uid, so the guard only ever
@@ -151,7 +151,7 @@ def _subtree_deepest_first(db: Db,
 
 
 def _subtree_rows(db: Db,
-                  uid: str) -> tuple[SubtreeRow, ...]:
+                  uid: BlockUid) -> tuple[SubtreeRow, ...]:
     """uid and every descendant with its parent, position and text, deepest
     first -- what a guarded delete hashes and, on a divergence, copies. The
     same recursive CTE and visited-path guard as _subtree_deepest_first, so
@@ -175,7 +175,7 @@ def _subtree_rows(db: Db,
                             r["text"]) for r in rows)
 
 
-def _conflict_header(db: Db, target_uid: str, day: str,
+def _conflict_header(db: Db, target_uid: BlockUid, day: str,
                      daily_page_id: PageId
                      ) -> tuple[BlockUid, OrderIdx] | None:
     """(header_uid, next child order_idx) of today's conflict header for
@@ -195,7 +195,7 @@ def _conflict_header(db: Db, target_uid: str, day: str,
     return row["header_uid"], next_idx["next_order_idx"]
 
 
-def _conflict_landing(db: Db, target_uid: str,
+def _conflict_landing(db: Db, target_uid: BlockUid,
                       now_ms: int,
                       exclude: Collection[str] = ()) -> ConflictLanding:
     """Where text that could not apply to target_uid lands: today's daily
@@ -241,7 +241,7 @@ def _existing_page_id(db: Db, title: str) -> PageId | None:
     return page["page_id"] if page is not None else None
 
 
-def _deleted_block_page(db: Db, uid: str) -> PageId | None:
+def _deleted_block_page(db: Db, uid: BlockUid) -> PageId | None:
     """The page a gone block was on, from its latest page-bearing tombstone
     in the journal: its delete row (schema.BLOCKS_CHG_AD_TRIGGER), or a
     diverted create's tombstone. A newest-first scan: the tombstone a skip

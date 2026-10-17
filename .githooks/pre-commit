@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-# Reject a commit whose staged source files carry comments that rot: bean
-# ids, line numbers, and spec or plan pointers that are not a path. The
-# whole staged copy of a touched file is judged, not only the added lines,
-# so an old violation is fixed the next time its file changes.
+# Reject a commit whose staged source files carry comments that rot (bean
+# ids, line numbers, spec or plan pointers that are not a path), lines past
+# the width limits, or server names that mean a brand without carrying it
+# (`uid: str`). The whole staged copy of a touched file is judged, not only
+# the added lines, so an old violation is fixed the next time its file
+# changes.
 #
-# Rules and tests: server/tooling/commentlint, server/tests/test_commentlint_*.py.
+# Rules and tests: server/tooling/commentlint and server/tooling/brandlint,
+# server/tests/test_commentlint_*.py, server/tests/test_brandlint_*.py.
 # Sweep the tree: PYTHONPATH=server/tooling python3 -m commentlint.run --all
 # Enable with: git config core.hooksPath .githooks
 import sys

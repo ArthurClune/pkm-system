@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Literal, cast
 from urllib.parse import quote
 
-from pkm.contracts.ops import Sha256Hex
+from pkm.contracts.ops import BlockUid, Sha256Hex
 from pkm.importer.assets import Asset
 from pkm.importer.parse_export import Block, Export, Page
 from pkm.importer.rows import Rows, to_rows
@@ -164,7 +164,7 @@ def _build_block_children(blocks: tuple[BlockSource, ...]) -> tuple[Block, ...]:
         if block.uid in built:
             return built[block.uid]
         result = Block(
-            uid=block.uid,
+            uid=BlockUid(block.uid),
             text=block.text,
             heading=block.heading,
             view_type=block.view_type,

@@ -115,6 +115,16 @@ SidebarOrderIdx = NewType("SidebarOrderIdx", int)
 brand(SidebarOrderIdx)
 
 
+# The changes-journal sequence number (`changes.seq`), distinct from a
+# plain int so a reset counter or a local lane seq can never pass as a
+# sync cursor. Minted only where a route reads MAX(seq) from the changes
+# table (routes_sync.py, routes_ops.py, sync_core.dedupe_window,
+# notify.seq_frame); the web's twin brand is `SyncSeq` in
+# web/src/api/brands.ts.
+SyncSeq = NewType("SyncSeq", int)
+brand(SyncSeq)
+
+
 class CreateOp(BaseModel):
     op: Literal["create"]
     uid: BlockUid
@@ -215,7 +225,7 @@ class OpBatch(BaseModel):
     ops: list[BlockOp] = Field(min_length=1, max_length=500)
     # The client's sync cursor when the batch's ops were built; absent means
     # built against current server state.
-    seen_seq: int | None = Field(default=None, ge=0)
+    seen_seq: SyncSeq | None = Field(default=None, ge=SyncSeq(0))
 
 
 def text_hash(text: str) -> Sha256Hex:

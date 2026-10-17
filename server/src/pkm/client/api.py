@@ -27,7 +27,7 @@ from pkm.client.core import (ApiError, CliConfig, ConfigError,
                              ResponseSchemaError, cookie_header,
                              friendly_error, parse_config, serialize_config,
                              validation_detail)
-from pkm.contracts.ops import BatchId, BlockOp, BlockUid, ClientId, OpBatch
+from pkm.contracts.ops import BatchId, BlockOp, BlockUid, ClientId, OpBatch, Sha256Hex
 from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      AssetUploadResponse, Backlinks,
                                      BlockNode, BlockPayload, ChangedPayload,
@@ -265,7 +265,7 @@ class PkmClient:
                 raise
             return [], True
 
-    def get_block(self, uid: str) -> BlockPayload:
+    def get_block(self, uid: BlockUid) -> BlockPayload:
         return self._request("GET", f"/api/block/{quote(uid, safe='')}",
                              BlockPayload)
 
@@ -316,7 +316,7 @@ class PkmClient:
                              TitleMigrationAuditPayload)
 
     def apply_title_migration(
-        self, audit_digest: str
+        self, audit_digest: Sha256Hex
     ) -> TitleMigrationApplyResponse:
         try:
             request = TitleMigrationApplyRequest(audit_digest=audit_digest)
@@ -354,7 +354,7 @@ class PkmClient:
         return self._request("GET", "/api/assets/search", AssetSearchPayload,
                              params={"q": q, "limit": limit})
 
-    def delete_asset(self, sha256: str) -> AssetDeleteAck:
+    def delete_asset(self, sha256: Sha256Hex) -> AssetDeleteAck:
         return self._request("DELETE", f"/api/assets/{sha256}",
                              AssetDeleteAck)
 

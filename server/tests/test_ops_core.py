@@ -1169,7 +1169,7 @@ def test_plan_stale_move_keeps_block_and_notes_it():
     assert plan_op(0, op, ctx) == (
         *conflict_entry_effects(
             BlockUid("uid_m0000001"), stale_page_move_note("X"),
-            live_block_header_text("Home", "uid_m0000001"), ctx.landing),
+            live_block_header_text("Home", BlockUid("uid_m0000001")), ctx.landing),
         JournalBlock(BlockUid("uid_m0000001"), False),
         JournalBlock(BlockUid("uid_kid"), False))
     assert not any(isinstance(e, JournalBlock) and e.deleted

@@ -40,7 +40,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-from pkm.contracts.ops import BlockOp, OpBatch
+from pkm.contracts.ops import BlockOp, OpBatch, SyncSeq
 from pkm.database import Db
 from pkm.refs import CanonicalTitle
 from pkm.server import ops_apply, sync_meta
@@ -220,7 +220,7 @@ _stale_teeth = {"empty": False}
 
 
 def _stale_titles_with_teeth(db: Db,
-                             seen_seq: int | None) -> frozenset[CanonicalTitle]:
+                             seen_seq: SyncSeq | None) -> frozenset[CanonicalTitle]:
     return frozenset() if _stale_teeth["empty"] else stale_titles(db, seen_seq)
 
 

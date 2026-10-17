@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from pkm.contracts.ops import text_hash
+from pkm.contracts.ops import BlockUid, text_hash
 from pkm.refs import extract, normalize_title
 from pkm.server.ops_core import BlockRewrite, replay_title_rewrites
 from pkm.unlink import (DeletePlan, SourceBlock, apply_delete_rewrite,
@@ -90,7 +90,7 @@ def stale_text(draw) -> str:
 def scenario(draw) -> tuple[dict[str, str], list[SourceBlock]]:
     count = draw(st.integers(0, 4))
     page_blocks = {uid: draw(block_text()) for uid in PAGE_UIDS[:count]}
-    sources = [SourceBlock(f"src_blk_0{n + 1}", draw(st.sampled_from(PAGES)),
+    sources = [SourceBlock(BlockUid(f"src_blk_0{n + 1}"), draw(st.sampled_from(PAGES)),
                            draw(block_text()))
                for n in range(draw(st.integers(1, 5)))]
     return page_blocks, sources
@@ -101,7 +101,7 @@ def _titles(text: str, *, skip_attribute: bool) -> set[tuple[str, str]]:
             if not (skip_attribute and r.kind == "attribute")}
 
 
-def _rows(original: str, new: str, uid: str, plan: DeletePlan
+def _rows(original: str, new: str, uid: BlockUid, plan: DeletePlan
           ) -> list[BlockRewrite]:
     """The rows `Store._record_delete_rewrite` writes for one rewrite."""
     base, after = text_hash(original), text_hash(new)

@@ -29,6 +29,7 @@ from pkm.refs import (
     tag_spans,
 )
 from pkm.todo import with_state
+from pkm.contracts.ops import BlockUid
 
 # Given a title as written, is it the deleted page.
 TitleMatch = Callable[[str], bool]
@@ -194,7 +195,7 @@ BlockerReason = Literal["query", "used_as_attribute", "attribute", "residual"]
 
 @dataclass(frozen=True)
 class DeleteBlocker:
-    uid: str
+    uid: BlockUid
     page_title: str
     text: str
     reason: BlockerReason
@@ -202,16 +203,16 @@ class DeleteBlocker:
 
 @dataclass(frozen=True)
 class SourceBlock:
-    uid: str
+    uid: BlockUid
     page_title: str
     text: str
 
 
 @dataclass(frozen=True)
 class DeletePlan:
-    rewrites: Mapping[str, str]
-    unlinked: frozenset[str]
-    inlined: Mapping[str, Mapping[str, str]]
+    rewrites: Mapping[BlockUid, str]
+    unlinked: frozenset[BlockUid]
+    inlined: Mapping[BlockUid, Mapping[str, str]]
     links: int
     link_pages: int
     block_refs: int
@@ -220,13 +221,13 @@ class DeletePlan:
 
 
 def _build_copies(
-    is_target: TitleMatch, page_blocks: Mapping[str, str]
-) -> dict[str, str]:
-    plain = {uid: plain_copy(text) for uid, text in page_blocks.items()}
-    blanks = {uid: "" for uid in page_blocks}
-    copies: dict[str, str] = {}
-    for uid, text in plain.items():
-        text = inline_block_refs(text, plain)
+    is_target: TitleMatch, page_blocks: Mapping[BlockUid, str]
+) -> dict[BlockUid, str]:
+    plain: dict[str, str] = {uid: plain_copy(text) for uid, text in page_blocks.items()}
+    blanks: dict[str, str] = {uid: "" for uid in page_blocks}
+    copies: dict[BlockUid, str] = {}
+    for uid in page_blocks:
+        text = inline_block_refs(plain[uid], plain)
         text = inline_block_refs(text, blanks)
         copies[uid] = unlink_title_refs(text, is_target)
     return copies
@@ -238,7 +239,7 @@ def _attribute_raw(text: str) -> str | None:
 
 
 def _still_refs_page(
-    is_target: TitleMatch, page_blocks: Mapping[str, str], rewritten: str,
+    is_target: TitleMatch, page_blocks: Mapping[BlockUid, str], rewritten: str,
 ) -> bool:
     parsed = extract(rewritten)
     return any(is_target(ref.title) for ref in parsed.refs) \
@@ -246,7 +247,7 @@ def _still_refs_page(
 
 
 def _blocker_reason(
-    is_target: TitleMatch, page_blocks: Mapping[str, str],
+    is_target: TitleMatch, page_blocks: Mapping[BlockUid, str],
     source: SourceBlock, rewritten: str,
 ) -> BlockerReason | None:
     clean = strip_code(source.text)
@@ -267,13 +268,15 @@ def _blocker_reason(
 
 def plan_page_delete(
     is_target: TitleMatch,
-    page_blocks: Mapping[str, str],
+    page_blocks: Mapping[BlockUid, str],
     sources: Sequence[SourceBlock],
 ) -> DeletePlan:
     copies = _build_copies(is_target, page_blocks)
-    rewrites: dict[str, str] = {}
-    unlinked: set[str] = set()
-    inlined: dict[str, Mapping[str, str]] = {}
+    # A block ref is matched as text, so the copies are looked up as such.
+    copy_by_ref: dict[str, str] = {**copies}
+    rewrites: dict[BlockUid, str] = {}
+    unlinked: set[BlockUid] = set()
+    inlined: dict[BlockUid, Mapping[str, str]] = {}
     blockers: list[DeleteBlocker] = []
     link_pages: set[str] = set()
     ref_pages: set[str] = set()
@@ -286,7 +289,8 @@ def plan_page_delete(
                if ref.kind != "attribute"):
             links += 1
             link_pages.add(source.page_title)
-        applied = {u: copies[u] for u in parsed.block_refs if u in copies}
+        applied = {u: copy_by_ref[u] for u in parsed.block_refs
+                   if u in copy_by_ref}
         if applied:
             block_refs += 1
             ref_pages.add(source.page_title)

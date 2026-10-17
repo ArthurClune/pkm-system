@@ -27,11 +27,13 @@ from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.sync_core import (ChangeRow, chunk_ids, dedupe_window,
                                     hydrate_in_order, missing_parent_uids,
-                                    tombstone_entities, tombstoned_ids)
+                                    tombstone_entities, tombstoned_page_ids, window_block_uids,
+                                    window_page_ids)
 from pkm.server.sync_meta import (
     database_generation,
     plain_space_title_canonicalization_active,
 )
+from pkm.contracts.ops import BlockUid, PageId
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -71,8 +73,8 @@ def client_diagnostics(body: ClientDiagnosticsRequest) -> OkAck:
 
 
 def _blocks_by_uid(db: Db,
-                   uids: Sequence[str]) -> dict[str, Row]:
-    out: dict[str, Row] = {}
+                   uids: Sequence[BlockUid]) -> dict[BlockUid, Row]:
+    out: dict[BlockUid, Row] = {}
     for chunk in chunk_ids(uids):
         marks = ",".join("?" * len(chunk))
         for row in db.select(
@@ -85,7 +87,7 @@ def _blocks_by_uid(db: Db,
 
 
 def _refs_by_block(db: Db,
-                   uids: list[str]) -> dict[str, list[SyncRef]]:
+                   uids: list[BlockUid]) -> dict[str, list[SyncRef]]:
     out: dict[str, list[SyncRef]] = {}
     for chunk in chunk_ids(uids):
         marks = ",".join("?" * len(chunk))
@@ -106,8 +108,8 @@ def _refs_by_block(db: Db,
 
 
 def _with_parent_closure(db: Db,
-                         block_rows: dict[str, Row]
-                         ) -> dict[str, Row]:
+                         block_rows: dict[BlockUid, Row]
+                         ) -> dict[BlockUid, Row]:
     """Extend block_rows with every ancestor block (parent, grandparent,
     ...) not already present, walking the parent_uid chain to a fixpoint
     via chunked queries: a window whose journal rows predate a
@@ -132,7 +134,7 @@ def _with_parent_closure(db: Db,
 
 
 def _block_payloads(db: Db,
-                    uids: Sequence[str]) -> tuple[list[SyncBlock], set[int]]:
+                    uids: Sequence[BlockUid]) -> tuple[list[SyncBlock], set[PageId]]:
     """Hydrate blocks + their refs, plus their transitive parent-block closure.
     Also return every page id a shipped block depends on: ref target pages
     (offline-editing-design.md §1 -- a window boundary can split a block+refs
@@ -150,7 +152,7 @@ def _block_payloads(db: Db,
     # old per-uid loop skipping the refs query for a missing block.
     refs_by_uid = _refs_by_block(db, list(block_rows))
     by_uid: dict[str, SyncBlock] = {}
-    dep_pages: set[int] = set()
+    dep_pages: set[PageId] = set()
     for uid, row in block_rows.items():
         refs = refs_by_uid.get(uid, [])
         dep_pages.update(r.target_page_id for r in refs)
@@ -170,12 +172,12 @@ def _block_payloads(db: Db,
 
 
 def _reused_page_dependents(db: Db,
-                            page_ids: list[int]) -> list[str]:
+                            page_ids: list[PageId]) -> list[BlockUid]:
     """Uids of the current blocks on any of `page_ids`, then of the blocks
     with a ref to one of them; deduped, first occurrence kept. A page id
     with no live row has neither (its blocks were deleted with it and the
     refs cascade removed the refs), so this returns nothing for it."""
-    uids: list[str] = []
+    uids: list[BlockUid] = []
     for chunk in chunk_ids(page_ids):
         marks = ",".join("?" * len(chunk))
         uids.extend(r["uid"] for r in db.select(
@@ -196,7 +198,7 @@ def _sync_page(row: Row) -> SyncPage:
                     updated_at=row["updated_at"])
 
 
-def _page_payloads(db: Db, ids: set[int]) -> list[SyncPage]:
+def _page_payloads(db: Db, ids: set[PageId]) -> list[SyncPage]:
     if not ids:
         return []
     ordered = sorted(ids)
@@ -262,7 +264,7 @@ def _sidebar_payloads(db: Db,
 
 
 @router.get("/api/sync/changes", response_model=ChangesPayload)
-def sync_changes(since: int = 0, limit: int = 1000,
+def sync_changes(since: SyncSeq = SyncSeq(0), limit: int = 1000,
                  pending: PendingIds = None,
                  db: Db = Depends(get_db)) -> ChangesPayload:
     """One window of the change journal after `since`, hydrated to current
@@ -295,11 +297,11 @@ def sync_changes(since: int = 0, limit: int = 1000,
             ChangeRow(seq=r["seq"], kind=r["change_kind"],
                       entity_id=r["entity_id"], deleted=r["deleted"])
             for r in rows])
-        block_uids = [e for k, e in win.entities if k == "block"]
-        page_ids = {int(e) for k, e in win.entities if k == "page"}
+        block_uids = window_block_uids(win)
+        page_ids = set(window_page_ids(win))
         sidebar_ids = [int(e) for k, e in win.entities if k == "sidebar"]
 
-        deleted_pages = [int(e) for e in tombstoned_ids(win, "page")]
+        deleted_pages = tombstoned_page_ids(win)
         pages_by_id: dict[int, SyncPage] = {}
         if deleted_pages:
             # The window's own page rows are fetched first only when it holds
@@ -338,7 +340,7 @@ def sync_changes(since: int = 0, limit: int = 1000,
         return ChangesPayload(
             generation=generation,
             plain_space_title_canonicalization=plain_space_active,
-            next_since=win.next_since if rows else SyncSeq(since),
+            next_since=win.next_since if rows else since,
             latest_seq=latest, pages=pages, blocks=blocks, sidebar=sidebar,
             tombstones=tombstones,
             applied_batches=_applied_batches(db, pending))

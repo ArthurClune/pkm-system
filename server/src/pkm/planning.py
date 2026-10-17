@@ -19,8 +19,9 @@ import re
 from collections.abc import Iterable, Iterator, Sequence
 from typing import Literal, cast
 
-from pkm.contracts.ops import (BlockOp, CreateOp, CreatePageOp, HeadingLevel,
-                               OrderIdx, SetHeadingOp, UpdateTextOp, text_hash)
+from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
+                               HeadingLevel, OrderIdx, SetHeadingOp,
+                               UpdateTextOp, text_hash)
 from pkm.contracts.responses import BlockNode, walk_blocks
 from pkm.todo import TaskMark, with_state
 
@@ -65,16 +66,16 @@ def order_idx_at_position(siblings: Sequence[tuple[str, OrderIdx]],
     return OrderIdx(0) if last is None else OrderIdx(last + 1)
 
 
-def parse_uid_spec(spec: str | None) -> str | None:
+def parse_uid_spec(spec: str | None) -> BlockUid | None:
     """The uid inside a `((uid))` parent spec, or None for anything else
     (no spec, a "## Heading", a malformed one). Callers that can see uids
     `resolve_parent` cannot -- blocks created earlier in the same batch --
     use this to recognize such a spec before resolving it against a page."""
     m = _UID_SPEC.match(spec) if spec else None
-    return m.group(1) if m else None
+    return BlockUid(m.group(1)) if m else None
 
 
-def find_block(blocks: Sequence[BlockNode], uid: str) -> BlockNode | None:
+def find_block(blocks: Sequence[BlockNode], uid: BlockUid) -> BlockNode | None:
     """The node with `uid` somewhere in `blocks`' tree, or None if `uid`
     isn't on this page. A `BlockNode` already nests its own children, so
     the node returned IS its full subtree -- there is no separate cutting
@@ -87,7 +88,7 @@ def find_block(blocks: Sequence[BlockNode], uid: str) -> BlockNode | None:
 
 def resolve_parent(
     blocks: Sequence[BlockNode], spec: str | None
-) -> tuple[str | None, tuple[HeadingLevel, str] | None]:
+) -> tuple[BlockUid | None, tuple[HeadingLevel, str] | None]:
     """Resolve a parent spec against a fetched page's blocks.
 
     Returns (parent_uid, heading_to_create). `heading_to_create` is
@@ -141,7 +142,7 @@ def split_heading(text: str) -> tuple[str, HeadingLevel | None]:
         else (text, None)
 
 
-def _create(uid: str, page: str, parent: str | None, idx: OrderIdx, text: str,
+def _create(uid: BlockUid, page: str, parent: str | None, idx: OrderIdx, text: str,
             heading: HeadingLevel | None = None) -> CreateOp:
     return CreateOp(op="create", uid=uid, page_title=page, parent_uid=parent,
                     order_idx=idx, text=text, heading=heading)
@@ -202,14 +203,14 @@ class Planner:
     fetched -- is the caller's job (see `_BatchCtx.resolve_parent`); this
     class only positions blocks."""
 
-    def __init__(self, uids: Iterator[str]) -> None:
+    def __init__(self, uids: Iterator[BlockUid]) -> None:
         self._uids = uids
         self._siblings: dict[SiblingKey, list[tuple[str, OrderIdx]]] = {}
         self._location: dict[str, SiblingKey] = {}
         self._seeded_pages: set[str] = set()
-        self._headings: dict[tuple[str, HeadingLevel, str], str] = {}
+        self._headings: dict[tuple[str, HeadingLevel, str], BlockUid] = {}
 
-    def next_uid(self) -> str:
+    def next_uid(self) -> BlockUid:
         return next(self._uids)
 
     # -- sibling model ----------------------------------------------------
@@ -250,7 +251,7 @@ class Planner:
             raise BuildError(f"parent block not on page: {parent}")
         return self._siblings[key]
 
-    def _land(self, key: SiblingKey, uid: str, idx: OrderIdx) -> None:
+    def _land(self, key: SiblingKey, uid: BlockUid, idx: OrderIdx) -> None:
         """`ShiftSiblings` then insert: every sibling already in `key`'s
         group at/after `idx` moves up by one, then `uid` lands at `idx`. A
         moving `uid` is never among those siblings -- the caller removes
@@ -263,7 +264,7 @@ class Planner:
         siblings.sort(key=lambda pair: pair[1])
         self._location[uid] = key
 
-    def _remove(self, uid: str) -> None:
+    def _remove(self, uid: BlockUid) -> None:
         """Drop `uid` from wherever the model last saw it -- a no-op if the
         model never did (its page was never fetched, or was fetched but
         this uid wasn't on it)."""
@@ -273,7 +274,7 @@ class Planner:
                                    if p[0] != uid]
 
     def heading(self, blocks: Sequence[BlockNode], page: str,
-               level: HeadingLevel, text: str) -> tuple[str, list[CreateOp]]:
+               level: HeadingLevel, text: str) -> tuple[BlockUid, list[CreateOp]]:
         """The uid of a page-top-level heading with `level` and `text`, plus
         the op creating it -- or no ops, if this run planned it already.
         Memoized per (page, level, text) so a "## Heading" parent spec
@@ -290,7 +291,7 @@ class Planner:
         self._land(_sibling_key(page, None), uid, idx)
         return uid, [_create(uid, page, None, idx, text, level)]
 
-    def _one(self, uid: str, page: str, parent: str | None, idx: OrderIdx,
+    def _one(self, uid: BlockUid, page: str, parent: str | None, idx: OrderIdx,
             text: str, todo: bool) -> CreateOp:
         """One create op at a decided (uid, position): heading marker split
         off the text, task marker applied when asked.
@@ -356,7 +357,7 @@ class Planner:
         return self._one(uid, page, parent, idx, text, todo)
 
     def move(self, blocks: Sequence[BlockNode], page: str,
-            parent: str | None, uid: str, position: int | None,
+            parent: str | None, uid: BlockUid, position: int | None,
             parent_off_page: bool = False) -> OrderIdx:
         """Mint the order key for moving `uid` to (page, parent), landing
         at `position` -- 0-based among the destination's children without
@@ -377,7 +378,7 @@ class Planner:
         self._land(_sibling_key(page, parent), uid, idx)
         return idx
 
-    def delete(self, uid: str) -> None:
+    def delete(self, uid: BlockUid) -> None:
         """Remove `uid` from the sibling model, wherever it currently sits
         -- a no-op if the model never saw it."""
         self._remove(uid)
@@ -385,7 +386,7 @@ class Planner:
 
 def plan_save(blocks: Sequence[BlockNode], page_title: str,
               parent_spec: str | None, text: str, todo: bool,
-              uids: Iterator[str]) -> list[CreateOp]:
+              uids: Iterator[BlockUid]) -> list[CreateOp]:
     """Plan the create ops for `pkm save`: an outline of `text` nested
     under `parent_spec` (page top level if None). A "## Heading" spec not
     yet on the page is created first, at page top level, so the whole save
@@ -412,7 +413,7 @@ class _NotGiven:
 _NOT_GIVEN = _NotGiven()
 
 
-def plan_update(uid: str, text: str, base_text: str | None = None,
+def plan_update(uid: BlockUid, text: str, base_text: str | None = None,
                 current_heading: HeadingLevel | None | _NotGiven = _NOT_GIVEN,
                 page_title: str | None = None
                 ) -> list[BlockOp]:
@@ -457,7 +458,7 @@ def plan_update(uid: str, text: str, base_text: str | None = None,
     return ops
 
 
-def plan_mark(uid: str, current_text: str, mark: TaskMark,
+def plan_mark(uid: BlockUid, current_text: str, mark: TaskMark,
              page_title: str | None = None) -> list[UpdateTextOp]:
     """Ops for a task-marker change (`pkm update -D`/`-T`, `update_block
     mark=`): `update_text` with the marker applied to `current_text`, plus

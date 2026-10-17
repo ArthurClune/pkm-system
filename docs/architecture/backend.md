@@ -799,9 +799,8 @@ consume the value afterward (`ShiftSiblings`, `SetParent`, `InsertBlock`,
 | Brand(s) | Declared in | Base |
 |---|---|---|
 | `Sha256Hex`, `ClientId`, `BatchId`, `BlockUid` | `contracts/ops.py` | `str` |
-| `PageId`, `SidebarEntryId` | `contracts/ops.py` | `int` |
+| `PageId`, `SidebarEntryId`, `SyncSeq` | `contracts/ops.py` | `int` |
 | `OrderIdx`, `SidebarOrderIdx` | `contracts/ops.py` | `int` |
-| `SyncSeq` | `contracts/responses.py` | `int` |
 | `ConversationId`, `ConfirmId` | `contracts/responses.py` | `str` |
 | `GoodlinksId` | `goodlinks.py` | `str` |
 | `NormalizedTitle` | `refs.py` | `str` |

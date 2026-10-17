@@ -21,7 +21,7 @@ from typing import Annotated, Literal, Union
 from pydantic import (BaseModel, ConfigDict, Field, TypeAdapter,
                       ValidationError, model_validator)
 
-from pkm.contracts.ops import (BlockOp, CreateOp, DeleteOp, MoveOp,
+from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, DeleteOp, MoveOp,
                                Sha256Hex, UpdateTextOp, subtree_hash)
 from pkm.contracts.responses import BlockNode, walk_blocks
 from pkm.planning import (BuildError, Planner, parse_uid_spec, plan_update,
@@ -44,7 +44,7 @@ def _nested_items(items: Sequence[NestedItem], depth: int = 0) -> list[tuple[int
     return out
 
 
-def _resolve_alias(spec: str | None, aliases: dict[str, str]) -> str | None:
+def _resolve_alias(spec: str | None, aliases: dict[str, BlockUid]) -> str | None:
     if isinstance(spec, str):
         m = _ALIAS_SPEC.match(spec)
         if m:
@@ -55,7 +55,7 @@ def _resolve_alias(spec: str | None, aliases: dict[str, str]) -> str | None:
     return spec
 
 
-def _alias_uid(value: str, aliases: dict[str, str]) -> str:
+def _alias_uid(value: BlockUid, aliases: dict[str, BlockUid]) -> BlockUid:
     m = _ALIAS_SPEC.match(value)
     if m:
         if m.group(1) not in aliases:
@@ -64,7 +64,7 @@ def _alias_uid(value: str, aliases: dict[str, str]) -> str:
     return value
 
 
-def _in_batch_uid(spec: str | None, created: set[str]) -> str | None:
+def _in_batch_uid(spec: str | None, created: set[BlockUid]) -> BlockUid | None:
     """The uid of a `((uid))` spec naming a block created earlier in this
     batch, else None. Those uids are on none of the fetched pages, so
     `resolve_parent` would reject the spec and `Planner` could not seed its
@@ -127,12 +127,12 @@ class OutlineParams(_Strict):
 
 
 class UpdateParams(_Strict):
-    uid: str = Field(min_length=1)
+    uid: BlockUid = Field(min_length=1)
     text: str
 
 
 class MoveParams(_Strict):
-    uid: str = Field(min_length=1)
+    uid: BlockUid = Field(min_length=1)
     page: str = Field(min_length=1)
     parent: str | None = None
     # See CreateParams.index -- same position, not order_idx, reasoning.
@@ -142,7 +142,7 @@ class MoveParams(_Strict):
 
 
 class DeleteParams(_Strict):
-    uid: str = Field(min_length=1)
+    uid: BlockUid = Field(min_length=1)
 
 
 class CreateCommand(_Strict):
@@ -242,12 +242,12 @@ def referenced_pages(commands: Sequence[BatchCommand]) -> list[str]:
     return seen
 
 
-def delete_uids(commands: Sequence[BatchCommand]) -> list[str]:
+def delete_uids(commands: Sequence[BatchCommand]) -> list[BlockUid]:
     """The uids a batch's `delete` commands name (first-seen order), so the
     shell knows which subtrees to fetch before planning. An `{{alias}}` is
     left out: it names a block this batch creates, which the server cannot
     have edited, so its delete needs no hash."""
-    seen: list[str] = []
+    seen: list[BlockUid] = []
     for cmd in commands:
         if isinstance(cmd, DeleteCommand):
             uid = cmd.params.uid
@@ -279,7 +279,7 @@ class _SubtreeModel:
                 nodes[c.uid] = (n.uid, c.text)
         return cls(root=node.uid, nodes=nodes)
 
-    def _drop(self, uid: str) -> None:
+    def _drop(self, uid: BlockUid) -> None:
         """Remove `uid` and every block below it."""
         doomed = {uid}
         grew = True
@@ -329,8 +329,8 @@ class _BatchCtx:
     subtree as the batch has changed it so far."""
     planner: Planner
     pages: PageBlocks
-    aliases: dict[str, str] = field(default_factory=dict)
-    created: set[str] = field(default_factory=set)
+    aliases: dict[str, BlockUid] = field(default_factory=dict)
+    created: set[BlockUid] = field(default_factory=set)
     subtrees: dict[str, _SubtreeModel] = field(default_factory=dict)
 
     def blocks(self, title: str) -> Sequence[BlockNode]:
@@ -434,7 +434,7 @@ def _batch_delete(cmd: DeleteCommand, ctx: _BatchCtx) -> list[DeleteOp]:
 
 
 def plan_batch(commands: Sequence[object], pages: PageBlocks,
-               uids: Iterator[str],
+               uids: Iterator[BlockUid],
                subtrees: Mapping[str, BlockNode | None] | None = None,
                ) -> list[BlockOp]:
     """Translate a batch of `{command, params}` items into one op list.

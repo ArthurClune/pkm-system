@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from pkm.contracts.ops import UID_RE
+from pkm.contracts.ops import BlockUid, UID_RE
 from pkm.importer.parse_export import Block, Export
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
 
@@ -21,13 +21,13 @@ class ImportStructureError(ValueError):
     """A deterministic refusal for a parsed export that is not a block tree."""
 
     reason: StructureReason
-    uid: str
+    uid: BlockUid
     locations: tuple[str, ...]
 
     def __init__(
         self,
         reason: StructureReason,
-        uid: str,
+        uid: BlockUid,
         locations: tuple[str, ...],
     ) -> None:
         self.reason = reason
@@ -39,7 +39,7 @@ class ImportStructureError(ValueError):
 
 def validate_export_structure(export: Export) -> None:
     """Reject duplicate UIDs and block instances reached by multiple paths."""
-    occurrences_by_uid: dict[str, list[tuple[str, int]]] = {}
+    occurrences_by_uid: dict[BlockUid, list[tuple[str, int]]] = {}
 
     def visit(block: Block, location: str) -> None:
         occurrences_by_uid.setdefault(block.uid, []).append((location, id(block)))
@@ -72,7 +72,7 @@ class InvalidUid:
     (RECOVERY_PAGE_TITLE for a block unreachable from any page -- the
     title it would land under if the import proceeded)."""
 
-    uid: str
+    uid: BlockUid
     page_title: str
 
 

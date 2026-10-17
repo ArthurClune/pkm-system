@@ -14,11 +14,11 @@ from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, Union
 
-from pkm.contracts.ops import (UID_RE, BlockOp, BlockUid, CreateOp,
-                               CreatePageOp, DeleteOp, MoveOp, OrderIdx,
-                               PageId, RewriteKind, SetCollapsedOp,
-                               SetHeadingOp, SetViewTypeOp, UpdateTextOp, ViewType,
-                               subtree_hash, text_hash)
+from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
+                               DeleteOp, MoveOp, OrderIdx, PageId,
+                               RewriteKind, SetCollapsedOp, SetHeadingOp,
+                               SetViewTypeOp, Sha256Hex, UID_RE, UpdateTextOp,
+                               ViewType, subtree_hash, text_hash)
 from pkm.contracts.responses import SkipReason, SkippedOp
 from pkm.refs import (CanonicalTitle, TitleSyntaxReason, extract,
                       normalize_title, title_syntax_reason)
@@ -89,8 +89,8 @@ class BlockRewrite:
     the planner as data. `kind` says what the titles mean: `retitle` is
     old_title -> new_title; `unlink` is a deleted page's title (new_title
     empty); `inline` is a target block uid and the text copied in its place."""
-    base_hash: str
-    after_hash: str
+    base_hash: Sha256Hex
+    after_hash: Sha256Hex
     old_title: str
     new_title: str
     kind: RewriteKind = "retitle"
@@ -99,8 +99,8 @@ class BlockRewrite:
 @dataclass
 class RewriteStep:
     """One pass over a block: what `replay_title_rewrites` consumes."""
-    base_hash: str
-    after_hash: str
+    base_hash: Sha256Hex
+    after_hash: Sha256Hex
     retitles: dict[str, str]
     unlinked: set[str]
     inlines: dict[str, str]
@@ -131,10 +131,10 @@ def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[RewriteStep]:
 
 def replay_title_rewrites(
     text: str,
-    base_hash: str,
+    base_hash: Sha256Hex,
     rewrites: Sequence[BlockRewrite],
     canonical: Callable[[str], str] = normalize_title,
-) -> tuple[str, str]:
+) -> tuple[str, Sha256Hex]:
     """Re-apply the renames this block already went through to an edit made
     before them, returning the edit's text and base hash as they would read
     had the device seen those renames first.
@@ -184,9 +184,9 @@ def _replay_step(text: str, step: RewriteStep,
 
 
 def _replay(
-    text: str, base_hash: str, rewrites: Sequence[BlockRewrite],
+    text: str, base_hash: Sha256Hex, rewrites: Sequence[BlockRewrite],
     canonical: Callable[[str], str],
-) -> tuple[str, str, tuple[RewriteStep, ...]]:
+) -> tuple[str, Sha256Hex, tuple[RewriteStep, ...]]:
     """`replay_title_rewrites`, also returning the steps it consumed in the
     order it walked them."""
     steps = _rewrite_steps(rewrites)
@@ -222,7 +222,7 @@ class TextEditOutcome:
 
 
 def classify_text_edit(
-    text: str, base_hash: str, current_text: str,
+    text: str, base_hash: Sha256Hex, current_text: str,
     rewrites: Sequence[BlockRewrite],
     canonical: Callable[[str], str] = normalize_title,
 ) -> TextEditOutcome:
@@ -412,7 +412,7 @@ class DeleteConflictContext:
     copy_uids: Mapping[BlockUid, BlockUid]
 
 
-def delete_diverged(base_subtree_hash: str, rows: Sequence[SubtreeRow]) -> bool:
+def delete_diverged(base_subtree_hash: Sha256Hex, rows: Sequence[SubtreeRow]) -> bool:
     """Whether the subtree's current (uid, text) pairs no longer hash to what
     the deleting device last saw -- offline-editing-design.md §1's canonical
     hash, order-independent so a reorder or re-parenting inside the subtree

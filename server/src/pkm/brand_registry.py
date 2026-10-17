@@ -106,8 +106,9 @@ TEST_SUPPORT: tuple[str, ...] = (
     "server/src/pkm/test_data/",
 )
 
-# Glob patterns for files the name rule skips: the HTTP boundary reads
-# untyped path and query params and narrows them in the handler body.
+# Glob patterns for files where a line may carry `# brand: untrusted --
+# <reason>`: the HTTP boundary reads route input that is not one value,
+# such as a comma-separated query param, and parses it in the handler.
 OPT_OUT_FILES: tuple[str, ...] = (
     "server/src/pkm/**/routes_*.py",
     "server/src/pkm/**/routes.py",

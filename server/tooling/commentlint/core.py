@@ -224,14 +224,18 @@ def _rules_broken(comment: str) -> list[str]:
     return broken
 
 
-def format_report(violations: list[Violation]) -> str:
-    """One line per site, then the remedy for each rule hit; empty when clean."""
+def format_report(violations: list[Violation], extra_rules: dict[str, str] | None = None) -> str:
+    """One line per site, then the remedy for each rule hit; empty when clean.
+    `extra_rules` are the remedies of other rule families sharing the report."""
     if not violations:
         return ""
+    rules = {**RULES, **(extra_rules or {})}
     sites = [f"{v.path}:{v.line}: {v.rule}: {v.text}" for v in violations]
-    remedies = [f"  {RULES[rule]}" for rule in RULES if any(v.rule == rule for v in violations)]
+    remedies = [f"  {rules[rule]}" for rule in rules if any(v.rule == rule for v in violations)]
     return "\n".join([
-        "pre-commit: comments must not carry what rots.",
+        "pre-commit: comments must not carry what rots" + (
+            ", and names must carry their brand." if any(v.rule in (extra_rules or {}) for v in violations)
+            else "."),
         *sites,
         "",
         *remedies,

@@ -6,11 +6,12 @@ from pkm.importer.preflight import (ImportStructureError, ImportUidError,
                                     validate_export_structure,
                                     validate_export_uids)
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
+from pkm.contracts.ops import BlockUid
 
 
 def _block(uid: str, children: tuple[Block, ...] = ()) -> Block:
     return Block(
-        uid=uid,
+        uid=BlockUid(uid),
         text=uid,
         heading=None,
         view_type=None,

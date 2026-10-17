@@ -10,6 +10,7 @@ from pkm.importer.titles import (
     sanitize_import_title,
 )
 from pkm.refs import extract
+from pkm.contracts.ops import BlockUid
 
 
 @pytest.mark.parametrize(
@@ -81,7 +82,7 @@ def _block(
     edited_at: int | None = None,
 ) -> Block:
     return Block(
-        uid=uid,
+        uid=BlockUid(uid),
         text=text,
         heading=heading,
         view_type=view_type,

@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING
 
 from pkm.export.markdown import rewrite_asset_links
 from pkm.refs import BLOCK_REF_TOKEN
+from pkm.contracts.ops import BlockUid
 
 if TYPE_CHECKING:
     from pkm.server.tree import TreeNode
@@ -44,7 +45,7 @@ _QUERY_PREFIX_RE = re.compile(r"\{\{(?:\[\[)?query(?:\]\])?:\s*")
 
 @dataclass(frozen=True)
 class QueryResultItem:
-    uid: str
+    uid: BlockUid
     text: str
 
 

@@ -1376,7 +1376,7 @@ export interface components {
          */
         DeleteBlockerModel: {
             /** Uid */
-            uid: string;
+            uid: Brands.BlockUid;
             /** Page Title */
             page_title: string;
             /** Text */
@@ -1631,7 +1631,7 @@ export interface components {
             /** Ops */
             ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"] | components["schemas"]["SetViewTypeOp"] | components["schemas"]["CreatePageOp"])[];
             /** Seen Seq */
-            seen_seq?: number | null;
+            seen_seq?: Brands.SyncSeq | null;
         };
         /**
          * OpsAck
@@ -2819,7 +2819,7 @@ export interface operations {
     sync_changes_api_sync_changes_get: {
         parameters: {
             query?: {
-                since?: number;
+                since?: Brands.SyncSeq;
                 limit?: number;
                 /** @description Batch ids the client still holds as pending. The response's applied_batches names those this payload already holds. */
                 pending?: string[] | null;
@@ -2926,7 +2926,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                sha256: string;
+                sha256: Brands.Sha256Hex;
             };
             cookie?: never;
         };
@@ -2990,7 +2990,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                sha256: string;
+                sha256: Brands.Sha256Hex;
                 filename: string;
             };
             cookie?: never;
@@ -3398,7 +3398,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                conversation_id: string;
+                conversation_id: Brands.ConversationId;
             };
             cookie?: never;
         };
@@ -3433,7 +3433,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                conversation_id: string;
+                conversation_id: Brands.ConversationId;
             };
             cookie?: never;
         };
@@ -3468,7 +3468,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                conversation_id: string;
+                conversation_id: Brands.ConversationId;
             };
             cookie?: never;
         };
@@ -3499,7 +3499,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                conversation_id: string;
+                conversation_id: Brands.ConversationId;
             };
             cookie?: never;
         };

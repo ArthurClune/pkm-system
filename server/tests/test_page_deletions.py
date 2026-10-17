@@ -10,6 +10,7 @@ from pkm.contracts.daily import title_for_date
 from pkm.database import connect
 from pkm.schema import DDL
 from pkm.server.store import stale_titles
+from pkm.contracts.ops import SyncSeq
 
 
 def _rows(config, sql, params=()):
@@ -76,7 +77,7 @@ def test_stale_titles():
                    [("A", 10), ("B", 20)])
     db.execute("INSERT INTO changes(seq, kind, entity_id) VALUES (25,'page','x')")
     assert stale_titles(db, None) == frozenset()
-    assert stale_titles(db, 10) == {"B"}
-    assert stale_titles(db, 9) == {"A", "B"}
-    assert stale_titles(db, 20) == frozenset()
-    assert stale_titles(db, 26) == {"A", "B"}
+    assert stale_titles(db, SyncSeq(10)) == {"B"}
+    assert stale_titles(db, SyncSeq(9)) == {"A", "B"}
+    assert stale_titles(db, SyncSeq(20)) == frozenset()
+    assert stale_titles(db, SyncSeq(26)) == {"A", "B"}

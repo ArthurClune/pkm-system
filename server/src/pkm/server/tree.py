@@ -67,12 +67,12 @@ def find_node(nodes: Sequence[TreeNode], uid: BlockUid) -> TreeNode | None:
     return None
 
 
-def collect_block_ref_uids(texts: Iterable[str]) -> list[str]:
+def collect_block_ref_uids(texts: Iterable[str]) -> list[BlockUid]:
     seen: set[str] = set()
-    out: list[str] = []
+    out: list[BlockUid] = []
     for text in texts:
         for uid in extract(text).block_refs:
             if uid not in seen:
                 seen.add(uid)
-                out.append(uid)
+                out.append(BlockUid(uid))  # BLOCK_REF_TOKEN is UID_RE's shape
     return out

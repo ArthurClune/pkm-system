@@ -10,6 +10,7 @@ from rawread import read
 from pkm.server.db import open_db
 from pkm.server.routes_sync import sync_changes, sync_snapshot
 from pkm.server.sync_core import CHUNK_SIZE
+from pkm.contracts.ops import SyncSeq
 
 # spans 3 chunks so chunking (not just "fits in one query") is exercised
 BULK_N = CHUNK_SIZE * 2 + 200
@@ -43,7 +44,7 @@ def test_changes_feed_query_count_bounded_by_chunks_not_entities(seeded_config):
     _seed_bulk(con, BULK_N)
 
     payload, queries = _traced(
-        con, lambda: sync_changes(since=0, limit=5000, db=con))
+        con, lambda: sync_changes(since=SyncSeq(0), limit=5000, db=con))
 
     assert len(payload.blocks) == read(con,
         "SELECT count(*) FROM blocks").fetchone()[0]

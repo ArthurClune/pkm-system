@@ -3,7 +3,7 @@
 for import and single-entry appends, and validating full-list reorders."""
 from __future__ import annotations
 
-from pkm.contracts.ops import SidebarEntryId
+from pkm.contracts.ops import SidebarEntryId, SidebarOrderIdx
 
 
 def missing_entry_rows(existing_titles: set[str], desired_titles: tuple[str, ...],
@@ -18,9 +18,9 @@ def missing_entry_rows(existing_titles: set[str], desired_titles: tuple[str, ...
     return rows
 
 
-def next_order_idx(existing_order_idxs: list[int]) -> int:
+def next_order_idx(existing_order_idxs: list[SidebarOrderIdx]) -> SidebarOrderIdx:
     """order_idx for a newly-appended entry: one past the current max."""
-    return max(existing_order_idxs, default=-1) + 1
+    return SidebarOrderIdx(max(existing_order_idxs, default=-1) + 1)
 
 
 def reorder_is_valid(existing_ids: set[SidebarEntryId],

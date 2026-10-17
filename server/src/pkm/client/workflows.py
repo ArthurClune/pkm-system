@@ -25,14 +25,14 @@ from pkm.batch import (BatchCommand, delete_uids, plan_batch,
 from pkm.client.api import PkmClient, new_uid
 from pkm.client.core import ApiError
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import BatchId, BlockOp, CreateOp
+from pkm.contracts.ops import BatchId, BlockOp, BlockUid, CreateOp
 from pkm.contracts.responses import BlockNode, OpsAck
 from pkm.planning import (asset_block_text, create_page_ops, find_block,
                           plan_mark, plan_save, plan_update, resolve_parent)
 from pkm.todo import TaskMark
 
 
-def _uids() -> Iterator[str]:
+def _uids() -> Iterator[BlockUid]:
     return iter(new_uid, None)
 
 
@@ -51,7 +51,7 @@ def default_page_title(page: str | None) -> str:
 class LinkedUpload:
     """An asset that landed AND is linked from a block."""
     url: str
-    uid: str
+    uid: BlockUid
 
 
 def save_blocks(client: PkmClient, text: str, page: str | None = None,
@@ -72,7 +72,7 @@ def save_blocks(client: PkmClient, text: str, page: str | None = None,
     return save_ops
 
 
-def edit_block(client: PkmClient, uid: str, text: str | None = None,
+def edit_block(client: PkmClient, uid: BlockUid, text: str | None = None,
                mark: TaskMark | None = None) -> None:
     """Replace a block's text, or set its task marker. Exactly one of
     `text`/`mark`.

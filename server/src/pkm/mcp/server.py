@@ -21,6 +21,7 @@ from pkm.render import (render_assets, render_backlinks, render_block,
                         render_changed, render_groups, render_ops_ack,
                         render_page,
                         render_search)
+from pkm.contracts.ops import BlockUid
 
 mcp = FastMCP("pkm")
 
@@ -44,7 +45,7 @@ def get_page(title: str, resolve_refs: bool = False) -> str:
                        resolve_refs=resolve_refs)
 
 
-def get_block(uid: str, resolve_refs: bool = False) -> str:
+def get_block(uid: BlockUid, resolve_refs: bool = False) -> str:
     """Fetch one block's subtree (with its page and breadcrumb context)
     as markdown with ^uid markers. resolve_refs=True inlines ((uid)) block
     refs as '"referenced text" ((uid))'."""
@@ -109,7 +110,7 @@ def save_note(text: str, page: str | None = None,
     return "\n".join(f"created ^{op.uid}" for op in save_ops)
 
 
-def update_block(uid: str, text: str | None = None,
+def update_block(uid: BlockUid, text: str | None = None,
                  mark: TaskMark | None = None) -> str:
     """Replace a block's text, or set its task marker (mark='TODO' or
     'DONE'). Provide exactly one of text/mark. A `text` beginning '# ',

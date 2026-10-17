@@ -20,6 +20,7 @@ from pkm.importer.mermaid import convert_to_fence
 from pkm.importer.mermaid_preservation import plan_mermaid_preservation
 from pkm.importer.parse_export import Block, Export
 from pkm.refs import extract
+from pkm.contracts.ops import BlockUid, OrderIdx
 
 # Deterministic landing page for block subtrees the export left unreachable
 # from any page (see Export.orphan_blocks): rather than silently dropping
@@ -136,7 +137,7 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
     for p in export.pages:  # register explicit pages first, with timestamps
         page_id(p.title, p.created_at, p.edited_at)
 
-    def walk(b: Block, pid: int, parent_uid: str | None, order_idx: int) -> None:
+    def walk(b: Block, pid: int, parent_uid: BlockUid | None, order_idx: OrderIdx) -> None:
         candidate = mermaid_candidates.get(b.uid)
         fence = (
             candidate[0]
@@ -157,12 +158,12 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
         counts["embed"] += parsed.embeds
         if fence is None:  # children consumed into the fence otherwise
             for i, child in enumerate(b.children):
-                walk(child, pid, b.uid, i)
+                walk(child, pid, b.uid, OrderIdx(i))
 
     for p in export.pages:
         pid = page_ids[p.title]
         for i, child in enumerate(p.children):
-            walk(child, pid, None, i)
+            walk(child, pid, None, OrderIdx(i))
 
     recovery_page_title = None
     if export.orphan_blocks:
@@ -173,7 +174,7 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
             n += 1
         recovery_pid = page_id(recovery_page_title)
         for i, orphan in enumerate(export.orphan_blocks):
-            walk(orphan, recovery_pid, None, i)
+            walk(orphan, recovery_pid, None, OrderIdx(i))
 
     implicit_page_count = (
         len(pages) - explicit - (1 if recovery_page_title is not None else 0)

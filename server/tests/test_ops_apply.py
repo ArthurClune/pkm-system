@@ -331,11 +331,11 @@ def test_parent_chain_and_subtree_terminate_on_preexisting_cycle(db):
     db.commit()
     expected = {"cycle0", "cycle1", "cycle2", "cycle3", "cycle4"}
 
-    chain = _parent_chain(db, "cycle4")
+    chain = _parent_chain(db, BlockUid("cycle4"))
     assert set(chain) == expected
     assert len(chain) == len(expected)          # no duplicate re-walks
 
-    subtree = _subtree_deepest_first(db, "cycle0")
+    subtree = _subtree_deepest_first(db, BlockUid("cycle0"))
     assert set(subtree) == expected
     assert len(subtree) == len(expected)
 
@@ -351,7 +351,7 @@ def test_subtree_rows_is_deepest_first_with_columns(db):
          "parent_uid": "uid_b3", "order_idx": 0, "text": "grandchild"},
     ), NOW)
     db.commit()
-    rows = _subtree_rows(db, "uid_b2")
+    rows = _subtree_rows(db, BlockUid("uid_b2"))
     assert rows[0] == SubtreeRow(BlockUid("rows_g1"), BlockUid("uid_b3"), OrderIdx(0),
                                  "grandchild")
     assert set(rows[1:3]) == {
@@ -361,8 +361,8 @@ def test_subtree_rows_is_deepest_first_with_columns(db):
                    "second child")}
     assert rows[3] == SubtreeRow(BlockUid("uid_b2"), None, OrderIdx(1), "Papers")
     assert (sorted(r.uid for r in rows)
-            == sorted(_subtree_deepest_first(db, "uid_b2")))
-    assert _subtree_rows(db, "no_such_uid") == ()
+            == sorted(_subtree_deepest_first(db, BlockUid("uid_b2"))))
+    assert _subtree_rows(db, BlockUid("no_such_uid")) == ()
 
 
 def test_subtree_rows_terminates_on_preexisting_cycle(db):
@@ -371,7 +371,7 @@ def test_subtree_rows_terminates_on_preexisting_cycle(db):
     db.commit()
     db.execute("UPDATE blocks SET parent_uid = 'cycrow4' WHERE uid = 'cycrow0'")
     db.commit()
-    rows = _subtree_rows(db, "cycrow0")
+    rows = _subtree_rows(db, BlockUid("cycrow0"))
     assert sorted(r.uid for r in rows) == [f"cycrow{i}" for i in range(5)]
 
 

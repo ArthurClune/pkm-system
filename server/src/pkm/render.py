@@ -53,7 +53,7 @@ def resolve_ref_texts(text: str, ref_map: RefMap,
     return _REF_TOKEN.sub(_sub, text)
 
 
-def _line(text: str, heading: int | None, depth: int, uid: str,
+def _line(text: str, heading: int | None, depth: int, uid: BlockUid,
           include_uids: bool) -> str:
     body = f"{'#' * heading} {text}" if heading else text
     suffix = f"  ^{uid}" if include_uids else ""

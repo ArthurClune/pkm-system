@@ -11,6 +11,7 @@ from fake_describer import (
 from rawread import read
 from pkm.describe.service import DescribeService
 from pkm.server.db import open_db
+from pkm.contracts.ops import Sha256Hex
 
 
 def _insert_asset(config, sha, mime="image/png", size=None,
@@ -101,11 +102,11 @@ def test_worker_records_missing_file(seeded_config):
 
 def test_maybe_enqueue_ignores_ineligible_and_disabled(seeded_config):
     service = DescribeService(seeded_config, FakeDescriber(), None)
-    service.maybe_enqueue(SHA_A, "text/csv", 10)      # ineligible mime
+    service.maybe_enqueue(Sha256Hex(SHA_A), "text/csv", 10)      # ineligible mime
     assert service._queue.qsize() == 0
     disabled = DescribeService(seeded_config, None, "OPENAI_API_KEY is not set")
     assert disabled.enabled is False
-    disabled.maybe_enqueue(SHA_A, "image/png", 10)    # disabled: no-op
+    disabled.maybe_enqueue(Sha256Hex(SHA_A), "image/png", 10)    # disabled: no-op
     assert disabled._queue.qsize() == 0
     disabled.start()                                   # no worker when disabled
     assert disabled._task is None
@@ -182,7 +183,7 @@ def test_close_cancels_worker_before_closing_describer(seeded_config):
 
     async def run():
         service.start()
-        service.maybe_enqueue(SHA_A, "image/png", len(PNG))
+        service.maybe_enqueue(Sha256Hex(SHA_A), "image/png", len(PNG))
         await asyncio.to_thread(fake.started.wait, 5)
         await service.close()
 
@@ -241,9 +242,9 @@ def test_maybe_enqueue_dedupes_while_in_flight(seeded_config):
 
     async def run():
         service.start()
-        service.maybe_enqueue(SHA_A, "image/png", len(PNG))
+        service.maybe_enqueue(Sha256Hex(SHA_A), "image/png", len(PNG))
         await asyncio.to_thread(fake.started.wait, 5)  # now genuinely in-flight
-        service.maybe_enqueue(SHA_A, "image/png", len(PNG))  # duplicate
+        service.maybe_enqueue(Sha256Hex(SHA_A), "image/png", len(PNG))  # duplicate
         assert service._queue.qsize() == 0  # not re-queued while active
         fake.release.set()
         await asyncio.wait_for(service.drain(), timeout=5)
@@ -256,7 +257,7 @@ def test_maybe_enqueue_dedupes_while_in_flight(seeded_config):
 
     # finally-cleanup: once the attempt has finished, the sha is no longer
     # blocked, so a later retry is allowed through again.
-    service.maybe_enqueue(SHA_A, "image/png", len(PNG))
+    service.maybe_enqueue(Sha256Hex(SHA_A), "image/png", len(PNG))
     assert service._queue.qsize() == 1
 
 
@@ -281,8 +282,8 @@ def test_worker_survives_unexpected_exception(seeded_config):
 
     async def run():
         service.start()
-        service.maybe_enqueue(SHA_A, "image/png", len(PNG))
-        service.maybe_enqueue(SHA_B, "image/png", len(PNG))
+        service.maybe_enqueue(Sha256Hex(SHA_A), "image/png", len(PNG))
+        service.maybe_enqueue(Sha256Hex(SHA_B), "image/png", len(PNG))
         await asyncio.wait_for(service.drain(), timeout=5)
         assert service._task is not None and not service._task.done()  # worker survived the crash
         await service.close()

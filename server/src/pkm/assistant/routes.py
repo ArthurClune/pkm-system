@@ -221,12 +221,12 @@ async def create_conversation(
 
 @router.post("/api/assistant/conversations/{conversation_id}/messages")
 async def send_message(
-    conversation_id: str,
+    conversation_id: ConversationId,
     body: SendMessageRequest,
     service: AssistantService = Depends(get_service),
 ) -> StreamingResponse:
     try:
-        stream = service.send(ConversationId(conversation_id), body.text)
+        stream = service.send(conversation_id, body.text)
     except UnknownConversationError as exc:
         raise HTTPException(status_code=404, detail="unknown conversation") from exc
     except BusyError as exc:
@@ -241,21 +241,21 @@ async def send_message(
 
 @router.post("/api/assistant/conversations/{conversation_id}/confirm", response_model=AssistantAck)
 async def confirm_tool(
-    conversation_id: str,
+    conversation_id: ConversationId,
     body: ConfirmRequestBody,
     service: AssistantService = Depends(get_service),
 ) -> AssistantAck:
     try:
-        service.confirm(ConversationId(conversation_id), body.confirm_id, body.allow)
+        service.confirm(conversation_id, body.confirm_id, body.allow)
     except UnknownConversationError as exc:
         raise HTTPException(status_code=404, detail="unknown conversation") from exc
     return AssistantAck(ok=True)
 
 
 async def delete_conversation(
-    conversation_id: str, service: AssistantService = Depends(get_service)
+    conversation_id: ConversationId, service: AssistantService = Depends(get_service)
 ) -> AssistantAck:
-    await service.delete(ConversationId(conversation_id))
+    await service.delete(conversation_id)
     return AssistantAck(ok=True)
 
 

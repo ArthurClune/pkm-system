@@ -21,7 +21,7 @@ from pkm.changed import ChangeStatus
 from pkm.contracts.brands import brand
 from pkm.contracts.ops import (BatchId, BlockUid, HeadingLevel, OpKind, OrderIdx,
                                PageId, Sha256Hex, SidebarEntryId,
-                               SidebarOrderIdx, ViewType)
+                               SidebarOrderIdx, SyncSeq, ViewType)
 from pkm.goodlinks import GoodlinksId
 from pkm.refs import CanonicalTitle, RefKind
 
@@ -130,7 +130,7 @@ class DeleteBlockerModel(BaseModel):
     change the block's leading `Name::` attribute (as for `[[page]]:: v`),
     turning it into a property block. `residual`: the rewritten text would
     still reference the page or one of its blocks."""
-    uid: str
+    uid: BlockUid
     page_title: str
     text: str
     reason: Literal["query", "used_as_attribute", "attribute", "residual"]
@@ -392,16 +392,6 @@ class SyncSidebarEntry(BaseModel):
     id: SidebarEntryId
     title: CanonicalTitle
     order_idx: SidebarOrderIdx
-
-
-# The changes-journal sequence number (`changes.seq`), distinct from a
-# plain int so a reset counter or a local lane seq can never pass as a
-# sync cursor. Minted only where a route reads MAX(seq) from the changes
-# table (routes_sync.py, routes_ops.py, sync_core.dedupe_window,
-# notify.seq_frame); the web's twin brand is `SyncSeq` in
-# web/src/api/brands.ts.
-SyncSeq = NewType("SyncSeq", int)
-brand(SyncSeq)
 
 
 # Matches the changes table's CHECK(kind IN (...)) in schema.py.

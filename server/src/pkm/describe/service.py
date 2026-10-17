@@ -16,6 +16,7 @@ from pkm.database import Db
 from pkm.describe.core import describe_action
 from pkm.server.config import Config
 from pkm.server.db import open_db
+from pkm.contracts.ops import Sha256Hex
 
 log = logging.getLogger("pkm.describe")
 
@@ -126,7 +127,7 @@ class DescribeService:
             if self._describer is not None:
                 await self._describer.close()
 
-    def maybe_enqueue(self, sha256: str, mime: str, size: int) -> None:
+    def maybe_enqueue(self, sha256: Sha256Hex, mime: str, size: int) -> None:
         """Fire-and-forget enqueue on upload; no-op when disabled, the mime
         can never be described (oversized still enqueues so the failure is
         recorded honestly), or the sha is already queued/in-flight."""
@@ -148,7 +149,7 @@ class DescribeService:
                 queued += 1
         return queued
 
-    def _enqueue_if_eligible(self, sha256: str, mime: str, size: int) -> bool:
+    def _enqueue_if_eligible(self, sha256: Sha256Hex, mime: str, size: int) -> bool:
         """Shared enqueue ritual for `maybe_enqueue` and `scan`: skip a mime
         that can never be described, and skip a sha already queued or
         mid-attempt so a repeat call never double-queues it.

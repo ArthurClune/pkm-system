@@ -4,7 +4,7 @@ import pytest
 
 from pkm.batch import (delete_uids, plan_batch, referenced_pages,
                        validate_batch)
-from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
+from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                OrderIdx, SetHeadingOp, UpdateTextOp,
                                subtree_hash, text_hash)
 from pkm.contracts.responses import BlockNode, PagePayload
@@ -45,7 +45,7 @@ BLOCKS_WITH_GAP = [
 
 
 def uid_gen():
-    return (f"gen_uid_{i}" for i in itertools.count())
+    return (BlockUid(f"gen_uid_{i}") for i in itertools.count())
 
 
 def as_create(op) -> CreateOp:
@@ -963,19 +963,19 @@ def test_render_then_save_round_trips_a_heading():
 
 
 def test_plan_update_sets_heading_from_text():
-    assert plan_update("u3", "## Overview", "old text") == [
+    assert plan_update(BlockUid("u3"), "## Overview", "old text") == [
         UpdateTextOp(op="update_text", uid="u3", text="Overview",
                      base_text_hash=text_hash("old text")),
         SetHeadingOp(op="set_heading", uid="u3", heading=2)]
 
 
 def test_plan_update_clears_heading_for_plain_text():
-    ops = plan_update("u3", "Overview", "old text")
+    ops = plan_update(BlockUid("u3"), "Overview", "old text")
     assert ops[1] == SetHeadingOp(op="set_heading", uid="u3", heading=None)
 
 
 def test_plan_update_without_base_text_has_no_hash_guard():
-    ops = plan_update("u3", "edited")
+    ops = plan_update(BlockUid("u3"), "edited")
     assert ops[0] == UpdateTextOp(op="update_text", uid="u3", text="edited")
 
 
@@ -983,31 +983,31 @@ def test_plan_update_same_plain_text_emits_a_single_op():
     # current_heading=None is a real, meaningful level (plain text), not
     # "unknown" -- the guarded path must still skip set_heading when it
     # matches the new level.
-    ops = plan_update("u3", "same text", "same text", current_heading=None)
+    ops = plan_update(BlockUid("u3"), "same text", "same text", current_heading=None)
     assert ops == [UpdateTextOp(op="update_text", uid="u3", text="same text",
                                 base_text_hash=text_hash("same text"))]
 
 
 def test_plan_update_same_heading_level_emits_a_single_op():
-    ops = plan_update("u3", "## Overview", "old text", current_heading=2)
+    ops = plan_update(BlockUid("u3"), "## Overview", "old text", current_heading=2)
     assert ops == [UpdateTextOp(op="update_text", uid="u3", text="Overview",
                                 base_text_hash=text_hash("old text"))]
 
 
 def test_plan_update_changing_level_still_sets_heading():
-    ops = plan_update("u3", "## Overview", "old text", current_heading=1)
+    ops = plan_update(BlockUid("u3"), "## Overview", "old text", current_heading=1)
     assert ops[1] == SetHeadingOp(op="set_heading", uid="u3", heading=2)
 
 
 def test_plan_update_clearing_heading_still_sets_heading():
-    ops = plan_update("u3", "Overview", "old text", current_heading=2)
+    ops = plan_update(BlockUid("u3"), "Overview", "old text", current_heading=2)
     assert ops[1] == SetHeadingOp(op="set_heading", uid="u3", heading=None)
 
 
 def test_plan_update_batch_path_omits_current_heading_stays_unconditional():
     # No current_heading passed (the batch path) -- always both ops, even
     # when the text has no heading change at all.
-    ops = plan_update("u3", "same text", "same text")
+    ops = plan_update(BlockUid("u3"), "same text", "same text")
     assert ops == [
         UpdateTextOp(op="update_text", uid="u3", text="same text",
                      base_text_hash=text_hash("same text")),
@@ -1018,14 +1018,14 @@ def test_plan_mark_applies_marker_and_hash_guard_no_heading_op():
     # A bare update_text with the task marker applied plus a base_text_hash
     # guard -- and deliberately no set_heading, since `current_text` is
     # already bare (the heading level lives in its own column).
-    ops = plan_mark("u3", "buy milk", "TODO")
+    ops = plan_mark(BlockUid("u3"), "buy milk", "TODO")
     assert ops == [
         UpdateTextOp(op="update_text", uid="u3", text="{{TODO}} buy milk",
                      base_text_hash=text_hash("buy milk"))]
 
 
 def test_plan_mark_done_toggles_existing_marker():
-    ops = plan_mark("u3", "{{TODO}} buy milk", "DONE")
+    ops = plan_mark(BlockUid("u3"), "{{TODO}} buy milk", "DONE")
     assert ops == [
         UpdateTextOp(op="update_text", uid="u3", text="{{DONE}} buy milk",
                      base_text_hash=text_hash("{{TODO}} buy milk"))]
@@ -1034,18 +1034,18 @@ def test_plan_mark_done_toggles_existing_marker():
 def test_plan_mark_never_emits_set_heading():
     # Even when current_text looks like it has hashes, plan_mark must not
     # interpret them as a heading marker -- it never splits the text at all.
-    ops = plan_mark("u3", "## Overview", "TODO")
+    ops = plan_mark(BlockUid("u3"), "## Overview", "TODO")
     assert all(op.op != "set_heading" for op in ops)
     assert ops[0].text == "{{TODO}} ## Overview"
 
 
 def test_plan_update_carries_page_title_hint():
-    ops = plan_update("uid_a1", "x", "y", None, page_title="AI")
+    ops = plan_update(BlockUid("uid_a1"), "x", "y", None, page_title="AI")
     assert ops == [UpdateTextOp(op="update_text", uid="uid_a1", text="x",
                                 base_text_hash=text_hash("y"),
                                 page_title="AI")]
 
 
 def test_plan_mark_carries_page_title_hint():
-    ops = plan_mark("u3", "buy milk", "TODO", page_title="AI")
+    ops = plan_mark(BlockUid("u3"), "buy milk", "TODO", page_title="AI")
     assert ops[0].page_title == "AI"

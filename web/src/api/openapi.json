@@ -1115,6 +1115,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "x-brand": "SyncSeq",
               "default": 0,
               "title": "Since"
             }
@@ -1371,6 +1372,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "Sha256Hex",
               "title": "Sha256"
             }
           },
@@ -1456,6 +1458,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "Sha256Hex",
               "title": "Sha256"
             }
           },
@@ -1913,6 +1916,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "ConversationId",
               "title": "Conversation Id"
             }
           }
@@ -1960,6 +1964,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "ConversationId",
               "title": "Conversation Id"
             }
           }
@@ -2009,6 +2014,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "ConversationId",
               "title": "Conversation Id"
             }
           }
@@ -2046,6 +2052,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "ConversationId",
               "title": "Conversation Id"
             }
           }
@@ -3169,7 +3176,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "title": "Uid"
+            "title": "Uid",
+            "x-brand": "BlockUid"
           },
           "page_title": {
             "type": "string",
@@ -3814,7 +3822,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "minimum": 0.0
+                "minimum": 0.0,
+                "x-brand": "SyncSeq"
               },
               {
                 "type": "null"

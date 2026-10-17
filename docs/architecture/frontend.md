@@ -42,7 +42,8 @@ web/src/
 ├── useRouteTitle.ts          Shell        The one route-aware document.title effect
 ├── blockStampsPref.ts        Core         Block-timestamps preference: key, guard, toggle
 ├── useBlockStampsPref.ts     Shell        Owns the single instance behind BlockStampsContext
-├── uid.ts / uidCore.ts       Shell/Core   uid minting; the alphanumeric-first rule
+├── uid.ts / uidCore.ts       Shell/Core   uid minting (block uid, ClientId, BatchId); the
+│                                          alphanumeric-first rule
 ├── theme.ts / useTheme.ts    Core/Shell   Theme cycle; data-theme stamping
 ├── useEffectiveTheme.ts      Shell        Resolved theme read from the DOM (data-theme
 │                                          MutationObserver + media query); one shared
@@ -156,6 +157,8 @@ web/src/
 │   │                                      isFreshCorruption; PullStarvedError
 │   ├── opsAck.ts             Core         Reads the /api/ops ack (seq, skipped)
 │   │                                      through the generated OpsAck
+│   ├── wire.ts               Core         The wire boundary: snapshot, changes and ack bodies,
+│   │                                      tombstone ids and WS frames read as the contract's types
 │   ├── socket.ts             Shell        WebSocket + reconnect policy
 │   ├── reconnectBackoff.ts   Core         Reconnect delay: 2 s doubling to a 30 s cap
 │   ├── syncState.ts          Core         Editability/health FSM
@@ -170,7 +173,12 @@ web/src/
 │   ├── worker.ts / workerHandlers.ts  Shell  The worker; db()'s latched open
 │   ├── rpc.ts / client.ts    Shell        Typed RPC over the worker port
 │   ├── db.ts                 Shell        ReplicaDb over sqlite-wasm; rollbacks
-│   │                                      that keep the original error
+│   │                                      that keep the original error; the
+│   │                                      catalog helpers (see Replica database access)
+│   ├── columns.gen.ts        —            Generated row vocabulary: Columns, COLUMN_META,
+│   │                                      BRAND_SHAPES, COLUMN_KEYS
+│   ├── rowCheck.ts           Core         rowProblems: a row against that vocabulary
+│   ├── pendingOps.ts         Core         parsePendingOps: a stored ops_json back to BlockOp[]
 │   ├── clientSchema.ts       Shell        CLIENT_DDL (pending_ops, pending_seen,
 │   │                                      sync_client_meta, replay_log*),
 │   │                                      SCHEMA_VERSION, installSchema
@@ -435,16 +443,16 @@ openapi-typescript CLI would turn every brand back into `string`.
 
 | Brand | Minted at |
 |---|---|
-| `BlockUid` | `uid.ts`'s `newUid`, `ids.ts`'s `parseBlockUid`, the block-ref token (`grammar/scan.ts`); row mappers in `replica/localApi/*`, `localOps.ts`, `queue.ts`; `apply.ts`'s tombstone mint |
-| `PageId` | row mappers reading a page id column (`replica/localOps.ts`, `localApi/pages.ts`, `localApi/search.ts`, `reconcile.ts`); `localOps.ts`'s `getOrCreateLocalPage` mints a negative id for an offline page, the sign carrying that meaning; `apply.ts`'s tombstone mint; `outline/missingPage.ts`'s `MISSING_PAGE_ID` sentinel |
-| `SidebarEntryId` | row mappers reading `sidebar_entries.id` (`localApi/router.ts`'s `sidebarPayload`); `apply.ts`'s tombstone mint |
-| `OrderIdx` | `outline/orderIdx.ts` (`FIRST_ORDER_IDX`, `orderIdxAfter`, `orderIdxAfterLast`, `orderIdxPlus`, `freshChildOrderIdx` — the one order-key arithmetic in the web); `outline/edits.ts`'s `orderIdxAfterPosition`, the dense position→order-key conversion; row mappers reading `blocks.order_idx` (`replica/localApi/tree.ts`'s `BlockRow`, `replica/localOps.ts`) |
-| `SidebarOrderIdx` | carried from generated response types (`sidebar_entries.order_idx`); minted only in web test helpers (`test-helpers.ts`) |
+| `BlockUid` | `uid.ts`'s `newUid`, `ids.ts`'s `parseBlockUid`, the block-ref token (`grammar/scan.ts`); a selected column, branded by `ReplicaDb.select`; `sync/wire.ts`'s `tombstoneIdOfWire`; `replica/pendingOps.ts`'s `parsePendingOps` |
+| `PageId` | a selected column, branded by `ReplicaDb.select`; `localOps.ts`'s `getOrCreateLocalPage` selects a negative id for an offline page, the sign carrying that meaning; `sync/wire.ts`'s `tombstoneIdOfWire`; `outline/missingPage.ts`'s `MISSING_PAGE_ID` sentinel |
+| `SidebarEntryId` | a selected column, branded by `ReplicaDb.select`; `sync/wire.ts`'s `tombstoneIdOfWire` |
+| `OrderIdx` | `outline/orderIdx.ts` (`FIRST_ORDER_IDX`, `orderIdxAfter`, `orderIdxAfterLast`, `orderIdxPlus`, `freshChildOrderIdx` — the one order-key arithmetic in the web); `outline/edits.ts`'s `orderIdxAfterPosition`, the dense position→order-key conversion; a selected `order_idx`, branded by `ReplicaDb.select`; `replica/pendingOps.ts`'s `parsePendingOps` |
+| `SidebarOrderIdx` | carried from generated response types; a selected `sidebar_entries.order_idx`, branded by `ReplicaDb.select`; minted in web test helpers (`test-helpers.ts`) |
 | `NormalizedTitle` | `grammar/scan.ts`'s `normalizeRefTitle` and hashtag token, `replica/titles.ts`'s `canonicalizeTitle` |
-| `CanonicalTitle` | row mappers reading `pages.title` / `sidebar_entries.title`, `replica/meta.ts`'s `canonicalTitle`/`titleReader` (which read the live plain-space flag), `replica/daily.ts`'s `titleForDate`/`dailyTitle` |
-| `Sha256Hex` | `replica/sha256.ts`'s `sha256Hex`, `replica/subtreeHash.ts`'s `subtreeHash`; the asset-link token (`grammar/tokenize.ts`) |
-| `SyncSeq` | carried from generated response types; narrowed by hand parsing the WS seq frame (`sync/socket.ts`), an ack (`sync/opsAck.ts`), the stored cursor (`replica/workerHandlers.ts`), and the sync loop's cursor (`sync/replicaSync.ts`) |
-| `ClientId` / `BatchId` | `sync/opQueue.ts` (from `newRawUid()`), `replica/workerHandlers.ts`'s `newBatchId` |
+| `CanonicalTitle` | a selected `pages.title` / `sidebar_entries.title`, branded by `ReplicaDb.select`; `replica/meta.ts`'s `canonicalTitle`/`titleReader` (which read the live plain-space flag), `replica/daily.ts`'s `titleForDate`/`dailyTitle` |
+| `Sha256Hex` | `replica/sha256.ts`'s `sha256Hex` and `parseSha256Hex`, `replica/subtreeHash.ts`'s `subtreeHash`; the asset-link token (`grammar/tokenize.ts`); a selected `sha256`, `base_hash` or `after_hash`, branded by `ReplicaDb.select` |
+| `SyncSeq` | carried from generated response types; `ids.ts`'s `parseSyncSeq`, which narrows the stored cursor (`replica/workerHandlers.ts`) and an ack (`sync/opsAck.ts`), and `INITIAL_SEQ`, the sync loop's starting cursor (`sync/replicaSync.ts`); the WS seq frame is read by `sync/wire.ts`'s `wsFrameOfWire` |
+| `ClientId` / `BatchId` | `uid.ts`'s `newClientId` and `newBatchId`, which `sync/opQueue.ts` and `replica/workerHandlers.ts` use as their default batch minter; a selected `batch_id`, branded by `ReplicaDb.select` |
 | `GoodlinksId` | `components/goodlinks.ts`'s `goodlinksIdFromHref` |
 | `ConversationId` / `ConfirmId` | minted server-side; the web only carries them (`ConfirmId` is narrowed by hand at the SSE `confirm_request` parse, `assistant/sse.ts`) |
 
@@ -505,6 +513,43 @@ frontend contributor day-to-day:
   app shell, sqlite wasm, the pdf.js worker and core KaTeX fonts,
   runtime-caches `/assets/` (CacheFirst, 400-entry LRU), and never caches
   `/api`.
+
+### Replica database access
+
+`ReplicaDb.select<K extends keyof Columns = never>(sql, params)` returns rows
+typed `Pick<Columns, K>[]`: the type argument names the columns the SQL
+returns, and each carries the type and brand `Columns` gives that key. A
+column the query returns under another name is aliased in the SQL to a key
+(`id AS pending_row_id`), which is how one SQLite column maps to a
+table-level key. `Columns`, `COLUMN_META` (brand, base type, nullability,
+literal domain), `COLUMN_KEYS` and `BRAND_SHAPES` are in
+`replica/columns.gen.ts`, generated by `pkm.rows_dump` from the server's
+`rows.Row` and `brand_registry`
+([backend.md](backend.md#generated-artifacts-and-parity-fixtures)).
+`columns.test.ts` checks the client-only tables against it.
+
+Under vitest (`import.meta.env.MODE === "test"`) every selected row also goes
+through `rowProblems` (`replica/rowCheck.ts`), the TypeScript twin of the
+server's `row_problems`. It throws on an unregistered column, a NULL in a
+non-null key, a wrong base type, a value outside a literal domain or a value
+that fails its brand's shape. The check is off in production and e2e.
+`openTestDb({ checkRows })` turns it off for the one test whose premise is
+data the check would reject, and `uidOf` (`test-helpers.ts`) builds a
+well-formed uid from a short tag for seeds.
+
+`K` exists only in the type system. Nothing at runtime compares it with the
+SQL, so a `K` naming a column the query does not return types that column as
+present; the test-time check covers only the columns actually returned.
+
+`introspect(sql)` returns raw, unchecked rows under SQLite's own column
+names, for catalog reads and tests. Production code does not call it: it
+uses the helpers in `replica/db.ts` (`foreignKeyViolations`, `quickCheck`,
+`sqliteVersion`, `catalogNames`).
+
+`sync/wire.ts` is the matching boundary for what arrives over the network. It
+reads a snapshot, changes or ack body, a tombstone's entity id
+(`tombstoneIdOfWire`) and a WebSocket frame (`wsFrameOfWire`) as the
+generated contract's types, and is the only place those casts live.
 
 ## The assistant panel
 

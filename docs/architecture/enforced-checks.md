@@ -38,6 +38,27 @@ syntax and reports `brand-parse` instead of skipping the file.
 (`TEST_SUPPORT`). The database side of the same vocabulary is in
 [backend.md](backend.md#typed-database-access).
 
+#### Web side
+
+`web/tooling/eslint-plugin-brands` is the same two rules over TypeScript
+types, run by `pnpm lint`. It reads `web/tooling/brandRegistry.gen.json`,
+which `pkm.rows_dump` generates from the server registry, so one `NAMES` and
+one `MINT_SITES` serve both languages. Test files and the registry's
+`TEST_SUPPORT` paths are exempt.
+
+| Rule | Fails when |
+|---|---|
+| `brands/name-carries-brand` | a parameter, property signature or class property named like a brand is not declared with that brand, or allows its base type in a union. The check is shallow: `null`, an array of the brand, and a `Set`, `Map` key or `Record` key of it are accepted |
+| `brands/no-brand-assertion` | an `as` or `<T>` assertion targets a type that contains a brand, outside that brand's mint sites. It walks the target's structure, including mapped types and index signatures, and a subtype brand (`CanonicalTitle`) counts as its own brand rather than its parent's |
+
+`// brand: untrusted -- <reason>` on a declaration opts a name out of
+`name-carries-brand`, and only inside `OPT_OUT_FILES` (`viteBudgetPlugin.ts`
+on the web). `satisfies` and the non-null `!` are not assertions toward a
+brand. The fixtures in `web/tooling/eslint-fixtures` are linted by
+`lintConfig.test.ts`, which pins each message. The database side of the
+vocabulary is in [backend.md](backend.md#typed-database-access) and
+[frontend.md](frontend.md#replica-database-access).
+
 ## On every test run
 
 `cd server && uv run pytest -q`:
@@ -61,9 +82,11 @@ syntax and reports `brand-parse` instead of skipping the file.
 
 | Step | Fails when |
 |---|---|
-| `lint` (`eslint.config.js`) | a hook dependency array drifts, a promise floats or is misused, a non-Error is thrown, a caught error is untyped, `apiFetch` is imported outside the transport boundary, an `any` flows through production code (written, assigned, returned, passed, called or member-accessed), or a disable directive is stale |
+| `lint` (`eslint.config.js`) | a hook dependency array drifts, a promise floats or is misused, a non-Error is thrown, a caught error is untyped, `apiFetch` is imported outside the transport boundary, an `any` flows through production code (written, assigned, returned, passed, called or member-accessed), a name that means a brand does not carry it, a brand is asserted outside its mint sites ([Web side](#web-side)), or a disable directive is stale |
 | `check:fcis` (`tooling/fcis.mjs`) | a Functional Core module imports an Imperative Shell one at runtime ([overview.md](overview.md#functional-core--imperative-shell)) |
 | `test:coverage` | statements or lines under 95%, branches under 91%, functions under 89% (`vite.config.ts`) |
+| row check (vitest only, `ReplicaDb.select`) | a selected row has a column that is not a `Columns` key, or a value that does not fit its key's base type, nullability, literals or brand shape; the error carries the SQL and the fix ([frontend.md](frontend.md#replica-database-access)) |
+| `columns.test.ts` | a column of a client-only table (`CLIENT_DDL`) has no `Columns` key, or its key disagrees on base type or nullability |
 | `genTypes.drift.test.ts` | `types.d.ts` no longer matches `openapi.json` |
 | `vite build` (`tooling/viteBudgetPlugin.ts`) | the bundle or precache manifest exceeds a limit in `tooling/budgets.json` |
 

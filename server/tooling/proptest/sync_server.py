@@ -24,7 +24,6 @@ import logging
 import os
 import shutil
 import signal
-import sqlite3
 import sys
 import tempfile
 import threading
@@ -42,6 +41,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from pkm.contracts.ops import BlockOp, OpBatch
+from pkm.database import Db
 from pkm.refs import CanonicalTitle
 from pkm.server import ops_apply, sync_meta
 from pkm.server.app import create_app
@@ -211,7 +211,7 @@ def build_template(path: Path) -> None:
 _stale_teeth = {"empty": False}
 
 
-def _stale_titles_with_teeth(db: sqlite3.Connection,
+def _stale_titles_with_teeth(db: Db,
                              seen_seq: int | None) -> frozenset[CanonicalTitle]:
     return frozenset() if _stale_teeth["empty"] else stale_titles(db, seen_seq)
 
@@ -428,6 +428,7 @@ def _watch_parent(initial_ppid: int, poll_s: float = 2.0) -> None:
 
 
 def main() -> int:  # pragma: no cover - process entry point, exercised by the smoke run
+    os.environ["PKM_ROW_CHECK"] = "1"
     data = Path(tempfile.mkdtemp(prefix="pkm-proptest-"))
     atexit.register(shutil.rmtree, data, ignore_errors=True)
 

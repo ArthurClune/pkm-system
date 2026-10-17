@@ -6,6 +6,7 @@ import sqlite3
 from datetime import date, timedelta
 
 from pkm.contracts.daily import title_for_date
+from pkm.database import connect
 from pkm.schema import DDL
 from pkm.server.store import stale_titles
 
@@ -32,7 +33,7 @@ def test_daily_page_delete_is_not_recorded(client, seeded_config):
 
 def test_cleanup_journal_does_not_record(client, seeded_config):
     title = title_for_date(date.today() - timedelta(days=2))
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("INSERT INTO pages(title, created_at, updated_at)"
                 " VALUES (?, 1, 1)", (title,))
     con.commit()
@@ -44,7 +45,7 @@ def test_cleanup_journal_does_not_record(client, seeded_config):
 
 
 def test_rows_past_retention_are_pruned(client, seeded_config):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("INSERT INTO page_deletions VALUES ('Old', 1, 1)")
     con.commit()
     con.close()
@@ -55,7 +56,7 @@ def test_rows_past_retention_are_pruned(client, seeded_config):
 
 
 def test_rename_leaves_old_rows_for_the_delete_path(client, seeded_config):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("INSERT INTO page_deletions VALUES ('Old', 1, 1)")
     con.commit()
     con.close()
@@ -68,7 +69,7 @@ def test_rename_leaves_old_rows_for_the_delete_path(client, seeded_config):
 
 
 def test_stale_titles():
-    db = sqlite3.connect(":memory:")
+    db = connect(":memory:")
     db.executescript(DDL)
     db.executemany("INSERT INTO page_deletions VALUES (?,?,0)",
                    [("A", 10), ("B", 20)])

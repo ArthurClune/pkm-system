@@ -153,9 +153,11 @@ class _GatedConnection:
         self._connection = connection
         self._gate = gate
 
+    def begin_immediate(self):
+        self._gate.before_begin()
+        self._connection.begin_immediate()
+
     def execute(self, sql, parameters=()):
-        if sql == "BEGIN IMMEDIATE":
-            self._gate.before_begin()
         cursor = self._connection.execute(sql, parameters)
         if sql == _SNAPSHOT_SQL:
             return _SnapshotCursor(cursor, self._gate)

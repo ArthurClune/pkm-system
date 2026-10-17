@@ -23,6 +23,7 @@ from pkm.assets_core import (
     zip_arcnames)
 from pkm.contracts.ops import SHA256_HEX_RE, Sha256Hex
 from pkm.contracts.responses import AssetSearchPayload, AssetUploadResponse
+from pkm.database import Db
 from pkm.describe.core import derive_status
 from pkm.filenames import safe_filename
 from pkm.server import notify
@@ -72,7 +73,7 @@ MAX_EXPORT_ASSET_COUNT = 500
 MAX_EXPORT_TOTAL_BYTES = 1024 ** 3  # 1 GiB
 
 
-def referencing_blocks(db: sqlite3.Connection,
+def referencing_blocks(db: Db,
                        sha256: Sha256Hex) -> list[dict[str, str]]:
     """All blocks whose text contains the asset's sha, with their page
     titles. FTS5 unicode61 keeps a 64-hex sha as one token, so an
@@ -97,7 +98,7 @@ def search_assets(q: str = "", limit: int = 50, offset: int = 0,
                   = Query("", alias="type"),
                   from_ms: int | None = None, to_ms: int | None = None,
                   linked: Literal["all", "linked", "orphan"] = "all",
-                  db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+                  db: Db = Depends(get_db)) -> dict[str, object]:
     """LIKE search over description + filename. Empty q lists
     most-recent uploads. LIKE, not FTS: personal-scale table, and no
     offline-parity burden. Adds type/date/linked filters,
@@ -160,9 +161,9 @@ def search_assets(q: str = "", limit: int = 50, offset: int = 0,
 
 
 def _delete_if_unreferenced(request: Request, sha: Sha256Hex,
-                            db: sqlite3.Connection, config: Config) -> dict[str, object]:
+                            db: Db, config: Config) -> dict[str, object]:
     try:
-        db.execute("BEGIN IMMEDIATE")
+        db.begin_immediate()
     except sqlite3.OperationalError as exc:
         if "locked" not in str(exc):
             raise
@@ -190,7 +191,7 @@ def _delete_if_unreferenced(request: Request, sha: Sha256Hex,
 @router.delete("/api/assets/{sha256}")
 def delete_asset(request: Request, sha256: str,
                  if_unreferenced: bool = False,
-                 db: sqlite3.Connection = Depends(get_db),
+                 db: Db = Depends(get_db),
                  config: Config = Depends(get_config)) -> dict[str, object]:
     """Delete an asset: strip every reference token from block text
     (blocks left empty with no children are deleted outright — asset
@@ -252,7 +253,7 @@ def delete_asset(request: Request, sha256: str,
 
 @router.post("/api/assets/export.zip")
 def export_assets(sha256s: list[str] = Form(default=[]),
-                  db: sqlite3.Connection = Depends(get_db),
+                  db: Db = Depends(get_db),
                   config: Config = Depends(get_config)) -> FileResponse:
     """Zip the selected assets under their original filenames (name
     collisions get a short sha prefix via zip_arcnames). Form-encoded so
@@ -311,7 +312,7 @@ def export_assets(sha256s: list[str] = Form(default=[]),
 
 @router.get("/assets/{sha256}/{filename}")
 def get_asset(sha256: str, filename: str,
-              db: sqlite3.Connection = Depends(get_db),
+              db: Db = Depends(get_db),
               config: Config = Depends(get_config)) -> FileResponse:
     if not SHA256_HEX_RE.fullmatch(sha256):
         raise HTTPException(status_code=404, detail="asset not found")
@@ -366,7 +367,7 @@ async def _stream_to_temp(file: _ChunkReadable, tmp_path: Path,
 
 @router.post("/api/assets", response_model=AssetUploadResponse)
 async def upload_asset(request: Request, file: UploadFile,
-                       db: sqlite3.Connection = Depends(get_db),
+                       db: Db = Depends(get_db),
                        config: Config = Depends(get_config)) -> dict[str, object]:
     declared_mime = file.content_type or "application/octet-stream"
     if declared_mime not in ALLOWED_UPLOAD_MIME:

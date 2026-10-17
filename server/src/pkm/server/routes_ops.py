@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from pkm.contracts.ops import OpBatch
 from pkm.contracts.responses import OpsAck, SyncSeq
+from pkm.database import Db
 from pkm.server import notify
 from pkm.server.notify import OpsFrame
 from pkm.server.auth import require_auth
@@ -23,7 +24,7 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 @router.post("/api/ops", response_model=OpsAck)
 async def post_ops(request: Request,
                    batch: OpBatch,
-                   db: sqlite3.Connection = Depends(get_db)) -> OpsAck:
+                   db: Db = Depends(get_db)) -> OpsAck:
     """One SQLite transaction covers the batch_id dedupe check through the
     commit, so a concurrent delete_page/rename_page/cleanup_journal commit
     (their own connections, on the threadpool) can no longer land between
@@ -32,7 +33,7 @@ async def post_ops(request: Request,
     Retry-After rather than surfacing the raw sqlite3.OperationalError."""
     now = int(time.time() * 1000)
     try:
-        db.execute("BEGIN IMMEDIATE")
+        db.begin_immediate()
     except sqlite3.OperationalError as exc:
         if "locked" not in str(exc):
             raise

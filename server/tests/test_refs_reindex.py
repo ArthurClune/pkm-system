@@ -10,11 +10,11 @@ they run.
 """
 from __future__ import annotations
 
-import sqlite3
 
 import pytest
 
 from pkm.contracts.ops import BlockUid, OpBatch
+from pkm.database import Db
 from pkm.server import ops_apply, store
 from pkm.server.db import open_db
 from pkm.server.ops_apply import apply_batch
@@ -57,7 +57,7 @@ def _spy(monkeypatch, module, name: str) -> list[tuple]:
     return calls
 
 
-def _update_text(con: sqlite3.Connection, uid: str, text: str,
+def _update_text(con: Db, uid: str, text: str,
                  now_ms: int) -> None:
     apply_batch(
         con,
@@ -66,14 +66,14 @@ def _update_text(con: sqlite3.Connection, uid: str, text: str,
         now_ms)
 
 
-def _ref_titles(con: sqlite3.Connection, uid: str) -> set[tuple[str, str]]:
+def _ref_titles(con: Db, uid: str) -> set[tuple[str, str]]:
     return {(row["title"], row["kind"]) for row in con.execute(
         "SELECT p.title AS title, r.kind AS kind FROM refs r"
         " JOIN pages p ON p.id = r.target_page_id"
         " WHERE r.src_block_uid = ?", (uid,))}
 
 
-def _block_ref_targets(con: sqlite3.Connection, uid: str) -> set[str]:
+def _block_ref_targets(con: Db, uid: str) -> set[str]:
     return {row[0] for row in con.execute(
         "SELECT target_block_uid FROM block_refs WHERE src_block_uid = ?",
         (uid,))}

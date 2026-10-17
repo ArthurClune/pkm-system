@@ -1,6 +1,6 @@
-import sqlite3
 
 import pytest
+from pkm.database import Db, connect
 from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.schema import DDL
 from pkm.server.auth_core import YEAR_MS, sign_session, verify_session
@@ -22,7 +22,7 @@ def test_session_expiry_and_skew():
     assert not verify_session(SECRET, bad, now_ms=NOW)
 
 
-def _db(tmp_path) -> sqlite3.Connection:
+def _db(tmp_path) -> Db:
     path = tmp_path / "t.sqlite3"
     init_db(path)
     con = open_db(path)
@@ -106,7 +106,7 @@ def test_block_ancestor_breadcrumbs_are_complete_for_deep_linear_chain(
 def test_ancestor_reads_stop_on_exact_cycle(client, seeded_config):
     # Manufacture a parent cycle directly (ops will forbid these, but reads
     # must not hang if one ever appears).
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("PRAGMA foreign_keys=ON")
     con.execute("UPDATE blocks SET parent_uid = 'uid_b3' WHERE uid = 'uid_b2'")
     con.commit()

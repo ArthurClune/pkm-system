@@ -22,6 +22,7 @@ from hypothesis.stateful import (RuleBasedStateMachine, initialize, invariant,
 
 from conftest import SEED_BLOCKS
 from pkm.contracts.ops import subtree_hash, text_hash
+from pkm.database import Db
 from pkm.refs import canonicalize_title, extract, is_blank_title
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
 from props.harness import (DAILY_TITLE, FROZEN_NOW, FreshApp,
@@ -413,7 +414,8 @@ class OpsMachine(RuleBasedStateMachine):
         extracts to, and no row outlives its source block."""
         assert self.app is not None
         with read_db(self.app.config.db_path) as con:
-            plain_space = plain_space_title_canonicalization_active(con)
+            plain_space = plain_space_title_canonicalization_active(
+                Db(con, check_rows=True))
             texts = dict(con.execute("SELECT uid, text FROM blocks"))
             refs: dict[str, set[tuple[str, str]]] = {}
             for src, title, kind in con.execute(

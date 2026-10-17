@@ -658,9 +658,9 @@ def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
 
 def _flag_reads(db, op) -> int:
     seen: list[str] = []
-    db.set_trace_callback(seen.append)
+    db.raw.set_trace_callback(seen.append)
     apply_batch(db, _batch(op), NOW)
-    db.set_trace_callback(None)
+    db.raw.set_trace_callback(None)
     return sum("sync_meta" in sql and "SELECT" in sql for sql in seen)
 
 

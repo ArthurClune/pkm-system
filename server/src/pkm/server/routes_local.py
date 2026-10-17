@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sqlite3
 import subprocess
 from pathlib import Path
 from typing import Literal
@@ -33,6 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from pkm.contracts.responses import LocalCheckPayload, LocalCheckProblem
+from pkm.database import Db
 from pkm.local_docs import (LOCAL_PREFIX, clean_relative, disposition_for,
                             error_page_html, extract_local_hrefs, is_within,
                             media_type_for, resolve_relative, wants_html_error)
@@ -136,7 +136,7 @@ def _classify(root: Path, href: str) -> Literal[
 
 
 @router.get("/api/local/check", response_model=LocalCheckPayload)
-def check_local_links(db: sqlite3.Connection = Depends(get_db),
+def check_local_links(db: Db = Depends(get_db),
                       config: Config = Depends(get_config)) -> LocalCheckPayload:
     if config.local_docs_root is None:
         return LocalCheckPayload(enabled=False, total=0, ok=0, problems=[])

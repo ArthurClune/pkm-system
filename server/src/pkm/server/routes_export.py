@@ -18,7 +18,6 @@ semantics."""
 from __future__ import annotations
 
 import shutil
-import sqlite3
 import tempfile
 import zipfile
 from datetime import date
@@ -27,6 +26,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
 
+from pkm.database import Db
 from pkm.export.markdown import page_filename
 from pkm.export.resolve import (
     BLOCK_REF_MAX_DEPTH, QUERY_MAX_DEPTH, QueryResult, QueryResultGroup,
@@ -52,7 +52,7 @@ _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
               " created_at, updated_at, view_type")
 
 
-def _run_query(db: sqlite3.Connection, expr: str) -> QueryResult | None:
+def _run_query(db: Db, expr: str) -> QueryResult | None:
     """Execute one {{query: ...}} expression, reshaped for the resolved
     renderer: the same execution and grouping the live /api/query endpoint
     performs (query_exec, grouping), then this route's own immutable
@@ -76,7 +76,7 @@ def _run_query(db: sqlite3.Connection, expr: str) -> QueryResult | None:
 
 
 def _gather_resolution_data(
-    db: sqlite3.Connection, initial_texts: list[str],
+    db: Db, initial_texts: list[str],
 ) -> tuple[dict[str, str], dict[str, QueryResult]]:
     """Breadth-first, depth-capped closure of every uid and query expression
     the resolved renderer might need: round `depth` fetches/executes the
@@ -124,7 +124,7 @@ def _gather_resolution_data(
 
 @router.get("/api/export/page/{title:path}")
 def export_page_markdown(title: str,
-                         db: sqlite3.Connection = Depends(get_db)) -> Response:
+                         db: Db = Depends(get_db)) -> Response:
     title = read_title(db, title)
     page = fetch_page(db, title)
     if page is None:
@@ -143,7 +143,7 @@ def export_page_markdown(title: str,
 
 
 @router.get("/api/export.zip")
-def export_all_markdown(db: sqlite3.Connection = Depends(get_db),
+def export_all_markdown(db: Db = Depends(get_db),
                         config: Config = Depends(get_config)) -> FileResponse:
     """Whole-graph export, zipped. Built in a temp directory and
     streamed back via FileResponse rather than buffered whole in an

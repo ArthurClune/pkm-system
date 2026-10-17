@@ -22,6 +22,7 @@ from pkm.contracts.responses import (AppliedBatch, ChangesPayload, EntityKind,
                                         OpsAck, SnapshotPayload, SyncBlock,
                                         SyncPage, SyncRef, SyncSeq,
                                         SyncSidebarEntry, SyncTombstone)
+from pkm.database import Db
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.sync_core import (ChangeRow, chunk_ids, dedupe_window,
@@ -69,7 +70,7 @@ def client_diagnostics(body: ClientDiagnosticsRequest) -> dict[str, object]:
     return {"ok": True}
 
 
-def _blocks_by_uid(db: sqlite3.Connection,
+def _blocks_by_uid(db: Db,
                    uids: list[str]) -> dict[str, sqlite3.Row]:
     out: dict[str, sqlite3.Row] = {}
     for chunk in chunk_ids(uids):
@@ -82,7 +83,7 @@ def _blocks_by_uid(db: sqlite3.Connection,
     return out
 
 
-def _refs_by_block(db: sqlite3.Connection,
+def _refs_by_block(db: Db,
                    uids: list[str]) -> dict[str, list[SyncRef]]:
     out: dict[str, list[SyncRef]] = {}
     for chunk in chunk_ids(uids):
@@ -102,7 +103,7 @@ def _refs_by_block(db: sqlite3.Connection,
     return out
 
 
-def _with_parent_closure(db: sqlite3.Connection,
+def _with_parent_closure(db: Db,
                          block_rows: dict[str, sqlite3.Row]
                          ) -> dict[str, sqlite3.Row]:
     """Extend block_rows with every ancestor block (parent, grandparent,
@@ -128,7 +129,7 @@ def _with_parent_closure(db: sqlite3.Connection,
     return block_rows
 
 
-def _block_payloads(db: sqlite3.Connection,
+def _block_payloads(db: Db,
                     uids: list[str]) -> tuple[list[SyncBlock], set[int]]:
     """Hydrate blocks + their refs, plus their transitive parent-block closure.
     Also return every page id a shipped block depends on: ref target pages
@@ -166,7 +167,7 @@ def _block_payloads(db: sqlite3.Connection,
     return blocks, dep_pages
 
 
-def _reused_page_dependents(db: sqlite3.Connection,
+def _reused_page_dependents(db: Db,
                             page_ids: list[int]) -> list[str]:
     """Uids of the current blocks on any of `page_ids`, then of the blocks
     with a ref to one of them; deduped, first occurrence kept. A page id
@@ -187,7 +188,7 @@ def _reused_page_dependents(db: sqlite3.Connection,
     return list(dict.fromkeys(uids))
 
 
-def _page_payloads(db: sqlite3.Connection, ids: set[int]) -> list[SyncPage]:
+def _page_payloads(db: Db, ids: set[int]) -> list[SyncPage]:
     if not ids:
         return []
     ordered = sorted(ids)
@@ -201,7 +202,7 @@ def _page_payloads(db: sqlite3.Connection, ids: set[int]) -> list[SyncPage]:
     return hydrate_in_order(ordered, by_id)
 
 
-def _applied_batches(db: sqlite3.Connection,
+def _applied_batches(db: Db,
                      pending: list[str] | None) -> list[AppliedBatch]:
     """The `pending` ids that have an applied_batches row, in request order,
     each with its stored ack's seq and skipped ops. The caller runs this inside
@@ -225,7 +226,7 @@ def _applied_batches(db: sqlite3.Connection,
     return hydrate_in_order(ids, found)
 
 
-def _sidebar_payloads(db: sqlite3.Connection,
+def _sidebar_payloads(db: Db,
                       ids: list[int]) -> list[SyncSidebarEntry]:
     if not ids:
         return []
@@ -242,7 +243,7 @@ def _sidebar_payloads(db: sqlite3.Connection,
 @router.get("/api/sync/changes", response_model=ChangesPayload)
 def sync_changes(since: int = 0, limit: int = 1000,
                  pending: PendingIds = None,
-                 db: sqlite3.Connection = Depends(get_db)) -> ChangesPayload:
+                 db: Db = Depends(get_db)) -> ChangesPayload:
     """One window of the change journal after `since`, hydrated to current
     rows, plus which of the `pending` batch ids that window already holds."""
     limit = max(1, min(limit, MAX_LIMIT))
@@ -326,7 +327,7 @@ def sync_changes(since: int = 0, limit: int = 1000,
 
 @router.get("/api/sync/snapshot", response_model=SnapshotPayload)
 def sync_snapshot(pending: PendingIds = None,
-                  db: sqlite3.Connection = Depends(get_db)
+                  db: Db = Depends(get_db)
                   ) -> SnapshotPayload:
     """The whole graph at one journal seq, plus which of the `pending` batch
     ids it already holds."""

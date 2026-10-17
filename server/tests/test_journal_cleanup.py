@@ -1,16 +1,16 @@
-import sqlite3
 from collections.abc import Sequence
 from datetime import date, timedelta
 
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BlockUid
+from pkm.database import connect
 from pkm.server.store import reindex_refs_for_text
 
 
 def _insert_page(db_path, page_id: int, title: str,
                  blocks: Sequence[tuple[str, str]] = ()) -> None:
     """blocks: [(uid, text), ...] as top-level blocks of the page."""
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     con.execute("INSERT INTO pages(id, title) VALUES (?, ?)", (page_id, title))
     con.executemany(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
@@ -25,8 +25,7 @@ def _insert_page(db_path, page_id: int, title: str,
 def _insert_indexed_block(db_path, uid: str, page_id: int, text: str) -> None:
     """A top-level block on an existing page, with its refs/block_refs rows
     derived the way the server derives them."""
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
+    con = connect(db_path)
     con.execute(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
         " heading, collapsed, created_at, updated_at)"
@@ -38,7 +37,7 @@ def _insert_indexed_block(db_path, uid: str, page_id: int, text: str) -> None:
 
 
 def _page_exists(db_path, title: str) -> bool:
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     row = con.execute("SELECT 1 FROM pages WHERE title = ?",
                       (title,)).fetchone()
     con.close()
@@ -85,7 +84,7 @@ def test_deletes_whitespace_only_daily_and_purges_fts(client, seeded_config):
 
     assert title in r.json()["deleted"]
     assert not _page_exists(seeded_config.db_path, title)
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     orphans = con.execute(
         "SELECT rowid FROM blocks_fts WHERE rowid NOT IN"
         " (SELECT rowid FROM blocks)").fetchall()

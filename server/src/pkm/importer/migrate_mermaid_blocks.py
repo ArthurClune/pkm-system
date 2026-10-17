@@ -39,11 +39,11 @@ component with a still-live reference is reported as preserved again).
 from __future__ import annotations
 
 import argparse
-import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from pkm.database import Db, connect
 from pkm.importer.mermaid import convert_to_fence, is_mermaid_trigger
 from pkm.importer.mermaid_preservation import (
     PreservedRef,
@@ -70,7 +70,7 @@ class Plan:
     preserved: tuple[PreservedRef, ...]  # left alone, and why
 
 
-def _load_subtree(con: sqlite3.Connection, parent_uid: str) -> tuple[_Node, ...]:
+def _load_subtree(con: Db, parent_uid: str) -> tuple[_Node, ...]:
     rows = con.execute(
         "SELECT uid, text FROM blocks WHERE parent_uid = ? ORDER BY order_idx",
         (parent_uid,),
@@ -80,7 +80,7 @@ def _load_subtree(con: sqlite3.Connection, parent_uid: str) -> tuple[_Node, ...]
     )
 
 
-def _subtree_uids(con: sqlite3.Connection, parent_uid: str) -> set[str]:
+def _subtree_uids(con: Db, parent_uid: str) -> set[str]:
     """Every descendant uid (not including parent_uid itself), gathered
     with plain parent_uid lookups rather than _load_subtree/_Node since
     those deliberately don't carry the uid a caller would need here."""
@@ -96,7 +96,7 @@ def _subtree_uids(con: sqlite3.Connection, parent_uid: str) -> set[str]:
     return uids
 
 
-def _all_block_ref_sources(con: sqlite3.Connection) -> dict[str, set[str]]:
+def _all_block_ref_sources(con: Db) -> dict[str, set[str]]:
     """Map every ((uid)) target found in any block's text in the whole
     database to the set of source block uids that reference it."""
     sources: dict[str, set[str]] = {}
@@ -106,7 +106,7 @@ def _all_block_ref_sources(con: sqlite3.Connection) -> dict[str, set[str]]:
     return sources
 
 
-def plan_migration(con: sqlite3.Connection) -> Plan:
+def plan_migration(con: Db) -> Plan:
     """Plan globally safe Mermaid conversions from database-backed inputs."""
     ref_sources = _all_block_ref_sources(con)
     candidate_fences: list[tuple[str, str]] = []
@@ -134,7 +134,7 @@ def plan_migration(con: sqlite3.Connection) -> Plan:
     return Plan(candidates=candidates, preserved=preservation_plan.preserved_refs)
 
 
-def convert_candidates(con: sqlite3.Connection,
+def convert_candidates(con: Db,
                         candidates: Sequence[tuple[str, str]]) -> None:
     """Apply the conversions. Caller owns the transaction (commits/rolls
     back) and must have PRAGMA foreign_keys=ON set on `con`."""
@@ -176,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="report what would change without writing")
     args = ap.parse_args(argv)
 
-    con = sqlite3.connect(Path(args.db))
+    con = connect(Path(args.db))
     try:
         con.execute("PRAGMA foreign_keys=ON")
         plan = plan_migration(con)  # read-only; safe to run before any decision

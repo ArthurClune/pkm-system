@@ -13,10 +13,10 @@ its own typed groups.
 """
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from pkm.database import Db
 from pkm.refs import CanonicalTitle
 from pkm.schema import SchemaRow
 from pkm.server.query import CanonicalQueryNode, QueryNode, parse_query
@@ -31,7 +31,7 @@ _SOURCE_FILTER = (
 )
 
 
-def parse_canonical_query(db: sqlite3.Connection,
+def parse_canonical_query(db: Db,
                           expr: str) -> CanonicalQueryNode:
     """`parse_query`, with every [[Page]] operand canonicalised. Operands
     are compared against `pages.title`, so `[[ Foo ]]` (spaces inside the
@@ -63,7 +63,7 @@ class QueryMatches:
     rows: Sequence[SchemaRow]
 
 
-def count_matches(db: sqlite3.Connection, sql: str,
+def count_matches(db: Db, sql: str,
                   params: Sequence[str]) -> int:
     """How many blocks a plan matches, its own macro blocks excluded."""
     return db.execute(
@@ -73,7 +73,7 @@ def count_matches(db: sqlite3.Connection, sql: str,
         params).fetchone()[0]
 
 
-def execute_plan(db: sqlite3.Connection, sql: str,
+def execute_plan(db: Db, sql: str,
                  params: Sequence[str]) -> QueryMatches:
     """Total and matching rows for a `query.plan_sql` plan."""
     total = count_matches(db, sql, params)

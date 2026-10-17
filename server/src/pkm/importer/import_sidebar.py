@@ -10,9 +10,9 @@ to run against a live WAL-mode server."""
 from __future__ import annotations
 
 import argparse
-import sqlite3
 from pathlib import Path
 
+from pkm.database import Db, connect
 from pkm.importer.sidebar_rows import missing_entry_rows
 from pkm.schema import SIDEBAR_ENTRIES_DDL
 
@@ -25,7 +25,7 @@ SIDEBAR_ENTRIES = (
 )
 
 
-def import_sidebar_entries(con: sqlite3.Connection) -> int:
+def import_sidebar_entries(con: Db) -> int:
     """Insert any SIDEBAR_ENTRIES titles missing from sidebar_entries,
     preserving SIDEBAR_ENTRIES order. Returns the number inserted. Caller
     owns the transaction (commits/rolls back)."""
@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     db_path = Path(args.data_dir) / "pkm.sqlite3"
 
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     try:
         con.execute("BEGIN")
         inserted = import_sidebar_entries(con)

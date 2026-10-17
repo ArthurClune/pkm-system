@@ -6,7 +6,6 @@ is the correctness mechanism, and Hub.broadcast drops connections whose send
 fails, so a lost nudge becomes a reconnect + catch-up pull."""
 from __future__ import annotations
 
-import sqlite3
 from typing import Literal
 
 import anyio.from_thread
@@ -15,6 +14,7 @@ from pydantic import BaseModel
 
 from pkm.contracts.ops import ClientId
 from pkm.contracts.responses import SyncSeq
+from pkm.database import Db
 
 
 class SeqFrame(BaseModel):
@@ -59,7 +59,7 @@ Frame = SeqFrame | OpsFrame
 
 
 def seq_frame(
-    db: sqlite3.Connection,
+    db: Db,
     *,
     force: bool = False,
     generation: str | None = None,
@@ -71,14 +71,14 @@ def seq_frame(
     return SeqFrame(seq=seq, force=force, generation=generation)
 
 
-async def nudge(request: Request, db: sqlite3.Connection) -> None:
+async def nudge(request: Request, db: Db) -> None:
     """From async routes, after db.commit()."""
     await request.app.state.hub.broadcast(seq_frame(db))
 
 
 def nudge_threadpool(
     request: Request,
-    db: sqlite3.Connection,
+    db: Db,
     *,
     force: bool = False,
     generation: str | None = None,
@@ -89,7 +89,7 @@ def nudge_threadpool(
     anyio.from_thread.run(request.app.state.hub.broadcast, frame)
 
 
-def commit_and_nudge_threadpool(request: Request, db: sqlite3.Connection) -> None:
+def commit_and_nudge_threadpool(request: Request, db: Db) -> None:
     """Pairs commit + nudge for sync-def routes, whose writes touch a
     changes-journaled table (blocks/pages/sidebar_entries, schema.py
     SERVER_DDL) -- a bare `db.commit()` silently drops the nudge that

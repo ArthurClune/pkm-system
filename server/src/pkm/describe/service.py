@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sqlite3
 import time
 from typing import Protocol
 
+from pkm.database import Db
 from pkm.describe.core import describe_action
 from pkm.server.config import Config
 from pkm.server.db import open_db
@@ -133,7 +133,7 @@ class DescribeService:
         if self.enabled:
             self._enqueue_if_eligible(sha256, mime, size)
 
-    def scan(self, db: sqlite3.Connection, force: bool = False) -> int:
+    def scan(self, db: Db, force: bool = False) -> int:
         """Enqueue every undescribed eligible asset; force retries failures.
         Skips any sha already queued/in-flight -- a repeat scan
         before the worker drains must not double up an attempt."""
@@ -205,7 +205,7 @@ class DescribeService:
         finally:
             con.close()
 
-    def _record(self, con: sqlite3.Connection, sha: str, *,
+    def _record(self, con: Db, sha: str, *,
                 description: str | None = None,
                 error: str | None = None) -> None:
         con.execute(

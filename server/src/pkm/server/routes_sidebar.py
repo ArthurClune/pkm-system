@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from pkm.contracts.ops import SidebarEntryId
 from pkm.contracts.responses import SidebarNavEntry, SidebarNavPayload
+from pkm.database import Db
 from pkm.importer.sidebar_rows import next_order_idx, reorder_is_valid
 from pkm.refs import CanonicalTitle, is_blank_title
 from pkm.server import notify
@@ -29,7 +30,7 @@ class ReorderSidebarEntriesRequest(BaseModel):
 
 
 @router.get("/api/sidebar", response_model=SidebarNavPayload)
-def get_sidebar(db: sqlite3.Connection = Depends(get_db)) -> SidebarNavPayload:
+def get_sidebar(db: Db = Depends(get_db)) -> SidebarNavPayload:
     rows = db.execute(
         "SELECT id, title FROM sidebar_entries ORDER BY order_idx").fetchall()
     return SidebarNavPayload(entries=[
@@ -39,11 +40,11 @@ def get_sidebar(db: sqlite3.Connection = Depends(get_db)) -> SidebarNavPayload:
 
 @router.post("/api/sidebar")
 def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
-                      db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+                      db: Db = Depends(get_db)) -> dict[str, object]:
     title = read_title(db, body.title)
     if is_blank_title(title):
         raise HTTPException(status_code=422, detail="title must not be blank")
-    db.execute("BEGIN IMMEDIATE")
+    db.begin_immediate()
     existing = db.execute(
         "SELECT title, order_idx FROM sidebar_entries").fetchall()
     if any(r["title"] == title for r in existing):
@@ -62,7 +63,7 @@ def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
 
 @router.delete("/api/sidebar/{entry_id}")
 def delete_sidebar_entry(request: Request, entry_id: SidebarEntryId,
-                         db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+                         db: Db = Depends(get_db)) -> dict[str, object]:
     cur = db.execute("DELETE FROM sidebar_entries WHERE id = ?", (entry_id,))
     if cur.rowcount == 0:
         db.rollback()
@@ -73,7 +74,7 @@ def delete_sidebar_entry(request: Request, entry_id: SidebarEntryId,
 
 @router.put("/api/sidebar")
 def reorder_sidebar_entries(request: Request, body: ReorderSidebarEntriesRequest,
-                            db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+                            db: Db = Depends(get_db)) -> dict[str, object]:
     existing_ids = {SidebarEntryId(r["id"]) for r in
                     db.execute("SELECT id FROM sidebar_entries").fetchall()}
     if not reorder_is_valid(existing_ids, body.order):

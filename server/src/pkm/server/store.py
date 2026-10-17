@@ -8,6 +8,7 @@ from collections.abc import Iterable, Mapping, Sequence
 
 from pkm.contracts.daily import date_for_title
 from pkm.contracts.ops import BlockUid, PageId, SidebarEntryId, text_hash
+from pkm.database import Db
 from pkm.refs import (CanonicalTitle, NormalizedTitle, extract,
                       is_blank_title, normalize_title, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
@@ -36,13 +37,13 @@ class BlankTitleError(ValueError):
     -- substitute a fixed fallback title (see ops_apply.py)."""
 
 
-def fetch_page(db: sqlite3.Connection, title: CanonicalTitle) -> sqlite3.Row | None:
+def fetch_page(db: Db, title: CanonicalTitle) -> sqlite3.Row | None:
     return db.execute(
         "SELECT id, title, created_at, updated_at FROM pages WHERE title = ?",
         (title,)).fetchone()
 
 
-def get_or_create_page(db: sqlite3.Connection, title: str,
+def get_or_create_page(db: Db, title: str,
                        now_ms: int) -> sqlite3.Row:
     """Canonicalize at the choke point shared by every creation path.
 
@@ -75,7 +76,7 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
     return page
 
 
-def index_ref(db: sqlite3.Connection, src_uid: BlockUid,
+def index_ref(db: Db, src_uid: BlockUid,
              ref_title: NormalizedTitle, ref_kind: str, now_ms: int) -> None:
     """Resolve one extracted Ref onto a page and record it in `refs`.
 
@@ -93,7 +94,7 @@ def index_ref(db: sqlite3.Connection, src_uid: BlockUid,
               (src_uid, page["id"], ref_kind))
 
 
-def reindex_block_refs(db: sqlite3.Connection, src_uid: BlockUid,
+def reindex_block_refs(db: Db, src_uid: BlockUid,
                        targets: Iterable[str]) -> None:
     """Replace one block's outgoing ((uid)) rows. Targets may
     dangle -- an unresolved ((uid)) is a legal state -- so no existence
@@ -103,7 +104,7 @@ def reindex_block_refs(db: sqlite3.Connection, src_uid: BlockUid,
                    [(src_uid, t) for t in targets])
 
 
-def reindex_refs_for_text(db: sqlite3.Connection, src_uid: BlockUid, text: str,
+def reindex_refs_for_text(db: Db, src_uid: BlockUid, text: str,
                           now_ms: int) -> None:
     """Rebuild one block's whole outgoing ref index from its text.
 
@@ -123,7 +124,7 @@ def reindex_refs_for_text(db: sqlite3.Connection, src_uid: BlockUid, text: str,
     reindex_block_refs(db, src_uid, parsed.block_refs)
 
 
-def delete_page_rows(db: sqlite3.Connection, page_id: PageId,
+def delete_page_rows(db: Db, page_id: PageId,
                      title: CanonicalTitle) -> None:
     """Deletes a page, its blocks, and any sidebar entry. Never commits --
     the caller owns the transaction. Blocks are deleted explicitly (not left
@@ -135,7 +136,7 @@ def delete_page_rows(db: sqlite3.Connection, page_id: PageId,
 
 
 def _snapshot_referencing_blocks(
-    db: sqlite3.Connection, page_id: PageId
+    db: Db, page_id: PageId
 ) -> tuple[tuple[BlockUid, str], ...]:
     rows = db.execute(
         """SELECT DISTINCT b.uid, b.text FROM refs r
@@ -148,7 +149,7 @@ def _snapshot_referencing_blocks(
 
 
 def _record_block_rewrite(
-    db: sqlite3.Connection,
+    db: Db,
     uid: BlockUid,
     original_text: str,
     new_text: str,
@@ -177,7 +178,7 @@ def _record_block_rewrite(
     )
 
 
-def _prune_block_rewrites(db: sqlite3.Connection, now_ms: int) -> None:
+def _prune_block_rewrites(db: Db, now_ms: int) -> None:
     """Drop records past the retention window. A replay only ever matches an
     edit made before the rewrite it describes, and no offline queue survives
     a month, so old rows are dead weight -- and pruning here keeps the table
@@ -186,7 +187,7 @@ def _prune_block_rewrites(db: sqlite3.Connection, now_ms: int) -> None:
     db.execute("DELETE FROM block_rewrites WHERE created_at < ?", (cutoff,))
 
 
-def _prune_page_deletions(db: sqlite3.Connection, now_ms: int) -> None:
+def _prune_page_deletions(db: Db, now_ms: int) -> None:
     """Same retention as the rewrite records. Only the page-delete path runs
     it: deleted_at is unindexed, so a rename must not pay a scan for it."""
     db.execute("DELETE FROM page_deletions WHERE deleted_at < ?",
@@ -194,7 +195,7 @@ def _prune_page_deletions(db: sqlite3.Connection, now_ms: int) -> None:
 
 
 def rewrite_snapshotted_blocks(
-    db: sqlite3.Connection,
+    db: Db,
     snapshots: Sequence[tuple[BlockUid, str]],
     replacements: Mapping[str, str],
     now_ms: int,
@@ -228,7 +229,7 @@ def rewrite_snapshotted_blocks(
     return rewritten
 
 
-def rewrite_referencing_blocks(db: sqlite3.Connection, page_id: PageId,
+def rewrite_referencing_blocks(db: Db, page_id: PageId,
                                old_title: CanonicalTitle,
                                new_title: CanonicalTitle,
                                now_ms: int) -> None:
@@ -237,7 +238,7 @@ def rewrite_referencing_blocks(db: sqlite3.Connection, page_id: PageId,
     rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms)
 
 
-def insert_sidebar_entry(db: sqlite3.Connection, title: CanonicalTitle,
+def insert_sidebar_entry(db: Db, title: CanonicalTitle,
                          order_idx: int) -> SidebarEntryId:
     """The one way a sidebar entry's title is written on creation -- a typed
     choke point alongside `retitle_sidebar_entry` and `delete_page_rows`'s
@@ -251,7 +252,7 @@ def insert_sidebar_entry(db: sqlite3.Connection, title: CanonicalTitle,
     return SidebarEntryId(cur.lastrowid)
 
 
-def retitle_sidebar_entry(db: sqlite3.Connection, old_title: CanonicalTitle,
+def retitle_sidebar_entry(db: Db, old_title: CanonicalTitle,
                           new_title: CanonicalTitle) -> None:
     """Follow a rename/merge in the title-keyed sidebar table. If an entry
     already exists under the new title (merge target pinned, or an orphan),
@@ -266,7 +267,7 @@ def retitle_sidebar_entry(db: sqlite3.Connection, old_title: CanonicalTitle,
 
 
 def retitle_page_without_rewrite(
-    db: sqlite3.Connection,
+    db: Db,
     page_id: PageId,
     old_title: CanonicalTitle,
     new_title: CanonicalTitle,
@@ -281,7 +282,7 @@ def retitle_page_without_rewrite(
 
 
 def append_page_without_rewrite(
-    db: sqlite3.Connection,
+    db: Db,
     source_id: PageId,
     target_id: PageId,
     old_title: CanonicalTitle,
@@ -319,7 +320,7 @@ def append_page_without_rewrite(
     return moved
 
 
-def rename_page_rows(db: sqlite3.Connection, page_id: PageId,
+def rename_page_rows(db: Db, page_id: PageId,
                      old_title: CanonicalTitle, new_title: CanonicalTitle,
                      now_ms: int) -> None:
     """Rename in place while preserving the public composed behavior."""
@@ -328,7 +329,7 @@ def rename_page_rows(db: sqlite3.Connection, page_id: PageId,
     rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms)
 
 
-def merge_page_rows(db: sqlite3.Connection, source_id: PageId,
+def merge_page_rows(db: Db, source_id: PageId,
                     target_id: PageId,
                     old_title: CanonicalTitle, new_title: CanonicalTitle,
                     now_ms: int) -> None:
@@ -349,7 +350,7 @@ class DeleteBlockedError(Exception):
         self.blockers = tuple(blockers)
 
 
-def plan_delete(db: sqlite3.Connection, page_id: PageId,
+def plan_delete(db: Db, page_id: PageId,
                 title: CanonicalTitle) -> DeletePlan:
     """What deleting this page would rewrite. Read-only."""
     page_blocks = {
@@ -377,7 +378,7 @@ def plan_delete(db: sqlite3.Connection, page_id: PageId,
 
 
 def _record_delete_rewrite(
-    db: sqlite3.Connection, uid: BlockUid, original_text: str, new_text: str,
+    db: Db, uid: BlockUid, original_text: str, new_text: str,
     plan: DeletePlan, title: CanonicalTitle, now_ms: int,
 ) -> None:
     """Replay rows for one delete rewrite: an `unlink` row naming the deleted
@@ -397,7 +398,7 @@ def _record_delete_rewrite(
     )
 
 
-def delete_page_unlinking(db: sqlite3.Connection, page_id: PageId,
+def delete_page_unlinking(db: Db, page_id: PageId,
                           title: CanonicalTitle, now_ms: int) -> DeletePlan:
     """Delete a page after turning inbound links into plain text and inbound
     block refs into copies. Raises DeleteBlockedError before any write when a
@@ -426,7 +427,7 @@ def delete_page_unlinking(db: sqlite3.Connection, page_id: PageId,
     return plan
 
 
-def stale_titles(db: sqlite3.Connection,
+def stale_titles(db: Db,
                  seen_seq: int | None) -> frozenset[CanonicalTitle]:
     """Titles deleted after the journal position a batch was made against.
     None means the client did not say, so nothing is stale and no query

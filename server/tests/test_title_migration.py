@@ -3,6 +3,7 @@ import sqlite3
 import pytest
 
 from pkm.contracts.ops import Sha256Hex
+from pkm.database import Db, connect
 from pkm.schema import DDL
 from pkm.server.sync_meta import (
     database_generation,
@@ -20,16 +21,15 @@ from pkm.server.title_migration import (
 )
 
 
-def _database() -> sqlite3.Connection:
-    db = sqlite3.connect(":memory:")
-    db.row_factory = sqlite3.Row
+def _database() -> Db:
+    db = connect(":memory:")
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA recursive_triggers=ON")
     db.executescript(DDL)
     return db
 
 
-def _seed_migration_graph(db: sqlite3.Connection) -> None:
+def _seed_migration_graph(db: Db) -> None:
     db.executemany(
         "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
         [
@@ -90,11 +90,11 @@ def _seed_migration_graph(db: sqlite3.Connection) -> None:
     db.commit()
 
 
-def _rows(db: sqlite3.Connection, table: str) -> list[tuple[object, ...]]:
+def _rows(db: Db, table: str) -> list[tuple[object, ...]]:
     return sorted(tuple(row) for row in db.execute(f"SELECT * FROM {table}"))
 
 
-def _state(db: sqlite3.Connection) -> dict[str, list[tuple[object, ...]]]:
+def _state(db: Db) -> dict[str, list[tuple[object, ...]]]:
     return {
         table: _rows(db, table)
         for table in (
@@ -282,7 +282,7 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
     plan = audit_title_migration(db)
     old_generation = database_generation(db)
     trace: list[str] = []
-    db.set_trace_callback(trace.append)
+    db.raw.set_trace_callback(trace.append)
 
     outcome = apply_title_migration(db, plan.digest, now_ms=10_000)
 

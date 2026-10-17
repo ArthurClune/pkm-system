@@ -1,3 +1,4 @@
+import os
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
@@ -11,6 +12,9 @@ from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
 from pkm.server.db import init_db, open_db
 from pkm.server.tree import TreeNode
+
+# every Db a test opens checks its rows against pkm.rows.Row
+os.environ["PKM_ROW_CHECK"] = "1"
 
 TEST_PASSWORD = "test-pw"
 TEST_SALT = bytes.fromhex("00" * 16)

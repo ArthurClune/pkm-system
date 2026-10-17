@@ -86,11 +86,11 @@ def test_a_reset_answer_names_nothing(client):
 
 def _traced(con, fn):
     queries: list[str] = []
-    con.set_trace_callback(queries.append)
+    con.raw.set_trace_callback(queries.append)
     try:
         return fn(), queries
     finally:
-        con.set_trace_callback(None)
+        con.raw.set_trace_callback(None)
 
 
 def test_no_applied_batches_query_without_pending_ids(seeded_config):
@@ -139,8 +139,8 @@ def _commit_during(con, path, batch_id, marker):
             done = True
             _commit_elsewhere(path, batch_id)
 
-    con.set_trace_callback(trace)
-    return lambda: con.set_trace_callback(None)
+    con.raw.set_trace_callback(trace)
+    return lambda: con.raw.set_trace_callback(None)
 
 
 def test_changes_read_applied_batches_in_the_window_read_transaction(

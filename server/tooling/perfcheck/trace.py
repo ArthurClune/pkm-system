@@ -12,9 +12,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-import sqlite3
 from fastapi import Request
 
+from pkm.database import Db
 from pkm.server.db import open_db
 
 PROGRESS_N = 1000
@@ -52,11 +52,11 @@ class Tracer:
             self._tally.ticks += 1
         return 0
 
-    def get_db(self, request: Request) -> Iterator[sqlite3.Connection]:
+    def get_db(self, request: Request) -> Iterator[Db]:
         con = open_db(request.app.state.config.db_path)
         if self._tally is not None:
-            con.set_trace_callback(self._on_sql)
-            con.set_progress_handler(self._on_progress, PROGRESS_N)
+            con.raw.set_trace_callback(self._on_sql)
+            con.raw.set_progress_handler(self._on_progress, PROGRESS_N)
         try:
             yield con
         finally:

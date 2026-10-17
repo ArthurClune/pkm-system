@@ -16,6 +16,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
                                UpdateTextOp)
 from pkm.contracts.responses import SkippedOp
+from pkm.database import Db
 from pkm.refs import (CanonicalTitle, NormalizedTitle, is_blank_title,
                       normalize_title)
 from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
@@ -67,7 +68,7 @@ def _new_uid() -> BlockUid:
             return BlockUid(uid)
 
 
-def _resolve_page(db: sqlite3.Connection, title: str,
+def _resolve_page(db: Db, title: str,
                   now_ms: int) -> sqlite3.Row:
     """get_or_create_page for op page_title fields: falls back to
     UNTITLED_PAGE_TITLE rather than propagating BlankTitleError (see
@@ -78,7 +79,7 @@ def _resolve_page(db: sqlite3.Connection, title: str,
         return get_or_create_page(db, UNTITLED_PAGE_TITLE, now_ms)
 
 
-def _hint_page_exists(db: sqlite3.Connection, page_title: str | None) -> bool:
+def _hint_page_exists(db: Db, page_title: str | None) -> bool:
     """Does check 1's page_title hint name a page that exists now?
     Canonicalized the way get_or_create_page looks pages up. A hint whose
     page was renamed or deleted since the client saw it simply doesn't
@@ -89,7 +90,7 @@ def _hint_page_exists(db: sqlite3.Connection, page_title: str | None) -> bool:
     return fetch_page(db, read_title(db, page_title)) is not None
 
 
-def _block_info(db: sqlite3.Connection, uid: str) -> BlockInfo | None:
+def _block_info(db: Db, uid: str) -> BlockInfo | None:
     row = db.execute(
         "SELECT uid, page_id, parent_uid FROM blocks WHERE uid = ?",
         (uid,)).fetchone()
@@ -100,7 +101,7 @@ def _block_info(db: sqlite3.Connection, uid: str) -> BlockInfo | None:
                      if row["parent_uid"] is not None else None)
 
 
-def _block_rewrites(db: sqlite3.Connection,
+def _block_rewrites(db: Db,
                     uid: str) -> tuple[BlockRewrite, ...]:
     """Every recorded rename/merge/delete rewrite of this block, newest
     first -- the order `ops_core.replay_title_rewrites` walks the chain in."""
@@ -113,7 +114,7 @@ def _block_rewrites(db: sqlite3.Connection,
                  for row in rows)
 
 
-def _parent_chain(db: sqlite3.Connection, uid: str) -> tuple[BlockUid, ...]:
+def _parent_chain(db: Db, uid: str) -> tuple[BlockUid, ...]:
     """uid and every ancestor above it, root last. Each block has exactly one
     parent, so this is a single path -- but a corrupted DB could already
     contain a cycle, so recursion is guarded by a visited-path check (`path`)
@@ -133,7 +134,7 @@ def _parent_chain(db: sqlite3.Connection, uid: str) -> tuple[BlockUid, ...]:
     return tuple(BlockUid(r["uid"]) for r in rows)
 
 
-def _subtree_deepest_first(db: sqlite3.Connection,
+def _subtree_deepest_first(db: Db,
                            uid: str) -> tuple[BlockUid, ...]:
     """uid and every descendant, deepest first (children before parents, as
     DeleteBlocks and SetPageId both require). Same visited-path guard as
@@ -150,7 +151,7 @@ def _subtree_deepest_first(db: sqlite3.Connection,
     return tuple(BlockUid(r["uid"]) for r in rows)
 
 
-def _subtree_rows(db: sqlite3.Connection,
+def _subtree_rows(db: Db,
                   uid: str) -> tuple[SubtreeRow, ...]:
     """uid and every descendant with its parent, position and text, deepest
     first -- what a guarded delete hashes and, on a divergence, copies. The
@@ -177,7 +178,7 @@ def _subtree_rows(db: sqlite3.Connection,
         OrderIdx(r["order_idx"]), r["text"]) for r in rows)
 
 
-def _conflict_header(db: sqlite3.Connection, target_uid: str, day: str,
+def _conflict_header(db: Db, target_uid: str, day: str,
                      daily_page_id: PageId
                      ) -> tuple[BlockUid, OrderIdx] | None:
     """(header_uid, next child order_idx) of today's conflict header for
@@ -196,7 +197,7 @@ def _conflict_header(db: sqlite3.Connection, target_uid: str, day: str,
     return BlockUid(row["header_uid"]), idx
 
 
-def _conflict_landing(db: sqlite3.Connection, target_uid: str,
+def _conflict_landing(db: Db, target_uid: str,
                       now_ms: int,
                       exclude: Collection[str] = ()) -> ConflictLanding:
     """Where text that could not apply to target_uid lands: today's daily
@@ -230,7 +231,7 @@ def _conflict_landing(db: sqlite3.Connection, target_uid: str,
                            entry_uid=_new_uid(), header=header)
 
 
-def _existing_page_id(db: sqlite3.Connection, title: str) -> PageId | None:
+def _existing_page_id(db: Db, title: str) -> PageId | None:
     """The page `_resolve_page` would return for title, if it exists
     already; never creates one."""
     canonical = read_title(db, title)
@@ -240,7 +241,7 @@ def _existing_page_id(db: sqlite3.Connection, title: str) -> PageId | None:
     return PageId(page["id"]) if page is not None else None
 
 
-def _deleted_block_page(db: sqlite3.Connection, uid: str) -> PageId | None:
+def _deleted_block_page(db: Db, uid: str) -> PageId | None:
     """The page a gone block was on, from its latest page-bearing tombstone
     in the journal: its delete row (schema.BLOCKS_CHG_AD_TRIGGER), or a
     diverted create's tombstone. A newest-first scan: the tombstone a skip
@@ -252,7 +253,7 @@ def _deleted_block_page(db: sqlite3.Connection, uid: str) -> PageId | None:
     return PageId(row["page_id"]) if row is not None else None
 
 
-def _destination_siblings(db: sqlite3.Connection, op: _AddressedOp, skip: Skip,
+def _destination_siblings(db: Db, op: _AddressedOp, skip: Skip,
                           parent_exists: bool) -> tuple[BlockUid, ...]:
     """The live blocks of a skipped create's or move's destination sibling
     group, where the client's local apply placed the op (placement.ts),
@@ -287,7 +288,7 @@ def _destination_siblings(db: sqlite3.Connection, op: _AddressedOp, skip: Skip,
     return tuple(BlockUid(r["uid"]) for r in rows)
 
 
-def _diverted_create_page(db: sqlite3.Connection,
+def _diverted_create_page(db: Db,
                           op: CreateOp) -> tuple[bool, PageId | None]:
     """(whether op.page_title names a page now, the page the client placed
     the diverted block on). The client placed it on its parent's page
@@ -302,7 +303,7 @@ def _diverted_create_page(db: sqlite3.Connection,
     return False, _deleted_block_page(db, op.parent_uid)
 
 
-def _skip_context(db: sqlite3.Connection, op: _AddressedOp, skip: Skip,
+def _skip_context(db: Db, op: _AddressedOp, skip: Skip,
                   block: BlockInfo | None, parent_exists: bool,
                   now_ms: int) -> SkippedContext:
     """Context for an op classify_skip flagged. Resolves no op page_title
@@ -335,7 +336,7 @@ def _skip_context(db: sqlite3.Connection, op: _AddressedOp, skip: Skip,
         ghost_page)
 
 
-def _context_for(db: sqlite3.Connection, op: BlockOp, now_ms: int,
+def _context_for(db: Db, op: BlockOp, now_ms: int,
                  is_stale: TitleMatch | None = None) -> OpContext:
     """Read what `op` needs, classify it once (classify_skip, then
     classify_text_edit for a hashed edit), and return the context type
@@ -419,7 +420,7 @@ def _context_for(db: sqlite3.Connection, op: BlockOp, now_ms: int,
     return BlockContext(block)
 
 
-def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
+def _execute(db: Db, eff: Effect, now_ms: int) -> None:
     if isinstance(eff, ShiftSiblings):
         db.execute(
             "UPDATE blocks SET order_idx = order_idx + 1"
@@ -488,13 +489,13 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
         raise AssertionError(f"unhandled effect: {eff!r}")
 
 
-def _page_title(db: sqlite3.Connection, page_id: PageId) -> CanonicalTitle | None:
+def _page_title(db: Db, page_id: PageId) -> CanonicalTitle | None:
     row = db.execute("SELECT title FROM pages WHERE id = ?",
                      (page_id,)).fetchone()
     return row["title"] if row is not None else None
 
 
-def _require_page_title(db: sqlite3.Connection, page_id: PageId) -> CanonicalTitle:
+def _require_page_title(db: Db, page_id: PageId) -> CanonicalTitle:
     title = _page_title(db, page_id)
     if title is None:
         raise AssertionError(
@@ -503,7 +504,7 @@ def _require_page_title(db: sqlite3.Connection, page_id: PageId) -> CanonicalTit
     return title
 
 
-def _broadcast_page_title(db: sqlite3.Connection, op: BlockOp,
+def _broadcast_page_title(db: Db, op: BlockOp,
                           ctx: OpContext) -> str | None:
     if isinstance(ctx, (CreateContext, PageContext)):
         return _require_page_title(db, ctx.page_id)
@@ -521,7 +522,7 @@ def _broadcast_page_title(db: sqlite3.Connection, op: BlockOp,
     return _require_page_title(db, PageId(row["page_id"]))
 
 
-def _broadcast_op(db: sqlite3.Connection, op: BlockOp,
+def _broadcast_op(db: Db, op: BlockOp,
                   ctx: OpContext) -> dict[str, object]:
     """The op as broadcast to remote clients.
 
@@ -546,7 +547,7 @@ class AppliedBatch:
     skipped: list[SkippedOp]
 
 
-def apply_batch(db: sqlite3.Connection, batch: OpBatch,
+def apply_batch(db: Db, batch: OpBatch,
                 now_ms: int) -> AppliedBatch:
     """Apply a batch inside the caller's transaction."""
     violation = find_op_title_violation(batch.ops)

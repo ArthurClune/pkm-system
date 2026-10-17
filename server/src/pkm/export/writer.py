@@ -76,13 +76,13 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-import sqlite3
 import tempfile
 from pathlib import Path
 
 from pkm.assets_disk import asset_on_disk_needs_repair
 from pkm.contracts.daily import date_for_title
 from pkm.contracts.ops import Sha256Hex
+from pkm.database import Db
 from pkm.export.markdown import page_filename, render_page
 from pkm.filenames import safe_filename
 from pkm.server.tree import build_tree, collect_block_ref_uids
@@ -167,7 +167,7 @@ def _stage_assets(wanted: dict[Sha256Hex, tuple[str, int]], *, assets_dir: Path,
     return counts
 
 
-def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
+def export_graph(db: Db, live_assets_dir: Path,
                  export_dir: Path) -> dict[str, int]:
     pages_dir = export_dir / "pages"
     journal_dir = export_dir / "journal"

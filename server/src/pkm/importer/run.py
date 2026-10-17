@@ -8,13 +8,13 @@ import hashlib
 import mimetypes
 import os
 import shutil
-import sqlite3
 import sys
 import time
 from pathlib import Path
 
 from pkm.assets_disk import asset_on_disk_needs_repair
 from pkm.contracts.ops import Sha256Hex
+from pkm.database import connect
 from pkm.edn import EdnError, parse_edn
 from pkm.filenames import safe_filename
 from pkm.importer.assets import UID_PREFIX_LEN, Asset, rewrite_asset_urls
@@ -151,8 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     tmp = out / "pkm.sqlite3.tmp"
     tmp.unlink(missing_ok=True)
     blocked_migration: BlockedTitleMigration | None = None
-    con = sqlite3.connect(tmp)
-    con.row_factory = sqlite3.Row
+    con = connect(tmp)
     try:
         con.executescript(DDL)
         con.executemany("INSERT INTO pages VALUES (?,?,?,?)", rows.pages)

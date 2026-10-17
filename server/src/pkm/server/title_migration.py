@@ -2,10 +2,10 @@
 """Transactional database inventory and apply shell for title migration."""
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass
 
 from pkm.contracts.ops import BlockUid, PageId, Sha256Hex
+from pkm.database import Db
 from pkm.refs import target_canonical_title, title_syntax_reason
 from pkm.title_migration import (
     InventoryBlock,
@@ -58,7 +58,7 @@ class AlreadyActiveTitleMigration(RuntimeError):
     """Raised when plain-space title canonicalization is already active."""
 
 
-def _inventory_title_migration(db: sqlite3.Connection) -> TitleMigrationInventory:
+def _inventory_title_migration(db: Db) -> TitleMigrationInventory:
     """Gather migration-relevant rows inside the caller's transaction.
 
     This private gatherer never begins, commits, or rolls back. Audit and apply
@@ -152,7 +152,7 @@ def _inventory_title_migration(db: sqlite3.Connection) -> TitleMigrationInventor
     )
 
 
-def audit_title_migration(db: sqlite3.Connection) -> TitleMigrationPlan:
+def audit_title_migration(db: Db) -> TitleMigrationPlan:
     """Build a stable migration plan in an owned, side-effect-free read
     transaction."""
     if db.in_transaction:
@@ -165,7 +165,7 @@ def audit_title_migration(db: sqlite3.Connection) -> TitleMigrationPlan:
 
 
 def apply_title_migration(
-    db: sqlite3.Connection, expected_digest: Sha256Hex, now_ms: int
+    db: Db, expected_digest: Sha256Hex, now_ms: int
 ) -> TitleMigrationOutcome:
     """Re-audit, migrate, activate, and rotate generation in one write
     transaction."""
@@ -174,7 +174,7 @@ def apply_title_migration(
 
     transaction_started = False
     try:
-        db.execute("BEGIN IMMEDIATE")
+        db.begin_immediate()
         transaction_started = True
         plan = build_title_migration_plan(_inventory_title_migration(db))
         if plan.digest != expected_digest:

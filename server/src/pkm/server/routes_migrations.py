@@ -2,7 +2,6 @@
 """Authenticated title-canonicalization audit/apply routes."""
 from __future__ import annotations
 
-import sqlite3
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -12,6 +11,7 @@ from pkm.contracts.responses import (
     TitleMigrationApplyResponse,
     TitleMigrationAuditPayload,
 )
+from pkm.database import Db
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
@@ -65,7 +65,7 @@ def _audit_payload(plan: TitleMigrationPlan) -> dict[str, object]:
     response_model=TitleMigrationAuditPayload,
 )
 def audit_title_canonicalization(
-    db: sqlite3.Connection = Depends(get_db),
+    db: Db = Depends(get_db),
 ) -> dict[str, object]:
     return _audit_payload(audit_title_migration(db))
 
@@ -77,7 +77,7 @@ def audit_title_canonicalization(
 def apply_title_canonicalization(
     request: Request,
     body: TitleMigrationApplyRequest,
-    db: sqlite3.Connection = Depends(get_db),
+    db: Db = Depends(get_db),
 ) -> dict[str, object]:
     try:
         outcome = apply_title_migration(

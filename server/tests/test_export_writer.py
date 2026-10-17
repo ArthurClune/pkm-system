@@ -1,13 +1,13 @@
 import hashlib
 import os
 import shutil
-import sqlite3
 from pathlib import Path
 
 import pytest
 
 import pkm.assets_disk as assets_disk
 from pkm.contracts.ops import Sha256Hex
+from pkm.database import connect
 from pkm.export.writer import _stage_assets, export_graph
 from pkm.schema import DDL
 
@@ -20,8 +20,7 @@ def _snapshot(export_dir: Path) -> dict[str, bytes]:
 
 @pytest.fixture()
 def graph(tmp_path):
-    db = sqlite3.connect(tmp_path / "g.sqlite3")
-    db.row_factory = sqlite3.Row
+    db = connect(tmp_path / "g.sqlite3")
     db.executescript(DDL)
     db.executemany("INSERT INTO pages VALUES (?,?,?,?)", [
         (1, "Alpha", None, None),
@@ -90,8 +89,7 @@ def test_export_survives_overlong_asset_filename(tmp_path):
     # Regression: a DB row with an unbounded filename (e.g. from a direct
     # API client, not the upload route's own guard) used to make
     # export_graph() raise OSError [Errno 63] File name too long.
-    db = sqlite3.connect(tmp_path / "g.sqlite3")
-    db.row_factory = sqlite3.Row
+    db = connect(tmp_path / "g.sqlite3")
     db.executescript(DDL)
     sha = "cd" * 32
     db.execute("INSERT INTO assets(sha256, filename, mime, size, created_at)"
@@ -113,8 +111,7 @@ def test_export_does_not_clobber_assets_that_collide_after_truncation(tmp_path):
     # Two different overlong filenames can truncate to the same string, but
     # each asset lives under its own sha256 directory, so they must not
     # overwrite each other.
-    db = sqlite3.connect(tmp_path / "g.sqlite3")
-    db.row_factory = sqlite3.Row
+    db = connect(tmp_path / "g.sqlite3")
     db.executescript(DDL)
     sha_a, sha_b = "aa" * 32, "bb" * 32
     db.executemany(

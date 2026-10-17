@@ -30,11 +30,11 @@ def _seed_bulk(con, n, page_id=1, target_page_id=4):
 
 def _traced(con, fn):
     queries: list[str] = []
-    con.set_trace_callback(lambda sql: queries.append(sql))
+    con.raw.set_trace_callback(lambda sql: queries.append(sql))
     try:
         return fn(), queries
     finally:
-        con.set_trace_callback(None)
+        con.raw.set_trace_callback(None)
 
 
 def test_changes_feed_query_count_bounded_by_chunks_not_entities(seeded_config):

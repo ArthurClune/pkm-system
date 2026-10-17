@@ -5,7 +5,13 @@
 //     property whose name means a brand (uid, pageId, sha ...) must be
 //     declared with exactly that brand (or null, or an array of it).
 //   * brands/no-brand-assertion: `as`/`<T>` toward a type that contains a
-//     brand is reported outside the brand's mint sites.
+//     brand (directly or through a type parameter's constraint), a type
+//     predicate (`x is B`) and a `declare`d value or function returning one
+//     are reported outside the brand's mint sites (a predicate that only
+//     narrows a parameter already carrying the brand is not a mint). An
+//     assertion to an unconstrained type parameter or `never` launders any
+//     value and is allowed only on a `brand: untrusted -- <reason>` line in
+//     an opt-out file.
 // Both read tooling/brandRegistry.gen.json, generated from the server's
 // brand registry, and both skip test files and the registry's test-support
 // paths. `satisfies` and non-null `!` are not assertions toward a brand and
@@ -73,6 +79,11 @@ function brandsOf(checker, type) {
   const walk = (t) => {
     if (seen.has(t)) return;
     seen.add(t);
+    if (t.flags & ts.TypeFlags.TypeParameter) {
+      const constraint = checker.getBaseConstraintOfType(t);
+      if (constraint && constraint !== t) walk(constraint);
+      return;
+    }
     if (t.isUnionOrIntersection()) {
       // A subtype brand adds a `__canonical` key to its parent's brand
       // (api/brands.ts), so the intersection names the subtype, which has
@@ -113,11 +124,22 @@ function brandsOf(checker, type) {
         }
         for (const info of checker.getIndexInfosOfType(t)) walk(info.type);
       }
-      t.aliasTypeArguments?.forEach(walk);
+      else t.aliasTypeArguments?.forEach(walk);
     }
   };
   walk(type);
   return found;
+}
+
+// An assertion toward this type accepts any value: `never`, or a type
+// parameter with no constraint (or one that is `unknown`/`any`).
+function launders(checker, type) {
+  if (type.flags & ts.TypeFlags.Never) return true;
+  if (type.isUnion()) return type.types.some((m) => launders(checker, m));
+  if (!(type.flags & ts.TypeFlags.TypeParameter)) return false;
+  const constraint = checker.getBaseConstraintOfType(type);
+  return constraint === undefined
+    || (constraint.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any)) !== 0;
 }
 
 // The brand literal a type itself carries (not one nested inside it).
@@ -267,7 +289,10 @@ const nameCarriesBrand = {
       return null;
     };
     const checkParam = (param) => {
-      const id = param.type === "AssignmentPattern" ? param.left : param;
+      let id = param;
+      if (id.type === "TSParameterProperty") id = id.parameter;
+      if (id.type === "AssignmentPattern") id = id.left;
+      if (id.type === "RestElement") id = id.argument;
       if (id.type !== "Identifier") return;
       check(id.name, id, esTreeNodeToTSNodeMap.get(id));
     };
@@ -280,6 +305,11 @@ const nameCarriesBrand = {
       FunctionDeclaration: checkFunction,
       FunctionExpression: checkFunction,
       ArrowFunctionExpression: checkFunction,
+      TSFunctionType: checkFunction,
+      TSConstructorType: checkFunction,
+      TSMethodSignature: checkFunction,
+      TSDeclareFunction: checkFunction,
+      TSEmptyBodyFunctionExpression: checkFunction,
       TSPropertySignature: checkMember,
       PropertyDefinition: checkMember,
     };
@@ -294,6 +324,13 @@ const noBrandAssertion = {
       assertion:
         "assert to {{brand}} only at its mint site: {{remedy}}, or read it "
         + "from `select`",
+      declaration:
+        "declaring {{brand}} here mints it without a check: {{remedy}}, or "
+        + "read it from `select`",
+      launder:
+        "asserting to `{{target}}` launders any value; parse it, or mark the "
+        + "boundary with `// brand: untrusted -- <reason>` in a boundary "
+        + "module",
     },
   },
   create(context) {
@@ -301,26 +338,77 @@ const noBrandAssertion = {
     if (isExempt(path)) return {};
     const { program, esTreeNodeToTSNodeMap } = servicesOf(context);
     const checker = program.getTypeChecker();
+    const mayOptOut = optOutFiles.some((m) => m(path));
+    const typeOf = (estreeNode) =>
+      checker.getTypeAtLocation(esTreeNodeToTSNodeMap.get(estreeNode));
+    // Report the brands `type` carries outside their mint sites.
+    const checkBrands = (node, type, messageId, known = new Set()) => {
+      const outside = [...cachedBrands(checker, type)].filter(
+        (b) => !isMintSite(b, path) && !known.has(b),
+      );
+      if (outside.length === 0) return;
+      context.report({
+        node,
+        messageId,
+        data: { brand: outside.join(", "), remedy: remedy(outside) },
+      });
+    };
     const check = (node) => {
       const target = node.typeAnnotation;
       if (target.type === "TSTypeReference" && target.typeName.name === "const") {
         return;
       }
-      const type = checker.getTypeAtLocation(esTreeNodeToTSNodeMap.get(target));
-      const outside = [...cachedBrands(checker, type)].filter(
-        (b) => !isMintSite(b, path),
-      );
-      if (outside.length === 0) return;
-      context.report({
-        node,
-        messageId: "assertion",
-        data: {
-          brand: outside.join(", "),
-          remedy: remedy(outside),
-        },
-      });
+      const type = typeOf(target);
+      if (launders(checker, type)) {
+        const optOut = optOutOf(context.sourceCode, node);
+        if (optOut === "reason" && mayOptOut) return;
+        context.report({
+          node,
+          messageId: "launder",
+          data: { target: checker.typeToString(type) },
+        });
+        return;
+      }
+      checkBrands(node, type, "assertion");
     };
-    return { TSAsExpression: check, TSTypeAssertion: check };
+    const checkPredicate = (node) => {
+      const annotation = node.typeAnnotation?.typeAnnotation;
+      if (!annotation) return;
+      // Narrowing a parameter whose declared type already carries a brand
+      // (a union of ops, say) adds none; only a brand it lacks is minted.
+      const fn = node.parent?.parent;
+      const declared = (fn?.params ?? []).map(
+        (p) => (p.type === "AssignmentPattern" ? p.left : p),
+      ).find((p) => p.type === "Identifier"
+        && p.name === node.parameterName.name);
+      const known = declared
+        ? cachedBrands(checker, typeOf(declared)) : new Set();
+      checkBrands(node, typeOf(annotation), "declaration", known);
+    };
+    // An overload signature is a TSDeclareFunction too; only `declare`
+    // asserts a function exists with no body to check.
+    const checkDeclaredFunction = (node) => {
+      if (!node.declare) return;
+      const annotation = node.returnType?.typeAnnotation;
+      if (annotation && annotation.type !== "TSTypePredicate") {
+        checkBrands(node, typeOf(annotation), "declaration");
+      }
+    };
+    const checkDeclaredVariable = (node) => {
+      if (!node.declare) return;
+      for (const d of node.declarations) {
+        if (d.id.typeAnnotation) {
+          checkBrands(d, typeOf(d.id), "declaration");
+        }
+      }
+    };
+    return {
+      TSAsExpression: check,
+      TSTypeAssertion: check,
+      TSTypePredicate: checkPredicate,
+      TSDeclareFunction: checkDeclaredFunction,
+      VariableDeclaration: checkDeclaredVariable,
+    };
   },
 };
 

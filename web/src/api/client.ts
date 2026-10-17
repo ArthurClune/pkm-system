@@ -91,6 +91,7 @@ async function localFetch<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.status !== undefined && res.status >= 400) {
     throw new ApiError(res.status, path, detailFromBody(res.body));
   }
+  // brand: untrusted -- a local gateway body, typed by the caller's route
   return res.body as T;
 }
 
@@ -159,5 +160,6 @@ export async function apiFetch<T>(
   if (!res.ok) {
     throw new ApiError(res.status, path, await readErrorDetail(res));
   }
+  // brand: untrusted -- an HTTP response body, typed by the caller's route
   return (await res.json()) as T;
 }

@@ -237,6 +237,41 @@ const cases: readonly FixtureCase[] = [
       "  void uid;\n" +
       "}\n",
   },
+  {
+    file: "brand-assertion-generic.ts",
+    rule: "brands/no-brand-assertion",
+    count: 3,
+    corrected:
+      'import type { BlockUid, PageId } from "../../src/api/brands";\n' +
+      "export function pick<T extends BlockUid | PageId>(x: T): T {\n" +
+      "  return x;\n" +
+      "}\n",
+  },
+  {
+    file: "brand-predicate.ts",
+    rule: "brands/no-brand-assertion",
+    count: 4,
+    corrected:
+      'import type { BlockUid } from "../../src/api/brands";\n' +
+      'import { parseBlockUid } from "../../src/ids";\n' +
+      "export function parse(x: string): BlockUid | null {\n" +
+      "  return parseBlockUid(x);\n" +
+      "}\n",
+  },
+  {
+    file: "brand-name-positions.ts",
+    rule: "brands/name-carries-brand",
+    count: 7,
+    corrected:
+      'import type { BlockUid } from "../../src/api/brands";\n' +
+      "export type Handler = (uid: BlockUid) => void;\n" +
+      "export class Holder {\n" +
+      "  constructor(private readonly uid: BlockUid) {}\n" +
+      "}\n" +
+      "export function rest(...uids: BlockUid[]): void {\n" +
+      "  void uids;\n" +
+      "}\n",
+  },
 ];
 
 // Each ESLint spawn here takes ~2s under coverage instrumentation, close
@@ -369,6 +404,44 @@ describe("brands plugin judgement", () => {
     expect(found[0].message).toContain("parseBlockUid");
     expect(found[0].message).toContain("web/src/ids.ts");
     expect(found[1].message).toContain("`BlockUid[]`");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("honours an opt-out line on a laundering assertion in a boundary", async () => {
+    const text =
+      "export function f<T>(x: unknown): T {\n" +
+      "  // brand: untrusted -- a response body\n" +
+      "  return x as T;\n" +
+      "}\n";
+    expect(await messagesFor("src/api/client.ts", text)).toEqual([]);
+    const outside = await messagesFor("src/sync/opQueue.ts", text);
+    expect(outside.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(outside[0].message).toContain("launders");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("lets a predicate narrow a brand its parameter already carries", async () => {
+    const text =
+      'import type { BlockUid } from "../api/brands";\n' +
+      "type Op = { uid: BlockUid; n: 1 } | { n: 2 };\n" +
+      "export const hasUid = (op: Op): op is { uid: BlockUid; n: 1 } =>\n" +
+      "  op.n === 1;\n" +
+      "export function over(op: Op): op is Op;\n" +
+      "export function over(op: Op): boolean {\n" +
+      "  return op.n === 1;\n" +
+      "}\n";
+    expect(await messagesFor("src/sync/opQueue.ts", text)).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("walks a Pick alias by its picked keys, not every key", async () => {
+    const head =
+      'import type { Columns } from "../replica/columns.gen";\n';
+    const clean = await messagesFor("src/sync/opQueue.ts",
+      head + 'export const f = (v: unknown) => v as Pick<Columns, "n">;\n');
+    expect(clean).toEqual([]);
+    const picked = await messagesFor("src/sync/opQueue.ts",
+      head + 'export const f = (v: unknown) => v as Pick<Columns, "uid">;\n');
+    expect(picked).toHaveLength(1);
+    expect(picked[0].message).toContain("BlockUid");
+    expect(picked[0].message).not.toContain("PageId");
   }, ESLINT_TIMEOUT_MS);
 
   it("asks for a reason when an opt-out file's marker has none", async () => {

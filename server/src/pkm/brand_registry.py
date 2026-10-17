@@ -86,6 +86,8 @@ _WEB_ROWS = "web/src/replica/db.ts"
 _WEB_WIRE = "web/src/sync/wire.ts"
 # A stored op list is shape-checked, then read as `BlockOp[]`.
 _WEB_PENDING_OPS = "web/src/replica/pendingOps.ts"
+# A stored poison intent is shape-checked, then read as a `PoisonEvent`.
+_WEB_POISON = "web/src/sync/poisonIntents.ts"
 MINT_SITES: dict[str, tuple[str, ...]] = {
     "BlockUid": (
         _CONTRACTS,
@@ -105,7 +107,7 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
         "web/src/uid.ts",
         # The tokenizer's block-ref match is uid-shaped by construction.
         "web/src/grammar/scan.ts",
-        _WEB_ROWS, _WEB_WIRE, _WEB_PENDING_OPS,
+        _WEB_ROWS, _WEB_WIRE, _WEB_PENDING_OPS, _WEB_POISON,
     ),
     "PageId": (
         _CONTRACTS,
@@ -125,7 +127,7 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
                  "web/src/uid.ts", _WEB_WIRE),
     # `_batch_id` mints one id per client batch; so does `newBatchId`.
     "BatchId": (_CONTRACTS, "server/src/pkm/client/workflows.py",
-                "web/src/uid.ts", _WEB_ROWS, _WEB_WIRE),
+                "web/src/uid.ts", _WEB_ROWS, _WEB_WIRE, _WEB_POISON),
     # Order keys are assigned where a position becomes a key: the planner
     # (`next_order_idx`, `_land`), the importer (export order) and the
     # conflict/copy effects (a fresh child list starts at 0). The web's
@@ -134,7 +136,7 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
                  "server/src/pkm/importer/rows.py",
                  "server/src/pkm/server/ops_core.py",
                  "web/src/outline/orderIdx.ts",
-                 _WEB_ROWS, _WEB_WIRE, _WEB_PENDING_OPS),
+                 _WEB_ROWS, _WEB_WIRE, _WEB_PENDING_OPS, _WEB_POISON),
     # The importer appends sidebar entries one past the current max.
     "SidebarOrderIdx": (_CONTRACTS, "server/src/pkm/importer/sidebar_rows.py",
                         _WEB_ROWS, _WEB_WIRE),
@@ -143,7 +145,7 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
     "Sha256Hex": (_CONTRACTS, "server/src/pkm/assets_core.py",
                   "server/src/pkm/title_migration.py",
                   "web/src/replica/sha256.ts",
-                  _WEB_ROWS, _WEB_WIRE, _WEB_PENDING_OPS),
+                  _WEB_ROWS, _WEB_WIRE, _WEB_PENDING_OPS, _WEB_POISON),
     # `parseSyncSeq` reads a cursor out of an untrusted value.
     "SyncSeq": (_CONTRACTS, "web/src/ids.ts", _WEB_ROWS, _WEB_WIRE),
     # A fresh random id per assistant conversation.
@@ -170,7 +172,7 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
     # `page_queries` are its mints, both in query_exec.
     "CanonicalQueryNode": ("server/src/pkm/server/query_exec.py",),
     # Web-only brands. A pending row's id is the row's own autoincrement key.
-    "PendingRowId": (_WEB_ROWS,),
+    "PendingRowId": (_WEB_ROWS, _WEB_POISON),
     # `mintTicketId` numbers the write tickets of one tab.
     "TicketId": ("web/src/ids.ts",),
     # The outline state machine counts its own reads and revisions.
@@ -214,6 +216,10 @@ OPT_OUT_FILES: tuple[str, ...] = (
     # Workbox's precache manifest is external build output; its `revision`
     # is a content hash string, not a replica `Revision`.
     "web/tooling/viteBudgetPlugin.ts",
+    # The HTTP response boundary: `fetch(...).json()` is untyped, and the
+    # generated API types name the brands a response carries; the web twin
+    # of the routes_*.py parse points.
+    "web/src/api/client.ts",
 )
 
 # Columns whose key is not their own name: table -> {column: key}. One

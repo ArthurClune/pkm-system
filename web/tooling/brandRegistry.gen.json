@@ -234,7 +234,8 @@
       "web/src/grammar/scan.ts",
       "web/src/replica/db.ts",
       "web/src/sync/wire.ts",
-      "web/src/replica/pendingOps.ts"
+      "web/src/replica/pendingOps.ts",
+      "web/src/sync/poisonIntents.ts"
     ],
     "PageId": [
       "server/src/pkm/contracts/",
@@ -259,7 +260,8 @@
       "server/src/pkm/client/workflows.py",
       "web/src/uid.ts",
       "web/src/replica/db.ts",
-      "web/src/sync/wire.ts"
+      "web/src/sync/wire.ts",
+      "web/src/sync/poisonIntents.ts"
     ],
     "OrderIdx": [
       "server/src/pkm/contracts/",
@@ -269,7 +271,8 @@
       "web/src/outline/orderIdx.ts",
       "web/src/replica/db.ts",
       "web/src/sync/wire.ts",
-      "web/src/replica/pendingOps.ts"
+      "web/src/replica/pendingOps.ts",
+      "web/src/sync/poisonIntents.ts"
     ],
     "SidebarOrderIdx": [
       "server/src/pkm/contracts/",
@@ -284,7 +287,8 @@
       "web/src/replica/sha256.ts",
       "web/src/replica/db.ts",
       "web/src/sync/wire.ts",
-      "web/src/replica/pendingOps.ts"
+      "web/src/replica/pendingOps.ts",
+      "web/src/sync/poisonIntents.ts"
     ],
     "SyncSeq": [
       "server/src/pkm/contracts/",
@@ -322,7 +326,8 @@
       "server/src/pkm/server/query_exec.py"
     ],
     "PendingRowId": [
-      "web/src/replica/db.ts"
+      "web/src/replica/db.ts",
+      "web/src/sync/poisonIntents.ts"
     ],
     "TicketId": [
       "web/src/ids.ts"
@@ -348,6 +353,7 @@
   "optOutFiles": [
     "server/src/pkm/**/routes_*.py",
     "server/src/pkm/**/routes.py",
-    "web/tooling/viteBudgetPlugin.ts"
+    "web/tooling/viteBudgetPlugin.ts",
+    "web/src/api/client.ts"
   ]
 }

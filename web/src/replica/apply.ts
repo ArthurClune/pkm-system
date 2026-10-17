@@ -404,16 +404,24 @@ type TitledTableFor<Id extends PageId | SidebarEntryId> =
  * restores its real title. Negative ids are offline-created pages, which
  * reconcilePage remaps rather than retitles. Rows still parked once every
  * upsert has run are not a swap -- see the check in applyWindow. */
-export function parkTakenTitles<Id extends PageId | SidebarEntryId>(
-    db: ReplicaDb, table: TitledTableFor<Id>,
-    incoming: readonly { id: Id; title: CanonicalTitle }[]): Id[] {
-  const parked: Id[] = [];
+export function parkTakenTitles(
+    db: ReplicaDb, table: "pages",
+    incoming: readonly { id: PageId; title: CanonicalTitle }[]): PageId[];
+export function parkTakenTitles(
+    db: ReplicaDb, table: "sidebar_entries",
+    incoming: readonly { id: SidebarEntryId; title: CanonicalTitle }[],
+): SidebarEntryId[];
+export function parkTakenTitles(
+    db: ReplicaDb, table: "pages" | "sidebar_entries",
+    incoming: readonly { id: PageId | SidebarEntryId; title: CanonicalTitle }[],
+): (PageId | SidebarEntryId)[] {
+  const parked: (PageId | SidebarEntryId)[] = [];
   for (const row of incoming) {
     const key = table === "pages" ? "page_id" : "sidebar_entry_id";
     const holders = db.select<typeof key>(
       `SELECT id AS ${key} FROM ${table}` +
       " WHERE title = ? AND id != ? AND id >= 0",
-      [row.title, row.id]).map((h) => h[key] as Id);
+      [row.title, row.id]).map((h) => h[key]);
     for (const holder of holders) {
       db.exec(`UPDATE ${table} SET title = ? WHERE id = ?`,
               [parkedTitle(holder), holder]);

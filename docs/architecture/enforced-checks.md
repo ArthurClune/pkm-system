@@ -48,12 +48,14 @@ one `MINT_SITES` serve both languages. Test files and the registry's
 
 | Rule | Fails when |
 |---|---|
-| `brands/name-carries-brand` | a parameter, property signature or class property named like a brand is not declared with that brand, or allows its base type in a union. The check is shallow: `null`, an array of the brand, and a `Set`, `Map` key or `Record` key of it are accepted |
-| `brands/no-brand-assertion` | an `as` or `<T>` assertion targets a type that contains a brand, outside that brand's mint sites. It walks the target's structure, including mapped types and index signatures, and a subtype brand (`CanonicalTitle`) counts as its own brand rather than its parent's |
+| `brands/name-carries-brand` | a parameter, property signature or class property named like a brand is not declared with that brand, or allows its base type in a union. The check is shallow: `null`, an array of the brand, and a `Set`, `Map` key or `Record` key of it are accepted. Parameters are read in every position: functions, arrows, methods, function and constructor types, method signatures, `declare` and overload signatures, constructor parameter properties and rest parameters |
+| `brands/no-brand-assertion` | an `as` or `<T>` assertion, a type predicate (`x is B`, `asserts x is B`), or a `declare`d variable or function whose type or return carries a brand, outside that brand's mint sites. It walks the target's structure, including mapped types, index signatures and a type parameter's constraint (`as T` with `T extends BlockUid`), and a subtype brand (`CanonicalTitle`) counts as its own brand rather than its parent's. A predicate that only narrows a parameter already carrying the brand is not a mint. An assertion to `never` or to an unconstrained type parameter launders any value and fails on its own message |
 
 `// brand: untrusted -- <reason>` on a declaration opts a name out of
-`name-carries-brand`, and only inside `OPT_OUT_FILES` (`viteBudgetPlugin.ts`
-on the web). `satisfies` and the non-null `!` are not assertions toward a
+`name-carries-brand`, and on a laundering assertion (`as T`, `as never`)
+opts it out of `no-brand-assertion`; both only inside `OPT_OUT_FILES`
+(`viteBudgetPlugin.ts` and the HTTP response boundary `api/client.ts` on the
+web). `satisfies` and the non-null `!` are not assertions toward a
 brand. The fixtures in `web/tooling/eslint-fixtures` are linted by
 `lintConfig.test.ts`, which pins each message. The database side of the
 vocabulary is in [backend.md](backend.md#typed-database-access) and

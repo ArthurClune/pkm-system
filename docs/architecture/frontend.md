@@ -532,7 +532,9 @@ Under vitest (`import.meta.env.MODE === "test"`) every selected row also goes
 through `rowProblems` (`replica/rowCheck.ts`), the TypeScript twin of the
 server's `row_problems`. It throws on an unregistered column, a NULL in a
 non-null key, a wrong base type, a value outside a literal domain or a value
-that fails its brand's shape. The check is off in production and e2e.
+that fails its brand's shape. The check is chosen once at module load in
+`replica/db.ts`: in a production build the mode test folds to a constant, so
+the worker bundle contains neither `rowCheck.ts` nor the vocabulary behind it.
 `openTestDb({ checkRows })` turns it off for the one test whose premise is
 data the check would reject, and `uidOf` (`test-helpers.ts`) builds a
 well-formed uid from a short tag for seeds.

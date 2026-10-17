@@ -112,9 +112,12 @@ def login(url: str, password: str,
 
 def _detail(r: httpx2.Response) -> object:
     try:
-        return r.json().get("detail", r.text)
+        body: object = r.json()
     except ValueError:
         return r.text
+    if isinstance(body, dict):
+        return body.get("detail", r.text)
+    return r.text
 
 
 class _RequestKwargs(TypedDict, total=False):
@@ -145,7 +148,7 @@ class PkmClient:
             raise ApiError(r.status_code,
                            friendly_error(r.status_code, _detail(r)))
         try:
-            body = r.json()
+            body: object = r.json()
         except ValueError:
             raise ResponseSchemaError(method, path,
                                       "body is not JSON") from None

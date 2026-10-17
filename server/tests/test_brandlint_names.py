@@ -102,5 +102,42 @@ def test_files_outside_product_python_are_not_checked(path: str):
 
 
 def test_every_rule_has_a_remedy_that_names_the_fix():
-    assert set(RULES) == {"brand-name", "brand-opt-out"}
+    assert set(RULES) == {"brand-name", "brand-opt-out", "brand-parse"}
     assert "select()" in RULES["brand-name"] and "untrusted" in RULES["brand-name"]
+
+
+@pytest.mark.parametrize("annotation", [
+    "BlockUid | str",
+    "Union[str, BlockUid]",
+    "Optional[str]",
+    "BlockUid | Any",
+    "BlockUid | object",
+    "Annotated[str, Field(description='BlockUid')]",
+    "Literal['BlockUid']",
+    "list[BlockUid | str]",
+])
+def test_an_annotation_that_allows_the_plain_type_is_flagged(annotation: str):
+    assert rules(f"def f(uid: {annotation}) -> None: ...\n") == ["brand-name"]
+
+
+@pytest.mark.parametrize("annotation", [
+    "Annotated[BlockUid, Field(min_length=1)]",
+    "BlockUid | None",
+    "list[BlockUid] | None",
+    "'BlockUid | None'",
+    "Optional[BlockUid]",
+    "Union[BlockUid, None]",
+])
+def test_an_annotation_that_carries_the_brand_is_clean(annotation: str):
+    assert rules(f"def f(uid: {annotation}) -> None: ...\n") == []
+
+
+def test_an_int_brand_rejects_int_in_a_union():
+    assert rules("def f(page_id: PageId | int) -> None: ...\n") == ["brand-name"]
+
+
+def test_unparseable_source_is_a_loud_violation_naming_the_interpreter():
+    [v] = check_text(PRODUCT, "def f(:\n", REGISTRY)
+    assert v.rule == "brand-parse"
+    assert "Python >= 3.12" in v.text and "cannot parse under Python 3." in v.text
+    assert "brand-parse" in RULES

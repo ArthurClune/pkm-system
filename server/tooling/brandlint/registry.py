@@ -6,7 +6,7 @@ without the server's package or its dependencies."""
 from __future__ import annotations
 
 import importlib.util
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 REGISTRY_RELPATH = "server/src/pkm/brand_registry.py"
@@ -17,6 +17,7 @@ class Registry:
     names: dict[str, tuple[str, ...]]
     opt_out_files: tuple[str, ...]
     test_support: tuple[str, ...]
+    shapes: dict[str, tuple[str, str | None]] = field(default_factory=dict)
 
 
 def load_registry(repo: Path) -> Registry:
@@ -32,4 +33,5 @@ def load_registry(repo: Path) -> Registry:
         names=dict(module.NAMES),
         opt_out_files=tuple(module.OPT_OUT_FILES),
         test_support=tuple(module.TEST_SUPPORT),
+        shapes=dict(module.SHAPES),
     )

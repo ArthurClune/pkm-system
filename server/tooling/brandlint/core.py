@@ -15,6 +15,7 @@ from __future__ import annotations
 import ast
 import io
 import re
+import sys
 import tokenize
 from pathlib import PurePosixPath
 
@@ -27,6 +28,8 @@ RULES = {
     "brand-name": "a name that means a brand must carry it: read the value from a `select()` row, take it "
                   "from a contract model, or parse it with the brand's parser; untrusted route input may "
                   "carry `# brand: untrusted -- <reason>`",
+    "brand-parse": "brandlint could not parse this file; it needs Python >= 3.12 (PEP 695 syntax): run it "
+                   "under a newer python3",
     "brand-opt-out": "`# brand: untrusted -- <reason>` is allowed only in route modules (routes_*.py) and "
                      "must give a reason",
 }
@@ -34,7 +37,6 @@ RULES = {
 # Matched at the start of a comment token.
 _OPT_OUT = re.compile(r"#\s*brand:\s*untrusted\b(?P<rest>.*)$")
 _REASON = re.compile(r"^\s*--\s*\S")
-_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def in_scope(path: str, registry: Registry) -> bool:
@@ -75,17 +77,63 @@ def _comments(text: str) -> list[tuple[int, str]]:
         return []
 
 
-def _annotation_words(node: ast.expr) -> set[str]:
-    """Every name an annotation mentions, looking inside string annotations."""
-    words: set[str] = set()
-    for sub in ast.walk(node):
-        if isinstance(sub, ast.Name):
-            words.add(sub.id)
-        elif isinstance(sub, ast.Attribute):
-            words.add(sub.attr)
-        elif isinstance(sub, ast.Constant) and isinstance(sub.value, str):
-            words.update(_WORD.findall(sub.value))
-    return words
+_BASES = {"text": "str", "int": "int"}
+_ANY_TYPES = frozenset({"Any", "object"})
+
+
+def _leaf(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def _scan(node: ast.expr, in_union: bool, found: list[tuple[str, bool]]) -> None:
+    """Collect (type name, whether it is a union member) from the type
+    positions of an annotation. Calls, `Literal[...]` and `Annotated`
+    metadata are not type positions; a string constant is parsed as one."""
+    if isinstance(node, (ast.Name, ast.Attribute)):
+        found.append((_leaf(node) or "", in_union))
+    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        _scan(node.left, True, found)
+        _scan(node.right, True, found)
+    elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+        try:
+            inner = ast.parse(node.value.strip(), mode="eval").body
+        except SyntaxError:
+            return
+        _scan(inner, in_union, found)
+    elif isinstance(node, ast.Subscript):
+        head = _leaf(node.value)
+        found.append((head or "", in_union))
+        args = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+        if head == "Literal":
+            return
+        if head == "Annotated":
+            _scan(args[0], in_union, found)
+            return
+        union = head in ("Union", "Optional")
+        for arg in args:
+            _scan(arg, union, found)
+    elif isinstance(node, (ast.Tuple, ast.List)):
+        for elt in node.elts:
+            _scan(elt, in_union, found)
+
+
+def _problem(name: str, annotation: ast.expr, registry: Registry) -> str | None:
+    """Why `annotation` does not carry the brand of `name`, or None."""
+    brands = registry.names[name]
+    found: list[tuple[str, bool]] = []
+    _scan(annotation, False, found)
+    bases = {_BASES.get(registry.shapes.get(b, ("", None))[0], "") for b in brands} - {""}
+    loose = _ANY_TYPES | bases
+    allows = sorted({t for t, member in found if member and t in loose})
+    if allows:
+        return f"`{name}` must be {' or '.join(brands)}, but the annotation also allows `{allows[0]}`"
+    if not {t for t, _ in found} & set(brands):
+        return f"`{name}` must be {' or '.join(brands)}"
+    return None
 
 
 def _annotated_names(tree: ast.AST):
@@ -110,8 +158,11 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
         return []
     try:
         tree = ast.parse(text)
-    except SyntaxError:
-        return []
+    except SyntaxError as exc:
+        v = sys.version_info
+        return [Violation(path, exc.lineno or 1, "brand-parse",
+                          f"cannot parse under Python {v.major}.{v.minor}.{v.micro}; brandlint needs "
+                          f"Python >= 3.12 ({exc.msg})")]
     lines = text.splitlines()
     allowed = _opt_out_allowed(path, registry)
     out: list[Violation] = []
@@ -125,11 +176,10 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
         else:
             opted.add(n)
     for name, annotation, first, last in _annotated_names(tree):
-        brands = registry.names.get(name)
-        if brands is None or _annotation_words(annotation) & set(brands):
+        if name not in registry.names:
             continue
-        if any(n in opted for n in range(first, last + 1)):
+        problem = _problem(name, annotation, registry)
+        if problem is None or any(n in opted for n in range(first, last + 1)):
             continue
-        shown = " or ".join(brands)
-        out.append(Violation(path, first, "brand-name", f"`{name}` must be {shown}: {lines[first - 1].strip()}"))
+        out.append(Violation(path, first, "brand-name", f"{problem}: {lines[first - 1].strip()}"))
     return sorted(out, key=lambda v: v.line)

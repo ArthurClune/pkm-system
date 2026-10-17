@@ -7,6 +7,8 @@ NAMES says which brands a parameter or field name must carry. MINT_SITES
 and CAST_SITES say where a brand may be constructed or `typing.cast` used.
 COLUMN_KEYS, SHAPES and CLIENT_KEYS are the row vocabulary `pkm.rows`
 checks every DB row against. Each table's why is beside it below."""
+from __future__ import annotations
+
 
 # A name that means one of these brands wherever it appears, in any
 # function parameter, dataclass field, TypedDict key or model field.
@@ -72,7 +74,9 @@ WEB_BRANDS: tuple[str, ...] = (
 # brand at the wire.
 _CONTRACTS = "server/src/pkm/contracts/"
 MINT_SITES: dict[str, tuple[str, ...]] = {
-    "BlockUid": (_CONTRACTS,),
+    # batch.py: `_alias_uid` turns a command's uid-or-`{{alias}}` text into
+    # the uid it names.
+    "BlockUid": (_CONTRACTS, "server/src/pkm/batch.py"),
     "PageId": (_CONTRACTS,),
     "SidebarEntryId": (_CONTRACTS,),
     "ClientId": (_CONTRACTS,),

@@ -55,13 +55,14 @@ def _resolve_alias(spec: str | None, aliases: dict[str, BlockUid]) -> str | None
     return spec
 
 
-def _alias_uid(value: BlockUid, aliases: dict[str, BlockUid]) -> BlockUid:
-    m = _ALIAS_SPEC.match(value)
+def _alias_uid(spec: str, aliases: dict[str, BlockUid]) -> BlockUid:
+    """The one place a command's uid-or-`{{alias}}` becomes a BlockUid."""
+    m = _ALIAS_SPEC.match(spec)
     if m:
         if m.group(1) not in aliases:
             raise BuildError(f"unknown alias: {m.group(1)}")
         return aliases[m.group(1)]
-    return value
+    return BlockUid(spec)
 
 
 def _in_batch_uid(spec: str | None, created: set[BlockUid]) -> BlockUid | None:
@@ -127,12 +128,14 @@ class OutlineParams(_Strict):
 
 
 class UpdateParams(_Strict):
-    uid: BlockUid = Field(min_length=1)
+    # A uid or an `{{alias}}` placeholder; `_alias_uid` resolves it.
+    uid_spec: str = Field(alias="uid", min_length=1)
     text: str
 
 
 class MoveParams(_Strict):
-    uid: BlockUid = Field(min_length=1)
+    # A uid or an `{{alias}}` placeholder; `_alias_uid` resolves it.
+    uid_spec: str = Field(alias="uid", min_length=1)
     page: str = Field(min_length=1)
     parent: str | None = None
     # See CreateParams.index -- same position, not order_idx, reasoning.
@@ -142,7 +145,8 @@ class MoveParams(_Strict):
 
 
 class DeleteParams(_Strict):
-    uid: BlockUid = Field(min_length=1)
+    # A uid or an `{{alias}}` placeholder; `_alias_uid` resolves it.
+    uid_spec: str = Field(alias="uid", min_length=1)
 
 
 class CreateCommand(_Strict):
@@ -250,9 +254,9 @@ def delete_uids(commands: Sequence[BatchCommand]) -> list[BlockUid]:
     seen: list[BlockUid] = []
     for cmd in commands:
         if isinstance(cmd, DeleteCommand):
-            uid = cmd.params.uid
-            if not _ALIAS_SPEC.match(uid) and uid not in seen:
-                seen.append(uid)
+            spec = cmd.params.uid_spec
+            if not _ALIAS_SPEC.match(spec) and spec not in seen:
+                seen.append(BlockUid(spec))
     return seen
 
 
@@ -400,13 +404,13 @@ def _batch_outline(cmd: OutlineCommand, ctx: _BatchCtx) -> list[CreateOp]:
 
 def _batch_update(cmd: UpdateCommand, ctx: _BatchCtx) -> list[BlockOp]:
     p = cmd.params
-    return plan_update(_alias_uid(p.uid, ctx.aliases), p.text)
+    return plan_update(_alias_uid(p.uid_spec, ctx.aliases), p.text)
 
 
 def _batch_move(cmd: MoveCommand, ctx: _BatchCtx) -> list[MoveOp]:
     p = cmd.params
     blocks = ctx.blocks(p.page)
-    uid = _alias_uid(p.uid, ctx.aliases)
+    uid = _alias_uid(p.uid_spec, ctx.aliases)
     spec = _resolve_alias(p.parent, ctx.aliases)
     # Not `ctx.resolve_parent`: `move` never creates its target. A missing
     # heading here means the caller named a section that doesn't exist,
@@ -426,7 +430,7 @@ def _batch_move(cmd: MoveCommand, ctx: _BatchCtx) -> list[MoveOp]:
 
 
 def _batch_delete(cmd: DeleteCommand, ctx: _BatchCtx) -> list[DeleteOp]:
-    uid = _alias_uid(cmd.params.uid, ctx.aliases)
+    uid = _alias_uid(cmd.params.uid_spec, ctx.aliases)
     ctx.planner.delete(uid)
     model = ctx.subtrees.get(uid)
     return [DeleteOp(op="delete", uid=uid,

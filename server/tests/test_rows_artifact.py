@@ -7,7 +7,7 @@ import json
 import pytest
 
 from pkm import rows_dump
-from pkm.rows import KEYS
+from pkm.rows import KEYS, KeySpec
 from pkm.rows_dump import (COLUMNS_TS, REGISTRY_JSON, RowsDumpError,
                            columns_module, registry_json)
 
@@ -42,3 +42,9 @@ def test_unknown_client_brand_fails_loudly():
 def test_server_brand_without_web_export_fails_loudly():
     with pytest.raises(RowsDumpError):
         rows_dump._server_key("page_id", KEYS["page_id"], set())
+
+
+def test_literals_with_a_brand_fail_loudly():
+    spec = KeySpec(str, "BlockUid", False, ("a", "b"))
+    with pytest.raises(RowsDumpError):
+        rows_dump._server_key("kind", spec, {"BlockUid"})

@@ -54,6 +54,9 @@ class _Key:
 def _server_key(name: str, spec: KeySpec, exported: set[str]) -> _Key:
     base = _META_BASE[spec.base.__name__]
     if spec.literals is not None:
+        if spec.brand is not None:
+            raise RowsDumpError(
+                f"{name}: literals and brand {spec.brand} are exclusive")
         ts = " | ".join(json.dumps(v) for v in spec.literals)
     elif spec.brand is not None:
         if spec.brand not in exported:

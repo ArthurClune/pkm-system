@@ -34,23 +34,40 @@ class SeqFrame(BaseModel):
     force: bool = False
     generation: str | None = None
 
+    def wire(self) -> dict[str, object]:
+        """The JSON the socket carries: `force` only when set, and no null
+        fields."""
+        return self.model_dump(
+            exclude={"force"} if not self.force else set(),
+            exclude_none=True,
+        )
+
+
+class OpsFrame(BaseModel):
+    """The WS frame that echoes a committed batch's applied ops to the
+    other clients (the writer's own `client_id` lets it skip the echo)."""
+    client_id: str
+    ts: int
+    ops: list[dict[str, object]]
+
+    def wire(self) -> dict[str, object]:
+        return self.model_dump()
+
+
+Frame = SeqFrame | OpsFrame
+
 
 def seq_frame(
     db: sqlite3.Connection,
     *,
     force: bool = False,
     generation: str | None = None,
-) -> dict[str, object]:
+) -> SeqFrame:
     if force and generation is None:
         raise ValueError("forced seq frame requires a generation")
     seq = SyncSeq(db.execute(
         "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0])
-    return SeqFrame(
-        seq=seq, force=force, generation=generation
-    ).model_dump(
-        exclude={"force"} if not force else set(),
-        exclude_none=True,
-    )
+    return SeqFrame(seq=seq, force=force, generation=generation)
 
 
 async def nudge(request: Request, db: sqlite3.Connection) -> None:

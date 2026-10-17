@@ -115,7 +115,7 @@ def test_stale_create_page_is_dropped(client, seeded_config, monkeypatch):
     assert r.status_code == 200
     assert r.json()["skipped"] == []
     assert client.get(f"/api/page/{TITLE}").status_code == 404
-    assert sent[0]["ops"] == []
+    assert sent[0].ops == []
 
 
 def test_stale_link_in_create_under_live_parent_becomes_plain(

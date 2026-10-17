@@ -49,6 +49,7 @@ from pkm.server.auth import require_auth
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
 from pkm.server.db import init_db, open_db
+from pkm.server.notify import Frame, OpsFrame
 from pkm.server.ops_apply import apply_batch
 from pkm.server.ops_core import Effect, RewriteStep, rewrite_effects
 from pkm.server.store import stale_titles
@@ -281,8 +282,8 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     echo: dict = {"ops": None, "drop_cross_page_title": False}
     broadcast = app.state.hub.broadcast
 
-    async def recording_broadcast(message: dict) -> None:
-        ops = message.get("ops")
+    async def recording_broadcast(message: Frame) -> None:
+        ops = message.ops if isinstance(message, OpsFrame) else None
         if ops is not None:
             recorded = copy.deepcopy(ops)
             if echo["drop_cross_page_title"]:

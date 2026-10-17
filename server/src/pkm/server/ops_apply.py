@@ -15,6 +15,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                DeleteOp, MoveOp, OpBatch, OrderIdx, PageId,
                                SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
                                UpdateTextOp)
+from pkm.contracts.responses import SkippedOp
 from pkm.refs import (CanonicalTitle, NormalizedTitle, is_blank_title,
                       normalize_title)
 from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
@@ -542,7 +543,7 @@ class AppliedBatch:
     daily-note entry and journal rows reach other clients through the
     feed."""
     broadcast_ops: list[dict[str, object]]
-    skipped: list[dict[str, object]]
+    skipped: list[SkippedOp]
 
 
 def apply_batch(db: sqlite3.Connection, batch: OpBatch,
@@ -555,7 +556,7 @@ def apply_batch(db: sqlite3.Connection, batch: OpBatch,
             f"unsupported {violation.source} title syntax: {violation.title!r}",
         )
     broadcast_ops: list[dict[str, object]] = []
-    skipped: list[dict[str, object]] = []
+    skipped: list[SkippedOp] = []
     stale = stale_titles(db, batch.seen_seq)
     is_stale: TitleMatch | None = None
     stale_canonical = title_reader(db) if stale else None

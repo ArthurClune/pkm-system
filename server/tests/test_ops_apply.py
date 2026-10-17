@@ -254,7 +254,7 @@ def test_move_cycle_against_db_chain(db):
     result = apply_batch(db, _batch(
         {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
          "order_idx": 0}), NOW)
-    assert [s["reason"] for s in result.skipped] == ["cycle"]
+    assert [s.reason for s in result.skipped] == ["cycle"]
     assert result.broadcast_ops == []
     row = db.execute("SELECT parent_uid, order_idx FROM blocks"
                      " WHERE uid = 'uid_b2'").fetchone()
@@ -272,7 +272,7 @@ def test_move_root_under_own_descendant_is_always_a_cycle(db, depth):
     result = apply_batch(db, _batch(
         {"op": "move", "uid": "level0", "parent_uid": deepest,
          "order_idx": 0}), NOW)
-    assert [s["reason"] for s in result.skipped] == ["cycle"]
+    assert [s.reason for s in result.skipped] == ["cycle"]
     assert db.execute("SELECT parent_uid FROM blocks WHERE uid = 'level0'"
                       ).fetchone()[0] is None
 
@@ -791,7 +791,7 @@ def test_skipped_ops_are_not_broadcast_as_applied(db):
     # the daily-note entries through the changes feed
     assert result.broadcast_ops == [{"op": "set_collapsed", "uid": "uid_b2",
                                      "collapsed": True}]
-    assert [(s["index"], s["op"], s["uid"], s["reason"])
+    assert [(s.index, s.op, s.uid, s.reason)
             for s in result.skipped] == [
         (0, "set_collapsed", "ghost_bc1", "block_not_found"),
         (1, "move", "ghost_bc1", "block_not_found"),
@@ -887,7 +887,7 @@ def test_cycle_move_journals_the_moved_subtree_and_creates_no_page(db):
     # the rest of the batch applies and is the only op broadcast
     assert result.broadcast_ops == [{"op": "set_collapsed", "uid": "uid_b1",
                                      "collapsed": True}]
-    assert result.skipped == [{
+    assert [s.model_dump() for s in result.skipped] == [{
         "index": 0, "op": "move", "uid": "uid_b2", "reason": "cycle",
         "note_page": NOW_DAY}]
     rows = _journal_rows_since(db, before)

@@ -76,12 +76,12 @@ def run_query(expr: str, expand: bool = False,
 
 @router.get("/api/titles", response_model=TitlesPayload)
 def titles(q: str = "", limit: int = 10,
-           db: sqlite3.Connection = Depends(get_db)) -> dict[str, object]:
+           db: sqlite3.Connection = Depends(get_db)) -> TitlesPayload:
     """Page-title completion for the editor's [[ / # popup."""
     limit = max(1, min(limit, 50))
     needle = q.strip()
     if not needle:
-        return {"titles": []}
+        return TitlesPayload(titles=[])
     esc = (needle.replace("\\", "\\\\")
                  .replace("%", "\\%")
                  .replace("_", "\\_"))
@@ -92,7 +92,8 @@ def titles(q: str = "", limit: int = 10,
                       length(title), title
              LIMIT ?""",
         (f"%{esc}%", f"{esc}%", limit)).fetchall()
-    return {"titles": [r["title"] for r in rows]}
+    return TitlesPayload(
+        titles=[CanonicalTitle(r["title"]) for r in rows])
 
 
 def _page_filter(title: CanonicalTitle) -> tuple[str, CanonicalTitle]:

@@ -1,10 +1,11 @@
 ---
 # pkm-kugw
 title: 'Typing follow-ups: precise types where gates accept loose ones'
-status: todo
+status: in-progress
 type: task
+priority: normal
 created_at: 2026-10-16T18:38:02Z
-updated_at: 2026-10-16T18:38:02Z
+updated_at: 2026-10-17T15:02:40Z
 ---
 
 Follow-ups from the strict-typing review (pkm-kj63). The gates pass, but some code satisfies them with a looser type than an existing one.

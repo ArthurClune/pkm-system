@@ -64,6 +64,8 @@ pkm/
 ├── edn.py               Core   Minimal EDN parser for Roam exports
 ├── schema_dump.py       Shell  Generates web/src/replica/baseSchema.gen.ts
 ├── refs_parity_dump.py  Shell  Generates shared/fixtures/refs_parity.json
+├── rows_dump.py         Shell  Generates web/src/replica/columns.gen.ts and
+│                               web/tooling/brandRegistry.gen.json
 ├── assets_disk.py       Shell  asset_on_disk_needs_repair(): stats/hashes a stored asset
 │                               file for assets_core.asset_needs_repair() to judge
 │
@@ -1010,6 +1012,7 @@ with the change that invalidates them.
 |---|---|---|---|
 | `web/src/api/openapi.json` (→ `types.d.ts` via `pnpm gen-types`) | `pkm.server.openapi_dump` | `tests/test_openapi_sync.py`; `web/tooling/genTypes.drift.test.ts` for `types.d.ts` | Web API layer — Pydantic models are the single source of API types |
 | `web/src/replica/baseSchema.gen.ts` | `pkm.schema_dump` | `tests/test_schema_artifact.py` | Browser sqlite-wasm replica (BASE_DDL only, never SERVER_DDL) |
+| `web/src/replica/columns.gen.ts`, `web/tooling/brandRegistry.gen.json` | `pkm.rows_dump` | `tests/test_rows_artifact.py`; `web/src/replica/columns.test.ts` for the client-only tables | The web's mirror of `rows.Row` (`Columns`, `COLUMN_META` with literal domains, `COLUMN_KEYS`, `BRAND_SHAPES`) and of the brand registry. Generation fails for a brand `brands.ts` does not export |
 | `shared/fixtures/ref_grammar.json` | hand-maintained cases | both parsers' test suites | Pins Python `refs.py` and the TS grammar scanner to identical behaviour |
 | `shared/fixtures/title_syntax.json` | hand-maintained cases | `tests/test_refs.py` | Pins `refs.title_syntax_reason` and the replica's `titleSyntaxReason` to the same verdicts (`web/src/replica/titles.test.ts`, `localApi/router.test.ts`) |
 | `shared/fixtures/refs_parity.json` | `pkm.refs_parity_dump` | `tests/test_refs_parity_fixture.py` | TS extractors replay the exact Python outputs |

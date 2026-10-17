@@ -169,7 +169,9 @@ COLUMN_KEYS: dict[str, dict[str, str]] = {
     "pending_ops": {"id": "pending_row_id", "error": "pending_error"},
     "sync_client_meta": {"key": "client_meta_key",
                          "value": "client_meta_value"},
-    "replay_log": {"id": "replay_log_id", "key": "replay_key"},
+    "replay_log": {"id": "replay_log_id", "kind": "replay_kind",
+                   "key": "replay_key"},
+    "replay_log_refs": {"kind": "ref_kind"},
 }
 
 # Brand -> (base type, full-match regex or None). A brand value that
@@ -203,6 +205,7 @@ CLIENT_KEYS: dict[str, tuple[str, bool]] = {
     "client_meta_key": ("string", False),
     "client_meta_value": ("string", False),
     "replay_log_id": ("number", False),
+    "replay_kind": ("string", False),
     "replay_key": ("string", False),
     "pre_json": ("string", True),
     "pre_page_id": ("PageId", True),

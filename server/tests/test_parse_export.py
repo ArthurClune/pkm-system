@@ -264,3 +264,12 @@ def test_block_heading_zero_parses_as_no_heading():
     raw = EXPORT.replace(":block/heading 2", ":block/heading 0")
     export = parse_export(parse_edn(raw))
     assert export.pages[0].children[0].heading is None
+
+
+@pytest.mark.parametrize("bad", ['"h2"', "2.5", "true", ":h2"])
+def test_block_heading_that_is_not_an_integer_parses_as_no_heading(bad):
+    """A malformed :block/heading must not reach the blocks table as a
+    non-integer; it reads as no heading, like an absent attribute."""
+    raw = EXPORT.replace(":block/heading 2", f":block/heading {bad}")
+    export = parse_export(parse_edn(raw))
+    assert export.pages[0].children[0].heading is None

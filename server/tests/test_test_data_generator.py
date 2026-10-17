@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import pkm.test_data.generate as generate_module
+from rawread import read
 from pkm.test_data.generate import _publish_staged, generate, main
 
 TEST_DATA = Path(__file__).parents[2] / "test-data"
@@ -23,7 +24,7 @@ def test_generate_builds_queryable_graph_and_content_addressed_assets(tmp_path: 
         titles = {row[0] for row in con.execute("SELECT title FROM pages")}
         assert {"Project Atlas", "Formatting Lab", "Garden 🌱", "July 18th, 2026"} <= titles
         assert {"Active", "Research", "Status", "TODO"} <= titles
-        block = con.execute(
+        block = read(con,
             "SELECT parent_uid, order_idx, heading, collapsed, view_type, text "
             "FROM blocks WHERE uid = 'atlas-outline'"
         ).fetchone()
@@ -39,7 +40,7 @@ def test_generate_builds_queryable_graph_and_content_addressed_assets(tmp_path: 
         assert list(con.execute(
             "SELECT title, order_idx FROM sidebar_entries ORDER BY order_idx"
         )) == [("Project Atlas", 0), ("Formatting Lab", 1), ("Garden 🌱", 2)]
-        assert con.execute(
+        assert read(con,
             "SELECT count(*) FROM blocks_fts WHERE blocks_fts MATCH 'synthetic'"
         ).fetchone()[0] > 0
         assets = list(con.execute(

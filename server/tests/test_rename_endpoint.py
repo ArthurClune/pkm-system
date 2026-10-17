@@ -3,6 +3,7 @@ from urllib.parse import quote
 
 import pytest
 
+from rawread import read
 from pkm.contracts.ops import BlockUid, PageId
 from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.server.db import open_db
@@ -34,7 +35,7 @@ def _write_state(config):
     con = sqlite3.connect(config.db_path)
     try:
         return {
-            table: con.execute(query).fetchall()
+            table: read(con, query).fetchall()
             for table, query in queries.items()
         }
     finally:
@@ -58,7 +59,7 @@ def test_rename_updates_title_and_referencing_text(client):
 def test_rename_keeps_backlinks(client, seeded_config):
     _rename(client, "Machine Learning", "ML Stuff")
     con = sqlite3.connect(seeded_config.db_path)
-    refs = con.execute(
+    refs = read(con,
         "SELECT src_block_uid, kind FROM refs WHERE target_page_id = 1"
     ).fetchall()
     con.close()
@@ -177,9 +178,9 @@ def test_merge_appends_blocks_and_rewrites_refs(client):
 def test_merge_repoints_refs_to_target(client, seeded_config):
     _rename(client, "AI", "Machine Learning", allow_merge=True)
     con = sqlite3.connect(seeded_config.db_path)
-    assert con.execute(
+    assert read(con,
         "SELECT count(*) FROM refs WHERE target_page_id = 2").fetchone()[0] == 0
-    assert ("uid_b1",) in con.execute(
+    assert ("uid_b1",) in read(con,
         "SELECT src_block_uid FROM refs WHERE target_page_id = 1").fetchall()
     con.close()
 
@@ -222,9 +223,9 @@ def test_merge_block_with_both_titles_dedupes_refs(client, seeded_config):
     con.close()
     _rename(client, "cLaude", "Claude", allow_merge=True)
     con = sqlite3.connect(seeded_config.db_path)
-    text = con.execute("SELECT text FROM blocks WHERE uid = 'uid_both'"
+    text = read(con, "SELECT text FROM blocks WHERE uid = 'uid_both'"
                        ).fetchone()[0]
-    refs = con.execute("SELECT target_page_id, kind FROM refs"
+    refs = read(con, "SELECT target_page_id, kind FROM refs"
                        " WHERE src_block_uid = 'uid_both'").fetchall()
     con.close()
     assert text == "[[Claude]] vs [[Claude]]"
@@ -335,7 +336,7 @@ def test_retitle_without_rewrite_changes_only_page_and_sidebar_title(seeded_conf
     db.execute(
         "INSERT INTO sidebar_entries(id, title, order_idx) VALUES (20, 'Machine Learning', 0)"
     )
-    before_text = db.execute("SELECT text FROM blocks WHERE uid='uid_b4'").fetchone()[0]
+    before_text = read(db, "SELECT text FROM blocks WHERE uid='uid_b4'").fetchone()[0]
     before_refs = list(
         db.execute(
             "SELECT src_block_uid, target_page_id, kind FROM refs "
@@ -348,21 +349,21 @@ def test_retitle_without_rewrite_changes_only_page_and_sidebar_title(seeded_conf
         CanonicalTitle(NormalizedTitle("Deep Learning Notes")), 9_001
     )
 
-    assert tuple(db.execute("SELECT title, updated_at FROM pages WHERE id=1").fetchone()) == (
+    assert tuple(read(db, "SELECT title, updated_at FROM pages WHERE id=1").fetchone()) == (
         "Deep Learning Notes",
         9_001,
     )
     assert tuple(
-        db.execute("SELECT id, title FROM sidebar_entries WHERE id=20").fetchone()
+        read(db, "SELECT id, title FROM sidebar_entries WHERE id=20").fetchone()
     ) == (20, "Deep Learning Notes")
-    assert db.execute("SELECT text FROM blocks WHERE uid='uid_b4'").fetchone()[0] == before_text
+    assert read(db, "SELECT text FROM blocks WHERE uid='uid_b4'").fetchone()[0] == before_text
     assert list(
         db.execute(
             "SELECT src_block_uid, target_page_id, kind FROM refs "
             "WHERE src_block_uid='uid_b4'"
         )
     ) == before_refs
-    assert db.execute(
+    assert read(db,
         "SELECT count(*) FROM pages_fts WHERE pages_fts MATCH '\"Deep Learning Notes\"'"
     ).fetchone()[0] == 1
     db.rollback()
@@ -389,19 +390,19 @@ def test_append_without_rewrite_preserves_stable_subtrees_and_target_sidebar(see
     )
 
     assert moved == 3
-    assert db.execute("SELECT count(*) FROM pages WHERE id=2").fetchone()[0] == 0
-    assert [tuple(row) for row in db.execute(
+    assert read(db, "SELECT count(*) FROM pages WHERE id=2").fetchone()[0] == 0
+    assert [tuple(row) for row in read(db,
         "SELECT uid, order_idx FROM blocks WHERE page_id=1 AND parent_uid IS NULL "
         "ORDER BY order_idx"
     )] == [("uid_b1", 0), ("uid_b2", 1), ("uid_b6", 2), ("source-second", 3)]
-    assert tuple(db.execute(
+    assert tuple(read(db,
         "SELECT page_id, parent_uid, order_idx, updated_at FROM blocks "
         "WHERE uid='source-child'"
     ).fetchone()) == (1, "source-second", 2, 9_002)
-    assert [tuple(row) for row in db.execute(
+    assert [tuple(row) for row in read(db,
         "SELECT id, title FROM sidebar_entries ORDER BY id"
     )] == [(21, "Machine Learning")]
-    assert db.execute("SELECT text FROM blocks WHERE uid='uid_b1'").fetchone()[0] == "Tags:: #AI"
+    assert read(db, "SELECT text FROM blocks WHERE uid='uid_b1'").fetchone()[0] == "Tags:: #AI"
     db.rollback()
     db.close()
 
@@ -424,7 +425,7 @@ def test_rewrite_snapshots_updates_and_reindexes_each_block_once(seeded_config):
             ("uid_multi", 4, "link"),
         ],
     )
-    changes_before = db.execute(
+    changes_before = read(db,
         "SELECT count(*) FROM changes WHERE kind='block' AND entity_id='uid_multi'"
     ).fetchone()[0]
 
@@ -436,23 +437,23 @@ def test_rewrite_snapshots_updates_and_reindexes_each_block_once(seeded_config):
     )
 
     assert rewritten == 1
-    assert tuple(db.execute(
+    assert tuple(read(db,
         "SELECT text, updated_at FROM blocks WHERE uid='uid_multi'"
     ).fetchone()) == (
         "[[Machine Learning]] then [[Machine Learning]] and [[Machine Learning]]",
         9_003,
     )
-    assert [tuple(row) for row in db.execute(
+    assert [tuple(row) for row in read(db,
         "SELECT target_page_id, kind FROM refs WHERE src_block_uid='uid_multi'"
     )] == [(1, "link")]
-    assert db.execute(
+    assert read(db,
         "SELECT count(*) FROM changes WHERE kind='block' AND entity_id='uid_multi'"
     ).fetchone()[0] == changes_before + 1
-    assert db.execute(
+    assert read(db,
         "SELECT count(*) FROM blocks_fts JOIN blocks ON blocks.rowid=blocks_fts.rowid "
         "WHERE blocks.uid='uid_multi' AND blocks_fts MATCH 'AI'"
     ).fetchone()[0] == 0
-    assert db.execute(
+    assert read(db,
         "SELECT count(*) FROM blocks_fts JOIN blocks ON blocks.rowid=blocks_fts.rowid "
         "WHERE blocks.uid='uid_multi' AND blocks_fts MATCH '\"Machine Learning\"'"
     ).fetchone()[0] == 1
@@ -479,9 +480,9 @@ def test_rename_self_referencing_block_rewrites_in_place(client, seeded_config):
     assert r.status_code == 200
 
     con = sqlite3.connect(seeded_config.db_path)
-    text = con.execute("SELECT text FROM blocks WHERE uid = 'uid_self'"
+    text = read(con, "SELECT text FROM blocks WHERE uid = 'uid_self'"
                        ).fetchone()[0]
-    refs = con.execute("SELECT target_page_id, kind FROM refs"
+    refs = read(con, "SELECT target_page_id, kind FROM refs"
                        " WHERE src_block_uid = 'uid_self'").fetchall()
     con.close()
     assert text == "About [[ML Stuff]] itself"

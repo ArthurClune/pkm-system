@@ -2,6 +2,7 @@ import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
+from rawread import read
 from pkm.server.db import get_db, open_db
 
 
@@ -215,7 +216,7 @@ def test_concurrent_different_titles_get_distinct_append_indexes(
     assert [r.status_code for r in responses] == [200, 200]
 
     con = sqlite3.connect(seeded_config.db_path)
-    rows = con.execute(
+    rows = read(con,
         "SELECT title, order_idx FROM sidebar_entries"
         " WHERE title IN ('Crypto', 'Databases') ORDER BY order_idx"
     ).fetchall()
@@ -233,7 +234,7 @@ def test_concurrent_same_title_returns_one_conflict(
     assert conflict.json() == {"detail": "entry already exists"}
 
     con = sqlite3.connect(seeded_config.db_path)
-    count = con.execute(
+    count = read(con,
         "SELECT count(*) FROM sidebar_entries WHERE title = 'Crypto'"
     ).fetchone()[0]
     con.close()

@@ -16,7 +16,6 @@ from pkm.changed import ChangeStatus
 from pkm.contracts.ops import BlockUid, PageId
 from pkm.refs import CanonicalTitle
 from pkm.rows import Row
-from pkm.schema import SchemaRow
 
 
 class GroupedBlock(TypedDict):
@@ -27,6 +26,18 @@ class GroupedBlock(TypedDict):
 class ChangedItem(TypedDict):
     uid: BlockUid
     text: str
+    created_at: int | None
+    updated_at: int | None
+    status: ChangeStatus
+
+
+class ChangedRow(TypedDict):
+    """A `Row`'s fields `group_changed` reads, plus the Python-computed
+    `status` (no query column carries it)."""
+    uid: BlockUid
+    text: str
+    page_id: PageId
+    page_title: CanonicalTitle
     created_at: int | None
     updated_at: int | None
     status: ChangeStatus
@@ -73,7 +84,7 @@ def group_by_page(rows: Sequence[Row]) -> list[PageGroup]:
     return groups
 
 
-def group_changed(rows: Sequence[SchemaRow]) -> list[ChangedGroup]:
+def group_changed(rows: Sequence[ChangedRow]) -> list[ChangedGroup]:
     """Rows of `uid, text, page_id, page_title, created_at, updated_at,
     status` -> page groups in first-appearance order, for /api/changed.
     Kept separate from `group_by_page` rather than generalised onto it:

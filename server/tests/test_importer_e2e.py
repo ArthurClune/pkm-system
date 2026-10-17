@@ -6,6 +6,7 @@ import pytest
 
 import pkm.assets_disk as assets_disk
 import pkm.importer.run as run_module
+from rawread import read
 from pkm.contracts.ops import Sha256Hex
 from pkm.importer.assets import Asset
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
@@ -178,20 +179,20 @@ def test_end_to_end_import(tmp_path):
                       "query", "Paper", RECOVERY_PAGE_TITLE}
     # the fixture's one orphan block ("uid-orphan") is now preserved, not
     # dropped
-    assert con.execute("SELECT count(*) FROM blocks").fetchone()[0] == 8
+    assert read(con, "SELECT count(*) FROM blocks").fetchone()[0] == 8
 
     # asset url rewritten to content-addressed path
     sha = hashlib.sha256(b"PNGDATA").hexdigest()
-    text = con.execute("SELECT text FROM blocks WHERE uid='uid-link1x'").fetchone()[0]
+    text = read(con, "SELECT text FROM blocks WHERE uid='uid-link1x'").fetchone()[0]
     assert f"/assets/{sha}/paper-fig.png" in text
     assert "firebasestorage" not in text
     assert (out / "assets" / sha[:2] / sha).read_bytes() == b"PNGDATA"
 
     # assets table has both files; fts works; refs derived
-    assert con.execute("SELECT count(*) FROM assets").fetchone()[0] == 2
-    assert con.execute("SELECT count(*) FROM blocks_fts WHERE blocks_fts"
+    assert read(con, "SELECT count(*) FROM assets").fetchone()[0] == 2
+    assert read(con, "SELECT count(*) FROM blocks_fts WHERE blocks_fts"
                        " MATCH 'Attention'").fetchone()[0] == 1
-    kinds = dict(con.execute(
+    kinds = dict(read(con,
         "SELECT kind, count(*) FROM refs GROUP BY kind").fetchall())
     assert kinds["attribute"] == 1
     assert kinds["tag"] == 2
@@ -210,13 +211,13 @@ def test_orphan_block_is_preserved_not_silently_dropped(tmp_path):
     assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
 
     con = sqlite3.connect(out / "pkm.sqlite3")
-    row = con.execute(
+    row = read(con,
         "SELECT page_id, parent_uid, text FROM blocks WHERE uid='uid-orphan'").fetchone()
     assert row is not None, "orphan block must still exist somewhere in the database"
     page_id, parent_uid, text = row
     assert text == "unreachable block"
     assert parent_uid is None  # top-level on the recovery page, not nested under anything
-    recovery_page_id = con.execute(
+    recovery_page_id = read(con,
         "SELECT id FROM pages WHERE title=?", (RECOVERY_PAGE_TITLE,)).fetchone()[0]
     assert page_id == recovery_page_id
 
@@ -277,7 +278,7 @@ def test_rerun_replaces_database(tmp_path):
     con.close()
     assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
     con = sqlite3.connect(out / "pkm.sqlite3")
-    assert con.execute("SELECT count(*) FROM pages WHERE title='Scribble'"
+    assert read(con, "SELECT count(*) FROM pages WHERE title='Scribble'"
                        ).fetchone()[0] == 0
 
 
@@ -355,7 +356,7 @@ def test_report_publication_failure_keeps_published_database_and_old_report(
 
     assert (out / "pkm.sqlite3").read_bytes() != original_db
     con = sqlite3.connect(out / "pkm.sqlite3")
-    assert con.execute("SELECT count(*) FROM pages").fetchone()[0] > 0
+    assert read(con, "SELECT count(*) FROM pages").fetchone()[0] > 0
     assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
     assert not (out / "pkm.sqlite3.tmp").exists()
     assert not (out / "import-report.txt.tmp").exists()
@@ -421,7 +422,7 @@ def test_duplicate_content_assets_do_not_crash(tmp_path):
     assert rc == 0
 
     con = sqlite3.connect(out / "pkm.sqlite3")
-    assert con.execute("SELECT count(*) FROM assets").fetchone()[0] == 1
+    assert read(con, "SELECT count(*) FROM assets").fetchone()[0] == 1
 
     report = (out / "import-report.txt").read_text()
     assert "assets: 1 in store" in report
@@ -673,7 +674,7 @@ def test_overlong_filename_import_produces_bounded_asset_row(tmp_path):
 
     con = sqlite3.connect(out / "pkm.sqlite3")
     sha = hashlib.sha256(b"OVERLONG").hexdigest()
-    filename = con.execute(
+    filename = read(con,
         "SELECT filename FROM assets WHERE sha256 = ?", (sha,)).fetchone()[0]
     assert filename.endswith(".png")
     assert len(filename.encode("utf-8")) <= 200
@@ -694,7 +695,7 @@ def test_import_canonicalizes_padded_titles_before_publication(tmp_path):
 
     assert rc == 0
     con = sqlite3.connect(out / "pkm.sqlite3")
-    assert con.execute(
+    assert read(con,
         "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
     ).fetchone()[0] == "1"
     page_ids = {
@@ -739,7 +740,7 @@ def test_import_sanitizes_title_syntax_before_rows_and_reports_merges(tmp_path):
 
     assert rc == 0
     con = sqlite3.connect(out / "pkm.sqlite3")
-    assert con.execute(
+    assert read(con,
         "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
     ).fetchone()[0] == "1"
     page_ids = {
@@ -754,7 +755,7 @@ def test_import_sanitizes_title_syntax_before_rows_and_reports_merges(tmp_path):
         "Tag",
     }
     assert all(title_syntax_reason(title) is None for title in page_ids)
-    assert con.execute(
+    assert read(con,
         "SELECT created_at, updated_at FROM pages WHERE title='Project'"
     ).fetchone() == (200, 201)
     assert [tuple(row) for row in con.execute(
@@ -771,7 +772,7 @@ def test_import_sanitizes_title_syntax_before_rows_and_reports_merges(tmp_path):
         ),
         ("uid-dirty-child", "uid-dirty-root", 0, "keep ((uid-clean-root))"),
     ]
-    assert con.execute(
+    assert read(con,
         "SELECT text FROM blocks WHERE uid='uid-watcher'"
     ).fetchone()[0] == "[[Project]]"
     assert [tuple(row) for row in con.execute(
@@ -810,10 +811,10 @@ def test_import_rewrites_every_extracted_title_before_rows(tmp_path):
     }
     assert page_ids.keys() == {"Source", "BadTitle", "Bad Title"}
     assert all(title_syntax_reason(title) is None for title in page_ids)
-    assert con.execute(
+    assert read(con,
         "SELECT text FROM blocks WHERE uid='uid-source'"
     ).fetchone()[0] == "  BadTitle:: value and [[Bad Title]] tail"
-    assert con.execute(
+    assert read(con,
         "SELECT parent_uid, text FROM blocks WHERE uid='uid-child'"
     ).fetchone() == ("uid-source", "unchanged child")
     assert [tuple(row) for row in con.execute(
@@ -832,10 +833,10 @@ def test_import_marks_ordinary_database_active(tmp_path):
 
     assert rc == 0
     con = sqlite3.connect(out / "pkm.sqlite3")
-    assert con.execute(
+    assert read(con,
         "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
     ).fetchone()[0] == "1"
-    assert con.execute("SELECT title FROM pages").fetchall() == [("Solo",)]
+    assert read(con, "SELECT title FROM pages").fetchall() == [("Solo",)]
 
 
 def test_title_activation_runs_after_all_linked_assets_are_copied(
@@ -859,7 +860,7 @@ def test_title_activation_runs_after_all_linked_assets_are_copied(
     assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
 
     con = sqlite3.connect(out / "pkm.sqlite3")
-    assert con.execute(
+    assert read(con,
         "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
     ).fetchone()[0] == "1"
 

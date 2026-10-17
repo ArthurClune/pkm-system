@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+from rawread import read
 from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config, load_config
@@ -47,7 +48,7 @@ def test_init_db_sets_wal_mode(tmp_path):
     path = tmp_path / "t.sqlite3"
     init_db(path)
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    assert read(con, "PRAGMA journal_mode").fetchone()[0] == "wal"
     con.close()
 
 
@@ -60,7 +61,7 @@ def test_create_app_initializes_db_without_an_explicit_init_db_call(tmp_path):
     assert not config.db_path.exists()
     create_app(config)
     con = sqlite3.connect(config.db_path)
-    assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    assert read(con, "PRAGMA journal_mode").fetchone()[0] == "wal"
     names = {r[0] for r in con.execute(
         "SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert "sidebar_entries" in names
@@ -71,11 +72,11 @@ def test_open_db_sets_connection_local_pragmas_only(tmp_path):
     # open_db() must not touch WAL/DDL (see test_db_concurrency.py for
     # why) - it only sets pragmas scoped to this connection.
     con = open_db(tmp_path / "t.sqlite3")
-    assert con.execute("PRAGMA foreign_keys").fetchone()[0] == 1
-    assert con.execute("PRAGMA busy_timeout").fetchone()[0] == BUSY_TIMEOUT_MS
+    assert read(con, "PRAGMA foreign_keys").fetchone()[0] == 1
+    assert read(con, "PRAGMA busy_timeout").fetchone()[0] == BUSY_TIMEOUT_MS
     con.execute("CREATE TABLE t(a)")
     con.execute("INSERT INTO t VALUES (1)")
-    assert con.execute("SELECT a FROM t").fetchone()["a"] == 1  # Row factory
+    assert read(con, "SELECT a FROM t").fetchone()["a"] == 1  # Row factory
     con.close()
 
 
@@ -147,7 +148,7 @@ def test_init_db_adds_view_type_to_existing_blocks_without_data_loss(tmp_path):
     con = sqlite3.connect(path)
     columns = {r[1] for r in con.execute("PRAGMA table_info(blocks)")}
     assert "view_type" in columns
-    assert con.execute(
+    assert read(con,
         "SELECT text, view_type FROM blocks WHERE uid = 'uid_old'"
     ).fetchone() == ("kept", None)
     con.close()

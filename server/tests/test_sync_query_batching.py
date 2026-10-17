@@ -6,6 +6,7 @@ multiple chunk boundaries and assert the executed-statement count is
 bounded by chunk count, not by entity count."""
 import math
 
+from rawread import read
 from pkm.server.db import open_db
 from pkm.server.routes_sync import sync_changes, sync_snapshot
 from pkm.server.sync_core import CHUNK_SIZE
@@ -44,7 +45,7 @@ def test_changes_feed_query_count_bounded_by_chunks_not_entities(seeded_config):
     payload, queries = _traced(
         con, lambda: sync_changes(since=0, limit=5000, db=con))
 
-    assert len(payload.blocks) == con.execute(
+    assert len(payload.blocks) == read(con,
         "SELECT count(*) FROM blocks").fetchone()[0]
     expected_chunks = math.ceil(
         len(payload.blocks) / CHUNK_SIZE)
@@ -60,7 +61,7 @@ def test_snapshot_query_count_bounded_by_chunks_not_entities(seeded_config):
 
     payload, queries = _traced(con, lambda: sync_snapshot(db=con))
 
-    assert len(payload.blocks) == con.execute(
+    assert len(payload.blocks) == read(con,
         "SELECT count(*) FROM blocks").fetchone()[0]
     expected_chunks = math.ceil(len(payload.blocks) / CHUNK_SIZE)
     assert len(queries) < 4 * expected_chunks + 10

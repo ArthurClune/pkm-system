@@ -14,7 +14,7 @@ from pkm.database import Db
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.fts import escape_fts_query
-from pkm.server.grouping import group_by_page, group_changed
+from pkm.server.grouping import ChangedRow, group_by_page, group_changed
 from pkm.refs import CanonicalTitle
 from pkm.server.query import (
     CanonicalQueryNode, QueryNode, page_operands, plan_sql, QueryParseError)
@@ -160,8 +160,12 @@ def changed(since: str, until: str | None = None, page: str | None = None,
     counted = db.select_one(f"SELECT COUNT(*) AS n FROM ({sql})", params)
     assert counted is not None  # an aggregate always yields a row
     sql += " ORDER BY b.updated_at, b.uid LIMIT ?"
-    rows = [{**r, "status": classify(r["created_at"], since_ms=since_ms,
-                                     until_ms=until_ms)}
+    rows = [ChangedRow(
+        uid=r["uid"], text=r["text"], page_id=r["page_id"],
+        page_title=r["page_title"], created_at=r["created_at"],
+        updated_at=r["updated_at"],
+        status=classify(r["created_at"], since_ms=since_ms,
+                        until_ms=until_ms))
             for r in db.select(sql, [*params, limit])]
     return ChangedPayload.model_validate(
         {"groups": group_changed(rows), "total": counted["n"],

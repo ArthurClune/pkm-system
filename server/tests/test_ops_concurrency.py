@@ -9,6 +9,7 @@ import sqlite3
 
 import pytest
 
+from rawread import read
 from pkm.refs import CanonicalTitle, NormalizedTitle
 
 
@@ -72,7 +73,7 @@ def test_concurrent_rename_cannot_resurrect_the_old_title(
                  "page_title": "Machine Learning"}]})
     assert r.status_code == 200
     con = open_db(seeded_config.db_path)
-    row = con.execute(
+    row = read(con,
         "SELECT 1 FROM pages WHERE title = 'Machine Learning'").fetchone()
     con.close()
     assert row is not None  # the race never landed: nothing to resurrect

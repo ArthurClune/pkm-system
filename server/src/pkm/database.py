@@ -55,8 +55,10 @@ class Db:
         rows = self.select(sql, params)
         return rows[0] if rows else None
 
-    def execute(self, sql: str, params: Params = ()) -> sqlite3.Cursor:
-        return self._con.execute(sql, params)
+    def execute(self, sql: str, params: Params = ()) -> WriteResult:
+        """Run a write; reads go through `select`."""
+        cursor = self._con.execute(sql, params)
+        return WriteResult(cursor.rowcount, cursor.lastrowid)
 
     def executemany(self, sql: str,
                     param_rows: Iterable[Params]) -> WriteResult:
@@ -110,15 +112,14 @@ def _check_message(sql: str, problems: list[str]) -> str:
 
 def connect(path: Path | str, *, read_only: bool = False, uri: bool = False,
             check_same_thread: bool = True) -> Db:
-    """Open `path` as a `Db`. The raw connection keeps sqlite3.Row rows
-    while `execute` still hands out cursors; `select` ignores the factory.
-    `read_only` builds its own `mode=ro` URI from `path`, so it cannot be
-    combined with a caller-supplied URI."""
+    """Open `path` as a `Db`. The raw connection returns plain tuples;
+    `select` builds dicts from the cursor description. `read_only`
+    builds its own `mode=ro` URI from `path`, so it cannot be combined
+    with a caller-supplied URI."""
     if read_only and uri:
         raise ValueError("read_only builds its own URI; pass a plain path")
     target = (Path(path).resolve().as_uri() + "?mode=ro"
               if read_only else str(path))
     con = sqlite3.connect(target, uri=uri or read_only,
                           check_same_thread=check_same_thread)
-    con.row_factory = sqlite3.Row
     return Db(con, check_rows=os.environ.get("PKM_ROW_CHECK") == "1")

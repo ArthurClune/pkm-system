@@ -4,6 +4,7 @@ write transaction."""
 import sqlite3
 import threading
 
+from rawread import read
 from pkm.contracts.ops import CreateOp, OpBatch
 from pkm.database import connect
 from pkm.schema import DDL
@@ -37,7 +38,7 @@ def test_open_db_survives_writer_transaction_on_a_fresh_database(tmp_path):
         # other schema-level lock, so it must succeed immediately even
         # though the writer's transaction is still open.
         con = open_db(db_path)
-        assert con.execute("SELECT 1").fetchone()[0] == 1
+        assert read(con, "SELECT 1").fetchone()[0] == 1
         con.close()
     finally:
         writer.commit()
@@ -74,7 +75,7 @@ def test_concurrent_open_db_calls_survive_an_in_flight_ops_transaction(tmp_path)
         try:
             con = open_db(db_path)
             barrier.wait(timeout=5)
-            count = con.execute("SELECT COUNT(*) FROM blocks").fetchone()[0]
+            count = read(con, "SELECT COUNT(*) FROM blocks").fetchone()[0]
             con.close()
             with lock:
                 reader_counts.append(count)

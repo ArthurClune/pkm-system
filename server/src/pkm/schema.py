@@ -17,17 +17,6 @@ SERVER_DDL contains server-only tables and triggers (change journal, batch
 idempotency, rename/merge rewrite records) that must not be installed on
 clients."""
 
-from collections.abc import Mapping
-from typing import Any
-
-# A row read from this schema. sqlite3.Row types its values as Any, and for
-# our own tables that is accurate: the DDL below, not the type checker, fixes
-# each column's type. Code reading a SchemaRow states the column types it
-# relies on at the read (a TypedDict field, a parameter). Data from outside
-# the app (an HTTP body, a third-party API response) is never a SchemaRow:
-# it is typed `object` and narrowed before use.
-SchemaRow = Mapping[str, Any]
-
 BASE_DDL = """
 CREATE TABLE IF NOT EXISTS pages(
   id          INTEGER PRIMARY KEY,

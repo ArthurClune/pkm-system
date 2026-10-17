@@ -24,7 +24,7 @@ Plan: docs/superpowers/plans/2026-10-17-brand-check.md
 - [x] Task 3: server core reads through select
 - [x] Task 4: routes read through select and return their models
 - [x] Task 5: reads outside pkm/server
-- [ ] Task 6: narrow Db.execute
+- [x] Task 6: narrow Db.execute
 - [ ] Task 7: rule 1 on the server
 - [ ] Task 8: rule 2, escape hatches, connection rule (server)
 - [ ] Task 9: server docs, gates, phase review, merge

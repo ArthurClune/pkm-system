@@ -1,11 +1,12 @@
 import sqlite3
 
+from rawread import read
 from pkm.importer.import_sidebar import SIDEBAR_ENTRIES, main
 
 
 def _titles_in_order(db_path):
     con = sqlite3.connect(db_path)
-    rows = con.execute(
+    rows = read(con,
         "SELECT title FROM sidebar_entries ORDER BY order_idx").fetchall()
     con.close()
     return [r[0] for r in rows]

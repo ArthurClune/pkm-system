@@ -2,6 +2,7 @@ import sqlite3
 
 import pytest
 
+from rawread import read
 from pkm.database import connect
 from pkm.schema import DDL
 from pkm.server.sync_meta import (database_generation,
@@ -19,14 +20,14 @@ def db():
 
 
 def test_tables_exist(db):
-    names = {r[0] for r in db.execute(
+    names = {r[0] for r in read(db,
         "SELECT name FROM sqlite_master WHERE type IN ('table','view')")}
     assert {"pages", "blocks", "refs", "assets",
             "blocks_fts", "pages_fts", "sidebar_entries"} <= names
 
 
 def test_blocks_have_constrained_view_type(db):
-    columns = {r[1] for r in db.execute("PRAGMA table_info(blocks)")}
+    columns = {r[1] for r in read(db, "PRAGMA table_info(blocks)")}
     assert "view_type" in columns
     db.execute("INSERT INTO pages VALUES (1, 'P', NULL, NULL)")
     db.execute(
@@ -49,22 +50,22 @@ def test_fts_triggers_track_blocks(db):
     db.execute("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
                " heading, collapsed, created_at, updated_at) VALUES ('u1', 1, NULL, 0,"
                " 'hello attention world', NULL, 0, NULL, NULL)")
-    hit = db.execute("SELECT rowid FROM blocks_fts WHERE blocks_fts"
+    hit = read(db, "SELECT rowid FROM blocks_fts WHERE blocks_fts"
                      " MATCH 'attention'").fetchall()
     assert len(hit) == 1
     db.execute("UPDATE blocks SET text = 'goodbye' WHERE uid = 'u1'")
-    assert db.execute("SELECT count(*) FROM blocks_fts WHERE blocks_fts"
+    assert read(db, "SELECT count(*) FROM blocks_fts WHERE blocks_fts"
                       " MATCH 'attention'").fetchone()[0] == 0
-    assert db.execute("SELECT count(*) FROM blocks_fts WHERE blocks_fts"
+    assert read(db, "SELECT count(*) FROM blocks_fts WHERE blocks_fts"
                       " MATCH 'goodbye'").fetchone()[0] == 1
     db.execute("DELETE FROM blocks WHERE uid = 'u1'")
-    assert db.execute("SELECT count(*) FROM blocks_fts WHERE blocks_fts"
+    assert read(db, "SELECT count(*) FROM blocks_fts WHERE blocks_fts"
                       " MATCH 'goodbye'").fetchone()[0] == 0
 
 
 def test_pages_fts_tracks_titles(db):
     db.execute("INSERT INTO pages VALUES (1, 'Machine Learning', NULL, NULL)")
-    assert db.execute("SELECT count(*) FROM pages_fts WHERE pages_fts"
+    assert read(db, "SELECT count(*) FROM pages_fts WHERE pages_fts"
                       " MATCH 'machine'").fetchone()[0] == 1
 
 
@@ -80,13 +81,13 @@ def test_refs_kind_constraint(db):
 def test_db_generation_token_created_and_stable(db):
     """A random generation token is minted when the DDL first runs and
     survives re-running the (idempotent) DDL."""
-    row = db.execute(
+    row = read(db,
         "SELECT value FROM sync_meta WHERE key = 'db_generation'").fetchone()
     assert row is not None
     token = row[0]
     assert len(token) == 32 and all(c in "0123456789abcdef" for c in token)
     db.executescript(DDL)  # idempotent replay must not rotate the token
-    again = db.execute(
+    again = read(db,
         "SELECT value FROM sync_meta WHERE key = 'db_generation'").fetchone()[0]
     assert again == token
 
@@ -98,7 +99,7 @@ def test_db_generation_token_differs_between_databases():
     for _ in range(2):
         con = _sqlite3.connect(":memory:")
         con.executescript(DDL)
-        tokens.add(con.execute(
+        tokens.add(read(con,
             "SELECT value FROM sync_meta WHERE key = 'db_generation'"
         ).fetchone()[0])
         con.close()
@@ -106,20 +107,20 @@ def test_db_generation_token_differs_between_databases():
 
 
 def test_plain_space_title_canonicalization_defaults_false_and_replay_keeps_true(db):
-    meta = dict(db.execute("SELECT key, value FROM sync_meta"))
+    meta = dict(read(db, "SELECT key, value FROM sync_meta"))
     assert meta["plain_space_title_canonicalization"] == "0"
     assert plain_space_title_canonicalization_active(db) is False
 
     set_plain_space_title_canonicalization(db, active=True)
 
-    assert dict(db.execute("SELECT key, value FROM sync_meta"))[
+    assert dict(read(db, "SELECT key, value FROM sync_meta"))[
         "plain_space_title_canonicalization"
     ] == "1"
     assert plain_space_title_canonicalization_active(db) is True
 
     db.executescript(DDL)
 
-    assert dict(db.execute("SELECT key, value FROM sync_meta"))[
+    assert dict(read(db, "SELECT key, value FROM sync_meta"))[
         "plain_space_title_canonicalization"
     ] == "1"
     assert plain_space_title_canonicalization_active(db) is True
@@ -130,19 +131,19 @@ def test_block_refs_table_exists(tmp_path):
     db_path = tmp_path / "pkm.sqlite3"
     init_db(db_path)
     con = open_db(db_path)
-    cols = [r[1] for r in con.execute("PRAGMA table_info(block_refs)")]
+    cols = [r[1] for r in read(con, "PRAGMA table_info(block_refs)")]
     assert cols == ["src_block_uid", "target_block_uid"]
-    indexes = {r[1] for r in con.execute("PRAGMA index_list(block_refs)")}
+    indexes = {r[1] for r in read(con, "PRAGMA index_list(block_refs)")}
     assert "idx_block_refs_target" in indexes
     con.close()
 
 
 def test_rotate_database_generation_changes_only_generation(db):
-    before = dict(db.execute("SELECT key, value FROM sync_meta"))
+    before = dict(read(db, "SELECT key, value FROM sync_meta"))
 
     rotated = rotate_database_generation(db)
 
-    after = dict(db.execute("SELECT key, value FROM sync_meta"))
+    after = dict(read(db, "SELECT key, value FROM sync_meta"))
     assert rotated == database_generation(db)
     assert rotated != before["db_generation"]
     assert after.keys() == before.keys()

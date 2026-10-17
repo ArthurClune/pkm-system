@@ -7,6 +7,7 @@ import pytest
 
 from perfcheck import build as b
 from perfcheck.fixture import generate
+from rawread import read
 
 
 @pytest.fixture()
@@ -21,13 +22,13 @@ def test_build_applies_every_create(tmp_path):
     fx = generate(1, 0.02)
     n_creates = sum(1 for bt in fx.batches for op in bt.ops if op["op"] == "create")
     con = sqlite3.connect(dest)
-    assert con.execute("SELECT COUNT(*) FROM blocks").fetchone()[0] == n_creates
-    assert con.execute("SELECT COUNT(*) FROM assets").fetchone()[0] == len(fx.assets)
-    assert con.execute("SELECT COUNT(*) FROM sidebar_entries").fetchone()[0] == len(fx.sidebar)
+    assert read(con, "SELECT COUNT(*) FROM blocks").fetchone()[0] == n_creates
+    assert read(con, "SELECT COUNT(*) FROM assets").fetchone()[0] == len(fx.assets)
+    assert read(con, "SELECT COUNT(*) FROM sidebar_entries").fetchone()[0] == len(fx.sidebar)
     # triggers ran: FTS and the change journal are populated
-    assert con.execute("SELECT COUNT(*) FROM blocks_fts").fetchone()[0] == n_creates
-    assert con.execute("SELECT COUNT(*) FROM changes").fetchone()[0] > 0
-    assert con.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    assert read(con, "SELECT COUNT(*) FROM blocks_fts").fetchone()[0] == n_creates
+    assert read(con, "SELECT COUNT(*) FROM changes").fetchone()[0] > 0
+    assert read(con, "PRAGMA integrity_check").fetchone()[0] == "ok"
 
 
 def test_cached_fixture_reuses_file(cache, monkeypatch):
@@ -129,7 +130,7 @@ def test_build_seeds_a_rename_with_a_block_rewrites_row(tmp_path):
         titles = {r[0] for r in con.execute("SELECT title FROM pages")}
         assert RENAME_TARGET_TITLE in titles
         assert RENAME_SOURCE_TITLE not in titles
-        rewritten = con.execute(
+        rewritten = read(con,
             "SELECT base_hash, after_hash, old_title, new_title FROM block_rewrites"
             " WHERE uid = ?", (fx.landmarks.rename_ref_uid,)).fetchall()
         assert len(rewritten) == 1
@@ -137,7 +138,7 @@ def test_build_seeds_a_rename_with_a_block_rewrites_row(tmp_path):
         assert base_hash == text_hash(RENAME_REF_TEXT)
         assert old_title == RENAME_SOURCE_TITLE
         assert new_title == RENAME_TARGET_TITLE
-        current_text = con.execute(
+        current_text = read(con,
             "SELECT text FROM blocks WHERE uid = ?",
             (fx.landmarks.rename_ref_uid,)).fetchone()[0]
         assert after_hash == text_hash(current_text)

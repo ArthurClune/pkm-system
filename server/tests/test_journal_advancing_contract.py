@@ -33,6 +33,7 @@ from datetime import date, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
+from rawread import read
 from pkm.server.config import Config
 from pkm.server.db import open_db
 from pkm.server.title_migration import audit_title_migration
@@ -296,10 +297,10 @@ def test_zero_group_title_activation_forces_an_equal_cursor_replica_pull(
 
     db = open_db(seeded_config.db_path)
     try:
-        latest_seq = db.execute(
+        latest_seq = read(db,
             "SELECT COALESCE(MAX(seq), 0) FROM changes"
         ).fetchone()[0]
-        old_generation = db.execute(
+        old_generation = read(db,
             "SELECT value FROM sync_meta WHERE key='db_generation'"
         ).fetchone()[0]
     finally:
@@ -325,7 +326,7 @@ def test_zero_group_title_activation_forces_an_equal_cursor_replica_pull(
 
     db = open_db(seeded_config.db_path)
     try:
-        assert db.execute(
+        assert read(db,
             "SELECT COALESCE(MAX(seq), 0) FROM changes"
         ).fetchone()[0] == latest_seq
     finally:

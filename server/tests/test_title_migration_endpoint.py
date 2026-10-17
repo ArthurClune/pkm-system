@@ -1,6 +1,7 @@
 import sqlite3
 
 import pkm.server.notify as notify
+from rawread import read
 from pkm.server.db import get_db, open_db
 from pkm.server.sync_meta import (
     database_generation,
@@ -263,7 +264,7 @@ def test_title_migration_apply_activates_rotates_generation_and_nudges_once(
     assert plain_space_title_canonicalization_active(db) is True
     assert database_generation(db) != old_generation
     assert database_generation(db) == r.json()["generation"]
-    assert [tuple(row) for row in db.execute(
+    assert [tuple(row) for row in read(db,
         "SELECT id, title FROM pages ORDER BY id"
     )] == [
         (1, "Machine Learning"),

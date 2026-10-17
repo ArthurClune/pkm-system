@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from rawread import read
 from pkm.contracts.ops import text_hash
 from pkm.server.app import create_app
 from proptest import sync_server
@@ -59,12 +60,12 @@ def test_seed_is_ordered_and_has_refs_consistent_with_the_journal(client: TestCl
     con = sqlite3.connect(client.post("/__proptest/reset").json()["db_path"])
     for title, uids in (("Proptest", SEED_UIDS), ("Second", SECOND_UIDS),
                         (FIXTURE_PAGE, FIXTURE_UIDS)):
-        rows = con.execute(
+        rows = read(con,
             "SELECT b.uid, b.order_idx, b.parent_uid FROM blocks b JOIN pages p"
             " ON p.id = b.page_id WHERE p.title = ? ORDER BY b.order_idx", (title,)).fetchall()
         assert rows == [(uid, i * 10, None) for i, uid in enumerate(uids)]
-    assert con.execute("SELECT COUNT(*) FROM changes").fetchone()[0] >= 9
-    assert con.execute("SELECT COUNT(*) FROM applied_batches").fetchone()[0] == 0
+    assert read(con, "SELECT COUNT(*) FROM changes").fetchone()[0] >= 9
+    assert read(con, "SELECT COUNT(*) FROM applied_batches").fetchone()[0] == 0
 
 
 def test_clock_sets_applied_at(client: TestClient) -> None:
@@ -150,8 +151,8 @@ def test_renames_are_logged_after_the_last_applied_batch_at_the_server_clock(
     # A refused rename retitles nothing, so it logs nothing.
     assert _rename(client, "Second", "Proptest") == 409
     assert _rename(client, "Nowhere", "Fourth") == 404
-    assert con.execute("SELECT after_batch FROM proptest_renames ORDER BY rowid").fetchall() == [
-        (0,), (con.execute("SELECT MAX(rowid) FROM applied_batches").fetchone()[0],)]
+    assert read(con, "SELECT after_batch FROM proptest_renames ORDER BY rowid").fetchall() == [
+        (0,), (read(con, "SELECT MAX(rowid) FROM applied_batches").fetchone()[0],)]
     assert client.get("/__proptest/renames").json() == [
         {"old_title": "Second", "new_title": "Third", "after_batch_id": None,
          "at": START_MS + 1000, "ord": 1},
@@ -195,7 +196,7 @@ def test_deletes_are_logged_with_the_uids_the_page_held_in_order_with_renames(
     assert record["title"] == "Proptest"
     assert record["after_batch_id"] == "batch_gone_01"
     assert record["at"] == START_MS + 2000
-    assert record["seq"] == con.execute(
+    assert record["seq"] == read(con,
         "SELECT seq FROM page_deletions WHERE title = 'Proptest'").fetchone()[0]
     assert sorted(record["uids"]) == sorted(
         [u for u in SEED_UIDS if u != "pt_seed_1"] + ["pt_extra_1"])

@@ -23,25 +23,23 @@ REGEN = ("regenerate with `uv run python -m pkm.server.openapi_dump "
          "both files")
 
 # Routes exempt from the "must declare a response_model" rule because they
-# don't return a JSON API payload: a health check, the schema introspection
-# endpoint itself, and binary file downloads (an asset, a page rendered to
-# markdown, and the whole-graph markdown export as a zip). Keep this list
-# explicit and minimal - anything else returning bare-dict JSON is a bug.
-EXEMPT_READ_ROUTES = {"/healthz", "/api/openapi.json", "/assets/{sha256}/{filename}",
-                      "/api/export/page/{title}", "/api/export.zip",
-                      "/api/local/{path}"}  # local document bytes
-
-# Write routes return small ad-hoc JSON acks by design, so only GETs are
-# auto-checked - except the upload response and the ops ack, the non-GET
-# payloads the web client consumes as a generated type.
-CHECKED_NON_GET = {("/api/assets", "post"), ("/api/ops", "post")}
+# don't return a JSON API payload: the schema introspection endpoint itself
+# binary file downloads (an asset, a page rendered to markdown, the
+# whole-graph markdown export and the assets bundle as zips) and the
+# assistant's event stream. Every other method and route is checked. Keep
+# this list explicit and minimal - anything else returning bare-dict JSON is
+# a bug.
+EXEMPT_ROUTES = {
+    "/api/openapi.json", "/assets/{sha256}/{filename}",
+    "/api/export/page/{title}", "/api/export.zip", "/api/assets/export.zip",
+    "/api/assistant/conversations/{conversation_id}/messages",
+    "/api/local/{path}"}  # local document bytes
 
 
 def _checked_operations(schema: dict) -> list[tuple[str, str, dict]]:
     return [(path, method, op)
             for path, methods in schema["paths"].items()
-            for method, op in methods.items()
-            if method == "get" or (path, method) in CHECKED_NON_GET]
+            for method, op in methods.items()]
 
 
 def _undeclared_response_model_routes(schema: dict, exempt: set[str]) -> list[str]:
@@ -79,18 +77,18 @@ def test_committed_openapi_matches_live_schema(tmp_path):
         f"web/src/api/openapi.json is stale: {REGEN}"
 
 
-def test_read_routes_declare_response_models(tmp_path):
+def test_routes_declare_response_models(tmp_path):
     schema = create_app(_dummy_config(tmp_path)).openapi()
-    bad = _undeclared_response_model_routes(schema, EXEMPT_READ_ROUTES)
+    bad = _undeclared_response_model_routes(schema, EXEMPT_ROUTES)
     assert not bad, (
         f"Route(s) {bad} must declare response_model=<Payload> (see "
-        f"pkm.contracts.responses) or be added to EXEMPT_READ_ROUTES if "
+        f"pkm.contracts.responses) or be added to EXEMPT_ROUTES if "
         f"genuinely not a JSON API payload; {REGEN}")
 
 
 def test_undeclared_response_model_checker_catches_a_bare_dict_route():
     # Guards the guard: a fresh route with no response_model must be flagged,
-    # proving test_read_routes_declare_response_models would fail on it.
+    # proving test_routes_declare_response_models would fail on it.
     app = FastAPI()
 
     @app.get("/api/fake")

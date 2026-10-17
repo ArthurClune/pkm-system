@@ -176,6 +176,14 @@ class Clock:
         self._travel.stop()
 
 
+def _dicts(db: Db, sql: str) -> list[dict]:
+    """Rows of a test-only table read by column name (their columns are not
+    `Row` keys, so `Db.select` would not accept them)."""
+    cursor = db.raw.execute(sql)
+    names = [d[0] for d in cursor.description]
+    return [dict(zip(names, values)) for values in cursor.fetchall()]
+
+
 def build_template(path: Path) -> None:
     """A fresh DB holding page "Proptest" with five top-level blocks, page
     "Second" with three and page "Fixture" with one, written through the real
@@ -336,8 +344,8 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     def applied(request: Request) -> list[dict]:
         con = open_db(request.app.state.config.db_path)
         try:
-            rows = con.execute(
-                "SELECT batch_id, applied_at FROM applied_batches ORDER BY rowid").fetchall()
+            rows = _dicts(con,
+                "SELECT batch_id, applied_at FROM applied_batches ORDER BY rowid")
         finally:
             con.close()
         return [{"batch_id": r["batch_id"], "applied_at": r["applied_at"]} for r in rows]
@@ -348,40 +356,40 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         try:
             # The batch each followed by id: the serial replay walks
             # /__proptest/applied's list, which names batches, not rowids.
-            rows = con.execute(
+            rows = _dicts(con,
                 "SELECT r.old_title, r.new_title, a.batch_id AS after_batch_id, r.at, r.ord"
                 " FROM proptest_renames r"
                 " LEFT JOIN applied_batches a ON a.rowid = r.after_batch"
-                " ORDER BY r.rowid").fetchall()
+                " ORDER BY r.rowid")
         finally:
             con.close()
-        return [dict(r) for r in rows]
+        return rows
 
     @app.get("/__proptest/deletes", dependencies=[Depends(require_auth)])
     def deletes(request: Request) -> list[dict]:
         con = open_db(request.app.state.config.db_path)
         try:
-            rows = con.execute(
+            rows = _dicts(con,
                 "SELECT d.title, d.seq, a.batch_id AS after_batch_id, d.at, d.ord, d.uids"
                 " FROM proptest_deletes d"
                 " LEFT JOIN applied_batches a ON a.rowid = d.after_batch"
-                " ORDER BY d.rowid").fetchall()
+                " ORDER BY d.rowid")
         finally:
             con.close()
-        return [{**dict(r), "uids": json.loads(r["uids"])} for r in rows]
+        return [{**r, "uids": json.loads(r["uids"])} for r in rows]
 
     @app.get("/__proptest/conflicts", dependencies=[Depends(require_auth)])
     def conflicts(request: Request) -> list[dict]:
         con = open_db(request.app.state.config.db_path)
         try:
-            rows = con.execute(
+            rows = _dicts(con,
                 "SELECT c.header_uid, c.text,"
                 " (SELECT a.batch_id FROM applied_batches a WHERE a.rowid > c.after_batch"
                 "   ORDER BY a.rowid LIMIT 1) AS batch_id"
-                " FROM proptest_conflicts c ORDER BY c.rowid").fetchall()
+                " FROM proptest_conflicts c ORDER BY c.rowid")
         finally:
             con.close()
-        return [dict(r) for r in rows]
+        return rows
 
     @app.post("/__proptest/echo/take", dependencies=[Depends(require_auth)])
     def echo_take() -> dict:

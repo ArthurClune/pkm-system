@@ -8,6 +8,7 @@ from fake_describer import (
     FakeDescriber,
 )
 
+from rawread import read
 from pkm.describe.service import DescribeService
 from pkm.server.db import open_db
 
@@ -28,7 +29,7 @@ def _insert_asset(config, sha, mime="image/png", size=None,
 
 def _asset_row(config, sha):
     con = open_db(config.db_path)
-    row = con.execute("SELECT description, described_at, describe_error"
+    row = read(con, "SELECT description, described_at, describe_error"
                       " FROM assets WHERE sha256 = ?", (sha,)).fetchone()
     con.close()
     return row

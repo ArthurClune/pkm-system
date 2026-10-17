@@ -5,6 +5,7 @@ edit) and never writes NULL back. Re-running init_db() must be a no-op
 (the backfill is a plain UPDATE ... WHERE created_at IS NULL)."""
 import sqlite3
 
+from rawread import read
 from pkm.schema import DDL
 from pkm.server.db import init_db
 
@@ -31,7 +32,7 @@ def _seed(path, pages, blocks) -> None:
 
 def _created_at(path, uid) -> int | None:
     con = sqlite3.connect(path)
-    row = con.execute("SELECT created_at FROM blocks WHERE uid = ?",
+    row = read(con, "SELECT created_at FROM blocks WHERE uid = ?",
                       (uid,)).fetchone()
     con.close()
     return row[0]

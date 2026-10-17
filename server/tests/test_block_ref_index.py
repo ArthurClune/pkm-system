@@ -1,13 +1,12 @@
 """block_refs stays current through every text write path."""
+from rawread import read
 from pkm.server.db import open_db
 
 
 def _rows(config) -> set[tuple[str, str]]:
     con = open_db(config.db_path)
     try:
-        # open_db sets row_factory = sqlite3.Row, which does not compare
-        # equal to plain tuples in a set -- cast explicitly.
-        return {tuple(row) for row in con.execute(
+        return {tuple(row) for row in read(con,
             "SELECT src_block_uid, target_block_uid FROM block_refs")}
     finally:
         con.close()

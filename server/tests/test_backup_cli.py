@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from rawread import read
 from pkm.backup.__main__ import main
 from pkm.backup.rotation import backup_name
 from pkm.schema import DDL
@@ -43,7 +44,7 @@ def test_backup_creates_snapshot_export_and_commit(data_dir, tmp_path):
                  "--backups-dir", str(backups)]) == 0
     dated = backups / "sqlite" / backup_name(date.today())
     con = sqlite3.connect(f"file:{dated}?mode=ro", uri=True)
-    assert con.execute("SELECT COUNT(*) FROM blocks").fetchone()[0] == 1
+    assert read(con, "SELECT COUNT(*) FROM blocks").fetchone()[0] == 1
     con.close()
     assert (backups / "export" / "pages" / "Alpha.md").is_file()
     assert git_commits(backups / "export") == 1

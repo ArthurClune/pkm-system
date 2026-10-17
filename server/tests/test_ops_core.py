@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from rawread import read
 from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                DeleteOp, MoveOp, OpBatch, OrderIdx, PageId,
                                Sha256Hex, SetCollapsedOp, SetHeadingOp,
@@ -731,15 +732,14 @@ def test_placement_matches_shared_fixture(case, tmp_path):
             "client_id": "fixture", "batch_id": f"placement_{case['name']}"[:64],
             "ops": case["ops"]}), 1_800_000_000_000)
         db.commit()
-        placed = {r["uid"]: {"uid": r["uid"], "page": r["title"],
-                             "parent_uid": r["parent_uid"],
-                             "order_idx": r["order_idx"]}
-                  for r in db.execute(
+        placed = {uid: {"uid": uid, "page": title, "parent_uid": parent,
+                        "order_idx": idx}
+                  for uid, title, parent, idx in read(db,
                       "SELECT b.uid, p.title, b.parent_uid, b.order_idx"
                       " FROM blocks b JOIN pages p ON p.id = b.page_id")}
         assert [placed.get(e["uid"]) for e in case["expect"]] == case["expect"]
         for title in case["pages_absent"]:
-            assert db.execute("SELECT 1 FROM pages WHERE title = ?",
+            assert read(db, "SELECT 1 FROM pages WHERE title = ?",
                               (title,)).fetchone() is None
     finally:
         db.close()

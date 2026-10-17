@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from datetime import date, timedelta
 
+from rawread import read
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BlockUid
 from pkm.database import connect
@@ -38,7 +39,7 @@ def _insert_indexed_block(db_path, uid: str, page_id: int, text: str) -> None:
 
 def _page_exists(db_path, title: str) -> bool:
     con = connect(db_path)
-    row = con.execute("SELECT 1 FROM pages WHERE title = ?",
+    row = read(con, "SELECT 1 FROM pages WHERE title = ?",
                       (title,)).fetchone()
     con.close()
     return row is not None
@@ -85,7 +86,7 @@ def test_deletes_whitespace_only_daily_and_purges_fts(client, seeded_config):
     assert title in r.json()["deleted"]
     assert not _page_exists(seeded_config.db_path, title)
     con = connect(seeded_config.db_path)
-    orphans = con.execute(
+    orphans = read(con,
         "SELECT rowid FROM blocks_fts WHERE rowid NOT IN"
         " (SELECT rowid FROM blocks)").fetchall()
     con.close()

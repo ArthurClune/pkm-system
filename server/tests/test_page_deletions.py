@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import date, timedelta
 
+from rawread import read
 from pkm.contracts.daily import title_for_date
 from pkm.database import connect
 from pkm.schema import DDL
@@ -14,7 +15,7 @@ from pkm.server.store import stale_titles
 def _rows(config, sql, params=()):
     con = sqlite3.connect(config.db_path)
     try:
-        return con.execute(sql, params).fetchall()
+        return read(con, sql, params).fetchall()
     finally:
         con.close()
 

@@ -4,6 +4,7 @@ from urllib.parse import quote
 
 import pytest
 
+from rawread import read
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import text_hash
 
@@ -247,7 +248,7 @@ def test_delete_page_turns_inbound_links_into_plain_text(
     assert "Studying [[Machine Learning]] today" not in texts_after
 
     con = sqlite3.connect(seeded_config.db_path)
-    remaining = con.execute(
+    remaining = read(con,
         "SELECT * FROM refs WHERE target_page_id = 1").fetchall()
     con.close()
     assert remaining == []
@@ -317,7 +318,7 @@ def _b4_text(client):
 def _rewrite_rows(seeded_config):
     con = sqlite3.connect(seeded_config.db_path)
     try:
-        return con.execute("SELECT count(*) FROM block_rewrites").fetchone()[0]
+        return read(con, "SELECT count(*) FROM block_rewrites").fetchone()[0]
     finally:
         con.close()
 

@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from rawread import read
 from pkm.database import Db, RowCheckError, WriteResult, connect
 
 
@@ -58,7 +59,7 @@ def test_db_preserves_isolation_level(tmp_path: Path) -> None:
 def test_begin_immediate_blocks_second_writer(tmp_path: Path) -> None:
     first = _db(tmp_path)
     second = connect(tmp_path / "t.db")
-    second.raw.execute("PRAGMA busy_timeout=50")
+    read(second, "PRAGMA busy_timeout=50")
     first.begin_immediate()
     with pytest.raises(sqlite3.OperationalError, match="locked"):
         second.begin_immediate()
@@ -118,3 +119,12 @@ def test_read_only_path_with_uri_metacharacters(tmp_path: Path) -> None:
     assert ro.select("SELECT uid FROM blocks")
     with pytest.raises(sqlite3.OperationalError):
         ro.execute("DELETE FROM blocks")
+
+
+def test_execute_returns_write_result(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    result = db.execute("INSERT INTO blocks VALUES ('jklmnopqr', 'more')")
+    assert isinstance(result, WriteResult)
+    assert result.rowcount == 1
+    assert result.lastrowid is not None
+    assert db.execute("DELETE FROM blocks").rowcount == 2

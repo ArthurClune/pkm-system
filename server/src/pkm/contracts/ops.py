@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import secrets
 from collections.abc import Iterable
 from typing import Annotated, Literal, NewType, Union
 
@@ -77,10 +78,22 @@ SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}\Z")
 # (ops_core.plan_op) or a skipped op (ops_core.impossible_uid_reason); an
 # op addressing an existing block never re-checks its uid's shape. Minted
 # by the web (web/src/uid.ts's newUid, most uids in practice), the CLI/MCP
-# client (client.api.new_uid), the server (ops_apply._new_uid), and
+# client and the server (both `new_uid`), and
 # Roam's own exported uids.
 BlockUid = NewType("BlockUid", str)
 brand(BlockUid)
+
+
+def new_uid() -> BlockUid:
+    """A fresh random uid: 12 urlsafe chars, matching UID_RE. The alphabet
+    includes '-' and '_', which argparse would treat as an option prefix in
+    a bare CLI argument, so retry until the first char is alphanumeric."""
+    while True:
+        uid = secrets.token_urlsafe(9)
+        if uid[0].isalnum():
+            return BlockUid(uid)
+
+
 # pages.id. Minted only by SQLite (an INTEGER PRIMARY KEY) and, for an
 # import, by the importer's own row-building counter.
 PageId = NewType("PageId", int)

@@ -1,14 +1,18 @@
 import re
 import sqlite3
+from pathlib import Path
 from typing import NewType
 
 import pytest
 
+from brandlint.registry import load_registry
 from pkm import brand_registry as reg
 from pkm import goodlinks, refs, rows
 from pkm.contracts import ops, responses
 from pkm.refs import BLOCK_REF_TOKEN
 from pkm.schema import DDL
+
+REPO = Path(__file__).resolve().parents[2]
 
 
 def _declared_server_brands() -> set[str]:
@@ -66,7 +70,8 @@ def test_client_keys_are_not_server_keys():
 
 
 def test_names_point_at_declared_brands():
-    declared = _declared_server_brands() | set(reg.WEB_BRANDS)
+    declared = (_declared_server_brands() | set(reg.WEB_BRANDS)
+                | load_registry(REPO).declared)
     used = ({b for brands in reg.NAMES.values() for b in brands}
             | set(reg.MINT_SITES) | set(reg.SHAPES))
     assert used - declared == set()

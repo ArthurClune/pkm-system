@@ -21,7 +21,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                ViewType, subtree_hash, text_hash)
 from pkm.contracts.responses import SkipReason, SkippedOp
 from pkm.refs import (CanonicalTitle, TitleSyntaxReason, extract,
-                      normalize_title, title_syntax_reason)
+                      normalize_title, parse_block_uid, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
 from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        deleted_header_text,
@@ -103,7 +103,7 @@ class RewriteStep:
     after_hash: Sha256Hex
     retitles: dict[str, str]
     unlinked: set[str]
-    inlines: dict[BlockUid, str]
+    inlines: dict[str, str]
 
 
 def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[RewriteStep]:
@@ -123,8 +123,7 @@ def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[RewriteStep]:
         if record.kind == "unlink":
             step.unlinked.add(normalize_title(record.old_title))
         elif record.kind == "inline":
-            # An inline record keeps the block-ref's uid in old_title.
-            step.inlines[BlockUid(record.old_title)] = record.new_title
+            step.inlines[record.old_title] = record.new_title
         elif record.kind == "retitle":
             step.retitles[record.old_title] = record.new_title
     return steps
@@ -179,8 +178,12 @@ def _replay_step(text: str, step: RewriteStep,
         def is_deleted(raw: str) -> bool:
             return canonical(normalize_title(raw)) in unlinked
 
+        # An inline record keeps the block-ref's uid in old_title. The copy
+        # map is keyed by uid; a key that is no uid never matches a `((ref))`.
+        copies = {uid: copy for key, copy in step.inlines.items()
+                  if (uid := parse_block_uid(key)) is not None}
         text = defuse_attribute(
-            apply_delete_rewrite(text, is_deleted, step.inlines), is_deleted)
+            apply_delete_rewrite(text, is_deleted, copies), is_deleted)
     return text
 
 

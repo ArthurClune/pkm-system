@@ -3,9 +3,9 @@ import os
 import pytest
 
 from pkm.client import api as client_api
-from pkm.client.api import PkmClient, login, new_uid
+from pkm.client.api import PkmClient, login
 from pkm.client.core import ApiError, CliConfig, ConfigError
-from pkm.contracts.ops import UID_RE, CreateOp, CreatePageOp
+from pkm.contracts.ops import UID_RE, CreateOp, CreatePageOp, new_uid
 from pkm.contracts.responses import Backlinks, PagePayload
 from pkm.server.db import open_db
 

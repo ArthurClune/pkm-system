@@ -83,16 +83,6 @@ def save_config(cfg: CliConfig) -> None:
     os.replace(tmp, path)
 
 
-def new_uid() -> BlockUid:
-    # 12 urlsafe chars, matches UID_RE. token_urlsafe's alphabet includes
-    # '-' and '_', which argparse would treat as an option prefix in a bare
-    # CLI argument; retry until the first char is alphanumeric.
-    while True:
-        uid = secrets.token_urlsafe(9)
-        if uid[0].isalnum():
-            return BlockUid(uid)
-
-
 def login(url: str, password: str,
           http: httpx2.Client | None = None) -> str:
     url = url.rstrip("/")

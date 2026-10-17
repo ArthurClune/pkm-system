@@ -105,3 +105,25 @@ def test_each_remedy_names_the_fix():
 def test_the_violation_names_the_site():
     [v] = check_text(STORE, "x = 1\ndb.raw\n", REGISTRY)
     assert (v.path, v.line, v.rule) == (STORE, 2, "raw-sqlite")
+
+
+def test_every_declared_newtype_has_a_mint_entry():
+    assert REGISTRY.declared  # the scan found the brands
+    assert REGISTRY.declared - set(REGISTRY.mint_sites) == set()
+
+
+def test_an_internal_newtype_is_a_brand_for_rule_2(tmp_path: Path):
+    src = tmp_path / "server/src/pkm"
+    src.mkdir(parents=True)
+    (src / "brand_registry.py").write_text(
+        'NAMES = {}\nSHAPES = {}\nMINT_SITES = {}\nCAST_SITES = ()\n'
+        'TEST_SUPPORT = ()\nOPT_OUT_FILES = ()\n')
+    (src / "internal.py").write_text('Hidden = NewType("Hidden", str)\n')
+    registry = load_registry(tmp_path)
+    assert registry.declared == {"Hidden"}
+    assert [v.rule for v in check_text(ROUTES, "x = Hidden(raw)\n", registry)] == ["brand-mint"]
+
+
+def test_the_canonical_query_node_is_minted_only_in_query_exec():
+    assert rules("x = CanonicalQueryNode(n)\n", ROUTES) == ["brand-mint"]
+    assert rules("x = CanonicalQueryNode(n)\n", "server/src/pkm/server/query_exec.py") == []

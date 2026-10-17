@@ -82,21 +82,11 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
         "server/src/pkm/batch.py",
         # `parse_uid_spec` reads the uid out of a `((uid))` parent spec.
         "server/src/pkm/planning.py",
-        # `render` reads uids from `((uid))` tokens matched by
-        # BLOCK_REF_TOKEN.
-        "server/src/pkm/render.py",
         # `extract` and `parse_block_uid` are the text-to-uid parsers.
         "server/src/pkm/refs.py",
-        # Fresh uids: `new_uid` (CLI/MCP client) and `_new_uid` (conflict
-        # headers) mint random ones.
-        "server/src/pkm/client/api.py",
-        "server/src/pkm/server/ops_apply.py",
         # The journal stores every entity id as text; `window_block_uids`
         # parses them back.
         "server/src/pkm/server/sync_core.py",
-        # A block_rewrites "inline" record keeps a block-ref uid in its
-        # old_title column.
-        "server/src/pkm/server/ops_core.py",
     ),
     "PageId": (
         _CONTRACTS,
@@ -129,6 +119,9 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
     # `title_reader` is the one general mint: it alone knows the database's
     # live plain-space flag.
     "CanonicalTitle": (_CONTRACTS, "server/src/pkm/server/sync_meta.py"),
+    # An internal NewType, not a wire brand: `parse_canonical_query` and
+    # `page_queries` are its mints, both in query_exec.
+    "CanonicalQueryNode": ("server/src/pkm/server/query_exec.py",),
 }
 
 # Server files where `typing.cast` is allowed.

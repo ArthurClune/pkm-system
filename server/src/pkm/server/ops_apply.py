@@ -4,7 +4,6 @@ Runs inside the caller's transaction; never commits or rolls back."""
 from __future__ import annotations
 
 import dataclasses
-import secrets
 from collections.abc import Collection
 from datetime import datetime
 from typing import Union
@@ -13,7 +12,7 @@ from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                DeleteOp, MoveOp, OpBatch, OrderIdx, PageId,
                                SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
-                               UpdateTextOp)
+                               UpdateTextOp, new_uid)
 from pkm.contracts.responses import SkippedOp
 from pkm.database import Db
 from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
@@ -56,16 +55,6 @@ _AddressedOp = Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
 # fixed, always-valid title -- get_or_create semantics, so repeated blank
 # titles all land on the same page rather than minting one each.
 UNTITLED_PAGE_TITLE = "Untitled"
-
-
-def _new_uid() -> BlockUid:
-    # 12 chars of [A-Za-z0-9_-]: fits UID_RE. Retry until the first char is
-    # alphanumeric so a conflict header/child uid is never unaddressable
-    # via a bare CLI argument the same way a client-minted uid could be.
-    while True:
-        uid = secrets.token_urlsafe(9)
-        if uid[0].isalnum():
-            return BlockUid(uid)
 
 
 def _resolve_page(db: Db, title: str,
@@ -223,10 +212,10 @@ def _conflict_landing(db: Db, target_uid: BlockUid,
     # A fresh header uid is minted only when there's no existing header to
     # append under: minting one anyway would be a uid neither this apply nor
     # any later one ever uses. It is minted before the entry uid.
-    header = (FreshHeader(_new_uid(), idx) if existing is None
+    header = (FreshHeader(new_uid(), idx) if existing is None
               else ExistingHeader(*existing))
     return ConflictLanding(daily_page_id=daily_page_id, daily_title=daily_title,
-                           entry_uid=_new_uid(), header=header)
+                           entry_uid=new_uid(), header=header)
 
 
 def _existing_page_id(db: Db, title: str) -> PageId | None:
@@ -390,7 +379,7 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
         # can hold its own earlier header): that header gets a fresh one.
         landing = _conflict_landing(db, op.uid, now_ms,
                                     exclude={r.uid for r in rows})
-        copy_uids = {r.uid: _new_uid() for r in rows if r.uid != op.uid}
+        copy_uids = {r.uid: new_uid() for r in rows if r.uid != op.uid}
         return DeleteConflictContext(
             block, rows, _require_page_title(db, block.page_id), landing,
             copy_uids)

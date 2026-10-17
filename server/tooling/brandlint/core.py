@@ -183,7 +183,7 @@ def _declared_brands(tree: ast.AST) -> set[str]:
 
 def _escape_hatches(path: str, tree: ast.AST, registry: Registry) -> list[tuple[int, str, str]]:
     """(line, rule, source text) for every rule-2 site in `tree`."""
-    brands = set(registry.shapes) | set(registry.mint_sites)
+    brands = set(registry.shapes) | set(registry.mint_sites) | registry.declared
     declared = _declared_brands(tree)
     cast_ok = _site_allowed(path, registry.cast_sites)
     sqlite_ok = path == DATABASE_FILE

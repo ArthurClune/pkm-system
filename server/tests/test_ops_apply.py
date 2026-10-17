@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime
 from typing import get_args
 
@@ -407,7 +408,7 @@ def test_diverged_delete_mints_header_then_root_then_descendants(
     db.commit()
     minted = iter(["hdrmint00001", "rootmint0001", "descmint0001",
                    "descmint0002"])
-    monkeypatch.setattr(ops_apply.secrets, "token_urlsafe",
+    monkeypatch.setattr(secrets, "token_urlsafe",
                         lambda n: next(minted))
     op = OpBatch.model_validate({"client_id": "t", "batch_id": "mint_order",
         "ops": [{"op": "delete", "uid": "uid_b2",
@@ -458,7 +459,7 @@ def test_conflict_uids_retry_until_alphanumeric_first_char(db, monkeypatch):
     # make either unaddressable via a bare CLI argument.
     candidates = iter(["-leadingdash1", "goodheader12",
                        "_underscore12", "goodchild123"])
-    monkeypatch.setattr(ops_apply.secrets, "token_urlsafe",
+    monkeypatch.setattr(secrets, "token_urlsafe",
                         lambda n: next(candidates))
     apply_batch(db, _batch(
         {"op": "update_text", "uid": "uid_b1", "text": "offline edit",
@@ -627,6 +628,16 @@ def test_replay_leaves_an_unrecorded_base_hash_untouched():
         "[[T0]] edited", stale, ()) == ("[[T0]] edited", stale)
 
 
+def test_replay_ignores_an_inline_record_whose_key_is_no_uid():
+    before, after = "[[Gone]] ((abc123def))", "Gone copy"
+    record = ops_core.BlockRewrite(
+        base_hash=text_hash(before), after_hash=text_hash(after),
+        old_title="not a uid", new_title="copy", kind="inline")
+
+    assert ops_core.replay_title_rewrites(
+        before, text_hash(before), (record,)) == (before, text_hash(after))
+
+
 def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
     # A block with recorded rename rewrites still applies cleanly when the
     # replayed edit matches the live text's hash -- having block_rewrites at
@@ -719,7 +730,7 @@ def test_second_conflict_same_day_reuses_header_and_mints_no_stray_conflict_uid(
     # one, and must not mint a conflict_uid it never uses.
     uids = iter(["headerabc123", "childabc1234", "childdef5678",
                 "unusedghij12"])
-    monkeypatch.setattr(ops_apply.secrets, "token_urlsafe",
+    monkeypatch.setattr(secrets, "token_urlsafe",
                         lambda n: next(uids))
 
     apply_batch(db, _batch(

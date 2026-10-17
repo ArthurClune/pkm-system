@@ -19,7 +19,8 @@ from dataclasses import dataclass
 from pkm.database import Db
 from pkm.refs import CanonicalTitle
 from pkm.rows import Row
-from pkm.server.query import CanonicalQueryNode, QueryNode, parse_query
+from pkm.server.query import (CanonicalQueryNode, QueryNode, page_operands,
+                              parse_query)
 from pkm.server.sync_meta import title_reader
 
 # Excludes a query's own matching blocks from its results: a block whose
@@ -43,10 +44,11 @@ def parse_canonical_query(db: Db,
     return CanonicalQueryNode(_canonical_titles(title_reader(db), node))
 
 
-def single_page_query(title: str) -> CanonicalQueryNode:
-    """The tree for one page operand drawn out of a canonical node by
-    `page_operands`, so its title is already canonical."""
-    return CanonicalQueryNode(QueryNode("page", title))
+def page_queries(node: CanonicalQueryNode) -> dict[str, CanonicalQueryNode]:
+    """Each [[Page]] operand of a canonical tree as a tree of its own, keyed
+    by its title: canonical because it is drawn out of `node`."""
+    return {title: CanonicalQueryNode(QueryNode("page", title))
+            for title in page_operands(node)}
 
 
 def _canonical_titles(canonical: Callable[[str], CanonicalTitle],

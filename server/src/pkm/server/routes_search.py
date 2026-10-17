@@ -17,9 +17,9 @@ from pkm.server.fts import escape_fts_query
 from pkm.server.grouping import ChangedRow, group_by_page, group_changed
 from pkm.refs import CanonicalTitle
 from pkm.server.query import (
-    page_operands, plan_sql, QueryParseError)
+    plan_sql, QueryParseError)
 from pkm.server.query_exec import (
-    count_matches, execute_plan, parse_canonical_query, single_page_query)
+    count_matches, execute_plan, page_queries, parse_canonical_query)
 from pkm.server.sync_meta import read_title
 from pkm.todo import is_todo
 
@@ -66,9 +66,8 @@ def run_query(expr: str, expand: bool = False,
     # canonical title each operand resolved to (not the raw [[...]] text),
     # so a hint for "[[ Foo ]]" reads the same as one for "[[Foo]]".
     ref_counts = {
-        title: count_matches(
-            db, *plan_sql(single_page_query(title), expand))
-        for title in page_operands(node)
+        title: count_matches(db, *plan_sql(operand, expand))
+        for title, operand in page_queries(node).items()
     }
     matches = execute_plan(db, sql, params)
     return QueryPayload.model_validate(

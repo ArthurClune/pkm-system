@@ -77,8 +77,11 @@ included. The vocabulary also maps every table's columns to keys; a column
 reads under its own name by default, and under a distinct alias key when
 its meaning differs from the key's (my call). Known cases:
 
-- `sidebar_entries.order_idx` is a plain `int`, not `OrderIdx`: it reads
-  as e.g. `sidebar_order_idx`.
+- `sidebar_entries.order_idx` is not a block's `OrderIdx`: it gets its own
+  brand, `SidebarOrderIdx` (int), and reads as `sidebar_order_idx`. The
+  wire field `SyncSidebarEntry.order_idx` keeps its name and becomes
+  `SidebarOrderIdx`, so rule 1 lets the name `order_idx` carry either
+  brand.
 - `changes.page_id` is nullable where `blocks.page_id` is not; likewise
   `block_rewrites.created_at` is NOT NULL where others are nullable. Each
   differing column gets its own key.
@@ -291,6 +294,9 @@ One bean, two phases, server landing before web:
 - One name, one meaning: a column whose meaning differs from its name's key
   reads under a distinct alias key (sidebar `order_idx`, nullable
   `changes.page_id`, every `id`).
+- A new brand, `SidebarOrderIdx`, for the sidebar's order, so the wire
+  field name `order_idx` need not change and need not stay a plain int.
+  A rule-1 name may therefore allow more than one brand.
 - `Db` converts rows to dicts rather than casting `sqlite3.Row`.
 - Rule-1 names = the vocabulary's branded keys plus registered non-column
   names; camelCase derived. An annotation passes if the brand appears in

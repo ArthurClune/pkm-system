@@ -189,8 +189,7 @@ def export_graph(db: Db, live_assets_dir: Path,
     for page in db.select(
             "SELECT id AS page_id, title FROM pages ORDER BY title"):
         rows = db.select(
-            "SELECT uid, parent_uid, order_idx, text,"
-            " NULLIF(heading, 0) AS heading, collapsed,"
+            "SELECT uid, parent_uid, order_idx, text, heading, collapsed,"
             " created_at, updated_at, view_type FROM blocks WHERE page_id = ?",
             (page["page_id"],))
         body = render_page(page["title"], build_tree(rows), uid_to_text)

@@ -146,7 +146,7 @@ and every write is a different method.
 
 `Row` (`pkm/rows.py`) is a `TypedDict` with one key per name a query may
 return, each typed with its brand (`uid: BlockUid`, `page_id: PageId`) or
-`Literal` domain (`heading: HeadingLevel | None`). A key keeps one meaning and
+`Literal` domain (`view_type: ViewType | None`). A key keeps one meaning and
 one nullability everywhere, so a column that differs from the key of the same
 name is read under an alias:
 
@@ -168,8 +168,13 @@ wrong base type, a value outside a `Literal` or a value that fails its brand
 shape. `conftest.py`, `e2e_serve.py` and the proptest sync server turn it on;
 `perfcheck` forces it off so timings measure what production runs. A
 `RowCheckError` is fixed in the query (alias the column, `COALESCE` an
-aggregate, `NULLIF(heading, 0)` for the 0 an old Roam import stored), never
-by loosening `row_problems`.
+aggregate) or the data, never by loosening `row_problems`.
+
+A key admits every value its column stores. `heading` is
+`StoredHeadingLevel | None`, which includes the 0 an old Roam import stored
+for "no heading". `heading_level` maps that 0 to `None` where a row becomes a
+`TreeNode` or a `SyncBlock`, so the wire never carries it. Rewriting it in SQL
+(`NULLIF`) would cost VM steps on every block row a page or sync read returns.
 
 `Row` is the typed core of a read, not a wire type: handlers copy the keys
 they need into a response model. The brand lint's rules are in

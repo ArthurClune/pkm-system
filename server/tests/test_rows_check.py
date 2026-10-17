@@ -48,8 +48,14 @@ def test_a_literal_member_is_fine():
                          "view_type": None}) == []
 
 
+def test_a_legacy_heading_zero_is_a_stored_value():
+    # Old Roam imports stored 0 for "no heading"; the key admits what the
+    # column holds, and the wire reads it as None.
+    assert row_problems({"heading": 0}) == []
+
+
 def test_a_value_outside_a_literal_is_reported():
-    (problem,) = row_problems({"heading": 0})
-    assert "heading" in problem and "1, 2, 3" in problem
+    (problem,) = row_problems({"heading": 4})
+    assert "heading" in problem and "0, 1, 2, 3" in problem
     (problem,) = row_problems({"ref_kind": "nope"})
     assert "ref_kind" in problem and "'link'" in problem

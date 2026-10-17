@@ -1,5 +1,5 @@
 {
-  "commit": "6cca822",
+  "commit": "f0ab868c+dirty",
   "env": {
     "python": "3.12.10",
     "sqlite": "3.47.1"
@@ -107,7 +107,7 @@
       },
       "vm_steps_k": {
         "class": "exact",
-        "value": 150
+        "value": 148
       }
     },
     "block/get": {

@@ -23,7 +23,7 @@ from pkm.contracts.responses import (AppliedBatch, ChangesPayload, EntityKind,
                                         SyncBlock, SyncPage, SyncRef,
                                         SyncSidebarEntry, SyncTombstone)
 from pkm.database import Db
-from pkm.rows import Row
+from pkm.rows import Row, heading_level
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.sync_core import (ChangeRow, chunk_ids, dedupe_window,
@@ -78,8 +78,7 @@ def _blocks_by_uid(db: Db,
     for chunk in chunk_ids(uids):
         marks = ",".join("?" * len(chunk))
         for row in db.select(
-                "SELECT uid, page_id, parent_uid, order_idx, text,"
-                " NULLIF(heading, 0) AS heading,"
+                "SELECT uid, page_id, parent_uid, order_idx, text, heading,"
                 " collapsed, created_at, updated_at, view_type"
                 f" FROM blocks WHERE uid IN ({marks})", chunk):
             out[row["uid"]] = row
@@ -160,7 +159,7 @@ def _block_payloads(db: Db,
         by_uid[uid] = SyncBlock(
             uid=row["uid"], page_id=row["page_id"],
             parent_uid=row["parent_uid"], order_idx=row["order_idx"],
-            text=row["text"], heading=row["heading"],
+            text=row["text"], heading=heading_level(row["heading"]),
             view_type=row["view_type"],
             collapsed=row["collapsed"], created_at=row["created_at"],
             updated_at=row["updated_at"], refs=refs)

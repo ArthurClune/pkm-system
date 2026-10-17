@@ -92,3 +92,11 @@ def test_sync_changes_feed_200s_on_a_legacy_heading_zero_block(seeded_config):
     assert r.status_code == 200
     block = next(b for b in r.json()["blocks"] if b["uid"] == "uid_h0")
     assert block["heading"] is None
+
+
+def test_page_export_200s_on_a_legacy_heading_zero_block(seeded_config):
+    _insert_legacy_heading_zero_block(seeded_config)
+    c = _logged_in_client(seeded_config)
+    r = c.get("/api/export/page/Machine Learning")
+    assert r.status_code == 200
+    assert "- legacy heading-0 block" in r.text

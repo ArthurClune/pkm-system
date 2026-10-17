@@ -8,7 +8,7 @@ from typing import TypedDict
 from pkm.contracts.ops import BlockUid, OrderIdx, ViewType
 from pkm.contracts.responses import StoredHeading
 from pkm.refs import extract
-from pkm.rows import Row
+from pkm.rows import Row, heading_level
 
 
 class TreeNode(TypedDict):
@@ -44,7 +44,7 @@ def build_tree(rows: Sequence[Row]) -> list[TreeNode]:
         return [{
             "uid": r["uid"],
             "text": r["text"],
-            "heading": r["heading"],
+            "heading": heading_level(r["heading"]),
             "view_type": r["view_type"],
             "collapsed": bool(r["collapsed"]),
             "order_idx": r["order_idx"],

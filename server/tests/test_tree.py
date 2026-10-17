@@ -1,10 +1,10 @@
-from pkm.contracts.ops import BlockUid, HeadingLevel, OrderIdx, ViewType
-from pkm.rows import Row
+from pkm.contracts.ops import BlockUid, OrderIdx, ViewType
+from pkm.rows import Row, StoredHeadingLevel
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
 
 def _row(uid: str, parent: str | None, idx: int, text: str,
-         heading: HeadingLevel | None, view_type: ViewType | None,
+         heading: StoredHeadingLevel | None, view_type: ViewType | None,
          collapsed: int) -> Row:
     return {"uid": BlockUid(uid),
             "parent_uid": BlockUid(parent) if parent else None,
@@ -45,3 +45,8 @@ def test_tree_collapsed_is_bool():
     tree = build_tree(ROWS)
     assert tree[1]["collapsed"] is True
     assert tree[0]["collapsed"] is False
+
+
+def test_build_tree_reads_a_legacy_heading_zero_as_none():
+    (node,) = build_tree([_row("h0", None, 0, "legacy", 0, None, 0)])
+    assert node["heading"] is None

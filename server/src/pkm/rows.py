@@ -22,6 +22,15 @@ from pkm.contracts.ops import (BatchId, BlockUid, HeadingLevel, OrderIdx,
 from pkm.contracts.responses import EntityKind
 from pkm.refs import CanonicalTitle, RefKind
 
+# What blocks.heading holds: a level, NULL, or the 0 Roam's export writes
+# for "no heading", which older imports stored as-is. Nothing on the write
+# path produces a 0, so it reads as None wherever a row becomes a value.
+StoredHeadingLevel = Literal[0, 1, 2, 3]
+
+
+def heading_level(stored: StoredHeadingLevel | None) -> HeadingLevel | None:
+    return None if stored == 0 else stored
+
 
 class Row(TypedDict, total=False):
     # pages
@@ -34,7 +43,7 @@ class Row(TypedDict, total=False):
     parent_uid: BlockUid | None
     order_idx: OrderIdx
     text: str
-    heading: HeadingLevel | None
+    heading: StoredHeadingLevel | None
     collapsed: int
     view_type: ViewType | None
     # refs, block_refs
@@ -137,7 +146,7 @@ def _value_problem(key: str, spec: KeySpec, value: object) -> str | None:
     if spec.literals is not None and value not in spec.literals:
         allowed = ", ".join(repr(v) for v in spec.literals)
         return (f"{key}: {value!r} is not one of {allowed}; normalise it in "
-                f"the query (e.g. NULLIF) or fix the data")
+                f"the query or fix the data")
     shape = _SHAPE_RES.get(spec.brand or "")
     if shape is not None and not shape.fullmatch(str(value)):
         return f"{key}: {value!r} is not a valid {spec.brand}"

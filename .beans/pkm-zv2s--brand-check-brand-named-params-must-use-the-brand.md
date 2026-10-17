@@ -30,6 +30,6 @@ Plan: docs/superpowers/plans/2026-10-17-brand-check.md
 - [x] Task 9: server docs, gates, phase review, merge
 - [x] Task 10: generated columns and registry for the web
 - [x] Task 11: column-named select and the web row check
-- [ ] Task 12: ESLint brands plugin
+- [x] Task 12: ESLint brands plugin
 - [ ] Task 13: fix every web violation
 - [ ] Task 14: web docs, gates, final review

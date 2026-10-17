@@ -23,6 +23,9 @@ interface FixtureCase {
   file: string;
   rule: string;
   corrected: string;
+  // Exact number of diagnostics the bad fixture reports for `rule`, when
+  // the fixture carries several cases of it.
+  count?: number;
 }
 
 const cases: readonly FixtureCase[] = [
@@ -142,6 +145,57 @@ const cases: readonly FixtureCase[] = [
       '  return typeof v === "function" ? v.name : undefined;\n' +
       "}\n",
   },
+  {
+    file: "brand-name.ts",
+    rule: "brands/name-carries-brand",
+    count: 2,
+    corrected:
+      'import type { BlockUid, PageId } from "../../src/api/brands";\n' +
+      "export function lookup(uid: BlockUid): BlockUid {\n" +
+      "  return uid;\n" +
+      "}\n" +
+      "export interface Row {\n" +
+      "  pageId: PageId;\n" +
+      "}\n",
+  },
+  {
+    file: "brand-assertion.ts",
+    rule: "brands/no-brand-assertion",
+    count: 3,
+    corrected:
+      'import type { BlockUid } from "../../src/api/brands";\n' +
+      'import { parseBlockUid } from "../../src/ids";\n' +
+      "export function direct(x: string): BlockUid | null {\n" +
+      "  return parseBlockUid(x);\n" +
+      "}\n",
+  },
+  {
+    file: "brand-assertion-structural.ts",
+    rule: "brands/no-brand-assertion",
+    count: 2,
+    corrected:
+      'import type { BatchId, BlockUid } from "../../src/api/brands";\n' +
+      "interface PendingOp {\n" +
+      "  batch_id: BatchId;\n" +
+      "}\n" +
+      "export function rowsOf(rows: { uid: BlockUid }[]): BlockUid[] {\n" +
+      "  return rows.map((r) => r.uid);\n" +
+      "}\n" +
+      "export function opOf(s: string): unknown {\n" +
+      "  const v: unknown = JSON.parse(s);\n" +
+      "  return v;\n" +
+      "}\n",
+  },
+  {
+    file: "brand-opt-out-outside-boundary.ts",
+    rule: "brands/name-carries-brand",
+    count: 1,
+    corrected:
+      'import type { BlockUid } from "../../src/api/brands";\n' +
+      "export function lookup(uid: BlockUid): BlockUid {\n" +
+      "  return uid;\n" +
+      "}\n",
+  },
 ];
 
 // Each ESLint spawn here takes ~2s under coverage instrumentation, close
@@ -157,6 +211,10 @@ describe("eslint flat config", () => {
       const ruleIds = results.flatMap((r) => r.messages.map((m) => m.ruleId));
       expect(ruleIds, `${c.file} messages: ${JSON.stringify(ruleIds)}`)
         .toContain(c.rule);
+      if (c.count !== undefined) {
+        expect(ruleIds.filter((id) => id === c.rule), c.file)
+          .toHaveLength(c.count);
+      }
     }
   }, ESLINT_TIMEOUT_MS);
 

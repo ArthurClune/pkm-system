@@ -1,5 +1,5 @@
 // Flat, type-aware ESLint config (config file: exempt from the FCIS header
-// rule). Enforces exactly four policy families, no more:
+// rule). Enforces exactly five policy families, no more:
 //   * React Hooks correctness (rules-of-hooks, exhaustive-deps) so hook
 //     dependency arrays cannot silently drift out of sync with the effect
 //     body -- this is what lets Task 10 delete every exhaustive-deps
@@ -13,11 +13,14 @@
 //   * No `any` flowing through production code (no-explicit-any and the
 //     no-unsafe-* rules): an untyped JSON value reaching code that assumes
 //     its shape fails at runtime instead of at the type check.
+//   * Brand discipline (tooling/eslint-plugin-brands): a name that means a
+//     brand carries it, and brands are asserted only at their mint sites.
 // reportUnusedDisableDirectives is an error so a stale suppression can never
 // linger: the "zero exhaustive-deps suppressions" invariant is enforced by
 // tooling, not by convention.
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
+import brands from "./tooling/eslint-plugin-brands/index.mjs";
 
 export default tseslint.config(
   {
@@ -61,6 +64,7 @@ export default tseslint.config(
     },
     plugins: {
       "react-hooks": reactHooks,
+      brands,
     },
     rules: {
       "react-hooks/rules-of-hooks": "error",
@@ -75,6 +79,8 @@ export default tseslint.config(
       "@typescript-eslint/no-unsafe-return": "error",
       "@typescript-eslint/no-unsafe-argument": "error",
       "@typescript-eslint/no-unsafe-call": "error",
+      "brands/name-carries-brand": "error",
+      "brands/no-brand-assertion": "error",
       "no-restricted-imports": ["error", {
         patterns: [{
           group: ["**/api/client"],

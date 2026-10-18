@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -11,6 +10,7 @@ import pytest
 import pkm.test_data.generate as generate_module
 from rawread import read
 from pkm.test_data.generate import _publish_staged, generate, main
+from pkm.database import connect
 
 TEST_DATA = Path(__file__).parents[2] / "test-data"
 
@@ -19,43 +19,49 @@ def test_generate_builds_queryable_graph_and_content_addressed_assets(tmp_path: 
     output = tmp_path / "data"
     generate(TEST_DATA / "graph.json", output)
 
-    con = sqlite3.connect(output / "pkm.sqlite3")
+    con = connect(output / "pkm.sqlite3")
     try:
-        titles = {row[0] for row in con.execute("SELECT title FROM pages")}
+        titles = {row["title"] for row in con.select("SELECT title FROM pages")}
         assert {"Project Atlas", "Formatting Lab", "Garden 🌱", "July 18th, 2026"} <= titles
         assert {"Active", "Research", "Status", "TODO"} <= titles
-        block = read(con,
+        block = con.select_one(
             "SELECT parent_uid, order_idx, heading, collapsed, view_type, text "
-            "FROM blocks WHERE uid = 'atlas-outline'"
-        ).fetchone()
-        assert block[:5] == (None, 0, 1, 1, "numbered")
-        assert "{{asset:" not in block[5]
-        refs = set(con.execute(
-            "SELECT b.uid, p.title, r.kind FROM refs r "
+            "FROM blocks WHERE uid = 'atlas-outline'")
+        assert block is not None
+        assert (block["parent_uid"], block["order_idx"], block["heading"],
+                block["collapsed"], block["view_type"]) == (
+                    None, 0, 1, 1, "numbered")
+        assert "{{asset:" not in block["text"]
+        refs = {(row["uid"], row["title"], row["ref_kind"]) for row in con.select(
+            "SELECT b.uid, p.title, r.kind AS ref_kind FROM refs r "
             "JOIN blocks b ON b.uid = r.src_block_uid "
             "JOIN pages p ON p.id = r.target_page_id"
-        ))
+        )}
         assert ("atlas-todo", "Research", "tag") in refs
         assert ("atlas-status", "Status", "attribute") in refs
-        assert list(con.execute(
-            "SELECT title, order_idx FROM sidebar_entries ORDER BY order_idx"
-        )) == [("Project Atlas", 0), ("Formatting Lab", 1), ("Garden 🌱", 2)]
+        assert [(row["title"], row["sidebar_order_idx"]) for row in con.select(
+            "SELECT title, order_idx AS sidebar_order_idx FROM sidebar_entries"
+            " ORDER BY order_idx"
+        )] == [("Project Atlas", 0), ("Formatting Lab", 1), ("Garden 🌱", 2)]
         assert read(con,
             "SELECT count(*) FROM blocks_fts WHERE blocks_fts MATCH 'synthetic'"
         ).fetchone()[0] > 0
-        assets = list(con.execute(
+        assets = [(row["sha256"], row["filename"], row["mime"], row["size"])
+                  for row in con.select(
             "SELECT sha256, filename, mime, size FROM assets ORDER BY filename"
-        ))
-        fixture_text = dict(con.execute(
+        )]
+        fixture_text = {str(row["uid"]): row["text"] for row in con.select(
             "SELECT uid, text FROM blocks WHERE uid IN ('atlas-image', 'format-pdf')"
-        ))
+        )}
     finally:
         con.close()
 
     assert [row[1] for row in assets] == ["sample.pdf", "sample.svg"]
     assets_by_name = {row[1]: row for row in assets}
-    assert f"/assets/{assets_by_name['sample.svg'][0]}/sample.svg" in fixture_text["atlas-image"]
-    assert f"/assets/{assets_by_name['sample.pdf'][0]}/sample.pdf" in fixture_text["format-pdf"]
+    svg_path = f"/assets/{assets_by_name['sample.svg'][0]}/sample.svg"
+    pdf_path = f"/assets/{assets_by_name['sample.pdf'][0]}/sample.pdf"
+    assert svg_path in fixture_text["atlas-image"]
+    assert pdf_path in fixture_text["format-pdf"]
     assert all("{{asset:" not in text for text in fixture_text.values())
     for sha, filename, _mime, size in assets:
         source = TEST_DATA / "assets" / filename
@@ -319,11 +325,10 @@ def test_generate_deduplicates_assets_with_identical_content(tmp_path: Path) -> 
 
     generate(source_dir / "graph.json", output)
 
-    con = sqlite3.connect(output / "pkm.sqlite3")
+    con = connect(output / "pkm.sqlite3")
     try:
-        rows = list(
-            con.execute("SELECT sha256, filename FROM assets WHERE filename LIKE 'dup-%'")
-        )
+        rows = [(row["sha256"], row["filename"]) for row in con.select(
+            "SELECT sha256, filename FROM assets WHERE filename LIKE 'dup-%'")]
     finally:
         con.close()
 

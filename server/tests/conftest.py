@@ -6,13 +6,12 @@ import pytest
 from fake_engine import FakeEngine
 from fastapi.testclient import TestClient
 
-from pkm.contracts.ops import BlockUid, OrderIdx
-from pkm.goodlinks import GoodlinksId
 from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
 from pkm.server.db import init_db, open_db
 from pkm.server.tree import TreeNode
+from pkm.test_data.ids import goodlinks_id_of, order_idx_of, uid_of
 
 # every Db a test opens checks its rows against pkm.rows.Row
 os.environ["PKM_ROW_CHECK"] = "1"
@@ -276,7 +275,7 @@ class FakeGoodlinks:
         return httpx2.Response(404, json={"error": "Not Found"})
 
 
-GL_ID = GoodlinksId("e4966bb2483b5c78f658398c0ae7b03f")
+GL_ID = goodlinks_id_of("e4966bb2483b5c78f658398c0ae7b03f")
 
 
 @pytest.fixture()
@@ -317,6 +316,6 @@ def goodlinks_pkm_client(goodlinks_client):
 def tree_node(text: str, children: Sequence[TreeNode] = ()) -> TreeNode:
     """A build_tree() node for renderer tests that only care about text and
     nesting."""
-    return {"uid": BlockUid(""), "text": text, "heading": None,
-            "view_type": None, "collapsed": False, "order_idx": OrderIdx(0),
+    return {"uid": uid_of("tuid-node"), "text": text, "heading": None,
+            "view_type": None, "collapsed": False, "order_idx": order_idx_of(0),
             "created_at": None, "updated_at": None, "children": list(children)}

@@ -5,7 +5,6 @@ from typing import Any
 
 import pytest
 
-from pkm.contracts.ops import Sha256Hex
 from pkm.importer.assets import Asset
 from pkm.importer.rows import Rows
 from pkm.test_data.core import (
@@ -15,10 +14,11 @@ from pkm.test_data.core import (
     expand_asset_placeholders,
     parse_graph_source,
 )
+from pkm.test_data.ids import sha_of
 
 ASSETS = {
     "sample.svg": Asset(
-        sha256=Sha256Hex("ab" * 32),
+        sha256=sha_of("ab" * 32),
         filename="sample image.svg",
         mime="image/svg+xml",
         size=123,
@@ -68,9 +68,9 @@ def test_parse_graph_source_accepts_strict_valid_source() -> None:
 
 
 def test_deduplicate_assets_by_sha_keeps_first_named_asset_per_content() -> None:
-    shared = Asset(sha256=Sha256Hex("cd" * 32), filename="alpha.bin", mime="application/octet-stream", size=4)
-    duplicate = Asset(sha256=Sha256Hex("cd" * 32), filename="beta.bin", mime="application/octet-stream", size=4)
-    unique = Asset(sha256=Sha256Hex("ef" * 32), filename="gamma.bin", mime="application/octet-stream", size=4)
+    shared = Asset(sha256=sha_of("cd" * 32), filename="alpha.bin", mime="application/octet-stream", size=4)
+    duplicate = Asset(sha256=sha_of("cd" * 32), filename="beta.bin", mime="application/octet-stream", size=4)
+    unique = Asset(sha256=sha_of("ef" * 32), filename="gamma.bin", mime="application/octet-stream", size=4)
     by_name = {"alpha.bin": shared, "beta.bin": duplicate, "gamma.bin": unique}
 
     assert deduplicate_assets_by_sha(by_name) == (shared, unique)

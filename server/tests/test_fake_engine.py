@@ -4,7 +4,7 @@ from fake_engine import FakeEngine
 from pkm.assistant.engine import AgentEngine
 from pkm.assistant.events import ConfirmRequest, TextDelta, ToolFinished, ToolStarted, TurnDone
 from pkm.assistant.policy import SYSTEM_PROMPT
-from pkm.contracts.responses import ConfirmId
+from pkm.test_data.ids import confirm_id_of
 
 
 def test_fake_engine_satisfies_protocol():
@@ -39,7 +39,9 @@ def test_confirm_flow_allow():
 
     events = asyncio.run(scenario())
     assert events[0] == ToolStarted(name="save_note", summary="saving a note")
-    assert events[1] == ConfirmRequest(confirm_id=ConfirmId("fake-confirm-1"), ops_preview='save_note(title="Demo")')
+    assert events[1] == ConfirmRequest(
+        confirm_id=confirm_id_of("fake-confirm-1"),
+        ops_preview='save_note(title="Demo")')
     assert ToolFinished(name="save_note") in events
     assert TextDelta(text="Saved.") in events
     assert isinstance(events[-1], TurnDone)

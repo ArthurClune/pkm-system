@@ -9,6 +9,7 @@ sidebar's `order_idx`): that value is read with `Db.select`, whose row check
 validates it. The refusal goes by returned name, so `uid AS u` reads an
 unbranded value and is not refused."""
 import sqlite3
+from collections.abc import Callable
 from typing import Any
 
 from pkm.brand_registry import CLIENT_KEYS, COLUMN_KEYS
@@ -73,3 +74,10 @@ def read(db: Db | sqlite3.Connection, sql: str,
     cursor.execute(sql, params)
     _refuse_brand_columns(cursor)
     return cursor
+
+
+def trace(db: Db, callback: Callable[[str], None] | None) -> None:
+    """Install SQLite's statement trace callback on `db`, or remove it with
+    None: tests that count or intercept statements need the raw connection,
+    which only this module may touch."""
+    db.raw.set_trace_callback(callback)

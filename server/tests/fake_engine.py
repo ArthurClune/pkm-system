@@ -25,6 +25,7 @@ from pkm.assistant.events import (
     TurnDone,
 )
 from pkm.contracts.responses import ConfirmId
+from pkm.test_data.ids import confirm_id_of
 
 
 class FakeConversation:
@@ -44,7 +45,7 @@ class FakeConversation:
             return  # pragma: no cover - unreachable
         if "please write" in text:
             self._confirm_seq += 1
-            confirm_id = ConfirmId(f"fake-confirm-{self._confirm_seq}")
+            confirm_id = confirm_id_of(f"fake-confirm-{self._confirm_seq}")
             fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
             self._decisions[confirm_id] = fut
             yield ToolStarted(name="save_note", summary="saving a note")

@@ -6,10 +6,10 @@ import re
 from collections import defaultdict
 from collections.abc import Mapping, Set
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Literal
 from urllib.parse import quote
 
-from pkm.contracts.ops import BlockUid, Sha256Hex
+from pkm.contracts.ops import BlockUid, OrderIdx, Sha256Hex
 from pkm.importer.assets import Asset
 from pkm.importer.parse_export import Block, Export, Page
 from pkm.importer.rows import Rows, to_rows
@@ -24,6 +24,7 @@ from pydantic import (
     ValidationError,
     field_validator,
 )
+from pkm.test_data.ids import order_idx_of, uid_of
 
 ASSET_PLACEHOLDER_RE = re.compile(r"\{\{asset:([^{}]+)\}\}")
 
@@ -38,9 +39,9 @@ class BlockSource(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    uid: StrictStr = Field(min_length=1)
-    parent_uid: StrictStr | None
-    order_idx: StrictInt = Field(ge=0)
+    uid: BlockUid = Field(strict=True, min_length=1)
+    parent_uid: BlockUid | None = Field(strict=True)
+    order_idx: OrderIdx = Field(strict=True, ge=order_idx_of(0))
     text: StrictStr
     heading: Literal[1, 2, 3] | None
 
@@ -164,7 +165,7 @@ def _build_block_children(blocks: tuple[BlockSource, ...]) -> tuple[Block, ...]:
         if block.uid in built:
             return built[block.uid]
         result = Block(
-            uid=BlockUid(block.uid),
+            uid=uid_of(block.uid),
             text=block.text,
             heading=block.heading,
             view_type=block.view_type,
@@ -182,7 +183,7 @@ def _build_block_children(blocks: tuple[BlockSource, ...]) -> tuple[Block, ...]:
 def _format_validation_error(exc: ValidationError) -> str:
     messages: list[str] = []
     for error in exc.errors():
-        loc = cast(tuple[object, ...], error.get("loc", ()))
+        loc = error["loc"]
         path = ".".join(str(part) for part in loc)
         msg = error["msg"]
         messages.append(f"{path}: {msg}" if path else msg)

@@ -30,9 +30,9 @@ function spine(depth: number): BlockNode[] {
   return [node];
 }
 
-function table(uid: string): BlockNode {
-  return block(uid, "{{[[table]]}}", { children: [
-    block(`${uid}-row`, "Claude", { children: [block(`${uid}-cell`, "$5")] }),
+function table(tag: string): BlockNode {
+  return block(tag, "{{[[table]]}}", { children: [
+    block(`${tag}-row`, "Claude", { children: [block(`${tag}-cell`, "$5")] }),
   ] });
 }
 

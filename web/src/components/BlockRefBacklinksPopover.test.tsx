@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
-import type { BlockUid } from "../api/brands";
 import { apiGet } from "../api/typedClient";
 import { ROUTER_FUTURE_FLAGS } from "../router";
+import { uidOf } from "../test-helpers";
 import { BlockRefBacklinksPopover } from "./BlockRefBacklinksPopover";
 
 vi.mock("../api/typedClient", async (importOriginal) => {
@@ -11,7 +11,7 @@ vi.mock("../api/typedClient", async (importOriginal) => {
   return { ...actual, apiGet: vi.fn() };
 });
 const mockApiGet = vi.mocked(apiGet);
-const UID = "uid_t1" as BlockUid;
+const UID = uidOf("uid_t1");
 
 // Same location-probe pattern as BlockRef.test.tsx: assert where a click
 // actually navigated to, not just that some handler fired.

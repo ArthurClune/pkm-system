@@ -8,9 +8,13 @@ import { MERMAID_CACHE_RENDER_ID, MermaidDiagram } from "./MermaidDiagram";
 // safely. Anything else (e.g. "renderMock") silently falls out of sync
 // between calls, which is exactly the kind of intermittent flake this
 // naming avoids.
-const mockBmRender = vi.fn();
-const mockRender = vi.fn();
-const mockInitialize = vi.fn();
+const mockBmRender = vi.fn<(src: string, opts: { font: string }) => Promise<string>>();
+const mockRender = vi.fn<(id: string, src: string) => Promise<{ svg: string }>>();
+const mockInitialize = vi.fn<(config: {
+  theme: string;
+  securityLevel: string;
+  themeVariables: { fontFamily: string; darkMode: boolean };
+}) => void>();
 
 vi.mock("./beautifulMermaid", () => ({
   renderMermaid: mockBmRender,

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError, defaultUnauthorizedHandler, setUnauthorizedHandler } from "../api/client";
-import type { ConversationId } from "../api/brands";
 import { closeConversationBeacon, streamMessage } from "./client";
+import { conversationIdOf } from "../test-helpers";
 
-const CID = "c1" as ConversationId;
+const CID = conversationIdOf("c1");
 
 function sseResponse(frames: string[]): Response {
   const encoder = new TextEncoder();

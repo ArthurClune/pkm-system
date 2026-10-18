@@ -50,38 +50,38 @@ function methodAndPathAreChecked() {
   // Options are supplied on purpose: without them the call would fail on
   // arity alone, which is not the drift these probes are pinning down.
   // @ts-expect-error /api/journal has no POST
-  apiPost("/api/journal", { query: { days: 7 } });
+  void apiPost("/api/journal", { query: { days: 7 } });
   // @ts-expect-error no such route in the schema
-  apiGet("/api/not-a-route", { query: { q: "x" } });
+  void apiGet("/api/not-a-route", { query: { q: "x" } });
   // @ts-expect-error /api/sidebar has no DELETE (only /api/sidebar/{entry_id})
-  apiDelete("/api/sidebar", {});
+  void apiDelete("/api/sidebar", {});
 }
 
 function parametersAreChecked() {
   // @ts-expect-error {title} is a required path parameter
-  apiGet("/api/page/{title}", {});
+  void apiGet("/api/page/{title}", {});
   // @ts-expect-error /api/current-work takes no path parameters
-  apiGet("/api/current-work", { path: { title: "T" } });
+  void apiGet("/api/current-work", { path: { title: "T" } });
   // @ts-expect-error bl_limitt is not a query parameter of this route
-  apiGet("/api/page/{title}", { path: { title: "T" }, query: { bl_limitt: 5 } });
+  void apiGet("/api/page/{title}", { path: { title: "T" }, query: { bl_limitt: 5 } });
   // @ts-expect-error `uids` is a REQUIRED query parameter of /api/block-refs
-  apiGet("/api/block-refs");
+  void apiGet("/api/block-refs");
   // @ts-expect-error bl_limit is a number
-  apiGet("/api/page/{title}", { path: { title: "T" }, query: { bl_limit: "5" } });
+  void apiGet("/api/page/{title}", { path: { title: "T" }, query: { bl_limit: "5" } });
 }
 
 function headersMustBeAPlainRecord() {
   // @ts-expect-error a Headers instance would be dropped by the merge
-  apiGet("/api/current-work", { init: { headers: new Headers() } });
+  void apiGet("/api/current-work", { init: { headers: new Headers() } });
 }
 
 function requestBodiesAreChecked() {
   // @ts-expect-error the field is `title`, not `titel`
-  apiPost("/api/pages", { body: { titel: "T" } });
+  void apiPost("/api/pages", { body: { titel: "T" } });
   // @ts-expect-error POST /api/pages requires a body
-  apiPost("/api/pages");
+  void apiPost("/api/pages");
   // @ts-expect-error GET /api/current-work takes no request body
-  apiGet("/api/current-work", { body: { title: "T" } });
+  void apiGet("/api/current-work", { body: { title: "T" } });
 }
 
 // --- runtime behaviour: URL building and dispatch through apiFetch ---

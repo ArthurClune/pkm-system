@@ -5,12 +5,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
-import type { Sha256Hex } from "../api/brands";
 import { SidebarContext } from "../contexts";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { AssetLink } from "./AssetLink";
+import { shaOf } from "../test-helpers";
 
-const SHA = "492d80a8b6a72a7c4615c69a9a7def6fac0e019d452f9c88bb61ca8a671dbfd7" as Sha256Hex;
+const SHA = shaOf("492d80a8b6a72a7c4615c69a9a7def6fac0e019d452f9c88bb61ca8a671dbfd7");
 const URL = `/assets/${SHA}/IMG_0868.jpeg`;
 
 // Brand probe (compile-time): `pnpm typecheck` runs this file, and an
@@ -65,7 +65,7 @@ it("click resolves the referencing block and navigates to it", async () => {
   fireEvent.click(screen.getByRole("link", { name: "IMG_0868.jpeg" }));
   await waitFor(() =>
     expect(screen.getByTestId("loc")).toHaveTextContent("/page/Charts#blk1"));
-  const [reqUrl] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+  const [reqUrl] = vi.mocked(fetch).mock.calls[0];
   expect(String(reqUrl)).toBe(`/api/search?q=${SHA}&exact=true`);
 });
 
@@ -117,7 +117,7 @@ it("lookup failure: falls back to opening the raw asset", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
     ok: false, status: 500,
     json: async () => ({ detail: "boom" }),
-    clone() { return this; },
+    clone(): unknown { return this; },
   }));
   const openSpy = vi.fn();
   vi.stubGlobal("open", openSpy);

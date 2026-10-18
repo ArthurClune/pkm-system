@@ -485,7 +485,7 @@ test("a selection made while editable is safe once sync turns the outline read-o
 
 // --- bullet context menu: Copy block reference ---
 
-function bullet(container: HTMLElement, uid: string): Element {
+function bullet(container: HTMLElement, uid: BlockUid): Element {
   const el = container.querySelector(`[data-uid="${uid}"] .bullet`);
   expect(el).not.toBeNull();
   return el as Element;
@@ -493,7 +493,7 @@ function bullet(container: HTMLElement, uid: string): Element {
 
 test("clicking a bullet opens the block menu", () => {
   const { container } = mount(handlers(), null);
-  fireEvent.click(bullet(container, "tuid-u1"));
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
   expect(screen.getByRole("menu")).toBeInTheDocument();
   expect(screen.getByRole("menuitem", { name: "Copy block reference" }))
     .toBeInTheDocument();
@@ -501,13 +501,13 @@ test("clicking a bullet opens the block menu", () => {
 
 test("right-clicking a bullet opens the block menu", () => {
   const { container } = mount(handlers(), null);
-  fireEvent.contextMenu(bullet(container, "tuid-u2"));
+  fireEvent.contextMenu(bullet(container, uidOf("tuid-u2")));
   expect(screen.getByRole("menu")).toBeInTheDocument();
 });
 
 test("keyboard opens and navigates the block menu, then restores trigger focus", () => {
   const { container } = mount(handlers(), null);
-  const trigger = bullet(container, "tuid-u1") as HTMLElement;
+  const trigger = bullet(container, uidOf("tuid-u1")) as HTMLElement;
   trigger.focus();
   expect(trigger).toHaveAttribute("aria-haspopup", "menu");
   expect(trigger).toHaveAttribute("aria-expanded", "false");
@@ -536,7 +536,7 @@ test("Copy block reference writes ((uid)) and closes the menu", () => {
     value: { writeText }, configurable: true,
   });
   const { container } = mount(handlers(), null);
-  fireEvent.click(bullet(container, "tuid-u1"));
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
   fireEvent.click(screen.getByRole("menuitem", { name: "Copy block reference" }));
   expect(writeText).toHaveBeenCalledWith("((tuid-u1))");
   expect(screen.queryByRole("menu")).toBeNull();
@@ -544,10 +544,10 @@ test("Copy block reference writes ((uid)) and closes the menu", () => {
 
 test("Escape and click-away close the block menu", () => {
   const { container } = mount(handlers(), null);
-  fireEvent.click(bullet(container, "tuid-u1"));
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
   fireEvent.keyDown(document, { key: "Escape" });
   expect(screen.queryByRole("menu")).toBeNull();
-  fireEvent.click(bullet(container, "tuid-u2"));
+  fireEvent.click(bullet(container, uidOf("tuid-u2")));
   fireEvent.mouseDown(document.body);
   expect(screen.queryByRole("menu")).toBeNull();
 });
@@ -558,7 +558,7 @@ test("Escape and click-away close the block menu", () => {
 // displaces the menu by its own offset (styling.md carries the invariant).
 test("the block menu renders in a portal at document.body", () => {
   const { container } = mount(handlers(), null);
-  fireEvent.click(bullet(container, "tuid-u1"));
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
   expect(container.querySelector(".block-menu")).toBeNull();
   expect(screen.getByRole("menu").parentElement).toBe(document.body);
 });
@@ -569,7 +569,7 @@ test("the block menu renders in a portal at document.body", () => {
 test("a menu item's click does not reach the row's click-to-edit", () => {
   const h = handlers();
   const { container } = mount(h, null);
-  fireEvent.click(bullet(container, "tuid-u1"));
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
   fireEvent.click(screen.getByRole("menuitemradio", { name: "Heading 1" }));
   expect(h.onSetHeading).toHaveBeenCalledWith("tuid-u1", 1);
   expect(h.onFocusBlock).not.toHaveBeenCalled();
@@ -580,7 +580,7 @@ test("a menu item's click does not reach the row's click-to-edit", () => {
 // notice one of the two going missing.
 test("the block menu keeps its roving focus and Tab-closes", () => {
   const { container } = mount(handlers(), null);
-  fireEvent.click(bullet(container, "tuid-u1"));
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
   const copy = screen.getByRole("menuitem", { name: "Copy block reference" });
   expect(copy).toHaveFocus();
   // fired on document, where the listener is: firing on a menu item would
@@ -596,7 +596,7 @@ test("the block menu keeps its roving focus and Tab-closes", () => {
 test("the block menu also opens in read-only mode", () => {
   // copying a ref is read-only-safe, same as multi-block copy
   const { container } = mount(handlers(), null, true);
-  fireEvent.click(bullet(container, "tuid-u1"));
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
   expect(screen.getByRole("menuitem", { name: "Copy block reference" }))
     .toBeInTheDocument();
 });
@@ -613,7 +613,7 @@ test("block menu marks current heading/view and dispatches both control groups",
                          readOnly={false} />
     </MemoryRouter>);
 
-  fireEvent.click(bullet(view.container, "tuid-u1"));
+  fireEvent.click(bullet(view.container, uidOf("tuid-u1")));
   expect(screen.getByRole("menuitemradio", { name: "Heading 2" }))
     .toHaveAttribute("aria-checked", "true");
   expect(screen.getByRole("menuitemradio", { name: "View as numbered list" }))
@@ -621,7 +621,7 @@ test("block menu marks current heading/view and dispatches both control groups",
   fireEvent.click(screen.getByRole("menuitemradio", { name: "Heading 1" }));
   expect(h.onSetHeading).toHaveBeenCalledWith("tuid-u1", 1);
 
-  fireEvent.click(bullet(view.container, "tuid-u1"));
+  fireEvent.click(bullet(view.container, uidOf("tuid-u1")));
   fireEvent.click(screen.getByRole("menuitemradio", { name: "View as document" }));
   expect(h.onSetViewType).toHaveBeenCalledWith("tuid-u1", "document");
 });
@@ -636,7 +636,7 @@ test("block menu exposes all heading choices; unset view shows document", () => 
       <EditableBlockTree blocks={blocks} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
-  fireEvent.click(bullet(view.container, "tuid-child"));
+  fireEvent.click(bullet(view.container, uidOf("tuid-child")));
   for (const name of ["Plain text", "Heading 1", "Heading 2", "Heading 3"]) {
     expect(screen.getByRole("menuitemradio", { name })).toBeInTheDocument();
   }
@@ -651,7 +651,7 @@ test("block menu exposes all heading choices; unset view shows document", () => 
 test("read-only block menus show but disable mutation controls", () => {
   const h = handlers();
   const view = mount(h, null, true);
-  fireEvent.click(bullet(view.container, "tuid-u1"));
+  fireEvent.click(bullet(view.container, uidOf("tuid-u1")));
   expect(screen.getByRole("menuitem", { name: "Copy block reference" }))
     .toBeEnabled();
   for (const name of ["Plain text", "Heading 1", "Heading 2", "Heading 3",
@@ -674,9 +674,10 @@ test("editable rendering numbers direct children only", () => {
       <EditableBlockTree blocks={blocks} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
-  const marker = (uid: string) =>
+  const marker = (uid: BlockUid) =>
     view.container.querySelector(`[data-uid="${uid}"] > .bullet`)?.textContent;
-  expect([marker("tuid-root"), marker("tuid-a"), marker("tuid-b"), marker("tuid-a1"), marker("tuid-b1")])
+  const tags = ["tuid-root", "tuid-a", "tuid-b", "tuid-a1", "tuid-b1"];
+  expect(tags.map((tag) => marker(uidOf(tag))))
     .toEqual(["", "1.", "2.", "", "1."]);
 });
 
@@ -795,13 +796,13 @@ test("renders the stamp cell with the age band of updated_at", () => {
     block("tuid-s3", "this year", { updated_at: now - 200 * DAY, order_idx: orderIdxOf(2) }),
     block("tuid-s4", "ancient", { updated_at: now - 900 * DAY, order_idx: orderIdxOf(3) }),
   ], true);
-  const bandOf = (uid: string) =>
+  const bandOf = (uid: BlockUid) =>
     view.container.querySelector(`[data-uid="${uid}"] .block-stamp`)?.className;
 
-  expect(bandOf("tuid-s1")).toContain("block-stamp-week");
-  expect(bandOf("tuid-s2")).toContain("block-stamp-month");
-  expect(bandOf("tuid-s3")).toContain("block-stamp-year");
-  expect(bandOf("tuid-s4")).toContain("block-stamp-older");
+  expect(bandOf(uidOf("tuid-s1"))).toContain("block-stamp-week");
+  expect(bandOf(uidOf("tuid-s2"))).toContain("block-stamp-month");
+  expect(bandOf(uidOf("tuid-s3"))).toContain("block-stamp-year");
+  expect(bandOf(uidOf("tuid-s4"))).toContain("block-stamp-older");
 });
 
 test("shows created_at when updated_at is missing, with a full hover title", () => {

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { scanGrammar, type GrammarToken } from "./scan";
 
 const tokens = (text: string): readonly GrammarToken[] => scanGrammar(text).tokens;
-const ofKind = <K extends GrammarToken["kind"]>(text: string, kind: K) =>
-  tokens(text).filter((t): t is Extract<GrammarToken, { kind: K }> => t.kind === kind);
+const ofKind = (text: string, kind: GrammarToken["kind"]): GrammarToken[] =>
+  tokens(text).filter((t) => t.kind === kind);
 
 describe("scanGrammar: page references", () => {
   it("emits an exact bracket-inclusive span for a plain ref", () => {
@@ -167,7 +167,7 @@ describe("scanGrammar: TODO markers", () => {
   });
 
   it("counts a newline as the one-char suffix", () => {
-    expect(ofKind("{{TODO}}\nx", "todo")[0].suffixEnd).toBe(9);
+    expect(ofKind("{{TODO}}\nx", "todo")[0]).toMatchObject({ suffixEnd: 9 });
   });
 
   it("only recognizes the marker at offset 0", () => {

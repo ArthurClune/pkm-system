@@ -15,7 +15,7 @@ const group: BacklinkGroup = {
   items: [{ uid: uidOf("tuid-uid_a"), text: "text", breadcrumbs: [] }],
 };
 
-function mount(onNavigate: (pageTitle: string, uid: string) => void) {
+function mount(onNavigate: OnNavigate) {
   return render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
       <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>

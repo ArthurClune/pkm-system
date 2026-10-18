@@ -8,13 +8,12 @@ import { act, createEvent, fireEvent, render } from "@testing-library/react";
 import { memo, useRef } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
-import type { ClientId } from "../api/brands";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider, useDnd } from "./DndContext";
 import { useDropZone, type Indicator } from "./useDropZone";
 import { EditablePage } from "../views/EditablePage";
-import { block, makeSync, orderIdxOf, canonicalTitleOf, uidOf } from "../test-helpers";
+import { block, makeSync, orderIdxOf, canonicalTitleOf, uidOf, clientIdOf } from "../test-helpers";
 
 const ROW_H = 20;
 const ROWS = 6; // u1..u6; u6 is the one dragged, leaving five candidate rows
@@ -132,7 +131,7 @@ it("re-measures a row whose uid changed under it, count unchanged", async () => 
   // is unchanged, so nothing about the cache as a whole looks stale -- but
   // every uid has slid up one index, and index 4 is now a row 60px further
   // down the page than the one measured there.
-  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
+  act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
     { op: "delete", uid: uidOf("tuid-u1") },
     { op: "create", uid: uidOf("tuid-u9"), page_title: "P", parent_uid: null,
       order_idx: orderIdxOf(6), text: "row 9" },

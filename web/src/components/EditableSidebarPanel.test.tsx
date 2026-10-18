@@ -2,7 +2,6 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
-import type { ClientId } from "../api/brands";
 import {
   isOutlineEditorActive,
   isOutlineSessionActive,
@@ -21,6 +20,7 @@ import {
   stubFetch,
   canonicalTitleOf,
   uidOf,
+  clientIdOf,
 } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { EditablePage } from "../views/EditablePage";
@@ -117,7 +117,7 @@ test("editing a block in the panel sends the op after the debounce", async () =>
 test("a remote websocket batch updates the panel", async () => {
   const sync = mount();
   await screen.findByText("a paper block");
-  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
+  act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
     { op: "create", uid: uidOf("tuid-r1"), page_title: "Paper", parent_uid: null,
       order_idx: orderIdxOf(1), text: "from the iPad" },
   ] }));
@@ -143,7 +143,7 @@ test("a non-canonical requested title keys the outline by the payload's title", 
   await screen.findByText("a paper block");
   expect(isOutlineEditorActive("Paper")).toBe(true);
 
-  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
+  act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
     { op: "create", uid: uidOf("tuid-r1"), page_title: "Paper", parent_uid: null,
       order_idx: orderIdxOf(1), text: "from the iPad" },
   ] }));

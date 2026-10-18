@@ -49,14 +49,16 @@ const blocks: BlockNode[] = [
   block("tuid-u3", "three", { order_idx: orderIdxOf(2) }),
 ];
 
+type DropFiles = Parameters<typeof useDropZone>[3];
+
 let dnd!: ReturnType<typeof useDnd>;
 function Capture() { dnd = useDnd(); return null; }
 
-function setup(onDropFiles: ((f: File[], t: unknown) => void) | null = vi.fn()) {
+function setup(onDropFiles: DropFiles | null = vi.fn()) {
   function Zone() {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const { indicator, zoneProps } = useDropZone(
-      "P", () => blocks, containerRef, (onDropFiles ?? undefined) as never);
+      "P", () => blocks, containerRef, onDropFiles ?? undefined);
     return (
       <div ref={containerRef} data-testid="zone" {...zoneProps}>
         {blocks.map((b) => <div key={b.uid} data-uid={b.uid}>{b.text}</div>)}

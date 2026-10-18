@@ -12,8 +12,8 @@ function Harness({ onReady }: { onReady: (dnd: ReturnType<typeof useDnd>) => voi
   return null;
 }
 
-function setup(over: Record<string, unknown> = {}) {
-  const sync = makeSync("connected", over as Partial<Sync>);
+function setup(over: Partial<Sync> = {}) {
+  const sync = makeSync("connected", over);
   let dnd!: ReturnType<typeof useDnd>;
   render(
     <SyncContext.Provider value={sync}>
@@ -126,7 +126,7 @@ it("a cross-page group drop moves every block: surgery, ops, and replays", () =>
   const { sync, dnd } = setup({ attachOutlineReplay });
   const one: BlockNode = block("tuid-u1", "one");
   const two: BlockNode = block("tuid-u2", "two");
-  const removeSubtreeLocal = vi.fn((uid: string) =>
+  const removeSubtreeLocal = vi.fn<OutlineDndApi["removeSubtreeLocal"]>((uid) =>
     uid === "tuid-u1" ? one : uid === "tuid-u2" ? two : null);
   const src = fakeOutline({ removeSubtreeLocal });
   const dst = fakeOutline();

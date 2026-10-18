@@ -84,7 +84,8 @@ it("dedupes items a later batch repeats for an already-seen page", async () => {
   );
 
   expect(result).not.toBe("stale");
-  expect((result as BacklinkBatchState).groups).toEqual([
+  if (result === "stale") throw new Error("the walk went stale");
+  expect(result.groups).toEqual([
     {
       page_id: pageIdOf(9),
       page_title: "Src",
@@ -213,7 +214,8 @@ it("merges block_ref_texts across batches", async () => {
   );
 
   expect(result).not.toBe("stale");
-  expect((result as BacklinkBatchState).refTexts).toEqual({
+  if (result === "stale") throw new Error("the walk went stale");
+  expect(result.refTexts).toEqual({
     r1: { text: "ref one", page_title: "A" },
     r2: { text: "ref two", page_title: "B" },
   });

@@ -261,7 +261,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-predicate-launder.ts",
     rule: "brands/no-brand-assertion",
-    count: 5,
+    count: 8,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       'type Op = { op: "insert"; uid: BlockUid } | { op: "note"; n: 1 };\n' +
@@ -282,12 +282,26 @@ const cases: readonly FixtureCase[] = [
       "  x: { uid: BlockUid; level: number | null },\n" +
       "): x is { uid: BlockUid; level: number } {\n" +
       "  return x.level !== null;\n" +
+      "}\n" +
+      "export function listed(x: BlockUid[] | null): x is BlockUid[] {\n" +
+      "  return x !== null;\n" +
+      "}\n" +
+      "export function mutable(x: readonly BlockUid[]): x is BlockUid[] {\n" +
+      "  return Array.isArray(x);\n" +
+      "}\n" +
+      "export function notText(\n" +
+      "  x: string | { uid: BlockUid },\n" +
+      "): x is { uid: BlockUid } {\n" +
+      '  return typeof x !== "string";\n' +
+      "}\n" +
+      "export function many(x: string | BlockUid[]): x is BlockUid[] {\n" +
+      "  return Array.isArray(x);\n" +
       "}\n",
   },
   {
     file: "brand-overload.ts",
     rule: "brands/no-brand-assertion",
-    count: 6,
+    count: 8,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export function same(x: BlockUid): BlockUid;\n" +
@@ -305,16 +319,22 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-assertion-launder.ts",
     rule: "brands/no-brand-assertion",
-    count: 13,
+    count: 16,
     corrected:
       'import type { BlockUid, PageId } from "../../src/api/brands";\n' +
       "export function pick<T extends BlockUid | PageId>(x: T): T {\n" +
       "  return x;\n" +
       "}\n" +
-      'export function mode<K extends "a" | "b">(k: string): K {\n' +
-      "  return k as K;\n" +
+      'export function mode(k: string): "a" | "b" | null {\n' +
+      '  return k === "a" || k === "b" ? k : null;\n' +
       "}\n" +
-      'export const modes = ["a", "b"] as const;\n',
+      'export const modes = ["a", "b"] as const;\n' +
+      "export function frozen<T>(xs: T[]): readonly T[] {\n" +
+      "  return xs as readonly T[];\n" +
+      "}\n" +
+      "export function none<T>(): T[] {\n" +
+      "  return [] as T[];\n" +
+      "}\n",
   },
   {
     file: "brand-name-positions.ts",
@@ -499,6 +519,29 @@ describe("brands plugin judgement", () => {
     const outside = await messagesFor("src/sync/opQueue.ts", text);
     expect(outside.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
     expect(outside[0].message).toContain("launders");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("launders through an object constraint even in a mint site", async () => {
+    const text =
+      'import type { BlockUid } from "./api/brands";\n' +
+      "export function row<T extends { uid: BlockUid; text: string }>(\n" +
+      "  x: unknown,\n" +
+      "): T {\n" +
+      "  return x as T;\n" +
+      "}\n";
+    const found = await messagesFor("src/ids.ts", text);
+    expect(found.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(found[0].message).toContain("launders");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("judges an assertion the operand already satisfies by its operand", async () => {
+    const text =
+      'import type { BlockUid } from "../api/brands";\n' +
+      "export const keep = (u: BlockUid) => u as BlockUid | null;\n" +
+      "export const wide = (v: unknown) => JSON.parse(String(v)) as BlockUid;\n";
+    const found = await messagesFor("src/sync/opQueue.ts", text);
+    expect(found.map((m) => m.message.includes("BlockUid"))).toEqual([true]);
+    expect(found).toHaveLength(1);
   }, ESLINT_TIMEOUT_MS);
 
   it("lets an overload add a brand in its mint site only", async () => {

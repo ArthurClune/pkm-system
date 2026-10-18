@@ -18,3 +18,14 @@ export function perProperty(
 ): x is { a: BlockUid; b: BlockUid } {
   return x.b.length > 0;
 }
+export function readonlyToMutable(
+  x: readonly (BlockUid | string)[],
+): x is BlockUid[] {
+  return Array.isArray(x);
+}
+export function onProperty(x: { uid: BlockUid }): x is { uid: BlockUid } & BlockUid {
+  return typeof x === "string";
+}
+export function fromTag(x: { readonly __brand: "BlockUid" }): x is BlockUid {
+  return typeof x === "string";
+}

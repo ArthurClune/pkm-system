@@ -26,3 +26,11 @@ export class Minter {
     return s;
   }
 }
+export function copied(s: string): BlockUid[];
+export function copied(s: string): readonly (BlockUid | string)[] {
+  return [s];
+}
+export function awaited(s: string): Promise<BlockUid>;
+export function awaited(s: string): PromiseLike<BlockUid | string> {
+  return Promise.resolve(s);
+}

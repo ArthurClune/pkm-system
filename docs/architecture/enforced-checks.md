@@ -53,7 +53,19 @@ one `MINT_SITES` serve both languages. Test files and the registry's
 | Rule | Fails when |
 |---|---|
 | `brands/name-carries-brand` | a parameter, property signature or class property named like a brand is not declared with that brand, or allows its base type in a union. The check is shallow: `null`, an array of the brand, and a `Set`, `Map` key or `Record` key of it are accepted. Parameters are read in every position: functions, arrows, methods, function and constructor types, method signatures, `declare` and overload signatures, constructor parameter properties and rest parameters |
-| `brands/no-brand-assertion` | an `as` or `<T>` assertion, a type predicate (`x is B`, `asserts x is B`), an overload signature, or a `declare`d variable or function whose type or return carries a brand, outside that brand's mint sites. It walks the target's structure, including mapped types, index signature keys and values, `Row[K]` and a type parameter's constraint (`as T` with `T extends BlockUid`), and a subtype brand (`CanonicalTitle`) counts as its own brand rather than its parent's. A predicate mints only what its narrowing adds to the parameter's declared type: `BlockUid \| null` to `BlockUid` adds nothing, `BlockUid \| string` to `BlockUid` adds the brand. An overload mints the brands its return type adds over the implementation's. An assertion to `never`, or to a type parameter whose constraint admits a string, number or object without carrying a brand (`T`, `T extends string`, `T extends object`), launders any value and fails on its own message, also when the parameter sits inside the target (`T[]`, `{ v: T }`, `Promise<T>`, `ReturnType<F>`) |
+| `brands/no-brand-assertion` | an `as` or `<T>` assertion, a type predicate (`x is B`, `asserts x is B`), an overload signature, or a `declare`d variable or function that mints a brand outside that brand's mint sites, or an assertion that launders (below). It walks the target's structure, including mapped types, index signature keys and values, `Row[K]` and a type parameter's constraint (`as T` with `T extends BlockUid`). A subtype brand (`CanonicalTitle`) counts as its own brand rather than its parent's |
+
+What `no-brand-assertion` counts as minted:
+
+| Construct | Mints | Clean | Reported |
+|---|---|---|---|
+| `as`, `<T>` | every brand of the target, unless the operand already fits it and holds no `any` | `xs as readonly T[]`, `[] as BlockUid[]` | `s as BlockUid` |
+| type predicate | what the narrowing adds to the parameter's declared type, compared position by position: array and tuple elements, lib type arguments (`ReadonlySet` to `Set`), properties | `BlockUid \| null` to `BlockUid`, `readonly BlockUid[]` to `BlockUid[]` | `BlockUid \| string` to `BlockUid`, `readonly (BlockUid \| string)[]` to `BlockUid[]` |
+| overload signature | what its return type adds over the implementation's, compared the same way | `BlockUid` over `BlockUid \| null` | `BlockUid[]` over `readonly (BlockUid \| string)[]` |
+| launder | an assertion to `never`, or to a type parameter a caller can instantiate with a brand its constraint lacks, also inside the target (`T[]`, `{ v: T }`, `Promise<T>`, `ReturnType<F>`). That is no constraint, `string`, `number`, any object type, or a literal or template where the parameter stands for a value (`K extends "a"` admits `BlockUid & "a"`) | `K` as a key (`Record<K, number>`), `T extends BlockUid \| PageId` (judged as a brand) | `x as T`, `x as K` |
+
+`x as keyof T` is not walked, a known limit: `keyof Record<BlockUid, 1>` is
+a BlockUid, but `obj[key as keyof T]` is a common, harmless idiom.
 
 `// brand: untrusted -- <reason>` on a declaration opts a name out of
 `name-carries-brand`, and on a laundering assertion (`as T`, `as never`)

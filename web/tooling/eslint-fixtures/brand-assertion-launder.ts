@@ -39,3 +39,12 @@ export function returned<F extends () => unknown>(x: unknown): ReturnType<F> {
 export function mapped<T>(x: unknown): { [K in keyof T]: T[K] } {
   return x as { [K in keyof T]: T[K] };
 }
+export function literal<K extends "a" | "b">(x: string): K {
+  return x as K;
+}
+export function prefixed<T extends `u${string}`>(x: string): T {
+  return x as T;
+}
+export function wider<T extends { uid: BlockUid }>(x: unknown): T {
+  return x as T;
+}

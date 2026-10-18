@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
-import { ord, uid } from "../test-helpers";
+import { orderIdxOf, uidOf } from "../test-helpers";
 import {
   bumpedUids,
   formatStamp,
@@ -66,15 +66,15 @@ describe("formatStampTitle", () => {
 
 describe("opBumpsUpdatedAt", () => {
   const cases: Array<[BlockOp, boolean]> = [
-    [{ op: "create", uid: uid("u1"), page_title: "P", parent_uid: null,
-       order_idx: ord(0), text: "hi" }, true],
-    [{ op: "update_text", uid: uid("u1"), text: "hi" }, true],
-    [{ op: "move", uid: uid("u1"), parent_uid: null, order_idx: ord(1) }, true],
-    [{ op: "set_heading", uid: uid("u1"), heading: 2 }, true],
-    [{ op: "set_view_type", uid: uid("u1"), view_type: "numbered" }, true],
+    [{ op: "create", uid: uidOf("tuid-u1"), page_title: "P", parent_uid: null,
+       order_idx: orderIdxOf(0), text: "hi" }, true],
+    [{ op: "update_text", uid: uidOf("tuid-u1"), text: "hi" }, true],
+    [{ op: "move", uid: uidOf("tuid-u1"), parent_uid: null, order_idx: orderIdxOf(1) }, true],
+    [{ op: "set_heading", uid: uidOf("tuid-u1"), heading: 2 }, true],
+    [{ op: "set_view_type", uid: uidOf("tuid-u1"), view_type: "numbered" }, true],
     // collapsing is a view toggle, not a change
-    [{ op: "set_collapsed", uid: uid("u1"), collapsed: true }, false],
-    [{ op: "delete", uid: uid("u1") }, false],
+    [{ op: "set_collapsed", uid: uidOf("tuid-u1"), collapsed: true }, false],
+    [{ op: "delete", uid: uidOf("tuid-u1") }, false],
     [{ op: "create_page", page_title: "P" }, false],
   ];
   test.each(cases)("%o -> %s", (op, expected) => {
@@ -85,16 +85,16 @@ describe("opBumpsUpdatedAt", () => {
 describe("bumpedUids", () => {
   test("collects changed uids once each, skipping non-changes", () => {
     expect(bumpedUids([
-      { op: "update_text", uid: uid("u1"), text: "a" },
-      { op: "set_collapsed", uid: uid("u2"), collapsed: true },
-      { op: "update_text", uid: uid("u1"), text: "ab" },
-      { op: "set_heading", uid: uid("u3"), heading: 1 },
+      { op: "update_text", uid: uidOf("tuid-u1"), text: "a" },
+      { op: "set_collapsed", uid: uidOf("tuid-u2"), collapsed: true },
+      { op: "update_text", uid: uidOf("tuid-u1"), text: "ab" },
+      { op: "set_heading", uid: uidOf("tuid-u3"), heading: 1 },
       { op: "create_page", page_title: "P" },
-    ])).toEqual(["u1", "u3"]);
+    ])).toEqual(["tuid-u1", "tuid-u3"]);
   });
 
   test("is empty for a collapse-only batch", () => {
-    expect(bumpedUids([{ op: "set_collapsed", uid: uid("u1"), collapsed: false }]))
+    expect(bumpedUids([{ op: "set_collapsed", uid: uidOf("tuid-u1"), collapsed: false }]))
       .toEqual([]);
   });
 });

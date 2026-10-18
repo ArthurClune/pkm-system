@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, jsonResponse, makeSync, ord, type SyncFake, title, uid } from "../test-helpers";
+import { block, jsonResponse, makeSync, orderIdxOf, type SyncFake, canonicalTitleOf, uidOf } from "../test-helpers";
 import type { DropTarget } from "./dnd";
 import { resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
@@ -13,7 +13,7 @@ import { useOutline, type Outline } from "./useOutline";
 function Harness({ initial, onReady }: {
   initial: BlockNode[]; onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(title("Page"), initial);
+  const outline = useOutline(canonicalTitleOf("Page"), initial);
   useEffect(() => onReady(outline));
   return (
     <div>{outline.blocks.map((b) => <div key={b.uid} data-uid={b.uid} />)}</div>);
@@ -49,10 +49,10 @@ afterEach(() => { resetHistory(); vi.unstubAllGlobals(); });
 
 const png = (name: string) => new File(["x"], name, { type: "image/png" });
 const pdf = (name: string) => new File(["x"], name, { type: "application/pdf" });
-const AB = () => [block("a", "alpha", { order_idx: ord(0) }),
-                  block("b", "beta", { order_idx: ord(1) })];
+const AB = () => [block("tuid-a", "alpha", { order_idx: orderIdxOf(0) }),
+                  block("b", "beta", { order_idx: orderIdxOf(1) })];
 const at = (parent: string | null, idx: number): DropTarget =>
-  ({ parent_uid: parent === null ? null : uid(parent), order_idx: ord(idx),
+  ({ parent_uid: parent === null ? null : uidOf(parent), order_idx: orderIdxOf(idx),
      page_title: "Page" });
 const drop = async (o: () => Outline, files: File[], target: DropTarget) => {
   await act(async () => { await o().onDropFiles(files, target); });
@@ -74,7 +74,7 @@ it("one undo removes every new block", async () => {
   const o = setup(sync, AB());
   await drop(o, [png("c.png"), pdf("d.pdf")], at(null, 1));
   act(() => o().handlers.onUndo());
-  expect(o().blocks.map((b) => b.uid)).toEqual(["a", "b"]);
+  expect(o().blocks.map((b) => b.uid)).toEqual(["tuid-a", "b"]);
 });
 
 it("a failed upload is named in the banner and makes no block", async () => {
@@ -116,9 +116,9 @@ it("drops into an empty page", async () => {
 it("leaves focus where it was", async () => {
   const sync = makeSync();
   const o = setup(sync, AB());
-  act(() => o().handlers.onFocusBlock(uid("a"), 2));
+  act(() => o().handlers.onFocusBlock(uidOf("tuid-a"), 2));
   await drop(o, [png("c.png")], at(null, 1));
-  expect(o().focus).toEqual({ uid: "a", cursor: 2 });
+  expect(o().focus).toEqual({ uid: "tuid-a", cursor: 2 });
 });
 
 it("a vanished parent puts the blocks at the end of the page and scrolls to the first",
@@ -128,15 +128,15 @@ it("a vanished parent puts the blocks at the end of the page and scrolls to the 
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   const sync = makeSync();
   const o = setup(sync, AB());
-  act(() => o().handlers.onFocusBlock(uid("a"), 0));
-  await drop(o, [png("c.png"), pdf("d.pdf")], at("gone", 0));
+  act(() => o().handlers.onFocusBlock(uidOf("tuid-a"), 0));
+  await drop(o, [png("c.png"), pdf("d.pdf")], at("tuid-gone", 0));
 
   expect(o().blocks.map((b) => b.text)).toEqual(["alpha", "beta", md("c.png"), md("d.pdf")]);
   expect(scrollIntoView).toHaveBeenCalledTimes(1);
   expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" });
   expect(scrolled[0]).toBe(
     document.querySelector(`[data-uid="${o().blocks[2].uid}"]`));
-  expect(o().focus).toEqual({ uid: "a", cursor: 0 }); // never focused the new block
+  expect(o().focus).toEqual({ uid: "tuid-a", cursor: 0 }); // never focused the new block
 });
 
 it("does not scroll when the target held", async () => {

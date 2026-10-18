@@ -7,7 +7,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import { subtreeHash } from "../replica/subtreeHash";
-import { block, makeSync, ord, title, type SyncFake, uid } from "../test-helpers";
+import { block, makeSync, orderIdxOf, canonicalTitleOf, type SyncFake, uidOf } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ pageTitle, initial, onReady }: {
@@ -15,7 +15,7 @@ function Harness({ pageTitle, initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(title(pageTitle), initial);
+  const outline = useOutline(canonicalTitleOf(pageTitle), initial);
   useEffect(() => onReady(outline));
   return <>{outline.dialog}</>;
 }
@@ -31,27 +31,27 @@ function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
 }
 
 const abc = () => [
-  block("a", "alpha", { order_idx: ord(0) }),
-  block("b", "beta", { order_idx: ord(1) }),
-  block("c", "gamma", { order_idx: ord(2) }),
+  block("tuid-a", "alpha", { order_idx: orderIdxOf(0) }),
+  block("tuid-b", "beta", { order_idx: orderIdxOf(1) }),
+  block("c", "gamma", { order_idx: orderIdxOf(2) }),
 ];
 
 const crossParentTree = () => [
-  block("a", "A", {
-    order_idx: ord(0),
-    children: [block("a0", "A child", { order_idx: ord(0) })],
+  block("tuid-a", "A", {
+    order_idx: orderIdxOf(0),
+    children: [block("tuid-a0", "A child", { order_idx: orderIdxOf(0) })],
   }),
-  block("b", "B", {
-    order_idx: ord(1),
+  block("tuid-b", "B", {
+    order_idx: orderIdxOf(1),
     children: [
-      block("b0", "B first", {
-        order_idx: ord(0),
-        children: [block("b0x", "B grandchild", { order_idx: ord(0) })],
+      block("tuid-b0", "B first", {
+        order_idx: orderIdxOf(0),
+        children: [block("b0x", "B grandchild", { order_idx: orderIdxOf(0) })],
       }),
-      block("b1", "B second", { order_idx: ord(1) }),
+      block("b1", "B second", { order_idx: orderIdxOf(1) }),
     ],
   }),
-  block("c", "C", { order_idx: ord(2) }),
+  block("c", "C", { order_idx: orderIdxOf(2) }),
 ];
 
 afterEach(() => {
@@ -61,141 +61,141 @@ afterEach(() => {
 it("onMoveSelectionUp moves every selected block as a group, not just one", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
-  act(() => getOutline().handlers.onStartBlockSelection(uid("b"), "down")); // anchor b, head c
-  expect(getOutline().selection).toEqual({ anchor: "b", head: "c" });
+  act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-b"), "down")); // anchor b, head c
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "c" });
 
   act(() => getOutline().handlers.onMoveSelectionUp());
 
   expect(sync.sent).toEqual([
-    [{ op: "move", uid: "a", parent_uid: null, order_idx: 3 }],
+    [{ op: "move", uid: "tuid-a", parent_uid: null, order_idx: 3 }],
   ]);
-  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["b", "c", "a"]);
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-b", "c", "tuid-a"]);
   // the selection is unaffected — b and c never moved themselves
-  expect(getOutline().selection).toEqual({ anchor: "b", head: "c" });
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "c" });
 });
 
 it("onMoveSelectionDown moves every selected block as a group", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
-  act(() => getOutline().handlers.onStartBlockSelection(uid("a"), "down")); // anchor a, head b
+  act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-a"), "down")); // anchor a, head b
 
   act(() => getOutline().handlers.onMoveSelectionDown());
 
   expect(sync.sent).toEqual([
     [{ op: "move", uid: "c", parent_uid: null, order_idx: 0 }],
   ]);
-  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["c", "a", "b"]);
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["c", "tuid-a", "tuid-b"]);
 });
 
 it("queues and applies one cross-parent selection move batch", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", crossParentTree());
-  act(() => getOutline().handlers.onStartBlockSelection(uid("b0"), "down"));
+  act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-b0"), "down"));
   act(() => getOutline().handlers.onExtendBlockSelection("down"));
-  expect(getOutline().selection).toEqual({ anchor: "b0", head: "b1" });
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b0", head: "b1" });
 
   act(() => getOutline().handlers.onMoveSelectionUp());
 
   expect(sync.sent).toEqual([[
-    { op: "move", uid: "b0", parent_uid: "a", order_idx: 1 },
-    { op: "move", uid: "b1", parent_uid: "a", order_idx: 2 },
+    { op: "move", uid: "tuid-b0", parent_uid: "tuid-a", order_idx: 1 },
+    { op: "move", uid: "b1", parent_uid: "tuid-a", order_idx: 2 },
   ]]);
-  expect(getOutline().blocks.map((n) => n.uid)).toEqual(["a", "b", "c"]);
+  expect(getOutline().blocks.map((n) => n.uid)).toEqual(["tuid-a", "tuid-b", "c"]);
   expect(getOutline().blocks[0].children.map((n) => n.uid))
-    .toEqual(["a0", "b0", "b1"]);
+    .toEqual(["tuid-a0", "tuid-b0", "b1"]);
   expect(getOutline().blocks[0].children[1].children.map((n) => n.uid))
     .toEqual(["b0x"]);
-  expect(getOutline().selection).toEqual({ anchor: "b0", head: "b1" });
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b0", head: "b1" });
 });
 
 it("does not enqueue when one selected movement run is ineligible", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", crossParentTree());
-  act(() => getOutline().handlers.onStartBlockSelection(uid("a0"), "down"));
-  expect(getOutline().selection).toEqual({ anchor: "a0", head: "b" });
+  act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-a0"), "down"));
+  expect(getOutline().selection).toEqual({ anchor: "tuid-a0", head: "tuid-b" });
 
   act(() => getOutline().handlers.onMoveSelectionUp());
 
   expect(sync.sent).toEqual([]);
-  expect(getOutline().blocks.map((n) => n.uid)).toEqual(["a", "b", "c"]);
-  expect(getOutline().selection).toEqual({ anchor: "a0", head: "b" });
+  expect(getOutline().blocks.map((n) => n.uid)).toEqual(["tuid-a", "tuid-b", "c"]);
+  expect(getOutline().selection).toEqual({ anchor: "tuid-a0", head: "tuid-b" });
 });
 
 it("indents and outdents the selected run as one batch without clearing it", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
-  act(() => getOutline().handlers.onStartBlockSelection(uid("b"), "down"));
+  act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-b"), "down"));
 
   act(() => getOutline().handlers.onIndentSelection());
 
   expect(sync.sent).toEqual([[
-    { op: "move", uid: "b", parent_uid: "a", order_idx: 0 },
-    { op: "move", uid: "c", parent_uid: "a", order_idx: 1 },
+    { op: "move", uid: "tuid-b", parent_uid: "tuid-a", order_idx: 0 },
+    { op: "move", uid: "c", parent_uid: "tuid-a", order_idx: 1 },
   ]]);
-  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["a"]);
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-a"]);
   expect(getOutline().blocks[0].children.map((b) => b.uid))
-    .toEqual(["b", "c"]);
-  expect(getOutline().selection).toEqual({ anchor: "b", head: "c" });
+    .toEqual(["tuid-b", "c"]);
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "c" });
 
   act(() => getOutline().handlers.onOutdentSelection());
 
   expect(sync.sent[1]).toEqual([
-    { op: "move", uid: "b", parent_uid: null, order_idx: 1 },
+    { op: "move", uid: "tuid-b", parent_uid: null, order_idx: 1 },
     { op: "move", uid: "c", parent_uid: null, order_idx: 2 },
   ]);
-  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["a", "b", "c"]);
-  expect(getOutline().selection).toEqual({ anchor: "b", head: "c" });
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-a", "tuid-b", "c"]);
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "c" });
 });
 
 it("keeps the whole selection unchanged when one indent run is ineligible", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
-  act(() => getOutline().handlers.onStartBlockSelection(uid("a"), "down"));
+  act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-a"), "down"));
 
   act(() => getOutline().handlers.onIndentSelection());
 
   expect(sync.sent).toEqual([]);
-  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["a", "b", "c"]);
-  expect(getOutline().selection).toEqual({ anchor: "a", head: "b" });
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-a", "tuid-b", "c"]);
+  expect(getOutline().selection).toEqual({ anchor: "tuid-a", head: "tuid-b" });
 });
 
 it("onSelectBlock selects exactly that block and ends editing", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
-  act(() => getOutline().handlers.onFocusBlock(uid("b"), 2));
+  act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-b"), 2));
 
-  act(() => getOutline().handlers.onSelectBlock(uid("b")));
+  act(() => getOutline().handlers.onSelectBlock(uidOf("tuid-b")));
 
-  expect(getOutline().selection).toEqual({ anchor: "b", head: "b" });
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "tuid-b" });
   expect(getOutline().focus).toBeNull();
 
   // further Ctrl+Cmd presses extend one block at a time from that anchor
   act(() => getOutline().handlers.onExtendBlockSelection("down"));
-  expect(getOutline().selection).toEqual({ anchor: "b", head: "c" });
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "c" });
 });
 
 it("deleting 20 or fewer selected blocks proceeds without confirmation", () => {
   const confirmSpy = vi.spyOn(window, "confirm"); // if this got called, the test should fail below
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
-  act(() => getOutline().handlers.onStartBlockSelection(uid("a"), "down")); // a, b selected
+  act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-a"), "down")); // a, b selected
 
   act(() => getOutline().handlers.onDeleteBlockSelection());
 
   expect(confirmSpy).not.toHaveBeenCalled();
   expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(sync.sent).toEqual([
-    [{ op: "delete", uid: "a", base_subtree_hash: subtreeHash([["a", "alpha"]]) },
-     { op: "delete", uid: "b", base_subtree_hash: subtreeHash([["b", "beta"]]) }],
+    [{ op: "delete", uid: "tuid-a", base_subtree_hash: subtreeHash([["tuid-a", "alpha"]]) },
+     { op: "delete", uid: "tuid-b", base_subtree_hash: subtreeHash([["tuid-b", "beta"]]) }],
   ]);
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(["c"]);
   expect(getOutline().selection).toBeNull();
 });
 
 // 21 top-level blocks: one over LARGE_DELETE_THRESHOLD.
-const MANY_UIDS = Array.from({ length: 21 }, (_, i) => `u${String(i).padStart(2, "0")}`);
+const MANY_UIDS = Array.from({ length: 21 }, (_, i) => `tuid-u${String(i).padStart(2, "0")}`);
 function manyBlocks() {
-  return MANY_UIDS.map((uid, i) => block(uid, uid, { order_idx: ord(i) }));
+  return MANY_UIDS.map((uid, i) => block(uid, uid, { order_idx: orderIdxOf(i) }));
 }
 
 // window.confirm is suppressed by iPadOS Safari in standalone/PWA
@@ -206,11 +206,11 @@ it("deleting more than 20 selected blocks requires "
   const confirmSpy = vi.spyOn(window, "confirm");
   const sync = makeSync();
   const getOutline = setup(sync, "Page", manyBlocks());
-  act(() => getOutline().handlers.onStartBlockSelection(uid("u00"), "down"));
+  act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-u00"), "down"));
   for (let i = 0; i < MANY_UIDS.length - 2; i++) {
     act(() => getOutline().handlers.onExtendBlockSelection("down"));
   }
-  expect(getOutline().selection).toEqual({ anchor: "u00", head: "u20" });
+  expect(getOutline().selection).toEqual({ anchor: "tuid-u00", head: "tuid-u20" });
 
   act(() => getOutline().handlers.onDeleteBlockSelection());
 
@@ -227,14 +227,14 @@ it("deleting more than 20 selected blocks requires "
   // cancelled: nothing sent, nothing deleted, selection untouched
   expect(sync.sent).toEqual([]);
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(MANY_UIDS);
-  expect(getOutline().selection).toEqual({ anchor: "u00", head: "u20" });
+  expect(getOutline().selection).toEqual({ anchor: "tuid-u00", head: "tuid-u20" });
   expect(screen.queryByRole("alertdialog")).toBeNull();
 });
 
 it("deleting more than 20 selected blocks proceeds once confirmed in the dialog", async () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", manyBlocks());
-  act(() => getOutline().handlers.onStartBlockSelection(uid("u00"), "down"));
+  act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-u00"), "down"));
   for (let i = 0; i < MANY_UIDS.length - 2; i++) {
     act(() => getOutline().handlers.onExtendBlockSelection("down"));
   }

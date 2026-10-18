@@ -162,3 +162,7 @@ def test_perfcheck_may_touch_raw_sqlite_and_proptest_may_not():
     source = "db.raw.set_trace_callback(cb)\n"
     assert rules(source, PERFCHECK) == []
     assert rules(source, PROPTEST) == ["raw-sqlite"]
+    for source in ("conn = sqlite3.connect(path)\n",
+                   "from sqlite3 import connect\n"):
+        assert rules(source, PERFCHECK) == []
+        assert rules(source, PROPTEST) == ["raw-sqlite"]

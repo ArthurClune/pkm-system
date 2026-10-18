@@ -1,14 +1,14 @@
 // pattern: Functional Core
 // The rebase scenario's fixed workload, derived from the fixture snapshot:
 // which blocks of the big page the pending queue and the peer's windows
-// touch, and the ops they send. Deterministic from the snapshot alone, so a
-// branch and its merge base measure the same queue over the same windows.
-import type { BlockUid, OrderIdx } from "../../src/api/brands";
+// touch, and the ops they send. The ops are deterministic from the snapshot
+// alone, so a branch and its merge base measure the same queue over the same
+// windows; the caller mints the batch ids, since a random draw is I/O.
+import type { BatchId, BlockUid, OrderIdx } from "../../src/api/brands";
 import type { BlockOp, CreateOp } from "../../src/api/ops";
 import { parseBlockUid } from "../../src/ids";
 import { FIRST_ORDER_IDX, orderIdxAfter, orderIdxPlus } from "../../src/outline/orderIdx";
 import type { Snapshot, SyncBlock } from "../../src/replica/apply";
-import { newBatchId } from "../../src/uid";
 
 export interface Targets {
   /** Deleted by the pending queue, with a subtree of about 20 blocks. */
@@ -28,7 +28,7 @@ export interface Targets {
 }
 
 export interface Batch {
-  batchId: ReturnType<typeof newBatchId>;
+  batchId: BatchId;
   ops: BlockOp[];
 }
 
@@ -159,35 +159,49 @@ const creates = (tree: PageTree, parent: BlockUid, n: number, makeUid: (i: numbe
     parent_uid: parent, order_idx: orderIdxPlus(firstIdx, k), text: text(k + 1),
   }));
 
-const batch = (ops: BlockOp[]): Batch => ({ batchId: newBatchId(), ops });
+export const PENDING_BATCHES = 6;
+export const WINDOW_BATCHES = 3;
 
-/** The local queue, in enqueue order. No base hashes: enqueue fills them. */
-export function pendingBatches(t: Targets, snapshot: Snapshot): Batch[] {
+const batch = (batchId: BatchId, ops: BlockOp[]): Batch => ({ batchId, ops });
+
+const takeIds = (ids: readonly BatchId[], n: number, what: string): BatchId[] => {
+  if (ids.length !== n) throw new Error(`rebase scenario: ${what} needs ${n} batch ids, got ${ids.length}`);
+  return [...ids];
+};
+
+/** The local queue, in enqueue order, one id from `ids` per batch. No base
+ * hashes: enqueue fills them. */
+export function pendingBatches(t: Targets, snapshot: Snapshot, ids: readonly BatchId[]): Batch[] {
+  const [p1, p2, p3, p4, p5, p6] = takeIds(ids, PENDING_BATCHES, "the pending queue");
   const tree = treeOf(snapshot, t.deleteRoot);
+  // The first created index is the child count plus one, as the workload has
+  // always had it; it is not a dense-position pattern to copy.
   const createIdx = orderIdxPlus(FIRST_ORDER_IDX, (tree.children.get(t.createParent) ?? []).length + 1);
   const moveIdx = appendIdx(tree, t.moveParent);
   return [
-    batch(creates(tree, t.createParent, PENDING_CREATES, (i) => seq("perfrebc", i),
-                        (i) => `perf rebase create ${i}`, createIdx)),
-    batch(t.editUids.slice(0, 4).map((uid) => edit(tree, uid, " (pending edit)"))),
-    batch(t.moveUids.map((uid, k) => ({
+    batch(p1, creates(tree, t.createParent, PENDING_CREATES, (i) => seq("perfrebc", i),
+                      (i) => `perf rebase create ${i}`, createIdx)),
+    batch(p2, t.editUids.slice(0, 4).map((uid) => edit(tree, uid, " (pending edit)"))),
+    batch(p3, t.moveUids.map((uid, k) => ({
       op: "move", uid, parent_uid: t.moveParent, order_idx: orderIdxPlus(moveIdx, k),
     }))),
-    batch(t.editUids.slice(4, 8).map((uid) => edit(tree, uid, " (pending edit)"))),
-    batch([{ op: "delete", uid: t.deleteRoot }]),
-    batch([{ op: "update_text", uid: seq("perfrebc", 1),
-                   text: "perf rebase create 1, edited" }]),
+    batch(p4, t.editUids.slice(4, 8).map((uid) => edit(tree, uid, " (pending edit)"))),
+    batch(p5, [{ op: "delete", uid: t.deleteRoot }]),
+    batch(p6, [{ op: "update_text", uid: seq("perfrebc", 1),
+                 text: "perf rebase create 1, edited" }]),
   ];
 }
 
-/** The peer's three batches, one feed window each. */
-export function windowBatches(t: Targets, snapshot: Snapshot): Batch[] {
+/** The peer's three batches, one feed window each, one id from `ids` per
+ * batch. */
+export function windowBatches(t: Targets, snapshot: Snapshot, ids: readonly BatchId[]): Batch[] {
+  const [w1, w2, w3] = takeIds(ids, WINDOW_BATCHES, "the peer windows");
   const tree = treeOf(snapshot, t.deleteRoot);
   return [
-    batch([edit(tree, t.windowEditUid, " (peer edit)")]),
-    batch(creates(tree, t.pasteParent, PASTE_CREATES, (i) => seq("perfrebp", i),
-                        (i) => `perf rebase paste ${i}`, appendIdx(tree, t.pasteParent))),
-    batch([
+    batch(w1, [edit(tree, t.windowEditUid, " (peer edit)")]),
+    batch(w2, creates(tree, t.pasteParent, PASTE_CREATES, (i) => seq("perfrebp", i),
+                      (i) => `perf rebase paste ${i}`, appendIdx(tree, t.pasteParent))),
+    batch(w3, [
       edit(tree, t.editUids[0], " (peer overlap)"),
       { op: "move", uid: t.overlapMoveUid, parent_uid: t.createParent,
         order_idx: appendIdx(tree, t.createParent) },

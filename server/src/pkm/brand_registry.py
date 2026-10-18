@@ -196,9 +196,9 @@ CAST_SITES: tuple[str, ...] = (
 # connections, cursors and `.raw`. Every other file goes through `Db`.
 SQLITE_SITES: dict[str, str] = {
     "server/src/pkm/database.py": "the one place sqlite3 is wrapped as Db",
-    # The perf gate measures SQLite itself: trace and progress hooks, EXPLAIN
-    # plans, and an immutable snapshot of the fixture. Db hides all three.
-    "server/tooling/perfcheck/": "measures SQLite: hooks and EXPLAIN plans",
+    "server/tooling/perfcheck/":
+        "measures SQLite itself: trace and progress hooks, EXPLAIN plans,"
+        " an immutable fixture snapshot; Db hides all three",
 }
 
 # Fixture builders that ship under server/src but only tests import; the

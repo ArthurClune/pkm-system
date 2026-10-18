@@ -3,9 +3,12 @@ import { describe, expect, test } from "vitest";
 import type { BlockUid, CanonicalTitle, OrderIdx, PageId, SyncSeq } from "../../src/api/brands";
 import type { BlockOp } from "../../src/api/ops";
 import type { Snapshot, SyncBlock } from "../../src/replica/apply";
+import { batchIdOf } from "../../src/test-helpers";
 import { pendingBatches, pickTargets, windowBatches, type Targets } from "./rebaseTargets";
 
 const PAGE = "Perf Big Page";
+const PENDING_IDS = ["p1", "p2", "p3", "p4", "p5", "p6"].map((p) => batchIdOf(`perf-rebase-${p}`));
+const WINDOW_IDS = ["w1", "w2", "w3"].map((w) => batchIdOf(`perf-rebase-${w}`));
 
 /** [uid, parent uid] rows on one page, ordered among siblings as given. */
 function snapshotOf(pages: Record<string, [string, string | null][]>): Snapshot {
@@ -135,10 +138,10 @@ describe("pickTargets", () => {
 describe("pendingBatches", () => {
   const snap = snapshotOf({ [PAGE]: bigPage() });
   const t = pickTargets(snap, PAGE);
-  const batches = pendingBatches(t, snap);
+  const batches = pendingBatches(t, snap, PENDING_IDS);
 
   test("six batches, p5 a single delete of deleteRoot", () => {
-    expect(new Set(batches.map((b) => b.batchId)).size).toBe(6);
+    expect(batches.map((b) => b.batchId)).toEqual(PENDING_IDS);
     expect(batches[4]?.ops).toEqual([{ op: "delete", uid: t.deleteRoot }]);
   });
 
@@ -165,13 +168,22 @@ describe("pendingBatches", () => {
   });
 });
 
+describe("batch ids", () => {
+  test("a wrong number of ids is refused", () => {
+    const snap = snapshotOf({ [PAGE]: bigPage() });
+    const t = pickTargets(snap, PAGE);
+    expect(() => pendingBatches(t, snap, PENDING_IDS.slice(1))).toThrow(/needs 6/);
+    expect(() => windowBatches(t, snap, WINDOW_IDS.slice(1))).toThrow(/needs 3/);
+  });
+});
+
 describe("windowBatches", () => {
   const snap = snapshotOf({ [PAGE]: bigPage() });
   const t = pickTargets(snap, PAGE);
-  const windows = windowBatches(t, snap);
+  const windows = windowBatches(t, snap, WINDOW_IDS);
 
   test("edit, paste and overlap windows", () => {
-    expect(new Set(windows.map((w) => w.batchId)).size).toBe(3);
+    expect(windows.map((w) => w.batchId)).toEqual(WINDOW_IDS);
     expect(windows[0]?.ops).toEqual(
       [{ op: "update_text", uid: t.windowEditUid, text: `text of ${t.windowEditUid} (peer edit)` }]);
     const paste = ofKind(windows[1]?.ops ?? [], "create");

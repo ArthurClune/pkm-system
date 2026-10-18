@@ -35,7 +35,7 @@ syntax and reports `brand-parse` instead of skipping the file.
 | `brand-parse` | a file cannot be parsed (usually Python older than 3.12) | none |
 
 The rules cover `server/src` and `server/tooling` (perfcheck, proptest,
-commentlint, brandlint). `SQLITE_SITES` names two raw-sqlite sites: `pkm.database`
+commentlint, brandlint). `SQLITE_SITES` names the raw-sqlite sites: `pkm.database`
 and `server/tooling/perfcheck/`, which measures SQLite itself (trace and
 progress hooks, EXPLAIN plans) and so needs the raw connection; proptest goes
 through `Db`. `server/src/pkm/test_data/` counts as test code and is exempt

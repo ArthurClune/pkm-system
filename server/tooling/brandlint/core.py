@@ -193,10 +193,10 @@ def _escape_hatches(path: str, tree: ast.AST, registry: Registry) -> list[tuple[
         if isinstance(node, ast.ImportFrom) and node.module == "sqlite3" and not sqlite_ok:
             raw = [a.name for a in node.names if a.name in SQLITE_RAW_NAMES]
             if raw:
-                out.append((node.lineno, "raw-sqlite", f"`from sqlite3 import {raw[0]}` outside pkm.database"))
+                out.append((node.lineno, "raw-sqlite", f"`from sqlite3 import {raw[0]}` outside SQLITE_SITES"))
         elif isinstance(node, ast.Import) and not sqlite_ok:
             if any(a.name == "sqlite3" and a.asname for a in node.names):
-                out.append((node.lineno, "raw-sqlite", "`import sqlite3 as ...` outside pkm.database"))
+                out.append((node.lineno, "raw-sqlite", "`import sqlite3 as ...` outside SQLITE_SITES"))
         elif isinstance(node, ast.Call):
             name = _leaf(node.func) or ""
             if name in brands and name not in declared \
@@ -207,12 +207,12 @@ def _escape_hatches(path: str, tree: ast.AST, registry: Registry) -> list[tuple[
             elif name == "model_construct" and isinstance(node.func, ast.Attribute):
                 out.append((node.lineno, "model-construct", "`.model_construct(...)` skips validation"))
             elif name == "cursor" and isinstance(node.func, ast.Attribute) and not sqlite_ok:
-                out.append((node.lineno, "raw-sqlite", "`.cursor()` outside pkm.database"))
+                out.append((node.lineno, "raw-sqlite", "`.cursor()` outside SQLITE_SITES"))
         elif isinstance(node, ast.Attribute) and not sqlite_ok:
             on_sqlite = isinstance(node.value, ast.Name) and node.value.id == "sqlite3"
             if node.attr == "raw" or (on_sqlite and node.attr in SQLITE_RAW_NAMES):
-                text = "`.raw` outside pkm.database" if node.attr == "raw" \
-                    else f"`sqlite3.{node.attr}` outside pkm.database"
+                text = "`.raw` outside SQLITE_SITES" if node.attr == "raw" \
+                    else f"`sqlite3.{node.attr}` outside SQLITE_SITES"
                 out.append((node.lineno, "raw-sqlite", text))
     return out
 

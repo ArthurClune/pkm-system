@@ -277,7 +277,7 @@ Chromium still launches, because `env.chromium` comes from it.
 
 ```mermaid
 flowchart TD
-  L["log in; GET /api/sync/snapshot"] --> W["per window: POST one batch as perf-rebase-peer,<br/>GET /api/sync/changes from the previous cursor"]
+  L["log in; GET /api/sync/snapshot"] --> W["per window: POST one batch as the peer client,<br/>GET /api/sync/changes from the previous cursor"]
   W --> P["two passes, each on a fresh in-memory replica<br/>built through the worker's buildHandlers"]
   P --> Q["init, applySnapshot, enqueue pending batches p1..p6"]
   Q --> M["Counter.measure around each applyChanges"]

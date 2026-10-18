@@ -3,7 +3,7 @@ import { acquireOutlineSession } from "./outline/outlineSessions";
 import { applyOps } from "./outline/tree";
 import type { BlockOp } from "./api/ops";
 import type { Backlinks, BlockNode, PagePayload } from "./api/payloads";
-import type { BlockUid, CanonicalTitle, NormalizedTitle, OrderIdx, PageId,
+import type { BatchId, BlockUid, CanonicalTitle, NormalizedTitle, OrderIdx, PageId,
              SidebarEntryId, SidebarOrderIdx } from "./api/brands";
 import type { WsBatch } from "./sync/socket";
 import type { Sync, SyncStatus } from "./sync/SyncProvider";
@@ -28,6 +28,7 @@ export function uidOf(tag: string): BlockUid {
   }
   return `tuid-${safe.slice(0, 14)}-${h.toString(36)}` as BlockUid;
 }
+export function batchIdOf(s: string): BatchId { return s as BatchId; }
 export function pageId(n: number): PageId { return n as PageId; }
 export function entryId(n: number): SidebarEntryId { return n as SidebarEntryId; }
 export function normTitle(s: string): NormalizedTitle { return s as NormalizedTitle; }

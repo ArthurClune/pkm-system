@@ -249,7 +249,8 @@ registry key `TEST_MINT_SITES`, which may mint every brand:
 - **Malformed values are spelled differently** (Arthur):
   `malformedUid("")`, `malformedSha("zz")` / `malformed_uid("")` return
   the value unchecked, so a negative test says on its face that it forges
-  a bad id. Only brands with a shape get one. They cannot be used to make
+  a bad id. A brand gets one when a negative test needs it; a shaped brand
+  has a shape, an integer brand's shape is "an integer" (`malformedSeq(NaN)`). They cannot be used to make
   a fixture "work": the runtime row check rejects a malformed value the
   moment it reaches a test database.
 - **The helpers replace today's.** The web's `uid(s)` (any string),

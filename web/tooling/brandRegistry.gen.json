@@ -370,7 +370,8 @@
   },
   "malformed": {
     "BlockUid": "uid",
-    "Sha256Hex": "sha"
+    "Sha256Hex": "sha",
+    "SyncSeq": "seq"
   },
   "testCode": [
     "server/tests/",

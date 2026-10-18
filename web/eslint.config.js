@@ -141,6 +141,7 @@ export default tseslint.config(
     // view test that mocks the network at that seam must import it.
     files: [
       "src/components/PageTitle.test.tsx",
+      "src/sync/SyncProvider.test.tsx",
       "src/views/Files.test.tsx",
       "src/views/Settings.test.tsx",
     ],

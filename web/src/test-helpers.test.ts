@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import registry from "../tooling/brandRegistry.gen.json";
 import * as helpers from "./test-helpers";
-import { malformedSha, malformedUid, pageIdOf, shaOf, uidOf } from "./test-helpers";
+import { malformedSeq, malformedSha, seqOf, malformedUid, pageIdOf, shaOf, uidOf } from "./test-helpers";
 
 // Every web source file but the tests, to find the brands the web declares:
 // those in api/brands.ts and the web-only ones declared beside their code.
@@ -63,6 +63,11 @@ describe("checked test helpers", () => {
     // A JSON-read value has no type, so the check is at run time too.
     const parsed: unknown = JSON.parse("true");
     expect(() => pageIdOf(parsed as number)).toThrow(/PageId/);
+  });
+
+  test("malformedSeq returns a non-integer unchecked where seqOf refuses it", () => {
+    expect(() => seqOf(Number.NaN)).toThrow(/SyncSeq/);
+    expect(Number.isNaN(malformedSeq(Number.NaN))).toBe(true);
   });
 
   test("shaOf refuses a value that is not a digest", () => {

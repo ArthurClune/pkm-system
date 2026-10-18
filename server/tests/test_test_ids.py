@@ -48,6 +48,12 @@ def test_a_text_helper_rejects_a_non_string(value: object):
         ids.client_id_of(value)  # pyrefly: ignore[bad-argument-type]
 
 
+def test_malformed_seq_returns_the_value_unchecked():
+    with pytest.raises(ValueError, match="SyncSeq"):
+        ids.seq_of(1.5)  # pyrefly: ignore[bad-argument-type]
+    assert ids.malformed_seq(1.5) == 1.5  # pyrefly: ignore[bad-argument-type]
+
+
 def test_every_shaped_brand_has_a_malformed_helper():
     shaped = {brand for brand, (_, pattern) in SHAPES.items() if pattern is not None}
     assert shaped <= set(MALFORMED)

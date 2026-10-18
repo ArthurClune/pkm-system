@@ -6,9 +6,9 @@ ValueError otherwise, so a fixture value is always one the product could
 have produced. A short tag becomes a uid by prefixing `tuid-`
 (`uid_of("tuid-a")`).
 
-A negative test forges a bad value through `malformed_uid` or
-`malformed_sha`, which return it unchecked. Product code may not import
-this module; the brand lint reports it."""
+A negative test forges a bad value through `malformed_uid`,
+`malformed_sha` or `malformed_seq`, which return it unchecked. Product code
+may not import this module; the brand lint reports it."""
 from __future__ import annotations
 
 import re
@@ -107,3 +107,7 @@ def malformed_uid(value: str) -> BlockUid:
 
 def malformed_sha(value: str) -> Sha256Hex:
     return Sha256Hex(value)
+
+
+def malformed_seq(value: int) -> SyncSeq:
+    return SyncSeq(value)

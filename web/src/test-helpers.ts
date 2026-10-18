@@ -142,6 +142,8 @@ export function parkedTitleOf(value: string): ParkedTitle {
 export function malformedUid(value: string): BlockUid { return value as BlockUid; }
 /** A deliberately bad digest for a negative test, unchecked. */
 export function malformedSha(value: string): Sha256Hex { return value as Sha256Hex; }
+/** A deliberately bad seq (NaN, a float) for a negative test, unchecked. */
+export function malformedSeq(value: number): SyncSeq { return value as SyncSeq; }
 
 /** Hold the outline editor for `title` so a test's own mount cannot win the
  * lease, and return the release. Sessions are global to the module, so the

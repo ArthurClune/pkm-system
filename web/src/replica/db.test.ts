@@ -69,6 +69,34 @@ describe("wrapSqlite + installSchema", () => {
     t.close();
   });
 
+  test("introspect refuses a brand column under the row check", async () => {
+    const t = await openTestDb();
+    // Refused on the column, so an empty result is refused too.
+    expect(() => t.db.introspect("SELECT uid FROM blocks"))
+      .toThrow('uid carries BlockUid: read it with select<"uid">');
+    // A raw name that a table's column maps to a branded key.
+    expect(() => t.db.introspect("SELECT id FROM pages"))
+      .toThrow(/^id carries PageId or PendingRowId or SidebarEntryId: .*select/);
+    t.close();
+  });
+
+  test("introspect allows catalog columns", async () => {
+    const t = await openTestDb();
+    expect(t.db.introspect("PRAGMA quick_check")).toEqual([{ quick_check: "ok" }]);
+    expect(t.db.introspect("SELECT uid AS u FROM blocks")).toEqual([]);
+    t.close();
+  });
+
+  test("introspect refuses only under the row check", async () => {
+    const t = await openTestDb({ checkRows: false });
+    t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
+    t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)"
+      + " VALUES ('tuid-a', 1, NULL, 0, 'x')");
+    expect(t.db.introspect("SELECT uid FROM blocks")).toEqual([{ uid: "tuid-a" }]);
+    expect(t.db.introspect("SELECT id FROM pages")).toEqual([{ id: 1 }]);
+    t.close();
+  });
+
   test("transaction rolls back on throw and commits on success", async () => {
     const t = await openTestDb();
     expect(() => t.db.transaction(() => {
@@ -217,6 +245,15 @@ describe("the row check outside test mode", () => {
     vi.resetModules();
     const { wrapSqlite } = await import("./db");
     expect(wrapSqlite(badRows).select("SELECT 1 AS nope")).toEqual([{ nope: 1 }]);
+    vi.resetModules();
+  });
+
+  test("is not built into a production module, so introspect reads a brand column", async () => {
+    vi.stubEnv("MODE", "production");
+    vi.resetModules();
+    const { wrapSqlite } = await import("./db");
+    const uidRows = { exec: () => undefined, selectObjects: () => [{ uid: "x" }] };
+    expect(wrapSqlite(uidRows).introspect("SELECT uid FROM blocks")).toEqual([{ uid: "x" }]);
     vi.resetModules();
   });
 });

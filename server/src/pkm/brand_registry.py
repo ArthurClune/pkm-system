@@ -265,16 +265,6 @@ TEST_CODE: tuple[str, ...] = (
     "web/src/sync/memReplica.ts",
 )
 
-# Web test support the web lint still exempts: hand-built rows, arbitraries
-# and in-memory fakes that only tests and the property gate import. The
-# server lint reads TEST_CODE instead and exempts nothing.
-TEST_SUPPORT: tuple[str, ...] = (
-    "web/src/test-helpers.ts",
-    "web/src/props/",
-    "web/src/replica/replayArbs.ts",
-    "web/src/sync/memReplica.ts",
-)
-
 # Glob patterns for files where a line may carry `# brand: untrusted --
 # <reason>`: the HTTP boundary reads route input that is not one value,
 # such as a comma-separated query param, and parses it in the handler. The

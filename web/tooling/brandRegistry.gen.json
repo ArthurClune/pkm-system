@@ -381,12 +381,6 @@
     "web/src/replica/replayArbs.ts",
     "web/src/sync/memReplica.ts"
   ],
-  "testSupport": [
-    "web/src/test-helpers.ts",
-    "web/src/props/",
-    "web/src/replica/replayArbs.ts",
-    "web/src/sync/memReplica.ts"
-  ],
   "optOutFiles": [
     "server/src/pkm/**/routes_*.py",
     "server/src/pkm/**/routes.py",

@@ -168,7 +168,6 @@ def registry_json() -> str:
         "testHelpers": {b: _camel(s) for b, s in reg.TEST_HELPERS.items()},
         "malformed": {b: _camel(s) for b, s in reg.MALFORMED.items()},
         "testCode": list(reg.TEST_CODE),
-        "testSupport": list(reg.TEST_SUPPORT),
         "optOutFiles": list(reg.OPT_OUT_FILES),
     }
     return json.dumps(doc, indent=2) + "\n"

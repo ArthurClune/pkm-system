@@ -52,10 +52,12 @@ Tests are exempt from nothing. They mint through the checked helpers instead:
 | `TEST_MINT_SITES` | the one module per side that may mint every brand: `server/src/pkm/test_data/ids.py` and `web/src/test-helpers.ts` |
 | `TEST_HELPERS` | brand -> helper stem: `uid_of`, `page_id_of`, `sha_of` ... in Python, the camel `uidOf` ... on the web |
 | `MALFORMED` | brands with a shape whose bad values a negative test forges unchecked: `malformed_uid`, `malformed_sha` |
-| `TEST_CODE` | files that are tests by location (`server/tests/`, `server/src/pkm/test_data/`, the web's test support): they may import the mint modules, and a violation there names the helper |
+| `TEST_CODE` | files that are tests by location (`server/tests/`, `server/src/pkm/test_data/`, the web's `test-setup.ts`, `test-helpers.ts`, `props/`, `replayArbs.ts` and `memReplica.ts`): they may import the mint modules, and a violation there names the helper |
 
 Each `<stem>_of` raises `ValueError` unless the value fits the brand's
-`SHAPES` regex or base type (an integer brand refuses a `bool` or a float).
+`SHAPES` regex or base type (an integer brand refuses a `bool` or a float);
+the web's `<stem>Of` throws the same way
+([frontend.md](frontend.md#api-layer)).
 `rawread.read`, the tests' reader for catalog tables and counts, raises when
 a returned column may carry a brand: a `pkm.rows` key with a brand, or a raw
 name `COLUMN_KEYS` maps to one (a bare `id`, the sidebar's `order_idx`). That
@@ -68,8 +70,11 @@ value, so it mints nothing.
 `web/tooling/eslint-plugin-brands` is the same two rules over TypeScript
 types, run by `pnpm lint`. It reads `web/tooling/brandRegistry.gen.json`,
 which `pkm.rows_dump` generates from the server registry, so one `NAMES` and
-one `MINT_SITES` serve both languages. Test files and the registry's
-`TEST_SUPPORT` paths are exempt.
+one `MINT_SITES` serve both languages. Tests and test support are linted
+like product code. `test-helpers.ts` (`TEST_MINT_SITES`) may mint every
+brand. In a test, by name (`*.test.*`) or by location (`TEST_CODE`), a report
+names the helper instead of the product remedy: "use uidOf or malformedUid
+from web/src/test-helpers.ts".
 
 | Rule | Fails when |
 |---|---|
@@ -118,10 +123,10 @@ vocabulary is in [backend.md](backend.md#typed-database-access) and
 
 | Step | Fails when |
 |---|---|
-| `lint` (`eslint.config.js`) | a hook dependency array drifts, a promise floats or is misused, a non-Error is thrown, a caught error is untyped, `apiFetch` is imported outside the transport boundary, an `any` flows through production code (written, assigned, returned, passed, called or member-accessed), a name that means a brand does not carry it, a brand is asserted outside its mint sites ([Web side](#web-side)), or a disable directive is stale |
+| `lint` (`eslint.config.js`), over product code, tests and tooling alike | a hook dependency array drifts, a promise floats or is misused, a non-Error is thrown, a caught error is untyped, `apiFetch` is imported outside the transport boundary, `test-helpers` is imported outside a test, an `any` flows through the code (written, assigned, returned, passed, called or member-accessed), a name that means a brand does not carry it, a brand is asserted outside its mint sites ([Web side](#web-side)), `@ts-ignore` or `@ts-nocheck` appears or `@ts-expect-error` has no description, or a disable directive is stale |
 | `check:fcis` (`tooling/fcis.mjs`) | a Functional Core module imports an Imperative Shell one at runtime ([overview.md](overview.md#functional-core--imperative-shell)) |
 | `test:coverage` | statements or lines under 95%, branches under 91%, functions under 89% (`vite.config.ts`) |
-| row check (vitest only, `ReplicaDb.select`) | a selected row has a column that is not a `Columns` key, or a value that does not fit its key's base type, nullability, literals or brand shape; the error carries the SQL and the fix ([frontend.md](frontend.md#replica-database-access)) |
+| row check (vitest only, `ReplicaDb.select`) | a selected row has a column that is not a `Columns` key, or a value that does not fit its key's base type, nullability, literals or brand shape; the error carries the SQL and the fix. `ReplicaDb.introspect` refuses a column that may carry a brand ([frontend.md](frontend.md#replica-database-access)) |
 | `columns.test.ts` | a column of a client-only table (`CLIENT_DDL`) has no `Columns` key, or its key disagrees on base type or nullability |
 | `genTypes.drift.test.ts` | `types.d.ts` no longer matches `openapi.json` |
 | `vite build` (`tooling/viteBudgetPlugin.ts`) | the bundle or precache manifest exceeds a limit in `tooling/budgets.json` |

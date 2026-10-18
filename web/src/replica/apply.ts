@@ -382,7 +382,7 @@ class StaleTitleHolderError extends Error {
  * not NUL: SQLite's string functions treat an embedded NUL as a terminator.
  * Its own type, never a CanonicalTitle: it is no title the server holds, so
  * no row read that types `title` canonical may run while one is parked. */
-type ParkedTitle = string & { readonly __brand: "ParkedTitle" };
+export type ParkedTitle = string & { readonly __brand: "ParkedTitle" };
 
 const parkedTitle = (id: PageId | SidebarEntryId): ParkedTitle =>
   `parked:${String(id)}` as ParkedTitle;

@@ -21,9 +21,12 @@
 //     ..., and is allowed only on a `brand: untrusted -- <reason>` line in
 //     an opt-out file.
 // Both read tooling/brandRegistry.gen.json, generated from the server's
-// brand registry, and both skip test files and the registry's test-support
-// paths. `satisfies` and non-null `!` are not assertions toward a brand and
-// are left alone.
+// brand registry, and both apply to tests as they do to product code. The
+// test mint module (`testMintSites`) is a mint site for every brand, and in
+// test code (`*.test.*` and the registry's `testCode` paths) a report names
+// the module's checked helper (`uidOf`) instead of the product remedy.
+// `satisfies` and non-null `!` are not assertions toward a brand and are
+// left alone.
 import { readFileSync } from "node:fs";
 import { dirname, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,7 +54,8 @@ function pathMatcher(pattern) {
   return (p) => re.test(p);
 }
 
-const testSupport = registry.testSupport.map(pathMatcher);
+const testMintSites = registry.testMintSites.map(pathMatcher);
+const testCode = registry.testCode.map(pathMatcher);
 const optOutFiles = registry.optOutFiles.map(pathMatcher);
 const mintSites = new Map(
   Object.entries(registry.mintSites).map(
@@ -66,10 +70,23 @@ function repoPath(filename) {
   return rel.split(sep).join("/");
 }
 
-function isExempt(path) {
-  return /\.test\.[cm]?[jt]sx?$/.test(path)
-    || testSupport.some((m) => m(path));
+const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
+
+// A test by name, or by location in the registry's `testCode`.
+function isTestCode(path) {
+  return TEST_FILE.test(path) || testCode.some((m) => m(path));
 }
+
+// The web's test files as flat-config globs, relative to the web root, for
+// the config block that lets tests import the test mint module.
+const WEB_PREFIX = "web/";
+const testFileGlobs = [
+  "**/*.test.{ts,tsx}",
+  ...registry.testCode
+    .filter((p) => p.startsWith(WEB_PREFIX))
+    .map((p) => p.slice(WEB_PREFIX.length))
+    .map((p) => (p.endsWith("/") ? `${p}**` : p)),
+];
 
 const SET_TYPES = new Set(["Set", "ReadonlySet"]);
 const MAP_TYPES = new Set(["Map", "ReadonlyMap"]);
@@ -592,9 +609,31 @@ function optOutOf(sourceCode, node) {
 const MODULES_SHOWN = 3;
 const PARSERS = { BlockUid: "parseBlockUid", SyncSeq: "parseSyncSeq" };
 
+const webTestMints = registry.testMintSites
+  .filter((p) => p.startsWith(WEB_PREFIX));
+
+// "use uidOf or malformedUid from web/src/test-helpers.ts": the checked
+// helper a test mints these brands with, and the forger of a bad value where
+// the brand has a shape. Null when a brand has no helper.
+function testRemedy(brands) {
+  const names = [];
+  for (const b of brands) {
+    const stem = registry.testHelpers[b];
+    if (stem === undefined) return null;
+    names.push(`${stem}Of`);
+    const bad = registry.malformed[b];
+    if (bad !== undefined) {
+      names.push(`malformed${bad[0].toUpperCase()}${bad.slice(1)}`);
+    }
+  }
+  return `use ${names.join(" or ")} from ${webTestMints.join(", ")}`;
+}
+
 // "parseBlockUid, or mint it in web/src/uid.ts" from the registry's web mint
-// modules for these brands.
-function remedy(brands) {
+// modules for these brands; in test code, the test helper.
+function remedy(brands, inTest) {
+  const forTest = inTest ? testRemedy(brands) : null;
+  if (forTest !== null) return forTest;
   const parsers = brands.map((b) => PARSERS[b]).filter(Boolean);
   const modules = [...new Set(brands.flatMap(
     (b) => (registry.mintSites[b] ?? []).filter((p) => p.startsWith("web/")),
@@ -633,7 +672,7 @@ const nameCarriesBrand = {
   },
   create(context) {
     const path = repoPath(context.filename);
-    if (isExempt(path)) return {};
+    const inTest = isTestCode(path);
     const { program, esTreeNodeToTSNodeMap } = servicesOf(context);
     const checker = program.getTypeChecker();
     const mayOptOut = optOutFiles.some((m) => m(path));
@@ -646,7 +685,7 @@ const nameCarriesBrand = {
       const data = {
         name,
         brand: brandText(name, wanted),
-        remedy: remedy(wanted),
+        remedy: remedy(wanted, inTest),
       };
       const optOut = optOutOf(context.sourceCode, anchor);
       if (optOut === "reason" && mayOptOut) return;
@@ -714,7 +753,7 @@ const noBrandAssertion = {
   },
   create(context) {
     const path = repoPath(context.filename);
-    if (isExempt(path)) return {};
+    const inTest = isTestCode(path);
     const { program, esTreeNodeToTSNodeMap } = servicesOf(context);
     const checker = program.getTypeChecker();
     const mayOptOut = optOutFiles.some((m) => m(path));
@@ -727,7 +766,7 @@ const noBrandAssertion = {
       context.report({
         node,
         messageId,
-        data: { brand: outside.join(", "), remedy: remedy(outside) },
+        data: { brand: outside.join(", "), remedy: remedy(outside, inTest) },
       });
     };
     const checkBrands = (node, type, messageId) =>
@@ -844,11 +883,13 @@ const noBrandAssertion = {
   },
 };
 
+// The test mint module may mint every brand.
 function isMintSite(brand, path) {
-  return (mintSites.get(brand) ?? []).some((m) => m(path));
+  return testMintSites.some((m) => m(path))
+    || (mintSites.get(brand) ?? []).some((m) => m(path));
 }
 
-export { isExempt, isMintSite, pathMatcher, repoPath };
+export { isMintSite, isTestCode, pathMatcher, repoPath, testFileGlobs };
 
 export default {
   rules: {

@@ -447,7 +447,7 @@ openapi-typescript CLI would turn every brand back into `string`.
 | `PageId` | a selected column, branded by `ReplicaDb.select`; `localOps.ts`'s `getOrCreateLocalPage` selects a negative id for an offline page, the sign carrying that meaning; `sync/wire.ts`'s `tombstoneIdOfWire`; `outline/missingPage.ts`'s `MISSING_PAGE_ID` sentinel |
 | `SidebarEntryId` | a selected column, branded by `ReplicaDb.select`; `sync/wire.ts`'s `tombstoneIdOfWire` |
 | `OrderIdx` | `outline/orderIdx.ts` (`FIRST_ORDER_IDX`, `orderIdxAfter`, `orderIdxAfterLast`, `orderIdxPlus`, `freshChildOrderIdx` — the one order-key arithmetic in the web); `outline/edits.ts`'s `orderIdxAfterPosition`, the dense position→order-key conversion; a selected `order_idx`, branded by `ReplicaDb.select`; `replica/pendingOps.ts`'s `parsePendingOps` |
-| `SidebarOrderIdx` | carried from generated response types; a selected `sidebar_entries.order_idx`, branded by `ReplicaDb.select`; minted in web test helpers (`test-helpers.ts`) |
+| `SidebarOrderIdx` | carried from generated response types; a selected `sidebar_entries.order_idx`, branded by `ReplicaDb.select` |
 | `NormalizedTitle` | `grammar/scan.ts`'s `normalizeRefTitle` and hashtag token, `replica/titles.ts`'s `canonicalizeTitle` |
 | `CanonicalTitle` | a selected `pages.title` / `sidebar_entries.title`, branded by `ReplicaDb.select`; `replica/meta.ts`'s `canonicalTitle`/`titleReader` (which read the live plain-space flag), `replica/daily.ts`'s `titleForDate`/`dailyTitle` |
 | `Sha256Hex` | `replica/sha256.ts`'s `sha256Hex` and `parseSha256Hex`, `replica/subtreeHash.ts`'s `subtreeHash`; the asset-link token (`grammar/tokenize.ts`); a selected `sha256`, `base_hash` or `after_hash`, branded by `ReplicaDb.select` |
@@ -455,6 +455,14 @@ openapi-typescript CLI would turn every brand back into `string`.
 | `ClientId` / `BatchId` | `uid.ts`'s `newClientId` and `newBatchId`, which `sync/opQueue.ts` and `replica/workerHandlers.ts` use as their default batch minter; a selected `batch_id`, branded by `ReplicaDb.select` |
 | `GoodlinksId` | `components/goodlinks.ts`'s `goodlinksIdFromHref` |
 | `ConversationId` / `ConfirmId` | minted server-side; the web only carries them (`ConfirmId` is narrowed by hand at the SSE `confirm_request` parse, `assistant/sse.ts`) |
+
+Tests mint every brand through `test-helpers.ts`, one checked helper per
+brand: `uidOf`, `pageIdOf`, `seqOf` ... (the registry's `TEST_HELPERS`). Each
+throws unless the value fits the brand's `BRAND_SHAPES` pattern or base type
+(an integer brand refuses `1.5`), so a fixture holds only values the product
+could produce. A short tag becomes a uid as `tuid-<tag>`. A negative test
+forges a bad value with `malformedUid` or `malformedSha`, which skip the check.
+Product code may not import the module ([enforced-checks.md](enforced-checks.md#web-side)).
 
 A raw or navigational title stays a plain `string`, never a brand: request
 bodies (`CreatePageRequest.title`, `RenamePageRequest.new_title`,
@@ -536,17 +544,23 @@ that fails its brand's shape. The check is chosen once at module load in
 `replica/db.ts`: in a production build the mode test folds to a constant, so
 the worker bundle contains neither `rowCheck.ts` nor the vocabulary behind it.
 `openTestDb({ checkRows })` turns it off for the one test whose premise is
-data the check would reject, and `uidOf` (`test-helpers.ts`) builds a
-well-formed uid from a short tag for seeds.
+data the check would reject. Seeds spell uids as `tuid-<tag>`, the shape
+`uidOf` (`test-helpers.ts`) accepts.
 
 `K` exists only in the type system. Nothing at runtime compares it with the
 SQL, so a `K` naming a column the query does not return types that column as
 present; the test-time check covers only the columns actually returned.
 
 `introspect(sql)` returns raw, unchecked rows under SQLite's own column
-names, for catalog reads and tests. Production code does not call it: it
-uses the helpers in `replica/db.ts` (`foreignKeyViolations`, `quickCheck`,
-`sqliteVersion`, `catalogNames`).
+names, for catalog reads, counts and tests. Production code does not call it:
+it uses the helpers in `replica/db.ts` (`foreignKeyViolations`, `quickCheck`,
+`sqliteVersion`, `catalogNames`). Under vitest it throws when a returned
+column may carry a brand: a branded `Columns` key, or a raw name `COLUMN_KEYS`
+maps to one (a bare `id`). The message names the `select` key to read it
+under, so the row check validates the value. The refusal reads the engine's
+column names, so an empty result is refused too. It goes by returned name:
+`uid AS u` is an unbranded value and passes. In production the refusal, like
+the row check, is not in the bundle.
 
 `sync/wire.ts` is the matching boundary for what arrives over the network. It
 reads a snapshot, changes or ack body, a tombstone's entity id
@@ -617,9 +631,11 @@ Playwright e2e against that build.**
   `playwright.config.ts` launches `server/tests/e2e_serve.py` on `E2E_PORT`
   (default 8975).
 - **Lint** (flat, type-aware ESLint): `web/eslint.config.js` owns the rule
-  list and names its four families in its header: React Hooks correctness,
-  promise/error safety, API-boundary imports, and no `any` in production
-  code. `tooling/lintConfig.test.ts` proves each rule fires on a fixture.
+  list and names its six families in its header: React Hooks correctness,
+  promise/error safety, import control (`apiFetch`, `test-helpers`), no
+  `any`, brand discipline, and no unexplained `@ts-` suppression. It lints
+  tests and tooling like product code. `tooling/lintConfig.test.ts` proves
+  each rule fires on a fixture.
   The no-`any` family means a parsed JSON value is `unknown` until narrowed,
   or typed by the generated API types.
 - **Budgets** (`web/tooling/budgets.json` + `viteBudgetPlugin.ts`): the build

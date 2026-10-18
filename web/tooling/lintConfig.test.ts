@@ -9,8 +9,8 @@ import { fileURLToPath } from "node:url";
 import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
 import {
-  isExempt,
   isMintSite,
+  isTestCode,
   pathMatcher,
   repoPath,
 } from "./eslint-plugin-brands/index.mjs";
@@ -498,20 +498,21 @@ describe("brands plugin paths", () => {
     ]);
   }, ESLINT_TIMEOUT_MS);
 
-  it("exempts test-support files", async () => {
-    expect(await brandIds("src/sync/memReplica.ts")).toEqual([]);
-    expect(await brandIds("src/replica/replayArbs.ts")).toEqual([]);
+  it("lints test files and test support like production", async () => {
+    const both = ["brands/name-carries-brand", "brands/no-brand-assertion"];
+    expect(await brandIds("src/sync/memReplica.ts")).toEqual(both);
+    expect(await brandIds("src/replica/replayArbs.ts")).toEqual(both);
+    expect(await brandIds("src/sync/listeners.test.ts")).toEqual(both);
   }, ESLINT_TIMEOUT_MS);
 
   it("normalises absolute paths against the repo root", () => {
     const abs = (rel: string): string => join(webRoot, rel);
     expect(repoPath(abs("src/ids.ts"))).toBe("web/src/ids.ts");
-    expect(isExempt(repoPath(abs("src/props/ops/a.ts")))).toBe(true);
-    expect(isExempt(repoPath(abs("src/foo.test.ts")))).toBe(true);
-    expect(isExempt(repoPath(abs("tooling/perf/x.ts")))).toBe(false);
-    expect(isExempt(repoPath(abs("src/ids.ts")))).toBe(false);
-    expect(isExempt(repoPath(abs("tooling/eslint-fixtures/a.ts"))))
-      .toBe(false);
+    expect(isTestCode(repoPath(abs("src/props/ops/compare.ts")))).toBe(true);
+    expect(isTestCode(repoPath(abs("src/paths.test.ts")))).toBe(true);
+    expect(isTestCode(repoPath(abs("src/test-setup.ts")))).toBe(true);
+    expect(isTestCode(repoPath(abs("tooling/perf/x.ts")))).toBe(false);
+    expect(isTestCode(repoPath(abs("src/ids.ts")))).toBe(false);
   });
 
   it("matches mint sites per brand only", () => {
@@ -519,6 +520,12 @@ describe("brands plugin paths", () => {
     expect(isMintSite("SyncSeq", "server/src/pkm/planning.py")).toBe(false);
     expect(isMintSite("SyncSeq", "server/src/pkm/contracts/x.py"))
       .toBe(true);
+  });
+
+  it("makes the test mint module a mint site for every brand", () => {
+    expect(isMintSite("SyncSeq", "web/src/test-helpers.ts")).toBe(true);
+    expect(isMintSite("ParkedTitle", "web/src/test-helpers.ts")).toBe(true);
+    expect(isMintSite("SyncSeq", "web/src/props/ops/compare.ts")).toBe(false);
   });
 
   it("globs: **/ is zero or more directories", () => {
@@ -669,5 +676,120 @@ describe("brands plugin judgement", () => {
     const found = await messagesFor("tooling/viteBudgetPlugin.ts", text);
     expect(found).toHaveLength(1);
     expect(found[0].message).toContain("add a reason");
+  }, ESLINT_TIMEOUT_MS);
+});
+
+describe("tests under the lint", () => {
+  // Each path is a real file: the project service parses only files the
+  // tsconfig includes, and lintText stands the text in for the file's own.
+  const messagesFor = async (
+    rel: string, text: string,
+  ): Promise<{ ruleId: string; message: string }[]> => {
+    const results = await makeLinter().lintText(text, {
+      filePath: join(webRoot, rel),
+    });
+    return results
+      .flatMap((r) => r.messages)
+      .map((m) => ({ ruleId: m.ruleId ?? "", message: m.message }));
+  };
+  const rulesOf = (found: { ruleId: string }[]): string[] =>
+    found.map((m) => m.ruleId);
+
+  it("a test file is linted by the brand rules", async () => {
+    const found = await messagesFor("src/paths.test.ts",
+      'import type { BlockUid } from "./api/brands";\n'
+      + 'export const u = "x" as BlockUid;\n');
+    expect(rulesOf(found)).toEqual(["brands/no-brand-assertion"]);
+    expect(found[0].message).toContain("uidOf");
+    expect(found[0].message).toContain("test-helpers");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("names the helper for a name that means a brand in a test", async () => {
+    const found = await messagesFor("src/paths.test.ts",
+      "export function f(pageId: number): number {\n"
+      + "  return pageId;\n"
+      + "}\n");
+    expect(rulesOf(found)).toEqual(["brands/name-carries-brand"]);
+    expect(found[0].message).toContain("pageIdOf");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("test-helpers.ts may mint every brand", async () => {
+    // `up` leads from the linted file to src/.
+    const text = (up: string): string =>
+      `import type { BlockUid, PageId, Sha256Hex, SyncSeq } from "${up}api/brands";\n`
+      + `import type { PendingRowId } from "${up}replica/client";\n`
+      + `import type { RequestId } from "${up}outline/outlineState";\n`
+      + "export const a = (s: string) => s as BlockUid;\n"
+      + "export const b = (n: number) => n as PageId;\n"
+      + "export const c = (s: string) => s as Sha256Hex;\n"
+      + "export const d = (n: number) => n as SyncSeq;\n"
+      + "export const e = (n: number) => n as PendingRowId;\n"
+      + "export const f = (n: number) => n as RequestId;\n";
+    expect(await messagesFor("src/test-helpers.ts", text("./"))).toEqual([]);
+    const outside = await messagesFor("src/props/ops/compare.ts", text("../../"));
+    expect(rulesOf(outside)).toEqual(
+      Array<string>(6).fill("brands/no-brand-assertion"));
+  }, ESLINT_TIMEOUT_MS);
+
+  it("props files are linted", async () => {
+    const found = await messagesFor("src/props/ops/compare.ts",
+      'import type { PageId } from "../../api/brands";\n'
+      + "export const p = (n: number) => n as PageId;\n");
+    expect(rulesOf(found)).toEqual(["brands/no-brand-assertion"]);
+    expect(found[0].message).toContain("pageIdOf");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("product code may not import the test helpers", async () => {
+    const imports = [
+      'import { uidOf } from "../test-helpers";\nvoid uidOf;\n',
+      'import { uidOf } from "./test-helpers.ts";\nvoid uidOf;\n',
+    ];
+    const restricted = async (rel: string): Promise<string[]> => {
+      const found: string[] = [];
+      for (const text of imports) {
+        const messages = await messagesFor(rel, text);
+        for (const m of messages) {
+          if (m.ruleId === "no-restricted-imports") found.push(m.message);
+        }
+      }
+      return found;
+    };
+    const product = await restricted("src/outline/tree.ts");
+    expect(product).toHaveLength(2);
+    expect(product[0]).toContain("test helpers mint brands without a parse");
+    expect(await restricted("src/outline/tree.test.ts")).toEqual([]);
+    expect(await restricted("src/props/ops/example.ts")).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("test files keep the apiFetch import ban", async () => {
+    const found = await messagesFor("src/outline/tree.test.ts",
+      'import { apiFetch } from "../api/client";\nvoid apiFetch;\n');
+    expect(rulesOf(found)).toEqual(["no-restricted-imports"]);
+    expect(found[0].message).toContain("apiFetch");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("ts-ignore and ts-nocheck are banned, ts-expect-error needs a description", async () => {
+    const banned = await messagesFor("src/paths.test.ts",
+      "// @ts-nocheck\n"
+      + "// @ts-ignore\n"
+      + "export const a: number = 1;\n"
+      + "// @ts-expect-error\n"
+      + "export const b: number = 2;\n");
+    expect(rulesOf(banned)).toEqual(
+      Array<string>(3).fill("@typescript-eslint/ban-ts-comment"));
+    const described = await messagesFor("src/paths.test.ts",
+      "// @ts-expect-error -- a string where the type wants a number\n"
+      + 'export const c: number = "3";\n');
+    expect(described).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("any reaches a branded slot only with a report in tests", async () => {
+    const found = await messagesFor("src/paths.test.ts",
+      'import type { BlockUid } from "./api/brands";\n'
+      + "export function f(s: string): BlockUid {\n"
+      + "  const u: BlockUid = JSON.parse(s);\n"
+      + "  return u;\n"
+      + "}\n");
+    expect(rulesOf(found)).toEqual(["@typescript-eslint/no-unsafe-assignment"]);
   }, ESLINT_TIMEOUT_MS);
 });

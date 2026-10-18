@@ -3,37 +3,159 @@ import { acquireOutlineSession } from "./outline/outlineSessions";
 import { applyOps } from "./outline/tree";
 import type { BlockOp } from "./api/ops";
 import type { Backlinks, BlockNode, PagePayload } from "./api/payloads";
-import type { BatchId, BlockUid, CanonicalTitle, NormalizedTitle, OrderIdx, PageId,
-             SidebarEntryId, SidebarOrderIdx } from "./api/brands";
+import type { BatchId, BlockUid, CanonicalTitle, ClientId, ConfirmId, ConversationId,
+             GoodlinksId, NormalizedTitle, OrderIdx, PageId, Sha256Hex,
+             SidebarEntryId, SidebarOrderIdx, SyncSeq } from "./api/brands";
+import type { RequestId, Revision } from "./outline/outlineState";
+import type { ParkedTitle } from "./replica/apply";
+import type { PendingRowId } from "./replica/client";
+import { BRAND_SHAPES } from "./replica/columns.gen";
 import type { WsBatch } from "./sync/socket";
 import type { Sync, SyncStatus } from "./sync/SyncProvider";
 import type { TicketId, WriteTicket } from "./sync/opQueue";
 
-/** Fixture casts for brand-typed ids and titles: a test stands in a
- * plain literal for a value the production code only ever mints, so the
- * cast belongs here rather than at each test's call site. */
-export function uid(s: string): BlockUid { return s as BlockUid; }
+// The tests' one mint module (the brand registry's TEST_MINT_SITES): a
+// checked helper per brand, `<stem>Of`, named from its TEST_HELPERS. Each
+// throws unless the value fits the brand's shape (BRAND_SHAPES) or base
+// type, so a fixture value is always one the product could have produced:
+// a short tag becomes a uid as `tuid-<tag>` (`uidOf("tuid-a")`). A negative
+// test forges a bad value with `malformedUid` or `malformedSha`, which
+// return it unchecked. Product code may not import this module (the lint's
+// no-restricted-imports).
 
-/** A uid-shaped (`[a-zA-Z0-9_-]{6,32}`) value derived from `tag`: distinct
- * per tag, stable across runs, and readable in a failure ("a" is "tuid-a").
- * A test that seeds a replica needs it, since the row check rejects a short
- * literal like "a". SQL text that cannot call it spells the same value. */
-export function uidOf(tag: string): BlockUid {
-  const safe = tag.replace(/[^a-zA-Z0-9_-]/g, "_");
-  if (safe === tag && tag.length <= 27) return `tuid-${tag}` as BlockUid;
-  // FNV-1a keeps a sanitised or truncated tag distinct from its neighbours.
-  let h = 0x811c9dc5;
-  for (let i = 0; i < tag.length; i++) {
-    h = Math.imul(h ^ tag.charCodeAt(i), 0x01000193) >>> 0;
+// The base type of the web's own brands, which the server's BRAND_SHAPES
+// does not list.
+const WEB_BASES: { readonly [brand: string]: "int" | "text" } = {
+  PendingRowId: "int",
+  TicketId: "text",
+  RequestId: "int",
+  Revision: "int",
+  ParkedTitle: "text",
+};
+
+const FORGERS: { readonly [brand: string]: string } = {
+  BlockUid: "malformedUid",
+  Sha256Hex: "malformedSha",
+};
+
+// Throws unless `value` fits `brand`. The parameter types already say
+// string or number; the check repeats it at run time, where a value read
+// from JSON or `unknown` has no type to keep it honest.
+function check(brand: string, value: string | number): void {
+  const shape: (typeof BRAND_SHAPES)[string] | undefined = BRAND_SHAPES[brand];
+  const base = shape?.base ?? WEB_BASES[brand];
+  if (base === "int") {
+    if (typeof value !== "number" || !Number.isInteger(value)) {
+      throw new Error(`${brand} takes an integer, not ${JSON.stringify(value)}`);
+    }
+    return;
   }
-  return `tuid-${safe.slice(0, 14)}-${h.toString(36)}` as BlockUid;
+  if (typeof value !== "string") {
+    throw new Error(`${brand} takes a string, not ${JSON.stringify(value)}`);
+  }
+  const pattern = shape?.pattern ?? null;
+  if (pattern !== null && !new RegExp(`^(?:${pattern})$`).test(value)) {
+    const forger = FORGERS[brand];
+    throw new Error(`${JSON.stringify(value)} is not a valid ${brand}`
+      + (forger === undefined ? "" : `; a negative test forges one with ${forger}`));
+  }
 }
-export function batchIdOf(s: string): BatchId { return s as BatchId; }
+
+export function uidOf(value: string): BlockUid {
+  check("BlockUid", value);
+  return value as BlockUid;
+}
+export function pageIdOf(value: number): PageId {
+  check("PageId", value);
+  return value as PageId;
+}
+export function sidebarEntryIdOf(value: number): SidebarEntryId {
+  check("SidebarEntryId", value);
+  return value as SidebarEntryId;
+}
+export function orderIdxOf(value: number): OrderIdx {
+  check("OrderIdx", value);
+  return value as OrderIdx;
+}
+export function sidebarOrderIdxOf(value: number): SidebarOrderIdx {
+  check("SidebarOrderIdx", value);
+  return value as SidebarOrderIdx;
+}
+export function seqOf(value: number): SyncSeq {
+  check("SyncSeq", value);
+  return value as SyncSeq;
+}
+export function clientIdOf(value: string): ClientId {
+  check("ClientId", value);
+  return value as ClientId;
+}
+export function batchIdOf(value: string): BatchId {
+  check("BatchId", value);
+  return value as BatchId;
+}
+export function shaOf(value: string): Sha256Hex {
+  check("Sha256Hex", value);
+  return value as Sha256Hex;
+}
+export function conversationIdOf(value: string): ConversationId {
+  check("ConversationId", value);
+  return value as ConversationId;
+}
+export function confirmIdOf(value: string): ConfirmId {
+  check("ConfirmId", value);
+  return value as ConfirmId;
+}
+export function goodlinksIdOf(value: string): GoodlinksId {
+  check("GoodlinksId", value);
+  return value as GoodlinksId;
+}
+export function normalizedTitleOf(value: string): NormalizedTitle {
+  check("NormalizedTitle", value);
+  return value as NormalizedTitle;
+}
+export function canonicalTitleOf(value: string): CanonicalTitle {
+  check("CanonicalTitle", value);
+  return value as CanonicalTitle;
+}
+export function pendingRowIdOf(value: number): PendingRowId {
+  check("PendingRowId", value);
+  return value as PendingRowId;
+}
+export function ticketIdOf(value: string): TicketId {
+  check("TicketId", value);
+  return value as TicketId;
+}
+export function requestIdOf(value: number): RequestId {
+  check("RequestId", value);
+  return value as RequestId;
+}
+export function revisionOf(value: number): Revision {
+  check("Revision", value);
+  return value as Revision;
+}
+export function parkedTitleOf(value: string): ParkedTitle {
+  check("ParkedTitle", value);
+  return value as ParkedTitle;
+}
+
+/** A deliberately bad uid for a negative test, unchecked. */
+export function malformedUid(value: string): BlockUid { return value as BlockUid; }
+/** A deliberately bad digest for a negative test, unchecked. */
+export function malformedSha(value: string): Sha256Hex { return value as Sha256Hex; }
+
+/** @deprecated Unchecked: use `uidOf` with a uid-shaped value. */
+export function uid(s: string): BlockUid { return s as BlockUid; }
+/** @deprecated Unchecked: use `pageIdOf`. */
 export function pageId(n: number): PageId { return n as PageId; }
+/** @deprecated Unchecked: use `sidebarEntryIdOf`. */
 export function entryId(n: number): SidebarEntryId { return n as SidebarEntryId; }
+/** @deprecated Unchecked: use `normalizedTitleOf`. */
 export function normTitle(s: string): NormalizedTitle { return s as NormalizedTitle; }
+/** @deprecated Unchecked: use `canonicalTitleOf`. */
 export function title(s: string): CanonicalTitle { return s as CanonicalTitle; }
+/** @deprecated Unchecked: use `orderIdxOf`. */
 export function ord(n: number): OrderIdx { return n as OrderIdx; }
+/** @deprecated Unchecked: use `sidebarOrderIdxOf`. */
 export function sidebarOrd(n: number): SidebarOrderIdx { return n as SidebarOrderIdx; }
 
 /** Hold the outline editor for `title` so a test's own mount cannot win the
@@ -111,7 +233,7 @@ export function servePageApplyingSent(sync: SyncFake, pageTitle: string,
 export function block(blockUid: string, text: string,
                       over: Partial<BlockNode> = {}): BlockNode {
   return { uid: blockUid as BlockUid, text, heading: null, view_type: null,
-           collapsed: false, order_idx: ord(0), created_at: 1000,
+           collapsed: false, order_idx: orderIdxOf(0), created_at: 1000,
            updated_at: 2000, children: [], ...over };
 }
 
@@ -136,7 +258,7 @@ export function journalBacklinks(groups: Backlinks["groups"] = [],
 export function pagePayload(pageTitle: string, blocks: BlockNode[],
                             over: Partial<PagePayload> = {}): PagePayload {
   return {
-    page: { id: pageId(1), title: pageTitle as CanonicalTitle,
+    page: { id: pageIdOf(1), title: canonicalTitleOf(pageTitle),
             created_at: 1000, updated_at: 2000 },
     blocks,
     backlinks: backlinks(),
@@ -249,7 +371,7 @@ export interface SyncFake extends Sync {
  * under test. */
 export function deliveredTicket(scope: readonly string[] = []): WriteTicket {
   return {
-    id: `delivered-${Math.random()}` as TicketId, scope,
+    id: ticketIdOf(`delivered-${Math.random()}`), scope,
     settled: Promise.resolve({ status: "persisted", pending: 0 }),
     delivered: Promise.resolve({ status: "delivered" }),
   };
@@ -275,7 +397,7 @@ export function makeSync(status: SyncStatus = "connected",
     enqueue: (ops, scope): WriteTicket => {
       sent.push(ops);
       const write = {
-        id: `fake-write-${nextTicket++}` as TicketId,
+        id: ticketIdOf(`fake-write-${nextTicket++}`),
         scope: scope ?? [],
         settled: Promise.resolve({ status: "persisted", pending: 0 }),
         delivered: Promise.resolve({ status: "delivered" }),

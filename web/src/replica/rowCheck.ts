@@ -1,7 +1,7 @@
 // pattern: Functional Core
 // The replica's row check: the same contract as the server's `row_problems`
 // (server/src/pkm/rows.py) over the generated vocabulary in columns.gen.ts.
-import { BRAND_SHAPES, COLUMN_META, type ColumnMeta } from "./columns.gen";
+import { BRAND_SHAPES, COLUMN_KEYS, COLUMN_META, type ColumnMeta } from "./columns.gen";
 
 type Cell = string | number | null | Uint8Array | boolean | undefined;
 
@@ -71,4 +71,42 @@ export function rowCheckMessage(sql: string, problems: string[]): string {
     + "Columns (the Python vocabulary in server/src/pkm/rows.py and "
     + "brand_registry.py, then `uv run python -m pkm.rows_dump`), COALESCE a "
     + "NULL aggregate or use a nullable key; never loosen rowProblems.";
+}
+
+// Returned column name -> the Columns keys it may stand for that carry a
+// brand: a key's own name, and every raw name COLUMN_KEYS maps to one (a
+// bare `id`, the sidebar's `order_idx`). Built on first use, like `shapes`.
+let brandedKeys: Map<string, Set<string>> | null = null;
+function brandedKeysOf(column: string): Set<string> | undefined {
+  if (brandedKeys === null) {
+    const keys = new Map<string, Set<string>>();
+    const pairs: [string, string][] = Object.keys(COLUMN_META).map((k) => [k, k]);
+    for (const columns of Object.values(COLUMN_KEYS)) pairs.push(...Object.entries(columns));
+    const metas = COLUMN_META as Record<string, ColumnMeta>;
+    for (const [name, key] of pairs) {
+      if (metas[key].brand === null) continue;
+      const found = keys.get(name) ?? new Set<string>();
+      keys.set(name, found.add(key));
+    }
+    brandedKeys = keys;
+  }
+  return brandedKeys.get(column);
+}
+
+/** The refusal for an untyped read (`introspect`) that returns a column
+ * that may carry a brand, or null: that value is read with `select`, whose
+ * row check validates it. It goes by returned name, so `uid AS u` reads an
+ * unbranded value and passes. */
+export function brandedColumnMessage(columns: readonly string[]): string | null {
+  const metas = COLUMN_META as Record<string, ColumnMeta>;
+  for (const column of columns) {
+    const keys = brandedKeysOf(column);
+    if (keys === undefined) continue;
+    const sorted = [...keys].sort();
+    const brands = [...new Set(sorted.map((k) => metas[k].brand))].sort();
+    const aliased = keys.has(column) ? "" : ", aliased to its key";
+    return `${column} carries ${brands.join(" or ")}: read it with `
+      + `select<${sorted.map((k) => JSON.stringify(k)).join(" | ")}>${aliased}`;
+  }
+  return null;
 }

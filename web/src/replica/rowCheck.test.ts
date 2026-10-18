@@ -1,5 +1,4 @@
 import { describe, expect, test } from "vitest";
-import { uidOf } from "../test-helpers";
 import { rowCheckMessage, rowProblems } from "./rowCheck";
 
 const UID = "abcDEF_123-";
@@ -51,15 +50,5 @@ describe("rowCheckMessage", () => {
     const msg = rowCheckMessage("SELECT  id\n FROM pages", ["id: not a registered row key"]);
     expect(msg).toContain("'SELECT id FROM pages'");
     expect(msg).toContain("alias the column to a key of Columns");
-  });
-});
-
-describe("uidOf", () => {
-  test("is uid-shaped, stable and distinct per tag", () => {
-    const tags = ["a", "A", "a b", "a_b", "x".repeat(40), "y".repeat(41)];
-    const uids = tags.map(uidOf);
-    for (const u of uids) expect(rowProblems({ uid: u })).toEqual([]);
-    expect(new Set(uids).size).toBe(tags.length);
-    expect(uidOf("a")).toBe(uidOf("a"));
   });
 });

@@ -376,7 +376,7 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         return [{"old_title": r["old_title"], "new_title": r["new_title"],
                  "after_batch_id": batch_id,
                  "at": r["updated_at"], "ord": r["n"]}
-                for r, batch_id in zip(rows, after)]
+                for r, batch_id in zip(rows, after, strict=True)]
 
     @app.get("/__proptest/deletes", dependencies=[Depends(require_auth)])
     def deletes(request: Request) -> list[dict]:
@@ -400,7 +400,7 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         return [{"title": r["title"], "seq": r["seq"],
                  "after_batch_id": batch_id, "at": r["deleted_at"],
                  "ord": r["n"], "uids": uids.get(r["n"], [])}
-                for r, batch_id in zip(rows, after)]
+                for r, batch_id in zip(rows, after, strict=True)]
 
     @app.get("/__proptest/conflicts", dependencies=[Depends(require_auth)])
     def conflicts(request: Request) -> list[dict]:
@@ -415,7 +415,7 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         finally:
             con.close()
         return [{"header_uid": r["header_uid"], "text": r["text"],
-                 "batch_id": batch_id} for r, batch_id in zip(rows, after)]
+                 "batch_id": batch_id} for r, batch_id in zip(rows, after, strict=True)]
 
     @app.post("/__proptest/echo/take", dependencies=[Depends(require_auth)])
     def echo_take() -> dict:

@@ -26,3 +26,6 @@ export function partialKeyed(v: unknown): unknown {
 export function signatureKeyed(v: unknown): unknown {
   return v as { [k: BlockUid]: 1 };
 }
+export function brandedKey(v: string): unknown {
+  return v as keyof Record<BlockUid, 1>;
+}

@@ -205,7 +205,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-assertion-mapped.ts",
     rule: "brands/no-brand-assertion",
-    count: 7,
+    count: 8,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export function keep(v: Record<string, BlockUid>): unknown {\n" +
@@ -319,7 +319,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-assertion-launder.ts",
     rule: "brands/no-brand-assertion",
-    count: 16,
+    count: 19,
     corrected:
       'import type { BlockUid, PageId } from "../../src/api/brands";\n' +
       "export function pick<T extends BlockUid | PageId>(x: T): T {\n" +
@@ -334,7 +334,12 @@ const cases: readonly FixtureCase[] = [
       "}\n" +
       "export function none<T>(): T[] {\n" +
       "  return [] as T[];\n" +
-      "}\n",
+      "}\n" +
+      "interface Shape {\n" +
+      "  a: number;\n" +
+      "  b: string;\n" +
+      "}\n" +
+      "export const field = (f: string) => f as keyof Shape;\n",
   },
   {
     file: "brand-name-positions.ts",

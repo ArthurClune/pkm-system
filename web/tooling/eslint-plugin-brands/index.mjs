@@ -12,13 +12,12 @@
 //     only what its narrowing adds to the parameter's declared type, and an
 //     overload what its return adds over the implementation's, compared
 //     position by position. An assertion whose operand already fits its
-//     target mints nothing. An assertion toward `never`, or toward a type
+//     target mints nothing. An assertion toward `never`, toward a type
 //     parameter a caller can instantiate with a brand its constraint lacks
-//     (`T`, `T extends string`, `K extends "a"`, also inside `T[]`,
-//     `{ v: T }`, `Promise<T>` ...), launders any value and is allowed only
-//     on a `brand: untrusted -- <reason>` line in an opt-out file. Known
-//     limit: `x as keyof T` is not walked (`keyof Record<BlockUid, 1>` is a
-//     BlockUid), because `obj[key as keyof T]` is a common, harmless idiom.
+//     (`T`, `T extends string`, `K extends "a"`), or toward `keyof T`, whose
+//     keys the caller picks (`keyof Record<BlockUid, 1>`), launders any
+//     value, also inside `T[]`, `{ v: T }`, `Promise<T>` ..., and is allowed
+//     only on a `brand: untrusted -- <reason>` line in an opt-out file.
 // Both read tooling/brandRegistry.gen.json, generated from the server's
 // brand registry, and both skip test files and the registry's test-support
 // paths. `satisfies` and non-null `!` are not assertions toward a brand and
@@ -214,6 +213,11 @@ function launders(checker, type) {
     if (t.flags & ts.TypeFlags.TypeParameter) {
       return laundersParam(checker, t, asValue);
     }
+    // `keyof T` (or `keyof T[K]`) stays unresolved only while its keys come
+    // from a type parameter, and a caller picks them: `keyof
+    // Record<BlockUid, 1>` is a BlockUid. A concrete `keyof Row` resolves to
+    // its literal keys and never reaches here.
+    if (t.flags & ts.TypeFlags.Index) return true;
     if (t.aliasTypeArguments?.some(key)) return true;
     if (t.flags & ts.TypeFlags.IndexedAccess) {
       return walk(t.objectType) || key(t.indexType);

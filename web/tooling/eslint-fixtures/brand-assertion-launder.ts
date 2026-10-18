@@ -48,3 +48,12 @@ export function prefixed<T extends `u${string}`>(x: string): T {
 export function wider<T extends { uid: BlockUid }>(x: unknown): T {
   return x as T;
 }
+export function keyOf<T>(x: string): keyof T {
+  return x as keyof T;
+}
+export function nestedKey<T, K extends keyof T>(x: string): keyof T[K] {
+  return x as keyof T[K];
+}
+export function keyList<T>(x: unknown): (keyof T)[] {
+  return x as (keyof T)[];
+}

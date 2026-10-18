@@ -62,10 +62,7 @@ What `no-brand-assertion` counts as minted:
 | `as`, `<T>` | every brand of the target, unless the operand already fits it and holds no `any` | `xs as readonly T[]`, `[] as BlockUid[]` | `s as BlockUid` |
 | type predicate | what the narrowing adds to the parameter's declared type, compared position by position: array and tuple elements, lib type arguments (`ReadonlySet` to `Set`), properties | `BlockUid \| null` to `BlockUid`, `readonly BlockUid[]` to `BlockUid[]` | `BlockUid \| string` to `BlockUid`, `readonly (BlockUid \| string)[]` to `BlockUid[]` |
 | overload signature | what its return type adds over the implementation's, compared the same way | `BlockUid` over `BlockUid \| null` | `BlockUid[]` over `readonly (BlockUid \| string)[]` |
-| launder | an assertion to `never`, or to a type parameter a caller can instantiate with a brand its constraint lacks, also inside the target (`T[]`, `{ v: T }`, `Promise<T>`, `ReturnType<F>`). That is no constraint, `string`, `number`, any object type, or a literal or template where the parameter stands for a value (`K extends "a"` admits `BlockUid & "a"`) | `K` as a key (`Record<K, number>`), `T extends BlockUid \| PageId` (judged as a brand) | `x as T`, `x as K` |
-
-`x as keyof T` is not walked, a known limit: `keyof Record<BlockUid, 1>` is
-a BlockUid, but `obj[key as keyof T]` is a common, harmless idiom.
+| launder | an assertion to `never`, to `keyof T` (the caller picks the keys: `keyof Record<BlockUid, 1>` is a BlockUid), or to a type parameter a caller can instantiate with a brand its constraint lacks, also inside the target (`T[]`, `{ v: T }`, `Promise<T>`, `ReturnType<F>`). That is no constraint, `string`, `number`, any object type, or a literal or template where the parameter stands for a value (`K extends "a"` admits `BlockUid & "a"`) | `K` as a key (`Record<K, number>`), `T extends BlockUid \| PageId` (judged as a brand), `f as keyof Shape` for a concrete `Shape` | `x as T`, `x as K`, `o[key as keyof T]` |
 
 `// brand: untrusted -- <reason>` on a declaration opts a name out of
 `name-carries-brand`, and on a laundering assertion (`as T`, `as never`)

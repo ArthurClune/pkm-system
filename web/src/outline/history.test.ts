@@ -153,7 +153,7 @@ it("undoes a deleted subtree's children in order after another entry shifted its
   ];
   const deleted = record(tree, [{ op: "delete", uid: uidOf("tuid-b") }]);
   tree = applyOps(tree, deleted.ops, PAGE);                 // [a, d]
-  const moved = record(tree, moveTo("tuid-d", 0));               // [d, a]
+  const moved = record(tree, moveTo("tuid-d", 0));          // [d, a]
   tree = applyOps(tree, moved.ops, PAGE);
   tree = replay(tree, moved, "undo");
   tree = replay(tree, deleted, "undo");
@@ -291,7 +291,7 @@ it("anchors each placement on the sibling it lands in front of", () => {
 
 it("undoes two moves up in a row though the first undo shifted keys", () => {
   let tree = flat("tuid-b0", "tuid-b1", "tuid-b2");
-  const first = record(tree, moveTo("tuid-b1", 0));          // [b1, b0, b2]
+  const first = record(tree, moveTo("tuid-b1", 0));     // [b1, b0, b2]
   tree = applyOps(tree, first.ops, PAGE);
   const second = record(tree, moveTo("tuid-b2", tree[1].order_idx)); // [b1, b2, b0]
   tree = applyOps(tree, second.ops, PAGE);
@@ -338,7 +338,7 @@ it("redoes a multi-block drop down after its undo", () => {
 
 it("undo lands in front of its old next sibling after another device inserted", () => {
   let tree = flat("tuid-a", "tuid-b", "tuid-c", "tuid-d");
-  const e = record(tree, moveTo("tuid-b", 3));                // [a, c, b, d]
+  const e = record(tree, moveTo("tuid-b", 3));           // [a, c, b, d]
   tree = applyOps(tree, e.ops, PAGE);
   // another device inserts x in front of c, shifting every key from c's on
   const remote: BlockOp[] = [{ op: "create", uid: uidOf("tuid-x"), page_title: PAGE,
@@ -422,7 +422,7 @@ it("caps the undo stack, evicting the oldest", () => {
   expect(s.undo[0]).toEqual(entry(5)); // oldest five evicted
 });
 
-const FRESH = ["tuid-a".repeat(64) as Sha256Hex];
+const FRESH = ["a".repeat(64) as Sha256Hex];
 
 it("undoing an entry with freshAssets clears redo, earlier redo entries included", () => {
   let s = rec(rec(rec(emptyHistory(), entry(1)), { ...entry(2), freshAssets: FRESH }), entry(3));

@@ -383,7 +383,7 @@ it("the release waits on the undo's own write, which here fails", async () => {
   recordHistory(upload(S1));
   performUndo(sync);
   await historyIdle();
-  const failure: DeliveryOutcome = { status: "failed", error: new Error("tuid-x") };
+  const failure: DeliveryOutcome = { status: "failed", error: new Error("x") };
   sync.gates[0].resolve(failure);
   await expect(release.mock.calls[0][1][0]).resolves.toEqual(failure);
 });

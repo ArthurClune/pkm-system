@@ -149,7 +149,7 @@ describe("applySnapshot", () => {
     t.db.exec(
       "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
       " heading, collapsed, created_at, updated_at)" +
-      " VALUES ('uid_gone_after_wipe', 1, NULL, 9, 'tuid-x', NULL, 0, 5, 5)");
+      " VALUES ('uid_gone_after_wipe', 1, NULL, 9, 'x', NULL, 0, 5, 5)");
     enqueueBatch(t.db, [
       { op: "set_heading", uid: uidOf("uid_gone_after_wipe"), heading: 1 },
     ], 5, bid("batch-doomed"));
@@ -1741,9 +1741,9 @@ describe("applyChanges: the replay log", () => {
       }, 1);
       enqueueBatch(t.db, [
         { op: "create", uid: uidOf("tuid-X"), page_title: "P", parent_uid: uidOf("tuid-Q"),
-          order_idx: orderIdxOf(0), text: "tuid-x" },
+          order_idx: orderIdxOf(0), text: "x" },
         { op: "create", uid: uidOf("tuid-Y"), page_title: "P", parent_uid: uidOf("tuid-X"),
-          order_idx: orderIdxOf(0), text: "tuid-y" },
+          order_idx: orderIdxOf(0), text: "y" },
       ], 2, bid("b1"));
       enqueueBatch(t.db, [
         { op: "move", uid: uidOf("tuid-Q"), parent_uid: null, page_title: "P",

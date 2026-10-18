@@ -19,7 +19,7 @@ const tree = () => [
     ],
   }),
   block("tuid-c", "C", { order_idx: orderIdxOf(7), collapsed: true,
-                    children: [block("tuid-c1", "C1", { order_idx: orderIdxOf(0) })] }),
+                         children: [block("tuid-c1", "C1", { order_idx: orderIdxOf(0) })] }),
 ];
 
 describe("locate / visibility", () => {

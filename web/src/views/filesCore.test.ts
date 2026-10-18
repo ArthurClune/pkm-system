@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { Sha256Hex } from "../api/brands";
 import type { AssetSearchItem } from "../api/payloads";
-import { title, uid } from "../test-helpers";
+import { canonicalTitleOf, uidOf } from "../test-helpers";
 import {
   EMPTY_FILTERS, PAGE_SIZE, clipboardToken, deleteConfirm, formatSize,
   mimeCategory, searchQuery, summarizeDeletes,
@@ -79,9 +79,9 @@ describe("deleteConfirm", () => {
   it("is loud and lists pages when linked", () => {
     const linked = item({
       filename: "used.png",
-      refs: [{ uid: uid("b1"), page_title: title("AI") },
-             { uid: uid("b2"), page_title: title("AI") },
-             { uid: uid("b3"), page_title: title("Paper") }],
+      refs: [{ uid: uidOf("tuid-b1"), page_title: canonicalTitleOf("AI") },
+             { uid: uidOf("tuid-b2"), page_title: canonicalTitleOf("AI") },
+             { uid: uidOf("tuid-b3"), page_title: canonicalTitleOf("Paper") }],
     });
     const { message, loud } = deleteConfirm([linked, item({})]);
     expect(loud).toBe(true);
@@ -115,11 +115,11 @@ describe("formatSize", () => {
 describe("refUidChunks", () => {
   it("chunks ref uids at the block-refs cap of 50", () => {
     const refs = Array.from({ length: 101 }, (_, i) =>
-      ({ uid: uid(`u${i}`), page_title: "P" }));
+      ({ uid: uidOf(`tuid-u${i}`), page_title: "P" }));
     const chunks = refUidChunks(refs);
     expect(chunks.map((c) => c.length)).toEqual([50, 50, 1]);
-    expect(chunks[0][0]).toBe("u0");
-    expect(chunks[2][0]).toBe("u100");
+    expect(chunks[0][0]).toBe("tuid-u0");
+    expect(chunks[2][0]).toBe("tuid-u100");
   });
 
   it("returns no chunks for no refs", () => {
@@ -130,28 +130,28 @@ describe("refUidChunks", () => {
 describe("refGroups", () => {
   it("groups refs by page in first-seen order with fetched text", () => {
     const refs = [
-      { uid: uid("a1"), page_title: "Alpha" },
-      { uid: uid("b1"), page_title: "Beta" },
-      { uid: uid("a2"), page_title: "Alpha" },
+      { uid: uidOf("tuid-a1"), page_title: "Alpha" },
+      { uid: uidOf("tuid-b1"), page_title: "Beta" },
+      { uid: uidOf("tuid-a2"), page_title: "Alpha" },
     ];
     const texts = {
-      a1: { text: "first", page_title: "Alpha" },
-      b1: { text: "second", page_title: "Beta" },
-      a2: { text: "third", page_title: "Alpha" },
+      "tuid-a1": { text: "first", page_title: "Alpha" },
+      "tuid-b1": { text: "second", page_title: "Beta" },
+      "tuid-a2": { text: "third", page_title: "Alpha" },
     };
     expect(refGroups(refs, texts)).toEqual([
       { page_title: "Alpha", items: [
-        { uid: "a1", text: "first", breadcrumbs: [] },
-        { uid: "a2", text: "third", breadcrumbs: [] },
+        { uid: "tuid-a1", text: "first", breadcrumbs: [] },
+        { uid: "tuid-a2", text: "third", breadcrumbs: [] },
       ] },
       { page_title: "Beta", items: [
-        { uid: "b1", text: "second", breadcrumbs: [] },
+        { uid: "tuid-b1", text: "second", breadcrumbs: [] },
       ] },
     ]);
   });
 
   it("falls back to a placeholder for uids the endpoint omitted", () => {
-    const groups = refGroups([{ uid: uid("gone"), page_title: "P" }], {});
+    const groups = refGroups([{ uid: uidOf("tuid-gone"), page_title: "P" }], {});
     expect(groups[0].items[0].text).toBe(MISSING_BLOCK_TEXT);
   });
 });

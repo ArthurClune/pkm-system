@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Sha256Hex } from "../api/brands";
 import type { AssetSearchItem, AssetSearchPayload } from "../api/payloads";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { makeSync, title, uid } from "../test-helpers";
+import { makeSync, canonicalTitleOf, uidOf } from "../test-helpers";
 import { Files } from "./Files";
 
 vi.mock("../api/client", () => ({ apiFetch: vi.fn() }));
@@ -91,7 +91,7 @@ describe("Files", () => {
         sha256: sha("cd".repeat(32)), filename: "notes.pdf",
         mime: "application/pdf", status: "failed",
         describe_error: "too large",
-        refs: [{ uid: uid("b1"), page_title: title("AI") }],
+        refs: [{ uid: uidOf("tuid-b1"), page_title: canonicalTitleOf("AI") }],
       }),
     ]));
     renderFiles();
@@ -280,7 +280,7 @@ describe("Files", () => {
   it("goes loud when a linked file is selected and survives failures",
      async () => {
     const linked = item({
-      refs: [{ uid: uid("b1"), page_title: title("AI") }] });
+      refs: [{ uid: uidOf("tuid-b1"), page_title: canonicalTitleOf("AI") }] });
     const other = item({ sha256: sha("cd".repeat(32)), filename: "b.png" });
     mockFetch.mockResolvedValueOnce(payload([linked, other]));
     renderFiles();
@@ -416,10 +416,10 @@ describe("Files", () => {
     mockFetch.mockImplementation((url: string) => {
       if (url.startsWith("/api/block-refs")) {
         return Promise.resolve({ block_ref_texts: {
-          b1: { text: "embeds the pic", page_title: "AI" } } });
+          "tuid-b1": { text: "embeds the pic", page_title: "AI" } } });
       }
       return Promise.resolve(payload([item({
-        refs: [{ uid: uid("b1"), page_title: title("AI") }] })]));
+        refs: [{ uid: uidOf("tuid-b1"), page_title: canonicalTitleOf("AI") }] })]));
     });
     renderFiles();
     fireEvent.click(await screen.findByRole("button", { name: "1 ref" }));

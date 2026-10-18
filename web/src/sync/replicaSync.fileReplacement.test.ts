@@ -15,12 +15,12 @@ import { failingOnce, fakeCarryFiles, openRawTestDb, withDamagedFreelist }
   from "../replica/testDb";
 import { buildHandlers, type WorkerDeps } from "../replica/workerHandlers";
 import { createReplicaSync } from "./replicaSync";
-import { ord, pageId, title, uid } from "../test-helpers";
+import { orderIdxOf, pageIdOf, canonicalTitleOf, uidOf } from "../test-helpers";
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (5 as SyncSeq),
-  pages: [{ id: pageId(1), title: title("AI"), created_at: 1, updated_at: 1 }],
-  blocks: [{ uid: uid("uid_b1"), page_id: pageId(1), parent_uid: null, order_idx: ord(0),
+  pages: [{ id: pageIdOf(1), title: canonicalTitleOf("AI"), created_at: 1, updated_at: 1 }],
+  blocks: [{ uid: uidOf("tuid-uid_b1"), page_id: pageIdOf(1), parent_uid: null, order_idx: orderIdxOf(0),
     text: "hello", heading: null, view_type: null, collapsed: 0,
     created_at: 1, updated_at: 1, refs: [] }],
   sidebar: [],
@@ -70,9 +70,9 @@ test("a poison repair whose file replacement fails keeps every queued row for it
   await replica.init();
   await replica.applySnapshot(SNAP);
   await replica.enqueue(
-    [{ op: "move", uid: uid("uid_gone"), parent_uid: uid("uid_b1"), order_idx: ord(1) }],
+    [{ op: "move", uid: uidOf("tuid-uid_gone"), parent_uid: uidOf("tuid-uid_b1"), order_idx: orderIdxOf(1) }],
     "rejected" as BatchId);
-  await replica.enqueue([{ op: "update_text", uid: uid("uid_b1"), text: "edited" }],
+  await replica.enqueue([{ op: "update_text", uid: uidOf("tuid-uid_b1"), text: "edited" }],
                         "valid" as BatchId);
   await replica.markPoisoned((1 as PendingRowId), "HTTP 400", "rejected" as BatchId);
   isDamaged = true;
@@ -92,6 +92,6 @@ test("a poison repair whose file replacement fails keeps every queued row for it
       { id: 1, batch_id: "rejected", poisoned: true },
       { id: 2, batch_id: "valid", poisoned: false },
     ]);
-  expect(fresh.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+  expect(fresh.db.select("SELECT text FROM blocks WHERE uid = 'tuid-uid_b1'"))
     .toEqual([{ text: "edited" }]);
 });

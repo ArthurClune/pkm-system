@@ -7,7 +7,7 @@ import { expect, test, vi } from "vitest";
 import type { BatchId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { PendingRowId, Replica } from "../replica/client";
-import { FakeWebSocket, jsonResponse, uid } from "../test-helpers";
+import { FakeWebSocket, jsonResponse, uidOf } from "../test-helpers";
 import { SyncProvider, useSyncActions, useSyncHealth } from "./SyncProvider";
 
 const SNAPSHOT = { generation: "g1", seq: 5, pages: [], blocks: [], sidebar: [] };
@@ -97,8 +97,8 @@ test("a poison repair cut off by the network is retried on reconnect", async () 
   render(<SyncProvider replica={rowReplica()}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); });
   await act(async () => {
-    await actions.enqueue([{ op: "delete", uid: uid("bad") }]).settled;
-    await actions.enqueue([{ op: "delete", uid: uid("good") }]).settled;
+    await actions.enqueue([{ op: "delete", uid: uidOf("tuid-bad") }]).settled;
+    await actions.enqueue([{ op: "delete", uid: uidOf("tuid-good") }]).settled;
   });
   await vi.waitFor(() => { expect(health.problem).toMatchObject({
     kind: "rejected-batch", repair: "failed",

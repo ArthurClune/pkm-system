@@ -9,11 +9,11 @@ import type { OpsAck } from "../api/payloads";
 import type { PendingRowId, Replica } from "../replica/client";
 import { ReplicaError, ReplicaUnusableError,
          RpcLifecycleError } from "../replica/errors";
-import { jsonResponse, title, uid } from "../test-helpers";
+import { jsonResponse, canonicalTitleOf, uidOf } from "../test-helpers";
 import { memReplica } from "./memReplica";
 import { clientId, createOpQueue, type PoisonEvent } from "./opQueue";
 
-const op = (rawUid: string): BlockOp => ({ op: "delete", uid: uid(rawUid) });
+const op = (rawUid: string): BlockOp => ({ op: "delete", uid: uidOf(rawUid) });
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
 const bid = (s: string): BatchId => s as BatchId;
@@ -68,13 +68,13 @@ describe("durable batch delivery", () => {
     const q = createOpQueue(replica);
     const counts: number[] = [];
     q.onPending((n) => counts.push(n));
-    q.enqueue([op("u1")]);
-    q.enqueue([op("u2")]);
+    q.enqueue([op("tuid-u1")]);
+    q.enqueue([op("tuid-u2")]);
     await q.settled();
     await q.drain();
     expect(bodies.map((b) => b.body)).toEqual([
-      { client_id: clientId, batch_id: replica.enqueued[0], ops: [op("u1")] },
-      { client_id: clientId, batch_id: replica.enqueued[1], ops: [op("u2")] },
+      { client_id: clientId, batch_id: replica.enqueued[0], ops: [op("tuid-u1")] },
+      { client_id: clientId, batch_id: replica.enqueued[1], ops: [op("tuid-u2")] },
     ]);
     expect(replica.rows).toEqual([]);
     expect(counts.at(-1)).toBe(0);
@@ -96,8 +96,8 @@ describe("durable batch delivery", () => {
       return base(id, batchId);
     };
     const q = createOpQueue(replica);
-    q.enqueue([op("u1")]);
-    q.enqueue([op("u2")]);
+    q.enqueue([op("tuid-u1")]);
+    q.enqueue([op("tuid-u2")]);
     await q.settled();
     await q.drain();
     // the batch id too, so a delete can never hit a row that reuses the id
@@ -111,8 +111,8 @@ describe("durable batch delivery", () => {
     const replica = memReplica();
     const q = createOpQueue(replica);
     q.setOnline(false);
-    q.enqueue([op("u1")]);
-    q.enqueue([op("u2")]);
+    q.enqueue([op("tuid-u1")]);
+    q.enqueue([op("tuid-u2")]);
     await q.settled();
     await q.drain();
     expect(bodies).toEqual([]);
@@ -133,14 +133,14 @@ describe("durable batch delivery", () => {
     const q = createOpQueue(replica);
     const poisons: PoisonEvent[] = [];
     q.onPoison((event) => poisons.push(event));
-    q.enqueue([op("bad")]);
-    q.enqueue([op("good")]);
+    q.enqueue([op("tuid-bad")]);
+    q.enqueue([op("tuid-good")]);
     await q.settled();
     const outcome = await q.drain();
     expect(poisons).toEqual([{
       id: 1,
       batch_id: replica.enqueued[0],
-      ops: [op("bad")],
+      ops: [op("tuid-bad")],
       status: 400,
       message: "request failed: 400 /api/ops: bad op",
     }]);
@@ -166,8 +166,8 @@ describe("durable batch delivery", () => {
       const q = createOpQueue(replica);
       const poisons: unknown[] = [];
       q.onPoison((event) => poisons.push(event));
-      q.enqueue([op("bad")]);
-      q.enqueue([op("good")]);
+      q.enqueue([op("tuid-bad")]);
+      q.enqueue([op("tuid-good")]);
       await q.settled();
       const outcome = await q.drain();
       expect(poisons).toHaveLength(1);
@@ -202,8 +202,8 @@ describe("durable batch delivery", () => {
     q.onPoisonPending(() => { pendingSignals += 1; });
     q.onPoison((event) => publicEvents.push(event));
 
-    q.enqueue([op("bad")]);
-    q.enqueue([op("good")]);
+    q.enqueue([op("tuid-bad")]);
+    q.enqueue([op("tuid-good")]);
     await marking;
     const observedWhileMarkBlocked = {
       pendingSignals,
@@ -231,7 +231,7 @@ describe("durable batch delivery", () => {
     // though the queue never saw a setOnline(false)
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
-    replica.rows.push({ id: 99 as PendingRowId, batch_id: bid("leftover"), ops: [op("u1")],
+    replica.rows.push({ id: 99 as PendingRowId, batch_id: bid("leftover"), ops: [op("tuid-u1")],
                         poisoned: false });
     const q = createOpQueue(replica);
     q.setOnline(true); // the socket's first connect after the reload
@@ -251,7 +251,7 @@ describe("durable batch delivery", () => {
     }));
     const replica = memReplica();
     const q = createOpQueue(replica);
-    q.enqueue([op("u1")]);
+    q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
     expect(replica.rows.length).toBe(1); // retained
@@ -273,9 +273,9 @@ describe("durable batch delivery", () => {
     }));
     const replica = memReplica();
     const q = createOpQueue(replica);
-    q.enqueue([op("u1")]);
+    q.enqueue([op("tuid-u1")]);
     await vi.waitFor(() => { expect(replica.rows.length).toBe(1); });
-    q.enqueue([op("u2")]); // first POST still in flight
+    q.enqueue([op("tuid-u2")]); // first POST still in flight
     await vi.waitFor(() => { expect(replica.rows.length).toBe(2); });
     release();
     await q.settled();
@@ -296,14 +296,14 @@ describe("an enqueue the replica cannot persist", () => {
       },
     });
     const q = createOpQueue(replica);
-    q.enqueue([op("u1")]);
+    q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
     // retained in memory, then delivered by the drain under queue policy
     const body = bodies[0].body as { client_id: string; batch_id?: string; ops: unknown[] };
     expect(body.client_id).toBe(clientId);
     expect(body.batch_id).toBeDefined();
-    expect(body.ops).toEqual([op("u1")]);
+    expect(body.ops).toEqual([op("tuid-u1")]);
   });
 
   test("an OPFS access-handle contention enqueue failure is retained, not desynced", async () => {
@@ -330,14 +330,14 @@ describe("an enqueue the replica cannot persist", () => {
     const desyncs: unknown[] = [];
     const q = createOpQueue(replica);
     q.onDesync((e) => desyncs.push(e));
-    const ticket = q.enqueue([op("u1")]);
+    const ticket = q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
     expect(desyncs).toEqual([]); // no spurious desync repair / outline wipe
     const body = bodies[0].body as { client_id: string; batch_id?: string; ops: unknown[] };
     expect(body.client_id).toBe(clientId);
     expect(body.batch_id).toBeDefined();
-    expect(body.ops).toEqual([op("u1")]);
+    expect(body.ops).toEqual([op("tuid-u1")]);
     await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
   });
 
@@ -359,12 +359,12 @@ describe("an enqueue the replica cannot persist", () => {
     const desyncs: unknown[] = [];
     const q = createOpQueue(replica);
     q.onDesync((e) => desyncs.push(e));
-    const ticket = q.enqueue([op("u1")]);
+    const ticket = q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
     expect(desyncs).toEqual([]);
     const body = bodies[0].body as { client_id: string; ops: unknown[] };
-    expect(body.ops).toEqual([op("u1")]);
+    expect(body.ops).toEqual([op("tuid-u1")]);
     await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
   });
 
@@ -384,7 +384,7 @@ describe("an enqueue the replica cannot persist", () => {
     const q = createOpQueue(replica);
     q.onDesync((e) => desyncs.push(e));
     const ticket = q.enqueue([
-      { op: "update_text", uid: uid("u1"), text: "a[[b]]" },
+      { op: "update_text", uid: uidOf("tuid-u1"), text: "a[[b]]" },
     ]);
 
     await expect(ticket.settled).resolves.toMatchObject({ status: "failed" });
@@ -408,11 +408,11 @@ describe("an enqueue the replica cannot persist", () => {
     const desyncs: unknown[] = [];
     const q = createOpQueue(replica);
     q.onDesync((e) => desyncs.push(e));
-    const ticket = q.enqueue([op("u1")]);
+    const ticket = q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
     expect(desyncs).toEqual([]);
-    expect((bodies[0].body as { ops: unknown[] }).ops).toEqual([op("u1")]);
+    expect((bodies[0].body as { ops: unknown[] }).ops).toEqual([op("tuid-u1")]);
     await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
   });
 
@@ -430,7 +430,7 @@ describe("an enqueue the replica cannot persist", () => {
       new RpcLifecycleError("worker-error", "replica worker failed"));
     const queue = createOpQueue(replica);
     queue.onDesync((e) => desyncs.push(e));
-    const ticket = queue.enqueue([{ op: "delete", uid: uid("u1") }]);
+    const ticket = queue.enqueue([{ op: "delete", uid: uidOf("tuid-u1") }]);
     await ticket.settled;
     expect(desyncs).toEqual([]);
     await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
@@ -449,7 +449,7 @@ describe("an enqueue the replica cannot persist", () => {
     let nextBatchCalls = 0;
     replica.nextBatch = () => { nextBatchCalls += 1; return Promise.resolve(null); };
     const queue = createOpQueue(replica);
-    await queue.enqueue([{ op: "delete", uid: uid("u1") }]).delivered;
+    await queue.enqueue([{ op: "delete", uid: uidOf("tuid-u1") }]).delivered;
     await queue.drain();
     expect(enqueues).toBe(1);
     expect(nextBatchCalls).toBeGreaterThan(0);
@@ -468,7 +468,7 @@ describe("an enqueue the replica cannot persist", () => {
       throw new RpcLifecycleError("timeout", "replica RPC enqueue timed out");
     };
     const q = createOpQueue(replica);
-    await q.enqueue([op("u1")]).delivered;
+    await q.enqueue([op("tuid-u1")]).delivered;
     await q.drain();
     const ids = bodies.map((b) => (b.body as { batch_id: string }).batch_id);
     expect(ids).toHaveLength(2); // durable row first, then the retained copy
@@ -496,7 +496,7 @@ describe("write tickets", () => {
     const q = createOpQueue(replica);
     q.setOnline(false);
 
-    const ticket = q.enqueue([op("u1")], ["page", "Page"]);
+    const ticket = q.enqueue([op("tuid-u1")], ["page", "Page"]);
 
     await expect(ticket.settled).resolves.toEqual({ status: "persisted", pending: 1 });
     expect(ticket.scope).toEqual(["page", "Page"]);
@@ -516,7 +516,7 @@ describe("write tickets", () => {
     }]);
     const q = createOpQueue(memReplica());
 
-    const ticket = q.enqueue([op("u1")], ["page", "Page"]);
+    const ticket = q.enqueue([op("tuid-u1")], ["page", "Page"]);
     await ticket.settled;
     let delivered = false;
     void ticket.delivered.then(() => { delivered = true; });
@@ -533,7 +533,7 @@ describe("write tickets", () => {
     const fetchMock = vi.fn(async () => jsonResponse({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);
     const q = createOpQueue(replica);
-    const write = q.enqueue([op("slow")]);
+    const write = q.enqueue([op("tuid-slow")]);
     await Promise.resolve();
 
     q.dispose();
@@ -566,7 +566,7 @@ describe("retryable responses and RPC failures", () => {
       }));
       const replica = memReplica();
       const q = createOpQueue(replica);
-      await q.enqueue([op("u1")]).settled;
+      await q.enqueue([op("tuid-u1")]).settled;
 
       await expect(q.drain()).resolves.toMatchObject({
         status: "blocked", reason: "retryable", pending: 1,
@@ -597,7 +597,7 @@ describe("retryable responses and RPC failures", () => {
         const q = createOpQueue(replica);
         const poisons: unknown[] = [];
         q.onPoison((event) => poisons.push(event));
-        await q.enqueue([op("u1")]).settled;
+        await q.enqueue([op("tuid-u1")]).settled;
 
         await expect(q.drain()).resolves.toMatchObject({
           status: "blocked", reason: "retryable", pending: 1,
@@ -620,7 +620,7 @@ describe("retryable responses and RPC failures", () => {
       vi.stubGlobal("fetch", fetchMock);
       const replica = memReplica();
       const q = createOpQueue(replica);
-      await q.enqueue([op("u1")]).settled;
+      await q.enqueue([op("tuid-u1")]).settled;
       await expect(q.drain()).resolves.toMatchObject({ reason: "retryable" });
 
       q.dispose();
@@ -646,7 +646,7 @@ describe("retryable responses and RPC failures", () => {
     const replica = memReplica(over);
     const q = createOpQueue(replica);
 
-    const write = q.enqueue([op("u1")]);
+    const write = q.enqueue([op("tuid-u1")]);
     const outcome = q.drain();
     await write.settled;
 
@@ -676,7 +676,7 @@ describe("poison marks and retained mark intents", () => {
     q.onPoisonMarkFailed(markFailed);
     q.onPoison(published);
 
-    const write = q.enqueue([op("u1")]);
+    const write = q.enqueue([op("tuid-u1")]);
     const outcome = q.drain();
     await write.settled;
 
@@ -723,8 +723,8 @@ describe("poison marks and retained mark intents", () => {
     recovery.onPoisonMarkFailed?.((failure) => markFailures.push(failure));
     q.onPoison((event) => poisons.push(event));
 
-    q.enqueue([op("bad")]);
-    q.enqueue([op("good")]);
+    q.enqueue([op("tuid-bad")]);
+    q.enqueue([op("tuid-good")]);
     await q.settled();
     await q.drain();
 
@@ -767,8 +767,8 @@ describe("poison marks and retained mark intents", () => {
       },
     });
     const firstPage = createOpQueue(replica);
-    firstPage.enqueue([op("bad")]);
-    firstPage.enqueue([op("good")]);
+    firstPage.enqueue([op("tuid-bad")]);
+    firstPage.enqueue([op("tuid-good")]);
     await firstPage.settled();
     await firstPage.drain();
     firstPage.dispose();
@@ -801,11 +801,11 @@ describe("poison marks and retained mark intents", () => {
 
   test("retained mark intents are deduplicated and retried oldest-first", async () => {
     const first: PoisonEvent = {
-      id: 1 as PendingRowId, batch_id: bid("batch-1"), ops: [op("first")], status: 400,
+      id: 1 as PendingRowId, batch_id: bid("batch-1"), ops: [op("tuid-first")], status: 400,
       message: "first rejected",
     };
     const second: PoisonEvent = {
-      id: 2 as PendingRowId, batch_id: bid("batch-2"), ops: [op("second")], status: 422,
+      id: 2 as PendingRowId, batch_id: bid("batch-2"), ops: [op("tuid-second")], status: 422,
       message: "second rejected",
     };
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
@@ -813,8 +813,8 @@ describe("poison marks and retained mark intents", () => {
     }));
     const replica = memReplica();
     replica.rows.push(
-      { id: 1 as PendingRowId, batch_id: bid("batch-1"), ops: [op("first")], poisoned: false },
-      { id: 2 as PendingRowId, batch_id: bid("batch-2"), ops: [op("second")], poisoned: false },
+      { id: 1 as PendingRowId, batch_id: bid("batch-1"), ops: [op("tuid-first")], poisoned: false },
+      { id: 2 as PendingRowId, batch_id: bid("batch-2"), ops: [op("tuid-second")], poisoned: false },
     );
     const marked: number[] = [];
     replica.markPoisoned = async (id) => {
@@ -843,7 +843,7 @@ describe("poison marks and retained mark intents", () => {
 
   test("a stale post-mark intent is retried idempotently without delivery", async () => {
     const event: PoisonEvent = {
-      id: 1 as PendingRowId, batch_id: bid("batch-1"), ops: [op("bad")], status: 400,
+      id: 1 as PendingRowId, batch_id: bid("batch-1"), ops: [op("tuid-bad")], status: 400,
       message: "request failed: 400 /api/ops",
     };
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
@@ -852,7 +852,7 @@ describe("poison marks and retained mark intents", () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
     replica.rows.push({
-      id: 1 as PendingRowId, batch_id: bid("batch-1"), ops: [op("bad")], poisoned: true,
+      id: 1 as PendingRowId, batch_id: bid("batch-1"), ops: [op("tuid-bad")], poisoned: true,
     });
     const mark = vi.fn(async () => ({ pending: 0, matched: true }));
     replica.markPoisoned = mark;
@@ -871,7 +871,7 @@ describe("poison marks and retained mark intents", () => {
   test("a retained intent cannot poison a reused row id from another batch",
   async () => {
     const stale: PoisonEvent = {
-      id: 1 as PendingRowId, batch_id: bid("deleted-batch"), ops: [op("old")], status: 400,
+      id: 1 as PendingRowId, batch_id: bid("deleted-batch"), ops: [op("tuid-old")], status: 400,
       message: "old rejection",
     };
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
@@ -879,7 +879,7 @@ describe("poison marks and retained mark intents", () => {
     }));
     const replica = memReplica();
     replica.rows.push({
-      id: 1 as PendingRowId, batch_id: bid("replacement-batch"), ops: [op("new")], poisoned: false,
+      id: 1 as PendingRowId, batch_id: bid("replacement-batch"), ops: [op("tuid-new")], poisoned: false,
     });
     const mark = vi.fn(async (id: number, _error: string, batchId: string) => {
       const row = replica.rows.find((candidate) =>
@@ -907,11 +907,11 @@ describe("poison marks and retained mark intents", () => {
 
   test("an unmatched marking round reports itself once, not per intent", async () => {
     const staleOne: PoisonEvent = {
-      id: 1 as PendingRowId, batch_id: bid("deleted-batch-1"), ops: [op("old1")], status: 400,
+      id: 1 as PendingRowId, batch_id: bid("deleted-batch-1"), ops: [op("tuid-old1")], status: 400,
       message: "old rejection 1",
     };
     const staleTwo: PoisonEvent = {
-      id: 2 as PendingRowId, batch_id: bid("deleted-batch-2"), ops: [op("old2")], status: 400,
+      id: 2 as PendingRowId, batch_id: bid("deleted-batch-2"), ops: [op("tuid-old2")], status: 400,
       message: "old rejection 2",
     };
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
@@ -947,7 +947,7 @@ describe("poison marks and retained mark intents", () => {
     // The escape from a permanently-wedged profile. Discard must not
     // require an openable replica — that impossibility is the whole scenario.
     const wedged: PoisonEvent = {
-      id: 1 as PendingRowId, batch_id: bid("bad-batch"), ops: [op("bad")], status: 400,
+      id: 1 as PendingRowId, batch_id: bid("bad-batch"), ops: [op("tuid-bad")], status: 400,
       message: "request failed: 400 /api/ops",
     };
     localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
@@ -971,7 +971,7 @@ describe("poison marks and retained mark intents", () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
     const q = createOpQueue(replica);
-    q.enqueue([op("good")]);
+    q.enqueue([op("tuid-good")]);
     await q.settled();
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     expect(bodies).toHaveLength(1);
@@ -989,7 +989,7 @@ describe("replica RPC failures and retry delays", () => {
     const q = createOpQueue(replica);
     q.onDrain(observed);
 
-    await q.enqueue([op("u1")]).settled;
+    await q.enqueue([op("tuid-u1")]).settled;
 
     await vi.waitFor(() => {
       expect(observed).toHaveBeenCalledWith(expect.objectContaining({
@@ -1011,7 +1011,7 @@ describe("replica RPC failures and retry delays", () => {
       }));
       const replica = memReplica();
       const q = createOpQueue(replica);
-      await q.enqueue([op("u1")]).settled;
+      await q.enqueue([op("tuid-u1")]).settled;
       await q.drain();
 
       await vi.advanceTimersByTimeAsync(249);
@@ -1032,7 +1032,7 @@ describe("replica RPC failures and retry delays", () => {
       expect(calls).toBe(5);
       await expect(q.drain()).resolves.toEqual({ status: "drained" });
 
-      await q.enqueue([op("u2")]).settled;
+      await q.enqueue([op("tuid-u2")]).settled;
       await q.drain();
       expect(calls).toBe(6);
       await vi.advanceTimersByTimeAsync(249);
@@ -1059,7 +1059,7 @@ describe("fallback lane ordering against durable batches", () => {
     q.onDesync((e) => desyncs.push(e));
     q.setOnline(false);
 
-    const ticket = q.enqueue([op("u1")]);
+    const ticket = q.enqueue([op("tuid-u1")]);
     await expect(ticket.settled).resolves.toMatchObject({ status: "failed" });
     await q.settled();
     // offline: no direct post, and the op is retained rather than dropped
@@ -1071,7 +1071,7 @@ describe("fallback lane ordering against durable batches", () => {
 
     q.setOnline(true);
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
-    expect((bodies[0].body as { ops: unknown[] }).ops).toEqual([op("u1")]);
+    expect((bodies[0].body as { ops: unknown[] }).ops).toEqual([op("tuid-u1")]);
     await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
   });
 
@@ -1082,10 +1082,10 @@ describe("fallback lane ordering against durable batches", () => {
     const q = createOpQueue(replica);
     q.setOnline(false);
 
-    q.enqueue([op("first")]);          // durable row batch-1
+    q.enqueue([op("tuid-first")]);          // durable row batch-1
     await q.settled();
     replica.enqueue = async () => { throw new Error(CANTOPEN); };
-    const second = q.enqueue([op("second")]); // retained in memory
+    const second = q.enqueue([op("tuid-second")]); // retained in memory
     await q.settled();
     // settle the offline drain before reconnecting: drain() hands a caller any
     // run already in flight, so a shared blocked run would mask the reconnect
@@ -1096,7 +1096,7 @@ describe("fallback lane ordering against durable batches", () => {
     q.setOnline(true);
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops))
-      .toEqual([[op("first")], [op("second")]]);
+      .toEqual([[op("tuid-first")], [op("tuid-second")]]);
     await expect(second.delivered).resolves.toEqual({ status: "delivered" });
   });
 
@@ -1109,10 +1109,10 @@ describe("fallback lane ordering against durable batches", () => {
     const q = createOpQueue(replica);
     q.setOnline(false);
 
-    const retained = q.enqueue([op("older")]);
+    const retained = q.enqueue([op("tuid-older")]);
     await q.settled();
     replica.enqueue = durableEnqueue;      // local storage recovers
-    q.enqueue([op("newer")]);
+    q.enqueue([op("tuid-newer")]);
     await q.settled();
     await expect(q.drain()).resolves.toEqual({
       status: "blocked", reason: "offline", pending: 2,
@@ -1121,7 +1121,7 @@ describe("fallback lane ordering against durable batches", () => {
     q.setOnline(true);
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops))
-      .toEqual([[op("older")], [op("newer")]]);
+      .toEqual([[op("tuid-older")], [op("tuid-newer")]]);
     await expect(retained.delivered).resolves.toEqual({ status: "delivered" });
   });
 
@@ -1140,13 +1140,13 @@ describe("fallback lane ordering against durable batches", () => {
     q.setOnline(false);
 
     replica.enqueue = failEnqueue;
-    const first = q.enqueue([op("retained-1")]);
+    const first = q.enqueue([op("tuid-retained-1")]);
     await q.settled();
     replica.enqueue = durableEnqueue;
-    q.enqueue([op("durable")]);
+    q.enqueue([op("tuid-durable")]);
     await q.settled();
     replica.enqueue = failEnqueue;
-    const second = q.enqueue([op("retained-2")]);
+    const second = q.enqueue([op("tuid-retained-2")]);
     await q.settled();
     await expect(q.drain()).resolves.toEqual({
       status: "blocked", reason: "offline", pending: 3,
@@ -1155,7 +1155,7 @@ describe("fallback lane ordering against durable batches", () => {
     q.setOnline(true);
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops))
-      .toEqual([[op("retained-1")], [op("durable")], [op("retained-2")]]);
+      .toEqual([[op("tuid-retained-1")], [op("tuid-durable")], [op("tuid-retained-2")]]);
     await expect(first.delivered).resolves.toEqual({ status: "delivered" });
     await expect(second.delivered).resolves.toEqual({ status: "delivered" });
   });
@@ -1175,10 +1175,10 @@ describe("fallback lane ordering against durable batches", () => {
     const q = createOpQueue(replica);
     q.setOnline(false);
 
-    q.enqueue([op("rejected")]);              // durable row, drains first
+    q.enqueue([op("tuid-rejected")]);              // durable row, drains first
     await q.settled();
     replica.enqueue = async () => { throw new Error(CANTOPEN); };
-    const retained = q.enqueue([op("retained")]);
+    const retained = q.enqueue([op("tuid-retained")]);
     await q.settled();
     await expect(q.drain()).resolves.toEqual({
       status: "blocked", reason: "offline", pending: 2,
@@ -1193,13 +1193,13 @@ describe("fallback lane ordering against durable batches", () => {
     // delivery resumes
     replica.rows.length = 0;
     replica.enqueue = durableEnqueue;
-    q.enqueue([op("newer")]);
+    q.enqueue([op("tuid-newer")]);
     await q.settled();
     q.resume("recovery");
 
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops)).toEqual([
-      [op("rejected")], [op("retained")], [op("newer")],
+      [op("tuid-rejected")], [op("tuid-retained")], [op("tuid-newer")],
     ]);
     await expect(retained.delivered).resolves.toEqual({ status: "delivered" });
   });
@@ -1238,13 +1238,13 @@ describe("fallback lane ordering against durable batches", () => {
     const q = createOpQueue(replica);
     q.setOnline(false);
 
-    q.enqueue([op("x-durable")]);                 // row X, durable
+    q.enqueue([op("tuid-x-durable")]);                 // row X, durable
     await q.settled();
     replica.enqueue = async () => { throw new Error(CANTOPEN); };
-    const create = q.enqueue([op("create")]);     // lane-held, X ahead of it
+    const create = q.enqueue([op("tuid-create")]);     // lane-held, X ahead of it
     await q.settled();
     replica.enqueue = durableEnqueue;
-    const move = q.enqueue([op("move")]);         // durable, persisted after `create`
+    const move = q.enqueue([op("tuid-move")]);         // durable, persisted after `create`
     await q.settled();
 
     q.setOnline(true);
@@ -1260,7 +1260,7 @@ describe("fallback lane ordering against durable batches", () => {
 
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops)).toEqual([
-      [op("x-durable")], [op("create")], [op("move")],
+      [op("tuid-x-durable")], [op("tuid-create")], [op("tuid-move")],
     ]);
     await expect(create.delivered).resolves.toEqual({ status: "delivered" });
     await expect(move.delivered).resolves.toEqual({ status: "delivered" });
@@ -1277,13 +1277,13 @@ describe("fallback lane ordering against durable batches", () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
     replica.rows.push({
-      id: 1 as PendingRowId, batch_id: bid("prev-session"), ops: [op("prev")], poisoned: false,
+      id: 1 as PendingRowId, batch_id: bid("prev-session"), ops: [op("tuid-prev")], poisoned: false,
     });
     replica.enqueued.push(bid("prev-session"));
     const q = createOpQueue(replica);
     q.setOnline(false);
     replica.enqueue = async () => { throw new Error(CANTOPEN); };
-    const held = q.enqueue([op("held")]);
+    const held = q.enqueue([op("tuid-held")]);
     await q.settled();
     await expect(q.drain()).resolves.toEqual({
       status: "blocked", reason: "offline", pending: 2,
@@ -1292,7 +1292,7 @@ describe("fallback lane ordering against durable batches", () => {
     q.setOnline(true);
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops))
-      .toEqual([[op("prev")], [op("held")]]);
+      .toEqual([[op("tuid-prev")], [op("tuid-held")]]);
     await expect(held.delivered).resolves.toEqual({ status: "delivered" });
   });
 
@@ -1312,7 +1312,7 @@ describe("fallback lane ordering against durable batches", () => {
       return realNextBatch();
     };
     const q = createOpQueue(replica);
-    const ticket = q.enqueue([op("u1")]);
+    const ticket = q.enqueue([op("tuid-u1")]);
     await q.settled();
 
     await expect(q.drain()).resolves.toMatchObject({
@@ -1337,19 +1337,19 @@ describe("deliverLaneAhead", () => {
     q.setOnline(false);
 
     replica.enqueue = failEnqueue;
-    const first = q.enqueue([op("first")]);   // lane entry, seq 0
+    const first = q.enqueue([op("tuid-first")]);   // lane entry, seq 0
     await q.settled();
-    const second = q.enqueue([op("second")]); // lane entry, seq 1
+    const second = q.enqueue([op("tuid-second")]); // lane entry, seq 1
     await q.settled();
     replica.enqueue = durableEnqueue;
-    q.enqueue([op("leased")]);                // durable, follows both lane entries
+    q.enqueue([op("tuid-leased")]);                // durable, follows both lane entries
     await q.settled();
     const leasedId = replica.enqueued[0];
 
     await q.deliverLaneAhead(leasedId);
 
     expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops))
-      .toEqual([[op("first")], [op("second")]]);
+      .toEqual([[op("tuid-first")], [op("tuid-second")]]);
     await expect(first.delivered).resolves.toEqual({ status: "delivered" });
     await expect(second.delivered).resolves.toEqual({ status: "delivered" });
     // deliverLaneAhead never touches the durable batch itself: it is left for
@@ -1367,10 +1367,10 @@ describe("deliverLaneAhead", () => {
     q.setOnline(false);
 
     replica.enqueue = async () => { throw new Error(CANTOPEN); };
-    const entry = q.enqueue([op("held")]);
+    const entry = q.enqueue([op("tuid-held")]);
     await q.settled();
     replica.enqueue = durableEnqueue;
-    q.enqueue([op("leased")]);
+    q.enqueue([op("tuid-leased")]);
     await q.settled();
     const leasedId = replica.enqueued[0];
     expect(unsent.at(-1)).toBe(1);
@@ -1403,12 +1403,12 @@ describe("deliverLaneAhead", () => {
     q.setOnline(false);
 
     replica.enqueue = failEnqueue;
-    const a = q.enqueue([op("a")]);
+    const a = q.enqueue([op("tuid-a")]);
     await q.settled();
-    const b = q.enqueue([op("b")]);
+    const b = q.enqueue([op("tuid-b")]);
     await q.settled();
     replica.enqueue = durableEnqueue;
-    q.enqueue([op("durable")]); // follows both a and b
+    q.enqueue([op("tuid-durable")]); // follows both a and b
     await q.settled();
     const durableId = replica.enqueued[0];
 
@@ -1418,10 +1418,10 @@ describe("deliverLaneAhead", () => {
 
     expect(bodies.filter((body) =>
       JSON.stringify((body.body as { ops: unknown[] }).ops) ===
-        JSON.stringify([op("a")])).length).toBe(2); // the racing duplicate
+        JSON.stringify([op("tuid-a")])).length).toBe(2); // the racing duplicate
     expect(bodies.some((body) =>
       JSON.stringify((body.body as { ops: unknown[] }).ops) ===
-        JSON.stringify([op("b")]))).toBe(true);
+        JSON.stringify([op("tuid-b")]))).toBe(true);
     await expect(a.delivered).resolves.toEqual({ status: "delivered" });
     await expect(b.delivered).resolves.toEqual({ status: "delivered" });
     // the lane is fully empty: only the untouched durable row remains pending.
@@ -1432,8 +1432,8 @@ describe("deliverLaneAhead", () => {
   async () => {
     fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1,
-      skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
-                  reason: "block_not_found", note_page: title("2026-09-29") }],
+      skipped: [{ index: 0, op: "update_text", uid: uidOf("tuid-u1"),
+                  reason: "block_not_found", note_page: canonicalTitleOf("2026-09-29") }],
     } satisfies OpsAck)]);
     const replica = memReplica();
     const durableEnqueue = replica.enqueue.bind(replica);
@@ -1444,10 +1444,10 @@ describe("deliverLaneAhead", () => {
     q.setOnline(false);
 
     replica.enqueue = failEnqueue;
-    const lane = q.enqueue([op("lane")]);
+    const lane = q.enqueue([op("tuid-lane")]);
     await q.settled();
     replica.enqueue = durableEnqueue;
-    q.enqueue([op("durable")]); // follows the lane entry
+    q.enqueue([op("tuid-durable")]); // follows the lane entry
     await q.settled();
     const durableId = replica.enqueued[0];
 
@@ -1469,10 +1469,10 @@ describe("deliverLaneAhead", () => {
     q.setOnline(false);
 
     replica.enqueue = failEnqueue;
-    q.enqueue([op("lane")]);
+    q.enqueue([op("tuid-lane")]);
     await q.settled();
     replica.enqueue = durableEnqueue;
-    q.enqueue([op("durable")]);
+    q.enqueue([op("tuid-durable")]);
     await q.settled();
     const durableId = replica.enqueued[0];
 
@@ -1490,8 +1490,8 @@ describe("out-of-band flushes", () => {
     const q = createOpQueue(replica);
     q.setOnline(false);
 
-    const flushed = q.enqueue([op("flushed")]);
-    const remaining = q.enqueue([op("remaining")]);
+    const flushed = q.enqueue([op("tuid-flushed")]);
+    const remaining = q.enqueue([op("tuid-remaining")]);
     await q.settled();
     replica.rows.splice(0, 1); // a successfully POSTed recovery/reset flush
 
@@ -1503,7 +1503,7 @@ describe("out-of-band flushes", () => {
     await Promise.resolve();
 
     expect(bodies.map((entry) => (entry.body as { ops: unknown[] }).ops))
-      .toEqual([[op("remaining")]]);
+      .toEqual([[op("tuid-remaining")]]);
     expect(flushedOutcome).toEqual({ status: "delivered" });
   });
 
@@ -1526,13 +1526,13 @@ describe("out-of-band flushes", () => {
     const q = createOpQueue(replica);
     q.setOnline(false);
 
-    q.enqueue([op("durable-1")]);
+    q.enqueue([op("tuid-durable-1")]);
     await q.settled();
     replica.enqueue = failEnqueue;
-    const first = q.enqueue([op("retained-1")]);  // one durable batch ahead
+    const first = q.enqueue([op("tuid-retained-1")]);  // one durable batch ahead
     await q.settled();
     replica.enqueue = durableEnqueue;
-    q.enqueue([op("durable-2")]);                 // counted behind retained-1
+    q.enqueue([op("tuid-durable-2")]);                 // counted behind retained-1
     await q.settled();
     replica.rows.length = 0;                      // the rebase flush
 
@@ -1545,10 +1545,10 @@ describe("out-of-band flushes", () => {
     q.setOnline(false);                           // no kicks while we set up
 
     replica.enqueue = failEnqueue;
-    const second = q.enqueue([op("retained-2")]);
+    const second = q.enqueue([op("tuid-retained-2")]);
     await q.settled();
     replica.enqueue = durableEnqueue;
-    q.enqueue([op("durable-3")]);                 // newer than retained-2
+    q.enqueue([op("tuid-durable-3")]);                 // newer than retained-2
     await q.settled();
     await expect(q.drain()).resolves.toMatchObject({
       status: "blocked", reason: "offline", pending: 3,
@@ -1557,10 +1557,10 @@ describe("out-of-band flushes", () => {
     q.setOnline(true);
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops)).toEqual([
-      [op("retained-1")],   // the 503
-      [op("retained-1")],
-      [op("retained-2")],
-      [op("durable-3")],
+      [op("tuid-retained-1")],   // the 503
+      [op("tuid-retained-1")],
+      [op("tuid-retained-2")],
+      [op("tuid-durable-3")],
     ]);
     await expect(first.delivered).resolves.toEqual({ status: "delivered" });
     await expect(second.delivered).resolves.toEqual({ status: "delivered" });
@@ -1578,7 +1578,7 @@ describe("fallback lane delivery outcomes", () => {
       ]);
       const replica = laneOnlyReplica();
       const q = createOpQueue(replica);
-      const ticket = q.enqueue([op("u1")]);
+      const ticket = q.enqueue([op("tuid-u1")]);
       await q.settled();
 
       await expect(q.drain()).resolves.toMatchObject({
@@ -1610,7 +1610,7 @@ describe("fallback lane delivery outcomes", () => {
         const desyncs: unknown[] = [];
         const q = createOpQueue(replica);
         q.onDesync((e) => desyncs.push(e));
-        const ticket = q.enqueue([op("u1")]);
+        const ticket = q.enqueue([op("tuid-u1")]);
         await q.settled();
 
         await expect(q.drain()).resolves.toMatchObject({
@@ -1645,7 +1645,7 @@ describe("fallback lane delivery outcomes", () => {
     const desyncs: unknown[] = [];
     const q = createOpQueue(replica);
     q.onDesync((e) => desyncs.push(e));
-    const ticket = q.enqueue([op("u1")]);
+    const ticket = q.enqueue([op("tuid-u1")]);
     await q.settled();
 
     await expect(q.drain()).resolves.toMatchObject({
@@ -1669,8 +1669,8 @@ describe("fallback lane delivery outcomes", () => {
     const desyncs: unknown[] = [];
     const q = createOpQueue(replica);
     q.onDesync((e) => desyncs.push(e));
-    const bad = q.enqueue([op("bad")]);
-    const good = q.enqueue([op("good")]);
+    const bad = q.enqueue([op("tuid-bad")]);
+    const good = q.enqueue([op("tuid-good")]);
     await q.settled();
 
     await expect(q.drain()).resolves.toMatchObject({
@@ -1695,8 +1695,8 @@ describe("fallback lane delivery outcomes", () => {
       const desyncs: unknown[] = [];
       const q = createOpQueue(replica);
       q.onDesync((e) => desyncs.push(e));
-      const bad = q.enqueue([op("bad")]);
-      const good = q.enqueue([op("good")]);
+      const bad = q.enqueue([op("tuid-bad")]);
+      const good = q.enqueue([op("tuid-good")]);
       await q.settled();
 
       await expect(q.drain()).resolves.toMatchObject({
@@ -1725,7 +1725,7 @@ describe("fallback lane delivery outcomes", () => {
       pendingCount: async () => 3,   // no rows exist, but the count claims three
     });
     const q = createOpQueue(replica);
-    const ticket = q.enqueue([op("u1")]);
+    const ticket = q.enqueue([op("tuid-u1")]);
     await q.settled();
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     expect(bodies).toHaveLength(1);
@@ -1742,8 +1742,8 @@ describe("fallback lane delivery outcomes", () => {
       q.setOnline(false); // the socket drops while the first POST is in flight
       return jsonResponse({ ok: true });
     }, () => jsonResponse({ ok: true })]);
-    const first = q.enqueue([op("first")]);
-    const second = q.enqueue([op("second")]);
+    const first = q.enqueue([op("tuid-first")]);
+    const second = q.enqueue([op("tuid-second")]);
     await q.settled();
 
     await expect(q.drain()).resolves.toEqual({
@@ -1764,7 +1764,7 @@ describe("dispose", () => {
     fetchSeq([() => jsonResponse({ ok: true })]);
     const enqueue = vi.fn(async () => { throw new Error(CANTOPEN); });
     const q = createOpQueue(laneOnlyReplica({ enqueue }));
-    const ticket = q.enqueue([op("u1")]);
+    const ticket = q.enqueue([op("tuid-u1")]);
     q.dispose();          // before the persist chain's microtask even runs
 
     await expect(ticket.settled).resolves.toMatchObject({ status: "failed" });
@@ -1782,7 +1782,7 @@ describe("dispose", () => {
       enqueue: async () => { entered(); await gate; throw new Error(CANTOPEN); },
     });
     const q = createOpQueue(replica);
-    const ticket = q.enqueue([op("u1")]);
+    const ticket = q.enqueue([op("tuid-u1")]);
     await started;        // the write is genuinely in flight inside the replica
     q.dispose();          // teardown races a write that is already in flight
     release();
@@ -1800,7 +1800,7 @@ describe("dispose", () => {
     const counts: number[] = [];
     q.onPending((n) => counts.push(n));
     q.setOnline(false);
-    const ticket = q.enqueue([op("u1")]);
+    const ticket = q.enqueue([op("tuid-u1")]);
     await q.settled();
     expect(counts.at(-1)).toBe(1); // the header must not report 0 pending
 
@@ -1837,7 +1837,7 @@ describe("blocked drains and terminal states", () => {
     q.onDrain((outcome) => drains.push(outcome.status));
     q.setOnline(false);
 
-    const ticket = q.enqueue([op("u1")]); // its own kick starts the offline drain
+    const ticket = q.enqueue([op("tuid-u1")]); // its own kick starts the offline drain
     await vi.waitFor(() => { expect(counts).toBe(1); });
     expect(bodies).toEqual([]);
 
@@ -1876,11 +1876,11 @@ describe("blocked drains and terminal states", () => {
     const q = createOpQueue(replica);
     q.setOnline(false);
 
-    q.enqueue([op("rejected")]);  // row 1: rejected, and its mark fails
-    q.enqueue([op("durable")]);   // row 2: still genuinely ahead of the lane
+    q.enqueue([op("tuid-rejected")]);  // row 1: rejected, and its mark fails
+    q.enqueue([op("tuid-durable")]);   // row 2: still genuinely ahead of the lane
     await q.settled();
     replica.enqueue = async () => { throw new Error(CANTOPEN); };
-    const retained = q.enqueue([op("retained")]);  // two durable batches ahead
+    const retained = q.enqueue([op("tuid-retained")]);  // two durable batches ahead
     await q.settled();
     replica.enqueue = durableEnqueue;
     // settle the offline drain before reconnecting: drain() hands a caller any
@@ -1905,7 +1905,7 @@ describe("blocked drains and terminal states", () => {
     q.resume("recovery");
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops)).toEqual([
-      [op("rejected")], [op("rejected")], [op("durable")], [op("retained")],
+      [op("tuid-rejected")], [op("tuid-rejected")], [op("tuid-durable")], [op("tuid-retained")],
     ]);
     await expect(retained.delivered).resolves.toEqual({ status: "delivered" });
   });
@@ -1922,7 +1922,7 @@ describe("blocked drains and terminal states", () => {
     })));
     const replica = memReplica();
     const q = createOpQueue(replica);
-    const write = q.enqueue([op("u1")]);
+    const write = q.enqueue([op("tuid-u1")]);
     await write.settled;
     await vi.waitFor(() => { expect(fetch).toHaveBeenCalledTimes(1); });
     const outcome = q.drain();
@@ -1950,7 +1950,7 @@ describe("pending and unsent-in-memory counts", () => {
     const q = createOpQueue(replica);
     const unsentCounts: number[] = [];
     q.onUnsentInMemory((n) => unsentCounts.push(n));
-    q.enqueue([op("u1")]);
+    q.enqueue([op("tuid-u1")]);
     await q.settled();
     expect(unsentCounts.at(-1)).toBe(1);
 
@@ -1966,7 +1966,7 @@ describe("pending and unsent-in-memory counts", () => {
     const unsentCounts: number[] = [];
     q.onPending((n) => pendingCounts.push(n));
     q.onUnsentInMemory((n) => unsentCounts.push(n));
-    for (const uid of ["u1", "u2"]) {
+    for (const uid of ["tuid-u1", "tuid-u2"]) {
       q.enqueue([op(uid)]);
       await q.settled();
       await q.drain();
@@ -1987,7 +1987,7 @@ describe("pending and unsent-in-memory counts", () => {
     q.onPending((n) => pendingCounts.push(n));
     q.onUnsentInMemory((n) => unsentCounts.push(n));
     q.setOnline(false); // durable row persists but is not yet delivered
-    q.enqueue([op("u1")]);
+    q.enqueue([op("tuid-u1")]);
     await q.settled();
     expect(pendingCounts.at(-1)).toBe(1);
     expect(unsentCounts.at(-1)).toBe(0); // a durable row is not in-memory-only
@@ -2006,17 +2006,17 @@ describe("onDesync", () => {
     ]);
     const q = createOpQueue(laneOnlyReplica());
     q.onDesync(() => {
-      q.enqueue([op("u9")]);
+      q.enqueue([op("tuid-u9")]);
       q.resume("recovery");
     });
-    const rejected = q.enqueue([op("u1")]);
+    const rejected = q.enqueue([op("tuid-u1")]);
     await q.settled();
     await expect(q.drain()).resolves.toMatchObject({
       status: "blocked", reason: "recovering",
     });
     await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
     await vi.waitFor(() => { expect(bodies).toHaveLength(2); });
-    expect((bodies[1].body as { ops: unknown[] }).ops).toEqual([op("u9")]);
+    expect((bodies[1].body as { ops: unknown[] }).ops).toEqual([op("tuid-u9")]);
     q.dispose();
   });
 
@@ -2031,8 +2031,8 @@ describe("onDesync", () => {
       void Promise.resolve().then(() => q.resume("recovery"));
     });
     q.setOnline(false);
-    const rejected = q.enqueue([op("rejected")]);
-    const later = q.enqueue([op("later")]);
+    const rejected = q.enqueue([op("tuid-rejected")]);
+    const later = q.enqueue([op("tuid-later")]);
     await q.settled();
 
     try {
@@ -2041,7 +2041,7 @@ describe("onDesync", () => {
       // nobody drains again from the outside: the resume's own kick must
       // deliver
       await expect(later.delivered).resolves.toEqual({ status: "delivered" });
-      expect((bodies[1].body as { ops: unknown[] }).ops).toEqual([op("later")]);
+      expect((bodies[1].body as { ops: unknown[] }).ops).toEqual([op("tuid-later")]);
     } finally {
       q.dispose();
     }
@@ -2056,7 +2056,7 @@ describe("onDesync", () => {
     q.onDesync(() => {
       throw new Error("desync handler exploded");
     });
-    q.enqueue([op("u1")]);
+    q.enqueue([op("tuid-u1")]);
     await q.settled();
     // must resolve, not reject: the drain owner is not the repair owner
     await expect(q.drain()).resolves.toMatchObject({
@@ -2064,7 +2064,7 @@ describe("onDesync", () => {
     });
 
     q.resume("recovery");
-    const later = q.enqueue([op("u2")]);
+    const later = q.enqueue([op("tuid-u2")]);
     await q.settled();
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     await expect(later.delivered).resolves.toEqual({ status: "delivered" });
@@ -2101,12 +2101,12 @@ describe("in-flight kicks", () => {
     const replica = memReplica();
     const q = createOpQueue(replica);
     q.setOnline(false);
-    const first = q.enqueue([op("u1")]);
+    const first = q.enqueue([op("tuid-u1")]);
     await q.settled();
     q.setOnline(true);       // connected: the pump starts, POST for u1 in flight
     await started;
     q.setOnline(false);      // socket drops while the POST is outstanding
-    q.enqueue([op("u2")]);   // persisted while offline -> must stay pending
+    q.enqueue([op("tuid-u2")]);   // persisted while offline -> must stay pending
     await q.settled();
     release();               // the in-flight POST's response arrives
 
@@ -2118,7 +2118,7 @@ describe("in-flight kicks", () => {
 
     q.setOnline(true);       // reconnect flushes the preserved batch
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
-    expect((bodies[1].body as { ops: unknown[] }).ops).toEqual([op("u2")]);
+    expect((bodies[1].body as { ops: unknown[] }).ops).toEqual([op("tuid-u2")]);
   });
 
   test("a missed in-flight kick remains barred by recovery until explicit resume",
@@ -2127,11 +2127,11 @@ describe("in-flight kicks", () => {
       gatedFetch(() => jsonResponse({ ok: true }));
     const q = createOpQueue(memReplica());
     q.setOnline(false);
-    const first = q.enqueue([op("u1")]);
+    const first = q.enqueue([op("tuid-u1")]);
     await q.settled();
     q.setOnline(true);
     await started;
-    const later = q.enqueue([op("u2")]); // its kick is recorded on the live run
+    const later = q.enqueue([op("tuid-u2")]); // its kick is recorded on the live run
     await q.settled();
     q.pause("recovery");
 
@@ -2152,11 +2152,11 @@ describe("in-flight kicks", () => {
       gatedFetch(() => jsonResponse({ ok: true }));
     const q = createOpQueue(memReplica());
     q.setOnline(false);
-    q.enqueue([op("u1")]);
+    q.enqueue([op("tuid-u1")]);
     await q.settled();
     q.setOnline(true);
     await started;
-    const later = q.enqueue([op("u2")]);
+    const later = q.enqueue([op("tuid-u2")]);
     await q.settled();
     q.dispose();
 
@@ -2176,11 +2176,11 @@ describe("in-flight kicks", () => {
         gatedFetch(() => jsonResponse({ detail: "busy" }, 503));
       const q = createOpQueue(memReplica());
       q.setOnline(false);
-      q.enqueue([op("u1")]);
+      q.enqueue([op("tuid-u1")]);
       await q.settled();
       q.setOnline(true);
       await started;
-      const later = q.enqueue([op("u2")]);
+      const later = q.enqueue([op("tuid-u2")]);
       await q.settled();     // kick recorded while the failing POST is in flight
 
       release();
@@ -2207,7 +2207,7 @@ describe("in-flight kicks", () => {
         return jsonResponse({ detail: "busy" }, 503);
       }));
       const q = createOpQueue(memReplica());
-      await q.enqueue([op("u1")]).settled;
+      await q.enqueue([op("tuid-u1")]).settled;
       await expect(q.drain()).resolves.toMatchObject({ reason: "retryable" });
       await vi.advanceTimersByTimeAsync(250); // second failure schedules 1s
       expect(calls).toBe(2);
@@ -2247,14 +2247,14 @@ describe("skipped ops in an ack", () => {
   async () => {
     fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1,
-      skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
-                  reason: "block_not_found", note_page: title("2026-09-29") }],
+      skipped: [{ index: 0, op: "update_text", uid: uidOf("tuid-u1"),
+                  reason: "block_not_found", note_page: canonicalTitleOf("2026-09-29") }],
     } satisfies OpsAck)]);
     const replica = noReplicaAtAll();
     const skips: void[] = [];
     const q = createOpQueue(replica);
     q.onSkipped(() => skips.push(undefined));
-    const ticket = q.enqueue([op("u1")]);
+    const ticket = q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
     expect(skips).toHaveLength(1);
@@ -2267,7 +2267,7 @@ describe("skipped ops in an ack", () => {
     const skips: void[] = [];
     const q = createOpQueue(replica);
     q.onSkipped(() => skips.push(undefined));
-    q.enqueue([op("u1")]);
+    q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
     expect(skips).toEqual([]);
@@ -2279,7 +2279,7 @@ describe("skipped ops in an ack", () => {
     const skips: void[] = [];
     const q = createOpQueue(replica);
     q.onSkipped(() => skips.push(undefined));
-    q.enqueue([op("u1")]);
+    q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
     expect(skips).toEqual([]);
@@ -2291,7 +2291,7 @@ describe("skipped ops in an ack", () => {
     const skips: void[] = [];
     const q = createOpQueue(replica);
     q.onSkipped(() => skips.push(undefined));
-    q.enqueue([op("u1")]);
+    q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
     expect(skips).toEqual([]);
@@ -2306,8 +2306,8 @@ describe("skipped ops in an ack", () => {
     // ghost, so this refetch is a harmless extra, not a correctness gap.
     const { bodies } = fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1,
-      skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
-                  reason: "block_not_found", note_page: title("2026-09-29") }],
+      skipped: [{ index: 0, op: "update_text", uid: uidOf("tuid-u1"),
+                  reason: "block_not_found", note_page: canonicalTitleOf("2026-09-29") }],
     } satisfies OpsAck)]);
     const replica = memReplica({
       enqueue: async () => { throw new Error("worker crashed"); },
@@ -2315,7 +2315,7 @@ describe("skipped ops in an ack", () => {
     const skips: void[] = [];
     const q = createOpQueue(replica);
     q.onSkipped(() => skips.push(undefined));
-    q.enqueue([op("u1")]);
+    q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
     expect(bodies).toHaveLength(1);
@@ -2327,14 +2327,14 @@ describe("skipped ops in an ack", () => {
   "it)", async () => {
     fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1, seq: (7 as SyncSeq),
-      skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
-                  reason: "block_not_found", note_page: title("2026-09-29") }],
+      skipped: [{ index: 0, op: "update_text", uid: uidOf("tuid-u1"),
+                  reason: "block_not_found", note_page: canonicalTitleOf("2026-09-29") }],
     } satisfies OpsAck)]);
     const replica = memReplica();
     const skips: void[] = [];
     const q = createOpQueue(replica);
     q.onSkipped(() => skips.push(undefined));
-    q.enqueue([op("u1")]);
+    q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
     expect(skips).toHaveLength(1);
@@ -2347,7 +2347,7 @@ describe("skipped ops in an ack", () => {
     const skips: void[] = [];
     const q = createOpQueue(replica);
     q.onSkipped(() => skips.push(undefined));
-    q.enqueue([op("u1")]);
+    q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
     expect(skips).toEqual([]);
@@ -2360,7 +2360,7 @@ describe("skipped ops in an ack", () => {
     const skips: void[] = [];
     const q = createOpQueue(replica);
     q.onSkipped(() => skips.push(undefined));
-    q.enqueue([op("u1")]);
+    q.enqueue([op("tuid-u1")]);
     await q.settled();
     const outcome = await q.drain();
     expect(outcome).toMatchObject({ reason: "recovering" });
@@ -2380,7 +2380,7 @@ describe("a listener subscribed in the same tick as the call still hears it", ()
         'unsupported reference title syntax: "a[[b]]"', { rejected: true }); },
     });
     const q = createOpQueue(replica);
-    q.enqueue([{ op: "update_text", uid: uid("u1"), text: "a[[b]]" }]);
+    q.enqueue([{ op: "update_text", uid: uidOf("tuid-u1"), text: "a[[b]]" }]);
     const spy = vi.fn();
     q.onDesync(spy);
     await q.settled();
@@ -2416,11 +2416,11 @@ describe("a listener subscribed in the same tick as the call still hears it", ()
   test("an acked skip reaches a listener added after the enqueue", async () => {
     fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1, seq: (7 as SyncSeq),
-      skipped: [{ index: 0, op: "update_text", uid: uid("u1"),
-                  reason: "block_not_found", note_page: title("2026-09-29") }],
+      skipped: [{ index: 0, op: "update_text", uid: uidOf("tuid-u1"),
+                  reason: "block_not_found", note_page: canonicalTitleOf("2026-09-29") }],
     } satisfies OpsAck)]);
     const q = createOpQueue(memReplica());
-    const ticket = q.enqueue([op("u1")]);
+    const ticket = q.enqueue([op("tuid-u1")]);
     const spy = vi.fn();
     q.onSkipped(spy);
     await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });

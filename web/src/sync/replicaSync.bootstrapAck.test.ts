@@ -14,13 +14,13 @@ import { openRawTestDb } from "../replica/testDb";
 import { buildHandlers } from "../replica/workerHandlers";
 import { createReplicaSync, PENDING_CHANGED_CAP } from "./replicaSync";
 import { PullStarvedError } from "./syncFailures";
-import { ord, pageId, title, uid } from "../test-helpers";
+import { orderIdxOf, pageIdOf, canonicalTitleOf, uidOf } from "../test-helpers";
 
 const snapshotAt = (seq: number, text: string): Snapshot => ({
   generation: "gen-1", plain_space_title_canonicalization: false,
   seq: (seq as SyncSeq),
-  pages: [{ id: pageId(1), title: title("AI"), created_at: 1, updated_at: 1 }],
-  blocks: [{ uid: uid("uid_b1"), page_id: pageId(1), parent_uid: null, order_idx: ord(0),
+  pages: [{ id: pageIdOf(1), title: canonicalTitleOf("AI"), created_at: 1, updated_at: 1 }],
+  blocks: [{ uid: uidOf("tuid-uid_b1"), page_id: pageIdOf(1), parent_uid: null, order_idx: orderIdxOf(0),
     text, heading: null, view_type: null, collapsed: 0,
     created_at: 1, updated_at: 1, refs: [] }],
   sidebar: [],
@@ -57,18 +57,18 @@ async function setup(
   });
   await replica.init();
   await replica.enqueue(
-    [{ op: "update_text", uid: uid("uid_b1"), text: "edited" }], "b-edit" as BatchId);
+    [{ op: "update_text", uid: uidOf("tuid-uid_b1"), text: "edited" }], "b-edit" as BatchId);
   pendingId = (await replica.pendingBatches())[0].id;
   return { t, replica, sync, snapshotPaths };
 }
 
 const textOf = (t: { db: { select: (sql: string) => unknown[] } }): unknown =>
-  t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'");
+  t.db.select("SELECT text FROM blocks WHERE uid = 'tuid-uid_b1'");
 
 test("a snapshot answered before a batch acked during its fetch is refetched", async () => {
   const textsSeenAtFetch: unknown[] = [];
   const ctx = await setup(async (n, replica, id, db) => {
-    textsSeenAtFetch.push(db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"));
+    textsSeenAtFetch.push(db.select("SELECT text FROM blocks WHERE uid = 'tuid-uid_b1'"));
     if (n === 1) {
       await replica.deleteBatch(id, "b-edit" as BatchId, 7 as SyncSeq);
       return snapshotAt(5, "hello");
@@ -100,7 +100,7 @@ test("a snapshot that never covers the acks ends in PullStarvedError at the cap"
     attempts += 1;
     const [head] = await replica.pendingBatches();
     await replica.enqueue(
-      [{ op: "update_text", uid: uid("uid_b1"), text: `e${attempts}` }],
+      [{ op: "update_text", uid: uidOf("tuid-uid_b1"), text: `e${attempts}` }],
       `b-${attempts}` as BatchId);
     await replica.deleteBatch(head.id, head.batch_id, 99 as SyncSeq);
     return snapshotAt(5, "hello");

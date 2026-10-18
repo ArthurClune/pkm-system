@@ -1,14 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { BatchId } from "../api/brands";
-import type { PendingRowId } from "../replica/client";
 import type { PoisonEvent } from "./opQueue";
-import {
-  computeEditability,
-  transitionSync,
-  type SyncEvent,
-  type SyncProblem,
-  type SyncState,
-} from "./syncState";
+import { computeEditability, transitionSync, type SyncProblem, type SyncState } from "./syncState";
+import { pendingRowIdOf, batchIdOf } from "../test-helpers";
 
 // Test-only: production code builds a SyncState inline (SyncProvider.tsx's
 // applySync does `{ problem: prev }`), so this constructor lives here rather
@@ -16,8 +9,8 @@ import {
 const createSyncState = (): SyncState => ({ problem: undefined });
 
 const poison = (over: Partial<PoisonEvent> = {}): PoisonEvent => ({
-  id: 1 as PendingRowId,
-  batch_id: "b1" as BatchId,
+  id: pendingRowIdOf(1),
+  batch_id: batchIdOf("b1"),
   ops: [],
   status: 409,
   message: "conflict",
@@ -289,7 +282,7 @@ describe("transitionSync replica-stalled lifecycle", () => {
   it("updates the error text on a re-report without stomping an in-flight reset", () => {
     const running = withProblem({
       kind: "replica-stalled", error: "old error", reset: "running",
-    } as SyncProblem);
+    });
     const t = transitionSync(running, {
       type: "replica-stalled", error: "new error",
     });
@@ -301,7 +294,7 @@ describe("transitionSync replica-stalled lifecycle", () => {
   it("updates the error text and pending/resetError on a re-report, preserving reset", () => {
     const blocked = withProblem({
       kind: "replica-stalled", error: "old error", reset: "blocked", pending: 3,
-    } as SyncProblem);
+    });
     const t = transitionSync(blocked, {
       type: "replica-stalled", error: "new error",
     });
@@ -484,7 +477,9 @@ describe("transitionSync ops-skipped", () => {
 
 describe("transitionSync exhaustiveness", () => {
   it("throws on an unknown event", () => {
-    expect(() => transitionSync(createSyncState(), { type: "nope" } as unknown as SyncEvent))
+    // An event type the union lacks, which the machine must refuse.
+    // @ts-expect-error -- not a SyncEvent type
+    expect(() => transitionSync(createSyncState(), { type: "nope" }))
       .toThrow();
   });
 });

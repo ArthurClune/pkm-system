@@ -1,11 +1,11 @@
 import { expect, test } from "vitest";
 import fixture from "../../../shared/fixtures/ops_acks.json";
-import type { SyncSeq } from "../api/brands";
-import type { OpsAck } from "../api/payloads";
+import { parseOpsAck } from "../props/sync/wire";
 import { readOpsAck, type SkipReason } from "./opsAck";
+import { seqOf } from "../test-helpers";
 
 test.each(fixture.cases)("reads the $name wire ack", ({ wire }) => {
-  const ack = wire as unknown as OpsAck;
+  const ack = parseOpsAck(wire);
   expect(readOpsAck(ack)).toEqual({ seq: ack.seq ?? undefined, skipped: ack.skipped });
 });
 
@@ -14,16 +14,20 @@ test("an ack missing seq names no seq and no skips", () => {
 });
 
 test("an ack missing skipped keeps its seq and names no skips", () => {
-  expect(readOpsAck({ ok: true, ts: 1, applied: 2, seq: (7 as SyncSeq) })).toEqual({ seq: 7, skipped: [] });
+  expect(readOpsAck({ ok: true, ts: 1, applied: 2, seq: seqOf(7) })).toEqual({ seq: 7, skipped: [] });
 });
 
 test("a null or non-finite seq is unknown", () => {
   expect(readOpsAck({ ok: true, ts: 1, applied: 1, seq: null }).seq).toBeUndefined();
-  expect(readOpsAck({ ok: true, ts: 1, applied: 1, seq: (Number.NaN as SyncSeq) }).seq).toBeUndefined();
+  // A wire value the reader must call unknown.
+  // @ts-expect-error -- NaN is no SyncSeq
+  expect(readOpsAck({ ok: true, ts: 1, applied: 1, seq: Number.NaN }).seq).toBeUndefined();
 });
 
 test("a malformed skipped field reads as no skips", () => {
-  expect(readOpsAck({ ok: true, ts: 1, applied: 1, skipped: "nope" } as unknown as OpsAck).skipped)
+  // A wire value the reader must survive.
+  // @ts-expect-error -- skipped is no array
+  expect(readOpsAck({ ok: true, ts: 1, applied: 1, skipped: "nope" }).skipped)
     .toEqual([]);
 });
 

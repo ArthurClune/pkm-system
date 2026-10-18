@@ -6,7 +6,6 @@
 // batch's edit, and the ack has already deleted the pending row that would
 // replay it. The worker must refuse such a snapshot and bootstrap must refetch.
 import { expect, test } from "vitest";
-import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { Snapshot } from "../replica/apply";
 import { createReplica, type PendingRowId, type Replica } from "../replica/client";
 import { serveRpc, toPortLike } from "../replica/rpc";
@@ -14,11 +13,13 @@ import { openRawTestDb } from "../replica/testDb";
 import { buildHandlers } from "../replica/workerHandlers";
 import { createReplicaSync, PENDING_CHANGED_CAP } from "./replicaSync";
 import { PullStarvedError } from "./syncFailures";
-import { orderIdxOf, pageIdOf, canonicalTitleOf, uidOf } from "../test-helpers";
+import {
+  orderIdxOf, pageIdOf, canonicalTitleOf, uidOf, seqOf, pendingRowIdOf, clientIdOf, batchIdOf,
+} from "../test-helpers";
 
-const snapshotAt = (seq: number, text: string): Snapshot => ({
+const snapshotAt = (at: number, text: string): Snapshot => ({
   generation: "gen-1", plain_space_title_canonicalization: false,
-  seq: (seq as SyncSeq),
+  seq: seqOf(at),
   pages: [{ id: pageIdOf(1), title: canonicalTitleOf("AI"), created_at: 1, updated_at: 1 }],
   blocks: [{ uid: uidOf("uid_b1"), page_id: pageIdOf(1), parent_uid: null, order_idx: orderIdxOf(0),
     text, heading: null, view_type: null, collapsed: 0,
@@ -41,7 +42,7 @@ async function setup(
   }));
   const replica = createReplica(toPortLike(ch.port1));
   const snapshotPaths: string[] = [];
-  let pendingId = 0 as PendingRowId;
+  let pendingId = pendingRowIdOf(0);
   const sync = createReplicaSync({
     replica,
     fetchJson: async (path) => {
@@ -52,12 +53,12 @@ async function setup(
       if (path.startsWith("/api/sync/changes")) return EMPTY_FEED;
       throw new Error(`unexpected fetch ${path}`);
     },
-    clientId: "c1" as ClientId,
+    clientId: clientIdOf("c1"),
     onState: () => {},
   });
   await replica.init();
   await replica.enqueue(
-    [{ op: "update_text", uid: uidOf("uid_b1"), text: "edited" }], "b-edit" as BatchId);
+    [{ op: "update_text", uid: uidOf("uid_b1"), text: "edited" }], batchIdOf("b-edit"));
   pendingId = (await replica.pendingBatches())[0].id;
   return { t, replica, sync, snapshotPaths };
 }
@@ -70,7 +71,7 @@ test("a snapshot answered before a batch acked during its fetch is refetched", a
   const ctx = await setup(async (n, replica, id, db) => {
     textsSeenAtFetch.push(db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"));
     if (n === 1) {
-      await replica.deleteBatch(id, "b-edit" as BatchId, 7 as SyncSeq);
+      await replica.deleteBatch(id, batchIdOf("b-edit"), seqOf(7));
       return snapshotAt(5, "hello");
     }
     return snapshotAt(7, "edited");
@@ -84,7 +85,7 @@ test("a snapshot answered before a batch acked during its fetch is refetched", a
 
 test("a snapshot already at the acked seq applies on the first fetch", async () => {
   const ctx = await setup(async (_n, replica, id) => {
-    await replica.deleteBatch(id, "b-edit" as BatchId, 7 as SyncSeq);
+    await replica.deleteBatch(id, batchIdOf("b-edit"), seqOf(7));
     return snapshotAt(7, "edited");
   });
   await ctx.sync.start();
@@ -101,8 +102,8 @@ test("a snapshot that never covers the acks ends in PullStarvedError at the cap"
     const [head] = await replica.pendingBatches();
     await replica.enqueue(
       [{ op: "update_text", uid: uidOf("uid_b1"), text: `e${attempts}` }],
-      `b-${attempts}` as BatchId);
-    await replica.deleteBatch(head.id, head.batch_id, 99 as SyncSeq);
+      batchIdOf(`b-${attempts}`));
+    await replica.deleteBatch(head.id, head.batch_id, seqOf(99));
     return snapshotAt(5, "hello");
   });
   await expect(ctx.sync.start()).rejects.toBeInstanceOf(PullStarvedError);

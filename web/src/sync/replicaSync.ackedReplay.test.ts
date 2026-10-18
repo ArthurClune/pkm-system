@@ -5,17 +5,18 @@
 // the wire text, and the snapshot carries the saved text. Recovery must keep
 // the server's result rather than replay the acknowledged batch over it.
 import { expect, test } from "vitest";
-import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { Changes, Snapshot } from "../replica/apply";
 import { createReplica } from "../replica/client";
 import { serveRpc, toPortLike } from "../replica/rpc";
 import { openRawTestDb } from "../replica/testDb";
 import { buildHandlers } from "../replica/workerHandlers";
 import { createReplicaSync } from "./replicaSync";
-import { orderIdxOf, pageIdOf, canonicalTitleOf, uidOf } from "../test-helpers";
+import {
+  orderIdxOf, pageIdOf, canonicalTitleOf, uidOf, seqOf, clientIdOf, batchIdOf, sentBatchId,
+} from "../test-helpers";
 
 const BEFORE: Snapshot = {
-  generation: "gen-1", plain_space_title_canonicalization: false, seq: (5 as SyncSeq),
+  generation: "gen-1", plain_space_title_canonicalization: false, seq: seqOf(5),
   pages: [{ id: pageIdOf(1), title: canonicalTitleOf("AI"), created_at: 1, updated_at: 1 }],
   blocks: [{ uid: uidOf("uid_b1"), page_id: pageIdOf(1), parent_uid: null, order_idx: orderIdxOf(0),
     text: "hello", heading: null, view_type: null, collapsed: 0,
@@ -23,14 +24,14 @@ const BEFORE: Snapshot = {
   sidebar: [],
 };
 const AFTER: Snapshot = {
-  ...BEFORE, generation: "gen-2", seq: (7 as SyncSeq),
+  ...BEFORE, generation: "gen-2", seq: seqOf(7),
   blocks: [{ ...BEFORE.blocks[0], text: "[[New]] edited" }],
 };
 // Its generation differs from the replica's, so the first pull answers
 // needs-bootstrap and rebases with a preemptible flush.
 const FEED: Changes = {
   reset: false, generation: "gen-2", plain_space_title_canonicalization: false,
-  next_since: (7 as SyncSeq), latest_seq: (7 as SyncSeq), pages: [], blocks: [], sidebar: [],
+  next_since: seqOf(7), latest_seq: seqOf(7), pages: [], blocks: [], sidebar: [],
   tombstones: [],
 };
 
@@ -48,7 +49,7 @@ test("a batch the recovery flush got an ack for is not replayed over the snapsho
     fetchJson: async (path, init) => {
       if (path === "/api/ops") {
         posted.push(
-          (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+          sentBatchId(init));
         return { ok: true, ts: 1, applied: 1, seq: 7, skipped: [] };
       }
       if (path === "/api/sync/snapshot") return AFTER;
@@ -58,14 +59,14 @@ test("a batch the recovery flush got an ack for is not replayed over the snapsho
       }
       throw new Error(`unexpected fetch ${path}`);
     },
-    clientId: "c1" as ClientId,
+    clientId: clientIdOf("c1"),
     onState: () => {},
   });
 
   await replica.init();
   await replica.applySnapshot(BEFORE);
   await replica.enqueue(
-    [{ op: "update_text", uid: uidOf("uid_b1"), text: "[[Old]] edited" }], "b-rename" as BatchId);
+    [{ op: "update_text", uid: uidOf("uid_b1"), text: "[[Old]] edited" }], batchIdOf("b-rename"));
 
   await sync.start();
   expect(posted).toEqual(["b-rename"]);

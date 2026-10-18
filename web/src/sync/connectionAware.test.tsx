@@ -5,12 +5,13 @@
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { Sha256Hex } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { uploadAsset } from "./assets";
 import { useOutline, type Outline } from "../outline/useOutline";
-import { block, FakeWebSocket, jsonResponse, orderIdxOf, pagePayload, canonicalTitleOf, uidOf } from "../test-helpers";
+import {
+  block, FakeWebSocket, jsonResponse, orderIdxOf, pagePayload, canonicalTitleOf, uidOf, shaOf,
+} from "../test-helpers";
 import { SyncProvider } from "./SyncProvider";
 
 vi.mock("./assets", async (importOriginal) => ({
@@ -90,7 +91,7 @@ test("(b) an image upload completing after disconnect is preserved and flushes o
   let finishUpload!: () => void;
   uploadAssetMock.mockReturnValue(new Promise((resolve) => {
     finishUpload = () => resolve({
-      sha256: "abc" as Sha256Hex, filename: "pic.png", mime: "image/png",
+      sha256: shaOf("ab".repeat(32)), filename: "pic.png", mime: "image/png",
       size: 1, url: "/assets/abc/pic.png", existing: false,
     });
   }));

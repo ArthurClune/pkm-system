@@ -163,7 +163,54 @@ export function reserveOutlineEditor(title: string): () => void {
 /** What `apiFetch` hands `fetch` for a read: the verb, plus the abort signal
  * carrying the READ_TIMEOUT_MS deadline. Assert with this rather
  * than a bare `{ method: "GET" }`, which no longer matches. */
-export const READ_INIT = { method: "GET", signal: expect.any(AbortSignal) };
+export const READ_INIT: { method: string; signal: unknown } =
+  { method: "GET", signal: expect.any(AbortSignal) };
+
+/** A parsed JSON object as a record of unknowns; throws on anything else. */
+export function jsonRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`expected a JSON object, got ${JSON.stringify(value)}`);
+  }
+  return { ...value };
+}
+
+/** The batch id a POST /api/ops body carries, as the checked brand. */
+export function bodyBatchId(body: unknown): BatchId {
+  const id = jsonRecord(body).batch_id;
+  if (typeof id !== "string") throw new Error(`batch_id is not a string: ${String(id)}`);
+  return batchIdOf(id);
+}
+
+/** The JSON body a mocked `fetch` was called with, as a record. */
+export function sentBody(init: RequestInit | undefined): Record<string, unknown> {
+  return jsonRecord(JSON.parse(String(init?.body)));
+}
+
+/** The ops of the POST /api/ops a mocked `fetch` was called with, each as a
+ * record. */
+export function sentOps(init: RequestInit | undefined): Record<string, unknown>[] {
+  const ops = sentBody(init).ops;
+  if (!Array.isArray(ops)) throw new Error("the request body has no ops array");
+  return ops.map((op: unknown) => jsonRecord(op));
+}
+
+/** The batch id of the POST /api/ops a mocked `fetch` was called with. */
+export function sentBatchId(init: RequestInit | undefined): BatchId {
+  return bodyBatchId(sentBody(init));
+}
+
+/** `expect.any(String)`, typed so it can sit in an expected object. */
+export const ANY_STRING: unknown = expect.any(String);
+
+/** `expect.objectContaining`, typed so it can sit in an expected object. */
+export function objectContaining(shape: Record<string, unknown>): unknown {
+  return expect.objectContaining(shape);
+}
+
+/** `expect.stringContaining`, typed so it can sit in an expected object. */
+export function stringContaining(part: string): unknown {
+  return expect.stringContaining(part);
+}
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -215,9 +262,9 @@ export function servePageApplyingSent(sync: SyncFake, pageTitle: string,
   return mock;
 }
 
-export function block(blockUid: string, text: string,
+export function block(tag: string, text: string,
                       over: Partial<BlockNode> = {}): BlockNode {
-  return { uid: uidOf(blockUid), text, heading: null, view_type: null,
+  return { uid: uidOf(tag), text, heading: null, view_type: null,
            collapsed: false, order_idx: orderIdxOf(0), created_at: 1000,
            updated_at: 2000, children: [], ...over };
 }

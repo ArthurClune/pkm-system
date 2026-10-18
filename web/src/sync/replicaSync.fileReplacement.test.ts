@@ -5,20 +5,21 @@
 // when its file is discarded, so the queue survives only if it was made
 // durable somewhere else first.
 import { afterEach, expect, test, vi } from "vitest";
-import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { Snapshot } from "../replica/apply";
 import { createCarryStore } from "../replica/carryStore";
-import { createReplica, type PendingRowId } from "../replica/client";
+import { createReplica } from "../replica/client";
 import type { ReplicaDb } from "../replica/db";
 import { serveRpc, toPortLike } from "../replica/rpc";
 import { failingOnce, fakeCarryFiles, openRawTestDb, withDamagedFreelist }
   from "../replica/testDb";
 import { buildHandlers, type WorkerDeps } from "../replica/workerHandlers";
 import { createReplicaSync } from "./replicaSync";
-import { orderIdxOf, pageIdOf, canonicalTitleOf, uidOf } from "../test-helpers";
+import {
+  orderIdxOf, pageIdOf, canonicalTitleOf, uidOf, seqOf, clientIdOf, batchIdOf, pendingRowIdOf,
+} from "../test-helpers";
 
 const SNAP: Snapshot = {
-  generation: "gen-1", plain_space_title_canonicalization: false, seq: (5 as SyncSeq),
+  generation: "gen-1", plain_space_title_canonicalization: false, seq: seqOf(5),
   pages: [{ id: pageIdOf(1), title: canonicalTitleOf("AI"), created_at: 1, updated_at: 1 }],
   blocks: [{ uid: uidOf("uid_b1"), page_id: pageIdOf(1), parent_uid: null, order_idx: orderIdxOf(0),
     text: "hello", heading: null, view_type: null, collapsed: 0,
@@ -63,7 +64,7 @@ test("a poison repair whose file replacement fails keeps every queued row for it
       if (path === "/api/sync/snapshot") return SNAP;
       throw new Error(`unexpected fetch ${path}`);
     },
-    clientId: "c1" as ClientId,
+    clientId: clientIdOf("c1"),
     onState: () => {},
   });
 
@@ -71,10 +72,10 @@ test("a poison repair whose file replacement fails keeps every queued row for it
   await replica.applySnapshot(SNAP);
   await replica.enqueue(
     [{ op: "move", uid: uidOf("uid_gone"), parent_uid: uidOf("uid_b1"), order_idx: orderIdxOf(1) }],
-    "rejected" as BatchId);
+    batchIdOf("rejected"));
   await replica.enqueue([{ op: "update_text", uid: uidOf("uid_b1"), text: "edited" }],
-                        "valid" as BatchId);
-  await replica.markPoisoned((1 as PendingRowId), "HTTP 400", "rejected" as BatchId);
+                        batchIdOf("valid"));
+  await replica.markPoisoned(pendingRowIdOf(1), "HTTP 400", batchIdOf("rejected"));
   isDamaged = true;
 
   await expect(sync.rebaseAuthoritative("poison")).rejects.toThrow(/SQLITE_FULL/);

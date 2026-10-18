@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { BatchId } from "../api/brands";
-import type { PendingRowId } from "../replica/client";
-import { uidOf } from "../test-helpers";
+import { uidOf, pendingRowIdOf, batchIdOf } from "../test-helpers";
 import { planRetry, type RetryPlan } from "./retryPolicy";
 import type { SyncProblem } from "./syncState";
 
 const event = {
-  id: 7 as PendingRowId, batch_id: "bad-batch" as BatchId,
+  id: pendingRowIdOf(7), batch_id: batchIdOf("bad-batch"),
   ops: [{ op: "delete" as const, uid: uidOf("uid_bad") }],
   status: 400, message: "request failed: 400 /api/ops",
 };
@@ -69,7 +67,9 @@ describe("planRetry", () => {
 
   it("rejects an unknown problem kind rather than silently doing nothing", () => {
     expect(() => planRetry(
-      { kind: "brand-new" } as unknown as SyncProblem, closed,
+      // A kind the union lacks, which the planner must refuse.
+      // @ts-expect-error -- not a SyncProblem kind
+      { kind: "brand-new" }, closed,
     )).toThrow(/unhandled sync problem/);
   });
 });

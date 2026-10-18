@@ -7,7 +7,10 @@ import type { OpsAck } from "../api/payloads";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { acquireOutlineSession } from "../outline/outlineSessions";
 import { sha256Hex } from "../replica/sha256";
-import { block, FakeWebSocket, jsonResponse, orderIdxOf, stubFetch, canonicalTitleOf, uidOf } from "../test-helpers";
+import {
+  block, FakeWebSocket, jsonResponse, orderIdxOf, stubFetch, canonicalTitleOf, uidOf, batchIdOf,
+  seqOf, pendingRowIdOf, sentBatchId, sentOps, stringContaining,
+} from "../test-helpers";
 import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
 import { clientId, createOpQueue } from "./opQueue";
@@ -47,7 +50,7 @@ function lastWs(): FakeWebSocket {
 
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
-const bid = (s: string): BatchId => s as BatchId;
+const bid = (s: string): BatchId => batchIdOf(s);
 
 describe("the socket and remote batches", () => {
   test("status: connecting -> connected -> reconnecting -> connected, resync bump on re-open", async () => {
@@ -85,7 +88,7 @@ describe("the socket and remote batches", () => {
     render(<SyncProvider><Grab /></SyncProvider>);
     act(() => lastWs().open());  // first connect
     act(() => lastWs().drop());  // offline: queue paused
-    act(() => sync.enqueue([{ op: "delete", uid: uidOf("tuid-u1") }])); // preserved, not sent
+    void act(() => sync.enqueue([{ op: "delete", uid: uidOf("tuid-u1") }])); // preserved, not sent
     act(() => { vi.advanceTimersByTime(2000); }); // socket reconnect timer
     await act(async () => { lastWs().open(); }); // reconnect: flush starts (gated)
 
@@ -148,7 +151,7 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
     log,
     init: async () => {
       log.push("init");
-      return { empty: true, cursor: 0 as SyncSeq, schemaMismatch: false,
+      return { empty: true, cursor: seqOf(0), schemaMismatch: false,
                pendingBatches: [] };
     },
     applySnapshot: async () => {
@@ -243,11 +246,11 @@ describe("replica bootstrap and nudges", () => {
     + "reboots an active replica without moving its cursor", async () => {
     let localGeneration = "g1";
     let localActivation = false;
-    let localCursor = 9 as SyncSeq;
+    let localCursor = seqOf(9);
     let committedSnapshot: {
       generation: string;
       plain_space_title_canonicalization: boolean;
-      seq: number;
+      seq: SyncSeq;
     } | null = null;
     const replica = fakeReplicaForProvider();
     replica.init = async () => ({
@@ -818,7 +821,7 @@ describe("durable batches on connect", () => {
       ["/api/ops", { ok: true }],
     ]);
     const replica = fakeReplicaForProvider();
-    const rows = [{ id: 1 as PendingRowId, batch_id: bid("leftover"),
+    const rows = [{ id: pendingRowIdOf(1), batch_id: bid("leftover"),
                     ops: [{ op: "delete", uid: uidOf("tuid-u1") } as const], poisoned: false }];
     replica.pendingCount = async () => rows.length;
     replica.nextBatch = async () => rows[0] ?? null;
@@ -848,7 +851,7 @@ describe("durable batches on connect", () => {
                        ops: BlockOp[]; poisoned: boolean }> = [];
     let nextId = 1;
     replica.enqueue = async (ops, batchId) => {
-      rows.push({ id: nextId++ as PendingRowId, batch_id: batchId, ops, poisoned: false });
+      rows.push({ id: pendingRowIdOf(nextId++), batch_id: batchId, ops, poisoned: false });
       return { pending: rows.length, batchId };
     };
     replica.nextBatch = async () => rows.find((r) => !r.poisoned) ?? null;
@@ -893,7 +896,7 @@ describe("poison repair and startup marks", () => {
     const rows: Array<{ id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                        poisoned: boolean }> = [];
     replica.enqueue = async (ops, batchId) => {
-      rows.push({ id: 1 as PendingRowId, batch_id: batchId, ops, poisoned: false });
+      rows.push({ id: pendingRowIdOf(1), batch_id: batchId, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId };
     };
     replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
@@ -935,12 +938,12 @@ describe("poison repair and startup marks", () => {
     let releaseSnapshot!: () => void;
     let snapshotHasStarted = false;
     const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
-    const posts: string[] = [];
+    const posts: BatchId[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
                                         init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/ops") {
-        const body = JSON.parse(String(init?.body)) as { batch_id: string };
+        const body = { batch_id: sentBatchId(init) };
         posts.push(body.batch_id);
         return body.batch_id === "bad-batch"
           ? jsonResponse({ detail: "bad op" }, 400)
@@ -961,11 +964,11 @@ describe("poison repair and startup marks", () => {
     let nextId = 1;
     const trace: string[] = [];
     replica.init = async () => ({
-      empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
+      empty: false, cursor: seqOf(5), schemaMismatch: false,
       pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
-      const id = nextId++ as PendingRowId;
+      const id = pendingRowIdOf(nextId++);
       const batch_id = bid(id === 1 ? "bad-batch" : "good-batch");
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
@@ -1029,7 +1032,7 @@ describe("poison repair and startup marks", () => {
                                         init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/ops") {
-        const body = JSON.parse(String(init?.body)) as { batch_id: string };
+        const body = { batch_id: sentBatchId(init) };
         if (body.batch_id === "bad-batch") {
           badBatchPosts += 1;
           if (badBatchPosts > 1) await repostGate;
@@ -1047,10 +1050,10 @@ describe("poison repair and startup marks", () => {
                        poisoned: boolean }> = [];
     let nextId = 1;
     replica.init = async () => ({
-      empty: false, cursor: 5 as SyncSeq, schemaMismatch: false, pendingBatches: [],
+      empty: false, cursor: seqOf(5), schemaMismatch: false, pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
-      const id = nextId++ as PendingRowId;
+      const id = pendingRowIdOf(nextId++);
       const batch_id = bid(id === 1 ? "bad-batch" : "good-batch");
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
@@ -1094,7 +1097,7 @@ describe("poison repair and startup marks", () => {
     // cleared `problem` to undefined first, so this is the only source of a
     // "reset-failed" problem here.
     expect(sync.problem).not.toMatchObject({
-      reset: "failed", resetError: expect.stringContaining("in progress"),
+      reset: "failed", resetError: stringContaining("in progress"),
     });
 
     releaseRepost();
@@ -1105,13 +1108,13 @@ describe("poison repair and startup marks", () => {
     // Composed across the real opQueue + replicaSync + SyncProvider stack (no
     // mocked queue below the provider), unlike the other two branch tests
     // above: this is the boundary the signal has to cross.
-    const posts: string[] = [];
+    const posts: BatchId[] = [];
     const trace: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
                                         init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/ops") {
-        const body = JSON.parse(String(init?.body)) as { batch_id: string };
+        const body = { batch_id: sentBatchId(init) };
         posts.push(body.batch_id);
         return body.batch_id === "bad-batch"
           ? jsonResponse({ detail: "bad op" }, 400)
@@ -1127,10 +1130,10 @@ describe("poison repair and startup marks", () => {
                        poisoned: boolean }> = [];
     let nextId = 1;
     replica.init = async () => ({
-      empty: false, cursor: 5 as SyncSeq, schemaMismatch: false, pendingBatches: [],
+      empty: false, cursor: seqOf(5), schemaMismatch: false, pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
-      const id = nextId++ as PendingRowId;
+      const id = pendingRowIdOf(nextId++);
       const batch_id = bid(id === 1 ? "bad-batch" : "good-batch");
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
@@ -1171,7 +1174,7 @@ describe("poison repair and startup marks", () => {
     expect(trace).not.toContain("prepare repair");
     await act(async () => { await sync.resetReplica(true); });
     expect(sync.problem).not.toMatchObject({
-      reset: "failed", resetError: expect.stringContaining("in progress"),
+      reset: "failed", resetError: stringContaining("in progress"),
     });
   });
 
@@ -1179,7 +1182,7 @@ describe("poison repair and startup marks", () => {
     let releaseSnapshot!: () => void;
     const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
     let snapshotStarted = false;
-    const posts: string[] = [];
+    const posts: BatchId[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
                                         init?: RequestInit) => {
       const url = String(input);
@@ -1189,7 +1192,7 @@ describe("poison repair and startup marks", () => {
         return jsonResponse(SNAPSHOT);
       }
       if (url === "/api/ops") {
-        posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+        posts.push(sentBatchId(init));
         return jsonResponse({ ok: true });
       }
       if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
@@ -1199,16 +1202,16 @@ describe("poison repair and startup marks", () => {
     const rejectedOp = { op: "delete", uid: uidOf("rejected") } as const;
     const goodOp = { op: "delete", uid: uidOf("tuid-good") } as const;
     const rows = [
-      { id: 1 as PendingRowId, batch_id: bid("old-poison"), ops: [rejectedOp], poisoned: true },
-      { id: 2 as PendingRowId, batch_id: bid("later-good"), ops: [goodOp], poisoned: false },
+      { id: pendingRowIdOf(1), batch_id: bid("old-poison"), ops: [rejectedOp], poisoned: true },
+      { id: pendingRowIdOf(2), batch_id: bid("later-good"), ops: [goodOp], poisoned: false },
     ];
     const replica = fakeReplicaForProvider();
     replica.init = async () => ({
-      empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
+      empty: false, cursor: seqOf(5), schemaMismatch: false,
       pendingBatches: [...rows],
     });
     replica.poisonedBatches = async () => [{
-      id: 1 as PendingRowId, batch_id: bid("old-poison"), ops: [rejectedOp], status: 400,
+      id: pendingRowIdOf(1), batch_id: bid("old-poison"), ops: [rejectedOp], status: 400,
       message: "request failed: 400 /api/ops",
     }];
     replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
@@ -1233,12 +1236,12 @@ describe("poison repair and startup marks", () => {
 
   test("reload retries only the durable mark and surfaces failure before startup",
   async () => {
-    const posts: string[] = [];
+    const posts: BatchId[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
                                         init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/ops") {
-        const batchId = (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
+        const batchId = sentBatchId(init);
         posts.push(batchId);
         return batchId === "bad-batch"
           ? jsonResponse({ detail: "bad op" }, 400)
@@ -1257,7 +1260,7 @@ describe("poison repair and startup marks", () => {
     let poisonDiscoveryCalls = 0;
     let initCalls = 0;
     replica.enqueue = async (ops) => {
-      const id = nextId++ as PendingRowId;
+      const id = pendingRowIdOf(nextId++);
       const batch_id = bid(id === 1 ? "bad-batch" : "later-good");
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
@@ -1280,7 +1283,7 @@ describe("poison repair and startup marks", () => {
     };
     replica.init = async () => {
       initCalls += 1;
-      return { empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
+      return { empty: false, cursor: seqOf(5), schemaMismatch: false,
                pendingBatches: [...rows] };
     };
     replica.prepareRecovery = async () => ({ token: "reload-poison", batches: [...rows] });
@@ -1329,7 +1332,7 @@ describe("poison repair and startup marks", () => {
 
   test("startup repairs returned marks even when poison discovery fails", async () => {
     const event = {
-      id: 1 as PendingRowId, batch_id: "bad-batch",
+      id: pendingRowIdOf(1), batch_id: "bad-batch",
       ops: [{ op: "delete", uid: uidOf("tuid-bad") } as const],
       status: 400, message: "request failed: 400 /api/ops",
     };
@@ -1339,7 +1342,7 @@ describe("poison repair and startup marks", () => {
     let releaseSnapshot!: () => void;
     const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
     let snapshotStarted = false;
-    const posts: string[] = [];
+    const posts: BatchId[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
                                         init?: RequestInit) => {
       const url = String(input);
@@ -1349,15 +1352,15 @@ describe("poison repair and startup marks", () => {
         return jsonResponse(SNAPSHOT);
       }
       if (url === "/api/ops") {
-        posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+        posts.push(sentBatchId(init));
         return jsonResponse({ ok: true });
       }
       if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
       return jsonResponse({ detail: "not found" }, 404);
     }));
     const rows = [
-      { id: 1 as PendingRowId, batch_id: bid("bad-batch"), ops: [...event.ops], poisoned: false },
-      { id: 2 as PendingRowId, batch_id: bid("later-good"),
+      { id: pendingRowIdOf(1), batch_id: bid("bad-batch"), ops: [...event.ops], poisoned: false },
+      { id: pendingRowIdOf(2), batch_id: bid("later-good"),
         ops: [{ op: "delete", uid: uidOf("tuid-good") } as const], poisoned: false },
     ];
     const replica = fakeReplicaForProvider();
@@ -1376,7 +1379,7 @@ describe("poison repair and startup marks", () => {
     replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
     replica.init = async () => {
       initCalls += 1;
-      return { empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
+      return { empty: false, cursor: seqOf(5), schemaMismatch: false,
                pendingBatches: [...rows] };
     };
     replica.prepareRecovery = async () => ({ token: "returned-mark", batches: [...rows] });
@@ -1409,7 +1412,7 @@ describe("poison repair and startup marks", () => {
     };
     replica.init = async () => {
       initCalls += 1;
-      return { empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
+      return { empty: false, cursor: seqOf(5), schemaMismatch: false,
                pendingBatches: [] };
     };
     let sync!: Sync;
@@ -1465,12 +1468,12 @@ function unopenableReplica(
 describe("an unopenable replica", () => {
   test("an unopenable replica delivers queued ops online instead of stranding them",
   async () => {
-    const posts: string[] = [];
+    const posts: BatchId[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
                                         init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/ops") {
-        posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+        posts.push(sentBatchId(init));
         return jsonResponse({ ok: true });
       }
       if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
@@ -1498,7 +1501,7 @@ describe("an unopenable replica", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/ops") {
-        posts.push(JSON.parse(String(init?.body)));
+        posts.push({ ops: sentOps(init) });
         return jsonResponse({ ok: true });
       }
       if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
@@ -1547,7 +1550,7 @@ describe("an unopenable replica", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/ops") {
-        bodies.push(JSON.parse(String(init?.body)));
+        bodies.push({ ops: sentOps(init) });
         return jsonResponse({ ok: true });
       }
       if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
@@ -1667,8 +1670,8 @@ describe("the poison gate and repair problems", () => {
     };
     const rejected = { op: "delete", uid: uidOf("rejected") } as const;
     const rows = [
-      { id: 7 as PendingRowId, batch_id: bid("rejected-last-session"), ops: [rejected], poisoned: true },
-      { id: 8 as PendingRowId, batch_id: bid("queued-behind-poison"),
+      { id: pendingRowIdOf(7), batch_id: bid("rejected-last-session"), ops: [rejected], poisoned: true },
+      { id: pendingRowIdOf(8), batch_id: bid("queued-behind-poison"),
         ops: [{ op: "delete", uid: uidOf("behind") } as const], poisoned: false },
     ];
     const replica = fakeReplicaForProvider();
@@ -1679,10 +1682,10 @@ describe("the poison gate and repair problems", () => {
       } catch {
         // Deliberately does NOT reset `state`: the real worker leaves its
         // memoised rejection in place so the database stays latched shut.
-        return { empty: true, cursor: 0 as SyncSeq, schemaMismatch: false,
+        return { empty: true, cursor: seqOf(0), schemaMismatch: false,
                  pendingBatches: [] };
       }
-      return { empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
+      return { empty: false, cursor: seqOf(5), schemaMismatch: false,
                pendingBatches: [...rows] };
     };
     replica.poisonedBatches = async () => {
@@ -1720,12 +1723,12 @@ describe("the poison gate and repair problems", () => {
     // "failed" forever, never reset on the caught rejection) is what makes that
     // impossible; this test is the only one that can still express the race at
     // all, since unopenableReplica() is permanently dead.
-    const posts: string[] = [];
+    const posts: BatchId[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
                                         init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/ops") {
-        posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+        posts.push(sentBatchId(init));
         return jsonResponse({ ok: true });
       }
       if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
@@ -1753,12 +1756,12 @@ describe("the poison gate and repair problems", () => {
                   ops: [{ op: "delete", uid: uidOf("tuid-bad") }],
                   status: 400, message: "request failed: 400 /api/ops" }],
     }));
-    const posts: string[] = [];
+    const posts: BatchId[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
                                         init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/ops") {
-        posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+        posts.push(sentBatchId(init));
         return jsonResponse({ ok: true });
       }
       if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
@@ -1797,12 +1800,12 @@ describe("the poison gate and repair problems", () => {
                   ops: [{ op: "delete", uid: uidOf("tuid-bad") }],
                   status: 400, message: "request failed: 400 /api/ops" }],
     }));
-    const posts: string[] = [];
+    const posts: BatchId[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
                                         init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/ops") {
-        posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+        posts.push(sentBatchId(init));
         return jsonResponse({ ok: true });
       }
       if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
@@ -1841,12 +1844,12 @@ describe("the poison gate and repair problems", () => {
 
   test("failed poison repair stays visible and Retry succeeds without reapplying it", async () => {
     let snapshotCalls = 0;
-    const posts: string[] = [];
+    const posts: BatchId[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
                                         init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/ops") {
-        const batchId = (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
+        const batchId = sentBatchId(init);
         posts.push(batchId);
         return batchId === "bad-batch"
           ? jsonResponse({ detail: "bad op" }, 400)
@@ -1867,11 +1870,11 @@ describe("the poison gate and repair problems", () => {
                        poisoned: boolean }> = [];
     let nextId = 1;
     replica.init = async () => ({
-      empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
+      empty: false, cursor: seqOf(5), schemaMismatch: false,
       pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
-      const id = nextId++ as PendingRowId;
+      const id = pendingRowIdOf(nextId++);
       const batch_id = bid(id === 1 ? "bad-batch" : "good-batch");
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
@@ -1937,12 +1940,12 @@ describe("the poison gate and repair problems", () => {
   test("applySync reads the freshest problem for same-tick dispatches: a dismiss " +
   "racing a new repair-started must not erase it", async () => {
     let snapshotCalls = 0;
-    const posts: string[] = [];
+    const posts: BatchId[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
                                         init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/ops") {
-        const batchId = (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
+        const batchId = sentBatchId(init);
         posts.push(batchId);
         return batchId === "bad-batch" || batchId === "bad-batch-2"
           ? jsonResponse({ detail: "bad op" }, 400)
@@ -1963,11 +1966,11 @@ describe("the poison gate and repair problems", () => {
                        poisoned: boolean }> = [];
     let nextId = 1;
     replica.init = async () => ({
-      empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
+      empty: false, cursor: seqOf(5), schemaMismatch: false,
       pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
-      const id = nextId++ as PendingRowId;
+      const id = pendingRowIdOf(nextId++);
       const batchId = bid(id === 1 ? "bad-batch" : id === 2 ? "good-batch" : "bad-batch-2");
       rows.push({ id, batch_id: batchId, ops, poisoned: false });
       return { pending: rows.filter((row) => !row.poisoned).length, batchId };
@@ -2140,7 +2143,7 @@ describe("offline and cold start", () => {
     // replica was starting must be told to refetch (through the shim)
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
     const replica = fakeReplicaForProvider();
-    replica.init = async () => ({ empty: false, cursor: 5 as SyncSeq,
+    replica.init = async () => ({ empty: false, cursor: seqOf(5),
                                   schemaMismatch: false, pendingBatches: [] });
     function Grab() {
       const sync = useSyncWhole();
@@ -2190,7 +2193,7 @@ describe("ownership and StrictMode lifecycle", () => {
         const req = message as { id: number; method: string };
         if (req.method === "close") events.push("close-db");
         const result = req.method === "init"
-          ? { empty: true, cursor: 0 as SyncSeq, schemaMismatch: false,
+          ? { empty: true, cursor: seqOf(0), schemaMismatch: false,
               pendingBatches: [] }
           : req.method === "pendingCount" ? 0 : null;
         queueMicrotask(() => this.onmessage?.({ data: { id: req.id, result } }));
@@ -2347,11 +2350,11 @@ describe("reconnect pulls and resync", () => {
       const rows: Array<{ id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                          poisoned: boolean }> = [];
       replica.init = async () => ({
-        empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
+        empty: false, cursor: seqOf(5), schemaMismatch: false,
         pendingBatches: [],
       });
       replica.enqueue = async (ops) => {
-        rows.push({ id: 1 as PendingRowId, batch_id: bid("retry-me"), ops, poisoned: false });
+        rows.push({ id: pendingRowIdOf(1), batch_id: bid("retry-me"), ops, poisoned: false });
         return { pending: rows.length, batchId: bid("retry-me") };
       };
       replica.nextBatch = async () => rows[0] ?? null;
@@ -2415,7 +2418,7 @@ describe("reconnect pulls and resync", () => {
       }));
       const replica = fakeReplicaForProvider();
       replica.init = async () => ({
-        empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
+        empty: false, cursor: seqOf(5), schemaMismatch: false,
         pendingBatches: [],
       });
       let sync!: Sync;
@@ -2472,7 +2475,7 @@ describe("reconnect pulls and resync", () => {
       }));
       const replica = fakeReplicaForProvider();
       replica.init = async () => ({
-        empty: false, cursor: 5 as SyncSeq, schemaMismatch: false, pendingBatches: [],
+        empty: false, cursor: seqOf(5), schemaMismatch: false, pendingBatches: [],
       });
       let sync!: Sync;
       function Grab() { sync = useSyncWhole(); return null; }
@@ -2512,7 +2515,7 @@ describe("reconnect pulls and resync", () => {
       }));
       const replica = fakeReplicaForProvider();
       replica.init = async () => ({
-        empty: false, cursor: 5 as SyncSeq, schemaMismatch: false, pendingBatches: [],
+        empty: false, cursor: seqOf(5), schemaMismatch: false, pendingBatches: [],
       });
       let sync!: Sync;
       function Grab() { sync = useSyncWhole(); return null; }
@@ -2643,7 +2646,7 @@ describe("the replica-stalled problem", () => {
       return jsonResponse({ ok: true });
     }));
     const replica = fakeReplicaForProvider();
-    replica.init = async () => ({ empty: false, cursor: 0 as SyncSeq,
+    replica.init = async () => ({ empty: false, cursor: seqOf(0),
                                   schemaMismatch: true, pendingBatches: [] });
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }
@@ -2670,7 +2673,7 @@ describe("the replica-stalled problem", () => {
       return jsonResponse({ ok: true });
     }));
     const replica = fakeReplicaForProvider();
-    replica.init = async () => ({ empty: false, cursor: 0 as SyncSeq,
+    replica.init = async () => ({ empty: false, cursor: seqOf(0),
                                   schemaMismatch: true, pendingBatches: [] });
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }
@@ -2731,7 +2734,7 @@ describe("resetReplica", () => {
     const replica = fakeReplicaForProvider();
     const pendingBatch: { id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                           poisoned: boolean } =
-      { id: 1 as PendingRowId, batch_id: bid("b1"), ops: [{ op: "delete", uid: uidOf("tuid-u1") }], poisoned: false };
+      { id: pendingRowIdOf(1), batch_id: bid("b1"), ops: [{ op: "delete", uid: uidOf("tuid-u1") }], poisoned: false };
     replica.prepareRecovery = async () =>
       ({ token: "lease-1", batches: [pendingBatch] });
     let sync!: Sync;
@@ -2758,7 +2761,7 @@ describe("resetReplica", () => {
     const replica = fakeReplicaForProvider();
     const pendingBatch: { id: PendingRowId; batch_id: BatchId; ops: BlockOp[];
                           poisoned: boolean } =
-      { id: 1 as PendingRowId, batch_id: bid("b1"), ops: [{ op: "delete", uid: uidOf("tuid-u1") }], poisoned: false };
+      { id: pendingRowIdOf(1), batch_id: bid("b1"), ops: [{ op: "delete", uid: uidOf("tuid-u1") }], poisoned: false };
     replica.prepareRecovery = async () =>
       ({ token: "lease-1", batches: [pendingBatch] });
     let sync!: Sync;

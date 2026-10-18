@@ -202,8 +202,6 @@ TEST_SUPPORT: tuple[str, ...] = (
     "web/src/props/",
     "web/src/replica/replayArbs.ts",
     "web/src/sync/memReplica.ts",
-    # The perf harness is test tooling and never ships.
-    "web/tooling/perf/",
 )
 
 # Glob patterns for files where a line may carry `# brand: untrusted --

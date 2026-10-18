@@ -13,7 +13,7 @@ blocking:
 Follow-up to pkm-zv2s. Aim: an agent finds it easy to do the right thing because (a) the code in its context is already right and (b) the rule is enforced. Review of the zv2s rulings against that aim found these gaps.
 
 ## Agreed changes (land on feat/brand-check-web before the Phase 2 merge)
-- [ ] Web perf harness under the brand rules: drop `web/tooling/perf/` from `brand_registry.TEST_SUPPORT` (ruling R19), regenerate, fix its ~15 brand casts (rebaseTargets.ts, rebase.perf.ts) with helpers or `select` reads.
+- [x] Web perf harness under the brand rules: drop `web/tooling/perf/` from `brand_registry.TEST_SUPPORT` (ruling R19), regenerate, fix its ~15 brand casts (rebaseTargets.ts, rebase.perf.ts) with helpers or `select` reads.
 - [ ] Server tooling under brandlint: widen scope from `server/src/**` to `server/tooling/**` (perfcheck, proptest, commentlint, brandlint). Register `server/tooling/perfcheck/` as the one tooling raw-sqlite site with its reason (it measures SQLite itself: trace and progress hooks, EXPLAIN plans).
 - [ ] Delete the merge-base compatibility shims now that main has `pkm.database`: `getattr(con, "raw", con)` in perfcheck/trace.py and the `page_id`/`id` fallback in perfcheck/build.py. Every future merge base has the typed rows.
 - [ ] proptest sync_server: replace the local `_dicts` helper with `Db.select`.

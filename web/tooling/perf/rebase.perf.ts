@@ -6,16 +6,18 @@
 //
 // The replica code and sqlite-wasm come from $PERF_WEB_ROOT, never from this
 // file's own checkout, so a merge-base run measures the base's replica with
-// the branch's harness. Only types are imported from the branch statically.
+// the branch's harness. The branch's small pure modules (typed client, id
+// and uid helpers) are imported statically; the replica never is.
 import { renameSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "vitest";
-import type { ClientId, SyncSeq } from "../../src/api/brands";
-import type { OpsAck } from "../../src/api/payloads";
+import type { SyncSeq } from "../../src/api/brands";
+import { apiGet, apiPost } from "../../src/api/typedClient";
 import type { Changes, Snapshot } from "../../src/replica/apply";
 import type { Oo1DbLike } from "../../src/replica/db";
+import { newClientId } from "../../src/uid";
 import { installCounter, type Oo1Exec, type SqlCounts, type Sqlite3Like } from "./sqlcount";
 import { pendingBatches, pickTargets, windowBatches } from "./rebaseTargets";
 
@@ -35,7 +37,7 @@ const BASE_URL = env("PERF_BASE_URL");
 const OUT = env("PERF_REBASE_OUT");
 const FROZEN_MS = Date.parse(process.env.PERF_FROZEN_NOW ?? "2026-06-15T12:00:00+01:00");
 const PAGE = "Perf Big Page";
-const PEER = "perf-rebase-peer" as ClientId;
+const PEER = newClientId();
 const WINDOWS = ["R/rebase-edit", "R/rebase-paste", "R/rebase-overlap"] as const;
 const PENDING = 6;
 
@@ -70,27 +72,28 @@ async function login(): Promise<string> {
   return cookie;
 }
 
-async function call<T>(cookie: string, route: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}${route}`, body === undefined
-    ? { headers: { cookie } }
-    : { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(`rebase scenario: ${route} failed: ${res.status} ${await res.text()}`);
-  return await res.json() as T;
+/** Routes the typed client's relative fetches to the fixture server. */
+function pointClientAt(cookie: string): void {
+  const real = globalThis.fetch;
+  globalThis.fetch = (input, init) => real(`${BASE_URL}${String(input)}`, {
+    ...init, headers: { ...(init?.headers as Record<string, string> | undefined), cookie },
+  });
 }
 
 /** The snapshot, then each peer batch posted and its window fetched. */
 async function fetchWorkload(): Promise<{ snapshot: Snapshot; feeds: Changes[] }> {
-  const cookie = await login();
-  const snapshot = await call<Snapshot>(cookie, "/api/sync/snapshot");
+  pointClientAt(await login());
+  const snapshot = await apiGet("/api/sync/snapshot");
   const targets = pickTargets(snapshot, PAGE);
   const feeds: Changes[] = [];
   let cursor: SyncSeq = snapshot.seq;
   for (const w of windowBatches(targets, snapshot)) {
-    const ack = await call<OpsAck>(cookie, "/api/ops", { client_id: PEER, batch_id: w.batchId, ops: w.ops });
+    const ack = await apiPost("/api/ops",
+      { body: { client_id: PEER, batch_id: w.batchId, ops: w.ops } });
     // a skipped op would silently shrink the window being measured
     expect(ack.skipped ?? [], `${w.batchId} skipped ops`).toEqual([]);
     expect(ack.applied, `${w.batchId} applied`).toBe(w.ops.length);
-    const feed = await call<Changes>(cookie, `/api/sync/changes?since=${cursor}`);
+    const feed = await apiGet("/api/sync/changes", { query: { since: cursor } });
     feeds.push(feed);
     cursor = feed.next_since;
   }

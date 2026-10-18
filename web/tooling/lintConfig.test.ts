@@ -340,7 +340,7 @@ describe("brands plugin paths", () => {
     expect(repoPath(abs("src/ids.ts"))).toBe("web/src/ids.ts");
     expect(isExempt(repoPath(abs("src/props/ops/a.ts")))).toBe(true);
     expect(isExempt(repoPath(abs("src/foo.test.ts")))).toBe(true);
-    expect(isExempt(repoPath(abs("tooling/perf/x.ts")))).toBe(true);
+    expect(isExempt(repoPath(abs("tooling/perf/x.ts")))).toBe(false);
     expect(isExempt(repoPath(abs("src/ids.ts")))).toBe(false);
     expect(isExempt(repoPath(abs("tooling/eslint-fixtures/a.ts"))))
       .toBe(false);

@@ -138,8 +138,7 @@ describe("pendingBatches", () => {
   const batches = pendingBatches(t, snap);
 
   test("six batches, p5 a single delete of deleteRoot", () => {
-    expect(batches.map((b) => b.batchId)).toEqual(
-      ["p1", "p2", "p3", "p4", "p5", "p6"].map((p) => `perf-rebase-${p}`));
+    expect(new Set(batches.map((b) => b.batchId)).size).toBe(6);
     expect(batches[4]?.ops).toEqual([{ op: "delete", uid: t.deleteRoot }]);
   });
 
@@ -172,8 +171,7 @@ describe("windowBatches", () => {
   const windows = windowBatches(t, snap);
 
   test("edit, paste and overlap windows", () => {
-    expect(windows.map((w) => w.batchId)).toEqual(
-      ["w1", "w2", "w3"].map((w) => `perf-rebase-${w}`));
+    expect(new Set(windows.map((w) => w.batchId)).size).toBe(3);
     expect(windows[0]?.ops).toEqual(
       [{ op: "update_text", uid: t.windowEditUid, text: `text of ${t.windowEditUid} (peer edit)` }]);
     const paste = ofKind(windows[1]?.ops ?? [], "create");

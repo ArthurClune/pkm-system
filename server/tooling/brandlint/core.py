@@ -24,7 +24,7 @@ from pathlib import PurePosixPath
 from brandlint.registry import Registry
 from commentlint.core import Violation
 
-SCOPE_ROOT = "server/src/"
+SCOPE_ROOTS = ("server/src/", "server/tooling/")
 
 RULES = {
     "brand-name": "a name that means a brand must carry it: read the value from a `select()` row, take it "
@@ -51,8 +51,9 @@ _REASON = re.compile(r"^\s*--\s*\S")
 
 
 def in_scope(path: str, registry: Registry) -> bool:
-    """Product Python under server/src; test-data builders count as tests."""
-    if not path.startswith(SCOPE_ROOT) or PurePosixPath(path).suffix != ".py":
+    """Python under server/src and server/tooling; test-data builders count
+    as tests."""
+    if not path.startswith(SCOPE_ROOTS) or PurePosixPath(path).suffix != ".py":
         return False
     return not any(path.startswith(prefix) for prefix in registry.test_support)
 
@@ -163,9 +164,6 @@ def _annotated_names(tree: ast.AST):
                     yield stmt.target.id, stmt.annotation, stmt.lineno, stmt.end_lineno or stmt.lineno
 
 
-DATABASE_FILE = "server/src/pkm/database.py"
-
-
 def _site_allowed(path: str, sites: tuple[str, ...]) -> bool:
     return any(path == site or (site.endswith("/") and path.startswith(site)) for site in sites)
 
@@ -189,7 +187,7 @@ def _escape_hatches(path: str, tree: ast.AST, registry: Registry) -> list[tuple[
     brands = set(registry.shapes) | set(registry.mint_sites) | registry.declared
     declared = _declared_brands(tree)
     cast_ok = _site_allowed(path, registry.cast_sites)
-    sqlite_ok = path == DATABASE_FILE
+    sqlite_ok = _site_allowed(path, registry.sqlite_sites)
     out: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module == "sqlite3" and not sqlite_ok:

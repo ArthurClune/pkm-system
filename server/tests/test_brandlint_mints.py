@@ -114,7 +114,6 @@ def test_test_support_and_other_trees_are_exempt():
     text = "x = BlockUid(raw)\ny = cast(Row, z)\ndb.raw\n"
     assert rules(text, "server/src/pkm/test_data/core.py") == []
     assert rules(text, "server/tests/test_x.py") == []
-    assert rules(text, "server/tooling/perfcheck/backend.py") == []
 
 
 def test_each_remedy_names_the_fix():
@@ -138,7 +137,7 @@ def test_an_internal_newtype_is_a_brand_for_rule_2(tmp_path: Path):
     src.mkdir(parents=True)
     (src / "brand_registry.py").write_text(
         'NAMES = {}\nSHAPES = {}\nMINT_SITES = {}\nCAST_SITES = ()\n'
-        'TEST_SUPPORT = ()\nOPT_OUT_FILES = ()\n')
+        'TEST_SUPPORT = ()\nOPT_OUT_FILES = ()\nSQLITE_SITES = {}\n')
     (src / "internal.py").write_text('Hidden = NewType("Hidden", str)\n')
     registry = load_registry(tmp_path)
     assert registry.declared == {"Hidden"}
@@ -148,3 +147,18 @@ def test_an_internal_newtype_is_a_brand_for_rule_2(tmp_path: Path):
 def test_the_canonical_query_node_is_minted_only_in_query_exec():
     assert rules("x = CanonicalQueryNode(n)\n", ROUTES) == ["brand-mint"]
     assert rules("x = CanonicalQueryNode(n)\n", "server/src/pkm/server/query_exec.py") == []
+
+
+PERFCHECK = "server/tooling/perfcheck/trace.py"
+PROPTEST = "server/tooling/proptest/sync_server.py"
+
+
+def test_server_tooling_is_linted():
+    assert rules("x = BlockUid(raw)\n", PROPTEST) == ["brand-mint"]
+    assert rules("def f(uid: str): ...\n", PERFCHECK) == ["brand-name"]
+
+
+def test_perfcheck_may_touch_raw_sqlite_and_proptest_may_not():
+    source = "db.raw.set_trace_callback(cb)\n"
+    assert rules(source, PERFCHECK) == []
+    assert rules(source, PROPTEST) == ["raw-sqlite"]

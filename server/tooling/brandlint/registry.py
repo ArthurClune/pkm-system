@@ -37,6 +37,7 @@ class Registry:
     shapes: dict[str, tuple[str, str | None]] = field(default_factory=dict)
     mint_sites: dict[str, tuple[str, ...]] = field(default_factory=dict)
     cast_sites: tuple[str, ...] = ()
+    sqlite_sites: tuple[str, ...] = ()
     declared: frozenset[str] = frozenset()
 
 
@@ -56,5 +57,6 @@ def load_registry(repo: Path) -> Registry:
         shapes=dict(module.SHAPES),
         mint_sites=dict(module.MINT_SITES),
         cast_sites=tuple(module.CAST_SITES),
+        sqlite_sites=tuple(module.SQLITE_SITES),
         declared=declared_newtypes(repo),
     )

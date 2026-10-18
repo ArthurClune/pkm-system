@@ -176,14 +176,6 @@ class Clock:
         self._travel.stop()
 
 
-def _dicts(db: Db, sql: str) -> list[dict]:
-    """Rows of a test-only table read by column name (their columns are not
-    `Row` keys, so `Db.select` would not accept them)."""
-    cursor = db.raw.execute(sql)
-    names = [d[0] for d in cursor.description]
-    return [dict(zip(names, values)) for values in cursor.fetchall()]
-
-
 def build_template(path: Path) -> None:
     """A fresh DB holding page "Proptest" with five top-level blocks, page
     "Second" with three and page "Fixture" with one, written through the real
@@ -344,7 +336,7 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     def applied(request: Request) -> list[dict]:
         con = open_db(request.app.state.config.db_path)
         try:
-            rows = _dicts(con,
+            rows = con.select(
                 "SELECT batch_id, applied_at FROM applied_batches ORDER BY rowid")
         finally:
             con.close()
@@ -356,40 +348,51 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         try:
             # The batch each followed by id: the serial replay walks
             # /__proptest/applied's list, which names batches, not rowids.
-            rows = _dicts(con,
-                "SELECT r.old_title, r.new_title, a.batch_id AS after_batch_id, r.at, r.ord"
+            # Columns are aliased to row keys: the batch id (empty when no
+            # batch preceded), updated_at for `at`, n for `ord`.
+            rows = con.select(
+                "SELECT r.old_title, r.new_title, COALESCE(a.batch_id, '') AS batch_id,"
+                " r.at AS updated_at, r.ord AS n"
                 " FROM proptest_renames r"
                 " LEFT JOIN applied_batches a ON a.rowid = r.after_batch"
                 " ORDER BY r.rowid")
         finally:
             con.close()
-        return rows
+        return [{"old_title": r["old_title"], "new_title": r["new_title"],
+                 "after_batch_id": r["batch_id"] or None,
+                 "at": r["updated_at"], "ord": r["n"]} for r in rows]
 
     @app.get("/__proptest/deletes", dependencies=[Depends(require_auth)])
     def deletes(request: Request) -> list[dict]:
         con = open_db(request.app.state.config.db_path)
         try:
-            rows = _dicts(con,
-                "SELECT d.title, d.seq, a.batch_id AS after_batch_id, d.at, d.ord, d.uids"
+            # Aliased as for renames; the JSON array of uids is an
+            # entity_id column.
+            rows = con.select(
+                "SELECT d.title, d.seq, COALESCE(a.batch_id, '') AS batch_id,"
+                " d.at AS deleted_at, d.ord AS n, d.uids AS entity_id"
                 " FROM proptest_deletes d"
                 " LEFT JOIN applied_batches a ON a.rowid = d.after_batch"
                 " ORDER BY d.rowid")
         finally:
             con.close()
-        return [{**r, "uids": json.loads(r["uids"])} for r in rows]
+        return [{"title": r["title"], "seq": r["seq"],
+                 "after_batch_id": r["batch_id"] or None, "at": r["deleted_at"],
+                 "ord": r["n"], "uids": json.loads(r["entity_id"])} for r in rows]
 
     @app.get("/__proptest/conflicts", dependencies=[Depends(require_auth)])
     def conflicts(request: Request) -> list[dict]:
         con = open_db(request.app.state.config.db_path)
         try:
-            rows = _dicts(con,
+            rows = con.select(
                 "SELECT c.header_uid, c.text,"
-                " (SELECT a.batch_id FROM applied_batches a WHERE a.rowid > c.after_batch"
-                "   ORDER BY a.rowid LIMIT 1) AS batch_id"
+                " COALESCE((SELECT a.batch_id FROM applied_batches a WHERE a.rowid > c.after_batch"
+                "   ORDER BY a.rowid LIMIT 1), '') AS batch_id"
                 " FROM proptest_conflicts c ORDER BY c.rowid")
         finally:
             con.close()
-        return rows
+        return [{"header_uid": r["header_uid"], "text": r["text"],
+                 "batch_id": r["batch_id"] or None} for r in rows]
 
     @app.post("/__proptest/echo/take", dependencies=[Depends(require_auth)])
     def echo_take() -> dict:

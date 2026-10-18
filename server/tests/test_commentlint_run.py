@@ -115,6 +115,7 @@ MINT_SITES = {"BlockUid": ()}
 CAST_SITES = ()
 TEST_SUPPORT = ()
 OPT_OUT_FILES = ()
+SQLITE_SITES = {}
 '''
 
 

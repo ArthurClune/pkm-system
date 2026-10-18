@@ -8,13 +8,14 @@ file's source is the baseline's `fixture_hash` -- editing it invalidates
 every baseline, so change it deliberately and rebaseline."""
 from __future__ import annotations
 
-import hashlib
 import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from pkm.assets_core import sha256_hex
 from pkm.contracts.daily import title_for_date
+from pkm.contracts.ops import Sha256Hex
 
 FROZEN_NOW = datetime(2026, 6, 15, 12, 0, tzinfo=ZoneInfo("Europe/London"))
 FROZEN_NOW_MS = int(FROZEN_NOW.timestamp() * 1000)
@@ -77,7 +78,7 @@ class Batch:
 
 @dataclass(frozen=True)
 class AssetRow:
-    sha256: str
+    sha256: Sha256Hex
     filename: str
     mime: str
     size: int
@@ -275,7 +276,7 @@ def generate(seed: int = 1, scale: float = 1.0) -> Fixture:
     batches.append(Batch(current_ms, tuple(current)))
 
     assets = tuple(
-        AssetRow(sha256=hashlib.sha256(f"perf-asset-{i}".encode()).hexdigest(),
+        AssetRow(sha256=sha256_hex(f"perf-asset-{i}".encode()),
                  filename=f"{'diagram' if i % 3 == 0 else 'scan'}-{i:03d}.{'png' if i % 2 else 'pdf'}",
                  mime="image/png" if i % 2 else "application/pdf",
                  size=10_000 + i * 97,

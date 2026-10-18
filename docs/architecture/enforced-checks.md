@@ -13,7 +13,7 @@ clone enables them. `--no-verify` bypasses both.
 |---|---|---|
 | `commit-msg` | a Claude session URL or `Claude-Session:` trailer in the message | `AGENTS.md` § Git |
 | `pre-commit` | in any staged source file or architecture doc: a bean id, a line number or a spec/plan pointer with no path in a comment; a comment line over 80 columns or any other line over 120 (`noqa: E501` exempts a line) | [backend.md](backend.md#testing), `server/tooling/commentlint` |
-| `pre-commit` | in a staged `server/src` file: a parameter, field or key named like a brand and not carrying it (`uid: str`); a brand constructed or `cast` outside its registered sites; `model_construct`; raw `sqlite3` outside `pkm.database` | [Brand rules](#brand-rules), `server/tooling/brandlint` |
+| `pre-commit` | in a staged `server/src` or `server/tooling` file: a parameter, field or key named like a brand and not carrying it (`uid: str`); a brand constructed or `cast` outside its registered sites; `model_construct`; raw `sqlite3` outside `SQLITE_SITES` | [Brand rules](#brand-rules), `server/tooling/brandlint` |
 
 ### Brand rules
 
@@ -31,10 +31,14 @@ syntax and reports `brand-parse` instead of skipping the file.
 | `brand-mint` | a `NewType` declared under `server/src/pkm` is constructed outside its sites | `MINT_SITES` |
 | `brand-cast` | `typing.cast` is called outside `CAST_SITES` | `CAST_SITES` |
 | `model-construct` | a pydantic model is built with `model_construct` | none |
-| `raw-sqlite` | `sqlite3.connect`, a cursor or `.raw` is used outside `pkm.database` | none |
+| `raw-sqlite` | `sqlite3.connect`, a cursor or `.raw` is used outside `SQLITE_SITES` | `SQLITE_SITES` |
 | `brand-parse` | a file cannot be parsed (usually Python older than 3.12) | none |
 
-`server/src/pkm/test_data/` counts as test code and is exempt
+The rules cover `server/src` and `server/tooling` (perfcheck, proptest,
+commentlint, brandlint). `SQLITE_SITES` names two raw-sqlite sites: `pkm.database`
+and `server/tooling/perfcheck/`, which measures SQLite itself (trace and
+progress hooks, EXPLAIN plans) and so needs the raw connection; proptest goes
+through `Db`. `server/src/pkm/test_data/` counts as test code and is exempt
 (`TEST_SUPPORT`). The database side of the same vocabulary is in
 [backend.md](backend.md#typed-database-access).
 

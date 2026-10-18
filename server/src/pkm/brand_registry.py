@@ -192,6 +192,15 @@ CAST_SITES: tuple[str, ...] = (
     "server/src/pkm/todo.py",
 )
 
+# Files and directories (a trailing slash) that may touch raw sqlite3:
+# connections, cursors and `.raw`. Every other file goes through `Db`.
+SQLITE_SITES: dict[str, str] = {
+    "server/src/pkm/database.py": "the one place sqlite3 is wrapped as Db",
+    # The perf gate measures SQLite itself: trace and progress hooks, EXPLAIN
+    # plans, and an immutable snapshot of the fixture. Db hides all three.
+    "server/tooling/perfcheck/": "measures SQLite: hooks and EXPLAIN plans",
+}
+
 # Fixture builders that ship under server/src but only tests import; the
 # lint treats them as tests, exempt from the name, mint and cast rules.
 TEST_SUPPORT: tuple[str, ...] = (

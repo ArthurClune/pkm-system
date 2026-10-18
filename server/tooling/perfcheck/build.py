@@ -21,18 +21,17 @@ import os
 import sys
 import tempfile
 import time
-from collections.abc import Generator, Iterable, Mapping
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
 
 import pkm
 from pkm.contracts.ops import OpBatch
-from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.schema import DDL
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
 from pkm.server.store import fetch_page, rename_page_rows
+from pkm.server.sync_meta import title_reader
 
 from perfcheck import fixture as _fixture_mod
 from perfcheck.fixture import (RENAME_APPLIED_AT_MS, RENAME_SOURCE_TITLE,
@@ -125,23 +124,14 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
         # uses (rename is a route, not an op batch): leaves a block_rewrites
         # row for ops/edit-rename-replay (perfcheck.backend) to exercise
         # ops_core.replay_title_rewrites.
-        # fixture.py's titles are fixed ASCII literals with no control
-        # whitespace or boundary padding, so they're canonical as written --
-        # cast here rather than editing fixture.py, whose source bytes feed
-        # fixture_hash.
-        rename_source_title = CanonicalTitle(NormalizedTitle(RENAME_SOURCE_TITLE))
-        rename_target_title = CanonicalTitle(NormalizedTitle(RENAME_TARGET_TITLE))
+        canonical = title_reader(con)
+        rename_source_title = canonical(RENAME_SOURCE_TITLE)
+        rename_target_title = canonical(RENAME_TARGET_TITLE)
         source = fetch_page(con, rename_source_title)
         if source is None:
             raise RuntimeError(
                 f"perf fixture: {RENAME_SOURCE_TITLE!r} missing before its seeded rename")
-        # a merge-base run builds with the base's pkm, whose page rows are
-        # keyed `id` rather than `page_id`
-        # Exists for merge-base runs older than the typed rows; it can go
-        # once the merge base has `page_id`.
-        row: Mapping[str, Any] = source
-        page_id = row["page_id"] if "page_id" in row.keys() else row["id"]
-        rename_page_rows(con, page_id, rename_source_title,
+        rename_page_rows(con, source["page_id"], rename_source_title,
                          rename_target_title, RENAME_APPLIED_AT_MS)
         con.commit()
         con.executemany(

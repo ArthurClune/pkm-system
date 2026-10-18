@@ -14,9 +14,9 @@ Follow-up to pkm-zv2s. Aim: an agent finds it easy to do the right thing because
 
 ## Agreed changes (land on feat/brand-check-web before the Phase 2 merge)
 - [x] Web perf harness under the brand rules: drop `web/tooling/perf/` from `brand_registry.TEST_SUPPORT` (ruling R19), regenerate, fix its ~15 brand casts (rebaseTargets.ts, rebase.perf.ts) with helpers or `select` reads.
-- [ ] Server tooling under brandlint: widen scope from `server/src/**` to `server/tooling/**` (perfcheck, proptest, commentlint, brandlint). Register `server/tooling/perfcheck/` as the one tooling raw-sqlite site with its reason (it measures SQLite itself: trace and progress hooks, EXPLAIN plans).
-- [ ] Delete the merge-base compatibility shims now that main has `pkm.database`: `getattr(con, "raw", con)` in perfcheck/trace.py and the `page_id`/`id` fallback in perfcheck/build.py. Every future merge base has the typed rows.
-- [ ] proptest sync_server: replace the local `_dicts` helper with `Db.select`.
+- [x] Server tooling under brandlint: widen scope from `server/src/**` to `server/tooling/**` (perfcheck, proptest, commentlint, brandlint). Register `server/tooling/perfcheck/` as the one tooling raw-sqlite site with its reason (it measures SQLite itself: trace and progress hooks, EXPLAIN plans).
+- [x] Delete the merge-base compatibility shims now that main has `pkm.database`: `getattr(con, "raw", con)` in perfcheck/trace.py and the `page_id`/`id` fallback in perfcheck/build.py. Every future merge base has the typed rows.
+- [x] proptest sync_server: replace the local `_dicts` helper with `Db.select`.
 
 ## Agreed by Arthur 2026-10-17: tests mint only through named helpers (reverses the spec's 'test code is exempt')
 - [ ] Tests mint only through named test helpers, not blanket exemption: test-support modules become the tests' mint sites (`uidOf`, plus `pageIdOf`, `seqOf`, ... on the web; a Python twin in server/tests), and rules 1 and 2 apply to test files otherwise. Scale: ~600 brand casts in 65 web test files, ~600 brand constructor calls in 23 server test files (codemod).

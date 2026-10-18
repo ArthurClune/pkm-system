@@ -42,13 +42,13 @@ const adoptionTree = () => [
     children: [
       block("tuid-u", "u-block", {
         order_idx: orderIdxOf(0),
-        children: [block("u1", "u child", { order_idx: orderIdxOf(4) })],
+        children: [block("tuid-u1", "u child", { order_idx: orderIdxOf(4) })],
       }),
       block("tuid-s1", "sib one", { order_idx: orderIdxOf(1) }),
       block("tuid-s2", "sib two", { order_idx: orderIdxOf(2) }),
     ],
   }),
-  block("z", "zed", { order_idx: orderIdxOf(9) }),
+  block("tuid-z", "zed", { order_idx: orderIdxOf(9) }),
 ];
 
 describe("splitBlock", () => {
@@ -162,9 +162,9 @@ describe("indent / outdent", () => {
       { op: "move", uid: "tuid-s1", parent_uid: "tuid-u", order_idx: 5 }, // u1 is 4
       { op: "move", uid: "tuid-s2", parent_uid: "tuid-u", order_idx: 6 },
     ]);
-    expect(r.blocks.map((n) => n.uid)).toEqual(["tuid-p", "tuid-u", "z"]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["tuid-p", "tuid-u", "tuid-z"]);
     expect(findNode(r.blocks, uidOf("tuid-u"))!.children.map((n) => n.uid))
-      .toEqual(["u1", "tuid-s1", "tuid-s2"]);
+      .toEqual(["tuid-u1", "tuid-s1", "tuid-s2"]);
     expect(findNode(r.blocks, uidOf("tuid-p"))!.children).toEqual([]);
   });
 
@@ -219,7 +219,7 @@ const mixedOutdentTree = () => [
       block("tuid-p", "P", {
         order_idx: orderIdxOf(0),
         children: [
-          block("p0", "P zero", { order_idx: orderIdxOf(0) }),
+          block("tuid-p0", "P zero", { order_idx: orderIdxOf(0) }),
           block("tuid-x", "X", { order_idx: orderIdxOf(1) }),
         ],
       }),
@@ -229,7 +229,7 @@ const mixedOutdentTree = () => [
       }),
     ],
   }),
-  block("z", "Z", { order_idx: orderIdxOf(1) }),
+  block("tuid-z", "Z", { order_idx: orderIdxOf(1) }),
 ];
 
 const gapTree = () => [
@@ -238,9 +238,9 @@ const gapTree = () => [
     children: [
       block("tuid-s1", "one", { order_idx: orderIdxOf(0) }),
       block("tuid-s2", "two", { order_idx: orderIdxOf(1) }),
-      block("s3", "three", { order_idx: orderIdxOf(2) }),
+      block("tuid-s3", "three", { order_idx: orderIdxOf(2) }),
       block("tuid-s4", "four", { order_idx: orderIdxOf(3) }),
-      block("s5", "five", { order_idx: orderIdxOf(4) }),
+      block("tuid-s5", "five", { order_idx: orderIdxOf(4) }),
     ],
   }),
 ];
@@ -325,7 +325,7 @@ describe("indentSelection / outdentSelection", () => {
     ]);
     expect(findNode(r.blocks, uidOf("tuid-root"))!.children.map((n) => n.uid))
       .toEqual(["tuid-p", "tuid-x"]);
-    expect(r.blocks.map((n) => n.uid)).toEqual(["tuid-root", "tuid-q", "z"]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["tuid-root", "tuid-q", "tuid-z"]);
     expect(findNode(r.blocks, uidOf("tuid-q"))!.children.map((n) => n.uid))
       .toEqual(["tuid-q1"]);
   });
@@ -335,13 +335,13 @@ describe("indentSelection / outdentSelection", () => {
     expect(r.ops).toEqual([
       { op: "move", uid: "tuid-s1", parent_uid: null, order_idx: 1 },
       { op: "move", uid: "tuid-s2", parent_uid: null, order_idx: 2 },
-      { op: "move", uid: "s3", parent_uid: "tuid-s2", order_idx: 0 },
+      { op: "move", uid: "tuid-s3", parent_uid: "tuid-s2", order_idx: 0 },
       { op: "move", uid: "tuid-s4", parent_uid: "tuid-s2", order_idx: 1 },
-      { op: "move", uid: "s5", parent_uid: "tuid-s2", order_idx: 2 },
+      { op: "move", uid: "tuid-s5", parent_uid: "tuid-s2", order_idx: 2 },
     ]);
     expect(r.blocks.map((n) => n.uid)).toEqual(["tuid-top", "tuid-s1", "tuid-s2"]);
     expect(findNode(r.blocks, uidOf("tuid-s2"))!.children.map((n) => n.uid))
-      .toEqual(["s3", "tuid-s4", "s5"]);
+      .toEqual(["tuid-s3", "tuid-s4", "tuid-s5"]);
     expect(findNode(r.blocks, uidOf("tuid-top"))!.children).toEqual([]);
   });
 
@@ -349,14 +349,14 @@ describe("indentSelection / outdentSelection", () => {
     const r = outdentSelection(gapTree(), P, [uidOf("tuid-s2"), uidOf("tuid-s4")]);
     expect(r.ops).toEqual([
       { op: "move", uid: "tuid-s2", parent_uid: null, order_idx: 1 },
-      { op: "move", uid: "s3", parent_uid: "tuid-s2", order_idx: 0 },
+      { op: "move", uid: "tuid-s3", parent_uid: "tuid-s2", order_idx: 0 },
       { op: "move", uid: "tuid-s4", parent_uid: null, order_idx: 1 },
-      { op: "move", uid: "s5", parent_uid: "tuid-s4", order_idx: 0 },
+      { op: "move", uid: "tuid-s5", parent_uid: "tuid-s4", order_idx: 0 },
     ]);
     expect(findNode(r.blocks, uidOf("tuid-s2"))!.children.map((n) => n.uid))
-      .toEqual(["s3"]);
+      .toEqual(["tuid-s3"]);
     expect(findNode(r.blocks, uidOf("tuid-s4"))!.children.map((n) => n.uid))
-      .toEqual(["s5"]);
+      .toEqual(["tuid-s5"]);
   });
 
   test("a collapsed run tail expands when it adopts", () => {
@@ -367,9 +367,9 @@ describe("indentSelection / outdentSelection", () => {
       { op: "move", uid: "tuid-s1", parent_uid: null, order_idx: 1 },
       { op: "move", uid: "tuid-s2", parent_uid: null, order_idx: 2 },
       { op: "set_collapsed", uid: "tuid-s2", collapsed: false },
-      { op: "move", uid: "s3", parent_uid: "tuid-s2", order_idx: 0 },
+      { op: "move", uid: "tuid-s3", parent_uid: "tuid-s2", order_idx: 0 },
       { op: "move", uid: "tuid-s4", parent_uid: "tuid-s2", order_idx: 1 },
-      { op: "move", uid: "s5", parent_uid: "tuid-s2", order_idx: 2 },
+      { op: "move", uid: "tuid-s5", parent_uid: "tuid-s2", order_idx: 2 },
     ]);
   });
 
@@ -442,7 +442,7 @@ const deepTree = () => [
 const selectedMoveTree = () => [
   block("tuid-left", "Left", {
     order_idx: orderIdxOf(0),
-    children: [block("left0", "Left child", { order_idx: orderIdxOf(0) })],
+    children: [block("tuid-left0", "Left child", { order_idx: orderIdxOf(0) })],
   }),
   block("tuid-source", "Source", {
     order_idx: orderIdxOf(1),
@@ -465,7 +465,7 @@ const selectedDestinationTree = () => [
   block("tuid-b", "B", {
     order_idx: orderIdxOf(1),
     collapsed: true,
-    children: [block("b0", "B child", { order_idx: orderIdxOf(0) })],
+    children: [block("tuid-b0", "B child", { order_idx: orderIdxOf(0) })],
   }),
   block("tuid-c", "C", {
     order_idx: orderIdxOf(2),
@@ -577,23 +577,23 @@ describe("moveSubtreeUp / moveSubtreeDown", () => {
   test("up: destination P already has children — the block simply joins as " +
        "the new last", () => {
     const t = deepTree();
-    findNode(t, uidOf("tuid-a"))!.children.push(block("ax", "a-ex", { order_idx: orderIdxOf(0) }));
+    findNode(t, uidOf("tuid-a"))!.children.push(block("tuid-ax", "a-ex", { order_idx: orderIdxOf(0) }));
     const r = moveSubtreeUp(t, P, uidOf("tuid-b1"));
     expect(r.ops).toEqual([
       { op: "move", uid: "tuid-b1", parent_uid: "tuid-a", order_idx: 1 },
     ]);
-    expect(findNode(r.blocks, uidOf("tuid-a"))!.children.map((n) => n.uid)).toEqual(["ax", "tuid-b1"]);
+    expect(findNode(r.blocks, uidOf("tuid-a"))!.children.map((n) => n.uid)).toEqual(["tuid-ax", "tuid-b1"]);
   });
 
   test("down: destination N already has children — the block lands FIRST, " +
        "existing children shift (shiftFrom path)", () => {
     const t = deepTree();
-    findNode(t, uidOf("tuid-c"))!.children.push(block("cx", "c-ex", { order_idx: orderIdxOf(0) }));
+    findNode(t, uidOf("tuid-c"))!.children.push(block("tuid-cx", "c-ex", { order_idx: orderIdxOf(0) }));
     const r = moveSubtreeDown(t, P, uidOf("tuid-b2"));
     expect(r.ops).toEqual([
       { op: "move", uid: "tuid-b2", parent_uid: "tuid-c", order_idx: 0 },
     ]);
-    expect(findNode(r.blocks, uidOf("tuid-c"))!.children.map((n) => n.uid)).toEqual(["tuid-b2", "cx"]);
+    expect(findNode(r.blocks, uidOf("tuid-c"))!.children.map((n) => n.uid)).toEqual(["tuid-b2", "tuid-cx"]);
   });
 
   test("unknown uid is a no-op", () => {
@@ -631,7 +631,7 @@ describe("moveSelectionUp / moveSelectionDown", () => {
       { op: "move", uid: "tuid-second", parent_uid: "tuid-left", order_idx: 2 },
     ]);
     expect(findNode(r.blocks, uidOf("tuid-left"))!.children.map((n) => n.uid))
-      .toEqual(["left0", "tuid-first", "tuid-second"]);
+      .toEqual(["tuid-left0", "tuid-first", "tuid-second"]);
     expect(findNode(r.blocks, uidOf("tuid-source"))!.children).toEqual([]);
     expect(findNode(r.blocks, uidOf("tuid-first"))!.children.map((n) => n.uid))
       .toEqual(["tuid-first0"]);
@@ -666,7 +666,7 @@ describe("moveSelectionUp / moveSelectionDown", () => {
     ]);
     expect(findNode(r.blocks, uidOf("tuid-b"))!.collapsed).toBe(false);
     expect(findNode(r.blocks, uidOf("tuid-b"))!.children.map((n) => n.uid))
-      .toEqual(["b0", "tuid-c0", "tuid-c1"]);
+      .toEqual(["tuid-b0", "tuid-c0", "tuid-c1"]);
   });
 
   test("down: a collapsed selected root that a run crosses into is expanded", () => {
@@ -859,7 +859,7 @@ describe("backspaceAtStart", () => {
   test("empty first child: deleted, focus lands on the parent", () => {
     const t = [block("tuid-p", "parent", { order_idx: orderIdxOf(0), children: [
       block("tuid-k", "", { order_idx: orderIdxOf(0) }),
-      block("k2", "sibling", { order_idx: orderIdxOf(1) }),
+      block("tuid-k2", "sibling", { order_idx: orderIdxOf(1) }),
     ] })];
     const r = backspaceAtStart(t, P, uidOf("tuid-k"));
     expect(r.ops).toEqual([{ op: "delete", uid: "tuid-k" }]);
@@ -904,9 +904,9 @@ describe("revealBlock", () => {
   // collapsed over a child of its own.
   const nested = () => [
     block("tuid-g", "grandparent", { collapsed: true, children: [
-      block("m", "middle", { children: [
+      block("tuid-m", "middle", { children: [
         block("tuid-p", "parent", { collapsed: true, children: [
-          block("tuid-t", "target", { collapsed: true, children: [block("tc", "under target")] }),
+          block("tuid-t", "target", { collapsed: true, children: [block("tuid-tc", "under target")] }),
         ] }),
       ] }),
     ] }),
@@ -933,7 +933,7 @@ describe("revealBlock", () => {
     const t = [
       block("tuid-g", "outer", { collapsed: true, children: [
         block("tuid-tbl", "{{table}}", { collapsed: true, children: [
-          block("r1", "cell", { children: [block("tuid-r1b", "cell b")] }),
+          block("tuid-r1", "cell", { children: [block("tuid-r1b", "cell b")] }),
         ] }),
       ] }),
     ];

@@ -22,7 +22,7 @@ beforeEach(() => {
 function flatTree(count: number): BlockNode[] {
   return Array.from(
     { length: count },
-    (_, i) => block(`n${i}`, `text${i}`, { order_idx: orderIdxOf(i) }),
+    (_, i) => block(`tuid-n${i}`, `text${i}`, { order_idx: orderIdxOf(i) }),
   );
 }
 

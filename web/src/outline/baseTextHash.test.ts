@@ -185,10 +185,10 @@ describe("stampBaseTextHashes on delete", () => {
 describe("nodeSubtreePairs", () => {
   test("lists the node and every descendant as (uid, text)", () => {
     const node = block("tuid-r", "root", {
-      children: [block("c", "kid", { children: [block("tuid-g", "")] })],
+      children: [block("tuid-c", "kid", { children: [block("tuid-g", "")] })],
     });
     expect(nodeSubtreePairs(node)).toEqual([
-      ["tuid-r", "root"], ["c", "kid"], ["tuid-g", ""],
+      ["tuid-r", "root"], ["tuid-c", "kid"], ["tuid-g", ""],
     ]);
   });
 });

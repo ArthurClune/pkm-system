@@ -73,7 +73,7 @@ it("cross-page drop does two-outline surgery and one op with page_title", () => 
   const attachOutlineReplay = vi.fn();
   const { sync, dnd } = setup({ attachOutlineReplay });
   const moved: BlockNode = block("tuid-u1", "hi", {
-    children: [block("child", "child")],
+    children: [block("tuid-child", "child")],
   });
   const src = fakeOutline({ removeSubtreeLocal: vi.fn(() => moved) });
   const dst = fakeOutline();
@@ -99,7 +99,7 @@ it("unmounted cross-page target skips insertion but retains subtree replay", () 
   const attachOutlineReplay = vi.fn();
   const { sync, dnd } = setup({ attachOutlineReplay });
   const moved: BlockNode = block("tuid-u1", "hi", {
-    children: [block("child", "child")],
+    children: [block("tuid-child", "child")],
   });
   const src = fakeOutline({ removeSubtreeLocal: vi.fn(() => moved) });
   const unmountedDst = fakeOutline();

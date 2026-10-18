@@ -108,23 +108,23 @@ test("removing the quote prefix removes quote presentation", () => {
 
 test("bullet shows the closed ring only when collapsed with children", () => {
   const blocks = [
-    block("p1", "parent", { collapsed: true, order_idx: orderIdxOf(0),
-                            children: [block("c1", "child")] }),
-    block("p2", "collapsed leaf", { collapsed: true, order_idx: orderIdxOf(1) }),
+    block("tuid-p1", "parent", { collapsed: true, order_idx: orderIdxOf(0),
+                            children: [block("tuid-c1", "child")] }),
+    block("tuid-p2", "collapsed leaf", { collapsed: true, order_idx: orderIdxOf(1) }),
   ];
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={blocks} focus={null} handlers={handlers()}
                          readOnly={false} />
     </MemoryRouter>);
-  expect(container.querySelector('[data-uid="p1"] .bullet.closed')).not.toBeNull();
-  expect(container.querySelector('[data-uid="p2"] .bullet.closed')).toBeNull();
+  expect(container.querySelector('[data-uid="tuid-p1"] .bullet.closed')).not.toBeNull();
+  expect(container.querySelector('[data-uid="tuid-p2"] .bullet.closed')).toBeNull();
 });
 
 test("chevron toggles collapse via handler; todo checkbox toggles via handler", () => {
   const h = handlers();
-  const withKids = [block("p", "parent", {
-    order_idx: orderIdxOf(0), children: [block("k", "kid", { order_idx: orderIdxOf(0) })],
+  const withKids = [block("tuid-p", "parent", {
+    order_idx: orderIdxOf(0), children: [block("tuid-k", "kid", { order_idx: orderIdxOf(0) })],
   })];
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -132,10 +132,11 @@ test("chevron toggles collapse via handler; todo checkbox toggles via handler", 
                          readOnly={false} />
     </MemoryRouter>);
   // jsdom does not apply the stylesheet's `.chevron.hidden { visibility:
-  // hidden }`, so the childless "kid" block's chevron is still reachable by
-  // role in this test even though the browser would hide it visually.
+  // hidden }`, so the childless "tuid-kid" block's chevron is still
+  // reachable by role in this test even though the browser would hide it
+  // visually.
   fireEvent.click(screen.getAllByRole("button", { name: "toggle children" })[0]);
-  expect(h.onToggleCollapsed).toHaveBeenCalledWith("p", true);
+  expect(h.onToggleCollapsed).toHaveBeenCalledWith("tuid-p", true);
 });
 
 test("todo checkbox is enabled in the editable tree and reports its uid", () => {
@@ -149,8 +150,8 @@ test("todo checkbox is enabled in the editable tree and reports its uid", () => 
 
 test("chevron is disabled on a childless block; enabled on a block with children", () => {
   const h = handlers();
-  const t = [block("p", "parent", {
-    order_idx: orderIdxOf(0), children: [block("k", "kid", { order_idx: orderIdxOf(0) })],
+  const t = [block("tuid-p", "parent", {
+    order_idx: orderIdxOf(0), children: [block("tuid-k", "kid", { order_idx: orderIdxOf(0) })],
   })];
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -167,8 +168,8 @@ test("chevron is disabled on a childless block; enabled on a block with children
 test("readOnly disables the chevron (even with children) and the todo checkbox", () => {
   const h = handlers();
   const t = [
-    block("p", "parent", {
-      order_idx: orderIdxOf(0), children: [block("k", "kid", { order_idx: orderIdxOf(0) })],
+    block("tuid-p", "parent", {
+      order_idx: orderIdxOf(0), children: [block("tuid-k", "kid", { order_idx: orderIdxOf(0) })],
     }),
     block("tuid-u2", "{{[[TODO]]}} task", { order_idx: orderIdxOf(1) }),
   ];
@@ -195,7 +196,7 @@ test("fallback renders nested rich text but exposes no editor controls", () => {
       <EditableBlockTree
         blocks={[block("parent", "Papers", {
           heading: 2,
-          children: [block("child", "read [[Paper]]")],
+          children: [block("tuid-child", "read [[Paper]]")],
         })]}
         focus={null}
         handlers={h}
@@ -234,9 +235,9 @@ test("an emptied (previously-written) block still renders a clickable, focusable
 
 test("collapsed children are hidden", () => {
   const h = handlers();
-  const t = [block("p", "parent", {
+  const t = [block("tuid-p", "parent", {
     order_idx: orderIdxOf(0), collapsed: true,
-    children: [block("k", "hidden kid", { order_idx: orderIdxOf(0) })],
+    children: [block("tuid-k", "hidden kid", { order_idx: orderIdxOf(0) })],
   })];
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -627,15 +628,15 @@ test("block menu marks current heading/view and dispatches both control groups",
 
 test("block menu exposes all heading choices; unset view shows document", () => {
   const h = handlers();
-  const blocks = [block("root", "root", { view_type: "numbered", children: [
-    block("child", "child", { heading: null, children: [block("leaf", "leaf")] }),
+  const blocks = [block("tuid-root", "root", { view_type: "numbered", children: [
+    block("tuid-child", "child", { heading: null, children: [block("tuid-leaf", "leaf")] }),
   ] })];
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={blocks} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
-  fireEvent.click(bullet(view.container, "child"));
+  fireEvent.click(bullet(view.container, "tuid-child"));
   for (const name of ["Plain text", "Heading 1", "Heading 2", "Heading 3"]) {
     expect(screen.getByRole("menuitemradio", { name })).toBeInTheDocument();
   }
@@ -663,10 +664,10 @@ test("read-only block menus show but disable mutation controls", () => {
 
 test("editable rendering numbers direct children only", () => {
   const h = handlers();
-  const blocks = [block("root", "root", { view_type: "numbered", children: [
-    block("a", "A", { order_idx: orderIdxOf(0), children: [block("a1", "A1")] }),
-    block("b", "B", { order_idx: orderIdxOf(1), view_type: "numbered",
-      children: [block("b1", "B1")] }),
+  const blocks = [block("tuid-root", "root", { view_type: "numbered", children: [
+    block("tuid-a", "A", { order_idx: orderIdxOf(0), children: [block("tuid-a1", "A1")] }),
+    block("tuid-b", "B", { order_idx: orderIdxOf(1), view_type: "numbered",
+      children: [block("tuid-b1", "B1")] }),
   ] })];
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -675,7 +676,7 @@ test("editable rendering numbers direct children only", () => {
     </MemoryRouter>);
   const marker = (uid: string) =>
     view.container.querySelector(`[data-uid="${uid}"] > .bullet`)?.textContent;
-  expect([marker("root"), marker("a"), marker("b"), marker("a1"), marker("b1")])
+  expect([marker("tuid-root"), marker("tuid-a"), marker("tuid-b"), marker("tuid-a1"), marker("tuid-b1")])
     .toEqual(["", "1.", "2.", "", "1."]);
 });
 
@@ -683,7 +684,7 @@ test("a rendered Roam table focuses its macro and reveals raw editable blocks", 
   const h = handlers();
   const macro = block("tuid-table", "{{[[table]]}}", { collapsed: true, children: [
     block("header", "Model", { children: [block("header-2", "Price")] }),
-    block("row", "Claude", { children: [block("tuid-row-2", "$5")] }),
+    block("tuid-row", "Claude", { children: [block("tuid-row-2", "$5")] }),
   ] });
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -711,7 +712,7 @@ test("a rendered Roam table stays in raw mode when focus moves to a revealed des
   const h = handlers();
   const macro = block("tuid-table", "{{[[table]]}}", { collapsed: true, children: [
     block("header", "Model", { children: [block("header-2", "Price")] }),
-    block("row", "Claude", { children: [block("tuid-row-2", "$5")] }),
+    block("tuid-row", "Claude", { children: [block("tuid-row-2", "$5")] }),
   ] });
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -752,7 +753,7 @@ test("an unfocused valid Roam table with a heading renders inside div.block-text
     heading: 2,
     children: [
       block("header", "Model", { children: [block("header-2", "Price")] }),
-      block("row", "Claude", { children: [block("tuid-row-2", "$5")] }),
+      block("tuid-row", "Claude", { children: [block("tuid-row-2", "$5")] }),
     ],
   });
   const { container } = render(
@@ -790,17 +791,17 @@ test("renders the stamp cell with the age band of updated_at", () => {
   const now = Date.now();
   const view = mountStamped([
     block("tuid-s1", "this week", { updated_at: now - 2 * DAY, order_idx: orderIdxOf(0) }),
-    block("s2", "this month", { updated_at: now - 20 * DAY, order_idx: orderIdxOf(1) }),
-    block("s3", "this year", { updated_at: now - 200 * DAY, order_idx: orderIdxOf(2) }),
-    block("s4", "ancient", { updated_at: now - 900 * DAY, order_idx: orderIdxOf(3) }),
+    block("tuid-s2", "this month", { updated_at: now - 20 * DAY, order_idx: orderIdxOf(1) }),
+    block("tuid-s3", "this year", { updated_at: now - 200 * DAY, order_idx: orderIdxOf(2) }),
+    block("tuid-s4", "ancient", { updated_at: now - 900 * DAY, order_idx: orderIdxOf(3) }),
   ], true);
   const bandOf = (uid: string) =>
     view.container.querySelector(`[data-uid="${uid}"] .block-stamp`)?.className;
 
   expect(bandOf("tuid-s1")).toContain("block-stamp-week");
-  expect(bandOf("s2")).toContain("block-stamp-month");
-  expect(bandOf("s3")).toContain("block-stamp-year");
-  expect(bandOf("s4")).toContain("block-stamp-older");
+  expect(bandOf("tuid-s2")).toContain("block-stamp-month");
+  expect(bandOf("tuid-s3")).toContain("block-stamp-year");
+  expect(bandOf("tuid-s4")).toContain("block-stamp-older");
 });
 
 test("shows created_at when updated_at is missing, with a full hover title", () => {
@@ -828,11 +829,11 @@ test("keeps an empty cell when the block has no timestamps at all", () => {
 
 test("stamps nested rows too, as the last child of their own row", () => {
   const now = Date.now();
-  const view = mountStamped([block("p1", "parent", {
+  const view = mountStamped([block("tuid-p1", "parent", {
     updated_at: now,
-    children: [block("c1", "child", { updated_at: now - 200 * DAY })],
+    children: [block("tuid-c1", "child", { updated_at: now - 200 * DAY })],
   })], true);
-  const childRow = view.container.querySelector('[data-uid="c1"]')!;
+  const childRow = view.container.querySelector('[data-uid="tuid-c1"]')!;
 
   expect(childRow.lastElementChild).toHaveClass("block-stamp");
   expect(childRow.lastElementChild).toHaveClass("block-stamp-year");
@@ -881,12 +882,12 @@ test("badge click does not focus the block", () => {
 // --- {{toc}} table of contents ---
 
 const TOC_TREE: BlockNode[] = [
-  block("h1", "Intro", { heading: 1 }),
+  block("tuid-h1", "Intro", { heading: 1 }),
   block("tuid-toc", "{{toc}}"),
-  block("h2", "Details", {
+  block("tuid-h2", "Details", {
     heading: 1,
-    children: [block("plain", "notes", {
-      children: [block("h3", "Deeper", { heading: 3 })],
+    children: [block("tuid-plain", "notes", {
+      children: [block("tuid-h3", "Deeper", { heading: 3 })],
     })],
   }),
 ];
@@ -915,16 +916,16 @@ test("an unfocused {{toc}} block lists the page's headings, nested by outline", 
   expect(Array.from(top[1].querySelectorAll(":scope > ol > li > a"))
     .map((a) => a.textContent)).toEqual(["Deeper"]);
   expect(container.querySelector("nav.toc a.toc-link")!.getAttribute("href"))
-    .toBe("/#h1");
+    .toBe("/#tuid-h1");
 });
 
 test("the toc follows heading edits and additions on the next render", () => {
   const h = handlers();
   const view = mountToc(TOC_TREE, h);
   const edited: BlockNode[] = [
-    block("h1", "Introduction", { heading: 1 }),
+    block("tuid-h1", "Introduction", { heading: 1 }),
     block("tuid-toc", "{{toc}}"),
-    block("h4", "Appendix", { heading: 2 }),
+    block("tuid-h4", "Appendix", { heading: 2 }),
   ];
   view.rerender(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -962,11 +963,11 @@ test("a toc block with no headings on the page says so, and still edits", () => 
 test("a toc block's own children still render as blocks", () => {
   const tree: BlockNode[] = [
     block("tuid-toc", "{{toc}}",
-          { children: [block("kid", "Kid heading", { heading: 2 })] }),
+          { children: [block("tuid-kid", "Kid heading", { heading: 2 })] }),
   ];
   const { container } = mountToc(tree, handlers());
   expect(tocLinks(container)).toEqual(["Kid heading"]);
-  expect(container.querySelector('[data-uid="kid"]')).not.toBeNull();
+  expect(container.querySelector('[data-uid="tuid-kid"]')).not.toBeNull();
 });
 
 test("a fallback tree renders the toc read-only", () => {

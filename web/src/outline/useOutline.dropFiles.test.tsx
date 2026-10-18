@@ -50,7 +50,7 @@ afterEach(() => { resetHistory(); vi.unstubAllGlobals(); });
 const png = (name: string) => new File(["x"], name, { type: "image/png" });
 const pdf = (name: string) => new File(["x"], name, { type: "application/pdf" });
 const AB = () => [block("tuid-a", "alpha", { order_idx: orderIdxOf(0) }),
-                  block("b", "beta", { order_idx: orderIdxOf(1) })];
+                  block("tuid-b", "beta", { order_idx: orderIdxOf(1) })];
 const at = (parent: string | null, idx: number): DropTarget =>
   ({ parent_uid: parent === null ? null : uidOf(parent), order_idx: orderIdxOf(idx),
      page_title: "Page" });
@@ -74,7 +74,7 @@ it("one undo removes every new block", async () => {
   const o = setup(sync, AB());
   await drop(o, [png("c.png"), pdf("d.pdf")], at(null, 1));
   act(() => o().handlers.onUndo());
-  expect(o().blocks.map((b) => b.uid)).toEqual(["tuid-a", "b"]);
+  expect(o().blocks.map((b) => b.uid)).toEqual(["tuid-a", "tuid-b"]);
 });
 
 it("a failed upload is named in the banner and makes no block", async () => {

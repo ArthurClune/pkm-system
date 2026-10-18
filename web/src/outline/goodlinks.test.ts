@@ -6,16 +6,16 @@ const ID = "e4966bb2483b5c78f658398c0ae7b03f";
 
 describe("goodlinksCandidates", () => {
   const tree = [
-    block("root", "Intro https://root.example/one", { order_idx: orderIdxOf(0), children: [
-      block("prev", "[A](https://prev.example/a) and https://prev.example/b.", { order_idx: orderIdxOf(0) }),
+    block("tuid-root", "Intro https://root.example/one", { order_idx: orderIdxOf(0), children: [
+      block("tuid-prev", "[A](https://prev.example/a) and https://prev.example/b.", { order_idx: orderIdxOf(0) }),
       block("tuid-me", "", { order_idx: orderIdxOf(1) }),
     ] }),
   ];
 
   test("own text first, then parent, then previous sibling, deduplicated", () => {
     const withOwn = [
-      block("root", "https://root.example/one", { order_idx: orderIdxOf(0), children: [
-        block("prev", "https://prev.example/a", { order_idx: orderIdxOf(0) }),
+      block("tuid-root", "https://root.example/one", { order_idx: orderIdxOf(0), children: [
+        block("tuid-prev", "https://prev.example/a", { order_idx: orderIdxOf(0) }),
         block("tuid-me", "see https://me.example/x and https://root.example/one", { order_idx: orderIdxOf(1) }),
       ] }),
     ];
@@ -42,7 +42,7 @@ describe("goodlinksCandidates", () => {
   });
 
   test("site-relative and non-http links are ignored; unknown uid is empty", () => {
-    // its own tree: a later top-level block would see "root" as its
+    // its own tree: a later top-level block would see "tuid-root" as its
     // previous sibling and pick up root's URL
     const solo = [block("tuid-solo", "Local copy:: [x](/api/local/a.pdf) ftp://files.example/f",
                         { order_idx: orderIdxOf(0) })];

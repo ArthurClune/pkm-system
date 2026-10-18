@@ -23,7 +23,7 @@ const handlers = () =>
 
 const rows = (n: number): BlockNode[] =>
   Array.from({ length: n }, (_, i) =>
-    block(`u${i}`, `row ${i}`, { order_idx: orderIdxOf(i) }));
+    block(`tuid-u${i}`, `row ${i}`, { order_idx: orderIdxOf(i) }));
 
 /** A parent that re-renders the tree on demand with byte-identical props. */
 function Harness({ blocks }: { blocks: BlockNode[] }) {

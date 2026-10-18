@@ -18,8 +18,8 @@ function dt() {
 }
 
 function renderPage(blocks = [
-  block("u1", "one", { order_idx: orderIdxOf(0) }),
-  block("u2", "two", { order_idx: orderIdxOf(1) }),
+  block("tuid-u1", "one", { order_idx: orderIdxOf(0) }),
+  block("tuid-u2", "two", { order_idx: orderIdxOf(1) }),
 ]) {
   const sync = makeSync();
   render(
@@ -47,7 +47,7 @@ it("bullets are draggable and a drop reorders via one move op", () => {
   fireEvent.drop(zone, { clientX: 0, clientY: -1, dataTransfer: transfer });
 
   expect(sync.sent).toEqual([[
-    { op: "move", uid: "u2", parent_uid: null, order_idx: 0 }]]);
+    { op: "move", uid: "tuid-u2", parent_uid: null, order_idx: 0 }]]);
   // optimistic: u2 now renders first
   const texts = [...document.querySelectorAll(".block-text")].map((n) => n.textContent);
   expect(texts).toEqual(["two", "one"]);
@@ -55,9 +55,9 @@ it("bullets are draggable and a drop reorders via one move op", () => {
 
 it("dragging a block inside a multi-block selection moves the whole selection", () => {
   const sync = renderPage([
-    block("u1", "one", { order_idx: orderIdxOf(0) }),
-    block("u2", "two", { order_idx: orderIdxOf(1) }),
-    block("u3", "three", { order_idx: orderIdxOf(2) }),
+    block("tuid-u1", "one", { order_idx: orderIdxOf(0) }),
+    block("tuid-u2", "two", { order_idx: orderIdxOf(1) }),
+    block("tuid-u3", "three", { order_idx: orderIdxOf(2) }),
   ]);
   // select u2 + u3 through the real editor wiring (Shift+ArrowDown at edge)
   fireEvent.click(screen.getByText("two"));
@@ -68,15 +68,15 @@ it("dragging a block inside a multi-block selection moves the whole selection", 
 
   // drag u2's bullet to the top boundary: the whole [u2, u3] run moves
   const transfer = dt();
-  fireEvent.dragStart(document.querySelector('[data-uid="u2"] .bullet')!,
+  fireEvent.dragStart(document.querySelector('[data-uid="tuid-u2"] .bullet')!,
                       { dataTransfer: transfer });
   const zone = document.querySelector(".block-tree")!;
   fireEvent.dragOver(zone, { clientX: 0, clientY: -1, dataTransfer: transfer });
   fireEvent.drop(zone, { clientX: 0, clientY: -1, dataTransfer: transfer });
 
   expect(sync.sent).toEqual([[
-    { op: "move", uid: "u2", parent_uid: null, order_idx: 0 },
-    { op: "move", uid: "u3", parent_uid: null, order_idx: 1 },
+    { op: "move", uid: "tuid-u2", parent_uid: null, order_idx: 0 },
+    { op: "move", uid: "tuid-u3", parent_uid: null, order_idx: 1 },
   ]]);
   const texts = [...document.querySelectorAll(".block-text")].map((n) => n.textContent);
   expect(texts).toEqual(["two", "three", "one"]);
@@ -84,9 +84,9 @@ it("dragging a block inside a multi-block selection moves the whole selection", 
 
 it("dragging a block outside the selection moves only that block", () => {
   const sync = renderPage([
-    block("u1", "one", { order_idx: orderIdxOf(0) }),
-    block("u2", "two", { order_idx: orderIdxOf(1) }),
-    block("u3", "three", { order_idx: orderIdxOf(2) }),
+    block("tuid-u1", "one", { order_idx: orderIdxOf(0) }),
+    block("tuid-u2", "two", { order_idx: orderIdxOf(1) }),
+    block("tuid-u3", "three", { order_idx: orderIdxOf(2) }),
   ]);
   // select u1 + u2, then drag the unselected u3
   fireEvent.click(screen.getByText("one"));
@@ -96,14 +96,14 @@ it("dragging a block outside the selection moves only that block", () => {
   expect(document.querySelectorAll(".block-row.selected")).toHaveLength(2);
 
   const transfer = dt();
-  fireEvent.dragStart(document.querySelector('[data-uid="u3"] .bullet')!,
+  fireEvent.dragStart(document.querySelector('[data-uid="tuid-u3"] .bullet')!,
                       { dataTransfer: transfer });
   const zone = document.querySelector(".block-tree")!;
   fireEvent.dragOver(zone, { clientX: 0, clientY: -1, dataTransfer: transfer });
   fireEvent.drop(zone, { clientX: 0, clientY: -1, dataTransfer: transfer });
 
   expect(sync.sent).toEqual([[
-    { op: "move", uid: "u3", parent_uid: null, order_idx: 0 },
+    { op: "move", uid: "tuid-u3", parent_uid: null, order_idx: 0 },
   ]]);
 });
 
@@ -113,7 +113,7 @@ it("an empty page accepts a top-level drop from another page", () => {
     <SyncContext.Provider value={sync}>
       <DndProvider>
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-          <EditablePage title={canonicalTitleOf("Src")} initial={[block("s1", "from src")]} />
+          <EditablePage title={canonicalTitleOf("Src")} initial={[block("tuid-s1", "from src")]} />
           <EditablePage title={canonicalTitleOf("Empty")} initial={[]} />
         </MemoryRouter>
       </DndProvider>
@@ -129,7 +129,7 @@ it("an empty page accepts a top-level drop from another page", () => {
   fireEvent.drop(zone, { clientX: 0, clientY: 0, dataTransfer: transfer });
 
   expect(sync.sent).toEqual([[
-    { op: "move", uid: "s1", parent_uid: null, order_idx: 0,
+    { op: "move", uid: "tuid-s1", parent_uid: null, order_idx: 0,
       page_title: "Empty" }]]);
 });
 
@@ -196,14 +196,14 @@ it("a fallback panel (title already active elsewhere) is excluded from DnD both 
       <SyncContext.Provider value={sync}>
         <DndProvider>
           <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-            <EditablePage title={canonicalTitleOf("Src")} initial={[block("s1", "from src")]} />
-            <EditablePage title={canonicalTitleOf("P")} initial={[block("u1", "fallback block")]} />
+            <EditablePage title={canonicalTitleOf("Src")} initial={[block("tuid-s1", "from src")]} />
+            <EditablePage title={canonicalTitleOf("P")} initial={[block("tuid-u1", "fallback block")]} />
           </MemoryRouter>
         </DndProvider>
       </SyncContext.Provider>);
 
     // Drag OUT is impossible: the fallback's bullet is not draggable.
-    const fallbackBullet = document.querySelector('[data-uid="u1"] .bullet')!;
+    const fallbackBullet = document.querySelector('[data-uid="tuid-u1"] .bullet')!;
     expect(fallbackBullet).not.toHaveAttribute("draggable", "true");
 
     // Drag IN is impossible: the fallback contributes no drop zone — the only
@@ -213,10 +213,10 @@ it("a fallback panel (title already active elsewhere) is excluded from DnD both 
     // And a real drop attempt over the fallback tree is inert: dragging a
     // "Src" block over the fallback's block-tree enqueues nothing, because the
     // fallback has no drop handlers.
-    const srcBullet = document.querySelector('[data-uid="s1"] .bullet')!;
+    const srcBullet = document.querySelector('[data-uid="tuid-s1"] .bullet')!;
     const transfer = dt();
     fireEvent.dragStart(srcBullet, { dataTransfer: transfer });
-    const fallbackTree = document.querySelector('[data-uid="u1"]')!.closest(".block-tree")!;
+    const fallbackTree = document.querySelector('[data-uid="tuid-u1"]')!.closest(".block-tree")!;
     fireEvent.dragOver(fallbackTree, { clientX: 0, clientY: 0, dataTransfer: transfer });
     fireEvent.drop(fallbackTree, { clientX: 0, clientY: 0, dataTransfer: transfer });
     expect(sync.sent).toEqual([]);
@@ -232,7 +232,7 @@ it("dragging is disabled when read-only", () => {
     <SyncContext.Provider value={sync}>
       <DndProvider>
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-          <EditablePage title={canonicalTitleOf("P")} initial={[block("u1", "x")]} />
+          <EditablePage title={canonicalTitleOf("P")} initial={[block("tuid-u1", "x")]} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
@@ -242,8 +242,8 @@ it("dragging is disabled when read-only", () => {
 it("hands DnD registration to the remaining same-title view", () => {
   const sync = makeSync();
   const blocks = [
-    block("u1", "one", { order_idx: orderIdxOf(0) }),
-    block("u2", "two", { order_idx: orderIdxOf(1) }),
+    block("tuid-u1", "one", { order_idx: orderIdxOf(0) }),
+    block("tuid-u2", "two", { order_idx: orderIdxOf(1) }),
   ];
   const view = (includeFirst: boolean) => (
     <SyncContext.Provider value={sync}>
@@ -270,6 +270,6 @@ it("hands DnD registration to the remaining same-title view", () => {
   fireEvent.drop(zone, { clientX: 0, clientY: -1, dataTransfer: transfer });
 
   expect(sync.sent).toEqual([[
-    { op: "move", uid: "u2", parent_uid: null, order_idx: 0 },
+    { op: "move", uid: "tuid-u2", parent_uid: null, order_idx: 0 },
   ]]);
 });

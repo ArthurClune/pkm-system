@@ -176,7 +176,7 @@ it("an expired same-title parent response cannot publish an empty child", async 
 
     await act(async () => {
       newer.resolve(jsonResponse(pagePayload("Paper", [
-        block("new", "newer response"),
+        block("tuid-new", "newer response"),
       ])));
       await newer.promise;
       await Promise.resolve();
@@ -1265,8 +1265,8 @@ it("scrolls to and flashes the block named in the location hash", async () => {
 
 describe("a hash naming a block inside a collapsed subtree", () => {
   const collapsedPaper = () => [
-    block("uid_g", "grandparent", { collapsed: true, children: [
-      block("uid_p", "parent", { collapsed: true, children: [
+    block("tuid-uid_g", "grandparent", { collapsed: true, children: [
+      block("tuid-uid_p", "parent", { collapsed: true, children: [
         block("uid_t1", "target block"),
       ] }),
     ] }),
@@ -1298,8 +1298,8 @@ describe("a hash naming a block inside a collapsed subtree", () => {
     expect(row!.classList.contains("flash-target")).toBe(true);
     // Persisted like any toggle, as one batch, and not an undo step.
     expect(sync.sent).toEqual([[
-      { op: "set_collapsed", uid: "uid_g", collapsed: false },
-      { op: "set_collapsed", uid: "uid_p", collapsed: false },
+      { op: "set_collapsed", uid: "tuid-uid_g", collapsed: false },
+      { op: "set_collapsed", uid: "tuid-uid_p", collapsed: false },
     ]]);
     expect(performUndo(sync)).toBe(false);
   });
@@ -1309,7 +1309,7 @@ describe("a hash naming a block inside a collapsed subtree", () => {
     window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
     const { sync, container } = renderCollapsed();
     await screen.findByText("target block");
-    const parentRow = container.querySelector('[data-uid="uid_p"]')!;
+    const parentRow = container.querySelector('[data-uid="tuid-uid_p"]')!;
     fireEvent.click(parentRow.querySelector('[aria-label="toggle children"]')!);
     expect(screen.queryByText("target block")).toBeNull();
     scrollIntoView.mockClear();
@@ -1319,7 +1319,7 @@ describe("a hash naming a block inside a collapsed subtree", () => {
     const row = container.querySelector('[data-uid="uid_t1"]');
     expect(scrollIntoView.mock.instances).toContain(row);
     expect(sync.sent.at(-1)).toEqual([
-      { op: "set_collapsed", uid: "uid_p", collapsed: false },
+      { op: "set_collapsed", uid: "tuid-uid_p", collapsed: false },
     ]);
   });
 });
@@ -1339,11 +1339,11 @@ it("a hash that isn't a well-formed uid flashes nothing", async () => {
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("abcde", "a block")])],
+    ["/api/page/Paper", pagePayload("Paper", [block("tuid-abcde", "a block")])],
   ]);
   const { container } = renderAt("/page/Paper#abcde");
   await screen.findByRole("heading", { name: "Paper" });
-  const row = container.querySelector('[data-uid="abcde"]');
+  const row = container.querySelector('[data-uid="tuid-abcde"]');
   expect(row).not.toBeNull();
   expect(scrollIntoView).not.toHaveBeenCalled();
 });
@@ -1354,7 +1354,7 @@ it("a parent resync response dispatched before a local split cannot erase it", a
   let resolveFresh!: (response: Response) => void;
   const fresh = new Promise<Response>((done) => { resolveFresh = done; });
   let calls = 0;
-  const initial = pagePayload("Paper", [block("u1", "first")]);
+  const initial = pagePayload("Paper", [block("tuid-u1", "first")]);
   const fetchMock = vi.fn(() => {
     calls += 1;
     if (calls === 1) return Promise.resolve(jsonResponse(initial));
@@ -1396,7 +1396,7 @@ it("a parent resync response dispatched before a local split cannot erase it", a
 
   await act(async () => {
     resolveFresh(jsonResponse(pagePayload("Paper", [
-      block("u1", "first", { order_idx: orderIdxOf(0) }),
+      block("tuid-u1", "first", { order_idx: orderIdxOf(0) }),
       block(created.uid, created.text, { order_idx: created.order_idx }),
     ])));
     await fresh;

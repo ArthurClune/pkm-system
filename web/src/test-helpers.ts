@@ -143,21 +143,6 @@ export function malformedUid(value: string): BlockUid { return value as BlockUid
 /** A deliberately bad digest for a negative test, unchecked. */
 export function malformedSha(value: string): Sha256Hex { return value as Sha256Hex; }
 
-/** @deprecated Unchecked: use `uidOf` with a uid-shaped value. */
-export function uid(s: string): BlockUid { return s as BlockUid; }
-/** @deprecated Unchecked: use `pageIdOf`. */
-export function pageId(n: number): PageId { return n as PageId; }
-/** @deprecated Unchecked: use `sidebarEntryIdOf`. */
-export function entryId(n: number): SidebarEntryId { return n as SidebarEntryId; }
-/** @deprecated Unchecked: use `normalizedTitleOf`. */
-export function normTitle(s: string): NormalizedTitle { return s as NormalizedTitle; }
-/** @deprecated Unchecked: use `canonicalTitleOf`. */
-export function title(s: string): CanonicalTitle { return s as CanonicalTitle; }
-/** @deprecated Unchecked: use `orderIdxOf`. */
-export function ord(n: number): OrderIdx { return n as OrderIdx; }
-/** @deprecated Unchecked: use `sidebarOrderIdxOf`. */
-export function sidebarOrd(n: number): SidebarOrderIdx { return n as SidebarOrderIdx; }
-
 /** Hold the outline editor for `title` so a test's own mount cannot win the
  * lease, and return the release. Sessions are global to the module, so the
  * handle is released before throwing on an ungranted lease:
@@ -232,7 +217,7 @@ export function servePageApplyingSent(sync: SyncFake, pageTitle: string,
 
 export function block(blockUid: string, text: string,
                       over: Partial<BlockNode> = {}): BlockNode {
-  return { uid: blockUid as BlockUid, text, heading: null, view_type: null,
+  return { uid: uidOf(blockUid), text, heading: null, view_type: null,
            collapsed: false, order_idx: orderIdxOf(0), created_at: 1000,
            updated_at: 2000, children: [], ...over };
 }

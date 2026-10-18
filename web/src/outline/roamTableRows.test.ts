@@ -6,12 +6,12 @@ const texts = (rows: ReturnType<typeof roamTableRows>) =>
   rows?.map((row) => row.map((cell) => cell?.text ?? null));
 
 function validTable(text = "{{[[table]]}}") {
-  return block("table", text, { children: [
-    block("h1", "**Model**", { children: [
-      block("h2", "Price", { children: [block("h3", "Plan")] }),
+  return block("tuid-table", text, { children: [
+    block("tuid-h1", "**Model**", { children: [
+      block("tuid-h2", "Price", { children: [block("tuid-h3", "Plan")] }),
     ] }),
-    block("r1c1", "[[Claude]]", { children: [
-      block("r1c2", "$5", { children: [block("r1c3", "Pro")] }),
+    block("tuid-r1c1", "[[Claude]]", { children: [
+      block("tuid-r1c2", "$5", { children: [block("tuid-r1c3", "Pro")] }),
     ] }),
   ] });
 }
@@ -31,7 +31,7 @@ describe("roamTableRows", () => {
 
   test("rejects non-table and empty table blocks", () => {
     expect(roamTableRows(validTable("before {{table}}"))).toBeNull();
-    expect(roamTableRows(block("empty", "{{table}}"))).toBeNull();
+    expect(roamTableRows(block("tuid-empty", "{{table}}"))).toBeNull();
   });
 
   test("pads ragged rows to the widest row", () => {

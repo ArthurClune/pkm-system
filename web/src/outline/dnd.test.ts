@@ -9,9 +9,9 @@ function page(): BlockNode[] {
   return [
     { ...block("tuid-a", "A", { order_idx: orderIdxOf(0) }), children: [
       { ...block("tuid-b", "B", { order_idx: orderIdxOf(0) }), children: [
-        block("c", "C", { order_idx: orderIdxOf(0) })] }] },
+        block("tuid-c", "C", { order_idx: orderIdxOf(0) })] }] },
     { ...block("tuid-d", "D", { order_idx: orderIdxOf(1), collapsed: true }), children: [
-      block("e", "E", { order_idx: orderIdxOf(0) })] },
+      block("tuid-e", "E", { order_idx: orderIdxOf(0) })] },
     block("tuid-f", "F", { order_idx: orderIdxOf(2) }),
   ];
 }
@@ -19,7 +19,7 @@ const OTHER: DragSource = { kind: "blocks", uid: uidOf("tuid-zz"), pageTitle: "E
 
 it("dropRows hides collapsed children and excludes the dragged subtree", () => {
   expect(dropRows(page(), OTHER, "P").map((r) => r.uid))
-    .toEqual(["tuid-a", "tuid-b", "c", "tuid-d", "tuid-f"]); // e hidden under collapsed d
+    .toEqual(["tuid-a", "tuid-b", "tuid-c", "tuid-d", "tuid-f"]); // e hidden under collapsed d
   expect(dropRows(page(), { kind: "blocks", uid: uidOf("tuid-b"), pageTitle: "P" }, "P").map((r) => r.uid))
     .toEqual(["tuid-a", "tuid-d", "tuid-f"]);           // b and c lifted out
 });
@@ -39,7 +39,7 @@ it("allowedDepths is never empty, at any boundary of any outline", () => {
   // which is only sound because no reachable pointer position resolves to
   // "this zone accepts nothing". Depth 0 is always legal, because the row
   // above a boundary can never sit below depth 0.
-  const outlines: BlockNode[][] = [page(), [], [block("solo", "S")]];
+  const outlines: BlockNode[][] = [page(), [], [block("tuid-solo", "S")]];
   for (const blocks of outlines) {
     const rows = dropRows(blocks, OTHER, "P");
     for (let boundary = 0; boundary <= rows.length; boundary++) {
@@ -61,7 +61,7 @@ it("resolveDrop picks parent and order_idx from the chosen depth", () => {
     .toEqual({ parent_uid: "tuid-a", order_idx: 1, page_title: "P" });
   // boundary 3, depth 3 → first child of c
   expect(resolveDrop(page(), "P", OTHER, { boundary: 3, depth: 3 }))
-    .toEqual({ parent_uid: "c", order_idx: 0, page_title: "P" });
+    .toEqual({ parent_uid: "tuid-c", order_idx: 0, page_title: "P" });
   // boundary 1 = after a (b is a's child at depth 1); depth 0 → top level.
   // First row at/after boundary with parent null (depth 0) is d with order_idx
   // 1 → insert before d at top level
@@ -117,7 +117,7 @@ const FILES: DragSource = { kind: "files" };
 
 it("dropRows keeps every row for a files drag, even on the same page", () => {
   expect(dropRows(page(), FILES, "P").map((r) => r.uid))
-    .toEqual(["tuid-a", "tuid-b", "c", "tuid-d", "tuid-f"]);
+    .toEqual(["tuid-a", "tuid-b", "tuid-c", "tuid-d", "tuid-f"]);
 });
 
 it("resolveDrop never returns the same-position null for a files drag", () => {

@@ -231,18 +231,18 @@ describe("outline causality", () => {
   });
 
   it("moves hidden focus to the outermost collapsed ancestor, the one on screen", () => {
-    const tree = [block("g", "grand", { collapsed: true, children: [
+    const tree = [block("tuid-g", "grand", { collapsed: true, children: [
       block("tuid-p", "parent", { order_idx: orderIdxOf(0), collapsed: true, children: [
         block("tuid-c", "child", { order_idx: orderIdxOf(0) }),
       ] }),
     ] })];
     expect(validateOutlineFocus({ uid: uidOf("tuid-c"), cursor: 0 }, tree))
-      .toEqual({ uid: "g", cursor: 5 });
+      .toEqual({ uid: "tuid-g", cursor: 5 });
   });
 
   it("keeps focus in a cell of a collapsed Roam table: its rows stay on screen", () => {
-    const tree = [block("t", "{{[[table]]}}", { collapsed: true, children: [
-      block("r1", "a", { order_idx: orderIdxOf(0), children: [
+    const tree = [block("tuid-t", "{{[[table]]}}", { collapsed: true, children: [
+      block("tuid-r1", "a", { order_idx: orderIdxOf(0), children: [
         block("tuid-r1b", "b", { order_idx: orderIdxOf(0) }),
       ] }),
     ] })];

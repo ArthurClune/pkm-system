@@ -21,14 +21,14 @@ describe("isTocMacro", () => {
 describe("tocEntries heading text", () => {
   test("shows a page-ref heading as its title, not the bracketed source", () => {
     const entries = tocEntries([
-      block("h", "[[Mathematics]]", { heading: 2 }),
+      block("tuid-h", "[[Mathematics]]", { heading: 2 }),
     ], uidOf("tuid-self"));
     expect(entries.map((e) => e.text)).toEqual(["Mathematics"]);
   });
 
   test("strips refs inside a longer heading and keeps a hashtag's hash", () => {
     const entries = tocEntries([
-      block("h", "Notes on [[AI in Research]] and #[[deep learning]] **today**",
+      block("tuid-h", "Notes on [[AI in Research]] and #[[deep learning]] **today**",
             { heading: 1 }),
     ], uidOf("tuid-self"));
     expect(entries[0].text)
@@ -39,50 +39,50 @@ describe("tocEntries heading text", () => {
 describe("tocEntries", () => {
   test("is empty when the page has no headings", () => {
     expect(tocEntries([
-      block("a", "plain", { children: [block("b", "also plain")] }),
+      block("tuid-a", "plain", { children: [block("tuid-b", "also plain")] }),
     ], uidOf("tuid-self"))).toEqual([]);
   });
 
   test("lists headings in document order, children after their parent", () => {
     const entries = tocEntries([
-      block("h1", "Intro", { heading: 1 }),
-      block("h2", "Setup", {
+      block("tuid-h1", "Intro", { heading: 1 }),
+      block("tuid-h2", "Setup", {
         heading: 1,
-        children: [block("h3", "Install", { heading: 2 })],
+        children: [block("tuid-h3", "Install", { heading: 2 })],
       }),
-      block("h4", "Outro", { heading: 1 }),
+      block("tuid-h4", "Outro", { heading: 1 }),
     ], uidOf("tuid-self"));
     expect(entries.map((e) => e.text)).toEqual(["Intro", "Setup", "Outro"]);
     expect(entries[1].children.map((e) => e.text)).toEqual(["Install"]);
-    expect(entries[1].children[0]).toMatchObject({ uid: "h3", level: 2 });
+    expect(entries[1].children[0]).toMatchObject({ uid: "tuid-h3", level: 2 });
   });
 
   test("nests by nearest heading ancestor, not by heading level", () => {
     // An h3 buried under a plain block under an h1 still belongs to the h1.
     const entries = tocEntries([
-      block("one", "One", {
+      block("tuid-one", "One", {
         heading: 1,
         children: [
-          block("plain", "notes", {
-            children: [block("deep", "Deep", { heading: 3 })],
+          block("tuid-plain", "notes", {
+            children: [block("tuid-deep", "Deep", { heading: 3 })],
           }),
         ],
       }),
     ], uidOf("tuid-self"));
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({ uid: "one", level: 1 });
+    expect(entries[0]).toMatchObject({ uid: "tuid-one", level: 1 });
     expect(entries[0].children).toHaveLength(1);
-    expect(entries[0].children[0]).toMatchObject({ uid: "deep", level: 3 });
+    expect(entries[0].children[0]).toMatchObject({ uid: "tuid-deep", level: 3 });
     expect(entries[0].children[0].children).toEqual([]);
   });
 
   test("a heading with only plain ancestors is top level", () => {
     const entries = tocEntries([
-      block("plain", "notes", {
-        children: [block("h", "Buried", { heading: 2 })],
+      block("tuid-plain", "notes", {
+        children: [block("tuid-h", "Buried", { heading: 2 })],
       }),
     ], uidOf("tuid-self"));
-    expect(entries.map((e) => e.uid)).toEqual(["h"]);
+    expect(entries.map((e) => e.uid)).toEqual(["tuid-h"]);
     expect(entries[0].level).toBe(2);
   });
 
@@ -90,20 +90,20 @@ describe("tocEntries", () => {
     const entries = tocEntries([
       block("tuid-toc", "{{toc}}", {
         heading: 1,
-        children: [block("kid", "Child heading", { heading: 2 })],
+        children: [block("tuid-kid", "Child heading", { heading: 2 })],
       }),
     ], uidOf("tuid-toc"));
-    expect(entries.map((e) => e.uid)).toEqual(["kid"]);
+    expect(entries.map((e) => e.uid)).toEqual(["tuid-kid"]);
     expect(entries[0].children).toEqual([]);
   });
 
   test("lists headings inside collapsed subtrees", () => {
     const entries = tocEntries([
-      block("one", "One", {
+      block("tuid-one", "One", {
         heading: 1, collapsed: true,
-        children: [block("two", "Two", { heading: 2 })],
+        children: [block("tuid-two", "Two", { heading: 2 })],
       }),
     ], uidOf("tuid-self"));
-    expect(entries[0].children.map((e) => e.uid)).toEqual(["two"]);
+    expect(entries[0].children.map((e) => e.uid)).toEqual(["tuid-two"]);
   });
 });

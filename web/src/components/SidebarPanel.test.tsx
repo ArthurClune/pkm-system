@@ -68,19 +68,19 @@ it("close button fires onClose", async () => {
 
 it("panel bullets are draggable and start a drag for the panel's page", async () => {
   stubFetch([["/api/page/Some%20Page", pagePayload("Some Page",
-    [block("s1", "side one")])]]);
+    [block("tuid-s1", "side one")])]]);
   const { dnd } = renderPanel("Some Page");
   await screen.findByText("side one");
   const bullet = document.querySelector(".sidebar-panel .bullet");
   expect(bullet).toHaveAttribute("draggable", "true");
 
   fireEvent.dragStart(bullet!, { dataTransfer: dt() });
-  expect(dnd().drag).toEqual({ kind: "blocks", uid: "s1", pageTitle: "Some Page" });
+  expect(dnd().drag).toEqual({ kind: "blocks", uid: "tuid-s1", pageTitle: "Some Page" });
 });
 
 it("dragging is disabled while disconnected (writes paused invariant)", async () => {
   const sync = makeSync("reconnecting");
-  stubFetch([["/api/page/Paper", pagePayload("Paper", [block("s1", "side one")])]]);
+  stubFetch([["/api/page/Paper", pagePayload("Paper", [block("tuid-s1", "side one")])]]);
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>

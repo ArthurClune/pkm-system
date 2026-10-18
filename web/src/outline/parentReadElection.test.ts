@@ -15,7 +15,7 @@ function createHost() {
     manualReads: new Set<number>(),
     captures: new Set<number>(),
     repairing: false,
-    blocks: [block("u1", "session tree")],
+    blocks: [block("tuid-u1", "session tree")],
   };
   const host: ParentReadHost = {
     title: "Elected",
@@ -66,12 +66,12 @@ it("publishes to waiters at or before the accepted read, with session blocks", a
   const same = readyWaiter(election, 5);
   const newer = readyWaiter(election, 6);
 
-  election.publish(token(5), pagePayload("Elected", [block("stale", "wire")]));
+  election.publish(token(5), pagePayload("Elected", [block("tuid-stale", "wire")]));
   await settle();
 
   expect(older.seen.value).toMatchObject({
     page: { title: "Elected" },
-    blocks: [expect.objectContaining({ uid: "u1" })],
+    blocks: [expect.objectContaining({ uid: "tuid-u1" })],
   });
   expect(same.seen.value).toBeDefined();
   expect(newer.seen.value).toBeUndefined();

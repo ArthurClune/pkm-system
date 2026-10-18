@@ -384,7 +384,7 @@ describe("legacy repair of a rejected batch", () => {
     const sourceTitle = "Unmounted replay source";
     const targetTitle = "Unmounted replay target";
     const moved = block("tuid-moved", "moved", {
-      children: [block("child", "child")],
+      children: [block("tuid-child", "child")],
     });
     const sourceTree = [block("source-root", "source", {
       children: [moved],
@@ -460,7 +460,7 @@ describe("legacy repair of a rejected batch", () => {
           expect.objectContaining({
             uid: "tuid-moved",
             order_idx: 1,
-            children: [expect.objectContaining({ uid: "child" })],
+            children: [expect.objectContaining({ uid: "tuid-child" })],
           }),
         ],
       });

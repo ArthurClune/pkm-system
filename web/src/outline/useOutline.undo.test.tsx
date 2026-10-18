@@ -88,13 +88,13 @@ it("undo reverses a whole cross-parent selection move in one step", () => {
   const outline = setup(sync, PAGE, [
     block("tuid-a", "A", {
       order_idx: orderIdxOf(0),
-      children: [block("a0", "A child", { order_idx: orderIdxOf(0) })],
+      children: [block("tuid-a0", "A child", { order_idx: orderIdxOf(0) })],
     }),
     block("tuid-b", "B", {
       order_idx: orderIdxOf(1),
       children: [
         block("tuid-b0", "B first", { order_idx: orderIdxOf(0) }),
-        block("b1", "B second", { order_idx: orderIdxOf(1) }),
+        block("tuid-b1", "B second", { order_idx: orderIdxOf(1) }),
       ],
     }),
     block("tuid-c", "C", { order_idx: orderIdxOf(2) }),
@@ -102,16 +102,16 @@ it("undo reverses a whole cross-parent selection move in one step", () => {
   act(() => outline().handlers.onStartBlockSelection(uidOf("tuid-b0"), "down"));
   act(() => outline().handlers.onMoveSelectionUp());
   expect(outline().blocks[0].children.map((n) => n.uid))
-    .toEqual(["a0", "tuid-b0", "b1"]);
+    .toEqual(["tuid-a0", "tuid-b0", "tuid-b1"]);
 
   act(() => outline().handlers.onUndo());
 
-  expect(outline().blocks[0].children.map((n) => n.uid)).toEqual(["a0"]);
+  expect(outline().blocks[0].children.map((n) => n.uid)).toEqual(["tuid-a0"]);
   expect(outline().blocks[1].children.map((n) => n.uid))
-    .toEqual(["tuid-b0", "b1"]);
+    .toEqual(["tuid-b0", "tuid-b1"]);
   expect(sync.sent).toHaveLength(2);
   expect(sync.sent[1]).toEqual([
-    { op: "move", uid: "b1", parent_uid: "tuid-b", order_idx: 1 },
+    { op: "move", uid: "tuid-b1", parent_uid: "tuid-b", order_idx: 1 },
     { op: "move", uid: "tuid-b0", parent_uid: "tuid-b", order_idx: 0 },
   ]);
 });
@@ -265,8 +265,8 @@ it("undo clamps the restored caret to the restored text", () => {
 
 /** A collapsed Roam table: its rows render whatever its collapsed flag says. */
 const collapsedTable = () => [
-  block("t", "{{[[table]]}}", { order_idx: orderIdxOf(0), collapsed: true, children: [
-    block("r1", "a", { order_idx: orderIdxOf(0), children: [
+  block("tuid-t", "{{[[table]]}}", { order_idx: orderIdxOf(0), collapsed: true, children: [
+    block("tuid-r1", "a", { order_idx: orderIdxOf(0), children: [
       block("tuid-r1b", "b", { order_idx: orderIdxOf(0) }),
     ] }),
   ] }),
@@ -325,7 +325,7 @@ it("undo inside a cell of a collapsed table keeps focus in the cell", () => {
 it("collapse toggles are not undo steps", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE,
-    [block("tuid-a", "alpha", { order_idx: orderIdxOf(0), children: [block("a1", "kid",
+    [block("tuid-a", "alpha", { order_idx: orderIdxOf(0), children: [block("tuid-a1", "kid",
       { order_idx: orderIdxOf(0) })] }),
      block("tuid-b", "beta", { order_idx: orderIdxOf(1) })]);
   // onToggleTodo on plain text returns null from toggleTodo (grammar/todo.ts)

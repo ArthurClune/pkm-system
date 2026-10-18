@@ -29,7 +29,7 @@ it("a page title cannot stand in for a ticket id", () => {
 
 it("shares each flushed tree with every handle of a title", () => {
   const first = acquireOutlineSession("Shared", [block("tuid-u1", "initial")]);
-  const second = acquireOutlineSession("Shared", [block("other", "ignored")]);
+  const second = acquireOutlineSession("Shared", [block("tuid-other", "ignored")]);
   const onSecondChange = vi.fn();
   const unsubscribe = second.subscribe(onSecondChange);
 
@@ -84,12 +84,12 @@ it("lease and handle cleanup are idempotent and skip abandoned claimants", () =>
 });
 
 it("deletes a released session so a later mount gets a fresh bootstrap", () => {
-  const old = acquireOutlineSession("Fresh", [block("old", "old")]);
+  const old = acquireOutlineSession("Fresh", [block("tuid-old", "old")]);
   old.release();
 
-  const fresh = acquireOutlineSession("Fresh", [block("new", "new")]);
+  const fresh = acquireOutlineSession("Fresh", [block("tuid-new", "new")]);
 
-  expect(fresh.getSnapshot().blocks.map((node) => node.uid)).toEqual(["new"]);
+  expect(fresh.getSnapshot().blocks.map((node) => node.uid)).toEqual(["tuid-new"]);
   fresh.release();
 });
 
@@ -180,25 +180,25 @@ it("cancels a failed token-based read so the session can be collected", () => {
 });
 
 it("coalesces overlapping authoritative reads and publishes their tree once", async () => {
-  const first = acquireOutlineSession("Authoritative", [block("old", "old")]);
-  const second = acquireOutlineSession("Authoritative", [block("old", "old")]);
+  const first = acquireOutlineSession("Authoritative", [block("tuid-old", "old")]);
+  const second = acquireOutlineSession("Authoritative", [block("tuid-old", "old")]);
   let resolve!: (blocks: ReturnType<typeof block>[]) => void;
   const response = new Promise<ReturnType<typeof block>[]>((done) => {
     resolve = done;
   });
   const load = vi.fn(() => response);
-  const duplicateLoad = vi.fn(() => Promise.resolve([block("wrong", "wrong")]));
+  const duplicateLoad = vi.fn(() => Promise.resolve([block("tuid-wrong", "wrong")]));
   const onChange = vi.fn();
   second.subscribe(onChange);
 
   const firstRead = first.requestAuthoritative(load);
   const secondRead = second.requestAuthoritative(duplicateLoad);
-  resolve([block("new", "new")]);
+  resolve([block("tuid-new", "new")]);
   await Promise.all([firstRead, secondRead]);
 
   expect(load).toHaveBeenCalledTimes(1);
   expect(duplicateLoad).not.toHaveBeenCalled();
-  expect(second.getSnapshot().blocks.map((node) => node.uid)).toEqual(["new"]);
+  expect(second.getSnapshot().blocks.map((node) => node.uid)).toEqual(["tuid-new"]);
   expect(onChange).toHaveBeenCalledTimes(1);
   first.release();
   second.release();
@@ -274,11 +274,11 @@ it("an expired unbootstrapped parent cannot reset the newer manual read", () => 
   const newerToken = newer.beginAuthoritativeRead("parent");
 
   const olderAccepted = older.receiveAuthoritative(
-    olderToken, [block("old", "expired")],
+    olderToken, [block("tuid-old", "expired")],
   );
   const child = acquireOutlineSession(title, []);
   const newerAccepted = newer.receiveAuthoritative(
-    newerToken, [block("new", "newer response")],
+    newerToken, [block("tuid-new", "newer response")],
   );
   const observed = {
     olderAccepted,
@@ -311,7 +311,7 @@ it("an existing-session bootstrap cannot overwrite an unresolved local write", a
     parent_uid: null, order_idx: orderIdxOf(0), text: "local write",
   }]);
 
-  const child = acquireOutlineSession(title, [block("stale", "stale bootstrap")]);
+  const child = acquireOutlineSession(title, [block("tuid-stale", "stale bootstrap")]);
   const observed = child.getSnapshot().blocks.map((node) => node.text);
 
   delivered.resolve({ status: "delivered" });
@@ -367,11 +367,11 @@ it("an automatic read expires an older manual reservation", async () => {
 });
 
 it("routes a cross-page ticket to source and fallback target but not another title", async () => {
-  const source = acquireOutlineSession("Source", [block("s", "old source")]);
-  const target = acquireOutlineSession("Target", [block("t", "old target")]);
-  const other = acquireOutlineSession("Other", [block("o", "old other")]);
-  const loadSource = vi.fn(async () => [block("s", "new source")]);
-  const loadTarget = vi.fn(async () => [block("t", "new target")]);
+  const source = acquireOutlineSession("Source", [block("tuid-s", "old source")]);
+  const target = acquireOutlineSession("Target", [block("tuid-t", "old target")]);
+  const other = acquireOutlineSession("Other", [block("tuid-o", "old other")]);
+  const loadSource = vi.fn(async () => [block("tuid-s", "new source")]);
+  const loadTarget = vi.fn(async () => [block("tuid-t", "new target")]);
   const removeSourceLoader = source.setAuthoritativeLoader("editable", loadSource);
   const removeTargetLoader = target.setAuthoritativeLoader("editable", loadTarget);
   const settled = deferred<WriteOutcome>();
@@ -384,9 +384,9 @@ it("routes a cross-page ticket to source and fallback target but not another tit
   const targetToken = target.beginAuthoritativeRead("parent");
   const otherToken = other.beginAuthoritativeRead("parent");
 
-  source.receiveAuthoritative(sourceToken, [block("s", "new source")]);
-  target.receiveAuthoritative(targetToken, [block("t", "new target")]);
-  other.receiveAuthoritative(otherToken, [block("o", "new other")]);
+  source.receiveAuthoritative(sourceToken, [block("tuid-s", "new source")]);
+  target.receiveAuthoritative(targetToken, [block("tuid-t", "new target")]);
+  other.receiveAuthoritative(otherToken, [block("tuid-o", "new other")]);
 
   expect(source.getSnapshot().blocks[0].text).toBe("old source");
   expect(target.getSnapshot().blocks[0].text).toBe("old target");
@@ -620,7 +620,7 @@ it("enrolls sessions acquired during a repair and ignores released newcomers", a
     const secondLoad = vi.fn(() => secondResponse.promise);
     removeSecondLoader = second.setAuthoritativeLoader("editable", secondLoad);
     const released = acquireOutlineSession("Repair cohort released", [
-      block("gone", "released immediately"),
+      block("tuid-gone", "released immediately"),
     ]);
     released.release();
 

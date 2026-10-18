@@ -216,7 +216,7 @@ it("a remote parent-based cross-page move (server-resolved "
   render(
     <SyncContext.Provider value={sync}>
       <Harness pageTitle="Src"
-        initial={[{ ...block("p", "parent", { order_idx: orderIdxOf(0) }),
+        initial={[{ ...block("tuid-p", "parent", { order_idx: orderIdxOf(0) }),
                     children: [block("tuid-moved", "moved here", { order_idx: orderIdxOf(0) })] }]}
         onReady={(o) => { src = o; }} />
       <Harness pageTitle="Dst"
@@ -236,7 +236,7 @@ it("a remote parent-based cross-page move (server-resolved "
   // source: page_title != our page → the block is dropped (its target parent
   // was never in this tree)
   expect(findNode(src.blocks, uidOf("tuid-moved"))).toBeNull();
-  expect(src.blocks.map((b) => b.uid)).toEqual(["p"]);
+  expect(src.blocks.map((b) => b.uid)).toEqual(["tuid-p"]);
   // target: op carries no block content, so it pulls the authoritative tree
   expect(fetchMock).toHaveBeenCalledWith("/api/page/Dst", READ_INIT);
   expect(dst.blocks.map((b) => b.uid)).toEqual(["tuid-tp", "tuid-moved"]);

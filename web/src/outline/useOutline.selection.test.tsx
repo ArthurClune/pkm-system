@@ -33,7 +33,7 @@ function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
 const abc = () => [
   block("tuid-a", "alpha", { order_idx: orderIdxOf(0) }),
   block("tuid-b", "beta", { order_idx: orderIdxOf(1) }),
-  block("c", "gamma", { order_idx: orderIdxOf(2) }),
+  block("tuid-c", "gamma", { order_idx: orderIdxOf(2) }),
 ];
 
 const crossParentTree = () => [
@@ -46,12 +46,12 @@ const crossParentTree = () => [
     children: [
       block("tuid-b0", "B first", {
         order_idx: orderIdxOf(0),
-        children: [block("b0x", "B grandchild", { order_idx: orderIdxOf(0) })],
+        children: [block("tuid-b0x", "B grandchild", { order_idx: orderIdxOf(0) })],
       }),
-      block("b1", "B second", { order_idx: orderIdxOf(1) }),
+      block("tuid-b1", "B second", { order_idx: orderIdxOf(1) }),
     ],
   }),
-  block("c", "C", { order_idx: orderIdxOf(2) }),
+  block("tuid-c", "C", { order_idx: orderIdxOf(2) }),
 ];
 
 afterEach(() => {
@@ -62,16 +62,16 @@ it("onMoveSelectionUp moves every selected block as a group, not just one", () =
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
   act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-b"), "down")); // anchor b, head c
-  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "c" });
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "tuid-c" });
 
   act(() => getOutline().handlers.onMoveSelectionUp());
 
   expect(sync.sent).toEqual([
     [{ op: "move", uid: "tuid-a", parent_uid: null, order_idx: 3 }],
   ]);
-  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-b", "c", "tuid-a"]);
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-b", "tuid-c", "tuid-a"]);
   // the selection is unaffected — b and c never moved themselves
-  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "c" });
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "tuid-c" });
 });
 
 it("onMoveSelectionDown moves every selected block as a group", () => {
@@ -82,9 +82,9 @@ it("onMoveSelectionDown moves every selected block as a group", () => {
   act(() => getOutline().handlers.onMoveSelectionDown());
 
   expect(sync.sent).toEqual([
-    [{ op: "move", uid: "c", parent_uid: null, order_idx: 0 }],
+    [{ op: "move", uid: "tuid-c", parent_uid: null, order_idx: 0 }],
   ]);
-  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["c", "tuid-a", "tuid-b"]);
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-c", "tuid-a", "tuid-b"]);
 });
 
 it("queues and applies one cross-parent selection move batch", () => {
@@ -92,20 +92,20 @@ it("queues and applies one cross-parent selection move batch", () => {
   const getOutline = setup(sync, "Page", crossParentTree());
   act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-b0"), "down"));
   act(() => getOutline().handlers.onExtendBlockSelection("down"));
-  expect(getOutline().selection).toEqual({ anchor: "tuid-b0", head: "b1" });
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b0", head: "tuid-b1" });
 
   act(() => getOutline().handlers.onMoveSelectionUp());
 
   expect(sync.sent).toEqual([[
     { op: "move", uid: "tuid-b0", parent_uid: "tuid-a", order_idx: 1 },
-    { op: "move", uid: "b1", parent_uid: "tuid-a", order_idx: 2 },
+    { op: "move", uid: "tuid-b1", parent_uid: "tuid-a", order_idx: 2 },
   ]]);
-  expect(getOutline().blocks.map((n) => n.uid)).toEqual(["tuid-a", "tuid-b", "c"]);
+  expect(getOutline().blocks.map((n) => n.uid)).toEqual(["tuid-a", "tuid-b", "tuid-c"]);
   expect(getOutline().blocks[0].children.map((n) => n.uid))
-    .toEqual(["tuid-a0", "tuid-b0", "b1"]);
+    .toEqual(["tuid-a0", "tuid-b0", "tuid-b1"]);
   expect(getOutline().blocks[0].children[1].children.map((n) => n.uid))
-    .toEqual(["b0x"]);
-  expect(getOutline().selection).toEqual({ anchor: "tuid-b0", head: "b1" });
+    .toEqual(["tuid-b0x"]);
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b0", head: "tuid-b1" });
 });
 
 it("does not enqueue when one selected movement run is ineligible", () => {
@@ -117,7 +117,7 @@ it("does not enqueue when one selected movement run is ineligible", () => {
   act(() => getOutline().handlers.onMoveSelectionUp());
 
   expect(sync.sent).toEqual([]);
-  expect(getOutline().blocks.map((n) => n.uid)).toEqual(["tuid-a", "tuid-b", "c"]);
+  expect(getOutline().blocks.map((n) => n.uid)).toEqual(["tuid-a", "tuid-b", "tuid-c"]);
   expect(getOutline().selection).toEqual({ anchor: "tuid-a0", head: "tuid-b" });
 });
 
@@ -130,21 +130,21 @@ it("indents and outdents the selected run as one batch without clearing it", () 
 
   expect(sync.sent).toEqual([[
     { op: "move", uid: "tuid-b", parent_uid: "tuid-a", order_idx: 0 },
-    { op: "move", uid: "c", parent_uid: "tuid-a", order_idx: 1 },
+    { op: "move", uid: "tuid-c", parent_uid: "tuid-a", order_idx: 1 },
   ]]);
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-a"]);
   expect(getOutline().blocks[0].children.map((b) => b.uid))
-    .toEqual(["tuid-b", "c"]);
-  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "c" });
+    .toEqual(["tuid-b", "tuid-c"]);
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "tuid-c" });
 
   act(() => getOutline().handlers.onOutdentSelection());
 
   expect(sync.sent[1]).toEqual([
     { op: "move", uid: "tuid-b", parent_uid: null, order_idx: 1 },
-    { op: "move", uid: "c", parent_uid: null, order_idx: 2 },
+    { op: "move", uid: "tuid-c", parent_uid: null, order_idx: 2 },
   ]);
-  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-a", "tuid-b", "c"]);
-  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "c" });
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-a", "tuid-b", "tuid-c"]);
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "tuid-c" });
 });
 
 it("keeps the whole selection unchanged when one indent run is ineligible", () => {
@@ -155,7 +155,7 @@ it("keeps the whole selection unchanged when one indent run is ineligible", () =
   act(() => getOutline().handlers.onIndentSelection());
 
   expect(sync.sent).toEqual([]);
-  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-a", "tuid-b", "c"]);
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-a", "tuid-b", "tuid-c"]);
   expect(getOutline().selection).toEqual({ anchor: "tuid-a", head: "tuid-b" });
 });
 
@@ -171,7 +171,7 @@ it("onSelectBlock selects exactly that block and ends editing", () => {
 
   // further Ctrl+Cmd presses extend one block at a time from that anchor
   act(() => getOutline().handlers.onExtendBlockSelection("down"));
-  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "c" });
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b", head: "tuid-c" });
 });
 
 it("deleting 20 or fewer selected blocks proceeds without confirmation", () => {
@@ -188,7 +188,7 @@ it("deleting 20 or fewer selected blocks proceeds without confirmation", () => {
     [{ op: "delete", uid: "tuid-a", base_subtree_hash: subtreeHash([["tuid-a", "alpha"]]) },
      { op: "delete", uid: "tuid-b", base_subtree_hash: subtreeHash([["tuid-b", "beta"]]) }],
   ]);
-  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["c"]);
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-c"]);
   expect(getOutline().selection).toBeNull();
 });
 

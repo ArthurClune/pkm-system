@@ -368,6 +368,28 @@ function overlaps(checker, a, b) {
   return false;
 }
 
+// The lib or own references a reference type extends, with the base's type
+// arguments written in terms of the reference's own: `Index<BlockUid, V>`
+// extending `Map<K, V>` gives `Map` with [BlockUid, V]. A base whose
+// arguments are not plain type parameters of the reference is skipped.
+function instantiatedBases(checker, type) {
+  if (!(type.objectFlags & ts.ObjectFlags.Reference)) return [];
+  const params = type.target.typeParameters ?? [];
+  const args = checker.getTypeArguments(type);
+  const bases = [];
+  for (const base of checker.getBaseTypes(type.target) ?? []) {
+    if (!(base.objectFlags & ts.ObjectFlags.Reference)) continue;
+    const mapped = checker.getTypeArguments(base).map((a) => {
+      const i = params.indexOf(a);
+      return i >= 0 ? args[i] : undefined;
+    });
+    if (mapped.every((a) => a !== undefined)) {
+      bases.push({ target: base.target, args: mapped });
+    }
+  }
+  return bases;
+}
+
 // What an array-like or iterable type holds: its number index type, or the
 // first type argument of a reference (`Iterable<T>`, `ReadonlySet<T>`).
 function elementOf(checker, type) {
@@ -462,6 +484,16 @@ function mintedBrands(checker, from, to, seen = new Map()) {
     position(source && checker.getTypeOfSymbol(source),
       checker.getTypeOfSymbol(p));
   }
+  // Our own `class Index<K, V> extends Map<K, V>` holds its arguments where
+  // its lib base does: compare them with a `from` of that lib type.
+  if (isReference(from) && isForeign(from)) {
+    const fromArgs = checker.getTypeArguments(from);
+    for (const base of instantiatedBases(checker, to)) {
+      if (base.target === from.target) {
+        base.args.forEach((t, i) => position(fromArgs[i], t));
+      }
+    }
+  }
   const fromInfos = checker.getIndexInfosOfType(from);
   for (const info of checker.getIndexInfosOfType(to)) {
     cachedBrands(checker, info.keyType).forEach((b) => accounted.add(b));
@@ -474,6 +506,46 @@ function mintedBrands(checker, from, to, seen = new Map()) {
   }
   for (const b of cachedBrands(checker, to)) if (!accounted.has(b)) minted.add(b);
   return minted;
+}
+
+// A mapped type over a type parameter (no members until instantiated) whose
+// declaration makes every key optional: `Partial<T>`, `{ [P in K]?: X }`.
+function isOptionalGenericMapping(checker, type) {
+  if (!(type.objectFlags & ts.ObjectFlags.Mapped)
+    || type.getProperties().length > 0
+    || checker.getIndexInfosOfType(type).length > 0) return false;
+  const question = type.symbol?.declarations?.find(ts.isMappedTypeNode)
+    ?.questionToken;
+  return question !== undefined && question.kind !== ts.SyntaxKind.MinusToken;
+}
+
+// The types a generic mapped type maps over: its alias's arguments
+// (`Partial<T>` maps over T), or the `T` of `keyof T` in a mapped type
+// written in place.
+function mappedOver(checker, type) {
+  const over = [...(type.aliasTypeArguments ?? [])];
+  const decl = type.symbol?.declarations?.find(ts.isMappedTypeNode);
+  const keys = decl?.typeParameter.constraint;
+  if (keys && checker.getTypeFromTypeNode(decl) === type) {
+    const keyType = checker.getTypeFromTypeNode(keys);
+    if (keyType.flags & ts.TypeFlags.Index) over.push(keyType.type);
+  }
+  return over;
+}
+
+// Whether a property of `to` carrying a brand or a laundering parameter is
+// one `from` does not back. A property `from` does not declare holds what
+// its string index allows, or anything.
+function unbackedProperties(checker, from, to, seen) {
+  const stringIndex = checker.getIndexTypeOfType(from, ts.IndexKind.String);
+  return to.getProperties().some((p) => {
+    const target = checker.getTypeOfSymbol(p);
+    const declared = from.getProperty(p.name);
+    const source = declared ? checker.getTypeOfSymbol(declared) : stringIndex;
+    if (source !== undefined) return unbacked(checker, source, target, seen);
+    return cachedBrands(checker, target).size > 0
+      || cachedLaunders(checker, target);
+  });
 }
 
 // Whether `to`, which `from` fits, has a position carrying a brand or a
@@ -490,14 +562,27 @@ function unbacked(checker, from, to, seen = new Map()) {
   }
   if (from.isUnion()) return from.types.some((m) => unbacked(checker, m, to, seen));
   if (to.isUnion()) {
-    return !to.types.some((m) => checker.isTypeAssignableTo(from, m)
+    // The operand must fit some member with no gap, and a property every
+    // member declares must be backed too: it reads through the union
+    // without narrowing to the member the operand fits.
+    const fits = to.types.some((m) => checker.isTypeAssignableTo(from, m)
       && !unbacked(checker, from, m, seen));
+    return !fits || unbackedProperties(checker, from, to, seen);
   }
+  // A position reached through an index signature or an optional property
+  // need not fit at all (`Record<string, string>` fits `{ uid?: BlockUid }`).
+  if (!checker.isTypeAssignableTo(from, to)) return true;
   const targets = seen.get(from) ?? new Set();
   if (targets.has(to)) return false;
   seen.set(from, targets.add(to));
   if (ownBrand(checker, to) === null && to.isIntersection()) {
     return to.types.some((m) => unbacked(checker, from, m, seen));
+  }
+  if (isOptionalGenericMapping(checker, to)) {
+    // `Partial<T>` over a type parameter has no members to compare until
+    // instantiated, and `object` fits it: only the type it maps over backs
+    // it.
+    return !mappedOver(checker, to).includes(from);
   }
   const isReference = (t) => (t.objectFlags & ts.ObjectFlags.Reference) !== 0;
   if (checker.isTupleType(to)) {
@@ -525,20 +610,12 @@ function unbacked(checker, from, to, seen = new Map()) {
     }
   }
   if (!isObjectish(to)) return false;
-  // A property `from` does not declare holds what its string index allows.
-  const stringIndex = checker.getIndexTypeOfType(from, ts.IndexKind.String);
-  const missing = to.getProperties().some((p) => {
-    const target = checker.getTypeOfSymbol(p);
-    const declared = from.getProperty(p.name);
-    const source = declared ? checker.getTypeOfSymbol(declared) : stringIndex;
-    return source === undefined ? carries(target)
-      : unbacked(checker, source, target, seen);
-  });
-  if (missing) return true;
+  if (unbackedProperties(checker, from, to, seen)) return true;
   const fromInfos = checker.getIndexInfosOfType(from);
   return checker.getIndexInfosOfType(to).some((info) => {
+    // A `string` key does not back a `BlockUid` key.
     const same = fromInfos.find(
-      (i) => checker.isTypeAssignableTo(info.keyType, i.keyType),
+      (i) => checker.isTypeAssignableTo(i.keyType, info.keyType),
     );
     if (same) return unbacked(checker, same.type, info.type, seen);
     return carries(info.keyType) || carries(info.type);

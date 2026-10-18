@@ -296,6 +296,14 @@ const cases: readonly FixtureCase[] = [
       "}\n" +
       "export function many(x: string | BlockUid[]): x is BlockUid[] {\n" +
       "  return Array.isArray(x);\n" +
+      "}\n" +
+      "export class Index<K, V> extends Map<K, V> {\n" +
+      "  tag = 1;\n" +
+      "}\n" +
+      "export function isIndex(\n" +
+      "  x: Map<BlockUid, number> | null,\n" +
+      "): x is Index<BlockUid, number> {\n" +
+      "  return x instanceof Index;\n" +
       "}\n",
   },
   {
@@ -314,6 +322,13 @@ const cases: readonly FixtureCase[] = [
       "  keep(x: BlockUid | null): BlockUid | null {\n" +
       "    return x;\n" +
       "  }\n" +
+      "}\n" +
+      "export class Index<K, V> extends Map<K, V> {\n" +
+      "  tag = 1;\n" +
+      "}\n" +
+      "export function indexOf(m: Map<BlockUid, number>): Index<BlockUid, number>;\n" +
+      "export function indexOf(m: Map<BlockUid, number>): Map<BlockUid, number> {\n" +
+      "  return m;\n" +
       "}\n",
   },
   {
@@ -344,7 +359,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-assertion-optional.ts",
     rule: "brands/no-brand-assertion",
-    count: 5,
+    count: 10,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export function frozen(xs: BlockUid[]): readonly BlockUid[] {\n" +
@@ -357,6 +372,17 @@ const cases: readonly FixtureCase[] = [
       "export function counts(): Record<BlockUid, number> {\n" +
       "  const r: Record<BlockUid, number> = {};\n" +
       "  return r;\n" +
+      "}\n" +
+      "export function start<T>(): Partial<T> {\n" +
+      "  const p: Partial<T> = {};\n" +
+      "  return p;\n" +
+      "}\n" +
+      "interface Row {\n" +
+      "  uid: BlockUid;\n" +
+      "  n: number;\n" +
+      "}\n" +
+      "export function picked<K extends keyof Row>(r: Row): Pick<Row, K> {\n" +
+      "  return r as Pick<Row, K>;\n" +
       "}\n",
   },
   {

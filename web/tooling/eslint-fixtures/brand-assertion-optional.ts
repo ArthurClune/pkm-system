@@ -19,3 +19,18 @@ export function indexed(x: object): unknown {
 export function slot<T>(x: { a: 1 }): T | undefined {
   return (x as { a: 1; v?: T }).v;
 }
+export function partialOf<T>(o: object): Partial<T> {
+  return o as Partial<T>;
+}
+export function optionalKeys<K extends string>(x: object): unknown {
+  return x as { [P in K]?: BlockUid };
+}
+export function partialRecord<K extends string>(o: object): unknown {
+  return o as Partial<Record<K, BlockUid>>;
+}
+export function rekeyed(x: Record<string, 1>): unknown {
+  return x as Record<BlockUid, 1>;
+}
+export function eitherRead(x: { a: 1 }): BlockUid | undefined {
+  return (x as { a: 1; uid?: undefined } | { b: 1; uid?: BlockUid }).uid;
+}

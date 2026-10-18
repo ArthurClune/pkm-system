@@ -51,13 +51,15 @@ it("onPasteOutline enqueues one batch and focuses the last pasted block", () => 
   expect(sync.sent).toEqual([[
     { op: "update_text", uid: "tuid-a", text: "seed!",
       base_text_hash: sha256Hex("seed"), page_title: "Page" },
-    { op: "create", uid: expect.any(String), page_title: "Page",
+    { op: "create", uid: expect.any(String) as string, page_title: "Page",
       parent_uid: null, order_idx: 1, text: "next" },
-    { op: "create", uid: expect.any(String), page_title: "Page",
-      parent_uid: expect.any(String), order_idx: 0, text: "kid" },
+    { op: "create", uid: expect.any(String) as string, page_title: "Page",
+      parent_uid: expect.any(String) as string, order_idx: 0, text: "kid" },
   ]]);
-  const [, createNext, createKid] = sync.sent[0] as
-    [unknown, { uid: string }, { parent_uid: string; uid: string }];
+  const [, createNext, createKid] = sync.sent[0] ?? [];
+  if (createNext?.op !== "create" || createKid?.op !== "create") {
+    throw new Error("expected the paste to create two blocks");
+  }
   expect(createKid.parent_uid).toBe(createNext.uid);
   expect(getOutline().blocks.map((b) => b.text)).toEqual(["seed!", "next"]);
   expect(getOutline().blocks[1].children.map((b) => b.text)).toEqual(["kid"]);

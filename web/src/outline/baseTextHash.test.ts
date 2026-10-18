@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
-import { sha256Hex, type Sha256Hex } from "../replica/sha256";
+import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
-import { block, orderIdxOf, canonicalTitleOf, uidOf } from "../test-helpers";
+import { block, orderIdxOf, canonicalTitleOf, uidOf, shaOf } from "../test-helpers";
 import { nodeSubtreePairs, stampBaseTextHashes, withoutStamps } from "./baseTextHash";
 import { backspaceAtStart } from "./edits";
 
@@ -37,10 +37,10 @@ describe("stampBaseTextHashes", () => {
   test("an explicitly supplied hash is preserved", () => {
     const ops: BlockOp[] = [
       { op: "update_text", uid: uidOf("tuid-u1"), text: "after",
-        base_text_hash: "deadbeef" as Sha256Hex },
+        base_text_hash: shaOf("deadbeef".repeat(8)) },
     ];
     expect(stampBaseTextHashes([block("tuid-u1", "before")], "AI", ops)[0])
-      .toMatchObject({ base_text_hash: "deadbeef" });
+      .toMatchObject({ base_text_hash: "deadbeef".repeat(8) });
   });
 
   test("a block unknown in this tree gets no hash (plain LWW, as the worker does)", () => {
@@ -114,7 +114,7 @@ describe("stampBaseTextHashes on delete", () => {
 
   test("leaves a supplied subtree hash alone", () => {
     const ops: BlockOp[] = [
-      { op: "delete", uid: uidOf("tuid-r"), base_subtree_hash: "feedface" as Sha256Hex },
+      { op: "delete", uid: uidOf("tuid-r"), base_subtree_hash: shaOf("feedface".repeat(8)) },
     ];
     expect(stampBaseTextHashes(tree(), "AI", ops)[0]).toBe(ops[0]);
   });
@@ -197,7 +197,7 @@ describe("withoutStamps", () => {
   test("withoutStamps drops both stamps and keeps the op", () => {
     expect(withoutStamps({
       op: "update_text", uid: uidOf("tuid-a"), text: "t",
-      base_text_hash: "h" as Sha256Hex, page_title: "P",
+      base_text_hash: shaOf("b".repeat(64)), page_title: "P",
     })).toEqual({ op: "update_text", uid: "tuid-a", text: "t" });
   });
 });

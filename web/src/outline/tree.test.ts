@@ -343,7 +343,8 @@ describe("blocksEqual", () => {
         : typeof value === "number" ? value + 1
         : typeof value === "boolean" ? !value
         : [];
-      expect(blocksEqual([base], [{ ...base, [field]: other } as BlockNode]),
+      const changed: BlockNode = { ...base, [field]: other };
+      expect(blocksEqual([base], [changed]),
              `blocksEqual ignored ${field}`).toBe(false);
     }
   });
@@ -509,7 +510,7 @@ describe("applyOpsWithChange allocates nothing for a batch that misses this page
 describe("needsAuthoritativeReload", () => {
   const move = (u: string, page_title: string | null): BlockOp => ({
     op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(0), page_title,
-  } as BlockOp);
+  });
 
   test("true for a move into this page of a uid the tree lacks", () => {
     expect(needsAuthoritativeReload(tree(), [move("tuid-zz", "P")], "P")).toBe(true);
@@ -525,8 +526,8 @@ describe("needsAuthoritativeReload", () => {
   });
   test("false for non-move ops on absent uids", () => {
     const ops: BlockOp[] = [
-      { op: "delete", uid: uidOf("tuid-zz") } as BlockOp,
-      { op: "update_text", uid: uidOf("tuid-zz"), text: "x" } as BlockOp,
+      { op: "delete", uid: uidOf("tuid-zz") },
+      { op: "update_text", uid: uidOf("tuid-zz"), text: "x" },
     ];
     expect(needsAuthoritativeReload(tree(), ops, "P")).toBe(false);
   });
@@ -545,7 +546,7 @@ describe("needsAuthoritativeReload", () => {
   test("false when the batch created the block on this page before moving it", () => {
     const ops: BlockOp[] = [
       { op: "create", uid: uidOf("tuid-zz"), parent_uid: null, order_idx: orderIdxOf(9),
-        text: "Z", page_title: "P" } as BlockOp,
+        text: "Z", page_title: "P" },
       move("tuid-zz", "P"),
     ];
     expect(needsAuthoritativeReload(tree(), ops, "P")).toBe(false);

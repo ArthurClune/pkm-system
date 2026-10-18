@@ -49,7 +49,7 @@ it("onFiles splices the uploaded asset's markdown at the given offset", async ()
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   await act(async () => {
-    getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
     await flush();
   });
 
@@ -66,7 +66,7 @@ it("a failed upload sets a visible uploadError and leaves the text untouched",
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   await act(async () => {
-    getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
     await flush();
   });
 
@@ -83,7 +83,7 @@ it("dismissUploadError clears the message", async () => {
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   await act(async () => {
-    getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
     await flush();
   });
   expect(getOutline().uploadError).not.toBeNull();
@@ -107,7 +107,7 @@ it("the /upload dialog path leaves focus null after the splice",
   expect(getOutline().focus).toBeNull();
 
   await act(async () => {
-    getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
     await flush();
   });
 
@@ -126,7 +126,7 @@ it("the paste/drop path restores focus with the caret past the spliced "
   act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u1"), 5));
 
   await act(async () => {
-    getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
     await flush();
   });
 
@@ -165,7 +165,7 @@ it("starting a new upload clears a stale error from a previous failure", async (
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   await act(async () => {
-    getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
     await flush();
   });
   expect(getOutline().uploadError).not.toBeNull();
@@ -174,7 +174,7 @@ it("starting a new upload clears a stale error from a previous failure", async (
     JSON.stringify(INFO), { status: 200,
       headers: { "Content-Type": "application/json" } }));
   await act(async () => {
-    getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
     await flush();
   });
 

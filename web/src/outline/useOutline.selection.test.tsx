@@ -193,7 +193,8 @@ it("deleting 20 or fewer selected blocks proceeds without confirmation", () => {
 });
 
 // 21 top-level blocks: one over LARGE_DELETE_THRESHOLD.
-const MANY_UIDS = Array.from({ length: 21 }, (_, i) => `tuid-u${String(i).padStart(2, "0")}`);
+const MANY_UIDS = Array.from(
+  { length: 21 }, (_, i) => uidOf(`tuid-u${String(i).padStart(2, "0")}`));
 function manyBlocks() {
   return MANY_UIDS.map((uid, i) => block(uid, uid, { order_idx: orderIdxOf(i) }));
 }

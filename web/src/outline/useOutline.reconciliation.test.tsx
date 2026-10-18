@@ -1,14 +1,23 @@
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { expect, it, vi } from "vitest";
-import type { ClientId } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
-import type { DeliveryOutcome, TicketId, WriteOutcome,
-              WriteTicket } from "../sync/opQueue";
+import type { DeliveryOutcome, WriteOutcome, WriteTicket } from "../sync/opQueue";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
-import { block, jsonResponse, makeSync, orderIdxOf, pagePayload, READ_INIT, stubFetch,
-         canonicalTitleOf, uidOf } from "../test-helpers";
+import {
+  block,
+  jsonResponse,
+  makeSync,
+  orderIdxOf,
+  pagePayload,
+  READ_INIT,
+  stubFetch,
+  canonicalTitleOf,
+  uidOf,
+  clientIdOf,
+  ticketIdOf,
+} from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ title: pageTitle, initial, onReady }: {
@@ -43,7 +52,7 @@ it("does not let an old target refetch erase a split made after dispatch", async
   );
 
   act(() => sync.emit({
-    client_id: "other" as ClientId, ts: 1,
+    client_id: clientIdOf("other"), ts: 1,
     ops: [{ op: "move", uid: uidOf("unknown"), parent_uid: null,
             order_idx: orderIdxOf(0), page_title: "Page" }],
   }));
@@ -98,7 +107,7 @@ it("adopts an empty daily rather than rejecting when the cross-page-move catch-u
   // page instead of a rejection that refetch's own catch(() => undefined)
   // would otherwise swallow, leaving the stale "old" block behind.
   act(() => sync.emit({
-    client_id: "other" as ClientId, ts: 1,
+    client_id: clientIdOf("other"), ts: 1,
     ops: [{ op: "move", uid: uidOf("incoming"), parent_uid: null, order_idx: orderIdxOf(0),
             page_title: "August 17th, 2026" }],
   }));
@@ -133,7 +142,7 @@ it("delivery replaces a blocked pre-delivery response with exactly one fresh rea
   const sent: WriteTicket[] = [];
   const sync = makeSync("connected", {
     enqueue: (_ops, scope) => {
-      const ticket = { id: "write-1" as TicketId, scope: scope ?? [],
+      const ticket = { id: ticketIdOf("write-1"), scope: scope ?? [],
                        settled: settled.promise,
                        delivered: delivered.promise };
       sent.push(ticket);
@@ -155,9 +164,9 @@ it("delivery replaces a blocked pre-delivery response with exactly one fresh rea
   act(() => outline.handlers.onSetHeading(uidOf("tuid-u1"), 1));
   expect(sent[0].scope).toEqual(["page", "Page"]);
   const token = outline.session!.beginAuthoritativeRead("parent");
-  act(() => outline.session!.receiveAuthoritative(
-    token, [block("tuid-u1", "pre-delivery")],
-  ));
+  act(() => {
+    outline.session!.receiveAuthoritative(token, [block("tuid-u1", "pre-delivery")]);
+  });
   expect(outline.blocks[0]).toMatchObject({ text: "old", heading: 1 });
 
   await act(async () => {

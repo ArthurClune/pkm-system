@@ -3,13 +3,20 @@
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import type { ClientId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, normalizedTitleOf, orderIdxOf, type SyncFake, canonicalTitleOf,
-         uidOf } from "../test-helpers";
+import {
+  block,
+  makeSync,
+  normalizedTitleOf,
+  orderIdxOf,
+  type SyncFake,
+  canonicalTitleOf,
+  uidOf,
+  clientIdOf,
+} from "../test-helpers";
 import { recordHistory, resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -185,7 +192,7 @@ it("run() records UNSTAMPED ops, so a redo hashes the current text", () => {
 
   // Another tab edits the same block between the undo and the redo. A local
   // edit would not do: recording one clears the redo stack.
-  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
+  act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
     { op: "update_text", uid: uidOf("tuid-a"), text: "two" },
   ] }));
   expect(outline().blocks[0].text).toBe("two");
@@ -283,7 +290,7 @@ it("typing in a cell of a collapsed table keeps focus there through a flush and 
     act(() => { vi.advanceTimersByTime(5000); }); // the debounced flush
     expect(sync.sent[0]).toMatchObject([{ op: "update_text", uid: "tuid-r1b", text: "bc" }]);
     expect(outline().focus).toEqual({ uid: "tuid-r1b", cursor: 1 });
-    act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
+    act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
       { op: "update_text", uid: uidOf("tuid-x"), text: "remote" },
     ] }));
     expect(outline().focus).toEqual({ uid: "tuid-r1b", cursor: 1 });
@@ -301,7 +308,7 @@ it("a remote collapse of the typed block's parent moves focus "
   ]);
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-c"), 5));
   act(() => outline().handlers.onDraftChange(uidOf("tuid-c"), "child typed"));
-  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
+  act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
     { op: "set_collapsed", uid: uidOf("tuid-p"), collapsed: true },
   ] }));
   expect(outline().focus).toEqual({ uid: "tuid-p", cursor: 6 });
@@ -370,7 +377,7 @@ it("a batch carrying a draft for a remotely deleted block stays undoable", () =>
     block("tuid-c", "gamma", { order_idx: orderIdxOf(2) }),
   ]);
   act(() => outline().handlers.onDraftChange(uidOf("tuid-a"), "see [[Held", true));
-  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
+  act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
     { op: "delete", uid: uidOf("tuid-a") },
   ] }));
   // The indent's batch flushes the held draft first: its text op targets a

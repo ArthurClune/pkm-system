@@ -4,14 +4,8 @@ import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
-import type { DeliveryOutcome, TicketId, WriteTicket } from "../sync/opQueue";
-import {
-  block,
-  defer,
-  makeSync,
-  orderIdxOf,
-  uidOf,
-} from "../test-helpers";
+import type { DeliveryOutcome, WriteTicket } from "../sync/opQueue";
+import { block, defer, makeSync, orderIdxOf, uidOf, shaOf, ticketIdOf } from "../test-helpers";
 import { acquireOutlineSession } from "./outlineSessions";
 import { historyIdle, performRedo, performUndo,
          recordHistory, registerOutlineHistory, resetHistory,
@@ -194,8 +188,8 @@ it("undo re-keys placements against the mounted tree, not the recorded keys", ()
   // Two moves up in a row: undoing the second shifts keys up, so the first
   // entry's recorded key no longer names b1's old slot.
   const sync = makeSync();
-  const move = (u: string, orderIdx: number): BlockOp[] =>
-    [{ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(orderIdx) }];
+  const move = (u: string, slot: number): BlockOp[] =>
+    [{ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(slot) }];
   const record = (pre: BlockNode[], ops: BlockOp[]) => {
     const inverse = invertOps(pre, PAGE, ops)!;
     recordHistory({ pageTitle: PAGE, ops, inverse,
@@ -230,8 +224,8 @@ it("recording clears redo (integration of AC through the manager)", () => {
   expect(performRedo(sync)).toBe(false);
 });
 
-const moveOp = (u: string, orderIdx: number): BlockOp[] =>
-  [{ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(orderIdx) }];
+const moveOp = (u: string, slot: number): BlockOp[] =>
+  [{ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(slot) }];
 
 it("undo with no session re-keys placements against the loaded page", async () => {
   // Move b1 to the top, navigate away, and let another device add x at the
@@ -332,8 +326,8 @@ it("a throwing enqueue is logged and does not break later dispatches or leak the
 
 // --- releasing the fresh assets of an undone upload ---
 
-const S1 = "1".repeat(64) as Sha256Hex;
-const S2 = "2".repeat(64) as Sha256Hex;
+const S1 = shaOf("1".repeat(64));
+const S2 = shaOf("2".repeat(64));
 
 const upload = (...shas: Sha256Hex[]): HistoryEntry =>
   ({ ...entry(), freshAssets: shas });
@@ -347,7 +341,7 @@ function gatedSync() {
       const gate = defer<DeliveryOutcome>();
       gates.push(gate);
       return {
-        id: `gated-${gates.length}` as TicketId, scope: ["page", PAGE],
+        id: ticketIdOf(`gated-${gates.length}`), scope: ["page", PAGE],
         settled: Promise.resolve({ status: "persisted", pending: 0 }),
         delivered: gate.promise,
       } satisfies WriteTicket;

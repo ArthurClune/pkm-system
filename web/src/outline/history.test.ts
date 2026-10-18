@@ -1,8 +1,7 @@
 import { expect, it } from "vitest";
-import type { Sha256Hex } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
-import { block, orderIdxOf, uidOf } from "../test-helpers";
+import { block, orderIdxOf, uidOf, shaOf } from "../test-helpers";
 import { applyOps } from "./tree";
 import { invertOps, emptyHistory, historyAnchors, HISTORY_CAP, recordEntry,
          resolveAnchors, takeRedo, takeUndo, type HistoryEntry,
@@ -60,8 +59,8 @@ const roundTrip = (before: BlockNode[], ops: BlockOp[]): BlockNode[] => {
   return applyOps(applyOps(before, ops, PAGE), inverse, PAGE);
 };
 
-const flat = (...uids: string[]) =>
-  uids.map((u, i) => block(u, u, { order_idx: orderIdxOf(i) }));
+const flat = (...tags: string[]) =>
+  tags.map((u, i) => block(u, u, { order_idx: orderIdxOf(i) }));
 
 it("round-trips a move up: the swapped sibling took the old key", () => {
   // moveBlockUp b1: the move lands on b0's key, shifting b0 into b1's old one
@@ -274,8 +273,8 @@ const replay = (tree: BlockNode[], e: HistoryEntry,
   const anchors = direction === "undo" ? e.anchors.inverse : e.anchors.ops;
   return applyOps(tree, resolveAnchors(tree, PAGE, batch, anchors), PAGE);
 };
-const moveTo = (u: string, orderIdx: number): BlockOp[] =>
-  [{ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(orderIdx) }];
+const moveTo = (u: string, slot: number): BlockOp[] =>
+  [{ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(slot) }];
 
 it("anchors each placement on the sibling it lands in front of", () => {
   const before = flat("tuid-b0", "tuid-b1", "tuid-b2");
@@ -422,7 +421,7 @@ it("caps the undo stack, evicting the oldest", () => {
   expect(s.undo[0]).toEqual(entry(5)); // oldest five evicted
 });
 
-const FRESH = ["a".repeat(64) as Sha256Hex];
+const FRESH = [shaOf("a".repeat(64))];
 
 it("undoing an entry with freshAssets clears redo, earlier redo entries included", () => {
   let s = rec(rec(rec(emptyHistory(), entry(1)), { ...entry(2), freshAssets: FRESH }), entry(3));

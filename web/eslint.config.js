@@ -136,4 +136,16 @@ export default tseslint.config(
       "no-restricted-syntax": "off",
     },
   },
+  {
+    // Tests that stub the transport itself: typedClient calls apiFetch, so a
+    // view test that mocks the network at that seam must import it.
+    files: [
+      "src/components/PageTitle.test.tsx",
+      "src/views/Files.test.tsx",
+      "src/views/Settings.test.tsx",
+    ],
+    rules: {
+      "no-restricted-imports": "off",
+    },
+  },
 );

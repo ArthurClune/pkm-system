@@ -4,10 +4,9 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Sha256Hex } from "../api/brands";
 import type { AssetSearchItem, AssetSearchPayload } from "../api/payloads";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { makeSync, canonicalTitleOf, uidOf } from "../test-helpers";
+import { makeSync, canonicalTitleOf, uidOf, shaOf } from "../test-helpers";
 import { Files } from "./Files";
 
 vi.mock("../api/client", () => ({ apiFetch: vi.fn() }));
@@ -31,7 +30,7 @@ const mockSync = vi.mocked(useSyncHealth);
 
 // AssetSearchItem.sha256 is server-branded; these fixtures stand in for a
 // real digest without computing one, so they cast.
-const sha = (s: string) => s as Sha256Hex;
+const sha = (s: string) => shaOf(s);
 
 const item = (over: Partial<AssetSearchItem>): AssetSearchItem => ({
   sha256: sha("ab".repeat(32)), filename: "pic.png", mime: "image/png",

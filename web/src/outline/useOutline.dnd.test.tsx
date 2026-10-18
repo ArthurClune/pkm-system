@@ -1,12 +1,21 @@
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { expect, it } from "vitest";
-import type { ClientId } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, orderIdxOf, pagePayload, READ_INIT, stubFetch, type SyncFake,
-         canonicalTitleOf, uidOf } from "../test-helpers";
+import {
+  block,
+  makeSync,
+  orderIdxOf,
+  pagePayload,
+  READ_INIT,
+  stubFetch,
+  type SyncFake,
+  canonicalTitleOf,
+  uidOf,
+  clientIdOf,
+} from "../test-helpers";
 import { findNode } from "./tree";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -80,7 +89,7 @@ it("remote set_view_type batches update the same tree path", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", [block("tuid-u1", "first")]);
   act(() => sync.emit({
-    client_id: "other" as ClientId, ts: 1,
+    client_id: clientIdOf("other"), ts: 1,
     ops: [{ op: "set_view_type", uid: uidOf("tuid-u1"), view_type: "numbered" }],
   }));
   expect(findNode(getOutline().blocks, uidOf("tuid-u1"))!.view_type).toBe("numbered");
@@ -104,7 +113,7 @@ it("applies one remote move exactly once across two same-title views", () => {
     </SyncContext.Provider>);
 
   act(() => sync.emit({
-    client_id: "other" as ClientId,
+    client_id: clientIdOf("other"),
     ts: 1,
     ops: [{ op: "move", uid: uidOf("tuid-u3"), parent_uid: null, order_idx: orderIdxOf(0) }],
   }));
@@ -135,7 +144,7 @@ it("starts one target refetch for one remote batch across same-title views", asy
 
   await act(async () => {
     sync.emit({
-      client_id: "other" as ClientId,
+      client_id: clientIdOf("other"),
       ts: 1,
       ops: [{ op: "move", uid: uidOf("tuid-moved"), parent_uid: null,
               order_idx: orderIdxOf(1), page_title: "Page" }],
@@ -226,7 +235,7 @@ it("a remote parent-based cross-page move (server-resolved "
 
   await act(async () => {
     sync.emit({
-      client_id: "other" as ClientId, ts: 1,
+      client_id: clientIdOf("other"), ts: 1,
       ops: [{ op: "move", uid: uidOf("tuid-moved"), parent_uid: uidOf("tuid-tp"), order_idx: orderIdxOf(0),
                page_title: "Dst" }],
     });
@@ -256,7 +265,7 @@ it("target-side refetch ignores global settlement and adopts a safe response", a
 
   act(() => {
     sync.emit({
-      client_id: "other" as ClientId, ts: 1,
+      client_id: clientIdOf("other"), ts: 1,
       ops: [{ op: "move", uid: uidOf("unknown"), parent_uid: null,
                order_idx: orderIdxOf(0), page_title: "Page" }],
     });

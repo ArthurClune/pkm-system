@@ -5,12 +5,12 @@ import { MemoryRouter } from "react-router-dom";
 import { expect, it } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { TableOfContents } from "./TableOfContents";
-import { uid } from "../test-helpers";
+import { uidOf } from "../test-helpers";
 import type { TocEntry } from "./tocEntries";
 
 function entry(entryUid: string, text: string, level: 1 | 2 | 3,
                children: TocEntry[] = []): TocEntry {
-  return { uid: uid(entryUid), text, level, children };
+  return { uid: uidOf(entryUid), text, level, children };
 }
 
 function mount(entries: TocEntry[]) {
@@ -23,8 +23,8 @@ function mount(entries: TocEntry[]) {
 
 it("renders a nested list of links, each pointing at its block's hash", () => {
   const container = mount([
-    entry("aaa", "Intro", 1),
-    entry("bbb", "Setup", 1, [entry("ccc", "Install", 2)]),
+    entry("tuid-aaa", "Intro", 1),
+    entry("tuid-bbb", "Setup", 1, [entry("tuid-ccc", "Install", 2)]),
   ]);
 
   const links = Array.from(container.querySelectorAll("a.toc-link"));
@@ -33,7 +33,7 @@ it("renders a nested list of links, each pointing at its block's hash", () => {
   // The router resolves a hash-only target against the current location, so
   // an entry stays on this page and only sets the hash PageView watches.
   expect(links.map((a) => a.getAttribute("href")))
-    .toEqual(["/page/Notes#aaa", "/page/Notes#bbb", "/page/Notes#ccc"]);
+    .toEqual(["/page/Notes#tuid-aaa", "/page/Notes#tuid-bbb", "/page/Notes#tuid-ccc"]);
   // "Install" is nested inside the "Setup" item, not a sibling of it.
   const outer = container.querySelectorAll(":scope > nav > ol > li");
   expect(outer).toHaveLength(2);
@@ -43,8 +43,8 @@ it("renders a nested list of links, each pointing at its block's hash", () => {
 });
 
 it("labels the nav and marks each item with its heading level", () => {
-  const container = mount([entry("aaa", "Intro", 1),
-                           entry("bbb", "Deep", 3)]);
+  const container = mount([entry("tuid-aaa", "Intro", 1),
+                           entry("tuid-bbb", "Deep", 3)]);
   expect(screen.getByRole("navigation", { name: "Table of contents" }))
     .toBeTruthy();
   const items = container.querySelectorAll("li.toc-item");
@@ -62,7 +62,7 @@ it("says so when the page has no headings", () => {
 // The card's title: the list indents under it, and it stays put
 // when there is nothing to list, so an empty toc still reads as a toc.
 it("titles the card, before the list and before the empty state alike", () => {
-  const withEntries = mount([entry("aaa", "Intro", 1)]);
+  const withEntries = mount([entry("tuid-aaa", "Intro", 1)]);
   const header = withEntries.querySelector("nav.toc > .toc-header");
   expect(header?.textContent).toBe("Table of Contents");
   expect(header?.nextElementSibling?.matches("ol.toc-list")).toBe(true);

@@ -2,7 +2,7 @@ import { act, fireEvent, render, renderHook, screen } from "@testing-library/rea
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, test, vi } from "vitest";
-import { block, jsonResponse, ord, stubFetch, uid } from "../test-helpers";
+import { block, jsonResponse, orderIdxOf, stubFetch, uidOf } from "../test-helpers";
 import type { OutlineHandlers } from "../outline/handlers";
 import { useTitleOptions } from "./AutocompletePopup";
 import { EditableBlockTree } from "./EditableBlockTree";
@@ -36,8 +36,8 @@ function handlers(): OutlineHandlers {
 function mount(h: OutlineHandlers) {
   return render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <EditableBlockTree blocks={[block("u1", "", { order_idx: ord(0) })]}
-                         focus={{ uid: uid("u1"), cursor: 0 }} handlers={h}
+      <EditableBlockTree blocks={[block("tuid-u1", "", { order_idx: orderIdxOf(0) })]}
+                         focus={{ uid: uidOf("tuid-u1"), cursor: 0 }} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
 }
@@ -60,7 +60,7 @@ test("typing [[ shows title options; Enter picks and closes the brackets", async
   fireEvent.keyDown(ta, { key: "ArrowDown" }); // select "Magic"
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(h.onSplit).not.toHaveBeenCalled(); // Enter was consumed by the popup
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "see [[Magic]]");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "see [[Magic]]");
   expect(screen.queryByRole("listbox")).toBeNull(); // popup closed
   vi.useRealTimers();
 });
@@ -74,7 +74,7 @@ test("a query with no exact match offers a New page row", async () => {
   await tick(200);
   expect(screen.getByRole("option", { name: /New page: Fresh Idea/ })).toBeInTheDocument();
   fireEvent.keyDown(ta, { key: "Enter" });
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[Fresh Idea]]");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "[[Fresh Idea]]");
   vi.useRealTimers();
 });
 

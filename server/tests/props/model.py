@@ -31,9 +31,11 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from pkm.contracts.ops import UID_RE, subtree_hash, text_hash
+from pkm.contracts.ops import (UID_RE, BlockUid, OrderIdx, Sha256Hex, SyncSeq,
+                               subtree_hash, text_hash)
 from pkm.refs import (attribute_title_span, extract, is_blank_title,
                       strip_code, title_syntax_reason)
+from pkm.test_data.ids import order_idx_of, uid_of
 
 # What a whitespace-only page_title resolves to: the ops path never rejects
 # a batch over a blank title (code: ops_apply.UNTITLED_PAGE_TITLE).
@@ -45,12 +47,16 @@ SkipEntry = tuple[int, str, str, str]
 SkipFn = Callable[[str], None]
 
 
+# `(uid, base_hash, after_hash, kind, old_title, new_title)`.
+RewriteRow = tuple[BlockUid, Sha256Hex, Sha256Hex, str, str, str]
+
+
 @dataclass(frozen=True)
 class MBlock:
-    uid: str
+    uid: BlockUid
     page: str
-    parent: str | None
-    order_idx: int
+    parent: BlockUid | None
+    order_idx: OrderIdx
     text: str
     heading: int | None
     collapsed: bool
@@ -78,7 +84,7 @@ class _Rejected(Exception):
     """The batch is a 400: nothing in it applies."""
 
 
-def _valid_uid(uid: str) -> bool:
+def _valid_uid(uid: BlockUid) -> bool:
     return UID_RE.fullmatch(uid) is not None
 
 
@@ -147,10 +153,10 @@ def unlink_stale(text: str, titles: Collection[str]) -> str:
     return fence_attribute(unlink_titles(text, titles), titles)
 
 
-def inline_refs(text: str, copies: Mapping[str, str]) -> str:
+def inline_refs(text: str, copies: Mapping[BlockUid, str]) -> str:
     """Each `((uid))` with a copy becomes that copy, in one pass: a copy's
     own refs are not rescanned."""
-    return _BLOCK_REF.sub(lambda m: copies.get(m.group(1), m.group(0)), text)
+    return _BLOCK_REF.sub(lambda m: copies.get(uid_of(m.group(1)), m.group(0)), text)
 
 
 def _plain_copy(text: str) -> str:
@@ -160,7 +166,7 @@ def _plain_copy(text: str) -> str:
     return text if span is None else text[span.end:].lstrip()
 
 
-def page_copies(title: str, page_texts: Mapping[str, str]) -> dict[str, str]:
+def page_copies(title: str, page_texts: Mapping[BlockUid, str]) -> dict[BlockUid, str]:
     """The text a page delete copies in place of a `((ref))` to each of the
     page's blocks: the block's plain copy, with refs to the page's other
     blocks resolved one level deep (deeper ones and cycles dropped, code:
@@ -181,10 +187,10 @@ class Rewrite:
     `base_hash` has this replayed onto its text first. `before` is the
     text `base_hash` hashes: what a device that missed the rewrite still
     holds, which strategies re-send. It is not part of the rows."""
-    base_hash: str
-    after_hash: str
+    base_hash: Sha256Hex
+    after_hash: Sha256Hex
     unlinked: frozenset[str] = frozenset()
-    inlines: tuple[tuple[str, str], ...] = ()
+    inlines: tuple[tuple[BlockUid, str], ...] = ()
     before: str = field(default="", compare=False)
 
     def replay(self, text: str) -> str:
@@ -192,7 +198,7 @@ class Rewrite:
                              self.unlinked)
         return fence_attribute(text, self.unlinked)
 
-    def rows(self, uid: str) -> set[tuple[str, str, str, str, str, str]]:
+    def rows(self, uid: BlockUid) -> set[RewriteRow]:
         """As `(uid, base_hash, after_hash, kind, old_title, new_title)`."""
         return ({(uid, self.base_hash, self.after_hash, "unlink", t, "")
                  for t in self.unlinked}
@@ -207,13 +213,13 @@ class PageDelete:
     a `((ref))` to each of the page's blocks."""
     status: int
     title: str = ""
-    blockers: Mapping[str, str] = field(default_factory=dict)
-    copies: Mapping[str, str] = field(default_factory=dict)
+    blockers: Mapping[BlockUid, str] = field(default_factory=dict)
+    copies: Mapping[BlockUid, str] = field(default_factory=dict)
 
-    def rewrite(self, text: str) -> tuple[str, bool, dict[str, str]]:
+    def rewrite(self, text: str) -> tuple[str, bool, dict[BlockUid, str]]:
         """A referencing text as the delete leaves it, whether unlinking
         changed it, and the copies it inlined."""
-        applied: dict[str, str] = {u: self.copies[u]
+        applied: dict[BlockUid, str] = {u: self.copies[u]
                                    for u in extract(text).block_refs
                                    if u in self.copies}
         inlined = inline_refs(text, applied)
@@ -261,10 +267,10 @@ class Model:
     `deletions` each page delete as `(title, journal head after it)`."""
 
     def __init__(self) -> None:
-        self.blocks: dict[str, MBlock] = {}
+        self.blocks: dict[BlockUid, MBlock] = {}
         self.pages: set[str] = set()
-        self.deleted: set[str] = set()
-        self.rewrites: dict[str, list[Rewrite]] = {}
+        self.deleted: set[BlockUid] = set()
+        self.rewrites: dict[BlockUid, list[Rewrite]] = {}
         self.deletions: list[tuple[str, int]] = []
         # filled per batch for Outcome.paths
         self._paths: list[str] = []
@@ -279,10 +285,10 @@ class Model:
             m._touch(row.text)
         return m
 
-    def snapshot(self) -> dict[str, MBlock]:
+    def snapshot(self) -> dict[BlockUid, MBlock]:
         return dict(self.blocks)
 
-    def stale_titles(self, seen_seq: int | None) -> frozenset[str]:
+    def stale_titles(self, seen_seq: SyncSeq | None) -> frozenset[str]:
         """backend.md § Stale batches: the titles deleted after `seen_seq`;
         none without one. A `seen_seq` past the journal head is not
         modelled: the state machine never draws one."""
@@ -290,12 +296,12 @@ class Model:
             return frozenset()
         return frozenset(t for t, seq in self.deletions if seq > seen_seq)
 
-    def rewrite_rows(self) -> set[tuple[str, str, str, str, str, str]]:
+    def rewrite_rows(self) -> set[RewriteRow]:
         """Every `block_rewrites` row the model expects for its uids."""
         return {row for uid, steps in self.rewrites.items()
                 for step in steps for row in step.rows(uid)}
 
-    def apply(self, ops: Sequence[Op], seen_seq: int | None = None) -> Outcome:
+    def apply(self, ops: Sequence[Op], seen_seq: SyncSeq | None = None) -> Outcome:
         """Apply one batch atomically: a 400 leaves the model unchanged
         (backend.md § The write path: one transaction per batch)."""
         saved = (dict(self.blocks), set(self.pages), set(self.deleted),
@@ -316,8 +322,8 @@ class Model:
             self._touch(text)
         return Outcome(200, tuple(skipped), tuple(kept), tuple(self._paths))
 
-    def delete_page(self, title: str, others: Mapping[str, str],
-                    seq: int) -> PageDelete:
+    def delete_page(self, title: str, others: Mapping[BlockUid, str],
+                    seq: SyncSeq) -> PageDelete:
         """`DELETE /api/page/{title}` (backend.md § Page mutations and the
         sidebar). `others` is the text of every block the model does not
         track that is off the page (conflict entries, seed rows), since
@@ -358,7 +364,7 @@ class Model:
         self.pages.update(r.title for r in extract(text).refs
                           if not is_blank_title(r.title))
 
-    def _record(self, uid: str, step: Rewrite) -> None:
+    def _record(self, uid: BlockUid, step: Rewrite) -> None:
         """Record a rewrite as the newest. Rows sharing its hash pair with
         an older rewrite of the block replay as one step with it (code:
         ops_core._rewrite_steps), where the older row's copy of a uid wins."""
@@ -373,14 +379,14 @@ class Model:
                                 **dict(old.inlines)}.items())))
         steps.insert(0, step)
 
-    def _replay(self, uid: str, text: str,
+    def _replay(self, uid: BlockUid, text: str,
                 base: str) -> tuple[str, str, list[Rewrite]]:
         """backend.md § Database, `block_rewrites`: a hashed edit made
         before recorded rewrites of its block has them replayed onto its
         text first."""
         return replay_chain(self.rewrites.get(uid, ()), text, base)
 
-    def _record_written(self, uid: str, sent: str, written: str,
+    def _record_written(self, uid: BlockUid, sent: str, written: str,
                         stale: Collection[str],
                         replayed: Sequence[Rewrite]) -> None:
         """backend.md § Stale batches: text written to `uid` that differs
@@ -396,7 +402,9 @@ class Model:
             return
         chain: list[Rewrite] = []
         text = sent
-        passes = [(lambda t: unlink_stale(t, titles), Rewrite("", "", titles))
+        placeholder = text_hash("")   # both hashes are replaced below
+        passes = [(lambda t: unlink_stale(t, titles),
+                   Rewrite(placeholder, placeholder, titles))
                   ] if titles else []
         passes += [(step.replay, step) for step in replayed]
         for rewrite, step in passes:
@@ -415,11 +423,11 @@ class Model:
 
     # --- tree helpers -------------------------------------------------------
 
-    def _children(self, uid: str) -> list[MBlock]:
+    def _children(self, uid: BlockUid) -> list[MBlock]:
         return sorted((b for b in self.blocks.values() if b.parent == uid),
                       key=lambda b: (b.order_idx, b.uid))
 
-    def subtree(self, uid: str) -> list[str]:
+    def subtree(self, uid: BlockUid) -> list[BlockUid]:
         """uid and its descendants, pre-order, siblings by (order_idx, uid):
         the order the server copies a diverged delete's rows in."""
         out = [uid]
@@ -427,17 +435,17 @@ class Model:
             out.extend(self.subtree(child.uid))
         return out
 
-    def _chain(self, uid: str) -> list[str]:
+    def _chain(self, uid: BlockUid) -> list[BlockUid]:
         """uid and every ancestor above it."""
-        out: list[str] = []
-        cur: str | None = uid
+        out: list[BlockUid] = []
+        cur: BlockUid | None = uid
         while cur is not None and cur not in out:
             out.append(cur)
             cur = self.blocks[cur].parent
         return out
 
-    def _shift(self, page: str, parent: str | None, key: int,
-               moving: str | None = None) -> None:
+    def _shift(self, page: str, parent: BlockUid | None, key: int,
+               moving: BlockUid | None = None) -> None:
         """backend.md § The write path, Ordering: landing at `key` first
         bumps every sibling (same page, same parent) whose key is >= `key`
         by one. A moving block is left out of its own shift: its key is
@@ -445,7 +453,7 @@ class Model:
         for b in list(self.blocks.values()):
             if (b.page == page and b.parent == parent and b.order_idx >= key
                     and b.uid != moving):
-                self.blocks[b.uid] = replace(b, order_idx=b.order_idx + 1)
+                self.blocks[b.uid] = replace(b, order_idx=order_idx_of(b.order_idx + 1))
 
     # --- ops ----------------------------------------------------------------
 
@@ -509,7 +517,7 @@ class Model:
         else:
             raise AssertionError(f"unknown op kind: {kind}")
 
-    def _create(self, op: Op, uid: str, text: str, skip: SkipFn,
+    def _create(self, op: Op, uid: BlockUid, text: str, skip: SkipFn,
                 kept: list[str], stale: frozenset[str]) -> None:
         # backend.md § Missing targets: an invalid uid is a 400 -- for a
         # create, checked before anything else.
@@ -644,7 +652,7 @@ class Model:
             for u in subtree:
                 self.blocks[u] = replace(self.blocks[u], page=page)
 
-    def _delete(self, op: Op, uid: str, kept: list[str]) -> None:
+    def _delete(self, op: Op, uid: BlockUid, kept: list[str]) -> None:
         subtree = self.subtree(uid)
         base = op.get("base_subtree_hash")
         if base is not None and subtree_hash(
@@ -665,12 +673,12 @@ class Model:
 _UID_SPEC = re.compile(r"^\(\((.+)\)\)$")
 _ALIAS_SPEC = re.compile(r"^\{\{(.+)\}\}$")
 
-Groups = dict[str | None, list[str]]
+Groups = dict[BlockUid | None, list[BlockUid]]
 
 
-def positions_after(groups: Mapping[str | None, Sequence[str]],
+def positions_after(groups: Mapping[BlockUid | None, Sequence[BlockUid]],
                     commands: Sequence[Mapping[str, Any]],
-                    new_uids: Iterator[str]) -> Groups:
+                    new_uids: Iterator[BlockUid]) -> Groups:
     """Each parent's children, in order, after the `pkm batch` `commands`
     run over `groups` (parent uid -> child uids, None for the page's top
     level). Positions only, never order keys: this is the CLI contract the
@@ -694,38 +702,38 @@ def positions_after(groups: Mapping[str | None, Sequence[str]],
     planner would create, and `outline` are not modelled and raise.
     The input is not mutated."""
     out: Groups = {k: list(v) for k, v in groups.items()}
-    aliases: dict[str, str] = {}
+    aliases: dict[str, BlockUid] = {}
 
-    def parent_of(uid: str) -> tuple[bool, str | None]:
+    def parent_of(uid: BlockUid) -> tuple[bool, BlockUid | None]:
         for parent, kids in out.items():
             if uid in kids:
                 return True, parent
         return False, None
 
-    def subtree(uid: str) -> list[str]:
+    def subtree(uid: BlockUid) -> list[BlockUid]:
         found = [uid]
         for kid in out.get(uid, []):
             found.extend(subtree(kid))
         return found
 
-    def named(value: str) -> str:
+    def named(value: str) -> BlockUid:
         m = _ALIAS_SPEC.match(value)
-        return aliases[m.group(1)] if m else value
+        return aliases[m.group(1)] if m else uid_of(value)
 
-    def parent_spec(spec: str | None) -> str | None:
+    def parent_spec(spec: str | None) -> BlockUid | None:
         if spec is None:
             return None
         m = _UID_SPEC.match(spec)
         if m:
-            return m.group(1)
+            return uid_of(m.group(1))
         if _ALIAS_SPEC.match(spec):
             return named(spec)
         raise ValueError(f"parent spec not modelled: {spec!r}")
 
-    def live(uid: str | None) -> bool:
+    def live(uid: BlockUid | None) -> bool:
         return uid is None or parent_of(uid)[0]
 
-    def land(parent: str | None, uid: str, index: int | None) -> None:
+    def land(parent: BlockUid | None, uid: BlockUid, index: int | None) -> None:
         group = out.setdefault(parent, [])
         group.insert(len(group) if index is None else min(index, len(group)),
                      uid)

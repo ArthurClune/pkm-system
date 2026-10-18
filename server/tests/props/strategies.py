@@ -14,8 +14,9 @@ from typing import Any, TypeVar
 
 from hypothesis import strategies as st
 
-from pkm.contracts.ops import subtree_hash, text_hash
+from pkm.contracts.ops import BlockUid, subtree_hash, SyncSeq, text_hash
 from props.model import MBlock, Model
+from pkm.test_data.ids import order_idx_of, uid_of
 
 T = TypeVar("T")
 
@@ -34,15 +35,15 @@ _HEADINGS = st.sampled_from((None, None, None, 1, 2, 3))
 _VIEW_TYPES = st.sampled_from((None, None, "numbered", "document"))
 
 
-def uid_pool(n: int) -> list[str]:
+def uid_pool(n: int) -> list[BlockUid]:
     """n distinct UID_RE-valid uids. Deterministic, so `texts()` can name
     pool blocks in `((uid))` refs; the `pool` prefix keeps them clear of the
     seed database's `uid_b*` rows."""
-    return [f"pool{i:04d}" for i in range(n)]
+    return [uid_of(f"pool{i:04d}") for i in range(n)]
 
 
 @st.composite
-def texts(draw: st.DrawFn, uids: Sequence[str] | None = None,
+def texts(draw: st.DrawFn, uids: Sequence[BlockUid] | None = None,
           linked: Sequence[str] = ()) -> str:
     """Short texts of up to three tokens: plain words, `[[Alpha]]`, `#Beta`,
     a `((uid))` ref to a pool block (`uids`, default the first eight of
@@ -78,7 +79,7 @@ def _weighted(draw: st.DrawFn, options: Sequence[tuple[int, T]]) -> T:
 
 
 @st.composite
-def seed_tree(draw: st.DrawFn, uids: Sequence[str]) -> list[MBlock]:
+def seed_tree(draw: st.DrawFn, uids: Sequence[BlockUid]) -> list[MBlock]:
     """0-12 blocks over PAGES, at most three levels deep, in creation order:
     a parent before its children, and each sibling group's keys ascending,
     starting at 0-3 with gaps of 1-4, so the seed has the gapped keys a
@@ -86,7 +87,7 @@ def seed_tree(draw: st.DrawFn, uids: Sequence[str]) -> list[MBlock]:
     posted as plain creates."""
     n = draw(st.integers(0, min(12, len(uids))))
     chosen = draw(st.permutations(list(uids)))[:n]
-    placed: list[tuple[str, str, str | None, int]] = []   # uid, page, parent, depth
+    placed: list[tuple[BlockUid, str, BlockUid | None, int]] = []   # uid, page, parent, depth
     for uid in chosen:
         parents = [p for p in placed if p[3] < 2]
         parent = draw(st.none() | st.sampled_from(parents)) if parents else None
@@ -94,20 +95,20 @@ def seed_tree(draw: st.DrawFn, uids: Sequence[str]) -> list[MBlock]:
             placed.append((uid, draw(st.sampled_from(PAGES)), None, 0))
         else:
             placed.append((uid, parent[1], parent[0], parent[3] + 1))
-    next_key: dict[tuple[str, str | None], int] = {}
+    next_key: dict[tuple[str, BlockUid | None], int] = {}
     rows: list[MBlock] = []
     for uid, page, parent, _ in placed:
         group = (page, parent)
         key = (next_key[group] + draw(st.integers(1, 4)) if group in next_key
                else draw(st.integers(0, 3)))
         next_key[group] = key
-        rows.append(MBlock(uid=uid, page=page, parent=parent, order_idx=key,
-                           text=draw(texts(uids)), heading=draw(_HEADINGS),
+        rows.append(MBlock(uid=uid, page=page, parent=parent,
+                           order_idx=order_idx_of(key), text=draw(texts(uids)), heading=draw(_HEADINGS),
                            collapsed=False, view_type=draw(_VIEW_TYPES)))
     return rows
 
 
-def _target(draw: st.DrawFn, model: Model, uids: Sequence[str]) -> str:
+def _target(draw: st.DrawFn, model: Model, uids: Sequence[BlockUid]) -> BlockUid:
     """A pool uid that is live, deleted or never existed, weighted 6:2:2
     among the kinds the pool currently has."""
     live = [u for u in uids if u in model.blocks]
@@ -128,7 +129,7 @@ def _stale(text: str) -> str:
     return text + " (stale)"
 
 
-def _text_hash_field(draw: st.DrawFn, model: Model, uid: str) -> dict:
+def _text_hash_field(draw: st.DrawFn, model: Model, uid: BlockUid) -> dict:
     """base_text_hash: correct, stale (the hash of a different text),
     absent, or the base of a rewrite recorded for the block (the hash of a
     text the client sent before a page delete or a stale unlink rewrote
@@ -146,7 +147,7 @@ def _text_hash_field(draw: st.DrawFn, model: Model, uid: str) -> dict:
     return {"base_text_hash": text_hash(text)}
 
 
-def _subtree_hash_field(draw: st.DrawFn, model: Model, uid: str) -> dict:
+def _subtree_hash_field(draw: st.DrawFn, model: Model, uid: BlockUid) -> dict:
     """base_subtree_hash: correct, stale (one text changed) or absent."""
     choice = _weighted(draw, [(1, "correct"), (1, "stale"), (1, "absent")])
     if choice == "absent":
@@ -158,8 +159,8 @@ def _subtree_hash_field(draw: st.DrawFn, model: Model, uid: str) -> dict:
     return {"base_subtree_hash": subtree_hash(pairs)}
 
 
-def _edit_text(draw: st.DrawFn, model: Model, uid: str,
-               uids: Sequence[str], stale: Sequence[str]) -> str:
+def _edit_text(draw: st.DrawFn, model: Model, uid: BlockUid,
+               uids: Sequence[BlockUid], stale: Sequence[str]) -> str:
     """An update_text's text: usually a fresh one, but for a block with
     recorded rewrites sometimes the text a device that missed the rewrite
     still holds (`Rewrite.before`), as is or extended. Re-sent with a
@@ -184,7 +185,7 @@ def _page(draw: st.DrawFn, stale: Sequence[str]) -> str:
     return draw(st.sampled_from(PAGES))
 
 
-def _create_op(draw: st.DrawFn, model: Model, uids: Sequence[str],
+def _create_op(draw: st.DrawFn, model: Model, uids: Sequence[BlockUid],
                stale: Sequence[str]) -> dict:
     """A create of a uid that is not live (1 in 40 is live, a 400), at top
     level or under a live, deleted or never-existed parent."""
@@ -202,8 +203,8 @@ def _create_op(draw: st.DrawFn, model: Model, uids: Sequence[str],
             "heading": draw(_HEADINGS), "view_type": draw(_VIEW_TYPES)}
 
 
-def _move_parent(draw: st.DrawFn, model: Model, uids: Sequence[str],
-                 uid: str) -> str | None:
+def _move_parent(draw: st.DrawFn, model: Model, uids: Sequence[BlockUid],
+                 uid: BlockUid) -> BlockUid | None:
     """Top level, a live block outside the subtree, the block itself or a
     descendant (a cycle, 1 in 4 when the block is live), or a missing one."""
     inside = model.subtree(uid) if uid in model.blocks else []
@@ -216,7 +217,7 @@ def _move_parent(draw: st.DrawFn, model: Model, uids: Sequence[str],
 
 
 @st.composite
-def op_for(draw: st.DrawFn, model: Model, uids: list[str],
+def op_for(draw: st.DrawFn, model: Model, uids: list[BlockUid],
            stale: Sequence[str] = ()) -> dict:
     """One op of the eight kinds, in the wire shape of pkm.contracts.ops,
     drawn against `model` as it stands. `create` is drawn less often than
@@ -258,8 +259,8 @@ def op_for(draw: st.DrawFn, model: Model, uids: list[str],
 
 
 @st.composite
-def batch_for(draw: st.DrawFn, model: Model, uids: list[str],
-              seen_seq: int | None = None) -> list[dict]:
+def batch_for(draw: st.DrawFn, model: Model, uids: list[BlockUid],
+              seen_seq: SyncSeq | None = None) -> list[dict]:
     """1-20 ops, each drawn against the model as the earlier ops in this
     batch leave it, so a batch can edit a block it created, move a block
     into one it just made, delete then re-create, and so on. Works on a

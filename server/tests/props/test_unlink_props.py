@@ -19,6 +19,7 @@ from pkm.server.ops_core import BlockRewrite, replay_title_rewrites
 from pkm.unlink import (DeletePlan, SourceBlock, apply_delete_rewrite,
                         plan_page_delete, unlink_stale_refs)
 from props.harness import examples
+from pkm.test_data.ids import uid_of
 
 pytestmark = pytest.mark.proptest
 
@@ -90,7 +91,7 @@ def stale_text(draw) -> str:
 def scenario(draw) -> tuple[dict[str, str], list[SourceBlock]]:
     count = draw(st.integers(0, 4))
     page_blocks = {uid: draw(block_text()) for uid in PAGE_UIDS[:count]}
-    sources = [SourceBlock(BlockUid(f"src_blk_0{n + 1}"), draw(st.sampled_from(PAGES)),
+    sources = [SourceBlock(uid_of(f"src_blk_0{n + 1}"), draw(st.sampled_from(PAGES)),
                            draw(block_text()))
                for n in range(draw(st.integers(1, 5)))]
     return page_blocks, sources

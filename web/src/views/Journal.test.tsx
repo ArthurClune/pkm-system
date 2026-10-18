@@ -15,10 +15,10 @@ import {
   journalBacklinks,
   jsonResponse,
   makeSync,
-  pageId,
+  pageIdOf,
   stubFetch,
-  title,
-  uid,
+  canonicalTitleOf,
+  uidOf,
 } from "../test-helpers";
 import { Journal } from "./Journal";
 
@@ -46,7 +46,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 function day(date: string, rawTitle: string, blocks = [block(`uid_${date}`, `entry ${date}`)],
              exists = true, refs: JournalDay["backlinks"] = journalBacklinks()): JournalDay {
-  return { date, title: title(rawTitle), exists, blocks: exists ? blocks : [], backlinks: refs };
+  return { date, title: canonicalTitleOf(rawTitle), exists, blocks: exists ? blocks : [], backlinks: refs };
 }
 
 function intersect() {
@@ -117,12 +117,12 @@ it("resolves ((block refs)) from every batch's block_ref_texts", async () => {
   stubFetch([
     ["/api/journal?days=5&before=2026-07-08", {
       days: [day("2026-07-07", "July 7th, 2026",
-                 [block("u2", "older ((ref_bbbb))")])],
+                 [block("tuid-u2", "older ((ref_bbbb))")])],
       block_ref_texts: { ref_bbbb: { text: "resolved beta", page_title: "B" } },
     }],
     ["/api/journal?days=5", {
       days: [day("2026-07-08", "July 8th, 2026",
-                 [block("u1", "see ((ref_aaaa))")])],
+                 [block("tuid-u1", "see ((ref_aaaa))")])],
       block_ref_texts: { ref_aaaa: { text: "resolved alpha", page_title: "A" } },
     }],
   ]);
@@ -190,7 +190,7 @@ it("keeps day sections mounted across a resync (no remount churn)", async () => 
     journalCalls += 1;
     return Promise.resolve(jsonResponse({ days: [
       day("2026-07-08", "July 8th, 2026",
-          [block("u1", journalCalls === 1 ? "before resync" : "after resync")]),
+          [block("tuid-u1", journalCalls === 1 ? "before resync" : "after resync")]),
     ] }));
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -226,7 +226,7 @@ it("does not adopt a journal payload over an active session changed in flight", 
     return url.startsWith("/api/journal?") ? journal.promise : freshPage.promise;
   });
   vi.stubGlobal("fetch", fetchMock);
-  const active = acquireOutlineSession(title, [block("u1", "before")]);
+  const active = acquireOutlineSession(title, [block("tuid-u1", "before")]);
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
   );
@@ -234,10 +234,10 @@ it("does not adopt a journal payload over an active session changed in flight", 
     "/api/journal?days=5", READ_INIT,
   ));
 
-  active.applyOptimistic([block("u1", "local during request")]);
+  active.applyOptimistic([block("tuid-u1", "local during request")]);
   await act(async () => {
     journal.resolve(jsonResponse({ days: [day(
-      "2026-07-08", title, [block("u1", "stale journal")],
+      "2026-07-08", title, [block("tuid-u1", "stale journal")],
     )] }));
     await journal.promise;
   });
@@ -249,7 +249,7 @@ it("does not adopt a journal payload over an active session changed in flight", 
   ));
   freshPage.resolve(jsonResponse({
     page: { id: 1, title, created_at: 1, updated_at: 1 },
-    blocks: [block("u1", "fresh page")], backlinks: {
+    blocks: [block("tuid-u1", "fresh page")], backlinks: {
       groups: [], total_pages: 0, offset: 0, limit: 20,
     }, block_ref_texts: {},
   }));
@@ -277,12 +277,12 @@ it("does not adopt an old journal payload into a session created mid-flight", as
     "/api/journal?days=5", READ_INIT,
   ));
   const active = acquireOutlineSession(
-    title, [block("u1", "opened during request")],
+    title, [block("tuid-u1", "opened during request")],
   );
 
   await act(async () => {
     journal.resolve(jsonResponse({ days: [day(
-      "2026-07-09", title, [block("u1", "stale journal")],
+      "2026-07-09", title, [block("tuid-u1", "stale journal")],
     )] }));
     await journal.promise;
   });
@@ -294,7 +294,7 @@ it("does not adopt an old journal payload into a session created mid-flight", as
   ));
   freshPage.resolve(jsonResponse({
     page: { id: 1, title, created_at: 1, updated_at: 1 },
-    blocks: [block("u1", "fresh page")], backlinks: {
+    blocks: [block("tuid-u1", "fresh page")], backlinks: {
       groups: [], total_pages: 0, offset: 0, limit: 20,
     }, block_ref_texts: {},
   }));
@@ -325,7 +325,7 @@ it("does not create a session from a response received after unmount", async () 
   view.unmount();
   await act(async () => {
     journal.resolve(jsonResponse({
-      days: [day("2026-07-09", title, [block("late", "late journal")])],
+      days: [day("2026-07-09", title, [block("tuid-late", "late journal")])],
       block_ref_texts: {},
     }));
     await journal.promise;
@@ -515,10 +515,10 @@ it("treats a 404 on an active session's authoritative refetch as an empty day, "
     // resolved): the response processes this title via the "active at
     // response" branch, which re-fetches the day's own page rather than
     // trusting the journal payload.
-    active = acquireOutlineSession(title, [block("u1", "existing content")]);
+    active = acquireOutlineSession(title, [block("tuid-u1", "existing content")]);
     await act(async () => {
       journal.resolve(jsonResponse({
-        days: [day("2026-07-08", title, [block("u1", "journal-sent content")])],
+        days: [day("2026-07-08", title, [block("tuid-u1", "journal-sent content")])],
         block_ref_texts: {},
       }));
       await journal.promise;
@@ -584,8 +584,8 @@ it("shows a day's linked references from the journal payload, but not for a " +
     ["/api/journal/cleanup", { deleted: [] }],
     ["/api/journal?days=5", { days: [
       day("2026-07-08", "July 8th, 2026", undefined, true, journalBacklinks([
-        { page_id: pageId(9), page_title: title("Plans"), items: [
-          { uid: uid("uid_p1"), text: "Remind me on [[July 8th, 2026]]",
+        { page_id: pageIdOf(9), page_title: canonicalTitleOf("Plans"), items: [
+          { uid: uidOf("uid_p1"), text: "Remind me on [[July 8th, 2026]]",
             breadcrumbs: [] }] },
       ], { limit: 5 })),
       day("2026-07-07", "July 7th, 2026"),
@@ -617,8 +617,8 @@ async () => {
     ["/api/journal/cleanup", { deleted: [] }],
     ["/api/journal?days=5", {
       days: [day("2026-07-08", "July 8th, 2026", undefined, true, journalBacklinks([
-        { page_id: pageId(9), page_title: title("Plans"), items: [
-          { uid: uid("uid_p1"), text: "see ((ref_cccc))", breadcrumbs: [] }] },
+        { page_id: pageIdOf(9), page_title: canonicalTitleOf("Plans"), items: [
+          { uid: uidOf("uid_p1"), text: "see ((ref_cccc))", breadcrumbs: [] }] },
       ], { limit: 5 }))],
       block_ref_texts: {
         ref_cccc: { text: "resolved gamma", page_title: "C" },

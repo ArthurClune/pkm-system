@@ -5,7 +5,8 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
 import type { ClientId } from "../api/brands";
 import type { TicketId } from "../sync/opQueue";
-import { block, makeSync, ord, reserveOutlineEditor, stubFetch, type SyncFake, title, uid } from "../test-helpers";
+import { block, makeSync, orderIdxOf, reserveOutlineEditor, stubFetch, type SyncFake,
+         canonicalTitleOf, uidOf } from "../test-helpers";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
@@ -18,13 +19,13 @@ afterEach(() => {
 });
 
 function mount(sync = makeSync(), initial = [
-  block("u1", "first", { order_idx: ord(0) }),
-  block("u2", "second", { order_idx: ord(1) }),
+  block("tuid-u1", "first", { order_idx: orderIdxOf(0) }),
+  block("tuid-u2", "second", { order_idx: orderIdxOf(1) }),
 ]) {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title={title("Page")} initial={initial} />
+        <EditablePage title={canonicalTitleOf("Page")} initial={initial} />
       </SyncContext.Provider>
     </MemoryRouter>);
   return sync;
@@ -44,7 +45,7 @@ test("typing flushes one update_text op after the debounce", () => {
   expect(sync.sent).toEqual([]);
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "first edited",
+    [{ op: "update_text", uid: "tuid-u1", text: "first edited",
       base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
 });
@@ -58,7 +59,7 @@ test("Enter splits: pending text flushes first, create follows, focus moves", ()
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(sync.sent).toHaveLength(1);
   const batch = sync.sent[0];
-  expect(batch[0]).toEqual({ op: "update_text", uid: "u1", text: "first!",
+  expect(batch[0]).toEqual({ op: "update_text", uid: "tuid-u1", text: "first!",
                             base_text_hash: sha256Hex("first"),
                             page_title: "Page" });
   expect(batch[1]).toMatchObject({ op: "create", page_title: "Page",
@@ -70,8 +71,8 @@ test("Enter splits: pending text flushes first, create follows, focus moves", ()
 test("stale initial rerender during a pending split keeps the optimistic new block focused", () => {
   stubFetch([["/api/titles", { titles: [] }]]);
   const initial = [
-    block("u1", "first", { order_idx: ord(0) }),
-    block("u2", "second", { order_idx: ord(1) }),
+    block("tuid-u1", "first", { order_idx: orderIdxOf(0) }),
+    block("tuid-u2", "second", { order_idx: orderIdxOf(1) }),
   ];
   const sync = makeSync("connected", { settled: () => new Promise(() => undefined) });
   const view = (
@@ -79,7 +80,7 @@ test("stale initial rerender during a pending split keeps the optimistic new blo
   ) => (
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title={title("Page")} initial={blocks} />
+        <EditablePage title={canonicalTitleOf("Page")} initial={blocks} />
       </SyncContext.Provider>
     </MemoryRouter>
   );
@@ -94,8 +95,8 @@ test("stale initial rerender during a pending split keeps the optimistic new blo
   // local create is still queued. That stale `initial` must not replace the
   // optimistic split and send the caret back to the previous line.
   rerender(view([
-    block("u1", "first", { order_idx: ord(0) }),
-    block("u2", "second", { order_idx: ord(1) }),
+    block("tuid-u1", "first", { order_idx: orderIdxOf(0) }),
+    block("tuid-u2", "second", { order_idx: orderIdxOf(1) }),
   ]));
 
   expect(screen.getByRole("textbox")).toHaveValue("");
@@ -104,7 +105,7 @@ test("stale initial rerender during a pending split keeps the optimistic new blo
 
 test("stale initial rerender while its scoped write is unsettled keeps optimistic heading", async () => {
   stubFetch([["/api/titles", { titles: [] }]]);
-  const initial = [block("u1", "first", { order_idx: ord(0) })];
+  const initial = [block("tuid-u1", "first", { order_idx: orderIdxOf(0) })];
   let deliver!: () => void;
   const delivered = new Promise<{ status: "delivered" }>((resolve) => {
     deliver = () => resolve({ status: "delivered" });
@@ -129,7 +130,7 @@ test("stale initial rerender while its scoped write is unsettled keeps optimisti
   const view = (blocks: typeof initial) => (
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title={title("Page")} initial={blocks} />
+        <EditablePage title={canonicalTitleOf("Page")} initial={blocks} />
       </SyncContext.Provider>
     </MemoryRouter>
   );
@@ -143,7 +144,7 @@ test("stale initial rerender while its scoped write is unsettled keeps optimisti
 
   // Only this title's ticket blocks adoption; the global pending count is not
   // consulted by outline causality.
-  rerender(view([block("u1", "first", { order_idx: ord(0), heading: null })]));
+  rerender(view([block("tuid-u1", "first", { order_idx: orderIdxOf(0), heading: null })]));
 
   expect(screen.getByText("first").closest("h1")).not.toBeNull();
   await act(async () => deliver());
@@ -170,10 +171,10 @@ test("Cmd-Alt heading shortcuts update focused typography immediately", () => {
   expect(ta).not.toHaveClass("heading-1", "heading-2", "heading-3");
   expect(ta).toHaveValue("first");
   expect(sync.sent).toEqual([
-    [{ op: "set_heading", uid: "u1", heading: 1 }],
-    [{ op: "set_heading", uid: "u1", heading: 2 }],
-    [{ op: "set_heading", uid: "u1", heading: 3 }],
-    [{ op: "set_heading", uid: "u1", heading: null }],
+    [{ op: "set_heading", uid: "tuid-u1", heading: 1 }],
+    [{ op: "set_heading", uid: "tuid-u1", heading: 2 }],
+    [{ op: "set_heading", uid: "tuid-u1", heading: 3 }],
+    [{ op: "set_heading", uid: "tuid-u1", heading: null }],
   ]);
 });
 
@@ -183,20 +184,20 @@ test("Tab indents the second block under the first", () => {
   const ta = focusBlock("second");
   fireEvent.keyDown(ta, { key: "Tab" });
   expect(sync.sent).toEqual([
-    [{ op: "move", uid: "u2", parent_uid: "u1", order_idx: 0 }],
+    [{ op: "move", uid: "tuid-u2", parent_uid: "tuid-u1", order_idx: 0 }],
   ]);
 });
 
 test("Shift+Tab outdents a child through the real editor wiring", () => {
-  const child = block("c1", "child", { order_idx: ord(0) });
+  const child = block("tuid-c1", "child", { order_idx: orderIdxOf(0) });
   const sync = mount(makeSync(), [
-    block("u1", "parent", { order_idx: ord(0), children: [child] }),
-    block("u2", "after", { order_idx: ord(1) }),
+    block("tuid-u1", "parent", { order_idx: orderIdxOf(0), children: [child] }),
+    block("tuid-u2", "after", { order_idx: orderIdxOf(1) }),
   ]);
   const ta = focusBlock("child");
   fireEvent.keyDown(ta, { key: "Tab", shiftKey: true });
   expect(sync.sent).toEqual([
-    [{ op: "move", uid: "c1", parent_uid: null, order_idx: 1 }],
+    [{ op: "move", uid: "tuid-c1", parent_uid: null, order_idx: 1 }],
   ]);
 });
 
@@ -204,9 +205,9 @@ test.each(["ArrowUp", "ArrowDown"])(
   "Alt+%s does not enqueue a focused block move",
   (key) => {
     const sync = mount(makeSync(), [
-      block("u1", "first", { order_idx: ord(0) }),
-      block("u2", "second", { order_idx: ord(1) }),
-      block("u3", "third", { order_idx: ord(2) }),
+      block("tuid-u1", "first", { order_idx: orderIdxOf(0) }),
+      block("tuid-u2", "second", { order_idx: orderIdxOf(1) }),
+      block("tuid-u3", "third", { order_idx: orderIdxOf(2) }),
     ]);
     const ta = focusBlock("second");
 
@@ -221,10 +222,10 @@ test("Backspace at the start merges with the previous block", () => {
   ta.setSelectionRange(0, 0);
   fireEvent.keyDown(ta, { key: "Backspace" });
   expect(sync.sent).toEqual([[
-    { op: "update_text", uid: "u1", text: "firstsecond",
+    { op: "update_text", uid: "tuid-u1", text: "firstsecond",
       base_text_hash: sha256Hex("first"), page_title: "Page" },
-    { op: "delete", uid: "u2",
-      base_subtree_hash: subtreeHash([["u2", "second"]]) },
+    { op: "delete", uid: "tuid-u2",
+      base_subtree_hash: subtreeHash([["tuid-u2", "second"]]) },
   ]]);
   expect(screen.getByRole("textbox")).toHaveValue("firstsecond");
 });
@@ -257,16 +258,16 @@ test("boundary arrows use text end vertically and preserve horizontal entry", ()
 
 test("chevron click queues the collapse op through useOutline", () => {
   const sync = mount(makeSync(), [
-    block("u1", "parent", {
-      order_idx: ord(0),
-      children: [block("c1", "child", { order_idx: ord(0) })],
+    block("tuid-u1", "parent", {
+      order_idx: orderIdxOf(0),
+      children: [block("tuid-c1", "child", { order_idx: orderIdxOf(0) })],
     }),
   ]);
   const chevron = document.querySelector(
-    '.block-row[data-uid="u1"] .chevron') as HTMLButtonElement;
+    '.block-row[data-uid="tuid-u1"] .chevron') as HTMLButtonElement;
   fireEvent.click(chevron);
   expect(sync.sent).toEqual([[
-    { op: "set_collapsed", uid: "u1", collapsed: true },
+    { op: "set_collapsed", uid: "tuid-u1", collapsed: true },
   ]]);
 });
 
@@ -279,17 +280,17 @@ test("heading command selection queues text and heading ops", () => {
   });
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(sync.sent).toEqual([[
-    { op: "update_text", uid: "u1", text: "",
+    { op: "update_text", uid: "tuid-u1", text: "",
       base_text_hash: sha256Hex("first"), page_title: "Page" },
-    { op: "set_heading", uid: "u1", heading: 1 },
+    { op: "set_heading", uid: "tuid-u1", heading: 1 },
   ]]);
 });
 
 test("clicking a TODO checkbox queues the toggled text op", () => {
-  const sync = mount(makeSync(), [block("u1", "{{TODO}} buy milk")]);
+  const sync = mount(makeSync(), [block("tuid-u1", "{{TODO}} buy milk")]);
   fireEvent.click(screen.getByRole("checkbox", { name: "TODO" }));
   expect(sync.sent).toEqual([[
-    { op: "update_text", uid: "u1", text: "{{DONE}} buy milk",
+    { op: "update_text", uid: "tuid-u1", text: "{{DONE}} buy milk",
       base_text_hash: sha256Hex("{{TODO}} buy milk"), page_title: "Page" },
   ]]);
 });
@@ -297,7 +298,7 @@ test("clicking a TODO checkbox queues the toggled text op", () => {
 test("Cmd-Enter shows the cycled TODO marker immediately and survives the next flush", () => {
   vi.useFakeTimers();
   stubFetch([["/api/titles", { titles: [] }]]);
-  const sync = mount(makeSync(), [block("u1", "first", { order_idx: ord(0) })]);
+  const sync = mount(makeSync(), [block("tuid-u1", "first", { order_idx: orderIdxOf(0) })]);
   const ta = focusBlock("first");
 
   // A keystroke queues a debounced draft edit that has NOT flushed yet.
@@ -315,16 +316,16 @@ test("Cmd-Enter shows the cycled TODO marker immediately and survives the next f
   act(() => { vi.advanceTimersByTime(500); });
 
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "{{TODO}} first edited more",
+    [{ op: "update_text", uid: "tuid-u1", text: "{{TODO}} first edited more",
       base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
 });
 
 test("Shift+Arrow starts and extends a block selection; Escape clears it", () => {
   mount(makeSync(), [
-    block("u1", "first", { order_idx: ord(0) }),
-    block("u2", "second", { order_idx: ord(1) }),
-    block("u3", "third", { order_idx: ord(2) }),
+    block("tuid-u1", "first", { order_idx: orderIdxOf(0) }),
+    block("tuid-u2", "second", { order_idx: orderIdxOf(1) }),
+    block("tuid-u3", "third", { order_idx: orderIdxOf(2) }),
   ]);
   const ta = focusBlock("second");
   ta.setSelectionRange(0, 0);
@@ -340,8 +341,8 @@ test("Shift+Arrow starts and extends a block selection; Escape clears it", () =>
 test("remote batches patch the tree; own-echo filtering is the provider's job", () => {
   const sync = mount();
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "create", uid: uid("r1"), page_title: "Page", parent_uid: null,
-      order_idx: ord(2), text: "from the iPad" },
+    { op: "create", uid: uidOf("tuid-r1"), page_title: "Page", parent_uid: null,
+      order_idx: orderIdxOf(2), text: "from the iPad" },
   ] }));
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
 });
@@ -350,8 +351,8 @@ test("remote update_text for a focused block with no draft is adopted", () => {
   const sync = mount();
   focusBlock("first");
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: uid("u1"), text: "remote first" },
-    { op: "update_text", uid: uid("u2"), text: "second remote" },
+    { op: "update_text", uid: uidOf("tuid-u1"), text: "remote first" },
+    { op: "update_text", uid: uidOf("tuid-u2"), text: "second remote" },
   ] }));
   // No local draft exists, so the focused textarea must adopt the remote text
   // rather than keep the stale value.
@@ -368,14 +369,14 @@ test("a remote update under a debounced draft: the flush carries the draft's bas
   fireEvent.change(ta, { target: { value: "typed" } });
   // The tree takes the remote text; the textarea keeps showing the draft.
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: uid("u1"), text: "remote" },
+    { op: "update_text", uid: uidOf("tuid-u1"), text: "remote" },
   ] }));
   expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("typed");
   act(() => { vi.advanceTimersByTime(500); });
   // The flush hashes the text the draft was typed over ("first"), so the
   // server sees a mismatch and keeps "remote" as a conflict copy.
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "typed",
+    [{ op: "update_text", uid: "tuid-u1", text: "typed",
       base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
 });
@@ -387,12 +388,12 @@ test("keystrokes after a remote update keep the draft's first base", () => {
   const ta = focusBlock("first");
   fireEvent.change(ta, { target: { value: "t1" } });
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: uid("u1"), text: "remote" },
+    { op: "update_text", uid: uidOf("tuid-u1"), text: "remote" },
   ] }));
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "t12" } });
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "t12",
+    [{ op: "update_text", uid: "tuid-u1", text: "t12",
       base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
 });
@@ -404,7 +405,7 @@ test("typing back to the base under a remote edit, then typing on, still bases o
   const ta = focusBlock("first");
   fireEvent.change(ta, { target: { value: "firstX" } });
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: uid("u1"), text: "remote" },
+    { op: "update_text", uid: uidOf("tuid-u1"), text: "remote" },
   ] }));
   // Back to the base: the flush has nothing to send, but the textarea is
   // still showing text typed over "first", not the "remote" in the tree.
@@ -414,7 +415,7 @@ test("typing back to the base under a remote edit, then typing on, still bases o
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "first!" } });
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "first!",
+    [{ op: "update_text", uid: "tuid-u1", text: "first!",
       base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
 });
@@ -428,13 +429,13 @@ test("a first keystroke after a remote edit reached the tree but not the textare
   // adopted it, and the keystroke is typed over the "first" still shown.
   act(() => {
     sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-      { op: "update_text", uid: uid("u1"), text: "remote" },
+      { op: "update_text", uid: uidOf("tuid-u1"), text: "remote" },
     ] });
     fireEvent.change(ta, { target: { value: "firstX" } });
   });
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "firstX",
+    [{ op: "update_text", uid: "tuid-u1", text: "firstX",
       base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
 });
@@ -450,7 +451,7 @@ test("the draft after a flush bases on the flushed text", () => {
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toHaveLength(2);
   expect(sync.sent[1][0]).toMatchObject({
-    op: "update_text", uid: "u1", text: "one two",
+    op: "update_text", uid: "tuid-u1", text: "one two",
     base_text_hash: sha256Hex("one"),
   });
 });
@@ -470,7 +471,7 @@ test("a keystroke between a flush and the textarea catching up bases on the flus
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toHaveLength(2);
   expect(sync.sent[1][0]).toMatchObject({
-    op: "update_text", uid: "u1", text: "one two",
+    op: "update_text", uid: "tuid-u1", text: "one two",
     base_text_hash: sha256Hex("one"),
   });
 });
@@ -491,7 +492,7 @@ test("Cmd+Z on a dirty draft shows the undone text, and the next draft bases on 
   act(() => { vi.advanceTimersByTime(500); });
   // The server holds "first" after the undo, so this applies cleanly.
   expect(sync.sent.at(-1)).toEqual([
-    { op: "update_text", uid: "u1", text: "first!",
+    { op: "update_text", uid: "tuid-u1", text: "first!",
       base_text_hash: sha256Hex("first"), page_title: "Page" },
   ]);
 });
@@ -507,7 +508,7 @@ test("Cmd+Shift+Z after an undo shows the redone text, and the next draft bases 
   fireEvent.change(textbox(), { target: { value: "first X!" } });
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent.at(-1)).toEqual([
-    { op: "update_text", uid: "u1", text: "first X!",
+    { op: "update_text", uid: "tuid-u1", text: "first X!",
       base_text_hash: sha256Hex("first X"), page_title: "Page" },
   ]);
 });
@@ -525,7 +526,7 @@ test("a second Cmd+Z reaches further back, and the next draft bases on its text"
   fireEvent.change(textbox(), { target: { value: "first?" } });
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent.at(-1)).toEqual([
-    { op: "update_text", uid: "u1", text: "first?",
+    { op: "update_text", uid: "tuid-u1", text: "first?",
       base_text_hash: sha256Hex("first"), page_title: "Page" },
   ]);
 });
@@ -536,14 +537,14 @@ test("Enter after a remote update under a draft stamps the split batch with the 
   const ta = focusBlock("first");
   fireEvent.change(ta, { target: { value: "first!" } });
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: uid("u1"), text: "remote" },
+    { op: "update_text", uid: uidOf("tuid-u1"), text: "remote" },
   ] }));
   const live = screen.getByRole("textbox") as HTMLTextAreaElement;
   live.setSelectionRange(6, 6);
   fireEvent.keyDown(live, { key: "Enter" });
   expect(sync.sent).toHaveLength(1);
   expect(sync.sent[0][0]).toEqual({
-    op: "update_text", uid: "u1", text: "first!",
+    op: "update_text", uid: "tuid-u1", text: "first!",
     base_text_hash: sha256Hex("first"), page_title: "Page",
   });
   expect(sync.sent[0][1]).toMatchObject({ op: "create", page_title: "Page" });
@@ -553,7 +554,7 @@ test("focus then blur without editing after a remote update stays consistent", (
   const sync = mount();
   const ta = focusBlock("first");
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: uid("u1"), text: "remote" },
+    { op: "update_text", uid: uidOf("tuid-u1"), text: "remote" },
   ] }));
   fireEvent.blur(ta);
   // Blurring without typing must not enqueue a stale-value op, and the block
@@ -591,7 +592,7 @@ test("pasting an image uploads it and splices markdown at the cursor", async () 
   });
   await vi.waitFor(() => {
     expect(sync.sent.flat()).toContainEqual({
-      op: "update_text", uid: "u1", text: `first![pic.png](${url})`,
+      op: "update_text", uid: "tuid-u1", text: `first![pic.png](${url})`,
       base_text_hash: sha256Hex("first"), page_title: "Page",
     });
   });
@@ -613,7 +614,7 @@ test("a paste-upload into a dirty draft shows the spliced text, and the next dra
   fireEvent.change(textbox(), { target: { value: `${spliced}!` } });
   fireEvent.blur(textbox());
   expect(sync.sent.at(-1)).toEqual([
-    { op: "update_text", uid: "u1", text: `${spliced}!`,
+    { op: "update_text", uid: "tuid-u1", text: `${spliced}!`,
       base_text_hash: sha256Hex(spliced), page_title: "Page" },
   ]);
 });
@@ -631,7 +632,7 @@ test("hiding the tab flushes the pending draft immediately", () => {
   Object.defineProperty(document, "visibilityState",
                         { value: "visible", configurable: true });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "first draft",
+    [{ op: "update_text", uid: "tuid-u1", text: "first draft",
       base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
 });
@@ -657,7 +658,7 @@ function heldRefDraft(sync: SyncFake) {
   return ta;
 }
 
-const HELD_TEXT_OP = { op: "update_text", uid: "u1", text: "see [[Fresh Idea]]",
+const HELD_TEXT_OP = { op: "update_text", uid: "tuid-u1", text: "see [[Fresh Idea]]",
                        base_text_hash: sha256Hex("first"), page_title: "Page" };
 
 test("Ctrl-O over a held [[ref]] flushes the block text before navigating", () => {
@@ -696,8 +697,8 @@ test("navigating away with no blur still flushes a held draft", () => {
       <SyncContext.Provider value={sync}>
         <Routes>
           <Route path="/" element={<>
-            <EditablePage title={title("Page")}
-                          initial={[block("u1", "first", { order_idx: ord(0) })]} />
+            <EditablePage title={canonicalTitleOf("Page")}
+                          initial={[block("tuid-u1", "first", { order_idx: orderIdxOf(0) })]} />
             <NavAway />
           </>} />
           <Route path="/elsewhere" element={<p>elsewhere</p>} />
@@ -715,8 +716,8 @@ test("navigating away with no blur still flushes a held draft", () => {
   expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
 });
 
-const CROSS_PAGE_MOVE = { op: "move", uid: uid("u1"), parent_uid: null,
-                         order_idx: ord(0), page_title: "Elsewhere" } as const;
+const CROSS_PAGE_MOVE = { op: "move", uid: uidOf("tuid-u1"), parent_uid: null,
+                         order_idx: orderIdxOf(0), page_title: "Elsewhere" } as const;
 
 function hideTab() {
   Object.defineProperty(document, "visibilityState",
@@ -733,12 +734,12 @@ test("a debounced draft whose block a remote batch deleted still flushes", () =>
   const ta = focusBlock("first");
   fireEvent.change(ta, { target: { value: "kept draft" } });
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "delete", uid: uid("u1") },
+    { op: "delete", uid: uidOf("tuid-u1") },
   ] }));
   act(() => { vi.advanceTimersByTime(500); });
   // The server lands an edit to a missing block on today's daily note.
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "kept draft",
+    [{ op: "update_text", uid: "tuid-u1", text: "kept draft",
       base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
 });
@@ -752,7 +753,7 @@ test("a debounced draft whose block a remote cross-page move took still flushes"
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [CROSS_PAGE_MOVE] }));
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "moved draft",
+    [{ op: "update_text", uid: "tuid-u1", text: "moved draft",
       base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
 });
@@ -764,17 +765,17 @@ test("a debounced draft on a remotely deleted block flushes when another block's
   const ta = focusBlock("first");
   fireEvent.change(ta, { target: { value: "kept draft" } });
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "delete", uid: uid("u1") },
+    { op: "delete", uid: uidOf("tuid-u1") },
   ] }));
   // The textarea unmounted with the block, and no blur was delivered.
   expect(screen.queryByRole("textbox")).toBeNull();
   fireEvent.change(focusBlock("second"), { target: { value: "second!" } });
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent.flat()).toContainEqual(
-    { op: "update_text", uid: "u1", text: "kept draft",
+    { op: "update_text", uid: "tuid-u1", text: "kept draft",
       base_text_hash: sha256Hex("first"), page_title: "Page" });
   expect(sync.sent.flat()).toContainEqual(
-    expect.objectContaining({ uid: "u2", text: "second!" }));
+    expect.objectContaining({ uid: "tuid-u2", text: "second!" }));
 });
 
 test("a held draft on a remotely deleted block flushes when another block's draft starts", () => {
@@ -782,7 +783,7 @@ test("a held draft on a remotely deleted block flushes when another block's draf
   const sync = makeSync();
   heldRefDraft(sync);
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "delete", uid: uid("u1") },
+    { op: "delete", uid: uidOf("tuid-u1") },
   ] }));
   fireEvent.change(focusBlock("second"), { target: { value: "second!" } });
   act(() => { vi.advanceTimersByTime(500); });
@@ -794,7 +795,7 @@ test("a held draft under a remote update flushes on blur with its base hash", ()
   const sync = makeSync();
   const ta = heldRefDraft(sync);
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "update_text", uid: uid("u1"), text: "remote" },
+    { op: "update_text", uid: uidOf("tuid-u1"), text: "remote" },
   ] }));
   fireEvent.blur(ta);
   expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
@@ -805,7 +806,7 @@ test("a held draft whose block a remote batch deleted flushes on tab hide", () =
   const sync = makeSync();
   heldRefDraft(sync);
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "delete", uid: uid("u1") },
+    { op: "delete", uid: uidOf("tuid-u1") },
   ] }));
   hideTab();
   expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
@@ -825,8 +826,8 @@ test("a held draft whose block a remote cross-page move took flushes on tab hide
 // The new textarea resumes that draft, keeps the draft's base (the text first
 // typed over, not the remounted tree's text), and puts the caret back where
 // the old textarea left it.
-const SAME_PAGE_MOVE = { op: "move", uid: uid("u1"), parent_uid: uid("u2"),
-                         order_idx: ord(0), page_title: "Page" } as const;
+const SAME_PAGE_MOVE = { op: "move", uid: uidOf("tuid-u1"), parent_uid: uidOf("tuid-u2"),
+                         order_idx: orderIdxOf(0), page_title: "Page" } as const;
 
 test("a remote same-page move of the focused block keeps its draft on the remounted textarea", () => {
   vi.useFakeTimers();
@@ -842,7 +843,7 @@ test("a remote same-page move of the focused block keeps its draft on the remoun
   fireEvent.change(textbox(), { target: { value: "typed words!" } });
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "typed words!",
+    [{ op: "update_text", uid: "tuid-u1", text: "typed words!",
        base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
 });
@@ -885,11 +886,11 @@ test("a resumed draft goes clean once it flushes, and later remote text is adopt
   expect(textbox().value).toBe("typed");
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "typed",
+    [{ op: "update_text", uid: "tuid-u1", text: "typed",
        base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 2, ops: [
-    { op: "update_text", uid: uid("u1"), text: "remote" },
+    { op: "update_text", uid: uidOf("tuid-u1"), text: "remote" },
   ] }));
   expect(textbox().value).toBe("remote");
 });
@@ -900,12 +901,12 @@ test("a remote batch that moves and edits the focused block keeps the draft and 
   const sync = mount();
   fireEvent.change(focusBlock("first"), { target: { value: "typed" } });
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    SAME_PAGE_MOVE, { op: "update_text", uid: uid("u1"), text: "remote" },
+    SAME_PAGE_MOVE, { op: "update_text", uid: uidOf("tuid-u1"), text: "remote" },
   ] }));
   expect(textbox().value).toBe("typed");
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "typed",
+    [{ op: "update_text", uid: "tuid-u1", text: "typed",
        base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
 });
@@ -914,9 +915,9 @@ test("a remote move of the focused block's parent keeps the draft on the remount
   vi.useFakeTimers();
   stubFetch([["/api/titles", { titles: [] }]]);
   const sync = mount(makeSync(), [
-    block("u1", "first", { order_idx: ord(0),
-      children: [block("c1", "child", { order_idx: ord(0) })] }),
-    block("u2", "second", { order_idx: ord(1) }),
+    block("tuid-u1", "first", { order_idx: orderIdxOf(0),
+      children: [block("tuid-c1", "child", { order_idx: orderIdxOf(0) })] }),
+    block("tuid-u2", "second", { order_idx: orderIdxOf(1) }),
   ]);
   const ta = focusBlock("child");
   fireEvent.change(ta, { target: { value: "child typed" } });
@@ -925,7 +926,7 @@ test("a remote move of the focused block's parent keeps the draft on the remount
   expect(textbox().value).toBe("child typed");
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "c1", text: "child typed",
+    [{ op: "update_text", uid: "tuid-c1", text: "child typed",
        base_text_hash: sha256Hex("child"), page_title: "Page" }],
   ]);
 });
@@ -951,7 +952,7 @@ test("Cmd+Z on a resumed draft shows the undone text", () => {
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [SAME_PAGE_MOVE] }));
   undoKey();
   expect(textbox().value).toBe("first");
-  expect(sync.sent.flat()).toContainEqual({ op: "update_text", uid: "u1",
+  expect(sync.sent.flat()).toContainEqual({ op: "update_text", uid: "tuid-u1",
     text: "typed", base_text_hash: sha256Hex("first"), page_title: "Page" });
 });
 
@@ -975,8 +976,8 @@ test("two same-title instances mounted in one commit expose exactly one editor",
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title={title("Page")} initial={[block("u1", "first")]} />
-        <EditablePage title={title("Page")} initial={[block("u1", "first")]} />
+        <EditablePage title={canonicalTitleOf("Page")} initial={[block("tuid-u1", "first")]} />
+        <EditablePage title={canonicalTitleOf("Page")} initial={[block("tuid-u1", "first")]} />
       </SyncContext.Provider>
     </MemoryRouter>);
 
@@ -993,8 +994,8 @@ test("StrictMode same-title mount cleanup never exposes duplicate editors", () =
     <StrictMode>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
         <SyncContext.Provider value={makeSync()}>
-          <EditablePage title={title("Strict Page")} initial={[block("u1", "first")]} />
-          <EditablePage title={title("Strict Page")} initial={[block("u1", "first")]} />
+          <EditablePage title={canonicalTitleOf("Strict Page")} initial={[block("tuid-u1", "first")]} />
+          <EditablePage title={canonicalTitleOf("Strict Page")} initial={[block("tuid-u1", "first")]} />
         </SyncContext.Provider>
       </MemoryRouter>
     </StrictMode>);
@@ -1008,8 +1009,8 @@ test("same-title fallback observes the owner's flushed optimistic tree", () => {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title={title("Page")} initial={[block("u1", "first")]} />
-        <EditablePage title={title("Page")} initial={[block("u1", "first")]} />
+        <EditablePage title={canonicalTitleOf("Page")} initial={[block("tuid-u1", "first")]} />
+        <EditablePage title={canonicalTitleOf("Page")} initial={[block("tuid-u1", "first")]} />
       </SyncContext.Provider>
     </MemoryRouter>);
 
@@ -1021,7 +1022,7 @@ test("same-title fallback observes the owner's flushed optimistic tree", () => {
   act(() => { vi.advanceTimersByTime(500); });
 
   expect(sync.sent).toEqual([[
-    { op: "update_text", uid: "u1", text: "shared optimistic text",
+    { op: "update_text", uid: "tuid-u1", text: "shared optimistic text",
       base_text_hash: sha256Hex("first"), page_title: "Page" },
   ]]);
   const fallback = [...document.querySelectorAll(".block-tree")]
@@ -1035,9 +1036,9 @@ test("a remaining same-title fallback atomically takes over after owner unmount"
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
         {includeFirst && (
-          <EditablePage key="first" title={title("Page")} initial={[block("u1", "first")]} />
+          <EditablePage key="first" title={canonicalTitleOf("Page")} initial={[block("tuid-u1", "first")]} />
         )}
-        <EditablePage key="second" title={title("Page")} initial={[block("u1", "first")]} />
+        <EditablePage key="second" title={canonicalTitleOf("Page")} initial={[block("tuid-u1", "first")]} />
       </SyncContext.Provider>
     </MemoryRouter>
   );
@@ -1056,8 +1057,8 @@ test("the read-only fallback still reflects genuinely remote batches", () => {
   try {
     const sync = mount();
     act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-      { op: "create", uid: uid("r1"), page_title: "Page", parent_uid: null,
-        order_idx: ord(2), text: "from elsewhere" },
+      { op: "create", uid: uidOf("tuid-r1"), page_title: "Page", parent_uid: null,
+        order_idx: orderIdxOf(2), text: "from elsewhere" },
     ] }));
     expect(screen.getByText("from elsewhere")).toBeInTheDocument();
   } finally {
@@ -1070,14 +1071,16 @@ test("once the first instance unmounts, a freshly mounted one becomes editable a
   const first = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title={title("Page")} initial={[block("u1", "first", { order_idx: ord(0) })]} />
+        <EditablePage title={canonicalTitleOf("Page")}
+          initial={[block("tuid-u1", "first", { order_idx: orderIdxOf(0) })]} />
       </SyncContext.Provider>
     </MemoryRouter>);
   first.unmount();
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditablePage title={title("Page")} initial={[block("u1", "first", { order_idx: ord(0) })]} />
+        <EditablePage title={canonicalTitleOf("Page")}
+          initial={[block("tuid-u1", "first", { order_idx: orderIdxOf(0) })]} />
       </SyncContext.Provider>
     </MemoryRouter>);
   fireEvent.click(screen.getByText("first"));

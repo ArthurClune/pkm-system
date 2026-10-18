@@ -7,7 +7,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { DndProvider } from "../dnd/DndContext";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, jsonResponse, makeSync, ord, title } from "../test-helpers";
+import { block, jsonResponse, makeSync, orderIdxOf, canonicalTitleOf } from "../test-helpers";
 import type { BlockNode } from "../api/payloads";
 import { EditablePage } from "./EditablePage";
 
@@ -23,7 +23,7 @@ function renderPage(initial: BlockNode[]) {
     <SyncContext.Provider value={sync}>
       <DndProvider>
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-          <EditablePage title={title("P")} initial={initial} />
+          <EditablePage title={canonicalTitleOf("P")} initial={initial} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
@@ -53,7 +53,7 @@ it("dropping an image on an empty page creates its block at the root", async () 
 });
 
 it("dropping an image on a populated page uploads it as a block at the drop line", async () => {
-  const sync = renderPage([block("u1", "one", { order_idx: ord(0) })]);
+  const sync = renderPage([block("tuid-u1", "one", { order_idx: orderIdxOf(0) })]);
   const zone = document.querySelector(".outline-drop-zone")!;
   const t = transfer();
   fireEvent.dragOver(zone, { clientX: 0, clientY: 0, dataTransfer: t });

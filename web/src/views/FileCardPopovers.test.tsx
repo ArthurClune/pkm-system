@@ -5,7 +5,7 @@ import { apiGet } from "../api/typedClient";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { MISSING_BLOCK_TEXT } from "./filesCore";
 import { FileDescriptionPopover, FileRefsPopover } from "./FileCardPopovers";
-import { uid } from "../test-helpers";
+import { uidOf } from "../test-helpers";
 
 vi.mock("../api/typedClient", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/typedClient")>();
@@ -34,14 +34,14 @@ afterEach(() => {
 });
 
 const REFS = [
-  { uid: uid("a1"), page_title: "Alpha" },
-  { uid: uid("b1"), page_title: "Beta" },
+  { uid: uidOf("tuid-a1"), page_title: "Alpha" },
+  { uid: uidOf("tuid-b1"), page_title: "Beta" },
 ];
 
 it("fetches block text and renders refs grouped by page", async () => {
   mockApiGet.mockResolvedValueOnce({ block_ref_texts: {
-    a1: { text: "alpha mentions it", page_title: "Alpha" },
-    b1: { text: "beta mentions it", page_title: "Beta" },
+    "tuid-a1": { text: "alpha mentions it", page_title: "Alpha" },
+    "tuid-b1": { text: "beta mentions it", page_title: "Beta" },
   } });
   render(<FileRefsPopover refs={REFS} x={10} y={20} onClose={vi.fn()} />,
          { wrapper });
@@ -49,13 +49,13 @@ it("fetches block text and renders refs grouped by page", async () => {
   expect(screen.getByText("Alpha")).toBeInTheDocument();
   expect(screen.getByText("beta mentions it")).toBeInTheDocument();
   expect(mockApiGet).toHaveBeenCalledWith(
-    "/api/block-refs", { query: { uids: "a1,b1" } });
+    "/api/block-refs", { query: { uids: "tuid-a1,tuid-b1" } });
 });
 
 it("navigates to the referencing block on click, and closes", async () => {
   mockApiGet.mockResolvedValueOnce({ block_ref_texts: {
-    a1: { text: "alpha mentions it", page_title: "Alpha" },
-    b1: { text: "beta mentions it", page_title: "Beta" },
+    "tuid-a1": { text: "alpha mentions it", page_title: "Alpha" },
+    "tuid-b1": { text: "beta mentions it", page_title: "Beta" },
   } });
   const onClose = vi.fn();
   render(<FileRefsPopover refs={REFS} x={0} y={0} onClose={onClose} />,
@@ -63,12 +63,12 @@ it("navigates to the referencing block on click, and closes", async () => {
   fireEvent.click(await screen.findByRole("link",
                                           { name: "alpha mentions it" }));
   expect(onClose).toHaveBeenCalled();
-  expect(screen.getByTestId("loc")).toHaveTextContent("/page/Alpha#a1");
+  expect(screen.getByTestId("loc")).toHaveTextContent("/page/Alpha#tuid-a1");
 });
 
 it("renders a placeholder row for a uid the endpoint omitted", async () => {
   mockApiGet.mockResolvedValueOnce({ block_ref_texts: {
-    a1: { text: "alpha mentions it", page_title: "Alpha" },
+    "tuid-a1": { text: "alpha mentions it", page_title: "Alpha" },
   } });
   render(<FileRefsPopover refs={REFS} x={0} y={0} onClose={vi.fn()} />,
          { wrapper });
@@ -99,17 +99,17 @@ it("Escape and outside mousedown close the refs popover", async () => {
 
 it("navigates from a row whose block embeds the image (media inert)", async () => {
   mockApiGet.mockResolvedValueOnce({ block_ref_texts: {
-    a1: { text: "![pic](/assets/aa/pic.png)", page_title: "Alpha" },
+    "tuid-a1": { text: "![pic](/assets/aa/pic.png)", page_title: "Alpha" },
   } });
   const onClose = vi.fn();
-  render(<FileRefsPopover refs={[{ uid: uid("a1"), page_title: "Alpha" }]}
+  render(<FileRefsPopover refs={[{ uid: uidOf("tuid-a1"), page_title: "Alpha" }]}
                           x={0} y={0} onClose={onClose} />, { wrapper });
   const img = await screen.findByRole("img");
   expect(screen.queryByRole("button", { name: /Expand image/ }))
     .not.toBeInTheDocument();
   fireEvent.click(img);
   expect(onClose).toHaveBeenCalled();
-  expect(screen.getByTestId("loc")).toHaveTextContent("/page/Alpha#a1");
+  expect(screen.getByTestId("loc")).toHaveTextContent("/page/Alpha#tuid-a1");
 });
 
 it("shows the description without any fetch", () => {

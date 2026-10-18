@@ -26,7 +26,6 @@ performing the route under test.
 """
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Callable
 from datetime import date, timedelta
 
@@ -38,6 +37,7 @@ from pkm.server.config import Config
 from pkm.server.db import open_db
 from pkm.server.title_migration import audit_title_migration
 from pkm.contracts.daily import title_for_date
+from pkm.database import connect
 
 # conftest seeds this fixed daily title (page id 3); routes below must
 # avoid colliding with it (pages.title is UNIQUE).
@@ -97,7 +97,7 @@ def _cleanup_journal_setup(_client: TestClient, config: Config, _ctx: dict) -> N
     # Inserted directly (not through the app) so this setup itself can't
     # emit a nudge to be mistaken for the action's.
     title = _non_colliding_daily_title(range(1, 8))
-    con = sqlite3.connect(config.db_path)
+    con = connect(config.db_path)
     con.execute("INSERT INTO pages(id, title) VALUES (?, ?)", (980, title))
     con.commit()
     con.close()
@@ -164,7 +164,7 @@ def _delete_asset_with_referencing_block_action(
 
 
 def _seed_title_migration_graph(config: Config) -> None:
-    con = sqlite3.connect(config.db_path)
+    con = connect(config.db_path)
     con.executemany(
         "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
         [

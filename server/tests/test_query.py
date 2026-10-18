@@ -1,9 +1,10 @@
-import sqlite3
 
 import pytest
 
 from pkm.server.db import open_db
 from pkm.server.query import QueryParseError, parse_query
+from pkm.test_data.ids import canonical_query_node_of
+from pkm.database import connect
 
 
 def test_parse_simple_and():
@@ -122,9 +123,9 @@ def test_query_endpoint_bad_expr_400(client):
 
 
 def test_plan_sql_expand_duplicates_params():
-    from pkm.server.query import CanonicalQueryNode, QueryNode, plan_sql
+    from pkm.server.query import QueryNode, plan_sql
     sql, params = plan_sql(
-        CanonicalQueryNode(QueryNode("page", "AI")), expand=True)
+        canonical_query_node_of(QueryNode("page", "AI")), expand=True)
     assert params == ["AI", "AI"]
     assert "UNION" in sql
 
@@ -158,7 +159,7 @@ def test_query_endpoint_operand_with_padded_spaces_matches_canonical_title(
     "Paper", the same page [[Paper]] (no padding) matches, once the
     plain-space migration is active (canonicalize_title only strips edge
     U+0020 under that flag)."""
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "UPDATE sync_meta SET value = '1'"
         " WHERE key = 'plain_space_title_canonicalization'"

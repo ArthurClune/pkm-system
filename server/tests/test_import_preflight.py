@@ -6,12 +6,13 @@ from pkm.importer.preflight import (ImportStructureError, ImportUidError,
                                     validate_export_structure,
                                     validate_export_uids)
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
+from pkm.test_data.ids import malformed_uid, uid_of
 from pkm.contracts.ops import BlockUid
 
 
-def _block(uid: str, children: tuple[Block, ...] = ()) -> Block:
+def _block(uid: BlockUid, children: tuple[Block, ...] = ()) -> Block:
     return Block(
-        uid=BlockUid(uid),
+        uid=uid,
         text=uid,
         heading=None,
         view_type=None,
@@ -42,13 +43,13 @@ def test_distinct_objects_with_same_uid_report_lexicographically_first_duplicate
             _page(
                 "A",
                 (
-                    _block("z-duplicate"),
-                    _block("z-duplicate"),
-                    _block("a-duplicate"),
+                    _block(uid_of("z-duplicate")),
+                    _block(uid_of("z-duplicate")),
+                    _block(uid_of("a-duplicate")),
                 ),
             ),
         ),
-        orphans=(_block("a-duplicate"),),
+        orphans=(_block(uid_of("a-duplicate")),),
     )
 
     try:
@@ -69,14 +70,14 @@ def test_distinct_objects_with_same_uid_report_lexicographically_first_duplicate
 
 
 def test_same_block_instance_under_two_parents_reports_multi_parent():
-    shared = _block("shared")
+    shared = _block(uid_of("shared"))
     export = _export(
         pages=(
             _page(
                 "A",
                 (
-                    _block("left", (shared,)),
-                    _block("right", (shared,)),
+                    _block(uid_of("tuid-left"), (shared,)),
+                    _block(uid_of("tuid-right"), (shared,)),
                 ),
             ),
         ),
@@ -103,8 +104,8 @@ def test_same_block_instance_under_two_parents_reports_multi_parent():
 def test_valid_tree_passes_preflight():
     validate_export_structure(
         _export(
-            pages=(_page("A", (_block("root", (_block("child"),)),)),),
-            orphans=(_block("orphan"),),
+            pages=(_page("A", (_block(uid_of("tuid-root"), (_block(uid_of("tuid-child")),)),)),),
+            orphans=(_block(uid_of("orphan")),),
         )
     )
 
@@ -113,15 +114,15 @@ def test_validate_export_uids_accepts_every_well_formed_uid():
     validate_export_uids(
         _export(
             pages=(
-                _page("A", (_block("uid-root", (_block("uid-child"),)),)),
+                _page("A", (_block(uid_of("uid-root"), (_block(uid_of("uid-child")),)),)),
             ),
-            orphans=(_block("uid-orphan"),),
+            orphans=(_block(uid_of("uid-orphan")),),
         )
     )
 
 
 def test_validate_export_uids_rejects_a_short_uid_with_its_page_title():
-    export = _export(pages=(_page("A", (_block("short"),)),))
+    export = _export(pages=(_page("A", (_block(malformed_uid("short")),)),))
     with pytest.raises(ImportUidError) as exc_info:
         validate_export_uids(export)
     (bad,) = exc_info.value.invalid
@@ -130,7 +131,7 @@ def test_validate_export_uids_rejects_a_short_uid_with_its_page_title():
 
 
 def test_validate_export_uids_rejects_a_disallowed_character():
-    export = _export(pages=(_page("A", (_block("has a space"),)),))
+    export = _export(pages=(_page("A", (_block(malformed_uid("has a space")),)),))
     with pytest.raises(ImportUidError) as exc_info:
         validate_export_uids(export)
     (bad,) = exc_info.value.invalid
@@ -138,7 +139,7 @@ def test_validate_export_uids_rejects_a_disallowed_character():
 
 
 def test_validate_export_uids_rejects_an_overlong_uid():
-    export = _export(pages=(_page("A", (_block("x" * 33),)),))
+    export = _export(pages=(_page("A", (_block(malformed_uid("x" * 33)),)),))
     with pytest.raises(ImportUidError) as exc_info:
         validate_export_uids(export)
     (bad,) = exc_info.value.invalid
@@ -148,8 +149,8 @@ def test_validate_export_uids_rejects_an_overlong_uid():
 def test_validate_export_uids_reports_every_offending_uid_and_page():
     export = _export(
         pages=(
-            _page("A", (_block("uid-good"), _block("bad1"))),
-            _page("B", (_block("bad 2"),)),
+            _page("A", (_block(uid_of("uid-good")), _block(malformed_uid("bad1")))),
+            _page("B", (_block(malformed_uid("bad 2")),)),
         ),
     )
     with pytest.raises(ImportUidError) as exc_info:
@@ -160,8 +161,8 @@ def test_validate_export_uids_reports_every_offending_uid_and_page():
 
 def test_validate_export_uids_checks_nested_and_orphan_blocks():
     export = _export(
-        pages=(_page("A", (_block("uid-root", (_block("bad"),)),)),),
-        orphans=(_block("also-bad!"),),
+        pages=(_page("A", (_block(uid_of("uid-root"), (_block(malformed_uid("bad")),)),)),),
+        orphans=(_block(malformed_uid("also-bad!")),),
     )
     with pytest.raises(ImportUidError) as exc_info:
         validate_export_uids(export)
@@ -170,8 +171,8 @@ def test_validate_export_uids_checks_nested_and_orphan_blocks():
 
 
 def test_import_uid_error_message_lists_every_offending_uid():
-    export = _export(pages=(_page("A", (_block("bad1"),)),
-                            _page("B", (_block("bad2"),))))
+    export = _export(pages=(_page("A", (_block(malformed_uid("bad1")),)),
+                            _page("B", (_block(malformed_uid("bad2")),))))
     with pytest.raises(ImportUidError) as exc_info:
         validate_export_uids(export)
     message = str(exc_info.value)

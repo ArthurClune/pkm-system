@@ -1,7 +1,7 @@
 """GET /api/todos: {{TODO}}-marker listing."""
-import sqlite3
 
 import pytest
+from pkm.database import connect
 
 
 @pytest.fixture()
@@ -49,7 +49,7 @@ def test_todos_unknown_page_is_empty_not_404(todo_client):
 
 def test_todos_page_filter_canonicalizes_padded_title_when_active(
         todo_client, seeded_config):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "UPDATE sync_meta SET value = '1'"
         " WHERE key = 'plain_space_title_canonicalization'"

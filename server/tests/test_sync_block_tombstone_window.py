@@ -9,6 +9,8 @@ move row hydrates to nothing, so a cascade run in the earlier window would
 take the replica's stale subtree, and the kept block's child, whose row
 never changed, would not ship again."""
 import pytest
+from pkm.contracts.ops import BatchId
+from pkm.test_data.ids import batch_id_of
 
 
 def _drain(client, since=0, limit=1000):
@@ -17,7 +19,7 @@ def _drain(client, since=0, limit=1000):
     return r.json()
 
 
-def _ops(client, batch_id, ops):
+def _ops(client, batch_id: BatchId, ops):
     r = client.post("/api/ops", json={"client_id": "c1", "batch_id": batch_id,
                                       "ops": ops})
     assert r.status_code == 200, r.text
@@ -60,7 +62,7 @@ def _catch_up(client, since, local, limit):
 def _build_edit_move_delete(client):
     """P > C > G on AI; then P edited, C moved to the top level, P deleted.
     Returns the seq before the edit."""
-    _ops(client, "twbatch-build", [
+    _ops(client, batch_id_of("twbatch-build"), [
         {"op": "create", "uid": "uid_tw_p", "page_title": "AI", "parent_uid": None,
          "order_idx": 0, "text": "parent"},
         {"op": "create", "uid": "uid_tw_c", "page_title": "AI",
@@ -69,11 +71,11 @@ def _build_edit_move_delete(client):
          "parent_uid": "uid_tw_c", "order_idx": 0, "text": "grandchild"},
     ])
     start = _drain(client)["latest_seq"]
-    _ops(client, "twbatch-edit", [{"op": "update_text", "uid": "uid_tw_p",
+    _ops(client, batch_id_of("twbatch-edit"), [{"op": "update_text", "uid": "uid_tw_p",
                               "text": "parent, edited"}])
-    _ops(client, "twbatch-move", [{"op": "move", "uid": "uid_tw_c", "parent_uid": None,
+    _ops(client, batch_id_of("twbatch-move"), [{"op": "move", "uid": "uid_tw_c", "parent_uid": None,
                               "order_idx": 0, "page_title": "AI"}])
-    _ops(client, "twbatch-delete", [{"op": "delete", "uid": "uid_tw_p"}])
+    _ops(client, batch_id_of("twbatch-delete"), [{"op": "delete", "uid": "uid_tw_p"}])
     return start
 
 
@@ -113,7 +115,7 @@ def _build_move_delete_move_delete(client):
     """D > A > K > L on AI; then A moved to the top level, D deleted, K
     moved to the top level, A deleted. The server ends with K > L. Returns
     the seq before the first move."""
-    _ops(client, "ddbatch-build", [
+    _ops(client, batch_id_of("ddbatch-build"), [
         {"op": "create", "uid": "uid_dd_d", "page_title": "AI",
          "parent_uid": None, "order_idx": 0, "text": "D"},
         {"op": "create", "uid": "uid_dd_a", "page_title": "AI",
@@ -124,14 +126,14 @@ def _build_move_delete_move_delete(client):
          "parent_uid": "uid_dd_k", "order_idx": 0, "text": "L"},
     ])
     start = _drain(client)["latest_seq"]
-    _ops(client, "ddbatch-move-a", [{"op": "move", "uid": "uid_dd_a",
+    _ops(client, batch_id_of("ddbatch-move-a"), [{"op": "move", "uid": "uid_dd_a",
                                      "parent_uid": None, "order_idx": 0,
                                      "page_title": "AI"}])
-    _ops(client, "ddbatch-delete-d", [{"op": "delete", "uid": "uid_dd_d"}])
-    _ops(client, "ddbatch-move-k", [{"op": "move", "uid": "uid_dd_k",
+    _ops(client, batch_id_of("ddbatch-delete-d"), [{"op": "delete", "uid": "uid_dd_d"}])
+    _ops(client, batch_id_of("ddbatch-move-k"), [{"op": "move", "uid": "uid_dd_k",
                                      "parent_uid": None, "order_idx": 0,
                                      "page_title": "AI"}])
-    _ops(client, "ddbatch-delete-a", [{"op": "delete", "uid": "uid_dd_a"}])
+    _ops(client, batch_id_of("ddbatch-delete-a"), [{"op": "delete", "uid": "uid_dd_a"}])
     return start
 
 

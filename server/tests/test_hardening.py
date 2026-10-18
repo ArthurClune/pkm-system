@@ -1,11 +1,12 @@
 
 import pytest
 from pkm.database import Db, connect
-from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.schema import DDL
 from pkm.server.auth_core import YEAR_MS, sign_session, verify_session
 from pkm.server.db import init_db, open_db
 from pkm.server.store import fetch_page, get_or_create_page
+from pkm.test_data.ids import canonical_title_of, page_id_of
+from pkm.contracts.ops import PageId
 
 SECRET = b"s" * 32
 NOW = 1_700_000_000_000
@@ -38,7 +39,7 @@ def test_get_or_create_page(tmp_path):
     assert again["page_id"] == page["page_id"] and again["created_at"] == 123
     assert db.in_transaction  # helper must NOT have committed
     db.rollback()
-    new_page_title = CanonicalTitle(NormalizedTitle("New Page"))
+    new_page_title = canonical_title_of("New Page")
     assert fetch_page(db, new_page_title) is None  # rollback undid the create
     db.close()
 
@@ -46,7 +47,7 @@ def test_get_or_create_page(tmp_path):
 def _seed_linear_chain(
     db_path,
     *,
-    page_id: int,
+    page_id: PageId,
     page_title: str,
     ancestor_count: int,
     prefix: str,
@@ -89,7 +90,7 @@ def test_block_ancestor_breadcrumbs_are_complete_for_deep_linear_chain(
         client, seeded_config, ancestor_count):
     leaf_uid, expected = _seed_linear_chain(
         seeded_config.db_path,
-        page_id=99,
+        page_id=page_id_of(99),
         page_title=f"Deep Chain {ancestor_count}",
         ancestor_count=ancestor_count,
         prefix=f"chain{ancestor_count}",

@@ -2,7 +2,7 @@ import hashlib
 import json
 from dataclasses import replace
 
-from pkm.refs import CanonicalTitle, NormalizedTitle
+from pkm.refs import CanonicalTitle
 from pkm.title_migration import (
     InventoryBlock,
     InventoryPage,
@@ -11,8 +11,9 @@ from pkm.title_migration import (
     TitleMigrationInventory,
     build_title_migration_plan,
 )
-from pkm.contracts.ops import (BlockUid, OrderIdx, PageId, SidebarEntryId,
-                               SidebarOrderIdx)
+from pkm.test_data.ids import (canonical_title_of, order_idx_of,
+                               page_id_of, sidebar_entry_id_of,
+                               sidebar_order_idx_of, uid_of)
 
 
 def _ct(title: str) -> CanonicalTitle:
@@ -20,7 +21,7 @@ def _ct(title: str) -> CanonicalTitle:
     sidebar_entries.title, so it's CanonicalTitle -- these fixtures mint it
     directly rather than running every title through the real
     canonicalizer."""
-    return CanonicalTitle(NormalizedTitle(title))
+    return canonical_title_of(title)
 
 
 def _inventory(
@@ -41,49 +42,51 @@ def _inventory(
 
 def _digest_inventory() -> TitleMigrationInventory:
     return _inventory(
-        InventoryPage(page_id=PageId(2), title=_ct(" Acme")),
-        InventoryPage(page_id=PageId(9), title=_ct("Inbound")),
-        InventoryPage(page_id=PageId(1), title=_ct("Acme")),
-        InventoryPage(page_id=PageId(3), title=_ct("Acme ")),
+        InventoryPage(page_id=page_id_of(2), title=_ct(" Acme")),
+        InventoryPage(page_id=page_id_of(9), title=_ct("Inbound")),
+        InventoryPage(page_id=page_id_of(1), title=_ct("Acme")),
+        InventoryPage(page_id=page_id_of(3), title=_ct("Acme ")),
         blocks=(
             InventoryBlock(
-                uid=BlockUid("source-root"),
-                page_id=PageId(2),
+                uid=uid_of("source-root"),
+                page_id=page_id_of(2),
                 parent_uid=None,
-                order_idx=OrderIdx(0),
+                order_idx=order_idx_of(0),
                 text="source",
             ),
             InventoryBlock(
-                uid=BlockUid("target-root"),
-                page_id=PageId(1),
+                uid=uid_of("target-root"),
+                page_id=page_id_of(1),
                 parent_uid=None,
-                order_idx=OrderIdx(0),
+                order_idx=order_idx_of(0),
                 text="target",
             ),
             InventoryBlock(
-                uid=BlockUid("inbound"),
-                page_id=PageId(9),
+                uid=uid_of("inbound"),
+                page_id=page_id_of(9),
                 parent_uid=None,
-                order_idx=OrderIdx(0),
+                order_idx=order_idx_of(0),
                 text="[[ Acme]] and [[Acme ]]",
             ),
         ),
         refs=(
-            InventoryRef(src_block_uid=BlockUid("inbound"), target_page_id=PageId(3), kind="link"),
-            InventoryRef(src_block_uid=BlockUid("inbound"), target_page_id=PageId(2), kind="link"),
+            InventoryRef(src_block_uid=uid_of("inbound"), target_page_id=page_id_of(3), kind="link"),
+            InventoryRef(src_block_uid=uid_of("inbound"), target_page_id=page_id_of(2), kind="link"),
         ),
-        sidebars=(InventorySidebar(sidebar_id=SidebarEntryId(4), title=_ct("Acme "), order_idx=SidebarOrderIdx(7)),),
+        sidebars=(InventorySidebar(
+            sidebar_id=sidebar_entry_id_of(4), title=_ct("Acme "),
+            order_idx=sidebar_order_idx_of(7)),),
     )
 
 
 def _control_whitespace_inventory() -> TitleMigrationInventory:
     return _inventory(
-        InventoryPage(page_id=PageId(6), title=_ct(" \nacme\t ")),
-        InventoryPage(page_id=PageId(3), title=_ct(" \n\t ")),
-        InventoryPage(page_id=PageId(4), title=_ct("\u00a0Acme\u00a0")),
-        InventoryPage(page_id=PageId(1), title=_ct("Acme")),
-        InventoryPage(page_id=PageId(5), title=_ct("acme")),
-        InventoryPage(page_id=PageId(2), title=_ct(" \nAcme\t ")),
+        InventoryPage(page_id=page_id_of(6), title=_ct(" \nacme\t ")),
+        InventoryPage(page_id=page_id_of(3), title=_ct(" \n\t ")),
+        InventoryPage(page_id=page_id_of(4), title=_ct("\u00a0Acme\u00a0")),
+        InventoryPage(page_id=page_id_of(1), title=_ct("Acme")),
+        InventoryPage(page_id=page_id_of(5), title=_ct("acme")),
+        InventoryPage(page_id=page_id_of(2), title=_ct(" \nAcme\t ")),
     )
 
 
@@ -206,14 +209,14 @@ def _expected_digest(inventory: TitleMigrationInventory) -> str:
 def test_build_title_migration_plan_groups_padded_titles_deterministically():
     plan = build_title_migration_plan(
         _inventory(
-            InventoryPage(page_id=PageId(7), title=_ct("\u00a0Gamma\u00a0")),
-            InventoryPage(page_id=PageId(2), title=_ct(" Acme")),
-            InventoryPage(page_id=PageId(5), title=_ct(" Beta")),
-            InventoryPage(page_id=PageId(1), title=_ct("Acme")),
-            InventoryPage(page_id=PageId(4), title=_ct("Beta ")),
-            InventoryPage(page_id=PageId(8), title=_ct(" acme")),
-            InventoryPage(page_id=PageId(6), title=_ct(" ")),
-            InventoryPage(page_id=PageId(3), title=_ct("Acme ")),
+            InventoryPage(page_id=page_id_of(7), title=_ct("\u00a0Gamma\u00a0")),
+            InventoryPage(page_id=page_id_of(2), title=_ct(" Acme")),
+            InventoryPage(page_id=page_id_of(5), title=_ct(" Beta")),
+            InventoryPage(page_id=page_id_of(1), title=_ct("Acme")),
+            InventoryPage(page_id=page_id_of(4), title=_ct("Beta ")),
+            InventoryPage(page_id=page_id_of(8), title=_ct(" acme")),
+            InventoryPage(page_id=page_id_of(6), title=_ct(" ")),
+            InventoryPage(page_id=page_id_of(3), title=_ct("Acme ")),
         )
     )
 
@@ -222,18 +225,18 @@ def test_build_title_migration_plan_groups_padded_titles_deterministically():
     acme, beta, lower = plan.groups
 
     assert acme.has_clean_twin is True
-    assert acme.survivor == InventoryPage(page_id=PageId(1), title=_ct("Acme"))
+    assert acme.survivor == InventoryPage(page_id=page_id_of(1), title=_ct("Acme"))
     assert acme.sources == (
-        InventoryPage(page_id=PageId(2), title=_ct(" Acme")),
-        InventoryPage(page_id=PageId(3), title=_ct("Acme ")),
+        InventoryPage(page_id=page_id_of(2), title=_ct(" Acme")),
+        InventoryPage(page_id=page_id_of(3), title=_ct("Acme ")),
     )
 
     assert beta.has_clean_twin is False
-    assert beta.survivor == InventoryPage(page_id=PageId(4), title=_ct("Beta "))
-    assert beta.sources == (InventoryPage(page_id=PageId(5), title=_ct(" Beta")),)
+    assert beta.survivor == InventoryPage(page_id=page_id_of(4), title=_ct("Beta "))
+    assert beta.sources == (InventoryPage(page_id=page_id_of(5), title=_ct(" Beta")),)
 
     assert lower.has_clean_twin is False
-    assert lower.survivor == InventoryPage(page_id=PageId(8), title=_ct(" acme"))
+    assert lower.survivor == InventoryPage(page_id=page_id_of(8), title=_ct(" acme"))
     assert lower.sources == ()
 
     assert [
@@ -260,12 +263,12 @@ def test_build_title_migration_plan_normalizes_control_whitespace_before_plain_s
 
     acme, lower = plan.groups
 
-    assert acme.survivor == InventoryPage(page_id=PageId(1), title=_ct("Acme"))
-    assert acme.sources == (InventoryPage(page_id=PageId(2), title=_ct(" \nAcme\t ")),)
+    assert acme.survivor == InventoryPage(page_id=page_id_of(1), title=_ct("Acme"))
+    assert acme.sources == (InventoryPage(page_id=page_id_of(2), title=_ct(" \nAcme\t ")),)
     assert acme.has_clean_twin is True
 
-    assert lower.survivor == InventoryPage(page_id=PageId(5), title=_ct("acme"))
-    assert lower.sources == (InventoryPage(page_id=PageId(6), title=_ct(" \nacme\t ")),)
+    assert lower.survivor == InventoryPage(page_id=page_id_of(5), title=_ct("acme"))
+    assert lower.sources == (InventoryPage(page_id=page_id_of(6), title=_ct(" \nacme\t ")),)
     assert lower.has_clean_twin is True
 
     assert [
@@ -349,13 +352,13 @@ def test_build_title_migration_plan_classifies_and_orders_invalid_title_blockers
     title."""
     plan = build_title_migration_plan(
         _inventory(
-            InventoryPage(page_id=PageId(9), title=_ct("   ")),
-            InventoryPage(page_id=PageId(6), title=_ct("Bad #Title")),
-            InventoryPage(page_id=PageId(5), title=_ct("Bad [[Title")),
-            InventoryPage(page_id=PageId(4), title=_ct("Bad Title]]")),
-            InventoryPage(page_id=PageId(3), title=_ct(" Bad #Title ")),
-            InventoryPage(page_id=PageId(2), title=_ct("Valid")),
-            InventoryPage(page_id=PageId(1), title=_ct("Valid ")),
+            InventoryPage(page_id=page_id_of(9), title=_ct("   ")),
+            InventoryPage(page_id=page_id_of(6), title=_ct("Bad #Title")),
+            InventoryPage(page_id=page_id_of(5), title=_ct("Bad [[Title")),
+            InventoryPage(page_id=page_id_of(4), title=_ct("Bad Title]]")),
+            InventoryPage(page_id=page_id_of(3), title=_ct(" Bad #Title ")),
+            InventoryPage(page_id=page_id_of(2), title=_ct("Valid")),
+            InventoryPage(page_id=page_id_of(1), title=_ct("Valid ")),
         )
     )
 
@@ -375,16 +378,16 @@ def test_build_title_migration_plan_classifies_and_orders_invalid_title_blockers
 
 def test_build_title_migration_plan_digest_changes_when_blocker_changes_or_is_added():
     baseline = build_title_migration_plan(
-        _inventory(InventoryPage(page_id=PageId(1), title=_ct("   ")))
+        _inventory(InventoryPage(page_id=page_id_of(1), title=_ct("   ")))
     ).digest
 
     changed = build_title_migration_plan(
-        _inventory(InventoryPage(page_id=PageId(1), title=_ct("Bad #Title")))
+        _inventory(InventoryPage(page_id=page_id_of(1), title=_ct("Bad #Title")))
     ).digest
     added = build_title_migration_plan(
         _inventory(
-            InventoryPage(page_id=PageId(1), title=_ct("   ")),
-            InventoryPage(page_id=PageId(2), title=_ct("Bad #Title")),
+            InventoryPage(page_id=page_id_of(1), title=_ct("   ")),
+            InventoryPage(page_id=page_id_of(2), title=_ct("Bad #Title")),
         )
     ).digest
 
@@ -395,38 +398,40 @@ def test_build_title_migration_plan_digest_changes_when_blocker_changes_or_is_ad
 def test_build_title_migration_plan_digest_is_canonical_and_order_independent():
     inventory = _digest_inventory()
     reordered = _inventory(
-        InventoryPage(page_id=PageId(3), title=_ct("Acme ")),
-        InventoryPage(page_id=PageId(1), title=_ct("Acme")),
-        InventoryPage(page_id=PageId(9), title=_ct("Inbound")),
-        InventoryPage(page_id=PageId(2), title=_ct(" Acme")),
+        InventoryPage(page_id=page_id_of(3), title=_ct("Acme ")),
+        InventoryPage(page_id=page_id_of(1), title=_ct("Acme")),
+        InventoryPage(page_id=page_id_of(9), title=_ct("Inbound")),
+        InventoryPage(page_id=page_id_of(2), title=_ct(" Acme")),
         blocks=(
             InventoryBlock(
-                uid=BlockUid("inbound"),
-                page_id=PageId(9),
+                uid=uid_of("inbound"),
+                page_id=page_id_of(9),
                 parent_uid=None,
-                order_idx=OrderIdx(0),
+                order_idx=order_idx_of(0),
                 text="[[ Acme]] and [[Acme ]]",
             ),
             InventoryBlock(
-                uid=BlockUid("target-root"),
-                page_id=PageId(1),
+                uid=uid_of("target-root"),
+                page_id=page_id_of(1),
                 parent_uid=None,
-                order_idx=OrderIdx(0),
+                order_idx=order_idx_of(0),
                 text="target",
             ),
             InventoryBlock(
-                uid=BlockUid("source-root"),
-                page_id=PageId(2),
+                uid=uid_of("source-root"),
+                page_id=page_id_of(2),
                 parent_uid=None,
-                order_idx=OrderIdx(0),
+                order_idx=order_idx_of(0),
                 text="source",
             ),
         ),
         refs=(
-            InventoryRef(src_block_uid=BlockUid("inbound"), target_page_id=PageId(2), kind="link"),
-            InventoryRef(src_block_uid=BlockUid("inbound"), target_page_id=PageId(3), kind="link"),
+            InventoryRef(src_block_uid=uid_of("inbound"), target_page_id=page_id_of(2), kind="link"),
+            InventoryRef(src_block_uid=uid_of("inbound"), target_page_id=page_id_of(3), kind="link"),
         ),
-        sidebars=(InventorySidebar(sidebar_id=SidebarEntryId(4), title=_ct("Acme "), order_idx=SidebarOrderIdx(7)),),
+        sidebars=(InventorySidebar(
+            sidebar_id=sidebar_entry_id_of(4), title=_ct("Acme "),
+            order_idx=sidebar_order_idx_of(7)),),
     )
 
     plan = build_title_migration_plan(inventory)
@@ -446,34 +451,34 @@ def test_build_title_migration_plan_digest_changes_when_relevant_data_changes():
     assert build_title_migration_plan(replace(
         inventory,
         pages=(
-            InventoryPage(page_id=PageId(2), title=_ct(" Acme")),
-            InventoryPage(page_id=PageId(9), title=_ct("Inbound")),
-            InventoryPage(page_id=PageId(1), title=_ct("Acme")),
-            InventoryPage(page_id=PageId(3), title=_ct("Acne ")),
+            InventoryPage(page_id=page_id_of(2), title=_ct(" Acme")),
+            InventoryPage(page_id=page_id_of(9), title=_ct("Inbound")),
+            InventoryPage(page_id=page_id_of(1), title=_ct("Acme")),
+            InventoryPage(page_id=page_id_of(3), title=_ct("Acne ")),
         ),
     )).digest != baseline
     assert build_title_migration_plan(replace(
         inventory,
         blocks=(
             InventoryBlock(
-                uid=BlockUid("source-root"),
-                page_id=PageId(2),
+                uid=uid_of("source-root"),
+                page_id=page_id_of(2),
                 parent_uid=None,
-                order_idx=OrderIdx(0),
+                order_idx=order_idx_of(0),
                 text="source",
             ),
             InventoryBlock(
-                uid=BlockUid("target-root"),
-                page_id=PageId(1),
+                uid=uid_of("target-root"),
+                page_id=page_id_of(1),
                 parent_uid=None,
-                order_idx=OrderIdx(0),
+                order_idx=order_idx_of(0),
                 text="retitled",
             ),
             InventoryBlock(
-                uid=BlockUid("inbound"),
-                page_id=PageId(9),
+                uid=uid_of("inbound"),
+                page_id=page_id_of(9),
                 parent_uid=None,
-                order_idx=OrderIdx(0),
+                order_idx=order_idx_of(0),
                 text="[[ Acme]] and [[Acme ]]",
             ),
         ),
@@ -482,24 +487,24 @@ def test_build_title_migration_plan_digest_changes_when_relevant_data_changes():
         inventory,
         blocks=(
             InventoryBlock(
-                uid=BlockUid("source-root"),
-                page_id=PageId(2),
+                uid=uid_of("source-root"),
+                page_id=page_id_of(2),
                 parent_uid=None,
-                order_idx=OrderIdx(0),
+                order_idx=order_idx_of(0),
                 text="source",
             ),
             InventoryBlock(
-                uid=BlockUid("target-root"),
-                page_id=PageId(1),
+                uid=uid_of("target-root"),
+                page_id=page_id_of(1),
                 parent_uid=None,
-                order_idx=OrderIdx(1),
+                order_idx=order_idx_of(1),
                 text="target",
             ),
             InventoryBlock(
-                uid=BlockUid("inbound"),
-                page_id=PageId(9),
+                uid=uid_of("inbound"),
+                page_id=page_id_of(9),
                 parent_uid=None,
-                order_idx=OrderIdx(0),
+                order_idx=order_idx_of(0),
                 text="[[ Acme]] and [[Acme ]]",
             ),
         ),
@@ -508,24 +513,24 @@ def test_build_title_migration_plan_digest_changes_when_relevant_data_changes():
         inventory,
         blocks=(
             InventoryBlock(
-                uid=BlockUid("source-root"),
-                page_id=PageId(2),
+                uid=uid_of("source-root"),
+                page_id=page_id_of(2),
                 parent_uid=None,
-                order_idx=OrderIdx(0),
+                order_idx=order_idx_of(0),
                 text="source",
             ),
             InventoryBlock(
-                uid=BlockUid("target-root"),
-                page_id=PageId(1),
-                parent_uid=BlockUid("source-root"),
-                order_idx=OrderIdx(0),
+                uid=uid_of("target-root"),
+                page_id=page_id_of(1),
+                parent_uid=uid_of("source-root"),
+                order_idx=order_idx_of(0),
                 text="target",
             ),
             InventoryBlock(
-                uid=BlockUid("inbound"),
-                page_id=PageId(9),
+                uid=uid_of("inbound"),
+                page_id=page_id_of(9),
                 parent_uid=None,
-                order_idx=OrderIdx(0),
+                order_idx=order_idx_of(0),
                 text="[[ Acme]] and [[Acme ]]",
             ),
         ),
@@ -533,15 +538,17 @@ def test_build_title_migration_plan_digest_changes_when_relevant_data_changes():
     assert build_title_migration_plan(replace(
         inventory,
         refs=(
-            InventoryRef(src_block_uid=BlockUid("inbound"), target_page_id=PageId(3), kind="tag"),
-            InventoryRef(src_block_uid=BlockUid("inbound"), target_page_id=PageId(2), kind="link"),
+            InventoryRef(src_block_uid=uid_of("inbound"), target_page_id=page_id_of(3), kind="tag"),
+            InventoryRef(src_block_uid=uid_of("inbound"), target_page_id=page_id_of(2), kind="link"),
         ),
     )).digest != baseline
     assert build_title_migration_plan(replace(
         inventory,
-        sidebars=(InventorySidebar(sidebar_id=SidebarEntryId(4), title=_ct("Acme "), order_idx=SidebarOrderIdx(8)),),
+        sidebars=(InventorySidebar(
+            sidebar_id=sidebar_entry_id_of(4), title=_ct("Acme "),
+            order_idx=sidebar_order_idx_of(8)),),
     )).digest != baseline
     assert build_title_migration_plan(replace(
         inventory,
-        refs=(InventoryRef(src_block_uid=BlockUid("inbound"), target_page_id=PageId(2), kind="link"),),
+        refs=(InventoryRef(src_block_uid=uid_of("inbound"), target_page_id=page_id_of(2), kind="link"),),
     )).digest != baseline

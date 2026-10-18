@@ -1,13 +1,13 @@
-import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from rawread import read
 from pkm.server.db import get_db, open_db
+from pkm.database import connect
 
 
 def _seed_entries(db_path, rows):
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     con.executemany(
         "INSERT INTO sidebar_entries(title, order_idx) VALUES (?,?)", rows)
     con.commit()
@@ -72,7 +72,7 @@ def test_add_entry_keeps_nbsp_edges(client):
 
 def test_add_entry_canonicalizes_padded_title_when_plain_space_migration_is_active(
         client, seeded_config):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "UPDATE sync_meta SET value = '1'"
         " WHERE key = 'plain_space_title_canonicalization'"
@@ -215,14 +215,13 @@ def test_concurrent_different_titles_get_distinct_append_indexes(
         client, seeded_config, ["Crypto", "Databases"])
     assert [r.status_code for r in responses] == [200, 200]
 
-    con = sqlite3.connect(seeded_config.db_path)
-    rows = read(con,
-        "SELECT title, order_idx FROM sidebar_entries"
-        " WHERE title IN ('Crypto', 'Databases') ORDER BY order_idx"
-    ).fetchall()
+    con = connect(seeded_config.db_path)
+    rows = con.select(
+        "SELECT title, order_idx AS sidebar_order_idx FROM sidebar_entries"
+        " WHERE title IN ('Crypto', 'Databases') ORDER BY order_idx")
     con.close()
-    assert [row[1] for row in rows] == [1, 2]
-    assert {row[0] for row in rows} == {"Crypto", "Databases"}
+    assert [row["sidebar_order_idx"] for row in rows] == [1, 2]
+    assert {row["title"] for row in rows} == {"Crypto", "Databases"}
 
 
 def test_concurrent_same_title_returns_one_conflict(
@@ -233,7 +232,7 @@ def test_concurrent_same_title_returns_one_conflict(
     conflict = next(r for r in responses if r.status_code == 409)
     assert conflict.json() == {"detail": "entry already exists"}
 
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     count = read(con,
         "SELECT count(*) FROM sidebar_entries WHERE title = 'Crypto'"
     ).fetchone()[0]

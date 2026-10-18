@@ -1,9 +1,8 @@
-import sqlite3
 
-from rawread import read
 from pkm.importer.mermaid_preservation import PreservedRef
 from pkm.importer.migrate_mermaid_blocks import _print_preserved, main, plan_migration
 from pkm.server.db import init_db, open_db
+from pkm.database import connect
 
 PAGES = [
     (1, "Diagrams", None, None),
@@ -57,11 +56,11 @@ def _make_db(tmp_path):
 
 
 def _rows(db_path):
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
-    blocks = {r["uid"]: dict(r) for r in con.execute("SELECT * FROM blocks")}
-    refs = {tuple(r) for r in
-            con.execute("SELECT src_block_uid, target_page_id, kind FROM refs")}
+    con = connect(db_path)
+    blocks = {str(r["uid"]): dict(r) for r in con.select("SELECT * FROM blocks")}
+    refs = {(r["src_block_uid"], r["target_page_id"], r["ref_kind"]) for r in
+            con.select("SELECT src_block_uid, target_page_id,"
+                       " kind AS ref_kind FROM refs")}
     con.close()
     return blocks, refs
 
@@ -239,21 +238,19 @@ def test_fts_reflects_migration(tmp_path):
     db_path = _make_db(tmp_path)
     assert main(["--db", str(db_path)]) == 0
 
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     # the source line is now inside the fenced parent block (searching
     # "flowchart" alone would also hit uid_ref_line1's untouched, unrelated
     # "flowchart LR" -- that block is correctly preserved, not a collision)
-    hits = read(con,
+    hits = con.select(
         "SELECT blocks.uid FROM blocks_fts JOIN blocks ON blocks.rowid = blocks_fts.rowid"
-        " WHERE blocks_fts MATCH 'TB'"
-    ).fetchall()
-    assert [h[0] for h in hits] == ["uid_component"]
+        " WHERE blocks_fts MATCH 'TB'")
+    assert [h["uid"] for h in hits] == ["uid_component"]
 
     # the deleted child blocks no longer show up in search at all (searching
     # "detail" alone would also hit uid_citer's unrelated "for detail" text)
-    hits = read(con,
+    hits = con.select(
         "SELECT blocks.uid FROM blocks_fts JOIN blocks ON blocks.rowid = blocks_fts.rowid"
-        " WHERE blocks_fts MATCH 'nested'"
-    ).fetchall()
-    assert [h[0] for h in hits] == ["uid_component"]
+        " WHERE blocks_fts MATCH 'nested'")
+    assert [h["uid"] for h in hits] == ["uid_component"]
     con.close()

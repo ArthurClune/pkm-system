@@ -4,14 +4,15 @@ from urllib.parse import quote
 import pytest
 
 from rawread import read
-from pkm.contracts.ops import BlockUid, PageId
-from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.server.db import open_db
 from pkm.server.store import (
     append_page_without_rewrite,
     retitle_page_without_rewrite,
     rewrite_snapshotted_blocks,
 )
+from pkm.test_data.ids import canonical_title_of, page_id_of, uid_of
+from pkm.contracts.ops import PageId
+from pkm.database import connect
 
 
 def _rename(client, title, new_title, allow_merge=False):
@@ -22,21 +23,29 @@ def _rename(client, title, new_title, allow_merge=False):
 
 def _write_state(config):
     queries = {
-        "pages": "SELECT * FROM pages ORDER BY id",
+        "pages": "SELECT id AS page_id, title, created_at, updated_at"
+                 " FROM pages ORDER BY id",
         "blocks": "SELECT * FROM blocks ORDER BY uid",
         "refs": (
-            "SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"
+            "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs"
+            " ORDER BY 1, 2, 3"
         ),
-        "sidebar_entries": "SELECT * FROM sidebar_entries ORDER BY id",
-        "pages_fts": "SELECT rowid, * FROM pages_fts ORDER BY rowid",
-        "blocks_fts": "SELECT rowid, * FROM blocks_fts ORDER BY rowid",
-        "changes": "SELECT * FROM changes ORDER BY seq",
+        "sidebar_entries": "SELECT id AS sidebar_entry_id, title,"
+                           " order_idx AS sidebar_order_idx"
+                           " FROM sidebar_entries ORDER BY id",
+        "changes": "SELECT seq, kind AS change_kind, entity_id, deleted,"
+                   " page_id AS change_page_id FROM changes ORDER BY seq",
     }
-    con = sqlite3.connect(config.db_path)
+    index_queries = {
+        "pages_fts": "SELECT rowid, title AS indexed_title FROM pages_fts ORDER BY rowid",
+        "blocks_fts": "SELECT rowid, * FROM blocks_fts ORDER BY rowid",
+    }
+    con = connect(config.db_path)
     try:
         return {
-            table: read(con, query).fetchall()
-            for table, query in queries.items()
+            **{table: con.select(query) for table, query in queries.items()},
+            **{table: read(con, query).fetchall()
+               for table, query in index_queries.items()},
         }
     finally:
         con.close()
@@ -58,12 +67,11 @@ def test_rename_updates_title_and_referencing_text(client):
 
 def test_rename_keeps_backlinks(client, seeded_config):
     _rename(client, "Machine Learning", "ML Stuff")
-    con = sqlite3.connect(seeded_config.db_path)
-    refs = read(con,
-        "SELECT src_block_uid, kind FROM refs WHERE target_page_id = 1"
-    ).fetchall()
+    con = connect(seeded_config.db_path)
+    refs = con.select("SELECT src_block_uid, kind AS ref_kind FROM refs"
+                      " WHERE target_page_id = 1")
     con.close()
-    assert ("uid_b4", "link") in refs
+    assert ("uid_b4", "link") in [(r["src_block_uid"], r["ref_kind"]) for r in refs]
     body = client.get("/api/page/ML Stuff").json()
     assert body["backlinks"]["total_pages"] == 1
 
@@ -126,7 +134,7 @@ def test_rename_from_padded_path_title_when_plain_space_migration_is_active(
     normalize_title()s (control whitespace), not canonicalize_title()
     (plain-space edges) -- a padded path title must still 404 the lookup
     without this fix."""
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "UPDATE sync_meta SET value = '1'"
         " WHERE key = 'plain_space_title_canonicalization'"
@@ -177,16 +185,16 @@ def test_merge_appends_blocks_and_rewrites_refs(client):
 
 def test_merge_repoints_refs_to_target(client, seeded_config):
     _rename(client, "AI", "Machine Learning", allow_merge=True)
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     assert read(con,
         "SELECT count(*) FROM refs WHERE target_page_id = 2").fetchone()[0] == 0
-    assert ("uid_b1",) in read(con,
-        "SELECT src_block_uid FROM refs WHERE target_page_id = 1").fetchall()
+    assert "uid_b1" in [r["src_block_uid"] for r in con.select(
+        "SELECT src_block_uid FROM refs WHERE target_page_id = 1")]
     con.close()
 
 
 def test_merge_preserves_source_subtrees(client, seeded_config):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
         " collapsed) VALUES ('uid_child', 2, 'uid_b6', 0, 'nested', 0)")
@@ -210,7 +218,7 @@ def test_merge_case_variants(client):
 
 
 def test_merge_block_with_both_titles_dedupes_refs(client, seeded_config):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.executescript("""
         INSERT INTO pages(id, title) VALUES (60, 'cLaude'), (61, 'Claude');
         INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,
@@ -222,14 +230,14 @@ def test_merge_block_with_both_titles_dedupes_refs(client, seeded_config):
     con.commit()
     con.close()
     _rename(client, "cLaude", "Claude", allow_merge=True)
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     text = read(con, "SELECT text FROM blocks WHERE uid = 'uid_both'"
                        ).fetchone()[0]
-    refs = read(con, "SELECT target_page_id, kind FROM refs"
-                       " WHERE src_block_uid = 'uid_both'").fetchall()
+    refs = con.select("SELECT target_page_id, kind AS ref_kind FROM refs"
+                      " WHERE src_block_uid = 'uid_both'")
     con.close()
     assert text == "[[Claude]] vs [[Claude]]"
-    assert refs == [(61, "link")]
+    assert [(r["target_page_id"], r["ref_kind"]) for r in refs] == [(61, "link")]
 
 
 def test_merge_sidebar_both_pinned_keeps_target_entry(client):
@@ -300,9 +308,9 @@ def test_rename_holds_the_write_lock_from_its_snapshot_on(
     real_snapshot = store._snapshot_referencing_blocks
     outcome = {}
 
-    def racing(db, page_id):
+    def racing(db, page_id: PageId):
         snapshots = real_snapshot(db, page_id)
-        con2 = sqlite3.connect(seeded_config.db_path)
+        con2 = connect(seeded_config.db_path)
         con2.execute("PRAGMA busy_timeout=50")
         try:
             con2.execute("UPDATE blocks SET text = '[[Machine Learning]] late'"
@@ -337,32 +345,24 @@ def test_retitle_without_rewrite_changes_only_page_and_sidebar_title(seeded_conf
         "INSERT INTO sidebar_entries(id, title, order_idx) VALUES (20, 'Machine Learning', 0)"
     )
     before_text = read(db, "SELECT text FROM blocks WHERE uid='uid_b4'").fetchone()[0]
-    before_refs = list(
-        db.execute(
-            "SELECT src_block_uid, target_page_id, kind FROM refs "
-            "WHERE src_block_uid='uid_b4'"
-        )
-    )
+    inbound_refs = ("SELECT src_block_uid, target_page_id, kind AS ref_kind"
+                    " FROM refs WHERE src_block_uid='uid_b4'")
+    before_refs = db.select(inbound_refs)
 
     retitle_page_without_rewrite(
-        db, PageId(1), CanonicalTitle(NormalizedTitle("Machine Learning")),
-        CanonicalTitle(NormalizedTitle("Deep Learning Notes")), 9_001
+        db, page_id_of(1), canonical_title_of("Machine Learning"),
+        canonical_title_of("Deep Learning Notes"), 9_001
     )
 
-    assert tuple(read(db, "SELECT title, updated_at FROM pages WHERE id=1").fetchone()) == (
-        "Deep Learning Notes",
-        9_001,
-    )
-    assert tuple(
-        read(db, "SELECT id, title FROM sidebar_entries WHERE id=20").fetchone()
-    ) == (20, "Deep Learning Notes")
+    page = db.select_one("SELECT title, updated_at FROM pages WHERE id=1")
+    assert page is not None
+    assert (page["title"], page["updated_at"]) == ("Deep Learning Notes", 9_001)
+    entry = db.select_one("SELECT id AS sidebar_entry_id, title"
+                          " FROM sidebar_entries WHERE id=20")
+    assert entry is not None
+    assert (entry["sidebar_entry_id"], entry["title"]) == (20, "Deep Learning Notes")
     assert read(db, "SELECT text FROM blocks WHERE uid='uid_b4'").fetchone()[0] == before_text
-    assert list(
-        db.execute(
-            "SELECT src_block_uid, target_page_id, kind FROM refs "
-            "WHERE src_block_uid='uid_b4'"
-        )
-    ) == before_refs
+    assert db.select(inbound_refs) == before_refs
     assert read(db,
         "SELECT count(*) FROM pages_fts WHERE pages_fts MATCH '\"Deep Learning Notes\"'"
     ).fetchone()[0] == 1
@@ -385,22 +385,24 @@ def test_append_without_rewrite_preserves_stable_subtrees_and_target_sidebar(see
     )
 
     moved = append_page_without_rewrite(
-        db, PageId(2), PageId(1), CanonicalTitle(NormalizedTitle("AI")),
-        CanonicalTitle(NormalizedTitle("Machine Learning")), 9_002
+        db, page_id_of(2), page_id_of(1), canonical_title_of("AI"),
+        canonical_title_of("Machine Learning"), 9_002
     )
 
     assert moved == 3
     assert read(db, "SELECT count(*) FROM pages WHERE id=2").fetchone()[0] == 0
-    assert [tuple(row) for row in read(db,
+    assert [(r["uid"], r["order_idx"]) for r in db.select(
         "SELECT uid, order_idx FROM blocks WHERE page_id=1 AND parent_uid IS NULL "
         "ORDER BY order_idx"
     )] == [("uid_b1", 0), ("uid_b2", 1), ("uid_b6", 2), ("source-second", 3)]
-    assert tuple(read(db,
+    child = db.select_one(
         "SELECT page_id, parent_uid, order_idx, updated_at FROM blocks "
-        "WHERE uid='source-child'"
-    ).fetchone()) == (1, "source-second", 2, 9_002)
-    assert [tuple(row) for row in read(db,
-        "SELECT id, title FROM sidebar_entries ORDER BY id"
+        "WHERE uid='source-child'")
+    assert child is not None
+    assert (child["page_id"], child["parent_uid"], child["order_idx"],
+            child["updated_at"]) == (1, "source-second", 2, 9_002)
+    assert [(r["sidebar_entry_id"], r["title"]) for r in db.select(
+        "SELECT id AS sidebar_entry_id, title FROM sidebar_entries ORDER BY id"
     )] == [(21, "Machine Learning")]
     assert read(db, "SELECT text FROM blocks WHERE uid='uid_b1'").fetchone()[0] == "Tags:: #AI"
     db.rollback()
@@ -431,7 +433,7 @@ def test_rewrite_snapshots_updates_and_reindexes_each_block_once(seeded_config):
 
     rewritten = rewrite_snapshotted_blocks(
         db,
-        ((BlockUid("uid_multi"), original),),
+        ((uid_of("uid_multi"), original),),
         {"AI": "Machine Learning", "Paper": "Machine Learning"},
         9_003,
     )
@@ -443,9 +445,9 @@ def test_rewrite_snapshots_updates_and_reindexes_each_block_once(seeded_config):
         "[[Machine Learning]] then [[Machine Learning]] and [[Machine Learning]]",
         9_003,
     )
-    assert [tuple(row) for row in read(db,
-        "SELECT target_page_id, kind FROM refs WHERE src_block_uid='uid_multi'"
-    )] == [(1, "link")]
+    assert [(r["target_page_id"], r["ref_kind"]) for r in db.select(
+        "SELECT target_page_id, kind AS ref_kind FROM refs"
+        " WHERE src_block_uid='uid_multi'")] == [(1, "link")]
     assert read(db,
         "SELECT count(*) FROM changes WHERE kind='block' AND entity_id='uid_multi'"
     ).fetchone()[0] == changes_before + 1
@@ -466,7 +468,7 @@ def test_rename_self_referencing_block_rewrites_in_place(client, seeded_config):
     page (e.g. a self-referential note) must be rewritten to the new
     title too, and its refs row must keep targeting the renamed page's id
     (the id never changes on a plain rename)."""
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.executescript("""
         INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,
                            collapsed)
@@ -479,11 +481,11 @@ def test_rename_self_referencing_block_rewrites_in_place(client, seeded_config):
     r = _rename(client, "Machine Learning", "ML Stuff")
     assert r.status_code == 200
 
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     text = read(con, "SELECT text FROM blocks WHERE uid = 'uid_self'"
                        ).fetchone()[0]
-    refs = read(con, "SELECT target_page_id, kind FROM refs"
-                       " WHERE src_block_uid = 'uid_self'").fetchall()
+    refs = con.select("SELECT target_page_id, kind AS ref_kind FROM refs"
+                      " WHERE src_block_uid = 'uid_self'")
     con.close()
     assert text == "About [[ML Stuff]] itself"
-    assert refs == [(1, "link")]
+    assert [(r["target_page_id"], r["ref_kind"]) for r in refs] == [(1, "link")]

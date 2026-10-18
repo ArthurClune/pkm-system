@@ -1,9 +1,9 @@
-from pkm.contracts.ops import Sha256Hex
 from pkm.importer.assets import Asset, rewrite_asset_urls, url_basename
+from pkm.test_data.ids import sha_of
 
 URL = ("https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/"
        "o/imgs%2Fapp%2Fgraph%2Fpaper-fig.png?alt=media&token=abc-123")
-INDEX = {"paper-fig.png": Asset(Sha256Hex("f" * 64), "paper-fig.png", "image/png", 7)}
+INDEX = {"paper-fig.png": Asset(sha_of("f" * 64), "paper-fig.png", "image/png", 7)}
 
 
 def test_url_basename_decodes_path():
@@ -33,7 +33,7 @@ def test_non_firebase_urls_untouched():
 
 def test_filename_needing_quoting():
     idx = {"my file (1).pdf":
-          Asset(Sha256Hex("a" * 64), "my file (1).pdf", "application/pdf", 9)}
+          Asset(sha_of("a" * 64), "my file (1).pdf", "application/pdf", 9)}
     url = ("https://firebasestorage.googleapis.com/v0/b/x/o/"
            "my%20file%20%281%29.pdf?alt=media")
     new, result = rewrite_asset_urls(f"[pdf]({url})", idx)
@@ -60,7 +60,7 @@ def test_uid_prefix_fallback_matches_roam_download_naming():
     # download file "-0yUy7-KXY-IMG_0659.jpeg" indexed under its 10-char uid
     # prefix
     idx = {"-0yuy7-kxy":
-          Asset(Sha256Hex("b" * 64), "-0yUy7-KXY-IMG_0659.jpeg", "image/jpeg", 5)}
+          Asset(sha_of("b" * 64), "-0yUy7-KXY-IMG_0659.jpeg", "image/jpeg", 5)}
     url = ("https://firebasestorage.googleapis.com/v0/b/x/o/"
            "imgs%2Fapp%2Farthurclune%2F-0yUy7-KXY.jpeg?alt=media&token=t")
     new, result = rewrite_asset_urls(f"![]({url})", idx)
@@ -71,8 +71,8 @@ def test_uid_prefix_fallback_matches_roam_download_naming():
 
 def test_exact_name_wins_over_prefix():
     idx = {
-        "paper-fig.png": Asset(Sha256Hex("c" * 64), "paper-fig.png", "image/png", 3),
-        "paper-fig.": Asset(Sha256Hex("d" * 64), "wrong.png", "image/png", 3),
+        "paper-fig.png": Asset(sha_of("c" * 64), "paper-fig.png", "image/png", 3),
+        "paper-fig.": Asset(sha_of("d" * 64), "wrong.png", "image/png", 3),
     }
     url = ("https://firebasestorage.googleapis.com/v0/b/x/o/paper-fig.png?alt=media")
     _, result = rewrite_asset_urls(f"![]({url})", idx)

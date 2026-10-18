@@ -7,7 +7,6 @@ import pytest
 from pkm import refs
 from pkm.refs import (
     AttributeSpan,
-    NormalizedTitle,
     Ref,
     TagSpan,
     attribute_title_span,
@@ -21,6 +20,7 @@ from pkm.refs import (
     tag_spans,
     title_syntax_reason,
 )
+from pkm.test_data.ids import normalized_title_of
 
 FIXTURE = Path(__file__).parents[2] / "shared" / "fixtures" / "ref_grammar.json"
 CASES = json.loads(FIXTURE.read_text())["cases"]
@@ -130,9 +130,9 @@ def test_tag_spans_over_the_whole_text_by_default():
 def test_ref_ordering_and_types():
     parsed = extract("Tags:: [[B]] #c")
     assert parsed.refs == (
-        Ref(NormalizedTitle("Tags"), "attribute"),
-        Ref(NormalizedTitle("B"), "link"),
-        Ref(NormalizedTitle("c"), "tag"),
+        Ref(normalized_title_of("Tags"), "attribute"),
+        Ref(normalized_title_of("B"), "link"),
+        Ref(normalized_title_of("c"), "tag"),
     )
 
 
@@ -169,7 +169,7 @@ def test_strip_code_blanks_code_without_moving_what_follows():
 
 def test_attribute_title_span_starts_at_the_title_not_at_the_indent():
     assert attribute_title_span("  Tags:: [[B]]") == AttributeSpan(
-        start=2, end=8, raw_title="Tags", title=NormalizedTitle("Tags")
+        start=2, end=8, raw_title="Tags", title=normalized_title_of("Tags")
     )
 
 
@@ -218,7 +218,7 @@ def test_extract_attribute_still_recognised_after_leading_whitespace():
     # attribute body, rather than folding it into the backtracking regex --
     # must still recognise an indented attribute line.
     parsed = extract("   Tags:: [[B]]")
-    assert parsed.refs[0] == Ref(NormalizedTitle("Tags"), "attribute")
+    assert parsed.refs[0] == Ref(normalized_title_of("Tags"), "attribute")
 
 
 # A [[link]] spanning a newline must not mint a page whose title holds

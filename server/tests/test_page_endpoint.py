@@ -6,7 +6,8 @@ import pytest
 
 from rawread import read
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import text_hash
+from pkm.contracts.ops import BlockUid, PageId, text_hash
+from pkm.database import connect
 
 
 def test_get_past_daily_404s_and_creates_nothing(client):
@@ -51,8 +52,7 @@ def test_block_ref_resolution(client):
 def test_block_ref_resolution_is_transitive(client, seeded_config):
     # uid_n1's text is itself just a ((ref)) to uid_n2: the client renders
     # uid_n1's text and needs uid_n2 in the map too (nested expansion).
-    import sqlite3
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.executemany(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
         " heading, collapsed, created_at, updated_at)"
@@ -73,8 +73,7 @@ def test_block_ref_resolution_is_transitive(client, seeded_config):
 
 def test_block_ref_resolution_survives_cycles(client, seeded_config):
     # Mutually-referencing blocks must not hang resolution.
-    import sqlite3
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.executemany(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
         " heading, collapsed, created_at, updated_at)"
@@ -109,7 +108,7 @@ def test_missing_daily_page_auto_creates(client):
 
 
 def test_namespace_title_with_slash(client, seeded_config):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("INSERT INTO pages(id,title) VALUES (99,'AWS/SCP')")
     con.commit()
     con.close()
@@ -117,7 +116,7 @@ def test_namespace_title_with_slash(client, seeded_config):
 
 
 def test_get_page_normalizes_routable_control_whitespace(client, seeded_config):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
         (99, "Ctrl Title", 100, 100),
@@ -139,7 +138,7 @@ def test_get_page_normalizes_routable_control_whitespace(client, seeded_config):
 
 def test_get_page_preserves_inactive_padded_exact_reads(client, seeded_config):
     padded = " Legacy Padded Page "
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
         (99, padded, 100, 100),
@@ -158,7 +157,7 @@ def test_get_page_preserves_inactive_padded_exact_reads(client, seeded_config):
 def test_get_page_canonicalizes_padded_title_when_plain_space_migration_is_active(
         client, seeded_config):
     canonical = "Legacy Padded Page"
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
         (99, canonical, 100, 100),
@@ -247,9 +246,8 @@ def test_delete_page_turns_inbound_links_into_plain_text(
     assert "Studying Machine Learning today" in texts_after
     assert "Studying [[Machine Learning]] today" not in texts_after
 
-    con = sqlite3.connect(seeded_config.db_path)
-    remaining = read(con,
-        "SELECT * FROM refs WHERE target_page_id = 1").fetchall()
+    con = connect(seeded_config.db_path)
+    remaining = con.select("SELECT * FROM refs WHERE target_page_id = 1")
     con.close()
     assert remaining == []
 
@@ -316,7 +314,7 @@ def _b4_text(client):
 
 
 def _rewrite_rows(seeded_config):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     try:
         return read(con, "SELECT count(*) FROM block_rewrites").fetchone()[0]
     finally:
@@ -375,7 +373,7 @@ def test_delete_rolls_back_every_rewrite_when_a_later_one_fails(
     real = store.reindex_refs_for_text
     calls = []
 
-    def failing_second(db, uid, text, now_ms):
+    def failing_second(db, uid: BlockUid, text, now_ms):
         calls.append(uid)
         if len(calls) == 2:
             raise RuntimeError("disk on fire")
@@ -404,9 +402,9 @@ def test_delete_holds_the_write_lock_from_its_snapshot_on(
     real_plan = store.plan_delete
     outcome = {}
 
-    def racing(db, page_id, title):
+    def racing(db, page_id: PageId, title):
         plan = real_plan(db, page_id, title)
-        con2 = sqlite3.connect(seeded_config.db_path)
+        con2 = connect(seeded_config.db_path)
         con2.execute("PRAGMA busy_timeout=50")
         try:
             con2.execute("UPDATE blocks SET text = '[[Machine Learning]] late'"
@@ -425,12 +423,12 @@ def test_delete_holds_the_write_lock_from_its_snapshot_on(
 
 
 def test_delete_page_busy_returns_503(client, seeded_config):
-    con2 = sqlite3.connect(seeded_config.db_path, isolation_level=None)
-    con2.execute("BEGIN IMMEDIATE")
+    con2 = connect(seeded_config.db_path)
+    con2.begin_immediate()
     try:
         r = client.delete("/api/page/Machine Learning")
     finally:
-        con2.execute("ROLLBACK")
+        con2.rollback()
         con2.close()
     assert r.status_code == 503
     assert r.headers["Retry-After"] == "1"
@@ -450,7 +448,7 @@ def test_delete_page_removes_sidebar_entry(client):
 
 def test_delete_page_with_padded_path_title_when_plain_space_migration_is_active(
         client, seeded_config):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "UPDATE sync_meta SET value = '1'"
         " WHERE key = 'plain_space_title_canonicalization'"
@@ -470,7 +468,7 @@ def test_delete_page_with_padded_path_title_when_plain_space_migration_is_active
 
 
 def test_delete_page_with_control_whitespace_path_title(client, seeded_config):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
         (99, "Ctrl Title", 100, 100),

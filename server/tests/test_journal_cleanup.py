@@ -3,12 +3,13 @@ from datetime import date, timedelta
 
 from rawread import read
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import BlockUid
 from pkm.database import connect
 from pkm.server.store import reindex_refs_for_text
+from pkm.test_data.ids import page_id_of, uid_of
+from pkm.contracts.ops import BlockUid, PageId
 
 
-def _insert_page(db_path, page_id: int, title: str,
+def _insert_page(db_path, page_id: PageId, title: str,
                  blocks: Sequence[tuple[str, str]] = ()) -> None:
     """blocks: [(uid, text), ...] as top-level blocks of the page."""
     con = connect(db_path)
@@ -23,7 +24,7 @@ def _insert_page(db_path, page_id: int, title: str,
     con.close()
 
 
-def _insert_indexed_block(db_path, uid: str, page_id: int, text: str) -> None:
+def _insert_indexed_block(db_path, uid: BlockUid, page_id: PageId, text: str) -> None:
     """A top-level block on an existing page, with its refs/block_refs rows
     derived the way the server derives them."""
     con = connect(db_path)
@@ -32,7 +33,7 @@ def _insert_indexed_block(db_path, uid: str, page_id: int, text: str) -> None:
         " heading, collapsed, created_at, updated_at)"
         " VALUES (?,?,?,?,?,?,?,?,?)",
         (uid, page_id, None, 5, text, None, 0, None, None))
-    reindex_refs_for_text(con, BlockUid(uid), text, 0)
+    reindex_refs_for_text(con, uid, text, 0)
     con.commit()
     con.close()
 
@@ -67,7 +68,7 @@ def _outside_window_days_ago() -> int:
 
 def test_deletes_zero_block_past_daily(client, seeded_config):
     title = _daily_title(_in_window_days_ago())
-    _insert_page(seeded_config.db_path, 90, title)
+    _insert_page(seeded_config.db_path, page_id_of(90), title)
 
     r = client.post("/api/journal/cleanup")
 
@@ -78,7 +79,7 @@ def test_deletes_zero_block_past_daily(client, seeded_config):
 
 def test_deletes_whitespace_only_daily_and_purges_fts(client, seeded_config):
     title = _daily_title(_in_window_days_ago())
-    _insert_page(seeded_config.db_path, 91, title,
+    _insert_page(seeded_config.db_path, page_id_of(91), title,
                  [("uid_w1", "   "), ("uid_w2", "\t")])
 
     r = client.post("/api/journal/cleanup")
@@ -107,7 +108,7 @@ def test_spares_todays_empty_page(client, seeded_config):
 
 def test_spares_daily_with_content(client, seeded_config):
     title = _daily_title(_in_window_days_ago())
-    _insert_page(seeded_config.db_path, 92, title, [("uid_c1", "real note")])
+    _insert_page(seeded_config.db_path, page_id_of(92), title, [("uid_c1", "real note")])
 
     r = client.post("/api/journal/cleanup")
 
@@ -117,9 +118,9 @@ def test_spares_daily_with_content(client, seeded_config):
 
 def test_spares_daily_whose_blank_block_is_referenced(client, seeded_config):
     title = _daily_title(_in_window_days_ago())
-    _insert_page(seeded_config.db_path, 93, title, [("uid_r1", "  ")])
+    _insert_page(seeded_config.db_path, page_id_of(93), title, [("uid_r1", "  ")])
     # a block on another page (seeded page id 2, "AI") embeds ((uid_r1))
-    _insert_indexed_block(seeded_config.db_path, "uid_r2", 2, "see ((uid_r1))")
+    _insert_indexed_block(seeded_config.db_path, uid_of("uid_r2"), page_id_of(2), "see ((uid_r1))")
 
     r = client.post("/api/journal/cleanup")
 
@@ -129,8 +130,8 @@ def test_spares_daily_whose_blank_block_is_referenced(client, seeded_config):
 
 def test_spares_empty_daily_with_inbound_link(client, seeded_config):
     title = _daily_title(_in_window_days_ago())
-    _insert_page(seeded_config.db_path, 97, title)
-    _insert_indexed_block(seeded_config.db_path, "uid_l1", 2, f"see [[{title}]]")
+    _insert_page(seeded_config.db_path, page_id_of(97), title)
+    _insert_indexed_block(seeded_config.db_path, uid_of("uid_l1"), page_id_of(2), f"see [[{title}]]")
 
     r = client.post("/api/journal/cleanup")
 
@@ -140,8 +141,8 @@ def test_spares_empty_daily_with_inbound_link(client, seeded_config):
 
 def test_spares_empty_daily_with_inbound_tag(client, seeded_config):
     title = _daily_title(_in_window_days_ago())
-    _insert_page(seeded_config.db_path, 98, title)
-    _insert_indexed_block(seeded_config.db_path, "uid_t1", 2, f"x #[[{title}]]")
+    _insert_page(seeded_config.db_path, page_id_of(98), title)
+    _insert_indexed_block(seeded_config.db_path, uid_of("uid_t1"), page_id_of(2), f"x #[[{title}]]")
 
     r = client.post("/api/journal/cleanup")
 
@@ -151,8 +152,8 @@ def test_spares_empty_daily_with_inbound_tag(client, seeded_config):
 
 def test_spares_empty_daily_with_inbound_attribute(client, seeded_config):
     title = _daily_title(_in_window_days_ago())
-    _insert_page(seeded_config.db_path, 96, title)
-    _insert_indexed_block(seeded_config.db_path, "uid_a1", 2, f"{title}:: x")
+    _insert_page(seeded_config.db_path, page_id_of(96), title)
+    _insert_indexed_block(seeded_config.db_path, uid_of("uid_a1"), page_id_of(2), f"{title}:: x")
 
     r = client.post("/api/journal/cleanup")
 
@@ -162,7 +163,7 @@ def test_spares_empty_daily_with_inbound_attribute(client, seeded_config):
 
 def test_ignores_empty_daily_older_than_a_week(client, seeded_config):
     title = _daily_title(_outside_window_days_ago())
-    _insert_page(seeded_config.db_path, 94, title)
+    _insert_page(seeded_config.db_path, page_id_of(94), title)
 
     r = client.post("/api/journal/cleanup")
 
@@ -171,7 +172,7 @@ def test_ignores_empty_daily_older_than_a_week(client, seeded_config):
 
 
 def test_second_call_is_a_noop(client, seeded_config):
-    _insert_page(seeded_config.db_path, 95, _daily_title(_in_window_days_ago()))
+    _insert_page(seeded_config.db_path, page_id_of(95), _daily_title(_in_window_days_ago()))
 
     assert client.post("/api/journal/cleanup").json()["deleted"] != []
     assert client.post("/api/journal/cleanup").json() == {"deleted": []}
@@ -186,7 +187,7 @@ def test_cleanup_deletion_emits_seq_nudge(client, seeded_config):
     replicas must be nudged, or they keep showing deleted daily pages
     until some unrelated mutation nudges them."""
     title = _daily_title(_in_window_days_ago())
-    _insert_page(seeded_config.db_path, 96, title)
+    _insert_page(seeded_config.db_path, page_id_of(96), title)
 
     with client.websocket_connect("/api/ws") as ws:
         r = client.post("/api/journal/cleanup")

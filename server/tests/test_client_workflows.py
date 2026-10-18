@@ -10,7 +10,8 @@ import pytest
 
 from pkm.client.core import ApiError
 from pkm.client.workflows import apply_batch
-from pkm.contracts.ops import BlockUid, DeleteOp, subtree_hash
+from pkm.contracts.ops import BatchId, BlockUid, DeleteOp, subtree_hash
+from pkm.test_data.ids import batch_id_of, uid_of
 
 
 def _spy(monkeypatch, pkm_client, name):
@@ -27,7 +28,7 @@ def _spy(monkeypatch, pkm_client, name):
     return calls
 
 
-def _seed_leaves(pkm_client, page: str, uids: Sequence[str], batch_id: str):
+def _seed_leaves(pkm_client, page: str, uids: Sequence[BlockUid], batch_id: BatchId):
     pkm_client.post_ops([
         {"op": "create", "uid": uid, "page_title": page, "parent_uid": None,
          "order_idx": i, "text": f"leaf text {uid}"}
@@ -65,8 +66,8 @@ def test_alias_only_deletes_fetch_nothing_extra(pkm_client, monkeypatch):
 
 def test_n_deletes_on_one_unreferenced_page_cost_one_fetch_each(
         pkm_client, monkeypatch):
-    uids = [BlockUid(f"delfetch0{i}") for i in range(5)]
-    _seed_leaves(pkm_client, "Delete Fetch Page", uids, "seed-fetch-page")
+    uids = [uid_of(f"delfetch0{i}") for i in range(5)]
+    _seed_leaves(pkm_client, "Delete Fetch Page", uids, batch_id_of("seed-fetch-page"))
 
     get_block_calls = _spy(monkeypatch, pkm_client, "get_block")
     get_page_blocks_calls = _spy(monkeypatch, pkm_client, "get_page_blocks")
@@ -118,7 +119,7 @@ def test_a_404_uid_is_skipped_and_unhashed(pkm_client, monkeypatch):
 
 
 def test_a_non_404_get_block_error_propagates(pkm_client, monkeypatch):
-    def _broken_get_block(uid):
+    def _broken_get_block(uid: BlockUid):
         raise ApiError(503, "unavailable")
 
     monkeypatch.setattr(pkm_client, "get_block", _broken_get_block)

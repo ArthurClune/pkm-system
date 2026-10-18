@@ -4,15 +4,15 @@ from typing import get_args
 
 import pytest
 
-from rawread import read
+from rawread import read, trace
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import (BlockUid, OpBatch, OrderIdx, Sha256Hex,
-                               subtree_hash, text_hash)
+from pkm.contracts.ops import BlockUid, OpBatch, subtree_hash, SyncSeq, text_hash
 from pkm.server import ops_apply, ops_core
 from pkm.server.db import open_db
 from pkm.server.ops_apply import (_parent_chain, _subtree_deepest_first,
                                   _subtree_rows, apply_batch)
 from pkm.server.ops_core import OpError, SubtreeRow
+from pkm.test_data.ids import order_idx_of, sha_of, uid_of
 
 NOW = 1_800_000_000_000
 NOW_DAY = title_for_date(datetime.fromtimestamp(NOW / 1000).date())
@@ -55,21 +55,20 @@ def test_create_inserts_shifts_and_derives_refs(db):
          "view_type": "numbered"},
     ), NOW)
     db.commit()
-    rows = read(db,
-        "SELECT uid, order_idx FROM blocks WHERE page_id = 1"
-        "  AND parent_uid IS NULL ORDER BY order_idx").fetchall()
+    rows = db.select("SELECT uid, order_idx FROM blocks WHERE page_id = 1"
+        "  AND parent_uid IS NULL ORDER BY order_idx")
     assert [(r["uid"], r["order_idx"]) for r in rows] == \
         [("newuid1", 0), ("uid_b1", 1), ("uid_b2", 2)]
     assert read(db,
         "SELECT view_type FROM blocks WHERE uid = 'newuid1'"
     ).fetchone()[0] == "numbered"
     # implicit page creation + refs
-    new_page = read(db,
-        "SELECT id FROM pages WHERE title = 'Brand New'").fetchone()
+    new_page = db.select_one("SELECT id AS page_id FROM pages WHERE title = 'Brand New'")
     assert new_page is not None
-    kinds = {(r["target_page_id"], r["kind"]) for r in read(db,
-        "SELECT target_page_id, kind FROM refs WHERE src_block_uid='newuid1'")}
-    assert kinds == {(new_page["id"], "link"), (2, "tag")}
+    kinds = {(r["target_page_id"], r["ref_kind"]) for r in db.select(
+        "SELECT target_page_id, kind AS ref_kind FROM refs"
+        " WHERE src_block_uid='newuid1'")}
+    assert kinds == {(new_page["page_id"], "link"), (2, "tag")}
     # FTS row exists (triggers)
     hit = read(db, "SELECT rowid FROM blocks_fts WHERE blocks_fts"
                      " MATCH '\"Brand\"'").fetchall()
@@ -84,9 +83,9 @@ def test_update_text_rederives_refs_and_fts(db):
         {"op": "update_text", "uid": "uid_b4", "text": "now [[Paper]] only"},
     ), NOW)
     db.commit()
-    refs = read(db, "SELECT target_page_id, kind FROM refs"
-                      " WHERE src_block_uid='uid_b4'").fetchall()
-    assert [(r[0], r[1]) for r in refs] == [(4, "link")]  # ML link gone
+    refs = db.select("SELECT target_page_id, kind AS ref_kind FROM refs"
+                      " WHERE src_block_uid='uid_b4'")
+    assert [(r["target_page_id"], r["ref_kind"]) for r in refs] == [(4, "link")]  # ML link gone
     assert read(db, "SELECT count(*) FROM blocks_fts WHERE blocks_fts"
                       " MATCH '\"Studying\"'").fetchone()[0] == 0
 
@@ -94,8 +93,7 @@ def test_update_text_rederives_refs_and_fts(db):
 def test_delete_removes_subtree_and_fts(db):
     apply_batch(db, _batch({"op": "delete", "uid": "uid_b2"}), NOW)
     db.commit()
-    left = {r[0] for r in read(db,
-        "SELECT uid FROM blocks WHERE page_id = 1")}
+    left = {r["uid"] for r in db.select("SELECT uid FROM blocks WHERE page_id = 1")}
     assert left == {"uid_b1"}          # uid_b2 and child uid_b3 gone
     assert read(db, "SELECT count(*) FROM refs WHERE src_block_uid='uid_b3'"
                       ).fetchone()[0] == 0
@@ -108,12 +106,11 @@ def test_move_reparents_and_shifts(db):
         {"op": "move", "uid": "uid_b3", "parent_uid": None, "order_idx": 0},
     ), NOW)
     db.commit()
-    row = read(db, "SELECT parent_uid, order_idx FROM blocks"
-                     " WHERE uid='uid_b3'").fetchone()
+    row = db.select_one("SELECT parent_uid, order_idx FROM blocks"
+                     " WHERE uid='uid_b3'")
     assert row["parent_uid"] is None and row["order_idx"] == 0
     # uid_b1/uid_b2 shifted to make room
-    assert read(db, "SELECT order_idx FROM blocks WHERE uid='uid_b1'"
-                      ).fetchone()[0] == 1
+    assert db.select_one("SELECT order_idx FROM blocks WHERE uid='uid_b1'")["order_idx"] == 1
 
 
 def test_set_collapsed_does_not_bump_block_or_page_updated_at(db):
@@ -258,8 +255,8 @@ def test_move_cycle_against_db_chain(db):
          "order_idx": 0}), NOW)
     assert [s.reason for s in result.skipped] == ["cycle"]
     assert result.broadcast_ops == []
-    row = read(db, "SELECT parent_uid, order_idx FROM blocks"
-                     " WHERE uid = 'uid_b2'").fetchone()
+    row = db.select_one("SELECT parent_uid, order_idx FROM blocks"
+                     " WHERE uid = 'uid_b2'")
     assert (row["parent_uid"], row["order_idx"]) == (None, 1)
 
 
@@ -275,8 +272,7 @@ def test_move_root_under_own_descendant_is_always_a_cycle(db, depth):
         {"op": "move", "uid": "level0", "parent_uid": deepest,
          "order_idx": 0}), NOW)
     assert [s.reason for s in result.skipped] == ["cycle"]
-    assert read(db, "SELECT parent_uid FROM blocks WHERE uid = 'level0'"
-                      ).fetchone()[0] is None
+    assert db.select_one("SELECT parent_uid FROM blocks WHERE uid = 'level0'")["parent_uid"] is None
 
 
 @pytest.mark.parametrize("depth", [100, 101, 102, 150])
@@ -290,13 +286,10 @@ def test_cross_page_move_updates_every_descendant(db, depth):
         {"op": "move", "uid": "level0", "parent_uid": None, "order_idx": 0,
          "page_title": "AI"}), NOW)
     db.commit()
-    ai_page_id = read(db,
-        "SELECT id FROM pages WHERE title='AI'").fetchone()[0]
+    ai_page_id = db.select_one("SELECT id AS page_id FROM pages WHERE title='AI'")["page_id"]
     uids = [f"level{i}" for i in range(depth)]
     placeholders = ",".join("?" * depth)
-    rows = read(db,
-        f"SELECT uid, page_id FROM blocks WHERE uid IN ({placeholders})",
-        uids).fetchall()
+    rows = db.select(f"SELECT uid, page_id FROM blocks WHERE uid IN ({placeholders})", uids)
     assert len(rows) == depth
     stranded = [r["uid"] for r in rows if r["page_id"] != ai_page_id]
     assert stranded == []
@@ -332,11 +325,11 @@ def test_parent_chain_and_subtree_terminate_on_preexisting_cycle(db):
     db.commit()
     expected = {"cycle0", "cycle1", "cycle2", "cycle3", "cycle4"}
 
-    chain = _parent_chain(db, BlockUid("cycle4"))
+    chain = _parent_chain(db, uid_of("cycle4"))
     assert set(chain) == expected
     assert len(chain) == len(expected)          # no duplicate re-walks
 
-    subtree = _subtree_deepest_first(db, BlockUid("cycle0"))
+    subtree = _subtree_deepest_first(db, uid_of("cycle0"))
     assert set(subtree) == expected
     assert len(subtree) == len(expected)
 
@@ -352,18 +345,18 @@ def test_subtree_rows_is_deepest_first_with_columns(db):
          "parent_uid": "uid_b3", "order_idx": 0, "text": "grandchild"},
     ), NOW)
     db.commit()
-    rows = _subtree_rows(db, BlockUid("uid_b2"))
-    assert rows[0] == SubtreeRow(BlockUid("rows_g1"), BlockUid("uid_b3"), OrderIdx(0),
+    rows = _subtree_rows(db, uid_of("uid_b2"))
+    assert rows[0] == SubtreeRow(uid_of("rows_g1"), uid_of("uid_b3"), order_idx_of(0),
                                  "grandchild")
     assert set(rows[1:3]) == {
-        SubtreeRow(BlockUid("uid_b3"), BlockUid("uid_b2"), OrderIdx(0),
+        SubtreeRow(uid_of("uid_b3"), uid_of("uid_b2"), order_idx_of(0),
                    "[[Attention Is All You Need]] is a [[Paper]]"),
-        SubtreeRow(BlockUid("rows_c1"), BlockUid("uid_b2"), OrderIdx(1),
+        SubtreeRow(uid_of("rows_c1"), uid_of("uid_b2"), order_idx_of(1),
                    "second child")}
-    assert rows[3] == SubtreeRow(BlockUid("uid_b2"), None, OrderIdx(1), "Papers")
+    assert rows[3] == SubtreeRow(uid_of("uid_b2"), None, order_idx_of(1), "Papers")
     assert (sorted(r.uid for r in rows)
-            == sorted(_subtree_deepest_first(db, BlockUid("uid_b2"))))
-    assert _subtree_rows(db, BlockUid("no_such_uid")) == ()
+            == sorted(_subtree_deepest_first(db, uid_of("uid_b2"))))
+    assert _subtree_rows(db, uid_of("no_such_uid")) == ()
 
 
 def test_subtree_rows_terminates_on_preexisting_cycle(db):
@@ -372,7 +365,7 @@ def test_subtree_rows_terminates_on_preexisting_cycle(db):
     db.commit()
     db.execute("UPDATE blocks SET parent_uid = 'cycrow4' WHERE uid = 'cycrow0'")
     db.commit()
-    rows = _subtree_rows(db, BlockUid("cycrow0"))
+    rows = _subtree_rows(db, uid_of("cycrow0"))
     assert sorted(r.uid for r in rows) == [f"cycrow{i}" for i in range(5)]
 
 
@@ -385,7 +378,7 @@ def test_diverged_delete_of_a_preexisting_cycle_copies_each_block_once(db):
     db.execute("UPDATE blocks SET parent_uid = 'cycdel2' WHERE uid = 'cycdel0'")
     db.commit()
     apply_batch(db, _batch({"op": "delete", "uid": "cycdel0",
-                            "base_subtree_hash": Sha256Hex("0" * 64)}), NOW)
+                            "base_subtree_hash": sha_of("0" * 64)}), NOW)
     db.commit()
     assert read(db, "SELECT count(*) FROM blocks WHERE uid LIKE 'cycdel%'"
                       ).fetchone()[0] == 0
@@ -439,17 +432,15 @@ def test_set_heading_updates_and_clears(db):
 
 
 def test_set_view_type_updates_metadata_without_changing_block_state(db):
-    before = read(db,
-        "SELECT text, parent_uid, order_idx, collapsed FROM blocks"
-        " WHERE uid='uid_b2'").fetchone()
+    before = db.select_one("SELECT text, parent_uid, order_idx, collapsed FROM blocks"
+        " WHERE uid='uid_b2'")
     apply_batch(db, _batch(
         {"op": "set_view_type", "uid": "uid_b2", "view_type": "numbered"},
     ), NOW)
     db.commit()
-    row = read(db,
-        "SELECT text, parent_uid, order_idx, collapsed, view_type FROM blocks"
-        " WHERE uid='uid_b2'").fetchone()
-    assert tuple(row[:4]) == tuple(before)
+    row = db.select_one("SELECT text, parent_uid, order_idx, collapsed, view_type FROM blocks"
+        " WHERE uid='uid_b2'")
+    assert {key: row[key] for key in before} == before
     assert row["view_type"] == "numbered"
 
 
@@ -466,10 +457,8 @@ def test_conflict_uids_retry_until_alphanumeric_first_char(db, monkeypatch):
          "base_text_hash": text_hash("some stale base")},
     ), NOW)
     db.commit()
-    child = read(db,
-        "SELECT b.uid, b.parent_uid FROM blocks b JOIN pages p"
-        " ON p.id = b.page_id WHERE b.text = 'Tags:: #AI' AND p.title = ?",
-        (NOW_DAY,)).fetchone()
+    child = db.select_one("SELECT b.uid, b.parent_uid FROM blocks b JOIN pages p"
+        " ON p.id = b.page_id WHERE b.text = 'Tags:: #AI' AND p.title = ?", (NOW_DAY,))
     assert (child["uid"], child["parent_uid"]) == ("goodchild123",
                                                    "goodheader12")
 
@@ -548,12 +537,12 @@ def test_find_op_title_violation_rejects_outer_nested_ref_first():
 
 def test_apply_batch_preflights_every_op_before_context_or_mutation(db):
     before = {
-        "pages": read(db, "SELECT * FROM pages ORDER BY id").fetchall(),
-        "blocks": read(db, "SELECT * FROM blocks ORDER BY uid").fetchall(),
-        "refs": read(db,
-            "SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"
-        ).fetchall(),
-        "changes": read(db, "SELECT * FROM changes ORDER BY seq").fetchall(),
+        "pages": db.select("SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id"),
+        "blocks": db.select("SELECT * FROM blocks ORDER BY uid"),
+        "refs": db.select("SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3"),
+        "changes": db.select(
+            "SELECT seq, kind AS change_kind, entity_id, deleted,"
+            " page_id AS change_page_id FROM changes ORDER BY seq"),
     }
 
     with pytest.raises(OpError) as exc:
@@ -570,12 +559,12 @@ def test_apply_batch_preflights_every_op_before_context_or_mutation(db):
         "unsupported reference title syntax: 'New #Old'",
     )
     after = {
-        "pages": read(db, "SELECT * FROM pages ORDER BY id").fetchall(),
-        "blocks": read(db, "SELECT * FROM blocks ORDER BY uid").fetchall(),
-        "refs": read(db,
-            "SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"
-        ).fetchall(),
-        "changes": read(db, "SELECT * FROM changes ORDER BY seq").fetchall(),
+        "pages": db.select("SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id"),
+        "blocks": db.select("SELECT * FROM blocks ORDER BY uid"),
+        "refs": db.select("SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3"),
+        "changes": db.select(
+            "SELECT seq, kind AS change_kind, entity_id, deleted,"
+            " page_id AS change_page_id FROM changes ORDER BY seq"),
     }
     assert after == before
 
@@ -664,19 +653,18 @@ def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
     assert read(db, "SELECT text FROM blocks WHERE uid='rew_uid1'"
                       ).fetchone()[0] == "see [[New]] page plus extra"
     day = NOW_DAY
-    assert read(db, "SELECT id FROM pages WHERE title = ?",
-                      (day,)).fetchone() is None
+    assert db.select_one("SELECT id AS page_id FROM pages WHERE title = ?", (day,)) is None
 
 
 def _flag_reads(db, op) -> int:
     seen: list[str] = []
-    db.raw.set_trace_callback(seen.append)
+    trace(db, seen.append)
     apply_batch(db, _batch(op), NOW)
-    db.raw.set_trace_callback(None)
+    trace(db, None)
     return sum("sync_meta" in sql and "SELECT" in sql for sql in seen)
 
 
-def _rewritten_block(db, uid, kind, t0, t1):
+def _rewritten_block(db, uid: BlockUid, kind, t0, t1):
     db.execute(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
         " heading, collapsed, created_at, updated_at)"
@@ -693,8 +681,8 @@ def test_replay_reads_the_title_flag_no_more_often_for_a_delete_than_a_rename(
         db):
     # the unlink replay's one flag read serves both the classification and
     # the rewrite rows, so it costs no more than the rename path's reads
-    _rewritten_block(db, "rew_ren1", "retitle", "see [[Old]]", "see [[New]]")
-    _rewritten_block(db, "rew_del1", "unlink", "see [[Old]]", "see Old")
+    _rewritten_block(db, uid_of("rew_ren1"), "retitle", "see [[Old]]", "see [[New]]")
+    _rewritten_block(db, uid_of("rew_del1"), "unlink", "see [[Old]]", "see Old")
     rename = _flag_reads(db, {
         "op": "update_text", "uid": "rew_ren1", "text": "see [[Old]] x",
         "base_text_hash": text_hash("see [[Old]]")})
@@ -718,8 +706,7 @@ def test_stale_hash_identical_text_does_not_create_daily_page(db):
     assert read(db, "SELECT text FROM blocks WHERE uid='uid_b1'"
                       ).fetchone()[0] == "Tags:: #AI"
     day = NOW_DAY
-    assert read(db, "SELECT id FROM pages WHERE title = ?",
-                      (day,)).fetchone() is None
+    assert db.select_one("SELECT id AS page_id FROM pages WHERE title = ?", (day,)) is None
 
 
 def test_second_conflict_same_day_reuses_header_and_mints_no_stray_conflict_uid(
@@ -748,9 +735,7 @@ def test_second_conflict_same_day_reuses_header_and_mints_no_stray_conflict_uid(
     # child only for the second -- the 4th candidate is never drawn.
     assert next(uids) == "unusedghij12"
 
-    header_uid = read(db,
-        "SELECT header_uid FROM conflict_headers WHERE target_uid='uid_b1'"
-    ).fetchone()["header_uid"]
+    header_uid = db.select_one("SELECT header_uid FROM conflict_headers WHERE target_uid='uid_b1'")["header_uid"]
     assert header_uid == "headerabc123"
     children = read(db,
         "SELECT text FROM blocks WHERE parent_uid = ? ORDER BY order_idx",
@@ -777,7 +762,7 @@ def test_replay_applies_one_multi_title_rewrite_as_a_single_step():
 # --- ops on missing blocks ---------------------------------------------------
 
 
-def _journal_rows_since(db, seq):
+def _journal_rows_since(db, seq: SyncSeq):
     return [(r["entity_id"], r["deleted"]) for r in read(db,
         "SELECT entity_id, deleted FROM changes WHERE seq > ? AND kind = 'block'"
         " ORDER BY seq", (seq,))]
@@ -821,8 +806,7 @@ def test_noop_batch_journals_the_ghost_without_a_daily_page(db):
     db.commit()
     assert _journal_rows_since(db, before) == [("ghost_nb1", 1)]
     day = NOW_DAY
-    assert read(db, "SELECT id FROM pages WHERE title = ?",
-                      (day,)).fetchone() is None
+    assert db.select_one("SELECT id AS page_id FROM pages WHERE title = ?", (day,)) is None
 
 
 def test_move_to_missing_parent_journals_the_live_block_and_the_parent(db):
@@ -835,8 +819,8 @@ def test_move_to_missing_parent_journals_the_live_block_and_the_parent(db):
     rows = _journal_rows_since(db, before)
     assert rows[0] == ("ghost_mp1", 1)   # the tombstone leads
     assert rows[-1] == ("uid_b3", 0)
-    row = read(db, "SELECT parent_uid, order_idx FROM blocks"
-                     " WHERE uid = 'uid_b3'").fetchone()
+    row = db.select_one("SELECT parent_uid, order_idx FROM blocks"
+                     " WHERE uid = 'uid_b3'")
     assert (row["parent_uid"], row["order_idx"]) == ("uid_b2", 0)
 
 
@@ -847,9 +831,8 @@ def test_move_to_missing_parent_journals_the_live_block_and_the_parent(db):
 # that would nest a block under its own descendant is skipped with a note.
 
 def _page_id(db, title):
-    row = read(db, "SELECT id FROM pages WHERE title = ?",
-                     (title,)).fetchone()
-    return row["id"] if row is not None else None
+    row = db.select_one("SELECT id AS page_id FROM pages WHERE title = ?", (title,))
+    return row["page_id"] if row is not None else None
 
 
 def test_create_under_a_parent_on_another_page_follows_the_parent(db):
@@ -861,8 +844,8 @@ def test_create_under_a_parent_on_another_page_follows_the_parent(db):
          "parent_uid": "uid_b6", "order_idx": 0, "text": "typed child"},
     ), NOW)
     db.commit()
-    row = read(db, "SELECT page_id, parent_uid FROM blocks"
-                     " WHERE uid = 'follow_c1'").fetchone()
+    row = db.select_one("SELECT page_id, parent_uid FROM blocks"
+                     " WHERE uid = 'follow_c1'")
     assert (row["page_id"], row["parent_uid"]) == (2, "uid_b6")
     assert result.skipped == []
     # other tabs place it by the page it really landed on
@@ -880,8 +863,8 @@ def test_move_with_a_stale_page_title_follows_the_parent(db):
          "order_idx": 0, "page_title": "Stale Page"},
     ), NOW)
     db.commit()
-    row = read(db, "SELECT page_id, parent_uid FROM blocks"
-                     " WHERE uid = 'uid_b4'").fetchone()
+    row = db.select_one("SELECT page_id, parent_uid FROM blocks"
+                     " WHERE uid = 'uid_b4'")
     assert (row["page_id"], row["parent_uid"]) == (2, "uid_b6")
     assert result.skipped == []
     assert result.broadcast_ops[0]["page_title"] == "AI"
@@ -917,7 +900,7 @@ _B2_SUBTREE_HASH = subtree_hash([
 _GHOST = "ghost99"
 
 
-def _edit(uid, text, base=None):
+def _edit(uid: BlockUid, text, base=None):
     op = {"op": "update_text", "uid": uid, "text": text}
     if base is not None:
         op["base_text_hash"] = text_hash(base)
@@ -966,12 +949,12 @@ def _edit(uid, text, base=None):
      "LandedSkipContext", "orphan_structural"),
     ({"op": "set_view_type", "uid": _GHOST, "view_type": "numbered"},
      "LandedSkipContext", "orphan_structural"),
-    (_edit("uid_b6", "plain"), "BlockContext", None),
-    (_edit("uid_b6", "clean", base=_B6_TEXT), "TextEditContext", "clean"),
-    (_edit("uid_b6", _B6_TEXT, base="stale"), "TextEditContext", "identical"),
-    (_edit("uid_b6", "mine", base="stale"), "TextConflictContext", None),
-    (_edit(_GHOST, "lost"), "LandedSkipContext", "orphan_edit"),
-    (_edit(_GHOST, " "), "SkipContext", "orphan_edit"),
+    (_edit(uid_of("uid_b6"), "plain"), "BlockContext", None),
+    (_edit(uid_of("uid_b6"), "clean", base=_B6_TEXT), "TextEditContext", "clean"),
+    (_edit(uid_of("uid_b6"), _B6_TEXT, base="stale"), "TextEditContext", "identical"),
+    (_edit(uid_of("uid_b6"), "mine", base="stale"), "TextConflictContext", None),
+    (_edit(uid_of(_GHOST), "lost"), "LandedSkipContext", "orphan_edit"),
+    (_edit(uid_of(_GHOST), " "), "SkipContext", "orphan_edit"),
 ])
 def test_context_for_picks_the_context_its_classification_calls_for(
         db, op, context, detail):
@@ -1011,12 +994,12 @@ def test_conflict_landing_uses_the_batch_clock(db):
         ), now_ms)
         db.commit()
 
-    landed = read(db,
-        "SELECT id, created_at FROM pages WHERE title = ?",
-        (title_for_date(evening.date()),)).fetchone()
+    landed = db.select_one(
+        "SELECT id AS page_id, created_at FROM pages WHERE title = ?",
+        (title_for_date(evening.date()),))
     assert landed is not None
     assert landed["created_at"] == now_ms
     assert read(db, "SELECT 1 FROM blocks WHERE page_id = ?",
-                      (landed["id"],)).fetchone() is not None
-    assert read(db, "SELECT id FROM pages WHERE title = ?", (
-        title_for_date(morning.date()),)).fetchone() is None
+                      (landed["page_id"],)).fetchone() is not None
+    assert db.select_one("SELECT id AS page_id FROM pages WHERE title = ?", (
+        title_for_date(morning.date()),)) is None

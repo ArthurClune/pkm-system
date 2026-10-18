@@ -4,7 +4,8 @@
 without the server's dependencies.
 
 NAMES says which brands a parameter or field name must carry. MINT_SITES
-and CAST_SITES say where a brand may be constructed or `typing.cast` used.
+and CAST_SITES say where a brand may be constructed or `typing.cast` used;
+TEST_MINT_SITES, TEST_HELPERS and MALFORMED say how tests mint instead.
 COLUMN_KEYS, SHAPES and CLIENT_KEYS are the row vocabulary `pkm.rows`
 checks every DB row against. Each table's why is beside it below."""
 from __future__ import annotations
@@ -199,14 +200,75 @@ SQLITE_SITES: dict[str, str] = {
     "server/tooling/perfcheck/":
         "measures SQLite itself: trace and progress hooks, EXPLAIN plans,"
         " an immutable fixture snapshot; Db hides all three",
+    "server/tests/rawread.py":
+        "the tests' reader for catalog tables, journal columns and counts,"
+        " outside the Row vocabulary; it refuses a branded column",
+    # Tests whose subject is SQLite itself.
+    "server/tests/test_database.py":
+        "tests the Db wrapper against the sqlite3 connection it wraps",
+    "server/tests/test_backup_cli.py":
+        "backup: opens the dated snapshot read-only by URI, as a restore"
+        " would, to prove SQLite's online backup wrote a whole database",
 }
 
-# Fixture builders that ship under server/src but only tests import; the
-# lint treats them as tests, exempt from the name, mint and cast rules.
-TEST_SUPPORT: tuple[str, ...] = (
+# The one module on each side that may mint every brand: the checked
+# helpers tests build their values with. Product code may not import them.
+TEST_MINT_SITES: tuple[str, ...] = (
+    "server/src/pkm/test_data/ids.py",
+    "web/src/test-helpers.ts",
+)
+
+# Brand -> the stem of its test helper: `<stem>_of` in Python, the camel
+# `<stem>Of` on the web. The stem is the brand's rule-1 name, or the brand
+# itself where it has none; the `Of` keeps it clear of a test's locals.
+TEST_HELPERS: dict[str, str] = {
+    "BlockUid": "uid",
+    "PageId": "page_id",
+    "SidebarEntryId": "sidebar_entry_id",
+    "OrderIdx": "order_idx",
+    "SidebarOrderIdx": "sidebar_order_idx",
+    "SyncSeq": "seq",
+    "ClientId": "client_id",
+    "BatchId": "batch_id",
+    "Sha256Hex": "sha",
+    "ConversationId": "conversation_id",
+    "ConfirmId": "confirm_id",
+    "GoodlinksId": "goodlinks_id",
+    "NormalizedTitle": "normalized_title",
+    "CanonicalTitle": "canonical_title",
+    "CanonicalQueryNode": "canonical_query_node",
+    "PendingRowId": "pending_row_id",
+    "TicketId": "ticket_id",
+    "RequestId": "request_id",
+    "Revision": "revision",
+    "ParkedTitle": "parked_title",
+}
+
+# Brands with a shape, whose deliberately bad values a negative test forges
+# through `malformed_<stem>` / `malformed<Stem>`: unchecked, and spelled so
+# the test says on its face that the value is forged.
+MALFORMED: dict[str, str] = {
+    "BlockUid": "uid",
+    "Sha256Hex": "sha",
+}
+
+# Files that are tests by location (web `*.test.*` files are tests by
+# name). They may import the test mint modules and their lint messages name
+# the helpers; they are exempt from nothing.
+TEST_CODE: tuple[str, ...] = (
+    "server/tests/",
     "server/src/pkm/test_data/",
-    # Web test support: hand-built rows, arbitraries and in-memory fakes
-    # that only tests and the property gate import.
+    "web/src/test-setup.ts",
+    "web/src/test-helpers.ts",
+    "web/src/props/",
+    "web/src/replica/replayArbs.ts",
+    "web/src/sync/memReplica.ts",
+)
+
+# Web test support the web lint still exempts: hand-built rows, arbitraries
+# and in-memory fakes that only tests and the property gate import. The
+# server lint reads TEST_CODE instead and exempts nothing.
+TEST_SUPPORT: tuple[str, ...] = (
     "web/src/test-helpers.ts",
     "web/src/props/",
     "web/src/replica/replayArbs.ts",

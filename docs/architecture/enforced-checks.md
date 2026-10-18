@@ -13,7 +13,7 @@ clone enables them. `--no-verify` bypasses both.
 |---|---|---|
 | `commit-msg` | a Claude session URL or `Claude-Session:` trailer in the message | `AGENTS.md` § Git |
 | `pre-commit` | in any staged source file or architecture doc: a bean id, a line number or a spec/plan pointer with no path in a comment; a comment line over 80 columns or any other line over 120 (`noqa: E501` exempts a line) | [backend.md](backend.md#testing), `server/tooling/commentlint` |
-| `pre-commit` | in a staged `server/src` or `server/tooling` file: a parameter, field or key named like a brand and not carrying it (`uid: str`); a brand constructed or `cast` outside its registered sites; `model_construct`; raw `sqlite3` outside `SQLITE_SITES` | [Brand rules](#brand-rules), `server/tooling/brandlint` |
+| `pre-commit` | in a staged `server/src`, `server/tooling` or `server/tests` file: a parameter, field or key named like a brand and not carrying it (`uid: str`, or no annotation); a brand constructed, passed as a value or `cast` outside its registered sites; `model_construct`; raw `sqlite3` outside `SQLITE_SITES` | [Brand rules](#brand-rules), `server/tooling/brandlint` |
 
 ### Brand rules
 
@@ -26,21 +26,38 @@ syntax and reports `brand-parse` instead of skipping the file.
 
 | Rule | Fails when | Registry data |
 |---|---|---|
-| `brand-name` | an annotation does not name one of the brands listed for that parameter, field or key name, or also allows its bare base type or `Any` in a union | `NAMES` |
+| `brand-name` | an annotation does not name one of the brands listed for that parameter, field or key name, or also allows its bare base type or `Any` in a union; or a function parameter with that name has no annotation (a lambda's is not checked) | `NAMES` |
 | `brand-opt-out` | `# brand: untrusted -- <reason>` appears outside a route module, or has no reason | `OPT_OUT_FILES` |
-| `brand-mint` | a `NewType` declared under `server/src/pkm` is constructed outside its sites | `MINT_SITES` |
+| `brand-mint` | a `NewType` declared under `server/src/pkm` is constructed outside its sites, under its own name or an import alias (`BlockUid as U`), or passed as a value (`map(BlockUid, xs)`; `cast`, `NewType`, `TypeAdapter`, `isinstance` and `assert_type` take it as a type and are not mints) | `MINT_SITES`, `TEST_MINT_SITES` |
 | `brand-cast` | `typing.cast` is called outside `CAST_SITES` | `CAST_SITES` |
+| `brand-ignore` | a call whose lines carry `pyrefly: ignore` or `type: ignore` passes a plain literal to a keyword named like a brand (`uid="uid_b2"`), which the ignore would let through | `NAMES` |
+| `test-mint-import` | product code imports `pkm.test_data.ids`, by any spelling | `TEST_CODE` |
 | `model-construct` | a pydantic model is built with `model_construct` | none |
 | `raw-sqlite` | `sqlite3.connect`, a cursor or `.raw` is used outside `SQLITE_SITES` | `SQLITE_SITES` |
 | `brand-parse` | a file cannot be parsed (usually Python older than 3.12) | none |
 
-The rules cover `server/src` and `server/tooling` (perfcheck, proptest,
-commentlint, brandlint). `SQLITE_SITES` names the raw-sqlite sites: `pkm.database`
-and `server/tooling/perfcheck/`, which measures SQLite itself (trace and
-progress hooks, EXPLAIN plans) and so needs the raw connection; proptest goes
-through `Db`. `server/src/pkm/test_data/` counts as test code and is exempt
-(`TEST_SUPPORT`). The database side of the same vocabulary is in
-[backend.md](backend.md#typed-database-access).
+The rules cover `server/src`, `server/tooling` (perfcheck, proptest,
+commentlint, brandlint) and `server/tests`. `SQLITE_SITES` names the
+raw-sqlite sites, each with its reason: `pkm.database`;
+`server/tooling/perfcheck/`, which measures SQLite itself (trace and progress
+hooks, EXPLAIN plans); `server/tests/rawread.py`; and the few tests whose
+subject is SQLite itself. Proptest goes through `Db`. The database side of the
+same vocabulary is in [backend.md](backend.md#typed-database-access).
+
+Tests are exempt from nothing. They mint through the checked helpers instead:
+
+| Registry table | Says |
+|---|---|
+| `TEST_MINT_SITES` | the one module per side that may mint every brand: `server/src/pkm/test_data/ids.py` and `web/src/test-helpers.ts` |
+| `TEST_HELPERS` | brand -> helper stem: `uid_of`, `page_id_of`, `sha_of` ... in Python, the camel `uidOf` ... on the web |
+| `MALFORMED` | brands with a shape whose bad values a negative test forges unchecked: `malformed_uid`, `malformed_sha` |
+| `TEST_CODE` | files that are tests by location (`server/tests/`, `server/src/pkm/test_data/`, the web's test support): they may import the mint modules, and a violation there names the helper |
+
+Each `<stem>_of` raises `ValueError` unless the value fits the brand's
+`SHAPES` regex or base type (an integer brand refuses a `bool` or a float).
+`rawread.read`, the tests' reader for catalog tables and counts, raises when
+a returned column is a `pkm.rows` key that carries a brand: that value is read
+with `Db.select`, whose row check validates it.
 
 #### Web side
 

@@ -342,8 +342,46 @@
       "web/src/replica/apply.ts"
     ]
   },
-  "testSupport": [
+  "testMintSites": [
+    "server/src/pkm/test_data/ids.py",
+    "web/src/test-helpers.ts"
+  ],
+  "testHelpers": {
+    "BlockUid": "uid",
+    "PageId": "pageId",
+    "SidebarEntryId": "sidebarEntryId",
+    "OrderIdx": "orderIdx",
+    "SidebarOrderIdx": "sidebarOrderIdx",
+    "SyncSeq": "seq",
+    "ClientId": "clientId",
+    "BatchId": "batchId",
+    "Sha256Hex": "sha",
+    "ConversationId": "conversationId",
+    "ConfirmId": "confirmId",
+    "GoodlinksId": "goodlinksId",
+    "NormalizedTitle": "normalizedTitle",
+    "CanonicalTitle": "canonicalTitle",
+    "CanonicalQueryNode": "canonicalQueryNode",
+    "PendingRowId": "pendingRowId",
+    "TicketId": "ticketId",
+    "RequestId": "requestId",
+    "Revision": "revision",
+    "ParkedTitle": "parkedTitle"
+  },
+  "malformed": {
+    "BlockUid": "uid",
+    "Sha256Hex": "sha"
+  },
+  "testCode": [
+    "server/tests/",
     "server/src/pkm/test_data/",
+    "web/src/test-setup.ts",
+    "web/src/test-helpers.ts",
+    "web/src/props/",
+    "web/src/replica/replayArbs.ts",
+    "web/src/sync/memReplica.ts"
+  ],
+  "testSupport": [
     "web/src/test-helpers.ts",
     "web/src/props/",
     "web/src/replica/replayArbs.ts",

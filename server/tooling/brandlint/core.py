@@ -3,9 +3,15 @@
 Rule 2: a brand is minted, `cast` used, `model_construct` called and raw
 sqlite touched only where the registry says.
 
-`def f(uid: str)` and `page_id: int` in a dataclass, TypedDict or model
-are violations; an annotation passes when any name in it, or in a string
-annotation, is one of the brands the registry lists for that name.
+`def f(uid: str)`, `def f(uid)` and `page_id: int` in a dataclass,
+TypedDict or model are violations; an annotation passes when any name in
+it, or in a string annotation, is one of the brands the registry lists for
+that name. A brand is minted by calling it, under any import alias, or by
+passing it as a value (`map(BlockUid, xs)`).
+
+Tests are under every rule. They mint through the checked helpers of
+`pkm.test_data.ids` (the registry's TEST_MINT_SITES), which product code
+may not import, and a message in a test names the helper.
 
 A line may carry `# brand: untrusted -- <reason>` to say the value is
 untrusted input parsed on that line. The opt-out is allowed only in the
@@ -24,7 +30,8 @@ from pathlib import PurePosixPath
 from brandlint.registry import Registry
 from commentlint.core import Violation
 
-SCOPE_ROOTS = ("server/src/", "server/tooling/")
+SCOPE_ROOTS = ("server/src/", "server/tooling/", "server/tests/")
+TEST_MINT_MODULE = "pkm.test_data.ids"
 
 RULES = {
     "brand-name": "a name that means a brand must carry it: read the value from a `select()` row, take it "
@@ -43,6 +50,12 @@ RULES = {
                    "under a newer python3",
     "brand-opt-out": "`# brand: untrusted -- <reason>` is allowed only in route modules (routes_*.py) and "
                      "must give a reason",
+    "test-mint-import": "`pkm.test_data.ids` mints any brand unchecked by the product's rules and is for "
+                        "tests only: in product code read the value from a `select()` row, a contract model "
+                        "or a parser",
+    "brand-ignore": "a `pyrefly: ignore` or `type: ignore` silences every argument of its call, a brand "
+                    "literal included: pass the value through its helper (`uid_of` and kin from "
+                    "pkm.test_data.ids in a test) or its parser",
 }
 
 # Matched at the start of a comment token.
@@ -50,12 +63,22 @@ _OPT_OUT = re.compile(r"#\s*brand:\s*untrusted\b(?P<rest>.*)$")
 _REASON = re.compile(r"^\s*--\s*\S")
 
 
-def in_scope(path: str, registry: Registry) -> bool:
-    """Python under server/src and server/tooling; test-data builders count
-    as tests."""
-    if not path.startswith(SCOPE_ROOTS) or PurePosixPath(path).suffix != ".py":
-        return False
-    return not any(path.startswith(prefix) for prefix in registry.test_support)
+def in_scope(path: str) -> bool:
+    """Python under server/src, server/tooling and server/tests; tests and
+    test-data builders are exempt from nothing."""
+    return path.startswith(SCOPE_ROOTS) and PurePosixPath(path).suffix == ".py"
+
+
+def _test_fix(brand: str, registry: Registry) -> str:
+    """How a test mints `brand`: its helper, and the forging one for a
+    deliberately bad value when the brand has a shape."""
+    stem = registry.test_helpers.get(brand)
+    if stem is None:
+        return ""
+    fix = f"use `{stem}_of` from {TEST_MINT_MODULE}"
+    if brand in registry.malformed:
+        fix += f" (`malformed_{registry.malformed[brand]}` for a deliberately bad value)"
+    return fix
 
 
 def _glob_to_regex(pattern: str) -> re.Pattern[str]:
@@ -149,15 +172,16 @@ def _problem(name: str, annotation: ast.expr, registry: Registry) -> str | None:
 
 
 def _annotated_names(tree: ast.AST):
-    """(name, annotation, first line, last line) for every checked site."""
+    """(name, annotation or None, first line, last line) for every checked
+    site. A function parameter without an annotation is checked too, since
+    it takes anything; a lambda's is not."""
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             a = node.args
             params = [*a.posonlyargs, *a.args, *a.kwonlyargs]
             params += [p for p in (a.vararg, a.kwarg) if p is not None]
             for p in params:
-                if p.annotation is not None:
-                    yield p.arg, p.annotation, p.lineno, p.end_lineno or p.lineno
+                yield p.arg, p.annotation, p.lineno, p.end_lineno or p.lineno
         elif isinstance(node, ast.ClassDef):
             for stmt in node.body:
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
@@ -169,14 +193,48 @@ def _site_allowed(path: str, sites: tuple[str, ...]) -> bool:
 
 
 def _declared_brands(tree: ast.AST) -> set[str]:
-    """Names this file binds with `X = NewType(...)`."""
+    """Names this file binds with `X = NewType(...)`, `typing.NewType` or an
+    annotated `X: TypeAlias = NewType(...)`, at any depth."""
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            target, value = node.target, node.value
+        else:
+            continue
+        if isinstance(target, ast.Name) and isinstance(value, ast.Call) and _leaf(value.func) == "NewType":
+            out.add(target.id)
+    return out
+
+
+def _brand_aliases(tree: ast.AST, brands: set[str]) -> dict[str, str]:
+    """`from m import BlockUid as U` binds U -> BlockUid."""
     return {
-        node.targets[0].id
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Assign) and len(node.targets) == 1
-        and isinstance(node.targets[0], ast.Name)
-        and isinstance(node.value, ast.Call) and _leaf(node.value.func) == "NewType"
+        alias.asname: alias.name
+        for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+        for alias in node.names if alias.asname and alias.name in brands
     }
+
+
+def _package(path: str) -> list[str]:
+    """The package a scoped file sits in, for resolving relative imports."""
+    rel = next(path[len(root):] for root in SCOPE_ROOTS if path.startswith(root))
+    return rel.split("/")[:-1]
+
+
+def _imports_test_mint_module(node: ast.Import | ast.ImportFrom, path: str) -> bool:
+    if isinstance(node, ast.Import):
+        return any(a.name == TEST_MINT_MODULE for a in node.names)
+    base = node.module or ""
+    if node.level:
+        package = _package(path)
+        base = ".".join([*package[:len(package) - node.level + 1], *([node.module] if node.module else [])])
+    return base == TEST_MINT_MODULE or any(f"{base}.{a.name}" == TEST_MINT_MODULE for a in node.names)
+
+
+# Calls whose brand argument is a type, not a function to apply.
+_TYPE_TAKING_CALLS = frozenset({"cast", "NewType", "TypeAdapter", "isinstance", "assert_type"})
 
 
 SQLITE_RAW_NAMES = ("connect", "Connection", "Cursor")
@@ -186,10 +244,30 @@ def _escape_hatches(path: str, tree: ast.AST, registry: Registry) -> list[tuple[
     """(line, rule, source text) for every rule-2 site in `tree`."""
     brands = set(registry.shapes) | set(registry.mint_sites) | registry.declared
     declared = _declared_brands(tree)
+    aliases = _brand_aliases(tree, brands)
     cast_ok = _site_allowed(path, registry.cast_sites)
     sqlite_ok = _site_allowed(path, registry.sqlite_sites)
+    is_test = _site_allowed(path, registry.test_code)
+    any_mint_ok = _site_allowed(path, registry.test_mint_sites)
+
+    def brand_of(node: ast.expr) -> str | None:
+        """The brand `node` names, through an import alias, unless this
+        file may mint it."""
+        name = aliases.get(node.id, node.id) if isinstance(node, ast.Name) else _leaf(node)
+        if name is None or name not in brands or name in declared or any_mint_ok \
+                or _site_allowed(path, registry.mint_sites.get(name, ())):
+            return None
+        return name
+
+    def mint(brand: str, what: str) -> str:
+        fix = _test_fix(brand, registry) if is_test else ""
+        return f"{what} in a test: {fix}" if fix else f"{what} outside its mint sites"
+
     out: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)) and not is_test \
+                and _imports_test_mint_module(node, path):
+            out.append((node.lineno, "test-mint-import", f"`{TEST_MINT_MODULE}` imported by product code"))
         if isinstance(node, ast.ImportFrom) and node.module == "sqlite3" and not sqlite_ok:
             raw = [a.name for a in node.names if a.name in SQLITE_RAW_NAMES]
             if raw:
@@ -199,11 +277,19 @@ def _escape_hatches(path: str, tree: ast.AST, registry: Registry) -> list[tuple[
                 out.append((node.lineno, "raw-sqlite", "`import sqlite3 as ...` outside SQLITE_SITES"))
         elif isinstance(node, ast.Call):
             name = _leaf(node.func) or ""
-            if name in brands and name not in declared \
-                    and not _site_allowed(path, registry.mint_sites.get(name, ())):
-                out.append((node.lineno, "brand-mint", f"`{name}(...)` outside its mint sites"))
+            called = brand_of(node.func)
+            if name not in _TYPE_TAKING_CALLS:
+                for arg in [*node.args, *(k.value for k in node.keywords)]:
+                    passed = brand_of(arg)
+                    if passed is not None:
+                        out.append((arg.lineno, "brand-mint", mint(passed, f"`{passed}` passed as a value")))
+            if called is not None:
+                out.append((node.lineno, "brand-mint", mint(called, f"`{called}(...)`")))
             elif name == "cast" and not cast_ok:
-                out.append((node.lineno, "brand-cast", "`cast(...)` outside CAST_SITES"))
+                target = (_leaf(node.args[0]) if node.args else None) or ""
+                fix = _test_fix(target, registry) if is_test and target in brands else ""
+                out.append((node.lineno, "brand-cast",
+                            f"`cast(...)` in a test: {fix}" if fix else "`cast(...)` outside CAST_SITES"))
             elif name == "model_construct" and isinstance(node.func, ast.Attribute):
                 out.append((node.lineno, "model-construct", "`.model_construct(...)` skips validation"))
             elif name == "cursor" and isinstance(node.func, ast.Attribute) and not sqlite_ok:
@@ -217,9 +303,33 @@ def _escape_hatches(path: str, tree: ast.AST, registry: Registry) -> list[tuple[
     return out
 
 
+# A comment that silences the type checker for its line.
+_IGNORE = re.compile(r"#\s*(?:pyrefly:\s*ignore|type:\s*ignore)\b")
+
+
+def _is_literal(node: ast.expr) -> bool:
+    if isinstance(node, ast.UnaryOp):
+        node = node.operand
+    return isinstance(node, ast.JoinedStr) or (isinstance(node, ast.Constant) and node.value is not None)
+
+
+def _ignored_literals(tree: ast.AST, ignored: set[int], registry: Registry):
+    """(line, name, brand) for each plain literal passed to a keyword with a
+    rule-1 name in a call whose lines carry a type-check ignore."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        span = range(node.lineno, (node.end_lineno or node.lineno) + 1)
+        if not any(n in ignored for n in span):
+            continue
+        for k in node.keywords:
+            if k.arg in registry.names and _is_literal(k.value):
+                yield k.value.lineno, k.arg, registry.names[k.arg][0]
+
+
 def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
     """Every brand-lint violation in `text`, in file order."""
-    if not in_scope(path, registry):
+    if not in_scope(path):
         return []
     try:
         tree = ast.parse(text)
@@ -230,9 +340,13 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
                           "(brandlint needs >= 3.12 for PEP 695 syntax)")]
     lines = text.splitlines()
     allowed = _opt_out_allowed(path, registry)
+    is_test = _site_allowed(path, registry.test_code)
     out: list[Violation] = []
     opted: set[int] = set()
+    ignored: set[int] = set()
     for n, comment in _comments(text):
+        if _IGNORE.search(comment):
+            ignored.add(n)
         m = _OPT_OUT.match(comment)
         if m is None:
             continue
@@ -243,10 +357,21 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
     for name, annotation, first, last in _annotated_names(tree):
         if name not in registry.names:
             continue
-        problem = _problem(name, annotation, registry)
+        if annotation is None:
+            problem = f"`{name}` has no annotation: annotate it `{' or '.join(registry.names[name])}`"
+        else:
+            problem = _problem(name, annotation, registry)
         if problem is None or any(n in opted for n in range(first, last + 1)):
             continue
+        fix = _test_fix(registry.names[name][0], registry) if is_test else ""
+        if fix:
+            problem += f"; for a value in a test, {fix}"
         out.append(Violation(path, first, "brand-name", f"{problem}: {lines[first - 1].strip()}"))
+    for line, name, brand in _ignored_literals(tree, ignored, registry):
+        fix = _test_fix(brand, registry) if is_test else ""
+        what = f"`{name}=` literal on a line whose type check is silenced"
+        out.append(Violation(path, line, "brand-ignore",
+                             f"{what}: {fix or 'parse it'}: {lines[line - 1].strip()}"))
     for line, rule, what in _escape_hatches(path, tree, registry):
         out.append(Violation(path, line, rule, f"{what}: {lines[line - 1].strip()}"))
     return sorted(out, key=lambda v: v.line)

@@ -38,7 +38,6 @@ def test_an_untyped_brand_name_parameter_is_flagged():
     "def f(uid: 'BlockUid | None') -> None: ...",
     "def f(uid: ops.BlockUid) -> None: ...",
     "def f(title: str) -> None: ...",
-    "def f(uid) -> None: ...",
     "def f(order_idx: SidebarOrderIdx) -> None: ...",
     "def f(order_idx: OrderIdx) -> None: ...",
 ])
@@ -100,19 +99,44 @@ def test_the_opt_out_without_a_reason_is_a_violation():
     assert "brand-opt-out" in rules("def f(uids: str) -> None: ...  # brand: untrusted --\n", ROUTES)
 
 
-@pytest.mark.parametrize("path", [
-    "server/tests/test_x.py",
-    "server/src/pkm/test_data/core.py",
-    "web/src/x.ts",
-    "server/src/pkm/x.txt",
-])
-def test_files_outside_product_python_are_not_checked(path: str):
+@pytest.mark.parametrize("path", ["web/src/x.ts", "server/src/pkm/x.txt", "docs/x.py"])
+def test_files_outside_server_python_are_not_checked(path: str):
     assert rules("def f(uid: str) -> None: ...\n", path) == []
+
+
+@pytest.mark.parametrize("path", ["server/tests/test_x.py", "server/src/pkm/test_data/core.py"])
+def test_tests_and_test_data_are_checked(path: str):
+    assert rules("def f(uid: str) -> None: ...\n", path) == ["brand-name"]
+
+
+def test_a_brand_name_in_a_test_names_the_helper():
+    [v] = check_text("server/tests/test_x.py", "def f(page_id: int) -> None: ...\n", REGISTRY)
+    assert "page_id_of" in v.text
+
+
+@pytest.mark.parametrize("source", [
+    "def make(uid): ...",
+    "def make(a, *, page_id): ...",
+    "def make(*uids): ...",
+    "async def make(seq=None): ...",
+])
+def test_an_unannotated_brand_name_parameter_is_flagged(source: str):
+    assert rules(source + "\n") == ["brand-name"]
+
+
+def test_the_unannotated_message_says_to_annotate_it():
+    [v] = check_text(PRODUCT, "def make(uid): ...\n", REGISTRY)
+    assert "annotate it `BlockUid`" in v.text
+
+
+def test_a_lambda_parameter_is_not_checked():
+    assert rules("f = lambda uid: uid\n") == []
 
 
 def test_every_rule_has_a_remedy_that_names_the_fix():
     assert set(RULES) == {"brand-name", "brand-opt-out", "brand-parse", "brand-mint",
-                          "brand-cast", "model-construct", "raw-sqlite"}
+                          "brand-cast", "model-construct", "raw-sqlite",
+                          "test-mint-import", "brand-ignore"}
     assert "select()" in RULES["brand-name"] and "untrusted" in RULES["brand-name"]
 
 

@@ -113,9 +113,12 @@ MINIMAL_REGISTRY = '''NAMES = {"uid": ("BlockUid",)}
 SHAPES = {"BlockUid": ("text", None)}
 MINT_SITES = {"BlockUid": ()}
 CAST_SITES = ()
-TEST_SUPPORT = ()
 OPT_OUT_FILES = ()
 SQLITE_SITES = {}
+TEST_MINT_SITES = ()
+TEST_HELPERS = {}
+MALFORMED = {}
+TEST_CODE = ()
 '''
 
 

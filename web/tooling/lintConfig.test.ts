@@ -304,6 +304,19 @@ const cases: readonly FixtureCase[] = [
       "  x: Map<BlockUid, number> | null,\n" +
       "): x is Index<BlockUid, number> {\n" +
       "  return x instanceof Index;\n" +
+      "}\n" +
+      "export class Sorted<K, V> extends Index<K, V> {\n" +
+      "  sorted = true;\n" +
+      "}\n" +
+      "export function isSorted(\n" +
+      "  x: Map<BlockUid, number> | null,\n" +
+      "): x is Sorted<BlockUid, number> {\n" +
+      "  return x instanceof Sorted;\n" +
+      "}\n" +
+      "export function isReadIndex(\n" +
+      "  x: ReadonlyMap<BlockUid, number> | null,\n" +
+      "): x is Index<BlockUid, number> {\n" +
+      "  return x instanceof Index;\n" +
       "}\n",
   },
   {
@@ -359,7 +372,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-assertion-optional.ts",
     rule: "brands/no-brand-assertion",
-    count: 10,
+    count: 12,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export function frozen(xs: BlockUid[]): readonly BlockUid[] {\n" +
@@ -383,6 +396,17 @@ const cases: readonly FixtureCase[] = [
       "}\n" +
       "export function picked<K extends keyof Row>(r: Row): Pick<Row, K> {\n" +
       "  return r as Pick<Row, K>;\n" +
+      "}\n" +
+      "export function frozenPartial<T>(t: T): Partial<Readonly<T>> {\n" +
+      "  return t as Partial<Readonly<T>>;\n" +
+      "}\n" +
+      "export function narrower<T, U extends T>(u: U): Partial<T> {\n" +
+      "  return u as Partial<T>;\n" +
+      "}\n" +
+      "export function numbered(\n" +
+      "  x: Record<string, BlockUid>,\n" +
+      "): { [i: number]: BlockUid } {\n" +
+      "  return x as { [i: number]: BlockUid };\n" +
       "}\n",
   },
   {

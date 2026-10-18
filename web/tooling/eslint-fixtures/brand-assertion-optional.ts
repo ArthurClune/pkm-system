@@ -34,3 +34,13 @@ export function rekeyed(x: Record<string, 1>): unknown {
 export function eitherRead(x: { a: 1 }): BlockUid | undefined {
   return (x as { a: 1; uid?: undefined } | { b: 1; uid?: BlockUid }).uid;
 }
+export function eitherReadMaybe(x: { a: 1 }): BlockUid | undefined {
+  return (
+    x as { a: 1; uid?: undefined } | { b: 1; uid?: BlockUid } | undefined
+  )?.uid;
+}
+export function nestedEither(x: { a: 1; o?: {} }): BlockUid | undefined {
+  return (
+    x as { a: 1; o?: { uid?: undefined } } | { b: 1; o?: { uid?: BlockUid } }
+  ).o?.uid;
+}

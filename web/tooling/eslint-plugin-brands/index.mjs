@@ -368,25 +368,31 @@ function overlaps(checker, a, b) {
   return false;
 }
 
-// The lib or own references a reference type extends, with the base's type
-// arguments written in terms of the reference's own: `Index<BlockUid, V>`
-// extending `Map<K, V>` gives `Map` with [BlockUid, V]. A base whose
-// arguments are not plain type parameters of the reference is skipped.
+// The lib or own references a reference type extends, directly or through
+// its own bases, with each base's type arguments written in terms of the
+// reference's own: `Index<BlockUid, V>` extending `Map<K, V>` gives `Map`
+// with [BlockUid, V]. A base whose arguments are not plain type parameters
+// of the type extending it is skipped, and so is what lies beyond it.
 function instantiatedBases(checker, type) {
   if (!(type.objectFlags & ts.ObjectFlags.Reference)) return [];
-  const params = type.target.typeParameters ?? [];
-  const args = checker.getTypeArguments(type);
   const bases = [];
-  for (const base of checker.getBaseTypes(type.target) ?? []) {
-    if (!(base.objectFlags & ts.ObjectFlags.Reference)) continue;
-    const mapped = checker.getTypeArguments(base).map((a) => {
-      const i = params.indexOf(a);
-      return i >= 0 ? args[i] : undefined;
-    });
-    if (mapped.every((a) => a !== undefined)) {
+  const seen = new Set();
+  const walk = (target, args) => {
+    if (seen.has(target)) return;
+    seen.add(target);
+    const params = target.typeParameters ?? [];
+    for (const base of checker.getBaseTypes(target) ?? []) {
+      if (!(base.objectFlags & ts.ObjectFlags.Reference)) continue;
+      const mapped = checker.getTypeArguments(base).map((a) => {
+        const i = params.indexOf(a);
+        return i >= 0 ? args[i] : undefined;
+      });
+      if (!mapped.every((a) => a !== undefined)) continue;
       bases.push({ target: base.target, args: mapped });
+      walk(base.target, mapped);
     }
-  }
+  };
+  walk(type.target, checker.getTypeArguments(type));
   return bases;
 }
 
@@ -485,11 +491,15 @@ function mintedBrands(checker, from, to, seen = new Map()) {
       checker.getTypeOfSymbol(p));
   }
   // Our own `class Index<K, V> extends Map<K, V>` holds its arguments where
-  // its lib base does: compare them with a `from` of that lib type.
-  if (isReference(from) && isForeign(from)) {
+  // its base does, however many classes down: compare them with a `from` of
+  // that base's type, or of a lib type of the same arity (`ReadonlyMap`
+  // narrowed to an own `Map` subclass).
+  if (isReference(from)) {
     const fromArgs = checker.getTypeArguments(from);
     for (const base of instantiatedBases(checker, to)) {
-      if (base.target === from.target) {
+      const libPair = isForeign(from) && isForeign(base.target)
+        && base.args.length === fromArgs.length;
+      if (base.target === from.target || libPair) {
         base.args.forEach((t, i) => position(fromArgs[i], t));
       }
     }
@@ -557,17 +567,23 @@ function unbackedProperties(checker, from, to, seen) {
 function unbacked(checker, from, to, seen = new Map()) {
   const carries = (t) => cachedBrands(checker, t).size > 0
     || cachedLaunders(checker, t);
-  if (from === to || from.flags & ts.TypeFlags.Never || !carries(to)) {
+  // A nullish value has nothing to read through.
+  if (from === to || from.flags & ts.TypeFlags.Never || isNullish(from)
+    || !carries(to)) {
     return false;
   }
   if (from.isUnion()) return from.types.some((m) => unbacked(checker, m, to, seen));
   if (to.isUnion()) {
     // The operand must fit some member with no gap, and a property every
     // member declares must be backed too: it reads through the union
-    // without narrowing to the member the operand fits.
+    // without narrowing to the member the operand fits. A nullish member
+    // declares nothing and `?.` reads past it, so the properties are those
+    // the other members share.
     const fits = to.types.some((m) => checker.isTypeAssignableTo(from, m)
       && !unbacked(checker, from, m, seen));
-    return !fits || unbackedProperties(checker, from, to, seen);
+    if (!fits) return true;
+    const members = checker.getNonNullableType(to);
+    return members.isUnion() && unbackedProperties(checker, from, members, seen);
   }
   // A position reached through an index signature or an optional property
   // need not fit at all (`Record<string, string>` fits `{ uid?: BlockUid }`).
@@ -581,8 +597,16 @@ function unbacked(checker, from, to, seen = new Map()) {
   if (isOptionalGenericMapping(checker, to)) {
     // `Partial<T>` over a type parameter has no members to compare until
     // instantiated, and `object` fits it: only the type it maps over backs
-    // it.
-    return !mappedOver(checker, to).includes(from);
+    // it, or one that fits that type at every key (`U extends T`,
+    // `Readonly<T>`), or a type parameter whose constraint does.
+    const backs = mappedOver(checker, to).some((over) =>
+      over === from || checker.isTypeAssignableTo(from, over)
+        && !unbacked(checker, from, over, seen));
+    if (backs) return false;
+    const constraint = from.flags & ts.TypeFlags.TypeParameter
+      ? checker.getBaseConstraintOfType(from) : undefined;
+    return constraint === undefined || constraint === from
+      || unbacked(checker, constraint, to, seen);
   }
   const isReference = (t) => (t.objectFlags & ts.ObjectFlags.Reference) !== 0;
   if (checker.isTupleType(to)) {
@@ -613,10 +637,16 @@ function unbacked(checker, from, to, seen = new Map()) {
   if (unbackedProperties(checker, from, to, seen)) return true;
   const fromInfos = checker.getIndexInfosOfType(from);
   return checker.getIndexInfosOfType(to).some((info) => {
-    // A `string` key does not back a `BlockUid` key.
-    const same = fromInfos.find(
-      (i) => checker.isTypeAssignableTo(i.keyType, info.keyType),
-    );
+    // A `string` key does not back a `BlockUid` key: every key stored must
+    // be one of the target's. A plain target key is backed by the operand
+    // signature its reads hit, which for a string index includes number
+    // keys, as TypeScript applies it.
+    const applies = (i) => checker.isTypeAssignableTo(info.keyType, i.keyType)
+      || (i.keyType.flags & ts.TypeFlags.String) !== 0
+        && checker.isTypeAssignableTo(info.keyType, checker.getNumberType());
+    const same = fromInfos.find((i) =>
+      checker.isTypeAssignableTo(i.keyType, info.keyType)
+      || !carries(info.keyType) && applies(i));
     if (same) return unbacked(checker, same.type, info.type, seen);
     return carries(info.keyType) || carries(info.type);
   });

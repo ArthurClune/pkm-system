@@ -3,11 +3,15 @@
 tuples that also index by column name, so they compare equal to plain tuples
 and `dict(row)` works.
 
-A returned column named for a row key that carries a brand is refused: that
-value is read with `Db.select`, whose row check validates it."""
+A returned column named for a row key that carries a brand is refused, and
+so is a raw column name that COLUMN_KEYS maps to one (a bare `id`, the
+sidebar's `order_idx`): that value is read with `Db.select`, whose row check
+validates it. The refusal goes by returned name, so `uid AS u` reads an
+unbranded value and is not refused."""
 import sqlite3
 from typing import Any
 
+from pkm.brand_registry import CLIENT_KEYS, COLUMN_KEYS
 from pkm.database import Db, Params
 from pkm.rows import KEYS
 
@@ -30,11 +34,35 @@ def _factory(cursor: sqlite3.Cursor, values: tuple) -> NamedRow:
     return row
 
 
+def _key_brand(key: str) -> str | None:
+    if key in KEYS:
+        return KEYS[key].brand
+    type_name = CLIENT_KEYS.get(key, ("string", False))[0]
+    return None if type_name in ("string", "number") else type_name
+
+
+def _branded_names() -> dict[str, set[str]]:
+    """Returned column name -> the brands it may carry: a row key's own
+    brand, and the brand of every key COLUMN_KEYS maps that raw name to."""
+    out: dict[str, set[str]] = {}
+    pairs = [(key, key) for key in KEYS]
+    pairs += [pair for columns in COLUMN_KEYS.values() for pair in columns.items()]
+    for name, key in pairs:
+        brand = _key_brand(key)
+        if brand is not None:
+            out.setdefault(name, set()).add(brand)
+    return out
+
+
+_BRANDED = _branded_names()
+
+
 def _refuse_brand_columns(cursor: sqlite3.Cursor) -> None:
     for column, *_ in cursor.description or ():
-        spec = KEYS.get(column)
-        if spec is not None and spec.brand is not None:
-            raise AssertionError(f"{column} carries {spec.brand}: read it with Db.select under its row key")
+        brands = _BRANDED.get(column)
+        if brands:
+            raise AssertionError(f"{column} carries {' or '.join(sorted(brands))}: "
+                                 "read it with Db.select under its row key")
 
 
 def read(db: Db | sqlite3.Connection, sql: str,

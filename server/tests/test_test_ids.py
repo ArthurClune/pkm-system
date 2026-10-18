@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 import rawread
-from pkm.brand_registry import MALFORMED, TEST_HELPERS, WEB_BRANDS
+from pkm.brand_registry import MALFORMED, SHAPES, TEST_HELPERS, WEB_BRANDS
 from pkm.database import Db, connect
 from pkm.server.query import QueryNode
 from pkm.test_data import ids
@@ -48,6 +48,11 @@ def test_a_text_helper_rejects_a_non_string(value: object):
         ids.client_id_of(value)  # pyrefly: ignore[bad-argument-type]
 
 
+def test_every_shaped_brand_has_a_malformed_helper():
+    shaped = {brand for brand, (_, pattern) in SHAPES.items() if pattern is not None}
+    assert shaped <= set(MALFORMED)
+
+
 def test_every_test_helper_exists():
     for brand, stem in TEST_HELPERS.items():
         if brand not in WEB_BRANDS:
@@ -84,16 +89,22 @@ def test_the_query_node_helper_rejects_another_type():
 def _db(tmp_path: Path) -> Db:
     db = connect(tmp_path / "t.db")
     db.executescript("CREATE TABLE blocks(uid TEXT, text TEXT);"
-                     "INSERT INTO blocks VALUES ('tuid-a', 'hello');")
+                     "INSERT INTO blocks VALUES ('tuid-a', 'hello');"
+                     "CREATE TABLE pages(id INTEGER, title TEXT);"
+                     "CREATE TABLE sidebar_entries(id INTEGER, order_idx INTEGER);")
     return db
 
 
-def test_rawread_refuses_brand_columns(tmp_path: Path):
-    db = _db(tmp_path)
-    with pytest.raises(AssertionError, match="uid carries BlockUid: read it with Db.select"):
-        rawread.read(db, "SELECT uid FROM blocks")
-    with pytest.raises(AssertionError, match="uid carries BlockUid"):
-        rawread.read(db, "SELECT * FROM blocks")
+@pytest.mark.parametrize("sql, message", [
+    ("SELECT uid FROM blocks", "uid carries BlockUid: read it with Db.select"),
+    ("SELECT * FROM blocks", "uid carries BlockUid"),
+    ("SELECT id FROM pages", "id carries PageId"),
+    ("SELECT id FROM sidebar_entries", "id carries .*SidebarEntryId"),
+    ("SELECT order_idx FROM sidebar_entries", "order_idx carries OrderIdx or SidebarOrderIdx"),
+])
+def test_rawread_refuses_brand_columns(tmp_path: Path, sql: str, message: str):
+    with pytest.raises(AssertionError, match=message):
+        rawread.read(_db(tmp_path), sql)
 
 
 def test_rawread_reads_counts_and_unbranded_columns(tmp_path: Path):

@@ -322,4 +322,97 @@ def test_a_cast_to_a_brand_in_a_test_names_the_helper():
 
 def test_the_new_remedies_name_the_fix():
     assert "pkm.test_data.ids" in RULES["test-mint-import"]
-    assert "uid_of" in RULES["brand-ignore"] or "helper" in RULES["brand-ignore"]
+    assert "uid_of" in RULES["brand-ignore"] and "pkm.test_data.ids" in RULES["brand-ignore"]
+
+
+@pytest.mark.parametrize("path", [ROUTES, TEST])
+@pytest.mark.parametrize("source", [
+    "U = BlockUid\nx = U(raw)",
+    "U: object = BlockUid",
+    "if (U := ops.BlockUid):\n    pass",
+    "def f():\n    return BlockUid",
+    'mk = {"k": BlockUid}["k"]',
+    "mks = [BlockUid][0]",
+    "mks = (BlockUid,)",
+    "mks = {BlockUid}",
+])
+def test_a_brand_rebound_or_held_as_a_value_is_a_mint(source: str, path: str):
+    assert rules(source + "\n", path) == ["brand-mint"]
+
+
+def test_rebinding_an_import_alias_is_a_mint():
+    source = "from pkm.contracts.ops import BlockUid as U\nmk = U\n"
+    assert rules(source, ROUTES) == ["brand-mint"]
+
+
+@pytest.mark.parametrize("source", [
+    "X = dict[str, BlockUid]",
+    "X = Callable[[BlockUid], int]",
+    "X = tuple[BlockUid, PageId] | None",
+    "X: TypeAlias = list[BlockUid]",
+    'X = NewType("X", BlockUid)',
+    "def f() -> BlockUid: ...",
+    "x: BlockUid = y",
+    "def f(x: tuple[BlockUid, ...]) -> None: ...",
+    "isinstance(x, (BlockUid, str))",
+])
+def test_a_brand_in_a_type_expression_is_not_a_value(source: str):
+    assert rules(source + "\n", ROUTES) == []
+
+
+@pytest.mark.parametrize("source", [
+    "mk = assert_type(BlockUid, Any)",
+    "cast(Any, BlockUid)",
+    "isinstance(BlockUid, type)",
+    'NewType(BlockUid, str)',
+    "TypeAdapter(int, BlockUid)",
+])
+def test_only_the_type_slot_of_a_type_taking_call_is_exempt(source: str):
+    assert "brand-mint" in rules(source + "\n", TEST)
+
+
+def test_a_newtype_over_a_registered_brand_outside_the_source_tree_is_a_brand():
+    source = 'Fake = NewType("Fake", BlockUid)\nx = Fake("a")\n'
+    assert rules(source, TEST) == ["brand-mint"]
+    assert rules(source, "server/tooling/proptest/x.py") == ["brand-mint"]
+
+
+def test_a_newtype_over_a_brand_inside_the_source_tree_is_declared_there():
+    source = 'Local = NewType("Local", BlockUid)\nx = Local(raw)\n'
+    assert rules(source, ROUTES) == []
+
+
+def test_a_comment_only_ignore_line_covers_the_next_line():
+    source = '# pyrefly: ignore[bad-argument-type]\nSetHeadingOp(uid="uid_b2", heading=5)\n'
+    assert rules(source, TEST) == ["brand-ignore"]
+    assert rules('# a note\nSetHeadingOp(uid="uid_b2", heading=5)\n', TEST) == []
+
+
+@pytest.mark.parametrize("value", ['["uid_b2"]', '("uid_b2",)', '{"uid_b2"}', '[-1]'])
+def test_a_container_of_literals_under_an_ignore_is_a_brand_literal(value: str):
+    assert rules(f"f(uids={value})  # type: ignore\n", TEST) == ["brand-ignore"]
+
+
+def test_a_container_holding_a_helper_value_is_clean():
+    assert rules('f(uids=[uid_of("uid_b2")])  # type: ignore\n', TEST) == []
+
+
+def test_an_ignore_on_an_outer_call_covers_its_inner_calls():
+    source = 'outer(  # type: ignore\n    inner(uid="x"),\n)\n'
+    assert rules(source, TEST) == ["brand-ignore"]
+
+
+def test_the_test_mint_module_name_comes_from_the_registry(tmp_path: Path):
+    src = tmp_path / "server/src/pkm"
+    src.mkdir(parents=True)
+    (src / "brand_registry.py").write_text(
+        'NAMES = {}\nSHAPES = {"BlockUid": ("text", None)}\nMINT_SITES = {}\nCAST_SITES = ()\n'
+        'OPT_OUT_FILES = ()\nSQLITE_SITES = {}\n'
+        'TEST_MINT_SITES = ("server/src/pkm/fixtures/mint.py", "web/src/x.ts")\n'
+        'TEST_HELPERS = {"BlockUid": "uid"}\nMALFORMED = {}\nTEST_CODE = ("server/tests/",)\n')
+    registry = load_registry(tmp_path)
+    assert [v.rule for v in check_text(STORE, "from pkm.fixtures.mint import uid_of\n", registry)] \
+        == ["test-mint-import"]
+    assert [v.rule for v in check_text(STORE, "from pkm.test_data.ids import uid_of\n", registry)] == []
+    [v] = check_text(TEST, "x = BlockUid(raw)\n", registry)
+    assert "pkm.fixtures.mint" in v.text

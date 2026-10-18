@@ -31,7 +31,6 @@ from brandlint.registry import Registry
 from commentlint.core import Violation
 
 SCOPE_ROOTS = ("server/src/", "server/tooling/", "server/tests/")
-TEST_MINT_MODULE = "pkm.test_data.ids"
 
 RULES = {
     "brand-name": "a name that means a brand must carry it: read the value from a `select()` row, take it "
@@ -69,13 +68,22 @@ def in_scope(path: str) -> bool:
     return path.startswith(SCOPE_ROOTS) and PurePosixPath(path).suffix == ".py"
 
 
+def _test_mint_module(registry: Registry) -> str | None:
+    """The dotted name of the server's entry in TEST_MINT_SITES."""
+    for site in registry.test_mint_sites:
+        if site.startswith("server/src/") and site.endswith(".py"):
+            return site[len("server/src/"):-len(".py")].replace("/", ".")
+    return None
+
+
 def _test_fix(brand: str, registry: Registry) -> str:
     """How a test mints `brand`: its helper, and the forging one for a
     deliberately bad value when the brand has a shape."""
     stem = registry.test_helpers.get(brand)
-    if stem is None:
+    module = _test_mint_module(registry)
+    if stem is None or module is None:
         return ""
-    fix = f"use `{stem}_of` from {TEST_MINT_MODULE}"
+    fix = f"use `{stem}_of` from {module}"
     if brand in registry.malformed:
         fix += f" (`malformed_{registry.malformed[brand]}` for a deliberately bad value)"
     return fix
@@ -192,10 +200,11 @@ def _site_allowed(path: str, sites: tuple[str, ...]) -> bool:
     return any(path == site or (site.endswith("/") and path.startswith(site)) for site in sites)
 
 
-def _declared_brands(tree: ast.AST) -> set[str]:
-    """Names this file binds with `X = NewType(...)`, `typing.NewType` or an
-    annotated `X: TypeAlias = NewType(...)`, at any depth."""
-    out: set[str] = set()
+def _local_newtypes(tree: ast.AST) -> dict[str, str | None]:
+    """Name -> base type name for each `X = NewType(...)`, `typing.NewType`
+    or annotated `X: TypeAlias = NewType(...)` this file binds, at any
+    depth."""
+    out: dict[str, str | None] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and len(node.targets) == 1:
             target, value = node.targets[0], node.value
@@ -204,8 +213,27 @@ def _declared_brands(tree: ast.AST) -> set[str]:
         else:
             continue
         if isinstance(target, ast.Name) and isinstance(value, ast.Call) and _leaf(value.func) == "NewType":
-            out.add(target.id)
+            out[target.id] = _leaf(value.args[1]) if len(value.args) > 1 else None
     return out
+
+
+def _declared_brands(path: str, tree: ast.AST, brands: set[str]) -> tuple[set[str], set[str]]:
+    """(brands this file declares and may mint, local NewTypes that are
+    brands here but not declared). Outside server/src/pkm a NewType over a
+    registered brand is a brand-compatible value without the brand's checks,
+    so the file may not mint it either."""
+    local = _local_newtypes(tree)
+    if path.startswith("server/src/pkm/"):
+        return set(local), set()
+    derived: set[str] = set()
+    grew = True
+    while grew:
+        grew = False
+        for name, base in local.items():
+            if name not in derived and base is not None and base in brands | derived:
+                derived.add(name)
+                grew = True
+    return set(local) - derived, derived
 
 
 def _brand_aliases(tree: ast.AST, brands: set[str]) -> dict[str, str]:
@@ -223,31 +251,65 @@ def _package(path: str) -> list[str]:
     return rel.split("/")[:-1]
 
 
-def _imports_test_mint_module(node: ast.Import | ast.ImportFrom, path: str) -> bool:
+def _imports_module(node: ast.Import | ast.ImportFrom, path: str, module: str) -> bool:
     if isinstance(node, ast.Import):
-        return any(a.name == TEST_MINT_MODULE for a in node.names)
+        return any(a.name == module for a in node.names)
     base = node.module or ""
     if node.level:
         package = _package(path)
         base = ".".join([*package[:len(package) - node.level + 1], *([node.module] if node.module else [])])
-    return base == TEST_MINT_MODULE or any(f"{base}.{a.name}" == TEST_MINT_MODULE for a in node.names)
+    return base == module or any(f"{base}.{a.name}" == module for a in node.names)
 
 
-# Calls whose brand argument is a type, not a function to apply.
-_TYPE_TAKING_CALLS = frozenset({"cast", "NewType", "TypeAdapter", "isinstance", "assert_type"})
+# Calls whose argument at this position is a type, not a value: the brand
+# there is not a function to apply.
+_TYPE_SLOTS = {"cast": 0, "NewType": 1, "TypeAdapter": 0, "isinstance": 1, "assert_type": 1}
+
+
+def _type_expressions(tree: ast.AST) -> set[int]:
+    """ids of every node inside a subscript's slice or a type-taking call's
+    type slot: `dict[str, BlockUid]`, `isinstance(x, (A, B))`."""
+    roots: list[ast.AST] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript):
+            roots.append(node.slice)
+        elif isinstance(node, ast.Call):
+            slot = _TYPE_SLOTS.get(_leaf(node.func) or "")
+            if slot is not None and len(node.args) > slot:
+                roots.append(node.args[slot])
+    return {id(n) for root in roots for n in ast.walk(root)}
+
+
+def _held_values(tree: ast.AST):
+    """Every expression the code holds as a value: a call argument, the value
+    of an assignment, walrus or return, and an element of a list, tuple, set
+    or dict."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            yield from node.args
+            yield from (k.value for k in node.keywords)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr, ast.Return)) and node.value is not None:
+            yield node.value
+        elif isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            yield from node.elts
+        elif isinstance(node, ast.Dict):
+            yield from (k for k in node.keys if k is not None)
+            yield from node.values
 
 
 SQLITE_RAW_NAMES = ("connect", "Connection", "Cursor")
 
 
-def _escape_hatches(path: str, tree: ast.AST, registry: Registry) -> list[tuple[int, str, str]]:
+def _escape_hatches(path: str, tree: ast.AST, registry: Registry,
+                    is_test: bool) -> list[tuple[int, str, str]]:
     """(line, rule, source text) for every rule-2 site in `tree`."""
     brands = set(registry.shapes) | set(registry.mint_sites) | registry.declared
-    declared = _declared_brands(tree)
+    declared, derived = _declared_brands(path, tree, brands)
+    brands |= derived
     aliases = _brand_aliases(tree, brands)
     cast_ok = _site_allowed(path, registry.cast_sites)
     sqlite_ok = _site_allowed(path, registry.sqlite_sites)
-    is_test = _site_allowed(path, registry.test_code)
+    mint_module = _test_mint_module(registry)
     any_mint_ok = _site_allowed(path, registry.test_mint_sites)
 
     def brand_of(node: ast.expr) -> str | None:
@@ -264,10 +326,15 @@ def _escape_hatches(path: str, tree: ast.AST, registry: Registry) -> list[tuple[
         return f"{what} in a test: {fix}" if fix else f"{what} outside its mint sites"
 
     out: list[tuple[int, str, str]] = []
+    types = _type_expressions(tree)
+    for value in _held_values(tree):
+        held = None if id(value) in types else brand_of(value)
+        if held is not None:
+            out.append((value.lineno, "brand-mint", mint(held, f"`{held}` held as a value")))
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Import, ast.ImportFrom)) and not is_test \
-                and _imports_test_mint_module(node, path):
-            out.append((node.lineno, "test-mint-import", f"`{TEST_MINT_MODULE}` imported by product code"))
+        if isinstance(node, (ast.Import, ast.ImportFrom)) and not is_test and mint_module is not None \
+                and _imports_module(node, path, mint_module):
+            out.append((node.lineno, "test-mint-import", f"`{mint_module}` imported by product code"))
         if isinstance(node, ast.ImportFrom) and node.module == "sqlite3" and not sqlite_ok:
             raw = [a.name for a in node.names if a.name in SQLITE_RAW_NAMES]
             if raw:
@@ -278,11 +345,6 @@ def _escape_hatches(path: str, tree: ast.AST, registry: Registry) -> list[tuple[
         elif isinstance(node, ast.Call):
             name = _leaf(node.func) or ""
             called = brand_of(node.func)
-            if name not in _TYPE_TAKING_CALLS:
-                for arg in [*node.args, *(k.value for k in node.keywords)]:
-                    passed = brand_of(arg)
-                    if passed is not None:
-                        out.append((arg.lineno, "brand-mint", mint(passed, f"`{passed}` passed as a value")))
             if called is not None:
                 out.append((node.lineno, "brand-mint", mint(called, f"`{called}(...)`")))
             elif name == "cast" and not cast_ok:
@@ -308,6 +370,9 @@ _IGNORE = re.compile(r"#\s*(?:pyrefly:\s*ignore|type:\s*ignore)\b")
 
 
 def _is_literal(node: ast.expr) -> bool:
+    """A plain literal, or a non-empty list, tuple or set of them."""
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return bool(node.elts) and all(_is_literal(e) for e in node.elts)
     if isinstance(node, ast.UnaryOp):
         node = node.operand
     return isinstance(node, ast.JoinedStr) or (isinstance(node, ast.Constant) and node.value is not None)
@@ -315,16 +380,21 @@ def _is_literal(node: ast.expr) -> bool:
 
 def _ignored_literals(tree: ast.AST, ignored: set[int], registry: Registry):
     """(line, name, brand) for each plain literal passed to a keyword with a
-    rule-1 name in a call whose lines carry a type-check ignore."""
+    rule-1 name in a call whose lines carry a type-check ignore, or inside
+    such a call. A positional literal is not seen: that needs the callee's
+    signature."""
+    seen: set[int] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         span = range(node.lineno, (node.end_lineno or node.lineno) + 1)
         if not any(n in ignored for n in span):
             continue
-        for k in node.keywords:
-            if k.arg in registry.names and _is_literal(k.value):
-                yield k.value.lineno, k.arg, registry.names[k.arg][0]
+        for inner in ast.walk(node):
+            for k in inner.keywords if isinstance(inner, ast.Call) else ():
+                if id(k) not in seen and k.arg in registry.names and _is_literal(k.value):
+                    seen.add(id(k))
+                    yield k.value.lineno, k.arg, registry.names[k.arg][0]
 
 
 def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
@@ -347,6 +417,9 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
     for n, comment in _comments(text):
         if _IGNORE.search(comment):
             ignored.add(n)
+            # A comment on a line of its own silences the next line.
+            if lines[n - 1].lstrip().startswith("#"):
+                ignored.add(n + 1)
         m = _OPT_OUT.match(comment)
         if m is None:
             continue
@@ -372,6 +445,6 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
         what = f"`{name}=` literal on a line whose type check is silenced"
         out.append(Violation(path, line, "brand-ignore",
                              f"{what}: {fix or 'parse it'}: {lines[line - 1].strip()}"))
-    for line, rule, what in _escape_hatches(path, tree, registry):
+    for line, rule, what in _escape_hatches(path, tree, registry, is_test):
         out.append(Violation(path, line, rule, f"{what}: {lines[line - 1].strip()}"))
     return sorted(out, key=lambda v: v.line)

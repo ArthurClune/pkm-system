@@ -13,7 +13,7 @@ clone enables them. `--no-verify` bypasses both.
 |---|---|---|
 | `commit-msg` | a Claude session URL or `Claude-Session:` trailer in the message | `AGENTS.md` § Git |
 | `pre-commit` | in any staged source file or architecture doc: a bean id, a line number or a spec/plan pointer with no path in a comment; a comment line over 80 columns or any other line over 120 (`noqa: E501` exempts a line) | [backend.md](backend.md#testing), `server/tooling/commentlint` |
-| `pre-commit` | in a staged `server/src`, `server/tooling` or `server/tests` file: a parameter, field or key named like a brand and not carrying it (`uid: str`, or no annotation); a brand constructed, passed as a value or `cast` outside its registered sites; `model_construct`; raw `sqlite3` outside `SQLITE_SITES` | [Brand rules](#brand-rules), `server/tooling/brandlint` |
+| `pre-commit` | in a staged `server/src`, `server/tooling` or `server/tests` file: a parameter, field or key named like a brand and not carrying it (`uid: str`, or no annotation); a brand constructed, held as a value or `cast` outside its registered sites; `model_construct`; raw `sqlite3` outside `SQLITE_SITES` | [Brand rules](#brand-rules), `server/tooling/brandlint` |
 
 ### Brand rules
 
@@ -28,10 +28,10 @@ syntax and reports `brand-parse` instead of skipping the file.
 |---|---|---|
 | `brand-name` | an annotation does not name one of the brands listed for that parameter, field or key name, or also allows its bare base type or `Any` in a union; or a function parameter with that name has no annotation (a lambda's is not checked) | `NAMES` |
 | `brand-opt-out` | `# brand: untrusted -- <reason>` appears outside a route module, or has no reason | `OPT_OUT_FILES` |
-| `brand-mint` | a `NewType` declared under `server/src/pkm` is constructed outside its sites, under its own name or an import alias (`BlockUid as U`), or passed as a value (`map(BlockUid, xs)`; `cast`, `NewType`, `TypeAdapter`, `isinstance` and `assert_type` take it as a type and are not mints) | `MINT_SITES`, `TEST_MINT_SITES` |
+| `brand-mint` | a `NewType` declared under `server/src/pkm` is constructed outside its sites, under its own name or an import alias (`BlockUid as U`), or held as a value: a call argument, an assignment, walrus or return value, or a container element (`map(BlockUid, xs)`, `U = BlockUid`). A subscript (`dict[str, BlockUid]`) and the type slot of `cast`, `NewType`, `TypeAdapter`, `isinstance` and `assert_type` hold a type, not a value. Outside `server/src/pkm`, a `NewType` over a registered brand is a brand its own file may not mint | `MINT_SITES`, `TEST_MINT_SITES` |
 | `brand-cast` | `typing.cast` is called outside `CAST_SITES` | `CAST_SITES` |
-| `brand-ignore` | a call whose lines carry `pyrefly: ignore` or `type: ignore` passes a plain literal to a keyword named like a brand (`uid="uid_b2"`), which the ignore would let through | `NAMES` |
-| `test-mint-import` | product code imports `pkm.test_data.ids`, by any spelling | `TEST_CODE` |
+| `brand-ignore` | a call whose lines carry `pyrefly: ignore` or `type: ignore` (or sits under one on a line of its own) passes a plain literal, or a list, tuple or set of them, to a keyword named like a brand (`uid="uid_b2"`), in that call or a call inside it. The ignore would let it through. A positional literal (`f("uid_b2")  # type: ignore`) is not seen: that needs the callee's signature | `NAMES` |
+| `test-mint-import` | product code imports `pkm.test_data.ids`, by any spelling | `TEST_MINT_SITES` (what), `TEST_CODE` (who may) |
 | `model-construct` | a pydantic model is built with `model_construct` | none |
 | `raw-sqlite` | `sqlite3.connect`, a cursor or `.raw` is used outside `SQLITE_SITES` | `SQLITE_SITES` |
 | `brand-parse` | a file cannot be parsed (usually Python older than 3.12) | none |
@@ -56,8 +56,11 @@ Tests are exempt from nothing. They mint through the checked helpers instead:
 Each `<stem>_of` raises `ValueError` unless the value fits the brand's
 `SHAPES` regex or base type (an integer brand refuses a `bool` or a float).
 `rawread.read`, the tests' reader for catalog tables and counts, raises when
-a returned column is a `pkm.rows` key that carries a brand: that value is read
-with `Db.select`, whose row check validates it.
+a returned column may carry a brand: a `pkm.rows` key with a brand, or a raw
+name `COLUMN_KEYS` maps to one (a bare `id`, the sidebar's `order_idx`). That
+value is read with `Db.select`, whose row check validates it. The refusal
+goes by returned name, so `SELECT uid AS u` passes; it returns an unbranded
+value, so it mints nothing.
 
 #### Web side
 

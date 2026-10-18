@@ -1,23 +1,24 @@
-from pkm.contracts.ops import BlockUid, OrderIdx, ViewType
+from pkm.contracts.ops import BlockUid, ViewType
 from pkm.rows import Row, StoredHeadingLevel
 from pkm.server.tree import build_tree, collect_block_ref_uids
+from pkm.test_data.ids import order_idx_of, uid_of
 
 
-def _row(uid: str, parent: str | None, idx: int, text: str,
+def _row(uid: BlockUid, parent: BlockUid | None, idx: int, text: str,
          heading: StoredHeadingLevel | None, view_type: ViewType | None,
          collapsed: int) -> Row:
-    return {"uid": BlockUid(uid),
-            "parent_uid": BlockUid(parent) if parent else None,
-            "order_idx": OrderIdx(idx), "text": text, "heading": heading,
+    return {"uid": uid,
+            "parent_uid": parent,
+            "order_idx": order_idx_of(idx), "text": text, "heading": heading,
             "view_type": view_type, "collapsed": collapsed,
             "created_at": None, "updated_at": None}
 
 
 ROWS = [
-    _row("r2", None, 1, "second", 2, "numbered", 1),
-    _row("r1", None, 0, "first", None, None, 0),
-    _row("c1", "r2", 0, "child", None, "document", 0),
-    _row("ghost", "missing", 0, "orphan", None, None, 0),
+    _row(uid_of("tuid-r2"), None, 1, "second", 2, "numbered", 1),
+    _row(uid_of("tuid-r1"), None, 0, "first", None, None, 0),
+    _row(uid_of("tuid-c1"), uid_of("tuid-r2"), 0, "child", None, "document", 0),
+    _row(uid_of("tuid-ghost"), uid_of("missing"), 0, "orphan", None, None, 0),
 ]
 
 
@@ -48,5 +49,5 @@ def test_tree_collapsed_is_bool():
 
 
 def test_build_tree_reads_a_legacy_heading_zero_as_none():
-    (node,) = build_tree([_row("h0", None, 0, "legacy", 0, None, 0)])
+    (node,) = build_tree([_row(uid_of("tuid-h0"), None, 0, "legacy", 0, None, 0)])
     assert node["heading"] is None

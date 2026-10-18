@@ -64,16 +64,17 @@ replica keying its refetch on the broadcast `page_title` would look for
 (and mint) its own local page under the raw blank string instead of
 finding the real "Untitled" page, diverging until the next resync.
 """
-import sqlite3
 from datetime import date
 
 import pytest
 
 from rawread import read
 from pkm.contracts.daily import title_for_date
-from pkm.refs import CanonicalTitle, NormalizedTitle
+from pkm.refs import CanonicalTitle
 from pkm.server import store
 from pkm.server.store import BlankTitleError, get_or_create_page, fetch_page
+from pkm.test_data.ids import canonical_title_of
+from pkm.database import connect
 
 
 def _ct(title: str) -> CanonicalTitle:
@@ -81,7 +82,7 @@ def _ct(title: str) -> CanonicalTitle:
     with deliberately blank/padded/forbidden strings, which are never
     minted through canonicalize_title -- cast at this one fixture point
     rather than threading the real canonicalizer through every assertion."""
-    return CanonicalTitle(NormalizedTitle(title))
+    return canonical_title_of(title)
 
 
 CONTROL_ONLY = "\n\t"          # contains a control ws char
@@ -110,9 +111,9 @@ def _post_ops(client, *ops):
 
 
 def _titles(config) -> list[str]:
-    con = sqlite3.connect(config.db_path)
+    con = connect(config.db_path)
     try:
-        return [r[0] for r in con.execute("SELECT title FROM pages")]
+        return [r["title"] for r in con.select("SELECT title FROM pages")]
     finally:
         con.close()
 
@@ -458,25 +459,26 @@ def test_create_page_op_reuses_a_pre_existing_padded_title(
     posting create_page with the exact pre-existing padded title must
     reuse that page, not duplicate it."""
     padded = " Legacy Padded Page"
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "INSERT INTO pages(title, created_at, updated_at) VALUES (?,?,?)",
         (padded, 100, 100))
     con.commit()
-    original_id = read(con,
-        "SELECT id FROM pages WHERE title = ?", (padded,)).fetchone()[0]
+    original_id = con.select(
+        "SELECT id AS page_id FROM pages WHERE title = ?",
+        (padded,))[0]["page_id"]
     con.close()
 
     r = _post_ops(client, {"op": "create_page", "page_title": padded})
     assert r.status_code == 200
 
-    con = sqlite3.connect(seeded_config.db_path)
-    rows = read(con,
-        "SELECT id FROM pages WHERE title = ?", (padded,)).fetchall()
-    stripped_rows = read(con,
-        "SELECT id FROM pages WHERE title = ?", (padded.strip(),)).fetchall()
+    con = connect(seeded_config.db_path)
+    rows = con.select(
+        "SELECT id AS page_id FROM pages WHERE title = ?", (padded,))
+    stripped_rows = con.select(
+        "SELECT id AS page_id FROM pages WHERE title = ?", (padded.strip(),))
     con.close()
-    assert rows == [(original_id,)]      # reused, not duplicated
+    assert [r["page_id"] for r in rows] == [original_id]  # reused, not duplicated
     assert stripped_rows == []           # no stray stripped-title page either
 
 
@@ -495,7 +497,7 @@ def test_create_op_with_spaces_only_ref_in_text_does_not_500(
                            "order_idx": 5, "text": "hello [[   ]] world"})
     assert r.status_code == 200
     assert _blank_titles(seeded_config) == []
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     ref_count = read(con,
         "SELECT count(*) FROM refs WHERE src_block_uid = ?",
         ("spacesref1",)).fetchone()[0]
@@ -511,7 +513,7 @@ def test_rename_page_with_referencing_spaces_only_ref_succeeds(
     uid_b4 already refs "Machine Learning" (page id 1, SEED_REFS); adding a
     spaces-only "[[   ]]" ref to its text must not turn an ordinary rename
     into a 500 -- the rename route only catches sqlite3.IntegrityError."""
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "UPDATE blocks SET text = ? WHERE uid = ?",
         ("Studying [[Machine Learning]] today, see also [[   ]]", "uid_b4"))

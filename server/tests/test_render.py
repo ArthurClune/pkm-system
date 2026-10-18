@@ -1,6 +1,5 @@
 from datetime import timedelta, timezone
 
-from pkm.refs import CanonicalTitle, NormalizedTitle
 from pkm.render import (clip_depth, render_assets, render_backlinks,
                         render_block, render_changed, render_groups,
                         render_page, render_search,
@@ -11,11 +10,13 @@ from pkm.contracts.responses import (AssetSearchPayload, Backlinks,
                                      GroupsPayload, PagePayload, QueryPayload,
                                      SearchPayload, TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload)
+from pkm.test_data.ids import canonical_title_of, malformed_uid, uid_of
+from pkm.contracts.ops import BlockUid
 
 TZ = timezone(timedelta(hours=1))
 
 
-def _node(uid, text, children=(), heading=None) -> BlockNode:
+def _node(uid: BlockUid, text, children=(), heading=None) -> BlockNode:
     return BlockNode(uid=uid, text=text, heading=heading, view_type=None,
                      collapsed=False, order_idx=0, created_at=None,
                      updated_at=None, children=list(children))
@@ -26,9 +27,9 @@ PAGE = PagePayload.model_validate({
     "page": {"id": 1, "title": "Machine Learning", "created_at": None,
              "updated_at": None},
     "blocks": [
-        _node("u1", "Tags:: #AI"),
-        _node("u2", "Papers", heading=2,
-              children=[_node("u3", "[[Attention Is All You Need]]")]),
+        _node(uid_of("tuid-u1"), "Tags:: #AI"),
+        _node(uid_of("tuid-u2"), "Papers", heading=2,
+              children=[_node(uid_of("tuid-u3"), "[[Attention Is All You Need]]")]),
     ],
     "backlinks": NO_BACKLINKS,
     "block_ref_texts": {},
@@ -47,12 +48,12 @@ def test_render_page_markdown():
 
 def test_render_page_with_uids():
     out = render_page(PAGE, include_uids=True)
-    assert "- Tags:: #AI  ^u1\n" in out
-    assert "  - [[Attention Is All You Need]]  ^u3\n" in out
+    assert "- Tags:: #AI  ^tuid-u1\n" in out
+    assert "  - [[Attention Is All You Need]]  ^tuid-u3\n" in out
 
 
 def test_render_block_with_breadcrumbs():
-    payload = BlockPayload(page=PAGE.page, block=_node("u3", "leaf"),
+    payload = BlockPayload(page=PAGE.page, block=_node(uid_of("tuid-u3"), "leaf"),
                            breadcrumbs=["Papers"], block_ref_texts={})
     assert render_block(payload) == (
         "(in: Machine Learning > Papers)\n"
@@ -63,7 +64,7 @@ def test_render_block_with_breadcrumbs():
 def _search(**kw) -> SearchPayload:
     return SearchPayload.model_validate(
         {"pages": [{"id": 1, "title": "AI"}],
-         "blocks": [{"uid": "u1", "page_title": "ML",
+         "blocks": [{"uid": "tuid-u1", "page_title": "ML",
                      "snippet": "…<mark>hit</mark>…"}], **kw})
 
 
@@ -86,7 +87,7 @@ def test_render_search_compact():
         "- AI\n"
         "\n"
         "## Blocks\n"
-        "- [ML] ^u1\n")
+        "- [ML] ^tuid-u1\n")
 
 
 def test_render_groups_with_uids_and_total():
@@ -103,8 +104,8 @@ def test_render_groups_with_uids_and_total():
 
 def test_render_groups_empty_with_ref_counts_hint():
     payload = QueryPayload(groups=[], total=0,
-                           ref_counts={CanonicalTitle(NormalizedTitle("Meeting")): 312,
-                                       CanonicalTitle(NormalizedTitle("Databases")): 51})
+                           ref_counts={canonical_title_of("Meeting"): 312,
+                                       canonical_title_of("Databases"): 51})
     out = render_groups(payload)
     assert out == ("(0 total)\n"
                    "per-ref block counts: [[Meeting]] 312, [[Databases]] 51\n")
@@ -141,20 +142,19 @@ def test_render_empty_text_block():
     payload = PagePayload.model_validate({
         "page": {"id": 1, "title": "Test", "created_at": None,
                  "updated_at": None},
-        "blocks": [_node("u1", "")],  # empty text
+        "blocks": [_node(uid_of("tuid-u1"), "")],  # empty text
         "backlinks": NO_BACKLINKS,
         "block_ref_texts": {},
         "block_ref_counts": {},
     })
     assert render_page(payload) == "# Test\n\n-\n"
-    assert render_page(payload, include_uids=True) == "# Test\n\n-  ^u1\n"
+    assert render_page(payload, include_uids=True) == "# Test\n\n-  ^tuid-u1\n"
 
 
 def test_resolve_ref_texts_inlines_and_keeps_uid():
-    from pkm.contracts.ops import BlockUid
     from pkm.render import resolve_ref_texts
     from pkm.contracts.responses import BlockRefText
-    ref_map = {BlockUid("uid_u9"):
+    ref_map = {uid_of("uid_u9"):
                BlockRefText(text="the target", page_title="P")}
     assert resolve_ref_texts("see ((uid_u9)) here", ref_map) == \
         'see "the target" ((uid_u9)) here'
@@ -166,12 +166,11 @@ def test_resolve_ref_texts_unknown_uid_untouched():
 
 
 def test_resolve_ref_texts_nested_and_cyclic():
-    from pkm.contracts.ops import BlockUid
     from pkm.render import resolve_ref_texts
     from pkm.contracts.responses import BlockRefText
-    ref_map = {BlockUid("uid_a1"):
+    ref_map = {uid_of("uid_a1"):
                BlockRefText(text="A says ((uid_b1))", page_title="P"),
-               BlockUid("uid_b1"):
+               uid_of("uid_b1"):
                BlockRefText(text="B says ((uid_a1))", page_title="P")}
     out = resolve_ref_texts("root ((uid_a1))", ref_map)
     # a inlined; b inlined inside it; the cyclic ((a)) inside b stays bare
@@ -183,10 +182,9 @@ def test_resolve_ref_texts_non_ascii_token_stays_bare():
     # resolve here even though refs.py's extractor never recognized it as a
     # block ref. Sharing refs.py's ASCII-only BLOCK_REF_TOKEN closes that
     # gap: a non-ASCII token is left bare, matching every other surface.
-    from pkm.contracts.ops import BlockUid
     from pkm.render import resolve_ref_texts
     from pkm.contracts.responses import BlockRefText
-    ref_map = {BlockUid("uidé12"):
+    ref_map = {malformed_uid("uidé12"):
                BlockRefText(text="unreachable", page_title="P")}
     assert resolve_ref_texts("see ((uidé12)) here", ref_map) == \
         "see ((uidé12)) here"
@@ -195,10 +193,9 @@ def test_resolve_ref_texts_non_ascii_token_stays_bare():
 def test_resolve_ref_texts_32_char_token_resolves():
     # The accepted side of the {6,32} boundary: a 32-char token is still a
     # recognized ref, same as any other length within bounds.
-    from pkm.contracts.ops import BlockUid
     from pkm.render import resolve_ref_texts
     from pkm.contracts.responses import BlockRefText
-    uid32 = BlockUid("a" * 32)
+    uid32 = uid_of("a" * 32)
     ref_map = {uid32: BlockRefText(text="the target", page_title="P")}
     assert resolve_ref_texts(f"see (({uid32})) here", ref_map) == \
         f'see "the target" (({uid32})) here'
@@ -208,10 +205,9 @@ def test_resolve_ref_texts_token_over_32_chars_stays_bare():
     # Bounded at 32 to match UID_RE: a token that long can never have been
     # minted, so it is left as plain text even when the map happens to hold
     # a matching key.
-    from pkm.contracts.ops import BlockUid
     from pkm.render import resolve_ref_texts
     from pkm.contracts.responses import BlockRefText
-    overlong = BlockUid("a" * 33)
+    overlong = malformed_uid("a" * 33)
     ref_map = {overlong: BlockRefText(text="unreachable", page_title="P")}
     assert resolve_ref_texts(f"see (({overlong})) here", ref_map) == \
         f"see (({overlong})) here"
@@ -219,7 +215,7 @@ def test_resolve_ref_texts_token_over_32_chars_stays_bare():
 
 def test_render_page_resolve_refs():
     payload = PagePayload.model_validate(
-        {"page": PAGE.page, "blocks": [_node("u1", "see ((uid_u9))")],
+        {"page": PAGE.page, "blocks": [_node(uid_of("tuid-u1"), "see ((uid_u9))")],
          "backlinks": NO_BACKLINKS,
          "block_ref_texts": {"uid_u9": {"text": "target", "page_title": "X"}},
          "block_ref_counts": {}})
@@ -235,8 +231,8 @@ def test_render_assets():
          "url": "/assets/" + "ab" * 32 + "/graph.png",
          "description": "a bar chart of revenue", "status": "described",
          "describe_error": None,
-         "refs": [{"uid": "u1", "page_title": "Holiday 2026"},
-                  {"uid": "u2", "page_title": "July 26th, 2026"}]},
+         "refs": [{"uid": "tuid-u1", "page_title": "Holiday 2026"},
+                  {"uid": "tuid-u2", "page_title": "July 26th, 2026"}]},
         {"sha256": "cd" * 32, "filename": "raw.png", "mime": "image/png",
          "size": 99, "created_at": None,
          "url": "/assets/" + "cd" * 32 + "/raw.png",
@@ -248,8 +244,8 @@ def test_render_assets():
     assert "a bar chart of revenue" in out
     assert "/assets/" + "ab" * 32 + "/graph.png" in out
     assert "pending" in out
-    assert "  in [[Holiday 2026]] ((u1))" in out
-    assert "  in [[July 26th, 2026]] ((u2))" in out
+    assert "  in [[Holiday 2026]] ((tuid-u1))" in out
+    assert "  in [[July 26th, 2026]] ((tuid-u2))" in out
     # unreferenced asset gets no "in [[" line (its ref lines would come
     # after its URL line, i.e. after the LAST "raw.png" occurrence)
     assert "in [[" not in out.split("raw.png")[-1]
@@ -399,30 +395,30 @@ def _section_blocks() -> list[BlockNode]:
     H3, then two duplicate H2s -- exercises level-aware matching plus
     document-order tie-breaking for both bare and marked specs."""
     return [
-        _node("plain", "Notes"),
-        _node("h3", "Notes", heading=3),
-        _node("h2a", "Notes", heading=2, children=[_node("h2a-child", "first")]),
-        _node("h2b", "Notes", heading=2, children=[_node("h2b-child", "second")]),
-        _node("papers", "Papers", heading=2),
+        _node(uid_of("tuid-plain"), "Notes"),
+        _node(uid_of("tuid-h3"), "Notes", heading=3),
+        _node(uid_of("tuid-h2a"), "Notes", heading=2, children=[_node(uid_of("h2a-child"), "first")]),
+        _node(uid_of("tuid-h2b"), "Notes", heading=2, children=[_node(uid_of("h2b-child"), "second")]),
+        _node(uid_of("papers"), "Papers", heading=2),
     ]
 
 
 def test_select_section_marked_spec_matches_heading_level_and_text():
     from pkm.render import select_section
     [sec] = select_section(_section_blocks(), "## Notes")
-    assert sec.uid == "h2a"
+    assert sec.uid == "tuid-h2a"
 
 
 def test_select_section_marked_spec_selects_different_level_same_text():
     from pkm.render import select_section
     [sec] = select_section(_section_blocks(), "### Notes")
-    assert sec.uid == "h3"
+    assert sec.uid == "tuid-h3"
 
 
 def test_select_section_bare_spec_is_heading_agnostic_and_picks_first_in_document_order():
     from pkm.render import select_section
     [sec] = select_section(_section_blocks(), "Notes")
-    assert sec.uid == "plain"
+    assert sec.uid == "tuid-plain"
 
 
 def test_select_section_miss_lists_available_marked_headings_in_document_order():

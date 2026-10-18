@@ -10,6 +10,7 @@ from pkm.contracts.ops import (OpBatch, Sha256Hex, UpdateTextOp, subtree_hash,
                                text_hash)
 from pkm.server.db import open_db
 from pkm.server.ops_hash import batch_replay_hash, batch_request_hash
+from pkm.test_data.ids import sha_of
 
 CASES = json.loads(
     (Path(__file__).parents[2] / "shared" / "fixtures" / "ops_acks.json")
@@ -211,7 +212,7 @@ def _replay_hash(ops) -> str:
 
 def test_replay_hash_ignores_worker_filled_guard_fields():
     bare = [{"op": "update_text", "uid": "uid_b1", "text": "golden"}]
-    hashed = [dict(bare[0], base_text_hash=Sha256Hex("0" * 64))]
+    hashed = [dict(bare[0], base_text_hash=sha_of("0" * 64))]
     hashed_and_titled = [dict(hashed[0], page_title="AI")]
     assert (_replay_hash(bare) == _replay_hash(hashed)
             == _replay_hash(hashed_and_titled))
@@ -243,7 +244,7 @@ def test_worker_filled_then_bare_replays_with_one_effect(client):
     r1 = client.post("/api/ops", json=bare)
     assert r1.status_code == 200
     filled = dict(bare, ops=[dict(bare["ops"][0],
-                                 base_text_hash=Sha256Hex("0" * 64),
+                                 base_text_hash=sha_of("0" * 64),
                                  page_title="AI")])
     r2 = client.post("/api/ops", json=filled)
     assert r2.status_code == 200

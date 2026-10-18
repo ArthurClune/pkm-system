@@ -416,18 +416,15 @@ function elementOf(checker, type) {
 // fits it (`T`, `U extends T`), a union of `to` where some member is, an
 // intersection where every member is, a generic mapped type (`Partial<T>`)
 // where what it maps over is, and an array, reference or object through its
-// elements, arguments and properties. `alias` maps a type parameter of
-// `to` to the one of `from` that stands for it (an overload's `T` to its
-// implementation's), which holds it too.
-const NO_ALIAS = new Map();
-function unbackedLaunder(checker, from, to, seen = new Map(), alias = NO_ALIAS) {
+// elements, arguments and properties.
+function unbackedLaunder(checker, from, to, seen = new Map()) {
   if (from === to || !cachedLaunders(checker, to)) return false;
   // `any` fits every type parameter and holds none: a guard over
   // `MessageEvent["data"]` narrows a string to any `T`.
   if (from.flags & ts.TypeFlags.Any) return true;
   const unheld = (source, target) =>
     source === undefined ? cachedLaunders(checker, target)
-      : unbackedLaunder(checker, source, target, seen, alias);
+      : unbackedLaunder(checker, source, target, seen);
   if (from.isUnion()) {
     return from.types.some((m) => !isNullish(m)
       && !(m.flags & ts.TypeFlags.Never) && unheld(m, to));
@@ -445,7 +442,7 @@ function unbackedLaunder(checker, from, to, seen = new Map(), alias = NO_ALIAS) 
   }
   if (to.flags & (ts.TypeFlags.TypeParameter | ts.TypeFlags.Index
     | ts.TypeFlags.IndexedAccess | ts.TypeFlags.Conditional)) {
-    return alias.get(to) !== from && !checker.isTypeAssignableTo(from, to);
+    return !checker.isTypeAssignableTo(from, to);
   }
   const targets = seen.get(from) ?? new Set();
   if (targets.has(to)) return false;
@@ -535,17 +532,17 @@ function undeclaredBrands(checker, from, to) {
 // brand elsewhere in `from` does not cover it. Only the members of a `from`
 // union that could hold a `to` are compared: `BlockUid | null` narrowed to
 // `BlockUid` gains none, `BlockUid | string` gains BlockUid from its string.
-function mintedBrands(checker, from, to, seen = new Map(), alias = NO_ALIAS) {
+function mintedBrands(checker, from, to, seen = new Map()) {
   const minted = new Set();
   const add = (brands) => brands.forEach((b) => minted.add(b));
   const every = () => new Set(cachedBrands(checker, to));
   const compare = (source, target) => add(source === undefined
-    ? cachedBrands(checker, target) : mintedBrands(checker, source, target, seen, alias));
-  if (from === to || alias.get(to) === from) return minted;
+    ? cachedBrands(checker, target) : mintedBrands(checker, source, target, seen));
+  if (from === to) return minted;
   if (from.flags & ts.TypeFlags.Any) return every();
   if (from.isUnion()) {
     for (const m of from.types) {
-      if (overlaps(checker, m, to)) add(mintedBrands(checker, m, to, seen, alias));
+      if (overlaps(checker, m, to)) add(mintedBrands(checker, m, to, seen));
     }
     return minted;
   }
@@ -554,7 +551,7 @@ function mintedBrands(checker, from, to, seen = new Map(), alias = NO_ALIAS) {
   if (from.isIntersection() && ownBrand(checker, from) === null) {
     let common;
     for (const m of from.types) {
-      const gained = mintedBrands(checker, m, to, seen, alias);
+      const gained = mintedBrands(checker, m, to, seen);
       common = common === undefined
         ? gained : new Set([...common].filter((b) => gained.has(b)));
     }
@@ -572,7 +569,7 @@ function mintedBrands(checker, from, to, seen = new Map(), alias = NO_ALIAS) {
     for (const m of to.types) {
       if (overlaps(checker, from, m)) {
         overlapping = true;
-        add(mintedBrands(checker, from, m, seen, alias));
+        add(mintedBrands(checker, from, m, seen));
       }
       else if (isObjectish(m) && isObjectish(from)) add(undeclaredBrands(checker, from, m));
     }
@@ -587,7 +584,7 @@ function mintedBrands(checker, from, to, seen = new Map(), alias = NO_ALIAS) {
   if (leaf && checker.isTypeAssignableTo(from, to)) return minted;
   if (from.flags & ts.TypeFlags.TypeParameter) {
     const constraint = checker.getBaseConstraintOfType(from);
-    return mintedBrands(checker, constraint ?? checker.getUnknownType(), to, seen, alias);
+    return mintedBrands(checker, constraint ?? checker.getUnknownType(), to, seen);
   }
   // A recursive type meets itself again: the first visit judges it.
   const targets = seen.get(from) ?? new Set();
@@ -597,7 +594,7 @@ function mintedBrands(checker, from, to, seen = new Map(), alias = NO_ALIAS) {
   // An intersection that is not itself a brand (`Set<BlockUid> & { a: 1 }`)
   // mints what any of its members does, each taking its own path.
   if (ownBrand(checker, to) === null && to.isIntersection()) {
-    for (const m of to.types) add(mintedBrands(checker, from, m, seen, alias));
+    for (const m of to.types) add(mintedBrands(checker, from, m, seen));
     return minted;
   }
   if (checker.isArrayType(to) || checker.isTupleType(to)) {
@@ -882,12 +879,10 @@ const noBrandAssertion = {
       report(node, cachedBrands(checker, type), messageId);
     // Whether `type` launders; reported unless an opt-out line allows it.
     // Whether `type` launders beyond what `from`, where given, already
-    // holds (`alias` maps `type`'s type parameters to `from`'s); reported
-    // unless an opt-out line allows it.
-    const reportLaunder = (node, type, from, alias) => {
+    // holds; reported unless an opt-out line allows it.
+    const reportLaunder = (node, type, from) => {
       if (!cachedLaunders(checker, type)) return false;
-      if (from !== undefined
-        && !unbackedLaunder(checker, from, type, new Map(), alias)) return false;
+      if (from !== undefined && !unbackedLaunder(checker, from, type)) return false;
       const optOut = optOutOf(context.sourceCode, node);
       if (optOut !== "reason" || !mayOptOut) {
         context.report({
@@ -956,20 +951,17 @@ const noBrandAssertion = {
       const implSignature = checker.getSignatureFromDeclaration(impl);
       if (!signature || !implSignature
         || checker.getTypePredicateOfSignature(signature)) return;
-      // A type parameter in the return launders like `as T` unless the
-      // implementation's return holds the corresponding parameter of its
-      // own at that position (`f<T>(x: T): T` over `function f<T>(x: T):
-      // T`, matched by position in the type parameter lists); over an
-      // `unknown` implementation it reports, and the remedy is an honestly
-      // generic implementation.
+      // A type parameter in the return launders like `as T`, whatever the
+      // implementation: nothing ties the overload's `T` to a value the
+      // caller passed. The remedy is one generic signature with no
+      // overload.
       const returned = checker.getReturnTypeOfSignature(signature);
-      const implemented = checker.getReturnTypeOfSignature(implSignature);
-      const implParams = implSignature.getTypeParameters() ?? [];
-      const alias = new Map((signature.getTypeParameters() ?? [])
-        .map((t, i) => [t, implParams[i]]));
-      if (reportLaunder(node, returned, implemented, alias)) return;
-      report(node, mintedBrands(checker, implemented, returned, new Map(), alias),
-        "overload");
+      if (reportLaunder(node, returned)) return;
+      report(node, mintedBrands(
+        checker,
+        checker.getReturnTypeOfSignature(implSignature),
+        returned,
+      ), "overload");
     };
     // `declare` asserts a function exists with no body to check; without it
     // a TSDeclareFunction is an overload signature.

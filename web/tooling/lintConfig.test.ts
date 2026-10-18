@@ -339,7 +339,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-overload.ts",
     rule: "brands/no-brand-assertion",
-    count: 16,
+    count: 18,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export function same(x: BlockUid): BlockUid;\n" +
@@ -367,14 +367,12 @@ const cases: readonly FixtureCase[] = [
       "export function first<T>(xs: readonly T[]): T | undefined {\n" +
       "  return xs[0];\n" +
       "}\n" +
-      "export function pick<T>(x: T, label: string): T;\n" +
       "export function pick<T>(x: T, label?: string): T {\n" +
       "  void label;\n" +
       "  return x;\n" +
       "}\n" +
-      "export function firstOf<T>(xs: readonly T[]): T | undefined;\n" +
-      "export function firstOf<T>(xs: readonly T[], n?: number): T | undefined {\n" +
-      "  return xs[n ?? 0];\n" +
+      "export function firstOf<T>(xs: readonly T[]): T | undefined {\n" +
+      "  return xs[0];\n" +
       "}\n",
   },
   {

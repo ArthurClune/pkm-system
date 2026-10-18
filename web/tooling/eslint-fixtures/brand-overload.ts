@@ -67,3 +67,12 @@ export function identity<T>(x: T): T;
 export function identity(x: unknown): unknown {
   return x;
 }
+export function pick<T>(x: T, label: string): T;
+export function pick<T>(x: T, label?: string): T {
+  void label;
+  return x;
+}
+export function firstOf<T>(xs: readonly T[]): T | undefined;
+export function firstOf<T>(xs: readonly T[], n?: number): T | undefined {
+  return xs[n ?? 0];
+}

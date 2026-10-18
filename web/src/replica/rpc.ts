@@ -128,8 +128,7 @@ export function createRpcClient<M extends RpcMethodMap = RpcMethodMap>(port: Por
     call<K extends keyof M & string>(
       method: K, ...args: RpcCallArgs<M, K>
     ): Promise<M[K]["result"]> {
-      const [payload, options] = args as unknown as
-        [M[K]["payload"] | undefined, { timeoutMs?: number } | undefined];
+      const [payload, options]: [M[K]["payload"]?, { timeoutMs?: number }?] = args;
       if (terminal) return Promise.reject(terminal);
       const id = nextId++;
       return new Promise<M[K]["result"]>((resolve, reject) => {

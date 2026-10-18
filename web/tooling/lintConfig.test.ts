@@ -205,7 +205,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-assertion-mapped.ts",
     rule: "brands/no-brand-assertion",
-    count: 4,
+    count: 7,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export function keep(v: Record<string, BlockUid>): unknown {\n" +
@@ -240,7 +240,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-assertion-generic.ts",
     rule: "brands/no-brand-assertion",
-    count: 3,
+    count: 4,
     corrected:
       'import type { BlockUid, PageId } from "../../src/api/brands";\n' +
       "export function pick<T extends BlockUid | PageId>(x: T): T {\n" +
@@ -257,6 +257,64 @@ const cases: readonly FixtureCase[] = [
       "export function parse(x: string): BlockUid | null {\n" +
       "  return parseBlockUid(x);\n" +
       "}\n",
+  },
+  {
+    file: "brand-predicate-launder.ts",
+    rule: "brands/no-brand-assertion",
+    count: 5,
+    corrected:
+      'import type { BlockUid } from "../../src/api/brands";\n' +
+      'type Op = { op: "insert"; uid: BlockUid } | { op: "note"; n: 1 };\n' +
+      "export function present(x: BlockUid | null): x is BlockUid {\n" +
+      "  return x !== null;\n" +
+      "}\n" +
+      "export function assertPresent(\n" +
+      "  x: BlockUid | undefined,\n" +
+      "): asserts x is BlockUid {\n" +
+      "  void x;\n" +
+      "}\n" +
+      "export function isInsert(\n" +
+      "  x: Op,\n" +
+      '): x is { op: "insert"; uid: BlockUid } {\n' +
+      '  return x.op === "insert";\n' +
+      "}\n" +
+      "export function levelled(\n" +
+      "  x: { uid: BlockUid; level: number | null },\n" +
+      "): x is { uid: BlockUid; level: number } {\n" +
+      "  return x.level !== null;\n" +
+      "}\n",
+  },
+  {
+    file: "brand-overload.ts",
+    rule: "brands/no-brand-assertion",
+    count: 6,
+    corrected:
+      'import type { BlockUid } from "../../src/api/brands";\n' +
+      "export function same(x: BlockUid): BlockUid;\n" +
+      "export function same(x: null): null;\n" +
+      "export function same(x: BlockUid | null): BlockUid | null {\n" +
+      "  return x;\n" +
+      "}\n" +
+      "export class Keeper {\n" +
+      "  keep(x: BlockUid): BlockUid;\n" +
+      "  keep(x: BlockUid | null): BlockUid | null {\n" +
+      "    return x;\n" +
+      "  }\n" +
+      "}\n",
+  },
+  {
+    file: "brand-assertion-launder.ts",
+    rule: "brands/no-brand-assertion",
+    count: 13,
+    corrected:
+      'import type { BlockUid, PageId } from "../../src/api/brands";\n' +
+      "export function pick<T extends BlockUid | PageId>(x: T): T {\n" +
+      "  return x;\n" +
+      "}\n" +
+      'export function mode<K extends "a" | "b">(k: string): K {\n' +
+      "  return k as K;\n" +
+      "}\n" +
+      'export const modes = ["a", "b"] as const;\n',
   },
   {
     file: "brand-name-positions.ts",
@@ -429,6 +487,31 @@ describe("brands plugin judgement", () => {
       "  return op.n === 1;\n" +
       "}\n";
     expect(await messagesFor("src/sync/opQueue.ts", text)).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("honours an opt-out line on a constrained launder in a boundary", async () => {
+    const text =
+      "export function f<T extends string>(x: string): T {\n" +
+      "  // brand: untrusted -- a response body\n" +
+      "  return x as T;\n" +
+      "}\n";
+    expect(await messagesFor("src/api/client.ts", text)).toEqual([]);
+    const outside = await messagesFor("src/sync/opQueue.ts", text);
+    expect(outside.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(outside[0].message).toContain("launders");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("lets an overload add a brand in its mint site only", async () => {
+    const text =
+      'import type { BlockUid } from "../api/brands";\n' +
+      "export function p(s: string): BlockUid;\n" +
+      "export function p(s: string): string {\n" +
+      "  return s;\n" +
+      "}\n";
+    expect(await messagesFor("src/ids.ts", text)).toEqual([]);
+    const outside = await messagesFor("src/sync/opQueue.ts", text);
+    expect(outside.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(outside[0].message).toContain("implementation");
   }, ESLINT_TIMEOUT_MS);
 
   it("walks a Pick alias by its picked keys, not every key", async () => {

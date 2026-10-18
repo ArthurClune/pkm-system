@@ -17,3 +17,12 @@ export function indexed(v: unknown): unknown {
 export function picked(v: unknown): unknown {
   return v as Pick<Cols, "uid">[];
 }
+export function keyed(v: unknown): unknown {
+  return v as Record<BlockUid, number>;
+}
+export function partialKeyed(v: unknown): unknown {
+  return v as Partial<Record<BlockUid, 1>>;
+}
+export function signatureKeyed(v: unknown): unknown {
+  return v as { [k: BlockUid]: 1 };
+}

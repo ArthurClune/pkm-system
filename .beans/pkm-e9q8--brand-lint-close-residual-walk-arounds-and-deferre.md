@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-17T21:12:42Z
-updated_at: 2026-10-17T21:43:01Z
+updated_at: 2026-10-18T15:06:19Z
 blocking:
     - pkm-zv2s
 ---
@@ -15,10 +15,10 @@ Follow-up to pkm-zv2s (brand check). Found by the final reviews and parked under
 ## Plugin gaps in web/tooling/eslint-plugin-brands (Important first)
 The first four items land on `feat/brand-check-web` before the Phase 2 merge (Arthur, 2026-10-17); the rest of this bean may follow later.
 
-- [ ] Predicate exemption launders: `function isUid(x: BlockUid | string): x is BlockUid` lints clean (index.mjs predicate exemption). Exempt only when no member of the declared type is a strict supertype of the narrowed type.
-- [ ] Overload signatures mint: `function p(s: string): BlockUid; function p(s: string): string {...}` passes tsc and lint. For a non-declare overload, report brands in its return type that the implementation's return type lacks (also class method overloads).
-- [ ] Launder variants pass: `<T extends string>(x): T { return x as T }`, `<T extends {}>`, `as T & {}`, `as T[]`, `as { v: T }`, `as Promise<T>`. Treat a type parameter whose constraint carries no brand but admits a brand's base as laundering, inside composites too.
-- [ ] Regression: `{} as Record<BlockUid, number>` / `Partial<Record<BlockUid, 1>>` no longer reported; walk index-info keyType too (also catches `{ [k: BlockUid]: 1 }`).
+- [x] Predicate exemption launders: `function isUid(x: BlockUid | string): x is BlockUid` lints clean (index.mjs predicate exemption). Exempt only when no member of the declared type is a strict supertype of the narrowed type.
+- [x] Overload signatures mint: `function p(s: string): BlockUid; function p(s: string): string {...}` passes tsc and lint. For a non-declare overload, report brands in its return type that the implementation's return type lacks (also class method overloads).
+- [x] Launder variants pass: `<T extends string>(x): T { return x as T }`, `<T extends {}>`, `as T & {}`, `as T[]`, `as { v: T }`, `as Promise<T>`. Treat a type parameter whose constraint carries no brand but admits a brand's base as laundering, inside composites too.
+- [x] Regression: `{} as Record<BlockUid, number>` / `Partial<Record<BlockUid, 1>>` no longer reported; walk index-info keyType too (also catches `{ [k: BlockUid]: 1 }`).
 - [ ] Ambient declarations nested in `declare global`/`declare namespace`, `declare` class fields; rule 1 on TSCallSignatureDeclaration/TSConstructSignatureDeclaration; function-type assertion targets.
 - [ ] Opt-out covers every site on its line; stale opt-outs unreported (server brandlint too).
 

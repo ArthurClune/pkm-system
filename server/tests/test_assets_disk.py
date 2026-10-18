@@ -11,10 +11,10 @@ import hashlib
 
 import pkm.assets_disk as assets_disk
 from pkm.assets_disk import asset_on_disk_needs_repair
-from pkm.contracts.ops import Sha256Hex
+from pkm.test_data.ids import sha_of
 
 BYTES = b"PNGDATA"
-SHA = Sha256Hex(hashlib.sha256(BYTES).hexdigest())
+SHA = sha_of(hashlib.sha256(BYTES).hexdigest())
 
 
 def _write(tmp_path, data: bytes):

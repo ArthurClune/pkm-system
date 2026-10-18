@@ -11,7 +11,6 @@ generators, not in any one of them.
 import asyncio
 import contextlib
 import logging
-from typing import cast
 
 import pytest
 from claude_agent_sdk import PermissionResultDeny
@@ -42,8 +41,9 @@ class ParkedTurn:
         self.cid, _ = await self.service.create(None)
         # the real ClaudeConversation, reached through the registry the
         # service actually streams from
-        self.conversation = cast(
-            ClaudeConversation, self.service._entries[self.cid].handle)
+        handle = self.service._entries[self.cid].handle
+        assert isinstance(handle, ClaudeConversation)
+        self.conversation = handle
         self.client = FakeSDKClient.instances[0]
 
         async def fake_model_turn() -> None:

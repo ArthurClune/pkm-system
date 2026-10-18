@@ -11,10 +11,11 @@ from fake_describer import (
 from rawread import read
 from pkm.describe.service import DescribeService
 from pkm.server.db import open_db
+from pkm.test_data.ids import sha_of
 from pkm.contracts.ops import Sha256Hex
 
 
-def _insert_asset(config, sha, mime="image/png", size=None,
+def _insert_asset(config, sha: Sha256Hex, mime="image/png", size=None,
                   content=PNG, description=None, error=None):
     (config.assets_dir / sha[:2]).mkdir(parents=True, exist_ok=True)
     (config.assets_dir / sha[:2] / sha).write_bytes(content)
@@ -28,7 +29,7 @@ def _insert_asset(config, sha, mime="image/png", size=None,
     con.close()
 
 
-def _asset_row(config, sha):
+def _asset_row(config, sha: Sha256Hex):
     con = open_db(config.db_path)
     row = read(con, "SELECT description, described_at, describe_error"
                       " FROM assets WHERE sha256 = ?", (sha,)).fetchone()
@@ -51,9 +52,9 @@ async def _run(service, *shas_mimes):
 def test_worker_writes_description(seeded_config):
     fake = FakeDescriber()
     service = DescribeService(seeded_config, fake, None)
-    _insert_asset(seeded_config, SHA_A)
+    _insert_asset(seeded_config, sha_of(SHA_A))
     asyncio.run(_run(service, (SHA_A, "image/png", len(PNG))))
-    row = _asset_row(seeded_config, SHA_A)
+    row = _asset_row(seeded_config, sha_of(SHA_A))
     assert row["description"] == "a bar chart of monthly revenue"
     assert row["described_at"] is not None
     assert row["describe_error"] is None
@@ -62,9 +63,9 @@ def test_worker_writes_description(seeded_config):
 
 def test_worker_records_error(seeded_config):
     service = DescribeService(seeded_config, FakeDescriber(error="openai http 429"), None)
-    _insert_asset(seeded_config, SHA_A)
+    _insert_asset(seeded_config, sha_of(SHA_A))
     asyncio.run(_run(service, (SHA_A, "image/png", len(PNG))))
-    row = _asset_row(seeded_config, SHA_A)
+    row = _asset_row(seeded_config, sha_of(SHA_A))
     assert row["description"] is None
     assert row["describe_error"] == "openai http 429"
 
@@ -72,18 +73,18 @@ def test_worker_records_error(seeded_config):
 def test_worker_skips_already_described(seeded_config):
     fake = FakeDescriber()
     service = DescribeService(seeded_config, fake, None)
-    _insert_asset(seeded_config, SHA_A, description="already done")
+    _insert_asset(seeded_config, sha_of(SHA_A), description="already done")
     asyncio.run(_run(service, (SHA_A, "image/png", len(PNG))))
     assert fake.calls == []
-    assert _asset_row(seeded_config, SHA_A)["description"] == "already done"
+    assert _asset_row(seeded_config, sha_of(SHA_A))["description"] == "already done"
 
 
 def test_worker_records_too_large(seeded_config):
     fake = FakeDescriber()
     service = DescribeService(seeded_config, fake, None)
-    _insert_asset(seeded_config, SHA_A, size=16 * 1024 * 1024)
+    _insert_asset(seeded_config, sha_of(SHA_A), size=16 * 1024 * 1024)
     asyncio.run(_run(service, (SHA_A, "image/png", 16 * 1024 * 1024)))
-    row = _asset_row(seeded_config, SHA_A)
+    row = _asset_row(seeded_config, sha_of(SHA_A))
     assert fake.calls == []
     assert row["describe_error"] == "too large to describe"
 
@@ -97,16 +98,16 @@ def test_worker_records_missing_file(seeded_config):
     con.commit()
     con.close()
     asyncio.run(_run(service, (SHA_A, "image/png", 10)))
-    assert _asset_row(seeded_config, SHA_A)["describe_error"] == "file missing"
+    assert _asset_row(seeded_config, sha_of(SHA_A))["describe_error"] == "file missing"
 
 
 def test_maybe_enqueue_ignores_ineligible_and_disabled(seeded_config):
     service = DescribeService(seeded_config, FakeDescriber(), None)
-    service.maybe_enqueue(Sha256Hex(SHA_A), "text/csv", 10)      # ineligible mime
+    service.maybe_enqueue(sha_of(SHA_A), "text/csv", 10)      # ineligible mime
     assert service._queue.qsize() == 0
     disabled = DescribeService(seeded_config, None, "OPENAI_API_KEY is not set")
     assert disabled.enabled is False
-    disabled.maybe_enqueue(Sha256Hex(SHA_A), "image/png", 10)    # disabled: no-op
+    disabled.maybe_enqueue(sha_of(SHA_A), "image/png", 10)    # disabled: no-op
     assert disabled._queue.qsize() == 0
     disabled.start()                                   # no worker when disabled
     assert disabled._task is None
@@ -179,11 +180,11 @@ def test_cancelled_close_caller_waits_for_shared_shutdown(seeded_config):
 def test_close_cancels_worker_before_closing_describer(seeded_config):
     fake = BlockingDescriber()
     service = DescribeService(seeded_config, fake, None)
-    _insert_asset(seeded_config, SHA_A)
+    _insert_asset(seeded_config, sha_of(SHA_A))
 
     async def run():
         service.start()
-        service.maybe_enqueue(Sha256Hex(SHA_A), "image/png", len(PNG))
+        service.maybe_enqueue(sha_of(SHA_A), "image/png", len(PNG))
         await asyncio.to_thread(fake.started.wait, 5)
         await service.close()
 
@@ -209,8 +210,8 @@ def test_start_rejects_reuse_after_close(seeded_config):
 def test_scan_enqueues_undescribed_and_force_retries(seeded_config):
     fake = FakeDescriber(error="openai http 429")
     service = DescribeService(seeded_config, fake, None)
-    _insert_asset(seeded_config, SHA_A)                      # pending
-    _insert_asset(seeded_config, SHA_B, error="openai http 500")  # failed
+    _insert_asset(seeded_config, sha_of(SHA_A))                      # pending
+    _insert_asset(seeded_config, sha_of(SHA_B), error="openai http 500")  # failed
     con = open_db(seeded_config.db_path)
     assert service.scan(con) == 1            # pending only
     # Let SHA_A's ordinary attempt run to completion (and fail) before
@@ -225,7 +226,7 @@ def test_scan_does_not_requeue_a_sha_already_active(seeded_config):
     """Two scans before the worker drains the first pending sha must not
     double-queue it."""
     service = DescribeService(seeded_config, FakeDescriber(), None)
-    _insert_asset(seeded_config, SHA_A)
+    _insert_asset(seeded_config, sha_of(SHA_A))
     con = open_db(seeded_config.db_path)
     assert service.scan(con) == 1
     assert service.scan(con, force=True) == 0   # SHA_A already active: nothing new
@@ -238,13 +239,13 @@ def test_maybe_enqueue_dedupes_while_in_flight(seeded_config):
     genuinely in flight must not trigger a second describe call."""
     fake = BlockingDescriber(error="openai http 429")
     service = DescribeService(seeded_config, fake, None)
-    _insert_asset(seeded_config, SHA_A)
+    _insert_asset(seeded_config, sha_of(SHA_A))
 
     async def run():
         service.start()
-        service.maybe_enqueue(Sha256Hex(SHA_A), "image/png", len(PNG))
+        service.maybe_enqueue(sha_of(SHA_A), "image/png", len(PNG))
         await asyncio.to_thread(fake.started.wait, 5)  # now genuinely in-flight
-        service.maybe_enqueue(Sha256Hex(SHA_A), "image/png", len(PNG))  # duplicate
+        service.maybe_enqueue(sha_of(SHA_A), "image/png", len(PNG))  # duplicate
         assert service._queue.qsize() == 0  # not re-queued while active
         fake.release.set()
         await asyncio.wait_for(service.drain(), timeout=5)
@@ -252,12 +253,12 @@ def test_maybe_enqueue_dedupes_while_in_flight(seeded_config):
 
     asyncio.run(run())
     assert fake.calls == ["image/png"]  # describer invoked exactly once
-    row = _asset_row(seeded_config, SHA_A)
+    row = _asset_row(seeded_config, sha_of(SHA_A))
     assert row["describe_error"] == "openai http 429"
 
     # finally-cleanup: once the attempt has finished, the sha is no longer
     # blocked, so a later retry is allowed through again.
-    service.maybe_enqueue(Sha256Hex(SHA_A), "image/png", len(PNG))
+    service.maybe_enqueue(sha_of(SHA_A), "image/png", len(PNG))
     assert service._queue.qsize() == 1
 
 
@@ -277,13 +278,13 @@ def test_worker_survives_unexpected_exception(seeded_config):
             pass
 
     service = DescribeService(seeded_config, ExplodingDescriber(), None)
-    _insert_asset(seeded_config, SHA_A)
-    _insert_asset(seeded_config, SHA_B)
+    _insert_asset(seeded_config, sha_of(SHA_A))
+    _insert_asset(seeded_config, sha_of(SHA_B))
 
     async def run():
         service.start()
-        service.maybe_enqueue(Sha256Hex(SHA_A), "image/png", len(PNG))
-        service.maybe_enqueue(Sha256Hex(SHA_B), "image/png", len(PNG))
+        service.maybe_enqueue(sha_of(SHA_A), "image/png", len(PNG))
+        service.maybe_enqueue(sha_of(SHA_B), "image/png", len(PNG))
         await asyncio.wait_for(service.drain(), timeout=5)
         assert service._task is not None and not service._task.done()  # worker survived the crash
         await service.close()

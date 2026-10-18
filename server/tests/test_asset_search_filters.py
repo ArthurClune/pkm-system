@@ -1,5 +1,7 @@
 """Filters + pagination on GET /api/assets/search."""
 from pkm.server.db import open_db
+from pkm.contracts.ops import BlockUid, Sha256Hex
+from pkm.test_data.ids import uid_of
 
 
 def _upload(client, content, name, mime="image/png"):
@@ -8,7 +10,7 @@ def _upload(client, content, name, mime="image/png"):
     return r.json()
 
 
-def _create_block(client, uid, page_title, text):
+def _create_block(client, uid: BlockUid, page_title, text):
     r = client.post("/api/ops", json={
         "client_id": "test", "batch_id": f"batch-{uid}",
         "ops": [{"op": "create", "uid": uid, "page_title": page_title,
@@ -16,7 +18,7 @@ def _create_block(client, uid, page_title, text):
     assert r.status_code == 200, r.text
 
 
-def _set_created_at(config, sha, ms):
+def _set_created_at(config, sha: Sha256Hex, ms):
     db = open_db(config.db_path)
     db.execute("UPDATE assets SET created_at = ? WHERE sha256 = ?",
                (ms, sha))
@@ -56,7 +58,7 @@ def test_date_filter_bounds_inclusive_and_null_excluded(client,
 def test_linked_and_orphan_filters(client):
     linked = _upload(client, b"LNK", "linked.png")
     orphan = _upload(client, b"ORF", "orphan.png")
-    _create_block(client, "flt001", "AI", f"pic ![]({linked['url']})")
+    _create_block(client, uid_of("flt001"), "AI", f"pic ![]({linked['url']})")
     got = _search(client, linked="linked")
     assert [a["sha256"] for a in got["assets"]] == [linked["sha256"]]
     assert got["total"] == 1
@@ -72,7 +74,7 @@ def test_orphan_filter_paginates_over_filtered_set(client, seeded_config):
         shas.append(a["sha256"])
     linked = _upload(client, b"LNK", "linked.png")
     _set_created_at(seeded_config, linked["sha256"], 5000)
-    _create_block(client, "flt002", "AI", f"![]({linked['url']})")
+    _create_block(client, uid_of("flt002"), "AI", f"![]({linked['url']})")
     got = _search(client, linked="orphan", limit=2, offset=0)
     assert got["total"] == 3
     # newest-first: o2, o1 on page one; o0 on page two

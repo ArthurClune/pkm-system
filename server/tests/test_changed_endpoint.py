@@ -1,11 +1,13 @@
 """GET /api/changed: block edit-time listing."""
-import sqlite3
 import time
 from datetime import datetime, timezone
 
 import pytest
 
 from pkm.server.db import open_db
+from pkm.database import connect
+from pkm.contracts.ops import BlockUid
+from pkm.test_data.ids import uid_of
 
 TZ = timezone.utc
 
@@ -34,7 +36,8 @@ def _ms(dt: datetime) -> int:
     return int(dt.timestamp() * 1000)
 
 
-def _set_times(db_path, uid: str, created_at: datetime, updated_at: datetime) -> None:
+def _set_times(db_path, uid: BlockUid, created_at: datetime,
+                updated_at: datetime) -> None:
     con = open_db(db_path)
     con.execute("UPDATE blocks SET created_at = ?, updated_at = ? WHERE uid = ?",
                (_ms(created_at), _ms(updated_at), uid))
@@ -61,15 +64,15 @@ def changed_client(client, seeded_config):
     assert r.status_code == 200, r.text
 
     # new_blk1: created and updated inside the window -> "new"
-    _set_times(seeded_config.db_path, "new_blk1", DAY1, DAY1)
+    _set_times(seeded_config.db_path, uid_of("new_blk1"), DAY1, DAY1)
     # edit_blk1: created before, updated inside the window -> "edited"
-    _set_times(seeded_config.db_path, "edit_blk1", DAY0, DAY1_LATE)
+    _set_times(seeded_config.db_path, uid_of("edit_blk1"), DAY0, DAY1_LATE)
     # before_blk1: updated before the window -> excluded
-    _set_times(seeded_config.db_path, "before_blk1", DAY0, DAY0)
+    _set_times(seeded_config.db_path, uid_of("before_blk1"), DAY0, DAY0)
     # after_blk1: updated exactly at `until` -> excluded (until is exclusive)
-    _set_times(seeded_config.db_path, "after_blk1", DAY2, DAY2)
+    _set_times(seeded_config.db_path, uid_of("after_blk1"), DAY2, DAY2)
     # paper_blk1: on a different page, inside the window
-    _set_times(seeded_config.db_path, "paper_blk1", DAY0, DAY1)
+    _set_times(seeded_config.db_path, uid_of("paper_blk1"), DAY0, DAY1)
     return client
 
 
@@ -111,7 +114,7 @@ def test_page_filter(changed_client):
 
 def test_page_filter_canonicalizes_padded_title_when_active(
         changed_client, seeded_config):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "UPDATE sync_meta SET value = '1'"
         " WHERE key = 'plain_space_title_canonicalization'"

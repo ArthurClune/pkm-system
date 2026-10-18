@@ -6,6 +6,8 @@ import pytest
 from pkm.cli.main import main
 from pkm.client.core import ApiError
 from pkm.contracts.daily import title_for_date
+from pkm.contracts.ops import BatchId, BlockUid
+from pkm.test_data.ids import batch_id_of
 
 
 @pytest.fixture()
@@ -173,7 +175,7 @@ def test_upload_post_ops_failure_deletes_the_orphaned_asset(
     png = tmp_path / "pic.png"
     png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 100)
 
-    def _fail(ops, batch_id):
+    def _fail(ops, batch_id: BatchId):
         raise ApiError(500, "boom")
 
     monkeypatch.setattr(pkm_client, "post_ops", _fail)
@@ -191,7 +193,7 @@ def test_upload_post_ops_failure_does_not_delete_a_pre_existing_asset(
     code, _, _ = run("upload", str(png), "-p", "AI")
     assert code == 0  # first upload lands for real -- the asset is now in use
 
-    def _fail(ops, batch_id):
+    def _fail(ops, batch_id: BatchId):
         raise ApiError(500, "boom")
 
     monkeypatch.setattr(pkm_client, "post_ops", _fail)
@@ -681,7 +683,7 @@ def test_batch_reports_ops_skipped_for_a_missing_uid_and_exits_1(
     assert "kept" in _page_texts(pkm_client, "AI")
 
 
-def _seed_root_with_child(pkm_client, batch_id):
+def _seed_root_with_child(pkm_client, batch_id: BatchId):
     pkm_client.post_ops([
         {"op": "create", "uid": "gdroot0001", "page_title": "AI",
          "parent_uid": None, "order_idx": 60, "text": "doomed root"},
@@ -700,7 +702,7 @@ def _today_texts(pkm_client):
 
 
 def test_batch_delete_matching_subtree_lands_no_copy(run, pkm_client):
-    _seed_root_with_child(pkm_client, "gd-seed-match")
+    _seed_root_with_child(pkm_client, batch_id_of("gd-seed-match"))
     code, out, _ = run("batch", stdin=json.dumps(
         [{"command": "delete", "params": {"uid": "gdroot0001"}}]))
     assert code == 0
@@ -718,7 +720,7 @@ def test_batch_delete_stale_fetch_lands_the_copy(
     # the subtree from `get_page_blocks("AI")` (see `_delete_subtrees`);
     # both are staled here so the hash reflects the same older snapshot
     # regardless of which one the resolution path lands on.
-    _seed_root_with_child(pkm_client, "gd-seed-stale")
+    _seed_root_with_child(pkm_client, batch_id_of("gd-seed-stale"))
     real_get_block = pkm_client.get_block
     real_get_page_blocks = pkm_client.get_page_blocks
 
@@ -726,7 +728,7 @@ def test_batch_delete_stale_fetch_lands_the_copy(
         return [c.model_copy(update={"text": "what the fetch saw"})
                 for c in children]
 
-    def _stale_get_block(uid):
+    def _stale_get_block(uid: BlockUid):
         payload = real_get_block(uid)
         block = payload.block
         return payload.model_copy(update={"block": block.model_copy(
@@ -769,9 +771,9 @@ def test_batch_delete_fetch_failure_fails_the_batch(
         run, pkm_client, monkeypatch):
     # Only a 404 means "no such block"; any other fetch failure must not
     # quietly send the delete unguarded.
-    _seed_root_with_child(pkm_client, "gd-seed-fail")
+    _seed_root_with_child(pkm_client, batch_id_of("gd-seed-fail"))
 
-    def _broken_get_block(uid):
+    def _broken_get_block(uid: BlockUid):
         raise ApiError(503, "unavailable")
 
     monkeypatch.setattr(pkm_client, "get_block", _broken_get_block)

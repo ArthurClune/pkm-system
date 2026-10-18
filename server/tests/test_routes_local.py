@@ -1,5 +1,4 @@
 import os
-import sqlite3
 import threading
 from dataclasses import replace
 
@@ -10,6 +9,7 @@ from pkm.local_docs import local_href
 from pkm.server import routes_local
 from pkm.server.app import create_app
 from pkm.server.local_open import OpenProber
+from pkm.database import connect
 
 
 def test_serves_pdf_inline_with_headers(local_client):
@@ -97,7 +97,7 @@ def test_requires_auth(seeded_config, local_root):
 
 
 def _seed_local_links(db_path):
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     rows = [
         ("uid_l1", 1, None, 10, "Local copy:: [Title one.pdf](/api/local/Papers/ML/Title%20one.pdf)"),
         ("uid_l2", 1, None, 11, "Local copy:: [x.pdf](/api/local/Papers/ML/nope.pdf)"),
@@ -147,7 +147,7 @@ def test_check_agrees_with_file_route_on_symlinked_evicted_stub(
     outside.mkdir()
     (outside / ".X.pdf.icloud").write_bytes(b"stub")
     os.symlink(outside, local_root / "link")
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading,"
         " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,NULL,0,NULL,NULL)",
@@ -167,7 +167,7 @@ def test_check_survives_a_symlink_loop_href(local_client, seeded_config, local_r
     audit with a 500; it is reported as one problem among the rest."""
     os.symlink("b", local_root / "a")
     os.symlink("a", local_root / "b")
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading,"
         " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,NULL,0,NULL,NULL)",
@@ -195,7 +195,7 @@ def test_check_agrees_with_file_route_on_percent_in_filename(
     same file the file route serves, including a literal `%` in the
     real filename."""
     href = local_href("Papers/ML/50% draft.pdf")
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading,"
         " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,NULL,0,NULL,NULL)",

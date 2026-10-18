@@ -228,11 +228,8 @@ function laundersParam(checker, param, asValue) {
 // `T & {}`, `T[K]`, `Partial<T>`, `ReturnType<F>` ...), walked like
 // brandsOf walks brands, and through the arguments of any type alias. Alias
 // arguments, index keys and a mapped type's keys are walked as keys; the
-// structure behind an alias is walked as values. A parameter in `bound` is
-// inferred from an argument rather than chosen by the caller (the `T` of
-// `first<T>(xs: readonly T[]): T | undefined`) and does not launder.
-const NONE_BOUND = new Set();
-function launders(checker, type, bound = NONE_BOUND) {
+// structure behind an alias is walked as values.
+function launders(checker, type) {
   const seen = [new Set(), new Set()];
   const walk = (t, asValue = true) => {
     const visited = seen[asValue ? 1 : 0];
@@ -241,13 +238,13 @@ function launders(checker, type, bound = NONE_BOUND) {
     const key = (u) => walk(u, false);
     if (t.flags & ts.TypeFlags.Never) return true;
     if (t.flags & ts.TypeFlags.TypeParameter) {
-      return !bound.has(t) && laundersParam(checker, t, asValue);
+      return laundersParam(checker, t, asValue);
     }
     // `keyof T` (or `keyof T[K]`) stays unresolved only while its keys come
     // from a type parameter, and a caller picks them: `keyof
     // Record<BlockUid, 1>` is a BlockUid. A concrete `keyof Row` resolves to
     // its literal keys and never reaches here.
-    if (t.flags & ts.TypeFlags.Index) return !bound.has(t.type);
+    if (t.flags & ts.TypeFlags.Index) return true;
     if (t.aliasTypeArguments?.some(key)) return true;
     if (t.flags & ts.TypeFlags.IndexedAccess) {
       return walk(t.objectType) || key(t.indexType);
@@ -419,15 +416,18 @@ function elementOf(checker, type) {
 // fits it (`T`, `U extends T`), a union of `to` where some member is, an
 // intersection where every member is, a generic mapped type (`Partial<T>`)
 // where what it maps over is, and an array, reference or object through its
-// elements, arguments and properties.
-function unbackedLaunder(checker, from, to, seen = new Map()) {
+// elements, arguments and properties. `alias` maps a type parameter of
+// `to` to the one of `from` that stands for it (an overload's `T` to its
+// implementation's), which holds it too.
+const NO_ALIAS = new Map();
+function unbackedLaunder(checker, from, to, seen = new Map(), alias = NO_ALIAS) {
   if (from === to || !cachedLaunders(checker, to)) return false;
   // `any` fits every type parameter and holds none: a guard over
   // `MessageEvent["data"]` narrows a string to any `T`.
   if (from.flags & ts.TypeFlags.Any) return true;
   const unheld = (source, target) =>
     source === undefined ? cachedLaunders(checker, target)
-      : unbackedLaunder(checker, source, target, seen);
+      : unbackedLaunder(checker, source, target, seen, alias);
   if (from.isUnion()) {
     return from.types.some((m) => !isNullish(m)
       && !(m.flags & ts.TypeFlags.Never) && unheld(m, to));
@@ -436,14 +436,16 @@ function unbackedLaunder(checker, from, to, seen = new Map()) {
     return from.types.every((m) => unheld(m, to));
   }
   if (to.isUnion()) {
-    // Some laundering member must be held; a member that launders nothing
-    // (`number` in `T | number`) is narrowed away before `T` is read.
-    return to.types.filter((m) => cachedLaunders(checker, m))
-      .every((m) => unheld(from, m));
+    // `from` (one member of its own union by now) must fit a member that
+    // launders nothing or hold one that does: the `string` of `T | string`
+    // fits the `string` of `T | string` and holds nothing of `T | number`,
+    // whose `number` is narrowed away before `T` is read.
+    return !to.types.some((m) => cachedLaunders(checker, m)
+      ? !unheld(from, m) : checker.isTypeAssignableTo(from, m));
   }
   if (to.flags & (ts.TypeFlags.TypeParameter | ts.TypeFlags.Index
     | ts.TypeFlags.IndexedAccess | ts.TypeFlags.Conditional)) {
-    return !checker.isTypeAssignableTo(from, to);
+    return alias.get(to) !== from && !checker.isTypeAssignableTo(from, to);
   }
   const targets = seen.get(from) ?? new Set();
   if (targets.has(to)) return false;
@@ -468,13 +470,23 @@ function unbackedLaunder(checker, from, to, seen = new Map()) {
       return toArgs.some((t, i) => unheld(fromArgs[i], t));
     }
   }
+  // A lib type's members are not walked: `unknown` holds nothing of
+  // `Promise<T>`, a `Promise<U>` was paired above.
+  if (isForeign(to) && !(to.objectFlags & ts.ObjectFlags.Mapped)) {
+    return !checker.isTypeAssignableTo(from, to);
+  }
   const props = to.getProperties();
   const infos = checker.getIndexInfosOfType(to);
   if (to.objectFlags & ts.ObjectFlags.Mapped && props.length === 0
     && infos.length === 0) {
     // `Partial<T>` over a type parameter has no members until instantiated:
     // it is held where what it maps over is (its alias arguments, or the
-    // `T` of `keyof T` written in place).
+    // `T` of `keyof T` written in place), or argument by argument by the
+    // same alias (`Partial<T>` over `Partial<U>`).
+    if (to.aliasSymbol !== undefined && from.aliasSymbol === to.aliasSymbol) {
+      const fromArgs = from.aliasTypeArguments ?? [];
+      return (to.aliasTypeArguments ?? []).some((a, i) => unheld(fromArgs[i], a));
+    }
     const over = [...(to.aliasTypeArguments ?? [])];
     const decl = to.symbol?.declarations?.find(ts.isMappedTypeNode);
     const keys = decl?.typeParameter.constraint;
@@ -523,17 +535,17 @@ function undeclaredBrands(checker, from, to) {
 // brand elsewhere in `from` does not cover it. Only the members of a `from`
 // union that could hold a `to` are compared: `BlockUid | null` narrowed to
 // `BlockUid` gains none, `BlockUid | string` gains BlockUid from its string.
-function mintedBrands(checker, from, to, seen = new Map()) {
+function mintedBrands(checker, from, to, seen = new Map(), alias = NO_ALIAS) {
   const minted = new Set();
   const add = (brands) => brands.forEach((b) => minted.add(b));
   const every = () => new Set(cachedBrands(checker, to));
   const compare = (source, target) => add(source === undefined
-    ? cachedBrands(checker, target) : mintedBrands(checker, source, target, seen));
-  if (from === to) return minted;
+    ? cachedBrands(checker, target) : mintedBrands(checker, source, target, seen, alias));
+  if (from === to || alias.get(to) === from) return minted;
   if (from.flags & ts.TypeFlags.Any) return every();
   if (from.isUnion()) {
     for (const m of from.types) {
-      if (overlaps(checker, m, to)) add(mintedBrands(checker, m, to, seen));
+      if (overlaps(checker, m, to)) add(mintedBrands(checker, m, to, seen, alias));
     }
     return minted;
   }
@@ -542,7 +554,7 @@ function mintedBrands(checker, from, to, seen = new Map()) {
   if (from.isIntersection() && ownBrand(checker, from) === null) {
     let common;
     for (const m of from.types) {
-      const gained = mintedBrands(checker, m, to, seen);
+      const gained = mintedBrands(checker, m, to, seen, alias);
       common = common === undefined
         ? gained : new Set([...common].filter((b) => gained.has(b)));
     }
@@ -560,7 +572,7 @@ function mintedBrands(checker, from, to, seen = new Map()) {
     for (const m of to.types) {
       if (overlaps(checker, from, m)) {
         overlapping = true;
-        add(mintedBrands(checker, from, m, seen));
+        add(mintedBrands(checker, from, m, seen, alias));
       }
       else if (isObjectish(m) && isObjectish(from)) add(undeclaredBrands(checker, from, m));
     }
@@ -575,7 +587,7 @@ function mintedBrands(checker, from, to, seen = new Map()) {
   if (leaf && checker.isTypeAssignableTo(from, to)) return minted;
   if (from.flags & ts.TypeFlags.TypeParameter) {
     const constraint = checker.getBaseConstraintOfType(from);
-    return mintedBrands(checker, constraint ?? checker.getUnknownType(), to, seen);
+    return mintedBrands(checker, constraint ?? checker.getUnknownType(), to, seen, alias);
   }
   // A recursive type meets itself again: the first visit judges it.
   const targets = seen.get(from) ?? new Set();
@@ -585,7 +597,7 @@ function mintedBrands(checker, from, to, seen = new Map()) {
   // An intersection that is not itself a brand (`Set<BlockUid> & { a: 1 }`)
   // mints what any of its members does, each taking its own path.
   if (ownBrand(checker, to) === null && to.isIntersection()) {
-    for (const m of to.types) add(mintedBrands(checker, from, m, seen));
+    for (const m of to.types) add(mintedBrands(checker, from, m, seen, alias));
     return minted;
   }
   if (checker.isArrayType(to) || checker.isTupleType(to)) {
@@ -870,13 +882,12 @@ const noBrandAssertion = {
       report(node, cachedBrands(checker, type), messageId);
     // Whether `type` launders; reported unless an opt-out line allows it.
     // Whether `type` launders beyond what `from`, where given, already
-    // holds, or with `bound` parameters inferred from arguments; reported
+    // holds (`alias` maps `type`'s type parameters to `from`'s); reported
     // unless an opt-out line allows it.
-    const reportLaunder = (node, type, from, bound) => {
-      if (bound ? !launders(checker, type, bound) : !cachedLaunders(checker, type)) {
-        return false;
-      }
-      if (from !== undefined && !unbackedLaunder(checker, from, type)) return false;
+    const reportLaunder = (node, type, from, alias) => {
+      if (!cachedLaunders(checker, type)) return false;
+      if (from !== undefined
+        && !unbackedLaunder(checker, from, type, new Map(), alias)) return false;
       const optOut = optOutOf(context.sourceCode, node);
       if (optOut !== "reason" || !mayOptOut) {
         context.report({
@@ -926,22 +937,6 @@ const noBrandAssertion = {
         : cachedBrands(checker, narrowed);
       report(node, minted, "declaration");
     };
-    // The type parameters a signature's arguments always carry a value of:
-    // those of a required, non-rest parameter declared as exactly the
-    // parameter (`x: T`). An optional or rest parameter, a union with
-    // nothing (`T | undefined`) or a container (`T[]`, `{ hint?: T }`) can
-    // be satisfied with no `T` at all, and binds nothing.
-    const inferredParams = (signature) => {
-      const found = new Set();
-      for (const p of signature.getParameters()) {
-        const decl = p.valueDeclaration;
-        if (!decl || !ts.isParameter(decl) || decl.questionToken
-          || decl.dotDotDotToken || decl.initializer) continue;
-        const type = checker.getTypeOfSymbolAtLocation(p, decl);
-        if (type.flags & ts.TypeFlags.TypeParameter) found.add(type);
-      }
-      return found;
-    };
     // An overload signature's return type is what callers see, and nothing
     // checks it against the body: a brand it adds over the implementation's
     // return type is minted. TypeScript keeps an implementation right after
@@ -961,16 +956,20 @@ const noBrandAssertion = {
       const implSignature = checker.getSignatureFromDeclaration(impl);
       if (!signature || !implSignature
         || checker.getTypePredicateOfSignature(signature)) return;
-      // A laundering return (`f<T>(s): T` over an `unknown` implementation)
-      // launders like `as T`; a `T` the parameters mention is inferred from
-      // the arguments instead (`first<T>(xs: readonly T[]): T | undefined`).
+      // A type parameter in the return launders like `as T` unless the
+      // implementation's return holds the corresponding parameter of its
+      // own at that position (`f<T>(x: T): T` over `function f<T>(x: T):
+      // T`, matched by position in the type parameter lists); over an
+      // `unknown` implementation it reports, and the remedy is an honestly
+      // generic implementation.
       const returned = checker.getReturnTypeOfSignature(signature);
-      if (reportLaunder(node, returned, undefined, inferredParams(signature))) return;
-      report(node, mintedBrands(
-        checker,
-        checker.getReturnTypeOfSignature(implSignature),
-        returned,
-      ), "overload");
+      const implemented = checker.getReturnTypeOfSignature(implSignature);
+      const implParams = implSignature.getTypeParameters() ?? [];
+      const alias = new Map((signature.getTypeParameters() ?? [])
+        .map((t, i) => [t, implParams[i]]));
+      if (reportLaunder(node, returned, implemented, alias)) return;
+      report(node, mintedBrands(checker, implemented, returned, new Map(), alias),
+        "overload");
     };
     // `declare` asserts a function exists with no body to check; without it
     // a TSDeclareFunction is an overload signature.

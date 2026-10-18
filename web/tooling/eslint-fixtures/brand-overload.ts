@@ -63,3 +63,7 @@ export function first<T>(xs: readonly T[]): T | undefined;
 export function first(xs: readonly unknown[]): unknown {
   return xs[0];
 }
+export function identity<T>(x: T): T;
+export function identity(x: unknown): unknown {
+  return x;
+}

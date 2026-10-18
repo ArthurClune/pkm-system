@@ -262,6 +262,7 @@ TEST_CODE: tuple[str, ...] = (
     "web/src/test-helpers.ts",
     "web/src/props/",
     "web/src/replica/replayArbs.ts",
+    "web/src/replica/testDb.ts",
     "web/src/sync/memReplica.ts",
 )
 

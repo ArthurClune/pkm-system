@@ -743,22 +743,32 @@ describe("tests under the lint", () => {
     const imports = [
       'import { uidOf } from "../test-helpers";\nvoid uidOf;\n',
       'import { uidOf } from "./test-helpers.ts";\nvoid uidOf;\n',
+      'import { uidOf } from "../test-helpers.js";\nvoid uidOf;\n',
+      'export const load = () => import("../test-helpers");\n',
     ];
+    const bans = new Set(["no-restricted-imports", "no-restricted-syntax"]);
     const restricted = async (rel: string): Promise<string[]> => {
       const found: string[] = [];
       for (const text of imports) {
         const messages = await messagesFor(rel, text);
         for (const m of messages) {
-          if (m.ruleId === "no-restricted-imports") found.push(m.message);
+          if (bans.has(m.ruleId)) found.push(m.message);
         }
       }
       return found;
     };
-    const product = await restricted("src/outline/tree.ts");
-    expect(product).toHaveLength(2);
-    expect(product[0]).toContain("test helpers mint brands without a parse");
+    // SyncProvider.tsx is a transport boundary: it may import apiFetch,
+    // and still not the test helpers.
+    for (const rel of ["src/outline/tree.ts", "src/sync/SyncProvider.tsx"]) {
+      const product = await restricted(rel);
+      expect(product, rel).toHaveLength(imports.length);
+      for (const message of product) {
+        expect(message, rel).toContain("test helpers mint brands without a parse");
+      }
+    }
     expect(await restricted("src/outline/tree.test.ts")).toEqual([]);
     expect(await restricted("src/props/ops/example.ts")).toEqual([]);
+    expect(await restricted("src/replica/testDb.ts")).toEqual([]);
   }, ESLINT_TIMEOUT_MS);
 
   it("test files keep the apiFetch import ban", async () => {

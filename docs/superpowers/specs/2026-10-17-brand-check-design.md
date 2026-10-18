@@ -210,7 +210,8 @@ in an agent's context is already right, and the rule is enforced.
 
 **Scope.** Rules 1 and 2 apply to every test and test-support file:
 `*.test.*`, `web/src/test-setup.ts`, `web/src/test-helpers.ts`,
-`web/src/props/**`, `replica/replayArbs.ts`, `sync/memReplica.ts`,
+`web/src/props/**`, `replica/replayArbs.ts`, `replica/testDb.ts`,
+`sync/memReplica.ts`,
 `server/tests/**`, `server/src/pkm/test_data/**` and the tests under
 `web/tooling/**`. The registry's `TEST_SUPPORT` exemption is deleted;
 its successor `TEST_CODE` only says which files are tests by location

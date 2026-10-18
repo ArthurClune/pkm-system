@@ -10,16 +10,34 @@ const sources = import.meta.glob<string>(
   { query: "?raw", import: "default", eager: true },
 );
 
-function webBrands(): Set<string> {
-  const found = new Set<string>();
-  for (const [path, text] of Object.entries(sources)) {
-    for (const m of text.matchAll(/__brand: "(\w+)"/g)) found.add(m[1]);
-    if (path === "./api/brands.ts") {
-      for (const m of text.matchAll(/^export type (\w+) =/gm)) found.add(m[1]);
+// Brand -> its declared base: `string & { __brand }`, `number & { __brand }`,
+// or a subtype brand's parent (`NormalizedTitle & { __canonical }`).
+function webBrands(): Map<string, "string" | "number"> {
+  const parents = new Map<string, string>();
+  for (const text of Object.values(sources)) {
+    for (const m of text.matchAll(/type (\w+) =\s*(\w+) & \{ readonly __(?:brand|canonical)\b/g)) {
+      parents.set(m[1], m[2]);
     }
+  }
+  const baseOf = (brand: string): "string" | "number" | undefined => {
+    const parent = parents.get(brand);
+    if (parent === "string" || parent === "number") return parent;
+    return parent === undefined ? undefined : baseOf(parent);
+  };
+  const found = new Map<string, "string" | "number">();
+  for (const brand of parents.keys()) {
+    const base = baseOf(brand);
+    if (base !== undefined) found.set(brand, base);
   }
   return found;
 }
+
+// A value of each shaped brand's pattern; any other brand takes any value
+// of its base.
+const VALID: { readonly [brand: string]: string } = {
+  BlockUid: "tuid-a",
+  Sha256Hex: "a".repeat(64),
+};
 
 const capitalised = (s: string): string => s[0].toUpperCase() + s.slice(1);
 
@@ -66,6 +84,23 @@ describe("checked test helpers", () => {
     for (const stem of Object.values(malformed)) {
       const name = `malformed${capitalised(stem)}`;
       expect(typeof exported[name], name).toBe("function");
+    }
+  });
+
+  test("each helper checks its own brand's base", () => {
+    const exported = helpers as Record<string, unknown>;
+    const testHelpers: Record<string, string> = registry.testHelpers;
+    const declared = webBrands();
+    expect(declared.get("CanonicalTitle")).toBe("string");
+    expect(declared.get("PendingRowId")).toBe("number");
+    for (const [brand, base] of declared) {
+      const stem = testHelpers[brand];
+      if (stem === undefined) continue;
+      const helper = exported[`${stem}Of`] as (value: unknown) => unknown;
+      const valid = base === "number" ? 7 : VALID[brand] ?? "value-1";
+      expect(helper(valid), brand).toBe(valid);
+      const other = base === "number" ? "7" : 7;
+      expect(() => helper(other), brand).toThrow(new RegExp(`^${brand} takes`));
     }
   });
 });

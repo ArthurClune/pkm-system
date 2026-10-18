@@ -52,7 +52,7 @@ Tests are exempt from nothing. They mint through the checked helpers instead:
 | `TEST_MINT_SITES` | the one module per side that may mint every brand: `server/src/pkm/test_data/ids.py` and `web/src/test-helpers.ts` |
 | `TEST_HELPERS` | brand -> helper stem: `uid_of`, `page_id_of`, `sha_of` ... in Python, the camel `uidOf` ... on the web |
 | `MALFORMED` | brands with a shape whose bad values a negative test forges unchecked: `malformed_uid`, `malformed_sha` |
-| `TEST_CODE` | files that are tests by location (`server/tests/`, `server/src/pkm/test_data/`, the web's `test-setup.ts`, `test-helpers.ts`, `props/`, `replayArbs.ts` and `memReplica.ts`): they may import the mint modules, and a violation there names the helper |
+| `TEST_CODE` | files that are tests by location (`server/tests/`, `server/src/pkm/test_data/`, the web's `test-setup.ts`, `test-helpers.ts`, `props/`, `replayArbs.ts`, `testDb.ts` and `memReplica.ts`): they may import the mint modules, and a violation there names the helper |
 
 Each `<stem>_of` raises `ValueError` unless the value fits the brand's
 `SHAPES` regex or base type (an integer brand refuses a `bool` or a float);
@@ -123,7 +123,7 @@ vocabulary is in [backend.md](backend.md#typed-database-access) and
 
 | Step | Fails when |
 |---|---|
-| `lint` (`eslint.config.js`), over product code, tests and tooling alike | a hook dependency array drifts, a promise floats or is misused, a non-Error is thrown, a caught error is untyped, `apiFetch` is imported outside the transport boundary, `test-helpers` is imported outside a test, an `any` flows through the code (written, assigned, returned, passed, called or member-accessed), a name that means a brand does not carry it, a brand is asserted outside its mint sites ([Web side](#web-side)), `@ts-ignore` or `@ts-nocheck` appears or `@ts-expect-error` has no description, or a disable directive is stale |
+| `lint` (`eslint.config.js`), over product code, tests and tooling alike | a hook dependency array drifts, a promise floats or is misused, a non-Error is thrown, a caught error is untyped, `apiFetch` is imported outside the transport boundary, `test-helpers` is imported (also by `import()`) outside a test, an `any` flows through the code (written, assigned, returned, passed, called or member-accessed), a name that means a brand does not carry it, a brand is asserted outside its mint sites ([Web side](#web-side)), `@ts-ignore` or `@ts-nocheck` appears or `@ts-expect-error` has no description, or a disable directive is stale |
 | `check:fcis` (`tooling/fcis.mjs`) | a Functional Core module imports an Imperative Shell one at runtime ([overview.md](overview.md#functional-core--imperative-shell)) |
 | `test:coverage` | statements or lines under 95%, branches under 91%, functions under 89% (`vite.config.ts`) |
 | row check (vitest only, `ReplicaDb.select`) | a selected row has a column that is not a `Columns` key, or a value that does not fit its key's base type, nullability, literals or brand shape; the error carries the SQL and the fix. `ReplicaDb.introspect` refuses a column that may carry a brand ([frontend.md](frontend.md#replica-database-access)) |

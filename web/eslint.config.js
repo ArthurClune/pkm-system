@@ -34,6 +34,20 @@ const apiFetchBan = {
     + "raw apiFetch is reserved for transport boundaries.",
 };
 
+// Every spelling of the module (`../test-helpers`, `./test-helpers.ts`,
+// `../test-helpers.js`), static or dynamic.
+const TEST_HELPERS_MESSAGE =
+  "test helpers mint brands without a parse; product code reads or parses "
+  + "them";
+const testHelpersBan = {
+  group: ["**/test-helpers*"],
+  message: TEST_HELPERS_MESSAGE,
+};
+const testHelpersDynamicBan = {
+  selector: "ImportExpression[source.value=/test-helpers/]",
+  message: TEST_HELPERS_MESSAGE,
+};
+
 export default tseslint.config(
   {
     // Global ignores (config object with only `ignores`): skipped entirely by
@@ -53,8 +67,8 @@ export default tseslint.config(
   },
   // base only: registers the typescript-eslint parser + plugin so the
   // @typescript-eslint/* rules below resolve, WITHOUT pulling in any of the
-  // recommended rule sets (that would be rule sprawl beyond the four named
-  // policy families this task is scoped to).
+  // recommended rule sets (that would be rule sprawl beyond the six policy
+  // families named above).
   tseslint.configs.base,
   {
     // Tests and test support included: agents copy the code they read, and
@@ -95,31 +109,31 @@ export default tseslint.config(
         "ts-check": false,
       }],
       "no-restricted-imports": ["error", {
-        patterns: [apiFetchBan, {
-          group: ["**/test-helpers", "**/test-helpers.ts"],
-          message:
-            "test helpers mint brands without a parse; product code reads "
-            + "or parses them",
-        }],
+        patterns: [apiFetchBan, testHelpersBan],
       }],
+      "no-restricted-syntax": ["error", testHelpersDynamicBan],
     },
   },
   {
-    // Tests by name and by location (the brand registry's testCode) may
-    // import the test mint module.
-    files: testFileGlobs,
-    rules: {
-      "no-restricted-imports": ["error", { patterns: [apiFetchBan] }],
-    },
-  },
-  {
+    // Transport boundaries may import apiFetch, but not the test helpers.
     files: [
       "src/api/typedClient.ts",
       "src/sync/assets.ts",
       "src/sync/SyncProvider.tsx",
     ],
     rules: {
-      "no-restricted-imports": "off",
+      "no-restricted-imports": ["error", { patterns: [testHelpersBan] }],
+    },
+  },
+  {
+    // Tests by name and by location (the brand registry's testCode) may
+    // import the test mint module. Last, so a later override cannot take
+    // that back; a transport-layer test that needs apiFetch gets its own
+    // block after this one.
+    files: testFileGlobs,
+    rules: {
+      "no-restricted-imports": ["error", { patterns: [apiFetchBan] }],
+      "no-restricted-syntax": "off",
     },
   },
 );

@@ -422,6 +422,9 @@ function elementOf(checker, type) {
 // elements, arguments and properties.
 function unbackedLaunder(checker, from, to, seen = new Map()) {
   if (from === to || !cachedLaunders(checker, to)) return false;
+  // `any` fits every type parameter and holds none: a guard over
+  // `MessageEvent["data"]` narrows a string to any `T`.
+  if (from.flags & ts.TypeFlags.Any) return true;
   const unheld = (source, target) =>
     source === undefined ? cachedLaunders(checker, target)
       : unbackedLaunder(checker, source, target, seen);
@@ -923,28 +926,19 @@ const noBrandAssertion = {
         : cachedBrands(checker, narrowed);
       report(node, minted, "declaration");
     };
-    // The type parameters a signature infers from its arguments: those its
-    // parameter types mention, through unions, arrays, references and
-    // object properties.
+    // The type parameters a signature's arguments always carry a value of:
+    // those of a required, non-rest parameter declared as exactly the
+    // parameter (`x: T`). An optional or rest parameter, a union with
+    // nothing (`T | undefined`) or a container (`T[]`, `{ hint?: T }`) can
+    // be satisfied with no `T` at all, and binds nothing.
     const inferredParams = (signature) => {
       const found = new Set();
-      const seen = new Set();
-      const walk = (t) => {
-        if (seen.has(t)) return;
-        seen.add(t);
-        if (t.flags & ts.TypeFlags.TypeParameter) found.add(t);
-        else if (t.isUnionOrIntersection()) t.types.forEach(walk);
-        else if (t.flags & ts.TypeFlags.Object) {
-          if (t.objectFlags & ts.ObjectFlags.Reference) {
-            checker.getTypeArguments(t).forEach(walk);
-          }
-          if (!isForeign(t)) {
-            t.getProperties().forEach((p) => walk(checker.getTypeOfSymbol(p)));
-          }
-        }
-      };
       for (const p of signature.getParameters()) {
-        walk(checker.getTypeOfSymbolAtLocation(p, p.valueDeclaration));
+        const decl = p.valueDeclaration;
+        if (!decl || !ts.isParameter(decl) || decl.questionToken
+          || decl.dotDotDotToken || decl.initializer) continue;
+        const type = checker.getTypeOfSymbolAtLocation(p, decl);
+        if (type.flags & ts.TypeFlags.TypeParameter) found.add(type);
       }
       return found;
     };

@@ -261,7 +261,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-predicate-launder.ts",
     rule: "brands/no-brand-assertion",
-    count: 20,
+    count: 22,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       'type Op = { op: "insert"; uid: BlockUid } | { op: "note"; n: 1 };\n' +
@@ -339,7 +339,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-overload.ts",
     rule: "brands/no-brand-assertion",
-    count: 12,
+    count: 15,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export function same(x: BlockUid): BlockUid;\n" +
@@ -364,8 +364,7 @@ const cases: readonly FixtureCase[] = [
       "export function tagged(x: BlockUid): Promise<BlockUid> & { t: 1 } {\n" +
       "  return Object.assign(Promise.resolve(x), { t: 1 as const });\n" +
       "}\n" +
-      "export function first<T>(xs: readonly T[]): T | undefined;\n" +
-      "export function first(xs: readonly unknown[]): unknown {\n" +
+      "export function first<T>(xs: readonly T[]): T | undefined {\n" +
       "  return xs[0];\n" +
       "}\n" +
       "export function identity<T>(x: T): T;\n" +

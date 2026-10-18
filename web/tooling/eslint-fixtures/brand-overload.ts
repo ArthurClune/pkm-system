@@ -50,3 +50,16 @@ export function keyed(s: string): { k: 1; uid?: undefined } | { k: 2; uid?: Bloc
 export function keyed(s: string): { k: 1 } {
   return { k: 1, ...{ s } };
 }
+export function getPref<T>(key: string, fallback?: T): T;
+export function getPref(key: string, fallback?: unknown): unknown {
+  return localStorage.getItem(key) ?? fallback;
+}
+export function collect<T>(s: string, into: T[]): T;
+export function collect(s: string, into: unknown[]): unknown {
+  into.push(s);
+  return s;
+}
+export function first<T>(xs: readonly T[]): T | undefined;
+export function first(xs: readonly unknown[]): unknown {
+  return xs[0];
+}

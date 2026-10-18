@@ -70,3 +70,9 @@ export declare const declaredGuard: Guard<BlockUid>;
 export class Holder {
   is = ((v: string) => v.length > 0) as Guard<BlockUid>;
 }
+export function isMsg<T>(data: MessageEvent["data"]): data is T {
+  return data !== null;
+}
+export function isParsed<T>(v: ReturnType<typeof JSON.parse>): v is T {
+  return v !== null;
+}

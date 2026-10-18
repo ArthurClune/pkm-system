@@ -31,8 +31,8 @@ afterEach(() => {
   t?.close();
 });
 
-function insertPage(id: number, title: string) {
-  t.db.exec("INSERT INTO pages(id, title) VALUES (?, ?)", [id, title]);
+function insertPage(rawPageId: number, title: string) {
+  t.db.exec("INSERT INTO pages(id, title) VALUES (?, ?)", [rawPageId, title]);
 }
 
 function seedLinearChain(prefix: string, ancestors: number): BlockUid {

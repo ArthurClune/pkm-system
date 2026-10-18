@@ -536,26 +536,24 @@ describe("opBumpsUpdatedAt agrees with what the replica actually writes", () => 
 });
 
 describe("applyLocalOps: replay log", () => {
-  type Rec = { batch: string; kind: string; key: string;
-               pre_order: number | null; text: string | null;
-               updated_at: number | null; pre_page_id: number | null };
-  /** absent pre-images read as null pre_order, text and updated_at */
-  const log = (): Rec[] => t.db.select<"batch_id" | "replay_kind" | "replay_key" | "pre_json" | "pre_page_id">(
+  /** absent pre-images read as null order_idx, text and updated_at; the
+   * pre-image's values stay as the JSON stored them */
+  const log = () => t.db.select<"batch_id" | "replay_kind" | "replay_key" | "pre_json" | "pre_page_id">(
     "SELECT batch_id, kind AS replay_kind, key AS replay_key, pre_json, pre_page_id" +
     " FROM replay_log ORDER BY batch_id, kind, key").map((r) => {
-    const pre = r.pre_json === null ? {} : JSON.parse(r.pre_json) as Record<string, string | number | null>;
-    const num = (v: string | number | null | undefined) => v === undefined || v === null ? null : Number(v);
-    return { batch: r.batch_id, kind: r.replay_kind, key: r.replay_key,
-             pre_order: num(pre.order_idx), text: pre.text === undefined || pre.text === null ? null : String(pre.text),
-             updated_at: num(pre.updated_at), pre_page_id: r.pre_page_id };
+    const pre = r.pre_json === null ? {} : JSON.parse(r.pre_json) as Record<string, unknown>;
+    return { batch_id: r.batch_id, kind: r.replay_kind, key: r.replay_key,
+             order_idx: pre.order_idx ?? null, text: pre.text ?? null,
+             updated_at: pre.updated_at ?? null, pre_page_id: r.pre_page_id };
   });
-  const keys = () => log().map((r) => `${r.batch}:${r.kind}:${r.key}`);
+  type Rec = ReturnType<typeof log>[number];
+  const keys = () => log().map((r) => `${r.batch_id}:${r.kind}:${r.key}`);
   const create = (u: string, order = 0, page_title = "AI"): BlockOp =>
     ({ op: "create", uid: uidOf(u), page_title, parent_uid: null,
        order_idx: orderIdxOf(order), text: u });
   const b = (s: string) => ({ batchId: bid(s) });
   const rec = (key: string, over: Partial<Rec> = {}): Rec => ({
-    batch: "b1", kind: "block", key, pre_order: null, text: null,
+    batch_id: bid("b1"), kind: "block", key, order_idx: null, text: null,
     updated_at: null, pre_page_id: null, ...over,
   });
   const pageRec = (id: number, updated_at: number | null = null): Rec =>
@@ -566,9 +564,9 @@ describe("applyLocalOps: replay log", () => {
               " VALUES ('uid_r2cc', 1, 'uid_r2c', 0, 'grandchild')");
     apply(t.db, [{ op: "delete", uid: uidOf("uid_r2") }], 99, b("b1"));
     expect(log()).toEqual([
-      rec("uid_r2", { pre_order: 1, text: "second", pre_page_id: 1 }),
-      rec("uid_r2c", { pre_order: 0, text: "child of second", pre_page_id: 1 }),
-      rec("uid_r2cc", { pre_order: 0, text: "grandchild", pre_page_id: 1 }),
+      rec("uid_r2", { order_idx: 1, text: "second", pre_page_id: pageIdOf(1) }),
+      rec("uid_r2c", { order_idx: 0, text: "child of second", pre_page_id: pageIdOf(1) }),
+      rec("uid_r2cc", { order_idx: 0, text: "grandchild", pre_page_id: pageIdOf(1) }),
       pageRec(1),
     ]);
   });
@@ -577,8 +575,8 @@ describe("applyLocalOps: replay log", () => {
     apply(t.db, [create("uid_new", 0)], 99, b("b1"));
     expect(log()).toEqual([
       rec("uid_new"),
-      rec("uid_r1", { pre_order: 0, text: "first", pre_page_id: 1 }),
-      rec("uid_r2", { pre_order: 1, text: "second", pre_page_id: 1 }),
+      rec("uid_r1", { order_idx: 0, text: "first", pre_page_id: pageIdOf(1) }),
+      rec("uid_r2", { order_idx: 1, text: "second", pre_page_id: pageIdOf(1) }),
       pageRec(1),
     ]);
   });
@@ -587,7 +585,7 @@ describe("applyLocalOps: replay log", () => {
     apply(t.db, [{ op: "move", uid: uidOf("uid_r2"), parent_uid: null,
                    order_idx: orderIdxOf(0), page_title: "AI" }], 99, b("b1"));
     expect(keys()).toEqual(["b1:block:uid_r1", "b1:block:uid_r2", "b1:page:1"]);
-    expect(log().find((r) => r.key === "uid_r2")!.pre_order).toBe(1);
+    expect(log().find((r) => r.key === "uid_r2")!.order_idx).toBe(1);
   });
 
   test("a cross-page move records destination siblings and the moved subtree on its old page", () => {
@@ -597,10 +595,10 @@ describe("applyLocalOps: replay log", () => {
     apply(t.db, [{ op: "move", uid: uidOf("uid_r2"), parent_uid: null,
                    order_idx: orderIdxOf(0), page_title: "ML" }], 99, b("b1"));
     expect(log()).toEqual([
-      rec("uid_p2a", { pre_order: 0, text: "p2", updated_at: 1, pre_page_id: 2 }),
-      rec("uid_r2", { pre_order: 1, text: "second", pre_page_id: 1 }),
-      rec("uid_r2c", { pre_order: 0, text: "child of second", updated_at: 555,
-                       pre_page_id: 1 }),
+      rec("uid_p2a", { order_idx: 0, text: "p2", updated_at: 1, pre_page_id: pageIdOf(2) }),
+      rec("uid_r2", { order_idx: 1, text: "second", pre_page_id: pageIdOf(1) }),
+      rec("uid_r2c", { order_idx: 0, text: "child of second", updated_at: 555,
+                       pre_page_id: pageIdOf(1) }),
       pageRec(1), pageRec(2),
     ]);
   });
@@ -616,9 +614,9 @@ describe("applyLocalOps: replay log", () => {
     apply(t.db, [{ op: "update_text", uid: uidOf("uid_r2c"), text: "again" }], 100,
           b("b2"));
     expect(log().filter((r) => r.key === "uid_r2c")).toEqual([
-      rec("uid_r2c", { pre_order: 0, text: "child of second", pre_page_id: 1 }),
-      rec("uid_r2c", { batch: "b2", pre_order: 0, text: "edited",
-                       updated_at: 99, pre_page_id: 2 }),
+      rec("uid_r2c", { order_idx: 0, text: "child of second", pre_page_id: pageIdOf(1) }),
+      rec("uid_r2c", { batch_id: bid("b2"), order_idx: 0, text: "edited",
+                       updated_at: 99, pre_page_id: pageIdOf(2) }),
     ]);
   });
 
@@ -641,7 +639,7 @@ describe("applyLocalOps: replay log", () => {
           99, b("b1"));
     const [minted] = t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'Fresh'");
     expect(log()).toEqual([
-      rec("uid_r1", { pre_order: 0, text: "first", pre_page_id: 1 }),
+      rec("uid_r1", { order_idx: 0, text: "first", pre_page_id: pageIdOf(1) }),
       pageRec(minted.page_id), pageRec(1),
     ].sort((x, y) => (x.kind + x.key).localeCompare(y.kind + y.key)));
     expect(t.db.select<"target_page_id" | "ref_kind">(

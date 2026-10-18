@@ -31,7 +31,7 @@
      "op": {"op": "create_page", "page_title": "AI"},
      "block_exists": false, "parent_exists": false, "skip": false},
     {"name": "move-to-an-existing-parent-plans-normally",
-     "op": {"op": "move", "uid": "ghost99", "parent_uid": "uid_p", "order_idx": 0},
+     "op": {"op": "move", "uid": "ghost99", "parent_uid": "uid_par", "order_idx": 0},
      "block_exists": true, "parent_exists": true, "skip": false},
 
     {"name": "set_collapsed-on-missing-block-is-a-noop",

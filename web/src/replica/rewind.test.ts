@@ -90,27 +90,27 @@ const setText = (batchId: BatchId, rawUid: string, text: string,
   reindexBlockRefs(t.db, u(rawUid), text);
 };
 const create = (batchId: BatchId, rawUid: string, rawParent: string | null,
-                slot: number) => {
+                rawOrderIdx: number) => {
   recordSiblingsFrom(t.db, batchId,
-    { pageId: P, parentUid: rawParent === null ? null : u(rawParent), fromOrderIdx: idx(slot) });
+    { pageId: P, parentUid: rawParent === null ? null : u(rawParent), fromOrderIdx: idx(rawOrderIdx) });
   t.db.exec("UPDATE blocks SET order_idx = order_idx + 1" +
             " WHERE page_id = 1 AND parent_uid IS ? AND order_idx >= ?",
-            [rawParent, slot]);
+            [rawParent, rawOrderIdx]);
   recordBlocks(t.db, batchId, [u(rawUid)]);
   t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
             " created_at, updated_at) VALUES (?, 1, ?, ?, ?, 900, 900)",
-            [rawUid, rawParent, slot, rawUid]);
+            [rawUid, rawParent, rawOrderIdx, rawUid]);
 };
 const move = (batchId: BatchId, rawUid: string, rawParent: string | null,
-              slot: number) => {
+              rawOrderIdx: number) => {
   recordSiblingsFrom(t.db, batchId,
-    { pageId: P, parentUid: rawParent === null ? null : u(rawParent), fromOrderIdx: idx(slot) });
+    { pageId: P, parentUid: rawParent === null ? null : u(rawParent), fromOrderIdx: idx(rawOrderIdx) });
   t.db.exec("UPDATE blocks SET order_idx = order_idx + 1" +
             " WHERE page_id = 1 AND parent_uid IS ? AND order_idx >= ?",
-            [rawParent, slot]);
+            [rawParent, rawOrderIdx]);
   recordBlocks(t.db, batchId, [u(rawUid)]);
   t.db.exec("UPDATE blocks SET parent_uid = ?, order_idx = ?, updated_at = 900" +
-            " WHERE uid = ?", [rawParent, slot, rawUid]);
+            " WHERE uid = ?", [rawParent, rawOrderIdx, rawUid]);
 };
 /** Records the subtree deepest first, as the delete loop walks it. */
 const del = (batchId: BatchId, ...subtree: string[]) => {

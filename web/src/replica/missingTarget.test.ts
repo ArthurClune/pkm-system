@@ -9,7 +9,7 @@ import { setMeta } from "./meta";
 import { skipsOnMissingTarget } from "./missingTarget";
 import { enqueueBatch } from "./queue";
 import { openTestDb } from "./testDb";
-import { batchIdOf, malformedUid, orderIdxOf, seqOf, shaOf, uidOf } from "../test-helpers";
+import { batchIdOf, orderIdxOf, seqOf, shaOf, uidOf } from "../test-helpers";
 
 // The fixture's JSON, as it is on disk: plain values, no brands. `mintOp`
 // and `placedOf` turn a row into the typed shape the code under test takes.
@@ -48,51 +48,79 @@ const fixture = JSON.parse(readFileSync(new URL(
   placement_cases: PlacementCase[];
 };
 
-// The one fixture uid below the BlockUid shape's minimum length. The case it
-// is in only asks whether a move plans, which the shape does not touch, and
-// the file is shared with the server's test, so the value stays as it is.
-const SHORT_FIXTURE_UID = "uid_p";
-
-const fixtureUid = (v: Raw[string]): BlockUid =>
-  v === SHORT_FIXTURE_UID ? malformedUid(v) : uidOf(String(v));
-
-const parentOf = (v: Raw[string] | undefined): BlockUid | null =>
-  v === null || v === undefined ? null : fixtureUid(v);
-
 const HEADINGS = [1, 2, 3] as const;
 
+const text = (raw: Raw, key: string): string => {
+  const v = raw[key];
+  if (typeof v !== "string") throw new Error(`fixture ${key} is not a string: ${JSON.stringify(v)}`);
+  return v;
+};
+const int = (raw: Raw, key: string): number => {
+  const v = raw[key];
+  if (typeof v !== "number") throw new Error(`fixture ${key} is not a number: ${JSON.stringify(v)}`);
+  return v;
+};
+const uidField = (raw: Raw, key: string): BlockUid => uidOf(text(raw, key));
+const parentField = (raw: Raw): BlockUid | null => {
+  if (raw.parent_uid === undefined) throw new Error("fixture row has no parent_uid");
+  return raw.parent_uid === null ? null : uidField(raw, "parent_uid");
+};
+/** Throws on a key outside `allowed`, so a new fixture field is not dropped. */
+const only = (raw: Raw, allowed: string[]): void => {
+  for (const k of Object.keys(raw)) {
+    if (!allowed.includes(k)) throw new Error(`fixture key ${k} is not one the minter knows`);
+  }
+};
+const optionalTitle = (raw: Raw): { page_title?: string } =>
+  raw.page_title === undefined ? {} : { page_title: text(raw, "page_title") };
+
 function mintOp(raw: Raw): BlockOp {
-  const uid = uidOf(String(raw.uid));
-  const pageTitle = raw.page_title === undefined ? {} : { page_title: String(raw.page_title) };
   switch (raw.op) {
     case "create":
-      return { op: "create", uid, page_title: String(raw.page_title), parent_uid: parentOf(raw.parent_uid),
-               order_idx: orderIdxOf(Number(raw.order_idx)), text: String(raw.text) };
+      only(raw, ["op", "uid", "page_title", "parent_uid", "order_idx", "text"]);
+      return { op: "create", uid: uidField(raw, "uid"), page_title: text(raw, "page_title"),
+               parent_uid: parentField(raw), order_idx: orderIdxOf(int(raw, "order_idx")),
+               text: text(raw, "text") };
     case "update_text":
-      return { op: "update_text", uid, text: String(raw.text),
-               ...(raw.base_text_hash === undefined ? {} : { base_text_hash: shaOf(String(raw.base_text_hash)) }) };
+      only(raw, ["op", "uid", "text", "base_text_hash"]);
+      return { op: "update_text", uid: uidField(raw, "uid"), text: text(raw, "text"),
+               ...(raw.base_text_hash === undefined ? {} : { base_text_hash: shaOf(text(raw, "base_text_hash")) }) };
     case "move":
-      return { op: "move", uid, parent_uid: parentOf(raw.parent_uid),
-               order_idx: orderIdxOf(Number(raw.order_idx)), ...pageTitle };
+      only(raw, ["op", "uid", "parent_uid", "order_idx", "page_title"]);
+      return { op: "move", uid: uidField(raw, "uid"), parent_uid: parentField(raw),
+               order_idx: orderIdxOf(int(raw, "order_idx")), ...optionalTitle(raw) };
     case "delete":
-      return { op: "delete", uid };
+      only(raw, ["op", "uid"]);
+      return { op: "delete", uid: uidField(raw, "uid") };
     case "set_collapsed":
-      return { op: "set_collapsed", uid, collapsed: raw.collapsed === true };
-    case "set_heading":
-      return { op: "set_heading", uid, heading: HEADINGS.find((h) => h === raw.heading) ?? null };
+      only(raw, ["op", "uid", "collapsed"]);
+      if (typeof raw.collapsed !== "boolean") throw new Error("fixture collapsed is not a boolean");
+      return { op: "set_collapsed", uid: uidField(raw, "uid"), collapsed: raw.collapsed };
+    case "set_heading": {
+      only(raw, ["op", "uid", "heading"]);
+      const heading = HEADINGS.find((h) => h === raw.heading);
+      if (heading === undefined) throw new Error(`fixture heading ${JSON.stringify(raw.heading)} is not 1-3`);
+      return { op: "set_heading", uid: uidField(raw, "uid"), heading };
+    }
     case "set_view_type":
-      return { op: "set_view_type", uid, view_type: raw.view_type === "numbered" ? "numbered" : "document" };
+      only(raw, ["op", "uid", "view_type"]);
+      if (raw.view_type !== "numbered" && raw.view_type !== "document") {
+        throw new Error(`fixture view_type ${JSON.stringify(raw.view_type)} is unknown`);
+      }
+      return { op: "set_view_type", uid: uidField(raw, "uid"), view_type: raw.view_type };
     case "create_page":
-      return { op: "create_page", page_title: String(raw.page_title) };
+      only(raw, ["op", "page_title"]);
+      return { op: "create_page", page_title: text(raw, "page_title") };
     default:
       throw new Error(`fixture op ${String(raw.op)} is not one mintOp knows`);
   }
 }
 
-const placedOf = (raw: Raw): PlacedBlock => ({
-  uid: uidOf(String(raw.uid)), page: String(raw.page), parent_uid: parentOf(raw.parent_uid),
-  order_idx: orderIdxOf(Number(raw.order_idx)),
-});
+const placedOf = (raw: Raw): PlacedBlock => {
+  only(raw, ["uid", "page", "parent_uid", "order_idx"]);
+  return { uid: uidField(raw, "uid"), page: text(raw, "page"), parent_uid: parentField(raw),
+           order_idx: orderIdxOf(int(raw, "order_idx")) };
+};
 
 describe("skipsOnMissingTarget", () => {
   test.each(fixture.cases)("$name", ({ op, block_exists, parent_exists,

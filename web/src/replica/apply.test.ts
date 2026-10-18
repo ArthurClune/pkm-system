@@ -1367,8 +1367,8 @@ describe("applyChanges: a window that names a pending batch as applied drops it 
     rows(db).filter((r) => keep(r.uid)).map((r) => block(r.uid, 1, {
       parent_uid: r.parent_uid, order_idx: r.order_idx,
       text: r.text }));
-  const named = (batch: string, at = 11) =>
-    ({ batch_id: bid(batch), seq: seqOf(at), skipped: [] });
+  const named = (rawBatchId: string, rawSeq = 11) =>
+    ({ batch_id: bid(rawBatchId), seq: seqOf(rawSeq), skipped: [] });
 
   /** The server's rows: the batch applied for real, then `later` (another
    * device's edits) on top. */
@@ -1555,8 +1555,8 @@ describe("applyChanges: the replay log", () => {
   // block on.
   const moveTop = (u: string, o: number): BlockOp =>
     ({ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(o) });
-  const named = (batch: string) =>
-    ({ batch_id: bid(batch), seq: seqOf(11), skipped: [] });
+  const named = (rawBatchId: string) =>
+    ({ batch_id: bid(rawBatchId), seq: seqOf(11), skipped: [] });
 
   // Another device moved m to S (after s) before this replica pulled: the
   // server's move of m shifts S's top level, where nothing sits past s.

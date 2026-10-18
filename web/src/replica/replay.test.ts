@@ -40,16 +40,16 @@ const move = (rawUid: string, order: number, over: Partial<MoveOp> = {}): BlockO
 const batch = (id: string, ...ops: BlockOp[]): DrawnBatch => ({ batchId: bid(id), ops });
 
 /** A window that ships every page and block of `server`, plus `tombstones`. */
-const window = (server: ReplicaState, cursor: number,
-                { tombstones = [], latest = cursor }:
+const window = (server: ReplicaState, rawSeq: number,
+                { tombstones = [], latest = rawSeq }:
                   { tombstones?: SyncTombstone[]; latest?: number } = {}): Changes => ({
   reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-  next_since: seqOf(cursor), latest_seq: seqOf(latest), pages: server.pages,
+  next_since: seqOf(rawSeq), latest_seq: seqOf(latest), pages: server.pages,
   blocks: server.blocks, sidebar: [], tombstones,
 });
-const headWindow = (server: ReplicaState, cursor: number,
+const headWindow = (server: ReplicaState, rawSeq: number,
                     tombstones: SyncTombstone[] = []): Changes =>
-  window(server, cursor, { tombstones });
+  window(server, rawSeq, { tombstones });
 const blockTomb = (rawUid: string): SyncTombstone => ({ kind: "block", entity_id: rawUid });
 
 /** Pages by title and blocks with their page's title, so local page ids

@@ -2,6 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import type { BatchId, SyncSeq } from "../api/brands";
 import { applySnapshot, type Changes, type Snapshot } from "./apply";
+import { type PortLike, serveRpc } from "./rpc";
 import type { AckedBatch, PendingBatch, PendingRowId, ReplicaDiagnostics } from "./client";
 import { SCHEMA_VERSION } from "./clientSchema";
 import { availabilityOf, ReplicaUnusableError } from "./errors";
@@ -1304,23 +1305,36 @@ test("a delete that matches no row records no acked seq for its id", async () =>
   })).resolves.toEqual({ status: "pending-changed" });
 });
 
+/** Posts one raw request through the RPC port the real messages cross and
+ * resolves with the reply it gets. */
+async function postRaw(handlers: ReturnType<typeof buildHandlers>, method: string,
+                       payload: unknown): Promise<unknown> {
+  const replies: unknown[] = [];
+  const port: PortLike = { postMessage: (m) => { replies.push(m); }, onmessage: null };
+  serveRpc(port, handlers);
+  port.onmessage?.({ data: { id: 1, method, payload } });
+  await vi.waitFor(() => expect(replies).toHaveLength(1));
+  return replies[0];
+}
+
 test("deleteBatch refuses a payload without the row's batch id", async () => {
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await handlers.init(undefined);
   await handlers.enqueue({ ops: [{ op: "delete", uid: uidOf("uid_b1") }], batchId: bid("a") });
-  // Both calls below hand deleteBatch a payload that doesn't match
-  // ReplicaRpc's shape at all -- exactly the malformed, pre-type-system
-  // input its own runtime check (not the type system) still has to catch.
-  await expect(Reflect.apply(handlers.deleteBatch, undefined, [{ id: pid(1) }]))
-    .rejects.toThrow(/batch id/);
-  await expect(Reflect.apply(handlers.deleteBatch, undefined, [1]))
-    .rejects.toThrow(/batch id/);
+  // Both messages carry a payload that doesn't match ReplicaRpc's shape at
+  // all, which only the RPC port can deliver: the handler's own runtime
+  // check (not the type system) still has to catch it.
+  for (const payload of [{ id: pid(1) }, 1]) {
+    await expect(postRaw(handlers, "deleteBatch", payload)).resolves.toMatchObject({
+      error: { message: expect.stringMatching(/batch id/) as unknown },
+    });
+  }
   expect(t.db.select("SELECT batch_id FROM pending_ops")).toEqual([{ batch_id: "a" }]);
 });
 
-const named = (batch: string, at: number) =>
-  ({ batch_id: bid(batch), seq: seq(at), skipped: [] });
+const named = (rawBatchId: string, rawSeq: number) =>
+  ({ batch_id: bid(rawBatchId), seq: seq(rawSeq), skipped: [] });
 
 /** Two queued batches over SNAP: row 1 "a", row 2 "b". */
 async function twoQueued() {

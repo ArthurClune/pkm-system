@@ -200,8 +200,8 @@ describe("daily auto-creation", () => {
     expect(body.days).toEqual([]);
   });
 
-  function addRef(srcUid: string, target: number, kind = "link") {
-    t.db.exec("INSERT INTO refs VALUES (?,?,?)", [srcUid, target, kind]);
+  function addRef(srcUid: string, rawTargetPageId: number, kind = "link") {
+    t.db.exec("INSERT INTO refs VALUES (?,?,?)", [srcUid, rawTargetPageId, kind]);
   }
 
   test("journal surfaces an empty day referenced from elsewhere",

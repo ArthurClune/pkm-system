@@ -3,8 +3,8 @@ import { mergeCarriedRows } from "./carryMerge";
 import type { DurablePendingRow } from "./queue";
 import { batchIdOf, pendingRowIdOf } from "../test-helpers";
 
-const row = (rowId: number, batch: string, error: string | null = null):
-  DurablePendingRow => ({ id: pendingRowIdOf(rowId), batch_id: batchIdOf(batch),
+const row = (rawId: number, rawBatchId: string, error: string | null = null):
+  DurablePendingRow => ({ id: pendingRowIdOf(rawId), batch_id: batchIdOf(rawBatchId),
                           ops_json: "[]", poisoned: error ? 1 : 0, error });
 
 test("the rows either file holds, by id, oldest first", () => {

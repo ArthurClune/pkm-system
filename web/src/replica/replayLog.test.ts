@@ -7,7 +7,7 @@ import {
   recordSiblingsFrom, remapLogPage,
 } from "./replayLog";
 import { openTestDb, type TestDb } from "./testDb";
-import { batchIdOf, malformedUid, orderIdxOf, pageIdOf, uidOf } from "../test-helpers";
+import { batchIdOf, orderIdxOf, pageIdOf, uidOf } from "../test-helpers";
 
 let t: TestDb;
 const P = pageIdOf(1);
@@ -116,15 +116,15 @@ describe("drops", () => {
   });
 
   test("dropWindowRecords drops a settled page record for a shipped page id", () => {
-    t.db.exec("INSERT INTO pages(id, title) VALUES (-4, 'L')");
+    t.db.exec("INSERT INTO pages(id, title) VALUES (-4, 'L'), (100001, 'M')");
     recordPage(t.db, b1, P, false);
     recordPage(t.db, b1, pageIdOf(-4), true);
-    recordPage(t.db, b1, pageIdOf(2), false);
-    // a block keyed like a page id is not a page record; such a uid is
-    // outside the BlockUid shape, so it is forged on purpose
-    recordBlocks(t.db, b1, [malformedUid("1")]);
-    dropWindowRecords(t.db, { uids: [], pageIds: [P, pageIdOf(-4)] });
-    expect(keys()).toEqual([["b1", "page", "2"], ["b1", "block", "1"]]);
+    recordPage(t.db, b1, pageIdOf(100001), false);
+    // a block keyed like a page id is not a page record: an all-digit uid
+    // is in the BlockUid shape
+    recordBlocks(t.db, b1, [u("100001")]);
+    dropWindowRecords(t.db, { uids: [], pageIds: [P, pageIdOf(-4), pageIdOf(100001)] });
+    expect(keys()).toEqual([["b1", "block", "100001"]]);
   });
 
   test("clearReplayLog empties the log and its refs", () => {

@@ -29,11 +29,11 @@ const inTxn = (db: ReplicaDb, fn: () => void): void => {
 
 /** The replay's first pass: each op under its own savepoint, a throw rolls it
  * back. */
-const replay = (db: ReplicaDb, ops: BlockOp[], batch: string): void => {
+const replay = (db: ReplicaDb, ops: BlockOp[], rawBatchId: string): void => {
   for (const op of ops) {
     db.exec("SAVEPOINT replay_op");
     try {
-      applyLocalOps(db, [op], 5, { batchId: batchIdOf(batch) });
+      applyLocalOps(db, [op], 5, { batchId: batchIdOf(rawBatchId) });
     } catch {
       db.exec("ROLLBACK TO replay_op");
     }

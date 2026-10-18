@@ -13,7 +13,7 @@ import { applyChanges, applySnapshot } from "./apply";
 import { reindexBlockRefs } from "./blockRefs";
 import { applyLocalOps } from "./localOps";
 import { openTestDb, type TestDb } from "./testDb";
-import { ord, pageId, title, uid } from "../test-helpers";
+import { orderIdxOf, pageIdOf, canonicalTitleOf, uidOf } from "../test-helpers";
 
 vi.mock("./blockRefs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./blockRefs")>();
@@ -27,14 +27,14 @@ const spy = vi.mocked(reindexBlockRefs);
 // a dangling target, and a fenced ((uid)) the extractor strips.
 const REF_TEXTS = [
   "no block refs here",
-  "see ((uid_b1))",
-  "((uid_b1)) twice: ((uid_b1))",
-  "((uid_b1)) and ((uid_absent))",
-  "```\n((uid_b1)) is quoted\n```",
+  "see ((tuid-uid_b1))",
+  "((tuid-uid_b1)) twice: ((tuid-uid_b1))",
+  "((tuid-uid_b1)) and ((uid_absent))",
+  "```\n((tuid-uid_b1)) is quoted\n```",
 ];
 
 const block = (rawUid: string, over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid: rawUid as BlockUid, page_id: pageId(1), parent_uid: null, order_idx: ord(0),
+  uid: rawUid as BlockUid, page_id: pageIdOf(1), parent_uid: null, order_idx: orderIdxOf(0),
   text: `text of ${rawUid}`,
   heading: null, view_type: null, collapsed: 0, created_at: 1, updated_at: 1,
   refs: [], ...over,
@@ -42,8 +42,8 @@ const block = (rawUid: string, over: Partial<SyncBlock> = {}): SyncBlock => ({
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (10 as SyncSeq),
-  pages: [{ id: pageId(1), title: title("AI"), created_at: 1, updated_at: 1 }],
-  blocks: [block("uid_b1"), block("uid_b2", { order_idx: ord(1) })],
+  pages: [{ id: pageIdOf(1), title: canonicalTitleOf("AI"), created_at: 1, updated_at: 1 }],
+  blocks: [block("tuid-uid_b1"), block("tuid-uid_b2", { order_idx: orderIdxOf(1) })],
   sidebar: [],
 };
 
@@ -71,72 +71,72 @@ const updateText = (uid: string, text: string): void =>
 
 describe("reindexBlockRefs", () => {
   test("replaces the block's rows and leaves other blocks alone", () => {
-    reindexBlockRefs(t.db, uid("uid_b2"), "((uid_b1))");
-    reindexBlockRefs(t.db, uid("uid_b1"), "((uid_b2))");
-    reindexBlockRefs(t.db, uid("uid_b1"), "no refs any more");
+    reindexBlockRefs(t.db, uidOf("tuid-uid_b2"), "((tuid-uid_b1))");
+    reindexBlockRefs(t.db, uidOf("tuid-uid_b1"), "((tuid-uid_b2))");
+    reindexBlockRefs(t.db, uidOf("tuid-uid_b1"), "no refs any more");
 
-    expect(targets("uid_b1")).toEqual([]);
-    expect(targets("uid_b2")).toEqual(["uid_b1"]);
+    expect(targets("tuid-uid_b1")).toEqual([]);
+    expect(targets("tuid-uid_b2")).toEqual(["tuid-uid_b1"]);
   });
 
   test("keeps a dangling target and collapses duplicates", () => {
-    reindexBlockRefs(t.db, uid("uid_b1"), "((uid_absent)) ((uid_absent)) ((uid_b2))");
+    reindexBlockRefs(t.db, uidOf("tuid-uid_b1"), "((uid_absent)) ((uid_absent)) ((tuid-uid_b2))");
 
-    expect(targets("uid_b1")).toEqual(["uid_absent", "uid_b2"]);
+    expect(targets("tuid-uid_b1")).toEqual(["uid_absent", "tuid-uid_b2"]);
   });
 
   test("returns the parse so a caller can reuse it for refs", () => {
-    const parsed = reindexBlockRefs(t.db, uid("uid_b1"), "[[AI]] and ((uid_b2))");
+    const parsed = reindexBlockRefs(t.db, uidOf("tuid-uid_b1"), "[[AI]] and ((tuid-uid_b2))");
 
     expect(parsed.refs).toEqual([{ title: "AI", kind: "link" }]);
-    expect(parsed.blockRefs).toEqual(["uid_b2"]);
+    expect(parsed.blockRefs).toEqual(["tuid-uid_b2"]);
   });
 });
 
 describe("delegation", () => {
   test("remote apply reindexes through the composition (change window)", () => {
-    applyChanges(t.db, feed([block("uid_b1", { text: "now ((uid_b2))" })]));
+    applyChanges(t.db, feed([block("tuid-uid_b1", { text: "now ((tuid-uid_b2))" })]));
 
     expect(spy.mock.calls.map((c) => [c[1], c[2]]))
-      .toEqual([["uid_b1", "now ((uid_b2))"]]);
-    expect(targets("uid_b1")).toEqual(["uid_b2"]);
+      .toEqual([["tuid-uid_b1", "now ((tuid-uid_b2))"]]);
+    expect(targets("tuid-uid_b1")).toEqual(["tuid-uid_b2"]);
   });
 
   test("remote apply reindexes through the composition (snapshot)", () => {
     applySnapshot(t.db, {
-      ...SNAP, blocks: [block("uid_b1", { text: "snap ((uid_b2))" })],
+      ...SNAP, blocks: [block("tuid-uid_b1", { text: "snap ((tuid-uid_b2))" })],
     });
 
     expect(spy.mock.calls.map((c) => [c[1], c[2]]))
-      .toEqual([["uid_b1", "snap ((uid_b2))"]]);
-    expect(targets("uid_b1")).toEqual(["uid_b2"]);
+      .toEqual([["tuid-uid_b1", "snap ((tuid-uid_b2))"]]);
+    expect(targets("tuid-uid_b1")).toEqual(["tuid-uid_b2"]);
   });
 
   test("local op application reindexes through the composition", () => {
-    updateText("uid_b1", "local ((uid_b2))");
+    updateText("tuid-uid_b1", "local ((tuid-uid_b2))");
 
     expect(spy.mock.calls.map((c) => [c[1], c[2]]))
-      .toEqual([["uid_b1", "local ((uid_b2))"]]);
-    expect(targets("uid_b1")).toEqual(["uid_b2"]);
+      .toEqual([["tuid-uid_b1", "local ((tuid-uid_b2))"]]);
+    expect(targets("tuid-uid_b1")).toEqual(["tuid-uid_b2"]);
   });
 
   test("a created block is reindexed through the composition too", () => {
     applyLocalOps(t.db, [{
       op: "create", uid: "uid_new1", page_title: "AI", parent_uid: null,
-      order_idx: 5, text: "fresh ((uid_b1))",
+      order_idx: 5, text: "fresh ((tuid-uid_b1))",
     } as BlockOp], 7000, { batchId: "t" as BatchId });
 
     expect(spy.mock.calls.map((c) => [c[1], c[2]]))
-      .toEqual([["uid_new1", "fresh ((uid_b1))"]]);
-    expect(targets("uid_new1")).toEqual(["uid_b1"]);
+      .toEqual([["uid_new1", "fresh ((tuid-uid_b1))"]]);
+    expect(targets("uid_new1")).toEqual(["tuid-uid_b1"]);
   });
 });
 
 describe("remote and local apply agree", () => {
   test.each(REF_TEXTS)("derive the same block_refs from %j", (text) => {
-    applyChanges(t.db, feed([block("uid_b1", { text })]));
-    updateText("uid_b2", text);
+    applyChanges(t.db, feed([block("tuid-uid_b1", { text })]));
+    updateText("tuid-uid_b2", text);
 
-    expect(targets("uid_b2")).toEqual(targets("uid_b1"));
+    expect(targets("tuid-uid_b2")).toEqual(targets("tuid-uid_b1"));
   });
 });

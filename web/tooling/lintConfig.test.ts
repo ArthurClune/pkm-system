@@ -261,7 +261,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-predicate-launder.ts",
     rule: "brands/no-brand-assertion",
-    count: 8,
+    count: 11,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       'type Op = { op: "insert"; uid: BlockUid } | { op: "note"; n: 1 };\n' +
@@ -301,7 +301,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-overload.ts",
     rule: "brands/no-brand-assertion",
-    count: 8,
+    count: 9,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export function same(x: BlockUid): BlockUid;\n" +
@@ -340,6 +340,24 @@ const cases: readonly FixtureCase[] = [
       "  b: string;\n" +
       "}\n" +
       "export const field = (f: string) => f as keyof Shape;\n",
+  },
+  {
+    file: "brand-assertion-optional.ts",
+    rule: "brands/no-brand-assertion",
+    count: 5,
+    corrected:
+      'import type { BlockUid } from "../../src/api/brands";\n' +
+      "export function frozen(xs: BlockUid[]): readonly BlockUid[] {\n" +
+      "  return xs as readonly BlockUid[];\n" +
+      "}\n" +
+      "export function maybe<T>(x: T): T | undefined {\n" +
+      "  return x as T | undefined;\n" +
+      "}\n" +
+      "export const none = () => [] as BlockUid[];\n" +
+      "export function counts(): Record<BlockUid, number> {\n" +
+      "  const r: Record<BlockUid, number> = {};\n" +
+      "  return r;\n" +
+      "}\n",
   },
   {
     file: "brand-name-positions.ts",

@@ -29,3 +29,17 @@ export function onProperty(x: { uid: BlockUid }): x is { uid: BlockUid } & Block
 export function fromTag(x: { readonly __brand: "BlockUid" }): x is BlockUid {
   return typeof x === "string";
 }
+export function inIntersection(
+  x: Set<string> & { a: 1 },
+): x is Set<BlockUid> & { a: 1 } {
+  return x.a === 1;
+}
+interface TaggedSet<T> extends Set<T> {
+  tag: 1;
+}
+export function ownSubtype(x: Set<BlockUid | string>): x is TaggedSet<BlockUid> {
+  return x.size > 0;
+}
+export function numericKey(x: string | { 0: BlockUid }): x is { 0: BlockUid } {
+  return typeof x !== "string";
+}

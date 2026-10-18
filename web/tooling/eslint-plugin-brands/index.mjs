@@ -358,10 +358,12 @@ function overlaps(checker, a, b) {
     if (checker.getSignaturesOfType(obj, ts.SignatureKind.Call).length > 0) {
       return false;
     }
+    // A string's characters sit behind a number index, not properties.
     const apparent = checker.getApparentType(prim);
-    return obj.getProperties().every(
-      (p) => BRAND_TAGS.has(p.name) || apparent.getProperty(p.name),
-    );
+    const indexed = checker.getIndexInfoOfType(apparent, ts.IndexKind.Number);
+    const isNumeric = (name) => String(Number(name)) === name;
+    return obj.getProperties().every((p) => BRAND_TAGS.has(p.name)
+      || apparent.getProperty(p.name) || indexed && isNumeric(p.name));
   }
   return false;
 }
@@ -416,6 +418,12 @@ function mintedBrands(checker, from, to, seen = new Map()) {
   if (targets.has(to)) return minted;
   seen.set(from, targets.add(to));
   const isReference = (t) => (t.objectFlags & ts.ObjectFlags.Reference) !== 0;
+  // An intersection that is not itself a brand (`Set<BlockUid> & { a: 1 }`)
+  // mints what any of its members does, each taking its own path.
+  if (ownBrand(checker, to) === null && to.isIntersection()) {
+    for (const m of to.types) add(mintedBrands(checker, from, m, seen));
+    return minted;
+  }
   if (checker.isArrayType(to) || checker.isTupleType(to)) {
     const fromElements = checker.isTupleType(from) && checker.isTupleType(to)
       ? checker.getTypeArguments(from) : [];
@@ -438,26 +446,103 @@ function mintedBrands(checker, from, to, seen = new Map()) {
       return minted;
     }
   }
-  const objectLike = isObjectish(to)
-    || to.isIntersection() && to.types.every(isObjectish);
-  const structural = ownBrand(checker, to) === null && objectLike
+  const structural = ownBrand(checker, to) === null && isObjectish(to)
     && (!isForeign(to) || (to.objectFlags & ts.ObjectFlags.Mapped) !== 0);
   if (!structural) return every();
+  // A brand of `to` that no compared position holds (the `T` of our own
+  // `interface TaggedSet<T> extends Set<T>`, reached only through method
+  // signatures) is minted too.
+  const accounted = new Set();
+  const position = (source, target) => {
+    cachedBrands(checker, target).forEach((b) => accounted.add(b));
+    compare(source, target);
+  };
   for (const p of to.getProperties()) {
     const source = from.getProperty(p.name);
-    compare(source && checker.getTypeOfSymbol(source),
+    position(source && checker.getTypeOfSymbol(source),
       checker.getTypeOfSymbol(p));
   }
   const fromInfos = checker.getIndexInfosOfType(from);
   for (const info of checker.getIndexInfosOfType(to)) {
+    cachedBrands(checker, info.keyType).forEach((b) => accounted.add(b));
     const same = fromInfos.find((i) => i.keyType === info.keyType);
-    if (same) compare(same.type, info.type);
+    if (same) position(same.type, info.type);
     else {
       add(cachedBrands(checker, info.keyType));
       add(cachedBrands(checker, info.type));
     }
   }
+  for (const b of cachedBrands(checker, to)) if (!accounted.has(b)) minted.add(b);
   return minted;
+}
+
+// Whether `to`, which `from` fits, has a position carrying a brand or a
+// laundering parameter that `from` does not declare: an optional property,
+// an optional or rest tuple element past `from`'s length, or an index
+// signature `from` lacks. Width subtyping lets a value of `from` hold
+// anything there, so an assertion to `to` believes an unchecked brand
+// (`row as Row & { uid?: BlockUid }`).
+function unbacked(checker, from, to, seen = new Map()) {
+  const carries = (t) => cachedBrands(checker, t).size > 0
+    || cachedLaunders(checker, t);
+  if (from === to || from.flags & ts.TypeFlags.Never || !carries(to)) {
+    return false;
+  }
+  if (from.isUnion()) return from.types.some((m) => unbacked(checker, m, to, seen));
+  if (to.isUnion()) {
+    return !to.types.some((m) => checker.isTypeAssignableTo(from, m)
+      && !unbacked(checker, from, m, seen));
+  }
+  const targets = seen.get(from) ?? new Set();
+  if (targets.has(to)) return false;
+  seen.set(from, targets.add(to));
+  if (ownBrand(checker, to) === null && to.isIntersection()) {
+    return to.types.some((m) => unbacked(checker, from, m, seen));
+  }
+  const isReference = (t) => (t.objectFlags & ts.ObjectFlags.Reference) !== 0;
+  if (checker.isTupleType(to)) {
+    const toElements = checker.getTypeArguments(to);
+    const fromElements = checker.isTupleType(from)
+      ? checker.getTypeArguments(from) : [];
+    const element = elementOf(checker, from);
+    return toElements.some((t, i) => {
+      const source = checker.isTupleType(from) ? fromElements[i] : element;
+      return source === undefined ? carries(t) : unbacked(checker, source, t, seen);
+    });
+  }
+  if (checker.isArrayType(to)) {
+    const element = elementOf(checker, from);
+    const [target] = checker.getTypeArguments(to);
+    return element === undefined || unbacked(checker, element, target, seen);
+  }
+  if (isReference(to) && isReference(from)) {
+    const fromArgs = checker.getTypeArguments(from);
+    const toArgs = checker.getTypeArguments(to);
+    const libPair = isForeign(from) && isForeign(to)
+      && fromArgs.length === toArgs.length;
+    if (from.target === to.target || libPair) {
+      return toArgs.some((t, i) => unbacked(checker, fromArgs[i], t, seen));
+    }
+  }
+  if (!isObjectish(to)) return false;
+  // A property `from` does not declare holds what its string index allows.
+  const stringIndex = checker.getIndexTypeOfType(from, ts.IndexKind.String);
+  const missing = to.getProperties().some((p) => {
+    const target = checker.getTypeOfSymbol(p);
+    const declared = from.getProperty(p.name);
+    const source = declared ? checker.getTypeOfSymbol(declared) : stringIndex;
+    return source === undefined ? carries(target)
+      : unbacked(checker, source, target, seen);
+  });
+  if (missing) return true;
+  const fromInfos = checker.getIndexInfosOfType(from);
+  return checker.getIndexInfosOfType(to).some((info) => {
+    const same = fromInfos.find(
+      (i) => checker.isTypeAssignableTo(info.keyType, i.keyType),
+    );
+    if (same) return unbacked(checker, same.type, info.type, seen);
+    return carries(info.keyType) || carries(info.type);
+  });
 }
 
 function servicesOf(context) {
@@ -650,11 +735,13 @@ const noBrandAssertion = {
       if (!launder && ![...cachedBrands(checker, type)].some(
         (b) => !isMintSite(b, path),
       )) return;
-      // An operand that already fits the target is only widened (`xs as
-      // readonly T[]`, `[] as T[]`): nothing is laundered or minted.
+      // An operand that already fits the target, at every position the
+      // target carries a brand, is only widened (`xs as readonly T[]`,
+      // `[] as T[]`): nothing is laundered or minted.
       const operand = typeOf(node.expression);
       if (!cachedHasAny(checker, operand)
-        && checker.isTypeAssignableTo(operand, type)) return;
+        && checker.isTypeAssignableTo(operand, type)
+        && !unbacked(checker, operand, type)) return;
       if (launder) {
         const optOut = optOutOf(context.sourceCode, node);
         if (optOut === "reason" && mayOptOut) return;

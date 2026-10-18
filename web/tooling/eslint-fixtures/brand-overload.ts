@@ -34,3 +34,7 @@ export function awaited(s: string): Promise<BlockUid>;
 export function awaited(s: string): PromiseLike<BlockUid | string> {
   return Promise.resolve(s);
 }
+export function tagged(s: string): Promise<BlockUid> & { t: 1 };
+export function tagged(s: string): Promise<string> & { t: 1 } {
+  return Object.assign(Promise.resolve(s), { t: 1 as const });
+}

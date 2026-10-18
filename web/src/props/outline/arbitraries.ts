@@ -1,11 +1,11 @@
 // pattern: Functional Core
 import fc from "fast-check";
-import type { BlockUid, CanonicalTitle, OrderIdx } from "../../api/brands";
 import type { SetViewTypeOp } from "../../api/ops";
 import type { BlockNode } from "../../api/payloads";
 import type { PastedNode } from "../../outline/paste";
+import { canonicalTitleOf, uidOf, orderIdxOf } from "../../test-helpers";
 
-export const PAGE_TITLE = "Outline Props" as CanonicalTitle;
+export const PAGE_TITLE = canonicalTitleOf("Outline Props");
 
 const MAX_BLOCKS = 30;
 // Depth is the Row depth index, roots at 0.
@@ -73,12 +73,12 @@ export const treeArb: fc.Arbitrary<BlockNode[]> = fc
       (s, siblings) => {
         const prev = siblings[siblings.length - 1];
         return {
-          uid: `b${n++}` as BlockUid,
+          uid: uidOf(`tuid-b${n++}`),
           text: s.text,
           heading: s.heading,
           view_type: s.viewType,
           collapsed: s.collapsed,
-          order_idx: (prev ? prev.order_idx + 1 + s.gap : s.first) as OrderIdx,
+          order_idx: orderIdxOf(prev ? prev.order_idx + 1 + s.gap : s.first),
           created_at: null,
           updated_at: null,
           children: [],

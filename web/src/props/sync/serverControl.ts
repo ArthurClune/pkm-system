@@ -1,10 +1,14 @@
 // pattern: Imperative Shell
 // The harness's handle on the proptest server: the session cookie and the
 // /__proptest/* control routes (server/tooling/proptest/sync_server.py).
-import type { BatchId, SyncSeq } from "../../api/brands";
+import type { BatchId, BlockUid, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import type { Changes, Snapshot } from "../../replica/apply";
 import { BASE_URL, PASSWORD } from "./env";
+import {
+  parseAppliedLog, parseChanges, parseConflicts, parseDeletes, parseEcho, parseRenames,
+  parseSnapshot,
+} from "./wire";
 
 /** One page retitle, in commit order: the batch it followed (null: before
  * every batch) and the server clock it ran at. */
@@ -22,11 +26,11 @@ export interface RenameRecord {
  * clock it ran at, and the uids of the blocks it removed. */
 export interface DeleteRecord {
   title: string;
-  seq: number;
+  seq: SyncSeq;
   after_batch_id: BatchId | null;
   at: number;
   ord: number;
-  uids: string[];
+  uids: BlockUid[];
 }
 
 /** One daily-note conflict header the run wrote, in commit order: its uid,
@@ -34,7 +38,7 @@ export interface DeleteRecord {
  * wrote it (null when no applied batch followed the write, which only a
  * route other than POST /api/ops could do). */
 export interface ConflictRecord {
-  header_uid: string;
+  header_uid: BlockUid;
   text: string;
   batch_id: BatchId | null;
 }
@@ -124,19 +128,13 @@ function control(cookie: string, signal?: AbortSignal): ServerControl {
     setClock: async (ms) => { await post("/__proptest/clock", { ms }); },
     rotateGeneration: async () => { await post("/__proptest/rotate-generation"); },
     applied: async () =>
-      (await (await call("/__proptest/applied")).json()) as
-        { batch_id: BatchId; applied_at: number }[],
-    renames: async () =>
-      (await (await call("/__proptest/renames")).json()) as RenameRecord[],
-    deletes: async () =>
-      (await (await call("/__proptest/deletes")).json()) as DeleteRecord[],
+      parseAppliedLog(await (await call("/__proptest/applied")).json()),
+    renames: async () => parseRenames(await (await call("/__proptest/renames")).json()),
+    deletes: async () => parseDeletes(await (await call("/__proptest/deletes")).json()),
     conflicts: async () =>
-      (await (await call("/__proptest/conflicts")).json()) as ConflictRecord[],
-    snapshot: async () =>
-      (await (await call("/api/sync/snapshot")).json()) as Snapshot,
-    takeEcho: async () =>
-      ((await (await post("/__proptest/echo/take")).json()) as
-        { ops: BlockOp[] | null }).ops,
+      parseConflicts(await (await call("/__proptest/conflicts")).json()),
+    snapshot: async () => parseSnapshot(await (await call("/api/sync/snapshot")).json()),
+    takeEcho: async () => parseEcho(await (await post("/__proptest/echo/take")).json()),
     setEchoTeeth: async (on) => {
       await post("/__proptest/echo/teeth", { drop_cross_page_title: on });
     },
@@ -145,10 +143,10 @@ function control(cookie: string, signal?: AbortSignal): ServerControl {
       await post("/__proptest/rewrites/teeth", { drop_replayed: on });
     },
     changes: async (since) =>
-      (await (await call(`/api/sync/changes?since=${since}`)).json()) as Changes,
+      parseChanges(await (await call(`/api/sync/changes?since=${since}`)).json()),
     latestSeq: async () => {
-      const feed = (await (await call(
-        `/api/sync/changes?since=${BEYOND_ANY_SEQ}`)).json()) as Changes;
+      const feed = parseChanges(await (await call(
+        `/api/sync/changes?since=${BEYOND_ANY_SEQ}`)).json());
       return feed.latest_seq;
     },
     postRaw: (body) => fetch(`${BASE_URL}/api/ops`, {

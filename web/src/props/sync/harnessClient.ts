@@ -25,7 +25,7 @@
 // first-connect handler then waits on the mount-time pending read and the
 // startup run itself. A load given connectAt connects that many ticks after
 // its mount begins instead, whether or not the startup has finished.
-import type { BatchId, ClientId, SyncSeq } from "../../api/brands";
+import type { BatchId, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import { createReplica, type Replica } from "../../replica/client";
 import type { ReplicaDb } from "../../replica/db";
@@ -43,6 +43,7 @@ import { BAD_UID } from "./arbitraries";
 import type { ServerControl } from "./serverControl";
 import { createTransport, type Broken, type Transport, type TransportOptions,
          type TransportLife } from "./transport";
+import { clientIdOf, batchIdOf, seqOf } from "../../test-helpers";
 
 export interface HarnessClient {
   readonly name: string;
@@ -195,7 +196,7 @@ export async function startClient(
   const buildLife = (doors: TransportLife): Life => {
     lives += 1;
     // A page load mints a new client id; batch ids carry on across lives.
-    const clientId = `proptest-${name}-${lives}` as ClientId;
+    const clientId = clientIdOf(`proptest-${name}-${lives}`);
     const idSlots: { id?: BatchId }[] = [];
     const state: LifeState = {
       status: "connecting", everConnected: false, unsentInMemory: 0, ended: false,
@@ -224,7 +225,7 @@ export async function startClient(
       },
       newBatchId: () => {
         minted += 1;
-        const id = `batch-${name}-${minted}` as BatchId;
+        const id = batchIdOf(`batch-${name}-${minted}`);
         enqueued.push(id);
         const slot = idSlots.find((s) => s.id === undefined);
         if (slot) slot.id = id;
@@ -434,7 +435,9 @@ export async function startClient(
           // The first matching INSERT is the one failingOnce throws on.
           if (writeArmed && PENDING_INSERT.test(sql)) {
             writeArmed = false;
-            laneBatches.push(params?.[0] as BatchId);
+            const batch = params?.[0];
+            if (typeof batch !== "string") throw new Error("proptest: a pending insert without a batch id");
+            laneBatches.push(batchIdOf(batch));
           }
           failing.exec(sql, params);
         },
@@ -465,7 +468,7 @@ export async function startClient(
       const hasMeta = db.select(
         "SELECT 1 AS n FROM sqlite_master WHERE type = 'table' AND name = 'sync_client_meta'",
       ).length > 0;
-      return Number(hasMeta ? getMeta(db, "cursor") ?? 0 : 0) as SyncSeq;
+      return seqOf(Number(hasMeta ? getMeta(db, "cursor") ?? 0 : 0));
     },
     async dispose() {
       disposed = true;

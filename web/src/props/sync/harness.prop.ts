@@ -2,7 +2,7 @@
 // Self-tests for the harness client and its faulty transport, against the
 // real proptest server (run through proptest/check.sh web).
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
-import type { BatchId, BlockUid, ClientId, OrderIdx } from "../../api/brands";
+import type { BatchId } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import { BAD_UID, FIXTURE_PAGE } from "./arbitraries";
 import { startClient, type HarnessClient } from "./harnessClient";
@@ -10,6 +10,7 @@ import { quiesce } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
 import { createTransport, withWindowLimit } from "./transport";
 import { captureFaultWarnings } from "../warningsCapture";
+import { uidOf, orderIdxOf, clientIdOf, batchIdOf } from "../../test-helpers";
 
 captureFaultWarnings("sync harness");
 
@@ -35,15 +36,15 @@ async function start(name: string, windowLimit?: number): Promise<HarnessClient>
   return c;
 }
 
-const setText = (uid: string, text: string): BlockOp[] =>
-  [{ op: "update_text", uid: uid as BlockUid, text }];
+const setText = (name: string, text: string): BlockOp[] =>
+  [{ op: "update_text", uid: uidOf(name), text }];
 
 const pendingRows = (c: HarnessClient): number =>
   c.db.select<"n">("SELECT COUNT(*) AS n FROM pending_ops")[0].n;
 
-const blockText = (c: HarnessClient, uid: string): string | undefined =>
+const blockText = (c: HarnessClient, name: string): string | undefined =>
   c.db.select<"text">(
-    "SELECT text FROM blocks WHERE uid = ?", [uid])[0]?.text;
+    "SELECT text FROM blocks WHERE uid = ?", [name])[0]?.text;
 
 const appliedIds = async (): Promise<BatchId[]> =>
   (await server.applied()).map((row) => row.batch_id);
@@ -157,8 +158,8 @@ test("a lane rejection whose repair fails offline is retried on reconnect", asyn
   const release = a.transport.stall("/api/block/");
   a.failNextWrite();
   const bad = await a.edit([{
-    op: "create", uid: BAD_UID as BlockUid, page_title: FIXTURE_PAGE,
-    parent_uid: null, order_idx: 60 as OrderIdx, text: "a create of a live uid",
+    op: "create", uid: uidOf(BAD_UID), page_title: FIXTURE_PAGE,
+    parent_uid: null, order_idx: orderIdxOf(60), text: "a create of a live uid",
   }]);
   expect(a.unsentInMemory()).toBe(1);
   await a.queue.drain();
@@ -217,7 +218,7 @@ test("a reply arriving after a new life is a network error, but is recorded", as
   const t = createTransport(server);
   const life = t.newLife();
   const body = {
-    client_id: "proptest-raw" as ClientId, batch_id: "raw-batch-1" as BatchId,
+    client_id: clientIdOf("proptest-raw"), batch_id: batchIdOf("raw-batch-1"),
     ops: setText("pt_seed_1", "old life"),
   };
   const sent = life.post(body);
@@ -226,7 +227,7 @@ test("a reply arriving after a new life is a network error, but is recorded", as
   expect(t.committed.get(body.batch_id)).toBe(JSON.stringify(body));
   expect(await appliedIds()).toContain(body.batch_id);
   // A severed life sends nothing.
-  await expect(life.post({ ...body, batch_id: "raw-batch-2" as BatchId }))
+  await expect(life.post({ ...body, batch_id: batchIdOf("raw-batch-2") }))
     .rejects.toThrow(TypeError);
   expect(await appliedIds()).not.toContain("raw-batch-2");
 });
@@ -268,7 +269,7 @@ test("offline sends nothing and keeps the armed fault", async () => {
 test("dropBatch fakes an ack without sending", async () => {
   const t = createTransport(server, "dropBatch");
   const body = {
-    client_id: "proptest-raw" as ClientId, batch_id: "raw-batch-3" as BatchId,
+    client_id: clientIdOf("proptest-raw"), batch_id: batchIdOf("raw-batch-3"),
     ops: setText("pt_seed_1", "never sent"),
   };
   const ack = await t.post(body);

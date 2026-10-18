@@ -17,15 +17,18 @@
 // a durable row overwriting the lane's newer text. Only that write is
 // excused: its ack and echo bring the server's text back to the replica,
 // so a later conflict on the block by the same client is noise again.
-import type { BatchId } from "../../api/brands";
+import type { BatchId, BlockUid } from "../../api/brands";
+import { uidOf } from "../../test-helpers";
 import type { ConflictRecord } from "./serverControl";
+import { record } from "./wire";
 
 const OVERWRITTEN = / — overwritten by \(\(([^()\s]+)\)\)$/;
 
 /** The block an overwritten (check 5) header is about, or null for any
  * other header. */
-export function overwrittenTarget(header: string): string | null {
-  return OVERWRITTEN.exec(header)?.[1] ?? null;
+export function overwrittenTarget(header: string): BlockUid | null {
+  const target = OVERWRITTEN.exec(header)?.[1];
+  return target === undefined ? null : uidOf(target);
 }
 
 export interface ConflictNoiseRun {
@@ -41,16 +44,19 @@ export interface ConflictNoiseRun {
 
 /** One applied batch's text writes: its client and the uids it created or
  * update_text'ed. */
-interface TextWrite { batch: BatchId; client: string; uids: Set<string> }
+interface TextWrite { batch: BatchId; client: string; uids: Set<BlockUid> }
 
 function textWrites(run: Pick<ConflictNoiseRun, "applied" | "committedBy">): TextWrite[] {
   return run.applied.flatMap(({ batch_id }) => [...run.committedBy].flatMap(([client, committed]) => {
     const body = committed.get(batch_id);
     if (body === undefined) return [];
-    const parsed = JSON.parse(body) as { ops?: { op?: unknown; uid?: unknown }[] };
-    const uids = new Set((parsed.ops ?? [])
-      .filter((op) => op.op === "create" || op.op === "update_text")
-      .flatMap((op) => (typeof op.uid === "string" ? [op.uid] : [])));
+    const parsed = record(JSON.parse(body), "committed body");
+    const ops: unknown[] = Array.isArray(parsed.ops) ? parsed.ops : [];
+    const uids = new Set(ops.flatMap((raw) => {
+      const op = record(raw, "committed op");
+      return (op.op === "create" || op.op === "update_text") && typeof op.uid === "string"
+        ? [uidOf(op.uid)] : [];
+    }));
     return [{ batch: batch_id, client, uids }];
   }));
 }
@@ -58,8 +64,8 @@ function textWrites(run: Pick<ConflictNoiseRun, "applied" | "committedBy">): Tex
 /** Per block uid, the clients whose applied batches wrote its text (a
  * create or an update_text of it). */
 export function textEditors(run: Pick<ConflictNoiseRun, "applied" | "committedBy">):
-    Map<string, Set<string>> {
-  const editors = new Map<string, Set<string>>();
+    Map<BlockUid, Set<string>> {
+  const editors = new Map<BlockUid, Set<string>>();
   for (const w of textWrites(run)) {
     for (const uid of w.uids) editors.set(uid, (editors.get(uid) ?? new Set()).add(w.client));
   }
@@ -69,7 +75,7 @@ export function textEditors(run: Pick<ConflictNoiseRun, "applied" | "committedBy
 /** Whether `batch` is its client's first durable write of `uid` after a
  * lane batch of that client wrote it: the one conflict a lane causes. */
 function laneCaused(writes: readonly TextWrite[], lane: ReadonlySet<BatchId>,
-                    batch: BatchId, uid: string): boolean {
+                    batch: BatchId, uid: BlockUid): boolean {
   const client = writes.find((w) => w.batch === batch)?.client;
   let afterLane = false;
   for (const w of writes) {

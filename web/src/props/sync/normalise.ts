@@ -14,11 +14,14 @@
 import type { Snapshot } from "../../replica/apply";
 import type { ReplicaDb } from "../../replica/db";
 
+/** `key` and `parentKey` are block uids, or the positional names
+ * canonicaliseMintedUids gives the ones the server minted, which are not
+ * uids. */
 export interface NormalBlock {
-  uid: string;
+  key: string;
   page: string;
-  parent_uid: string | null;
-  order_idx: number;
+  parentKey: string | null;
+  position: number;
   text: string;
   heading: number | null;
   collapsed: number;
@@ -32,7 +35,7 @@ export interface NormalBlock {
 export interface NormalGraph {
   /** Sorted titles. */
   pages: string[];
-  /** Sorted by uid. */
+  /** Sorted by key. */
   blocks: NormalBlock[];
   /** Title -> `created_at/updated_at`, present only when timestamps were
    * asked for. */
@@ -47,8 +50,8 @@ const stamp = (created: number | null | undefined,
                updated: number | null | undefined): string =>
   `${created ?? "null"}/${updated ?? "null"}`;
 
-const byUid = (a: NormalBlock, b: NormalBlock): number =>
-  a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0;
+const byKey = (a: NormalBlock, b: NormalBlock): number =>
+  a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
 
 const pageName = (titles: ReadonlyMap<number, string>, id: number): string =>
   titles.get(id) ?? `?page ${id}`;
@@ -56,17 +59,17 @@ const pageName = (titles: ReadonlyMap<number, string>, id: number): string =>
 export function fromSnapshot(s: Snapshot, opts: NormaliseOptions = {}): NormalGraph {
   const titles = new Map<number, string>(s.pages.map((p) => [p.id, p.title]));
   const blocks = s.blocks.map((b): NormalBlock => ({
-    uid: b.uid,
+    key: b.uid,
     page: pageName(titles, b.page_id),
-    parent_uid: b.parent_uid,
-    order_idx: b.order_idx,
+    parentKey: b.parent_uid,
+    position: b.order_idx,
     text: b.text,
     heading: b.heading,
     collapsed: b.collapsed,
     view_type: b.view_type,
     refs: b.refs.map((r) => `${r.kind}:${pageName(titles, r.target_page_id)}`).sort(),
     ...(opts.timestamps ? { stamps: stamp(b.created_at, b.updated_at) } : {}),
-  })).sort(byUid);
+  })).sort(byKey);
   return {
     pages: s.pages.map((p) => p.title).sort(),
     blocks,
@@ -98,20 +101,20 @@ export function fromReplica(db: ReplicaDb): NormalGraph {
     " b.text, b.heading, b.collapsed, b.view_type" +
     " FROM blocks b LEFT JOIN pages p ON p.id = b.page_id",
   ).map((b): NormalBlock => ({
-    uid: b.uid,
+    key: b.uid,
     page: b.title,
-    parent_uid: b.parent_uid,
-    order_idx: b.order_idx,
+    parentKey: b.parent_uid,
+    position: b.order_idx,
     text: b.text,
     heading: b.heading,
     collapsed: b.collapsed,
     view_type: b.view_type,
     refs: (refs.get(b.uid) ?? []).sort(),
-  })).sort(byUid);
+  })).sort(byKey);
   return { pages, blocks };
 }
 
-const FIELDS = ["page", "parent_uid", "order_idx", "text", "heading", "collapsed",
+const FIELDS = ["page", "parentKey", "position", "text", "heading", "collapsed",
                 "view_type", "refs", "stamps"] as const;
 
 const show = (v: unknown): string => JSON.stringify(v) ?? "undefined";
@@ -132,8 +135,8 @@ export function diffGraphs(a: NormalGraph, b: NormalGraph,
                  ` vs ${show(b.pageStamps?.[t])} (${nb})`);
     }
   }
-  const ba = new Map(a.blocks.map((x) => [x.uid, x]));
-  const bb = new Map(b.blocks.map((x) => [x.uid, x]));
+  const ba = new Map(a.blocks.map((x) => [x.key, x]));
+  const bb = new Map(b.blocks.map((x) => [x.key, x]));
   for (const uid of [...new Set([...ba.keys(), ...bb.keys()])].sort()) {
     const x = ba.get(uid);
     const y = bb.get(uid);
@@ -154,9 +157,11 @@ export function opUids(body: string): Set<string> {
   const parsed = JSON.parse(body) as { ops?: unknown };
   for (const op of Array.isArray(parsed.ops) ? parsed.ops as unknown[] : []) {
     if (!op || typeof op !== "object") continue;
-    const { uid, parent_uid: parent } = op as { uid?: unknown; parent_uid?: unknown };
-    if (typeof uid === "string") uids.add(uid);
-    if (typeof parent === "string") uids.add(parent);
+    const named: Record<string, unknown> = { ...op };
+    for (const field of ["uid", "parent_uid"]) {
+      const value = named[field];
+      if (typeof value === "string") uids.add(value);
+    }
   }
   return uids;
 }
@@ -164,51 +169,51 @@ export function opUids(body: string): Set<string> {
 /** Renames every block uid not in `known` -- the uids the server mints at
  * random for conflict headers, landed entries and the copies of a diverged
  * delete -- to a name built from its position: its parent's name (or
- * `[page]` at the top level) and its order_idx, as `~[Page]/20/0`. Two runs
+ * `[page]` at the top level) and its position, as `~[Page]/20/0`. Two runs
  * that minted different uids for the same blocks then compare equal, and
  * any difference in those blocks still shows. Positions shared by more than
  * one minted block are told apart by text, as `#1`, `#2`. The rename covers
- * parent_uid and any mention of the uid in text. */
+ * parentKey and any mention of the uid in text. */
 export function canonicaliseMintedUids(g: NormalGraph,
                                        known: ReadonlySet<string>): NormalGraph {
-  const blocks = new Map(g.blocks.map((b) => [b.uid, b]));
+  const blocks = new Map(g.blocks.map((b) => [b.key, b]));
   const names = new Map<string, string>();
-  const nameOf = (uid: string, seen: ReadonlySet<string>): string => {
-    const b = blocks.get(uid);
-    if (known.has(uid) || !b || seen.has(uid)) return uid;
-    const cached = names.get(uid);
+  const nameOf = (key: string, seen: ReadonlySet<string>): string => {
+    const b = blocks.get(key);
+    if (known.has(key) || !b || seen.has(key)) return key;
+    const cached = names.get(key);
     if (cached !== undefined) return cached;
-    const parent = b.parent_uid === null
+    const parent = b.parentKey === null
       ? `~[${b.page}]`
-      : nameOf(b.parent_uid, new Set([...seen, uid]));
-    const name = `${parent.startsWith("~") ? parent : `~${parent}`}/${b.order_idx}`;
-    names.set(uid, name);
+      : nameOf(b.parentKey, new Set([...seen, key]));
+    const name = `${parent.startsWith("~") ? parent : `~${parent}`}/${b.position}`;
+    names.set(key, name);
     return name;
   };
-  const minted = g.blocks.filter((b) => !known.has(b.uid));
-  for (const b of minted) nameOf(b.uid, new Set());
+  const minted = g.blocks.filter((b) => !known.has(b.key));
+  for (const b of minted) nameOf(b.key, new Set());
   // Two minted blocks at one position: tell them apart by text.
   const groups = new Map<string, NormalBlock[]>();
   for (const b of minted) {
-    const name = names.get(b.uid) ?? b.uid;
+    const name = names.get(b.key) ?? b.key;
     groups.set(name, [...(groups.get(name) ?? []), b]);
   }
   for (const [name, group] of groups) {
     if (group.length < 2) continue;
     [...group].sort((x, y) => (x.text < y.text ? -1 : x.text > y.text ? 1 : 0))
-      .forEach((b, i) => names.set(b.uid, `${name}#${i + 1}`));
+      .forEach((b, i) => names.set(b.key, `${name}#${i + 1}`));
   }
-  const rename = (uid: string | null): string | null =>
-    uid === null ? null : names.get(uid) ?? uid;
+  const rename = (key: string | null): string | null =>
+    key === null ? null : names.get(key) ?? key;
   const renameText = (text: string): string =>
     [...names].reduce((t, [from, to]) => t.split(from).join(to), text);
   return {
     ...g,
     blocks: g.blocks.map((b) => ({
       ...b,
-      uid: rename(b.uid) ?? b.uid,
-      parent_uid: rename(b.parent_uid),
+      key: rename(b.key) ?? b.key,
+      parentKey: rename(b.parentKey),
       text: renameText(b.text),
-    })).sort(byUid),
+    })).sort(byKey),
   };
 }

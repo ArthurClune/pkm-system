@@ -18,22 +18,30 @@
 // it runs. Every run appends a resolved line to the world's transcript, which
 // a failing example prints.
 import fc from "fast-check";
-import type { BlockUid, OrderIdx, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import { ApiError } from "../../api/client";
 import { BAD_UID, editDrafts, FIXTURE_PAGE, PAGE_TITLES, pageTitle, resolveOps, showDraft,
          showOp, targetPool, type OpDraft } from "./arbitraries";
 import type { ConnectLanding, HarnessClient } from "./harnessClient";
+import type { Transport } from "./transport";
 import { countDown, FALL_BACK, midnightCrossing, type MidnightDay, type OfflineBack,
          SPRING_FORWARD, type SyncModel } from "./model";
 import type { CursorWatch } from "./oracle";
 import { ExampleCancelled } from "./cancel";
 import type { ServerControl } from "./serverControl";
+import { uidOf, orderIdxOf, seqOf } from "../../test-helpers";
 
-export interface World {
+/** What a command reads and drives of a client. A HarnessClient is one; a
+ * test stub fills in the whole surface rather than asserting it. */
+export type ClientPort = Pick<HarnessClient,
+  "name" | "writeFailArmed" | "unsentInMemory" | "online" | "offline" | "edit" | "pull"
+  | "nudge" | "failNextWrite" | "reload" | "connectLanded" | "cursor">
+  & { readonly transport: Pick<Transport, "arm" | "fetchJson"> };
+
+export interface World<C extends ClientPort = ClientPort> {
   server: ServerControl;
-  clients: Map<string, HarnessClient>;
-  watch: CursorWatch;
+  clients: Map<string, C>;
+  watch: Pick<CursorWatch, "observe">;
   /** One resolved line per command run, for the failure report. */
   transcript: string[];
   /** Counts what ran, by name (see tally). */
@@ -48,7 +56,7 @@ export type NudgeKind = "latest" | "stale" | "duplicate" | "ahead";
 /** How far past the journal an "ahead" nudge points. */
 const AHEAD_BY = 5;
 
-const clientOf = (w: World, name: string): HarnessClient => {
+const clientOf = (w: World, name: string): ClientPort => {
   const c = w.clients.get(name);
   if (!c) throw new Error(`no client ${name}`);
   return c;
@@ -73,7 +81,7 @@ const notStarted = (m: Readonly<SyncModel>, client: string): string | null =>
 
 /** Throws when the real client has a lane or an armed write failure that the
  * model says it has not. */
-const assertNoLane = (cmd: SyncCommand, c: HarnessClient): void => {
+const assertNoLane = (cmd: SyncCommand, c: ClientPort): void => {
   if (c.writeFailArmed() || c.unsentInMemory() > 0) {
     throw new Error(`model drift: ${cmd.toString()} passed its check, but the client` +
       ` has write failure armed ${c.writeFailArmed()}, lane ${c.unsentInMemory()}`);
@@ -171,8 +179,8 @@ export class BadBatch extends SyncCommand {
     const c = clientOf(w, this.client);
     assertNoLane(this, c);
     const ops: BlockOp[] = [{
-      op: "create", uid: BAD_UID as BlockUid, page_title: FIXTURE_PAGE,
-      parent_uid: null, order_idx: 60 as OrderIdx, text: "a create of a live uid",
+      op: "create", uid: uidOf(BAD_UID), page_title: FIXTURE_PAGE,
+      parent_uid: null, order_idx: orderIdxOf(60), text: "a create of a live uid",
     }];
     w.count("BadBatch");
     const id = await c.edit(ops);
@@ -277,7 +285,7 @@ export class Nudge extends SyncCommand {
       case "duplicate": seq = cursor; break;
       case "ahead": seq = (await w.server.latestSeq()) + AHEAD_BY; break;
     }
-    c.nudge(seq as SyncSeq);
+    c.nudge(seqOf(seq));
     w.count(`Nudge ${this.kind}`);
     return `Nudge(${this.client}, ${this.kind}) seq ${seq}, cursor ${cursor}`;
   }

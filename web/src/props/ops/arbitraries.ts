@@ -21,6 +21,7 @@ import {
   BLOCK_TEXT, commandArb, depthsFor, gapArb, nest, type Command, type Slot,
 } from "../outline/arbitraries";
 import type { NormalGraph } from "../sync/normalise";
+import { uidOf, orderIdxOf } from "../../test-helpers";
 
 export const OPS_PAGES = ["Outline Props", "Ops Two", "Ops Three"] as const;
 /** The pages plus one that never exists at the start, so a create or a move
@@ -90,7 +91,7 @@ const startArb = (outlineMin: number): fc.Arbitrary<StartState> => fc
          pageSpecsArb(outlineMin), pageSpecsArb(0), pageSpecsArb(0))
   .map(([uids, ...perPage]) => {
     let next = 0;
-    const pages = {} as Record<OpsPage, BlockNode[]>;
+    const pages: Record<OpsPage, BlockNode[]> = { "Outline Props": [], "Ops Two": [], "Ops Three": [] };
     OPS_PAGES.forEach((title, p) => {
       const specs = perPage[p];
       const depths = depthsFor(specs.map((s) => s.pick), MAX_DEPTH);
@@ -99,12 +100,12 @@ const startArb = (outlineMin: number): fc.Arbitrary<StartState> => fc
         (s, siblings) => {
           const prev = siblings[siblings.length - 1];
           return {
-            uid: uids[next++] as BlockUid,
+            uid: uidOf(uids[next++]),
             text: s.text,
             heading: s.heading,
             view_type: s.viewType,
             collapsed: s.collapsed,
-            order_idx: (prev ? prev.order_idx + 1 + s.gap : s.first) as OrderIdx,
+            order_idx: orderIdxOf(prev ? prev.order_idx + 1 + s.gap : s.first),
             created_at: null,
             updated_at: null,
             children: [],
@@ -173,7 +174,7 @@ export type RawHash = "none" | "match" | "stale";
 export type MovePage = string | { landing: true } | null;
 
 export type RawDraft =
-  | { kind: "create"; uid: RawTarget | null; parent: RawParent; page: string | null;
+  | { kind: "create"; claim: RawTarget | null; parent: RawParent; page: string | null;
       slot: RawSlot; text: string; heading: BlockNode["heading"];
       view_type: BlockNode["view_type"] }
   | { kind: "move"; target: RawTarget; parent: RawParent; page: MovePage; slot: RawSlot }
@@ -220,7 +221,7 @@ const createUid = weighted<RawTarget | null>([19, fc.constant(null)], [1, liveTa
 
 const createDraft = (page: fc.Arbitrary<string | null>,
                      text: fc.Arbitrary<string> = TEXT): fc.Arbitrary<RawDraft> => fc.record({
-  kind: fc.constant("create" as const), uid: createUid, parent: createParent, page, slot,
+  kind: fc.constant("create" as const), claim: createUid, parent: createParent, page, slot,
   text, heading: HEADING,
   view_type: fc.constantFrom<BlockNode["view_type"]>(null, "document", "numbered"),
 });
@@ -293,11 +294,11 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
   const pool = new Set<string>(TITLE_POOL);
   const rows = new Map<string, Row>();
   for (const b of g.blocks) {
-    if (pool.has(b.page) && OWN_UID.test(b.uid)) {
-      rows.set(b.uid, { page: b.page, parent: b.parent_uid, order: b.order_idx, text: b.text });
+    if (pool.has(b.page) && OWN_UID.test(b.key)) {
+      rows.set(b.key, { page: b.page, parent: b.parentKey, order: b.position, text: b.text });
     }
   }
-  const inGraph = new Set(g.blocks.map((b) => b.uid));
+  const inGraph = new Set(g.blocks.map((b) => b.key));
   const outside = UID_POOL.filter((u) => !inGraph.has(u));
   const deleted: string[] = [];
   const deletedText = new Map<string, string>();
@@ -319,8 +320,8 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
   };
   const childrenOf = (parent: string): string[] =>
     [...rows].filter(([, r]) => r.parent === parent).map(([u]) => u);
-  const subtree = (uid: string): string[] =>
-    [uid, ...childrenOf(uid).flatMap(subtree)];
+  const subtree = (key: string): string[] =>
+    [key, ...childrenOf(key).flatMap(subtree)];
   const keysUnder = (parent: string | null, page: string): number[] =>
     [...rows.values()]
       .filter((r) => (parent === null ? r.parent === null && r.page === page : r.parent === parent))
@@ -330,29 +331,29 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
     const last = keys.length > 0 ? keys[keys.length - 1] : -1;
     switch (s.at) {
       case "zero":
-        return 0 as OrderIdx;
+        return orderIdxOf(0);
       case "sibling":
-        return (keys.length > 0 ? at(keys, s.n) : 0) as OrderIdx;
+        return orderIdxOf((keys.length > 0 ? at(keys, s.n) : 0));
       case "gap": {
         const taken = new Set(keys);
         const free = Array.from({ length: Math.max(last, 0) }, (_, k) => k)
           .filter((k) => !taken.has(k));
-        return (free.length > 0 ? at(free, s.n) : last + 1) as OrderIdx;
+        return orderIdxOf((free.length > 0 ? at(free, s.n) : last + 1));
       }
       case "end":
-        return (last + 1 + (s.n % 3)) as OrderIdx;
+        return orderIdxOf((last + 1 + (s.n % 3)));
     }
   };
-  const textOf = (uid: string): string => rows.get(uid)?.text ?? deletedText.get(uid) ?? "";
-  const textHash = (uid: string, h: RawHash): Sha256Hex | null =>
-    h === "none" ? null : sha256Hex(h === "match" ? textOf(uid) : `${textOf(uid)}~`);
+  const textOf = (key: string): string => rows.get(key)?.text ?? deletedText.get(key) ?? "";
+  const textHash = (key: string, h: RawHash): Sha256Hex | null =>
+    h === "none" ? null : sha256Hex(h === "match" ? textOf(key) : `${textOf(key)}~`);
 
   const ops: BlockOp[] = [];
   drafts.forEach((d, i) => {
     let subject: string | null = null;
     switch (d.kind) {
       case "create": {
-        const uid = d.uid === null ? mint() : target(d.uid);
+        const uid = d.claim === null ? mint() : target(d.claim);
         const parent = d.parent.to === "live" || d.parent.to === "cycle"
           ? live(d.parent.n)
           : d.parent.to === "missing" ? missing(d.parent.n) : null;
@@ -361,12 +362,12 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
         const order = place(parentRow ? keysUnder(parent, page)
                             : parent === null ? keysUnder(null, page) : [], d.slot);
         ops.push({
-          op: "create", uid: uid as BlockUid, page_title: page,
-          parent_uid: parent as BlockUid | null, order_idx: order, text: d.text,
+          op: "create", uid: uidOf(uid), page_title: page,
+          parent_uid: parent === null ? null : uidOf(parent), order_idx: order, text: d.text,
           ...(d.heading !== null ? { heading: d.heading } : {}),
           ...(d.view_type !== null ? { view_type: d.view_type } : {}),
         });
-        if (d.uid === null) {
+        if (d.claim === null) {
           rows.set(uid, { page: parentRow?.page ?? page, parent: parentRow ? parent : null,
                           order, text: d.text });
         }
@@ -394,7 +395,7 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
         const order = place(parent === null ? keysUnder(null, dest)
                             : parentRow ? keysUnder(parent, dest) : [], d.slot);
         ops.push({
-          op: "move", uid: uid as BlockUid, parent_uid: parent as BlockUid | null,
+          op: "move", uid: uidOf(uid), parent_uid: parent === null ? null : uidOf(parent),
           order_idx: order, ...(titled !== null ? { page_title: titled } : {}),
         });
         const lands = parent === null || (parentRow !== undefined && !subtree(uid).includes(parent));
@@ -412,7 +413,7 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
         const page = rows.get(uid)?.page;
         // A hashed edit carries its block's page, as the editor stamps it.
         ops.push({
-          op: "update_text", uid: uid as BlockUid, text: d.text,
+          op: "update_text", uid: uidOf(uid), text: d.text,
           ...(base !== null ? { base_text_hash: base, ...(page ? { page_title: page } : {}) } : {}),
         });
         const row = rows.get(uid);
@@ -426,7 +427,7 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
         const base = d.hash === "none" ? null
           : d.hash === "match" ? subtreeHash(gone.map((u): [string, string] => [u, textOf(u)]))
           : sha256Hex(`${textOf(uid)}~`);
-        ops.push({ op: "delete", uid: uid as BlockUid,
+        ops.push({ op: "delete", uid: uidOf(uid),
                    ...(base !== null ? { base_subtree_hash: base } : {}) });
         for (const u of gone) {
           deleted.push(u);
@@ -438,15 +439,15 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
       }
       case "set_collapsed":
         subject = target(d.target);
-        ops.push({ op: "set_collapsed", uid: subject as BlockUid, collapsed: d.collapsed });
+        ops.push({ op: "set_collapsed", uid: uidOf(subject), collapsed: d.collapsed });
         break;
       case "set_heading":
         subject = target(d.target);
-        ops.push({ op: "set_heading", uid: subject as BlockUid, heading: d.heading });
+        ops.push({ op: "set_heading", uid: uidOf(subject), heading: d.heading });
         break;
       case "set_view_type":
         subject = target(d.target);
-        ops.push({ op: "set_view_type", uid: subject as BlockUid, view_type: d.view_type });
+        ops.push({ op: "set_view_type", uid: uidOf(subject), view_type: d.view_type });
         break;
       case "create_page":
         ops.push({ op: "create_page", page_title: d.page });

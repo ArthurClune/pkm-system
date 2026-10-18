@@ -7,7 +7,7 @@
 // alone, is not the property seeing the bug.
 import fc from "fast-check";
 import { expect, test } from "vitest";
-import type { BlockUid, OrderIdx } from "../../api/brands";
+import type { BlockUid } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import type { BlockNode } from "../../api/payloads";
 import { cloneTree, locate, applyOpsWithChange } from "../../outline/tree";
@@ -20,6 +20,7 @@ import { connectServer } from "../sync/serverControl";
 import { exampleArb } from "./arbitraries";
 import { REAL_OPS, type OpsSeam, runExample } from "./example";
 import { captureFaultWarnings } from "../warningsCapture";
+import { orderIdxOf } from "../../test-helpers";
 
 captureFaultWarnings("ops teeth");
 
@@ -46,7 +47,7 @@ function applyEchoShiftingMoved(tree: BlockNode[], ops: BlockOp[], title: string
     found.node.order_idx = op.order_idx;
     target.push(found.node);
     for (const s of target) {
-      if (s.order_idx >= op.order_idx) s.order_idx = (s.order_idx + 1) as OrderIdx;
+      if (s.order_idx >= op.order_idx) s.order_idx = orderIdxOf(s.order_idx + 1);
     }
     target.sort((a, b) => a.order_idx - b.order_idx);
   }

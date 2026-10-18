@@ -8,10 +8,10 @@
 //     moved to the same place among the deletes, and the batch is stale in
 //     the replay for exactly the titles it was stale for in the faulted run;
 //   - the "delete wins" invariant over the faulted run's final state.
-import type { BatchId } from "../../api/brands";
+import type { BatchId, BlockUid, PageId } from "../../api/brands";
 import { extractRefs } from "../../grammar/refs";
-import type { Snapshot } from "../../replica/apply";
 import type { DeleteRecord, RenameRecord } from "./serverControl";
+import { record } from "./wire";
 
 /** Past any journal: the server treats a seen_seq beyond its journal's head
  * as coming from a replaced database, stale for every recorded title. */
@@ -31,7 +31,7 @@ export function replaySeenSeq(seen: number, faulted: readonly number[],
                               replayed: readonly number[],
                               faultedLatest: number): number | null {
   if (seen > faultedLatest) return BEYOND_ANY_SEQ;
-  const passed = faulted.filter((seq) => seq <= seen).length;
+  const passed = faulted.filter((at) => at <= seen).length;
   if (passed === 0) return 0;
   return replayed[passed - 1] ?? null;
 }
@@ -40,7 +40,7 @@ export function replaySeenSeq(seen: number, faulted: readonly number[],
  * carries none, null when `map` has no answer. */
 export function withSeenSeq(body: string,
                             map: (seen: number) => number | null): string | null {
-  const parsed = JSON.parse(body) as { seen_seq?: unknown };
+  const parsed = record(JSON.parse(body), "ops body");
   if (typeof parsed.seen_seq !== "number") return body;
   const next = map(parsed.seen_seq);
   return next === null ? null : JSON.stringify({ ...parsed, seen_seq: next });
@@ -52,19 +52,20 @@ export interface DeleteWinsRun {
   committed: ReadonlyMap<BatchId, string>;
   renames: readonly RenameRecord[];
   deletes: readonly DeleteRecord[];
-  snapshot: Pick<Snapshot, "pages" | "blocks">;
+  snapshot: {
+    pages: readonly { id: PageId; title: string }[];
+    blocks: readonly { uid: BlockUid; page_id: PageId }[];
+  };
 }
 
 interface ParsedBody { seen?: number; ops: Record<string, unknown>[] }
 
 const parse = (body: string | undefined): ParsedBody => {
-  const parsed = JSON.parse(body ?? "{}") as { seen_seq?: unknown; ops?: unknown };
+  const parsed = record(JSON.parse(body ?? "{}"), "ops body");
+  const ops: unknown[] = Array.isArray(parsed.ops) ? parsed.ops : [];
   return {
     ...(typeof parsed.seen_seq === "number" ? { seen: parsed.seen_seq } : {}),
-    ops: Array.isArray(parsed.ops)
-      ? (parsed.ops as unknown[]).filter((op): op is Record<string, unknown> =>
-          op !== null && typeof op === "object")
-      : [],
+    ops: ops.flatMap((op) => (op !== null && typeof op === "object" ? [record(op, "op")] : [])),
   };
 };
 

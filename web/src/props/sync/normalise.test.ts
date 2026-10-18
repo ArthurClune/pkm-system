@@ -2,51 +2,54 @@ import { afterEach, describe, expect, test } from "vitest";
 import type { Snapshot } from "../../replica/apply";
 import { applySnapshot } from "../../replica/apply";
 import { openTestDb, type TestDb } from "../../replica/testDb";
+import { canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, uidOf } from "../../test-helpers";
 import { canonicaliseMintedUids, diffGraphs, fromReplica, fromSnapshot,
          opUids } from "./normalise";
 
 type SnapBlock = Snapshot["blocks"][number];
 
-/** A snapshot block from plain values: the brands are the wire's, not the
- * test's concern. */
+/** A snapshot block from plain values: `tag` and `parentTag` become uids,
+ * `target` a page id. */
 interface LooseBlock {
-  uid: string;
-  parent_uid?: string | null;
-  order_idx?: number;
+  tag: string;
+  parentTag?: string | null;
+  order?: number;
   text?: string;
-  refs?: { target_page_id: number; kind: string }[];
+  refs?: { target: number; kind: SnapBlock["refs"][number]["kind"] }[];
 }
 
 const block = (over: LooseBlock): SnapBlock => ({
-  page_id: 1, parent_uid: null, order_idx: 0, text: "", heading: null,
-  view_type: null, collapsed: 0, created_at: 100, updated_at: 100, refs: [],
-  ...over,
-}) as unknown as SnapBlock;
+  uid: uidOf(over.tag), page_id: pageIdOf(1),
+  parent_uid: over.parentTag == null ? null : uidOf(over.parentTag),
+  order_idx: orderIdxOf(over.order ?? 0), text: over.text ?? "", heading: null,
+  view_type: null, collapsed: 0, created_at: 100, updated_at: 100,
+  refs: (over.refs ?? []).map((ref) => ({ target_page_id: pageIdOf(ref.target), kind: ref.kind })),
+});
+
+const page = (id: number, title: string, stamp = 100): Snapshot["pages"][number] =>
+  ({ id: pageIdOf(id), title: canonicalTitleOf(title), created_at: stamp, updated_at: stamp });
 
 const snapshot = (blocks: SnapBlock[], over: Partial<Snapshot> = {}): Snapshot => ({
-  generation: "g1", plain_space_title_canonicalization: true, seq: 7,
-  pages: [
-    { id: 1, title: "Proptest", created_at: 100, updated_at: 100 },
-    { id: 2, title: "Target", created_at: 100, updated_at: 100 },
-  ],
+  generation: "g1", plain_space_title_canonicalization: true, seq: seqOf(7),
+  pages: [page(1, "Proptest"), page(2, "Target")],
   blocks, sidebar: [],
   ...over,
-} as Snapshot);
+});
 
 const base = (): Snapshot => snapshot([
-  block({ uid: "pt_seed_1", text: "one [[Target]]", order_idx: 0,
-          refs: [{ target_page_id: 2, kind: "link" }] }),
-  block({ uid: "pt_seed_2", text: "two", order_idx: 10 }),
-  block({ uid: "pt_child", parent_uid: "pt_seed_1", text: "child" }),
+  block({ tag: "pt_seed_1", text: "one [[Target]]", order: 0,
+          refs: [{ target: 2, kind: "link" }] }),
+  block({ tag: "pt_seed_2", text: "two", order: 10 }),
+  block({ tag: "pt_child", parentTag: "pt_seed_1", text: "child" }),
 ]);
 
 describe("fromSnapshot", () => {
   test("names pages and ref targets by title and sorts blocks by uid", () => {
     const g = fromSnapshot(base());
     expect(g.pages).toEqual(["Proptest", "Target"]);
-    expect(g.blocks.map((b) => b.uid)).toEqual(["pt_child", "pt_seed_1", "pt_seed_2"]);
+    expect(g.blocks.map((b) => b.key)).toEqual(["pt_child", "pt_seed_1", "pt_seed_2"]);
     expect(g.blocks[1]).toEqual({
-      uid: "pt_seed_1", page: "Proptest", parent_uid: null, order_idx: 0,
+      key: "pt_seed_1", page: "Proptest", parentKey: null, position: 0,
       text: "one [[Target]]", heading: null, collapsed: 0, view_type: null,
       refs: ["link:Target"],
     });
@@ -67,13 +70,10 @@ describe("fromSnapshot", () => {
     const renumbered = snapshot(
       base().blocks.map((b) => ({
         ...b,
-        page_id: (b.page_id === 1 ? 41 : 42) as SnapBlock["page_id"],
-        refs: b.refs.map((r) => ({ ...r, target_page_id: 42 as SnapBlock["page_id"] })),
+        page_id: pageIdOf(b.page_id === 1 ? 41 : 42),
+        refs: b.refs.map((r) => ({ ...r, target_page_id: pageIdOf(42) })),
       })),
-      { pages: [
-        { id: 41, title: "Proptest", created_at: 1, updated_at: 1 },
-        { id: 42, title: "Target", created_at: 1, updated_at: 1 },
-      ] as Snapshot["pages"] },
+      { pages: [page(41, "Proptest", 1), page(42, "Target", 1)] },
     );
     expect(diffGraphs(fromSnapshot(base()), fromSnapshot(renumbered))).toBeNull();
   });
@@ -94,7 +94,7 @@ describe("diffGraphs", () => {
 
   test("reports blocks and pages present on one side only", () => {
     const fewer = snapshot([base().blocks[0]], {
-      pages: [base().pages[0], { id: 3, title: "Other", created_at: 1, updated_at: 1 }] as Snapshot["pages"],
+      pages: [base().pages[0], page(3, "Other", 1)],
     });
     const diff = diffGraphs(fromSnapshot(base()), fromSnapshot(fewer)) ?? "";
     expect(diff).toContain("page Target: only in a");
@@ -107,23 +107,23 @@ describe("diffGraphs", () => {
 describe("canonicaliseMintedUids", () => {
   const withMinted = (header: string, entry: string): Snapshot => snapshot([
     ...base().blocks,
-    block({ uid: header, text: "[[conflict]] header", order_idx: 20 }),
-    block({ uid: entry, parent_uid: header, text: `lost text ((pt_seed_1)) under ${header}` }),
+    block({ tag: header, text: "[[conflict]] header", order: 20 }),
+    block({ tag: entry, parentTag: header, text: `lost text ((pt_seed_1)) under ${header}` }),
   ]);
   const known = new Set(["pt_seed_1", "pt_seed_2", "pt_child"]);
 
   test("names server-minted uids by position, so two mintings compare equal", () => {
-    const one = canonicaliseMintedUids(fromSnapshot(withMinted("Xa1", "Xa2")), known);
-    const two = canonicaliseMintedUids(fromSnapshot(withMinted("Yb1", "Yb2")), known);
+    const one = canonicaliseMintedUids(fromSnapshot(withMinted("Xmint1", "Xmint2")), known);
+    const two = canonicaliseMintedUids(fromSnapshot(withMinted("Ymint1", "Ymint2")), known);
     expect(diffGraphs(one, two)).toBeNull();
     const entry = one.blocks.find((b) => b.text.startsWith("lost text"));
-    expect(entry?.parent_uid).toBe("~[Proptest]/20");
+    expect(entry?.parentKey).toBe("~[Proptest]/20");
     expect(entry?.text).toBe("lost text ((pt_seed_1)) under ~[Proptest]/20");
   });
 
   test("still sees a difference in a minted block's content", () => {
-    const one = canonicaliseMintedUids(fromSnapshot(withMinted("Xa1", "Xa2")), known);
-    const other = withMinted("Yb1", "Yb2");
+    const one = canonicaliseMintedUids(fromSnapshot(withMinted("Xmint1", "Xmint2")), known);
+    const other = withMinted("Ymint1", "Ymint2");
     other.blocks[3] = { ...other.blocks[3], text: "[[conflict]] other header" };
     const two = canonicaliseMintedUids(fromSnapshot(other), known);
     expect(diffGraphs(one, two)).toMatch(/block ~\[Proptest\]\/20: text/);

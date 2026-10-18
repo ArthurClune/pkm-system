@@ -11,7 +11,6 @@
 // meaning is wrong.
 import fc from "fast-check";
 import { expect, test } from "vitest";
-import type { OrderIdx } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import type { BlockNode } from "../../api/payloads";
 import type { EditResult } from "../../outline/edits";
@@ -21,6 +20,7 @@ import { PAGE_TITLE, sequenceArb } from "./arbitraries";
 import { sequenceProblems } from "./checks";
 import { REAL, runSequence, type Seam } from "./run";
 import { captureFaultWarnings } from "../warningsCapture";
+import { orderIdxOf } from "../../test-helpers";
 
 captureFaultWarnings("outline teeth");
 
@@ -62,7 +62,7 @@ const MUTANTS: Record<string, Mutant> = {
       ...REAL,
       moveBlockDown: (blocks, pageTitle, uid) =>
         mutated(blocks, REAL.moveBlockDown(blocks, pageTitle, uid), (ops) =>
-          ops.map((op) => op.op === "move" ? { ...op, order_idx: (op.order_idx + 1) as OrderIdx } : op)),
+          ops.map((op) => op.op === "move" ? { ...op, order_idx: orderIdxOf(op.order_idx + 1) } : op)),
     },
   },
   "planOutlinePaste omits the target's new children": {

@@ -96,7 +96,7 @@ afterAll(() => {
 
 interface ExampleOptions {
   /** Runs after the commands, before quiescence. */
-  beforeQuiesce?: (world: World) => Promise<void>;
+  beforeQuiesce?: (world: World<HarnessClient>) => Promise<void>;
   /** Every client's changes-feed window, in journal rows; absent, the
    * server's default. */
   windowLimit?: number;
@@ -185,7 +185,7 @@ async function runExample(names: readonly string[], cmds: Commands,
     transcript.push(`start ${started.join(", ")}` +
       (opts.windowLimit === undefined ? "" : `, window limit ${opts.windowLimit}`));
     const model = initialModel([...names]);
-    const world: World = {
+    const world: World<HarnessClient> = {
       server: guard.server, clients, watch: new CursorWatch(), transcript, count,
       cancelled: guard.cancelled,
     };
@@ -278,7 +278,7 @@ async function runExample(names: readonly string[], cmds: Commands,
 
 /** A fixed scenario's op draft: top level, Proptest, key 0, unless given. */
 const draft = (d: Partial<OpDraft> & Pick<OpDraft, "kind">): OpDraft =>
-  ({ target: 0, parent: null, page: null, orderIdx: 0, text: "", collapsed: false, ...d });
+  ({ target: 0, parent: null, page: null, order: 0, text: "", collapsed: false, ...d });
 
 test("reload during an in-flight post", async () => {
   await runExample(["A"], [
@@ -334,8 +334,8 @@ test("lost ack, own nudge pulls before the redelivery", async () => {
   await runExample(["A"], [
     new Fault("A", "dropAck"),
     new Edit("A", [
-      draft({ kind: "move", target: 3, orderIdx: 0 }),
-      draft({ kind: "move", target: 3, orderIdx: 1 }),
+      draft({ kind: "move", target: 3, order: 0 }),
+      draft({ kind: "move", target: 3, order: 1 }),
     ]),
   ], {
     beforeQuiesce: async (world) => {
@@ -372,7 +372,7 @@ class Drained extends SyncCommand {
     return m.clients.includes(this.client) ? null : "client not in this example";
   }
 
-  protected async act(_m: SyncModel, w: World): Promise<string> {
+  protected async act(_m: SyncModel, w: World<HarnessClient>): Promise<string> {
     const c = w.clients.get(this.client);
     if (!c) throw new Error(`no client ${this.client}`);
     const pending = (): number => c.db.select<"n">(
@@ -441,7 +441,7 @@ test("quiesce waits for a batch a poison repair held back", async () => {
   for (let i = 0; i < 20; i += 1) {
     await runExample(["A", "B"], [
       new BadBatch("A"), new BadBatch("A"), new BadBatch("A"),
-      new Edit("A", [draft({ kind: "move", target: 0, parent: 0, orderIdx: 28 })]),
+      new Edit("A", [draft({ kind: "move", target: 0, parent: 0, order: 28 })]),
       new Offline("B"),
     ]);
   }

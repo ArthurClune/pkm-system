@@ -25,9 +25,9 @@ const depth = (nodes: readonly BlockNode[]): number =>
 const startNodes = (s: StartState): BlockNode[] =>
   OPS_PAGES.flatMap((p) => allNodes(s.pages[p]));
 
-const nb = (uid: string, page: string, parent_uid: string | null, order_idx: number,
+const nb = (key: string, page: string, parentKey: string | null, position: number,
             text: string): NormalBlock => ({
-  uid, page, parent_uid, order_idx, text, heading: null, collapsed: 0, view_type: null,
+  key, page, parentKey, position, text, heading: null, collapsed: 0, view_type: null,
   refs: [],
 });
 
@@ -46,6 +46,11 @@ const GRAPH: NormalGraph = {
 };
 
 const resolve = (drafts: RawDraft[]): BlockOp[] => resolveRaw(drafts, GRAPH, rawUidMinter());
+
+const textHashOf = (op: BlockOp | undefined): string | null | undefined =>
+  op !== undefined && "base_text_hash" in op ? op.base_text_hash : undefined;
+const subtreeHashOf = (op: BlockOp | undefined): string | null | undefined =>
+  op !== undefined && "base_subtree_hash" in op ? op.base_subtree_hash : undefined;
 
 const uidOf = (op: BlockOp): string | null => (op.op === "create_page" ? null : op.uid);
 
@@ -139,15 +144,15 @@ describe("resolveRaw", () => {
 
   it("resolves a missing-parent draft to a uid outside the graph", () => {
     const ops = resolve([
-      { kind: "create", uid: null, parent: { to: "missing", n: 3 }, page: "Ops Two",
+      { kind: "create", claim: null, parent: { to: "missing", n: 3 }, page: "Ops Two",
         slot: { at: "zero" }, text: "x", heading: null, view_type: null },
       { kind: "move", target: { of: "live", n: 1 }, parent: { to: "missing", n: 0 },
         page: null, slot: { at: "zero" } },
     ]);
-    const known = new Set(GRAPH.blocks.map((b) => b.uid));
+    const known = new Set(GRAPH.blocks.map((b) => b.key));
     for (const op of ops) {
       expect(op.op === "create" || op.op === "move").toBe(true);
-      const parent = (op as { parent_uid: string | null }).parent_uid;
+      const parent = "parent_uid" in op ? op.parent_uid : undefined;
       expect(parent).not.toBeNull();
       expect(parent).toMatch(UID_RE);
       expect(known.has(parent as string)).toBe(false);
@@ -158,7 +163,7 @@ describe("resolveRaw", () => {
 
   it("resolves a double-named pair to two ops on one uid", () => {
     const create: RawDraft = {
-      kind: "create", uid: null, parent: { to: "top" }, page: null, slot: { at: "end", n: 0 },
+      kind: "create", claim: null, parent: { to: "top" }, page: null, slot: { at: "end", n: 0 },
       text: "", heading: null, view_type: null,
     };
     const move: RawDraft = {
@@ -186,14 +191,14 @@ describe("resolveRaw", () => {
     const [match] = resolve([upd("match")]);
     const [none] = resolve([upd("none")]);
     expect(stale).toMatchObject({ op: "update_text", uid: "opsb00" });
-    expect((stale as { base_text_hash: string }).base_text_hash).not.toBe(sha256Hex("a"));
-    expect((match as { base_text_hash: string }).base_text_hash).toBe(sha256Hex("a"));
+    expect(textHashOf(stale)).not.toBe(sha256Hex("a"));
+    expect(textHashOf(match)).toBe(sha256Hex("a"));
     expect("base_text_hash" in none).toBe(false);
     const live = subtreeHash([["opsb00", "a"], ["opsb01", "b"], ["opsb02", "c"]]);
     const [dStale] = resolve([del("stale")]);
     const [dMatch] = resolve([del("match")]);
-    expect((dMatch as { base_subtree_hash: string }).base_subtree_hash).toBe(live);
-    expect((dStale as { base_subtree_hash: string }).base_subtree_hash).not.toBe(live);
+    expect(subtreeHashOf(dMatch)).toBe(live);
+    expect(subtreeHashOf(dStale)).not.toBe(live);
   });
 
   it("matches against text the batch itself wrote", () => {
@@ -202,8 +207,8 @@ describe("resolveRaw", () => {
       { kind: "update_text", target: { of: "live", n: 1 }, text: "C", hash: "match" },
       { kind: "delete", target: { of: "live", n: 0 }, hash: "match" },
     ]);
-    expect((ops[1] as { base_text_hash: string }).base_text_hash).toBe(sha256Hex("B"));
-    expect((ops[2] as { base_subtree_hash: string }).base_subtree_hash)
+    expect(textHashOf(ops[1])).toBe(sha256Hex("B"));
+    expect(subtreeHashOf(ops[2]))
       .toBe(subtreeHash([["opsb00", "a"], ["opsb01", "C"], ["opsb02", "c"]]));
   });
 
@@ -242,7 +247,7 @@ describe("resolveRaw", () => {
   });
 
   it("can create a live uid, the rare 400", () => {
-    const [op] = resolve([{ kind: "create", uid: { of: "live", n: 2 }, parent: { to: "top" },
+    const [op] = resolve([{ kind: "create", claim: { of: "live", n: 2 }, parent: { to: "top" },
                             page: null, slot: { at: "zero" }, text: "", heading: null,
                             view_type: null }]);
     expect(op).toMatchObject({ op: "create", uid: "opsb02", page_title: "Outline Props" });
@@ -288,9 +293,9 @@ describe("raw batches", () => {
   });
 
   it("title about half of parented moves, with the parent's page or another", () => {
-    const pageOf = new Map(GRAPH.blocks.map((b) => [b.uid, b.page]));
+    const pageOf = new Map(GRAPH.blocks.map((b) => [b.key, b.page]));
     const parented = batches.slice(0, 1000).flatMap((b) => resolve(b))
-      .filter((op): op is BlockOp & { op: "move" } => op.op === "move")
+      .flatMap((op) => (op.op === "move" ? [op] : []))
       .filter((op) => op.parent_uid != null && pageOf.has(op.parent_uid));
     const titled = parented.filter((op) => op.page_title != null);
     const share = titled.length / parented.length;
@@ -320,7 +325,7 @@ describe("raw batches", () => {
       expect(has((d) => d.kind === "delete" && d.hash === hash)).toBe(true);
     }
     expect(has((d) => d.kind === "update_text" && d.target.of === "gone")).toBe(true);
-    expect(has((d) => d.kind === "create" && d.uid !== null)).toBe(true);
+    expect(has((d) => d.kind === "create" && d.claim !== null)).toBe(true);
     expect(has((d) => d.kind === "move" && d.parent.to === "top" && d.page === "Ops Four"))
       .toBe(true);
     for (const title of TITLE_POOL) {

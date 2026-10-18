@@ -34,9 +34,9 @@
 // so that pull settles the batch's replay-log records as the app's
 // would, and the pending set a later step's replay and check R see is the
 // unacked batches only.
-import type { BatchId, SyncSeq } from "../../api/brands";
+import type { BatchId, ClientId, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
-import type { BlockNode } from "../../api/payloads";
+import type { BlockNode, OpsAck } from "../../api/payloads";
 import { applyOpsWithChange, needsAuthoritativeReload } from "../../outline/tree";
 import { type ApplyResult, applyChanges, applySnapshot, type Changes,
          type Snapshot } from "../../replica/apply";
@@ -52,6 +52,8 @@ import type { ServerControl } from "../sync/serverControl";
 import { type Example, OPS_PAGES, type RawDraft, rawUidMinter, resolveRaw, seedOps,
          TITLE_POOL } from "./arbitraries";
 import { diffTrees, pruneGraph, pruneTree, treesFromSnapshot } from "./compare";
+import { batchIdOf, clientIdOf, seqOf } from "../../test-helpers";
+import { parseOpsAck } from "../sync/wire";
 
 /** The implementations a teeth check swaps for deliberately wrong ones. */
 export interface OpsSeam {
@@ -125,16 +127,14 @@ export function showTally(t: Tally): string {
 
 const harness = (what: string): Error => new Error(`harness: ${what}`);
 
-type Ack = { applied: number; skipped?: { index: number; op: string; uid: string;
-                                           reason: string }[] };
-type Posted = { status: 200; ack: Ack } | { status: 400; reason: string };
+type Posted = { status: 200; ack: OpsAck } | { status: 400; reason: string };
 
 const isTitleSyntax = (reason: string): boolean => reason.includes("title syntax");
 
 /** POST /api/ops as the queue sends it. 200 and 400 are answers the checks
  * read; anything else (a 409 above all: a reused batch id) is the harness's
  * own fault. */
-async function post(server: ServerControl, batchId: BatchId, clientId: string,
+async function post(server: ServerControl, batchId: BatchId, clientId: ClientId,
                     ops: readonly BlockOp[]): Promise<Posted> {
   let res: Response;
   try {
@@ -143,7 +143,7 @@ async function post(server: ServerControl, batchId: BatchId, clientId: string,
     throw harness(`POST /api/ops ${batchId} threw: ${String(e)}`);
   }
   const text = await res.text();
-  if (res.status === 200) return { status: 200, ack: JSON.parse(text) as Ack };
+  if (res.status === 200) return { status: 200, ack: parseOpsAck(JSON.parse(text)) };
   if (res.status === 400) {
     const detail = (JSON.parse(text) as { detail?: { reason?: unknown } }).detail;
     return { status: 400, reason: String(detail?.reason ?? text) };
@@ -180,7 +180,7 @@ function tallyRaw(t: Tally, drafts: readonly RawDraft[], ops: readonly BlockOp[]
     if (d.kind === "update_text" && d.hash === "stale") seen.add("stale text hash");
     if (d.kind === "delete" && d.hash === "stale") seen.add("stale subtree hash");
   }
-  const pageOf = new Map(g.blocks.map((b) => [b.uid, b.page]));
+  const pageOf = new Map(g.blocks.map((b) => [b.key, b.page]));
   const named = new Map<string, number>();
   for (const op of ops) {
     if (op.op === "create_page") continue;
@@ -208,7 +208,7 @@ export interface RunOptions {
   afterSeed?: () => Promise<void>;
   /** The batch id for the n-th POST of this example (n = 0: the seed). A
    * fixed scenario passes one that repeats to provoke a 409. */
-  batchId?: (n: number) => BatchId;
+  batchIds?: (n: number) => BatchId;
 }
 
 let exampleCount = 0;
@@ -225,8 +225,8 @@ export async function runExample(server: ServerControl, ex: Example,
   const nextBatchId = (): BatchId => {
     const n = posts++;
     // Padded: the server wants eight characters at least.
-    return opts.batchId ? opts.batchId(n)
-      : `ops-${String(example).padStart(3, "0")}-${String(n).padStart(2, "0")}` as BatchId;
+    return opts.batchIds ? opts.batchIds(n)
+      : batchIdOf(`ops-${String(example).padStart(3, "0")}-${String(n).padStart(2, "0")}`);
   };
   // The replica's clock: never compared, only kept moving.
   let clock = 1_900_000_000_000;
@@ -237,7 +237,7 @@ export async function runExample(server: ServerControl, ex: Example,
   try {
     // Seed.
     await server.reset();
-    const seeded = await post(server, nextBatchId(), "ops-seed", seedOps(ex.start));
+    const seeded = await post(server, nextBatchId(), clientIdOf("ops-seed"), seedOps(ex.start));
     if (seeded.status !== 200 || (seeded.ack.skipped ?? []).length > 0) {
       throw harness(`seed batch: ${showAck(seeded)}`);
     }
@@ -303,7 +303,7 @@ export async function runExample(server: ServerControl, ex: Example,
     const cursorOf = (): SyncSeq => {
       const cursor = getMeta(replica.db, "cursor");
       if (cursor === null) throw harness("the replica holds no cursor");
-      return Number(cursor) as SyncSeq;
+      return seqOf(Number(cursor));
     };
 
     /** The window from the replica's cursor, which must reach the head. */
@@ -363,7 +363,7 @@ export async function runExample(server: ServerControl, ex: Example,
         // so the server's verdict can be compared.
         const row = refused === null ? storedRow(batchId) : null;
         const sent = row?.ops ?? batch.ops;
-        const posted = await post(server, batchId, "ops-device", sent);
+        const posted = await post(server, batchId, clientIdOf("ops-device"), sent);
         ackSkips(posted);
         trace.push(`  command batch ${i + 1} (${batchId}): ${showAck(posted)}`,
                    `      ${showOps(sent)}`);
@@ -437,7 +437,7 @@ export async function runExample(server: ServerControl, ex: Example,
         const opsO = resolveRaw(step.other, gO, mint);
         learn(opsO);
         const batchO = nextBatchId();
-        const postedO = await post(server, batchO, "ops-other", opsO);
+        const postedO = await post(server, batchO, clientIdOf("ops-other"), opsO);
         ackSkips(postedO);
         trace.push(`  step ${i + 1} O (${batchO}): ${showAck(postedO)}`,
                    `      ${showOps(opsO)}`);
@@ -478,7 +478,7 @@ export async function runExample(server: ServerControl, ex: Example,
       // B goes out as the queue would send it: the ops its row stored.
       const row = refused === null ? storedRow(batchB) : null;
       const sent = row?.ops ?? opsB;
-      const posted = await post(server, batchB, "ops-device", sent);
+      const posted = await post(server, batchB, clientIdOf("ops-device"), sent);
       ackSkips(posted);
       trace.push(`  step ${i + 1} B (${batchB}): ${showAck(posted)}`,
                  `      ${showOps(sent)}`);

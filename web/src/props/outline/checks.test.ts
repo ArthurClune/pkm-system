@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { BlockUid, OrderIdx } from "../../api/brands";
 import type { BlockNode } from "../../api/payloads";
 import type { CaretOffset } from "../../outline/keyEdits";
 import { applyOps } from "../../outline/tree";
@@ -7,16 +6,17 @@ import { PAGE_TITLE, type Command } from "./arbitraries";
 import { sequenceProblems, stepProblems } from "./checks";
 import { readingRows } from "./reading";
 import { runSequence, type Run } from "./run";
+import { uidOf, orderIdxOf } from "../../test-helpers";
 
-const node = (uid: string, order: number, over: Partial<BlockNode> = {},
+const node = (tag: string, order: number, over: Partial<BlockNode> = {},
               children: BlockNode[] = []): BlockNode => ({
-  uid: uid as BlockUid, text: uid, heading: null, view_type: null, collapsed: false,
-  order_idx: order as OrderIdx, created_at: null, updated_at: null, children,
+  uid: uidOf(`tuid-${tag}`), text: tag, heading: null, view_type: null, collapsed: false,
+  order_idx: orderIdxOf(order), created_at: null, updated_at: null, children,
   ...over,
 });
 
-const flat = (): BlockNode[] => ["a", "b", "c", "d"].map((uid, i) => node(uid, i));
-const uid = (s: string) => s as BlockUid;
+const flat = (): BlockNode[] => ["a", "b", "c", "d"].map((tag, i) => node(tag, i));
+const uid = (s: string) => uidOf(`tuid-${s}`);
 const caret = (n: number) => n as CaretOffset;
 
 /** a (collapsed, holding a1), b, c: a1 is hidden. */
@@ -24,7 +24,7 @@ const folded = (): BlockNode[] => [
   node("a", 0, { collapsed: true }, [node("a1", 0)]), node("b", 1), node("c", 2),
 ];
 
-const only = (property: string) => [expect.stringMatching(new RegExp(`^${property}: `))];
+const only = (property: string): unknown[] => [expect.stringMatching(new RegExp(`^${property}: `))];
 
 describe("stepProblems", () => {
   it("a clean step has no problems", () => {
@@ -120,7 +120,7 @@ describe("stepProblems", () => {
       { kind: "undo" },
     ]);
     const undo = run.steps[2];
-    expect(undo.focus).toEqual({ uid: "p", cursor: 1 });
+    expect(undo.focus).toEqual({ uid: uid("p"), cursor: 1 });
     expect(stepProblems(undo)).toEqual([]);
   });
 });

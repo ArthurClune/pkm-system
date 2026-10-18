@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
 import type { BatchId } from "../../api/brands";
-import type { Snapshot } from "../../replica/apply";
 import { BEYOND_ANY_SEQ, deleteWins, type DeleteWinsRun, replaySeenSeq, staleNamers,
          withSeenSeq } from "./deleteWins";
 import type { DeleteRecord, RenameRecord } from "./serverControl";
+import { batchIdOf, pageIdOf, seqOf, uidOf } from "../../test-helpers";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -54,7 +54,7 @@ describe("withSeenSeq", () => {
   });
 });
 
-const id = (s: string): BatchId => s as BatchId;
+const id = (s: string): BatchId => batchIdOf(s);
 
 const body = (ops: unknown[], seen?: number): string =>
   JSON.stringify({ client_id: "c", batch_id: "x", ops,
@@ -64,8 +64,8 @@ const createOn = (title: string, text = "plain"): unknown =>
   ({ op: "create", uid: "pt_A_1", page_title: title, parent_uid: null, order_idx: 0, text });
 
 const del = (over: Partial<DeleteRecord> = {}): DeleteRecord => ({
-  title: "Second", seq: 20, after_batch_id: id("b1"), at: 1000, ord: 1,
-  uids: ["pt_sec_1"], ...over,
+  title: "Second", seq: seqOf(20), after_batch_id: id("b1"), at: 1000, ord: 1,
+  uids: [uidOf("pt_sec_1")], ...over,
 });
 
 const rename = (over: Partial<RenameRecord> = {}): RenameRecord => ({
@@ -75,9 +75,9 @@ const rename = (over: Partial<RenameRecord> = {}): RenameRecord => ({
 
 type Pages = [number, string][];
 const snap = (pages: Pages, blocks: [string, number][] = []): DeleteWinsRun["snapshot"] => ({
-  pages: pages.map(([pid, title]) => ({ id: pid, title, created_at: 0, updated_at: 0 })),
-  blocks: blocks.map(([uid, pid]) => ({ uid, page_id: pid })),
-}) as unknown as Pick<Snapshot, "pages" | "blocks">;
+  pages: pages.map(([pid, title]) => ({ id: pageIdOf(pid), title })),
+  blocks: blocks.map(([tag, pid]) => ({ uid: uidOf(tag), page_id: pageIdOf(pid) })),
+});
 
 /** b1 lands, Second is deleted after it at seq 20, then b2 (whose body is
  * given) lands; Second exists at quiescence unless `pages` says otherwise. */
@@ -176,13 +176,13 @@ describe("deleteWins", () => {
     // Deleted after b1, re-created by b2 (fresh), deleted again after b2:
     // b2 no longer justifies a page that exists at quiescence.
     const r = run(body([createOn("Second")], 20), {
-      deletes: [del(), del({ seq: 30, after_batch_id: id("b2"), ord: 2, uids: [] })] });
+      deletes: [del(), del({ seq: seqOf(30), after_batch_id: id("b2"), ord: 2, uids: [] })] });
     expect(deleteWins(r)).toHaveLength(1);
   });
 
   test("a stale batch may re-create the page once a later delete may have pruned its row", () => {
     const r = run(body([createOn("Second")], 10), {
-      deletes: [del(), del({ title: "Third", seq: 22, after_batch_id: id("b1"), ord: 2,
+      deletes: [del(), del({ title: "Third", seq: seqOf(22), after_batch_id: id("b1"), ord: 2,
                              at: 1000 + 31 * DAY, uids: [] })] });
     expect(deleteWins(r)).toEqual([]);
   });
@@ -203,7 +203,7 @@ describe("deleteWins", () => {
 
   test("reports every violation", () => {
     const r = run(body([createOn("Second"), createOn("Third")], 10), {
-      deletes: [del(), del({ title: "Third", seq: 22, ord: 2, uids: ["pt_A_9"] })],
+      deletes: [del(), del({ title: "Third", seq: seqOf(22), ord: 2, uids: [uidOf("pt_A_9")] })],
       snapshot: snap([[1, "Proptest"], [2, "Second"], [3, "Third"]], [["pt_A_9", 3]]),
     });
     expect(deleteWins(r)).toHaveLength(3);

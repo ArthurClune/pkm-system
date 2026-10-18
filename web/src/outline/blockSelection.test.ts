@@ -1,99 +1,102 @@
 import { describe, it, expect } from "vitest";
-import { block, ord, uid } from "../test-helpers";
+import { block, orderIdxOf, uidOf } from "../test-helpers";
 import { extendSelection, needsDeleteConfirmation, selectedUids,
          selectionDragUids, selectionText, startSelection } from "./blockSelection";
 
 // a: "one", b: "two", c(collapsed): "three" with hidden child c1, d: "four"
 const BLOCKS = [
-  block("a", "one", { order_idx: ord(0) }),
-  block("b", "two", { order_idx: ord(1) }),
-  block("c", "three", {
-    order_idx: ord(2), collapsed: true,
-    children: [block("c1", "hidden", { order_idx: ord(0) })],
+  block("tuid-a", "one", { order_idx: orderIdxOf(0) }),
+  block("tuid-b", "two", { order_idx: orderIdxOf(1) }),
+  block("tuid-c", "three", {
+    order_idx: orderIdxOf(2), collapsed: true,
+    children: [block("tuid-c1", "hidden", { order_idx: orderIdxOf(0) })],
   }),
-  block("d", "four", { order_idx: ord(3) }),
+  block("tuid-d", "four", { order_idx: orderIdxOf(3) }),
 ];
 
 const NESTED = [
-  block("r", "root", {
-    order_idx: ord(0),
+  block("tuid-r", "root", {
+    order_idx: orderIdxOf(0),
     children: [
-      block("r0", "child", {
-        order_idx: ord(0),
-        children: [block("r00", "grand", { order_idx: ord(0) })],
+      block("tuid-r0", "child", {
+        order_idx: orderIdxOf(0),
+        children: [block("tuid-r00", "grand", { order_idx: orderIdxOf(0) })],
       }),
     ],
   }),
-  block("s", "sibling", { order_idx: ord(1) }),
+  block("tuid-s", "sibling", { order_idx: orderIdxOf(1) }),
 ];
 
 describe("selectedUids", () => {
   it("returns the inclusive run in document order (anchor before head)", () => {
-    expect(selectedUids(BLOCKS, { anchor: uid("a"), head: uid("c") })).toEqual(["a", "b", "c"]);
+    expect(selectedUids(BLOCKS, { anchor: uidOf("tuid-a"), head: uidOf("tuid-c") }))
+      .toEqual(["tuid-a", "tuid-b", "tuid-c"]);
   });
 
   it("normalises a head-before-anchor selection to document order", () => {
-    expect(selectedUids(BLOCKS, { anchor: uid("c"), head: uid("a") })).toEqual(["a", "b", "c"]);
+    expect(selectedUids(BLOCKS, { anchor: uidOf("tuid-c"), head: uidOf("tuid-a") }))
+      .toEqual(["tuid-a", "tuid-b", "tuid-c"]);
   });
 
   it("a single-block selection is just that block", () => {
-    expect(selectedUids(BLOCKS, { anchor: uid("b"), head: uid("b") })).toEqual(["b"]);
+    expect(selectedUids(BLOCKS, { anchor: uidOf("tuid-b"), head: uidOf("tuid-b") })).toEqual(["tuid-b"]);
   });
 
   it("never includes a collapsed subtree's hidden children", () => {
-    expect(selectedUids(BLOCKS, { anchor: uid("a"), head: uid("d") })).toEqual(["a", "b", "c", "d"]);
+    expect(selectedUids(BLOCKS, { anchor: uidOf("tuid-a"), head: uidOf("tuid-d") }))
+      .toEqual(["tuid-a", "tuid-b", "tuid-c", "tuid-d"]);
   });
 
   it("is empty when an end is not visible", () => {
-    expect(selectedUids(BLOCKS, { anchor: uid("a"), head: uid("c1") })).toEqual([]);
+    expect(selectedUids(BLOCKS, { anchor: uidOf("tuid-a"), head: uidOf("tuid-c1") })).toEqual([]);
   });
 });
 
 describe("extendSelection", () => {
   it("moves the head down one visible block, anchor fixed", () => {
-    expect(extendSelection(BLOCKS, { anchor: uid("a"), head: uid("a") }, "down"))
-      .toEqual({ anchor: "a", head: "b" });
+    expect(extendSelection(BLOCKS, { anchor: uidOf("tuid-a"), head: uidOf("tuid-a") }, "down"))
+      .toEqual({ anchor: "tuid-a", head: "tuid-b" });
   });
 
   it("moves the head up one visible block", () => {
-    expect(extendSelection(BLOCKS, { anchor: uid("d"), head: uid("c") }, "up"))
-      .toEqual({ anchor: "d", head: "b" });
+    expect(extendSelection(BLOCKS, { anchor: uidOf("tuid-d"), head: uidOf("tuid-c") }, "up"))
+      .toEqual({ anchor: "tuid-d", head: "tuid-b" });
   });
 
   it("skips a collapsed subtree's hidden children", () => {
-    expect(extendSelection(BLOCKS, { anchor: uid("a"), head: uid("c") }, "down"))
-      .toEqual({ anchor: "a", head: "d" });
+    expect(extendSelection(BLOCKS, { anchor: uidOf("tuid-a"), head: uidOf("tuid-c") }, "down"))
+      .toEqual({ anchor: "tuid-a", head: "tuid-d" });
   });
 
   it("clamps at the bottom edge", () => {
-    expect(extendSelection(BLOCKS, { anchor: uid("a"), head: uid("d") }, "down"))
-      .toEqual({ anchor: "a", head: "d" });
+    expect(extendSelection(BLOCKS, { anchor: uidOf("tuid-a"), head: uidOf("tuid-d") }, "down"))
+      .toEqual({ anchor: "tuid-a", head: "tuid-d" });
   });
 
   it("clamps at the top edge", () => {
-    expect(extendSelection(BLOCKS, { anchor: uid("d"), head: uid("a") }, "up"))
-      .toEqual({ anchor: "d", head: "a" });
+    expect(extendSelection(BLOCKS, { anchor: uidOf("tuid-d"), head: uidOf("tuid-a") }, "up"))
+      .toEqual({ anchor: "tuid-d", head: "tuid-a" });
   });
 });
 
 describe("selectionDragUids", () => {
   it("returns the selection's uids when the grabbed block is part of it", () => {
-    expect(selectionDragUids(BLOCKS, { anchor: uid("a"), head: uid("b") }, uid("a")))
-      .toEqual(["a", "b"]);
-    expect(selectionDragUids(BLOCKS, { anchor: uid("a"), head: uid("b") }, uid("b")))
-      .toEqual(["a", "b"]);
+    expect(selectionDragUids(BLOCKS, { anchor: uidOf("tuid-a"), head: uidOf("tuid-b") }, uidOf("tuid-a")))
+      .toEqual(["tuid-a", "tuid-b"]);
+    expect(selectionDragUids(BLOCKS, { anchor: uidOf("tuid-a"), head: uidOf("tuid-b") }, uidOf("tuid-b")))
+      .toEqual(["tuid-a", "tuid-b"]);
   });
 
   it("returns null when the grabbed block is outside the selection", () => {
-    expect(selectionDragUids(BLOCKS, { anchor: uid("a"), head: uid("b") }, uid("d"))).toBeNull();
+    expect(selectionDragUids(BLOCKS, { anchor: uidOf("tuid-a"), head: uidOf("tuid-b") }, uidOf("tuid-d"))).toBeNull();
   });
 
   it("reduces a parent + selected descendant to the parent (root uids only)", () => {
     // expand c so its child c1 is visible and selectable
     const expanded = BLOCKS.map((b) =>
-      b.uid === "c" ? { ...b, collapsed: false } : b);
-    expect(selectionDragUids(expanded, { anchor: uid("c"), head: uid("d") }, uid("c")))
-      .toEqual(["c", "d"]); // c1 folded into c's subtree
+      b.uid === "tuid-c" ? { ...b, collapsed: false } : b);
+    expect(selectionDragUids(expanded, { anchor: uidOf("tuid-c"), head: uidOf("tuid-d") }, uidOf("tuid-c")))
+      .toEqual(["tuid-c", "tuid-d"]); // c1 folded into c's subtree
   });
 });
 
@@ -113,54 +116,54 @@ describe("needsDeleteConfirmation", () => {
 
 describe("selectionText", () => {
   it("joins the selected blocks' text with newlines in document order", () => {
-    expect(selectionText(BLOCKS, { anchor: uid("a"), head: uid("c") })).toBe("one\ntwo\nthree");
+    expect(selectionText(BLOCKS, { anchor: uidOf("tuid-a"), head: uidOf("tuid-c") })).toBe("one\ntwo\nthree");
   });
 
   it("orders by the document even when head precedes anchor", () => {
-    expect(selectionText(BLOCKS, { anchor: uid("c"), head: uid("a") })).toBe("one\ntwo\nthree");
+    expect(selectionText(BLOCKS, { anchor: uidOf("tuid-c"), head: uidOf("tuid-a") })).toBe("one\ntwo\nthree");
   });
 
   it("indents by depth relative to the shallowest selected block", () => {
-    expect(selectionText(NESTED, { anchor: uid("r"), head: uid("s") }))
+    expect(selectionText(NESTED, { anchor: uidOf("tuid-r"), head: uidOf("tuid-s") }))
       .toBe("root\n\tchild\n\t\tgrand\nsibling");
     // selection entirely below the top level re-bases at zero tabs
-    expect(selectionText(NESTED, { anchor: uid("r0"), head: uid("r00") }))
+    expect(selectionText(NESTED, { anchor: uidOf("tuid-r0"), head: uidOf("tuid-r00") }))
       .toBe("child\n\tgrand");
   });
 });
 
 // above, a {{table}} of two rows (r1a>r1b, r2a>r2b), below
 const tableTree = (collapsed: boolean) => [
-  block("above", "above", { order_idx: ord(0) }),
-  block("t", "{{table}}", {
-    order_idx: ord(1), collapsed,
+  block("tuid-above", "above", { order_idx: orderIdxOf(0) }),
+  block("tuid-t", "{{table}}", {
+    order_idx: orderIdxOf(1), collapsed,
     children: [
-      block("r1a", "r1a", { order_idx: ord(0), children: [block("r1b", "r1b")] }),
-      block("r2a", "r2a", { order_idx: ord(1), children: [block("r2b", "r2b")] }),
+      block("tuid-r1a", "r1a", { order_idx: orderIdxOf(0), children: [block("tuid-r1b", "r1b")] }),
+      block("tuid-r2a", "r2a", { order_idx: orderIdxOf(1), children: [block("tuid-r2b", "r2b")] }),
     ],
   }),
-  block("below", "below", { order_idx: ord(2) }),
+  block("tuid-below", "below", { order_idx: orderIdxOf(2) }),
 ];
 
 describe.each([true, false])("a Roam table in a selection (collapsed=%s)", (collapsed) => {
   it("is one row: extending from above goes table, then below", () => {
     const blocks = tableTree(collapsed);
-    const s1 = extendSelection(blocks, { anchor: uid("above"), head: uid("above") }, "down");
-    expect(s1.head).toBe("t");
+    const s1 = extendSelection(blocks, { anchor: uidOf("tuid-above"), head: uidOf("tuid-above") }, "down");
+    expect(s1.head).toBe("tuid-t");
     const s2 = extendSelection(blocks, s1, "down");
-    expect(s2.head).toBe("below");
-    expect(selectedUids(blocks, s2)).toEqual(["above", "t", "below"]);
+    expect(s2.head).toBe("tuid-below");
+    expect(selectedUids(blocks, s2)).toEqual(["tuid-above", "tuid-t", "tuid-below"]);
   });
 
   it("copies the table's cells, indented, between the neighbouring blocks", () => {
     const blocks = tableTree(collapsed);
-    expect(selectionText(blocks, { anchor: uid("above"), head: uid("below") }))
+    expect(selectionText(blocks, { anchor: uidOf("tuid-above"), head: uidOf("tuid-below") }))
       .toBe("above\n{{table}}\n\tr1a\n\t\tr1b\n\tr2a\n\t\tr2b\nbelow");
   });
 
   it("copies a table nested under a parent relative to the shallowest block", () => {
-    const blocks = [block("p", "p", { children: tableTree(collapsed) })];
-    expect(selectionText(blocks, { anchor: uid("t"), head: uid("below") }))
+    const blocks = [block("tuid-p", "p", { children: tableTree(collapsed) })];
+    expect(selectionText(blocks, { anchor: uidOf("tuid-t"), head: uidOf("tuid-below") }))
       .toBe("{{table}}\n\tr1a\n\t\tr1b\n\tr2a\n\t\tr2b\nbelow");
   });
 });
@@ -168,37 +171,37 @@ describe.each([true, false])("a Roam table in a selection (collapsed=%s)", (coll
 describe("startSelection", () => {
   it("from a cell anchors on the table and heads on the block after it", () => {
     const blocks = tableTree(true);
-    expect(startSelection(blocks, uid("r1b"), "down"))
-      .toEqual({ anchor: "t", head: "below" });
-    expect(startSelection(blocks, uid("r2a"), "up"))
-      .toEqual({ anchor: "t", head: "above" });
+    expect(startSelection(blocks, uidOf("tuid-r1b"), "down"))
+      .toEqual({ anchor: "tuid-t", head: "tuid-below" });
+    expect(startSelection(blocks, uidOf("tuid-r2a"), "up"))
+      .toEqual({ anchor: "tuid-t", head: "tuid-above" });
   });
 
   it("with no direction selects just the table", () => {
-    expect(startSelection(tableTree(false), uid("r1b"), null))
-      .toEqual({ anchor: "t", head: "t" });
+    expect(startSelection(tableTree(false), uidOf("tuid-r1b"), null))
+      .toEqual({ anchor: "tuid-t", head: "tuid-t" });
   });
 
   it("lifts to the outermost table when tables nest", () => {
-    const inner = block("it", "{{table}}", { children: [block("ic", "ic")] });
+    const inner = block("tuid-it", "{{table}}", { children: [block("tuid-ic", "ic")] });
     const blocks = [
-      block("t", "{{table}}", { children: [block("c", "c", { children: [inner] })] }),
+      block("tuid-t", "{{table}}", { children: [block("tuid-c", "c", { children: [inner] })] }),
     ];
     // the outer table is invalid only if a cell has two children; here it is
     // valid
-    expect(startSelection(blocks, uid("ic"), null)).toEqual({ anchor: "t", head: "t" });
+    expect(startSelection(blocks, uidOf("tuid-ic"), null)).toEqual({ anchor: "tuid-t", head: "tuid-t" });
   });
 
   it("from an ordinary block matches plain neighbour stepping", () => {
-    expect(startSelection(BLOCKS, uid("b"), "down")).toEqual({ anchor: "b", head: "c" });
-    expect(startSelection(BLOCKS, uid("b"), "up")).toEqual({ anchor: "b", head: "a" });
-    expect(startSelection(BLOCKS, uid("a"), "up")).toEqual({ anchor: "a", head: "a" });
-    expect(startSelection(BLOCKS, uid("d"), "down")).toEqual({ anchor: "d", head: "d" });
-    expect(startSelection(BLOCKS, uid("b"), null)).toEqual({ anchor: "b", head: "b" });
+    expect(startSelection(BLOCKS, uidOf("tuid-b"), "down")).toEqual({ anchor: "tuid-b", head: "tuid-c" });
+    expect(startSelection(BLOCKS, uidOf("tuid-b"), "up")).toEqual({ anchor: "tuid-b", head: "tuid-a" });
+    expect(startSelection(BLOCKS, uidOf("tuid-a"), "up")).toEqual({ anchor: "tuid-a", head: "tuid-a" });
+    expect(startSelection(BLOCKS, uidOf("tuid-d"), "down")).toEqual({ anchor: "tuid-d", head: "tuid-d" });
+    expect(startSelection(BLOCKS, uidOf("tuid-b"), null)).toEqual({ anchor: "tuid-b", head: "tuid-b" });
   });
 
   it("an ordinary block with children keeps them out of a copied selection when collapsed", () => {
-    expect(selectionText(BLOCKS, { anchor: uid("b"), head: uid("d") }))
+    expect(selectionText(BLOCKS, { anchor: uidOf("tuid-b"), head: uidOf("tuid-d") }))
       .toBe("two\nthree\nfour");
   });
 });

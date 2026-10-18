@@ -8,7 +8,8 @@ import { useEffect } from "react";
 import { expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, defer, jsonResponse, makeSync, stubFetch, title, type SyncFake, uid } from "../test-helpers";
+import { block, defer, jsonResponse, makeSync, stubFetch, canonicalTitleOf, type SyncFake,
+         uidOf } from "../test-helpers";
 import { findNode } from "./tree";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -17,7 +18,7 @@ function Harness({ pageTitle, initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(title(pageTitle), initial);
+  const outline = useOutline(canonicalTitleOf(pageTitle), initial);
   useEffect(() => onReady(outline));
   return null;
 }
@@ -44,16 +45,16 @@ const INFO = { sha256: "ab".repeat(32), filename: "cat.png",
 it("onFiles splices the uploaded asset's markdown at the given offset", async () => {
   const sync = makeSync();
   stubFetch([["/api/assets", INFO]]);
-  const getOutline = setup(sync, "Page", [block("u1", "hello")]);
+  const getOutline = setup(sync, "Page", [block("tuid-u1", "hello")]);
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   await act(async () => {
-    getOutline().handlers.onFiles(uid("u1"), 5, [file]);
+    getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
     await flush();
   });
 
   expect(getOutline().uploadError).toBeNull();
-  expect(findNode(getOutline().blocks, uid("u1"))!.text)
+  expect(findNode(getOutline().blocks, uidOf("tuid-u1"))!.text)
     .toBe(`hello![cat.png](${INFO.url})`);
 });
 
@@ -61,28 +62,28 @@ it("a failed upload sets a visible uploadError and leaves the text untouched",
    async () => {
   const sync = makeSync();
   stubFetch([]); // /api/assets 404s -> ApiError
-  const getOutline = setup(sync, "Page", [block("u1", "hello")]);
+  const getOutline = setup(sync, "Page", [block("tuid-u1", "hello")]);
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   await act(async () => {
-    getOutline().handlers.onFiles(uid("u1"), 5, [file]);
+    getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
     await flush();
   });
 
   expect(getOutline().uploadError).not.toBeNull();
   expect(getOutline().uploadError).toContain("cat.png");
   expect(sync.sent).toEqual([]); // no splice op enqueued
-  expect(findNode(getOutline().blocks, uid("u1"))!.text).toBe("hello");
+  expect(findNode(getOutline().blocks, uidOf("tuid-u1"))!.text).toBe("hello");
 });
 
 it("dismissUploadError clears the message", async () => {
   const sync = makeSync();
   stubFetch([]);
-  const getOutline = setup(sync, "Page", [block("u1", "hello")]);
+  const getOutline = setup(sync, "Page", [block("tuid-u1", "hello")]);
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   await act(async () => {
-    getOutline().handlers.onFiles(uid("u1"), 5, [file]);
+    getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
     await flush();
   });
   expect(getOutline().uploadError).not.toBeNull();
@@ -100,17 +101,17 @@ it("the /upload dialog path leaves focus null after the splice",
    async () => {
   const sync = makeSync();
   stubFetch([["/api/assets", INFO]]);
-  const getOutline = setup(sync, "Page", [block("u1", "hello")]);
+  const getOutline = setup(sync, "Page", [block("tuid-u1", "hello")]);
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   expect(getOutline().focus).toBeNull();
 
   await act(async () => {
-    getOutline().handlers.onFiles(uid("u1"), 5, [file]);
+    getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
     await flush();
   });
 
-  expect(findNode(getOutline().blocks, uid("u1"))!.text)
+  expect(findNode(getOutline().blocks, uidOf("tuid-u1"))!.text)
     .toBe(`hello![cat.png](${INFO.url})`);
   expect(getOutline().focus).toBeNull();
 });
@@ -119,19 +120,19 @@ it("the paste/drop path restores focus with the caret past the spliced "
    + "markdown", async () => {
   const sync = makeSync();
   stubFetch([["/api/assets", INFO]]);
-  const getOutline = setup(sync, "Page", [block("u1", "hello")]);
+  const getOutline = setup(sync, "Page", [block("tuid-u1", "hello")]);
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
-  act(() => getOutline().handlers.onFocusBlock(uid("u1"), 5));
+  act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u1"), 5));
 
   await act(async () => {
-    getOutline().handlers.onFiles(uid("u1"), 5, [file]);
+    getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
     await flush();
   });
 
   const spliced = `hello![cat.png](${INFO.url})`;
-  expect(findNode(getOutline().blocks, uid("u1"))!.text).toBe(spliced);
-  expect(getOutline().focus).toEqual({ uid: "u1", cursor: spliced.length });
+  expect(findNode(getOutline().blocks, uidOf("tuid-u1"))!.text).toBe(spliced);
+  expect(getOutline().focus).toEqual({ uid: "tuid-u1", cursor: spliced.length });
 });
 
 it("moving focus to another block during a slow upload leaves it there",
@@ -140,31 +141,31 @@ it("moving focus to another block during a slow upload leaves it there",
   const deferred = defer<Response>();
   vi.stubGlobal("fetch", vi.fn(async () => deferred.promise));
   const getOutline = setup(sync, "Page",
-    [block("u1", "hello"), block("u2", "world")]);
+    [block("tuid-u1", "hello"), block("tuid-u2", "world")]);
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
-  act(() => getOutline().handlers.onFocusBlock(uid("u1"), 5));
-  act(() => { void getOutline().handlers.onFiles(uid("u1"), 5, [file]); });
-  act(() => getOutline().handlers.onFocusBlock(uid("u2"), 0));
+  act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u1"), 5));
+  act(() => { void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]); });
+  act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u2"), 0));
 
   await act(async () => {
     deferred.resolve(jsonResponse(INFO));
     await flush();
   });
 
-  expect(findNode(getOutline().blocks, uid("u1"))!.text)
+  expect(findNode(getOutline().blocks, uidOf("tuid-u1"))!.text)
     .toBe(`hello![cat.png](${INFO.url})`);
-  expect(getOutline().focus).toEqual({ uid: "u2", cursor: 0 });
+  expect(getOutline().focus).toEqual({ uid: "tuid-u2", cursor: 0 });
 });
 
 it("starting a new upload clears a stale error from a previous failure", async () => {
   const sync = makeSync();
   const fetchMock = stubFetch([]);
-  const getOutline = setup(sync, "Page", [block("u1", "hello")]);
+  const getOutline = setup(sync, "Page", [block("tuid-u1", "hello")]);
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   await act(async () => {
-    getOutline().handlers.onFiles(uid("u1"), 5, [file]);
+    getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
     await flush();
   });
   expect(getOutline().uploadError).not.toBeNull();
@@ -173,7 +174,7 @@ it("starting a new upload clears a stale error from a previous failure", async (
     JSON.stringify(INFO), { status: 200,
       headers: { "Content-Type": "application/json" } }));
   await act(async () => {
-    getOutline().handlers.onFiles(uid("u1"), 5, [file]);
+    getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
     await flush();
   });
 

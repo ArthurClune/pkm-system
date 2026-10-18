@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Sha256Hex } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, jsonResponse, makeSync, ord, type SyncFake, title, uid } from "../test-helpers";
+import { block, jsonResponse, makeSync, orderIdxOf, type SyncFake, canonicalTitleOf, uidOf } from "../test-helpers";
 import type { DropTarget } from "./dnd";
 import * as undoManager from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
@@ -14,7 +14,7 @@ import { useOutline, type Outline } from "./useOutline";
 function Harness({ initial, onReady }: {
   initial: BlockNode[]; onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(title("Page"), initial);
+  const outline = useOutline(canonicalTitleOf("Page"), initial);
   useEffect(() => onReady(outline));
   return null;
 }
@@ -42,9 +42,9 @@ beforeEach(() => {
 afterEach(() => { undoManager.resetHistory(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 const png = (name: string) => new File(["x"], name, { type: "image/png" });
-const AB = () => [block("a", "alpha", { order_idx: ord(0) }),
-                  block("b", "beta", { order_idx: ord(1) })];
-const target: DropTarget = { parent_uid: null, order_idx: ord(1), page_title: "Page" };
+const AB = () => [block("tuid-a", "alpha", { order_idx: orderIdxOf(0) }),
+                  block("tuid-b", "beta", { order_idx: orderIdxOf(1) })];
+const target: DropTarget = { parent_uid: null, order_idx: orderIdxOf(1), page_title: "Page" };
 
 function recorded() {
   const spy = vi.spyOn(undoManager, "recordHistory");
@@ -54,7 +54,7 @@ function recorded() {
 it("/upload of a fresh file records its sha", async () => {
   const seen = recorded();
   const o = setup(makeSync(), AB());
-  await act(async () => { await o().handlers.onFiles(uid("a"), 5, [png("cat.png")]); });
+  await act(async () => { await o().handlers.onFiles(uidOf("tuid-a"), 5, [png("cat.png")]); });
   expect(seen()).toEqual([[shaOf("cat.png")]]);
 });
 
@@ -62,7 +62,7 @@ it("a mixed batch records only the fresh sha", async () => {
   const seen = recorded();
   const o = setup(makeSync(), AB());
   await act(async () => {
-    await o().handlers.onFiles(uid("a"), 5, [png("old.png"), png("new.png")]);
+    await o().handlers.onFiles(uidOf("tuid-a"), 5, [png("old.png"), png("new.png")]);
   });
   expect(seen()).toEqual([[shaOf("new.png")]]);
 });
@@ -70,7 +70,7 @@ it("a mixed batch records only the fresh sha", async () => {
 it("a dedup-only upload records no fresh assets", async () => {
   const seen = recorded();
   const o = setup(makeSync(), AB());
-  await act(async () => { await o().handlers.onFiles(uid("a"), 5, [png("old.png")]); });
+  await act(async () => { await o().handlers.onFiles(uidOf("tuid-a"), 5, [png("old.png")]); });
   expect(seen()).toEqual([[]]);
 });
 

@@ -25,20 +25,21 @@ describe("titleSyntaxReason", () => {
 });
 
 describe("findOpTitleViolation", () => {
-  test.each([
+  const rows: [string, BlockOp, "page_title" | "reference", string][] = [
     ["create_page", { op: "create_page", page_title: "New #Old" },
       "page_title", "New #Old"],
-    ["create", { op: "create", uid: "syntax01", page_title: "New #Old",
-      parent_uid: null, order_idx: 0, text: "plain" }, "page_title", "New #Old"],
-    ["move", { op: "move", uid: "uid_b4", parent_uid: null, order_idx: 0,
+    ["create", { op: "create", uid: uidOf("syntax01"), page_title: "New #Old",
+      parent_uid: null, order_idx: orderIdxOf(0), text: "plain" }, "page_title", "New #Old"],
+    ["move", { op: "move", uid: uidOf("uid_b4"), parent_uid: null, order_idx: orderIdxOf(0),
       page_title: "New #Old" }, "page_title", "New #Old"],
-    ["create reference", { op: "create", uid: "syntax02", page_title: "AI",
-      parent_uid: null, order_idx: 0,
+    ["create reference", { op: "create", uid: uidOf("syntax02"), page_title: "AI",
+      parent_uid: null, order_idx: orderIdxOf(0),
       text: "[[Safe Ref]] then [[New #Old]]" }, "reference", "New #Old"],
-    ["update reference", { op: "update_text", uid: "uid_b4",
+    ["update reference", { op: "update_text", uid: uidOf("uid_b4"),
       text: "[[Safe Ref]] then [[New #Old]]" }, "reference", "New #Old"],
-  ] as const)("checks the %s title source", (_name, op, source, title) => {
-    expect(findOpTitleViolation([op as BlockOp])).toEqual({
+  ];
+  test.each(rows)("checks the %s title source", (_name, op, source, title) => {
+    expect(findOpTitleViolation([op])).toEqual({
       opIndex: 0, source, title, reason: "forbidden_syntax",
     });
   });

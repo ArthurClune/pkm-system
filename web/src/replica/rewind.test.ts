@@ -1,7 +1,7 @@
 // @vitest-environment node
 import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { BatchId, BlockUid, OrderIdx, PageId } from "../api/brands";
+import type { BatchId, BlockUid, PageId } from "../api/brands";
 import { applySnapshot } from "./apply";
 import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
@@ -10,14 +10,15 @@ import { batchesArb, replicaStateArb, snapshotOf } from "./replayArbs";
 import { recordBlocks, recordPage, recordSiblingsFrom } from "./replayLog";
 import { rewind } from "./rewind";
 import { openTestDb, type TestDb } from "./testDb";
+import { batchIdOf, orderIdxOf, pageIdOf, uidOf } from "../test-helpers";
 
 let t: TestDb;
 afterEach(() => { vi.restoreAllMocks(); });
-const P = 1 as PageId;
-const b1 = "b1" as BatchId;
-const b2 = "b2" as BatchId;
-const u = (s: string) => s as BlockUid;
-const idx = (n: number) => n as OrderIdx;
+const P = pageIdOf(1);
+const b1 = batchIdOf("b1");
+const b2 = batchIdOf("b2");
+const u = (s: string): BlockUid => uidOf(s);
+const idx = (n: number) => orderIdxOf(n);
 
 beforeEach(async () => {
   t?.close();
@@ -47,8 +48,8 @@ const dump = (db: ReplicaDb = t.db) => ({
   blocks: db.select(
     "SELECT uid, page_id, parent_uid, order_idx, text, heading, collapsed," +
     " created_at, updated_at, view_type FROM blocks ORDER BY uid"),
-  pages: db.introspect(
-    "SELECT id, title, created_at, updated_at FROM pages ORDER BY id"),
+  pages: db.select(
+    "SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id"),
   refs: db.select(
     "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3"),
   blockRefs: db.select(
@@ -59,9 +60,9 @@ const ftsIntact = (db: ReplicaDb = t.db) => {
   db.exec("INSERT INTO pages_fts(pages_fts, rank) VALUES('integrity-check', 1)");
 };
 const logSize = () =>
-  (t.db.introspect("SELECT COUNT(*) AS n FROM replay_log") as { n: number }[])[0].n;
+  (t.db.select<"n">("SELECT COUNT(*) AS n FROM replay_log"))[0].n;
 const pageIds = () =>
-  (t.db.introspect("SELECT id FROM pages ORDER BY id") as { id: number }[]).map((r) => r.id);
+  t.db.select<"page_id">("SELECT id AS page_id FROM pages ORDER BY id").map((r) => r.page_id);
 const pend = (...ids: string[]) => {
   for (const id of ids) {
     t.db.exec("INSERT INTO pending_ops(batch_id, ops_json) VALUES (?, '[]')", [id]);
@@ -70,7 +71,7 @@ const pend = (...ids: string[]) => {
 
 // The writes below stand in for localOps.ts: each records, then writes.
 const mint = (batchId: BatchId, id: number, title: string) => {
-  recordPage(t.db, batchId, id as PageId, true);
+  recordPage(t.db, batchId, pageIdOf(id), true);
   t.db.exec("INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
             [id, title, 900, 900]);
 };
@@ -78,38 +79,38 @@ const touch = (batchId: BatchId, pageId: PageId) => {
   recordPage(t.db, batchId, pageId, false);
   t.db.exec("UPDATE pages SET updated_at = 900 WHERE id = ?", [pageId]);
 };
-const setText = (batchId: BatchId, uid: string, text: string,
+const setText = (batchId: BatchId, rawUid: string, text: string,
                  refs: [number, string][] = []) => {
-  recordBlocks(t.db, batchId, [u(uid)]);
-  t.db.exec("UPDATE blocks SET text = ?, updated_at = 900 WHERE uid = ?", [text, uid]);
-  t.db.exec("DELETE FROM refs WHERE src_block_uid = ?", [uid]);
+  recordBlocks(t.db, batchId, [u(rawUid)]);
+  t.db.exec("UPDATE blocks SET text = ?, updated_at = 900 WHERE uid = ?", [text, rawUid]);
+  t.db.exec("DELETE FROM refs WHERE src_block_uid = ?", [rawUid]);
   for (const [pageId, kind] of refs) {
-    t.db.exec("INSERT INTO refs VALUES (?,?,?)", [uid, pageId, kind]);
+    t.db.exec("INSERT INTO refs VALUES (?,?,?)", [rawUid, pageId, kind]);
   }
-  reindexBlockRefs(t.db, u(uid), text);
+  reindexBlockRefs(t.db, u(rawUid), text);
 };
-const create = (batchId: BatchId, uid: string, parentUid: string | null,
-                orderIdx: number) => {
+const create = (batchId: BatchId, rawUid: string, rawParent: string | null,
+                slot: number) => {
   recordSiblingsFrom(t.db, batchId,
-    { pageId: P, parentUid: parentUid as BlockUid | null, fromOrderIdx: idx(orderIdx) });
+    { pageId: P, parentUid: rawParent === null ? null : u(rawParent), fromOrderIdx: idx(slot) });
   t.db.exec("UPDATE blocks SET order_idx = order_idx + 1" +
             " WHERE page_id = 1 AND parent_uid IS ? AND order_idx >= ?",
-            [parentUid, orderIdx]);
-  recordBlocks(t.db, batchId, [u(uid)]);
+            [rawParent, slot]);
+  recordBlocks(t.db, batchId, [u(rawUid)]);
   t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
             " created_at, updated_at) VALUES (?, 1, ?, ?, ?, 900, 900)",
-            [uid, parentUid, orderIdx, uid]);
+            [rawUid, rawParent, slot, rawUid]);
 };
-const move = (batchId: BatchId, uid: string, parentUid: string | null,
-              orderIdx: number) => {
+const move = (batchId: BatchId, rawUid: string, rawParent: string | null,
+              slot: number) => {
   recordSiblingsFrom(t.db, batchId,
-    { pageId: P, parentUid: parentUid as BlockUid | null, fromOrderIdx: idx(orderIdx) });
+    { pageId: P, parentUid: rawParent === null ? null : u(rawParent), fromOrderIdx: idx(slot) });
   t.db.exec("UPDATE blocks SET order_idx = order_idx + 1" +
             " WHERE page_id = 1 AND parent_uid IS ? AND order_idx >= ?",
-            [parentUid, orderIdx]);
-  recordBlocks(t.db, batchId, [u(uid)]);
+            [rawParent, slot]);
+  recordBlocks(t.db, batchId, [u(rawUid)]);
   t.db.exec("UPDATE blocks SET parent_uid = ?, order_idx = ?, updated_at = 900" +
-            " WHERE uid = ?", [parentUid, orderIdx, uid]);
+            " WHERE uid = ?", [rawParent, slot, rawUid]);
 };
 /** Records the subtree deepest first, as the delete loop walks it. */
 const del = (batchId: BatchId, ...subtree: string[]) => {
@@ -163,9 +164,8 @@ describe("rewind", () => {
   });
 
   test("restoring a parent row does not cascade its children", () => {
-    const rowids = () => (t.db.introspect(
-      "SELECT uid, rowid FROM blocks WHERE uid IN ('tuid-c1', 'tuid-c11', 'tuid-c2') ORDER BY uid") as
-      { uid: string; rowid: number }[]);
+    const rowids = () => t.db.select<"uid" | "n">(
+      "SELECT uid, rowid AS n FROM blocks WHERE uid IN ('tuid-c1', 'tuid-c11', 'tuid-c2') ORDER BY uid");
     const before = dump();
     const ids = rowids();
     inTx(() => {
@@ -176,7 +176,7 @@ describe("rewind", () => {
     expect(rowids()).toEqual(ids);
     ftsIntact();
     expect((t.db.introspect("SELECT rowid FROM blocks_fts WHERE blocks_fts MATCH 'c11'") as { rowid: number }[]))
-      .toEqual([{ rowid: ids[1].rowid }]);
+      .toEqual([{ rowid: ids[1].n }]);
   });
 
   test("the oldest batch's pre-image wins across batches", () => {
@@ -291,7 +291,7 @@ describe("rewind", () => {
 
   test("a positive page id is never deleted, whatever its record says", () => {
     inTx(() => {
-      recordPage(t.db, b1, 2 as PageId, true);
+      recordPage(t.db, b1, pageIdOf(2), true);
       t.db.exec("DELETE FROM refs WHERE target_page_id = 2");
       expect(rewind(t.db, "all")).toEqual(new Map());
     });

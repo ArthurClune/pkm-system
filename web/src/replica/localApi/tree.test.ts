@@ -31,8 +31,8 @@ afterEach(() => {
   t?.close();
 });
 
-function insertPage(pageId: number, title: string) {
-  t.db.exec("INSERT INTO pages(id, title) VALUES (?, ?)", [pageId, title]);
+function insertPage(id: number, title: string) {
+  t.db.exec("INSERT INTO pages(id, title) VALUES (?, ?)", [id, title]);
 }
 
 function seedLinearChain(prefix: string, ancestors: number): BlockUid {
@@ -48,7 +48,7 @@ function seedLinearChain(prefix: string, ancestors: number): BlockUid {
     );
     parentUid = uid;
   }
-  return `${prefix}-${ancestors}` as BlockUid;
+  return uidOf(`${prefix}-${ancestors}`);
 }
 
 function seedFiveNodeCycle(prefix: string): BlockUid {
@@ -68,7 +68,7 @@ function seedFiveNodeCycle(prefix: string): BlockUid {
       [uids[(i + 1) % uids.length], uids[i]],
     );
   }
-  return uids[0] as BlockUid;
+  return uidOf(uids[0]);
 }
 
 describe("fetchAncestors", () => {

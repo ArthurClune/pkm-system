@@ -124,7 +124,7 @@ describe("wrapSqlite + installSchema", () => {
     })).toThrow("SQLITE_CORRUPT");
     expect(warn).toHaveBeenCalledWith(
       "replica: ROLLBACK after a failed transaction",
-      expect.objectContaining({ message: expect.stringContaining("no transaction is active") }));
+      expect.objectContaining({ message: expect.stringContaining("no transaction is active") as unknown }));
     expect(warn).toHaveBeenCalledWith(
       "sqlite3_step() rc=", 1, "SQLITE_ERROR", "SQL =", "ROLLBACK");
     expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 0 }]);

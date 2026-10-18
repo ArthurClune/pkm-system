@@ -1,11 +1,10 @@
 import { expect, test } from "vitest";
-import type { BatchId } from "../api/brands";
-import type { PendingRowId } from "./client";
 import { mergeCarriedRows } from "./carryMerge";
 import type { DurablePendingRow } from "./queue";
+import { batchIdOf, pendingRowIdOf } from "../test-helpers";
 
-const row = (id: number, batch_id: string, error: string | null = null):
-  DurablePendingRow => ({ id: id as PendingRowId, batch_id: batch_id as BatchId,
+const row = (rowId: number, batch: string, error: string | null = null):
+  DurablePendingRow => ({ id: pendingRowIdOf(rowId), batch_id: batchIdOf(batch),
                           ops_json: "[]", poisoned: error ? 1 : 0, error });
 
 test("the rows either file holds, by id, oldest first", () => {

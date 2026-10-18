@@ -5,53 +5,52 @@
 // and enqueues the same batches at the same time.
 import fc from "fast-check";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { BatchId, BlockUid, CanonicalTitle, OrderIdx, PageId,
-              SyncSeq } from "../api/brands";
-import type { BlockOp } from "../api/ops";
+import type { BatchId, BlockUid } from "../api/brands";
+import type { BlockOp, MoveOp } from "../api/ops";
 import { applyChanges, applySnapshot, type Changes, type SyncBlock,
          type SyncTombstone } from "./apply";
-import type { PendingRowId } from "./client";
 import type { ReplicaDb } from "./db";
 import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { batchesArb, type DrawnBatch, replicaStateArb, type ReplicaState,
          snapshotOf } from "./replayArbs";
 import { openTestDb, type TestDb } from "./testDb";
+import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, uidOf } from "../test-helpers";
 
 const NOW = 500;
-const bid = (s: string): BatchId => s as BatchId;
-const u = (s: string): BlockUid => s as BlockUid;
+const bid = (s: string): BatchId => batchIdOf(s);
+const u = (s: string): BlockUid => uidOf(s);
 
 const page = (id: number, title: string) => ({
-  id: id as PageId, title: title as CanonicalTitle, created_at: 1, updated_at: 1,
+  id: pageIdOf(id), title: canonicalTitleOf(title), created_at: 1, updated_at: 1,
 });
-const block = (uid: string, over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid: u(uid), page_id: 1 as PageId, parent_uid: null, order_idx: 0 as OrderIdx,
-  text: uid, heading: null, view_type: null, collapsed: 0, created_at: 1,
+const block = (rawUid: string, over: Partial<SyncBlock> = {}): SyncBlock => ({
+  uid: u(rawUid), page_id: pageIdOf(1), parent_uid: null, order_idx: orderIdxOf(0),
+  text: rawUid, heading: null, view_type: null, collapsed: 0, created_at: 1,
   updated_at: 1, refs: [], ...over,
 });
-const at = (order: number): Partial<SyncBlock> => ({ order_idx: order as OrderIdx });
-const create = (uid: string, order: number,
+const at = (order: number): Partial<SyncBlock> => ({ order_idx: orderIdxOf(order) });
+const create = (rawUid: string, order: number,
                 parent: string | null = null): BlockOp => ({
-  op: "create", uid: u(uid), page_title: "Page One", parent_uid: parent ? u(parent) : null,
-  order_idx: order as OrderIdx, text: uid,
+  op: "create", uid: u(rawUid), page_title: "Page One", parent_uid: parent ? u(parent) : null,
+  order_idx: orderIdxOf(order), text: rawUid,
 });
-const move = (uid: string, order: number, over: Partial<BlockOp> = {}): BlockOp => ({
-  op: "move", uid: u(uid), parent_uid: null, order_idx: order as OrderIdx, ...over,
-} as BlockOp);
+const move = (rawUid: string, order: number, over: Partial<MoveOp> = {}): BlockOp => ({
+  op: "move", uid: u(rawUid), parent_uid: null, order_idx: orderIdxOf(order), ...over,
+});
 const batch = (id: string, ...ops: BlockOp[]): DrawnBatch => ({ batchId: bid(id), ops });
 
 /** A window that ships every page and block of `server`, plus `tombstones`. */
-const window = (server: ReplicaState, seq: number,
-                { tombstones = [], latest = seq }:
+const window = (server: ReplicaState, cursor: number,
+                { tombstones = [], latest = cursor }:
                   { tombstones?: SyncTombstone[]; latest?: number } = {}): Changes => ({
   reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-  next_since: seq as SyncSeq, latest_seq: latest as SyncSeq, pages: server.pages,
+  next_since: seqOf(cursor), latest_seq: seqOf(latest), pages: server.pages,
   blocks: server.blocks, sidebar: [], tombstones,
 });
-const headWindow = (server: ReplicaState, seq: number,
+const headWindow = (server: ReplicaState, cursor: number,
                     tombstones: SyncTombstone[] = []): Changes =>
-  window(server, seq, { tombstones });
-const blockTomb = (uid: string): SyncTombstone => ({ kind: "block", entity_id: uid });
+  window(server, cursor, { tombstones });
+const blockTomb = (rawUid: string): SyncTombstone => ({ kind: "block", entity_id: rawUid });
 
 /** Pages by title and blocks with their page's title, so local page ids
  * minted in another order still compare equal. */
@@ -70,7 +69,7 @@ const dump = (db: ReplicaDb) => ({
 
 /** Every column, local page ids and the log included. */
 const exactDump = (db: ReplicaDb) => ({
-  pages: db.introspect("SELECT id, title, created_at, updated_at FROM pages ORDER BY id"),
+  pages: db.select("SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id"),
   blocks: db.select(
     "SELECT uid, page_id, parent_uid, order_idx, text, heading, collapsed," +
     " created_at, updated_at, view_type FROM blocks ORDER BY uid"),
@@ -78,8 +77,8 @@ const exactDump = (db: ReplicaDb) => ({
     "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3"),
   blockRefs: db.select(
     "SELECT src_block_uid, target_block_uid FROM block_refs ORDER BY 1, 2"),
-  log: db.introspect(
-    "SELECT batch_id, kind, key, pre_json, pre_page_id FROM replay_log" +
+  log: db.select(
+    "SELECT batch_id, kind AS replay_kind, key AS replay_key, pre_json, pre_page_id FROM replay_log" +
     " ORDER BY batch_id, kind, key"),
   logRefs: db.select(
     "SELECT l.batch_id, l.key AS replay_key, r.target_page_id, r.kind AS ref_kind FROM replay_log_refs r" +
@@ -109,9 +108,9 @@ const firstApply = async (server: ReplicaState,
   dump(await replicaOf(server, batches));
 
 const order = (db: ReplicaDb, parent: string | null = null): string[] =>
-  (db.introspect(
+  (db.select<"uid">(
     "SELECT uid FROM blocks WHERE page_id = 1 AND parent_uid IS ?" +
-    " ORDER BY order_idx, uid", [parent]) as { uid: string }[]).map((r) => r.uid);
+    " ORDER BY order_idx, uid", [parent])).map((r) => r.uid);
 
 describe("a window replays pending batches as a first apply", () => {
   test("order: create X at 0 then move it to 1, over a window that ships another device's Y at 0", async () => {
@@ -163,8 +162,8 @@ describe("a window replays pending batches as a first apply", () => {
       "SELECT uid, order_idx FROM blocks WHERE page_id = 1 ORDER BY uid");
     const enqueued = orderIdx();
     // each window ships only another device's new block on another page
-    const z1 = block("tuid-z1", { page_id: 2 as PageId });
-    const z2 = block("tuid-z2", { page_id: 2 as PageId, order_idx: 1 as OrderIdx });
+    const z1 = block("tuid-z1", { page_id: pageIdOf(2) });
+    const z2 = block("tuid-z2", { page_id: pageIdOf(2), order_idx: orderIdxOf(1) });
     const afterOne = { pages: [...before.pages, page(2, "Page Two")],
                        blocks: [...before.blocks, z1] };
     const afterTwo = { pages: afterOne.pages, blocks: [...afterOne.blocks, z2] };
@@ -245,9 +244,9 @@ describe("the log across acks, poison and upgrades", () => {
                      { op: "update_text", uid: u("tuid-b"), text: "edited b" });
     const db = await replicaOf(server, [b1, batch("b2", create("tuid-p2", 0)), b3]);
     expect(order(db, "tuid-p2")).toEqual(["tuid-c"]);
-    const poisoned = (db.introspect(
-      "SELECT id FROM pending_ops WHERE batch_id = 'b2'") as { id: number }[])[0];
-    markPoisoned(db, poisoned.id as PendingRowId, "rejected", bid("b2"));
+    const poisoned = db.select<"pending_row_id">(
+      "SELECT id AS pending_row_id FROM pending_ops WHERE batch_id = 'b2'")[0];
+    markPoisoned(db, poisoned.pending_row_id, "rejected", bid("b2"));
 
     expect(applyChanges(db, window({ pages: [], blocks: [] }, 11, { latest: 12 }),
                         NOW + 100))

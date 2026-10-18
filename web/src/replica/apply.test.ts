@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { BatchId, BlockUid, CanonicalTitle, PageId, SyncSeq } from "../api/brands";
+import type { BatchId } from "../api/brands";
 import type { Changes, Snapshot, SyncBlock, SyncTombstone } from "./apply";
 import { applyChanges, applySnapshot, assertNoParkedTitles,
          parkTakenTitles } from "./apply";
@@ -10,7 +10,8 @@ import { getMeta, setMeta } from "./meta";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
 import type { ReplicaDb } from "./db";
-import { sidebarEntryIdOf, orderIdxOf, pageIdOf, sidebarOrderIdxOf, canonicalTitleOf, uidOf } from "../test-helpers";
+import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, sidebarEntryIdOf,
+         sidebarOrderIdxOf, uidOf } from "../test-helpers";
 
 // Tests that provoke a failure path on purpose spy on console.warn and assert
 // the line applyChanges or the engine (via testDb.ts) logs for it.
@@ -21,7 +22,7 @@ afterEach(() => { vi.restoreAllMocks(); });
 
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
-const bid = (s: string): BatchId => s as BatchId;
+const bid = (s: string): BatchId => batchIdOf(s);
 
 /** The drain's delete of the batch at the head of the queue, on its ack. */
 const ackNext = (db: ReplicaDb): void => {
@@ -30,18 +31,18 @@ const ackNext = (db: ReplicaDb): void => {
 };
 
 const block = (rawUid: string, rawPageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid: rawUid as BlockUid, page_id: rawPageId as PageId, parent_uid: null, order_idx: orderIdxOf(0),
+  uid: uidOf(rawUid), page_id: pageIdOf(rawPageId), parent_uid: null, order_idx: orderIdxOf(0),
   text: `text of ${rawUid}`,
   heading: null, view_type: null, collapsed: 0, created_at: 1, updated_at: 1,
   refs: [], ...over,
 });
 
 const page = (rawId: number, rawTitle: string) =>
-  ({ id: rawId as PageId, title: rawTitle as CanonicalTitle, created_at: 1, updated_at: 1 });
+  ({ id: pageIdOf(rawId), title: canonicalTitleOf(rawTitle), created_at: 1, updated_at: 1 });
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false,
-  seq: 10 as SyncSeq,
+  seq: seqOf(10),
   pages: [page(1, "Machine Learning"), page(2, "AI")],
   blocks: [
     block("uid_b1", 1, { text: "links [[AI]]", refs: [{ target_page_id: pageIdOf(2), kind: "link" }] }),
@@ -51,15 +52,18 @@ const SNAP: Snapshot = {
   sidebar: [{ id: sidebarEntryIdOf(1), title: canonicalTitleOf("AI"), order_idx: sidebarOrderIdxOf(0) }],
 };
 
-// `next_since`/`latest_seq` take a plain number here, not SyncSeq: every
-// caller in this file picks arbitrary small test cursors, and casting each
-// one individually would bury the fixture building in brand noise.
+// `next_since`/`latest_seq` take a plain number here and are minted with
+// seqOf: every caller in this file picks arbitrary small test cursors, and
+// minting each one individually would bury the fixture building in noise.
 const emptyFeed = (over: Omit<Partial<Changes>, "next_since" | "latest_seq"> &
-  { next_since?: number; latest_seq?: number } = {}): Changes => ({
-  reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-  next_since: 10, latest_seq: 10,
-  pages: [], blocks: [], sidebar: [], tombstones: [], ...over,
-} as Changes);
+  { next_since?: number; latest_seq?: number } = {}): Changes => {
+  const { next_since = 10, latest_seq = 10, ...rest } = over;
+  return {
+    reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
+    next_since: seqOf(next_since), latest_seq: seqOf(latest_seq),
+    pages: [], blocks: [], sidebar: [], tombstones: [], ...rest,
+  };
+};
 
 let t: TestDb;
 beforeEach(async () => {
@@ -69,12 +73,12 @@ beforeEach(async () => {
 });
 
 const count = (sql: string): number =>
-  Number((t.db.introspect(sql) as { n: number }[])[0].n);
+  Number((t.db.select<"n">(sql))[0].n);
 
 const ftsHits = (term: string): string[] =>
-  (t.db.introspect(
+  (t.db.select<"uid">(
     "SELECT b.uid FROM blocks b JOIN blocks_fts f ON f.rowid = b.rowid" +
-    " WHERE blocks_fts MATCH ?", [term]) as { uid: string }[]).map((r) => r.uid);
+    " WHERE blocks_fts MATCH ?", [term])).map((r) => r.uid);
 
 describe("applySnapshot", () => {
   test("accepts authoritative page titles with forbidden local-write syntax", () => {
@@ -86,11 +90,12 @@ describe("applySnapshot", () => {
                   order_idx: sidebarOrderIdxOf(0) }],
     });
 
-    expect(t.db.introspect("SELECT id, title FROM pages")).toEqual([
-      { id: 30, title: "Authoritative #Page" },
+    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages")).toEqual([
+      { page_id: 30, title: "Authoritative #Page" },
     ]);
-    expect(t.db.introspect("SELECT id, title FROM sidebar_entries")).toEqual([
-      { id: 30, title: "Authoritative #Page" },
+    expect(t.db.select<"sidebar_entry_id" | "title">(
+      "SELECT id AS sidebar_entry_id, title FROM sidebar_entries")).toEqual([
+      { sidebar_entry_id: 30, title: "Authoritative #Page" },
     ]);
   });
 
@@ -235,7 +240,7 @@ describe("applySnapshot", () => {
   test("re-bootstrap wipes stale rows first", () => {
     applySnapshot(t.db, {
       generation: "gen-2", plain_space_title_canonicalization: true,
-      seq: 4 as SyncSeq,
+      seq: seqOf(4),
       pages: [page(7, "Fresh")], blocks: [block("uid_new1", 7)],
       sidebar: [],
     });
@@ -252,7 +257,7 @@ describe("applySnapshot", () => {
 
     applySnapshot(t.db, SNAP); // no block refs in any of its texts
 
-    expect(t.db.introspect("SELECT * FROM block_refs")).toEqual([]);
+    expect(t.db.select<"src_block_uid" | "target_block_uid">("SELECT * FROM block_refs")).toEqual([]);
   });
 });
 
@@ -266,11 +271,12 @@ describe("applyChanges", () => {
                   order_idx: sidebarOrderIdxOf(0) }],
     }))).toEqual({ status: "applied", cursor: 11 });
 
-    expect(t.db.introspect("SELECT id, title FROM pages WHERE id = 31")).toEqual([
-      { id: 31, title: "Authoritative [[Feed]]" },
+    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages WHERE id = 31")).toEqual([
+      { page_id: 31, title: "Authoritative [[Feed]]" },
     ]);
-    expect(t.db.introspect("SELECT id, title FROM sidebar_entries WHERE id = 31"))
-      .toEqual([{ id: 31, title: "Authoritative [[Feed]]" }]);
+    expect(t.db.select<"sidebar_entry_id" | "title">(
+      "SELECT id AS sidebar_entry_id, title FROM sidebar_entries WHERE id = 31"))
+      .toEqual([{ sidebar_entry_id: 31, title: "Authoritative [[Feed]]" }]);
   });
 
   test("activation reconciles already-applied pending page targets before replay", () => {
@@ -286,12 +292,12 @@ describe("applyChanges", () => {
         page_title: "  Moved Block Target  " },
     ], 5, bid("pending-move"));
 
-    expect(t.db.introspect(
-      "SELECT id, title FROM pages WHERE id < 0 ORDER BY title"))
+    expect(t.db.select<"page_id" | "title">(
+      "SELECT id AS page_id, title FROM pages WHERE id < 0 ORDER BY title"))
       .toEqual([
-        { id: -2, title: "  Created Block Target  " },
-        { id: -3, title: "  Moved Block Target  " },
-        { id: -1, title: "  New Page Target  " },
+        { page_id: -2, title: "  Created Block Target  " },
+        { page_id: -3, title: "  Moved Block Target  " },
+        { page_id: -1, title: "  New Page Target  " },
       ]);
     expect(t.db.select(
       "SELECT uid, page_id FROM blocks" +
@@ -322,14 +328,14 @@ describe("applyChanges", () => {
     }), 6)).toEqual({ status: "applied", cursor: 11 });
 
     expect(getMeta(t.db, "plain_space_title_canonicalization")).toBe("1");
-    expect(t.db.introspect(
-      "SELECT id, title FROM pages WHERE title LIKE '%Target%' ORDER BY id"))
+    expect(t.db.select<"page_id" | "title">(
+      "SELECT id AS page_id, title FROM pages WHERE title LIKE '%Target%' ORDER BY id"))
       .toEqual([
-        { id: 10, title: "New Page Target" },
-        { id: 11, title: "Created Block Target" },
-        { id: 12, title: "Moved Block Target" },
+        { page_id: 10, title: "New Page Target" },
+        { page_id: 11, title: "Created Block Target" },
+        { page_id: 12, title: "Moved Block Target" },
       ]);
-    expect(t.db.introspect("SELECT id, title FROM pages WHERE id < 0")).toEqual([]);
+    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages WHERE id < 0")).toEqual([]);
     expect(t.db.select(
       "SELECT uid, page_id FROM blocks" +
       " WHERE uid IN ('uid_pending1', 'uid_b2', 'uid_b3') ORDER BY uid"))
@@ -354,8 +360,9 @@ describe("applyChanges", () => {
       pages: [page(10, "Shipped Target")],
     }), 6)).toEqual({ status: "applied", cursor: 11 });
 
-    expect(t.db.introspect(
-      "SELECT id < 0 AS local, title FROM pages WHERE title LIKE '%Target%' ORDER BY title"))
+    expect(t.db.select<"page_id" | "title">(
+      "SELECT id AS page_id, title FROM pages WHERE title LIKE '%Target%' ORDER BY title")
+      .map((r) => ({ local: r.page_id < 0 ? 1 : 0, title: r.title })))
       .toEqual([{ local: 1, title: "Lonely Target" },
                 { local: 0, title: "Shipped Target" }]);
   });
@@ -412,7 +419,7 @@ describe("applyChanges", () => {
       blocks: [block("uid_b1", 1, { text: "cites ((uid_tgtA))", refs: [] })],
     }));
 
-    expect(t.db.introspect("SELECT * FROM block_refs")).toEqual([
+    expect(t.db.select<"src_block_uid" | "target_block_uid">("SELECT * FROM block_refs")).toEqual([
       { src_block_uid: "uid_b1", target_block_uid: "uid_tgtA" }]);
 
     applyChanges(t.db, emptyFeed({
@@ -420,7 +427,7 @@ describe("applyChanges", () => {
       blocks: [block("uid_b1", 1, { text: "cites nothing now", refs: [] })],
     }));
 
-    expect(t.db.introspect("SELECT * FROM block_refs")).toEqual([]);
+    expect(t.db.select<"src_block_uid" | "target_block_uid">("SELECT * FROM block_refs")).toEqual([]);
   });
 
   test("re-applying the same window is idempotent", () => {
@@ -565,8 +572,8 @@ describe("applyChanges: a title moving between ids inside one window", () => {
       tombstones: [{ kind: "page", entity_id: "2" }],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
-    expect(t.db.introspect("SELECT id, title FROM pages ORDER BY id")).toEqual([
-      { id: 1, title: "Machine Learning" }, { id: 3, title: "AI" },
+    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages ORDER BY id")).toEqual([
+      { page_id: 1, title: "Machine Learning" }, { page_id: 3, title: "AI" },
     ]);
   });
 
@@ -576,8 +583,8 @@ describe("applyChanges: a title moving between ids inside one window", () => {
       pages: [page(1, "AI"), page(2, "Machine Learning")],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
-    expect(t.db.introspect("SELECT id, title FROM pages ORDER BY id")).toEqual([
-      { id: 1, title: "AI" }, { id: 2, title: "Machine Learning" },
+    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages ORDER BY id")).toEqual([
+      { page_id: 1, title: "AI" }, { page_id: 2, title: "Machine Learning" },
     ]);
     // the FTS mirror followed both retitles, and the parking placeholder
     // left nothing behind in it
@@ -592,10 +599,10 @@ describe("applyChanges: a title moving between ids inside one window", () => {
     // authoritative row); parking one would break its title match.
     enqueueBatch(t.db, [{ op: "create", uid: uidOf("uid_new1"), page_title: "New",
                           parent_uid: null, order_idx: orderIdxOf(0), text: "hi" }], 5, bid("batch-n"));
-    expect(t.db.introspect("SELECT id FROM pages WHERE title = 'New'")).toEqual([{ id: -1 }]);
+    expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'New'")).toEqual([{ page_id: -1 }]);
     const feed = emptyFeed({ next_since: 20, latest_seq: 20, pages: [page(9, "New")] });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
-    expect(t.db.introspect("SELECT id FROM pages WHERE title = 'New'")).toEqual([{ id: 9 }]);
+    expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'New'")).toEqual([{ page_id: 9 }]);
     expect(t.db.select("SELECT page_id FROM blocks WHERE uid = 'uid_new1'"))
       .toEqual([{ page_id: 9 }]);
   });
@@ -610,8 +617,8 @@ describe("applyChanges: a title moving between ids inside one window", () => {
     expect(warn).toHaveBeenCalledWith(
       "applyChanges: stale title holder, rebootstrapping", expect.objectContaining({ name: "StaleTitleHolderError" }));
     expect(getMeta(t.db, "cursor")).toBe("10");
-    expect(t.db.introspect("SELECT id, title FROM pages ORDER BY id")).toEqual([
-      { id: 1, title: "Machine Learning" }, { id: 2, title: "AI" },
+    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages ORDER BY id")).toEqual([
+      { page_id: 1, title: "Machine Learning" }, { page_id: 2, title: "AI" },
     ]);
   });
 
@@ -622,8 +629,8 @@ describe("applyChanges: a title moving between ids inside one window", () => {
       tombstones: [{ kind: "sidebar", entity_id: "1" }],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
-    expect(t.db.introspect("SELECT id, title FROM sidebar_entries"))
-      .toEqual([{ id: 7, title: "AI" }]);
+    expect(t.db.select<"sidebar_entry_id" | "title">("SELECT id AS sidebar_entry_id, title FROM sidebar_entries"))
+      .toEqual([{ sidebar_entry_id: 7, title: "AI" }]);
   });
 
   test("two sidebar entries swapping titles in one window", () => {
@@ -640,8 +647,9 @@ describe("applyChanges: a title moving between ids inside one window", () => {
                   order_idx: sidebarOrderIdxOf(1) }],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
-    expect(t.db.introspect("SELECT id, title FROM sidebar_entries ORDER BY id")).toEqual([
-      { id: 1, title: "Machine Learning" }, { id: 2, title: "AI" },
+    expect(t.db.select<"sidebar_entry_id" | "title">(
+      "SELECT id AS sidebar_entry_id, title FROM sidebar_entries ORDER BY id")).toEqual([
+      { sidebar_entry_id: 1, title: "Machine Learning" }, { sidebar_entry_id: 2, title: "AI" },
     ]);
   });
 });
@@ -663,8 +671,8 @@ describe("applyChanges: a page id deleted and reused inside one window", () => {
       pages: [page(2, "Reborn")],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 12 });
-    expect(t.db.introspect("SELECT id, title FROM pages WHERE id = 2"))
-      .toEqual([{ id: 2, title: "Reborn" }]);
+    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages WHERE id = 2"))
+      .toEqual([{ page_id: 2, title: "Reborn" }]);
     expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid = 'uid_on_ai'")).toBe(0);
     expect(count("SELECT COUNT(*) AS n FROM refs WHERE target_page_id = 2")).toBe(0);
     expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid = 'uid_b1'")).toBe(1);
@@ -695,8 +703,8 @@ describe("applyChanges: a page id deleted and reused inside one window", () => {
       pages: [page(2, "AI")],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 12 });
-    expect(t.db.introspect("SELECT id, title FROM pages WHERE id = 2"))
-      .toEqual([{ id: 2, title: "AI" }]);
+    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages WHERE id = 2"))
+      .toEqual([{ page_id: 2, title: "AI" }]);
     expect(count("SELECT COUNT(*) AS n FROM refs WHERE target_page_id = 2")).toBe(0);
   });
 });
@@ -708,9 +716,8 @@ describe("applyChanges: in one window, a block tombstone's cascade reaches only 
   // only the ancestor's row ships: the window's upserts have to take the
   // subtree out from under the tombstoned block before its local cascade
   // runs.
-  const tree = () => (t.db.introspect(
-    "SELECT uid, page_id, parent_uid FROM blocks ORDER BY uid") as { uid: string; page_id: number;
-                                   parent_uid: string | null }[]);
+  const tree = () => (t.db.select<"uid" | "page_id" | "parent_uid">(
+    "SELECT uid, page_id, parent_uid FROM blocks ORDER BY uid"));
   beforeEach(() => {
     // uid_p > uid_c > uid_g on Machine Learning, and a page that will go
     applyChanges(t.db, emptyFeed({
@@ -783,8 +790,8 @@ describe("applyChanges: in one window, a block tombstone's cascade reaches only 
       blocks: [block("tuid-x", 4), block("tuid-y", 4, { parent_uid: uidOf("tuid-x") })],
     }));
     expect(result).toEqual({ status: "applied", cursor: 12 });
-    expect(t.db.introspect("SELECT id FROM pages WHERE title = 'Doomed'"))
-      .toEqual([{ id: 4 }]);
+    expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'Doomed'"))
+      .toEqual([{ page_id: 4 }]);
     expect(tree().filter((r) => ["tuid-x", "tuid-y"].includes(r.uid))).toEqual([
       { uid: "tuid-x", page_id: 4, parent_uid: null },
       { uid: "tuid-y", page_id: 4, parent_uid: "tuid-x" },
@@ -827,12 +834,11 @@ describe("applyChanges: block tombstones wait for the window that reaches the jo
   // absent now and its delete row lies in a later window), so D's
   // tombstone, cascaded at once, would take the stale D > A > K > L, and
   // L's row never changes to ship again.
-  const tree = () => (t.db.introspect(
-    "SELECT uid, parent_uid FROM blocks WHERE uid LIKE 'uid_dd_%' ORDER BY uid") as
-      { uid: string; parent_uid: string | null }[]);
+  const tree = () => (t.db.select<"uid" | "parent_uid">(
+    "SELECT uid, parent_uid FROM blocks WHERE uid LIKE 'uid_dd_%' ORDER BY uid"));
   const deferred = (): string[] | null => {
     const raw = getMeta(t.db, "deferred_block_tombstones");
-    return raw === null ? null : (JSON.parse(raw) as { uids: string[] }).uids;
+    return raw === null ? null : (JSON.parse(raw) as Record<string, string[]>).uids;
   };
   const window = (next: number, over: Partial<Changes> = {}) =>
     applyChanges(t.db, emptyFeed({ next_since: next, latest_seq: 15, ...over }));
@@ -1057,9 +1063,9 @@ describe("applyChanges: a replayed batch whose create already applied keeps its 
   // A window rewinds the pending create before the replay, so the replay's
   // INSERT finds no row of its own; where the window shipped the row (the
   // echo), the create alone fails and the batch's other ops still land.
-  const topLevel = () => (t.db.introspect(
+  const topLevel = () => (t.db.select<"uid" | "order_idx">(
     "SELECT uid, order_idx FROM blocks WHERE page_id = 1" +
-    " AND parent_uid IS NULL ORDER BY order_idx, uid") as { uid: string; order_idx: number }[]);
+    " AND parent_uid IS NULL ORDER BY order_idx, uid"));
   const enqueueCreateAndEdit = () => enqueueBatch(t.db, [
     { op: "create", uid: uidOf("uid_new1"), page_title: "Machine Learning",
       parent_uid: null, order_idx: orderIdxOf(1), text: "fresh" },
@@ -1147,9 +1153,9 @@ describe("applyChanges: a replayed batch whose create already applied keeps its 
 });
 
 describe("applyChanges: a replayed move leaves its siblings where its first apply put them", () => {
-  const topLevel = () => (t.db.introspect(
+  const topLevel = () => (t.db.select<"uid" | "order_idx">(
     "SELECT uid, order_idx FROM blocks WHERE page_id = 1" +
-    " AND parent_uid IS NULL ORDER BY order_idx, uid") as { uid: string; order_idx: number }[]);
+    " AND parent_uid IS NULL ORDER BY order_idx, uid"));
 
   test("sibling order_idx is stable across windows", () => {
     enqueueBatch(t.db, [
@@ -1191,10 +1197,8 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
   // The server no longer 400s these batches (a 400 used to buy a snapshot
   // repair that also cleaned the optimistic state), so the replica has to
   // reach the server's rows from the feed alone.
-  const tree = () => (t.db.introspect(
-    "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid") as { uid: string; page_id: number;
-                                   parent_uid: string | null;
-                                   order_idx: number }[]);
+  const tree = () => (t.db.select<"uid" | "page_id" | "parent_uid" | "order_idx">(
+    "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid"));
   // Another device moved uid_b2 (and its child uid_b3) under uid_b1 before
   // our move of uid_b1 under uid_b3 reached the server, so ours would
   // nest uid_b1 under its own descendant: the server skips it.
@@ -1264,7 +1268,7 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     // vanish from the page until the ack. Local apply skips it instead.
     enqueueCycleMove();
 
-    applySnapshot(t.db, { ...SNAP, seq: 11 as SyncSeq, blocks: [
+    applySnapshot(t.db, { ...SNAP, seq: seqOf(11), blocks: [
       block("uid_b1", 1, { text: "links [[AI]]",
                            refs: [{ target_page_id: pageIdOf(2), kind: "link" }] }),
       block("uid_b2", 1, { parent_uid: uidOf("uid_b1") }),
@@ -1345,7 +1349,7 @@ describe("applyChanges: a window that names a pending batch as applied drops it 
   // s1..s6 at 0..5 on one page: the shape the sync property found this on.
   const SIX: Snapshot = {
     generation: "gen-1", plain_space_title_canonicalization: false,
-    seq: 10 as SyncSeq, pages: [page(1, "P")],
+    seq: seqOf(10), pages: [page(1, "P")],
     blocks: ["tuid-s1", "tuid-s2", "tuid-s3", "tuid-s4", "tuid-s5", "tuid-s6"].map(
       (u, i) => block(u, 1, { order_idx: orderIdxOf(i) })),
     sidebar: [],
@@ -1357,15 +1361,14 @@ describe("applyChanges: a window that names a pending batch as applied drops it 
        order_idx: orderIdxOf(o), text: `text of ${u}` });
   const ut = (u: string, text: string): BlockOp =>
     ({ op: "update_text", uid: uidOf(u), text });
-  type Row = { uid: string; parent_uid: string | null; order_idx: number; text: string };
-  const rows = (db: ReplicaDb): Row[] => (db.introspect(
-    "SELECT uid, parent_uid, order_idx, text FROM blocks ORDER BY uid") as Row[]);
+  const rows = (db: ReplicaDb) => db.select<"uid" | "parent_uid" | "order_idx" | "text">(
+    "SELECT uid, parent_uid, order_idx, text FROM blocks ORDER BY uid");
   const asSync = (db: ReplicaDb, keep: (u: string) => boolean = () => true): SyncBlock[] =>
     rows(db).filter((r) => keep(r.uid)).map((r) => block(r.uid, 1, {
-      parent_uid: r.parent_uid as BlockUid | null, order_idx: orderIdxOf(r.order_idx),
+      parent_uid: r.parent_uid, order_idx: r.order_idx,
       text: r.text }));
-  const named = (batchId: string, seq = 11) =>
-    ({ batch_id: bid(batchId), seq: seq as SyncSeq, skipped: [] });
+  const named = (batch: string, at = 11) =>
+    ({ batch_id: bid(batch), seq: seqOf(at), skipped: [] });
 
   /** The server's rows: the batch applied for real, then `later` (another
    * device's edits) on top. */
@@ -1417,7 +1420,7 @@ describe("applyChanges: a window that names a pending batch as applied drops it 
       next_since: 11, latest_seq: 12, blocks: asSync(srv.db, (u) => u !== "tuid-s4"),
       applied_batches: [named("b0")],
     }), 4);
-    const others = (rs: Row[]) => rs.filter((r) => r.uid !== "tuid-s4");
+    const others = (rs: ReturnType<typeof rows>) => rs.filter((r) => r.uid !== "tuid-s4");
     expect(allBatches(t.db)).toEqual([]);
     expect(others(rows(t.db))).toEqual(others(rows(srv.db)));
 
@@ -1505,7 +1508,7 @@ describe("applyChanges: a window that names a pending batch as applied drops it 
     const [b0] = allBatches(t.db);
 
     const dropped = applySnapshot(t.db, {
-      ...SIX, seq: 11 as SyncSeq, blocks: asSync(srv.db),
+      ...SIX, seq: seqOf(11), blocks: asSync(srv.db),
       applied_batches: [named("b0")],
     }, 4);
 
@@ -1523,7 +1526,7 @@ describe("applyChanges: the replay log", () => {
   // `keys` reads one page's top level in order.
   const LOG_SNAP: Snapshot = {
     generation: "gen-1", plain_space_title_canonicalization: false,
-    seq: 10 as SyncSeq, pages: [page(1, "P"), page(2, "S")],
+    seq: seqOf(10), pages: [page(1, "P"), page(2, "S")],
     blocks: [block("tuid-m", 1, { order_idx: orderIdxOf(0) }),
              block("tuid-a", 1, { order_idx: orderIdxOf(1) }),
              block("tuid-r", 1, { order_idx: orderIdxOf(2) }),
@@ -1534,15 +1537,15 @@ describe("applyChanges: the replay log", () => {
 
   /** `batch:kind:key` per record, in (batch, kind, key) order. */
   const logKeys = (): string[] =>
-    (t.db.introspect(
-      "SELECT batch_id, kind, key FROM replay_log ORDER BY batch_id, kind, key") as
-      { batch_id: string; kind: string; key: string }[])
-      .map((r) => `${r.batch_id}:${r.kind}:${r.key}`);
+    (t.db.select<"batch_id" | "replay_kind" | "replay_key">(
+      "SELECT batch_id, kind AS replay_kind, key AS replay_key FROM replay_log" +
+      " ORDER BY batch_id, kind, key"))
+      .map((r) => `${r.batch_id}:${r.replay_kind}:${r.replay_key}`);
   /** A page's top level as `uid` + `order_idx`, in order. */
   const keys = (rawPageId: number): string =>
-    (t.db.introspect(
+    (t.db.select<"uid" | "order_idx">(
       "SELECT uid, order_idx FROM blocks WHERE page_id = ? AND parent_uid IS NULL" +
-      " ORDER BY order_idx, uid", [rawPageId]) as { uid: string; order_idx: number }[])
+      " ORDER BY order_idx, uid", [rawPageId]))
       .map((r) => `${r.uid}${r.order_idx}`).join(" ");
 
   const createTop = (u: string, o: number, pageTitle = "P"): BlockOp =>
@@ -1552,8 +1555,8 @@ describe("applyChanges: the replay log", () => {
   // block on.
   const moveTop = (u: string, o: number): BlockOp =>
     ({ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(o) });
-  const named = (batchId: string) =>
-    ({ batch_id: bid(batchId), seq: 11 as SyncSeq, skipped: [] });
+  const named = (batch: string) =>
+    ({ batch_id: bid(batch), seq: seqOf(11), skipped: [] });
 
   // Another device moved m to S (after s) before this replica pulled: the
   // server's move of m shifts S's top level, where nothing sits past s.
@@ -1769,7 +1772,7 @@ describe("applyChanges: the replay log", () => {
     ackNext(t.db); // awaiting its head window
     enqueueBatch(t.db, [createTop("tuid-X", 0)], 2, bid("b1"));
 
-    applySnapshot(t.db, { ...LOG_SNAP, seq: 11 as SyncSeq }, 3);
+    applySnapshot(t.db, { ...LOG_SNAP, seq: seqOf(11) }, 3);
 
     expect(keys(1)).toBe("tuid-X0 tuid-m1 tuid-a2 tuid-r3");
     expect(logKeys()).toEqual(["b1:block:tuid-X", "b1:block:tuid-a", "b1:block:tuid-m",
@@ -1803,8 +1806,8 @@ describe("applyChanges: the replay log", () => {
     applyLocalOps(srv.db, batch, 2, { batchId: bid("srv") });
     const serverRows = (db: ReplicaDb) => db.select(
       "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid");
-    const echo = (srv.db.introspect(
-      "SELECT uid, order_idx FROM blocks WHERE page_id = 1") as { uid: string; order_idx: number }[])
+    const echo = (srv.db.select<"uid" | "order_idx">(
+      "SELECT uid, order_idx FROM blocks WHERE page_id = 1"))
       .map((r) => block(r.uid, 1, { order_idx: orderIdxOf(r.order_idx) }));
     enqueueBatch(t.db, batch, 2, bid("b1"));
 
@@ -1830,7 +1833,7 @@ describe("applyChanges: a create or move the two sides place in different groups
   const seed = (pages: ReturnType<typeof page>[], blocks: SyncBlock[]): void => {
     applySnapshot(t.db, {
       generation: "gen-1", plain_space_title_canonicalization: false,
-      seq: 10 as SyncSeq, pages, blocks, sidebar: [],
+      seq: seqOf(10), pages, blocks, sidebar: [],
     }, 1);
   };
   const at = (rawUid: string, rawPageId: number, o: number,
@@ -1838,13 +1841,12 @@ describe("applyChanges: a create or move the two sides place in different groups
     block(rawUid, rawPageId, { order_idx: orderIdxOf(o), ...over });
   /** One sibling group as `uid@order_idx`, in order. */
   const group = (rawPageId: number, parent: string | null = null): string =>
-    (t.db.introspect(
+    (t.db.select<"uid" | "order_idx">(
       "SELECT uid, order_idx FROM blocks WHERE page_id = ? AND parent_uid IS ?" +
-      " ORDER BY order_idx, uid", [rawPageId, parent]) as { uid: string; order_idx: number }[])
+      " ORDER BY order_idx, uid", [rawPageId, parent]))
       .map((r) => `${r.uid}@${r.order_idx}`).join(" ");
-  const titles = (): Array<{ id: number; title: string }> =>
-    t.db.introspect("SELECT id, title FROM pages ORDER BY id") as
-      Array<{ id: number; title: string }>;
+  const titles = () =>
+    t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages ORDER BY id");
   const logRows = (): number => count("SELECT COUNT(*) AS n FROM replay_log");
 
   const enqueueAndAck = (ops: BlockOp[]): void => {
@@ -1893,8 +1895,8 @@ describe("applyChanges: a create or move the two sides place in different groups
 
     headWindow({ pages: RENAMED_PAGES, blocks: [at("tuid-s3", 3, 0)] });
 
-    expect(titles()).toEqual([{ id: 1, title: "Third" }, { id: 2, title: "Second" },
-                              { id: 3, title: "Proptest" }]);
+    expect(titles()).toEqual([{ page_id: 1, title: "Third" }, { page_id: 2, title: "Second" },
+                              { page_id: 3, title: "Proptest" }]);
     expect(group(1)).toBe("tuid-s1@0 tuid-s2@1");
     expect(group(3)).toBe("tuid-s3@0");
     expect(logRows()).toBe(0);
@@ -1908,8 +1910,8 @@ describe("applyChanges: a create or move the two sides place in different groups
 
     headWindow({ pages: RENAMED_PAGES, blocks: [at("tuid-X", 3, 0)] });
 
-    expect(titles()).toEqual([{ id: 1, title: "Third" }, { id: 2, title: "Second" },
-                              { id: 3, title: "Proptest" }]);
+    expect(titles()).toEqual([{ page_id: 1, title: "Third" }, { page_id: 2, title: "Second" },
+                              { page_id: 3, title: "Proptest" }]);
     expect(group(1)).toBe("tuid-s1@0 tuid-s2@1 tuid-s3@2");
     expect(group(3)).toBe("tuid-X@0");
     expect(logRows()).toBe(0);
@@ -1996,19 +1998,18 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
   beforeEach(() => {
     applySnapshot(t.db, {
       generation: "gen-1", plain_space_title_canonicalization: false,
-      seq: 10 as SyncSeq, pages: [page(1, "P"), page(2, "S")],
+      seq: seqOf(10), pages: [page(1, "P"), page(2, "S")],
       blocks: [block("tuid-p", 1), block("tuid-k", 1, { parent_uid: uidOf("tuid-p") }),
                block("tuid-g", 1, { parent_uid: uidOf("tuid-k") })],
       sidebar: [],
     }, 1);
   });
-  const tree = () => (t.db.introspect(
-    "SELECT uid, parent_uid FROM blocks WHERE uid IN ('tuid-p', 'tuid-k', 'tuid-g') ORDER BY uid") as
-      { uid: string; parent_uid: string | null }[]);
+  const tree = () => (t.db.select<"uid" | "parent_uid">(
+    "SELECT uid, parent_uid FROM blocks WHERE uid IN ('tuid-p', 'tuid-k', 'tuid-g') ORDER BY uid"));
   /** The block records, as `batch:uid`. */
-  const records = () => (t.db.introspect(
-    "SELECT batch_id, key FROM replay_log WHERE kind = 'block'" +
-    " ORDER BY batch_id, key") as { batch_id: string; key: string }[]).map((r) => `${r.batch_id}:${r.key}`);
+  const records = () => (t.db.select<"batch_id" | "replay_key">(
+    "SELECT batch_id, key AS replay_key FROM replay_log WHERE kind = 'block'" +
+    " ORDER BY batch_id, key")).map((r) => `${r.batch_id}:${r.replay_key}`);
   const deleteP: BlockOp = { op: "delete", uid: uidOf("tuid-p") };
   const kMovedOut = block("tuid-k", 1, { order_idx: orderIdxOf(1) });
   const pTomb: SyncTombstone = { kind: "block", entity_id: "tuid-p" };
@@ -2071,7 +2072,7 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
     // create made: the snapshot leaves the server's New out
     applySnapshot(t.db, {
       generation: "gen-1", plain_space_title_canonicalization: false,
-      seq: 10 as SyncSeq, pages: [page(1, "P")],
+      seq: seqOf(10), pages: [page(1, "P")],
       blocks: [block("tuid-p", 1), block("tuid-k", 1, { parent_uid: uidOf("tuid-p") }),
                block("tuid-g", 1, { parent_uid: uidOf("tuid-k"), text: "see [[New]]" })],
       sidebar: [],
@@ -2079,11 +2080,11 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
     enqueueBatch(t.db, [
       { op: "create", uid: uidOf("tuid-x"), page_title: "P", parent_uid: null,
         order_idx: orderIdxOf(1), text: "[[New]]" }], 2, bid("b1"));
-    const [local] = (t.db.introspect("SELECT id FROM pages WHERE title = 'New'") as { id: number }[]);
-    expect(local.id).toBeLessThan(0);
+    const [local] = t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'New'");
+    expect(local.page_id).toBeLessThan(0);
     // a recorded ref by hand: g's snapshot row carries none, and the delete's
     // record needs one to the local page for replay_log_refs to remap
-    t.db.exec("INSERT INTO refs VALUES ('tuid-g', ?, 'link')", [local.id]);
+    t.db.exec("INSERT INTO refs VALUES ('tuid-g', ?, 'link')", [local.page_id]);
     enqueueBatch(t.db, [deleteP], 2, bid("b2"));
     ackNext(t.db);
     ackNext(t.db);

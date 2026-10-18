@@ -14,7 +14,7 @@ beforeEach(async () => {
 afterEach(() => { t.close(); });
 
 const pageIds = () =>
-  (t.db.introspect("SELECT id FROM pages ORDER BY id") as { id: number }[]).map((r) => r.id);
+  t.db.select<"page_id">("SELECT id AS page_id FROM pages ORDER BY id").map((r) => r.page_id);
 const sweep = () => dropStrandedLocalPages(t.db, NOW);
 
 describe("dropStrandedLocalPages", () => {

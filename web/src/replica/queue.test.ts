@@ -1,21 +1,24 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { BatchId } from "../api/brands";
-import type { BlockOp, DeleteOp, UpdateTextOp } from "../api/ops";
-import type { PendingRowId } from "./client";
+import type { BlockOp } from "../api/ops";
 import { LocalOpError } from "./localOps";
 import * as queue from "./queue";
-import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
+import { type DurablePendingRow, allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
          pendingCount } from "./queue";
-import { sha256Hex, type Sha256Hex } from "./sha256";
+import { sha256Hex } from "./sha256";
 import { subtreeHash } from "./subtreeHash";
 import { openTestDb, type TestDb } from "./testDb";
 import { setMeta } from "./meta";
-import { orderIdxOf, uidOf } from "../test-helpers";
+import { batchIdOf, orderIdxOf, pendingRowIdOf, shaOf, uidOf } from "../test-helpers";
 
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
-const bid = (s: string): BatchId => s as BatchId;
+const bid = (s: string): BatchId => batchIdOf(s);
+
+// Hashes a caller supplies; the queue keeps them as sent.
+const SNAPSHOT_HASH = shaOf("ab".repeat(32));
+const CALLER_HASH = shaOf("feedface".repeat(8));
 
 let t: TestDb;
 afterEach(() => { vi.restoreAllMocks(); });
@@ -29,13 +32,23 @@ beforeEach(async () => {
 });
 
 const durableAndOptimisticState = () => ({
-  pending: t.db.introspect("SELECT * FROM pending_ops ORDER BY id"),
-  pages: t.db.introspect("SELECT * FROM pages ORDER BY id"),
-  blocks: t.db.introspect("SELECT * FROM blocks ORDER BY uid"),
-  refs: t.db.introspect(
-    "SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"),
-  sidebar: t.db.introspect("SELECT * FROM sidebar_entries ORDER BY id"),
-  metadata: t.db.introspect("SELECT * FROM sync_client_meta ORDER BY key"),
+  pending: t.db.select<"pending_row_id" | "batch_id" | "ops_json" | "poisoned" | "pending_error">(
+    "SELECT id AS pending_row_id, batch_id, ops_json, poisoned, error AS pending_error"
+    + " FROM pending_ops ORDER BY id"),
+  pages: t.db.select<"page_id" | "title" | "created_at" | "updated_at">(
+    "SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id"),
+  blocks: t.db.select<"uid" | "page_id" | "parent_uid" | "order_idx" | "text" | "heading"
+    | "collapsed" | "created_at" | "updated_at" | "view_type">(
+    "SELECT * FROM blocks ORDER BY uid"),
+  refs: t.db.select<"src_block_uid" | "target_page_id" | "ref_kind">(
+    "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs"
+    + " ORDER BY src_block_uid, target_page_id, kind"),
+  sidebar: t.db.select<"sidebar_entry_id" | "title" | "sidebar_order_idx">(
+    "SELECT id AS sidebar_entry_id, title, order_idx AS sidebar_order_idx"
+    + " FROM sidebar_entries ORDER BY id"),
+  metadata: t.db.select<"client_meta_key" | "client_meta_value">(
+    "SELECT key AS client_meta_key, value AS client_meta_value FROM sync_client_meta"
+    + " ORDER BY key"),
 });
 
 describe("enqueueBatch", () => {
@@ -52,7 +65,8 @@ describe("enqueueBatch", () => {
     expect(warn).toHaveBeenCalledWith(
       "sqlite3_step() rc=", 1555, "SQLITE_CONSTRAINT_PRIMARYKEY", "SQL =",
       expect.stringContaining("INSERT INTO blocks"));
-    expect(t.db.introspect("SELECT batch_id, kind, key FROM replay_log")).toEqual([]);
+    expect(t.db.select<"batch_id" | "replay_kind" | "replay_key">(
+      "SELECT batch_id, kind AS replay_kind, key AS replay_key FROM replay_log")).toEqual([]);
     expect(t.db.select("SELECT batch_id FROM pending_ops"))
       .toEqual([{ batch_id: "batch-dup" }]);
   });
@@ -65,12 +79,13 @@ describe("enqueueBatch", () => {
       .toEqual([{ batch_id: "batch-a", enqueued_ms: 99 }]);
   });
 
-  test.each([
+  const invalidOps: [string, BlockOp, string, string][] = [
     ["explicit page title", { op: "create_page", page_title: "Queue #Bad" },
       "page_title", "Queue #Bad"],
-    ["extracted reference", { op: "update_text", uid: "uid_q1",
+    ["extracted reference", { op: "update_text", uid: uidOf("uid_q1"),
       text: "[[Queue #Bad Ref]]" }, "reference", "Queue #Bad Ref"],
-  ] as const)("refuses a full batch atomically for a later forbidden %s",
+  ];
+  test.each(invalidOps)("refuses a full batch atomically for a later forbidden %s",
     (_name, invalidOp, source, title) => {
       const before = durableAndOptimisticState();
       let thrown: unknown;
@@ -78,7 +93,7 @@ describe("enqueueBatch", () => {
       try {
         enqueueBatch(t.db, [
           { op: "update_text", uid: uidOf("uid_q1"), text: "would partially apply" },
-          invalidOp as BlockOp,
+          invalidOp,
         ], 99, bid("batch-invalid"));
       } catch (error) {
         thrown = error;
@@ -95,10 +110,10 @@ describe("enqueueBatch", () => {
       { op: "update_text", uid: uidOf("uid_q1"), text: "edited once" },
     ], 99, bid("batch-aaaa"));
     expect(res.pending).toBe(1);
-    const row = (t.db.introspect(
-      "SELECT batch_id, ops_json FROM pending_ops") as { batch_id: string; ops_json: string }[])[0];
+    const row = (t.db.select<"batch_id" | "ops_json">(
+      "SELECT batch_id, ops_json FROM pending_ops"))[0];
     expect(row.batch_id).toBe(bid("batch-aaaa"));
-    const ops = JSON.parse(row.ops_json) as UpdateTextOp[];
+    const ops = JSON.parse(row.ops_json) as Record<string, unknown>[];
     expect(ops[0].base_text_hash).toBe(sha256Hex("original text"));
     // optimistic apply happened
     expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_q1'"))
@@ -110,12 +125,12 @@ describe("enqueueBatch", () => {
       op: "update_text",
       uid: uidOf("uid_q1"),
       text: "linked snapshot",
-      base_text_hash: "snapshot-hash" as Sha256Hex,
+      base_text_hash: SNAPSHOT_HASH,
     }], 99, bid("batch-explicit"));
 
-    const ops = JSON.parse((t.db.introspect(
-      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as UpdateTextOp[];
-    expect(ops[0].base_text_hash).toBe("snapshot-hash");
+    const ops = JSON.parse((t.db.select<"ops_json">(
+      "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
+    expect(ops[0].base_text_hash).toBe(SNAPSHOT_HASH);
     expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_q1'"))
       .toEqual([{ text: "linked snapshot" }]);
   });
@@ -134,7 +149,8 @@ describe("enqueueBatch", () => {
     const batch = nextBatch(t.db)!;
     expect(batch.ops).toHaveLength(3);
     // the un-hydrated update carries no base hash: plain LWW at the server
-    expect((batch.ops[0] as UpdateTextOp).base_text_hash).toBeUndefined();
+    const first = batch.ops[0];
+    expect(first.op === "update_text" ? first.base_text_hash : "not an update_text").toBeUndefined();
     // the appliable op in the same batch still applied locally
     expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_q1'"))
       .toEqual([{ text: "this one applies" }]);
@@ -148,8 +164,8 @@ describe("enqueueBatch", () => {
       { op: "update_text", uid: uidOf("uid_q1"), text: "v2" },
       { op: "update_text", uid: uidOf("uid_q1"), text: "v3" },
     ], 99, bid("batch-bbbb"));
-    const ops = JSON.parse((t.db.introspect(
-      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as UpdateTextOp[];
+    const ops = JSON.parse((t.db.select<"ops_json">(
+      "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
     expect(ops[0].base_text_hash).toBe(sha256Hex("original text"));
     expect(ops[1].base_text_hash).toBe(sha256Hex("v2"));
   });
@@ -160,8 +176,8 @@ describe("enqueueBatch", () => {
         order_idx: orderIdxOf(1), text: "brand new" },
       { op: "update_text", uid: uidOf("uid_q2"), text: "edited new" },
     ], 99, bid("batch-cccc"));
-    const ops = JSON.parse((t.db.introspect(
-      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as UpdateTextOp[];
+    const ops = JSON.parse((t.db.select<"ops_json">(
+      "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
     expect(ops[1].base_text_hash).toBe(sha256Hex("brand new"));
   });
 
@@ -174,8 +190,8 @@ describe("enqueueBatch", () => {
     enqueueBatch(t.db, [
       { op: "update_text", uid: uidOf("uid_q1"), text: "edited once" },
     ], 99, bid("batch-title"));
-    const ops = JSON.parse((t.db.introspect(
-      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as UpdateTextOp[];
+    const ops = JSON.parse((t.db.select<"ops_json">(
+      "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
     expect(ops[0].page_title).toBe("AI");
   });
 
@@ -183,8 +199,8 @@ describe("enqueueBatch", () => {
     enqueueBatch(t.db, [
       { op: "update_text", uid: uidOf("uid_ghost"), text: "edited before hydration" },
     ], 99, bid("batch-title-ghost"));
-    const ops = JSON.parse((t.db.introspect(
-      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as UpdateTextOp[];
+    const ops = JSON.parse((t.db.select<"ops_json">(
+      "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
     expect(ops[0].page_title).toBeUndefined();
   });
 
@@ -193,8 +209,8 @@ describe("enqueueBatch", () => {
       op: "update_text", uid: uidOf("uid_q1"), text: "edited",
       page_title: "Explicit Page",
     }], 99, bid("batch-title-explicit"));
-    const ops = JSON.parse((t.db.introspect(
-      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as UpdateTextOp[];
+    const ops = JSON.parse((t.db.select<"ops_json">(
+      "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
     expect(ops[0].page_title).toBe("Explicit Page");
   });
 
@@ -208,8 +224,8 @@ describe("enqueueBatch", () => {
       base_text_hash: sha256Hex("original text"),
     }];
     enqueueBatch(t.db, ops, 99, bid("batch-lane-copy"));
-    expect((t.db.introspect(
-      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json)
+    expect((t.db.select<"ops_json">(
+      "SELECT ops_json FROM pending_ops"))[0].ops_json)
       .toBe(JSON.stringify(ops));
   });
 });
@@ -224,8 +240,8 @@ describe("enqueueBatch on delete", () => {
       " ('tuid-g', 1, 'uid_c1', 0, 'grandchild')," +
       " ('uid_c2', 1, 'tuid-r', 1, '')");
   };
-  const storedOps = () => JSON.parse((t.db.introspect(
-    "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as DeleteOp[];
+  const storedOps = () => JSON.parse((t.db.select<"ops_json">(
+    "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
 
   test("fills a delete's subtree hash from the replica before the optimistic apply", () => {
     seedSubtree();
@@ -255,11 +271,11 @@ describe("enqueueBatch on delete", () => {
   test("stores a caller-hashed delete as sent", () => {
     seedSubtree();
     const ops: BlockOp[] = [
-      { op: "delete", uid: uidOf("tuid-r"), base_subtree_hash: "feedface" as Sha256Hex },
+      { op: "delete", uid: uidOf("tuid-r"), base_subtree_hash: CALLER_HASH },
     ];
     enqueueBatch(t.db, ops, 99, bid("batch-del-hashed"));
-    expect((t.db.introspect(
-      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json)
+    expect((t.db.select<"ops_json">(
+      "SELECT ops_json FROM pending_ops"))[0].ops_json)
       .toBe(JSON.stringify(ops));
   });
 
@@ -340,29 +356,34 @@ describe("queue reads and lifecycle", () => {
 });
 
 describe("importPendingRows", () => {
-  const readRows = () => t.db.introspect(
-    "SELECT id, batch_id, ops_json, poisoned, error FROM pending_ops ORDER BY id");
+  const readRows = () => t.db.select<"pending_row_id" | "batch_id" | "ops_json" | "poisoned" | "pending_error">(
+    "SELECT id AS pending_row_id, batch_id, ops_json, poisoned, error AS pending_error"
+    + " FROM pending_ops ORDER BY id");
+  const asRead = (rows: DurablePendingRow[]) => rows.map((r) => ({
+    pending_row_id: r.id, batch_id: r.batch_id, ops_json: r.ops_json,
+    poisoned: r.poisoned, pending_error: r.error }));
 
   test("importPendingRows keeps ids verbatim and later enqueues number past them", () => {
     const rows = [
-      { id: 4 as PendingRowId, batch_id: bid("b4"),
+      { id: pendingRowIdOf(4), batch_id: bid("b4"),
         ops_json: JSON.stringify([{ op: "delete", uid: "uid_a" }]),
         poisoned: 1, error: "HTTP 400" },
-      { id: 7 as PendingRowId, batch_id: bid("b7"),
+      { id: pendingRowIdOf(7), batch_id: bid("b7"),
         ops_json: JSON.stringify([{ op: "delete", uid: "uid_b" }]),
         poisoned: 0, error: null },
     ];
     queue.importPendingRows(t.db, rows);
-    expect(readRows()).toEqual(rows);
+    expect(readRows()).toEqual(asRead(rows));
     enqueueBatch(t.db, [{ op: "delete", uid: uidOf("tuid-x") }], 10, bid("after"));
-    expect((t.db.introspect(
-      "SELECT id FROM pending_ops WHERE batch_id = 'after'") as { id: number }[])).toEqual([{ id: 8 }]);
+    expect(t.db.select<"pending_row_id">(
+      "SELECT id AS pending_row_id FROM pending_ops WHERE batch_id = 'after'"))
+      .toEqual([{ pending_row_id: 8 }]);
   });
 
   test("importPendingRows ignores a row whose id is already present", () => {
     t.db.exec("INSERT INTO pending_ops(id, batch_id, ops_json) VALUES (1, 'kept', '[]')");
     queue.importPendingRows(t.db, [
-      { id: (1 as PendingRowId), batch_id: bid("other"), ops_json: "[]", poisoned: 0, error: null },
+      { id: pendingRowIdOf(1), batch_id: bid("other"), ops_json: "[]", poisoned: 0, error: null },
     ]);
     expect(t.db.select("SELECT batch_id FROM pending_ops WHERE id = 1"))
       .toEqual([{ batch_id: "kept" }]);
@@ -391,7 +412,7 @@ describe("seen_seq", () => {
     enqueueBatch(t.db, [op], 1, bid("b1"));
     const batch = nextBatch(t.db)!;
     expect(deleteBatch(t.db, batch.id, batch.batch_id)).toBe(true);
-    expect(t.db.introspect("SELECT * FROM pending_seen")).toEqual([]);
+    expect(t.db.select<"batch_id" | "seen_seq">("SELECT * FROM pending_seen")).toEqual([]);
   });
 
   test("allBatches reads only the stable columns", () => {

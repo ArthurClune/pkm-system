@@ -7,7 +7,7 @@
 // "FOREIGN KEY constraint failed", and reset/repair (which re-run
 // replayPending) wedge the same way.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { BatchId, BlockUid, CanonicalTitle, PageId, SyncSeq } from "../api/brands";
+import type { BatchId, BlockUid } from "../api/brands";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import type { ReplicaDb } from "./db";
@@ -16,9 +16,9 @@ import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
-const bid = (s: string): BatchId => s as BatchId;
+const bid = (s: string): BatchId => batchIdOf(s);
 import { openTestDb, type TestDb } from "./testDb";
-import { orderIdxOf, uidOf, malformedUid } from "../test-helpers";
+import { batchIdOf, canonicalTitleOf, malformedUid, orderIdxOf, pageIdOf, seqOf, uidOf } from "../test-helpers";
 
 /** The drain's delete of the batch at the head of the queue, on its ack. */
 const ackNext = (db: ReplicaDb): void => {
@@ -27,17 +27,17 @@ const ackNext = (db: ReplicaDb): void => {
 };
 
 const block = (rawUid: string, rawPageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid: rawUid as BlockUid, page_id: rawPageId as PageId, parent_uid: null, order_idx: orderIdxOf(0),
+  uid: uidOf(rawUid), page_id: pageIdOf(rawPageId), parent_uid: null, order_idx: orderIdxOf(0),
   text: `text of ${rawUid}`,
   heading: null, view_type: null, collapsed: 0, created_at: 1, updated_at: 1,
   refs: [], ...over,
 });
 
 const page = (rawId: number, rawTitle: string) =>
-  ({ id: rawId as PageId, title: rawTitle as CanonicalTitle, created_at: 1, updated_at: 1 });
+  ({ id: pageIdOf(rawId), title: canonicalTitleOf(rawTitle), created_at: 1, updated_at: 1 });
 
 const SNAP: Snapshot = {
-  generation: "gen-1", plain_space_title_canonicalization: false, seq: (10 as SyncSeq),
+  generation: "gen-1", plain_space_title_canonicalization: false, seq: seqOf(10),
   pages: [page(1, "Machine Learning"), page(2, "AI")],
   blocks: [
     block("uid_b1", 1),
@@ -49,19 +49,19 @@ const SNAP: Snapshot = {
 
 const emptyFeed = (over: Partial<Changes> = {}): Changes => ({
   reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-  next_since: (10 as SyncSeq), latest_seq: (10 as SyncSeq),
+  next_since: seqOf(10), latest_seq: seqOf(10),
   pages: [], blocks: [], sidebar: [], tombstones: [], ...over,
 });
 
 const uids = (db: ReplicaDb): string[] =>
-  (db.introspect("SELECT uid FROM blocks ORDER BY uid") as { uid: string }[])
+  (db.select<"uid">("SELECT uid FROM blocks ORDER BY uid"))
     .map((r) => r.uid);
 
 /** Batch ids still queued, poisoned rows included: the queue is the user's
  * intent, so nothing on this path may delete one. */
 const queuedBatchIds = (db: ReplicaDb): string[] =>
-  (db.introspect(
-    "SELECT batch_id FROM pending_ops ORDER BY id") as { batch_id: string }[]).map((r) => r.batch_id);
+  (db.select<"batch_id">(
+    "SELECT batch_id FROM pending_ops ORDER BY id")).map((r) => r.batch_id);
 
 // Tests that fail a COMMIT or a statement on purpose spy on console.warn and
 // assert what the engine and applyChanges log; the engine's own
@@ -87,7 +87,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // refetch the same unappliable window forever.
     const warn = quietWarn();
     const res = applyChanges(t.db, emptyFeed({
-      next_since: (11 as SyncSeq), latest_seq: (20 as SyncSeq),
+      next_since: seqOf(11), latest_seq: seqOf(20),
       blocks: [block("uid_child", 1, { parent_uid: uidOf("uid_future_parent") })],
     }));
     expect(res).toEqual({ status: "needs-bootstrap" });
@@ -113,7 +113,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
         parent_uid: uidOf("uid_b2"), order_idx: orderIdxOf(0), text: "typed offline" },
     ], 5, bid("batch-child"));
     const res = applyChanges(t.db, emptyFeed({
-      next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
+      next_since: seqOf(11), latest_seq: seqOf(11),
       tombstones: [{ kind: "block", entity_id: "uid_b2" }],
     }));
     expect(res).toEqual({ status: "applied", cursor: 11 });
@@ -142,7 +142,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     ], 6, bid("batch-child"));
     expect(uids(t.db)).toContain("uid_ghost_child");
     const res = applyChanges(t.db, emptyFeed({
-      next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
+      next_since: seqOf(11), latest_seq: seqOf(11),
       tombstones: [{ kind: "block", entity_id: "uid_ghost" },
                    { kind: "block", entity_id: "uid_never_seen" }],
     }));
@@ -172,7 +172,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     ], 6, bid("batch-move"));
     ackNext(t.db);
     const res = applyChanges(t.db, emptyFeed({
-      next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
+      next_since: seqOf(11), latest_seq: seqOf(11),
       tombstones: [{ kind: "block", entity_id: "uid_ghost_p" }],
       blocks: [block("uid_b2", 1, { order_idx: orderIdxOf(1) }),
                block("uid_b3", 1, { parent_uid: uidOf("uid_b2") })],
@@ -215,8 +215,9 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // missing) would take it, and must roll back
     expect(uids(t.db)).toEqual(["uid_b1", "uid_b2", "uid_b3"]);
     expect(queuedBatchIds(t.db)).toEqual([bid("batch-del-v"), bid("batch-create-y")]);
-    expect(t.db.introspect("SELECT rowid, page_id FROM blocks WHERE page_id > 90"))
-      .toEqual([{ rowid: 3, page_id: 98 }]);
+    expect(t.db.select<"n" | "page_id">(
+      "SELECT rowid AS n, page_id FROM blocks WHERE page_id > 90"))
+      .toEqual([{ n: 3, page_id: 98 }]);
   });
 
   test("a pending child of a poisoned batch's block does not wedge snapshot repair", () => {
@@ -267,7 +268,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // lands there too and dangles, so it alone rolls back; batch-move's
     // replay takes uid_b2 to AI, and the COMMIT holds
     const res = applyChanges(t.db, emptyFeed({
-      next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
+      next_since: seqOf(11), latest_seq: seqOf(11),
       blocks: [block("uid_b2", 99)],
     }));
 
@@ -285,8 +286,8 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // it would hide it behind an endless resync.
     const warn = quietWarn();
     expect(() => applyChanges(t.db, emptyFeed({
-      next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
-      pages: [page(3, null as unknown as string)], // pages.title is NOT NULL
+      next_since: seqOf(11), latest_seq: seqOf(11),
+      pages: [Object.assign(page(3, "x"), { title: null })], // pages.title is NOT NULL
     }))).toThrow(/NOT NULL constraint failed/);
     expect(warn).toHaveBeenCalledWith(
       "sqlite3_step() rc=", 1299, "SQLITE_CONSTRAINT_NOTNULL", "SQL =",
@@ -300,7 +301,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // is wrong, and swallowing it would loop bootstrap forever.
     const warn = quietWarn();
     expect(() => applySnapshot(t.db, {
-      ...SNAP, seq: (12 as SyncSeq),
+      ...SNAP, seq: seqOf(12),
       blocks: [...SNAP.blocks, block("uid_orphan", 1, { parent_uid: uidOf("uid_gone") })],
     })).toThrow(/FOREIGN KEY constraint failed/);
     expect(warn).toHaveBeenCalledWith(
@@ -317,8 +318,8 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
         parent_uid: uidOf("uid_b2"), order_idx: orderIdxOf(1), text: "x" },
     ], 5, bid("batch-x"));
     // the typed API mints a uid; a crafted or old-build row need not
-    const queued = JSON.parse((t.db.introspect(
-      "SELECT ops_json FROM pending_ops") as { ops_json: string }[])[0].ops_json) as Record<string, unknown>[];
+    const queued = JSON.parse((t.db.select<"ops_json">(
+      "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
     queued[0].uid = null;
     t.db.exec("UPDATE pending_ops SET ops_json = ?", [JSON.stringify(queued)]);
     enqueueBatch(t.db, [
@@ -326,7 +327,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
         order_idx: orderIdxOf(0) },
     ], 5, bid("batch-move"));
     const res = applyChanges(t.db, emptyFeed({
-      next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
+      next_since: seqOf(11), latest_seq: seqOf(11),
       blocks: [block("uid_b2", 99)],
     }));
     expect(res).toEqual({ status: "applied", cursor: 11 });
@@ -379,7 +380,7 @@ describe("a pending delete replayed with foreign_keys=OFF", () => {
     t.close();
     t = await openTestDb({ checkRows: false });
     replayDelete(snapshotWith([
-      block("a,bcdefg", 1),
+      block("a-bcdefg", 1, { uid: malformedUid("a,bcdefg"), text: "text of a,bcdefg" }),
       block("bcdefg", 1, { parent_uid: malformedUid("a,bcdefg") }),
     ]), malformedUid("a,bcdefg"), true);
     expect(uids(t.db)).toEqual(["a,bcdefg", "bcdefg"]);
@@ -390,9 +391,10 @@ describe("a pending delete replayed with foreign_keys=OFF", () => {
   test("a block with a [[link]] is deleted along with its refs rows", () => {
     expectDeleteLands(snapshotWith([
       block("uid_r1", 1, { text: "see [[AI]]",
-        refs: [{ target_page_id: 2 as PageId, kind: "link" }] }),
+        refs: [{ target_page_id: pageIdOf(2), kind: "link" }] }),
     ]), "uid_r1", []);
-    expect(t.db.introspect("SELECT * FROM refs")).toEqual([]);
+    expect(t.db.select<"src_block_uid" | "target_page_id" | "ref_kind">(
+      "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs")).toEqual([]);
   });
 
   test("a block with a ((uid)) ref is deleted along with its block_refs rows", () => {
@@ -400,7 +402,7 @@ describe("a pending delete replayed with foreign_keys=OFF", () => {
       block("uid_s1", 1, { text: "see ((uid_s2))" }),
       block("uid_s2", 1),
     ]), "uid_s1", ["uid_s2"]);
-    expect(t.db.introspect("SELECT * FROM block_refs")).toEqual([]);
+    expect(t.db.select<"src_block_uid" | "target_block_uid">("SELECT * FROM block_refs")).toEqual([]);
   });
 });
 

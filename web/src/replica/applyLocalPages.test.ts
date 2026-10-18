@@ -7,7 +7,7 @@
 // nothing keeps it: no block on it, no ref to it, no replay-log record of a
 // pending batch naming it. Server pages are never dropped, however empty.
 import { beforeEach, describe, expect, test } from "vitest";
-import type { BatchId, BlockUid, CanonicalTitle, PageId, SyncSeq } from "../api/brands";
+import type { BatchId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
@@ -16,9 +16,9 @@ import type { ReplicaDb } from "./db";
 import { getOrCreateLocalPage } from "./localOps";
 import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
-import { orderIdxOf, uidOf } from "../test-helpers";
+import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, uidOf } from "../test-helpers";
 
-const bid = (s: string): BatchId => s as BatchId;
+const bid = (s: string): BatchId => batchIdOf(s);
 
 /** The drain's delete of the batch at the head of the queue, on its ack. */
 const ackNext = (db: ReplicaDb): void => {
@@ -28,30 +28,33 @@ const ackNext = (db: ReplicaDb): void => {
 
 const block = (rawUid: string, rawPageId: number,
                over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid: rawUid as BlockUid, page_id: rawPageId as PageId, parent_uid: null,
+  uid: uidOf(rawUid), page_id: pageIdOf(rawPageId), parent_uid: null,
   order_idx: orderIdxOf(0), text: `text of ${rawUid}`, heading: null,
   view_type: null, collapsed: 0, created_at: 1, updated_at: 1, refs: [],
   ...over,
 });
 
 const page = (rawId: number, rawTitle: string) =>
-  ({ id: rawId as PageId, title: rawTitle as CanonicalTitle, created_at: 1,
+  ({ id: pageIdOf(rawId), title: canonicalTitleOf(rawTitle), created_at: 1,
      updated_at: 1 });
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false,
-  seq: 10 as SyncSeq,
+  seq: seqOf(10),
   pages: [page(1, "Proptest"), page(2, "Second")],
   blocks: [block("uid_b1", 1), block("uid_b2", 1, { order_idx: orderIdxOf(1) })],
   sidebar: [],
 };
 
 const window = (over: Omit<Partial<Changes>, "next_since" | "latest_seq"> &
-  { next_since?: number; latest_seq?: number } = {}): Changes => ({
-  reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-  next_since: 11, latest_seq: 11,
-  pages: [], blocks: [], sidebar: [], tombstones: [], ...over,
-} as Changes);
+  { next_since?: number; latest_seq?: number } = {}): Changes => {
+  const { next_since = 11, latest_seq = 11, ...rest } = over;
+  return {
+    reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
+    next_since: seqOf(next_since), latest_seq: seqOf(latest_seq),
+    pages: [], blocks: [], sidebar: [], tombstones: [], ...rest,
+  };
+};
 
 const NOW = new Date(2026, 0, 15, 12).getTime();
 
@@ -63,7 +66,7 @@ beforeEach(async () => {
 });
 
 const titles = (): string[] =>
-  (t.db.introspect("SELECT title FROM pages ORDER BY title") as { title: string }[])
+  (t.db.select<"title">("SELECT title FROM pages ORDER BY title"))
     .map((r) => r.title);
 
 const enqueue = (ops: BlockOp[], name: string): void => {
@@ -168,12 +171,12 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
 describe("applyChanges: a local page something keeps stays", () => {
   test("a pending create_page page with nothing on it survives the head window", () => {
     enqueue([{ op: "create_page", page_title: "Draft" }], "b-page");
-    const [before] = (t.db.introspect(
-      "SELECT id FROM pages WHERE title = 'Draft'") as { id: number }[]);
+    const [before] = t.db.select<"page_id">(
+      "SELECT id AS page_id FROM pages WHERE title = 'Draft'");
 
     applyChanges(t.db, window(), NOW);
 
-    expect(t.db.introspect("SELECT id FROM pages WHERE title = 'Draft'"))
+    expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'Draft'"))
       .toEqual([before]);
   });
 
@@ -326,7 +329,7 @@ describe("applyChanges: dropping stranded local pages waits for the head window"
       next_since: 12, latest_seq: 12, pages: [page(7, "Draft")],
     }), NOW);
 
-    expect((t.db.introspect(
-      "SELECT id FROM pages WHERE title = 'Draft'") as { id: number }[])).toEqual([{ id: 7 }]);
+    expect(t.db.select<"page_id">(
+      "SELECT id AS page_id FROM pages WHERE title = 'Draft'")).toEqual([{ page_id: 7 }]);
   });
 });

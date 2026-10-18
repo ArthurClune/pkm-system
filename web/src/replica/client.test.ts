@@ -2,20 +2,18 @@
 // End-to-end over a MessageChannel: the typed Replica facade on one side,
 // buildHandlers over a real in-memory sqlite-wasm database on the other.
 import { expect, test, vi } from "vitest";
-import type { BatchId, ClientId, SyncSeq } from "../api/brands";
+import type { BatchId } from "../api/brands";
 import type { components } from "../api/types";
 import type { Snapshot } from "./apply";
-import {
-  createReplica, type AckedBatch, type PendingRowId, type Replica,
-  type ReplicaRpc,
-} from "./client";
+import { createReplica, type AckedBatch, type Replica, type ReplicaRpc } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import { ReplicaUnusableError } from "./errors";
 import { setMeta } from "./meta";
 import { createRpcClient, serveRpc, toPortLike, type RpcHandlers } from "./rpc";
 import { openRawTestDb, type TestDb } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
-import { orderIdxOf, pageIdOf, canonicalTitleOf, uidOf } from "../test-helpers";
+import { batchIdOf, canonicalTitleOf, clientIdOf, orderIdxOf, pageIdOf, pendingRowIdOf, seqOf,
+         uidOf } from "../test-helpers";
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -26,10 +24,10 @@ function deferred<T = void>() {
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint (newUid()/crypto.randomUUID()); this mints the brand once
 // rather than at every call.
-const bid = (s: string): BatchId => s as BatchId;
+const bid = (s: string): BatchId => batchIdOf(s);
 
 const SNAP: Snapshot = {
-  generation: "gen-1", plain_space_title_canonicalization: false, seq: (5 as SyncSeq),
+  generation: "gen-1", plain_space_title_canonicalization: false, seq: seqOf(5),
   pages: [{ id: pageIdOf(1), title: canonicalTitleOf("AI"), created_at: 1, updated_at: 1 }],
   blocks: [{ uid: uidOf("uid_b1"), page_id: pageIdOf(1), parent_uid: null, order_idx: orderIdxOf(0),
              text: "hello", heading: null, view_type: null, collapsed: 0, created_at: 1,
@@ -69,13 +67,13 @@ test("applyChanges round-trips through the port", async () => {
   await replica.applySnapshot(SNAP);
   const result = await replica.applyChanges({
     reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-    next_since: (6 as SyncSeq), latest_seq: (6 as SyncSeq), pages: [], blocks: [], sidebar: [],
+    next_since: seqOf(6), latest_seq: seqOf(6), pages: [], blocks: [], sidebar: [],
     tombstones: [{ kind: "block", entity_id: "uid_b1" }],
   });
   expect(result).toEqual({ status: "applied", cursor: 6 });
   const gone = await replica.applyChanges({
     reset: false, generation: "gen-2", plain_space_title_canonicalization: false,
-    next_since: (0 as SyncSeq), latest_seq: (0 as SyncSeq),
+    next_since: seqOf(0), latest_seq: seqOf(0),
     pages: [], blocks: [], sidebar: [], tombstones: [],
   });
   expect(gone).toEqual({ status: "needs-bootstrap" });
@@ -96,7 +94,7 @@ test("a feed fetched before an acknowledged batch deletion cannot overwrite it",
 
   const result = await replica.applyChanges({
     reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-    next_since: (6 as SyncSeq), latest_seq: (6 as SyncSeq), pages: [],
+    next_since: seqOf(6), latest_seq: seqOf(6), pages: [],
     blocks: [{ ...SNAP.blocks[0], text: "hello" }],
     sidebar: [], tombstones: [],
   }, pendingAtDispatch);
@@ -119,11 +117,11 @@ test("a window whose latest_seq covers the acked batch applies despite the stale
   ], bid("batch-ack"));
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
-  await replica.deleteBatch(batch.id, batch.batch_id, (6 as SyncSeq));
+  await replica.deleteBatch(batch.id, batch.batch_id, seqOf(6));
 
   const result = await replica.applyChanges({
     reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-    next_since: (6 as SyncSeq), latest_seq: (6 as SyncSeq), pages: [],
+    next_since: seqOf(6), latest_seq: seqOf(6), pages: [],
     blocks: [{ ...SNAP.blocks[0], text: "acknowledged local text" }],
     sidebar: [], tombstones: [],
   }, pendingAtDispatch);
@@ -142,11 +140,11 @@ test("a window read before the acked batch committed is still refused", async ()
   ], bid("batch-ack"));
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
-  await replica.deleteBatch(batch.id, batch.batch_id, (7 as SyncSeq)); // committed after the window's read
+  await replica.deleteBatch(batch.id, batch.batch_id, seqOf(7)); // committed after the window's read
 
   const result = await replica.applyChanges({
     reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-    next_since: (6 as SyncSeq), latest_seq: (6 as SyncSeq), pages: [],
+    next_since: seqOf(6), latest_seq: seqOf(6), pages: [],
     blocks: [{ ...SNAP.blocks[0], text: "hello" }],
     sidebar: [], tombstones: [],
   }, pendingAtDispatch);
@@ -163,12 +161,12 @@ test("a later seq-less delete of the same id forgets the recorded acked seq", as
   await replica.enqueue([{ op: "delete", uid: uidOf("uid_b1") }], bid("batch-1"));
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
-  await replica.deleteBatch(batch.id, batch.batch_id, (6 as SyncSeq));
+  await replica.deleteBatch(batch.id, batch.batch_id, seqOf(6));
   await replica.deleteBatch(batch.id, batch.batch_id);
 
   await expect(replica.applyChanges({
     reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-    next_since: (6 as SyncSeq), latest_seq: (6 as SyncSeq), pages: [], blocks: [], sidebar: [],
+    next_since: seqOf(6), latest_seq: seqOf(6), pages: [], blocks: [], sidebar: [],
     tombstones: [],
   }, pendingAtDispatch)).resolves.toEqual({ status: "pending-changed" });
 });
@@ -323,7 +321,7 @@ test("a prepare delayed past its client timeout cannot later orphan the worker l
     await workerPrepareFinished.promise;
     expect(workerPrepareOutcome).toBe("rejected");
     await expect(replica.enqueue([{ op: "delete", uid: uidOf("uid_after") }], bid("batch-after")))
-      .resolves.toMatchObject({ pending: 1, batchId: expect.any(String) });
+      .resolves.toMatchObject({ pending: 1, batchId: expect.any(String) as unknown });
     await earlier;
   } finally {
     vi.useRealTimers();
@@ -356,7 +354,7 @@ test("enqueue round-trips: persisted, optimistic, drainable", async () => {
   }]);
   await replica.deleteBatch(batch.id, batch.batch_id);
   expect(await replica.pendingCount()).toBe(0);
-  await expect(replica.markPoisoned((99 as PendingRowId), "gone", bid("gone-batch"))).resolves.toEqual({
+  await expect(replica.markPoisoned(pendingRowIdOf(99), "gone", bid("gone-batch"))).resolves.toEqual({
     pending: 0, matched: false,
   });
 });
@@ -403,7 +401,7 @@ test("a recovery lease gates enqueue and offline POST until the fresh database i
   expect(enqueueSettled).toBe(false);
   expect(localPostSettled).toBe(false);
   expect(t.db.select("SELECT COUNT(*) AS n FROM pending_ops")).toEqual([{ n: 0 }]);
-  expect(t.db.introspect("SELECT id FROM pages WHERE title='Offline Page'")).toEqual([]);
+  expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title='Offline Page'")).toEqual([]);
 
   await replica.commitRecovery(lease.token, { kind: "reset", snapshot: SNAP });
   await Promise.all([enqueue, localPost]);
@@ -419,8 +417,8 @@ test("a recovery lease gates enqueue and offline POST until the fresh database i
 // worker's noteAck(id, seq): both are plain numbers at runtime, so the
 // brands are the only thing stopping a caller from swapping them.
 test("deleteBatch's id/ackedSeq brands reject a swapped call (compile-time only)", () => {
-  const rowId = 1 as PendingRowId;
-  const seq = 7 as SyncSeq;
+  const rowId = pendingRowIdOf(1);
+  const seq = seqOf(7);
   const deleteBatch: Replica["deleteBatch"] = async () => ({ pending: 0 });
   // @ts-expect-error ackedSeq takes a SyncSeq, not a PendingRowId
   void deleteBatch(rowId, bid("b"), rowId);
@@ -436,7 +434,7 @@ test("deleteBatch's id/ackedSeq brands reject a swapped call (compile-time only)
 // this is the swap the brands exist to block at compile time (web's
 // sync/opQueue.ts postOps builds exactly this body shape).
 test("OpBatch's client_id/batch_id brands reject a swapped body (compile-time only)", () => {
-  const clientId = "tab-1" as ClientId;
+  const clientId = clientIdOf("tab-1");
   const batchId = bid("batch-1");
   const swapped: components["schemas"]["OpBatch"] = {
     // @ts-expect-error client_id takes a ClientId, not a BatchId
@@ -452,7 +450,7 @@ test("OpBatch's client_id/batch_id brands reject a swapped body (compile-time on
 // (JSON.stringify(...) and a uid); the brand is the only thing stopping a
 // caller from passing the error message where the batch id belongs.
 test("markPoisoned's error/batchId brand rejects an unbranded batchId (compile-time only)", () => {
-  const rowId = 1 as PendingRowId;
+  const rowId = pendingRowIdOf(1);
   const error = "request failed: 422 /api/ops";
   const markPoisoned: Replica["markPoisoned"] = async () => (
     { pending: 0, matched: false }
@@ -475,8 +473,8 @@ test("rpc.call rejects a method ReplicaRpc does not declare (compile-time only)"
 
 test("rpc.call rejects a wrongly-shaped payload (compile-time only)", () => {
   const rpc = createRpcClient<ReplicaRpc>(toPortLike(new MessageChannel().port1));
-  const rowId = 1 as PendingRowId;
-  const seq = 7 as SyncSeq;
+  const rowId = pendingRowIdOf(1);
+  const seq = seqOf(7);
   // @ts-expect-error deleteBatch's batchId takes a BatchId, not a plain string
   void rpc.call("deleteBatch", { id: rowId, batchId: "b" });
   // @ts-expect-error deleteBatch's id takes a PendingRowId, not a SyncSeq
@@ -496,7 +494,7 @@ test("RpcHandlers<ReplicaRpc> rejects an incomplete or mistyped handler record (
   // ReplicaRpc is covered
   const incomplete: RpcHandlers<ReplicaRpc> = {
     init: async () => ({
-      empty: true, cursor: 0 as SyncSeq, schemaMismatch: false, pendingBatches: [],
+      empty: true, cursor: seqOf(0), schemaMismatch: false, pendingBatches: [],
     }),
   };
   const pendingCount: RpcHandlers<ReplicaRpc>["pendingCount"] =

@@ -6,12 +6,13 @@
 // comma-bearing uids, and a batch id shared with earlier records.
 import fc from "fast-check";
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
-import type { BatchId } from "../api/brands";
+import type { BlockUid } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { targetedFkHit } from "./apply";
 import type { ReplicaDb, SqlValue } from "./db";
 import { applyLocalOps } from "./localOps";
 import { openTestDb, type TestDb } from "./testDb";
+import { batchIdOf, malformedUid, orderIdxOf, uidOf } from "../test-helpers";
 
 const fkKeys = (db: ReplicaDb): Set<string> =>
   new Set((db.introspect(
@@ -28,11 +29,11 @@ const inTxn = (db: ReplicaDb, fn: () => void): void => {
 
 /** The replay's first pass: each op under its own savepoint, a throw rolls it
  * back. */
-const replay = (db: ReplicaDb, ops: BlockOp[], batchId: string): void => {
+const replay = (db: ReplicaDb, ops: BlockOp[], batch: string): void => {
   for (const op of ops) {
     db.exec("SAVEPOINT replay_op");
     try {
-      applyLocalOps(db, [op], 5, { batchId: batchId as BatchId });
+      applyLocalOps(db, [op], 5, { batchId: batchIdOf(batch) });
     } catch {
       db.exec("ROLLBACK TO replay_op");
     }
@@ -44,27 +45,36 @@ const UIDS = ["u_aaaaa1", "u_aaaaa2", "u_aaaaa3", "u_aaaaa4", "u_aaaaa5",
               "u_aaaaa6", "u_aaaaa7", "x,u_aaaaa2", "u_aaaaa3,y"];
 const TITLES = ["A", "B", "C", "D", "E"];
 
-const uidArb = fc.oneof(
-  { weight: 19, arbitrary: fc.constantFrom(...UIDS) },
-  { weight: 1, arbitrary: fc.constant(null) });
-const parentArb = fc.oneof(fc.constant(null), fc.constantFrom(...UIDS, "u_gone01"));
+// A comma is outside the BlockUid shape: those uids are forged on purpose.
+const mintUid = (raw: string): BlockUid =>
+  raw.includes(",") ? malformedUid(raw) : uidOf(raw);
+
+const uidArb = fc.constantFrom(...UIDS).map(mintUid);
+const parentArb = fc.oneof(
+  fc.constant(null), fc.constantFrom(...UIDS, "u_gone01").map(mintUid));
 const textArb = fc.constantFrom("plain", "see [[A]]", "[[D]] and ((u_aaaaa1))",
                                 "#B ((u_aaaaa3))", "[[C]]", "[[E]]");
-const orderArb = fc.integer({ min: 0, max: 2 });
+const orderArb = fc.integer({ min: 0, max: 2 }).map(orderIdxOf);
 const titleArb = fc.constantFrom(...TITLES);
 
-const opArb: fc.Arbitrary<BlockOp> = fc.oneof(
-  fc.record({ op: fc.constant("create"), uid: uidArb, page_title: titleArb,
+const shapedOpArb: fc.Arbitrary<BlockOp> = fc.oneof(
+  fc.record({ op: fc.constant("create" as const), uid: uidArb, page_title: titleArb,
               parent_uid: parentArb, order_idx: orderArb, text: textArb }),
-  fc.record({ op: fc.constant("move"), uid: uidArb, parent_uid: parentArb,
+  fc.record({ op: fc.constant("move" as const), uid: uidArb, parent_uid: parentArb,
               order_idx: orderArb }, { requiredKeys: ["op", "uid", "parent_uid", "order_idx"] }),
-  fc.record({ op: fc.constant("move"), uid: uidArb, parent_uid: parentArb,
+  fc.record({ op: fc.constant("move" as const), uid: uidArb, parent_uid: parentArb,
               page_title: titleArb, order_idx: orderArb }),
-  fc.record({ op: fc.constant("delete"), uid: uidArb }),
-  fc.record({ op: fc.constant("update_text"), uid: uidArb, text: textArb }),
-  fc.record({ op: fc.constant("create_page"), page_title: titleArb }),
-  fc.record({ op: fc.constant("set_collapsed"), uid: uidArb, collapsed: fc.boolean() }),
-) as unknown as fc.Arbitrary<BlockOp>;
+  fc.record({ op: fc.constant("delete" as const), uid: uidArb }),
+  fc.record({ op: fc.constant("update_text" as const), uid: uidArb, text: textArb }),
+  fc.record({ op: fc.constant("create_page" as const), page_title: titleArb }),
+  fc.record({ op: fc.constant("set_collapsed" as const), uid: uidArb, collapsed: fc.boolean() }),
+);
+
+// One op in twenty that has a uid carries a NULL one instead: data no wire op
+// can hold, which the replay must survive. `Object.assign` types the null
+// property as `never`, which is assignable to the uid it replaces.
+const opArb: fc.Arbitrary<BlockOp> = fc.tuple(shapedOpArb, fc.nat({ max: 19 })).map(
+  ([op, roll]) => (roll === 0 && "uid" in op ? Object.assign(op, { uid: null }) : op));
 
 const baseBlockArb = fc.record({
   uid: fc.constantFrom(...UIDS),
@@ -125,7 +135,7 @@ describe("targetedFkHit is a sound pre-check for the whole-database comparison",
           db.exec("SAVEPOINT replay_batch");
           replay(db, s.ops, "b1");
           const after = fkKeys(db);
-          if (!targetedFkHit(db, "b1" as BatchId)) {
+          if (!targetedFkHit(db, batchIdOf("b1"))) {
             const added = [...after].filter((k) => !before.has(k));
             expect(added).toEqual([]);
           }

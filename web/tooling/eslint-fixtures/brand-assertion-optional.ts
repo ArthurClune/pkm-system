@@ -44,3 +44,9 @@ export function nestedEither(x: { a: 1; o?: {} }): BlockUid | undefined {
     x as { a: 1; o?: { uid?: undefined } } | { b: 1; o?: { uid?: BlockUid } }
   ).o?.uid;
 }
+export function frozen(xs: BlockUid[]): readonly BlockUid[] {
+  return xs as readonly BlockUid[];
+}
+export function maybe<T>(x: T): T | undefined {
+  return x as T | undefined;
+}

@@ -8,16 +8,18 @@
 //     brand (directly or through a type parameter's constraint), a type
 //     predicate (`x is B`), an overload signature returning a brand its
 //     implementation does not, and a `declare`d value or function returning
-//     one are reported outside the brand's mint sites. A predicate mints
-//     only what its narrowing adds to the parameter's declared type, and an
-//     overload what its return adds over the implementation's, compared
-//     position by position. An assertion whose operand already fits its
-//     target mints nothing. An assertion toward `never`, toward a type
-//     parameter a caller can instantiate with a brand its constraint lacks
-//     (`T`, `T extends string`, `K extends "a"`), or toward `keyof T`, whose
-//     keys the caller picks (`keyof Record<BlockUid, 1>`), launders any
-//     value, also inside `T[]`, `{ v: T }`, `Promise<T>` ..., and is allowed
-//     only on a `brand: untrusted -- <reason>` line in an opt-out file.
+//     one are reported outside the brand's mint sites. An assertion reports
+//     whatever its operand: an upcast is written as an annotated declaration
+//     (`const ys: readonly BlockUid[] = xs`). A predicate mints only what
+//     its narrowing adds to the parameter's declared type, and an overload
+//     what its return adds over the implementation's, compared position by
+//     position. An assertion, predicate or overload return toward `never`,
+//     toward a type parameter a caller can instantiate with a brand its
+//     constraint lacks (`T`, `T extends string`, `K extends "a"`), or
+//     toward `keyof T`, whose keys the caller picks (`keyof Record<BlockUid,
+//     1>`), launders any value, also inside `T[]`, `{ v: T }`, `Promise<T>`
+//     ..., and is allowed only on a `brand: untrusted -- <reason>` line in
+//     an opt-out file.
 // Both read tooling/brandRegistry.gen.json, generated from the server's
 // brand registry, and both skip test files and the registry's test-support
 // paths. `satisfies` and non-null `!` are not assertions toward a brand and
@@ -255,30 +257,6 @@ function launders(checker, type) {
   return walk(type);
 }
 
-// Whether `any` sits anywhere in a type: it fits every target, so an
-// assertion from it is judged as if its operand were unknown.
-function hasAny(checker, type) {
-  const seen = new Set();
-  const walk = (t) => {
-    if (seen.has(t)) return false;
-    seen.add(t);
-    if (t.flags & ts.TypeFlags.Any) return true;
-    if (t.flags & ts.TypeFlags.Instantiable) {
-      const constraint = checker.getBaseConstraintOfType(t);
-      return constraint !== undefined && constraint !== t && walk(constraint);
-    }
-    if (t.isUnionOrIntersection()) return t.types.some(walk);
-    if (!(t.flags & ts.TypeFlags.Object)) return false;
-    if ((checker.isArrayType(t) || checker.isTupleType(t)
-      || t.objectFlags & ts.ObjectFlags.Reference)
-      && checker.getTypeArguments(t).some(walk)) return true;
-    if (isForeign(t) && !(t.objectFlags & ts.ObjectFlags.Mapped)) return false;
-    return t.getProperties().some((p) => walk(checker.getTypeOfSymbol(p)))
-      || checker.getIndexInfosOfType(t).some((i) => walk(i.type));
-  };
-  return walk(type);
-}
-
 // The brand literal a type itself carries (not one nested inside it).
 function ownBrand(checker, type) {
   const brand = type.getProperty("__brand");
@@ -405,25 +383,39 @@ function elementOf(checker, type) {
   return checker.getTypeArguments(type)[0];
 }
 
+// The brands of the properties of `to` that `from` does not declare: what
+// width subtyping lets a value of `from` hold there.
+function undeclaredBrands(checker, from, to) {
+  const found = new Set();
+  if (checker.getIndexTypeOfType(from, ts.IndexKind.String)) return found;
+  for (const p of to.getProperties()) {
+    if (from.getProperty(p.name)) continue;
+    cachedBrands(checker, checker.getTypeOfSymbol(p)).forEach((b) => found.add(b));
+  }
+  return found;
+}
+
 // The brands a value typed `from` gains by being believed to be `to` (a
-// type predicate's narrowing, an overload's return). None where `from`
-// already fits `to` and backs every branded position of it (`unbacked`).
-// Otherwise each position of `to` is compared with the
-// matching position of `from`: an array or tuple element with `from`'s
-// element, a reference's type arguments with those of the same generic
-// type or of a lib type of the same arity (`ReadonlySet` to `Set`,
-// `PromiseLike` to `Promise`), an object's properties and index signatures
-// with `from`'s. Where no position
-// matches, every brand of `to` is minted: a brand elsewhere in `from` does
-// not cover it. Only the members of a `from` union that could hold a `to`
-// are compared: `BlockUid | null` narrowed to `BlockUid` gains none,
-// `BlockUid | string` gains BlockUid from its string.
+// type predicate's narrowing, an overload's return). Each position of `to`
+// is compared with the matching position of `from`: an array or tuple
+// element with `from`'s element, a reference's type arguments with those
+// of the same generic type or of a lib type of the same arity
+// (`ReadonlySet` to `Set`, `PromiseLike` to `Promise`), an object's
+// properties and index signatures with `from`'s. A position `from` does not
+// declare (an optional property, a tuple element past its length, an index
+// signature) mints every brand there: width subtyping lets the value hold
+// anything, so `{ a: 1 }` believed to be `{ a: 1; uid?: BlockUid }` gains
+// BlockUid. Where no position matches, every brand of `to` is minted: a
+// brand elsewhere in `from` does not cover it. Only the members of a `from`
+// union that could hold a `to` are compared: `BlockUid | null` narrowed to
+// `BlockUid` gains none, `BlockUid | string` gains BlockUid from its string.
 function mintedBrands(checker, from, to, seen = new Map()) {
   const minted = new Set();
   const add = (brands) => brands.forEach((b) => minted.add(b));
   const every = () => new Set(cachedBrands(checker, to));
   const compare = (source, target) => add(source === undefined
     ? cachedBrands(checker, target) : mintedBrands(checker, source, target, seen));
+  if (from === to) return minted;
   if (from.flags & ts.TypeFlags.Any) return every();
   if (from.isUnion()) {
     for (const m of from.types) {
@@ -431,20 +423,45 @@ function mintedBrands(checker, from, to, seen = new Map()) {
     }
     return minted;
   }
-  // A `from` that fits `to` gains nothing, unless `any` or an undeclared
-  // position (`{ a: 1 }` believed to be `{ a: 1; uid?: BlockUid }`) lets
-  // it fit: then the positions below say which brands it gains.
-  if (checker.isTypeAssignableTo(from, to) && !cachedHasAny(checker, from)
-    && !unbacked(checker, from, to)) return minted;
+  // A value of `A & B` is an `A` and a `B`: it gains only what it would
+  // gain as each of them.
+  if (from.isIntersection() && ownBrand(checker, from) === null) {
+    let common;
+    for (const m of from.types) {
+      const gained = mintedBrands(checker, m, to, seen);
+      common = common === undefined
+        ? gained : new Set([...common].filter((b) => gained.has(b)));
+    }
+    return common ?? minted;
+  }
+  if (to.isUnion()) {
+    // A member `from` is gains nothing. Otherwise a member `from` could be
+    // is compared, and a member it cannot be (a discriminant rules it out)
+    // still lends the union its properties: `{ k: 1 }` believed to be
+    // `{ k: 1 } | { k: 2; uid?: BlockUid }` reads `uid` as a BlockUid. A
+    // `from` that could be no member (`null` believed to be `BlockUid |
+    // undefined`) gains every brand.
+    if (to.types.includes(from)) return minted;
+    let overlapping = false;
+    for (const m of to.types) {
+      if (overlaps(checker, from, m)) {
+        overlapping = true;
+        add(mintedBrands(checker, from, m, seen));
+      }
+      else if (isObjectish(m) && isObjectish(from)) add(undeclaredBrands(checker, from, m));
+    }
+    return overlapping ? minted : every();
+  }
+  // A brand or a primitive that `from` fits adds nothing. An object type,
+  // or an intersection of them, is compared position by position even where
+  // `from` fits it, because a position `from` does not declare fits
+  // anything.
+  const leaf = ownBrand(checker, to) !== null
+    || !isObjectish(to) && !to.isIntersection();
+  if (leaf && checker.isTypeAssignableTo(from, to)) return minted;
   if (from.flags & ts.TypeFlags.TypeParameter) {
     const constraint = checker.getBaseConstraintOfType(from);
     return mintedBrands(checker, constraint ?? checker.getUnknownType(), to, seen);
-  }
-  if (to.isUnion()) {
-    for (const m of to.types) {
-      if (overlaps(checker, from, m)) add(mintedBrands(checker, from, m, seen));
-    }
-    return minted;
   }
   // A recursive type meets itself again: the first visit judges it.
   const targets = seen.get(from) ?? new Set();
@@ -490,9 +507,12 @@ function mintedBrands(checker, from, to, seen = new Map()) {
     cachedBrands(checker, target).forEach((b) => accounted.add(b));
     compare(source, target);
   };
+  // A property `from` does not declare holds what its string index allows,
+  // or anything.
+  const stringIndex = checker.getIndexTypeOfType(from, ts.IndexKind.String);
   for (const p of to.getProperties()) {
-    const source = from.getProperty(p.name);
-    position(source && checker.getTypeOfSymbol(source),
+    const declared = from.getProperty(p.name);
+    position(declared ? checker.getTypeOfSymbol(declared) : stringIndex,
       checker.getTypeOfSymbol(p));
   }
   // Our own `class Index<K, V> extends Map<K, V>` holds its arguments where
@@ -511,139 +531,10 @@ function mintedBrands(checker, from, to, seen = new Map()) {
   }
   const fromInfos = checker.getIndexInfosOfType(from);
   for (const info of checker.getIndexInfosOfType(to)) {
-    cachedBrands(checker, info.keyType).forEach((b) => accounted.add(b));
-    const same = fromInfos.find((i) => i.keyType === info.keyType);
-    if (same) position(same.type, info.type);
-    else {
-      add(cachedBrands(checker, info.keyType));
-      add(cachedBrands(checker, info.type));
-    }
-  }
-  for (const b of cachedBrands(checker, to)) if (!accounted.has(b)) minted.add(b);
-  return minted;
-}
-
-// A mapped type over a type parameter (no members until instantiated) whose
-// declaration makes every key optional: `Partial<T>`, `{ [P in K]?: X }`.
-function isOptionalGenericMapping(checker, type) {
-  if (!(type.objectFlags & ts.ObjectFlags.Mapped)
-    || type.getProperties().length > 0
-    || checker.getIndexInfosOfType(type).length > 0) return false;
-  const question = type.symbol?.declarations?.find(ts.isMappedTypeNode)
-    ?.questionToken;
-  return question !== undefined && question.kind !== ts.SyntaxKind.MinusToken;
-}
-
-// The types a generic mapped type maps over: its alias's arguments
-// (`Partial<T>` maps over T), or the `T` of `keyof T` in a mapped type
-// written in place.
-function mappedOver(checker, type) {
-  const over = [...(type.aliasTypeArguments ?? [])];
-  const decl = type.symbol?.declarations?.find(ts.isMappedTypeNode);
-  const keys = decl?.typeParameter.constraint;
-  if (keys && checker.getTypeFromTypeNode(decl) === type) {
-    const keyType = checker.getTypeFromTypeNode(keys);
-    if (keyType.flags & ts.TypeFlags.Index) over.push(keyType.type);
-  }
-  return over;
-}
-
-// Whether a property of `to` carrying a brand or a laundering parameter is
-// one `from` does not back. A property `from` does not declare holds what
-// its string index allows, or anything.
-function unbackedProperties(checker, from, to, seen) {
-  const stringIndex = checker.getIndexTypeOfType(from, ts.IndexKind.String);
-  return to.getProperties().some((p) => {
-    const target = checker.getTypeOfSymbol(p);
-    const declared = from.getProperty(p.name);
-    const source = declared ? checker.getTypeOfSymbol(declared) : stringIndex;
-    if (source !== undefined) return unbacked(checker, source, target, seen);
-    return cachedBrands(checker, target).size > 0
-      || cachedLaunders(checker, target);
-  });
-}
-
-// Whether `to`, which `from` fits, has a position carrying a brand or a
-// laundering parameter that `from` does not declare: an optional property,
-// an optional or rest tuple element past `from`'s length, or an index
-// signature `from` lacks. Width subtyping lets a value of `from` hold
-// anything there, so an assertion to `to` believes an unchecked brand
-// (`row as Row & { uid?: BlockUid }`).
-function unbacked(checker, from, to, seen = new Map()) {
-  const carries = (t) => cachedBrands(checker, t).size > 0
-    || cachedLaunders(checker, t);
-  // A nullish value has nothing to read through.
-  if (from === to || from.flags & ts.TypeFlags.Never || isNullish(from)
-    || !carries(to)) {
-    return false;
-  }
-  if (from.isUnion()) return from.types.some((m) => unbacked(checker, m, to, seen));
-  if (to.isUnion()) {
-    // The operand must fit some member with no gap, and a property every
-    // member declares must be backed too: it reads through the union
-    // without narrowing to the member the operand fits. A nullish member
-    // declares nothing and `?.` reads past it, so the properties are those
-    // the other members share.
-    const fits = to.types.some((m) => checker.isTypeAssignableTo(from, m)
-      && !unbacked(checker, from, m, seen));
-    if (!fits) return true;
-    const members = checker.getNonNullableType(to);
-    return members.isUnion() && unbackedProperties(checker, from, members, seen);
-  }
-  // A position reached through an index signature or an optional property
-  // need not fit at all (`Record<string, string>` fits `{ uid?: BlockUid }`).
-  if (!checker.isTypeAssignableTo(from, to)) return true;
-  const targets = seen.get(from) ?? new Set();
-  if (targets.has(to)) return false;
-  seen.set(from, targets.add(to));
-  if (ownBrand(checker, to) === null && to.isIntersection()) {
-    return to.types.some((m) => unbacked(checker, from, m, seen));
-  }
-  if (isOptionalGenericMapping(checker, to)) {
-    // `Partial<T>` over a type parameter has no members to compare until
-    // instantiated, and `object` fits it: only the type it maps over backs
-    // it, or one that fits that type at every key (`U extends T`,
-    // `Readonly<T>`), or a type parameter whose constraint does.
-    const backs = mappedOver(checker, to).some((over) =>
-      over === from || checker.isTypeAssignableTo(from, over)
-        && !unbacked(checker, from, over, seen));
-    if (backs) return false;
-    const constraint = from.flags & ts.TypeFlags.TypeParameter
-      ? checker.getBaseConstraintOfType(from) : undefined;
-    return constraint === undefined || constraint === from
-      || unbacked(checker, constraint, to, seen);
-  }
-  const isReference = (t) => (t.objectFlags & ts.ObjectFlags.Reference) !== 0;
-  if (checker.isTupleType(to)) {
-    const toElements = checker.getTypeArguments(to);
-    const fromElements = checker.isTupleType(from)
-      ? checker.getTypeArguments(from) : [];
-    const element = elementOf(checker, from);
-    return toElements.some((t, i) => {
-      const source = checker.isTupleType(from) ? fromElements[i] : element;
-      return source === undefined ? carries(t) : unbacked(checker, source, t, seen);
-    });
-  }
-  if (checker.isArrayType(to)) {
-    const element = elementOf(checker, from);
-    const [target] = checker.getTypeArguments(to);
-    return element === undefined || unbacked(checker, element, target, seen);
-  }
-  if (isReference(to) && isReference(from)) {
-    const fromArgs = checker.getTypeArguments(from);
-    const toArgs = checker.getTypeArguments(to);
-    const libPair = isForeign(from) && isForeign(to)
-      && fromArgs.length === toArgs.length;
-    if (from.target === to.target || libPair) {
-      return toArgs.some((t, i) => unbacked(checker, fromArgs[i], t, seen));
-    }
-  }
-  if (!isObjectish(to)) return false;
-  if (unbackedProperties(checker, from, to, seen)) return true;
-  const fromInfos = checker.getIndexInfosOfType(from);
-  return checker.getIndexInfosOfType(to).some((info) => {
+    const keyBrands = cachedBrands(checker, info.keyType);
+    keyBrands.forEach((b) => accounted.add(b));
     // A `string` key does not back a `BlockUid` key: every key stored must
-    // be one of the target's. A plain target key is backed by the operand
+    // be one of the target's. A plain target key is backed by the `from`
     // signature its reads hit, which for a string index includes number
     // keys, as TypeScript applies it.
     const applies = (i) => checker.isTypeAssignableTo(info.keyType, i.keyType)
@@ -651,10 +542,15 @@ function unbacked(checker, from, to, seen = new Map()) {
         && checker.isTypeAssignableTo(info.keyType, checker.getNumberType());
     const same = fromInfos.find((i) =>
       checker.isTypeAssignableTo(i.keyType, info.keyType)
-      || !carries(info.keyType) && applies(i));
-    if (same) return unbacked(checker, same.type, info.type, seen);
-    return carries(info.keyType) || carries(info.type);
-  });
+      || keyBrands.size === 0 && applies(i));
+    if (same) position(same.type, info.type);
+    else {
+      add(keyBrands);
+      add(cachedBrands(checker, info.type));
+    }
+  }
+  for (const b of cachedBrands(checker, to)) if (!accounted.has(b)) minted.add(b);
+  return minted;
 }
 
 function servicesOf(context) {
@@ -678,7 +574,6 @@ function cachedBy(compute, checker, type) {
 }
 const cachedBrands = (checker, type) => cachedBy(brandsOf, checker, type);
 const cachedLaunders = (checker, type) => cachedBy(launders, checker, type);
-const cachedHasAny = (checker, type) => cachedBy(hasAny, checker, type);
 
 // "reason" for `// brand: untrusted -- <why>` on the node's line or the one
 // above, "bare" for the marker with no reason, null when there is none.
@@ -837,47 +732,49 @@ const noBrandAssertion = {
     };
     const checkBrands = (node, type, messageId) =>
       report(node, cachedBrands(checker, type), messageId);
+    // Whether `type` launders; reported unless an opt-out line allows it.
+    const reportLaunder = (node, type) => {
+      if (!cachedLaunders(checker, type)) return false;
+      const optOut = optOutOf(context.sourceCode, node);
+      if (optOut !== "reason" || !mayOptOut) {
+        context.report({
+          node,
+          messageId: "launder",
+          data: { target: checker.typeToString(type) },
+        });
+      }
+      return true;
+    };
+    // The operand is not consulted: an upcast is an annotated declaration
+    // (`const ys: readonly BlockUid[] = xs`), never an assertion.
     const check = (node) => {
       const target = node.typeAnnotation;
       if (target.type === "TSTypeReference" && target.typeName.name === "const") {
         return;
       }
       const type = typeOf(target);
-      const launder = cachedLaunders(checker, type);
-      if (!launder && ![...cachedBrands(checker, type)].some(
-        (b) => !isMintSite(b, path),
-      )) return;
-      // An operand that already fits the target, at every position the
-      // target carries a brand, is only widened (`xs as readonly T[]`,
-      // `[] as T[]`): nothing is laundered or minted.
-      const operand = typeOf(node.expression);
-      if (!cachedHasAny(checker, operand)
-        && checker.isTypeAssignableTo(operand, type)
-        && !unbacked(checker, operand, type)) return;
-      if (launder) {
-        const optOut = optOutOf(context.sourceCode, node);
-        if (optOut === "reason" && mayOptOut) return;
-        context.report({
-          node,
-          messageId: "launder",
-          data: { target: checker.typeToString(type) },
-        });
-        return;
-      }
-      checkBrands(node, type, "assertion");
+      if (!reportLaunder(node, type)) checkBrands(node, type, "assertion");
     };
     // A predicate mints what its narrowing adds to the parameter's declared
     // type: narrowing a union of ops to one op adds no brand, narrowing a
-    // string (or `BlockUid | string`) to BlockUid adds one.
+    // string (or `BlockUid | string`) to BlockUid adds one. Narrowing to a
+    // laundering type (`x is T`) launders like `as T`, except on a function
+    // type (`type Guard<T> = (v: string) => v is T`): that is a contract
+    // only another predicate can fulfil, and the one that does is judged at
+    // its own declaration.
+    const BODILESS = new Set([
+      "TSFunctionType", "TSMethodSignature", "TSCallSignatureDeclaration",
+    ]);
     const checkPredicate = (node) => {
       const annotation = node.typeAnnotation?.typeAnnotation;
       if (!annotation) return;
+      const narrowed = typeOf(annotation);
       const fn = node.parent?.parent;
+      if (!BODILESS.has(fn?.type) && reportLaunder(node, narrowed)) return;
       const declared = (fn?.params ?? []).map(
         (p) => (p.type === "AssignmentPattern" ? p.left : p),
       ).find((p) => p.type === "Identifier"
         && p.name === node.parameterName.name);
-      const narrowed = typeOf(annotation);
       const minted = declared
         ? mintedBrands(checker, typeOf(declared), narrowed)
         : cachedBrands(checker, narrowed);
@@ -902,10 +799,14 @@ const noBrandAssertion = {
       const implSignature = checker.getSignatureFromDeclaration(impl);
       if (!signature || !implSignature
         || checker.getTypePredicateOfSignature(signature)) return;
+      // A laundering return (`f<T>(s): T` over an `unknown` implementation)
+      // launders like `as T`.
+      const returned = checker.getReturnTypeOfSignature(signature);
+      if (reportLaunder(node, returned)) return;
       report(node, mintedBrands(
         checker,
         checker.getReturnTypeOfSignature(implSignature),
-        checker.getReturnTypeOfSignature(signature),
+        returned,
       ), "overload");
     };
     // `declare` asserts a function exists with no body to check; without it

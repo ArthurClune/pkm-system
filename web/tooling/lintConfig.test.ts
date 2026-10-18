@@ -261,7 +261,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-predicate-launder.ts",
     rule: "brands/no-brand-assertion",
-    count: 12,
+    count: 16,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       'type Op = { op: "insert"; uid: BlockUid } | { op: "note"; n: 1 };\n' +
@@ -327,7 +327,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-overload.ts",
     rule: "brands/no-brand-assertion",
-    count: 10,
+    count: 12,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export function same(x: BlockUid): BlockUid;\n" +
@@ -347,6 +347,10 @@ const cases: readonly FixtureCase[] = [
       "export function indexOf(m: Map<BlockUid, number>): Index<BlockUid, number>;\n" +
       "export function indexOf(m: Map<BlockUid, number>): Map<BlockUid, number> {\n" +
       "  return m;\n" +
+      "}\n" +
+      "export function tagged(x: BlockUid): Promise<BlockUid> & { t: 1 };\n" +
+      "export function tagged(x: BlockUid): Promise<BlockUid> & { t: 1 } {\n" +
+      "  return Object.assign(Promise.resolve(x), { t: 1 as const });\n" +
       "}\n",
   },
   {
@@ -363,10 +367,12 @@ const cases: readonly FixtureCase[] = [
       "}\n" +
       'export const modes = ["a", "b"] as const;\n' +
       "export function frozen<T>(xs: T[]): readonly T[] {\n" +
-      "  return xs as readonly T[];\n" +
+      "  const ys: readonly T[] = xs;\n" +
+      "  return ys;\n" +
       "}\n" +
       "export function none<T>(): T[] {\n" +
-      "  return [] as T[];\n" +
+      "  const xs: T[] = [];\n" +
+      "  return xs;\n" +
       "}\n" +
       "interface Shape {\n" +
       "  a: number;\n" +
@@ -377,16 +383,18 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-assertion-optional.ts",
     rule: "brands/no-brand-assertion",
-    count: 12,
+    count: 14,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export function frozen(xs: BlockUid[]): readonly BlockUid[] {\n" +
-      "  return xs as readonly BlockUid[];\n" +
+      "  const ys: readonly BlockUid[] = xs;\n" +
+      "  return ys;\n" +
       "}\n" +
       "export function maybe<T>(x: T): T | undefined {\n" +
-      "  return x as T | undefined;\n" +
+      "  const y: T | undefined = x;\n" +
+      "  return y;\n" +
       "}\n" +
-      "export const none = () => [] as BlockUid[];\n" +
+      "export const none = (): BlockUid[] => [];\n" +
       "export function counts(): Record<BlockUid, number> {\n" +
       "  const r: Record<BlockUid, number> = {};\n" +
       "  return r;\n" +
@@ -400,18 +408,22 @@ const cases: readonly FixtureCase[] = [
       "  n: number;\n" +
       "}\n" +
       "export function picked<K extends keyof Row>(r: Row): Pick<Row, K> {\n" +
-      "  return r as Pick<Row, K>;\n" +
+      "  const p: Pick<Row, K> = r;\n" +
+      "  return p;\n" +
       "}\n" +
       "export function frozenPartial<T>(t: T): Partial<Readonly<T>> {\n" +
-      "  return t as Partial<Readonly<T>>;\n" +
+      "  const p: Partial<Readonly<T>> = t;\n" +
+      "  return p;\n" +
       "}\n" +
       "export function narrower<T, U extends T>(u: U): Partial<T> {\n" +
-      "  return u as Partial<T>;\n" +
+      "  const p: Partial<T> = u;\n" +
+      "  return p;\n" +
       "}\n" +
       "export function numbered(\n" +
       "  x: Record<string, BlockUid>,\n" +
       "): { [i: number]: BlockUid } {\n" +
-      "  return x as { [i: number]: BlockUid };\n" +
+      "  const n: { [i: number]: BlockUid } = x;\n" +
+      "  return n;\n" +
       "}\n",
   },
   {
@@ -612,14 +624,14 @@ describe("brands plugin judgement", () => {
     expect(found[0].message).toContain("launders");
   }, ESLINT_TIMEOUT_MS);
 
-  it("judges an assertion the operand already satisfies by its operand", async () => {
+  it("reports an assertion toward a brand whatever its operand", async () => {
     const text =
       'import type { BlockUid } from "../api/brands";\n' +
-      "export const keep = (u: BlockUid) => u as BlockUid | null;\n" +
+      "export const keep = (u: BlockUid): BlockUid | null => u;\n" +
+      "export const widen = (u: BlockUid) => u as BlockUid | null;\n" +
       "export const wide = (v: unknown) => JSON.parse(String(v)) as BlockUid;\n";
     const found = await messagesFor("src/sync/opQueue.ts", text);
-    expect(found.map((m) => m.message.includes("BlockUid"))).toEqual([true]);
-    expect(found).toHaveLength(1);
+    expect(found.map((m) => m.message.includes("BlockUid"))).toEqual([true, true]);
   }, ESLINT_TIMEOUT_MS);
 
   it("lets an overload add a brand in its mint site only", async () => {

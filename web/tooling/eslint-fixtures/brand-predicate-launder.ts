@@ -1,4 +1,4 @@
-import type { BlockUid } from "../../src/api/brands";
+import type { BlockUid, PageId } from "../../src/api/brands";
 
 export function widened(x: BlockUid | string): x is BlockUid {
   return x.length > 0;
@@ -45,4 +45,19 @@ export function numericKey(x: string | { 0: BlockUid }): x is { 0: BlockUid } {
 }
 export function optionalUid(x: { a: 1 }): x is { a: 1; uid?: BlockUid } {
   return x.a === 1;
+}
+export function isAny<T>(x: unknown): x is T {
+  return x !== undefined;
+}
+export function assertAny<T>(x: unknown): asserts x is T {
+  void x;
+}
+export function isListOf<T extends string>(x: unknown[]): x is T[] {
+  return x.length > 0;
+}
+interface Row {
+  uid: BlockUid;
+}
+export function pageTagged(x: Row): x is Row & { pageId?: PageId } {
+  return "pageId" in x;
 }

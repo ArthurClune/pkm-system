@@ -42,3 +42,11 @@ export function widened(s: { a: 1 }): { a: 1; uid?: BlockUid };
 export function widened(s: { a: 1 }): { a: 1 } {
   return s;
 }
+export function make<T>(s: string): T;
+export function make(s: string): unknown {
+  return s;
+}
+export function keyed(s: string): { k: 1; uid?: undefined } | { k: 2; uid?: BlockUid };
+export function keyed(s: string): { k: 1 } {
+  return { k: 1, ...{ s } };
+}

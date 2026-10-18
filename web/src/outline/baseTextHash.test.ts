@@ -44,7 +44,7 @@ describe("stampBaseTextHashes", () => {
   });
 
   test("a block unknown in this tree gets no hash (plain LWW, as the worker does)", () => {
-    const ops: BlockOp[] = [{ op: "update_text", uid: uidOf("tuid-elsewhere"), text: "after" }];
+    const ops: BlockOp[] = [{ op: "update_text", uid: uidOf("elsewhere"), text: "after" }];
     expect(stampBaseTextHashes([block("tuid-u1", "before")], "AI", ops)[0])
       .not.toHaveProperty("base_text_hash");
   });
@@ -77,7 +77,7 @@ describe("stampBaseTextHashes", () => {
   });
 
   test("leaves page_title off ops for blocks the tree does not know", () => {
-    const ops: BlockOp[] = [{ op: "update_text", uid: uidOf("tuid-elsewhere"), text: "after" }];
+    const ops: BlockOp[] = [{ op: "update_text", uid: uidOf("elsewhere"), text: "after" }];
     expect(stampBaseTextHashes([block("tuid-u1", "before")], "AI", ops)[0])
       .not.toHaveProperty("page_title");
   });
@@ -120,7 +120,7 @@ describe("stampBaseTextHashes on delete", () => {
   });
 
   test("leaves a delete of an unknown node unstamped", () => {
-    const ops: BlockOp[] = [{ op: "delete", uid: uidOf("tuid-elsewhere") }];
+    const ops: BlockOp[] = [{ op: "delete", uid: uidOf("elsewhere") }];
     expect(stampBaseTextHashes(tree(), "AI", ops)[0])
       .not.toHaveProperty("base_subtree_hash");
   });

@@ -10,7 +10,8 @@ import {
 import { performUndo, resetHistory } from "../outline/undoManager";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, journalBacklinks, jsonResponse, makeSync, orderIdxOf, pageIdOf, pagePayload, READ_INIT,
-         servePageApplyingSent, stubFetch, canonicalTitleOf, uidOf } from "../test-helpers";
+         servePageApplyingSent, stubFetch, canonicalTitleOf, uidOf,
+         malformedUid } from "../test-helpers";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
 import { BlockStampsContext } from "../contexts";
 import { Journal } from "./Journal";
@@ -76,7 +77,7 @@ it("links with the canonical payload title and refreshes backlinks", async () =>
   const sync = makeSync();
   const refreshed = pagePayload("ACME", [], { backlinks: {
     groups: [{ page_id: pageIdOf(9), page_title: canonicalTitleOf("Source"), items: [{
-      uid: uidOf("tuid-uid_unlinked"), text: "[[ACME]] mention", breadcrumbs: [],
+      uid: uidOf("uid_unlinked"), text: "[[ACME]] mention", breadcrumbs: [],
     }] }],
     total_pages: 1, offset: 0, limit: 20,
   } });
@@ -84,7 +85,7 @@ it("links with the canonical payload title and refreshes backlinks", async () =>
     ["/api/page/ACME?bl_offset=0&bl_limit=20", refreshed],
     ["/api/unlinked?title=ACME", {
       groups: [{ page_id: 9, page_title: "Source", items: [
-        { uid: "tuid-uid_unlinked", text: "Acme mention" },
+        { uid: "uid_unlinked", text: "Acme mention" },
       ] }],
       total: 1,
     }],
@@ -103,7 +104,7 @@ it("links with the canonical payload title and refreshes backlinks", async () =>
   fireEvent.click(await screen.findByRole("button", { name: "Link" }));
   await vi.waitFor(() => expect(sync.sent).toHaveLength(1));
   expect(sync.sent[0][0]).toMatchObject({
-    op: "update_text", uid: "tuid-uid_unlinked", text: "[[ACME]] mention",
+    op: "update_text", uid: "uid_unlinked", text: "[[ACME]] mention",
   });
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
     "/api/page/ACME?bl_offset=0&bl_limit=20", READ_INIT,
@@ -1339,11 +1340,11 @@ it("a hash that isn't a well-formed uid flashes nothing", async () => {
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("tuid-abcde", "a block")])],
+    ["/api/page/Paper", pagePayload("Paper", [block("tuid-abcde", "a block", { uid: malformedUid("abcde") })])],
   ]);
   const { container } = renderAt("/page/Paper#abcde");
   await screen.findByRole("heading", { name: "Paper" });
-  const row = container.querySelector('[data-uid="tuid-abcde"]');
+  const row = container.querySelector('[data-uid="abcde"]');
   expect(row).not.toBeNull();
   expect(scrollIntoView).not.toHaveBeenCalled();
 });

@@ -34,7 +34,7 @@ describe("outline causality", () => {
       type: "local-ops", ticketId: "write-1" as TicketId, nowMs: 0, ops: [update("local")],
     }).state;
     const unrelated = transitionOutline(local, {
-      type: "remote-ops", nowMs: 0, ops: [{ op: "delete", uid: uidOf("tuid-another-page") }],
+      type: "remote-ops", nowMs: 0, ops: [{ op: "delete", uid: uidOf("another-page") }],
     }).state;
     const remote = transitionOutline(unrelated, {
       type: "remote-ops", nowMs: 0, ops: [update("remote")],
@@ -333,7 +333,7 @@ describe("outline causality", () => {
   });
 
   it("replays an explicit target subtree before later ticket operations", () => {
-    const targetParent = block("tuid-target", "target", { children: [] });
+    const targetParent = block("target", "target", { children: [] });
     const moved = block("tuid-moved", "moved", {
       children: [block("tuid-child", "child")],
     });
@@ -343,7 +343,7 @@ describe("outline causality", () => {
       scope: ["page", "Source", "Target"],
       replay: [{
         type: "insert-subtree", node: moved,
-        parentUid: uidOf("tuid-target"), orderIdx: orderIdxOf(0),
+        parentUid: uidOf("target"), orderIdx: orderIdxOf(0),
       }],
     }).state;
     const childEdit = transitionOutline(moveTracked, {
@@ -367,7 +367,7 @@ describe("outline causality", () => {
 
   it("relocates an already-present target subtree without duplicating it", () => {
     const moved = block("tuid-moved", "server moved");
-    const target = block("tuid-target", "target", { children: [] });
+    const target = block("target", "target", { children: [] });
     const tracked = transitionOutline(
       createOutlineState("Target", [target]),
       {
@@ -375,7 +375,7 @@ describe("outline causality", () => {
         scope: ["page", "Source", "Target"],
         replay: [{
           type: "insert-subtree", node: moved,
-          parentUid: uidOf("tuid-target"), orderIdx: orderIdxOf(0),
+          parentUid: uidOf("target"), orderIdx: orderIdxOf(0),
         }],
       },
     ).state;
@@ -386,7 +386,7 @@ describe("outline causality", () => {
       blocks: [moved, target],
     });
 
-    expect(repaired.state.blocks.map((node) => node.uid)).toEqual(["tuid-target"]);
+    expect(repaired.state.blocks.map((node) => node.uid)).toEqual(["target"]);
     expect(repaired.state.blocks[0].children.map((node) => node.uid))
       .toEqual(["tuid-moved"]);
   });
@@ -492,7 +492,7 @@ describe("outline causality", () => {
   });
 
   it("keeps captured replay metadata when the ticket is announced again", () => {
-    const target = block("tuid-target", "target", { children: [] });
+    const target = block("target", "target", { children: [] });
     const tracked = transitionOutline(
       createOutlineState("Target", [target]),
       {
@@ -500,7 +500,7 @@ describe("outline causality", () => {
         scope: ["page", "Source", "Target"],
         replay: [{
           type: "insert-subtree", node: block("tuid-moved", "moved"),
-          parentUid: uidOf("tuid-target"), orderIdx: orderIdxOf(0),
+          parentUid: uidOf("target"), orderIdx: orderIdxOf(0),
         }],
       },
     ).state;
@@ -518,7 +518,7 @@ describe("outline causality", () => {
   });
 
   it("does not replay explicit subtree metadata after its ticket settles", () => {
-    const target = block("tuid-target", "target", { children: [] });
+    const target = block("target", "target", { children: [] });
     const tracked = transitionOutline(
       createOutlineState("Target", [target]),
       {
@@ -526,7 +526,7 @@ describe("outline causality", () => {
         scope: ["page", "Source", "Target"],
         replay: [{
           type: "insert-subtree", node: block("tuid-moved", "rejected"),
-          parentUid: uidOf("tuid-target"), orderIdx: orderIdxOf(0),
+          parentUid: uidOf("target"), orderIdx: orderIdxOf(0),
         }],
       },
     ).state;
@@ -595,7 +595,7 @@ describe("block stamps", () => {
     const state = transitionOutline(createOutlineState("Page", tree()), {
       type: "remote-ops", nowMs: NOW,
       ops: [
-        { op: "update_text", uid: uidOf("tuid-elsewhere"), text: "other page" },
+        { op: "update_text", uid: uidOf("elsewhere"), text: "other page" },
         { op: "delete", uid: uidOf("tuid-u1") },
       ],
     }).state;
@@ -708,7 +708,7 @@ describe("outline change detection", () => {
     }).state;
     next = transitionOutline(next, {
       type: "remote-ops", nowMs: 9000,
-      ops: [{ op: "update_text", uid: uidOf("tuid-elsewhere"), text: "other page" }],
+      ops: [{ op: "update_text", uid: uidOf("elsewhere"), text: "other page" }],
     }).state;
     next = transitionOutline(next, { type: "local-tree", blocks: nested() })
       .state;

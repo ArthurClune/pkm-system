@@ -33,7 +33,7 @@ it("navigates with the group's page title and the clicked item's uid", () => {
 });
 
 it("pageTitle and uid can't be swapped", () => {
-  const someUid = uidOf("tuid-abcdef");
+  const someUid = uidOf("abcdef");
   const onNavigate: OnNavigate = () => undefined;
   // @ts-expect-error (pageTitle, uid) swapped
   onNavigate(someUid, "Page");

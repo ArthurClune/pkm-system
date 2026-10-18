@@ -7,7 +7,7 @@ import { backspaceAtStart, clampCaret, deleteSelection, indentBlock,
          outdentBlock, outdentSelection, revealBlock, setCollapsed,
          setHeading, setViewType, splitBlock } from "./edits";
 
-const someUid = uidOf("tuid-abcdef");
+const someUid = uidOf("abcdef");
 
 describe("clampCaret", () => {
   test("keeps the offset when it fits the new length", () => {
@@ -53,47 +53,47 @@ const adoptionTree = () => [
 
 describe("splitBlock", () => {
   test("mid-text: keeps head in place, tail becomes the next sibling, focus on new", () => {
-    const r = splitBlock(tree(), P, uidOf("tuid-a"), 2, uidOf("tuid-new111"));
+    const r = splitBlock(tree(), P, uidOf("tuid-a"), 2, uidOf("new111"));
     expect(r.ops).toEqual([
       { op: "update_text", uid: "tuid-a", text: "al" },
-      { op: "create", uid: "tuid-new111", page_title: P, parent_uid: null,
+      { op: "create", uid: "new111", page_title: P, parent_uid: null,
         order_idx: 5, text: "pha" }, // before b (order 5), server shifts b,c
     ]);
-    expect(r.blocks.map((n) => n.uid)).toEqual(["tuid-a", "tuid-new111", "tuid-b", "tuid-c"]);
-    expect(r.focus).toEqual({ uid: "tuid-new111", cursor: 0 });
+    expect(r.blocks.map((n) => n.uid)).toEqual(["tuid-a", "new111", "tuid-b", "tuid-c"]);
+    expect(r.focus).toEqual({ uid: "new111", cursor: 0 });
   });
 
   test("at end of a childless block: plain empty sibling, no update_text", () => {
-    const r = splitBlock(tree(), P, uidOf("tuid-c"), 5, uidOf("tuid-new111"));
+    const r = splitBlock(tree(), P, uidOf("tuid-c"), 5, uidOf("new111"));
     expect(r.ops).toEqual([
-      { op: "create", uid: "tuid-new111", page_title: P, parent_uid: null,
+      { op: "create", uid: "new111", page_title: P, parent_uid: null,
         order_idx: 8, text: "" },
     ]);
-    expect(r.focus).toEqual({ uid: "tuid-new111", cursor: 0 });
+    expect(r.focus).toEqual({ uid: "new111", cursor: 0 });
   });
 
   test("at cursor 0 with text: empty block inserted ABOVE, uid keeps its text", () => {
-    const r = splitBlock(tree(), P, uidOf("tuid-a"), 0, uidOf("tuid-new111"));
+    const r = splitBlock(tree(), P, uidOf("tuid-a"), 0, uidOf("new111"));
     expect(r.ops).toEqual([
-      { op: "create", uid: "tuid-new111", page_title: P, parent_uid: null,
+      { op: "create", uid: "new111", page_title: P, parent_uid: null,
         order_idx: 0, text: "" },
     ]);
-    expect(r.blocks.map((n) => n.uid)).toEqual(["tuid-new111", "tuid-a", "tuid-b", "tuid-c"]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["new111", "tuid-a", "tuid-b", "tuid-c"]);
     expect(r.focus).toEqual({ uid: "tuid-a", cursor: 0 });
   });
 
   test("on an expanded block with children: new block becomes first child", () => {
-    const r = splitBlock(tree(), P, uidOf("tuid-b"), 4, uidOf("tuid-new111"));
+    const r = splitBlock(tree(), P, uidOf("tuid-b"), 4, uidOf("new111"));
     expect(r.ops).toEqual([
-      { op: "create", uid: "tuid-new111", page_title: P, parent_uid: "tuid-b",
+      { op: "create", uid: "new111", page_title: P, parent_uid: "tuid-b",
         order_idx: 0, text: "" },
     ]);
     expect(findNode(r.blocks, uidOf("tuid-b"))!.children.map((n) => n.uid))
-      .toEqual(["tuid-new111", "tuid-b1", "tuid-b2"]);
+      .toEqual(["new111", "tuid-b1", "tuid-b2"]);
   });
 
   test("unknown uid is a no-op", () => {
-    const r = splitBlock(tree(), P, uidOf("tuid-zz"), 0, uidOf("tuid-new111"));
+    const r = splitBlock(tree(), P, uidOf("tuid-zz"), 0, uidOf("new111"));
     expect(r.ops).toEqual([]);
   });
 });
@@ -385,8 +385,8 @@ describe("indentSelection / outdentSelection", () => {
     const t = selectionTree();
     expect(indentSelection(t, P, []).ops).toEqual([]);
     expect(outdentSelection(t, P, []).ops).toEqual([]);
-    expect(indentSelection(t, P, [uidOf("tuid-missing")]).ops).toEqual([]);
-    expect(outdentSelection(t, P, [uidOf("tuid-missing")]).ops).toEqual([]);
+    expect(indentSelection(t, P, [uidOf("missing")]).ops).toEqual([]);
+    expect(outdentSelection(t, P, [uidOf("missing")]).ops).toEqual([]);
   });
 });
 
@@ -444,14 +444,14 @@ const selectedMoveTree = () => [
     order_idx: orderIdxOf(0),
     children: [block("tuid-left0", "Left child", { order_idx: orderIdxOf(0) })],
   }),
-  block("tuid-source", "Source", {
+  block("source", "Source", {
     order_idx: orderIdxOf(1),
     children: [
       block("tuid-first", "First", {
         order_idx: orderIdxOf(0),
-        children: [block("tuid-first0", "First child", { order_idx: orderIdxOf(0) })],
+        children: [block("first0", "First child", { order_idx: orderIdxOf(0) })],
       }),
-      block("tuid-second", "Second", { order_idx: orderIdxOf(1) }),
+      block("second", "Second", { order_idx: orderIdxOf(1) }),
     ],
   }),
   block("tuid-right", "Right", {
@@ -623,36 +623,36 @@ describe("moveSelectionUp / moveSelectionDown", () => {
 
   test("up: an edge run becomes the previous parent's last children", () => {
     const r = moveSelectionUp(
-      selectedMoveTree(), P, [uidOf("tuid-first"), uidOf("tuid-first0"), uidOf("tuid-second")],
+      selectedMoveTree(), P, [uidOf("tuid-first"), uidOf("first0"), uidOf("second")],
     );
 
     expect(r.ops).toEqual([
       { op: "move", uid: "tuid-first", parent_uid: "tuid-left", order_idx: 1 },
-      { op: "move", uid: "tuid-second", parent_uid: "tuid-left", order_idx: 2 },
+      { op: "move", uid: "second", parent_uid: "tuid-left", order_idx: 2 },
     ]);
     expect(findNode(r.blocks, uidOf("tuid-left"))!.children.map((n) => n.uid))
-      .toEqual(["tuid-left0", "tuid-first", "tuid-second"]);
-    expect(findNode(r.blocks, uidOf("tuid-source"))!.children).toEqual([]);
+      .toEqual(["tuid-left0", "tuid-first", "second"]);
+    expect(findNode(r.blocks, uidOf("source"))!.children).toEqual([]);
     expect(findNode(r.blocks, uidOf("tuid-first"))!.children.map((n) => n.uid))
-      .toEqual(["tuid-first0"]);
+      .toEqual(["first0"]);
   });
 
   test("down: a collapsed root carries hidden descendants without expanding", () => {
     const t = selectedMoveTree();
     findNode(t, uidOf("tuid-first"))!.collapsed = true;
 
-    const r = moveSelectionDown(t, P, [uidOf("tuid-first"), uidOf("tuid-second")]);
+    const r = moveSelectionDown(t, P, [uidOf("tuid-first"), uidOf("second")]);
 
     expect(r.ops).toEqual([
       { op: "move", uid: "tuid-first", parent_uid: "tuid-right", order_idx: 0 },
-      { op: "move", uid: "tuid-second", parent_uid: "tuid-right", order_idx: 1 },
+      { op: "move", uid: "second", parent_uid: "tuid-right", order_idx: 1 },
     ]);
     expect(findNode(r.blocks, uidOf("tuid-right"))!.children.map((n) => n.uid))
-      .toEqual(["tuid-first", "tuid-second", "right0"]);
-    expect(findNode(r.blocks, uidOf("tuid-source"))!.children).toEqual([]);
+      .toEqual(["tuid-first", "second", "right0"]);
+    expect(findNode(r.blocks, uidOf("source"))!.children).toEqual([]);
     expect(findNode(r.blocks, uidOf("tuid-first"))!.collapsed).toBe(true);
     expect(findNode(r.blocks, uidOf("tuid-first"))!.children.map((n) => n.uid))
-      .toEqual(["tuid-first0"]);
+      .toEqual(["first0"]);
   });
 
   test("up: a collapsed selected root that a run crosses into is expanded", () => {
@@ -727,12 +727,12 @@ describe("moveSelectionUp / moveSelectionDown", () => {
     const t = selectedMoveTree();
     findNode(t, uidOf("tuid-left"))!.collapsed = true;
 
-    const r = moveSelectionUp(t, P, [uidOf("tuid-first"), uidOf("tuid-second")]);
+    const r = moveSelectionUp(t, P, [uidOf("tuid-first"), uidOf("second")]);
 
     expect(r.ops).toEqual([
       { op: "set_collapsed", uid: "tuid-left", collapsed: false },
       { op: "move", uid: "tuid-first", parent_uid: "tuid-left", order_idx: 1 },
-      { op: "move", uid: "tuid-second", parent_uid: "tuid-left", order_idx: 2 },
+      { op: "move", uid: "second", parent_uid: "tuid-left", order_idx: 2 },
     ]);
     expect(findNode(r.blocks, uidOf("tuid-left"))!.collapsed).toBe(false);
   });
@@ -741,8 +741,8 @@ describe("moveSelectionUp / moveSelectionDown", () => {
     const t = selectedMoveTree();
     expect(moveSelectionUp(t, P, []).ops).toEqual([]);
     expect(moveSelectionDown(t, P, []).ops).toEqual([]);
-    expect(moveSelectionUp(t, P, [uidOf("tuid-missing")]).ops).toEqual([]);
-    expect(moveSelectionDown(t, P, [uidOf("tuid-missing")]).ops).toEqual([]);
+    expect(moveSelectionUp(t, P, [uidOf("missing")]).ops).toEqual([]);
+    expect(moveSelectionDown(t, P, [uidOf("missing")]).ops).toEqual([]);
   });
 });
 
@@ -957,7 +957,7 @@ describe("revealBlock", () => {
 
   test("no-op when the block is not on the page", () => {
     const t = nested();
-    const r = revealBlock(t, P, uidOf("tuid-elsewhere"));
+    const r = revealBlock(t, P, uidOf("elsewhere"));
     expect(r.ops).toEqual([]);
     expect(r.blocks).toBe(t);
   });

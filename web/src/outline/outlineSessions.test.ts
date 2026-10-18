@@ -683,21 +683,21 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
     children: [block("tuid-child", "child")],
   });
   const source = acquireOutlineSession("Replay source", [
-    block("tuid-source-root", "source", { children: [moved] }),
+    block("source-root", "source", { children: [moved] }),
   ]);
   const target = acquireOutlineSession("Replay target", [
-    block("tuid-target-root", "target", { children: [] }),
+    block("target-root", "target", { children: [] }),
   ]);
   source.applyLocal({
     id: "rejected-before-move" as TicketId, scope: ["page", "Replay source"],
     settled: Promise.resolve({ status: "persisted", pending: 3 }),
     delivered: rejectedDelivery.promise,
-  }, [{ op: "update_text", uid: uidOf("tuid-source-root"), text: "rejected text" }]);
+  }, [{ op: "update_text", uid: uidOf("source-root"), text: "rejected text" }]);
 
   const detached = removeSubtree(source.getSnapshot().blocks, uidOf("tuid-moved"));
   source.applyOptimistic(detached.tree);
   target.applyOptimistic(insertSubtree(
-    target.getSnapshot().blocks, detached.node!, uidOf("tuid-target-root"), orderIdxOf(0),
+    target.getSnapshot().blocks, detached.node!, uidOf("target-root"), orderIdxOf(0),
   ));
   const move = {
     id: "later-cross-page-move" as TicketId,
@@ -706,13 +706,13 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
     delivered: moveDelivery.promise,
   } satisfies WriteTicket;
   const moveOps = [{
-    op: "move" as const, uid: uidOf("tuid-moved"), parent_uid: uidOf("tuid-target-root"),
+    op: "move" as const, uid: uidOf("tuid-moved"), parent_uid: uidOf("target-root"),
     order_idx: orderIdxOf(0), page_title: "Replay target",
   }];
   trackActiveOutlineWrite(move, moveOps);
   attachActiveOutlineWriteReplay(move, "Replay target", [{
     type: "insert-subtree", node: detached.node!,
-    parentUid: uidOf("tuid-target-root"), orderIdx: orderIdxOf(0),
+    parentUid: uidOf("target-root"), orderIdx: orderIdxOf(0),
   }]);
   target.applyLocal({
     id: "later-child-edit" as TicketId, scope: ["page", "Replay target"],
@@ -721,10 +721,10 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
   }, [{ op: "update_text", uid: uidOf("tuid-child"), text: "later child edit" }]);
 
   const removeSourceLoader = source.setAuthoritativeLoader("editable", async () => [
-    block("tuid-source-root", "server repaired", { children: [moved] }),
+    block("source-root", "server repaired", { children: [moved] }),
   ]);
   const removeTargetLoader = target.setAuthoritativeLoader("editable", async () => [
-    block("tuid-target-root", "target", { children: [] }),
+    block("target-root", "target", { children: [] }),
   ]);
   try {
     rejectedDelivery.resolve({

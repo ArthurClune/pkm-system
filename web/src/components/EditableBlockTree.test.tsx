@@ -132,7 +132,7 @@ test("chevron toggles collapse via handler; todo checkbox toggles via handler", 
                          readOnly={false} />
     </MemoryRouter>);
   // jsdom does not apply the stylesheet's `.chevron.hidden { visibility:
-  // hidden }`, so the childless "tuid-kid" block's chevron is still
+  // hidden }`, so the childless "kid" block's chevron is still
   // reachable by role in this test even though the browser would hide it
   // visually.
   fireEvent.click(screen.getAllByRole("button", { name: "toggle children" })[0]);

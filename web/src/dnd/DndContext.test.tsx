@@ -157,13 +157,13 @@ it("cross-page drop without a source node fabricates no target replay", () => {
   const dst = fakeOutline();
   dnd().registerOutline("B", dst);
 
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-missing"), pageTitle: "A" },
+  dnd().drop({ kind: "blocks", uid: uidOf("missing"), pageTitle: "A" },
              { parent_uid: null, order_idx: orderIdxOf(0), page_title: "B" });
 
   expect(dst.insertSubtreeLocal).not.toHaveBeenCalled();
   expect(attachOutlineReplay).not.toHaveBeenCalled();
   expect(sync.sent).toEqual([[
-    { op: "move", uid: "tuid-missing", parent_uid: null, order_idx: 0,
+    { op: "move", uid: "missing", parent_uid: null, order_idx: 0,
       page_title: "B" },
   ]]);
 });

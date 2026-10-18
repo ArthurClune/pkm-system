@@ -389,7 +389,7 @@ describe("legacy repair of a rejected batch", () => {
     const sourceTree = [block("source-root", "source", {
       children: [moved],
     })];
-    const targetTree = [block("tuid-target-root", "target", {
+    const targetTree = [block("target-root", "target", {
       children: [block("existing", "existing")],
     })];
     let releaseSourceRepair!: () => void;
@@ -440,7 +440,7 @@ describe("legacy repair of a rejected batch", () => {
       ), ["page", sourceTitle]);
       dnd.drop(
         { kind: "blocks", uid: uidOf("tuid-moved"), pageTitle: sourceTitle },
-        { parent_uid: uidOf("tuid-target-root"), order_idx: orderIdxOf(1), page_title: targetTitle },
+        { parent_uid: uidOf("target-root"), order_idx: orderIdxOf(1), page_title: targetTitle },
       );
 
       await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
@@ -454,7 +454,7 @@ describe("legacy repair of a rejected batch", () => {
       await vi.waitFor(() => expect(targetLoad).toHaveBeenCalled());
       await vi.waitFor(() => expect(postCount).toBe(2));
       expect(targetAtResume?.blocks[0]).toMatchObject({
-        uid: "tuid-target-root",
+        uid: "target-root",
         children: [
           expect.objectContaining({ uid: "existing", order_idx: 0 }),
           expect.objectContaining({
@@ -1196,7 +1196,7 @@ describe("poison repair and startup marks", () => {
       return jsonResponse({ detail: "not found" }, 404);
     }));
 
-    const rejectedOp = { op: "delete", uid: uidOf("tuid-rejected") } as const;
+    const rejectedOp = { op: "delete", uid: uidOf("rejected") } as const;
     const goodOp = { op: "delete", uid: uidOf("tuid-good") } as const;
     const rows = [
       { id: 1 as PendingRowId, batch_id: bid("old-poison"), ops: [rejectedOp], poisoned: true },
@@ -1484,7 +1484,7 @@ describe("an unopenable replica", () => {
     await act(async () => { lastWs().open(); await Promise.resolve(); });
 
     await act(async () => {
-      sync.enqueue([{ op: "delete", uid: uidOf("tuid-typed-while-dead") }]);
+      sync.enqueue([{ op: "delete", uid: uidOf("typed-while-dead") }]);
     });
 
     await vi.waitFor(() => { expect(posts).toHaveLength(1); });
@@ -1561,7 +1561,7 @@ describe("an unopenable replica", () => {
     await act(async () => { lastWs().open(); await Promise.resolve(); });
     await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
     await act(async () => {
-      sync.enqueue([{ op: "update_text", uid: uidOf("tuid-block-1"), text: "edited online-only",
+      sync.enqueue([{ op: "update_text", uid: uidOf("block-1"), text: "edited online-only",
                       base_text_hash: sha256Hex("hello") }]);
     });
     await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
@@ -1665,11 +1665,11 @@ describe("the poison gate and repair problems", () => {
       if (contended) { contended = false; state = "failed"; throw sah(); }
       state = "open";
     };
-    const rejected = { op: "delete", uid: uidOf("tuid-rejected") } as const;
+    const rejected = { op: "delete", uid: uidOf("rejected") } as const;
     const rows = [
       { id: 7 as PendingRowId, batch_id: bid("rejected-last-session"), ops: [rejected], poisoned: true },
       { id: 8 as PendingRowId, batch_id: bid("queued-behind-poison"),
-        ops: [{ op: "delete", uid: uidOf("tuid-behind") } as const], poisoned: false },
+        ops: [{ op: "delete", uid: uidOf("behind") } as const], poisoned: false },
     ];
     const replica = fakeReplicaForProvider();
     replica.init = async () => {
@@ -1775,7 +1775,7 @@ describe("the poison gate and repair problems", () => {
     await act(async () => { lastWs().open(); await Promise.resolve(); });
 
     await act(async () => {
-      sync.enqueue([{ op: "delete", uid: uidOf("tuid-typed-while-wedged") }]);
+      sync.enqueue([{ op: "delete", uid: uidOf("typed-while-wedged") }]);
     });
     await act(async () => { await Promise.resolve(); });
 
@@ -1818,7 +1818,7 @@ describe("the poison gate and repair problems", () => {
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); await Promise.resolve(); });
     await act(async () => {
-      sync.enqueue([{ op: "delete", uid: uidOf("tuid-typed-while-wedged") }]);
+      sync.enqueue([{ op: "delete", uid: uidOf("typed-while-wedged") }]);
     });
     await act(async () => { await Promise.resolve(); });
     expect(sync.problem).toMatchObject({
@@ -2444,7 +2444,7 @@ describe("reconnect pulls and resync", () => {
       expect(sync.resyncGeneration).toBe(baselineResync + 1);
 
       await act(async () => {
-        await sync.enqueue([{ op: "delete", uid: uidOf("tuid-unrelated") }]).settled;
+        await sync.enqueue([{ op: "delete", uid: uidOf("unrelated") }]).settled;
         await Promise.resolve();
       });
       expect(changeCalls).toBe(baselineChanges + 1);

@@ -40,9 +40,9 @@ const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (10 as SyncSeq),
   pages: [page(1, "Machine Learning"), page(2, "AI")],
   blocks: [
-    block("tuid-uid_b1", 1),
-    block("tuid-uid_b2", 1, { order_idx: orderIdxOf(1) }),
-    block("tuid-uid_b3", 1, { parent_uid: uidOf("tuid-uid_b2") }),
+    block("uid_b1", 1),
+    block("uid_b2", 1, { order_idx: orderIdxOf(1) }),
+    block("uid_b3", 1, { parent_uid: uidOf("uid_b2") }),
   ],
   sidebar: [],
 };
@@ -88,7 +88,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     const warn = quietWarn();
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (20 as SyncSeq),
-      blocks: [block("tuid-uid_child", 1, { parent_uid: uidOf("tuid-uid_future_parent") })],
+      blocks: [block("uid_child", 1, { parent_uid: uidOf("uid_future_parent") })],
     }));
     expect(res).toEqual({ status: "needs-bootstrap" });
     expect(warn).toHaveBeenCalledWith(
@@ -99,55 +99,55 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // the failed COMMIT must leave the replica exactly as it was: a partially
     // applied window with an advanced cursor would silently lose the rest
     expect(getMeta(t.db, "cursor")).toBe("10");
-    expect(uids(t.db)).toEqual(["tuid-uid_b1", "tuid-uid_b2", "tuid-uid_b3"]);
+    expect(uids(t.db)).toEqual(["uid_b1", "uid_b2", "uid_b3"]);
   });
 
   test("a pending create under a block the feed tombstones does not wedge the window", () => {
-    // Train scenario: an agent (CLI/MCP) deletes tuid-uid_b2 server-side while
+    // Train scenario: an agent (CLI/MCP) deletes uid_b2 server-side while
     // this client has a queued create under it. The window rewinds the
     // optimistic child and the tombstone takes the parent, then the replay
     // must not re-create the child under the now-missing parent — a
     // dangling insert the savepoint does NOT catch under deferred FKs.
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("tuid-uid_child"), page_title: "Machine Learning",
-        parent_uid: uidOf("tuid-uid_b2"), order_idx: orderIdxOf(0), text: "typed offline" },
+      { op: "create", uid: uidOf("uid_child"), page_title: "Machine Learning",
+        parent_uid: uidOf("uid_b2"), order_idx: orderIdxOf(0), text: "typed offline" },
     ], 5, bid("batch-child"));
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
-      tombstones: [{ kind: "block", entity_id: "tuid-uid_b2" }],
+      tombstones: [{ kind: "block", entity_id: "uid_b2" }],
     }));
     expect(res).toEqual({ status: "applied", cursor: 11 });
     expect(getMeta(t.db, "cursor")).toBe("11");
     // the unappliable batch is skipped locally, not deleted — push-time
     // resolution still owns it
-    expect(uids(t.db)).toEqual(["tuid-uid_b1"]);
+    expect(uids(t.db)).toEqual(["uid_b1"]);
     expect(queuedBatchIds(t.db)).toEqual([bid("batch-child")]);
   });
 
   test("tombstones the server journals for a skipped op drop a ghost and its local-only child", () => {
     // The server skips an op on a missing target and journals the uids a
-    // replica may hold a ghost of. tuid-uid_ghost is one: an acked create the
+    // replica may hold a ghost of. uid_ghost is one: an acked create the
     // server diverted to the daily note, still in the replica because the
-    // ack deleted its batch. tuid-uid_ghost_child is a queued create under it.
+    // ack deleted its batch. uid_ghost_child is a queued create under it.
     // uid_never_seen is a journalled uid this replica never had (the
     // missing parent of a diverted create) -- a DELETE that matches no row.
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("tuid-uid_ghost"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("uid_ghost"), page_title: "Machine Learning",
         parent_uid: null, order_idx: orderIdxOf(5), text: "diverted server-side" },
     ], 5, bid("batch-ghost"));
     ackNext(t.db); // the ack
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("tuid-uid_ghost_child"), page_title: "Machine Learning",
-        parent_uid: uidOf("tuid-uid_ghost"), order_idx: orderIdxOf(0), text: "typed under it" },
+      { op: "create", uid: uidOf("uid_ghost_child"), page_title: "Machine Learning",
+        parent_uid: uidOf("uid_ghost"), order_idx: orderIdxOf(0), text: "typed under it" },
     ], 6, bid("batch-child"));
-    expect(uids(t.db)).toContain("tuid-uid_ghost_child");
+    expect(uids(t.db)).toContain("uid_ghost_child");
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
-      tombstones: [{ kind: "block", entity_id: "tuid-uid_ghost" },
+      tombstones: [{ kind: "block", entity_id: "uid_ghost" },
                    { kind: "block", entity_id: "uid_never_seen" }],
     }));
     expect(res).toEqual({ status: "applied", cursor: 11 });
-    expect(uids(t.db)).toEqual(["tuid-uid_b1", "tuid-uid_b2", "tuid-uid_b3"]);
+    expect(uids(t.db)).toEqual(["uid_b1", "uid_b2", "uid_b3"]);
     // the child's batch is skipped locally, not deleted: its push lands it
     // under the missing parent's daily-note header
     expect(queuedBatchIds(t.db)).toEqual([bid("batch-child")]);
@@ -156,32 +156,32 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
 
   test("a block moved under a ghost keeps its subtree when the "
     + "ghost's tombstone and the re-shipped subtree share a window", () => {
-    // The client moved tuid-uid_b2 (child tuid-uid_b3) under
-    // tuid-uid_ghost_p, a parent the server never had; both batches are
+    // The client moved uid_b2 (child uid_b3) under
+    // uid_ghost_p, a parent the server never had; both batches are
     // acked. The server skips the move and journals the parent's tombstone
     // first, then every row of the moved subtree. The tombstone cascades
-    // tuid-uid_b2 and tuid-uid_b3 away locally; the upserts that follow must
+    // uid_b2 and uid_b3 away locally; the upserts that follow must
     // bring both back at their real position.
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("tuid-uid_ghost_p"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("uid_ghost_p"), page_title: "Machine Learning",
         parent_uid: null, order_idx: orderIdxOf(5), text: "ghost parent" },
     ], 5, bid("batch-ghost-p"));
     ackNext(t.db);
     enqueueBatch(t.db, [
-      { op: "move", uid: uidOf("tuid-uid_b2"), parent_uid: uidOf("tuid-uid_ghost_p"), order_idx: orderIdxOf(0) },
+      { op: "move", uid: uidOf("uid_b2"), parent_uid: uidOf("uid_ghost_p"), order_idx: orderIdxOf(0) },
     ], 6, bid("batch-move"));
     ackNext(t.db);
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
-      tombstones: [{ kind: "block", entity_id: "tuid-uid_ghost_p" }],
-      blocks: [block("tuid-uid_b2", 1, { order_idx: orderIdxOf(1) }),
-               block("tuid-uid_b3", 1, { parent_uid: uidOf("tuid-uid_b2") })],
+      tombstones: [{ kind: "block", entity_id: "uid_ghost_p" }],
+      blocks: [block("uid_b2", 1, { order_idx: orderIdxOf(1) }),
+               block("uid_b3", 1, { parent_uid: uidOf("uid_b2") })],
     }));
     expect(res).toEqual({ status: "applied", cursor: 11 });
     expect(t.db.select("SELECT uid, parent_uid FROM blocks ORDER BY uid"))
-      .toEqual([{ uid: "tuid-uid_b1", parent_uid: null },
-                { uid: "tuid-uid_b2", parent_uid: null },
-                { uid: "tuid-uid_b3", parent_uid: "tuid-uid_b2" }]);
+      .toEqual([{ uid: "uid_b1", parent_uid: null },
+                { uid: "uid_b2", parent_uid: null },
+                { uid: "uid_b3", parent_uid: "uid_b2" }]);
   });
 
   test("a rowid a batch's delete freed does not hide a later batch's dangling insert", () => {
@@ -198,22 +198,22 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     enqueueBatch(t.db, [{ op: "delete", uid: uidOf("tuid-v") }], 5, bid("batch-del-v"));
     enqueueBatch(t.db, [
       { op: "create", uid: uidOf("tuid-uid_y"), page_title: "Machine Learning",
-        parent_uid: uidOf("tuid-uid_b3"), order_idx: orderIdxOf(0), text: "typed offline" },
+        parent_uid: uidOf("uid_b3"), order_idx: orderIdxOf(0), text: "typed offline" },
     ], 6, bid("batch-create-y"));
     t.db.exec("PRAGMA foreign_keys=OFF");
     try {
       applySnapshot(t.db, {
         ...SNAP,
-        blocks: [block("tuid-uid_b1", 1), block("tuid-uid_b2", 1, { order_idx: orderIdxOf(1) }),
-                 block("tuid-uid_b3", 98, { parent_uid: uidOf("tuid-uid_b2") }), // rowid 3
+        blocks: [block("uid_b1", 1), block("uid_b2", 1, { order_idx: orderIdxOf(1) }),
+                 block("uid_b3", 98, { parent_uid: uidOf("uid_b2") }), // rowid 3
                  block("tuid-v", 99)],                                  // rowid 4
       }, 7);
     } finally {
       t.db.exec("PRAGMA foreign_keys=ON");
     }
-    // the delete freed rowid 4; the create under tuid-uid_b3 (page 98 is
+    // the delete freed rowid 4; the create under uid_b3 (page 98 is
     // missing) would take it, and must roll back
-    expect(uids(t.db)).toEqual(["tuid-uid_b1", "tuid-uid_b2", "tuid-uid_b3"]);
+    expect(uids(t.db)).toEqual(["uid_b1", "uid_b2", "uid_b3"]);
     expect(queuedBatchIds(t.db)).toEqual([bid("batch-del-v"), bid("batch-create-y")]);
     expect(t.db.introspect("SELECT rowid, page_id FROM blocks WHERE page_id > 90"))
       .toEqual([{ rowid: 3, page_id: 98 }]);
@@ -226,7 +226,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // parent_uid that fails the snapshot COMMIT — that makes repair/reset
     // churn forever.
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("tuid-uid_opt_parent"), page_title: "AI",
+      { op: "create", uid: uidOf("uid_opt_parent"), page_title: "AI",
         parent_uid: null, order_idx: orderIdxOf(0), text: "rejected parent" },
     ], 5, bid("batch-parent"));
     const rejected = nextBatch(t.db)!;
@@ -234,18 +234,18 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
       status: 400, message: "request failed: 400 /api/ops",
     }), bid("batch-parent"));
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("tuid-uid_opt_child"), page_title: "AI",
-        parent_uid: uidOf("tuid-uid_opt_parent"), order_idx: orderIdxOf(0), text: "child" },
+      { op: "create", uid: uidOf("uid_opt_child"), page_title: "AI",
+        parent_uid: uidOf("uid_opt_parent"), order_idx: orderIdxOf(0), text: "child" },
     ], 6, bid("batch-child"));
     // a batch that still applies cleanly must survive the skip of the one
     // before it: skipping is per op, not a bail-out of the whole replay
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("tuid-uid_opt_ok"), page_title: "AI",
+      { op: "create", uid: uidOf("uid_opt_ok"), page_title: "AI",
         parent_uid: null, order_idx: orderIdxOf(1), text: "still valid" },
     ], 6, bid("batch-ok"));
     applySnapshot(t.db, SNAP, 7);
     expect(uids(t.db))
-      .toEqual(["tuid-uid_b1", "tuid-uid_b2", "tuid-uid_b3", "tuid-uid_opt_ok"]);
+      .toEqual(["uid_b1", "uid_b2", "uid_b3", "uid_opt_ok"]);
     expect(queuedBatchIds(t.db))
       .toEqual([bid("batch-parent"), bid("batch-child"), bid("batch-ok")]);
   });
@@ -255,27 +255,27 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
   test("a replayed batch keeps its other ops when one op adds an FK violation", () => {
     enqueueBatch(t.db, [
       { op: "create", uid: uidOf("tuid-x"), page_title: "Machine Learning",
-        parent_uid: uidOf("tuid-uid_b2"), order_idx: orderIdxOf(1), text: "x" },
-      { op: "update_text", uid: uidOf("tuid-uid_b1"), text: "mine" },
+        parent_uid: uidOf("uid_b2"), order_idx: orderIdxOf(1), text: "x" },
+      { op: "update_text", uid: uidOf("uid_b1"), text: "mine" },
     ], 5, bid("batch-x"));
     enqueueBatch(t.db, [
-      { op: "move", uid: uidOf("tuid-uid_b2"), parent_uid: null, page_title: "AI",
+      { op: "move", uid: uidOf("uid_b2"), parent_uid: null, page_title: "AI",
         order_idx: orderIdxOf(0) },
     ], 5, bid("batch-move"));
 
-    // tuid-uid_b2 arrives on a page the window never ships: the create under it
+    // uid_b2 arrives on a page the window never ships: the create under it
     // lands there too and dangles, so it alone rolls back; batch-move's
-    // replay takes tuid-uid_b2 to AI, and the COMMIT holds
+    // replay takes uid_b2 to AI, and the COMMIT holds
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
-      blocks: [block("tuid-uid_b2", 99)],
+      blocks: [block("uid_b2", 99)],
     }));
 
     expect(res).toEqual({ status: "applied", cursor: 11 });
     expect(t.db.select("SELECT uid, page_id, text FROM blocks ORDER BY uid"))
-      .toEqual([{ uid: "tuid-uid_b1", page_id: 1, text: "mine" },
-                { uid: "tuid-uid_b2", page_id: 2, text: "text of tuid-uid_b2" },
-                { uid: "tuid-uid_b3", page_id: 2, text: "text of tuid-uid_b3" }]);
+      .toEqual([{ uid: "uid_b1", page_id: 1, text: "mine" },
+                { uid: "uid_b2", page_id: 2, text: "text of uid_b2" },
+                { uid: "uid_b3", page_id: 2, text: "text of uid_b3" }]);
   });
 
   test("a window failing on anything other than an FK still throws", () => {
@@ -301,7 +301,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     const warn = quietWarn();
     expect(() => applySnapshot(t.db, {
       ...SNAP, seq: (12 as SyncSeq),
-      blocks: [...SNAP.blocks, block("uid_orphan", 1, { parent_uid: uidOf("tuid-uid_gone") })],
+      blocks: [...SNAP.blocks, block("uid_orphan", 1, { parent_uid: uidOf("uid_gone") })],
     })).toThrow(/FOREIGN KEY constraint failed/);
     expect(warn).toHaveBeenCalledWith(
       "sqlite3_step() rc=", 787, "SQLITE_CONSTRAINT_FOREIGNKEY", "SQL =", "COMMIT");
@@ -314,7 +314,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // block it inserts on the missing page.
     enqueueBatch(t.db, [
       { op: "create", uid: uidOf("tuid-x"), page_title: "Machine Learning",
-        parent_uid: uidOf("tuid-uid_b2"), order_idx: orderIdxOf(1), text: "x" },
+        parent_uid: uidOf("uid_b2"), order_idx: orderIdxOf(1), text: "x" },
     ], 5, bid("batch-x"));
     // the typed API mints a uid; a crafted or old-build row need not
     const queued = JSON.parse((t.db.introspect(
@@ -322,12 +322,12 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     queued[0].uid = null;
     t.db.exec("UPDATE pending_ops SET ops_json = ?", [JSON.stringify(queued)]);
     enqueueBatch(t.db, [
-      { op: "move", uid: uidOf("tuid-uid_b2"), parent_uid: null, page_title: "AI",
+      { op: "move", uid: uidOf("uid_b2"), parent_uid: null, page_title: "AI",
         order_idx: orderIdxOf(0) },
     ], 5, bid("batch-move"));
     const res = applyChanges(t.db, emptyFeed({
       next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
-      blocks: [block("tuid-uid_b2", 99)],
+      blocks: [block("uid_b2", 99)],
     }));
     expect(res).toEqual({ status: "applied", cursor: 11 });
     expect(t.db.select("SELECT COUNT(*) AS n FROM blocks WHERE uid IS NULL"))

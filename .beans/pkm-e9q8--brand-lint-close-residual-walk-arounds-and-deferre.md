@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-17T21:12:42Z
-updated_at: 2026-10-18T15:27:34Z
+updated_at: 2026-10-18T17:09:21Z
 blocking:
     - pkm-zv2s
 ---
@@ -21,6 +21,7 @@ The first four items land on `feat/brand-check-web` before the Phase 2 merge (Ar
 - [x] Regression: `{} as Record<BlockUid, number>` / `Partial<Record<BlockUid, 1>>` no longer reported; walk index-info keyType too (also catches `{ [k: BlockUid]: 1 }`).
 - [ ] Ambient declarations nested in `declare global`/`declare namespace`, `declare` class fields; rule 1 on TSCallSignatureDeclaration/TSConstructSignatureDeclaration; function-type assertion targets.
   Also parked here: class and interface declaration merging mints with no assertion (`class Q {}` + `interface Q { uid: BlockUid }`; an interface method re-declaring a class method's return as a brand acts as an unchecked overload).
+  Parked (web plugin, overload path): an overload whose return union holds the implementation's return type as an exact member skips the comparison, so another member's undeclared `uid?: BlockUid` reads through after the discriminant is narrowed away (probe/cases13.json M2a, M2b).
 - [ ] Opt-out covers every site on its line; stale opt-outs unreported (server brandlint too).
 
 ## Server brandlint

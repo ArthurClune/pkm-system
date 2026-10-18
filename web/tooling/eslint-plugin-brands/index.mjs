@@ -149,6 +149,14 @@ function brandsOf(checker, type) {
         checker.getTypeArguments(t).forEach(walk);
       }
       const foreign = isForeign(t);
+      // A guard type (`type Guard<T> = (v: string) => v is T`) carries its
+      // brand in the predicate of its call signature.
+      if (!foreign) {
+        for (const sig of checker.getSignaturesOfType(t, ts.SignatureKind.Call)) {
+          const predicate = checker.getTypePredicateOfSignature(sig);
+          if (predicate?.type) walk(predicate.type);
+        }
+      }
       // A lib mapped type (Partial, Pick, Record ...) takes its properties
       // from the caller's type argument, so it is always walked.
       const mapped = (t.objectFlags & ts.ObjectFlags.Mapped) !== 0;
@@ -220,8 +228,11 @@ function laundersParam(checker, param, asValue) {
 // `T & {}`, `T[K]`, `Partial<T>`, `ReturnType<F>` ...), walked like
 // brandsOf walks brands, and through the arguments of any type alias. Alias
 // arguments, index keys and a mapped type's keys are walked as keys; the
-// structure behind an alias is walked as values.
-function launders(checker, type) {
+// structure behind an alias is walked as values. A parameter in `bound` is
+// inferred from an argument rather than chosen by the caller (the `T` of
+// `first<T>(xs: readonly T[]): T | undefined`) and does not launder.
+const NONE_BOUND = new Set();
+function launders(checker, type, bound = NONE_BOUND) {
   const seen = [new Set(), new Set()];
   const walk = (t, asValue = true) => {
     const visited = seen[asValue ? 1 : 0];
@@ -230,13 +241,13 @@ function launders(checker, type) {
     const key = (u) => walk(u, false);
     if (t.flags & ts.TypeFlags.Never) return true;
     if (t.flags & ts.TypeFlags.TypeParameter) {
-      return laundersParam(checker, t, asValue);
+      return !bound.has(t) && laundersParam(checker, t, asValue);
     }
     // `keyof T` (or `keyof T[K]`) stays unresolved only while its keys come
     // from a type parameter, and a caller picks them: `keyof
     // Record<BlockUid, 1>` is a BlockUid. A concrete `keyof Row` resolves to
     // its literal keys and never reaches here.
-    if (t.flags & ts.TypeFlags.Index) return true;
+    if (t.flags & ts.TypeFlags.Index) return !bound.has(t.type);
     if (t.aliasTypeArguments?.some(key)) return true;
     if (t.flags & ts.TypeFlags.IndexedAccess) {
       return walk(t.objectType) || key(t.indexType);
@@ -398,6 +409,89 @@ function elementOf(checker, type) {
   if (indexed) return indexed;
   if (!(type.objectFlags & ts.ObjectFlags.Reference)) return undefined;
   return checker.getTypeArguments(type)[0];
+}
+
+// Whether `to`, which launders, has a laundering position that the declared
+// type `from` does not hold: a predicate `x is T` launders from `x: string`
+// or `x: T | string`, whose string can become any T, and not from `x: T |
+// null`, whose members are a T already or nothing. Positions are compared
+// as `mintedBrands` compares them: a type parameter is held where `from`
+// fits it (`T`, `U extends T`), a union of `to` where some member is, an
+// intersection where every member is, a generic mapped type (`Partial<T>`)
+// where what it maps over is, and an array, reference or object through its
+// elements, arguments and properties.
+function unbackedLaunder(checker, from, to, seen = new Map()) {
+  if (from === to || !cachedLaunders(checker, to)) return false;
+  const unheld = (source, target) =>
+    source === undefined ? cachedLaunders(checker, target)
+      : unbackedLaunder(checker, source, target, seen);
+  if (from.isUnion()) {
+    return from.types.some((m) => !isNullish(m)
+      && !(m.flags & ts.TypeFlags.Never) && unheld(m, to));
+  }
+  if (from.isIntersection() && ownBrand(checker, from) === null) {
+    return from.types.every((m) => unheld(m, to));
+  }
+  if (to.isUnion()) {
+    // Some laundering member must be held; a member that launders nothing
+    // (`number` in `T | number`) is narrowed away before `T` is read.
+    return to.types.filter((m) => cachedLaunders(checker, m))
+      .every((m) => unheld(from, m));
+  }
+  if (to.flags & (ts.TypeFlags.TypeParameter | ts.TypeFlags.Index
+    | ts.TypeFlags.IndexedAccess | ts.TypeFlags.Conditional)) {
+    return !checker.isTypeAssignableTo(from, to);
+  }
+  const targets = seen.get(from) ?? new Set();
+  if (targets.has(to)) return false;
+  seen.set(from, targets.add(to));
+  if (to.isIntersection()) return to.types.some((m) => unheld(from, m));
+  if (!(to.flags & ts.TypeFlags.Object)) return !checker.isTypeAssignableTo(from, to);
+  const isReference = (t) => (t.objectFlags & ts.ObjectFlags.Reference) !== 0;
+  if (checker.isArrayType(to) || checker.isTupleType(to)) {
+    const fromElements = checker.isTupleType(from) && checker.isTupleType(to)
+      ? checker.getTypeArguments(from) : [];
+    const element = elementOf(checker, from);
+    return checker.getTypeArguments(to).some(
+      (t, i) => unheld(fromElements[i] ?? element, t),
+    );
+  }
+  if (isReference(to) && isReference(from)) {
+    const fromArgs = checker.getTypeArguments(from);
+    const toArgs = checker.getTypeArguments(to);
+    const libPair = isForeign(from) && isForeign(to)
+      && fromArgs.length === toArgs.length;
+    if (from.target === to.target || libPair) {
+      return toArgs.some((t, i) => unheld(fromArgs[i], t));
+    }
+  }
+  const props = to.getProperties();
+  const infos = checker.getIndexInfosOfType(to);
+  if (to.objectFlags & ts.ObjectFlags.Mapped && props.length === 0
+    && infos.length === 0) {
+    // `Partial<T>` over a type parameter has no members until instantiated:
+    // it is held where what it maps over is (its alias arguments, or the
+    // `T` of `keyof T` written in place).
+    const over = [...(to.aliasTypeArguments ?? [])];
+    const decl = to.symbol?.declarations?.find(ts.isMappedTypeNode);
+    const keys = decl?.typeParameter.constraint;
+    if (keys && checker.getTypeFromTypeNode(decl) === to) {
+      const keyType = checker.getTypeFromTypeNode(keys);
+      if (keyType.flags & ts.TypeFlags.Index) over.push(keyType.type);
+    }
+    return over.some((o) => cachedLaunders(checker, o) && unheld(from, o));
+  }
+  const stringIndex = checker.getIndexTypeOfType(from, ts.IndexKind.String);
+  if (props.some((p) => {
+    const declared = from.getProperty(p.name);
+    return unheld(declared ? checker.getTypeOfSymbol(declared) : stringIndex,
+      checker.getTypeOfSymbol(p));
+  })) return true;
+  const fromInfos = checker.getIndexInfosOfType(from);
+  return infos.some((info) => {
+    const same = fromInfos.find((i) => checker.isTypeAssignableTo(i.keyType, info.keyType));
+    return unheld(same?.type, info.type);
+  });
 }
 
 // The brands of the properties of `to` that `from` does not declare: what
@@ -772,8 +866,14 @@ const noBrandAssertion = {
     const checkBrands = (node, type, messageId) =>
       report(node, cachedBrands(checker, type), messageId);
     // Whether `type` launders; reported unless an opt-out line allows it.
-    const reportLaunder = (node, type) => {
-      if (!cachedLaunders(checker, type)) return false;
+    // Whether `type` launders beyond what `from`, where given, already
+    // holds, or with `bound` parameters inferred from arguments; reported
+    // unless an opt-out line allows it.
+    const reportLaunder = (node, type, from, bound) => {
+      if (bound ? !launders(checker, type, bound) : !cachedLaunders(checker, type)) {
+        return false;
+      }
+      if (from !== undefined && !unbackedLaunder(checker, from, type)) return false;
       const optOut = optOutOf(context.sourceCode, node);
       if (optOut !== "reason" || !mayOptOut) {
         context.report({
@@ -797,10 +897,12 @@ const noBrandAssertion = {
     // A predicate mints what its narrowing adds to the parameter's declared
     // type: narrowing a union of ops to one op adds no brand, narrowing a
     // string (or `BlockUid | string`) to BlockUid adds one. Narrowing to a
-    // laundering type (`x is T`) launders like `as T`, except on a function
-    // type (`type Guard<T> = (v: string) => v is T`): that is a contract
-    // only another predicate can fulfil, and the one that does is judged at
-    // its own declaration.
+    // laundering type (`x is T`) launders like `as T` where the parameter's
+    // declared type does not hold the type parameter there (`x: unknown`,
+    // `x: T | string`; not `x: T | null`), except on a function type (`type
+    // Guard<T> = (v: string) => v is T`): that is a contract only another
+    // predicate can fulfil, and the one that does is judged at its own
+    // declaration.
     const BODILESS = new Set([
       "TSFunctionType", "TSMethodSignature", "TSCallSignatureDeclaration",
     ]);
@@ -809,15 +911,42 @@ const noBrandAssertion = {
       if (!annotation) return;
       const narrowed = typeOf(annotation);
       const fn = node.parent?.parent;
-      if (!BODILESS.has(fn?.type) && reportLaunder(node, narrowed)) return;
       const declared = (fn?.params ?? []).map(
         (p) => (p.type === "AssignmentPattern" ? p.left : p),
       ).find((p) => p.type === "Identifier"
         && p.name === node.parameterName.name);
-      const minted = declared
-        ? mintedBrands(checker, typeOf(declared), narrowed)
+      const declaredType = declared ? typeOf(declared) : undefined;
+      if (!BODILESS.has(fn?.type)
+        && reportLaunder(node, narrowed, declaredType)) return;
+      const minted = declaredType
+        ? mintedBrands(checker, declaredType, narrowed)
         : cachedBrands(checker, narrowed);
       report(node, minted, "declaration");
+    };
+    // The type parameters a signature infers from its arguments: those its
+    // parameter types mention, through unions, arrays, references and
+    // object properties.
+    const inferredParams = (signature) => {
+      const found = new Set();
+      const seen = new Set();
+      const walk = (t) => {
+        if (seen.has(t)) return;
+        seen.add(t);
+        if (t.flags & ts.TypeFlags.TypeParameter) found.add(t);
+        else if (t.isUnionOrIntersection()) t.types.forEach(walk);
+        else if (t.flags & ts.TypeFlags.Object) {
+          if (t.objectFlags & ts.ObjectFlags.Reference) {
+            checker.getTypeArguments(t).forEach(walk);
+          }
+          if (!isForeign(t)) {
+            t.getProperties().forEach((p) => walk(checker.getTypeOfSymbol(p)));
+          }
+        }
+      };
+      for (const p of signature.getParameters()) {
+        walk(checker.getTypeOfSymbolAtLocation(p, p.valueDeclaration));
+      }
+      return found;
     };
     // An overload signature's return type is what callers see, and nothing
     // checks it against the body: a brand it adds over the implementation's
@@ -839,9 +968,10 @@ const noBrandAssertion = {
       if (!signature || !implSignature
         || checker.getTypePredicateOfSignature(signature)) return;
       // A laundering return (`f<T>(s): T` over an `unknown` implementation)
-      // launders like `as T`.
+      // launders like `as T`; a `T` the parameters mention is inferred from
+      // the arguments instead (`first<T>(xs: readonly T[]): T | undefined`).
       const returned = checker.getReturnTypeOfSignature(signature);
-      if (reportLaunder(node, returned)) return;
+      if (reportLaunder(node, returned, undefined, inferredParams(signature))) return;
       report(node, mintedBrands(
         checker,
         checker.getReturnTypeOfSignature(implSignature),

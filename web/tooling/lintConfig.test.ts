@@ -261,7 +261,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-predicate-launder.ts",
     rule: "brands/no-brand-assertion",
-    count: 16,
+    count: 20,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       'type Op = { op: "insert"; uid: BlockUid } | { op: "note"; n: 1 };\n' +
@@ -322,6 +322,18 @@ const cases: readonly FixtureCase[] = [
       "  x: { uid: BlockUid },\n" +
       "): x is { uid: BlockUid; n?: number } {\n" +
       "  return \"n\" in x;\n" +
+      "}\n" +
+      "export function notNull<T>(x: T | null | undefined): x is T {\n" +
+      "  return x != null;\n" +
+      "}\n" +
+      "export function isDefined<T>(x: T): x is NonNullable<T> {\n" +
+      "  return x != null;\n" +
+      "}\n" +
+      "export function compact<T>(xs: readonly (T | null)[]): T[] {\n" +
+      "  return xs.filter((x): x is T => x !== null);\n" +
+      "}\n" +
+      "export function assertPresentOf<T>(x: T | undefined): asserts x is T {\n" +
+      "  if (x === undefined) throw new Error(\"absent\");\n" +
       "}\n",
   },
   {
@@ -351,6 +363,14 @@ const cases: readonly FixtureCase[] = [
       "export function tagged(x: BlockUid): Promise<BlockUid> & { t: 1 };\n" +
       "export function tagged(x: BlockUid): Promise<BlockUid> & { t: 1 } {\n" +
       "  return Object.assign(Promise.resolve(x), { t: 1 as const });\n" +
+      "}\n" +
+      "export function first<T>(xs: readonly T[]): T | undefined;\n" +
+      "export function first(xs: readonly unknown[]): unknown {\n" +
+      "  return xs[0];\n" +
+      "}\n" +
+      "export function identity<T>(x: T): T;\n" +
+      "export function identity(x: unknown): unknown {\n" +
+      "  return x;\n" +
       "}\n",
   },
   {

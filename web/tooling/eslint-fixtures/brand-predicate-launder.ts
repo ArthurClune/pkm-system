@@ -61,3 +61,12 @@ interface Row {
 export function pageTagged(x: Row): x is Row & { pageId?: PageId } {
   return "pageId" in x;
 }
+export function fromText<T>(x: T | string): x is T {
+  return typeof x !== "string";
+}
+type Guard<T> = (v: string) => v is T;
+export const guard = ((v: string) => v.length > 0) as Guard<BlockUid>;
+export declare const declaredGuard: Guard<BlockUid>;
+export class Holder {
+  is = ((v: string) => v.length > 0) as Guard<BlockUid>;
+}

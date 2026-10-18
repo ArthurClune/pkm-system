@@ -2,21 +2,19 @@
 stale_titles reads back; daily pages and the journal cleanup record nothing."""
 from __future__ import annotations
 
-import sqlite3
 from datetime import date, timedelta
 
-from rawread import read
 from pkm.contracts.daily import title_for_date
 from pkm.database import connect
 from pkm.schema import DDL
 from pkm.server.store import stale_titles
-from pkm.contracts.ops import SyncSeq
+from pkm.test_data.ids import seq_of
 
 
 def _rows(config, sql, params=()):
-    con = sqlite3.connect(config.db_path)
+    con = connect(config.db_path)
     try:
-        return read(con, sql, params).fetchall()
+        return [tuple(row.values()) for row in con.select(sql, params)]
     finally:
         con.close()
 
@@ -24,7 +22,7 @@ def _rows(config, sql, params=()):
 def test_delete_records_title_and_seq(client, seeded_config):
     assert client.delete("/api/page/Machine Learning").status_code == 200
     rows = _rows(seeded_config, "SELECT title, seq FROM page_deletions")
-    latest = _rows(seeded_config, "SELECT MAX(seq) FROM changes")[0][0]
+    latest = _rows(seeded_config, "SELECT MAX(seq) AS seq FROM changes")[0][0]
     assert rows == [("Machine Learning", latest)]
 
 
@@ -77,7 +75,7 @@ def test_stale_titles():
                    [("A", 10), ("B", 20)])
     db.execute("INSERT INTO changes(seq, kind, entity_id) VALUES (25,'page','x')")
     assert stale_titles(db, None) == frozenset()
-    assert stale_titles(db, SyncSeq(10)) == {"B"}
-    assert stale_titles(db, SyncSeq(9)) == {"A", "B"}
-    assert stale_titles(db, SyncSeq(20)) == frozenset()
-    assert stale_titles(db, SyncSeq(26)) == {"A", "B"}
+    assert stale_titles(db, seq_of(10)) == {"B"}
+    assert stale_titles(db, seq_of(9)) == {"A", "B"}
+    assert stale_titles(db, seq_of(20)) == frozenset()
+    assert stale_titles(db, seq_of(26)) == {"A", "B"}

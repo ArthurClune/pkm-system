@@ -1,5 +1,4 @@
 import json
-import sqlite3
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -9,6 +8,7 @@ from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config, load_config
 from pkm.server.db import BUSY_TIMEOUT_MS, init_db, open_db
+from pkm.database import connect
 
 
 def _config(tmp_path, **over):
@@ -47,7 +47,7 @@ def test_load_config_resolves_paths_relative_to_file(tmp_path):
 def test_init_db_sets_wal_mode(tmp_path):
     path = tmp_path / "t.sqlite3"
     init_db(path)
-    con = sqlite3.connect(path)
+    con = connect(path)
     assert read(con, "PRAGMA journal_mode").fetchone()[0] == "wal"
     con.close()
 
@@ -60,10 +60,10 @@ def test_create_app_initializes_db_without_an_explicit_init_db_call(tmp_path):
     config = _config(tmp_path)
     assert not config.db_path.exists()
     create_app(config)
-    con = sqlite3.connect(config.db_path)
+    con = connect(config.db_path)
     assert read(con, "PRAGMA journal_mode").fetchone()[0] == "wal"
-    names = {r[0] for r in con.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    names = {r[0] for r in read(
+        con, "SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert "sidebar_entries" in names
     con.close()
 
@@ -109,15 +109,15 @@ def test_init_db_backfills_sidebar_entries_on_legacy_db(tmp_path):
     # Simulate a database created before sidebar_entries existed: run only
     # the original tables' DDL, without sidebar_entries.
     path = tmp_path / "legacy.sqlite3"
-    legacy = sqlite3.connect(path)
+    legacy = connect(path)
     legacy.execute("CREATE TABLE pages(id INTEGER PRIMARY KEY, title TEXT)")
     legacy.commit()
     legacy.close()
 
     init_db(path)
-    con = sqlite3.connect(path)
-    names = {r[0] for r in con.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    con = connect(path)
+    names = {r[0] for r in read(
+        con, "SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert "sidebar_entries" in names
     con.execute("INSERT INTO sidebar_entries(title, order_idx) VALUES ('AI', 0)")
     con.commit()
@@ -126,7 +126,7 @@ def test_init_db_backfills_sidebar_entries_on_legacy_db(tmp_path):
 
 def test_init_db_adds_view_type_to_existing_blocks_without_data_loss(tmp_path):
     path = tmp_path / "legacy-blocks.sqlite3"
-    legacy = sqlite3.connect(path)
+    legacy = connect(path)
     legacy.executescript("""
         CREATE TABLE pages(
           id INTEGER PRIMARY KEY, title TEXT NOT NULL UNIQUE,
@@ -145,8 +145,8 @@ def test_init_db_adds_view_type_to_existing_blocks_without_data_loss(tmp_path):
 
     init_db(path)
 
-    con = sqlite3.connect(path)
-    columns = {r[1] for r in con.execute("PRAGMA table_info(blocks)")}
+    con = connect(path)
+    columns = {r[1] for r in read(con, "PRAGMA table_info(blocks)")}
     assert "view_type" in columns
     assert read(con,
         "SELECT text, view_type FROM blocks WHERE uid = 'uid_old'"

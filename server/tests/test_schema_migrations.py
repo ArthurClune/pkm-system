@@ -7,6 +7,9 @@ import pytest
 from rawread import read
 from pkm.server.db import init_db, open_db
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
+from pkm.contracts.ops import BlockUid, PageId
+from pkm.database import connect
+from pkm.test_data.ids import page_id_of, uid_of
 
 OLD_ASSETS_DDL = """
 CREATE TABLE assets(
@@ -21,7 +24,7 @@ CREATE TABLE assets(
 
 def test_existing_assets_table_gains_description_columns(tmp_path):
     db_path = tmp_path / "pkm.sqlite3"
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     con.executescript(OLD_ASSETS_DDL)
     con.execute("INSERT INTO assets VALUES ('ab'*32, 'a.png', 'image/png', 3, NULL)")
     con.commit()
@@ -49,7 +52,7 @@ def test_fresh_db_has_description_columns(tmp_path):
 
 def test_existing_db_gains_plain_space_title_canonicalization_metadata(tmp_path):
     db_path = tmp_path / "pkm.sqlite3"
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     con.executescript(OLD_ASSETS_DDL)
     con.commit()
     con.close()
@@ -84,7 +87,7 @@ def test_block_refs_backfill_fills_historical_rows(tmp_path):
 
     init_db(db_path)  # idempotent second run performs the catch-up
     con = open_db(db_path)
-    rows = {tuple(r) for r in read(con,
+    rows = {tuple(r.values()) for r in con.select(
         "SELECT src_block_uid, target_block_uid FROM block_refs")}
     marker = read(con,
         "SELECT value FROM sync_meta WHERE key = 'block_refs_backfilled'"
@@ -109,7 +112,7 @@ def test_block_refs_backfill_is_guarded(tmp_path):
 
     init_db(db_path)  # marker present: must NOT re-scan
     con = open_db(db_path)
-    rows = list(read(con, "SELECT * FROM block_refs"))
+    rows = con.select("SELECT * FROM block_refs")
     con.close()
     assert rows == []  # write path owns post-marker rows, not startup
 
@@ -130,7 +133,7 @@ END;
 
 def _old_journal_db(db_path):
     from pkm.schema import BASE_DDL
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     con.executescript(BASE_DDL + OLD_CHANGES_DDL)
     con.execute("INSERT INTO pages VALUES (1, 'P', NULL, NULL)")
     con.execute(
@@ -141,7 +144,7 @@ def _old_journal_db(db_path):
     con.close()
 
 
-def _delete_one(db_path, uid, page_id):
+def _delete_one(db_path, uid: BlockUid, page_id: PageId):
     con = open_db(db_path)
     con.execute(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
@@ -149,8 +152,9 @@ def _delete_one(db_path, uid, page_id):
         (uid, page_id))
     con.execute("DELETE FROM blocks WHERE uid = ?", (uid,))
     con.commit()
-    rows = [tuple(r) for r in read(con,
-        "SELECT kind, entity_id, deleted, page_id FROM changes"
+    rows = [tuple(r.values()) for r in con.select(
+        "SELECT kind AS change_kind, entity_id, deleted,"
+        " page_id AS change_page_id FROM changes"
         " WHERE entity_id = ? ORDER BY seq", (uid,))]
     con.close()
     return rows
@@ -165,14 +169,14 @@ def test_existing_journal_gains_the_tombstone_page_and_its_trigger(tmp_path):
 
     con = open_db(db_path)
     assert "page_id" in {r[1] for r in read(con, "PRAGMA table_info(changes)")}
-    old = read(con, "SELECT deleted, page_id FROM changes"
-                      " WHERE entity_id = 'uid_old01' AND deleted = 1").fetchone()
-    assert tuple(old) == (1, None)
+    old = con.select("SELECT deleted, page_id AS change_page_id FROM changes"
+                     " WHERE entity_id = 'uid_old01' AND deleted = 1")[0]
+    assert tuple(old.values()) == (1, None)
     assert read(con,
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger'"
         " AND name = 'blocks_chg_ad'").fetchone()[0] == 1
     con.close()
-    assert _delete_one(db_path, "uid_new01", 1) == [
+    assert _delete_one(db_path, uid_of("uid_new01"), page_id_of(1)) == [
         ("block", "uid_new01", 0, None), ("block", "uid_new01", 1, 1)]
 
 
@@ -183,14 +187,14 @@ def test_fresh_journal_records_a_deleted_blocks_page(tmp_path):
     con.execute("INSERT INTO pages VALUES (7, 'P', NULL, NULL)")
     con.commit()
     con.close()
-    assert _delete_one(db_path, "uid_new02", 7) == [
+    assert _delete_one(db_path, uid_of("uid_new02"), page_id_of(7)) == [
         ("block", "uid_new02", 0, None), ("block", "uid_new02", 1, 7)]
 
 
 
 def test_block_rewrites_gains_kind_on_an_old_database(tmp_path):
     db_path = tmp_path / "pkm.sqlite3"
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     con.executescript("""
         CREATE TABLE block_rewrites(
           uid        TEXT NOT NULL,

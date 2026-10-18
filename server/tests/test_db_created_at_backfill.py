@@ -3,24 +3,26 @@ page, guarded so it never mints a created_at greater than the block's own
 updated_at (merged/moved blocks can sit on pages younger than their last
 edit) and never writes NULL back. Re-running init_db() must be a no-op
 (the backfill is a plain UPDATE ... WHERE created_at IS NULL)."""
-import sqlite3
 
 from rawread import read
 from pkm.schema import DDL
 from pkm.server.db import init_db
+from pkm.database import connect
+from pkm.contracts.ops import BlockUid
+from pkm.test_data.ids import uid_of
 
 
 def _bare_db(path) -> None:
     # Mirrors a database before init_db() has ever run against it (importer
     # output or a hand-built fixture): schema applied, backfill not yet run.
-    con = sqlite3.connect(path)
+    con = connect(path)
     con.executescript(DDL)
     con.commit()
     con.close()
 
 
 def _seed(path, pages, blocks) -> None:
-    con = sqlite3.connect(path)
+    con = connect(path)
     con.executemany("INSERT INTO pages VALUES (?,?,?,?)", pages)
     con.executemany(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
@@ -30,8 +32,8 @@ def _seed(path, pages, blocks) -> None:
     con.close()
 
 
-def _created_at(path, uid) -> int | None:
-    con = sqlite3.connect(path)
+def _created_at(path, uid: BlockUid) -> int | None:
+    con = connect(path)
     row = read(con, "SELECT created_at FROM blocks WHERE uid = ?",
                       (uid,)).fetchone()
     con.close()
@@ -47,7 +49,7 @@ def test_backfill_takes_the_pages_created_at_when_it_is_older(tmp_path):
 
     init_db(db_path)
 
-    assert _created_at(db_path, "blk001") == 1_000
+    assert _created_at(db_path, uid_of("blk001")) == 1_000
 
 
 def test_backfill_falls_back_to_the_blocks_own_updated_at_when_page_is_newer(
@@ -64,7 +66,7 @@ def test_backfill_falls_back_to_the_blocks_own_updated_at_when_page_is_newer(
 
     # the block's own updated_at, not the page's 9_000: a backfilled
     # created_at must never postdate the block's last edit.
-    assert _created_at(db_path, "blk001") == 3_000
+    assert _created_at(db_path, uid_of("blk001")) == 3_000
 
 
 def test_backfill_falls_back_to_updated_at_when_page_created_at_is_null(
@@ -77,7 +79,7 @@ def test_backfill_falls_back_to_updated_at_when_page_created_at_is_null(
 
     init_db(db_path)
 
-    assert _created_at(db_path, "blk001") == 4_000  # never left as/garbage NULL
+    assert _created_at(db_path, uid_of("blk001")) == 4_000  # never left as/garbage NULL
 
 
 def test_backfill_leaves_a_block_with_no_usable_timestamp_alone(tmp_path):
@@ -92,7 +94,7 @@ def test_backfill_leaves_a_block_with_no_usable_timestamp_alone(tmp_path):
 
     init_db(db_path)
 
-    assert _created_at(db_path, "blk001") is None
+    assert _created_at(db_path, uid_of("blk001")) is None
 
 
 def test_backfill_is_idempotent_and_leaves_existing_values_alone(tmp_path):
@@ -106,8 +108,8 @@ def test_backfill_is_idempotent_and_leaves_existing_values_alone(tmp_path):
           ])
 
     init_db(db_path)  # first pass: b1 backfilled, b2 untouched (not NULL)
-    first_pass = (_created_at(db_path, "blk001"), _created_at(db_path, "blk002"))
+    first_pass = (_created_at(db_path, uid_of("blk001")), _created_at(db_path, uid_of("blk002")))
     assert first_pass == (1_000, 2_000)
 
     init_db(db_path)  # second pass: plain UPDATE ... WHERE created_at IS NULL
-    assert (_created_at(db_path, "blk001"), _created_at(db_path, "blk002")) == first_pass
+    assert (_created_at(db_path, uid_of("blk001")), _created_at(db_path, uid_of("blk002"))) == first_pass

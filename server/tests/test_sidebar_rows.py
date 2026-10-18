@@ -1,14 +1,15 @@
-from pkm.contracts.ops import SidebarEntryId, SidebarOrderIdx
+from pkm.contracts.ops import SidebarEntryId
 from pkm.importer.sidebar_rows import (missing_entry_rows, next_order_idx,
                                        reorder_is_valid)
+from pkm.test_data.ids import sidebar_entry_id_of, sidebar_order_idx_of
 
 
 def _ids(*ids: int) -> set[SidebarEntryId]:
-    return {SidebarEntryId(i) for i in ids}
+    return {sidebar_entry_id_of(i) for i in ids}
 
 
 def _order(*ids: int) -> list[SidebarEntryId]:
-    return [SidebarEntryId(i) for i in ids]
+    return [sidebar_entry_id_of(i) for i in ids]
 
 
 def test_missing_entry_rows_skips_existing_preserves_order():
@@ -31,7 +32,7 @@ def test_missing_entry_rows_empty_when_all_present():
 
 
 def test_next_order_idx_continues_after_max():
-    assert next_order_idx([SidebarOrderIdx(0), SidebarOrderIdx(2), SidebarOrderIdx(1)]) == 3
+    assert next_order_idx([sidebar_order_idx_of(0), sidebar_order_idx_of(2), sidebar_order_idx_of(1)]) == 3
 
 
 def test_next_order_idx_zero_when_empty():

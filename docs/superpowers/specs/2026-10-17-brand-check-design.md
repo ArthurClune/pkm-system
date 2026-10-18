@@ -23,8 +23,10 @@ converts every existing site rather than allow-listing them.
    to function parameters, TypedDict fields, dataclass fields and pydantic
    fields, on server and web.
 2. **Brands are minted only at declared sites.** Outside its declared mint
-   modules and tests, nothing constructs a brand (`BlockUid(x)`), or casts to
-   a brand or to any type that contains one (enforcement point 2).
+   modules and the two test mint modules, nothing constructs a brand
+   (`BlockUid(x)`), or casts to a brand or to any type that contains one
+   (enforcement point 2). Tests and tooling are not exempt (see "Tests,
+   test support and tooling").
 3. **Rows arrive branded.** A value read from our own database is already
    typed by its column: `r["uid"]` is a `BlockUid` with no wrapping at the
    read. Database data then has one mint site, and every other mint is a
@@ -195,11 +197,131 @@ Anywhere else in production code, constructing or casting to a brand
 fails. Today's server mints sit in one to seven files per brand; the
 row-read mints among them (about 17) disappear once rows arrive branded.
 
-**Test code is exempt** from rules 1 and 2: `*.test.*` files, and files
-imported only by tests: `web/src/test-helpers.ts`, `web/src/props/**`,
-`replica/replayArbs.ts`, `sync/memReplica.ts`, and `server/tests`. These
-are named in the rule's config, not inferred. About half of the web's
-existing `as Brand` casts sit in them.
+Test code is not exempt; it mints through named helpers (next section).
+
+### Tests, test support and tooling (amended 2026-10-18)
+
+The first version of this spec exempted test code from rules 1 and 2.
+Arthur reversed that (pkm-78r0): agents copy what they read, and tests,
+fixture builders and harnesses are what they read most. A blanket
+exemption leaves the loose pattern (`s as BlockUid`, `BlockUid("a")`,
+`uid: str`) in exactly the code future agents imitate. The aim: the code
+in an agent's context is already right, and the rule is enforced.
+
+**Scope.** Rules 1 and 2 apply to every test and test-support file:
+`*.test.*`, `web/src/test-setup.ts`, `web/src/test-helpers.ts`,
+`web/src/props/**`, `replica/replayArbs.ts`, `sync/memReplica.ts`,
+`server/tests/**`, `server/src/pkm/test_data/**` and the tests under
+`web/tooling/**`. The registry's `TEST_SUPPORT` exemption is deleted;
+its successor `TEST_CODE` only says which files are tests by location
+(they may import the test mint modules, and messages there name the
+helpers) and exempts nothing. Every
+rule of the two lints applies there, not only rules 1 and 2: on the
+server the `cast` limit, the `model_construct` ban and the raw-sqlite
+rule; on the web the whole type-aware block (see walk-around 1). The
+Playwright specs in `web/e2e/**` stay out: they use no brand, talk to the
+server over JSON, and sit outside the TypeScript project the type-aware
+rules need. Server tooling (`server/tooling/**`) and
+the web perf harness (`web/tooling/perf/`) are under the rules too; the
+perf harness reads its values from real mints, and `perfcheck` is the one
+tooling site allowed raw `sqlite3` (registry `SQLITE_SITES`).
+
+**The helpers.** Each side has one test mint module, listed in a new
+registry key `TEST_MINT_SITES`, which may mint every brand:
+
+| Side | Module | Imported by |
+|---|---|---|
+| web | `web/src/test-helpers.ts` | vitest files, `props/`, `replayArbs`, `memReplica` |
+| server | `server/src/pkm/test_data/ids.py` | `server/tests`, `pkm.test_data` builders |
+
+- **One helper per brand, `<name>Of` / `<name>_of`**, named from the
+  brand's rule-1 name: `uidOf`, `pageIdOf`, `seqOf`, `orderIdxOf`,
+  `clientIdOf`, `batchIdOf` ... (`uid_of`, `page_id_of` ... in Python).
+  Brands with no rule-1 name use the brand: `canonicalTitleOf`,
+  `normalizedTitleOf`. The `Of` suffix keeps them clear of the `pageId`,
+  `seq` and `title` locals tests use everywhere. A brand gets a helper
+  when a test needs one.
+- **Everyday helpers check the brand's shape** and throw on a mismatch,
+  so a fixture value is always one the product could have produced: a
+  brand with a `SHAPES` regex (`BlockUid`, `Sha256Hex`) must match it; an
+  integer brand takes an integer (not a bool, not a float).
+- **Malformed values are spelled differently** (Arthur):
+  `malformedUid("")`, `malformedSha("zz")` / `malformed_uid("")` return
+  the value unchecked, so a negative test says on its face that it forges
+  a bad id. Only brands with a shape get one. They cannot be used to make
+  a fixture "work": the runtime row check rejects a malformed value the
+  moment it reaches a test database.
+- **The helpers replace today's.** The web's `uid(s)` (any string),
+  `pageId`, `entryId`, `ord`, `sidebarOrd`, `title`, `normTitle` and the
+  tag-deriving `uidOf(tag)` go; tests write the real value through the
+  checked helper. Short tags become uid-shaped by prefixing `tuid-` (the
+  convention replica fixtures already use: `"a"` becomes `"tuid-a"`), and
+  the same tag is rewritten wherever that test spells it inside expected
+  text (`"((a))"`). Scale: about 1,355 `uid("...")` calls in 77 web files,
+  of which about 940 carry a short tag (94 distinct); about 580 `as Brand`
+  casts in 65 web test files; about 715 brand constructor calls in 45
+  server test files, of which about 65 carry a malformed literal (most
+  test rejection and become `malformed_uid`).
+- **Production may not import a test mint module.** The lint reports an
+  import of `test-helpers` or `pkm.test_data.ids` from any file outside
+  the test scope above.
+- **Lint messages in tests name the helper**: "`as PageId` in a test:
+  use `pageIdOf` from test-helpers".
+
+**Reads.** Test reads that return a brand-carrying column use `select`
+(web) / `Db.select` (server) under row vocabulary keys. The untyped
+readers, `introspect` on the web and `rawread.read` in server tests, keep
+catalog and count reads; under tests each throws when a returned column
+name is a key that carries a brand ("read it with select"), so the
+convention is enforced. The refusal wins over convenience: a journal
+snapshot such as `SELECT * FROM changes` becomes an explicit column list
+under the row vocabulary's aliases (`page_id AS change_page_id`) read with
+`select`. On the server, `rawread.py` is the test-side raw-sqlite site;
+a test that exercises SQLite itself (backup, corruption, integrity)
+either reads through it or gets its own `SQLITE_SITES` entry with the
+reason beside it; any other raw access moves to `Db`. A row seeded by raw SQL and read back through
+`select` is not a hole: the row check validates its shape.
+
+**Walk-arounds closed with the scope change.** Tests lose more than the
+cast rule when they come under it, so these land in the same work:
+
+1. **The web lint config covers tests.** Today the type-aware block in
+   `web/eslint.config.js` ignores `*.test.*`, `test-setup.ts` and
+   `test-helpers.ts`, so removing the plugin's own exemption alone would
+   lint nothing. The block's file set takes them in, with all its rules
+   (measured without the brand rules: about 175 reports in 24 files,
+   mostly `no-unsafe-*` and `no-floating-promises`). A test of the
+   transport layer that must import `apiFetch` joins the existing
+   per-file override for that import ban.
+2. **`any` stops carrying values into branded slots**: `no-explicit-any`
+   and the `no-unsafe-*` rules, on for production already, run on tests
+   too (measured: 46 reports in 13 files). On the server, a `resp.json()`
+   value is `Any` and pyrefly passes it anywhere; that is accepted, since
+   those values are what the server minted.
+3. **Type-suppression comments do not launder.** Web: `@ts-ignore` and
+   `@ts-nocheck` are banned (`@ts-expect-error` with a description stays;
+   the existing ones are type probes that fail when they stop being
+   needed). Server: a line carrying a `pyrefly: ignore` or `type: ignore`
+   may not also pass a plain literal to a keyword argument with a rule-1
+   name (`SetHeadingOp(uid="uid_b2", heading=5)  # pyrefly: ignore[...]`
+   lets the uid through along with the heading it was meant for); the
+   literal goes through a helper.
+4. **An unannotated rule-1 name passes anything.** Rule 1 checks an
+   annotation only when one is present, and pyrefly's
+   `implicit-any-parameter` is on only for `server/src`, so a test
+   helper `def make(uid): ...` takes any string. Brandlint reports a
+   rule-1-named parameter with no annotation, everywhere (measured: 74 in
+   29 server test files; none in `server/src`, where pyrefly already
+   requires one).
+5. **Server lint walk-arounds that test idioms reach**: a brand imported
+   under another name (`BlockUid as U`), a brand constructor passed as a
+   value (`map(BlockUid, xs)`), and `NewType` declared through
+   `typing.NewType`, annotated or indented. (From pkm-e9q8's server list.)
+
+**Left as is, on purpose.** `model_validate` in tests: the wire contracts
+are a declared mint, and the tests that use it (about 40) feed wire-shaped
+input to the parse boundary on purpose (idempotency hashes of a wire
+batch, contract parse tests). Pretending to be the wire is honest there.
 
 ### The six enforcement points
 
@@ -284,6 +406,13 @@ One bean, two phases, server landing before web:
 - The wire contracts are a declared mint; no shape validators added.
 - The test-time row check is the full shape check; test fixtures are
   rewritten to realistic uids.
+- (2026-10-18) No exemption for code agents copy: tests mint only through
+  named helpers in one test mint module per side; tooling and the perf
+  harness are under the rules.
+- (2026-10-18) A malformed id in a test goes through a visibly different
+  helper (`malformedUid`); the everyday helpers check shape.
+- (2026-10-18) Seeding by raw SQL and reading back through `select` stays
+  allowed; the row check covers it.
 
 ## Calls I made (Arthur to check while reading)
 
@@ -303,7 +432,23 @@ One bean, two phases, server landing before web:
   it.
 - Escape hatches: a type-aware ESLint plugin on the web; `cast` confined
   and `model_construct` banned on the server.
-- Test-support files exempt by explicit list.
+- (2026-10-18) The server's test mint module lives in
+  `pkm/test_data/ids.py`, so both `server/tests` and the `test_data`
+  builders can import it.
+- (2026-10-18) Short tags become uid-shaped as `tuid-<tag>`, the existing
+  replica-fixture convention, rather than a derived value.
+- (2026-10-18) `introspect`/`rawread` refuse brand-carrying columns under
+  tests, enforcing the read convention.
+- (2026-10-18) `model_validate` stays allowed in tests (wire-shaped input
+  to a declared mint).
+- (2026-10-18) Every rule of both lints applies to tests, not only rules
+  1 and 2; the web's whole type-aware block covers them.
+- (2026-10-18) Brandlint requires an annotation on a rule-1-named
+  parameter, closing the unannotated-parameter route in tests.
+- (2026-10-18) Journal snapshots in tests become aliased column lists read
+  with `select`; `rawread` refuses brand-carrying columns.
+- (2026-10-18) `web/e2e/**` stays outside the lints (no brands, no typed
+  project).
 - Every dict-returning handler converted, with or without a
   `response_model`.
 - One bean, server phase then web phase.

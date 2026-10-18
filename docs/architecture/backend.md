@@ -1104,7 +1104,7 @@ When measuring a slow request, prefer these durations to client-side timing.
 - `uv run pyrefly check` type-checks (pyright is configured as a second
   opinion) and `uv run ruff check` lints, at line length 120.
 - In `server/src`, both refuse an implicit `Any`: pyrefly's `implicit-any-*`
-  errors and ruff's `ANN` rules are on, with tests and tooling exempt. Data
+  errors and ruff's `ANN` rules are on; tests and tooling keep only `ANN401` (no explicit `Any`). Data
   from outside the app is typed `object` and narrowed before use. Rows read
   from our own schema are `pkm.rows.Row` dicts, returned by `Db.select`.
 - `server/tooling/perfcheck` is the performance gate behind `perf/check.sh`:

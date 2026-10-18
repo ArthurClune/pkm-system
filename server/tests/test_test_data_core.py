@@ -158,6 +158,9 @@ def test_parse_graph_source_rejects_graph_invariants(mutate, message: str) -> No
         ("collapsed", "true"),
         ("view_type", "bulleted"),
         ("order_idx", -1),
+        ("uid", "a"),
+        ("uid", "has a space"),
+        ("parent_uid", "x"),
     ],
 )
 def test_parse_graph_source_rejects_invalid_strict_fields(field: str, value: object) -> None:

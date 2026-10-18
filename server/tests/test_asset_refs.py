@@ -1,6 +1,7 @@
+"""GET /api/assets/search returns referencing blocks."""
+
 from pkm.contracts.ops import BlockUid, OrderIdx, Sha256Hex
 from pkm.test_data.ids import order_idx_of, uid_of
-"""GET /api/assets/search returns referencing blocks."""
 
 
 def _upload(client, content=b"PNGDATA", name="pic.png"):

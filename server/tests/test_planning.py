@@ -414,7 +414,7 @@ def test_plan_batch_indexed_move_lands_on_the_real_key_not_the_position_when_gap
     # Every other move test seeds dense keys, where a position and the
     # sibling's real order_idx happen to be the same number -- this one
     # catches order_idx_at_position minting the raw position (1) instead
-    # of looking up g2's gapped second child's real key (5).
+    # of looking up tuid-g2's gapped second child's real key (5).
     cmds = [{"command": "move",
              "params": {"uid": "tuid-g1", "page": "Machine Learning",
                         "parent": "((tuid-g2))", "index": 1}}]
@@ -681,7 +681,7 @@ def test_batch_create_under_then_delete_includes_the_created_block():
 
 
 def test_batch_move_into_the_subtree_leaves_the_delete_unhashed():
-    # u1's own subtree was never fetched, so the delete cannot know what
+    # tuid-u1's own subtree was never fetched, so the delete cannot know what
     # the server's copy of it holds: no stamp, a plain delete as before.
     cmds = [{"command": "move",
              "params": {"uid": "tuid-u1", "page": "Machine Learning",

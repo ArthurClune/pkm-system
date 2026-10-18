@@ -22,7 +22,7 @@ def _seq(config) -> int:
         con.close()
 
 
-def _post(client, *ops, seen_seq: SyncSeq | None =None):
+def _post(client, *ops, seen_seq: SyncSeq | None = None):
     global _counter
     _counter += 1
     body: dict[str, object] = {

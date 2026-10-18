@@ -247,7 +247,9 @@ def test_delete_page_turns_inbound_links_into_plain_text(
     assert "Studying [[Machine Learning]] today" not in texts_after
 
     con = connect(seeded_config.db_path)
-    remaining = con.select("SELECT * FROM refs WHERE target_page_id = 1")
+    remaining = con.select(
+        "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs"
+        " WHERE target_page_id = 1")
     con.close()
     assert remaining == []
 

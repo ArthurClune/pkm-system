@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import quote
 
-from pkm.contracts.ops import BlockUid, OrderIdx, Sha256Hex
+from pkm.contracts.ops import UID_RE, BlockUid, OrderIdx, Sha256Hex
 from pkm.importer.assets import Asset
 from pkm.importer.parse_export import Block, Export, Page
 from pkm.importer.rows import Rows, to_rows
@@ -24,7 +24,6 @@ from pydantic import (
     ValidationError,
     field_validator,
 )
-from pkm.test_data.ids import order_idx_of, uid_of
 
 ASSET_PLACEHOLDER_RE = re.compile(r"\{\{asset:([^{}]+)\}\}")
 
@@ -39,11 +38,25 @@ class BlockSource(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    uid: BlockUid = Field(strict=True, min_length=1)
+    uid: BlockUid = Field(strict=True)
     parent_uid: BlockUid | None = Field(strict=True)
-    order_idx: OrderIdx = Field(strict=True, ge=order_idx_of(0))
+    order_idx: OrderIdx = Field(strict=True)
     text: StrictStr
     heading: Literal[1, 2, 3] | None
+
+    @field_validator("uid", "parent_uid")
+    @classmethod
+    def _validate_uid_shape(cls, value: BlockUid | None) -> BlockUid | None:
+        if value is not None and not UID_RE.fullmatch(value):
+            raise ValueError(f"{value!r} is not a valid block uid ({UID_RE.pattern})")
+        return value
+
+    @field_validator("order_idx")
+    @classmethod
+    def _validate_order_idx(cls, value: OrderIdx) -> OrderIdx:
+        if value < 0:
+            raise ValueError("Input should be greater than or equal to 0")
+        return value
 
     @field_validator("heading", mode="before")
     @classmethod
@@ -165,7 +178,7 @@ def _build_block_children(blocks: tuple[BlockSource, ...]) -> tuple[Block, ...]:
         if block.uid in built:
             return built[block.uid]
         result = Block(
-            uid=uid_of(block.uid),
+            uid=block.uid,
             text=block.text,
             heading=block.heading,
             view_type=block.view_type,

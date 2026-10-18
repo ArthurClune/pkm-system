@@ -416,3 +416,46 @@ def test_the_test_mint_module_name_comes_from_the_registry(tmp_path: Path):
     assert [v.rule for v in check_text(STORE, "from pkm.test_data.ids import uid_of\n", registry)] == []
     [v] = check_text(TEST, "x = BlockUid(raw)\n", registry)
     assert "pkm.fixtures.mint" in v.text
+
+
+@pytest.mark.parametrize("source", [
+    "def f(x) -> BlockUid: ...",
+    "def f(x: Any) -> BlockUid: ...",
+    "def f(x: Any | None) -> BlockUid: ...",
+    "def f(x: typing.Any) -> BlockUid: ...",
+    "def f(a: str, *rest) -> BlockUid: ...",
+    "def f(a: str, **kw) -> BlockUid: ...",
+    "def f(*, x) -> BlockUid | None: ...",
+    "def f(x) -> list[BlockUid]: ...",
+    "def f(x) -> 'BlockUid': ...",
+    "async def f(x) -> PageId: ...",
+    "class A:\n    def f(self, x) -> BlockUid: ...\n",
+])
+def test_a_brand_returned_from_an_unannotated_or_any_parameter_is_flagged(source: str):
+    assert rules(source + "\n", ROUTES) == ["brand-launder"]
+
+
+@pytest.mark.parametrize("source", [
+    "def f(x: str) -> BlockUid: ...",
+    "def f(x: object) -> BlockUid: ...",
+    "def f() -> BlockUid: ...",
+    "def f(x) -> None: ...",
+    "def f(x) -> str: ...",
+    "def f(x: dict[str, Any]) -> BlockUid: ...",
+    "class A:\n    def f(self) -> BlockUid: ...\n",
+    "class A:\n    @classmethod\n    def f(cls, x: str) -> BlockUid: ...\n",
+    "g = lambda x: x\n",
+])
+def test_a_brand_return_with_typed_parameters_is_clean(source: str):
+    assert rules(source + "\n", ROUTES) == []
+
+
+def test_the_launder_rule_is_not_applied_at_a_mint_site():
+    assert rules("def parse(x) -> BlockUid: ...\n", CONTRACT) == []
+    assert rules("def parse(x) -> BlockUid: ...\n", "server/src/pkm/batch.py") == []
+
+
+def test_the_launder_rule_covers_tests_and_names_the_fix():
+    [v] = check_text("server/tests/test_x.py", "def f(x) -> BlockUid: ...\n", REGISTRY)
+    assert v.rule == "brand-launder"
+    assert "annotate" in RULES["brand-launder"] and "Any" in RULES["brand-launder"]

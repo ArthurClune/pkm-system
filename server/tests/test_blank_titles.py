@@ -80,8 +80,9 @@ from pkm.database import connect
 def _ct(title: str) -> CanonicalTitle:
     """fetch_page takes a CanonicalTitle; these tests probe it directly
     with deliberately blank/padded/forbidden strings, which are never
-    minted through canonicalize_title -- cast at this one fixture point
-    rather than threading the real canonicalizer through every assertion."""
+    minted through canonicalize_title -- `canonical_title_of` mints them at
+    this one fixture point rather than threading the real canonicalizer
+    through every assertion."""
     return canonical_title_of(title)
 
 

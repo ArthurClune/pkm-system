@@ -521,9 +521,10 @@ def cr(index=None, parent=None, alias=None, command="create"):
     return {"command": command, "params": params}
 
 
-def mv(uid: BlockUid, parent=None, index=None):
+def mv(target: str, parent=None, index=None):
+    """A move of `target`, a uid or a `{{alias}}` spec."""
     return {"command": "move",
-            "params": {"uid": uid, "page": "Alpha", "parent": parent,
+            "params": {"uid": target, "page": "Alpha", "parent": parent,
                        "index": index}}
 
 
@@ -583,13 +584,9 @@ def test_positions_move_across_parents_carries_its_subtree():
     assert out == {None: [A, B], A: [], B: [C], C: [P]}
 
 
-# An alias stands where a uid goes, and is deliberately not uid-shaped.
-ALIAS_N = malformed_uid("{{n}}")
-
-
 def test_positions_alias_names_an_earlier_create():
     out = after({None: [A]}, [cr(alias="n"), cr(parent="{{n}}"),
-                              mv(ALIAS_N, index=0)])
+                              mv("{{n}}", index=0)])
     assert out == {None: [X, A], X: [Y], Y: []}
 
 

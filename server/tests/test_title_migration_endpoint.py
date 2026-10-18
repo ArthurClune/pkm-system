@@ -1,12 +1,10 @@
-
 import pkm.server.notify as notify
-from rawread import read
+from rawread import table_rows
 from pkm.server.db import get_db, open_db
 from pkm.server.sync_meta import (
     database_generation,
     plain_space_title_canonicalization_active,
 )
-from pkm.brand_registry import COLUMN_KEYS
 from pkm.database import connect
 
 
@@ -76,11 +74,7 @@ def _seed_migration_graph(db_path) -> None:
 def _table_rows(db_path, table: str) -> list[tuple[object, ...]]:
     con = connect(db_path)
     try:
-        columns = [str(row[1]) for row in read(con, f"PRAGMA table_info({table})")]
-        aliases = COLUMN_KEYS.get(table, {})
-        named = ", ".join(f"{c} AS {aliases.get(c, c)}" for c in columns)
-        return sorted(tuple(row.values())
-                      for row in con.select(f"SELECT {named} FROM {table}"))
+        return table_rows(con, table)
     finally:
         con.close()
 

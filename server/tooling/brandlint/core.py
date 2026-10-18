@@ -52,6 +52,9 @@ RULES = {
     "test-mint-import": "`pkm.test_data.ids` mints any brand unchecked by the product's rules and is for "
                         "tests only: in product code read the value from a `select()` row, a contract model "
                         "or a parser",
+    "brand-launder": "a function that returns a brand must annotate every parameter and none may be `Any`: "
+                     "an untyped value passed through `-> BlockUid` becomes a brand with no mint; give the "
+                     "parameter its real type and parse it, or read the value from a `select()` row",
     "brand-ignore": "a `pyrefly: ignore` or `type: ignore` silences every argument of its call, a brand "
                     "literal included: pass the value through its helper (`uid_of` and kin from "
                     "pkm.test_data.ids in a test) or its parser",
@@ -194,6 +197,56 @@ def _annotated_names(tree: ast.AST):
             for stmt in node.body:
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                     yield stmt.target.id, stmt.annotation, stmt.lineno, stmt.end_lineno or stmt.lineno
+
+
+def _is_any(node: ast.expr) -> bool:
+    """Whether an annotation is `Any`, or a union or `Optional` with `Any`
+    as a member. `dict[str, Any]` is not: its values are checked where they
+    are used."""
+    if isinstance(node, (ast.Name, ast.Attribute)):
+        return _leaf(node) == "Any"
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return _is_any(node.left) or _is_any(node.right)
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        try:
+            return _is_any(ast.parse(node.value.strip(), mode="eval").body)
+        except SyntaxError:
+            return False
+    if isinstance(node, ast.Subscript) and _leaf(node.value) in ("Union", "Optional"):
+        args = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+        return any(_is_any(a) for a in args)
+    return False
+
+
+def _launderers(path: str, tree: ast.AST, registry: Registry):
+    """(line, function name, brand) for each function whose return
+    annotation carries a brand it may not mint and which takes a parameter
+    (not self or cls) with no annotation or an `Any` one: the checker
+    cannot see what flows through such a parameter, so returning it as the
+    brand mints it unseen."""
+    brands = set(registry.shapes) | set(registry.mint_sites) | registry.declared
+    declared, derived = _declared_brands(path, tree, brands)
+    brands |= derived
+    if _site_allowed(path, registry.test_mint_sites):
+        return
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or node.returns is None:
+            continue
+        found: list[tuple[str, bool]] = []
+        _scan(node.returns, False, found)
+        returned = sorted({t for t, _ in found} & brands)
+        returned = [b for b in returned if b not in declared
+                    and not _site_allowed(path, registry.mint_sites.get(b, ()))]
+        if not returned:
+            continue
+        a = node.args
+        positional = [*a.posonlyargs, *a.args]
+        if positional and positional[0].arg in ("self", "cls"):
+            positional = positional[1:]
+        params = [*positional, *a.kwonlyargs]
+        params += [p for p in (a.vararg, a.kwarg) if p is not None]
+        if any(p.annotation is None or _is_any(p.annotation) for p in params):
+            yield node.lineno, node.name, returned[0]
 
 
 def _site_allowed(path: str, sites: tuple[str, ...]) -> bool:
@@ -445,6 +498,11 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
         what = f"`{name}=` literal on a line whose type check is silenced"
         out.append(Violation(path, line, "brand-ignore",
                              f"{what}: {fix or 'parse it'}: {lines[line - 1].strip()}"))
+    for line, name, brand in _launderers(path, tree, registry):
+        fix = _test_fix(brand, registry) if is_test else ""
+        what = f"`{name}` returns `{brand}` but takes an unannotated or `Any` parameter"
+        out.append(Violation(path, line, "brand-launder",
+                             f"{what}{'; ' + fix if fix else ''}: {lines[line - 1].strip()}"))
     for line, rule, what in _escape_hatches(path, tree, registry, is_test):
         out.append(Violation(path, line, rule, f"{what}: {lines[line - 1].strip()}"))
     return sorted(out, key=lambda v: v.line)

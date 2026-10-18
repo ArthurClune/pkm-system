@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from rawread import read, trace as rawread_trace
+from rawread import read, table_rows, trace as rawread_trace
 from pkm.database import Db, connect
 from pkm.schema import DDL
 from pkm.server.sync_meta import (
@@ -19,7 +19,6 @@ from pkm.server.title_migration import (
     apply_title_migration,
     audit_title_migration,
 )
-from pkm.brand_registry import COLUMN_KEYS
 from pkm.test_data.ids import sha_of
 
 
@@ -92,17 +91,9 @@ def _seed_migration_graph(db: Db) -> None:
     db.commit()
 
 
-def _rows(db: Db, table: str) -> list[tuple[object, ...]]:
-    columns = [str(row[1]) for row in read(db, f"PRAGMA table_info({table})")]
-    aliases = COLUMN_KEYS.get(table, {})
-    named = ", ".join(f"{c} AS {aliases.get(c, c)}" for c in columns)
-    return sorted(tuple(row.values())
-                  for row in db.select(f"SELECT {named} FROM {table}"))
-
-
 def _state(db: Db) -> dict[str, list[tuple[object, ...]]]:
     return {
-        table: _rows(db, table)
+        table: table_rows(db, table)
         for table in (
             "pages",
             "blocks",

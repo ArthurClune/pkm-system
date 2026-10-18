@@ -136,7 +136,7 @@ def test_a_lambda_parameter_is_not_checked():
 def test_every_rule_has_a_remedy_that_names_the_fix():
     assert set(RULES) == {"brand-name", "brand-opt-out", "brand-parse", "brand-mint",
                           "brand-cast", "model-construct", "raw-sqlite",
-                          "test-mint-import", "brand-ignore"}
+                          "test-mint-import", "brand-ignore", "brand-launder"}
     assert "select()" in RULES["brand-name"] and "untrusted" in RULES["brand-name"]
 
 

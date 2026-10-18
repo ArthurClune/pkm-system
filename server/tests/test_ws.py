@@ -1,6 +1,5 @@
 import asyncio
 import time
-from typing import Any
 
 import pytest
 from starlette.websockets import WebSocket, WebSocketDisconnect
@@ -19,8 +18,10 @@ def _wire(n: int) -> dict[str, object]:
     return {"type": "seq", "seq": n}
 
 
-def _as_ws(fake: Any) -> WebSocket:
-    return fake
+def _as_ws(fake: object) -> WebSocket:
+    # The hub only accepts, sends and closes, and each fake below provides
+    # just the calls its test makes, so none is a WebSocket to the checker.
+    return fake  # pyrefly: ignore[bad-return]
 
 
 class _GoodWS:

@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 import time_machine
+from httpx2 import Response
 from hypothesis import event, settings, strategies as st
 from hypothesis.stateful import (RuleBasedStateMachine, initialize, invariant,
                                  precondition, rule)
@@ -128,7 +129,7 @@ class OpsMachine(RuleBasedStateMachine):
         self.batches += 1
         return f"batch{self.batches:06d}"
 
-    def _post(self, payload: dict) -> Any:
+    def _post(self, payload: dict) -> Response:
         assert self.app is not None
         # Each request a second later, so a replayed ack carrying a
         # freshly minted ts could never pass for the stored one.

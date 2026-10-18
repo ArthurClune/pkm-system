@@ -1348,7 +1348,7 @@ def test_stale_edit_replays_a_delete_unlink_instead_of_resurrecting_the_title(
 # which still holds the old title: the server must have recorded that hash.
 
 
-def _chained_push(client, base_text, *texts, seen_seq: SyncSeq | None =None, one_batch=False):
+def _chained_push(client, base_text, *texts, seen_seq: SyncSeq | None = None, one_batch=False):
     """Edits of uid_b1, each hashed against the text of the one before as
     the client sent it, starting from `base_text`."""
     ops, base = [], base_text

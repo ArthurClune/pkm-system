@@ -183,7 +183,8 @@ def test_plan_delete_and_collapse():
 # --- diverged delete: the subtree changed since the deleting device last
 # saw it, so the delete still wins but the server's texts land first -------
 
-# root r has children c2 (order_idx 5) and c1 (order_idx 2); c1 has child g
+# root tuid-r has children tuid-c2 (order_idx 5) and tuid-c1 (order_idx 2);
+# tuid-c1 has child tuid-g
 # (order_idx 0). Deepest first: g, then c1/c2, then r.
 _ROOT = SubtreeRow(uid_of("tuid-r"), None, order_idx_of(0), "root text")
 _C1 = SubtreeRow(uid_of("tuid-c1"), uid_of("tuid-r"), order_idx_of(2), "c1 text")
@@ -356,7 +357,7 @@ def _move_ctx(block_page: int = 1, parent_page: int = 1,
     return MoveContext(
         BlockInfo(uid_of("u_child"), page_id_of(block_page), None),
         BlockInfo(uid_of("u_parent"), page_id_of(parent_page), None),
-        page_id_of(page_id) if page_id is not None else None,
+        page_id,
         (uid_of("tuid-u_gc"), uid_of("u_child")))
 
 
@@ -396,8 +397,9 @@ def test_move_same_page_unchanged_shape():
         TouchPage(page_id_of(1)))
 
 
-@pytest.mark.parametrize("page_id", [3, None])
-def test_move_follows_its_parent_whatever_page_title_says(page_id: PageId):
+@pytest.mark.parametrize("page_id", [page_id_of(3), None])
+def test_move_follows_its_parent_whatever_page_title_says(
+        page_id: PageId | None):
     # page_title named the parent's page when the move was queued; another
     # device has since moved the parent to page 2. The block follows the
     # parent, and the shell no longer resolves the stale title.

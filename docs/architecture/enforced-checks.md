@@ -13,7 +13,7 @@ clone enables them. `--no-verify` bypasses both.
 |---|---|---|
 | `commit-msg` | a Claude session URL or `Claude-Session:` trailer in the message | `AGENTS.md` § Git |
 | `pre-commit` | in any staged source file or architecture doc: a bean id, a line number or a spec/plan pointer with no path in a comment; a comment line over 80 columns or any other line over 120 (`noqa: E501` exempts a line) | [backend.md](backend.md#testing), `server/tooling/commentlint` |
-| `pre-commit` | in a staged `server/src`, `server/tooling` or `server/tests` file: a parameter, field or key named like a brand and not carrying it (`uid: str`, or no annotation); a brand constructed, held as a value or `cast` outside its registered sites; `model_construct`; raw `sqlite3` outside `SQLITE_SITES` | [Brand rules](#brand-rules), `server/tooling/brandlint` |
+| `pre-commit` | in a staged `server/src`, `server/tooling` or `server/tests` file: a parameter, field or key named like a brand and not carrying it (`uid: str`, or no annotation); a brand constructed, held as a value or `cast` outside its registered sites; a function returning a brand while taking an unannotated or `Any` parameter; `model_construct`; raw `sqlite3` outside `SQLITE_SITES` | [Brand rules](#brand-rules), `server/tooling/brandlint` |
 
 ### Brand rules
 
@@ -30,6 +30,7 @@ syntax and reports `brand-parse` instead of skipping the file.
 | `brand-opt-out` | `# brand: untrusted -- <reason>` appears outside a route module, or has no reason | `OPT_OUT_FILES` |
 | `brand-mint` | a `NewType` declared under `server/src/pkm` is constructed outside its sites, under its own name or an import alias (`BlockUid as U`), or held as a value: a call argument, an assignment, walrus or return value, or a container element (`map(BlockUid, xs)`, `U = BlockUid`). A subscript (`dict[str, BlockUid]`) and the type slot of `cast`, `NewType`, `TypeAdapter`, `isinstance` and `assert_type` hold a type, not a value. Outside `server/src/pkm`, a `NewType` over a registered brand is a brand its own file may not mint | `MINT_SITES`, `TEST_MINT_SITES` |
 | `brand-cast` | `typing.cast` is called outside `CAST_SITES` | `CAST_SITES` |
+| `brand-launder` | a function whose return annotation carries a brand, outside that brand's mint sites, takes a parameter (not `self` or `cls`, `*args` and `**kwargs` included) with no annotation or an `Any` one, bare or in a union. The checker cannot see what flows through such a parameter, so returning it as the brand would mint it unseen. `dict[str, Any]` is not `Any` | `MINT_SITES`, `TEST_MINT_SITES` |
 | `brand-ignore` | a call whose lines carry `pyrefly: ignore` or `type: ignore` (or sits under one on a line of its own) passes a plain literal, or a list, tuple or set of them, to a keyword named like a brand (`uid="uid_b2"`), in that call or a call inside it. The ignore would let it through. A positional literal (`f("uid_b2")  # type: ignore`) is not seen: that needs the callee's signature | `NAMES` |
 | `test-mint-import` | product code imports `pkm.test_data.ids`, by any spelling | `TEST_MINT_SITES` (what), `TEST_CODE` (who may) |
 | `model-construct` | a pydantic model is built with `model_construct` | none |
@@ -129,7 +130,10 @@ Server type and lint checks are separate commands, not part of pytest:
 `uv run pyrefly check` and `uv run ruff check` (ruff `E501` at 120 shares the
 `noqa: E501` override with `pre-commit`). In `server/src`, pyrefly rejects an
 implicit `Any` (`implicit-any-*`) and ruff rejects a missing annotation or a
-bare `Any` (`ANN`); tests and tooling are exempt. The typing policy is in
+bare `Any` (`ANN`). Tests and tooling are exempt from the missing-annotation
+rules but not from `ANN401`, which rejects an explicit `Any` parameter or
+return: `def f(x: Any) -> BlockUid: return x` would launder a brand with no
+mint. The typing policy is in
 [backend.md](backend.md#testing).
 
 ## Before a merge

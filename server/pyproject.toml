@@ -52,12 +52,14 @@ line-length = 120
 # reach a function unnoticed. A bare `Any` parameter or return needs a
 # `# noqa: ANN401` naming the external API that forces it; prefer `object`
 # and narrow. ANN401 does not see a nested `Any` (`dict[str, Any]`), so that
-# is review's job. Tests and tooling are exempt.
+# is review's job. Tests and tooling are exempt from the missing-annotation
+# rules but not from ANN401: `def f(x: Any) -> BlockUid: return x` would
+# launder a brand with no mint, and only that rule is cheap to enforce there.
 extend-select = ["E501", "ANN"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["ANN"]
-"tooling/**" = ["ANN"]
+"tests/**" = ["ANN001", "ANN002", "ANN003", "ANN2"]
+"tooling/**" = ["ANN001", "ANN002", "ANN003", "ANN2"]
 
 [tool.uv]
 # claude-agent-sdk is exempt from the global uv cooldown (exclude-newer =

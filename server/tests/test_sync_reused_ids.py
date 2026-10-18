@@ -1,7 +1,8 @@
-from pkm.contracts.ops import PageId
 """A page or sidebar id deleted and handed to a new row inside one changes
 window ships as a tombstone and a live row, so a replica drops what hung
 off the old entity before the new one lands."""
+
+from pkm.contracts.ops import PageId
 
 
 def _drain(client, since=0, limit=1000):

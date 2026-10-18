@@ -1,4 +1,3 @@
-
 from pkm.importer.import_sidebar import SIDEBAR_ENTRIES, main
 from pkm.database import connect
 

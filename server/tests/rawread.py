@@ -10,7 +10,6 @@ validates it. The refusal goes by returned name, so `uid AS u` reads an
 unbranded value and is not refused."""
 import sqlite3
 from collections.abc import Callable
-from typing import Any
 
 from pkm.brand_registry import CLIENT_KEYS, COLUMN_KEYS
 from pkm.database import Db, Params
@@ -20,7 +19,7 @@ from pkm.rows import KEYS
 class NamedRow(tuple):
     _names: tuple[str, ...]
 
-    def __getitem__(self, key: Any) -> Any:
+    def __getitem__(self, key):
         if isinstance(key, str):
             return super().__getitem__(self._names.index(key))
         return super().__getitem__(key)
@@ -81,3 +80,15 @@ def trace(db: Db, callback: Callable[[str], None] | None) -> None:
     None: tests that count or intercept statements need the raw connection,
     which only this module may touch."""
     db.raw.set_trace_callback(callback)
+
+
+def table_rows(db: Db, table: str) -> list[tuple[object, ...]]:
+    """Every row of `table`, sorted, as tuples in column order, for a
+    before/after comparison of a whole table. Each column is read under its
+    row key (COLUMN_KEYS aliases a raw name that differs), so the row check
+    validates the brands."""
+    columns = [str(row[1]) for row in read(db, f"PRAGMA table_info({table})")]
+    aliases = COLUMN_KEYS.get(table, {})
+    named = ", ".join(f"{c} AS {aliases.get(c, c)}" for c in columns)
+    return sorted(tuple(row.values())
+                  for row in db.select(f"SELECT {named} FROM {table}"))

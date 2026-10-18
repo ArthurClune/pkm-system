@@ -156,7 +156,12 @@ def unlink_stale(text: str, titles: Collection[str]) -> str:
 def inline_refs(text: str, copies: Mapping[BlockUid, str]) -> str:
     """Each `((uid))` with a copy becomes that copy, in one pass: a copy's
     own refs are not rescanned."""
-    return _BLOCK_REF.sub(lambda m: copies.get(uid_of(m.group(1)), m.group(0)), text)
+    def copy_of(m: re.Match[str]) -> str:
+        # `_BLOCK_REF` is wider than a uid: only a uid-shaped ref has a copy.
+        ref = m.group(1)
+        return copies[uid_of(ref)] if UID_RE.fullmatch(ref) and uid_of(ref) in copies else m.group(0)
+
+    return _BLOCK_REF.sub(copy_of, text)
 
 
 def _plain_copy(text: str) -> str:

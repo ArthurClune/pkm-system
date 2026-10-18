@@ -43,3 +43,6 @@ export function ownSubtype(x: Set<BlockUid | string>): x is TaggedSet<BlockUid> 
 export function numericKey(x: string | { 0: BlockUid }): x is { 0: BlockUid } {
   return typeof x !== "string";
 }
+export function optionalUid(x: { a: 1 }): x is { a: 1; uid?: BlockUid } {
+  return x.a === 1;
+}

@@ -261,7 +261,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-predicate-launder.ts",
     rule: "brands/no-brand-assertion",
-    count: 11,
+    count: 12,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       'type Op = { op: "insert"; uid: BlockUid } | { op: "note"; n: 1 };\n' +
@@ -317,12 +317,17 @@ const cases: readonly FixtureCase[] = [
       "  x: ReadonlyMap<BlockUid, number> | null,\n" +
       "): x is Index<BlockUid, number> {\n" +
       "  return x instanceof Index;\n" +
+      "}\n" +
+      "export function counted(\n" +
+      "  x: { uid: BlockUid },\n" +
+      "): x is { uid: BlockUid; n?: number } {\n" +
+      "  return \"n\" in x;\n" +
       "}\n",
   },
   {
     file: "brand-overload.ts",
     rule: "brands/no-brand-assertion",
-    count: 9,
+    count: 10,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export function same(x: BlockUid): BlockUid;\n" +

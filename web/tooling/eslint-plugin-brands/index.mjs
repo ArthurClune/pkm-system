@@ -407,7 +407,8 @@ function elementOf(checker, type) {
 
 // The brands a value typed `from` gains by being believed to be `to` (a
 // type predicate's narrowing, an overload's return). None where `from`
-// already fits `to`. Otherwise each position of `to` is compared with the
+// already fits `to` and backs every branded position of it (`unbacked`).
+// Otherwise each position of `to` is compared with the
 // matching position of `from`: an array or tuple element with `from`'s
 // element, a reference's type arguments with those of the same generic
 // type or of a lib type of the same arity (`ReadonlySet` to `Set`,
@@ -430,7 +431,11 @@ function mintedBrands(checker, from, to, seen = new Map()) {
     }
     return minted;
   }
-  if (checker.isTypeAssignableTo(from, to)) return minted;
+  // A `from` that fits `to` gains nothing, unless `any` or an undeclared
+  // position (`{ a: 1 }` believed to be `{ a: 1; uid?: BlockUid }`) lets
+  // it fit: then the positions below say which brands it gains.
+  if (checker.isTypeAssignableTo(from, to) && !cachedHasAny(checker, from)
+    && !unbacked(checker, from, to)) return minted;
   if (from.flags & ts.TypeFlags.TypeParameter) {
     const constraint = checker.getBaseConstraintOfType(from);
     return mintedBrands(checker, constraint ?? checker.getUnknownType(), to, seen);

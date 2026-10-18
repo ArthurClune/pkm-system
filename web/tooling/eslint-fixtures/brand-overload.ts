@@ -38,3 +38,7 @@ export function tagged(s: string): Promise<BlockUid> & { t: 1 };
 export function tagged(s: string): Promise<string> & { t: 1 } {
   return Object.assign(Promise.resolve(s), { t: 1 as const });
 }
+export function widened(s: { a: 1 }): { a: 1; uid?: BlockUid };
+export function widened(s: { a: 1 }): { a: 1 } {
+  return s;
+}

@@ -246,12 +246,14 @@ TEST_HELPERS: dict[str, str] = {
 
 # Brands whose deliberately bad values a negative test forges through
 # `malformed_<stem>` / `malformed<Stem>`: unchecked, and spelled so the test
-# says on its face that the value is forged. A forger is added when a
-# negative test needs one (a shape, or an integer brand's "an integer").
+# says on its face that the value is forged. A forger exists for each brand
+# a negative test needs, accepting null where the test needs a missing value;
+# an integer brand's shape is "an integer".
 MALFORMED: dict[str, str] = {
     "BlockUid": "uid",
     "Sha256Hex": "sha",
     "SyncSeq": "seq",
+    "CanonicalTitle": "canonical_title",
 }
 
 # Files that are tests by location (web `*.test.*` files are tests by

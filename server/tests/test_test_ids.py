@@ -54,6 +54,12 @@ def test_malformed_seq_returns_the_value_unchecked():
     assert ids.malformed_seq(1.5) == 1.5  # pyrefly: ignore[bad-argument-type]
 
 
+def test_malformed_helpers_pass_none_through():
+    assert ids.malformed_uid(None) is None  # pyrefly: ignore[bad-return]
+    assert ids.malformed_canonical_title(None) is None  # pyrefly: ignore[bad-return]
+    assert ids.malformed_seq(None) is None  # pyrefly: ignore[bad-return]
+
+
 def test_every_shaped_brand_has_a_malformed_helper():
     shaped = {brand for brand, (_, pattern) in SHAPES.items() if pattern is not None}
     assert shaped <= set(MALFORMED)

@@ -7,7 +7,8 @@ have produced. A short tag becomes a uid by prefixing `tuid-`
 (`uid_of("tuid-a")`).
 
 A negative test forges a bad value through `malformed_uid`,
-`malformed_sha` or `malformed_seq`, which return it unchecked. Product code
+`malformed_sha`, `malformed_seq` or `malformed_canonical_title`, which
+return it unchecked (None where a test needs a missing value). Product code
 may not import this module; the brand lint reports it."""
 from __future__ import annotations
 
@@ -101,13 +102,17 @@ def canonical_query_node_of(value: QueryNode) -> CanonicalQueryNode:
     return CanonicalQueryNode(value)
 
 
-def malformed_uid(value: str) -> BlockUid:
-    return BlockUid(value)
+def malformed_uid(value: str | None) -> BlockUid:
+    return BlockUid(value)  # pyrefly: ignore[bad-argument-type]
 
 
 def malformed_sha(value: str) -> Sha256Hex:
     return Sha256Hex(value)
 
 
-def malformed_seq(value: int) -> SyncSeq:
-    return SyncSeq(value)
+def malformed_seq(value: int | None) -> SyncSeq:
+    return SyncSeq(value)  # pyrefly: ignore[bad-argument-type]
+
+
+def malformed_canonical_title(value: str | None) -> CanonicalTitle:
+    return CanonicalTitle(value)  # pyrefly: ignore[bad-argument-type]

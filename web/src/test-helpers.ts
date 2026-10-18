@@ -19,9 +19,9 @@ import type { TicketId, WriteTicket } from "./sync/opQueue";
 // throws unless the value fits the brand's shape (BRAND_SHAPES) or base
 // type, so a fixture value is always one the product could have produced:
 // a short tag becomes a uid as `tuid-<tag>` (`uidOf("tuid-a")`). A negative
-// test forges a bad value with `malformedUid` or `malformedSha`, which
-// return it unchecked. Product code may not import this module (the lint's
-// no-restricted-imports).
+// test forges a bad value with `malformedUid`, `malformedSha`, `malformedSeq`
+// or `malformedCanonicalTitle`, which return it unchecked. Product code may
+// not import this module (the lint's no-restricted-imports).
 
 // The base type of the web's own brands, which the server's BRAND_SHAPES
 // does not list.
@@ -139,11 +139,15 @@ export function parkedTitleOf(value: string): ParkedTitle {
 }
 
 /** A deliberately bad uid for a negative test, unchecked. */
-export function malformedUid(value: string): BlockUid { return value as BlockUid; }
+export function malformedUid(value: string | null): BlockUid { return value as BlockUid; }
 /** A deliberately bad digest for a negative test, unchecked. */
 export function malformedSha(value: string): Sha256Hex { return value as Sha256Hex; }
 /** A deliberately bad seq (NaN, a float) for a negative test, unchecked. */
-export function malformedSeq(value: number): SyncSeq { return value as SyncSeq; }
+export function malformedSeq(value: number | null): SyncSeq { return value as SyncSeq; }
+/** A deliberately bad title (null: a missing one) for a negative test. */
+export function malformedCanonicalTitle(value: string | null): CanonicalTitle {
+  return value as CanonicalTitle;
+}
 
 /** Hold the outline editor for `title` so a test's own mount cannot win the
  * lease, and return the release. Sessions are global to the module, so the

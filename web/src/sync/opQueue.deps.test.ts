@@ -8,12 +8,12 @@ import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { OpsAck, OpBatch } from "../api/payloads";
 import type { PendingRowId } from "../replica/client";
-import { uid } from "../test-helpers";
+import { uidOf } from "../test-helpers";
 import { memReplica } from "./memReplica";
 import { createOpQueue, type PoisonIntentStore } from "./opQueue";
 import type { PoisonEvent } from "./poisonIntents";
 
-const op = (rawUid: string): BlockOp => ({ op: "delete", uid: uid(rawUid) });
+const op = (rawUid: string): BlockOp => ({ op: "delete", uid: uidOf(rawUid) });
 const ack = (): OpsAck => ({
   applied: true, seq: 1 as SyncSeq,
 } as unknown as OpsAck);

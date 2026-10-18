@@ -12,12 +12,12 @@ import { serveRpc, toPortLike } from "../replica/rpc";
 import { openRawTestDb } from "../replica/testDb";
 import { buildHandlers } from "../replica/workerHandlers";
 import { createReplicaSync } from "./replicaSync";
-import { ord, pageId, title, uid } from "../test-helpers";
+import { orderIdxOf, pageIdOf, canonicalTitleOf, uidOf } from "../test-helpers";
 
 const BEFORE: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: (5 as SyncSeq),
-  pages: [{ id: pageId(1), title: title("AI"), created_at: 1, updated_at: 1 }],
-  blocks: [{ uid: uid("uid_b1"), page_id: pageId(1), parent_uid: null, order_idx: ord(0),
+  pages: [{ id: pageIdOf(1), title: canonicalTitleOf("AI"), created_at: 1, updated_at: 1 }],
+  blocks: [{ uid: uidOf("uid_b1"), page_id: pageIdOf(1), parent_uid: null, order_idx: orderIdxOf(0),
     text: "hello", heading: null, view_type: null, collapsed: 0,
     created_at: 1, updated_at: 1, refs: [] }],
   sidebar: [],
@@ -65,7 +65,7 @@ test("a batch the recovery flush got an ack for is not replayed over the snapsho
   await replica.init();
   await replica.applySnapshot(BEFORE);
   await replica.enqueue(
-    [{ op: "update_text", uid: uid("uid_b1"), text: "[[Old]] edited" }], "b-rename" as BatchId);
+    [{ op: "update_text", uid: uidOf("uid_b1"), text: "[[Old]] edited" }], "b-rename" as BatchId);
 
   await sync.start();
   expect(posted).toEqual(["b-rename"]);

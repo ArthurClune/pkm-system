@@ -7,7 +7,7 @@ import type {
   DroppedBatch, PendingBatch, PendingRowId, Replica, ReplicaInit, SnapshotApplyResult,
 } from "../replica/client";
 import { ReplicaError, ReplicaUnusableError } from "../replica/errors";
-import { uid } from "../test-helpers";
+import { uidOf } from "../test-helpers";
 import {
   createReplicaSync, PENDING_CHANGED_CAP, PENDING_IDS_CAP, ResetBlockedError, RETRY_BASE_MS,
   RETRY_MAX_MS, STALL_AFTER_FAILURES, WINDOW_STRIKES, type ReplicaState,
@@ -359,11 +359,11 @@ describe("poison recovery ownership", () => {
 
   test("poison owns recovery when a held feed needs bootstrap through failure and retry", async () => {
     const poisoned: PendingBatch = {
-      id: (1 as PendingRowId), batch_id: bid("poisoned"), ops: [{ op: "delete", uid: uid("uid_bad") }],
+      id: (1 as PendingRowId), batch_id: bid("poisoned"), ops: [{ op: "delete", uid: uidOf("uid_bad") }],
       poisoned: true,
     };
     const later: PendingBatch = {
-      id: (2 as PendingRowId), batch_id: bid("later-valid"), ops: [{ op: "delete", uid: uid("uid_good") }],
+      id: (2 as PendingRowId), batch_id: bid("later-valid"), ops: [{ op: "delete", uid: uidOf("uid_good") }],
       poisoned: false,
     };
     let applyCall = 0;
@@ -448,9 +448,9 @@ describe("poison recovery ownership", () => {
 
   test("poison preempts a normal recovery lease before its stale flush starts", async () => {
     const staleLease: PendingBatch[] = [
-      { id: (1 as PendingRowId), batch_id: bid("rejected"), ops: [{ op: "delete", uid: uid("uid_bad") }],
+      { id: (1 as PendingRowId), batch_id: bid("rejected"), ops: [{ op: "delete", uid: uidOf("uid_bad") }],
         poisoned: false },
-      { id: (2 as PendingRowId), batch_id: bid("later-valid"), ops: [{ op: "delete", uid: uid("uid_good") }],
+      { id: (2 as PendingRowId), batch_id: bid("later-valid"), ops: [{ op: "delete", uid: uidOf("uid_good") }],
         poisoned: false },
     ];
     let applyCall = 0;
@@ -585,11 +585,12 @@ describe("recovery flushes and the shared coordinator", () => {
         {
           id: (1 as PendingRowId),
           batch_id: bid("b-1"),
-          ops: [{ op: "delete", uid: uid("uid_a1") }],
+          ops: [{ op: "delete", uid: uidOf("uid_a1") }],
           poisoned: false,
           seen_seq: (4 as SyncSeq),
         },
-        { id: (2 as PendingRowId), batch_id: bid("b-2"), ops: [{ op: "delete", uid: uid("uid_a2") }], poisoned: false },
+        { id: (2 as PendingRowId), batch_id: bid("b-2"),
+          ops: [{ op: "delete", uid: uidOf("uid_a2") }], poisoned: false },
       ],
     });
     const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
@@ -608,9 +609,12 @@ describe("recovery flushes and the shared coordinator", () => {
     const replica = fakeReplica({}, {
       schemaMismatch: true,
       pendingBatches: [
-        { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uid("uid_a1") }], poisoned: false },
-        { id: (2 as PendingRowId), batch_id: bid("b-2"), ops: [{ op: "delete", uid: uid("uid_a2") }], poisoned: true },
-        { id: (3 as PendingRowId), batch_id: bid("b-3"), ops: [{ op: "delete", uid: uid("uid_a3") }], poisoned: false },
+        { id: (1 as PendingRowId), batch_id: bid("b-1"),
+          ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
+        { id: (2 as PendingRowId), batch_id: bid("b-2"),
+          ops: [{ op: "delete", uid: uidOf("uid_a2") }], poisoned: true },
+        { id: (3 as PendingRowId), batch_id: bid("b-3"),
+          ops: [{ op: "delete", uid: uidOf("uid_a3") }], poisoned: false },
       ],
     });
     const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
@@ -637,8 +641,8 @@ describe("recovery flushes and the shared coordinator", () => {
     // queue's own contract for deliverLaneAhead is tested at the opQueue level.
     const trace: string[] = [];
     const batches: PendingBatch[] = [
-      { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uid("uid_a1") }], poisoned: false },
-      { id: (2 as PendingRowId), batch_id: bid("b-2"), ops: [{ op: "delete", uid: uid("uid_a2") }], poisoned: false },
+      { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
+      { id: (2 as PendingRowId), batch_id: bid("b-2"), ops: [{ op: "delete", uid: uidOf("uid_a2") }], poisoned: false },
     ];
     const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
     const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
@@ -675,7 +679,7 @@ describe("recovery flushes and the shared coordinator", () => {
   async () => {
     const batches: PendingBatch[] = [
       { id: (1 as PendingRowId), batch_id: bid("b-1"),
-       ops: [{ op: "update_text", uid: uid("uid_a1"), text: "x" }], poisoned: false },
+       ops: [{ op: "update_text", uid: uidOf("uid_a1"), text: "x" }], poisoned: false },
     ];
     const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
     const fetchJson = vi.fn(async (path: string) => {
@@ -700,7 +704,7 @@ describe("recovery flushes and the shared coordinator", () => {
   test("a recovery flush whose ack names no skipped op does not call onSkipped",
   async () => {
     const batches: PendingBatch[] = [
-      { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uid("uid_a1") }], poisoned: false },
+      { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
     ];
     const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
     const fetchJson = vi.fn(async (path: string) => {
@@ -722,7 +726,8 @@ describe("recovery flushes and the shared coordinator", () => {
     const replica = fakeReplica({}, {
       schemaMismatch: true,
       pendingBatches: [
-        { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uid("uid_a1") }], poisoned: false },
+        { id: (1 as PendingRowId), batch_id: bid("b-1"),
+          ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
       ],
     });
     const fetchJson = vi.fn(async (path: string) => {
@@ -742,7 +747,8 @@ describe("recovery flushes and the shared coordinator", () => {
     const replica = fakeReplica({}, {
       schemaMismatch: true,
       pendingBatches: [
-        { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uid("uid_a1") }], poisoned: false },
+        { id: (1 as PendingRowId), batch_id: bid("b-1"),
+          ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
       ],
     });
     const fetchJson = vi.fn(async (path: string) => {
@@ -765,7 +771,7 @@ describe("recovery flushes and the shared coordinator", () => {
   test("a failed feed-rebootstrap flush aborts through the shared coordinator", async () => {
     const batch: PendingBatch = {
       id: (8 as PendingRowId), batch_id: bid("b-8"),
-      ops: [{ op: "delete", uid: uid("uid_a8") }], poisoned: false,
+      ops: [{ op: "delete", uid: uidOf("uid_a8") }], poisoned: false,
     };
     const replica = fakeReplica({
       applyChanges: vi.fn().mockResolvedValueOnce({ status: "needs-bootstrap" }),
@@ -790,8 +796,8 @@ describe("recovery flushes and the shared coordinator", () => {
   test("schema recovery follows the queue/lease/flush/snapshot/commit trace", async () => {
     const trace: string[] = [];
     const batches: PendingBatch[] = [
-      { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uid("uid_a1") }], poisoned: false },
-      { id: (2 as PendingRowId), batch_id: bid("b-2"), ops: [{ op: "delete", uid: uid("uid_a2") }], poisoned: false },
+      { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
+      { id: (2 as PendingRowId), batch_id: bid("b-2"), ops: [{ op: "delete", uid: uidOf("uid_a2") }], poisoned: false },
     ];
     const replica = fakeReplica({
       prepareRecovery: async () => {
@@ -844,7 +850,7 @@ describe("recovery flushes and the shared coordinator", () => {
   test("feed rebootstrap uses the same recovery coordinator trace", async () => {
     const trace: string[] = [];
     const batches: PendingBatch[] = [
-      { id: (4 as PendingRowId), batch_id: bid("b-4"), ops: [{ op: "delete", uid: uid("uid_a4") }], poisoned: false },
+      { id: (4 as PendingRowId), batch_id: bid("b-4"), ops: [{ op: "delete", uid: uidOf("uid_a4") }], poisoned: false },
     ];
     const replica = fakeReplica({
       applyChanges: vi.fn().mockResolvedValueOnce({ status: "needs-bootstrap" }),
@@ -896,7 +902,7 @@ describe("recovery flushes and the shared coordinator", () => {
   test("a final durable-row mismatch aborts, retains the database, and reports recovery-failed", async () => {
     const trace: string[] = [];
     const batches: PendingBatch[] = [
-      { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uid("uid_a1") }], poisoned: false },
+      { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
     ];
     const replica = fakeReplica({
       prepareRecovery: async () => {
@@ -1337,7 +1343,7 @@ describe("pull retries and the stall report", () => {
 describe("resetLocalData", () => {
   test("resetLocalData flushes, resets and bootstraps", async () => {
     const batch: PendingBatch = {
-      id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uid("uid_a1") }], poisoned: false,
+      id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false,
     };
     const posted: string[] = [];
     const commitRecovery = vi.fn(async (_token: string, input) => {
@@ -1368,7 +1374,7 @@ describe("resetLocalData", () => {
 
   test("resetLocalData without discardPending surfaces a blocked reset when flush fails", async () => {
     const batch: PendingBatch = {
-      id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uid("uid_a1") }], poisoned: false,
+      id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false,
     };
     const replica = fakeReplica({
       prepareRecovery: async () => ({ token: "lease-reset", batches: [batch] }),
@@ -1414,7 +1420,7 @@ describe("resetLocalData", () => {
     // early, `started` never gets set, and the replica is left recovery-failed
     // with pulls permanently no-op'd until something re-enables them.
     const batch: PendingBatch = {
-      id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uid("uid_a1") }], poisoned: false,
+      id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false,
     };
     const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: [batch] });
     let snapshotShouldFail = true;
@@ -1449,7 +1455,7 @@ describe("resetLocalData", () => {
     // needs-bootstrap recovery failed); a reset must still force-report ready
     // rather than rely on a previously-reported stall to unlock it.
     const batch: PendingBatch = {
-      id: (8 as PendingRowId), batch_id: bid("b-8"), ops: [{ op: "delete", uid: uid("uid_a8") }], poisoned: false,
+      id: (8 as PendingRowId), batch_id: bid("b-8"), ops: [{ op: "delete", uid: uidOf("uid_a8") }], poisoned: false,
     };
     const replica = fakeReplica({
       applyChanges: vi.fn().mockResolvedValueOnce({ status: "needs-bootstrap" }),
@@ -1536,9 +1542,9 @@ describe("resetLocalData", () => {
   test("resetLocalData follows the shared queue/lease/flush/snapshot/commit trace", async () => {
     const trace: string[] = [];
     const batches: PendingBatch[] = [
-      { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uid("uid_a1") }], poisoned: false },
-      { id: (2 as PendingRowId), batch_id: bid("b-2"), ops: [{ op: "delete", uid: uid("uid_a2") }], poisoned: true },
-      { id: (3 as PendingRowId), batch_id: bid("b-3"), ops: [{ op: "delete", uid: uid("uid_a3") }], poisoned: false },
+      { id: (1 as PendingRowId), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
+      { id: (2 as PendingRowId), batch_id: bid("b-2"), ops: [{ op: "delete", uid: uidOf("uid_a2") }], poisoned: true },
+      { id: (3 as PendingRowId), batch_id: bid("b-3"), ops: [{ op: "delete", uid: uidOf("uid_a3") }], poisoned: false },
     ];
     const replica = fakeReplica({
       prepareRecovery: async () => {
@@ -2166,7 +2172,7 @@ describe("window strikes", () => {
 describe("acks held across a flush and rebase", () => {
   const leased = (id: number, poisoned = false): PendingBatch => ({
     id: id as PendingRowId, batch_id: bid(`b-${id}`),
-    ops: [{ op: "delete", uid: uid(`uid_${id}`) }], poisoned,
+    ops: [{ op: "delete", uid: uidOf(`tuid-uid_${id}`) }], poisoned,
   });
   const batchIdOf = (init?: RequestInit): string =>
     (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
@@ -2307,13 +2313,13 @@ describe("acks held across a flush and rebase", () => {
 describe("pending batches a payload already holds", () => {
   const row = (id: number, poisoned = false): PendingBatch => ({
     id: id as PendingRowId, batch_id: bid(`b-${id}`),
-    ops: [{ op: "delete", uid: uid(`uid_${id}`) }], poisoned,
+    ops: [{ op: "delete", uid: uidOf(`tuid-uid_${id}`) }], poisoned,
   });
   const dropped = (id: number, skipped: SkippedOp[] = []): DroppedBatch => ({
     id: id as PendingRowId, batch_id: bid(`b-${id}`), seq: 9 as SyncSeq, skipped,
   });
   const SKIP: SkippedOp = {
-    index: 0, op: "delete", uid: uid("uid_1"), reason: "block_not_found",
+    index: 0, op: "delete", uid: uidOf("tuid-uid_1"), reason: "block_not_found",
     note_page: null,
   };
   const queueSpy = () => ({

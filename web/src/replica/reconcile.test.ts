@@ -11,7 +11,7 @@ import { setMeta } from "./meta";
 import { deleteBatch, enqueueBatch, nextBatch } from "./queue";
 import { remapLocalPage } from "./reconcile";
 import { openTestDb, type TestDb } from "./testDb";
-import { ord, pageId, title, uid } from "../test-helpers";
+import { orderIdxOf, pageIdOf, canonicalTitleOf, uidOf } from "../test-helpers";
 
 let t: TestDb;
 let negId: number;
@@ -24,10 +24,10 @@ beforeEach(async () => {
   // offline, still pending: create a page implicitly (via a link) and
   // explicitly add a block
   enqueueBatch(t.db, [
-    { op: "create", uid: uid("uid_l1"), page_title: "Offline Page", parent_uid: null,
-      order_idx: ord(0), text: "links back to [[AI]]" },
-    { op: "create", uid: uid("uid_l2"), page_title: "Offline Page", parent_uid: uid("uid_l1"),
-      order_idx: ord(0), text: "a child" },
+    { op: "create", uid: uidOf("uid_l1"), page_title: "Offline Page", parent_uid: null,
+      order_idx: orderIdxOf(0), text: "links back to [[AI]]" },
+    { op: "create", uid: uidOf("uid_l2"), page_title: "Offline Page", parent_uid: uidOf("uid_l1"),
+      order_idx: orderIdxOf(0), text: "a child" },
   ], 50, "t" as BatchId);
   negId = (t.db.introspect(
     "SELECT id FROM pages WHERE title = 'Offline Page'") as { id: number }[])[0].id;
@@ -54,7 +54,7 @@ describe("reconcile on feed page delivery", () => {
     t.db.exec("INSERT INTO refs VALUES ('uid_a1', ?, 'link')", [negId]);
 
     applyChanges(t.db, feed({
-      pages: [{ id: pageId(7), title: title("Offline Page"), created_at: 9, updated_at: 9 }],
+      pages: [{ id: pageIdOf(7), title: canonicalTitleOf("Offline Page"), created_at: 9, updated_at: 9 }],
     }));
     // negative row replaced by the authoritative one
     expect(t.db.introspect("SELECT id FROM pages WHERE title = 'Offline Page'"))
@@ -76,7 +76,7 @@ describe("reconcile on feed page delivery", () => {
     t.db.exec("INSERT INTO refs VALUES ('uid_a1', 7, 'link')");
     t.db.exec("INSERT INTO refs VALUES ('uid_a1', ?, 'link')", [negId]);
     applyChanges(t.db, feed({
-      pages: [{ id: pageId(7), title: title("Offline Page"), created_at: 9, updated_at: 9 }],
+      pages: [{ id: pageIdOf(7), title: canonicalTitleOf("Offline Page"), created_at: 9, updated_at: 9 }],
     }));
     expect(t.db.select(
       "SELECT COUNT(*) AS n FROM refs WHERE src_block_uid = 'uid_a1'" +
@@ -85,7 +85,7 @@ describe("reconcile on feed page delivery", () => {
 
   test("positive-id pages upsert without reconcile side effects", () => {
     applyChanges(t.db, feed({
-      pages: [{ id: pageId(1), title: title("AI"), created_at: 2, updated_at: 2 }],
+      pages: [{ id: pageIdOf(1), title: canonicalTitleOf("AI"), created_at: 2, updated_at: 2 }],
     }));
     expect(t.db.select("SELECT COUNT(*) AS n FROM pages WHERE id < 0"))
       .toEqual([{ n: 1 }]); // untouched offline page still negative
@@ -101,7 +101,7 @@ describe("reconcile on feed page delivery", () => {
     // since it moves rows onto the target id before that row exists.
     t.db.transaction(() => {
       t.db.exec("PRAGMA defer_foreign_keys = ON");
-      remapLocalPage(t.db, { localId: pageId(negId), targetId: pageId(7) });
+      remapLocalPage(t.db, { localId: pageIdOf(negId), targetId: pageIdOf(7) });
       t.db.exec("INSERT INTO pages(id, title) VALUES (7, 'Offline Page')");
     });
 
@@ -119,11 +119,11 @@ describe("reconcile on feed page delivery", () => {
     ackNext();
     // a ref to the local page by hand, so u's record of uid_l2 holds one
     t.db.exec("INSERT INTO refs VALUES ('uid_l2', ?, 'link')", [negId]);
-    applyLocalOps(t.db, [{ op: "update_text", uid: uid("uid_l2"), text: "edited" }],
+    applyLocalOps(t.db, [{ op: "update_text", uid: uidOf("uid_l2"), text: "edited" }],
                   60, { batchId: "u" as BatchId });
     t.db.transaction(() => {
       t.db.exec("PRAGMA defer_foreign_keys = ON");
-      remapLocalPage(t.db, { localId: pageId(negId), targetId: pageId(7) });
+      remapLocalPage(t.db, { localId: pageIdOf(negId), targetId: pageIdOf(7) });
       t.db.exec("INSERT INTO pages(id, title) VALUES (7, 'Offline Page')");
     });
 
@@ -150,14 +150,14 @@ describe("reconcile on feed page delivery", () => {
     // batch's records already gone), which a later acked batch moves away
     t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
               " VALUES ('tuid-s', ?, NULL, 1, 'kept')", [negId]);
-    applyLocalOps(t.db, [{ op: "move", uid: uid("tuid-s"), parent_uid: null,
-                           order_idx: ord(0), page_title: "AI" }],
+    applyLocalOps(t.db, [{ op: "move", uid: uidOf("tuid-s"), parent_uid: null,
+                           order_idx: orderIdxOf(0), page_title: "AI" }],
                   60, { batchId: "u" as BatchId });
 
     // the server's page for the title arrives short of the head
     applyChanges(t.db, feed({
       next_since: 11 as SyncSeq, latest_seq: 12 as SyncSeq,
-      pages: [{ id: pageId(7), title: title("Offline Page"), created_at: 9, updated_at: 9 }],
+      pages: [{ id: pageIdOf(7), title: canonicalTitleOf("Offline Page"), created_at: 9, updated_at: 9 }],
     }));
     expect(applyChanges(t.db, feed({ next_since: 12 as SyncSeq, latest_seq: 12 as SyncSeq })))
       .toEqual({ status: "applied", cursor: 12 });
@@ -170,8 +170,8 @@ describe("reconcile on feed page delivery", () => {
     const now = new Date(2026, 0, 15, 12).getTime();
     const daily = titleForDate(new Date(now));
     const local = getOrCreateLocalPage(t.db, daily, now); // a read, no record
-    enqueueBatch(t.db, [{ op: "create", uid: uid("uid_d1"), page_title: daily,
-                          parent_uid: null, order_idx: ord(0), text: "d" }],
+    enqueueBatch(t.db, [{ op: "create", uid: uidOf("uid_d1"), page_title: daily,
+                          parent_uid: null, order_idx: orderIdxOf(0), text: "d" }],
                  now, "d" as BatchId);
     expect(t.db.introspect("SELECT key FROM replay_log WHERE batch_id = 'd' AND kind = 'page'"))
       .toEqual([{ key: String(local) }]);
@@ -181,9 +181,9 @@ describe("reconcile on feed page delivery", () => {
     // the server's daily page and the block arrive short of the head
     applyChanges(t.db, feed({
       next_since: 11 as SyncSeq, latest_seq: 12 as SyncSeq,
-      pages: [{ id: pageId(8), title: title(daily), created_at: 9, updated_at: 99 }],
-      blocks: [{ uid: uid("uid_d1"), page_id: pageId(8), parent_uid: null,
-                 order_idx: ord(0), text: "d", heading: null, view_type: null,
+      pages: [{ id: pageIdOf(8), title: canonicalTitleOf(daily), created_at: 9, updated_at: 99 }],
+      blocks: [{ uid: uidOf("uid_d1"), page_id: pageIdOf(8), parent_uid: null,
+                 order_idx: orderIdxOf(0), text: "d", heading: null, view_type: null,
                  collapsed: 0, created_at: now, updated_at: now, refs: [] }],
     }), now);
     applyChanges(t.db, feed({ next_since: 12 as SyncSeq, latest_seq: 12 as SyncSeq }), now);

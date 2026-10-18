@@ -10,7 +10,7 @@ import { getMeta, setMeta } from "./meta";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
 import type { ReplicaDb } from "./db";
-import { entryId, ord, pageId, sidebarOrd, title, uid } from "../test-helpers";
+import { sidebarEntryIdOf, orderIdxOf, pageIdOf, sidebarOrderIdxOf, canonicalTitleOf, uidOf } from "../test-helpers";
 
 // Tests that provoke a failure path on purpose spy on console.warn and assert
 // the line applyChanges or the engine (via testDb.ts) logs for it.
@@ -30,7 +30,7 @@ const ackNext = (db: ReplicaDb): void => {
 };
 
 const block = (rawUid: string, rawPageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid: rawUid as BlockUid, page_id: rawPageId as PageId, parent_uid: null, order_idx: ord(0),
+  uid: rawUid as BlockUid, page_id: rawPageId as PageId, parent_uid: null, order_idx: orderIdxOf(0),
   text: `text of ${rawUid}`,
   heading: null, view_type: null, collapsed: 0, created_at: 1, updated_at: 1,
   refs: [], ...over,
@@ -44,11 +44,11 @@ const SNAP: Snapshot = {
   seq: 10 as SyncSeq,
   pages: [page(1, "Machine Learning"), page(2, "AI")],
   blocks: [
-    block("uid_b1", 1, { text: "links [[AI]]", refs: [{ target_page_id: pageId(2), kind: "link" }] }),
-    block("uid_b2", 1, { order_idx: ord(1) }),
-    block("uid_b3", 1, { parent_uid: uid("uid_b2"), text: "child block searchable" }),
+    block("uid_b1", 1, { text: "links [[AI]]", refs: [{ target_page_id: pageIdOf(2), kind: "link" }] }),
+    block("uid_b2", 1, { order_idx: orderIdxOf(1) }),
+    block("uid_b3", 1, { parent_uid: uidOf("uid_b2"), text: "child block searchable" }),
   ],
-  sidebar: [{ id: entryId(1), title: title("AI"), order_idx: sidebarOrd(0) }],
+  sidebar: [{ id: sidebarEntryIdOf(1), title: canonicalTitleOf("AI"), order_idx: sidebarOrderIdxOf(0) }],
 };
 
 // `next_since`/`latest_seq` take a plain number here, not SyncSeq: every
@@ -82,7 +82,8 @@ describe("applySnapshot", () => {
       ...SNAP,
       pages: [page(30, "Authoritative #Page")],
       blocks: [],
-      sidebar: [{ id: entryId(30), title: title("Authoritative #Page"), order_idx: sidebarOrd(0) }],
+      sidebar: [{ id: sidebarEntryIdOf(30), title: canonicalTitleOf("Authoritative #Page"),
+                  order_idx: sidebarOrderIdxOf(0) }],
     });
 
     expect(t.db.introspect("SELECT id, title FROM pages")).toEqual([
@@ -127,8 +128,8 @@ describe("applySnapshot", () => {
     // pre-snapshot database and sit in pending_ops. The wipe must not lose
     // that state, or later ops on those blocks throw "block not found".
     enqueueBatch(t.db, [
-      { op: "create", uid: uid("uid_opt"), page_title: "Machine Learning",
-        parent_uid: null, order_idx: ord(0), text: "typed during bootstrap" },
+      { op: "create", uid: uidOf("uid_opt"), page_title: "Machine Learning",
+        parent_uid: null, order_idx: orderIdxOf(0), text: "typed during bootstrap" },
     ], 5, bid("batch-opt"));
     applySnapshot(t.db, SNAP, 6);
     expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_opt'"))
@@ -140,8 +141,8 @@ describe("applySnapshot", () => {
 
   test("a queued batch that no longer applies is skipped, not fatal", () => {
     enqueueBatch(t.db, [
-      { op: "create", uid: uid("uid_keep"), page_title: "AI",
-        parent_uid: null, order_idx: ord(0), text: "kept" },
+      { op: "create", uid: uidOf("uid_keep"), page_title: "AI",
+        parent_uid: null, order_idx: orderIdxOf(0), text: "kept" },
     ], 5, bid("batch-keep"));
     // references a block that exists now but is not in the snapshot and
     // is created by no queued batch: unappliable after the wipe
@@ -150,7 +151,7 @@ describe("applySnapshot", () => {
       " heading, collapsed, created_at, updated_at)" +
       " VALUES ('uid_gone_after_wipe', 1, NULL, 9, 'tuid-x', NULL, 0, 5, 5)");
     enqueueBatch(t.db, [
-      { op: "set_heading", uid: uid("uid_gone_after_wipe"), heading: 1 },
+      { op: "set_heading", uid: uidOf("uid_gone_after_wipe"), heading: 1 },
     ], 5, bid("batch-doomed"));
     applySnapshot(t.db, SNAP, 6);
     expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_keep'"))
@@ -164,16 +165,16 @@ describe("applySnapshot", () => {
 
   test("repair removes rejected text and structure without losing valid work", () => {
     enqueueBatch(t.db, [
-      { op: "update_text", uid: uid("uid_b1"), text: "rejected text" },
-      { op: "move", uid: uid("uid_b2"), page_title: "Machine Learning",
-        parent_uid: uid("uid_b1"), order_idx: ord(0) },
+      { op: "update_text", uid: uidOf("uid_b1"), text: "rejected text" },
+      { op: "move", uid: uidOf("uid_b2"), page_title: "Machine Learning",
+        parent_uid: uidOf("uid_b1"), order_idx: orderIdxOf(0) },
     ], 5, bid("batch-rejected"));
     const rejected = nextBatch(t.db)!;
     markPoisoned(t.db, rejected.id, JSON.stringify({
       status: 400, message: "request failed: 400 /api/ops",
     }), bid("batch-rejected"));
     enqueueBatch(t.db, [
-      { op: "set_heading", uid: uid("uid_b3"), heading: 2 },
+      { op: "set_heading", uid: uidOf("uid_b3"), heading: 2 },
     ], 5, bid("batch-valid"));
 
     applySnapshot(t.db, SNAP, 6);
@@ -191,7 +192,7 @@ describe("applySnapshot", () => {
     // the same block remains optimistic across both feeds and snapshots.
     deleteBatch(t.db, rejected.id, rejected.batch_id);
     enqueueBatch(t.db, [
-      { op: "update_text", uid: uid("uid_b1"), text: "later valid text" },
+      { op: "update_text", uid: uidOf("uid_b1"), text: "later valid text" },
     ], 7, bid("batch-later-valid"));
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
@@ -261,7 +262,8 @@ describe("applyChanges", () => {
       next_since: 11,
       latest_seq: 11,
       pages: [page(31, "Authoritative [[Feed]]")],
-      sidebar: [{ id: entryId(31), title: title("Authoritative [[Feed]]"), order_idx: sidebarOrd(0) }],
+      sidebar: [{ id: sidebarEntryIdOf(31), title: canonicalTitleOf("Authoritative [[Feed]]"),
+                  order_idx: sidebarOrderIdxOf(0) }],
     }))).toEqual({ status: "applied", cursor: 11 });
 
     expect(t.db.introspect("SELECT id, title FROM pages WHERE id = 31")).toEqual([
@@ -276,11 +278,11 @@ describe("applyChanges", () => {
       { op: "create_page", page_title: "  New Page Target  " },
     ], 5, bid("pending-create-page"));
     enqueueBatch(t.db, [
-      { op: "create", uid: uid("uid_pending1"), page_title: "  Created Block Target  ",
-        parent_uid: null, order_idx: ord(0), text: "pending create" },
+      { op: "create", uid: uidOf("uid_pending1"), page_title: "  Created Block Target  ",
+        parent_uid: null, order_idx: orderIdxOf(0), text: "pending create" },
     ], 5, bid("pending-create"));
     enqueueBatch(t.db, [
-      { op: "move", uid: uid("uid_b2"), parent_uid: null, order_idx: ord(0),
+      { op: "move", uid: uidOf("uid_b2"), parent_uid: null, order_idx: orderIdxOf(0),
         page_title: "  Moved Block Target  " },
     ], 5, bid("pending-move"));
 
@@ -364,7 +366,7 @@ describe("applyChanges", () => {
     // the visible text AND poison the next op's base_text_hash into a
     // spurious daily-note conflict header
     enqueueBatch(t.db, [
-      { op: "update_text", uid: uid("uid_b1"), text: "local newer text" },
+      { op: "update_text", uid: uidOf("uid_b1"), text: "local newer text" },
     ], 5, bid("b-opt"));
     applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12,
@@ -380,7 +382,7 @@ describe("applyChanges", () => {
       pages: [page(3, "Paper")],
       blocks: [block("uid_b9", 3, {
         text: "cites [[Machine Learning]]",
-        refs: [{ target_page_id: pageId(1), kind: "link" }],
+        refs: [{ target_page_id: pageIdOf(1), kind: "link" }],
       })],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 15 });
@@ -425,7 +427,7 @@ describe("applyChanges", () => {
     const feed = emptyFeed({
       next_since: 12, latest_seq: 12,
       blocks: [block("uid_b1", 1, {
-        text: "still [[AI]]", refs: [{ target_page_id: pageId(2), kind: "link" }] })],
+        text: "still [[AI]]", refs: [{ target_page_id: pageIdOf(2), kind: "link" }] })],
     });
     applyChanges(t.db, feed);
     applyChanges(t.db, feed);
@@ -480,7 +482,7 @@ describe("applyChanges", () => {
   test("parkTakenTitles/assertNoParkedTitles tie the parked ids to their own table", () => {
     // a title nothing holds: parks nothing, so assertNoParkedTitles is a no-op
     const parkedPages = parkTakenTitles(t.db, "pages",
-      [{ id: pageId(2), title: title("a title nothing holds") }]);
+      [{ id: pageIdOf(2), title: canonicalTitleOf("a title nothing holds") }]);
     assertNoParkedTitles(t.db, "pages", parkedPages);
     // @ts-expect-error a pages table's parked ids aren't a sidebar entry's
     assertNoParkedTitles(t.db, "sidebar_entries", parkedPages);
@@ -489,7 +491,7 @@ describe("applyChanges", () => {
   test("a title still parked once the upserts ran trips assertNoParkedTitles", () => {
     // page 3 arrives holding page 2's "AI": page 2 is parked, and nothing
     // in this (simulated) window gives it a real title back
-    const parked = parkTakenTitles(t.db, "pages", [{ id: pageId(3), title: title("AI") }]);
+    const parked = parkTakenTitles(t.db, "pages", [{ id: pageIdOf(3), title: canonicalTitleOf("AI") }]);
     expect(parked).toEqual([2]);
     expect(() => assertNoParkedTitles(t.db, "pages", parked))
       .toThrow(/pages rows 2 hold titles/);
@@ -515,8 +517,8 @@ describe("applyChanges", () => {
     const feed = emptyFeed({
       next_since: 14, latest_seq: 14,
       blocks: [
-        block("uid_kid1", 2, { parent_uid: uid("uid_mum1") }),
-        block("uid_mum1", 2, { order_idx: ord(3) }),
+        block("uid_kid1", 2, { parent_uid: uidOf("uid_mum1") }),
+        block("uid_mum1", 2, { order_idx: orderIdxOf(3) }),
       ],
     });
     expect(applyChanges(t.db, feed).status).toBe("applied");
@@ -588,8 +590,8 @@ describe("applyChanges: a title moving between ids inside one window", () => {
   test("an offline-created page taking an incoming title is remapped, not parked", () => {
     // Negative ids belong to reconcilePage (blocks and refs move onto the
     // authoritative row); parking one would break its title match.
-    enqueueBatch(t.db, [{ op: "create", uid: uid("uid_new1"), page_title: "New",
-                          parent_uid: null, order_idx: ord(0), text: "hi" }], 5, bid("batch-n"));
+    enqueueBatch(t.db, [{ op: "create", uid: uidOf("uid_new1"), page_title: "New",
+                          parent_uid: null, order_idx: orderIdxOf(0), text: "hi" }], 5, bid("batch-n"));
     expect(t.db.introspect("SELECT id FROM pages WHERE title = 'New'")).toEqual([{ id: -1 }]);
     const feed = emptyFeed({ next_since: 20, latest_seq: 20, pages: [page(9, "New")] });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
@@ -616,7 +618,7 @@ describe("applyChanges: a title moving between ids inside one window", () => {
   test("a sidebar entry deleted and re-created under a new id in one window", () => {
     const feed = emptyFeed({
       next_since: 20, latest_seq: 20,
-      sidebar: [{ id: entryId(7), title: title("AI"), order_idx: sidebarOrd(0) }],
+      sidebar: [{ id: sidebarEntryIdOf(7), title: canonicalTitleOf("AI"), order_idx: sidebarOrderIdxOf(0) }],
       tombstones: [{ kind: "sidebar", entity_id: "1" }],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
@@ -627,12 +629,15 @@ describe("applyChanges: a title moving between ids inside one window", () => {
   test("two sidebar entries swapping titles in one window", () => {
     applyChanges(t.db, emptyFeed({
       next_since: 15, latest_seq: 15,
-      sidebar: [{ id: entryId(2), title: title("Machine Learning"), order_idx: sidebarOrd(1) }],
+      sidebar: [{ id: sidebarEntryIdOf(2), title: canonicalTitleOf("Machine Learning"),
+                  order_idx: sidebarOrderIdxOf(1) }],
     }));
     const feed = emptyFeed({
       next_since: 20, latest_seq: 20,
-      sidebar: [{ id: entryId(1), title: title("Machine Learning"), order_idx: sidebarOrd(0) },
-                { id: entryId(2), title: title("AI"), order_idx: sidebarOrd(1) }],
+      sidebar: [{ id: sidebarEntryIdOf(1), title: canonicalTitleOf("Machine Learning"),
+                  order_idx: sidebarOrderIdxOf(0) },
+                { id: sidebarEntryIdOf(2), title: canonicalTitleOf("AI"),
+                  order_idx: sidebarOrderIdxOf(1) }],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
     expect(t.db.introspect("SELECT id, title FROM sidebar_entries ORDER BY id")).toEqual([
@@ -673,7 +678,7 @@ describe("applyChanges: a page id deleted and reused inside one window", () => {
       blocks: [
         block("uid_new", 2),
         block("uid_b1", 1, { text: "links [[Reborn]]",
-                             refs: [{ target_page_id: pageId(2), kind: "link" }] }),
+                             refs: [{ target_page_id: pageIdOf(2), kind: "link" }] }),
       ],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 12 });
@@ -712,11 +717,11 @@ describe("applyChanges: in one window, a block tombstone's cascade reaches only 
       next_since: 11, latest_seq: 11,
       pages: [page(3, "Doomed")],
       blocks: [
-        block("tuid-p", 1, { order_idx: ord(2) }),
-        block("tuid-c", 1, { parent_uid: uid("tuid-p") }),
-        block("tuid-g", 1, { parent_uid: uid("tuid-c"), text: "grandchild searchable" }),
+        block("tuid-p", 1, { order_idx: orderIdxOf(2) }),
+        block("tuid-c", 1, { parent_uid: uidOf("tuid-p") }),
+        block("tuid-g", 1, { parent_uid: uidOf("tuid-c"), text: "grandchild searchable" }),
         block("tuid-x", 3),
-        block("tuid-y", 3, { parent_uid: uid("tuid-x") }),
+        block("tuid-y", 3, { parent_uid: uidOf("tuid-x") }),
       ],
     }));
   });
@@ -725,7 +730,7 @@ describe("applyChanges: in one window, a block tombstone's cascade reaches only 
     const result = applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12,
       tombstones: [{ kind: "block", entity_id: "tuid-p" }],
-      blocks: [block("tuid-c", 1, { order_idx: ord(3) })],
+      blocks: [block("tuid-c", 1, { order_idx: orderIdxOf(3) })],
     }));
     expect(result).toEqual({ status: "applied", cursor: 12 });
     expect(tree().filter((r) => ["tuid-p", "tuid-c", "tuid-g"].includes(r.uid)))
@@ -742,8 +747,8 @@ describe("applyChanges: in one window, a block tombstone's cascade reaches only 
     const result = applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12,
       tombstones: [{ kind: "page", entity_id: "3" }],
-      blocks: [block("tuid-x", 1, { order_idx: ord(3) }),
-               block("tuid-y", 1, { parent_uid: uid("tuid-x") })],
+      blocks: [block("tuid-x", 1, { order_idx: orderIdxOf(3) }),
+               block("tuid-y", 1, { parent_uid: uidOf("tuid-x") })],
     }));
     expect(result).toEqual({ status: "applied", cursor: 12 });
     expect(tree().filter((r) => ["tuid-x", "tuid-y"].includes(r.uid))).toEqual([
@@ -775,7 +780,7 @@ describe("applyChanges: in one window, a block tombstone's cascade reaches only 
       next_since: 12, latest_seq: 12,
       tombstones: [{ kind: "page", entity_id: "3" }],
       pages: [page(4, "Doomed")],
-      blocks: [block("tuid-x", 4), block("tuid-y", 4, { parent_uid: uid("tuid-x") })],
+      blocks: [block("tuid-x", 4), block("tuid-y", 4, { parent_uid: uidOf("tuid-x") })],
     }));
     expect(result).toEqual({ status: "applied", cursor: 12 });
     expect(t.db.introspect("SELECT id FROM pages WHERE title = 'Doomed'"))
@@ -788,10 +793,10 @@ describe("applyChanges: in one window, a block tombstone's cascade reaches only 
 
   test("a pending create under the deleted parent goes; one under the moved-out child stays", () => {
     enqueueBatch(t.db, [
-      { op: "create", uid: uid("uid_ghost_p"), page_title: "Machine Learning",
-        parent_uid: uid("tuid-p"), order_idx: ord(1), text: "typed under p" },
-      { op: "create", uid: uid("uid_ghost_c"), page_title: "Machine Learning",
-        parent_uid: uid("tuid-c"), order_idx: ord(1), text: "typed under c" },
+      { op: "create", uid: uidOf("uid_ghost_p"), page_title: "Machine Learning",
+        parent_uid: uidOf("tuid-p"), order_idx: orderIdxOf(1), text: "typed under p" },
+      { op: "create", uid: uidOf("uid_ghost_c"), page_title: "Machine Learning",
+        parent_uid: uidOf("tuid-c"), order_idx: orderIdxOf(1), text: "typed under c" },
     ], 5, bid("batch-ghosts"));
     expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid LIKE 'uid_ghost_%'"))
       .toBe(2);
@@ -799,7 +804,7 @@ describe("applyChanges: in one window, a block tombstone's cascade reaches only 
     const result = applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12,
       tombstones: [{ kind: "block", entity_id: "tuid-p" }],
-      blocks: [block("tuid-c", 1, { order_idx: ord(3) })],
+      blocks: [block("tuid-c", 1, { order_idx: orderIdxOf(3) })],
     }), 6);
 
     expect(result).toEqual({ status: "applied", cursor: 12 });
@@ -836,10 +841,10 @@ describe("applyChanges: block tombstones wait for the window that reaches the jo
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
       blocks: [
-        block("uid_dd_d", 1, { order_idx: ord(2) }),
-        block("uid_dd_a", 1, { parent_uid: uid("uid_dd_d") }),
-        block("uid_dd_k", 1, { parent_uid: uid("uid_dd_a") }),
-        block("uid_dd_l", 1, { parent_uid: uid("uid_dd_k"), text: "leaf searchable" }),
+        block("uid_dd_d", 1, { order_idx: orderIdxOf(2) }),
+        block("uid_dd_a", 1, { parent_uid: uidOf("uid_dd_d") }),
+        block("uid_dd_k", 1, { parent_uid: uidOf("uid_dd_a") }),
+        block("uid_dd_l", 1, { parent_uid: uidOf("uid_dd_k"), text: "leaf searchable" }),
       ],
     }));
   });
@@ -848,7 +853,7 @@ describe("applyChanges: block tombstones wait for the window that reaches the jo
     expect(window(12)).toEqual({ status: "applied", cursor: 12 });
     expect(window(13, { tombstones: [tomb("uid_dd_d")] }))
       .toEqual({ status: "applied", cursor: 13 });
-    expect(window(14, { blocks: [block("uid_dd_k", 1, { order_idx: ord(3) })] }))
+    expect(window(14, { blocks: [block("uid_dd_k", 1, { order_idx: orderIdxOf(3) })] }))
       .toEqual({ status: "applied", cursor: 14 });
     expect(window(15, { tombstones: [tomb("uid_dd_a")] }))
       .toEqual({ status: "applied", cursor: 15 });
@@ -906,7 +911,7 @@ describe("applyChanges: block tombstones wait for the window that reaches the jo
     // deleted, then recreated by an undo under the same uid: the live row
     // was read later than the tombstone
     window(13, { tombstones: [tomb("uid_dd_l")] });
-    window(14, { blocks: [block("uid_dd_l", 1, { parent_uid: uid("uid_dd_k"),
+    window(14, { blocks: [block("uid_dd_l", 1, { parent_uid: uidOf("uid_dd_k"),
                                                  text: "leaf searchable" })] });
     expect(deferred()).toBeNull();
 
@@ -964,8 +969,8 @@ describe("applyChanges: block tombstones wait for the window that reaches the jo
 
   test("a pending create under a block tombstoned short of the head goes once the head is reached", () => {
     enqueueBatch(t.db, [
-      { op: "create", uid: uid("uid_dd_ghost"), page_title: "Machine Learning",
-        parent_uid: uid("uid_dd_d"), order_idx: ord(1), text: "typed under d" },
+      { op: "create", uid: uidOf("uid_dd_ghost"), page_title: "Machine Learning",
+        parent_uid: uidOf("uid_dd_d"), order_idx: orderIdxOf(1), text: "typed under d" },
     ], 5, bid("batch-dd-ghost"));
 
     window(13, { tombstones: [tomb("uid_dd_d")] });
@@ -973,7 +978,7 @@ describe("applyChanges: block tombstones wait for the window that reaches the jo
       .toBe(1);
 
     window(15, { tombstones: [tomb("uid_dd_a")],
-                 blocks: [block("uid_dd_k", 1, { order_idx: ord(3) })] });
+                 blocks: [block("uid_dd_k", 1, { order_idx: orderIdxOf(3) })] });
     expect(tree()).toEqual([
       { uid: "uid_dd_k", parent_uid: null },
       { uid: "uid_dd_l", parent_uid: "uid_dd_k" },
@@ -999,9 +1004,9 @@ describe("applySnapshot and applyChanges: a create under a ghost parent keeps th
       " heading, collapsed, created_at, updated_at)" +
       " VALUES ('uid_ghost1', 1, NULL, 9, 'ghost parent', NULL, 0, 5, 5)");
     enqueueBatch(t.db, [
-      { op: "create", uid: uid("uid_child1"), page_title: "Machine Learning",
-        parent_uid: uid("uid_ghost1"), order_idx: ord(0), text: "lost child" },
-      { op: "update_text", uid: uid("uid_b1"), text: "mine" },
+      { op: "create", uid: uidOf("uid_child1"), page_title: "Machine Learning",
+        parent_uid: uidOf("uid_ghost1"), order_idx: orderIdxOf(0), text: "lost child" },
+      { op: "update_text", uid: uidOf("uid_b1"), text: "mine" },
     ], 5, batchId);
     // optimistic apply landed both ops while the ghost parent still existed
     expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
@@ -1031,7 +1036,7 @@ describe("applySnapshot and applyChanges: a create under a ghost parent keeps th
       next_since: 11, latest_seq: 11,
       tombstones: [{ kind: "block", entity_id: "uid_ghost1" }],
       blocks: [block("uid_b1", 1, {
-        text: "links [[AI]]", refs: [{ target_page_id: pageId(2), kind: "link" }],
+        text: "links [[AI]]", refs: [{ target_page_id: pageIdOf(2), kind: "link" }],
       })],
     }), 6);
 
@@ -1056,9 +1061,9 @@ describe("applyChanges: a replayed batch whose create already applied keeps its 
     "SELECT uid, order_idx FROM blocks WHERE page_id = 1" +
     " AND parent_uid IS NULL ORDER BY order_idx, uid") as { uid: string; order_idx: number }[]);
   const enqueueCreateAndEdit = () => enqueueBatch(t.db, [
-    { op: "create", uid: uid("uid_new1"), page_title: "Machine Learning",
-      parent_uid: null, order_idx: ord(1), text: "fresh" },
-    { op: "update_text", uid: uid("uid_b1"), text: "mine" },
+    { op: "create", uid: uidOf("uid_new1"), page_title: "Machine Learning",
+      parent_uid: null, order_idx: orderIdxOf(1), text: "fresh" },
+    { op: "update_text", uid: uidOf("uid_b1"), text: "mine" },
   ], 5, bid("batch-create"));
   const expectStillPending = () => {
     const batches = allBatches(t.db);
@@ -1097,9 +1102,9 @@ describe("applyChanges: a replayed batch whose create already applied keeps its 
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
       blocks: [
-        block("uid_new1", 1, { order_idx: ord(1), text: "fresh" }),
+        block("uid_new1", 1, { order_idx: orderIdxOf(1), text: "fresh" }),
         block("uid_b1", 1, { text: "mine" }),
-        block("uid_b2", 1, { order_idx: ord(2) }),
+        block("uid_b2", 1, { order_idx: orderIdxOf(2) }),
       ],
     }), 6);
 
@@ -1121,7 +1126,7 @@ describe("applyChanges: a replayed batch whose create already applied keeps its 
     // it ships uid_b2 at its unshifted index -- the slot uid_new1 holds
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
-      blocks: [block("uid_b2", 1, { order_idx: ord(1), text: "edited elsewhere" })],
+      blocks: [block("uid_b2", 1, { order_idx: orderIdxOf(1), text: "edited elsewhere" })],
     }), 6);
 
     expect(topLevel().map((r) => r.uid))
@@ -1148,7 +1153,7 @@ describe("applyChanges: a replayed move leaves its siblings where its first appl
 
   test("sibling order_idx is stable across windows", () => {
     enqueueBatch(t.db, [
-      { op: "move", uid: uid("uid_b3"), parent_uid: null, order_idx: ord(1) },
+      { op: "move", uid: uidOf("uid_b3"), parent_uid: null, order_idx: orderIdxOf(1) },
     ], 5, bid("batch-move"));
     for (const seq of [11, 12, 13]) {
       applyChanges(t.db, emptyFeed({ next_since: seq, latest_seq: seq }), 6);
@@ -1167,7 +1172,7 @@ describe("applyChanges: a replayed move leaves its siblings where its first appl
       " heading, collapsed, created_at, updated_at)" +
       " VALUES ('uid_b4', 1, NULL, 2, 'fourth', NULL, 0, 1, 1)");
     enqueueBatch(t.db, [
-      { op: "move", uid: uid("uid_b3"), parent_uid: null, order_idx: ord(1) },
+      { op: "move", uid: uidOf("uid_b3"), parent_uid: null, order_idx: orderIdxOf(1) },
     ], 5, bid("batch-move"));
     for (const seq of [11, 12]) {
       applyChanges(t.db, emptyFeed({ next_since: seq, latest_seq: seq }), 6);
@@ -1175,7 +1180,7 @@ describe("applyChanges: a replayed move leaves its siblings where its first appl
     // another device edits uid_b4; the server ships it at its own index 2
     applyChanges(t.db, emptyFeed({
       next_since: 13, latest_seq: 13,
-      blocks: [block("uid_b4", 1, { order_idx: ord(2), text: "edited elsewhere" })],
+      blocks: [block("uid_b4", 1, { order_idx: orderIdxOf(2), text: "edited elsewhere" })],
     }), 6);
     expect(topLevel().map((r) => r.uid))
       .toEqual(["uid_b1", "uid_b3", "uid_b2", "uid_b4"]);
@@ -1203,14 +1208,14 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     // first, then the skipped move's re-shipped subtree, root first. The
     // first row closes a loop over our optimistic uid_b1 -> uid_b3; the
     // rows after it must open it again.
-    block("uid_b2", 1, { parent_uid: uid("uid_b1") }),
+    block("uid_b2", 1, { parent_uid: uidOf("uid_b1") }),
     block("uid_b1", 1, { text: "links [[AI]]",
-                         refs: [{ target_page_id: pageId(2), kind: "link" }] }),
-    block("uid_b3", 1, { parent_uid: uid("uid_b2"), text: "mine" }),
+                         refs: [{ target_page_id: pageIdOf(2), kind: "link" }] }),
+    block("uid_b3", 1, { parent_uid: uidOf("uid_b2"), text: "mine" }),
   ];
   const enqueueCycleMove = () => enqueueBatch(t.db, [
-    { op: "move", uid: uid("uid_b1"), parent_uid: uid("uid_b3"), order_idx: ord(0) },
-    { op: "update_text", uid: uid("uid_b3"), text: "mine" },
+    { op: "move", uid: uidOf("uid_b1"), parent_uid: uidOf("uid_b3"), order_idx: orderIdxOf(0) },
+    { op: "update_text", uid: uidOf("uid_b3"), text: "mine" },
   ], 5, bid("batch-cycle"));
 
   test("an acked cycle move is undone by the rows the server journals for it", () => {
@@ -1234,9 +1239,9 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     // moved uid_b1 is one of them, so its real row lands in the same window.
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
-      blocks: [block("uid_b2", 1, { parent_uid: uid("uid_b1") }),
+      blocks: [block("uid_b2", 1, { parent_uid: uidOf("uid_b1") }),
                block("uid_b1", 1, { text: "links [[AI]]",
-                                    refs: [{ target_page_id: pageId(2), kind: "link" }] })],
+                                    refs: [{ target_page_id: pageIdOf(2), kind: "link" }] })],
     }), 6);
     // no loop survives the window: the replay skips the move as a cycle,
     // and the batch's other op survives it
@@ -1261,9 +1266,9 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
 
     applySnapshot(t.db, { ...SNAP, seq: 11 as SyncSeq, blocks: [
       block("uid_b1", 1, { text: "links [[AI]]",
-                           refs: [{ target_page_id: pageId(2), kind: "link" }] }),
-      block("uid_b2", 1, { parent_uid: uid("uid_b1") }),
-      block("uid_b3", 1, { parent_uid: uid("uid_b2"), text: "child block searchable" }),
+                           refs: [{ target_page_id: pageIdOf(2), kind: "link" }] }),
+      block("uid_b2", 1, { parent_uid: uidOf("uid_b1") }),
+      block("uid_b3", 1, { parent_uid: uidOf("uid_b2"), text: "child block searchable" }),
     ] }, 6);
 
     expect(tree()).toEqual(SERVER_AFTER_CYCLE);
@@ -1277,13 +1282,13 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     // (with uid_b3) to AI. The server will create our block on AI, beside
     // its parent, so the replay puts it there too.
     enqueueBatch(t.db, [
-      { op: "create", uid: uid("uid_new1"), page_title: "Machine Learning",
-        parent_uid: uid("uid_b2"), order_idx: ord(1), text: "typed child" },
+      { op: "create", uid: uidOf("uid_new1"), page_title: "Machine Learning",
+        parent_uid: uidOf("uid_b2"), order_idx: orderIdxOf(1), text: "typed child" },
     ], 5, bid("batch-create"));
 
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
-      blocks: [block("uid_b2", 2), block("uid_b3", 2, { parent_uid: uid("uid_b2") })],
+      blocks: [block("uid_b2", 2), block("uid_b3", 2, { parent_uid: uidOf("uid_b2") })],
     }), 6);
 
     expect(tree().find((r) => r.uid === "uid_new1")).toEqual(
@@ -1293,7 +1298,7 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     ackNext(t.db);
     applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12,
-      blocks: [block("uid_new1", 2, { parent_uid: uid("uid_b2"), order_idx: ord(1),
+      blocks: [block("uid_new1", 2, { parent_uid: uidOf("uid_b2"), order_idx: orderIdxOf(1),
                                       text: "typed child" })],
     }), 7);
     expect(tree().find((r) => r.uid === "uid_new1")).toEqual(
@@ -1310,11 +1315,11 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
       " heading, collapsed, created_at, updated_at)" +
       " VALUES ('uid_q1', 1, 'uid_b1', 0, 'under b1', NULL, 0, 1, 1)");
     enqueueBatch(t.db, [
-      { op: "create", uid: uid("uid_new1"), page_title: "Machine Learning",
-        parent_uid: uid("uid_b2"), order_idx: ord(1), text: "typed child" },
+      { op: "create", uid: uidOf("uid_new1"), page_title: "Machine Learning",
+        parent_uid: uidOf("uid_b2"), order_idx: orderIdxOf(1), text: "typed child" },
     ], 5, bid("batch-create"));
     enqueueBatch(t.db, [
-      { op: "move", uid: uid("uid_new1"), parent_uid: uid("uid_b1"), order_idx: ord(0) },
+      { op: "move", uid: uidOf("uid_new1"), parent_uid: uidOf("uid_b1"), order_idx: orderIdxOf(0) },
     ], 5, bid("batch-move"));
     const settled = [
       { uid: "uid_new1", page_id: 1, parent_uid: "uid_b1", order_idx: 0 },
@@ -1325,11 +1330,11 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
 
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
-      blocks: [block("uid_b2", 2), block("uid_b3", 2, { parent_uid: uid("uid_b2") })],
+      blocks: [block("uid_b2", 2), block("uid_b3", 2, { parent_uid: uidOf("uid_b2") })],
     }), 6);
     applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12,
-      blocks: [block("uid_b3", 2, { parent_uid: uid("uid_b2"), text: "edited" })],
+      blocks: [block("uid_b3", 2, { parent_uid: uidOf("uid_b2"), text: "edited" })],
     }), 7);
 
     expect(underB1()).toEqual(settled);
@@ -1342,22 +1347,22 @@ describe("applyChanges: a window that names a pending batch as applied drops it 
     generation: "gen-1", plain_space_title_canonicalization: false,
     seq: 10 as SyncSeq, pages: [page(1, "P")],
     blocks: ["tuid-s1", "tuid-s2", "tuid-s3", "tuid-s4", "tuid-s5", "tuid-s6"].map(
-      (u, i) => block(u, 1, { order_idx: ord(i) })),
+      (u, i) => block(u, 1, { order_idx: orderIdxOf(i) })),
     sidebar: [],
   };
   const mv = (u: string, o: number): BlockOp =>
-    ({ op: "move", uid: uid(u), parent_uid: null, order_idx: ord(o) });
+    ({ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(o) });
   const cr = (u: string, o: number): BlockOp =>
-    ({ op: "create", uid: uid(u), page_title: "P", parent_uid: null,
-       order_idx: ord(o), text: `text of ${u}` });
+    ({ op: "create", uid: uidOf(u), page_title: "P", parent_uid: null,
+       order_idx: orderIdxOf(o), text: `text of ${u}` });
   const ut = (u: string, text: string): BlockOp =>
-    ({ op: "update_text", uid: uid(u), text });
+    ({ op: "update_text", uid: uidOf(u), text });
   type Row = { uid: string; parent_uid: string | null; order_idx: number; text: string };
   const rows = (db: ReplicaDb): Row[] => (db.introspect(
     "SELECT uid, parent_uid, order_idx, text FROM blocks ORDER BY uid") as Row[]);
   const asSync = (db: ReplicaDb, keep: (u: string) => boolean = () => true): SyncBlock[] =>
     rows(db).filter((r) => keep(r.uid)).map((r) => block(r.uid, 1, {
-      parent_uid: r.parent_uid as BlockUid | null, order_idx: ord(r.order_idx),
+      parent_uid: r.parent_uid as BlockUid | null, order_idx: orderIdxOf(r.order_idx),
       text: r.text }));
   const named = (batchId: string, seq = 11) =>
     ({ batch_id: bid(batchId), seq: seq as SyncSeq, skipped: [] });
@@ -1375,7 +1380,7 @@ describe("applyChanges: a window that names a pending batch as applied drops it 
   const cases: [string, BlockOp[], BlockOp[]][] = [
     ["two moves of one block", [mv("tuid-s4", 0), mv("tuid-s4", 1)], []],
     ["moves of two blocks", [mv("tuid-s4", 0), mv("tuid-s5", 0)], []],
-    ["a move then a create", [mv("tuid-s4", 0), cr("n1", 0)], []],
+    ["a move then a create", [mv("tuid-s4", 0), cr("tuid-n1", 0)], []],
     ["an update another device superseded", [ut("tuid-s1", "mine")], [ut("tuid-s1", "theirs")]],
   ];
   for (const [name, batch, later] of cases) {
@@ -1519,10 +1524,10 @@ describe("applyChanges: the replay log", () => {
   const LOG_SNAP: Snapshot = {
     generation: "gen-1", plain_space_title_canonicalization: false,
     seq: 10 as SyncSeq, pages: [page(1, "P"), page(2, "S")],
-    blocks: [block("tuid-m", 1, { order_idx: ord(0) }),
-             block("tuid-a", 1, { order_idx: ord(1) }),
-             block("tuid-r", 1, { order_idx: ord(2) }),
-             block("tuid-s", 2, { order_idx: ord(0) })],
+    blocks: [block("tuid-m", 1, { order_idx: orderIdxOf(0) }),
+             block("tuid-a", 1, { order_idx: orderIdxOf(1) }),
+             block("tuid-r", 1, { order_idx: orderIdxOf(2) }),
+             block("tuid-s", 2, { order_idx: orderIdxOf(0) })],
     sidebar: [],
   };
   beforeEach(() => { applySnapshot(t.db, LOG_SNAP, 1); });
@@ -1541,18 +1546,18 @@ describe("applyChanges: the replay log", () => {
       .map((r) => `${r.uid}${r.order_idx}`).join(" ");
 
   const createTop = (u: string, o: number, pageTitle = "P"): BlockOp =>
-    ({ op: "create", uid: uid(u), page_title: pageTitle, parent_uid: null,
-       order_idx: ord(o), text: `text of ${u}` });
+    ({ op: "create", uid: uidOf(u), page_title: pageTitle, parent_uid: null,
+       order_idx: orderIdxOf(o), text: `text of ${u}` });
   // An untitled top-level move stays on the page the replica sees the
   // block on.
   const moveTop = (u: string, o: number): BlockOp =>
-    ({ op: "move", uid: uid(u), parent_uid: null, order_idx: ord(o) });
+    ({ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(o) });
   const named = (batchId: string) =>
     ({ batch_id: bid(batchId), seq: 11 as SyncSeq, skipped: [] });
 
   // Another device moved m to S (after s) before this replica pulled: the
   // server's move of m shifts S's top level, where nothing sits past s.
-  const M_ON_S = block("tuid-m", 2, { order_idx: ord(1) });
+  const M_ON_S = block("tuid-m", 2, { order_idx: orderIdxOf(1) });
 
   test("a window short of the head drops an acked batch's records on the rows it ships", () => {
     enqueueBatch(t.db, [createTop("tuid-X", 0)], 2, bid("b1"));
@@ -1561,7 +1566,7 @@ describe("applyChanges: the replay log", () => {
                                "b1:block:tuid-r", "b1:page:1"]);
 
     applyChanges(t.db, emptyFeed({
-      next_since: 11, latest_seq: 12, blocks: [block("tuid-a", 1, { order_idx: ord(1) })],
+      next_since: 11, latest_seq: 12, blocks: [block("tuid-a", 1, { order_idx: orderIdxOf(1) })],
     }), 3);
     expect(logKeys()).toEqual(["b1:block:tuid-X", "b1:block:tuid-m", "b1:block:tuid-r", "b1:page:1"]);
     expect(keys(1)).toBe("tuid-X0 tuid-a1 tuid-m1 tuid-r3");
@@ -1585,7 +1590,7 @@ describe("applyChanges: the replay log", () => {
     expect(logKeys()).toEqual(["b1:block:tuid-X", "b1:block:tuid-m", "b1:block:tuid-r", "b1:page:1"]);
 
     applyChanges(t.db, emptyFeed({
-      next_since: 12, latest_seq: 12, blocks: [block("tuid-X", 1, { order_idx: ord(0) })],
+      next_since: 12, latest_seq: 12, blocks: [block("tuid-X", 1, { order_idx: orderIdxOf(0) })],
       tombstones: [{ kind: "block", entity_id: "tuid-r" }],
     }), 4);
     expect(keys(1)).toBe("tuid-X0 tuid-m0");
@@ -1686,7 +1691,7 @@ describe("applyChanges: the replay log", () => {
     ackNext(t.db);
     applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12,
-      blocks: [block("tuid-X", 1, { order_idx: ord(3), text: "text of X" })],
+      blocks: [block("tuid-X", 1, { order_idx: orderIdxOf(3), text: "text of X" })],
     }), 4);
     expect(keys(1)).toBe("tuid-a1 tuid-r2 tuid-X3");
     expect(logKeys()).toEqual([]);
@@ -1699,7 +1704,7 @@ describe("applyChanges: the replay log", () => {
     ackNext(t.db);
     applyChanges(t.db, emptyFeed({
       next_since: 12, latest_seq: 12,
-      blocks: [M_ON_S, block("tuid-X", 1, { order_idx: ord(3), text: "text of X" })],
+      blocks: [M_ON_S, block("tuid-X", 1, { order_idx: orderIdxOf(3), text: "text of X" })],
     }), 3);
     expect(keys(1)).toBe("tuid-a1 tuid-r2 tuid-X3");
     expect(logKeys()).toEqual([]);
@@ -1711,14 +1716,14 @@ describe("applyChanges: the replay log", () => {
     test("an op that throws", () => {
       const warn = quietWarn();
       enqueueBatch(t.db, [createTop("tuid-X", 0),
-                          { op: "update_text", uid: uid("tuid-X"), text: "later" }],
+                          { op: "update_text", uid: uidOf("tuid-X"), text: "later" }],
                    2, bid("b1"));
       t.db.exec("CREATE TEMP TRIGGER fail_x_text BEFORE UPDATE OF text ON blocks" +
                 " WHEN NEW.uid = 'tuid-X' BEGIN SELECT RAISE(ABORT, 'refused'); END");
 
       // another device's z on X's slot: the replay's create shifts it on
       const res = applyChanges(t.db, emptyFeed({
-        next_since: 11, latest_seq: 11, blocks: [block("tuid-z", 1, { order_idx: ord(0) })],
+        next_since: 11, latest_seq: 11, blocks: [block("tuid-z", 1, { order_idx: orderIdxOf(0) })],
       }), 3);
 
       expect(res).toEqual({ status: "applied", cursor: 11 });
@@ -1732,17 +1737,17 @@ describe("applyChanges: the replay log", () => {
       // Q@0 top-level on P with child C@0.
       applySnapshot(t.db, {
         ...LOG_SNAP,
-        blocks: [block("tuid-Q", 1), block("tuid-C", 1, { parent_uid: uid("tuid-Q") })],
+        blocks: [block("tuid-Q", 1), block("tuid-C", 1, { parent_uid: uidOf("tuid-Q") })],
       }, 1);
       enqueueBatch(t.db, [
-        { op: "create", uid: uid("tuid-X"), page_title: "P", parent_uid: uid("tuid-Q"),
-          order_idx: ord(0), text: "tuid-x" },
-        { op: "create", uid: uid("tuid-Y"), page_title: "P", parent_uid: uid("tuid-X"),
-          order_idx: ord(0), text: "tuid-y" },
+        { op: "create", uid: uidOf("tuid-X"), page_title: "P", parent_uid: uidOf("tuid-Q"),
+          order_idx: orderIdxOf(0), text: "tuid-x" },
+        { op: "create", uid: uidOf("tuid-Y"), page_title: "P", parent_uid: uidOf("tuid-X"),
+          order_idx: orderIdxOf(0), text: "tuid-y" },
       ], 2, bid("b1"));
       enqueueBatch(t.db, [
-        { op: "move", uid: uid("tuid-Q"), parent_uid: null, page_title: "P",
-          order_idx: ord(0) },
+        { op: "move", uid: uidOf("tuid-Q"), parent_uid: null, page_title: "P",
+          order_idx: orderIdxOf(0) },
       ], 2, bid("b2"));
 
       // Q arrives on a page the window never ships. b1's create under Q
@@ -1780,7 +1785,7 @@ describe("applyChanges: the replay log", () => {
     // page 5 takes P's title; nothing retitles or deletes page 1
     const res = applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11, pages: [page(5, "P")],
-      blocks: [block("tuid-a", 1, { order_idx: ord(1) })],
+      blocks: [block("tuid-a", 1, { order_idx: orderIdxOf(1) })],
     }), 3);
 
     expect(res).toEqual({ status: "needs-bootstrap" });
@@ -1800,7 +1805,7 @@ describe("applyChanges: the replay log", () => {
       "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid");
     const echo = (srv.db.introspect(
       "SELECT uid, order_idx FROM blocks WHERE page_id = 1") as { uid: string; order_idx: number }[])
-      .map((r) => block(r.uid, 1, { order_idx: ord(r.order_idx) }));
+      .map((r) => block(r.uid, 1, { order_idx: orderIdxOf(r.order_idx) }));
     enqueueBatch(t.db, batch, 2, bid("b1"));
 
     // the echo, not naming the batch: the replay runs over it and shifts again
@@ -1830,7 +1835,7 @@ describe("applyChanges: a create or move the two sides place in different groups
   };
   const at = (rawUid: string, rawPageId: number, o: number,
               over: Partial<SyncBlock> = {}): SyncBlock =>
-    block(rawUid, rawPageId, { order_idx: ord(o), ...over });
+    block(rawUid, rawPageId, { order_idx: orderIdxOf(o), ...over });
   /** One sibling group as `uid@order_idx`, in order. */
   const group = (rawPageId: number, parent: string | null = null): string =>
     (t.db.introspect(
@@ -1852,10 +1857,10 @@ describe("applyChanges: a create or move the two sides place in different groups
   };
 
   const moveTop = (u: string, o: number, pageTitle?: string): BlockOp =>
-    ({ op: "move", uid: uid(u), parent_uid: null, order_idx: ord(o),
+    ({ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(o),
        ...(pageTitle !== undefined ? { page_title: pageTitle } : {}) });
   const moveUnder = (u: string, parent: string, o: number): BlockOp =>
-    ({ op: "move", uid: uid(u), parent_uid: uid(parent), order_idx: ord(o) });
+    ({ op: "move", uid: uidOf(u), parent_uid: uidOf(parent), order_idx: orderIdxOf(o) });
 
   test("an untitled top-level move of a block moved to another page elsewhere", () => {
     // The server already has m at the top of S (x shifted to 1).
@@ -1897,8 +1902,8 @@ describe("applyChanges: a create or move the two sides place in different groups
 
   test("a top-level create on a title renamed away before the pull", () => {
     seedRenamed();
-    enqueueAndAck([{ op: "create", uid: uid("tuid-X"), page_title: "Proptest",
-                     parent_uid: null, order_idx: ord(0), text: "text of X" }]);
+    enqueueAndAck([{ op: "create", uid: uidOf("tuid-X"), page_title: "Proptest",
+                     parent_uid: null, order_idx: orderIdxOf(0), text: "text of X" }]);
     expect(group(1)).toBe("tuid-X@0 tuid-s1@1 tuid-s2@2 tuid-s3@3");
 
     headWindow({ pages: RENAMED_PAGES, blocks: [at("tuid-X", 3, 0)] });
@@ -1964,14 +1969,14 @@ describe("applyChanges: a create or move the two sides place in different groups
   test("a move under a parent another device moved to the block's own page", () => {
     // The server already has t1 at the top of P (s1 shifted to 1).
     seed([page(1, "P"), page(2, "S")],
-         [at("tuid-s1", 1, 0), at("tuid-s2", 1, 0, { parent_uid: uid("tuid-s1"), updated_at: 5 }),
+         [at("tuid-s1", 1, 0), at("tuid-s2", 1, 0, { parent_uid: uidOf("tuid-s1"), updated_at: 5 }),
           at("tuid-t1", 2, 0), at("tuid-t2", 2, 1)]);
     enqueueAndAck([moveUnder("tuid-s1", "tuid-t1", 0)]);
     expect(t.db.select("SELECT page_id FROM blocks WHERE uid IN ('tuid-s1', 'tuid-s2')"))
       .toEqual([{ page_id: 2 }, { page_id: 2 }]);
 
     // s1 stays on P under t1: the server re-pages nothing.
-    headWindow({ blocks: [at("tuid-t1", 1, 0), at("tuid-s1", 1, 0, { parent_uid: uid("tuid-t1") })] });
+    headWindow({ blocks: [at("tuid-t1", 1, 0), at("tuid-s1", 1, 0, { parent_uid: uidOf("tuid-t1") })] });
 
     expect(t.db.select(
       "SELECT uid, page_id, parent_uid, updated_at FROM blocks" +
@@ -1992,8 +1997,8 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
     applySnapshot(t.db, {
       generation: "gen-1", plain_space_title_canonicalization: false,
       seq: 10 as SyncSeq, pages: [page(1, "P"), page(2, "S")],
-      blocks: [block("tuid-p", 1), block("tuid-k", 1, { parent_uid: uid("tuid-p") }),
-               block("tuid-g", 1, { parent_uid: uid("tuid-k") })],
+      blocks: [block("tuid-p", 1), block("tuid-k", 1, { parent_uid: uidOf("tuid-p") }),
+               block("tuid-g", 1, { parent_uid: uidOf("tuid-k") })],
       sidebar: [],
     }, 1);
   });
@@ -2004,8 +2009,8 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
   const records = () => (t.db.introspect(
     "SELECT batch_id, key FROM replay_log WHERE kind = 'block'" +
     " ORDER BY batch_id, key") as { batch_id: string; key: string }[]).map((r) => `${r.batch_id}:${r.key}`);
-  const deleteP: BlockOp = { op: "delete", uid: uid("tuid-p") };
-  const kMovedOut = block("tuid-k", 1, { order_idx: ord(1) });
+  const deleteP: BlockOp = { op: "delete", uid: uidOf("tuid-p") };
+  const kMovedOut = block("tuid-k", 1, { order_idx: orderIdxOf(1) });
   const pTomb: SyncTombstone = { kind: "block", entity_id: "tuid-p" };
 
   test("a child moved out elsewhere keeps its unchanged grandchild", () => {
@@ -2050,7 +2055,7 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
 
   test("a pending delete replayed after the restore records the restored rows again", () => {
     enqueueBatch(t.db, [deleteP], 2, bid("b1"));
-    enqueueBatch(t.db, [{ op: "delete", uid: uid("tuid-k") }], 2, bid("b2"));
+    enqueueBatch(t.db, [{ op: "delete", uid: uidOf("tuid-k") }], 2, bid("b2"));
     ackNext(t.db);
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11, blocks: [kMovedOut], tombstones: [pTomb] }), 3);
@@ -2067,13 +2072,13 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
     applySnapshot(t.db, {
       generation: "gen-1", plain_space_title_canonicalization: false,
       seq: 10 as SyncSeq, pages: [page(1, "P")],
-      blocks: [block("tuid-p", 1), block("tuid-k", 1, { parent_uid: uid("tuid-p") }),
-               block("tuid-g", 1, { parent_uid: uid("tuid-k"), text: "see [[New]]" })],
+      blocks: [block("tuid-p", 1), block("tuid-k", 1, { parent_uid: uidOf("tuid-p") }),
+               block("tuid-g", 1, { parent_uid: uidOf("tuid-k"), text: "see [[New]]" })],
       sidebar: [],
     }, 1);
     enqueueBatch(t.db, [
-      { op: "create", uid: uid("tuid-x"), page_title: "P", parent_uid: null,
-        order_idx: ord(1), text: "[[New]]" }], 2, bid("b1"));
+      { op: "create", uid: uidOf("tuid-x"), page_title: "P", parent_uid: null,
+        order_idx: orderIdxOf(1), text: "[[New]]" }], 2, bid("b1"));
     const [local] = (t.db.introspect("SELECT id FROM pages WHERE title = 'New'") as { id: number }[]);
     expect(local.id).toBeLessThan(0);
     // a recorded ref by hand: g's snapshot row carries none, and the delete's
@@ -2086,7 +2091,7 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
       next_since: 11, latest_seq: 11, pages: [page(3, "New")],
       blocks: [kMovedOut,
                block("tuid-x", 1, { text: "[[New]]",
-                               refs: [{ target_page_id: pageId(3), kind: "link" }] })],
+                               refs: [{ target_page_id: pageIdOf(3), kind: "link" }] })],
       tombstones: [pTomb] }), 3);
     expect(tree()).toEqual([{ uid: "tuid-g", parent_uid: "tuid-k" },
                             { uid: "tuid-k", parent_uid: null }]);
@@ -2101,8 +2106,8 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
   test("a pending re-create of a cascaded block the server kept fails its replay", () => {
     const warn = quietWarn();
     enqueueBatch(t.db, [deleteP], 2, bid("b1"));
-    enqueueBatch(t.db, [{ op: "create", uid: uid("tuid-g"), page_title: "P", parent_uid: null,
-                          order_idx: ord(0), text: "text of g" }], 2, bid("b2"));
+    enqueueBatch(t.db, [{ op: "create", uid: uidOf("tuid-g"), page_title: "P", parent_uid: null,
+                          order_idx: orderIdxOf(0), text: "text of g" }], 2, bid("b2"));
     ackNext(t.db);
     applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11, blocks: [kMovedOut], tombstones: [pTomb] }), 3);

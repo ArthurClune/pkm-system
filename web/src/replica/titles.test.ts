@@ -6,7 +6,7 @@ import { canonicalizeTitle, findOpTitleViolation,
          titleSyntaxReason } from "./titles";
 import type { CanonicalTitle, NormalizedTitle } from "../api/brands";
 import type { components } from "../api/types";
-import { normTitle, ord, title, uid } from "../test-helpers";
+import { normalizedTitleOf, orderIdxOf, canonicalTitleOf, uidOf } from "../test-helpers";
 
 interface TitleSyntaxCase {
   name: string;
@@ -45,8 +45,8 @@ describe("findOpTitleViolation", () => {
 
   test("returns the first violation in operation, explicit-field, reference order", () => {
     const ops: BlockOp[] = [
-      { op: "create", uid: uid("syntax03"), page_title: "Bad #Page",
-        parent_uid: null, order_idx: ord(0), text: "[[Bad #Ref]]" },
+      { op: "create", uid: uidOf("syntax03"), page_title: "Bad #Page",
+        parent_uid: null, order_idx: orderIdxOf(0), text: "[[Bad #Ref]]" },
       { op: "create_page", page_title: "Later #Page" },
     ];
 
@@ -58,8 +58,8 @@ describe("findOpTitleViolation", () => {
 
   test("returns the outer nested reference first", () => {
     expect(findOpTitleViolation([{
-      op: "create", uid: uid("syntax04"), page_title: "AI", parent_uid: null,
-      order_idx: ord(0), text: "[[Outer [[New #Old]]]]",
+      op: "create", uid: uidOf("syntax04"), page_title: "AI", parent_uid: null,
+      order_idx: orderIdxOf(0), text: "[[Outer [[New #Old]]]]",
     }])).toEqual({
       opIndex: 0, source: "reference", title: "Outer [[New #Old]]",
       reason: "forbidden_syntax",
@@ -90,20 +90,20 @@ describe("canonicalizeTitle", () => {
 
 describe("title brands", () => {
   test("a CanonicalTitle passes where a NormalizedTitle is expected, not the reverse", () => {
-    const canonical: CanonicalTitle = title("Page");
+    const canonical: CanonicalTitle = canonicalTitleOf("Page");
     const normalized: NormalizedTitle = canonical;
     // @ts-expect-error a NormalizedTitle is not a CanonicalTitle
-    const back: CanonicalTitle = normTitle("Page");
+    const back: CanonicalTitle = normalizedTitleOf("Page");
     expect([normalized, back]).toEqual(["Page", "Page"]);
   });
 
   test("a generated response title is the CanonicalTitle brand", () => {
     type PageMetaTitle = components["schemas"]["PageMeta"]["title"];
-    const fromWire: PageMetaTitle = title("Page");
+    const fromWire: PageMetaTitle = canonicalTitleOf("Page");
     const normalized: NormalizedTitle = fromWire;
     // @ts-expect-error a NormalizedTitle is not a generated CanonicalTitle
     // field
-    const back: PageMetaTitle = normTitle("Page");
+    const back: PageMetaTitle = normalizedTitleOf("Page");
     // @ts-expect-error a raw string is not a generated CanonicalTitle field
     const raw: PageMetaTitle = "Page";
     expect([normalized, back, raw]).toEqual(["Page", "Page", "Page"]);

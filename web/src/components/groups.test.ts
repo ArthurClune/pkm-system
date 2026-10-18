@@ -5,7 +5,7 @@
 // silently passing.
 import { expect, it } from "vitest";
 import type { AssetRefGroup } from "../views/filesCore";
-import { pageId, uid } from "../test-helpers";
+import { pageIdOf, uidOf } from "../test-helpers";
 import { mergeGroups } from "./groups";
 
 // AssetRefGroup (asset refs, keyed by page_title -- the search payload
@@ -22,10 +22,10 @@ void assetRefGroupsCannotMerge;
 
 it("still merges real backlink groups by page_id and dedupes items", () => {
   const merged = mergeGroups(
-    [{ page_id: pageId(1), page_title: "A", items: [{ uid: uid("u1") }] }],
-    [{ page_id: pageId(1), page_title: "A", items: [{ uid: uid("u1") }, { uid: uid("u2") }] }],
+    [{ page_id: pageIdOf(1), page_title: "A", items: [{ uid: uidOf("tuid-u1") }] }],
+    [{ page_id: pageIdOf(1), page_title: "A", items: [{ uid: uidOf("tuid-u1") }, { uid: uidOf("tuid-u2") }] }],
   );
   expect(merged).toEqual([
-    { page_id: pageId(1), page_title: "A", items: [{ uid: uid("u1") }, { uid: uid("u2") }] },
+    { page_id: pageIdOf(1), page_title: "A", items: [{ uid: uidOf("tuid-u1") }, { uid: uidOf("tuid-u2") }] },
   ]);
 });

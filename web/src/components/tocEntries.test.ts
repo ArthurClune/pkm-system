@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { block, uid } from "../test-helpers";
+import { block, uidOf } from "../test-helpers";
 import { isTocMacro, tocEntries } from "./tocEntries";
 
 describe("isTocMacro", () => {
@@ -22,7 +22,7 @@ describe("tocEntries heading text", () => {
   test("shows a page-ref heading as its title, not the bracketed source", () => {
     const entries = tocEntries([
       block("h", "[[Mathematics]]", { heading: 2 }),
-    ], uid("self"));
+    ], uidOf("tuid-self"));
     expect(entries.map((e) => e.text)).toEqual(["Mathematics"]);
   });
 
@@ -30,7 +30,7 @@ describe("tocEntries heading text", () => {
     const entries = tocEntries([
       block("h", "Notes on [[AI in Research]] and #[[deep learning]] **today**",
             { heading: 1 }),
-    ], uid("self"));
+    ], uidOf("tuid-self"));
     expect(entries[0].text)
       .toBe("Notes on AI in Research and #deep learning today");
   });
@@ -40,7 +40,7 @@ describe("tocEntries", () => {
   test("is empty when the page has no headings", () => {
     expect(tocEntries([
       block("a", "plain", { children: [block("b", "also plain")] }),
-    ], uid("self"))).toEqual([]);
+    ], uidOf("tuid-self"))).toEqual([]);
   });
 
   test("lists headings in document order, children after their parent", () => {
@@ -51,7 +51,7 @@ describe("tocEntries", () => {
         children: [block("h3", "Install", { heading: 2 })],
       }),
       block("h4", "Outro", { heading: 1 }),
-    ], uid("self"));
+    ], uidOf("tuid-self"));
     expect(entries.map((e) => e.text)).toEqual(["Intro", "Setup", "Outro"]);
     expect(entries[1].children.map((e) => e.text)).toEqual(["Install"]);
     expect(entries[1].children[0]).toMatchObject({ uid: "h3", level: 2 });
@@ -68,7 +68,7 @@ describe("tocEntries", () => {
           }),
         ],
       }),
-    ], uid("self"));
+    ], uidOf("tuid-self"));
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ uid: "one", level: 1 });
     expect(entries[0].children).toHaveLength(1);
@@ -81,18 +81,18 @@ describe("tocEntries", () => {
       block("plain", "notes", {
         children: [block("h", "Buried", { heading: 2 })],
       }),
-    ], uid("self"));
+    ], uidOf("tuid-self"));
     expect(entries.map((e) => e.uid)).toEqual(["h"]);
     expect(entries[0].level).toBe(2);
   });
 
   test("skips the toc block itself but still lists its heading children", () => {
     const entries = tocEntries([
-      block("toc", "{{toc}}", {
+      block("tuid-toc", "{{toc}}", {
         heading: 1,
         children: [block("kid", "Child heading", { heading: 2 })],
       }),
-    ], uid("toc"));
+    ], uidOf("tuid-toc"));
     expect(entries.map((e) => e.uid)).toEqual(["kid"]);
     expect(entries[0].children).toEqual([]);
   });
@@ -103,7 +103,7 @@ describe("tocEntries", () => {
         heading: 1, collapsed: true,
         children: [block("two", "Two", { heading: 2 })],
       }),
-    ], uid("self"));
+    ], uidOf("tuid-self"));
     expect(entries[0].children.map((e) => e.uid)).toEqual(["two"]);
   });
 });

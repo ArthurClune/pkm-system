@@ -6,7 +6,7 @@ import type { BlockRefText } from "../api/payloads";
 import { BlockRefContext, SidebarContext } from "../contexts";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { BlockRef } from "./BlockRef";
-import { title, uid } from "../test-helpers";
+import { canonicalTitleOf, uidOf } from "../test-helpers";
 
 function Probe() {
   const loc = useLocation();
@@ -19,7 +19,7 @@ function mount(refTexts: Record<string, BlockRefText>,
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
       <SidebarContext.Provider value={{ openInSidebar }}>
         <BlockRefContext.Provider value={refTexts}>
-          <BlockRef uid={uid("ref_aa1")} depth={0} />
+          <BlockRef uid={uidOf("tuid-ref_aa1")} depth={0} />
         </BlockRefContext.Provider>
       </SidebarContext.Provider>
       <Probe />
@@ -28,26 +28,26 @@ function mount(refTexts: Record<string, BlockRefText>,
 }
 
 const RESOLVED: Record<string, BlockRefText> = {
-  ref_aa1: { text: "target text", page_title: title("Paper") },
+  "tuid-ref_aa1": { text: "target text", page_title: canonicalTitleOf("Paper") },
 };
 
 it("clicking a resolved ref navigates to its page with the uid as hash", () => {
   mount(RESOLVED);
   fireEvent.click(screen.getByText("target text"));
-  expect(screen.getByTestId("loc")).toHaveTextContent("/page/Paper#ref_aa1");
+  expect(screen.getByTestId("loc")).toHaveTextContent("/page/Paper#tuid-ref_aa1");
 });
 
 it("encodes the target page title in the path", () => {
-  mount({ ref_aa1: { text: "x", page_title: title("Machine Learning") } });
+  mount({ "tuid-ref_aa1": { text: "x", page_title: canonicalTitleOf("Machine Learning") } });
   fireEvent.click(screen.getByText("x"));
   expect(screen.getByTestId("loc"))
-    .toHaveTextContent("/page/Machine%20Learning#ref_aa1");
+    .toHaveTextContent("/page/Machine%20Learning#tuid-ref_aa1");
 });
 
 it("shift-click opens the target page in the sidebar instead, scrolled to this uid", () => {
   const openInSidebar = mount(RESOLVED);
   fireEvent.click(screen.getByText("target text"), { shiftKey: true });
-  expect(openInSidebar).toHaveBeenCalledWith("Paper", "ref_aa1");
+  expect(openInSidebar).toHaveBeenCalledWith("Paper", "tuid-ref_aa1");
   expect(screen.getByTestId("loc")).toHaveTextContent(/^\/$/);
 });
 
@@ -55,17 +55,17 @@ it("Enter on a focused ref navigates like a click", () => {
   mount(RESOLVED);
   const ref = screen.getByRole("link", { name: "target text" });
   fireEvent.keyDown(ref, { key: "Enter" });
-  expect(screen.getByTestId("loc")).toHaveTextContent("/page/Paper#ref_aa1");
+  expect(screen.getByTestId("loc")).toHaveTextContent("/page/Paper#tuid-ref_aa1");
 });
 
 it("an inner [[link]] in the resolved text navigates to ITS page, not the ref target", () => {
-  mount({ ref_aa1: { text: "see [[World]]", page_title: title("Paper") } });
+  mount({ "tuid-ref_aa1": { text: "see [[World]]", page_title: canonicalTitleOf("Paper") } });
   fireEvent.click(screen.getByRole("link", { name: "World" }));
   expect(screen.getByTestId("loc")).toHaveTextContent(/\/page\/World$/);
 });
 
 it("an unresolved ref is not a link", () => {
   mount({});
-  expect(screen.getByText("((ref_aa1))")).toBeInTheDocument();
+  expect(screen.getByText("((tuid-ref_aa1))")).toBeInTheDocument();
   expect(screen.queryByRole("link")).toBeNull();
 });

@@ -5,7 +5,7 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider } from "../dnd/DndContext";
 import { EditablePage } from "../views/EditablePage";
-import { block, makeSync, ord, reserveOutlineEditor, title } from "../test-helpers";
+import { block, makeSync, orderIdxOf, reserveOutlineEditor, canonicalTitleOf } from "../test-helpers";
 
 // jsdom has no DataTransfer: minimal stub
 function dt() {
@@ -18,15 +18,15 @@ function dt() {
 }
 
 function renderPage(blocks = [
-  block("u1", "one", { order_idx: ord(0) }),
-  block("u2", "two", { order_idx: ord(1) }),
+  block("u1", "one", { order_idx: orderIdxOf(0) }),
+  block("u2", "two", { order_idx: orderIdxOf(1) }),
 ]) {
   const sync = makeSync();
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-          <EditablePage title={title("P")} initial={blocks} />
+          <EditablePage title={canonicalTitleOf("P")} initial={blocks} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
@@ -55,9 +55,9 @@ it("bullets are draggable and a drop reorders via one move op", () => {
 
 it("dragging a block inside a multi-block selection moves the whole selection", () => {
   const sync = renderPage([
-    block("u1", "one", { order_idx: ord(0) }),
-    block("u2", "two", { order_idx: ord(1) }),
-    block("u3", "three", { order_idx: ord(2) }),
+    block("u1", "one", { order_idx: orderIdxOf(0) }),
+    block("u2", "two", { order_idx: orderIdxOf(1) }),
+    block("u3", "three", { order_idx: orderIdxOf(2) }),
   ]);
   // select u2 + u3 through the real editor wiring (Shift+ArrowDown at edge)
   fireEvent.click(screen.getByText("two"));
@@ -84,9 +84,9 @@ it("dragging a block inside a multi-block selection moves the whole selection", 
 
 it("dragging a block outside the selection moves only that block", () => {
   const sync = renderPage([
-    block("u1", "one", { order_idx: ord(0) }),
-    block("u2", "two", { order_idx: ord(1) }),
-    block("u3", "three", { order_idx: ord(2) }),
+    block("u1", "one", { order_idx: orderIdxOf(0) }),
+    block("u2", "two", { order_idx: orderIdxOf(1) }),
+    block("u3", "three", { order_idx: orderIdxOf(2) }),
   ]);
   // select u1 + u2, then drag the unselected u3
   fireEvent.click(screen.getByText("one"));
@@ -113,8 +113,8 @@ it("an empty page accepts a top-level drop from another page", () => {
     <SyncContext.Provider value={sync}>
       <DndProvider>
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-          <EditablePage title={title("Src")} initial={[block("s1", "from src")]} />
-          <EditablePage title={title("Empty")} initial={[]} />
+          <EditablePage title={canonicalTitleOf("Src")} initial={[block("s1", "from src")]} />
+          <EditablePage title={canonicalTitleOf("Empty")} initial={[]} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
@@ -196,8 +196,8 @@ it("a fallback panel (title already active elsewhere) is excluded from DnD both 
       <SyncContext.Provider value={sync}>
         <DndProvider>
           <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-            <EditablePage title={title("Src")} initial={[block("s1", "from src")]} />
-            <EditablePage title={title("P")} initial={[block("u1", "fallback block")]} />
+            <EditablePage title={canonicalTitleOf("Src")} initial={[block("s1", "from src")]} />
+            <EditablePage title={canonicalTitleOf("P")} initial={[block("u1", "fallback block")]} />
           </MemoryRouter>
         </DndProvider>
       </SyncContext.Provider>);
@@ -232,7 +232,7 @@ it("dragging is disabled when read-only", () => {
     <SyncContext.Provider value={sync}>
       <DndProvider>
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-          <EditablePage title={title("P")} initial={[block("u1", "x")]} />
+          <EditablePage title={canonicalTitleOf("P")} initial={[block("u1", "x")]} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
@@ -242,17 +242,17 @@ it("dragging is disabled when read-only", () => {
 it("hands DnD registration to the remaining same-title view", () => {
   const sync = makeSync();
   const blocks = [
-    block("u1", "one", { order_idx: ord(0) }),
-    block("u2", "two", { order_idx: ord(1) }),
+    block("u1", "one", { order_idx: orderIdxOf(0) }),
+    block("u2", "two", { order_idx: orderIdxOf(1) }),
   ];
   const view = (includeFirst: boolean) => (
     <SyncContext.Provider value={sync}>
       <DndProvider>
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
           {includeFirst && (
-            <EditablePage key="first" title={title("P")} initial={blocks} />
+            <EditablePage key="first" title={canonicalTitleOf("P")} initial={blocks} />
           )}
-          <EditablePage key="second" title={title("P")} initial={blocks} />
+          <EditablePage key="second" title={canonicalTitleOf("P")} initial={blocks} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>

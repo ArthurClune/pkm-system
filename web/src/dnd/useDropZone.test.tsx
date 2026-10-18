@@ -14,7 +14,7 @@ import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider, useDnd } from "./DndContext";
 import { useDropZone, type Indicator } from "./useDropZone";
 import { EditablePage } from "../views/EditablePage";
-import { block, makeSync, ord, title, uid } from "../test-helpers";
+import { block, makeSync, orderIdxOf, canonicalTitleOf, uidOf } from "../test-helpers";
 
 const ROW_H = 20;
 const ROWS = 6; // u1..u6; u6 is the one dragged, leaving five candidate rows
@@ -34,7 +34,7 @@ function stubRects() {
       const uid = (this as HTMLElement).dataset?.uid;
       if (uid === undefined) return rect(0, ROWS * ROW_H); // container etc.
       reads.rows++;
-      const top = (Number(uid.slice(1)) - 1) * ROW_H;
+      const top = (Number(uid.slice("tuid-u".length)) - 1) * ROW_H;
       return rect(top, top + ROW_H);
     });
   return reads;
@@ -59,15 +59,15 @@ function startDrag() {
     <SyncContext.Provider value={sync}>
       <DndProvider>
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-          <EditablePage title={title("P")} initial={
+          <EditablePage title={canonicalTitleOf("P")} initial={
             Array.from({ length: ROWS }, (_, i) =>
-              block(`u${i + 1}`, `row ${i + 1}`, { order_idx: ord(i) }))} />
+              block(`tuid-u${i + 1}`, `row ${i + 1}`, { order_idx: orderIdxOf(i) }))} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
   const reads = stubRects();
   const transfer = dt();
-  const handle = document.querySelector('[data-uid="u6"] .bullet')!;
+  const handle = document.querySelector('[data-uid="tuid-u6"] .bullet')!;
   fireEvent.dragStart(handle, { dataTransfer: transfer });
   reads.rows = 0; // the drag is armed; count only what dragover measures
   const zone = document.querySelector(".outline-drop-zone")!;
@@ -133,9 +133,9 @@ it("re-measures a row whose uid changed under it, count unchanged", async () => 
   // every uid has slid up one index, and index 4 is now a row 60px further
   // down the page than the one measured there.
   act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "delete", uid: uid("u1") },
-    { op: "create", uid: uid("u9"), page_title: "P", parent_uid: null,
-      order_idx: ord(6), text: "row 9" },
+    { op: "delete", uid: uidOf("tuid-u1") },
+    { op: "create", uid: uidOf("tuid-u9"), page_title: "P", parent_uid: null,
+      order_idx: orderIdxOf(6), text: "row 9" },
   ] }));
   over(95);
   await nextFrame();
@@ -184,7 +184,7 @@ it("drops where the indicator is drawn, not where an unprocessed pointer got to"
   fireEvent.drop(zone, { clientX: 0, clientY: 95, dataTransfer: transfer });
 
   expect(sync.sent).toEqual([[
-    { op: "move", uid: "u6", parent_uid: null, order_idx: 0 }]]);
+    { op: "move", uid: "tuid-u6", parent_uid: null, order_idx: 0 }]]);
   expect(indicatorTop()).toBeNull();
 });
 
@@ -197,8 +197,8 @@ it("does not commit a new indicator object when the position hasn't moved",
   // consumer — not the hook's own owning component — is what has to be
   // asserted on here).
   const sync = makeSync();
-  const blocks = [block("u1", "row 1", { order_idx: ord(0) }),
-                 block("u2", "row 2", { order_idx: ord(1) })];
+  const blocks = [block("tuid-u1", "row 1", { order_idx: orderIdxOf(0) }),
+                 block("tuid-u2", "row 2", { order_idx: orderIdxOf(1) })];
   let dnd!: ReturnType<typeof useDnd>;
   function Capture() { dnd = useDnd(); return null; }
   let consumerRenders = 0;
@@ -212,7 +212,7 @@ it("does not commit a new indicator object when the position hasn't moved",
     const containerRef = useRef<HTMLDivElement | null>(null);
     const { indicator, zoneProps } = useDropZone("P", () => blocks, containerRef);
     return <div ref={containerRef} data-testid="zone" {...zoneProps}>
-      <div data-uid="u1" /><div data-uid="u2" />
+      <div data-uid="tuid-u1" /><div data-uid="tuid-u2" />
       <Consumer indicator={indicator} />
     </div>;
   }
@@ -221,7 +221,7 @@ it("does not commit a new indicator object when the position hasn't moved",
       <DndProvider><Capture /><Harness /></DndProvider>
     </SyncContext.Provider>);
   stubRects();
-  act(() => { dnd.startDrag({ kind: "blocks", uid: uid("u2"), pageTitle: "P" }); });
+  act(() => { dnd.startDrag({ kind: "blocks", uid: uidOf("tuid-u2"), pageTitle: "P" }); });
 
   const zone = document.querySelector('[data-testid="zone"]')!;
   const transfer = dt();

@@ -24,7 +24,8 @@ from pkm.batch import (BatchCommand, delete_uids, plan_batch,
                        referenced_pages, validate_batch)
 from pkm.client.api import PkmClient
 from pkm.client.core import ApiError
-from pkm.contracts.daily import title_for_date
+from pkm.contracts.titles import RawTitle
+from pkm.refs import canonical_daily_title
 from pkm.contracts.ops import BatchId, BlockOp, BlockUid, CreateOp, new_uid
 from pkm.contracts.responses import BlockNode, OpsAck
 from pkm.planning import (asset_block_text, create_page_ops, find_block,
@@ -40,11 +41,12 @@ def _batch_id() -> BatchId:
     return BatchId(uuid.uuid4().hex)
 
 
-def default_page_title(page: str | None) -> str:
+def default_page_title(page: RawTitle | None) -> RawTitle:
     """`page`, or today's daily note when none was given -- the default
     target for every write the CLI and MCP server can perform without an
     explicit page."""
-    return page if page is not None else title_for_date(date.today())
+    return (page if page is not None
+            else canonical_daily_title(date.today()))
 
 
 @dataclass(frozen=True)
@@ -54,7 +56,7 @@ class LinkedUpload:
     uid: BlockUid
 
 
-def save_blocks(client: PkmClient, text: str, page: str | None = None,
+def save_blocks(client: PkmClient, text: str, page: RawTitle | None = None,
                 parent: str | None = None,
                 todo: bool = False) -> list[CreateOp]:
     """Create the block(s) `text` outlines, returning the create ops that
@@ -127,7 +129,8 @@ def apply_batch(client: PkmClient, commands: object) -> OpsAck:
     parsed = validate_batch(commands)
     fetched = {title: client.get_page_blocks(title)
                for title in referenced_pages(parsed)}
-    pages = {title: blocks for title, (blocks, _) in fetched.items()}
+    pages: dict[str, list[BlockNode]] = {
+        title: blocks for title, (blocks, _) in fetched.items()}
     missing = [title for title, (_, is_missing) in fetched.items()
                if is_missing]
     subtrees = _delete_subtrees(client, parsed, pages)
@@ -184,7 +187,7 @@ def _delete_subtrees(
     return subtrees
 
 
-def upload_and_link(client: PkmClient, path: Path, page: str | None = None,
+def upload_and_link(client: PkmClient, path: Path, page: RawTitle | None = None,
                     parent: str | None = None) -> LinkedUpload:
     """Upload `path` and link it from a block, as one outcome: either both
     happened or neither did.

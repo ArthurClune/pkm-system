@@ -13,7 +13,7 @@ from pkm.planning import (BuildError, asset_block_text, create_page_ops,
                           plan_save, plan_update, resolve_parent,
                           split_heading)
 from pkm.render import render_page
-from pkm.test_data.ids import order_idx_of, uid_of
+from pkm.test_data.ids import order_idx_of, raw_title_of, uid_of
 
 
 def _node(uid: BlockUid, text, children=(), heading=None,
@@ -143,7 +143,7 @@ def test_resolve_parent_duplicate_headings_picks_first_in_document_order():
 
 
 def test_plan_save_appends_at_end_of_page():
-    ops = plan_save(BLOCKS, "Machine Learning", None, "new note",
+    ops = plan_save(BLOCKS, raw_title_of("Machine Learning"), None, "new note",
                     todo=False, uids=uid_gen())
     assert ops == [CreateOp(op="create", uid="gen_uid_0",
                             page_title="Machine Learning", parent_uid=None,
@@ -151,21 +151,21 @@ def test_plan_save_appends_at_end_of_page():
 
 
 def test_plan_save_outline_nests():
-    ops = plan_save(BLOCKS, "Machine Learning", "((tuid-u2))",
+    ops = plan_save(BLOCKS, raw_title_of("Machine Learning"), "((tuid-u2))",
                     "item\n  sub item", todo=False, uids=uid_gen())
     assert [o.parent_uid for o in ops] == ["tuid-u2", "gen_uid_0"]
     assert [o.order_idx for o in ops] == [1, 0]
 
 
 def test_plan_save_todo_marks_top_level_items_only():
-    ops = plan_save(BLOCKS, "Machine Learning", None,
+    ops = plan_save(BLOCKS, raw_title_of("Machine Learning"), None,
                     "task\n  detail", todo=True, uids=uid_gen())
     assert ops[0].text == "{{TODO}} task"
     assert ops[1].text == "detail"
 
 
 def test_plan_save_creates_missing_heading_first():
-    ops = plan_save(BLOCKS, "Machine Learning", "## Notes", "under it",
+    ops = plan_save(BLOCKS, raw_title_of("Machine Learning"), "## Notes", "under it",
                     todo=False, uids=uid_gen())
     assert ops[0] == CreateOp(op="create", uid="gen_uid_0",
                               page_title="Machine Learning", parent_uid=None,
@@ -175,19 +175,20 @@ def test_plan_save_creates_missing_heading_first():
 
 
 def test_plan_save_multiple_appends_increment_order():
-    ops = plan_save(BLOCKS, "Machine Learning", None, "a\nb",
+    ops = plan_save(BLOCKS, raw_title_of("Machine Learning"), None, "a\nb",
                     todo=False, uids=uid_gen())
     assert [o.order_idx for o in ops] == [2, 3]
 
 
 def test_plan_save_appends_after_the_last_sibling_when_keys_have_a_gap():
-    ops = plan_save(BLOCKS_WITH_GAP, "Machine Learning", None, "new note",
+    ops = plan_save(BLOCKS_WITH_GAP, raw_title_of("Machine Learning"), None, "new note",
                     todo=False, uids=uid_gen())
     assert ops[0].order_idx == 6
 
 
 def test_create_page_ops():
-    assert create_page_ops(["Brand New Page", "Another New Page"]) == [
+    assert create_page_ops([raw_title_of("Brand New Page"),
+                             raw_title_of("Another New Page")]) == [
         CreatePageOp(op="create_page", page_title="Brand New Page"),
         CreatePageOp(op="create_page", page_title="Another New Page")]
 
@@ -917,7 +918,7 @@ def test_split_heading_leaves_non_headings_alone(text):
 
 
 def test_plan_save_outline_sets_heading_levels():
-    ops = plan_save(BLOCKS, "Machine Learning", None,
+    ops = plan_save(BLOCKS, raw_title_of("Machine Learning"), None,
                     "## Overview\n  detail\n### Deeper", todo=False,
                     uids=uid_gen())
     assert [(o.text, o.heading) for o in ops] == [
@@ -925,7 +926,7 @@ def test_plan_save_outline_sets_heading_levels():
 
 
 def test_plan_save_todo_marker_rides_on_a_heading():
-    ops = plan_save(BLOCKS, "Machine Learning", None, "## Do it",
+    ops = plan_save(BLOCKS, raw_title_of("Machine Learning"), None, "## Do it",
                     todo=True, uids=uid_gen())
     assert ops[0].text == "{{TODO}} Do it"
     assert ops[0].heading == 2
@@ -968,7 +969,7 @@ def test_render_then_save_round_trips_a_heading():
     line = next(ln for ln in render_page(page).splitlines()
                 if "Papers" in ln)
     assert line == "- ## Papers"
-    ops = plan_save([], "P", None, line.removeprefix("- "),
+    ops = plan_save([], raw_title_of("P"), None, line.removeprefix("- "),
                     todo=False, uids=uid_gen())
     assert (ops[0].text, ops[0].heading) == ("Papers", 2)
 
@@ -1051,12 +1052,12 @@ def test_plan_mark_never_emits_set_heading():
 
 
 def test_plan_update_carries_page_title_hint():
-    ops = plan_update(uid_of("uid_a1"), "x", "y", None, page_title="AI")
+    ops = plan_update(uid_of("uid_a1"), "x", "y", None, page_title=raw_title_of("AI"))
     assert ops == [UpdateTextOp(op="update_text", uid="uid_a1", text="x",
                                 base_text_hash=text_hash("y"),
-                                page_title="AI")]
+                                page_title=raw_title_of("AI"))]
 
 
 def test_plan_mark_carries_page_title_hint():
-    ops = plan_mark(uid_of("tuid-u3"), "buy milk", "TODO", page_title="AI")
+    ops = plan_mark(uid_of("tuid-u3"), "buy milk", "TODO", page_title=raw_title_of("AI"))
     assert ops[0].page_title == "AI"

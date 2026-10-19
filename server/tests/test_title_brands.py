@@ -29,6 +29,8 @@ def _brand_of(model: type[BaseModel], field: str) -> object:
     prop = model.model_json_schema()["properties"][field]
     if "x-brand" in prop:
         return prop["x-brand"]
+    if "anyOf" not in prop:
+        return None
     return {b["x-brand"] for b in prop["anyOf"] if "x-brand" in b}
 
 
@@ -46,19 +48,35 @@ def test_raw_title_request_fields_are_branded() -> None:
     assert _brand_of(MoveOp, "page_title") == {"RawTitle"}
 
 
-def test_empty_raw_title_is_still_rejected() -> None:
-    import pytest
+def _title_errors(model: type[BaseModel], payload: dict[str, object]) -> set[tuple[object, ...]]:
     from pydantic import ValidationError
 
-    from pkm.contracts.ops import CreateOp
-    from pkm.server.routes_pages import CreatePageRequest
+    try:
+        model.model_validate(payload)
+    except ValidationError as exc:
+        return {tuple(e["loc"]) for e in exc.errors()}
+    return set()
 
-    with pytest.raises(ValidationError):
-        CreatePageRequest(title=as_raw_title(""))
-    with pytest.raises(ValidationError):
-        CreateOp.model_validate({
-            "op": "create", "uid": "u" * 9, "page_title": "",
-            "order_idx": "a0", "text": ""})
+
+def test_empty_raw_title_is_still_rejected() -> None:
+    from pkm.contracts.ops import CreateOp, CreatePageOp, MoveOp
+    from pkm.server.routes_pages import CreatePageRequest, RenamePageRequest
+    from pkm.server.routes_sidebar import AddSidebarEntryRequest
+
+    uid = "tuid_aaaa1"
+    cases: list[tuple[type[BaseModel], dict[str, object], str]] = [
+        (CreateOp, {"op": "create", "uid": uid, "order_idx": 0, "text": ""},
+         "page_title"),
+        (CreatePageOp, {"op": "create_page"}, "page_title"),
+        (MoveOp, {"op": "move", "uid": uid, "parent_uid": None,
+                  "order_idx": 0}, "page_title"),
+        (CreatePageRequest, {}, "title"),
+        (RenamePageRequest, {}, "new_title"),
+        (AddSidebarEntryRequest, {}, "title"),
+    ]
+    for model, base, field in cases:
+        assert _title_errors(model, {**base, field: "x"}) == set(), model
+        assert _title_errors(model, {**base, field: ""}) == {(field,)}, model
 
 
 def test_delete_blocker_page_title_is_canonical() -> None:

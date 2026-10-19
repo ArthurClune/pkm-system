@@ -17,6 +17,7 @@ from pkm.changed import local_tz
 from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
                                   upload_and_link)
 from pkm.contracts.ops import BlockUid
+from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.todo import TaskMark
 from pkm.render import (render_assets, render_backlinks, render_block,
                         render_changed, render_groups, render_ops_ack,
@@ -94,6 +95,11 @@ def changed_blocks(since: str, until: str | None = None,
     return render_changed(payload, local_tz(datetime.now().astimezone()))
 
 
+def _raw_page(page: str | None) -> RawTitle | None:
+    """A tool's `page` argument: typed text, so a raw title."""
+    return None if page is None else as_raw_title(page)
+
+
 def save_note(text: str, page: str | None = None,
               parent: str | None = None, todo: bool = False) -> str:
     """Create block(s). Multi-line `text` becomes an outline (2-space
@@ -105,7 +111,7 @@ def save_note(text: str, page: str | None = None,
     with {{TODO}}. Markdown pipe tables do not render; a table is a
     '{{table}}' block whose children are rows (first = header), each
     row's cells a chain of single children nested one level per column."""
-    save_ops = save_blocks(_client(), text, page=page, parent=parent,
+    save_ops = save_blocks(_client(), text, page=_raw_page(page), parent=parent,
                            todo=todo)
     return "\n".join(f"created ^{op.uid}" for op in save_ops)
 
@@ -156,7 +162,8 @@ def upload_asset(path: str, page: str | None = None,
     p = Path(path)
     if not p.is_file():
         raise ValueError(f"no such file: {path}")
-    linked = upload_and_link(_client(), p, page=page, parent=parent)
+    linked = upload_and_link(_client(), p, page=_raw_page(page),
+                             parent=parent)
     return f"{linked.url}\ncreated ^{linked.uid}"
 
 
@@ -168,7 +175,8 @@ def rename_page(title: str, new_title: str, allow_merge: bool = False) -> str:
     title's page is merged into new_title (its top-level blocks appended
     after new_title's, its page row then dropped) -- irreversible, so
     default to False and confirm with the user first."""
-    result = _client().rename_page(title, new_title, allow_merge=allow_merge)
+    result = _client().rename_page(title, as_raw_title(new_title),
+                                    allow_merge=allow_merge)
     if result.result == "merged":
         return f'merged "{title}" into "{result.title}"'
     return f'renamed "{title}" -> "{result.title}"'

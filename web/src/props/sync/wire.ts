@@ -204,8 +204,8 @@ const readRename: Reader<RenameRecord> = (raw, at) => {
   const r = record(raw, at);
   const after = field(r, "after_batch_id", nullable(text), at);
   return {
-    old_title: field(r, "old_title", text, at),
-    new_title: field(r, "new_title", text, at),
+    old_title: canonicalTitleOf(field(r, "old_title", text, at)),
+    new_title: canonicalTitleOf(field(r, "new_title", text, at)),
     after_batch_id: after === null ? null : batchIdOf(after),
     at: field(r, "at", num, at),
     ord: field(r, "ord", count, at),

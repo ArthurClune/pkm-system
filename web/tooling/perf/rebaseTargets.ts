@@ -4,7 +4,7 @@
 // touch, and the ops they send. The ops are deterministic from the snapshot
 // alone, so a branch and its merge base measure the same queue over the same
 // windows; the caller mints the batch ids, since a random draw is I/O.
-import type { BatchId, BlockUid, OrderIdx } from "../../src/api/brands";
+import type { BatchId, CanonicalTitle, BlockUid, OrderIdx } from "../../src/api/brands";
 import type { BlockOp, CreateOp } from "../../src/api/ops";
 import { parseBlockUid } from "../../src/ids";
 import { FIRST_ORDER_IDX, orderIdxAfter, orderIdxPlus } from "../../src/outline/orderIdx";
@@ -54,7 +54,7 @@ interface PageTree {
   children: Map<BlockUid | null, SyncBlock[]>;
 }
 
-function pageTree(snapshot: Snapshot, title: string): PageTree {
+function pageTree(snapshot: Snapshot, title: CanonicalTitle): PageTree {
   const page = snapshot.pages.find((p) => p.title === title);
   if (!page) throw new Error(`rebase scenario: no page titled ${JSON.stringify(title)}`);
   const blocks = snapshot.blocks.filter((b) => b.page_id === page.id);
@@ -102,7 +102,7 @@ function appendIdx(tree: PageTree, parent: BlockUid): OrderIdx {
     : orderIdxAfter(kids.reduce((max, c) => (c.order_idx > max ? c.order_idx : max), kids[0].order_idx));
 }
 
-export function pickTargets(snapshot: Snapshot, pageTitle: string): Targets {
+export function pickTargets(snapshot: Snapshot, pageTitle: CanonicalTitle): Targets {
   const tree = pageTree(snapshot, pageTitle);
   const sorted = [...tree.blocks].sort(byUid);
 

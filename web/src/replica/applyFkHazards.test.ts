@@ -35,8 +35,8 @@ const block = (rawUid: string, rawPageId: number, over: Partial<SyncBlock> = {})
   refs: [], ...over,
 });
 
-const page = (rawId: number, rawTitle: string) =>
-  ({ id: pageIdOf(rawId), title: canonicalTitleOf(rawTitle), created_at: 1, updated_at: 1 });
+const page = (rawId: number, titleText: string) =>
+  ({ id: pageIdOf(rawId), title: canonicalTitleOf(titleText), created_at: 1, updated_at: 1 });
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: seqOf(10),

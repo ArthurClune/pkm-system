@@ -2,7 +2,7 @@
 // Causality for one title's shared outline. The shell supplies ticket ids,
 // read tokens, and I/O; this module only decides whether a tree is safe to
 // adopt and whether settlement requires a fresh authoritative read.
-import type { BlockUid, OrderIdx, RawTitle } from "../api/brands";
+import type { BlockUid, OrderIdx, CanonicalTitle, RawTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
@@ -410,7 +410,7 @@ export function captureDraft(
 export function pendingTextOps(
   pending: PendingDraft | null,
   blocks: BlockNode[],
-  pageTitle: RawTitle,
+  pageTitle: CanonicalTitle,
 ): UpdateTextOp[] {
   if (!pending) return [];
   const { uid, text, base } = pending;

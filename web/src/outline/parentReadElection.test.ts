@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { block, pagePayload, requestIdOf, revisionOf } from "../test-helpers";
+import { block, canonicalTitleOf, pagePayload, requestIdOf, revisionOf } from "../test-helpers";
 import type { ReadToken } from "./outlineState";
 import {
   createParentReadElection,
@@ -66,7 +66,7 @@ it("publishes to waiters at or before the accepted read, with session blocks", a
   const same = readyWaiter(election, 5);
   const newer = readyWaiter(election, 6);
 
-  election.publish(token(5), pagePayload("Elected", [block("tuid-stale", "wire")]));
+  election.publish(token(5), pagePayload(canonicalTitleOf("Elected"), [block("tuid-stale", "wire")]));
   await settle();
 
   expect(older.seen.value).toMatchObject({
@@ -82,7 +82,7 @@ it("answers a read an accepted payload already covers without a waiter", async (
   const { election } = createHost();
   const controller = vi.fn();
   election.addController(controller);
-  election.publish(token(5), pagePayload("Elected", []));
+  election.publish(token(5), pagePayload(canonicalTitleOf("Elected"), []));
 
   expect(election.hasAcceptedFor(token(5))).toBe(true);
   expect(election.hasAcceptedFor(token(6))).toBe(false);
@@ -110,7 +110,7 @@ it("elects the newest live controller and stands down once it reads", async () =
   expect(older).not.toHaveBeenCalled();
   expect(waiter.seen.error).toBeUndefined();
 
-  election.publish(token(2), pagePayload("Elected", []));
+  election.publish(token(2), pagePayload(canonicalTitleOf("Elected"), []));
   await settle();
   expect(waiter.seen.value).toBeDefined();
 });
@@ -298,7 +298,7 @@ it("a released readiness is neither resolved nor rejected", async () => {
   waiter.readiness.release();
   waiter.readiness.release();
   await settle();
-  election.publish(token(9), pagePayload("Elected", []));
+  election.publish(token(9), pagePayload(canonicalTitleOf("Elected"), []));
   await settle();
 
   expect(waiter.seen).toEqual({ value: undefined, error: undefined });
@@ -328,7 +328,7 @@ it("a published payload clears the failure a later waiter would inherit", async 
   await settle();
   expect(String(failed.seen.error)).toMatch(/No parent read controller/);
 
-  election.publish(token(2), pagePayload("Elected", []));
+  election.publish(token(2), pagePayload(canonicalTitleOf("Elected"), []));
   const later = readyWaiter(election, 3);
   await settle();
 

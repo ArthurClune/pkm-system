@@ -51,7 +51,7 @@ beforeEach(() => {
   fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.startsWith("/api/page/Page")) {
-      return jsonResponse(pagePayload("Page",
+      return jsonResponse(pagePayload(canonicalTitleOf("Page"),
         [block("tuid-u1", "server text", { order_idx: orderIdxOf(0) })]));
     }
     return jsonResponse({ ok: true });

@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
-import { block, orderIdxOf, uidOf, requestIdOf, ticketIdOf, typeProbe, rawTitleOf } from "../test-helpers";
+import {
+  block, orderIdxOf, uidOf, requestIdOf, ticketIdOf, typeProbe, rawTitleOf,
+  canonicalTitleOf,
+} from "../test-helpers";
 import {
   beginAuthoritativeRead,
   captureDraft,
@@ -392,7 +395,7 @@ describe("outline causality", () => {
 
   it("flushes a changed pending draft before a structural op", () => {
     const ops = pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "typed", base: "old" }, [block("tuid-u1", "old")], rawTitleOf("Page"),
+      { uid: uidOf("tuid-u1"), text: "typed", base: "old" }, [block("tuid-u1", "old")], canonicalTitleOf("Page"),
     );
     expect(ops).toEqual([{
       op: "update_text", uid: "tuid-u1", text: "typed",
@@ -402,13 +405,13 @@ describe("outline causality", () => {
 
   it("drops a no-op pending draft whose text is unchanged", () => {
     expect(pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "same", base: "same" }, [block("tuid-u1", "same")], rawTitleOf("Page"),
+      { uid: uidOf("tuid-u1"), text: "same", base: "same" }, [block("tuid-u1", "same")], canonicalTitleOf("Page"),
     )).toEqual([]);
   });
 
   it("flushes a draft whose block a remote batch deleted, stamped with its base", () => {
     expect(pendingTextOps(
-      { uid: uidOf("tuid-gone"), text: "typed", base: "old" }, [block("tuid-u1", "old")], rawTitleOf("Page"),
+      { uid: uidOf("tuid-gone"), text: "typed", base: "old" }, [block("tuid-u1", "old")], canonicalTitleOf("Page"),
     )).toEqual([{
       op: "update_text", uid: "tuid-gone", text: "typed",
       base_text_hash: sha256Hex("old"), page_title: "Page",
@@ -416,12 +419,12 @@ describe("outline causality", () => {
   });
 
   it("has nothing to flush without a pending draft", () => {
-    expect(pendingTextOps(null, [block("tuid-u1", "old")], rawTitleOf("Page"))).toEqual([]);
+    expect(pendingTextOps(null, [block("tuid-u1", "old")], canonicalTitleOf("Page"))).toEqual([]);
   });
 
   it("stamps the base, not the tree, when a remote edit landed under the draft", () => {
     const ops = pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "typed", base: "old" }, [block("tuid-u1", "remote")], rawTitleOf("Page"),
+      { uid: uidOf("tuid-u1"), text: "typed", base: "old" }, [block("tuid-u1", "remote")], canonicalTitleOf("Page"),
     );
     expect(ops).toEqual([{
       op: "update_text", uid: "tuid-u1", text: "typed",
@@ -431,19 +434,19 @@ describe("outline causality", () => {
 
   it("drops a draft typed back to its base, even over a remote edit", () => {
     expect(pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "old", base: "old" }, [block("tuid-u1", "remote")], rawTitleOf("Page"),
+      { uid: uidOf("tuid-u1"), text: "old", base: "old" }, [block("tuid-u1", "remote")], canonicalTitleOf("Page"),
     )).toEqual([]);
   });
 
   it("drops a draft a remote edit already made", () => {
     expect(pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "same", base: "old" }, [block("tuid-u1", "same")], rawTitleOf("Page"),
+      { uid: uidOf("tuid-u1"), text: "same", base: "old" }, [block("tuid-u1", "same")], canonicalTitleOf("Page"),
     )).toEqual([]);
   });
 
   it("a draft with no captured base carries page_title and no hash", () => {
     const ops = pendingTextOps(
-      { uid: uidOf("tuid-gone"), text: "typed", base: null }, [], rawTitleOf("Page"),
+      { uid: uidOf("tuid-gone"), text: "typed", base: null }, [], canonicalTitleOf("Page"),
     );
     expect(ops).toEqual([
       { op: "update_text", uid: "tuid-gone", text: "typed", page_title: "Page" },

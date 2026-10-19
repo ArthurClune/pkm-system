@@ -44,9 +44,9 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function day(date: string, rawTitle: string, blocks = [block(`uid_${date}`, `entry ${date}`)],
+function day(date: string, titleText: string, blocks = [block(`uid_${date}`, `entry ${date}`)],
              exists = true, refs: JournalDay["backlinks"] = journalBacklinks()): JournalDay {
-  return { date, title: canonicalTitleOf(rawTitle), exists, blocks: exists ? blocks : [], backlinks: refs };
+  return { date, title: canonicalTitleOf(titleText), exists, blocks: exists ? blocks : [], backlinks: refs };
 }
 
 function intersect() {

@@ -552,8 +552,8 @@ describe("applyLocalOps: replay log", () => {
   });
   type Rec = ReturnType<typeof log>[number];
   const keys = () => log().map((r) => `${r.batch_id}:${r.kind}:${r.key}`);
-  const create = (u: string, order = 0, page_title = "AI"): BlockOp =>
-    ({ op: "create", uid: uidOf(u), page_title: rawTitleOf(page_title), parent_uid: null,
+  const create = (u: string, order = 0, titleText = "AI"): BlockOp =>
+    ({ op: "create", uid: uidOf(u), page_title: rawTitleOf(titleText), parent_uid: null,
        order_idx: orderIdxOf(order), text: u });
   const b = (s: string) => ({ batchId: bid(s) });
   const rec = (key: string, over: Partial<Rec> = {}): Rec => ({

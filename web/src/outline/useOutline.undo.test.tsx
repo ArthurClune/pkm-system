@@ -16,24 +16,24 @@ import {
   canonicalTitleOf,
   typeProbe,
   uidOf,
-  clientIdOf, rawTitleOf,
+  clientIdOf,
 } from "../test-helpers";
 import { recordHistory, resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
 
-function Harness({ pageTitle, initial, onReady }: {
-  pageTitle: string; initial: BlockNode[]; onReady: (o: Outline) => void;
+function Harness({ titleText, initial, onReady }: {
+  titleText: string; initial: BlockNode[]; onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf(pageTitle), initial);
+  const outline = useOutline(canonicalTitleOf(titleText), initial);
   useEffect(() => onReady(outline));
   return null;
 }
 
-function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
+function setup(sync: SyncFake, titleText: string, initial: BlockNode[]) {
   let outline!: Outline;
   render(
     <SyncContext.Provider value={sync}>
-      <Harness pageTitle={pageTitle} initial={initial}
+      <Harness titleText={titleText} initial={initial}
                onReady={(o) => { outline = o; }} />
     </SyncContext.Provider>);
   return () => outline;
@@ -49,7 +49,7 @@ typeProbe(() => {
 
 afterEach(() => resetHistory());
 
-const PAGE = rawTitleOf("Undo Wire");
+const PAGE = canonicalTitleOf("Undo Wire");
 const ab = () => [
   block("tuid-a", "alpha", { order_idx: orderIdxOf(0) }),
   block("tuid-b", "beta", { order_idx: orderIdxOf(1) }),

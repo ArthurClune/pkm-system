@@ -969,7 +969,7 @@ test("a page already active elsewhere in this tab renders read-only", () => {
   // open in a sidebar panel): the newcomer must not offer an editable
   // textarea, since the atomic outlineSessions editor lease permits only one
   // editor per title in this tab.
-  const release = reserveOutlineEditor("Page");
+  const release = reserveOutlineEditor(canonicalTitleOf("Page"));
   try {
     mount();
     fireEvent.click(screen.getByText("first"));
@@ -1061,7 +1061,7 @@ test("a remaining same-title fallback atomically takes over after owner unmount"
 });
 
 test("the read-only fallback still reflects genuinely remote batches", () => {
-  const release = reserveOutlineEditor("Page");
+  const release = reserveOutlineEditor(canonicalTitleOf("Page"));
   try {
     const sync = mount();
     act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [

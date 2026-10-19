@@ -35,7 +35,7 @@
 //
 // Ownership is unchanged: the worker still defers to a supplied hash or
 // page_title, so this is additive.
-import type { RawTitle } from "../api/brands";
+import type { CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, DeleteOp, UpdateTextOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
@@ -62,7 +62,7 @@ export function nodeSubtreePairs(node: BlockNode): [string, string][] {
 }
 
 function stampOne(op: UpdateTextOp | DeleteOp, node: BlockNode,
-                  pageTitle: RawTitle): BlockOp {
+                  pageTitle: CanonicalTitle): BlockOp {
   if (op.op === "delete") {
     return { ...op, base_subtree_hash: subtreeHash(nodeSubtreePairs(node)) };
   }
@@ -75,7 +75,7 @@ function stampOne(op: UpdateTextOp | DeleteOp, node: BlockNode,
 }
 
 export function stampBaseTextHashes(
-  blocks: BlockNode[], pageTitle: RawTitle, ops: readonly BlockOp[],
+  blocks: BlockNode[], pageTitle: CanonicalTitle, ops: readonly BlockOp[],
 ): BlockOp[] {
   // Only re-apply while a later op still needs stamping — a large paste
   // batch on a big page would otherwise walk ops for no benefit. Cloning is

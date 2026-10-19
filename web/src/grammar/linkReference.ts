@@ -1,4 +1,5 @@
 // pattern: Functional Core
+import type { CanonicalTitle } from "../api/brands";
 import { scanMarkdownLinks, type MarkdownSpan } from "./markdown";
 import { scanGrammar, type Span } from "./scan";
 
@@ -45,7 +46,7 @@ const codePointBefore = (value: string, offset: number): string =>
 const codePointAfter = (value: string, offset: number): string =>
   [...value.slice(offset)][0] ?? "";
 
-function candidates(text: string, title: string): Span[] {
+function candidates(text: string, title: CanonicalTitle): Span[] {
   const startsAlnum = ALNUM.test(firstCodePoint(title));
   const endsAlnum = ALNUM.test(lastCodePoint(title));
   const found: Span[] = [];
@@ -89,7 +90,7 @@ const matchingMarkdown = (
 
 export function linkUnlinkedReference(
   text: string,
-  canonicalTitle: string,
+  canonicalTitle: CanonicalTitle,
 ): LinkReferenceResult {
   if (canonicalTitle.length === 0) return { status: "no-safe-match" };
 

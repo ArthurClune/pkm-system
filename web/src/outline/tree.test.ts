@@ -508,9 +508,9 @@ describe("applyOpsWithChange allocates nothing for a batch that misses this page
 });
 
 describe("needsAuthoritativeReload", () => {
-  const move = (u: string, page_title: string | null): BlockOp => ({
+  const move = (u: string, titleText: string | null): BlockOp => ({
     op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(0),
-    page_title: page_title === null ? null : rawTitleOf(page_title),
+    page_title: titleText === null ? null : rawTitleOf(titleText),
   });
 
   test("true for a move into this page of a uid the tree lacks", () => {

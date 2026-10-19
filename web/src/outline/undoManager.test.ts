@@ -5,7 +5,7 @@ import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
 import type { DeliveryOutcome, WriteTicket } from "../sync/opQueue";
-import { block, defer, makeSync, orderIdxOf, uidOf, shaOf, ticketIdOf, rawTitleOf } from "../test-helpers";
+import { block, defer, makeSync, orderIdxOf, uidOf, shaOf, ticketIdOf, canonicalTitleOf } from "../test-helpers";
 import { acquireOutlineSession } from "./outlineSessions";
 import { historyIdle, performRedo, performUndo,
          recordHistory, registerOutlineHistory, resetHistory,
@@ -14,7 +14,7 @@ import { historyIdle, performRedo, performUndo,
 import { historyAnchors, invertOps, type HistoryEntry } from "./history";
 import { applyOps } from "./tree";
 
-const PAGE = rawTitleOf("Undo Page");
+const PAGE = canonicalTitleOf("Undo Page");
 
 const entry = (): HistoryEntry => ({
   pageTitle: PAGE,
@@ -269,7 +269,7 @@ it("undo with no session stamps base_text_hash against the loaded tree", async (
 
 it("a mounted-page undo queued behind an unmounted load waits its turn", async () => {
   const sync = makeSync();
-  const OTHER = rawTitleOf("Other Page");
+  const OTHER = canonicalTitleOf("Other Page");
   const gate = defer<BlockNode[]>();
   setHistoryPageLoader(() => gate.promise);
   recordHistory(entry());

@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "./router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SIDEBAR_STORAGE_KEY } from "./sidebar";
-import { block, pagePayload, stubFetch } from "./test-helpers";
+import { block, canonicalTitleOf, pagePayload, stubFetch } from "./test-helpers";
 import { App } from "./App";
 
 class NoopObserver {
@@ -22,9 +22,9 @@ afterEach(() => vi.unstubAllGlobals());
 
 it("shift-click stacks sidebar panels newest-first; close removes one", async () => {
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
-    ["/api/page/AI", pagePayload("AI", [block("uid_s2", "ai body")])],
-    ["/api/page/Machine%20Learning", pagePayload("Machine Learning", [
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
+    ["/api/page/AI", pagePayload(canonicalTitleOf("AI"), [block("uid_s2", "ai body")])],
+    ["/api/page/Machine%20Learning", pagePayload(canonicalTitleOf("Machine Learning"), [
       block("uid_m1", "see [[Paper]] and [[AI]]")])],
   ]);
   render(
@@ -49,7 +49,7 @@ it("shift-clicking the nav's TODO link opens it in the sidebar, not a new window
   stubFetch([
     ["/api/journal", { days: [] }],
     ["/api/sidebar", { entries: [] }],
-    ["/api/page/TODO", pagePayload("TODO", [block("uid_t1", "todo body")])],
+    ["/api/page/TODO", pagePayload(canonicalTitleOf("TODO"), [block("uid_t1", "todo body")])],
   ]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
   const link = screen.getByRole("link", { name: "TODO" });
@@ -137,7 +137,7 @@ it("Daily Notes and Current Work are both primary links, whatever the route", as
 });
 
 it("links to TODO under Daily Notes and Current Work", async () => {
-  stubFetch([["/api/page/TODO", pagePayload("TODO", [block("uid_t1", "todo body")])]]);
+  stubFetch([["/api/page/TODO", pagePayload(canonicalTitleOf("TODO"), [block("uid_t1", "todo body")])]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/TODO"]}><App /></MemoryRouter>);
 
   const links = screen.getAllByRole("link").map((link) => link.textContent);
@@ -147,7 +147,7 @@ it("links to TODO under Daily Notes and Current Work", async () => {
 });
 
 it("the TODO nav link is a primary link and reflects the active route", async () => {
-  stubFetch([["/api/page/TODO", pagePayload("TODO", [block("uid_t1", "todo body")])]]);
+  stubFetch([["/api/page/TODO", pagePayload(canonicalTitleOf("TODO"), [block("uid_t1", "todo body")])]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/TODO"]}><App /></MemoryRouter>);
 
   const link = screen.getByRole("link", { name: "TODO" });
@@ -165,7 +165,7 @@ it("the top bar has a focusable search bar; the left nav has no search entry", a
 });
 
 it("the top bar's page menu opens 'Open in sidebar', which stacks the current page", async () => {
-  stubFetch([["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])]]);
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
   await screen.findByRole("heading", { name: "Paper" });
 
@@ -185,8 +185,8 @@ it("cmd-k does not focus the search bar", async () => {
 
 it("cmd-/ hides the stacked right sidebar; pressing it again shows it", async () => {
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
-    ["/api/page/Machine%20Learning", pagePayload("Machine Learning", [
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
+    ["/api/page/Machine%20Learning", pagePayload(canonicalTitleOf("Machine Learning"), [
       block("uid_m1", "see [[Paper]]")])],
   ]);
   render(
@@ -207,8 +207,8 @@ it("cmd-/ hides the stacked right sidebar; pressing it again shows it", async ()
 
 it("ctrl-/ also toggles the right sidebar", async () => {
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
-    ["/api/page/Machine%20Learning", pagePayload("Machine Learning", [
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
+    ["/api/page/Machine%20Learning", pagePayload(canonicalTitleOf("Machine Learning"), [
       block("uid_m1", "see [[Paper]]")])],
   ]);
   render(
@@ -225,9 +225,9 @@ it("ctrl-/ also toggles the right sidebar", async () => {
 
 it("opening a page in the sidebar reveals a hidden right sidebar", async () => {
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
-    ["/api/page/AI", pagePayload("AI", [block("uid_s2", "ai body")])],
-    ["/api/page/Machine%20Learning", pagePayload("Machine Learning", [
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
+    ["/api/page/AI", pagePayload(canonicalTitleOf("AI"), [block("uid_s2", "ai body")])],
+    ["/api/page/Machine%20Learning", pagePayload(canonicalTitleOf("Machine Learning"), [
       block("uid_m1", "see [[Paper]] and [[AI]]")])],
   ]);
   render(
@@ -248,8 +248,8 @@ it("opening a page in the sidebar reveals a hidden right sidebar", async () => {
 
 it("plain '/' with no modifier does not hide the right sidebar", async () => {
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
-    ["/api/page/Machine%20Learning", pagePayload("Machine Learning", [
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
+    ["/api/page/Machine%20Learning", pagePayload(canonicalTitleOf("Machine Learning"), [
       block("uid_m1", "see [[Paper]]")])],
   ]);
   render(
@@ -268,7 +268,7 @@ it("plain '/' with no modifier does not hide the right sidebar", async () => {
 // lookup, so the page never receives the keydown; Ctrl-Shift-D replaces it.
 it("ctrl-shift-d navigates to the home page", async () => {
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
     ["/api/journal", { days: [] }],
   ]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
@@ -281,7 +281,7 @@ it("ctrl-shift-d navigates to the home page", async () => {
 
 it("ctrl-cmd-d is no longer bound", async () => {
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
   ]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
   expect(await screen.findByRole("heading", { name: "Paper" })).toBeInTheDocument();
@@ -293,7 +293,7 @@ it("ctrl-cmd-d is no longer bound", async () => {
 // delivers the keydown to the page. See docs/architecture/frontend.md.
 it("ctrl-shift-t shows the block-stamp column; pressing it again hides it", async () => {
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
   ]);
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
@@ -312,7 +312,7 @@ it("ctrl-shift-t shows the block-stamp column; pressing it again hides it", asyn
 // BlockInput doesn't stopPropagation on keydown.
 it("ctrl-shift-t works while a block is being edited", async () => {
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
   ]);
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
@@ -331,7 +331,7 @@ it("ctrl-shift-t works while a block is being edited", async () => {
 
 it("ctrl-cmd-t does not toggle the block-stamp column", async () => {
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
   ]);
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
@@ -390,8 +390,8 @@ it("the .app container has no-sidebar by default (no stack, no left collapse)", 
 
 it("opening a page in the sidebar drops the no-sidebar class from .app", async () => {
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
-    ["/api/page/Machine%20Learning", pagePayload("Machine Learning", [
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
+    ["/api/page/Machine%20Learning", pagePayload(canonicalTitleOf("Machine Learning"), [
       block("uid_m1", "see [[Paper]]")])],
   ]);
   const { container } = render(
@@ -409,8 +409,8 @@ it("opening a page in the sidebar drops the no-sidebar class from .app", async (
 
 it("hiding the stacked sidebar (Cmd-/) restores the no-sidebar class on .app", async () => {
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
-    ["/api/page/Machine%20Learning", pagePayload("Machine Learning", [
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
+    ["/api/page/Machine%20Learning", pagePayload(canonicalTitleOf("Machine Learning"), [
       block("uid_m1", "see [[Paper]]")])],
   ]);
   const { container } = render(

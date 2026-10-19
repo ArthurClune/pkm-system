@@ -1,13 +1,13 @@
 import { expect, it } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
-import { block, orderIdxOf, uidOf, shaOf, rawTitleOf } from "../test-helpers";
+import { block, orderIdxOf, uidOf, shaOf, canonicalTitleOf } from "../test-helpers";
 import { applyOps } from "./tree";
 import { invertOps, emptyHistory, historyAnchors, HISTORY_CAP, recordEntry,
          resolveAnchors, takeRedo, takeUndo, type HistoryEntry,
          type HistoryState } from "./history";
 
-const PAGE = rawTitleOf("Test Page");
+const PAGE = canonicalTitleOf("Test Page");
 
 const tree = () => [
   block("tuid-a", "alpha", { order_idx: orderIdxOf(0) }),
@@ -248,12 +248,12 @@ it("returns null for ops on unknown blocks (cross-page move source)", () => {
 
 it("returns null for a move that leaves this page", () => {
   expect(invertOps(tree(), PAGE, [{ op: "move", uid: uidOf("tuid-c"), parent_uid: null,
-                                    order_idx: orderIdxOf(0), page_title: rawTitleOf("Other") }]))
+                                    order_idx: orderIdxOf(0), page_title: canonicalTitleOf("Other") }]))
     .toBeNull();
 });
 
 it("returns [] for create_page (additive, nothing to undo)", () => {
-  expect(invertOps(tree(), PAGE, [{ op: "create_page", page_title: rawTitleOf("New") }]))
+  expect(invertOps(tree(), PAGE, [{ op: "create_page", page_title: canonicalTitleOf("New") }]))
     .toEqual([]);
 });
 

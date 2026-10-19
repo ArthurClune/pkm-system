@@ -45,7 +45,7 @@ function renderPanel(title: string) {
 }
 
 it("fetches its page and renders title plus block tree, no backlinks", async () => {
-  stubFetch([["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "a paper block")], {
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "a paper block")], {
     backlinks: { groups: [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("Machine Learning"), items: [
       { uid: uidOf("uid_b3"), text: "should not render", breadcrumbs: [] }] }],
       total_pages: 1, offset: 0, limit: 20 },
@@ -59,7 +59,7 @@ it("fetches its page and renders title plus block tree, no backlinks", async () 
 });
 
 it("close button fires onClose", async () => {
-  stubFetch([["/api/page/Paper", pagePayload("Paper", [])]]);
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [])]]);
   const onClose = vi.fn();
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}>
     <SidebarPanel title={rawTitleOf("Paper")} onClose={onClose} />
@@ -69,7 +69,7 @@ it("close button fires onClose", async () => {
 });
 
 it("panel bullets are draggable and start a drag for the panel's page", async () => {
-  stubFetch([["/api/page/Some%20Page", pagePayload("Some Page",
+  stubFetch([["/api/page/Some%20Page", pagePayload(canonicalTitleOf("Some Page"),
     [block("tuid-s1", "side one")])]]);
   const { dnd } = renderPanel("Some Page");
   await screen.findByText("side one");
@@ -82,7 +82,7 @@ it("panel bullets are draggable and start a drag for the panel's page", async ()
 
 it("dragging is disabled while disconnected (writes paused invariant)", async () => {
   const sync = makeSync("reconnecting");
-  stubFetch([["/api/page/Paper", pagePayload("Paper", [block("tuid-s1", "side one")])]]);
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("tuid-s1", "side one")])]]);
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>

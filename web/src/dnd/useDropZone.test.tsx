@@ -13,7 +13,7 @@ import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider, useDnd } from "./DndContext";
 import { useDropZone, type Indicator } from "./useDropZone";
 import { EditablePage } from "../views/EditablePage";
-import { block, makeSync, orderIdxOf, canonicalTitleOf, uidOf, clientIdOf, rawTitleOf } from "../test-helpers";
+import { block, makeSync, orderIdxOf, canonicalTitleOf, uidOf, clientIdOf } from "../test-helpers";
 
 const ROW_H = 20;
 const ROWS = 6; // u1..u6; u6 is the one dragged, leaving five candidate rows
@@ -133,7 +133,7 @@ it("re-measures a row whose uid changed under it, count unchanged", async () => 
   // down the page than the one measured there.
   act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
     { op: "delete", uid: uidOf("tuid-u1") },
-    { op: "create", uid: uidOf("tuid-u9"), page_title: rawTitleOf("P"), parent_uid: null,
+    { op: "create", uid: uidOf("tuid-u9"), page_title: canonicalTitleOf("P"), parent_uid: null,
       order_idx: orderIdxOf(6), text: "row 9" },
   ] }));
   over(95);
@@ -209,7 +209,7 @@ it("does not commit a new indicator object when the position hasn't moved",
   });
   function Harness() {
     const containerRef = useRef<HTMLDivElement | null>(null);
-    const { indicator, zoneProps } = useDropZone(rawTitleOf("P"), () => blocks, containerRef);
+    const { indicator, zoneProps } = useDropZone(canonicalTitleOf("P"), () => blocks, containerRef);
     return <div ref={containerRef} data-testid="zone" {...zoneProps}>
       <div data-uid="tuid-u1" /><div data-uid="tuid-u2" />
       <Consumer indicator={indicator} />
@@ -220,7 +220,7 @@ it("does not commit a new indicator object when the position hasn't moved",
       <DndProvider><Capture /><Harness /></DndProvider>
     </SyncContext.Provider>);
   stubRects();
-  act(() => { dnd.startDrag({ kind: "blocks", uid: uidOf("tuid-u2"), pageTitle: rawTitleOf("P") }); });
+  act(() => { dnd.startDrag({ kind: "blocks", uid: uidOf("tuid-u2"), pageTitle: canonicalTitleOf("P") }); });
 
   const zone = document.querySelector('[data-testid="zone"]')!;
   const transfer = dt();

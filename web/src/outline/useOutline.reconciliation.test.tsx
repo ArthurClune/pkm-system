@@ -66,7 +66,7 @@ it("does not let an old target refetch erase a split made after dispatch", async
   if (!created || created.op !== "create") throw new Error("missing create op");
 
   await act(async () => {
-    response.resolve(jsonResponse(pagePayload("Page", [block("tuid-u1", "first")] )));
+    response.resolve(jsonResponse(pagePayload(canonicalTitleOf("Page"), [block("tuid-u1", "first")] )));
     await response.promise;
     await Promise.resolve();
     await Promise.resolve();
@@ -77,7 +77,7 @@ it("does not let an old target refetch erase a split made after dispatch", async
   expect(outline.focus?.uid).toBe(created.uid);
 
   await act(async () => {
-    fresh.resolve(jsonResponse(pagePayload("Page", [
+    fresh.resolve(jsonResponse(pagePayload(canonicalTitleOf("Page"), [
       block("tuid-u1", "first", { order_idx: orderIdxOf(0) }),
       block(created.uid, created.text, { order_idx: created.order_idx }),
     ])));
@@ -150,7 +150,7 @@ it("delivery replaces a blocked pre-delivery response with exactly one fresh rea
     },
   });
   const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(
-    pagePayload("Page", [block("tuid-u1", "authoritative", { heading: 1 })]),
+    pagePayload(canonicalTitleOf("Page"), [block("tuid-u1", "authoritative", { heading: 1 })]),
   )));
   vi.stubGlobal("fetch", fetchMock);
   let outline!: Outline;
@@ -185,7 +185,7 @@ it("delivery replaces a blocked pre-delivery response with exactly one fresh rea
 });
 
 it("a new parent tree flushes a live draft before adopting it", () => {
-  stubFetch([["/api/page/", pagePayload("Page A", [block("tuid-a", "server A")])]]);
+  stubFetch([["/api/page/", pagePayload(canonicalTitleOf("Page A"), [block("tuid-a", "server A")])]]);
   const sync = makeSync("connected", {
     settled: () => new Promise(() => undefined),
   });

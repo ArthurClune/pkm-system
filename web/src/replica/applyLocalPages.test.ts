@@ -34,8 +34,8 @@ const block = (rawUid: string, rawPageId: number,
   ...over,
 });
 
-const page = (rawId: number, rawTitle: string) =>
-  ({ id: pageIdOf(rawId), title: canonicalTitleOf(rawTitle), created_at: 1,
+const page = (rawId: number, titleText: string) =>
+  ({ id: pageIdOf(rawId), title: canonicalTitleOf(titleText), created_at: 1,
      updated_at: 1 });
 
 const SNAP: Snapshot = {
@@ -73,8 +73,8 @@ const enqueue = (ops: BlockOp[], name: string): void => {
   enqueueBatch(t.db, ops, NOW, bid(name));
 };
 
-const createOn = (rawUid: string, pageTitle: string): BlockOp =>
-  ({ op: "create", uid: uidOf(rawUid), page_title: rawTitleOf(pageTitle), parent_uid: null,
+const createOn = (rawUid: string, titleText: string): BlockOp =>
+  ({ op: "create", uid: uidOf(rawUid), page_title: rawTitleOf(titleText), parent_uid: null,
      order_idx: orderIdxOf(0), text: `text of ${rawUid}` });
 
 describe("applyChanges: a local page nothing keeps is dropped", () => {

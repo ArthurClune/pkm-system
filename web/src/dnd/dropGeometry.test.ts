@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DragSource, DropRow } from "../outline/dnd";
-import { uidOf, rawTitleOf } from "../test-helpers";
+import { uidOf, canonicalTitleOf } from "../test-helpers";
 import { boundaryFromRects, cacheIsUsable, cachedRectFor,
          indicatorTopFromRects, type RowRect } from "./dropGeometry";
 
@@ -70,7 +70,7 @@ describe("indicatorTopFromRects", () => {
 });
 
 describe("cachedRectFor", () => {
-  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-u9"), pageTitle: rawTitleOf("P") };
+  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-u9"), pageTitle: canonicalTitleOf("P") };
   const measured = { drag, rowCount: 3, containerTop: 0, containerLeft: 0,
                      rects: [{ top: 0, bottom: 20 }, null,
                              { top: 40, bottom: 60 }],
@@ -97,7 +97,7 @@ describe("cachedRectFor", () => {
 });
 
 describe("cacheIsUsable", () => {
-  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: rawTitleOf("P") };
+  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P") };
   const cache = (over: object) =>
     ({ drag, rowCount: 3, containerTop: 0, containerLeft: 0,
        rects: [], uids: [], ...over });
@@ -108,7 +108,10 @@ describe("cacheIsUsable", () => {
 
   it("never reuses a cache from a previous drag", () => {
     // the drop that ended the last drag re-laid-out the rows it moved
-    expect(cacheIsUsable(cache({}), { kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: rawTitleOf("P") }, rows(3)))
+    expect(cacheIsUsable(
+      cache({}),
+      { kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P") },
+      rows(3)))
       .toBe(false);
   });
 

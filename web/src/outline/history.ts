@@ -25,7 +25,7 @@
 //   where that device put them, relative to their own neighbours. When
 //   another device moved the anchor elsewhere among the same siblings, the
 //   replayed block follows the anchor there.
-import type { BlockUid, OrderIdx, Sha256Hex, RawTitle } from "../api/brands";
+import type { BlockUid, OrderIdx, Sha256Hex, CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import type { FocusTarget } from "./edits";
@@ -42,7 +42,7 @@ export interface PlacementAnchor { before: BlockUid | null }
 export type BatchAnchors = readonly (PlacementAnchor | null)[];
 
 export interface HistoryEntry {
-  pageTitle: RawTitle;
+  pageTitle: CanonicalTitle;
   ops: BlockOp[];       // forward batch (redo replays this)
   inverse: BlockOp[];   // undo batch
   /** `ops` anchored on the pre-edit tree, `inverse` on the tree `ops` left. */
@@ -56,7 +56,7 @@ export interface HistoryEntry {
 
 /** The siblings a create or move would land among on this page, the placed
  * block itself left out; null when the op places nothing in this tree. */
-function placementSiblings(tree: BlockNode[], pageTitle: RawTitle,
+function placementSiblings(tree: BlockNode[], pageTitle: CanonicalTitle,
                            op: CreateOp | MoveOp): BlockNode[] | null {
   if (op.op === "create") {
     if (op.page_title !== pageTitle) return null;
@@ -75,7 +75,7 @@ const isPlacement = (op: BlockOp): op is CreateOp | MoveOp =>
 
 /** Anchors `ops` while applying them to `tree`, which this mutates. A
  * placement lands in front of the first sibling at or past its key. */
-function anchorBatch(tree: BlockNode[], pageTitle: RawTitle,
+function anchorBatch(tree: BlockNode[], pageTitle: CanonicalTitle,
                      ops: readonly BlockOp[]): (PlacementAnchor | null)[] {
   return ops.map((op) => {
     let anchor: PlacementAnchor | null = null;
@@ -93,7 +93,7 @@ function anchorBatch(tree: BlockNode[], pageTitle: RawTitle,
 /** The anchors a history entry records: `ops` read off `pre`, `inverse` off
  * the tree `ops` leave. A batch with no placement (typing, a heading) clones
  * nothing. */
-export function historyAnchors(pre: BlockNode[], pageTitle: RawTitle,
+export function historyAnchors(pre: BlockNode[], pageTitle: CanonicalTitle,
                                ops: readonly BlockOp[],
                                inverse: readonly BlockOp[]): HistoryEntry["anchors"] {
   if (!ops.some(isPlacement) && !inverse.some(isPlacement)) {
@@ -109,7 +109,7 @@ export function historyAnchors(pre: BlockNode[], pageTitle: RawTitle,
  * does, and keeping it too when the anchor is no longer among the target
  * parent's children. Ops are re-keyed in sequence, each against the tree the
  * ones before it leave. */
-export function resolveAnchors(live: BlockNode[], pageTitle: RawTitle,
+export function resolveAnchors(live: BlockNode[], pageTitle: CanonicalTitle,
                                batch: readonly BlockOp[],
                                anchors: BatchAnchors): BlockOp[] {
   if (!anchors.some((a) => a)) return [...batch];
@@ -121,7 +121,7 @@ export function resolveAnchors(live: BlockNode[], pageTitle: RawTitle,
   });
 }
 
-function anchoredOp(tree: BlockNode[], pageTitle: RawTitle, op: BlockOp,
+function anchoredOp(tree: BlockNode[], pageTitle: CanonicalTitle, op: BlockOp,
                     anchor: PlacementAnchor | null): BlockOp {
   if (anchor === null || !isPlacement(op)) return op;
   const siblings = placementSiblings(tree, pageTitle, op);
@@ -138,7 +138,7 @@ function anchoredOp(tree: BlockNode[], pageTitle: RawTitle, op: BlockOp,
   return { ...op, order_idx: next ? next.order_idx : orderIdxAfterLast(siblings) };
 }
 
-export function invertOps(blocks: BlockNode[], pageTitle: RawTitle,
+export function invertOps(blocks: BlockNode[], pageTitle: CanonicalTitle,
                           ops: readonly BlockOp[]): BlockOp[] | null {
   if (ops.length === 0) return [];
   // One working clone, mutated in place: a forward pass reads what each op's
@@ -200,7 +200,7 @@ function restoredOrderIdx(now: BlockNode[], slot: Slot): OrderIdx {
 }
 
 /** `tree` is the forward op's input; null = not invertible from it. */
-function readUndo(tree: BlockNode[], pageTitle: RawTitle,
+function readUndo(tree: BlockNode[], pageTitle: CanonicalTitle,
                   op: BlockOp): Undo | null {
   const fixed = (ops: BlockOp[]): Undo => ({ kind: "fixed", ops });
   switch (op.op) {
@@ -243,7 +243,7 @@ function readUndo(tree: BlockNode[], pageTitle: RawTitle,
 
 /** `now` is the tree the group will be applied to — position-equal to the
  * op's output, keys possibly shifted. */
-function inverseGroup(now: BlockNode[], pageTitle: RawTitle, undo: Undo): BlockOp[] {
+function inverseGroup(now: BlockNode[], pageTitle: CanonicalTitle, undo: Undo): BlockOp[] {
   if (undo.kind === "fixed") return undo.ops;
   if (undo.kind === "move") {
     return [{ op: "move", uid: undo.uid, parent_uid: undo.slot.parentUid,

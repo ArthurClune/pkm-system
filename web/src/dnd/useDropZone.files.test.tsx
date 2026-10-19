@@ -6,7 +6,7 @@ import { useRef } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, orderIdxOf, rawTitleOf } from "../test-helpers";
+import { block, makeSync, orderIdxOf, canonicalTitleOf } from "../test-helpers";
 import { DndProvider, useDnd } from "./DndContext";
 import { useDropZone } from "./useDropZone";
 
@@ -58,7 +58,7 @@ function setup(onDropFiles: DropFiles | null = vi.fn()) {
   function Zone() {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const { indicator, zoneProps } = useDropZone(
-      rawTitleOf("P"), () => blocks, containerRef, onDropFiles ?? undefined);
+      canonicalTitleOf("P"), () => blocks, containerRef, onDropFiles ?? undefined);
     return (
       <div ref={containerRef} data-testid="zone" {...zoneProps}>
         {blocks.map((b) => <div key={b.uid} data-uid={b.uid}>{b.text}</div>)}

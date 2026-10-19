@@ -36,7 +36,7 @@ function deferred<T>() {
 
 function mount(sync = makeSync(), title = "Paper",
                blocks = [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })]) {
-  stubFetch([["/api/page/Paper", pagePayload(title, blocks)]]);
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf(title), blocks)]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
@@ -56,7 +56,7 @@ test("a title change cannot mount the previous payload under the new title", asy
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
     if (url === "/api/page/Alpha") {
-      return Promise.resolve(jsonResponse(pagePayload("Alpha", [
+      return Promise.resolve(jsonResponse(pagePayload(canonicalTitleOf("Alpha"), [
         block("tuid-alpha", "alpha tree"),
       ])));
     }
@@ -86,7 +86,7 @@ test("a title change cannot mount the previous payload under the new title", asy
   expect(isOutlineSessionActive("Alpha")).toBe(false);
 
   await act(async () => {
-    next.resolve(jsonResponse(pagePayload("Beta", [
+    next.resolve(jsonResponse(pagePayload(canonicalTitleOf("Beta"), [
       block("tuid-beta", "beta tree"),
     ])));
     await next.promise;
@@ -132,7 +132,7 @@ test("a remote websocket batch updates the panel", async () => {
 test("a non-canonical requested title keys the outline by the payload's title", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const sync = makeSync();
-  stubFetch([["/api/page/", pagePayload("Paper",
+  stubFetch([["/api/page/", pagePayload(canonicalTitleOf("Paper"),
     [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })])]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -160,7 +160,7 @@ test("a non-canonical requested title keys the outline by the payload's title", 
 });
 
 test("a page already open elsewhere in this tab falls back to read-only", async () => {
-  const release = reserveOutlineEditor("Paper");
+  const release = reserveOutlineEditor(canonicalTitleOf("Paper"));
   try {
     mount();
     fireEvent.click(await screen.findByText("a paper block"));
@@ -172,7 +172,7 @@ test("a page already open elsewhere in this tab falls back to read-only", async 
 
 test("main-first same-title mounts keep one editor and one live fallback", async () => {
   const blocks = [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })];
-  stubFetch([["/api/page/Paper", pagePayload("Paper", blocks)]]);
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), blocks)]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
@@ -189,7 +189,7 @@ test("main-first same-title mounts keep one editor and one live fallback", async
 
 test("sidebar-first same-title mounts preserve its editor when main joins", async () => {
   const blocks = [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })];
-  stubFetch([["/api/page/Paper", pagePayload("Paper", blocks)]]);
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), blocks)]]);
   const sync = makeSync();
   const view = (showMain: boolean) => (
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -230,7 +230,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
   try {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await act(async () => {
-      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
       await older.promise;
       await Promise.resolve();
       await Promise.resolve();
@@ -240,7 +240,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
     }) !== null;
 
     await act(async () => {
-      newer.resolve(jsonResponse(pagePayload("Paper", [
+      newer.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
         block("tuid-new", "newer main response"),
       ])));
       await newer.promise;
@@ -249,8 +249,8 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
     });
     newerCopies = screen.queryAllByText("newer main response").length;
   } finally {
-    older.resolve(jsonResponse(pagePayload("Paper", [])));
-    newer.resolve(jsonResponse(pagePayload("Paper", [])));
+    older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    newer.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
     view.unmount();
   }
 
@@ -307,7 +307,7 @@ test("shows the fetch error", async () => {
 test("a uid prop scrolls to and flashes that block within the panel's own container", async () => {
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
-  stubFetch([["/api/page/Paper", pagePayload("Paper", [
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [
     block("uid_s0", "some other block"),
     block("uid_s1", "target block"),
   ])]]);
@@ -335,7 +335,7 @@ test("a uid under a collapsed ancestor is expanded, then scrolled to and flashed
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   const sync = makeSync();
-  servePageApplyingSent(sync, "Paper", collapsedPaper());
+  servePageApplyingSent(sync, canonicalTitleOf("Paper"), collapsedPaper());
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
@@ -357,8 +357,8 @@ test("a uid under a collapsed ancestor stays hidden when the page is open elsewh
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   const sync = makeSync();
-  servePageApplyingSent(sync, "Paper", collapsedPaper());
-  const release = reserveOutlineEditor("Paper");
+  servePageApplyingSent(sync, canonicalTitleOf("Paper"), collapsedPaper());
+  const release = reserveOutlineEditor(canonicalTitleOf("Paper"));
   try {
     render(
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -378,7 +378,7 @@ test("a uid under a collapsed ancestor stays hidden when the page is open elsewh
 test("no uid prop: no scroll/flash side effect", async () => {
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
-  stubFetch([["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "target block")])]]);
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "target block")])]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
@@ -393,7 +393,7 @@ test("no uid prop: no scroll/flash side effect", async () => {
 // same as it does in the main pane -- not only after the panel is reopened.
 test("a ((uid)) ref missing from the seed map resolves live in the panel", async () => {
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [
       block("uid_s1", "see ((ref_zz9))", { order_idx: orderIdxOf(0) }),
     ])],
     ["/api/block-refs", {

@@ -37,8 +37,8 @@ const block = (rawUid: string, rawPageId: number, over: Partial<SyncBlock> = {})
   refs: [], ...over,
 });
 
-const page = (rawId: number, rawTitle: string) =>
-  ({ id: pageIdOf(rawId), title: canonicalTitleOf(rawTitle), created_at: 1, updated_at: 1 });
+const page = (rawId: number, titleText: string) =>
+  ({ id: pageIdOf(rawId), title: canonicalTitleOf(titleText), created_at: 1, updated_at: 1 });
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false,
@@ -1585,8 +1585,8 @@ describe("applyChanges: the replay log", () => {
       " ORDER BY order_idx, uid", ["uid", "order_idx"], [rawPageId]))
       .map((r) => `${r.uid}${r.order_idx}`).join(" ");
 
-  const createTop = (u: string, o: number, pageTitle = "P"): BlockOp =>
-    ({ op: "create", uid: uidOf(u), page_title: rawTitleOf(pageTitle), parent_uid: null,
+  const createTop = (u: string, o: number, titleText = "P"): BlockOp =>
+    ({ op: "create", uid: uidOf(u), page_title: rawTitleOf(titleText), parent_uid: null,
        order_idx: orderIdxOf(o), text: `text of ${u}` });
   // An untitled top-level move stays on the page the replica sees the
   // block on.
@@ -1896,9 +1896,9 @@ describe("applyChanges: a create or move the two sides place in different groups
       .toEqual({ status: "applied", cursor: 11 });
   };
 
-  const moveTop = (u: string, o: number, pageTitle?: string): BlockOp =>
+  const moveTop = (u: string, o: number, titleText?: string): BlockOp =>
     ({ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(o),
-       ...(pageTitle !== undefined ? { page_title: rawTitleOf(pageTitle) } : {}) });
+       ...(titleText !== undefined ? { page_title: rawTitleOf(titleText) } : {}) });
   const moveUnder = (u: string, parent: string, o: number): BlockOp =>
     ({ op: "move", uid: uidOf(u), parent_uid: uidOf(parent), order_idx: orderIdxOf(o) });
 

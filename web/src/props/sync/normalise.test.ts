@@ -152,4 +152,17 @@ describe("fromReplica", () => {
     applySnapshot(t.db, base());
     expect(diffGraphs(fromReplica(t.db), fromSnapshot(base()))).toBeNull();
   });
+
+  test("names a page the replica does not hold as `?page N`, as a snapshot does", async () => {
+    t = await openTestDb();
+    applySnapshot(t.db, base());
+    t.db.exec("PRAGMA foreign_keys = OFF");
+    t.db.exec("DELETE FROM pages WHERE id = 1");
+    const gone = fromReplica(t.db);
+    expect(gone.blocks.some((b) => b.page === "?page 1")).toBe(true);
+    expect(gone.pages).not.toContain("?page 1");
+    const snap = base();
+    snap.pages = snap.pages.filter((p) => p.id !== pageIdOf(1));
+    expect(diffGraphs(gone, fromSnapshot(snap))).toBeNull();
+  });
 });

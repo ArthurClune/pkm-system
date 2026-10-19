@@ -28,3 +28,16 @@ export function load(
     db[name](SQL, ["uid"]),
   ];
 }
+
+// a free generic helper forwards a K its callers never pass through select
+export function sel<K extends keyof Columns>(
+  db: ReplicaDb, sql: string, keys: readonly [K, ...K[]],
+) {
+  return db.select(sql, keys);
+}
+
+// a property not named select is a free helper too
+export const helpers = (db: ReplicaDb) => ({
+  other: <K extends keyof Columns>(sql: string, keys: K[]) =>
+    db.select(sql, keys),
+});

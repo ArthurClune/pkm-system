@@ -25,9 +25,10 @@
 //     the checks the two rules above rely on tsc to raise.
 //   * brands/select-keys-literal: the keys argument of `ReplicaDb.select` is
 //     an array literal of string literals, or an array or tuple whose
-//     element type is a type parameter (a forwarder passing its generic keys
-//     through). Any other array could widen K to every column. Not a brand
-//     rule; it lives here as the repo's type-aware rule home.
+//     element type is a type parameter inside a method or property named
+//     `select` (a wrapper passing its generic keys through). Any other
+//     array could widen K to every column. Not a brand rule; it lives here
+//     as the repo's type-aware rule home.
 // All but the last read tooling/brandRegistry.gen.json, generated from the
 // server's brand registry, and all apply to tests as they do to product code.
 // The test mint module (`testMintSites`) is a mint site for every brand, and
@@ -1285,8 +1286,8 @@ const SELECT_KEYS_MESSAGES = {
     + "checked: call `db.select(...)` directly",
   notLiteral:
     "ReplicaDb.select takes its keys as an array literal of string "
-    + "literals (or a generic K passed through unchanged): any other array "
-    + "types every column as present",
+    + "literals (or a generic K passed through unchanged by a `select` "
+    + "implementation): any other array types every column as present",
   element:
     "an element of the keys array is not a string literal (a spread, hole "
     + "or expression could name a column the query does not return)",
@@ -1322,6 +1323,23 @@ const selectKeysLiteral = {
       }
       return false;
     };
+    // Whether the nearest enclosing function is a `select` implementation:
+    // a method, or the value of a property, named `select`. Only there can
+    // a generic K forwarded unchanged have come from a checked caller.
+    const inSelectImplementation = (node) => {
+      const ancestors = context.sourceCode.getAncestors(node);
+      const fn = ancestors.findLast((a) => /Function/.test(a.type));
+      const holder = fn === undefined ? undefined : ancestors[ancestors.indexOf(fn) - 1];
+      if (holder === undefined || fn.parent !== holder) return false;
+      if (holder.type !== "Property" && holder.type !== "MethodDefinition") {
+        return false;
+      }
+      if (holder.value !== fn) return false;
+      const key = holder.key;
+      return holder.computed
+        ? key.type === "Literal" && key.value === "select"
+        : key.type === "Identifier" && key.name === "select";
+    };
     return {
       CallExpression(node) {
         const callee = node.callee.type === "ChainExpression"
@@ -1355,7 +1373,8 @@ const selectKeysLiteral = {
           }
           return;
         }
-        if (!hasTypeParameterElements(typeOf(keys))) {
+        if (!(hasTypeParameterElements(typeOf(keys))
+          && inSelectImplementation(node))) {
           context.report({ node: keys, messageId: "notLiteral" });
         }
       },

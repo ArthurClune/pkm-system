@@ -556,8 +556,10 @@ In production `select` is `selectObjects` and ignores `keys`. The lint rule
 `brands/select-keys-literal` requires the keys argument to be an array
 literal of string literals, because a widened array (`(keyof Columns)[]`)
 would type every column as present. The one other shape it allows is an array
-or tuple whose element type is a type parameter, so a wrapper can forward its
-generic `K` unchanged.
+or tuple whose element type is a type parameter, and only inside a method or
+property named `select`, so a `ReplicaDb` wrapper can forward its generic `K`
+unchanged. A free generic helper is reported: its callers do not call
+`ReplicaDb.select`, so nothing would check their keys.
 
 `introspect(sql)` returns raw, unchecked rows under SQLite's own column
 names, for catalog reads, counts and tests. Production code does not call it:

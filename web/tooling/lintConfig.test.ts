@@ -96,23 +96,33 @@ const cases: readonly FixtureCase[] = [
   {
     file: "select-keys-literal.ts",
     rule: "brands/select-keys-literal",
-    count: 8,
+    count: 10,
     corrected:
       'import type { Columns } from "../../src/replica/columns.gen";\n' +
       'import type { ReplicaDb } from "../../src/replica/db";\n' +
       "export function load(db: ReplicaDb) {\n" +
       '  return db.select("SELECT uid FROM blocks", ["uid"]);\n' +
       "}\n" +
-      "// A forwarder passes a generic K through unchanged.\n" +
-      "export function forward<const K extends keyof Columns>(\n" +
-      "  db: ReplicaDb, keys: readonly [K, ...K[]],\n" +
-      ") {\n" +
-      '  return db.select("SELECT uid FROM blocks", keys);\n' +
-      "}\n" +
-      "export function forwardArray<K extends keyof Columns>(\n" +
-      "  db: ReplicaDb, keys: K[],\n" +
-      ") {\n" +
-      '  return db.select("SELECT uid FROM blocks", keys);\n' +
+      "// A select implementation passes its generic K through unchanged.\n" +
+      "export const wrapped = (db: ReplicaDb): ReplicaDb => ({\n" +
+      "  ...db,\n" +
+      "  select<const K extends keyof Columns>(\n" +
+      "    sql: string, keys: readonly [K, ...K[]],\n" +
+      "  ) {\n" +
+      "    return db.select(sql, keys);\n" +
+      "  },\n" +
+      "});\n" +
+      "export const viaProperty = (db: ReplicaDb) => ({\n" +
+      "  select: <K extends keyof Columns>(sql: string, keys: K[]) =>\n" +
+      "    db.select(sql, keys),\n" +
+      "});\n" +
+      "export class Wrapper {\n" +
+      "  constructor(private db: ReplicaDb) {}\n" +
+      "  select<const K extends keyof Columns>(\n" +
+      "    sql: string, keys: readonly [K, ...K[]],\n" +
+      "  ) {\n" +
+      "    return this.db.select(sql, keys);\n" +
+      "  }\n" +
       "}\n" +
       "// Only ReplicaDb's select is governed.\n" +
       "export const other = {\n" +

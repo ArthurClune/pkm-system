@@ -10,12 +10,16 @@
 //     floated promises, promise-valued void callbacks (e.g. React event
 //     handlers), thrown non-Errors, and untyped caught errors.
 //   * Import control: concrete JSON requests use typedClient, raw apiFetch
-//     stays at the transport boundary, and only tests import test-helpers.
+//     stays at the transport boundary, and only tests import test-helpers,
+//     testDb and memReplica.
 //   * No `any` flowing through production code (no-explicit-any and the
 //     no-unsafe-* rules): an untyped JSON value reaching code that assumes
 //     its shape fails at runtime instead of at the type check.
 //   * Brand discipline (tooling/eslint-plugin-brands): a name that means a
-//     brand carries it, and brands are asserted only at their mint sites.
+//     brand carries it, brands are asserted only at their mint sites, and
+//     `Reflect.apply` / `construct` / `set` and brand-named `Object.assign` /
+//     `defineProperty` writes, or an alias of them, do not route around
+//     either.
 //   * No unchecked suppression of the type checker: `@ts-ignore` and
 //     `@ts-nocheck` are banned and `@ts-expect-error` says why, so a test
 //     cannot silence a brand error the rules above rely on tsc to raise.
@@ -46,6 +50,33 @@ const testHelpersBan = {
 const testHelpersDynamicBan = {
   selector: "ImportExpression[source.value=/test-helpers/]",
   message: TEST_HELPERS_MESSAGE,
+};
+
+// The database and replica fixtures are test code by location (the brand
+// registry's testCode), so product code does not import them either.
+const TEST_FIXTURES_MESSAGE =
+  "testDb and memReplica are test code: product code takes a replica "
+  + "through its interface and leaves the fixtures to tests";
+const testFixturesBan = {
+  group: ["**/testDb*", "**/memReplica*"],
+  message: TEST_FIXTURES_MESSAGE,
+};
+const testFixturesDynamicBan = {
+  selector: "ImportExpression[source.value=/testDb|memReplica/]",
+  message: TEST_FIXTURES_MESSAGE,
+};
+
+// A template-literal source reads like a string but is not a Literal, so the
+// two bans above never see it. Its text is checked here; a source built
+// from a variable is left to the review of the caller.
+const templateSourceBan = {
+  selector:
+    "ImportExpression > TemplateLiteral > "
+    + "TemplateElement[value.raw=/test-helpers|testDb|memReplica/]",
+  message:
+    "test code is not imported by product code, whatever the import() "
+    + "spelling: " + TEST_HELPERS_MESSAGE + "; testDb and memReplica are "
+    + "fixtures for tests",
 };
 
 export default tseslint.config(
@@ -102,6 +133,7 @@ export default tseslint.config(
       "@typescript-eslint/no-unsafe-call": "error",
       "brands/name-carries-brand": "error",
       "brands/no-brand-assertion": "error",
+      "brands/no-brand-bypass": "error",
       "@typescript-eslint/ban-ts-comment": ["error", {
         "ts-ignore": true,
         "ts-nocheck": true,
@@ -109,9 +141,10 @@ export default tseslint.config(
         "ts-check": false,
       }],
       "no-restricted-imports": ["error", {
-        patterns: [apiFetchBan, testHelpersBan],
+        patterns: [apiFetchBan, testHelpersBan, testFixturesBan],
       }],
-      "no-restricted-syntax": ["error", testHelpersDynamicBan],
+      "no-restricted-syntax": ["error",
+        testHelpersDynamicBan, testFixturesDynamicBan, templateSourceBan],
     },
   },
   {
@@ -122,7 +155,7 @@ export default tseslint.config(
       "src/sync/SyncProvider.tsx",
     ],
     rules: {
-      "no-restricted-imports": ["error", { patterns: [testHelpersBan] }],
+      "no-restricted-imports": ["error", { patterns: [testHelpersBan, testFixturesBan] }],
     },
   },
   {

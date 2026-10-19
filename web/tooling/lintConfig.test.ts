@@ -462,6 +462,49 @@ const cases: readonly FixtureCase[] = [
       "  void uids;\n" +
       "}\n",
   },
+  {
+    file: "brand-bypass.ts",
+    rule: "brands/no-brand-bypass",
+    count: 23,
+    corrected:
+      'import type { BlockUid } from "../../src/api/brands";\n' +
+      "export function call(f: (uid: BlockUid) => void, uid: BlockUid): void {\n" +
+      "  f(uid);\n" +
+      "  f.call(undefined, uid);\n" +
+      "}\n" +
+      "interface Row {\n  uid: BlockUid;\n  text: string;\n}\n" +
+      "export function write(row: Row): void {\n" +
+      '  Object.assign(row, { text: "t" });\n' +
+      '  Object.defineProperty(row, "text", { value: "t" });\n' +
+      '  Object.defineProperties(row, { text: { value: "t" } });\n' +
+      "}\n" +
+      "export function dynamic(o: object, key: string): void {\n" +
+      "  Object.defineProperty(o, key, { value: 1 });\n" +
+      "}\n" +
+      "export function branded(row: Row, uid: BlockUid, other: Row): void {\n" +
+      "  Object.assign(row, { uid });\n" +
+      "  Object.assign({}, other);\n" +
+      "  Object.defineProperty(row, \"uid\", { value: uid });\n" +
+      "  Reflect.set(row, \"uid\", uid);\n" +
+      "}\n" +
+      "export const sameKind = (x: unknown) => x instanceof Object;\n",
+  },
+  {
+    file: "restricted-test-code-import.ts",
+    rule: "no-restricted-imports",
+    count: 2,
+    corrected:
+      'import { apiGet } from "../../src/api/typedClient";\n' +
+      "export const load = () => apiGet(\"/api/current-work\");\n",
+  },
+  {
+    file: "restricted-test-code-import.ts",
+    rule: "no-restricted-syntax",
+    count: 3,
+    corrected:
+      'export const load = () => import("../../src/api/typedClient");\n' +
+      "export const named = (name: string) => import(`../../src/${name}`);\n",
+  },
 ];
 
 // Each ESLint spawn here takes ~2s under coverage instrumentation, close
@@ -791,6 +834,40 @@ describe("tests under the lint", () => {
     expect(await restricted("src/outline/tree.test.ts")).toEqual([]);
     expect(await restricted("src/props/ops/example.ts")).toEqual([]);
     expect(await restricted("src/replica/testDb.ts")).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("product code may not import the test fixtures, tests may", async () => {
+    const imports = [
+      'import { openTestDb } from "../replica/testDb";\nvoid openTestDb;\n',
+      'import { memReplica } from "./memReplica.ts";\nvoid memReplica;\n',
+      'export const a = () => import("../replica/testDb");\n',
+      "export const b = () => import(`../sync/${'x'}memReplica`);\n",
+    ];
+    for (const rel of ["src/outline/tree.ts", "src/sync/SyncProvider.tsx"]) {
+      for (const text of imports) {
+        const found = await messagesFor(rel, text);
+        expect(rulesOf(found).filter((r) => r.startsWith("no-restricted")), text)
+          .toHaveLength(1);
+      }
+    }
+    for (const text of imports) {
+      const found = await messagesFor("src/outline/tree.test.ts", text);
+      expect(rulesOf(found).filter((r) => r.startsWith("no-restricted")), text)
+        .toEqual([]);
+    }
+  }, ESLINT_TIMEOUT_MS);
+
+  it("the bypass rule covers tests, where the syntax bans are off", async () => {
+    const text =
+      'import type { BlockUid } from "./api/brands";\n'
+      + "export function f(row: { uid: BlockUid }): void {\n"
+      + '  Object.assign(row, { uid: "junk" });\n'
+      + "}\n";
+    const found = await messagesFor("src/paths.test.ts", text);
+    expect(rulesOf(found)).toEqual(["brands/no-brand-bypass"]);
+    expect(found[0].message).toContain("uidOf");
+    // The test mint module may write any brand-named field.
+    expect(await messagesFor("src/test-helpers.ts", text)).toEqual([]);
   }, ESLINT_TIMEOUT_MS);
 
   it("test files keep the apiFetch import ban", async () => {

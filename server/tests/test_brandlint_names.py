@@ -148,7 +148,7 @@ def test_every_rule_has_a_remedy_that_names_the_fix():
     assert set(RULES) == {"brand-name", "brand-opt-out", "brand-parse", "brand-mint",
                           "brand-cast", "model-construct", "raw-sqlite",
                           "test-mint-import", "brand-ignore", "brand-launder",
-                          "brand-file-ignore"}
+                          "brand-file-ignore", "brand-opt-out-unused"}
     assert "select()" in RULES["brand-name"] and "untrusted" in RULES["brand-name"]
 
 
@@ -241,3 +241,40 @@ def test_branded_or_unannotated_attributes_and_functional_forms_are_clean(source
 def test_a_nested_function_in_a_class_conditional_is_not_a_class_field():
     source = "class A:\n    if X:\n        def m(self) -> None:\n            uid: str = ''\n"
     assert rules(source) == []
+
+
+def test_an_opt_out_covers_one_site_not_every_site_on_its_line():
+    source = ("def f(uids: str, page_ids: str) -> None: ...  # brand: untrusted -- comma-separated query\n")
+    assert rules(source, ROUTES) == ["brand-name"]
+
+
+def test_an_opt_out_covers_the_leftmost_site_on_its_line():
+    source = "def f(uids: str, page_ids: str) -> None: ...  # brand: untrusted -- comma-separated query\n"
+    [v] = check_text(ROUTES, source, REGISTRY)
+    assert "`page_ids`" in v.text
+
+
+def test_each_wrapped_site_takes_its_own_opt_out():
+    source = ("def f(\n    uids: str,  # brand: untrusted -- comma-separated query\n"
+              "    page_ids: str,  # brand: untrusted -- comma-separated query\n) -> None: ...\n")
+    assert rules(source, ROUTES) == []
+
+
+def test_an_opt_out_that_covers_nothing_is_reported():
+    source = "def f(uids: list[BlockUid]) -> None: ...  # brand: untrusted -- comma-separated query\n"
+    assert rules(source, ROUTES) == ["brand-opt-out-unused"]
+
+
+def test_an_opt_out_on_an_unrelated_line_is_reported_and_the_site_is_not_covered():
+    source = "x = 1  # brand: untrusted -- query\ndef f(uids: str) -> None: ...\n"
+    assert sorted(rules(source, ROUTES)) == ["brand-name", "brand-opt-out-unused"]
+
+
+def test_a_used_opt_out_is_not_reported():
+    assert rules(OPT_OUT, ROUTES) == []
+
+
+def test_the_stale_opt_out_names_its_line():
+    source = "x = 1\ny = 2  # brand: untrusted -- query\n"
+    [v] = check_text(ROUTES, source, REGISTRY)
+    assert (v.line, v.rule) == (2, "brand-opt-out-unused")

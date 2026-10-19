@@ -49,6 +49,9 @@ RULES = {
                    "under a newer python3",
     "brand-opt-out": "`# brand: untrusted -- <reason>` is allowed only in route modules (routes_*.py) and "
                      "must give a reason",
+    "brand-opt-out-unused": "this `# brand: untrusted -- <reason>` covers no site: an opt-out covers the leftmost "
+                            "brand-named parameter or field it is on that is not already carrying its brand, "
+                            "so remove it, or give each further site its own line and its own opt-out",
     "test-mint-import": "`pkm.test_data.ids` mints any brand unchecked by the product's rules and is for "
                         "tests only: in product code read the value from a `select()` row, a contract model "
                         "or a parser",
@@ -262,9 +265,9 @@ def _class_statements(body: list[ast.stmt]):
 
 
 def _functional_fields(call: ast.Call):
-    """(name, annotation, first line, last line) of each field a functional
-    `TypedDict("A", {"uid": str})` or `NamedTuple("A", [("uid", str)])` (or
-    its keyword form) declares."""
+    """(name, annotation, first line, last line, column) of each field a
+    functional `TypedDict("A", {"uid": str})` or `NamedTuple("A", [("uid",
+    str)])` (or its keyword form) declares."""
     kind = _leaf(call.func)
     if kind not in ("TypedDict", "NamedTuple"):
         return
@@ -278,31 +281,31 @@ def _functional_fields(call: ast.Call):
                 pairs.append((elt.elts[0], elt.elts[1], elt))
     for pair_key, value, span in pairs:
         if isinstance(pair_key, ast.Constant) and isinstance(pair_key.value, str):
-            yield pair_key.value, value, span.lineno, span.end_lineno or span.lineno
+            yield pair_key.value, value, span.lineno, span.end_lineno or span.lineno, span.col_offset
     for k in call.keywords:
         if k.arg is not None:
-            yield k.arg, k.value, k.value.lineno, k.value.end_lineno or k.value.lineno
+            yield k.arg, k.value, k.value.lineno, k.value.end_lineno or k.value.lineno, k.value.col_offset
 
 
 def _annotated_names(tree: ast.AST):
-    """(name, annotation or None, first line, last line) for every checked
-    site: a function parameter (without an annotation too, since it takes
-    anything; a lambda's is not), a class field however deeply under `if` or
-    `try`, an annotated attribute (`self.uid: str = ...`) and a field of a
-    functional TypedDict or NamedTuple."""
+    """(name, annotation or None, first line, last line, column) for every
+    checked site: a function parameter (without an annotation too, since it
+    takes anything; a lambda's is not), a class field however deeply under
+    `if` or `try`, an annotated attribute (`self.uid: str = ...`) and a field
+    of a functional TypedDict or NamedTuple."""
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             a = node.args
             params = [*a.posonlyargs, *a.args, *a.kwonlyargs]
             params += [p for p in (a.vararg, a.kwarg) if p is not None]
             for p in params:
-                yield p.arg, p.annotation, p.lineno, p.end_lineno or p.lineno
+                yield p.arg, p.annotation, p.lineno, p.end_lineno or p.lineno, p.col_offset
         elif isinstance(node, ast.ClassDef):
             for stmt in _class_statements(node.body):
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                    yield stmt.target.id, stmt.annotation, stmt.lineno, stmt.end_lineno or stmt.lineno
+                    yield stmt.target.id, stmt.annotation, stmt.lineno, stmt.end_lineno or stmt.lineno, stmt.col_offset
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Attribute):
-            yield node.target.attr, node.annotation, node.lineno, node.end_lineno or node.lineno
+            yield node.target.attr, node.annotation, node.lineno, node.end_lineno or node.lineno, node.col_offset
         elif isinstance(node, ast.Call):
             yield from _functional_fields(node)
 
@@ -666,7 +669,7 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
     allowed = _opt_out_allowed(path, registry)
     is_test = _site_allowed(path, registry.test_code)
     out: list[Violation] = []
-    opted: set[int] = set()
+    opted: dict[int, str] = {}
     ignored: set[int] = set()
     first_code = tree.body[0].lineno if tree.body else len(lines) + 1
     for n, comment in _comments(text):
@@ -684,20 +687,30 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
         if not allowed or not _REASON.match(m.group("rest")):
             out.append(Violation(path, n, "brand-opt-out", comment.strip()))
         else:
-            opted.add(n)
-    for name, annotation, first, last in _annotated_names(tree):
+            opted[n] = comment.strip()
+    # An opt-out covers one site: the leftmost brand-named site, still not
+    # carrying its brand, on the lines the comment sits in. A second site on
+    # the line is reported, and an opt-out that covered none is too.
+    claimed: set[int] = set()
+    for name, annotation, first, last, _col in sorted(_annotated_names(tree), key=lambda s: (s[2], s[4])):
         if name not in registry.names:
             continue
         if annotation is None:
             problem = f"`{name}` has no annotation: annotate it `{' or '.join(registry.names[name])}`"
         else:
             problem = _problem(name, annotation, registry)
-        if problem is None or any(n in opted for n in range(first, last + 1)):
+        if problem is None:
+            continue
+        cover = next((n for n in range(first, last + 1) if n in opted and n not in claimed), None)
+        if cover is not None:
+            claimed.add(cover)
             continue
         fix = _test_fix(registry.names[name][0], registry) if is_test else ""
         if fix:
             problem += f"; for a value in a test, {fix}"
         out.append(Violation(path, first, "brand-name", f"{problem}: {lines[first - 1].strip()}"))
+    out.extend(Violation(path, n, "brand-opt-out-unused", comment) for n, comment in opted.items()
+               if n not in claimed)
     for line, name, brand in _ignored_literals(path, tree, ignored, registry):
         fix = _test_fix(brand, registry) if is_test else ""
         what = f"`{name}=` value on a line whose type check is silenced"

@@ -1,11 +1,11 @@
 ---
 # pkm-rhi6
 title: select<K> checks under tests that the returned columns cover K
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-10-19T09:13:28Z
-updated_at: 2026-10-19T12:42:20Z
+updated_at: 2026-10-19T13:15:26Z
 ---
 
 Split from pkm-78r0 (its Optional item).
@@ -21,3 +21,11 @@ Split from pkm-78r0 (its Optional item).
 
 - [x] Lint rule: select's keys argument is an array literal of string literals, with teeth
 - [x] Docs
+
+## Summary of Changes
+
+- `ReplicaDb.select(sql, keys, params?)`: `K` is inferred from a required, non-empty keys array. Under test, the engine's column names (empty results too) must equal the keys exactly (`keyColumnsMessage` in rowCheck.ts). Production is unchanged and ignores the keys.
+- About 200 call sites in 38 files were codemodded. No wrong K was found. `parkTakenTitles` now branches per table, and two tests' unregistered aliases were fixed.
+- Lint `brands/select-keys-literal` (type-aware, ReplicaDb only): keys must be an array literal of string literals, or a generic K forwarded inside a `select` implementation. Spread arguments and computed callees are reported. Teeth in lintConfig.test.ts.
+- Docs: frontend.md (Replica database access), enforced-checks.md.
+- Gates on the branch: pnpm verify (3918 unit, 81 e2e), proptest web (77), perf frontend (no regression; two K `faster` timings left unrecorded).

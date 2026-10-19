@@ -1,11 +1,15 @@
 // onDropFiles: files dropped from outside the app become one new block each,
 // at the drop target, in one undo step.
-import { act, render } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
+import { releaseUrl } from "../sync/assetRelease";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, jsonResponse, makeSync, orderIdxOf, type SyncFake, canonicalTitleOf, uidOf } from "../test-helpers";
+import {
+  block, canonicalTitleOf, jsonResponse, makeSync, orderIdxOf, shaOf, uidOf,
+  type SyncFake,
+} from "../test-helpers";
 import type { DropTarget } from "./dnd";
 import { resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
@@ -40,6 +44,7 @@ const md = (name: string) => {
 
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+    if (init.method === "DELETE") return jsonResponse({}, 200);
     const f = (init.body as FormData).get("file") as File;
     if (f.name.startsWith("bad")) return jsonResponse({ detail: "disk full" }, 500);
     return jsonResponse(asset(f.name));
@@ -75,6 +80,11 @@ it("one undo removes every new block", async () => {
   await drop(o, [png("c.png"), pdf("d.pdf")], at(null, 1));
   act(() => o().handlers.onUndo());
   expect(o().blocks.map((b) => b.uid)).toEqual(["tuid-a", "tuid-b"]);
+  const released = () => vi.mocked(fetch).mock.calls
+    .filter(([, init]) => init?.method === "DELETE").map(([url]) => url);
+  await waitFor(() => expect(released()).toHaveLength(2));
+  expect(released()).toEqual(
+    [asset("c.png"), asset("d.pdf")].map((a) => releaseUrl(shaOf(a.sha256))));
 });
 
 it("a failed upload is named in the banner and makes no block", async () => {

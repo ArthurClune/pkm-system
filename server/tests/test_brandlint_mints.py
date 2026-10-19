@@ -288,7 +288,7 @@ def test_an_ignore_comment_in_a_multi_line_call_covers_its_span():
 
 
 def test_an_ignore_comment_without_a_brand_literal_is_clean():
-    assert rules('f(title="x", uid=u)  # type: ignore\n', TEST) == []
+    assert rules('f(title="x", other=u)  # type: ignore\n', TEST) == []
     assert rules('f(uid=None)  # type: ignore\n', TEST) == []
 
 
@@ -495,3 +495,96 @@ def test_the_ignored_return_message_names_the_helper_in_a_test():
     source = "def f(x: object) -> BlockUid:\n    return x  # type: ignore\n"
     [v] = check_text(TEST, source, REGISTRY)
     assert "uid_of" in v.text and "silenced" in v.text
+
+
+@pytest.mark.parametrize("comment", ["pyright: ignore", "pyright: ignore[reportArgumentType]"])
+def test_a_pyright_ignore_is_a_type_ignore(comment: str):
+    assert rules(IGNORED_CALL.format(comment=comment), TEST) == ["brand-ignore"]
+    source = f"def f(x: object) -> BlockUid:\n    return x  # {comment}\n"
+    assert rules(source, TEST) == ["brand-launder"]
+    held = f"def f(x: object):\n    y: BlockUid = x  # {comment}\n    return y\n"
+    assert rules(held, TEST) == ["brand-launder"]
+
+
+def test_an_annotated_brand_attribute_under_a_type_ignore_is_flagged():
+    source = "class A:\n    def __init__(self, x: object):\n        self.uid: BlockUid = x  # type: ignore\n"
+    assert rules(source, TEST) == ["brand-launder"]
+    assert rules(source.replace("  # type: ignore", ""), TEST) == []
+    plain = source.replace("BlockUid", "str")
+    assert rules(plain, TEST) == []
+
+
+@pytest.mark.parametrize("value", ["raw", "row['uid']", "obj.uid", "a or b"])
+def test_an_unchecked_value_for_a_brand_keyword_under_an_ignore_is_flagged(value: str):
+    assert rules(f"f(uid={value})  # type: ignore[arg-type]\n", TEST) == ["brand-ignore"]
+    assert rules(f"f(uid={value})\n", TEST) == []
+
+
+@pytest.mark.parametrize("value", ["uid_of('x')", "None"])
+def test_a_helper_call_for_a_brand_keyword_under_an_ignore_is_clean(value: str):
+    assert rules(f"f(uid={value})  # type: ignore[arg-type]\n", TEST) == []
+
+
+@pytest.mark.parametrize("comment", [
+    "# pyrefly: ignore-errors",
+    "# pyright: basic",
+    "# pyright: reportGeneralTypeIssues=false",
+    "# pyright: reportArgumentType=none, reportReturnType=false",
+    "# pyright: reportArgumentType=warning",
+    "# pyright: reportArgumentType=information",
+    "# type: ignore",
+])
+def test_a_file_level_ignore_is_flagged(comment: str):
+    assert rules(f"{comment}\nx = 1\n", ROUTES) == ["brand-file-ignore"]
+
+
+@pytest.mark.parametrize("comment", [
+    "# pyrefly: ignore-errors",
+    "# pyright: basic",
+    "# pyright: reportGeneralTypeIssues=false",
+])
+def test_a_file_level_directive_is_flagged_after_the_code_has_started(comment: str):
+    assert rules(f'"""Doc."""\nx = 1\n{comment}\n', ROUTES) == ["brand-file-ignore"]
+
+
+@pytest.mark.parametrize("comment", ["# pyright: strict", "# pyrefly: ignore[bad-return]", "# pyright: ignore"])
+def test_a_line_level_or_stricter_comment_is_not_a_file_level_ignore(comment: str):
+    assert "brand-file-ignore" not in rules(f"x = 1  {comment}\n", ROUTES)
+    assert "brand-file-ignore" not in rules(f"{comment}\nx = 1\n", ROUTES)
+
+
+def test_an_inline_type_ignore_after_code_is_not_a_file_level_ignore():
+    assert rules("x = 1\n# type: ignore\ny = 2\n", ROUTES) == []
+
+
+def test_a_file_level_ignore_names_the_fix():
+    assert "brand-file-ignore" in RULES
+    assert "file" in RULES["brand-file-ignore"]
+
+
+def test_a_return_belongs_to_its_innermost_function():
+    inner = ("def outer(x: object) -> BlockUid:\n"
+             "    def inner(y: object) -> str:\n"
+             "        return y  # type: ignore\n"
+             "    return parse(inner(x))\n")
+    assert rules(inner, TEST) == []
+    deeper = ("def outer(x: object) -> BlockUid:\n"
+              "    def inner(y: object) -> BlockUid:\n"
+              "        return y  # type: ignore\n"
+              "    return parse(inner(x))\n")
+    assert rules(deeper, TEST) == ["brand-launder"]
+
+
+@pytest.mark.parametrize("value", ['row.get("uid")', "str(x)", "parse_uid(x)", "[str(x)]"])
+def test_an_unrelated_call_for_a_brand_keyword_under_an_ignore_is_flagged(value: str):
+    assert rules(f"f(uid={value})  # type: ignore[arg-type]\n", TEST) == ["brand-ignore"]
+
+
+@pytest.mark.parametrize("value", ['uid_of("x")', 'malformed_uid("x")', "[uid_of('x')]", "None"])
+def test_the_brands_checked_helper_is_vouched_for_under_an_ignore(value: str):
+    assert rules(f"f(uid={value})  # type: ignore[arg-type]\n", TEST) == []
+
+
+def test_a_brands_constructor_is_vouched_for_where_the_file_may_mint_it():
+    assert rules("f(uid=BlockUid(x))  # type: ignore[arg-type]\n", CONTRACT) == []
+    assert rules("f(uid=BlockUid(x))  # type: ignore[arg-type]\n", ROUTES) == ["brand-ignore", "brand-mint"]

@@ -19,6 +19,11 @@ def db():
     con.close()
 
 
+def _meta(db) -> dict[str, str]:
+    return {r["sync_meta_key"]: r["sync_meta_value"] for r in db.select(
+        "SELECT key AS sync_meta_key, value AS sync_meta_value FROM sync_meta")}
+
+
 def test_tables_exist(db):
     names = {r[0] for r in read(db,
         "SELECT name FROM sqlite_master WHERE type IN ('table','view')")}
@@ -81,15 +86,10 @@ def test_refs_kind_constraint(db):
 def test_db_generation_token_created_and_stable(db):
     """A random generation token is minted when the DDL first runs and
     survives re-running the (idempotent) DDL."""
-    row = read(db,
-        "SELECT value FROM sync_meta WHERE key = 'db_generation'").fetchone()
-    assert row is not None
-    token = row[0]
+    token = _meta(db)["db_generation"]
     assert len(token) == 32 and all(c in "0123456789abcdef" for c in token)
     db.executescript(DDL)  # idempotent replay must not rotate the token
-    again = read(db,
-        "SELECT value FROM sync_meta WHERE key = 'db_generation'").fetchone()[0]
-    assert again == token
+    assert _meta(db)["db_generation"] == token
 
 
 def test_db_generation_token_differs_between_databases():
@@ -98,28 +98,27 @@ def test_db_generation_token_differs_between_databases():
     for _ in range(2):
         con = connect(":memory:")
         con.executescript(DDL)
-        tokens.add(read(con,
-            "SELECT value FROM sync_meta WHERE key = 'db_generation'"
-        ).fetchone()[0])
+        tokens.add(con.select(
+            "SELECT value AS sync_meta_value FROM sync_meta WHERE key = 'db_generation'")[0]["sync_meta_value"])
         con.close()
     assert len(tokens) == 2
 
 
 def test_plain_space_title_canonicalization_defaults_false_and_replay_keeps_true(db):
-    meta = dict(read(db, "SELECT key, value FROM sync_meta"))
+    meta = _meta(db)
     assert meta["plain_space_title_canonicalization"] == "0"
     assert plain_space_title_canonicalization_active(db) is False
 
     set_plain_space_title_canonicalization(db, active=True)
 
-    assert dict(read(db, "SELECT key, value FROM sync_meta"))[
+    assert _meta(db)[
         "plain_space_title_canonicalization"
     ] == "1"
     assert plain_space_title_canonicalization_active(db) is True
 
     db.executescript(DDL)
 
-    assert dict(read(db, "SELECT key, value FROM sync_meta"))[
+    assert _meta(db)[
         "plain_space_title_canonicalization"
     ] == "1"
     assert plain_space_title_canonicalization_active(db) is True
@@ -139,11 +138,11 @@ def test_block_refs_table_exists(tmp_path):
 
 
 def test_rotate_database_generation_changes_only_generation(db):
-    before = dict(read(db, "SELECT key, value FROM sync_meta"))
+    before = _meta(db)
 
     rotated = rotate_database_generation(db)
 
-    after = dict(read(db, "SELECT key, value FROM sync_meta"))
+    after = _meta(db)
     assert rotated == database_generation(db)
     assert rotated != before["db_generation"]
     assert after.keys() == before.keys()

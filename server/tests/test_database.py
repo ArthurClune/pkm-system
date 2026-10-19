@@ -28,9 +28,10 @@ def test_select_one_none_when_empty(tmp_path: Path) -> None:
     assert db.select_one("SELECT uid FROM blocks") == {"uid": "abcdefghi"}
 
 
-def test_row_check_raises_on_unregistered_alias(tmp_path: Path) -> None:
+def test_row_check_raises_on_unregistered_alias(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PKM_ROW_CHECK", "1")
     db = _db(tmp_path)
-    db._check_rows = True
     with pytest.raises(RowCheckError) as err:
         db.select("SELECT text AS uid FROM blocks")
     assert "SELECT text AS uid" in str(err.value)

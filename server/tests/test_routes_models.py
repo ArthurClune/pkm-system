@@ -37,7 +37,7 @@ def test_no_handler_returns_a_bare_dict(seeded_config):
     assert _bare_dict_handlers(app) == []
 
 
-def test_backlinks_left_join_missing_page(client, seeded_config):
+def test_a_ref_to_a_missing_page_does_not_fail_the_reads(client, seeded_config):
     """A refs row whose target page row is gone (foreign keys off, as in a
     damaged file) is skipped by the backlink and journal reads, not raised
     on by the row check."""

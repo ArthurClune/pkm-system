@@ -319,12 +319,11 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
     assert [tuple(row.values()) for row in db.select(
         "SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid='child-leading'"
     )] == [(1, "source-leading", 0)]
-    assert read(db, "SELECT text FROM blocks WHERE uid='inbound'").fetchone()[0] == (
+    assert db.select("SELECT text FROM blocks WHERE uid='inbound'")[0]["text"] == (
         "[[Acme]] + [[Acme]] + [[Beta]] + [[Beta]] + [[Unrelated]]"
     )
-    assert read(db,
-        "SELECT text FROM blocks WHERE uid='source-leading'"
-    ).fetchone()[0] == "self [[Acme]] and [[Unrelated]]"
+    assert db.select(
+        "SELECT text FROM blocks WHERE uid='source-leading'")[0]["text"] == "self [[Acme]] and [[Unrelated]]"
     assert [tuple(row.values()) for row in db.select(
         "SELECT target_page_id, kind AS ref_kind FROM refs WHERE src_block_uid='inbound' "
         "ORDER BY target_page_id, kind"

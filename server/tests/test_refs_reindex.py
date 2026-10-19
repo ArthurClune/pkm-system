@@ -145,9 +145,10 @@ def test_composition_skips_a_blank_ref_without_minting_a_page(con):
 def test_composition_creates_a_missing_page_stamped_with_now_ms(con):
     reindex_refs_for_text(con, uid_of("uid_b4"), "[[Brand New Page]]", 9999)
 
-    row = read(con,
+    row = con.select_one(
         "SELECT created_at, updated_at FROM pages WHERE title = ?",
-        ("Brand New Page",)).fetchone()
+        ("Brand New Page",))
+    assert row is not None
     assert (row["created_at"], row["updated_at"]) == (9999, 9999)
 
 

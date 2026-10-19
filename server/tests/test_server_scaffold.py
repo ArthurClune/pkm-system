@@ -148,7 +148,7 @@ def test_init_db_adds_view_type_to_existing_blocks_without_data_loss(tmp_path):
     con = connect(path)
     columns = {r[1] for r in read(con, "PRAGMA table_info(blocks)")}
     assert "view_type" in columns
-    assert read(con,
+    assert con.select_one(
         "SELECT text, view_type FROM blocks WHERE uid = 'uid_old'"
-    ).fetchone() == ("kept", None)
+    ) == {"text": "kept", "view_type": None}
     con.close()

@@ -59,9 +59,7 @@ def test_create_inserts_shifts_and_derives_refs(db):
         "  AND parent_uid IS NULL ORDER BY order_idx")
     assert [(r["uid"], r["order_idx"]) for r in rows] == \
         [("newuid1", 0), ("uid_b1", 1), ("uid_b2", 2)]
-    assert read(db,
-        "SELECT view_type FROM blocks WHERE uid = 'newuid1'"
-    ).fetchone()[0] == "numbered"
+    assert db.select_one("SELECT view_type FROM blocks WHERE uid = 'newuid1'")["view_type"] == "numbered"
     # implicit page creation + refs
     new_page = db.select_one("SELECT id AS page_id FROM pages WHERE title = 'Brand New'")
     assert new_page is not None
@@ -74,8 +72,7 @@ def test_create_inserts_shifts_and_derives_refs(db):
                      " MATCH '\"Brand\"'").fetchall()
     assert len(hit) == 1
     # page touched
-    assert read(db, "SELECT updated_at FROM pages WHERE id=1"
-                      ).fetchone()[0] == NOW
+    assert db.select_one("SELECT updated_at FROM pages WHERE id=1")["updated_at"] == NOW
 
 
 def test_update_text_rederives_refs_and_fts(db):
@@ -125,22 +122,20 @@ def test_set_collapsed_does_not_bump_block_or_page_updated_at(db):
     ), NOW)
     db.commit()
 
-    row = read(db, "SELECT collapsed, updated_at FROM blocks"
-                     " WHERE uid='uid_b2'").fetchone()
+    row = db.select_one("SELECT collapsed, updated_at FROM blocks"
+                        " WHERE uid='uid_b2'")
+    assert row is not None
     assert row["collapsed"] == 1                # the toggle did apply...
     assert row["updated_at"] == 1_000            # ...but not a "real" change
-    assert read(db, "SELECT updated_at FROM pages WHERE id=1"
-                      ).fetchone()[0] == 1_000
+    assert db.select_one("SELECT updated_at FROM pages WHERE id=1")["updated_at"] == 1_000
 
     # contrast: a real edit on the same block/page DOES bump both.
     apply_batch(db, _batch(
         {"op": "update_text", "uid": "uid_b2", "text": "Papers (renamed)"},
     ), NOW)
     db.commit()
-    assert read(db, "SELECT updated_at FROM blocks WHERE uid='uid_b2'"
-                      ).fetchone()[0] == NOW
-    assert read(db, "SELECT updated_at FROM pages WHERE id=1"
-                      ).fetchone()[0] == NOW
+    assert db.select_one("SELECT updated_at FROM blocks WHERE uid='uid_b2'")["updated_at"] == NOW
+    assert db.select_one("SELECT updated_at FROM pages WHERE id=1")["updated_at"] == NOW
 
 
 def test_set_collapsed_still_journals_a_change_but_no_page_touch(db):
@@ -152,10 +147,10 @@ def test_set_collapsed_still_journals_a_change_but_no_page_touch(db):
         {"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
     ), NOW)
     db.commit()
-    rows = read(db, "SELECT kind, entity_id FROM changes WHERE seq > ?",
-                      (before,)).fetchall()
-    assert ("block", "uid_b2") in {(r["kind"], r["entity_id"]) for r in rows}
-    assert not any(r["kind"] == "page" for r in rows)
+    rows = db.select("SELECT kind AS change_kind, entity_id FROM changes"
+                     " WHERE seq > ?", (before,))
+    assert ("block", "uid_b2") in {(r["change_kind"], r["entity_id"]) for r in rows}
+    assert not any(r["change_kind"] == "page" for r in rows)
 
 
 def test_create_broadcast_uses_the_stored_page_title(db):
@@ -382,10 +377,10 @@ def test_diverged_delete_of_a_preexisting_cycle_copies_each_block_once(db):
     db.commit()
     assert read(db, "SELECT count(*) FROM blocks WHERE uid LIKE 'cycdel%'"
                       ).fetchone()[0] == 0
-    copies = read(db,
+    copies = db.select(
         "SELECT b.text FROM blocks b JOIN pages p ON p.id = b.page_id"
         " WHERE p.title = ? AND b.text IN ('n0', 'n1', 'n2')",
-        (NOW_DAY,)).fetchall()
+        (NOW_DAY,))
     assert sorted(r["text"] for r in copies) == ["n0", "n1", "n2"]
 
 
@@ -421,14 +416,12 @@ def test_set_heading_updates_and_clears(db):
         {"op": "set_heading", "uid": "uid_b2", "heading": 1},
     ), NOW)
     db.commit()
-    assert read(db, "SELECT heading FROM blocks WHERE uid='uid_b2'"
-                      ).fetchone()[0] == 1
+    assert db.select_one("SELECT heading FROM blocks WHERE uid='uid_b2'")["heading"] == 1
     apply_batch(db, _batch(
         {"op": "set_heading", "uid": "uid_b2", "heading": None},
     ), NOW)
     db.commit()
-    assert read(db, "SELECT heading FROM blocks WHERE uid='uid_b2'"
-                      ).fetchone()[0] is None
+    assert db.select_one("SELECT heading FROM blocks WHERE uid='uid_b2'")["heading"] is None
 
 
 def test_set_view_type_updates_metadata_without_changing_block_state(db):
@@ -578,8 +571,7 @@ def test_op_error_index_reports_failing_op(db):
         ), NOW)
     assert e.value.index == 1
     db.rollback()
-    assert read(db, "SELECT collapsed FROM blocks WHERE uid='uid_b2'"
-                      ).fetchone()[0] == 0  # rollback undid op 0
+    assert db.select_one("SELECT collapsed FROM blocks WHERE uid='uid_b2'")["collapsed"] == 0  # rollback undid op 0
 
 
 # --- replaying recorded rename/merge rewrites ------------------------------
@@ -650,8 +642,7 @@ def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
     ), NOW)
     db.commit()
 
-    assert read(db, "SELECT text FROM blocks WHERE uid='rew_uid1'"
-                      ).fetchone()[0] == "see [[New]] page plus extra"
+    assert db.select_one("SELECT text FROM blocks WHERE uid='rew_uid1'")["text"] == "see [[New]] page plus extra"
     day = NOW_DAY
     assert db.select_one("SELECT id AS page_id FROM pages WHERE title = ?", (day,)) is None
 
@@ -703,8 +694,7 @@ def test_stale_hash_identical_text_does_not_create_daily_page(db):
     ), NOW)
     db.commit()
 
-    assert read(db, "SELECT text FROM blocks WHERE uid='uid_b1'"
-                      ).fetchone()[0] == "Tags:: #AI"
+    assert db.select_one("SELECT text FROM blocks WHERE uid='uid_b1'")["text"] == "Tags:: #AI"
     day = NOW_DAY
     assert db.select_one("SELECT id AS page_id FROM pages WHERE title = ?", (day,)) is None
 
@@ -737,12 +727,11 @@ def test_second_conflict_same_day_reuses_header_and_mints_no_stray_conflict_uid(
 
     header_uid = db.select_one("SELECT header_uid FROM conflict_headers WHERE target_uid='uid_b1'")["header_uid"]
     assert header_uid == "headerabc123"
-    children = read(db,
+    children = db.select(
         "SELECT text FROM blocks WHERE parent_uid = ? ORDER BY order_idx",
-        (header_uid,)).fetchall()
+        (header_uid,))
     assert [r["text"] for r in children] == ["Tags:: #AI", "offline edit 1"]
-    assert read(db, "SELECT text FROM blocks WHERE uid='uid_b1'"
-                      ).fetchone()[0] == "offline edit 2"
+    assert db.select_one("SELECT text FROM blocks WHERE uid='uid_b1'")["text"] == "offline edit 2"
 
 
 def test_replay_applies_one_multi_title_rewrite_as_a_single_step():
@@ -763,7 +752,7 @@ def test_replay_applies_one_multi_title_rewrite_as_a_single_step():
 
 
 def _journal_rows_since(db, seq: SyncSeq):
-    return [(r["entity_id"], r["deleted"]) for r in read(db,
+    return [(r["entity_id"], r["deleted"]) for r in db.select(
         "SELECT entity_id, deleted FROM changes WHERE seq > ? AND kind = 'block'"
         " ORDER BY seq", (seq,))]
 

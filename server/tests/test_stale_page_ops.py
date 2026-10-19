@@ -51,9 +51,8 @@ def _conflicts(client):
 def _text(config, uid: BlockUid):
     con = connect(config.db_path)
     try:
-        row = read(con, "SELECT text FROM blocks WHERE uid = ?",
-                          (uid,)).fetchone()
-        return row[0] if row else None
+        row = con.select_one("SELECT text FROM blocks WHERE uid = ?", (uid,))
+        return row["text"] if row else None
     finally:
         con.close()
 

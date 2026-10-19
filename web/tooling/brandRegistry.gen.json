@@ -200,6 +200,72 @@
     "baseSubtreeHash": [
       "Sha256Hex"
     ],
+    "raw_title": [
+      "RawTitle"
+    ],
+    "rawTitle": [
+      "RawTitle"
+    ],
+    "ref_title": [
+      "NormalizedTitle"
+    ],
+    "refTitle": [
+      "NormalizedTitle"
+    ],
+    "normalized_title": [
+      "NormalizedTitle"
+    ],
+    "normalizedTitle": [
+      "NormalizedTitle"
+    ],
+    "canonical_title": [
+      "CanonicalTitle"
+    ],
+    "canonicalTitle": [
+      "CanonicalTitle"
+    ],
+    "daily_title": [
+      "CanonicalTitle"
+    ],
+    "dailyTitle": [
+      "CanonicalTitle"
+    ],
+    "src_page_title": [
+      "CanonicalTitle"
+    ],
+    "srcPageTitle": [
+      "CanonicalTitle"
+    ],
+    "page_title": [
+      "RawTitle",
+      "NormalizedTitle",
+      "CanonicalTitle"
+    ],
+    "pageTitle": [
+      "RawTitle",
+      "NormalizedTitle",
+      "CanonicalTitle"
+    ],
+    "new_title": [
+      "RawTitle",
+      "NormalizedTitle",
+      "CanonicalTitle"
+    ],
+    "newTitle": [
+      "RawTitle",
+      "NormalizedTitle",
+      "CanonicalTitle"
+    ],
+    "old_title": [
+      "RawTitle",
+      "NormalizedTitle",
+      "CanonicalTitle"
+    ],
+    "oldTitle": [
+      "RawTitle",
+      "NormalizedTitle",
+      "CanonicalTitle"
+    ],
     "pending_row_id": [
       "PendingRowId"
     ],

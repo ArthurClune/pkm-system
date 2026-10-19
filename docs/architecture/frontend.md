@@ -465,13 +465,12 @@ forges a bad value with `malformedUid`, `malformedSha`, `malformedSeq` or
 `malformedCanonicalTitle`, which skip the check; only the uid and canonical-title forgers accept null.
 Product code may not import the module ([enforced-checks.md](enforced-checks.md#web-side)).
 
-A raw or navigational title stays a plain `string`, never a brand: request
-bodies (`CreatePageRequest.title`, `RenamePageRequest.new_title`,
-`AddSidebarEntryRequest.title`), URL path params, `paths.ts`'s
-`titleFromPathname`/`encodeTitle`/`pagePath`, and `openInSidebar`'s `title`
-parameter, since it navigates rather than reading a stored row. Op
-`page_title` stays `string` too: it is raw inbound and only canonical on the
-server's WS echo, so a `CanonicalTitle` is assignable either way.
+A title no check has run on is a `RawTitle`: request bodies
+(`CreatePageRequest.title`, `RenamePageRequest.new_title`), `paths.ts`'s
+`titleFromPathname`, and the op `page_title`, which is raw inbound and only
+canonical on the server's WS echo, so a `CanonicalTitle` is assignable either
+way. `asRawTitle` (`replica/titles.ts`) is the one mint and is called only on
+plain text at its entry.
 `replica/apply.ts`'s `parkedTitle` — the placeholder a window transaction
 writes into `pages.title` while two rows swap titles — is its own
 `ParkedTitle` brand, not `CanonicalTitle`: it is

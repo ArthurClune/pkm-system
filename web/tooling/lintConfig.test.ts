@@ -255,6 +255,29 @@ const cases: readonly FixtureCase[] = [
       "}\n",
   },
   {
+    file: "brand-name-titles.ts",
+    rule: "brands/name-carries-brand",
+    count: 2,
+    corrected:
+      "import type {\n" +
+      "  CanonicalTitle,\n" +
+      "  NormalizedTitle,\n" +
+      "  RawTitle,\n" +
+      '} from "../../src/api/brands";\n' +
+      "export function wire(pageTitle: NormalizedTitle): void {\n" +
+      "  void pageTitle;\n" +
+      "}\n" +
+      "export function raw(rawTitle: RawTitle): void {\n" +
+      "  void rawTitle;\n" +
+      "}\n" +
+      "export function normalized(normalizedTitle: NormalizedTitle): void {\n" +
+      "  void normalizedTitle;\n" +
+      "}\n" +
+      "export function canonical(canonicalTitle: CanonicalTitle): void {\n" +
+      "  void canonicalTitle;\n" +
+      "}\n",
+  },
+  {
     file: "brand-name-shallow.ts",
     rule: "brands/name-carries-brand",
     count: 5,

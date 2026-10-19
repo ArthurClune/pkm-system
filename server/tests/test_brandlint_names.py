@@ -283,3 +283,16 @@ def test_the_stale_opt_out_names_its_line():
     source = "x = 1\ny = 2  # brand: untrusted -- query\n"
     [v] = check_text(ROUTES, source, REGISTRY)
     assert (v.line, v.rule) == (2, "brand-opt-out-unused")
+
+
+@pytest.mark.parametrize("source, expected", [
+    ("def f(page_title: str) -> None: ...", ["brand-name"]),
+    ("def f(page_title: RawTitle | None) -> None: ...", []),
+    ("def f(page_title: CanonicalTitle) -> None: ...", []),
+    ("def f(ref_title: CanonicalTitle) -> None: ...", ["brand-name"]),
+    ("def f(ref_title: NormalizedTitle) -> None: ...", []),
+    ("def f(canonical_title: CanonicalTitle) -> None: ...", []),
+    ("def f(raw_title: str) -> None: ...", ["brand-name"]),
+])
+def test_title_names_take_their_brands(source: str, expected: list[str]):
+    assert rules(source + "\n") == expected

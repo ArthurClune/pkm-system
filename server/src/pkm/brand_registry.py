@@ -58,6 +58,18 @@ NAMES: dict[str, tuple[str, ...]] = {
     "after_hash": ("Sha256Hex",),
     "base_text_hash": ("Sha256Hex",),
     "base_subtree_hash": ("Sha256Hex",),
+    # Titles. page_title, new_title and old_title are wire-shared: requests
+    # carry raw titles and responses canonical ones under the same name, so
+    # they accept any title brand. The internal names take one kind.
+    "raw_title": ("RawTitle",),
+    "ref_title": ("NormalizedTitle",),
+    "normalized_title": ("NormalizedTitle",),
+    "canonical_title": ("CanonicalTitle",),
+    "daily_title": ("CanonicalTitle",),
+    "src_page_title": ("CanonicalTitle",),
+    "page_title": ("RawTitle", "NormalizedTitle", "CanonicalTitle"),
+    "new_title": ("RawTitle", "NormalizedTitle", "CanonicalTitle"),
+    "old_title": ("RawTitle", "NormalizedTitle", "CanonicalTitle"),
     # Web-only brands
     "pending_row_id": ("PendingRowId",),
     "ticket_id": ("TicketId",),

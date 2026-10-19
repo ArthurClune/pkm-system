@@ -10,6 +10,7 @@ import type { RequestId, Revision } from "./outline/outlineState";
 import type { ParkedTitle } from "./replica/apply";
 import type { PendingRowId } from "./replica/client";
 import { BRAND_SHAPES } from "./replica/columns.gen";
+import registry from "../tooling/brandRegistry.gen.json";
 import type { WsBatch } from "./sync/socket";
 import type { Sync, SyncStatus } from "./sync/SyncProvider";
 import type { TicketId, WriteTicket } from "./sync/opQueue";
@@ -33,10 +34,11 @@ const WEB_BASES: { readonly [brand: string]: "int" | "text" } = {
   ParkedTitle: "text",
 };
 
-const FORGERS: { readonly [brand: string]: string } = {
-  BlockUid: "malformedUid",
-  Sha256Hex: "malformedSha",
-};
+// brand -> the `malformed<Stem>` forger the registry lists for it.
+const FORGERS: { readonly [brand: string]: string } = Object.fromEntries(
+  Object.entries<string>(registry.malformed)
+    .map(([brand, stem]) => [brand, `malformed${stem.charAt(0).toUpperCase()}${stem.slice(1)}`]),
+);
 
 // Throws unless `value` fits `brand`. The parameter types already say
 // string or number; the check repeats it at run time, where a value read

@@ -47,22 +47,22 @@ const inTx = <T>(fn: () => T, db: ReplicaDb = t.db): T => db.transaction(() => {
 const dump = (db: ReplicaDb = t.db) => ({
   blocks: db.select(
     "SELECT uid, page_id, parent_uid, order_idx, text, heading, collapsed," +
-    " created_at, updated_at, view_type FROM blocks ORDER BY uid"),
+    " created_at, updated_at, view_type FROM blocks ORDER BY uid", ["uid", "page_id", "parent_uid", "order_idx", "text", "heading", "collapsed", "created_at", "updated_at", "view_type"]),
   pages: db.select(
-    "SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id"),
+    "SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id", ["page_id", "title", "created_at", "updated_at"]),
   refs: db.select(
-    "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3"),
+    "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3", ["src_block_uid", "target_page_id", "ref_kind"]),
   blockRefs: db.select(
-    "SELECT src_block_uid, target_block_uid FROM block_refs ORDER BY 1, 2"),
+    "SELECT src_block_uid, target_block_uid FROM block_refs ORDER BY 1, 2", ["src_block_uid", "target_block_uid"]),
 });
 const ftsIntact = (db: ReplicaDb = t.db) => {
   db.exec("INSERT INTO blocks_fts(blocks_fts, rank) VALUES('integrity-check', 1)");
   db.exec("INSERT INTO pages_fts(pages_fts, rank) VALUES('integrity-check', 1)");
 };
 const logSize = () =>
-  (t.db.select<"n">("SELECT COUNT(*) AS n FROM replay_log"))[0].n;
+  (t.db.select("SELECT COUNT(*) AS n FROM replay_log", ["n"]))[0].n;
 const pageIds = () =>
-  t.db.select<"page_id">("SELECT id AS page_id FROM pages ORDER BY id").map((r) => r.page_id);
+  t.db.select("SELECT id AS page_id FROM pages ORDER BY id", ["page_id"]).map((r) => r.page_id);
 const pend = (...ids: string[]) => {
   for (const id of ids) {
     t.db.exec("INSERT INTO pending_ops(batch_id, ops_json) VALUES (?, '[]')", [id]);
@@ -164,8 +164,8 @@ describe("rewind", () => {
   });
 
   test("restoring a parent row does not cascade its children", () => {
-    const rowids = () => t.db.select<"uid" | "n">(
-      "SELECT uid, rowid AS n FROM blocks WHERE uid IN ('tuid-c1', 'tuid-c11', 'tuid-c2') ORDER BY uid");
+    const rowids = () => t.db.select(
+      "SELECT uid, rowid AS n FROM blocks WHERE uid IN ('tuid-c1', 'tuid-c11', 'tuid-c2') ORDER BY uid", ["uid", "n"]);
     const before = dump();
     const ids = rowids();
     inTx(() => {
@@ -202,7 +202,7 @@ describe("rewind", () => {
       return settled;
     });
     expect(dump()).toEqual(after);
-    expect(t.db.select("SELECT DISTINCT batch_id FROM replay_log"))
+    expect(t.db.select("SELECT DISTINCT batch_id FROM replay_log", ["batch_id"]))
       .toEqual([{ batch_id: "b1" }]);
     ftsIntact();
   });
@@ -231,11 +231,11 @@ describe("rewind", () => {
       t.db.exec("DELETE FROM pages WHERE id = 2");
       rewind(t.db, "all");
     });
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'tuid-a'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'tuid-a'", ["text"]))
       .toEqual([{ text: "see [[S]] ((uid-c1x))" }]);
-    expect(t.db.select("SELECT src_block_uid FROM refs ORDER BY 1"))
+    expect(t.db.select("SELECT src_block_uid FROM refs ORDER BY 1", ["src_block_uid"]))
       .toEqual([{ src_block_uid: "tuid-c2" }]);
-    expect(t.db.select("SELECT src_block_uid, target_block_uid FROM block_refs"))
+    expect(t.db.select("SELECT src_block_uid, target_block_uid FROM block_refs", ["src_block_uid", "target_block_uid"]))
       .toEqual([{ src_block_uid: "tuid-a", target_block_uid: "uid-c1x" }]);
     ftsIntact();
   });
@@ -248,12 +248,12 @@ describe("rewind", () => {
       move(b1, "tuid-c1", null, 3);
       del(b1, "tuid-c2");
       del(b1, "tuid-c");
-      expect(t.db.select("SELECT uid FROM blocks WHERE uid IN ('tuid-c', 'tuid-c2')")).toEqual([]);
+      expect(t.db.select("SELECT uid FROM blocks WHERE uid IN ('tuid-c', 'tuid-c2')", ["uid"])).toEqual([]);
       rewind(t.db, "all");
     });
     expect(t.db.select(
       "SELECT uid, page_id, parent_uid, order_idx FROM blocks" +
-      " WHERE uid IN ('tuid-c', 'tuid-c1', 'tuid-c11', 'tuid-c2') ORDER BY uid")).toEqual([
+      " WHERE uid IN ('tuid-c', 'tuid-c1', 'tuid-c11', 'tuid-c2') ORDER BY uid", ["uid", "page_id", "parent_uid", "order_idx"])).toEqual([
       { uid: "tuid-c", page_id: 1, parent_uid: null, order_idx: 2 },
       { uid: "tuid-c1", page_id: 1, parent_uid: "tuid-c", order_idx: 0 },
       { uid: "tuid-c11", page_id: 1, parent_uid: "tuid-c1", order_idx: 0 },
@@ -271,7 +271,7 @@ describe("rewind", () => {
       t.db.exec("DELETE FROM blocks WHERE uid = 'tuid-c'");
       rewind(t.db, "all");
     });
-    expect(t.db.select("SELECT uid FROM blocks ORDER BY uid"))
+    expect(t.db.select("SELECT uid FROM blocks ORDER BY uid", ["uid"]))
       .toEqual([{ uid: "tuid-a" }, { uid: "tuid-b" }]);
     expect(logSize()).toBe(0);
     ftsIntact();
@@ -283,7 +283,7 @@ describe("rewind", () => {
       t.db.exec("DELETE FROM blocks WHERE uid = 'tuid-c'");
       rewind(t.db, "all");
     });
-    expect(t.db.select("SELECT uid FROM blocks ORDER BY uid"))
+    expect(t.db.select("SELECT uid FROM blocks ORDER BY uid", ["uid"]))
       .toEqual([{ uid: "tuid-a" }, { uid: "tuid-b" }]);
     expect(logSize()).toBe(0);
     ftsIntact();
@@ -311,8 +311,8 @@ describe("rewind", () => {
           for (const b of batches) enqueueBatch(r.db, b.ops, 500, b.batchId);
           inTx(() => rewind(r.db, "all"), r.db);
           expect(dump(r.db)).toEqual(before);
-          expect(r.db.select("SELECT COUNT(*) AS n FROM replay_log")).toEqual([{ n: 0 }]);
-          expect(r.db.select("SELECT COUNT(*) AS n FROM replay_log_refs"))
+          expect(r.db.select("SELECT COUNT(*) AS n FROM replay_log", ["n"])).toEqual([{ n: 0 }]);
+          expect(r.db.select("SELECT COUNT(*) AS n FROM replay_log_refs", ["n"]))
             .toEqual([{ n: 0 }]);
           ftsIntact(r.db);
         } finally {

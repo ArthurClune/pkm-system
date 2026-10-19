@@ -12,8 +12,8 @@ import type { ReplicaDb } from "./db";
 import { canonicalizeTitle } from "./titles";
 
 export function getMeta(db: ReplicaDb, key: string): string | null {
-  const rows = db.select<"client_meta_value">(
-    "SELECT value AS client_meta_value FROM sync_client_meta WHERE key = ?",
+  const rows = db.select(
+    "SELECT value AS client_meta_value FROM sync_client_meta WHERE key = ?", ["client_meta_value"],
     [key]);
   return rows.length > 0 ? rows[0].client_meta_value : null;
 }

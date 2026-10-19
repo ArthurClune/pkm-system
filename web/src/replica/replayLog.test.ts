@@ -40,16 +40,16 @@ type LogRow = {
   batch_id: BatchId; kind: string; key: string;
   pre: unknown; pre_page_id: PageId | null;
 };
-const log = (): LogRow[] => t.db.select<"batch_id" | "replay_kind" | "replay_key" | "pre_json" | "pre_page_id">(
+const log = (): LogRow[] => t.db.select(
   "SELECT batch_id, kind AS replay_kind, key AS replay_key, pre_json, pre_page_id FROM replay_log" +
-  " ORDER BY id").map((r) => ({
+  " ORDER BY id", ["batch_id", "replay_kind", "replay_key", "pre_json", "pre_page_id"]).map((r) => ({
   batch_id: r.batch_id, kind: r.replay_kind, key: r.replay_key,
   pre: r.pre_json === null ? null : JSON.parse(r.pre_json) as unknown,
   pre_page_id: r.pre_page_id }));
-const logRefs = () => t.db.select<"batch_id" | "replay_key" | "target_page_id" | "ref_kind">(
+const logRefs = () => t.db.select(
   "SELECT l.batch_id, l.key AS replay_key, r.target_page_id, r.kind AS ref_kind" +
   " FROM replay_log_refs r JOIN replay_log l ON l.id = r.log_id" +
-  " ORDER BY l.id, r.target_page_id, r.kind").map((r) => ({
+  " ORDER BY l.id, r.target_page_id, r.kind", ["batch_id", "replay_key", "target_page_id", "ref_kind"]).map((r) => ({
   batch_id: r.batch_id, key: r.replay_key, target_page_id: r.target_page_id, kind: r.ref_kind }));
 const keys = () => log().map((r) => [r.batch_id, r.kind, r.key]);
 
@@ -132,7 +132,7 @@ describe("drops", () => {
     recordPage(t.db, b1, P, false);
     clearReplayLog(t.db);
     expect(log()).toEqual([]);
-    expect(t.db.select("SELECT 1 AS n FROM replay_log_refs")).toEqual([]);
+    expect(t.db.select("SELECT 1 AS n FROM replay_log_refs", ["n"])).toEqual([]);
   });
 
   test("pruneReplayBatches keeps only batches still queued", () => {

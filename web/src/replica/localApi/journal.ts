@@ -10,7 +10,7 @@ import { dateForTitle, selectJournalDays, titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
 import { backlinks, fetchPage } from "./pages";
-import { BLOCK_COLS, type BlockRow, blockRefCounts, blockRefTexts,
+import { BLOCK_COLS, blockRefCounts, blockRefTexts,
          buildTree } from "./tree";
 
 const isoDate = (d: Date): string =>
@@ -57,10 +57,10 @@ export function journalPayload(db: ReplicaDb, before: string | null,
   // contribute one Date -- selectJournalDays takes a plain array, not a
   // set, and would otherwise double the day up in its output.
   const nonemptyTitles = new Set<string>();
-  for (const row of db.select<"title">(NONEMPTY_DAILY_SQL)) {
+  for (const row of db.select(NONEMPTY_DAILY_SQL, ["title"])) {
     nonemptyTitles.add(row.title);
   }
-  for (const row of db.select<"title">(REFERENCED_DAILY_SQL)) {
+  for (const row of db.select(REFERENCED_DAILY_SQL, ["title"])) {
     nonemptyTitles.add(row.title);
   }
   const nonempty: Date[] = [];
@@ -74,8 +74,8 @@ export function journalPayload(db: ReplicaDb, before: string | null,
   for (const d of selectJournalDays(nonempty, today, cursor, window)) {
     const page = fetchPage(db, titleForDate(d));
     if (page === null) continue; // unreachable: selected days exist
-    const blocks = db.select<keyof BlockRow>(
-      `SELECT ${BLOCK_COLS} FROM blocks WHERE page_id = ?`, [page.id]);
+    const blocks = db.select(
+      `SELECT ${BLOCK_COLS} FROM blocks WHERE page_id = ?`, ["uid", "text", "parent_uid", "order_idx", "created_at", "updated_at", "heading", "view_type", "collapsed"], [page.id]);
     const bl = backlinks(db, page.id, 0, BACKLINK_PREVIEW);
     texts.push(...blocks.map((r) => r.text), ...bl.texts);
     uids.push(...blocks.map((r) => r.uid));

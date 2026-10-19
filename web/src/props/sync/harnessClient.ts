@@ -466,7 +466,7 @@ export async function startClient(
     connectLanded: () => landed,
     cursor() {
       const hasMeta = db.select(
-        "SELECT 1 AS n FROM sqlite_master WHERE type = 'table' AND name = 'sync_client_meta'",
+        "SELECT 1 AS n FROM sqlite_master WHERE type = 'table' AND name = 'sync_client_meta'", ["n"],
       ).length > 0;
       return seqOf(Number(hasMeta ? getMeta(db, "cursor") ?? 0 : 0));
     },

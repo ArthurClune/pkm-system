@@ -70,13 +70,13 @@ test("a batch the recovery flush got an ack for is not replayed over the snapsho
 
   await sync.start();
   expect(posted).toEqual(["b-rename"]);
-  expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+  expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]))
     .toEqual([{ text: "[[New]] edited" }]);
   expect(await replica.pendingBatches()).toEqual([]);
 
   // one more pull resumes from the snapshot's seq and keeps the server's text
   await sync.start();
   expect(changesPaths.at(-1)).toBe("/api/sync/changes?since=7");
-  expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+  expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]))
     .toEqual([{ text: "[[New]] edited" }]);
 });

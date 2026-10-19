@@ -164,15 +164,15 @@ describe("applyLocalOps placement agrees with the server", () => {
         applyLocalOps(t.db, c.ops.map(mintOp), 99, { batchId: batchIdOf("t") });
       }
 
-      const placed = new Map(t.db.select<"uid" | "page_title" | "parent_uid" | "order_idx">(
+      const placed = new Map(t.db.select(
         "SELECT b.uid, p.title AS page_title, b.parent_uid, b.order_idx" +
-        " FROM blocks b JOIN pages p ON p.id = b.page_id",
+        " FROM blocks b JOIN pages p ON p.id = b.page_id", ["uid", "page_title", "parent_uid", "order_idx"],
       ).map((r): [string, PlacedBlock] => [r.uid,
         { uid: r.uid, page: r.page_title, parent_uid: r.parent_uid, order_idx: r.order_idx }]));
       const expected = c.expect.map(placedOf);
       expect(expected.map((e) => placed.get(e.uid))).toEqual(expected);
       for (const title of c.pages_absent) {
-        expect(t.db.select("SELECT 1 AS x FROM pages WHERE title = ?", [title]))
+        expect(t.db.select("SELECT 1 AS n FROM pages WHERE title = ?", ["n"], [title]))
           .toEqual([]);
       }
     } finally {

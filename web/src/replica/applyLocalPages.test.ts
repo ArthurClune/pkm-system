@@ -66,7 +66,7 @@ beforeEach(async () => {
 });
 
 const titles = (): string[] =>
-  (t.db.select<"title">("SELECT title FROM pages ORDER BY title"))
+  (t.db.select("SELECT title FROM pages ORDER BY title", ["title"]))
     .map((r) => r.title);
 
 const enqueue = (ops: BlockOp[], name: string): void => {
@@ -89,7 +89,7 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
     }), NOW)).toEqual({ status: "applied", cursor: 11 });
 
     expect(titles()).toEqual(["Proptest", "Second", "Third"]);
-    expect(t.db.select("SELECT uid, page_id FROM blocks WHERE uid = 'uid_n1'"))
+    expect(t.db.select("SELECT uid, page_id FROM blocks WHERE uid = 'uid_n1'", ["uid", "page_id"]))
       .toEqual([{ uid: "uid_n1", page_id: 3 }]);
   });
 
@@ -141,7 +141,7 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
     applyChanges(t.db, window(), NOW);
 
     expect(titles()).toEqual(["Proptest", "Second"]);
-    expect(t.db.select("SELECT uid FROM blocks WHERE uid = 'uid_n1'")).toEqual([]);
+    expect(t.db.select("SELECT uid FROM blocks WHERE uid = 'uid_n1'", ["uid"])).toEqual([]);
   });
 
   // Likewise for an acked link: the head window puts the old text back.
@@ -153,7 +153,7 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
     applyChanges(t.db, window(), NOW);
 
     expect(titles()).toEqual(["Proptest", "Second"]);
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b2'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b2'", ["text"]))
       .toEqual([{ text: "text of uid_b2" }]);
   });
 
@@ -171,12 +171,12 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
 describe("applyChanges: a local page something keeps stays", () => {
   test("a pending create_page page with nothing on it survives the head window", () => {
     enqueue([{ op: "create_page", page_title: "Draft" }], "b-page");
-    const [before] = t.db.select<"page_id">(
-      "SELECT id AS page_id FROM pages WHERE title = 'Draft'");
+    const [before] = t.db.select(
+      "SELECT id AS page_id FROM pages WHERE title = 'Draft'", ["page_id"]);
 
     applyChanges(t.db, window(), NOW);
 
-    expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'Draft'"))
+    expect(t.db.select("SELECT id AS page_id FROM pages WHERE title = 'Draft'", ["page_id"]))
       .toEqual([before]);
   });
 
@@ -304,7 +304,7 @@ describe("applyChanges: a local page an acked batch's frozen record names", () =
     applyChanges(t.db, window({ next_since: 12, latest_seq: 12 }), NOW);
 
     expect(titles()).toEqual(["Proptest", "Second"]);
-    expect(t.db.select("SELECT COUNT(*) AS n FROM replay_log")).toEqual([{ n: 0 }]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM replay_log", ["n"])).toEqual([{ n: 0 }]);
   });
 });
 
@@ -329,7 +329,7 @@ describe("applyChanges: dropping stranded local pages waits for the head window"
       next_since: 12, latest_seq: 12, pages: [page(7, "Draft")],
     }), NOW);
 
-    expect(t.db.select<"page_id">(
-      "SELECT id AS page_id FROM pages WHERE title = 'Draft'")).toEqual([{ page_id: 7 }]);
+    expect(t.db.select(
+      "SELECT id AS page_id FROM pages WHERE title = 'Draft'", ["page_id"])).toEqual([{ page_id: 7 }]);
   });
 });

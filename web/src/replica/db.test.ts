@@ -48,6 +48,7 @@ describe("wrapSqlite + installSchema", () => {
     t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
     expect(() => t.db.select("SELECT title AS uid FROM pages", ["uid"]))
       .toThrow(/row check failed.*uid: "AI" is not a valid BlockUid/);
+    // @ts-expect-error "id" is the raw column; the key is page_id
     expect(() => t.db.select("SELECT id FROM pages", ["id"]))
       .toThrow(/id: not a registered row key/);
     t.close();
@@ -146,11 +147,11 @@ describe("wrapSqlite + installSchema", () => {
       t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
       throw new Error("boom");
     })).toThrow("boom");
-    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 0 }]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages", ["n"])).toEqual([{ n: 0 }]);
     t.db.transaction(() => {
       t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
     });
-    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 1 }]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages", ["n"])).toEqual([{ n: 1 }]);
     t.close();
   });
 
@@ -170,11 +171,11 @@ describe("wrapSqlite + installSchema", () => {
       expect.objectContaining({ message: expect.stringContaining("no transaction is active") as unknown }));
     expect(warn).toHaveBeenCalledWith(
       "sqlite3_step() rc=", 1, "SQLITE_ERROR", "SQL =", "ROLLBACK");
-    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 0 }]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages", ["n"])).toEqual([{ n: 0 }]);
     t.db.transaction(() => {
       t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
     });
-    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 1 }]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages", ["n"])).toEqual([{ n: 1 }]);
     t.close();
   });
 
@@ -197,7 +198,7 @@ describe("wrapSqlite + installSchema", () => {
       rollbackToSavepoint(t.db, "sp", cause);
       t.db.exec("RELEASE sp");
     });
-    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 0 }]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages", ["n"])).toEqual([{ n: 0 }]);
     t.close();
   });
 
@@ -209,7 +210,7 @@ describe("wrapSqlite + installSchema", () => {
         t.db.exec("INSERT INTO pages(id, title) VALUES (2, 'ML')");
       });
     });
-    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 2 }]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages", ["n"])).toEqual([{ n: 2 }]);
     t.close();
   });
 
@@ -228,7 +229,7 @@ describe("wrapSqlite + installSchema", () => {
       " ('uid_aaa111', 1, 0, 'searchable attention text')");
     expect(t.db.select(
       "SELECT b.uid FROM blocks b JOIN blocks_fts f ON f.rowid = b.rowid" +
-      " WHERE blocks_fts MATCH 'attention'")).toEqual([{ uid: "uid_aaa111" }]);
+      " WHERE blocks_fts MATCH 'attention'", ["uid"])).toEqual([{ uid: "uid_aaa111" }]);
     t.close();
   });
 

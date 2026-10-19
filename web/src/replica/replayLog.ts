@@ -58,13 +58,13 @@ const recordRefs = (db: ReplicaDb, inserted: Pick<Columns, "log_id">[]): void =>
 export function recordBlocks(db: ReplicaDb, batchId: BatchId,
                              uids: readonly BlockUid[]): void {
   if (uids.length === 0) return;
-  recordRefs(db, db.select<"log_id">(
+  recordRefs(db, db.select(
     `INSERT OR IGNORE INTO replay_log(batch_id, kind, key, pre_json, pre_page_id)
        SELECT ?, 'block', j.value,
               CASE WHEN b.uid IS NULL THEN NULL ELSE ${BLOCK_PRE_JSON} END,
               b.page_id
          FROM json_each(?) j LEFT JOIN blocks b ON b.uid = j.value
-      RETURNING id AS log_id`,
+      RETURNING id AS log_id`, ["log_id"],
     [batchId, JSON.stringify(uids)]));
 }
 
@@ -73,12 +73,12 @@ export function recordSiblingsFrom(
   db: ReplicaDb, batchId: BatchId,
   group: { pageId: PageId; parentUid: BlockUid | null; fromOrderIdx: OrderIdx },
 ): void {
-  recordRefs(db, db.select<"log_id">(
+  recordRefs(db, db.select(
     `INSERT OR IGNORE INTO replay_log(batch_id, kind, key, pre_json, pre_page_id)
        SELECT ?, 'block', b.uid, ${BLOCK_PRE_JSON}, b.page_id
          FROM blocks b
         WHERE b.page_id = ? AND b.parent_uid IS ? AND b.order_idx >= ?
-      RETURNING id AS log_id`,
+      RETURNING id AS log_id`, ["log_id"],
     [batchId, group.pageId, group.parentUid, group.fromOrderIdx]));
 }
 
@@ -102,8 +102,8 @@ export function recordEnqueue(db: ReplicaDb, batchId: BatchId,
 }
 
 export function enqueuedAt(db: ReplicaDb, batchId: BatchId): number | null {
-  const rows = db.select<"enqueued_ms">(
-    "SELECT enqueued_ms FROM replay_batches WHERE batch_id = ?", [batchId]);
+  const rows = db.select(
+    "SELECT enqueued_ms FROM replay_batches WHERE batch_id = ?", ["enqueued_ms"], [batchId]);
   return rows.length > 0 ? rows[0].enqueued_ms : null;
 }
 
@@ -115,7 +115,7 @@ export function dropWindowRecords(
   { uids, pageIds }: { uids: readonly BlockUid[]; pageIds: readonly PageId[] },
 ): void {
   if (uids.length === 0 && pageIds.length === 0) return;
-  if (db.select("SELECT 1 AS n FROM replay_log LIMIT 1").length === 0) return;
+  if (db.select("SELECT 1 AS n FROM replay_log LIMIT 1", ["n"]).length === 0) return;
   db.exec(
     `DELETE FROM replay_log
       WHERE NOT ${PENDING_BATCH}

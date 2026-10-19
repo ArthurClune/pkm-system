@@ -18,8 +18,8 @@ export const localPageTitle = (db: ReplicaDb, title: string): CanonicalTitle =>
   storedPageTitle(titleReader(db), title);
 
 export const pageIdByTitle = (db: ReplicaDb, title: CanonicalTitle): PageId | null => {
-  const rows = db.select<"page_id">(
-    "SELECT id AS page_id FROM pages WHERE title = ?", [title]);
+  const rows = db.select(
+    "SELECT id AS page_id FROM pages WHERE title = ?", ["page_id"], [title]);
   return rows.length > 0 ? rows[0].page_id : null;
 };
 

@@ -123,8 +123,8 @@ export function blockRefsPayload(db: ReplicaDb,
 
 export function sidebarPayload(db: ReplicaDb): SidebarNavPayload {
   // mapped, not asserted -- see the note on PageRow in pages.ts
-  const rows = db.select<"sidebar_entry_id" | "title">(
-    "SELECT id AS sidebar_entry_id, title FROM sidebar_entries ORDER BY order_idx");
+  const rows = db.select(
+    "SELECT id AS sidebar_entry_id, title FROM sidebar_entries ORDER BY order_idx", ["sidebar_entry_id", "title"]);
   return { entries: rows.map((row): SidebarNavEntry => ({
     id: row.sidebar_entry_id, title: row.title })) };
 }
@@ -136,11 +136,11 @@ export function titlesPayload(db: ReplicaDb, qStr: string,
   if (needle.length === 0) return { titles: [] };
   const esc = needle.replaceAll("\\", "\\\\").replaceAll("%", "\\%")
     .replaceAll("_", "\\_");
-  const rows = db.select<"title">(
+  const rows = db.select(
     `SELECT title FROM pages
       WHERE title LIKE ? ESCAPE '\\'
       ORDER BY (CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END),
                length(title), title
-      LIMIT ?`, [`%${esc}%`, `${esc}%`, lim]);
+      LIMIT ?`, ["title"], [`%${esc}%`, `${esc}%`, lim]);
   return { titles: rows.map((r) => r.title) };
 }

@@ -60,7 +60,7 @@ export interface WorkerDeps {
 }
 
 const tableExists = (db: ReplicaDb, name: string): boolean =>
-  db.select("SELECT 1 AS n FROM sqlite_master WHERE type='table' AND name=?",
+  db.select("SELECT 1 AS n FROM sqlite_master WHERE type='table' AND name=?", ["n"],
             [name]).length > 0;
 
 function readPendingBatches(db: ReplicaDb): PendingBatch[] {
@@ -72,8 +72,8 @@ function readPendingBatches(db: ReplicaDb): PendingBatch[] {
   // The cursor is read separately and only when its table exists: an older
   // file flushes without it.
   if (!tableExists(db, "pending_seen")) return batches;
-  const seen = new Map(db.select<"batch_id" | "seen_seq">(
-    "SELECT batch_id, seen_seq FROM pending_seen",
+  const seen = new Map(db.select(
+    "SELECT batch_id, seen_seq FROM pending_seen", ["batch_id", "seen_seq"],
   ).map((r) => [r.batch_id, r.seen_seq]));
   return batches.map((b) => seen.has(b.batch_id)
     ? { ...b, seen_seq: seen.get(b.batch_id) } : b);
@@ -96,10 +96,9 @@ const ensureClientTables = (d: ReplicaDb, ensured: WeakSet<ReplicaDb>): void => 
 
 function readDurablePendingRows(db: ReplicaDb): DurablePendingRow[] {
   if (!tableExists(db, "pending_ops")) return [];
-  return db.select<"pending_row_id" | "batch_id" | "ops_json" | "poisoned"
-    | "pending_error">(
+  return db.select(
     "SELECT id AS pending_row_id, batch_id, ops_json, poisoned," +
-    " error AS pending_error FROM pending_ops ORDER BY id",
+    " error AS pending_error FROM pending_ops ORDER BY id", ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"],
   ).map((r) => ({
     id: r.pending_row_id, batch_id: r.batch_id, ops_json: r.ops_json,
     poisoned: r.poisoned, error: r.pending_error,
@@ -124,8 +123,8 @@ const probe = <T>(fn: () => T, fallback: (message: string) => T): T => {
 };
 
 const countRows = (db: ReplicaDb, table: string): number => probe(
-  () => Number(db.select<"n">(
-    `SELECT count(*) AS n FROM ${quoteIdentifier(table)}`)[0].n),
+  () => Number(db.select(
+    `SELECT count(*) AS n FROM ${quoteIdentifier(table)}`, ["n"])[0].n),
   () => -1);
 
 /** FTS5's own consistency check. The second argument (1) makes it compare

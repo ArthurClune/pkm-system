@@ -98,9 +98,9 @@ export function resolveRefUids(db: ReplicaDb, uids: BlockUid[]): BlockRefTexts {
     if (fresh.length === 0) return out;
     fresh.forEach((u) => seen.add(u));
     const marks = fresh.map(() => "?").join(",");
-    const rows = db.select<"uid" | "text" | "page_title">(
+    const rows = db.select(
       `SELECT b.uid, b.text, p.title AS page_title FROM blocks b
-        JOIN pages p ON p.id = b.page_id WHERE b.uid IN (${marks})`, fresh);
+        JOIN pages p ON p.id = b.page_id WHERE b.uid IN (${marks})`, ["uid", "text", "page_title"], fresh);
     for (const r of rows) {
       out[r.uid] = { text: r.text, page_title: r.page_title };
     }
@@ -120,10 +120,10 @@ export function blockRefCounts(db: ReplicaDb,
   if (uids.length === 0) return {};
   const marks = uids.map(() => "?").join(",");
   const out: Record<string, number> = {};
-  for (const r of db.select<"target_block_uid" | "n">(
+  for (const r of db.select(
     `SELECT target_block_uid, count(*) AS n FROM block_refs
       WHERE target_block_uid IN (${marks})
-      GROUP BY target_block_uid`, uids)) {
+      GROUP BY target_block_uid`, ["n", "target_block_uid"], uids)) {
     out[r.target_block_uid] = Number(r.n);
   }
   return out;
@@ -135,7 +135,7 @@ export function fetchAncestors(db: ReplicaDb,
   const out = new Map<BlockUid, string[]>();
   if (uids.length === 0) return out;
   const marks = uids.map(() => "?").join(",");
-  const rows = db.select<"start_uid" | "text" | "depth">(
+  const rows = db.select(
     `WITH RECURSIVE anc(start_uid, uid, parent_uid, text, depth, path) AS (
        SELECT uid, uid, parent_uid, text, 0, ',' || uid || ',' FROM blocks
         WHERE uid IN (${marks})
@@ -146,7 +146,7 @@ export function fetchAncestors(db: ReplicaDb,
         WHERE instr(a.path, ',' || b.uid || ',') = 0
      )
      SELECT start_uid, text, depth FROM anc WHERE depth > 0
-      ORDER BY start_uid, depth DESC`, uids);
+      ORDER BY start_uid, depth DESC`, ["text", "start_uid", "depth"], uids);
   for (const r of rows) { // depth DESC = root first
     const list = out.get(r.start_uid);
     if (list) list.push(r.text);

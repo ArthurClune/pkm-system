@@ -28,8 +28,8 @@ beforeEach(async () => {
     { op: "create", uid: uidOf("uid_l2"), page_title: "Offline Page", parent_uid: uidOf("uid_l1"),
       order_idx: orderIdxOf(0), text: "a child" },
   ], 50, batchIdOf("t"));
-  negId = t.db.select<"page_id">(
-    "SELECT id AS page_id FROM pages WHERE title = 'Offline Page'")[0].page_id;
+  negId = t.db.select(
+    "SELECT id AS page_id FROM pages WHERE title = 'Offline Page'", ["page_id"])[0].page_id;
   expect(negId).toBeLessThan(0);
 });
 
@@ -56,15 +56,15 @@ describe("reconcile on feed page delivery", () => {
       pages: [{ id: pageIdOf(7), title: canonicalTitleOf("Offline Page"), created_at: 9, updated_at: 9 }],
     }));
     // negative row replaced by the authoritative one
-    expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'Offline Page'"))
+    expect(t.db.select("SELECT id AS page_id FROM pages WHERE title = 'Offline Page'", ["page_id"]))
       .toEqual([{ page_id: 7 }]);
     // local-only blocks (feed hasn't delivered them yet) survived, remapped
     expect(t.db.select(
-      "SELECT uid FROM blocks WHERE page_id = 7 ORDER BY uid"))
+      "SELECT uid FROM blocks WHERE page_id = 7 ORDER BY uid", ["uid"]))
       .toEqual([{ uid: "uid_l1" }, { uid: "uid_l2" }]);
     // inbound ref follows
     expect(t.db.select(
-      "SELECT target_page_id FROM refs WHERE src_block_uid = 'uid_a1'"))
+      "SELECT target_page_id FROM refs WHERE src_block_uid = 'uid_a1'", ["target_page_id"]))
       .toEqual([{ target_page_id: 7 }]);
   });
 
@@ -79,14 +79,14 @@ describe("reconcile on feed page delivery", () => {
     }));
     expect(t.db.select(
       "SELECT COUNT(*) AS n FROM refs WHERE src_block_uid = 'uid_a1'" +
-      " AND target_page_id = 7")).toEqual([{ n: 1 }]);
+      " AND target_page_id = 7", ["n"])).toEqual([{ n: 1 }]);
   });
 
   test("positive-id pages upsert without reconcile side effects", () => {
     applyChanges(t.db, feed({
       pages: [{ id: pageIdOf(1), title: canonicalTitleOf("AI"), created_at: 2, updated_at: 2 }],
     }));
-    expect(t.db.select("SELECT COUNT(*) AS n FROM pages WHERE id < 0"))
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages WHERE id < 0", ["n"]))
       .toEqual([{ n: 1 }]); // untouched offline page still negative
   });
 
@@ -104,12 +104,12 @@ describe("reconcile on feed page delivery", () => {
       t.db.exec("INSERT INTO pages(id, title) VALUES (7, 'Offline Page')");
     });
 
-    expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE id = ?", [negId])).toEqual([]);
+    expect(t.db.select("SELECT id AS page_id FROM pages WHERE id = ?", ["page_id"], [negId])).toEqual([]);
     expect(t.db.select(
-      "SELECT uid FROM blocks WHERE page_id = 7 ORDER BY uid"))
+      "SELECT uid FROM blocks WHERE page_id = 7 ORDER BY uid", ["uid"]))
       .toEqual([{ uid: "uid_l1" }, { uid: "uid_l2" }]);
     expect(t.db.select(
-      "SELECT target_page_id FROM refs WHERE src_block_uid = 'uid_a1'"))
+      "SELECT target_page_id FROM refs WHERE src_block_uid = 'uid_a1'", ["target_page_id"]))
       .toEqual([{ target_page_id: 7 }]);
   });
 
@@ -128,9 +128,9 @@ describe("reconcile on feed page delivery", () => {
 
     // the page t minted is the server's now, so its record goes; u's
     // pre-images name the server id
-    expect(t.db.select<"batch_id" | "replay_kind" | "replay_key" | "pre_page_id">(
+    expect(t.db.select(
       "SELECT batch_id, kind AS replay_kind, key AS replay_key, pre_page_id FROM replay_log" +
-      " ORDER BY batch_id, kind, key"))
+      " ORDER BY batch_id, kind, key", ["batch_id", "replay_kind", "replay_key", "pre_page_id"]))
       .toEqual([
         { batch_id: "t", replay_kind: "block", replay_key: "uid_l1", pre_page_id: null },
         { batch_id: "t", replay_kind: "block", replay_key: "uid_l2", pre_page_id: null },
@@ -139,7 +139,7 @@ describe("reconcile on feed page delivery", () => {
       ]);
     expect(t.db.select(
       "SELECT l.key AS replay_key, r.target_page_id, r.kind AS ref_kind" +
-      " FROM replay_log_refs r JOIN replay_log l ON l.id = r.log_id"))
+      " FROM replay_log_refs r JOIN replay_log l ON l.id = r.log_id", ["replay_key", "target_page_id", "ref_kind"]))
       .toEqual([{ replay_key: "uid_l2", target_page_id: 7, ref_kind: "link" }]);
   });
 
@@ -161,7 +161,7 @@ describe("reconcile on feed page delivery", () => {
     expect(applyChanges(t.db, feed({ next_since: seqOf(12), latest_seq: seqOf(12) })))
       .toEqual({ status: "applied", cursor: 12 });
 
-    expect(t.db.select("SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid = 'tuid-s'"))
+    expect(t.db.select("SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid = 'tuid-s'", ["page_id", "parent_uid", "order_idx"]))
       .toEqual([{ page_id: 7, parent_uid: null, order_idx: 1 }]);
   });
 
@@ -189,8 +189,8 @@ describe("reconcile on feed page delivery", () => {
 
     // the server's updated_at stands; the local page's pre-image is not put on
     // it
-    expect(t.db.select<"page_id" | "updated_at">(
-      "SELECT id AS page_id, updated_at FROM pages WHERE id = 8"))
+    expect(t.db.select(
+      "SELECT id AS page_id, updated_at FROM pages WHERE id = 8", ["page_id", "updated_at"]))
       .toEqual([{ page_id: 8, updated_at: 99 }]);
   });
 });

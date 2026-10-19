@@ -100,7 +100,7 @@ test("a feed fetched before an acknowledged batch deletion cannot overwrite it",
   }, pendingAtDispatch);
 
   expect(result).toEqual({ status: "pending-changed" });
-  expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'"))
+  expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'", ["text"]))
     .toEqual([{ text: "acknowledged local text" }]);
 });
 
@@ -127,7 +127,7 @@ test("a window whose latest_seq covers the acked batch applies despite the stale
   }, pendingAtDispatch);
 
   expect(result).toEqual({ status: "applied", cursor: 6 });
-  expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'"))
+  expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'", ["text"]))
     .toEqual([{ text: "acknowledged local text" }]);
 });
 
@@ -150,7 +150,7 @@ test("a window read before the acked batch committed is still refused", async ()
   }, pendingAtDispatch);
 
   expect(result).toEqual({ status: "pending-changed" });
-  expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'"))
+  expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'", ["text"]))
     .toEqual([{ text: "acknowledged local text" }]);
 });
 
@@ -336,7 +336,7 @@ test("enqueue round-trips: persisted, optimistic, drainable", async () => {
     { op: "update_text", uid: uidOf("uid_b1"), text: "offline edit" },
   ], bid("batch-offline"));
   expect(pending).toBe(1);
-  expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'"))
+  expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'", ["text"]))
     .toEqual([{ text: "offline edit" }]);
   const batch = (await replica.nextBatch())!;
   expect(batch.ops[0]).toMatchObject({ op: "update_text", text: "offline edit" });
@@ -400,15 +400,15 @@ test("a recovery lease gates enqueue and offline POST until the fresh database i
   await Promise.all([enqueueDispatched.promise, localPostDispatched.promise]);
   expect(enqueueSettled).toBe(false);
   expect(localPostSettled).toBe(false);
-  expect(t.db.select("SELECT COUNT(*) AS n FROM pending_ops")).toEqual([{ n: 0 }]);
-  expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title='Offline Page'")).toEqual([]);
+  expect(t.db.select("SELECT COUNT(*) AS n FROM pending_ops", ["n"])).toEqual([{ n: 0 }]);
+  expect(t.db.select("SELECT id AS page_id FROM pages WHERE title='Offline Page'", ["page_id"])).toEqual([]);
 
   await replica.commitRecovery(lease.token, { kind: "reset", snapshot: SNAP });
   await Promise.all([enqueue, localPost]);
 
-  expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_b1'"))
+  expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_b1'", ["text"]))
     .toEqual([{ text: "after recovery" }]);
-  expect(t.db.select("SELECT title FROM pages WHERE title='Offline Page'"))
+  expect(t.db.select("SELECT title FROM pages WHERE title='Offline Page'", ["title"]))
     .toEqual([{ title: "Offline Page" }]);
   expect(await replica.pendingCount()).toBe(2);
 });

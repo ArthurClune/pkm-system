@@ -154,9 +154,9 @@ test("rebase preserves and reapplies stable pending rows, then rejects token reu
     },
   })).resolves.toBeNull();
 
-  expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_b1'"))
+  expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_b1'", ["text"]))
     .toEqual([{ text: "local pending" }]);
-  expect(t.db.select("SELECT batch_id FROM pending_ops"))
+  expect(t.db.select("SELECT batch_id FROM pending_ops", ["batch_id"]))
     .toEqual([{ batch_id: "batch-local" }]);
   await expect(handlers.commitRecovery({
     token: lease.token,
@@ -183,7 +183,7 @@ test("a reset commit rolls back schema rebuild when snapshot application fails",
   await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await handlers.enqueue({ ops: [{ op: "delete", uid: uidOf("uid_b1") }], batchId: bid("batch-retained") });
   await handlers.markPoisoned({ id: pid(1), error: "rejected", batchId: bid("batch-retained") });
-  const blocksBefore = t.db.select("SELECT uid, text FROM blocks ORDER BY uid");
+  const blocksBefore = t.db.select("SELECT uid, text FROM blocks ORDER BY uid", ["uid", "text"]);
   const lease = await handlers.prepareRecovery(undefined) as { token: string };
   failSnapshot = true;
 
@@ -199,8 +199,8 @@ test("a reset commit rolls back schema rebuild when snapshot application fails",
             base_subtree_hash: subtreeHash([["uid_b1", "hello"]]) }],
     poisoned: true, seen_seq: 5,
   }]);
-  expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE id=999")).toEqual([]);
-  expect(t.db.select("SELECT uid, text FROM blocks ORDER BY uid"))
+  expect(t.db.select("SELECT id AS page_id FROM pages WHERE id=999", ["page_id"])).toEqual([]);
+  expect(t.db.select("SELECT uid, text FROM blocks ORDER BY uid", ["uid", "text"]))
     .toEqual(blocksBefore);
 });
 
@@ -456,7 +456,7 @@ test("enqueue persists a caller-provided batch id instead of minting one", async
   await expect(handlers.enqueue({
     ops: [{ op: "delete", uid: uidOf("uid_b1") }], batchId: bid("caller-id"),
   })).resolves.toEqual({ pending: 1, batchId: "caller-id" });
-  expect(t.db.select("SELECT batch_id FROM pending_ops"))
+  expect(t.db.select("SELECT batch_id FROM pending_ops", ["batch_id"]))
     .toEqual([{ batch_id: "caller-id" }]);
 });
 
@@ -510,7 +510,7 @@ test("a reset over a damaged file replaces the file and rebuilds into the new on
 
   expectFileReplaced(warn);
   expect(discardDbFile).toHaveBeenCalledOnce();
-  expect(fresh.db.select("SELECT uid, text FROM blocks"))
+  expect(fresh.db.select("SELECT uid, text FROM blocks", ["uid", "text"]))
     .toEqual([{ uid: "uid_b1", text: "hello" }]);
   await expect(handlers.pendingBatches(undefined)).resolves.toEqual([]);
   await expect(handlers.enqueue({
@@ -553,17 +553,17 @@ test("a reset failure that is not corruption keeps the file", async () => {
 const SQLITE_FULL = "SQLITE_FULL: sqlite3 result code 13: database or disk is full";
 /** The queue's durable rows in the shape the carry file stores them. */
 const durable = (db: ReplicaDb): DurablePendingRow[] =>
-  db.select<"pending_row_id" | "batch_id" | "ops_json" | "poisoned" | "pending_error">(
+  db.select(
     "SELECT id AS pending_row_id, batch_id, ops_json, poisoned, error AS pending_error"
-    + " FROM pending_ops ORDER BY id",
+    + " FROM pending_ops ORDER BY id", ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"],
   ).map((r) => ({ id: r.pending_row_id, batch_id: r.batch_id, ops_json: r.ops_json,
                   poisoned: r.poisoned, error: r.pending_error }));
 const pendingRowIds = (db: ReplicaDb): number[] =>
-  db.select<"pending_row_id">("SELECT id AS pending_row_id FROM pending_ops ORDER BY id")
+  db.select("SELECT id AS pending_row_id FROM pending_ops ORDER BY id", ["pending_row_id"])
     .map((r) => r.pending_row_id);
 const pendingIdBatches = (db: ReplicaDb) =>
-  db.select<"pending_row_id" | "batch_id">(
-    "SELECT id AS pending_row_id, batch_id FROM pending_ops ORDER BY id",
+  db.select(
+    "SELECT id AS pending_row_id, batch_id FROM pending_ops ORDER BY id", ["pending_row_id", "batch_id"],
   ).map((r) => ({ id: r.pending_row_id, batch_id: r.batch_id }));
 
 /** A poisoned batch and a valid one queued behind it, in a replica file that
@@ -637,7 +637,7 @@ test("a rebase over a damaged file carries every durable row into a new file", a
   expect(durable(fresh.db)).toEqual(rowsBefore);
   expect(carry?.exists()).toBe(false);
   // snapshot applied, and the valid batch re-applied over it
-  expect(fresh.db.select("SELECT uid, text FROM blocks"))
+  expect(fresh.db.select("SELECT uid, text FROM blocks", ["uid", "text"]))
     .toEqual([{ uid: "uid_b1", text: "edited" }]);
   // the provider's post-repair delete by row id still finds the poisoned row
   await expect(handlers.deleteBatch({ id: pid(1), batchId: bid("rejected") })).resolves.toMatchObject({ pending: 1 });
@@ -674,7 +674,7 @@ test("a rebase keeps the carried rows even if the snapshot then fails on the new
     token: lease.token, input: { kind: "rebase", snapshot: SNAP, acked: [] },
   })).rejects.toThrow();
   expectFileReplaced(warn);
-  expect(fresh.db.select("SELECT batch_id FROM pending_ops"))
+  expect(fresh.db.select("SELECT batch_id FROM pending_ops", ["batch_id"]))
     .toEqual([{ batch_id: "kept" }]);
   expect(carry.exists()).toBe(false);
 });
@@ -956,7 +956,7 @@ test.each([SQLITE_NOTADB, SQLITE_CORRUPT])(
     expect(carry.discard).toHaveBeenCalledOnce();
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
-    expect(t.db.select("SELECT batch_id FROM pending_ops"))
+    expect(t.db.select("SELECT batch_id FROM pending_ops", ["batch_id"]))
       .toEqual([{ batch_id: "kept" }]);
   });
 
@@ -1128,9 +1128,9 @@ const EMPTY_GEN1_FEED: Changes = {
   next_since: seq(7), latest_seq: seq(7), pages: [], blocks: [], sidebar: [], tombstones: [],
 };
 const textOf = (db: ReplicaDb, rawUid: string): unknown =>
-  (db.select<"text">("SELECT text FROM blocks WHERE uid = ?", [rawUid]))[0]?.text;
+  (db.select("SELECT text FROM blocks WHERE uid = ?", ["text"], [rawUid]))[0]?.text;
 const pendingIds = (db: ReplicaDb): unknown =>
-  db.select("SELECT batch_id FROM pending_ops ORDER BY id");
+  db.select("SELECT batch_id FROM pending_ops ORDER BY id", ["batch_id"]);
 
 /** Row 1 ("acked") is a batch the recovery flush got an ack for, which the
  * server saved differently from its wire text; row 2 ("open") is one the
@@ -1217,7 +1217,7 @@ test("a commit with acked rows still refuses changed durable rows and deletes no
   );
   await expect(commit([{ id: pendingRowIdOf(1), batch_id: bid("acked"), seq: seqOf(7) }]))
     .rejects.toThrow("pending rows changed during recovery");
-  expect(t.db.select<"pending_row_id">("SELECT id AS pending_row_id FROM pending_ops WHERE id = 1"))
+  expect(t.db.select("SELECT id AS pending_row_id FROM pending_ops WHERE id = 1", ["pending_row_id"]))
     .toEqual([{ pending_row_id: 1 }]);
 });
 
@@ -1307,7 +1307,7 @@ test("a delete that matches no row records no acked seq for its id", async () =>
   await handlers.enqueue({ ops: [{ op: "delete", uid: uidOf("uid_b1") }], batchId: bid("a") });
   // a stale delete for another batch that once held id 1
   await handlers.deleteBatch({ id: pid(1), batchId: bid("gone"), ackedSeq: seq(7) });
-  expect(t.db.select("SELECT batch_id FROM pending_ops")).toEqual([{ batch_id: "a" }]);
+  expect(t.db.select("SELECT batch_id FROM pending_ops", ["batch_id"])).toEqual([{ batch_id: "a" }]);
   // Row 1 is later deleted without an ack, so nothing may vouch for it.
   t.db.exec("DELETE FROM pending_ops WHERE id = 1");
   await expect(handlers.applyChanges({
@@ -1340,7 +1340,7 @@ test("deleteBatch refuses a payload without the row's batch id", async () => {
       error: { message: expect.stringMatching(/batch id/) as unknown },
     });
   }
-  expect(t.db.select("SELECT batch_id FROM pending_ops")).toEqual([{ batch_id: "a" }]);
+  expect(t.db.select("SELECT batch_id FROM pending_ops", ["batch_id"])).toEqual([{ batch_id: "a" }]);
 });
 
 const named = (rawBatchId: string, rawSeq: number) =>
@@ -1509,7 +1509,7 @@ const shiftingCreate = (id: string) => ({
   batchId: bid(id),
 });
 const orderOf = (db: ReplicaDb, u: string): unknown =>
-  (db.select<"order_idx">("SELECT order_idx FROM blocks WHERE uid = ?", [u]))[0]?.order_idx;
+  (db.select("SELECT order_idx FROM blocks WHERE uid = ?", ["order_idx"], [u]))[0]?.order_idx;
 
 test("an enqueue on a file without replay_log creates the "
   + "tables, records, and leaves schema_version stale", async () => {
@@ -1523,7 +1523,7 @@ test("an enqueue on a file without replay_log creates the "
   t.db.exec("INSERT OR REPLACE INTO sync_client_meta(key, value) VALUES ('schema_version', 'old')");
   const reopened = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await reopened.enqueue(shiftingCreate("a"));
-  expect(t.db.select("SELECT batch_id FROM replay_log WHERE batch_id = 'a'").length)
+  expect(t.db.select("SELECT batch_id FROM replay_log WHERE batch_id = 'a'", ["batch_id"]).length)
     .toBeGreaterThan(0);
   expect(t.db.introspect("SELECT value FROM sync_client_meta WHERE key = 'schema_version'"))
     .toEqual([{ value: "old" }]);
@@ -1537,8 +1537,8 @@ test("an enqueue on a file without pending_seen creates it and keeps the batch",
   t.db.exec("DROP TABLE pending_seen");
   const reopened = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await reopened.enqueue(shiftingCreate("a"));
-  expect(t.db.select("SELECT batch_id FROM pending_ops")).toEqual([{ batch_id: "a" }]);
-  expect(t.db.select("SELECT batch_id FROM pending_seen")).toEqual([{ batch_id: "a" }]);
+  expect(t.db.select("SELECT batch_id FROM pending_ops", ["batch_id"])).toEqual([{ batch_id: "a" }]);
+  expect(t.db.select("SELECT batch_id FROM pending_seen", ["batch_id"])).toEqual([{ batch_id: "a" }]);
 });
 
 test("deleteBatch and nextBatch work on a file without pending_seen", async () => {
@@ -1553,7 +1553,7 @@ test("deleteBatch and nextBatch work on a file without pending_seen", async () =
   expect(next?.batch_id).toBe("a");
   expect(next?.seen_seq).toBeUndefined();
   await reopened.deleteBatch({ id: next!.id, batchId: bid("a") });
-  expect(t.db.select("SELECT batch_id FROM pending_ops")).toEqual([]);
+  expect(t.db.select("SELECT batch_id FROM pending_ops", ["batch_id"])).toEqual([]);
 });
 
 test("pendingBatches carries seen_seq from pending_seen and omits it on a file without the table", async () => {
@@ -1587,9 +1587,9 @@ test("an enqueue on a file with a legacy effect_ledger and no "
   t.db.exec("INSERT INTO effect_ledger(batch_id, uid) VALUES ('old', 'tuid-u')");
   const reopened = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
   await reopened.enqueue(shiftingCreate("a"));
-  expect(t.db.select("SELECT batch_id FROM replay_log WHERE batch_id = 'a'").length)
+  expect(t.db.select("SELECT batch_id FROM replay_log WHERE batch_id = 'a'", ["batch_id"]).length)
     .toBeGreaterThan(0);
-  expect(t.db.select<"batch_id" | "uid">("SELECT batch_id, uid FROM effect_ledger"))
+  expect(t.db.select("SELECT batch_id, uid FROM effect_ledger", ["batch_id", "uid"]))
     .toEqual([{ batch_id: "old", uid: "tuid-u" }]);
 });
 
@@ -1604,7 +1604,7 @@ test("an enqueue on a file with a legacy effect_ledger beside "
   // did not rerun
   t.db.exec("DROP INDEX idx_replay_log_key");
   await handlers.enqueue(shiftingCreate("a"));
-  expect(t.db.select("SELECT batch_id FROM replay_log WHERE batch_id = 'a'").length)
+  expect(t.db.select("SELECT batch_id FROM replay_log WHERE batch_id = 'a'", ["batch_id"]).length)
     .toBeGreaterThan(0);
   expect(t.db.introspect("SELECT name FROM sqlite_master WHERE name = 'idx_replay_log_key'"))
     .toEqual([]);
@@ -1663,5 +1663,5 @@ test("a reopened file missing pending_seen is ensured before the first queue cal
   const reopened = buildHandlers({ openDb: async () => t.db });
   await reopened.pendingCount(undefined);
   expect(t.db.select(
-    "SELECT 1 AS n FROM sqlite_master WHERE name='pending_seen'")).toHaveLength(1);
+    "SELECT 1 AS n FROM sqlite_master WHERE name='pending_seen'", ["n"])).toHaveLength(1);
 });

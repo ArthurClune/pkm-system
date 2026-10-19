@@ -14,17 +14,17 @@ export function searchPayload(db: ReplicaDb, q: string,
   if (q.trim().length === 0) return { pages: [], blocks: [] };
   const match = escapeFtsQuery(q, exact);
   // mapped, not asserted -- see the note on PageRow in pages.ts
-  const pages = db.select<"page_id" | "title">(
+  const pages = db.select(
     `SELECT p.id AS page_id, p.title FROM pages_fts f
       JOIN pages p ON p.id = f.rowid
-     WHERE pages_fts MATCH ? ORDER BY rank LIMIT ?`, [match, lim]);
-  const blocks = db.select<"uid" | "page_title" | "snippet">(
+     WHERE pages_fts MATCH ? ORDER BY rank LIMIT ?`, ["page_id", "title"], [match, lim]);
+  const blocks = db.select(
     `SELECT b.uid, p.title AS page_title,
             snippet(blocks_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet
        FROM blocks_fts f
        JOIN blocks b ON b.rowid = f.rowid
        JOIN pages p ON p.id = b.page_id
-      WHERE blocks_fts MATCH ? ORDER BY rank LIMIT ?`, [match, lim]);
+      WHERE blocks_fts MATCH ? ORDER BY rank LIMIT ?`, ["uid", "page_title", "snippet"], [match, lim]);
   return {
     pages: pages.map((row): SearchPageHit => ({
       id: row.page_id, title: row.title })),

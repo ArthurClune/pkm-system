@@ -236,7 +236,7 @@ function replayPending(db: ReplicaDb, nowMs: number, freed: FreedPages): void {
  * The schema-pin test fails when a table gains an FK, which is the cue to
  * revisit these clauses. */
 export const targetedFkHit = (db: ReplicaDb, batchId: BatchId): boolean =>
-  db.select<"n">(
+  db.select(
     `WITH u(key) AS (SELECT key FROM replay_log
                       WHERE batch_id = ?1 AND kind = 'block'),
           p(id)  AS (SELECT CAST(key AS INTEGER) FROM replay_log
@@ -248,7 +248,7 @@ export const targetedFkHit = (db: ReplicaDb, batchId: BatchId): boolean =>
        OR EXISTS(SELECT 1 FROM u
                   WHERE NOT EXISTS(SELECT 1 FROM blocks WHERE uid = u.key)
                     AND EXISTS(SELECT 1 FROM blocks WHERE parent_uid = u.key))
-       AS n`,
+       AS n`, ["n"],
     [batchId])[0].n === 1;
 
 /** Apply a batch's ops one at a time, each under its own savepoint, rolling
@@ -417,11 +417,14 @@ export function parkTakenTitles(
 ): (PageId | SidebarEntryId)[] {
   const parked: (PageId | SidebarEntryId)[] = [];
   for (const row of incoming) {
-    const key = table === "pages" ? "page_id" : "sidebar_entry_id";
-    const holders = db.select<typeof key>(
-      `SELECT id AS ${key} FROM ${table}` +
-      " WHERE title = ? AND id != ? AND id >= 0",
-      [row.title, row.id]).map((h) => h[key]);
+    const params = [row.title, row.id];
+    const where = " WHERE title = ? AND id != ? AND id >= 0";
+    const holders: (PageId | SidebarEntryId)[] = table === "pages"
+      ? db.select(`SELECT id AS page_id FROM pages${where}`, ["page_id"], params)
+        .map((h) => h.page_id)
+      : db.select(
+        `SELECT id AS sidebar_entry_id FROM sidebar_entries${where}`,
+        ["sidebar_entry_id"], params).map((h) => h.sidebar_entry_id);
     for (const holder of holders) {
       db.exec(`UPDATE ${table} SET title = ? WHERE id = ?`,
               [parkedTitle(holder), holder]);
@@ -434,7 +437,7 @@ export function parkTakenTitles(
 export function assertNoParkedTitles<Id extends PageId | SidebarEntryId>(
     db: ReplicaDb, table: TitledTableFor<Id>, parked: readonly Id[]): void {
   const still = parked.filter((id) => db.select(
-    `SELECT 1 AS n FROM ${table} WHERE id = ? AND title = ?`,
+    `SELECT 1 AS n FROM ${table} WHERE id = ? AND title = ?`, ["n"],
     [id, parkedTitle(id)]).length > 0);
   if (still.length > 0) throw new StaleTitleHolderError(table, still);
 }

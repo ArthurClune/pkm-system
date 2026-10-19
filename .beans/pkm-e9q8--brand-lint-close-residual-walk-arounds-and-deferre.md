@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-17T21:12:42Z
-updated_at: 2026-10-18T17:30:51Z
+updated_at: 2026-10-19T09:09:55Z
 blocking:
     - pkm-zv2s
 ---
@@ -26,7 +26,9 @@ The first four items land on `feat/brand-check-web` before the Phase 2 merge (Ar
 - [ ] Opt-out covers every site on its line; stale opt-outs unreported (server brandlint too).
 
 ## Server brandlint
-- [ ] Aliased brand imports (`BlockUid as U`), `map(BlockUid, xs)` not caught; NewType scan is column-0 bare-name only (misses typing.NewType, annotated, indented); staged mode reads working-tree registry.
+- [x] Aliased brand imports (`BlockUid as U`), `map(BlockUid, xs)` not caught; NewType scan is column-0 bare-name only (misses typing.NewType, annotated, indented) (fixed on feat/brand-check-web).
+- [ ] Staged mode reads the working-tree registry.
+- [ ] `_held_values` over-reports `TypeVar("T", bound=BlockUid)` and `X: TypeAlias = BlockUid` as brand-mint; add TypeVar bound/constraints and a TypeAlias-annotated value to the type positions.
 - [ ] Non-union generic mentioning the brand passes loosely (`uid: dict[str, BlockUid]`).
 - [ ] self.x attributes, class fields under if, functional TypedDict/NamedTuple unchecked.
 - [ ] No check that MINT_SITES / CAST_SITES / TEST_SUPPORT / OPT_OUT_FILES paths still exist or still mint.
@@ -44,3 +46,9 @@ The first four items land on `feat/brand-check-web` before the Phase 2 merge (Ar
 - [ ] rawread.read used for vocabulary-key reads in server tests; docstring overstates; test_database sets private _check_rows; stray blank lines in three tests.
 - [ ] uidOf has ~5 call sites vs ~300 hand-written tuid- literals; decide helper vs literal norm.
 - [ ] response_model= declared inconsistently on three handlers; remedy text MODULES_SHOWN truncation; remedy fallback invites registry growth.
+
+
+## Harness vocabulary (from the feat/brand-check-web final review)
+
+- [ ] server/tooling/proptest/sync_server.py reads harness logs under keys of another meaning (`ord AS n`, `rowid AS n`, `at AS deleted_at`), and web/src/props/sync/normalise.ts puts `?page N` placeholders under `title`; R23 in spirit (no alias that puts a different kind of value under a key).
+- See pkm-iqxv for the mutation-API and ignore-comment walk-arounds.

@@ -1,11 +1,11 @@
 ---
 # pkm-78r0
 title: 'Brand rules: no exemptions where code is copied (tooling, perf harness, tests)'
-status: todo
+status: completed
 type: task
 priority: normal
 created_at: 2026-10-17T21:38:55Z
-updated_at: 2026-10-17T21:43:01Z
+updated_at: 2026-10-19T09:13:28Z
 blocking:
     - pkm-zv2s
 ---
@@ -19,11 +19,11 @@ Follow-up to pkm-zv2s. Aim: an agent finds it easy to do the right thing because
 - [x] proptest sync_server: replace the local `_dicts` helper with `Db.select`.
 
 ## Agreed by Arthur 2026-10-17: tests mint only through named helpers (reverses the spec's 'test code is exempt')
-- [ ] Tests mint only through named test helpers, not blanket exemption: test-support modules become the tests' mint sites (`uidOf`, plus `pageIdOf`, `seqOf`, ... on the web; a Python twin in server/tests), and rules 1 and 2 apply to test files otherwise. Scale: ~600 brand casts in 65 web test files, ~600 brand constructor calls in 23 server test files (codemod).
-- [ ] Test reads stop teaching casts: the ~160 `introspect(...) as T[]` web test reads move to `select<K>` where the columns are vocabulary keys, the rest to typed catalog/test helpers; server tests' `rawread.read` likewise moves to `select` for vocabulary columns.
+- [x] Tests mint only through named test helpers, not blanket exemption: test-support modules become the tests' mint sites (`uidOf`, plus `pageIdOf`, `seqOf`, ... on the web; a Python twin in server/tests), and rules 1 and 2 apply to test files otherwise. Scale: ~600 brand casts in 65 web test files, ~600 brand constructor calls in 23 server test files (codemod).
+- [x] Test reads stop teaching casts: the ~160 `introspect(...) as T[]` web test reads move to `select<K>` where the columns are vocabulary keys, the rest to typed catalog/test helpers; server tests' `rawread.read` likewise moves to `select` for vocabulary columns.
 
 ## Optional
-- [ ] `select<K>` is type-only: a K naming a column the SQL does not return types it as present. Under tests, check returned columns cover K (needs the keys at runtime, e.g. a keys argument). Medium cost: ~130 call sites.
+- [-] (split to pkm-rhi6) `select<K>` is type-only: a K naming a column the SQL does not return types it as present. Under tests, check returned columns cover K (needs the keys at runtime, e.g. a keys argument). Medium cost: ~130 call sites.
 
 ## Sequencing (Arthur, 2026-10-17)
 The agreed changes, the test-helper change and pkm-e9q8's four plugin walk-arounds all land on `feat/brand-check-web` before it merges to main. The optional item may wait.
@@ -31,3 +31,8 @@ The agreed changes, the test-helper change and pkm-e9q8's four plugin walk-aroun
 ## Related
 - pkm-e9q8: the four ESLint plugin walk-arounds (predicate exemption, overload mint, launder variants, Record key) are enforcement holes; pre-merge.
 - pkm-hc95: titles, the largest remaining loose-name area.
+
+
+## Summary of Changes
+
+Landed on feat/brand-check-web: the web perf harness and server tooling sit under the brand rules (no TEST_SUPPORT exemption; perfcheck the one registered raw-sqlite tooling site); merge-base shims deleted; tests mint only through checked helpers (`<camelStem>Of` on the web, `<stem>_of` in pkm/test_data/ids.py) and deliberately bad values through the forgers (uid, sha, seq, canonical title; null only for uid and canonical title); test reads of brand columns go through `select<K>`, with `introspect` refusing them under tests. The optional runtime check of `select<K>` keys is split out.

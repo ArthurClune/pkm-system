@@ -18,7 +18,9 @@ import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 // production mint; this mints the brand once rather than at every call.
 const bid = (s: string): BatchId => batchIdOf(s);
 import { openTestDb, type TestDb } from "./testDb";
-import { batchIdOf, canonicalTitleOf, malformedUid, orderIdxOf, pageIdOf, seqOf, uidOf } from "../test-helpers";
+import {
+  batchIdOf, canonicalTitleOf, malformedCanonicalTitle, malformedUid, orderIdxOf, pageIdOf, seqOf, uidOf,
+} from "../test-helpers";
 
 /** The drain's delete of the batch at the head of the queue, on its ack. */
 const ackNext = (db: ReplicaDb): void => {
@@ -287,7 +289,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     const warn = quietWarn();
     expect(() => applyChanges(t.db, emptyFeed({
       next_since: seqOf(11), latest_seq: seqOf(11),
-      pages: [Object.assign(page(3, "x"), { title: null })], // pages.title is NOT NULL
+      pages: [{ ...page(3, "x"), title: malformedCanonicalTitle(null) }], // pages.title is NOT NULL
     }))).toThrow(/NOT NULL constraint failed/);
     expect(warn).toHaveBeenCalledWith(
       "sqlite3_step() rc=", 1299, "SQLITE_CONSTRAINT_NOTNULL", "SQL =",

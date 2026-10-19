@@ -71,10 +71,10 @@ const shapedOpArb: fc.Arbitrary<BlockOp> = fc.oneof(
 );
 
 // One op in twenty that has a uid carries a NULL one instead: data no wire op
-// can hold, which the replay must survive. `Object.assign` types the null
-// property as `never`, which is assignable to the uid it replaces.
+// can hold, which the replay must survive. The op is copied, not mutated, so
+// the value fast-check drew (and may shrink from) stays intact.
 const opArb: fc.Arbitrary<BlockOp> = fc.tuple(shapedOpArb, fc.nat({ max: 19 })).map(
-  ([op, roll]) => (roll === 0 && "uid" in op ? Object.assign(op, { uid: null }) : op));
+  ([op, roll]) => (roll === 0 && "uid" in op ? { ...op, uid: malformedUid(null) } : op));
 
 const baseBlockArb = fc.record({
   uid: fc.constantFrom(...UIDS),

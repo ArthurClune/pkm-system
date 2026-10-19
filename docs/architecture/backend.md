@@ -162,7 +162,9 @@ name is read under an alias:
 
 `brand_registry.COLUMN_KEYS` lists the table-level aliases, `SHAPES` the
 regex a branded value must match, and `CLIENT_KEYS` the web-only keys of the
-replica's tables.
+replica's tables. `CLIENT_LITERALS` gives a client key its closed set of
+values (`replay_kind`, `has_pre`, `present`, `text_changed`), which the web
+row check enforces like a server `Literal`.
 
 When `PKM_ROW_CHECK=1`, `select` checks each row with `row_problems` and
 raises `RowCheckError` on an unregistered column, a NULL in a non-null key, a

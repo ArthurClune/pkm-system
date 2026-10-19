@@ -72,9 +72,11 @@ WEB_BRANDS: tuple[str, ...] = (
 )
 
 # Brand -> repo-relative files, or directory prefixes ending `/`, allowed
-# to construct (`Brand(x)`) or cast to it. A brand's own declaring file is
-# always allowed in addition. contracts/ validates and mints every server
-# brand at the wire.
+# to construct (`Brand(x)`) or cast to it. On the server a brand's own
+# declaring file is always allowed in addition; the web lint has no such
+# allowance, so a web brand is minted only where it lists (TicketId is
+# declared in sync/opQueue.ts and minted in ids.ts). contracts/ validates and
+# mints every server brand at the wire.
 _CONTRACTS = "server/src/pkm/contracts/"
 # The web's own mint points, shared by several brands.
 # The one place a replica DB row's untyped values become the branded
@@ -356,6 +358,15 @@ CLIENT_KEYS: dict[str, tuple[str, bool]] = {
     "pre_text": ("string", True),
     "edited_at": ("number", False),
     "joined_seen_seq": ("SyncSeq", True),
+}
+
+# The allowed values of a client key that is a closed set, so the row check
+# enforces them: key -> members, all of the key's base type.
+CLIENT_LITERALS: dict[str, tuple[str | int, ...]] = {
+    "replay_kind": ("block", "page"),
+    "has_pre": (0, 1),
+    "present": (0, 1),
+    "text_changed": (0, 1),
 }
 
 # SQLite's FTS5 shadow tables carry no data of ours.

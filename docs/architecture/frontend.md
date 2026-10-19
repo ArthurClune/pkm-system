@@ -620,7 +620,8 @@ control opts into a named class there; nothing inherits a look silently.
 Playwright e2e against that build.**
 
 - **Unit** (Vitest + jsdom): co-located `*.test.ts(x)`; `src/test-setup.ts`
-  stubs WebSocket/matchMedia/localStorage. Coverage is enforced (statements 95
+  stubs WebSocket/matchMedia/localStorage and fails any unsilenced
+  `console.warn`/`console.error`. Coverage is enforced (statements 95
   / branches 91 / functions 89 / lines 95), with workers and generated files
   excluded. The pure cores are the payoff of the FCIS split: they test with no
   React, DOM, fetch, worker or SQLite mocks.

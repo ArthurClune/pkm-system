@@ -133,6 +133,7 @@ Known limits, where TypeScript itself is unsound and no cheap lint closes it:
 | `check:fcis` (`tooling/fcis.mjs`) | a Functional Core module imports an Imperative Shell one at runtime ([overview.md](overview.md#functional-core--imperative-shell)) |
 | `test:coverage` | statements or lines under 95%, branches under 91%, functions under 89% (`vite.config.ts`) |
 | row check (vitest only, `ReplicaDb.select`) | a selected row has a column that is not a `Columns` key, or a value that does not fit its key's base type, nullability, literals or brand shape; the error carries the SQL and the fix. `ReplicaDb.introspect` refuses a column that may carry a brand ([frontend.md](frontend.md#replica-database-access)) |
+| console guard (`src/test-setup.ts`) | a test, or a timer firing after a file's last test, calls `console.warn` or `console.error` without silencing it with `vi.spyOn(console, ...).mockImplementation`; teeth in `tooling/consoleGuard.test.ts` |
 | `columns.test.ts` | a column of a client-only table (`CLIENT_DDL`) has no `Columns` key, or its key disagrees on base type or nullability |
 | `genTypes.drift.test.ts` | `types.d.ts` no longer matches `openapi.json` |
 | `vite build` (`tooling/viteBudgetPlugin.ts`) | the bundle or precache manifest exceeds a limit in `tooling/budgets.json` |

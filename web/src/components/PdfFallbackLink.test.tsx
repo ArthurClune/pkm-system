@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { MouseEvent } from "react";
 import { expect, it, vi } from "vitest";
 import { PdfFallbackLink } from "./PdfFallbackLink";
 
@@ -37,7 +38,8 @@ it("shows the note only when given", () => {
 });
 
 it("passes link clicks to onDownload when given", () => {
-  const onDownload = vi.fn();
+  // The real shell prevents the default navigation; jsdom cannot perform it.
+  const onDownload = vi.fn((e: MouseEvent) => e.preventDefault());
   render(<PdfFallbackLink href={href} label="Notes" onDownload={onDownload} />);
   fireEvent.click(screen.getByRole("link", { name: "Notes" }));
   expect(onDownload).toHaveBeenCalledTimes(1);

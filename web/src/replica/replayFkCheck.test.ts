@@ -143,6 +143,11 @@ describe("targetedFkHit is a sound pre-check for the whole-database comparison",
       } finally {
         if (s.fksOff) db.exec("PRAGMA foreign_keys=ON");
       }
+    // 3000 runs: the rare cases (a batch that adds a violation key, about
+    // 0.8% of runs; a comma uid the CHILD clause must catch) need that many to
+    // be drawn, so the count is not cut.
     }), { numRuns: 3000 });
-  });
+  // About 1.4 s alone and 2.2 s under coverage; 30 s leaves ten times that
+  // for a loaded machine without hiding a hang.
+  }, 30_000);
 });

@@ -36,9 +36,12 @@ const durableAndOptimisticState = () => ({
     "SELECT id AS pending_row_id, batch_id, ops_json, poisoned, error AS pending_error"
     + " FROM pending_ops ORDER BY id", ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"]),
   pages: t.db.select(
-    "SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id", ["page_id", "title", "created_at", "updated_at"]),
+    "SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id",
+      ["page_id", "title", "created_at", "updated_at"]),
   blocks: t.db.select(
-    "SELECT * FROM blocks ORDER BY uid", ["page_id", "uid", "text", "parent_uid", "order_idx", "created_at", "updated_at", "heading", "view_type", "collapsed"]),
+    "SELECT * FROM blocks ORDER BY uid",
+      ["page_id", "uid", "text", "parent_uid", "order_idx", "created_at", "updated_at", "heading", "view_type",
+       "collapsed"]),
   refs: t.db.select(
     "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs"
     + " ORDER BY src_block_uid, target_page_id, kind", ["src_block_uid", "target_page_id", "ref_kind"]),
@@ -65,7 +68,8 @@ describe("enqueueBatch", () => {
       "sqlite3_step() rc=", 1555, "SQLITE_CONSTRAINT_PRIMARYKEY", "SQL =",
       expect.stringContaining("INSERT INTO blocks"));
     expect(t.db.select(
-      "SELECT batch_id, kind AS replay_kind, key AS replay_key FROM replay_log", ["batch_id", "replay_kind", "replay_key"])).toEqual([]);
+      "SELECT batch_id, kind AS replay_kind, key AS replay_key FROM replay_log",
+        ["batch_id", "replay_kind", "replay_key"])).toEqual([]);
     expect(t.db.select("SELECT batch_id FROM pending_ops", ["batch_id"]))
       .toEqual([{ batch_id: "batch-dup" }]);
   });

@@ -55,11 +55,14 @@ const blockTomb = (rawUid: string): SyncTombstone => ({ kind: "block", entity_id
 /** Pages by title and blocks with their page's title, so local page ids
  * minted in another order still compare equal. */
 const dump = (db: ReplicaDb) => ({
-  pages: db.select("SELECT title, created_at, updated_at FROM pages ORDER BY title", ["title", "created_at", "updated_at"]),
+  pages: db.select("SELECT title, created_at, updated_at FROM pages ORDER BY title",
+    ["title", "created_at", "updated_at"]),
   blocks: db.select(
     "SELECT b.uid, p.title AS page_title, b.parent_uid, b.order_idx, b.text, b.heading," +
     " b.collapsed, b.created_at, b.updated_at, b.view_type" +
-    " FROM blocks b JOIN pages p ON p.id = b.page_id ORDER BY b.uid", ["uid", "page_title", "parent_uid", "order_idx", "text", "heading", "collapsed", "created_at", "updated_at", "view_type"]),
+    " FROM blocks b JOIN pages p ON p.id = b.page_id ORDER BY b.uid",
+      ["uid", "page_title", "parent_uid", "order_idx", "text", "heading", "collapsed", "created_at", "updated_at",
+       "view_type"]),
   refs: db.select(
     "SELECT r.src_block_uid, p.title, r.kind AS ref_kind FROM refs r" +
     " JOIN pages p ON p.id = r.target_page_id ORDER BY 1, 2, 3", ["src_block_uid", "title", "ref_kind"]),
@@ -69,12 +72,16 @@ const dump = (db: ReplicaDb) => ({
 
 /** Every column, local page ids and the log included. */
 const exactDump = (db: ReplicaDb) => ({
-  pages: db.select("SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id", ["page_id", "title", "created_at", "updated_at"]),
+  pages: db.select("SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id",
+    ["page_id", "title", "created_at", "updated_at"]),
   blocks: db.select(
     "SELECT uid, page_id, parent_uid, order_idx, text, heading, collapsed," +
-    " created_at, updated_at, view_type FROM blocks ORDER BY uid", ["uid", "page_id", "parent_uid", "order_idx", "text", "heading", "collapsed", "created_at", "updated_at", "view_type"]),
+    " created_at, updated_at, view_type FROM blocks ORDER BY uid",
+      ["uid", "page_id", "parent_uid", "order_idx", "text", "heading", "collapsed", "created_at", "updated_at",
+       "view_type"]),
   refs: db.select(
-    "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3", ["src_block_uid", "target_page_id", "ref_kind"]),
+    "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3",
+      ["src_block_uid", "target_page_id", "ref_kind"]),
   blockRefs: db.select(
     "SELECT src_block_uid, target_block_uid FROM block_refs ORDER BY 1, 2", ["src_block_uid", "target_block_uid"]),
   log: db.select(
@@ -82,7 +89,8 @@ const exactDump = (db: ReplicaDb) => ({
     " ORDER BY batch_id, kind, key", ["batch_id", "replay_kind", "replay_key", "pre_json", "pre_page_id"]),
   logRefs: db.select(
     "SELECT l.batch_id, l.key AS replay_key, r.target_page_id, r.kind AS ref_kind FROM replay_log_refs r" +
-    " JOIN replay_log l ON l.id = r.log_id ORDER BY 1, 2, 3, 4", ["batch_id", "replay_key", "target_page_id", "ref_kind"]),
+    " JOIN replay_log l ON l.id = r.log_id ORDER BY 1, 2, 3, 4",
+      ["batch_id", "replay_key", "target_page_id", "ref_kind"]),
   batches: db.select("SELECT batch_id, enqueued_ms FROM replay_batches ORDER BY 1", ["batch_id", "enqueued_ms"]),
   meta: db.introspect("SELECT key, value FROM sync_client_meta ORDER BY key"),
 });

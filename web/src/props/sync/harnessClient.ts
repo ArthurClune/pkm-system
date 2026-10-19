@@ -161,7 +161,7 @@ function lifeDb(current: () => ReplicaDb): LifeDb {
   return {
     db: {
       exec: (sql, params) => live().exec(sql, params),
-      // eslint-disable-next-line no-restricted-syntax -- forwards the caller's keys
+      // eslint-disable-next-line no-restricted-syntax -- forwards the keys
       select: (sql, keys, params) => live().select(sql, keys, params),
       introspect: (sql, params) => live().introspect(sql, params),
       transaction: (fn) => live().transaction(fn),

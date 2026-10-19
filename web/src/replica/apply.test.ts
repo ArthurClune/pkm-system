@@ -1198,7 +1198,8 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
   // repair that also cleaned the optimistic state), so the replica has to
   // reach the server's rows from the feed alone.
   const tree = () => (t.db.select(
-    "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid", ["uid", "page_id", "parent_uid", "order_idx"]));
+    "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid",
+      ["uid", "page_id", "parent_uid", "order_idx"]));
   // Another device moved uid_b2 (and its child uid_b3) under uid_b1 before
   // our move of uid_b1 under uid_b3 reached the server, so ours would
   // nest uid_b1 under its own descendant: the server skips it.
@@ -1805,7 +1806,8 @@ describe("applyChanges: the replay log", () => {
     applySnapshot(srv.db, LOG_SNAP, 1);
     applyLocalOps(srv.db, batch, 2, { batchId: bid("srv") });
     const serverRows = (db: ReplicaDb) => db.select(
-      "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid", ["uid", "page_id", "parent_uid", "order_idx"]);
+      "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid",
+        ["uid", "page_id", "parent_uid", "order_idx"]);
     const echo = (srv.db.select(
       "SELECT uid, order_idx FROM blocks WHERE page_id = 1", ["uid", "order_idx"]))
       .map((r) => block(r.uid, 1, { order_idx: orderIdxOf(r.order_idx) }));
@@ -2005,7 +2007,8 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
     }, 1);
   });
   const tree = () => (t.db.select(
-    "SELECT uid, parent_uid FROM blocks WHERE uid IN ('tuid-p', 'tuid-k', 'tuid-g') ORDER BY uid", ["uid", "parent_uid"]));
+    "SELECT uid, parent_uid FROM blocks WHERE uid IN ('tuid-p', 'tuid-k', 'tuid-g') ORDER BY uid",
+      ["uid", "parent_uid"]));
   /** The block records, as `batch:uid`. */
   const records = () => (t.db.select(
     "SELECT batch_id, key AS replay_key FROM replay_log WHERE kind = 'block'" +
@@ -2096,7 +2099,8 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
       tombstones: [pTomb] }), 3);
     expect(tree()).toEqual([{ uid: "tuid-g", parent_uid: "tuid-k" },
                             { uid: "tuid-k", parent_uid: null }]);
-    expect(t.db.select("SELECT target_page_id, kind AS ref_kind FROM refs WHERE src_block_uid = 'tuid-g'", ["target_page_id", "ref_kind"]))
+    expect(t.db.select("SELECT target_page_id, kind AS ref_kind FROM refs WHERE src_block_uid = 'tuid-g'",
+      ["target_page_id", "ref_kind"]))
       .toEqual([{ target_page_id: 3, ref_kind: "link" }]);
     expect(count("SELECT COUNT(*) AS n FROM pages WHERE id < 0")).toBe(0);
   });

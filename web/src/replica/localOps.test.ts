@@ -31,13 +31,17 @@ const blockRow = (rawUid: string) =>
   t.db.select(
     `SELECT page_id, parent_uid, order_idx, text, collapsed, heading, view_type,
             updated_at
-     FROM blocks WHERE uid = '${rawUid}'`, ["page_id", "parent_uid", "order_idx", "text", "collapsed", "heading", "view_type", "updated_at"])[0];
+     FROM blocks WHERE uid = '${rawUid}'`,
+       ["page_id", "parent_uid", "order_idx", "text", "collapsed", "heading", "view_type", "updated_at"])[0];
 
 const replicaState = () => ({
   pages: t.db.select(
-    "SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id", ["page_id", "title", "created_at", "updated_at"]),
+    "SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id",
+      ["page_id", "title", "created_at", "updated_at"]),
   blocks: t.db.select(
-    "SELECT * FROM blocks ORDER BY uid", ["page_id", "uid", "text", "parent_uid", "order_idx", "created_at", "updated_at", "heading", "view_type", "collapsed"]),
+    "SELECT * FROM blocks ORDER BY uid",
+      ["page_id", "uid", "text", "parent_uid", "order_idx", "created_at", "updated_at", "heading", "view_type",
+       "collapsed"]),
   refs: t.db.select(
     "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs"
     + " ORDER BY src_block_uid, target_page_id, kind", ["src_block_uid", "target_page_id", "ref_kind"]),
@@ -539,7 +543,8 @@ describe("applyLocalOps: replay log", () => {
    * pre-image's values stay as the JSON stored them */
   const log = () => t.db.select(
     "SELECT batch_id, kind AS replay_kind, key AS replay_key, pre_json, pre_page_id" +
-    " FROM replay_log ORDER BY batch_id, kind, key", ["batch_id", "replay_kind", "replay_key", "pre_json", "pre_page_id"]).map((r) => {
+    " FROM replay_log ORDER BY batch_id, kind, key",
+      ["batch_id", "replay_kind", "replay_key", "pre_json", "pre_page_id"]).map((r) => {
     const pre = r.pre_json === null ? {} : JSON.parse(r.pre_json) as Record<string, unknown>;
     return { batch_id: r.batch_id, kind: r.replay_kind, key: r.replay_key,
              order_idx: pre.order_idx ?? null, text: pre.text ?? null,

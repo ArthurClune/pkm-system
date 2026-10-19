@@ -161,7 +161,8 @@ describe("reconcile on feed page delivery", () => {
     expect(applyChanges(t.db, feed({ next_since: seqOf(12), latest_seq: seqOf(12) })))
       .toEqual({ status: "applied", cursor: 12 });
 
-    expect(t.db.select("SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid = 'tuid-s'", ["page_id", "parent_uid", "order_idx"]))
+    expect(t.db.select("SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid = 'tuid-s'",
+      ["page_id", "parent_uid", "order_idx"]))
       .toEqual([{ page_id: 7, parent_uid: null, order_idx: 1 }]);
   });
 

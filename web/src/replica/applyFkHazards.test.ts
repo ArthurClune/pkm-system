@@ -400,7 +400,8 @@ describe("a pending delete replayed with foreign_keys=OFF", () => {
         refs: [{ target_page_id: pageIdOf(2), kind: "link" }] }),
     ]), "uid_r1", []);
     expect(t.db.select(
-      "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs", ["src_block_uid", "target_page_id", "ref_kind"])).toEqual([]);
+      "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs",
+        ["src_block_uid", "target_page_id", "ref_kind"])).toEqual([]);
   });
 
   test("a block with a ((uid)) ref is deleted along with its block_refs rows", () => {

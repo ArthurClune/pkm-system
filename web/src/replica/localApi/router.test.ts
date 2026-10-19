@@ -135,7 +135,8 @@ describe("daily auto-creation", () => {
     expectStatus(call("GET", `/api/page/${encodeURIComponent(yesterday)}`),
                  404);
     expect(t.db.select(
-      "SELECT id AS page_id, title, created_at, updated_at FROM pages WHERE title = ?", ["page_id", "title", "created_at", "updated_at"],
+      "SELECT id AS page_id, title, created_at, updated_at FROM pages WHERE title = ?",
+        ["page_id", "title", "created_at", "updated_at"],
       [yesterday]))
       .toEqual([]);
   });
@@ -145,7 +146,8 @@ describe("daily auto-creation", () => {
     expectStatus(call("GET", `/api/page/${encodeURIComponent(tomorrow)}`),
                  404);
     expect(t.db.select(
-      "SELECT id AS page_id, title, created_at, updated_at FROM pages WHERE title = ?", ["page_id", "title", "created_at", "updated_at"],
+      "SELECT id AS page_id, title, created_at, updated_at FROM pages WHERE title = ?",
+        ["page_id", "title", "created_at", "updated_at"],
       [tomorrow]))
       .toEqual([]);
   });

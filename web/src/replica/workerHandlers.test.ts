@@ -1000,7 +1000,7 @@ function failingSchemaReads(db: ReplicaDb, message: string) {
       ...db,
       select(sql: string, keys: Parameters<ReplicaDb["select"]>[1], params?: Parameters<ReplicaDb["select"]>[2]) {
         failRead(sql);
-        // eslint-disable-next-line no-restricted-syntax -- forwards the caller's keys
+        // eslint-disable-next-line no-restricted-syntax -- forwards the keys
         return db.select(sql, keys, params);
       },
       introspect(sql: string, params?: Parameters<ReplicaDb["introspect"]>[1]) {
@@ -1632,7 +1632,7 @@ const schemaChecks = (db: ReplicaDb) => {
     ...db,
     select(sql: string, keys: Parameters<ReplicaDb["select"]>[1], params?: Parameters<ReplicaDb["select"]>[2]) {
       if (/sqlite_master/.test(sql)) count += 1;
-      // eslint-disable-next-line no-restricted-syntax -- forwards the caller's keys
+      // eslint-disable-next-line no-restricted-syntax -- forwards the keys
       return db.select(sql, keys, params);
     },
     introspect(sql: string, params?: Parameters<ReplicaDb["introspect"]>[1]) {

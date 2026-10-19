@@ -47,11 +47,15 @@ const inTx = <T>(fn: () => T, db: ReplicaDb = t.db): T => db.transaction(() => {
 const dump = (db: ReplicaDb = t.db) => ({
   blocks: db.select(
     "SELECT uid, page_id, parent_uid, order_idx, text, heading, collapsed," +
-    " created_at, updated_at, view_type FROM blocks ORDER BY uid", ["uid", "page_id", "parent_uid", "order_idx", "text", "heading", "collapsed", "created_at", "updated_at", "view_type"]),
+    " created_at, updated_at, view_type FROM blocks ORDER BY uid",
+      ["uid", "page_id", "parent_uid", "order_idx", "text", "heading", "collapsed", "created_at", "updated_at",
+       "view_type"]),
   pages: db.select(
-    "SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id", ["page_id", "title", "created_at", "updated_at"]),
+    "SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id",
+      ["page_id", "title", "created_at", "updated_at"]),
   refs: db.select(
-    "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3", ["src_block_uid", "target_page_id", "ref_kind"]),
+    "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3",
+      ["src_block_uid", "target_page_id", "ref_kind"]),
   blockRefs: db.select(
     "SELECT src_block_uid, target_block_uid FROM block_refs ORDER BY 1, 2", ["src_block_uid", "target_block_uid"]),
 });
@@ -253,7 +257,8 @@ describe("rewind", () => {
     });
     expect(t.db.select(
       "SELECT uid, page_id, parent_uid, order_idx FROM blocks" +
-      " WHERE uid IN ('tuid-c', 'tuid-c1', 'tuid-c11', 'tuid-c2') ORDER BY uid", ["uid", "page_id", "parent_uid", "order_idx"])).toEqual([
+      " WHERE uid IN ('tuid-c', 'tuid-c1', 'tuid-c11', 'tuid-c2') ORDER BY uid",
+        ["uid", "page_id", "parent_uid", "order_idx"])).toEqual([
       { uid: "tuid-c", page_id: 1, parent_uid: null, order_idx: 2 },
       { uid: "tuid-c1", page_id: 1, parent_uid: "tuid-c", order_idx: 0 },
       { uid: "tuid-c11", page_id: 1, parent_uid: "tuid-c1", order_idx: 0 },

@@ -145,7 +145,8 @@ export function nextBatch(db: ReplicaDb): PendingBatch | null {
     "SELECT o.id AS pending_row_id, o.batch_id, o.ops_json, o.poisoned," +
     " s.seen_seq AS joined_seen_seq" +
     " FROM pending_ops o LEFT JOIN pending_seen s ON s.batch_id = o.batch_id" +
-    " WHERE o.poisoned = 0 ORDER BY o.id LIMIT 1", ["pending_row_id", "batch_id", "ops_json", "poisoned", "joined_seen_seq"]);
+    " WHERE o.poisoned = 0 ORDER BY o.id LIMIT 1",
+      ["pending_row_id", "batch_id", "ops_json", "poisoned", "joined_seen_seq"]);
   return rows.length > 0 ? toBatch(rows[0]) : null;
 }
 
@@ -154,7 +155,8 @@ export function nextBatch(db: ReplicaDb): PendingBatch | null {
  * (offline-editing-design.md §6 guardrail). */
 export function allBatches(db: ReplicaDb): PendingBatch[] {
   return db.select(
-    "SELECT id AS pending_row_id, batch_id, ops_json, poisoned FROM pending_ops ORDER BY id", ["pending_row_id", "batch_id", "ops_json", "poisoned"],
+    "SELECT id AS pending_row_id, batch_id, ops_json, poisoned FROM pending_ops ORDER BY id",
+      ["pending_row_id", "batch_id", "ops_json", "poisoned"],
   ).map(toBatch);
 }
 

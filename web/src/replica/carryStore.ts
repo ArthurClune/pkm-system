@@ -60,7 +60,8 @@ export function createCarryStore(files: CarryFiles): CarryStore {
         if (table.length === 0) return [];
         return db.select(
           "SELECT id AS pending_row_id, batch_id, ops_json, poisoned," +
-          " error AS pending_error FROM pending_ops ORDER BY id", ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"],
+          " error AS pending_error FROM pending_ops ORDER BY id",
+            ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"],
         ).map((r) => ({
           id: r.pending_row_id, batch_id: r.batch_id, ops_json: r.ops_json,
           poisoned: r.poisoned, error: r.pending_error,

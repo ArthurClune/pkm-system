@@ -75,7 +75,9 @@ export function journalPayload(db: ReplicaDb, before: string | null,
     const page = fetchPage(db, titleForDate(d));
     if (page === null) continue; // unreachable: selected days exist
     const blocks = db.select(
-      `SELECT ${BLOCK_COLS} FROM blocks WHERE page_id = ?`, ["uid", "text", "parent_uid", "order_idx", "created_at", "updated_at", "heading", "view_type", "collapsed"], [page.id]);
+      `SELECT ${BLOCK_COLS} FROM blocks WHERE page_id = ?`,
+        ["uid", "text", "parent_uid", "order_idx", "created_at", "updated_at", "heading", "view_type",
+         "collapsed"], [page.id]);
     const bl = backlinks(db, page.id, 0, BACKLINK_PREVIEW);
     texts.push(...blocks.map((r) => r.text), ...bl.texts);
     uids.push(...blocks.map((r) => r.uid));

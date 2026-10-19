@@ -131,7 +131,9 @@ export function pagePayload(db: ReplicaDb, requested: string, blOffset: number,
     if (page === null) return null; // unreachable
   }
   const blocks = db.select(
-    `SELECT ${BLOCK_COLS} FROM blocks WHERE page_id = ?`, ["uid", "text", "parent_uid", "order_idx", "created_at", "updated_at", "heading", "view_type", "collapsed"], [page.id]);
+    `SELECT ${BLOCK_COLS} FROM blocks WHERE page_id = ?`,
+      ["uid", "text", "parent_uid", "order_idx", "created_at", "updated_at", "heading", "view_type",
+       "collapsed"], [page.id]);
   const bl = backlinks(db, page.id, blOffset, limit);
   return {
     page,

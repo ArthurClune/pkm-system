@@ -99,7 +99,8 @@ export function rewind(db: ReplicaDb, scope: LogScope): Map<CanonicalTitle, Page
             b.uid IS NOT NULL AS present,
             b.text IS NOT (w.pre_json ->> 'text') AS text_changed,
             w.pre_json ->> 'text' AS pre_text
-       FROM (${winners("block")}) w LEFT JOIN blocks b ON b.uid = w.key`, ["replay_log_id", "uid", "has_pre", "present", "text_changed", "pre_text"]);
+       FROM (${winners("block")}) w LEFT JOIN blocks b ON b.uid = w.key`,
+         ["replay_log_id", "uid", "has_pre", "present", "text_changed", "pre_text"]);
   const restored = blocks.filter((r) => r.has_pre && r.present);
   const absent = blocks.filter((r) => r.has_pre && !r.present);
   const created = blocks.filter((r) => !r.has_pre && r.present);

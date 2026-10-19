@@ -99,7 +99,8 @@ export function fromReplica(db: ReplicaDb): NormalGraph {
     "SELECT b.uid, COALESCE(p.title, '?page ' || b.page_id) AS title," +
     " b.parent_uid, b.order_idx," +
     " b.text, b.heading, b.collapsed, b.view_type" +
-    " FROM blocks b LEFT JOIN pages p ON p.id = b.page_id", ["uid", "title", "parent_uid", "order_idx", "text", "heading", "collapsed", "view_type"],
+    " FROM blocks b LEFT JOIN pages p ON p.id = b.page_id",
+      ["uid", "title", "parent_uid", "order_idx", "text", "heading", "collapsed", "view_type"],
   ).map((b): NormalBlock => ({
     key: b.uid,
     page: b.title,

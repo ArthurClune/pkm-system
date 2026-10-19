@@ -9,24 +9,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date
-from typing import Iterable, Iterator, Literal, NewType
+from typing import Iterable, Iterator, Literal
 
-from pkm.contracts.brands import brand
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BLOCK_REF_TOKEN, UID_RE, BlockUid
-
-# A title that has been through normalize_title: control whitespace
-# collapsed, no other byte changed. Not every str is one -- minted only by
-# normalize_title (and anything built from its output).
-NormalizedTitle = NewType("NormalizedTitle", str)
-brand(NormalizedTitle)
-# A NormalizedTitle that has also been through canonicalize_title: the exact
-# spelling a lookup against pages.title/sidebar_entries.title must use.
-# Minted only by canonicalize_title and by reading those columns back.
-CanonicalTitle = NewType("CanonicalTitle", NormalizedTitle)
-# Its own brand: a NewType of a branded NewType otherwise inherits
-# NormalizedTitle's marker.
-brand(CanonicalTitle)
+from pkm.contracts.titles import CanonicalTitle as CanonicalTitle
+from pkm.contracts.titles import NormalizedTitle as NormalizedTitle
+from pkm.contracts.titles import RawTitle
 
 # A ``` run followed by a word character is a fence *opener* with an info
 # string (```css, ```mermaid), never a closer -- without the lookahead, an
@@ -75,8 +64,8 @@ def normalize_title(title: str) -> NormalizedTitle:
     normalizes to empty -- `[[\\n]]` references no page.
     """
     if _CONTROL_WS.search(title) is None:
-        return NormalizedTitle(title)
-    return NormalizedTitle(_WS_RUN.sub(" ", title).strip())
+        return NormalizedTitle(RawTitle(title))
+    return NormalizedTitle(RawTitle(_WS_RUN.sub(" ", title).strip()))
 
 
 def canonicalize_title(title: str, *, plain_space: bool) -> NormalizedTitle:
@@ -93,7 +82,7 @@ def canonicalize_title(title: str, *, plain_space: bool) -> NormalizedTitle:
     """
     normalized = normalize_title(title)
     if plain_space:
-        normalized = NormalizedTitle(normalized.strip(" "))
+        normalized = NormalizedTitle(RawTitle(normalized.strip(" ")))
     return normalized
 
 
@@ -106,7 +95,7 @@ def canonical_daily_title(day: date) -> CanonicalTitle:
     """The daily page title for `day`, as the canonical title it already is:
     its fixed format never has control whitespace or boundary padding, all
     `canonicalize_title` ever changes, under either plain_space setting."""
-    return CanonicalTitle(NormalizedTitle(title_for_date(day)))
+    return CanonicalTitle(NormalizedTitle(RawTitle(title_for_date(day))))
 
 
 def target_canonical_title(title: str) -> CanonicalTitle:

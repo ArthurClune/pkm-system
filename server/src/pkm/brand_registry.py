@@ -161,14 +161,20 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
                     # `goodlinksIdFromHref` checks an href's id against
                     # GoodLinks' own id shape.
                     "web/src/components/goodlinks.ts"),
+    # `as_raw_title` / `asRawTitle` are the mints of RawTitle, the root of
+    # the title hierarchy; refs.py wraps the text it normalizes.
+    "RawTitle": (_CONTRACTS, "server/src/pkm/refs.py",
+                 "web/src/replica/titles.ts", _WEB_ROWS, _WEB_WIRE),
     # `normalizeRefTitle` and `canonicalizeTitle` are the normalisers; the
     # tokenizer's hashtag match holds no whitespace.
-    "NormalizedTitle": (_CONTRACTS, "web/src/grammar/scan.ts",
+    "NormalizedTitle": (_CONTRACTS, "server/src/pkm/refs.py",
+                        "web/src/grammar/scan.ts",
                         "web/src/replica/titles.ts"),
     # `title_reader` is the one general mint: it alone knows the database's
     # live plain-space flag. The web's twin is `titleReader`, and a daily
     # title is canonical by its format.
-    "CanonicalTitle": (_CONTRACTS, "server/src/pkm/server/sync_meta.py",
+    "CanonicalTitle": (_CONTRACTS, "server/src/pkm/refs.py",
+                       "server/src/pkm/server/sync_meta.py",
                        "web/src/replica/meta.ts", "web/src/replica/daily.ts",
                        _WEB_ROWS, _WEB_WIRE),
     # An internal NewType, not a wire brand: `parse_canonical_query` and
@@ -236,6 +242,7 @@ TEST_HELPERS: dict[str, str] = {
     "ConversationId": "conversation_id",
     "ConfirmId": "confirm_id",
     "GoodlinksId": "goodlinks_id",
+    "RawTitle": "raw_title",
     "NormalizedTitle": "normalized_title",
     "CanonicalTitle": "canonical_title",
     "CanonicalQueryNode": "canonical_query_node",
@@ -332,6 +339,7 @@ SHAPES: dict[str, tuple[str, str | None]] = {
     "ConversationId": ("text", None),
     "ConfirmId": ("text", None),
     "GoodlinksId": ("text", None),
+    "RawTitle": ("text", None),
     "NormalizedTitle": ("text", None),
     "CanonicalTitle": ("text", None),
 }

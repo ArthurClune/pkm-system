@@ -309,13 +309,22 @@
       "server/src/pkm/contracts/",
       "web/src/components/goodlinks.ts"
     ],
+    "RawTitle": [
+      "server/src/pkm/contracts/",
+      "server/src/pkm/refs.py",
+      "web/src/replica/titles.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts"
+    ],
     "NormalizedTitle": [
       "server/src/pkm/contracts/",
+      "server/src/pkm/refs.py",
       "web/src/grammar/scan.ts",
       "web/src/replica/titles.ts"
     ],
     "CanonicalTitle": [
       "server/src/pkm/contracts/",
+      "server/src/pkm/refs.py",
       "server/src/pkm/server/sync_meta.py",
       "web/src/replica/meta.ts",
       "web/src/replica/daily.ts",
@@ -359,6 +368,7 @@
     "ConversationId": "conversationId",
     "ConfirmId": "confirmId",
     "GoodlinksId": "goodlinksId",
+    "RawTitle": "rawTitle",
     "NormalizedTitle": "normalizedTitle",
     "CanonicalTitle": "canonicalTitle",
     "CanonicalQueryNode": "canonicalQueryNode",

@@ -695,6 +695,15 @@ durable `plain_space_title_canonicalization` flag selects the second:
 | inactive (default) | a control character makes ASCII-whitespace runs collapse to one space and trims their boundary; plain-space padding stays byte-exact, so legacy rows still resolve |
 | active | the above, plus stripping leading and trailing U+0020; internal ordinary spaces and NBSP are unchanged |
 
+The title brands are a chain declared in `contracts/titles.py`; each passes
+where the one before it is expected, never the reverse:
+
+| Brand | Meaning | Minted by |
+|---|---|---|
+| `RawTitle` | text no check has run on | `as_raw_title` |
+| `NormalizedTitle` | a `RawTitle` through `normalize_title` | `refs.normalize_title`, `refs.canonicalize_title` |
+| `CanonicalTitle` | a `NormalizedTitle` in the exact stored spelling | below |
+
 `refs.normalize_title` and `refs.canonicalize_title` both return the
 `NewType` `NormalizedTitle`. `canonicalize_title` takes `plain_space` as a
 caller-supplied bool, not this database's live flag, so its result is the

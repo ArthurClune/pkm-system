@@ -809,6 +809,27 @@ describe("brands plugin judgement", () => {
     expect(await messagesFor("src/replica/daily.ts", text)).toEqual([]);
   }, ESLINT_TIMEOUT_MS);
 
+  it("reports RawTitle outside its mint sites", async () => {
+    const text =
+      'import type { RawTitle } from "../api/brands";\n' +
+      "export const t = (s: string) => s as RawTitle;\n";
+    const found = await messagesFor("src/grammar/scan.ts", text);
+    expect(found.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(found[0].message).toContain("RawTitle");
+    expect(await messagesFor("src/replica/titles.ts", text)).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("counts NormalizedTitle as its own brand, not RawTitle", async () => {
+    const text =
+      'import type { NormalizedTitle } from "../api/brands";\n' +
+      "export const t = (s: string) => s as NormalizedTitle;\n";
+    expect(await messagesFor("src/replica/titles.ts", text)).toEqual([]);
+    const found = await messagesFor("src/sync/opQueue.ts", text);
+    expect(found.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(found[0].message).toContain("NormalizedTitle");
+    expect(found[0].message).not.toContain("RawTitle");
+  }, ESLINT_TIMEOUT_MS);
+
   it("names the parser and the mint module in the remedy", async () => {
     const text =
       'import type { BlockUid } from "../api/brands";\n' +

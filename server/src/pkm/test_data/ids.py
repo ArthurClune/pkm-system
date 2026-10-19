@@ -20,7 +20,12 @@ from pkm.contracts.ops import (BatchId, BlockUid, ClientId, OrderIdx, PageId,
                                SyncSeq)
 from pkm.contracts.responses import ConfirmId, ConversationId
 from pkm.goodlinks import GoodlinksId
-from pkm.refs import CanonicalTitle, NormalizedTitle
+from pkm.contracts.titles import (
+    CanonicalTitle,
+    NormalizedTitle,
+    RawTitle,
+    as_raw_title,
+)
 from pkm.server.query import CanonicalQueryNode, QueryNode
 
 
@@ -88,12 +93,16 @@ def goodlinks_id_of(value: str) -> GoodlinksId:
     return GoodlinksId(_text("GoodlinksId", value))
 
 
+def raw_title_of(value: str) -> RawTitle:
+    return as_raw_title(_text("RawTitle", value))
+
+
 def normalized_title_of(value: str) -> NormalizedTitle:
-    return NormalizedTitle(_text("NormalizedTitle", value))
+    return NormalizedTitle(raw_title_of(value))
 
 
 def canonical_title_of(value: str) -> CanonicalTitle:
-    return CanonicalTitle(NormalizedTitle(_text("CanonicalTitle", value)))
+    return CanonicalTitle(normalized_title_of(value))
 
 
 def canonical_query_node_of(value: QueryNode) -> CanonicalQueryNode:

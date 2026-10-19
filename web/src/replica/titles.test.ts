@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
-import { canonicalizeTitle, findOpTitleViolation,
+import { asRawTitle, canonicalizeTitle, findOpTitleViolation,
          titleSyntaxReason } from "./titles";
 import type { CanonicalTitle, NormalizedTitle } from "../api/brands";
 import type { components } from "../api/types";
@@ -110,4 +110,10 @@ typeProbe(() => {
   // @ts-expect-error a raw string is not a generated CanonicalTitle field
   const raw: PageMetaTitle = "Page";
   void [normalized, back, raw];
+});
+
+describe("asRawTitle", () => {
+  test("returns the text unchanged", () => {
+    expect(asRawTitle(" a\tb ")).toBe(" a\tb ");
+  });
 });

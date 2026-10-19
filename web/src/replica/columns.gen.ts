@@ -270,6 +270,10 @@ export const BRAND_SHAPES: { readonly [brand: string]: { readonly base: string; 
     "base": "text",
     "pattern": null
   },
+  "RawTitle": {
+    "base": "text",
+    "pattern": null
+  },
   "NormalizedTitle": {
     "base": "text",
     "pattern": null

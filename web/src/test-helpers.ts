@@ -4,7 +4,7 @@ import { applyOps } from "./outline/tree";
 import type { BlockOp } from "./api/ops";
 import type { Backlinks, BlockNode, PagePayload } from "./api/payloads";
 import type { BatchId, BlockUid, CanonicalTitle, ClientId, ConfirmId, ConversationId,
-             GoodlinksId, NormalizedTitle, OrderIdx, PageId, Sha256Hex,
+             GoodlinksId, NormalizedTitle, OrderIdx, PageId, RawTitle, Sha256Hex,
              SidebarEntryId, SidebarOrderIdx, SyncSeq } from "./api/brands";
 import type { RequestId, Revision } from "./outline/outlineState";
 import type { ParkedTitle } from "./replica/apply";
@@ -110,6 +110,10 @@ export function confirmIdOf(value: string): ConfirmId {
 export function goodlinksIdOf(value: string): GoodlinksId {
   check("GoodlinksId", value);
   return value as GoodlinksId;
+}
+export function rawTitleOf(value: string): RawTitle {
+  check("RawTitle", value);
+  return value as RawTitle;
 }
 export function normalizedTitleOf(value: string): NormalizedTitle {
   check("NormalizedTitle", value);

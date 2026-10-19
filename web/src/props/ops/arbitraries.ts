@@ -295,7 +295,7 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
   const rows = new Map<string, Row>();
   for (const b of g.blocks) {
     if (pool.has(b.page) && OWN_UID.test(b.key)) {
-      rows.set(b.key, { page: b.page, parent: b.parentKey, order: b.position, text: b.text });
+      rows.set(b.key, { page: b.page, parent: b.parentKey, order: b.order_idx, text: b.text });
     }
   }
   const inGraph = new Set(g.blocks.map((b) => b.key));
@@ -333,15 +333,15 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
       case "zero":
         return orderIdxOf(0);
       case "sibling":
-        return orderIdxOf((keys.length > 0 ? at(keys, s.n) : 0));
+        return orderIdxOf(keys.length > 0 ? at(keys, s.n) : 0);
       case "gap": {
         const taken = new Set(keys);
         const free = Array.from({ length: Math.max(last, 0) }, (_, k) => k)
           .filter((k) => !taken.has(k));
-        return orderIdxOf((free.length > 0 ? at(free, s.n) : last + 1));
+        return orderIdxOf(free.length > 0 ? at(free, s.n) : last + 1);
       }
       case "end":
-        return orderIdxOf((last + 1 + (s.n % 3)));
+        return orderIdxOf(last + 1 + (s.n % 3));
     }
   };
   const textOf = (key: string): string => rows.get(key)?.text ?? deletedText.get(key) ?? "";

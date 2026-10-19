@@ -29,9 +29,9 @@ const snap = (blocks: SyncBlock[]): Snapshot => ({
   sidebar: [],
 });
 
-const nb = (key: string, page: string, parentKey: string | null, position: number,
+const nb = (key: string, page: string, parentKey: string | null, order: number,
             refs: string[] = []): NormalBlock => ({
-  key, page, parentKey, position, text: key, heading: null, collapsed: 0,
+  key, page, parentKey, order_idx: orderIdxOf(order), text: key, heading: null, collapsed: 0,
   view_type: null, refs,
 });
 

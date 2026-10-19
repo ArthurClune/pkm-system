@@ -11,6 +11,7 @@
 //   - only the graph tables (pages, blocks, refs): sidebar and block_refs
 //     are outside what sync is checked for here.
 // fromReplica reads through the handle it is given and writes nothing.
+import type { OrderIdx } from "../../api/brands";
 import type { Snapshot } from "../../replica/apply";
 import type { ReplicaDb } from "../../replica/db";
 
@@ -21,7 +22,7 @@ export interface NormalBlock {
   key: string;
   page: string;
   parentKey: string | null;
-  position: number;
+  order_idx: OrderIdx;
   text: string;
   heading: number | null;
   collapsed: number;
@@ -62,7 +63,7 @@ export function fromSnapshot(s: Snapshot, opts: NormaliseOptions = {}): NormalGr
     key: b.uid,
     page: pageName(titles, b.page_id),
     parentKey: b.parent_uid,
-    position: b.order_idx,
+    order_idx: b.order_idx,
     text: b.text,
     heading: b.heading,
     collapsed: b.collapsed,
@@ -104,7 +105,7 @@ export function fromReplica(db: ReplicaDb): NormalGraph {
     key: b.uid,
     page: b.title,
     parentKey: b.parent_uid,
-    position: b.order_idx,
+    order_idx: b.order_idx,
     text: b.text,
     heading: b.heading,
     collapsed: b.collapsed,
@@ -114,7 +115,7 @@ export function fromReplica(db: ReplicaDb): NormalGraph {
   return { pages, blocks };
 }
 
-const FIELDS = ["page", "parentKey", "position", "text", "heading", "collapsed",
+const FIELDS = ["page", "parentKey", "order_idx", "text", "heading", "collapsed",
                 "view_type", "refs", "stamps"] as const;
 
 const show = (v: unknown): string => JSON.stringify(v) ?? "undefined";
@@ -186,7 +187,7 @@ export function canonicaliseMintedUids(g: NormalGraph,
     const parent = b.parentKey === null
       ? `~[${b.page}]`
       : nameOf(b.parentKey, new Set([...seen, key]));
-    const name = `${parent.startsWith("~") ? parent : `~${parent}`}/${b.position}`;
+    const name = `${parent.startsWith("~") ? parent : `~${parent}`}/${b.order_idx}`;
     names.set(key, name);
     return name;
   };

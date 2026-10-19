@@ -40,8 +40,8 @@ async function start(name: string, broken?: Broken): Promise<HarnessClient> {
   return c;
 }
 
-const setText = (name: string, text: string): BlockOp[] =>
-  [{ op: "update_text", uid: uidOf(name), text }];
+const setText = (rawUid: string, text: string): BlockOp[] =>
+  [{ op: "update_text", uid: uidOf(rawUid), text }];
 
 /** The fixed command list every teeth scenario runs: A edits twice, B edits
  * once, both pull, then quiescence. Each client's delivery is awaited before

@@ -36,15 +36,15 @@ async function start(name: string, windowLimit?: number): Promise<HarnessClient>
   return c;
 }
 
-const setText = (name: string, text: string): BlockOp[] =>
-  [{ op: "update_text", uid: uidOf(name), text }];
+const setText = (rawUid: string, text: string): BlockOp[] =>
+  [{ op: "update_text", uid: uidOf(rawUid), text }];
 
 const pendingRows = (c: HarnessClient): number =>
   c.db.select<"n">("SELECT COUNT(*) AS n FROM pending_ops")[0].n;
 
-const blockText = (c: HarnessClient, name: string): string | undefined =>
+const blockText = (c: HarnessClient, rawUid: string): string | undefined =>
   c.db.select<"text">(
-    "SELECT text FROM blocks WHERE uid = ?", [name])[0]?.text;
+    "SELECT text FROM blocks WHERE uid = ?", [rawUid])[0]?.text;
 
 const appliedIds = async (): Promise<BatchId[]> =>
   (await server.applied()).map((row) => row.batch_id);

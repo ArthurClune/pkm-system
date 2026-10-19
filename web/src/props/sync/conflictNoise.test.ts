@@ -8,7 +8,8 @@ const id = (s: string): BatchId => batchIdOf(s);
 
 const body = (ops: unknown[]): string => JSON.stringify({ client_id: "c", batch_id: "x", ops });
 
-const setText = (tag: string): unknown => ({ op: "update_text", uid: tag, text: "t" });
+const setText = (rawUid: string): unknown =>
+  ({ op: "update_text", uid: rawUid, text: "t" });
 
 describe("overwrittenTarget", () => {
   test("names the block of a check-5 header, whatever names its page", () => {

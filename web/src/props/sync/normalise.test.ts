@@ -49,7 +49,7 @@ describe("fromSnapshot", () => {
     expect(g.pages).toEqual(["Proptest", "Target"]);
     expect(g.blocks.map((b) => b.key)).toEqual(["pt_child", "pt_seed_1", "pt_seed_2"]);
     expect(g.blocks[1]).toEqual({
-      key: "pt_seed_1", page: "Proptest", parentKey: null, position: 0,
+      key: "pt_seed_1", page: "Proptest", parentKey: null, order_idx: orderIdxOf(0),
       text: "one [[Target]]", heading: null, collapsed: 0, view_type: null,
       refs: ["link:Target"],
     });

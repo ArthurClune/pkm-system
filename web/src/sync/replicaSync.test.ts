@@ -657,8 +657,8 @@ describe("recovery flushes and the shared coordinator", () => {
     const queue = {
       pause: () => undefined,
       resume: () => undefined,
-      deliverLaneAhead: async (batch: string) => {
-        trace.push(`deliver lane ahead of ${batch}`);
+      deliverLaneAhead: async (batchId: BatchId) => {
+        trace.push(`deliver lane ahead of ${batchId}`);
       },
     };
     const { onState } = collector();

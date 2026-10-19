@@ -6,6 +6,7 @@ import { applyOps } from "../../outline/tree";
 import { sha256Hex } from "../../replica/sha256";
 import { subtreeHash } from "../../replica/subtreeHash";
 import { findOpTitleViolation } from "../../replica/titles";
+import { orderIdxOf } from "../../test-helpers";
 import { treeProblems } from "../outline/reading";
 import type { NormalBlock, NormalGraph } from "../sync/normalise";
 import {
@@ -25,9 +26,9 @@ const depth = (nodes: readonly BlockNode[]): number =>
 const startNodes = (s: StartState): BlockNode[] =>
   OPS_PAGES.flatMap((p) => allNodes(s.pages[p]));
 
-const nb = (key: string, page: string, parentKey: string | null, position: number,
+const nb = (key: string, page: string, parentKey: string | null, order: number,
             text: string): NormalBlock => ({
-  key, page, parentKey, position, text, heading: null, collapsed: 0, view_type: null,
+  key, page, parentKey, order_idx: orderIdxOf(order), text, heading: null, collapsed: 0, view_type: null,
   refs: [],
 });
 

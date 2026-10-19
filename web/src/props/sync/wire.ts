@@ -252,7 +252,8 @@ export const parseAppliedLog = (raw: unknown): { batch_id: BatchId; applied_at: 
   })(raw, "applied");
 
 /** The ops of an echo frame as the proptest server records them (its own
- * encoding of ops this harness sent), or null when none was recorded. */
+ * encoding of ops this harness sent), or null when none was recorded.
+ * Trusts parsePendingOps: it checks nothing about the echo ops. */
 export const parseEcho = (raw: unknown): BlockOp[] | null => {
   const ops = field(record(raw, "echo"), "ops", nullable(list((op) => op)), "echo");
   return ops === null ? null : parsePendingOps(JSON.stringify(ops));

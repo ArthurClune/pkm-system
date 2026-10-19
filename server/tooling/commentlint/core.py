@@ -28,14 +28,17 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
-CODE_ROOTS = ("web/src", "web/e2e", "web/tooling", "server/src", "server/tests", "server/tooling",
-              "perf", "proptest")
 DOC_ROOTS = ("docs/architecture",)
-CODE_EXTENSIONS = frozenset({".py", ".ts", ".tsx", ".mjs", ".js", ".css", ".sh"})
-# Generated files are fixed at their source; perf baseline reports are records
-# of a measurement and are named after the bean that asked for it.
+CODE_EXTENSIONS = frozenset({".py", ".ts", ".tsx", ".mjs", ".js", ".css", ".sh", ".swift"})
+# Every tracked code file is scanned wherever it lives, bar these. Generated
+# files are fixed at their source; perf baseline reports are records of a
+# measurement and are named after the bean that asked for it; the rest is
+# vendored, built or published as-is.
 EXCLUDED_SUFFIXES = (".gen.ts", ".d.ts")
-EXCLUDED_DIRS = ("web/tooling/perf/baselines/",)
+EXCLUDED_DIRS = ("web/tooling/perf/baselines/", "web/public/", "web/dist/")
+EXCLUDED_SEGMENTS = frozenset({"node_modules", ".venv"})
+# An extensionless script is read as the language its shebang names.
+_SHEBANG_SUFFIXES = (("python", ".py"), ("node", ".mjs"), ("sh", ".sh"))
 COMMENT_WIDTH = 80
 CODE_WIDTH = 120
 NOQA = "noqa: E501"
@@ -85,22 +88,36 @@ class Violation:
 
 
 def is_scanned(path: str) -> bool:
-    """Whether the lint reads this repo-relative path at all."""
+    """Whether the lint reads this repo-relative path at all. An extensionless
+    file qualifies here and is dropped by `check_text` unless its shebang
+    names a language."""
     if path.endswith(EXCLUDED_SUFFIXES) or any(path.startswith(d) for d in EXCLUDED_DIRS):
         return False
-    suffix = PurePosixPath(path).suffix
-    if _under(path, DOC_ROOTS):
-        return suffix == ".md"
-    if suffix not in CODE_EXTENSIONS:
+    pure = PurePosixPath(path)
+    if EXCLUDED_SEGMENTS.intersection(pure.parts):
         return False
-    # The web root's own config and script files (`eslint.config.js`,
-    # `vite.config.ts`) sit directly in web/, outside every code root.
-    in_web_root = path.startswith("web/") and "/" not in path[len("web/"):]
-    return in_web_root or _under(path, CODE_ROOTS)
+    if _under(path, DOC_ROOTS):
+        return pure.suffix == ".md"
+    return pure.suffix in CODE_EXTENSIONS or (pure.suffix == "" and not pure.name.startswith("."))
 
 
 def _under(path: str, roots: Iterable[str]) -> bool:
     return any(path == root or path.startswith(root + "/") for root in roots)
+
+
+def language(path: str, text: str) -> str:
+    """The comment syntax of `path` as a suffix: its extension, or for an
+    extensionless script the one its shebang names; empty when neither."""
+    suffix = PurePosixPath(path).suffix
+    if suffix:
+        return suffix
+    first = text.split("\n", 1)[0]
+    if not first.startswith("#!"):
+        return ""
+    interpreter = first[2:].split()
+    # `#!/usr/bin/env node` names its language in the last word.
+    name = PurePosixPath(interpreter[-1] if interpreter else "").name
+    return next((ext for key, ext in _SHEBANG_SUFFIXES if key in name), "")
 
 
 def comment_spans(text: str, suffix: str) -> Iterator[tuple[int, str]]:
@@ -202,7 +219,9 @@ def check_text(path: str, text: str) -> list[Violation]:
     """Every rule each comment of `path` breaks, in file order."""
     if not is_scanned(path):
         return []
-    suffix = PurePosixPath(path).suffix
+    suffix = language(path, text)
+    if not suffix:
+        return []
     lines = text.splitlines()
     out: list[Violation] = []
     prose = comment_lines(text, suffix) if suffix != ".md" else set()

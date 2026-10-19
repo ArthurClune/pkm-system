@@ -1114,8 +1114,10 @@ When measuring a slow request, prefer these durations to client-side timing.
 - `server/tooling/brandlint` is the brand lint, run by the same hook and
   sweep as `commentlint`: see [enforced-checks.md](enforced-checks.md#brand-rules).
 - `server/tooling/commentlint` is the comment-rot lint behind
-  `.githooks/pre-commit`: a staged source file or architecture doc whose
-  comments carry a bean id, a line number or a spec/plan pointer with no path
+  `.githooks/pre-commit`: a staged code file (every tracked one, including
+  `deploy/`, `.githooks/` and the `.claude/skills` scripts, bar generated
+  files, perf baselines, `web/public` and vendored trees; an extensionless
+  script is read by its shebang) or architecture doc whose comments carry a bean id, a line number or a spec/plan pointer with no path
   fails the commit. So does a source line over 80 columns in a comment or 120
   elsewhere; `noqa: E501` exempts a line, and ruff's `E501` shares it. Stdlib
   only, so the hook runs under the system `python3`.

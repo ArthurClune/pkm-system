@@ -39,6 +39,8 @@ def _staged_text(repo: Path, path: str) -> str:
 
 
 def _tree_text(repo: Path, path: str) -> str:
+    if not (repo / path).is_file():
+        return ""
     return (repo / path).read_text(encoding="utf-8", errors="replace")
 
 

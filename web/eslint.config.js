@@ -21,8 +21,11 @@
 //     `defineProperty` writes, or an alias of them, do not route around
 //     either.
 //   * No unchecked suppression of the type checker: `@ts-ignore` and
-//     `@ts-nocheck` are banned and `@ts-expect-error` says why, so a test
-//     cannot silence a brand error the rules above rely on tsc to raise.
+//     `@ts-nocheck` are banned and `@ts-expect-error` says why and sits only
+//     in a `typeProbe(() => { ... })` block, whose body is type-checked but
+//     never runs, so a test cannot silence a brand error the rules above
+//     rely on tsc to raise or carry an off-type value into code that runs
+//     (`offType<T>(v)` is the declared way to feed a runtime guard).
 // reportUnusedDisableDirectives is an error so a stale suppression can never
 // linger: the "zero exhaustive-deps suppressions" invariant is enforced by
 // tooling, not by convention.
@@ -135,6 +138,7 @@ export default tseslint.config(
       "brands/no-brand-assertion": "error",
       "brands/no-brand-bypass": "error",
       "brands/select-keys-literal": "error",
+      "brands/ts-expect-error-in-probe": "error",
       "@typescript-eslint/ban-ts-comment": ["error", {
         "ts-ignore": true,
         "ts-nocheck": true,

@@ -1,10 +1,11 @@
 ---
 # pkm-hc95
 title: 'Brand check for titles: name says which title kind'
-status: todo
+status: in-progress
 type: task
+priority: normal
 created_at: 2026-10-17T15:30:18Z
-updated_at: 2026-10-17T15:30:18Z
+updated_at: 2026-10-19T15:23:16Z
 ---
 
 The brand check (pkm-zv2s) registers names like `uid` and `page_id` that
@@ -16,3 +17,17 @@ Decide how titles get the same treatment: rename parameters so the name
 says which kind they hold (e.g. `raw_title` / `canonical_title`), then
 register those names with the brand check. Survey server and web first;
 count the sites per kind before choosing names.
+
+## Decisions (2026-10-19)
+
+The survey found ~160 server and ~150 web title-named sites outside tests.
+`title` carries all three kinds plus non-page titles. Arthur ruled:
+register bare `title` too; add a `RawTitle` brand; work in two branches.
+Spec: docs/superpowers/specs/2026-10-19-title-brands-design.md.
+Plan (branch 1): docs/superpowers/plans/2026-10-19-title-brands-1.md.
+
+Bugs the survey found, filed separately: pkm-ebkf, pkm-9hn0.
+
+- [x] survey and decide names
+- [ ] branch 1: RawTitle, wire fields, kind-specific names
+- [ ] branch 2: bare `title` (plan after branch 1 lands)

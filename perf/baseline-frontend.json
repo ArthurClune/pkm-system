@@ -3,7 +3,7 @@
   "env": {
     "chromium": "149.0.7827.55"
   },
-  "fixture_hash": "0933c2add2c681b8",
+  "fixture_hash": "6b317ff472e005ce",
   "scenarios": {
     "A/idle-big": {
       "fetches": {
@@ -73,7 +73,7 @@
       },
       "replica_ready_ms": {
         "class": "timing",
-        "value": 3481
+        "value": 3508
       },
       "requests": {
         "class": "exact",
@@ -122,7 +122,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 57
+        "value": 61.1
       },
       "not_prevented": {
         "class": "exact",
@@ -142,7 +142,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 14.9
+        "value": 20.2
       },
       "not_prevented": {
         "class": "exact",
@@ -226,7 +226,7 @@
       },
       "results_ms": {
         "class": "timing",
-        "value": 242
+        "value": 253
       },
       "search_requests": {
         "class": "exact",
@@ -259,7 +259,7 @@
       },
       "first_outline_ms": {
         "class": "timing",
-        "value": 214
+        "value": 218
       },
       "requests": {
         "class": "exact",

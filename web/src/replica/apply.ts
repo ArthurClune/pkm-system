@@ -40,8 +40,7 @@ import { foreignKeyViolations, type ReplicaDb, rollbackToSavepoint,
 import { applyLocalOps } from "./localOps";
 import { deleteMeta, getMeta, setMeta,
          setPlainSpaceTitleCanonicalization } from "./meta";
-import { parseBlockUid } from "../ids";
-import { tombstoneIdOfWire, type TombstoneId } from "../sync/wire";
+import { parseTombstoneId, tombstoneIdOfWire, type TombstoneId } from "../sync/wire";
 import { allBatches, deleteBatch } from "./queue";
 import { dropStrandedLocalPages, reconcileActivationPageTitles,
          reconcilePage } from "./reconcile";
@@ -485,8 +484,10 @@ function recordedBlockTombstones(recorded: string | null,
   if (cursor === null || String(rec.cursor) !== cursor) return [];
   if (!Array.isArray(rec.uids)) return [];
   return rec.uids.flatMap((u: unknown) => {
-    const uid = typeof u === "string" ? parseBlockUid(u) : null;
-    return uid === null ? [] : [uid];
+    const tomb = typeof u === "string" ? parseTombstoneId("block", u) : null;
+    if (tomb?.kind === "block") return [tomb.id];
+    console.warn("applyWindow: dropping a malformed deferred block tombstone", u);
+    return [];
   });
 }
 

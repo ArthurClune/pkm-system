@@ -950,6 +950,37 @@ describe("applyChanges: block tombstones wait for the window that reaches the jo
     expect(deferred()).toEqual(["uid_dd_l"]);
   });
 
+  test("a malformed block tombstone on the wire rejects the window", () => {
+    const before = getMeta(t.db, "cursor");
+    expect(() => window(13, { tombstones: [tomb("uid_dd_d"), tomb("no good!")] }))
+      .toThrow(/malformed block tombstone.*no good!/);
+    expect(getMeta(t.db, "cursor")).toBe(before);
+    expect(deferred()).toBeNull();
+    expect(tree()).toHaveLength(4);
+  });
+
+  test("a malformed page or sidebar tombstone on the wire rejects the window", () => {
+    expect(() => window(13, { tombstones: [{ kind: "page", entity_id: "twelve" }] }))
+      .toThrow(/malformed page tombstone/);
+    expect(() => window(13, { tombstones: [{ kind: "sidebar", entity_id: "1.5" }] }))
+      .toThrow(/malformed sidebar tombstone/);
+  });
+
+  test("a malformed deferred record entry is dropped with a warning naming it", () => {
+    window(13, { tombstones: [tomb("uid_dd_d")] });
+    const record = JSON.parse(getMeta(t.db, "deferred_block_tombstones")!) as
+      Record<string, unknown>;
+    record.uids = [...(record.uids as unknown[]), "bad uid", 7];
+    setMeta(t.db, "deferred_block_tombstones", JSON.stringify(record));
+    const warn = quietWarn();
+    window(15);
+    expect(warn).toHaveBeenCalledWith(
+      "applyWindow: dropping a malformed deferred block tombstone", "bad uid");
+    expect(warn).toHaveBeenCalledWith(
+      "applyWindow: dropping a malformed deferred block tombstone", 7);
+    expect(tree()).toEqual([]);
+  });
+
   test("a window that rolls back records nothing", () => {
     const warn = quietWarn();
     // a block whose page never shipped fails the deferred FK check at COMMIT

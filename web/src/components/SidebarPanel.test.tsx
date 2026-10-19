@@ -5,7 +5,7 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, pageId, pagePayload, stubFetch, title, uid } from "../test-helpers";
+import { block, makeSync, pageIdOf, pagePayload, stubFetch, canonicalTitleOf, uidOf } from "../test-helpers";
 import { SidebarPanel } from "./SidebarPanel";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -44,8 +44,8 @@ function renderPanel(title: string) {
 
 it("fetches its page and renders title plus block tree, no backlinks", async () => {
   stubFetch([["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "a paper block")], {
-    backlinks: { groups: [{ page_id: pageId(1), page_title: title("Machine Learning"), items: [
-      { uid: uid("uid_b3"), text: "should not render", breadcrumbs: [] }] }],
+    backlinks: { groups: [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("Machine Learning"), items: [
+      { uid: uidOf("uid_b3"), text: "should not render", breadcrumbs: [] }] }],
       total_pages: 1, offset: 0, limit: 20 },
   })]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -68,19 +68,19 @@ it("close button fires onClose", async () => {
 
 it("panel bullets are draggable and start a drag for the panel's page", async () => {
   stubFetch([["/api/page/Some%20Page", pagePayload("Some Page",
-    [block("s1", "side one")])]]);
+    [block("tuid-s1", "side one")])]]);
   const { dnd } = renderPanel("Some Page");
   await screen.findByText("side one");
   const bullet = document.querySelector(".sidebar-panel .bullet");
   expect(bullet).toHaveAttribute("draggable", "true");
 
   fireEvent.dragStart(bullet!, { dataTransfer: dt() });
-  expect(dnd().drag).toEqual({ kind: "blocks", uid: "s1", pageTitle: "Some Page" });
+  expect(dnd().drag).toEqual({ kind: "blocks", uid: "tuid-s1", pageTitle: "Some Page" });
 });
 
 it("dragging is disabled while disconnected (writes paused invariant)", async () => {
   const sync = makeSync("reconnecting");
-  stubFetch([["/api/page/Paper", pagePayload("Paper", [block("s1", "side one")])]]);
+  stubFetch([["/api/page/Paper", pagePayload("Paper", [block("tuid-s1", "side one")])]]);
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>

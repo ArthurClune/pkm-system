@@ -1,7 +1,8 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { BlockUid } from "./api/brands";
 import { FLASH_MS, PIN_QUIET_MS, useScrollFlashTarget } from "./useScrollFlashTarget";
-import { uid } from "./test-helpers";
+import { malformedUid, uidOf } from "./test-helpers";
 
 // jsdom implements neither scrollIntoView nor layout; a spy is enough to
 // pin that the block is centred rather than scrolled to its top edge.
@@ -45,7 +46,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function block(uid: string, parent: HTMLElement = document.body): HTMLElement {
+function block(uid: BlockUid, parent: HTMLElement = document.body): HTMLElement {
   const el = document.createElement("div");
   el.setAttribute("data-uid", uid);
   parent.appendChild(el);
@@ -53,15 +54,15 @@ function block(uid: string, parent: HTMLElement = document.body): HTMLElement {
 }
 
 it("scrolls the block into the centre and flashes it", () => {
-  const el = block("abc123");
-  renderHook(() => useScrollFlashTarget(uid("abc123"), true));
+  const el = block(uidOf("abc123"));
+  renderHook(() => useScrollFlashTarget(uidOf("abc123"), true));
   expect(scrolled).toEqual({ block: "center" });
   expect(el.classList.contains("flash-target")).toBe(true);
 });
 
 it("clears the flash once the animation window has passed", () => {
-  const el = block("abc123");
-  renderHook(() => useScrollFlashTarget(uid("abc123"), true));
+  const el = block(uidOf("abc123"));
+  renderHook(() => useScrollFlashTarget(uidOf("abc123"), true));
   vi.advanceTimersByTime(FLASH_MS - 1);
   expect(el.classList.contains("flash-target")).toBe(true);
   vi.advanceTimersByTime(1);
@@ -69,8 +70,8 @@ it("clears the flash once the animation window has passed", () => {
 });
 
 it("cancels the pending clear on unmount instead of firing it later", () => {
-  const el = block("abc123");
-  const { unmount } = renderHook(() => useScrollFlashTarget(uid("abc123"), true));
+  const el = block(uidOf("abc123"));
+  const { unmount } = renderHook(() => useScrollFlashTarget(uidOf("abc123"), true));
   unmount();
   vi.advanceTimersByTime(FLASH_MS * 2);
   // The timer was cleared, so nothing touched the (now detached) element.
@@ -78,9 +79,9 @@ it("cancels the pending clear on unmount instead of firing it later", () => {
 });
 
 it("does nothing until the readiness token is truthy", () => {
-  const el = block("abc123");
+  const el = block(uidOf("abc123"));
   const { rerender } = renderHook(
-    ({ ready }: { ready: unknown }) => useScrollFlashTarget(uid("abc123"), ready),
+    ({ ready }: { ready: unknown }) => useScrollFlashTarget(uidOf("abc123"), ready),
     { initialProps: { ready: null as unknown } });
   expect(el.classList.contains("flash-target")).toBe(false);
   expect(scrolled).toBeUndefined();
@@ -90,10 +91,10 @@ it("does nothing until the readiness token is truthy", () => {
 });
 
 it("re-flashes when the readiness token is replaced by a fresh one", () => {
-  const el = block("abc123");
+  const el = block(uidOf("abc123"));
   const payload = { n: 1 };
   const { rerender } = renderHook(
-    ({ ready }: { ready: unknown }) => useScrollFlashTarget(uid("abc123"), ready),
+    ({ ready }: { ready: unknown }) => useScrollFlashTarget(uidOf("abc123"), ready),
     { initialProps: { ready: payload as unknown } });
   vi.advanceTimersByTime(FLASH_MS);
   expect(el.classList.contains("flash-target")).toBe(false);
@@ -103,37 +104,37 @@ it("re-flashes when the readiness token is replaced by a fresh one", () => {
 });
 
 it("does nothing without a uid, or when no block carries it", () => {
-  block("abc123");
+  block(uidOf("abc123"));
   renderHook(() => useScrollFlashTarget(null, true));
   expect(scrolled).toBeUndefined();
 
-  renderHook(() => useScrollFlashTarget(uid("not-on-this-page"), true));
+  renderHook(() => useScrollFlashTarget(uidOf("not-on-this-page"), true));
   expect(scrolled).toBeUndefined();
 });
 
 it("escapes the uid rather than injecting it into the selector", () => {
-  const el = block('a"b');
-  renderHook(() => useScrollFlashTarget(uid('a"b'), true));
+  const el = block(malformedUid('a"b'));
+  renderHook(() => useScrollFlashTarget(malformedUid('a"b'), true));
   expect(el.classList.contains("flash-target")).toBe(true);
 });
 
 it("searches only inside the given root, never the whole document", () => {
-  const outside = block("shared-uid"); // e.g. the same page open in the main pane
+  const outside = block(uidOf("shared-uid")); // e.g. the same page open in the main pane
   const panel = document.createElement("div");
   document.body.appendChild(panel);
-  const inside = block("shared-uid", panel);
+  const inside = block(uidOf("shared-uid"), panel);
 
   const root = { current: panel };
-  renderHook(() => useScrollFlashTarget(uid("shared-uid"), true, { root }));
+  renderHook(() => useScrollFlashTarget(uidOf("shared-uid"), true, { root }));
 
   expect(inside.classList.contains("flash-target")).toBe(true);
   expect(outside.classList.contains("flash-target")).toBe(false);
 });
 
 it("does nothing when a root was given but has not mounted yet", () => {
-  const el = block("abc123");
+  const el = block(uidOf("abc123"));
   const root: { current: HTMLElement | null } = { current: null };
-  renderHook(() => useScrollFlashTarget(uid("abc123"), true, { root }));
+  renderHook(() => useScrollFlashTarget(uidOf("abc123"), true, { root }));
   expect(el.classList.contains("flash-target")).toBe(false);
   expect(scrolled).toBeUndefined();
 });
@@ -141,10 +142,10 @@ it("does nothing when a root was given but has not mounted yet", () => {
 it("scrolls again when the same uid is navigated to a second time", () => {
   // A toc entry clicked twice: the hash is unchanged, only the navigation is
   // new.
-  block("abc123");
+  block(uidOf("abc123"));
   const { rerender } = renderHook(
     ({ navigation }: { navigation: string }) =>
-      useScrollFlashTarget(uid("abc123"), true, { navigation }),
+      useScrollFlashTarget(uidOf("abc123"), true, { navigation }),
     { initialProps: { navigation: "k1" } });
   expect(scrolls).toBe(1);
 
@@ -159,11 +160,11 @@ it("tries again once the caller reports the target revealed", () => {
   // expands the ancestors and signals once the uncovered rows are in the DOM.
   const { rerender } = renderHook(
     ({ revealed }: { revealed: number }) =>
-      useScrollFlashTarget(uid("abc123"), true, { navigation: "k1", revealed }),
+      useScrollFlashTarget(uidOf("abc123"), true, { navigation: "k1", revealed }),
     { initialProps: { revealed: 0 } });
   expect(scrolls).toBe(0);
 
-  const el = block("abc123");
+  const el = block(uidOf("abc123"));
   rerender({ revealed: 0 });
   expect(scrolls).toBe(0);
   rerender({ revealed: 1 });
@@ -174,8 +175,8 @@ it("tries again once the caller reports the target revealed", () => {
 it("re-centres the target when the page grows after the jump", () => {
   // Content above it (a PDF page replacing its slot, an embed resizing) would
   // otherwise push the target out of view.
-  block("abc123");
-  renderHook(() => useScrollFlashTarget(uid("abc123"), true));
+  block(uidOf("abc123"));
+  renderHook(() => useScrollFlashTarget(uidOf("abc123"), true));
   expect(scrolls).toBe(1);
 
   FakeResizeObserver.resize();
@@ -185,16 +186,16 @@ it("re-centres the target when the page grows after the jump", () => {
 
 it.each(["wheel", "touchstart", "keydown", "pointerdown"])(
   "stops re-centring once the reader takes over (%s)", (type) => {
-  block("abc123");
-  renderHook(() => useScrollFlashTarget(uid("abc123"), true));
+  block(uidOf("abc123"));
+  renderHook(() => useScrollFlashTarget(uidOf("abc123"), true));
   window.dispatchEvent(new Event(type));
   FakeResizeObserver.resize();
   expect(scrolls).toBe(1);
 });
 
 it("stops re-centring once the layout has been quiet for a while", () => {
-  block("abc123");
-  renderHook(() => useScrollFlashTarget(uid("abc123"), true));
+  block(uidOf("abc123"));
+  renderHook(() => useScrollFlashTarget(uidOf("abc123"), true));
   vi.advanceTimersByTime(PIN_QUIET_MS - 1);
   FakeResizeObserver.resize(); // still settling: re-centres, and restarts the wait
   expect(scrolls).toBe(2);
@@ -207,8 +208,8 @@ it("stops re-centring once the layout has been quiet for a while", () => {
 });
 
 it("stops re-centring on unmount", () => {
-  block("abc123");
-  const { unmount } = renderHook(() => useScrollFlashTarget(uid("abc123"), true));
+  block(uidOf("abc123"));
+  const { unmount } = renderHook(() => useScrollFlashTarget(uidOf("abc123"), true));
   unmount();
   FakeResizeObserver.resize();
   window.dispatchEvent(new Event("wheel"));
@@ -220,14 +221,14 @@ it("watches the target's ancestors up to the given root, and nothing outside it"
   document.body.appendChild(panel);
   const children = document.createElement("div");
   panel.appendChild(children);
-  block("abc123", children);
-  renderHook(() => useScrollFlashTarget(uid("abc123"), true, { root: { current: panel } }));
+  block(uidOf("abc123"), children);
+  renderHook(() => useScrollFlashTarget(uidOf("abc123"), true, { root: { current: panel } }));
   expect(FakeResizeObserver.live.flatMap((o) => o.targets)).toEqual([children, panel]);
 });
 
 it("watches up to the document element when no root is given", () => {
-  block("abc123");
-  renderHook(() => useScrollFlashTarget(uid("abc123"), true));
+  block(uidOf("abc123"));
+  renderHook(() => useScrollFlashTarget(uidOf("abc123"), true));
   expect(FakeResizeObserver.live.flatMap((o) => o.targets))
     .toEqual([document.body, document.documentElement]);
 });

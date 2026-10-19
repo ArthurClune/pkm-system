@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { newUid } from "./uid";
+import { newBatchId, newClientId, newUid } from "./uid";
 
 test("uids match the server's UID_RE and don't collide", () => {
   const uids = Array.from({ length: 200 }, () => newUid());
@@ -35,4 +35,10 @@ test("resamples the first byte until it lands on an alphanumeric symbol", () => 
 
   expect(uid[0]).toBe("a"); // UID_ALPHABET[0]
   expect(call).toBe(3);
+});
+
+test("client and batch ids are uid-shaped and fresh", () => {
+  expect(newClientId()).toMatch(/^[a-zA-Z0-9_-]{6,32}$/);
+  expect(newBatchId()).toMatch(/^[a-zA-Z0-9_-]{6,32}$/);
+  expect(newBatchId()).not.toBe(newBatchId());
 });

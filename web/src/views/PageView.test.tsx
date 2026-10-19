@@ -9,20 +9,9 @@ import {
 } from "../outline/outlineSessions";
 import { performUndo, resetHistory } from "../outline/undoManager";
 import { SyncContext } from "../sync/SyncProvider";
-import {
-  block,
-  journalBacklinks,
-  jsonResponse,
-  makeSync,
-  ord,
-  pageId,
-  pagePayload,
-  READ_INIT,
-  servePageApplyingSent,
-  stubFetch,
-  title,
-  uid,
-} from "../test-helpers";
+import { block, journalBacklinks, jsonResponse, makeSync, orderIdxOf, pageIdOf, pagePayload, READ_INIT,
+         servePageApplyingSent, stubFetch, canonicalTitleOf, uidOf,
+         malformedUid } from "../test-helpers";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
 import { BlockStampsContext } from "../contexts";
 import { Journal } from "./Journal";
@@ -66,7 +55,7 @@ it("fetches and renders a page, resolving block refs from the payload", async ()
     ["/api/page/Generative%20Models", pagePayload("Generative Models", [
       block("uid_p1", "intro [[Paper]]"),
       block("uid_p2", "See ((uid_r1))"),
-    ], { block_ref_texts: { uid_r1: { text: "the referenced text", page_title: title("Paper") } } })],
+    ], { block_ref_texts: { uid_r1: { text: "the referenced text", page_title: canonicalTitleOf("Paper") } } })],
   ]);
   renderAt("/page/Generative%20Models");
   expect(await screen.findByRole("heading", { name: "Generative Models" })).toBeInTheDocument();
@@ -87,8 +76,8 @@ it("keeps literal slashes in namespace titles", async () => {
 it("links with the canonical payload title and refreshes backlinks", async () => {
   const sync = makeSync();
   const refreshed = pagePayload("ACME", [], { backlinks: {
-    groups: [{ page_id: pageId(9), page_title: title("Source"), items: [{
-      uid: uid("uid_unlinked"), text: "[[ACME]] mention", breadcrumbs: [],
+    groups: [{ page_id: pageIdOf(9), page_title: canonicalTitleOf("Source"), items: [{
+      uid: uidOf("uid_unlinked"), text: "[[ACME]] mention", breadcrumbs: [],
     }] }],
     total_pages: 1, offset: 0, limit: 20,
   } });
@@ -188,7 +177,7 @@ it("an expired same-title parent response cannot publish an empty child", async 
 
     await act(async () => {
       newer.resolve(jsonResponse(pagePayload("Paper", [
-        block("new", "newer response"),
+        block("tuid-new", "newer response"),
       ])));
       await newer.promise;
       await Promise.resolve();
@@ -239,7 +228,7 @@ it("a losing failed parent renders the accepted same-title winner without error"
         block("winner-ref", "((winner_ref))"),
       ], {
         block_ref_texts: {
-          winner_ref: { text: "shared payload metadata", page_title: title("Source") },
+          winner_ref: { text: "shared payload metadata", page_title: canonicalTitleOf("Source") },
         },
       })));
       await newer.promise;
@@ -423,7 +412,7 @@ it("unmounting the newer parent recovers while the older transport still hangs",
         block("survivor-ref", "((hung_ref))"),
       ], {
         block_ref_texts: {
-          hung_ref: { text: "hung-parent metadata", page_title: title("Source") },
+          hung_ref: { text: "hung-parent metadata", page_title: canonicalTitleOf("Source") },
         },
       })));
       await recovery.promise;
@@ -515,7 +504,7 @@ it("an automatic read superseding elected recovery permits one replacement paren
         block_ref_texts: {
           replacement_ref: {
             text: "post-automatic metadata",
-            page_title: title("Source"),
+            page_title: canonicalTitleOf("Source"),
           },
         },
       })));
@@ -604,7 +593,7 @@ it("a hung automatic read cannot strand eager full-parent readiness", async () =
         block_ref_texts: {
           automatic_ref: {
             text: "hung-automatic metadata",
-            page_title: title("Source"),
+            page_title: canonicalTitleOf("Source"),
           },
         },
       })));
@@ -713,7 +702,7 @@ it("a repair superseding elected recovery permits one post-repair parent", async
         block_ref_texts: {
           repair_ref: {
             text: "post-repair metadata",
-            page_title: title("Source"),
+            page_title: canonicalTitleOf("Source"),
           },
         },
       })));
@@ -904,7 +893,7 @@ it("a captured Journal response superseding recovery elects one full parent", as
         block_ref_texts: {
           capture_ref: {
             text: "post-capture metadata",
-            page_title: title("Source"),
+            page_title: canonicalTitleOf("Source"),
           },
         },
       })));
@@ -1014,7 +1003,7 @@ it("a dormant Journal capture cannot strand parent recovery", async () => {
         block_ref_texts: {
           dormant_ref: {
             text: "dormant-capture metadata",
-            page_title: title("Source"),
+            page_title: canonicalTitleOf("Source"),
           },
         },
       })));
@@ -1139,7 +1128,7 @@ it("unmounting Journal releases a hung capture before parent recovery", async ()
         block_ref_texts: {
           unmount_ref: {
             text: "post-unmount metadata",
-            page_title: title("Source"),
+            page_title: canonicalTitleOf("Source"),
           },
         },
       })));
@@ -1277,8 +1266,8 @@ it("scrolls to and flashes the block named in the location hash", async () => {
 
 describe("a hash naming a block inside a collapsed subtree", () => {
   const collapsedPaper = () => [
-    block("uid_g", "grandparent", { collapsed: true, children: [
-      block("uid_p", "parent", { collapsed: true, children: [
+    block("tuid-uid_g", "grandparent", { collapsed: true, children: [
+      block("tuid-uid_p", "parent", { collapsed: true, children: [
         block("uid_t1", "target block"),
       ] }),
     ] }),
@@ -1310,8 +1299,8 @@ describe("a hash naming a block inside a collapsed subtree", () => {
     expect(row!.classList.contains("flash-target")).toBe(true);
     // Persisted like any toggle, as one batch, and not an undo step.
     expect(sync.sent).toEqual([[
-      { op: "set_collapsed", uid: "uid_g", collapsed: false },
-      { op: "set_collapsed", uid: "uid_p", collapsed: false },
+      { op: "set_collapsed", uid: "tuid-uid_g", collapsed: false },
+      { op: "set_collapsed", uid: "tuid-uid_p", collapsed: false },
     ]]);
     expect(performUndo(sync)).toBe(false);
   });
@@ -1321,7 +1310,7 @@ describe("a hash naming a block inside a collapsed subtree", () => {
     window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
     const { sync, container } = renderCollapsed();
     await screen.findByText("target block");
-    const parentRow = container.querySelector('[data-uid="uid_p"]')!;
+    const parentRow = container.querySelector('[data-uid="tuid-uid_p"]')!;
     fireEvent.click(parentRow.querySelector('[aria-label="toggle children"]')!);
     expect(screen.queryByText("target block")).toBeNull();
     scrollIntoView.mockClear();
@@ -1331,7 +1320,7 @@ describe("a hash naming a block inside a collapsed subtree", () => {
     const row = container.querySelector('[data-uid="uid_t1"]');
     expect(scrollIntoView.mock.instances).toContain(row);
     expect(sync.sent.at(-1)).toEqual([
-      { op: "set_collapsed", uid: "uid_p", collapsed: false },
+      { op: "set_collapsed", uid: "tuid-uid_p", collapsed: false },
     ]);
   });
 });
@@ -1351,7 +1340,7 @@ it("a hash that isn't a well-formed uid flashes nothing", async () => {
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("abcde", "a block")])],
+    ["/api/page/Paper", pagePayload("Paper", [block("tuid-abcde", "a block", { uid: malformedUid("abcde") })])],
   ]);
   const { container } = renderAt("/page/Paper#abcde");
   await screen.findByRole("heading", { name: "Paper" });
@@ -1366,7 +1355,7 @@ it("a parent resync response dispatched before a local split cannot erase it", a
   let resolveFresh!: (response: Response) => void;
   const fresh = new Promise<Response>((done) => { resolveFresh = done; });
   let calls = 0;
-  const initial = pagePayload("Paper", [block("u1", "first")]);
+  const initial = pagePayload("Paper", [block("tuid-u1", "first")]);
   const fetchMock = vi.fn(() => {
     calls += 1;
     if (calls === 1) return Promise.resolve(jsonResponse(initial));
@@ -1408,7 +1397,7 @@ it("a parent resync response dispatched before a local split cannot erase it", a
 
   await act(async () => {
     resolveFresh(jsonResponse(pagePayload("Paper", [
-      block("u1", "first", { order_idx: ord(0) }),
+      block("tuid-u1", "first", { order_idx: orderIdxOf(0) }),
       block(created.uid, created.text, { order_idx: created.order_idx }),
     ])));
     await fresh;

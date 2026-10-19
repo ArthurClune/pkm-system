@@ -5,12 +5,13 @@
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { Sha256Hex } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { uploadAsset } from "./assets";
 import { useOutline, type Outline } from "../outline/useOutline";
-import { block, FakeWebSocket, jsonResponse, ord, pagePayload, title, uid } from "../test-helpers";
+import {
+  block, FakeWebSocket, jsonResponse, orderIdxOf, pagePayload, canonicalTitleOf, uidOf, shaOf,
+} from "../test-helpers";
 import { SyncProvider } from "./SyncProvider";
 
 vi.mock("./assets", async (importOriginal) => ({
@@ -23,7 +24,7 @@ function Harness({ initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(title("Page"), initial);
+  const outline = useOutline(canonicalTitleOf("Page"), initial);
   useEffect(() => onReady(outline));
   return null;
 }
@@ -51,7 +52,7 @@ beforeEach(() => {
     const url = String(input);
     if (url.startsWith("/api/page/Page")) {
       return jsonResponse(pagePayload("Page",
-        [block("u1", "server text", { order_idx: ord(0) })]));
+        [block("tuid-u1", "server text", { order_idx: orderIdxOf(0) })]));
     }
     return jsonResponse({ ok: true });
   });
@@ -74,11 +75,11 @@ function renderOutline(initial: BlockNode[]): () => Outline {
 
 test("(a) a text draft whose debounce fires after disconnect posts no op", () => {
   vi.useFakeTimers();
-  const getOutline = renderOutline([block("u1", "", { order_idx: ord(0) })]);
+  const getOutline = renderOutline([block("tuid-u1", "", { order_idx: orderIdxOf(0) })]);
   act(() => lastWs().open()); // connected
 
-  act(() => getOutline().handlers.onFocusBlock(uid("u1"), 0));
-  act(() => getOutline().handlers.onDraftChange(uid("u1"), "hello")); // 500ms timer
+  act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u1"), 0));
+  act(() => getOutline().handlers.onDraftChange(uidOf("tuid-u1"), "hello")); // 500ms timer
   act(() => lastWs().drop()); // disconnect before the debounce fires
   act(() => { vi.advanceTimersByTime(600); }); // debounce -> flush -> enqueue
 
@@ -90,16 +91,16 @@ test("(b) an image upload completing after disconnect is preserved and flushes o
   let finishUpload!: () => void;
   uploadAssetMock.mockReturnValue(new Promise((resolve) => {
     finishUpload = () => resolve({
-      sha256: "abc" as Sha256Hex, filename: "pic.png", mime: "image/png",
+      sha256: shaOf("ab".repeat(32)), filename: "pic.png", mime: "image/png",
       size: 1, url: "/assets/abc/pic.png", existing: false,
     });
   }));
-  const getOutline = renderOutline([block("u1", "", { order_idx: ord(0) })]);
+  const getOutline = renderOutline([block("tuid-u1", "", { order_idx: orderIdxOf(0) })]);
   act(() => lastWs().open()); // connected
 
   const file = new File(["x"], "pic.png", { type: "image/png" });
   // upload starts
-  act(() => { void getOutline().handlers.onFiles(uid("u1"), 0, [file]); });
+  act(() => { void getOutline().handlers.onFiles(uidOf("tuid-u1"), 0, [file]); });
   act(() => lastWs().drop()); // disconnect while the upload is outstanding
 
   await act(async () => { finishUpload(); await Promise.resolve(); });
@@ -111,7 +112,7 @@ test("(b) an image upload completing after disconnect is preserved and flushes o
   const posts = opsPosts();
   expect(posts).toHaveLength(1);
   expect(posts[0].ops).toEqual([
-    { op: "update_text", uid: "u1", text: "![pic.png](/assets/abc/pic.png)",
+    { op: "update_text", uid: "tuid-u1", text: "![pic.png](/assets/abc/pic.png)",
       page_title: "Page",
       base_text_hash: sha256Hex("") },
   ]);
@@ -119,11 +120,11 @@ test("(b) an image upload completing after disconnect is preserved and flushes o
 
 test("(c) reconnect flushes the ops preserved while offline, in order", async () => {
   vi.useFakeTimers();
-  const getOutline = renderOutline([block("u1", "", { order_idx: ord(0) })]);
+  const getOutline = renderOutline([block("tuid-u1", "", { order_idx: orderIdxOf(0) })]);
   act(() => lastWs().open()); // first connect
 
-  act(() => getOutline().handlers.onFocusBlock(uid("u1"), 0));
-  act(() => getOutline().handlers.onDraftChange(uid("u1"), "offline edit"));
+  act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u1"), 0));
+  act(() => getOutline().handlers.onDraftChange(uidOf("tuid-u1"), "offline edit"));
   act(() => lastWs().drop());
   act(() => { vi.advanceTimersByTime(600); }); // debounce enqueues while offline
   expect(opsPosts()).toHaveLength(0); // preserved, not sent
@@ -134,7 +135,7 @@ test("(c) reconnect flushes the ops preserved while offline, in order", async ()
   const posts = opsPosts();
   expect(posts).toHaveLength(1);
   expect(posts[0].ops).toEqual([
-    { op: "update_text", uid: "u1", text: "offline edit",
+    { op: "update_text", uid: "tuid-u1", text: "offline edit",
       base_text_hash: sha256Hex(""), page_title: "Page" },
   ]);
 });

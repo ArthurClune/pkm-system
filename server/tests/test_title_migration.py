@@ -2,8 +2,7 @@ import sqlite3
 
 import pytest
 
-from rawread import read
-from pkm.contracts.ops import Sha256Hex
+from rawread import read, table_rows, trace as rawread_trace
 from pkm.database import Db, connect
 from pkm.schema import DDL
 from pkm.server.sync_meta import (
@@ -20,6 +19,7 @@ from pkm.server.title_migration import (
     apply_title_migration,
     audit_title_migration,
 )
+from pkm.test_data.ids import sha_of
 
 
 def _database() -> Db:
@@ -91,13 +91,9 @@ def _seed_migration_graph(db: Db) -> None:
     db.commit()
 
 
-def _rows(db: Db, table: str) -> list[tuple[object, ...]]:
-    return sorted(tuple(row) for row in read(db, f"SELECT * FROM {table}"))
-
-
 def _state(db: Db) -> dict[str, list[tuple[object, ...]]]:
     return {
-        table: _rows(db, table)
+        table: table_rows(db, table)
         for table in (
             "pages",
             "blocks",
@@ -216,11 +212,12 @@ def test_audit_and_apply_include_orphan_canonical_sidebar_identity():
 
     apply_title_migration(db, plan.digest, now_ms=9_999)
 
-    assert [tuple(row) for row in read(db,
-        "SELECT id, title, order_idx FROM sidebar_entries ORDER BY id"
+    assert [tuple(row.values()) for row in db.select(
+        "SELECT id AS sidebar_entry_id, title, order_idx AS sidebar_order_idx"
+        " FROM sidebar_entries ORDER BY id"
     )] == [(12, "Beta", 2)]
-    assert [tuple(row) for row in read(db,
-        "SELECT id, title FROM pages ORDER BY id"
+    assert [tuple(row.values()) for row in db.select(
+        "SELECT id AS page_id, title FROM pages ORDER BY id"
     )] == [(1, "Beta")]
 
 
@@ -283,7 +280,7 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
     plan = audit_title_migration(db)
     old_generation = database_generation(db)
     trace: list[str] = []
-    db.raw.set_trace_callback(trace.append)
+    rawread_trace(db, trace.append)
 
     outcome = apply_title_migration(db, plan.digest, now_ms=10_000)
 
@@ -302,8 +299,8 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
     ]
     assert plain_space_title_canonicalization_active(db) is True
     assert database_generation(db) != old_generation
-    assert [tuple(row) for row in read(db,
-        "SELECT id, title FROM pages ORDER BY id"
+    assert [tuple(row.values()) for row in db.select(
+        "SELECT id AS page_id, title FROM pages ORDER BY id"
     )] == [
         (1, "Acme"),
         (4, "Beta"),
@@ -311,29 +308,30 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
         (7, "Unrelated"),
         (8, "\u00a0Gamma\u00a0"),
     ]
-    assert [tuple(row) for row in read(db,
+    assert [tuple(row.values()) for row in db.select(
         "SELECT uid, order_idx FROM blocks WHERE page_id=1 AND parent_uid IS NULL "
         "ORDER BY order_idx"
     )] == [("target-root", 0), ("source-leading", 1), ("source-trailing", 2)]
-    assert [tuple(row) for row in read(db,
+    assert [tuple(row.values()) for row in db.select(
         "SELECT uid, order_idx FROM blocks WHERE page_id=4 AND parent_uid IS NULL "
         "ORDER BY order_idx"
     )] == [("beta-first", 0), ("beta-second", 1)]
-    assert tuple(read(db,
+    assert [tuple(row.values()) for row in db.select(
         "SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid='child-leading'"
-    ).fetchone()) == (1, "source-leading", 0)
+    )] == [(1, "source-leading", 0)]
     assert read(db, "SELECT text FROM blocks WHERE uid='inbound'").fetchone()[0] == (
         "[[Acme]] + [[Acme]] + [[Beta]] + [[Beta]] + [[Unrelated]]"
     )
     assert read(db,
         "SELECT text FROM blocks WHERE uid='source-leading'"
     ).fetchone()[0] == "self [[Acme]] and [[Unrelated]]"
-    assert [tuple(row) for row in read(db,
-        "SELECT target_page_id, kind FROM refs WHERE src_block_uid='inbound' "
+    assert [tuple(row.values()) for row in db.select(
+        "SELECT target_page_id, kind AS ref_kind FROM refs WHERE src_block_uid='inbound' "
         "ORDER BY target_page_id, kind"
     )] == [(1, "link"), (4, "link"), (7, "link")]
-    assert [tuple(row) for row in read(db,
-        "SELECT id, title, order_idx FROM sidebar_entries ORDER BY id"
+    assert [tuple(row.values()) for row in db.select(
+        "SELECT id AS sidebar_entry_id, title, order_idx AS sidebar_order_idx"
+        " FROM sidebar_entries ORDER BY id"
     )] == [(1, "Acme", 0), (3, "Beta", 2), (4, "Unrelated", 3)]
     assert read(db,
         "SELECT count(*) FROM pages_fts WHERE pages_fts MATCH '\"Beta\"'"
@@ -356,7 +354,7 @@ def test_apply_rejects_stale_digest_without_mutation():
     before = _state(db)
 
     with pytest.raises(StaleTitleMigration) as raised:
-        apply_title_migration(db, Sha256Hex("0" * 64), now_ms=10_001)
+        apply_title_migration(db, sha_of("0" * 64), now_ms=10_001)
 
     assert raised.value.expected_digest == "0" * 64
     assert raised.value.actual_digest == audit_title_migration(db).digest

@@ -1,0 +1,78 @@
+import type { BlockUid, PageId } from "../../src/api/brands";
+
+export function widened(x: BlockUid | string): x is BlockUid {
+  return x.length > 0;
+}
+export function assertWidened(x: BlockUid | string): asserts x is BlockUid {
+  void x;
+}
+export function fromUnknown(x: unknown): x is BlockUid {
+  return typeof x === "string";
+}
+type Pair = { v: BlockUid } | { v: string; k: 1 };
+export function overlapping(x: Pair): x is { v: BlockUid } {
+  return "v" in x;
+}
+export function perProperty(
+  x: { a: BlockUid; b: string },
+): x is { a: BlockUid; b: BlockUid } {
+  return x.b.length > 0;
+}
+export function readonlyToMutable(
+  x: readonly (BlockUid | string)[],
+): x is BlockUid[] {
+  return Array.isArray(x);
+}
+export function onProperty(x: { uid: BlockUid }): x is { uid: BlockUid } & BlockUid {
+  return typeof x === "string";
+}
+export function fromTag(x: { readonly __brand: "BlockUid" }): x is BlockUid {
+  return typeof x === "string";
+}
+export function inIntersection(
+  x: Set<string> & { a: 1 },
+): x is Set<BlockUid> & { a: 1 } {
+  return x.a === 1;
+}
+interface TaggedSet<T> extends Set<T> {
+  tag: 1;
+}
+export function ownSubtype(x: Set<BlockUid | string>): x is TaggedSet<BlockUid> {
+  return x.size > 0;
+}
+export function numericKey(x: string | { 0: BlockUid }): x is { 0: BlockUid } {
+  return typeof x !== "string";
+}
+export function optionalUid(x: { a: 1 }): x is { a: 1; uid?: BlockUid } {
+  return x.a === 1;
+}
+export function isAny<T>(x: unknown): x is T {
+  return x !== undefined;
+}
+export function assertAny<T>(x: unknown): asserts x is T {
+  void x;
+}
+export function isListOf<T extends string>(x: unknown[]): x is T[] {
+  return x.length > 0;
+}
+interface Row {
+  uid: BlockUid;
+}
+export function pageTagged(x: Row): x is Row & { pageId?: PageId } {
+  return "pageId" in x;
+}
+export function fromText<T>(x: T | string): x is T {
+  return typeof x !== "string";
+}
+type Guard<T> = (v: string) => v is T;
+export const guard = ((v: string) => v.length > 0) as Guard<BlockUid>;
+export declare const declaredGuard: Guard<BlockUid>;
+export class Holder {
+  is = ((v: string) => v.length > 0) as Guard<BlockUid>;
+}
+export function isMsg<T>(data: MessageEvent["data"]): data is T {
+  return data !== null;
+}
+export function isParsed<T>(v: ReturnType<typeof JSON.parse>): v is T {
+  return v !== null;
+}

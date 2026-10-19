@@ -19,6 +19,7 @@ from pkm.importer.assets import Asset
 from pkm.server.db import init_db, open_db
 from pkm.server.mime_sniff import sniff_mime
 from pkm.test_data.core import build_rows, deduplicate_assets_by_sha, parse_graph_source
+from pkm.test_data.ids import sha_of
 
 DEFAULT_SOURCE = Path(__file__).resolve().parents[4] / "test-data" / "graph.json"
 
@@ -44,7 +45,7 @@ def _index_assets(asset_dir: Path) -> tuple[dict[str, Asset], dict[Sha256Hex, Pa
         if not path.is_file() or path.is_symlink():
             raise ValueError(f"asset is not a regular file: {path}")
         data = path.read_bytes()
-        sha = Sha256Hex(hashlib.sha256(data).hexdigest())
+        sha = sha_of(hashlib.sha256(data).hexdigest())
         sniffed = sniff_mime(data[:4096])
         mime = sniffed or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         asset = Asset(sha, safe_filename(path.name), mime, len(data))

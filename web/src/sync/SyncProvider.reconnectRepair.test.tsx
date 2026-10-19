@@ -4,10 +4,12 @@
 // a click on Retry.
 import { act, render } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
-import type { BatchId, SyncSeq } from "../api/brands";
+import type { BatchId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { PendingRowId, Replica } from "../replica/client";
-import { FakeWebSocket, jsonResponse, uid } from "../test-helpers";
+import {
+  FakeWebSocket, jsonResponse, uidOf, seqOf, pendingRowIdOf, batchIdOf, sentBatchId,
+} from "../test-helpers";
 import { SyncProvider, useSyncActions, useSyncHealth } from "./SyncProvider";
 
 const SNAPSHOT = { generation: "g1", seq: 5, pages: [], blocks: [], sidebar: [] };
@@ -26,13 +28,13 @@ function rowReplica(): Replica {
   let nextId = 1;
   const pending = () => rows.filter((row) => !row.poisoned).length;
   return {
-    init: async () => ({ empty: false, cursor: 5 as SyncSeq, schemaMismatch: false,
+    init: async () => ({ empty: false, cursor: seqOf(5), schemaMismatch: false,
                          pendingBatches: [] }),
     applySnapshot: async () => ({ status: "applied" as const }),
     applyChanges: async (f) => ({ status: "applied", cursor: f.next_since }),
     enqueue: async (ops) => {
-      const id = nextId++ as PendingRowId;
-      const batch_id = (id === 1 ? "bad-batch" : "good-batch") as BatchId;
+      const id = pendingRowIdOf(nextId++);
+      const batch_id = batchIdOf(id === 1 ? "bad-batch" : "good-batch");
       rows.push({ id, batch_id, ops, poisoned: false });
       return { pending: pending(), batchId: batch_id };
     },
@@ -72,7 +74,7 @@ test("a poison repair cut off by the network is retried on reconnect", async () 
                                       init?: RequestInit) => {
     const url = String(input);
     if (url === "/api/ops") {
-      const batchId = (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
+      const batchId = sentBatchId(init);
       posts.push(batchId);
       if (batchId === "bad-batch") {
         // The rejection arrives as the link drops: the repair that follows
@@ -97,8 +99,8 @@ test("a poison repair cut off by the network is retried on reconnect", async () 
   render(<SyncProvider replica={rowReplica()}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); });
   await act(async () => {
-    await actions.enqueue([{ op: "delete", uid: uid("bad") }]).settled;
-    await actions.enqueue([{ op: "delete", uid: uid("good") }]).settled;
+    await actions.enqueue([{ op: "delete", uid: uidOf("tuid-bad") }]).settled;
+    await actions.enqueue([{ op: "delete", uid: uidOf("tuid-good") }]).settled;
   });
   await vi.waitFor(() => { expect(health.problem).toMatchObject({
     kind: "rejected-batch", repair: "failed",

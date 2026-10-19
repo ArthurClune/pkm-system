@@ -3,6 +3,7 @@ import fc from "fast-check";
 import { expect, test } from "vitest";
 import { BASE_URL, PASSWORD, SEED } from "./env";
 import { captureFaultWarnings } from "../warningsCapture";
+import { parseSnapshot } from "./wire";
 
 captureFaultWarnings("sync smoke");
 
@@ -26,9 +27,9 @@ test("harness server resets to the seed blocks of its three pages", async () => 
   });
   expect(reset.status).toBe(200);
   const cookie = await login();
-  const snap = (await (
+  const snap = parseSnapshot(await (
     await fetch(`${BASE_URL}/api/sync/snapshot`, { headers: { cookie } })
-  ).json()) as { blocks: { uid: string }[] };
+  ).json());
   expect(snap.blocks.map((b) => b.uid).sort()).toEqual(
     ["pt_sec_1", "pt_sec_2", "pt_sec_3",
      "pt_seed_1", "pt_seed_2", "pt_seed_3", "pt_seed_4", "pt_seed_5", "pt_seed_6"],

@@ -8,11 +8,12 @@
 // fetch throws. apiFetch's read deadline is not reproduced: the server is
 // local, and a hang would show as the property's own timeout.
 import { ApiError, type ApiFetchOptions } from "../../api/client";
-import type { BatchId, SyncSeq } from "../../api/brands";
+import type { BatchId } from "../../api/brands";
 import type { OpBatch, OpsAck } from "../../api/payloads";
-import type { Changes } from "../../replica/apply";
 import { BASE_URL } from "./env";
 import type { ServerControl } from "./serverControl";
+import { parseChanges, parseOpsAck, readBatchHead, record } from "./wire";
+import { seqOf } from "../../test-helpers";
 
 /** One-shot faults, each consumed by the next request of its kind. */
 export type Fault = "dropAck" | "duplicate" | "lostPull";
@@ -114,14 +115,14 @@ export function createTransport(server: ServerControl, broken?: Broken,
   const firedCounts: Record<Fault, number> = { dropAck: 0, duplicate: 0, lostPull: 0 };
   let generation = 0;
   let brokenUsed = false;
-  let lastSeq = 0 as SyncSeq;
+  let lastSeq = seqOf(0);
   let held: string | null = null;
   let stalls: { prefix: string; released: Promise<void> }[] = [];
   const committed = new Map<BatchId, string>();
   const sent = new Map<BatchId, number>();
 
-  const noteSeq = (seq: unknown): void => {
-    if (typeof seq === "number" && seq > lastSeq) lastSeq = seq as SyncSeq;
+  const noteSeq = (value: unknown): void => {
+    if (typeof value === "number" && value > lastSeq) lastSeq = seqOf(value);
   };
 
   /** One HTTP exchange, recorded before anyone can drop its reply. Every
@@ -134,7 +135,7 @@ export function createTransport(server: ServerControl, broken?: Broken,
     headers.set("cookie", server.cookie);
     const isOps = kindOf(path, init.method ?? "GET") === "ops";
     if (isOps) {
-      const batchId = (JSON.parse(String(init.body)) as OpBatch).batch_id;
+      const { batchId } = readBatchHead(String(init.body));
       sent.set(batchId, (sent.get(batchId) ?? 0) + 1);
     }
     let res: Response;
@@ -154,11 +155,11 @@ export function createTransport(server: ServerControl, broken?: Broken,
       body = text;
     }
     if (res.ok && isOps) {
-      const batchId = (JSON.parse(String(init.body)) as OpBatch).batch_id;
+      const { batchId } = readBatchHead(String(init.body));
       if (!committed.has(batchId)) committed.set(batchId, String(init.body));
     }
-    if (res.ok && body && typeof body === "object") {
-      const b = body as { seq?: unknown; latest_seq?: unknown };
+    if (res.ok && body && typeof body === "object" && !Array.isArray(body)) {
+      const b = record(body, "answer");
       noteSeq(b.seq);
       noteSeq(b.latest_seq);
     }
@@ -169,7 +170,7 @@ export function createTransport(server: ServerControl, broken?: Broken,
     status: 200,
     body: {
       ok: true, ts: 0,
-      applied: (JSON.parse(requestBody) as OpBatch).ops.length,
+      applied: readBatchHead(requestBody).opCount,
       seq: lastSeq, skipped: [],
     } satisfies OpsAck,
   });
@@ -191,10 +192,10 @@ export function createTransport(server: ServerControl, broken?: Broken,
       if (broken === "reidBatch" && !brokenUsed) {
         brokenUsed = true;
         const answer = await send(path, init);
-        const batch = JSON.parse(body) as OpBatch;
+        const batch = record(JSON.parse(body), "ops body");
         await send(path, {
           ...init,
-          body: JSON.stringify({ ...batch, batch_id: `${batch.batch_id}-re` }),
+          body: JSON.stringify({ ...batch, batch_id: `${readBatchHead(body).batchId}-re` }),
         });
         return answer;
       }
@@ -216,8 +217,8 @@ export function createTransport(server: ServerControl, broken?: Broken,
     if (broken === "skipWindow" && !brokenUsed &&
         path.startsWith("/api/sync/changes")) {
       const answer = await send(path, init);
-      const feed = answer.body as Changes | null;
-      if (answer.status === 200 && feed && feed.blocks.length > 0) {
+      const feed = answer.status === 200 ? parseChanges(answer.body) : null;
+      if (feed !== null && feed.blocks.length > 0) {
         brokenUsed = true;
         return { ...answer, body: { ...feed, blocks: [] } };
       }
@@ -259,11 +260,11 @@ export function createTransport(server: ServerControl, broken?: Broken,
 
   const doors = (life: number | null): TransportLife => ({
     fetchJson: (path, init) => request(life, path, init),
-    post: async (body) => (await request(life, "/api/ops", {
+    post: async (body) => parseOpsAck(await request(life, "/api/ops", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    })) as OpsAck,
+    })),
   });
 
   return {

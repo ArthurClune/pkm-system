@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { parseBlockUid } from "./ids";
+import { INITIAL_SEQ, mintTicketId, parseBlockUid, parseSyncSeq } from "./ids";
 import type { BlockUid } from "./api/brands";
 
 it("parses a well-formed uid", () => {
@@ -22,3 +22,15 @@ it("rejects a too-short uid, a trailing newline and bracket syntax", () => {
 // @ts-expect-error a plain string is not a BlockUid
 const u: BlockUid = "abcdef";
 void u;
+
+it("parses a sync seq only from a finite number", () => {
+  expect(parseSyncSeq(7)).toBe(7);
+  expect(parseSyncSeq(Number.NaN)).toBeNull();
+  expect(parseSyncSeq("7")).toBeNull();
+  expect(parseSyncSeq(undefined)).toBeNull();
+  expect(INITIAL_SEQ).toBe(0);
+});
+
+it("mints a numbered ticket id", () => {
+  expect(mintTicketId(3)).toBe("write-3");
+});

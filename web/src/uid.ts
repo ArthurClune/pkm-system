@@ -3,11 +3,11 @@
 // not a pure function) and hands them to uidCore's pure byte-to-alphabet
 // mapping. See uidCore.ts for the alphabet/length rationale.
 import { UID_BYTE_LENGTH, bytesToUid, isAlphanumericByte } from "./uidCore";
-import type { BlockUid } from "./api/brands";
+import type { BatchId, BlockUid, ClientId } from "./api/brands";
 
-// The raw, unbranded minter. `ClientId` and `BatchId` (sync/opQueue.ts)
-// are uid-shaped but not block uids, so they mint from this rather than
-// casting a BlockUid to a different brand.
+// The raw, unbranded minter. `ClientId` and `BatchId` are uid-shaped but
+// not block uids, so they mint from this rather than casting a BlockUid to
+// a different brand.
 export function newRawUid(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(UID_BYTE_LENGTH));
   // Resample only the first byte until it lands on an alphanumeric
@@ -21,4 +21,14 @@ export function newRawUid(): string {
 
 export function newUid(): BlockUid {
   return newRawUid() as BlockUid;
+}
+
+/** The per-tab sync identity, minted once per tab. */
+export function newClientId(): ClientId {
+  return newRawUid() as ClientId;
+}
+
+/** One id per client batch: the replay-dedup key shared with the server. */
+export function newBatchId(): BatchId {
+  return newRawUid() as BatchId;
 }

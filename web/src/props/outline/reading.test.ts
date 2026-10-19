@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { BlockUid, OrderIdx } from "../../api/brands";
 import type { BlockNode } from "../../api/payloads";
 import { readingRows, type Row, rowsDiff, structural, treeProblems } from "./reading";
+import { uidOf, orderIdxOf } from "../../test-helpers";
 
-const node = (uid: string, order: number, over: Partial<BlockNode> = {},
+const uid = (tag: string) => uidOf(`tuid-${tag}`);
+
+const node = (tag: string, order: number, over: Partial<BlockNode> = {},
               children: BlockNode[] = []): BlockNode => ({
-  uid: uid as BlockUid, text: uid, heading: null, view_type: null, collapsed: false,
-  order_idx: order as OrderIdx, created_at: null, updated_at: null, children,
+  uid: uid(tag), text: tag, heading: null, view_type: null, collapsed: false,
+  order_idx: orderIdxOf(order), created_at: null, updated_at: null, children,
   ...over,
 });
 
@@ -21,8 +23,8 @@ describe("readingRows", () => {
     ];
     const rows = readingRows(tree);
     expect(rows.map((r) => [r.uid, r.depth, r.hidden])).toEqual([
-      ["a", 0, false], ["b", 1, false], ["c", 2, true], ["d", 2, true],
-      ["e", 1, false], ["f", 0, false],
+      [uid("a"), 0, false], [uid("b"), 1, false], [uid("c"), 2, true], [uid("d"), 2, true],
+      [uid("e"), 1, false], [uid("f"), 0, false],
     ]);
     expect(rows[1].collapsed).toBe(true);
   });
@@ -35,7 +37,7 @@ describe("readingRows", () => {
       node("p", 1, { collapsed: true }, [node("q", 0)]),
     ];
     expect(readingRows(tree).map((r) => [r.uid, r.hidden])).toEqual([
-      ["t", false], ["r", false], ["c", false], ["p", false], ["q", true],
+      [uid("t"), false], [uid("r"), false], [uid("c"), false], [uid("p"), false], [uid("q"), true],
     ]);
   });
 });
@@ -55,7 +57,7 @@ describe("structural", () => {
 describe("treeProblems", () => {
   it("names a duplicate uid", () => {
     const problems = treeProblems([node("a", 0, {}, [node("a", 0)])]);
-    expect(problems.join("\n")).toContain("duplicate uid a");
+    expect(problems.join("\n")).toContain("duplicate uid tuid-a");
   });
 
   it("names equal sibling order keys", () => {

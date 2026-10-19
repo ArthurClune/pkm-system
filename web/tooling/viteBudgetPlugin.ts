@@ -53,6 +53,7 @@ interface ModuleGraph {
 /** One Workbox precache manifest entry (generateSW mode). */
 interface ManifestEntry {
   url: string;
+  // brand: untrusted -- Workbox's content hash, not a replica Revision
   revision: string | null;
   size: number;
 }

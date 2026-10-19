@@ -6,14 +6,13 @@
 // re-inlines it; the equivalence test fails if the two paths ever derive
 // different rows from the same text, whatever code they run.
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { BatchId, BlockUid, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import { reindexBlockRefs } from "./blockRefs";
 import { applyLocalOps } from "./localOps";
 import { openTestDb, type TestDb } from "./testDb";
-import { ord, pageId, title, uid } from "../test-helpers";
+import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, uidOf } from "../test-helpers";
 
 vi.mock("./blockRefs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./blockRefs")>();
@@ -34,22 +33,22 @@ const REF_TEXTS = [
 ];
 
 const block = (rawUid: string, over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid: rawUid as BlockUid, page_id: pageId(1), parent_uid: null, order_idx: ord(0),
+  uid: uidOf(rawUid), page_id: pageIdOf(1), parent_uid: null, order_idx: orderIdxOf(0),
   text: `text of ${rawUid}`,
   heading: null, view_type: null, collapsed: 0, created_at: 1, updated_at: 1,
   refs: [], ...over,
 });
 
 const SNAP: Snapshot = {
-  generation: "gen-1", plain_space_title_canonicalization: false, seq: (10 as SyncSeq),
-  pages: [{ id: pageId(1), title: title("AI"), created_at: 1, updated_at: 1 }],
-  blocks: [block("uid_b1"), block("uid_b2", { order_idx: ord(1) })],
+  generation: "gen-1", plain_space_title_canonicalization: false, seq: seqOf(10),
+  pages: [{ id: pageIdOf(1), title: canonicalTitleOf("AI"), created_at: 1, updated_at: 1 }],
+  blocks: [block("uid_b1"), block("uid_b2", { order_idx: orderIdxOf(1) })],
   sidebar: [],
 };
 
 const feed = (blocks: SyncBlock[]): Changes => ({
   reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-  next_since: (11 as SyncSeq), latest_seq: (11 as SyncSeq),
+  next_since: seqOf(11), latest_seq: seqOf(11),
   pages: [], blocks, sidebar: [], tombstones: [],
 });
 
@@ -61,32 +60,34 @@ beforeEach(async () => {
   spy.mockClear();
 });
 
-const targets = (uid: string): string[] =>
-  t.db.select<{ target_block_uid: string }>(
+const targets = (srcUid: string): string[] =>
+  (t.db.select<"target_block_uid">(
     "SELECT target_block_uid FROM block_refs WHERE src_block_uid = ?" +
-    " ORDER BY target_block_uid", [uid]).map((r) => r.target_block_uid);
+    " ORDER BY target_block_uid", [srcUid])).map((r) => r.target_block_uid);
 
-const updateText = (uid: string, text: string): void =>
-  applyLocalOps(t.db, [{ op: "update_text", uid, text } as BlockOp], 7000, { batchId: "t" as BatchId });
+const updateText = (rawUid: string, text: string): void => {
+  const op: BlockOp = { op: "update_text", uid: uidOf(rawUid), text };
+  applyLocalOps(t.db, [op], 7000, { batchId: batchIdOf("t") });
+};
 
 describe("reindexBlockRefs", () => {
   test("replaces the block's rows and leaves other blocks alone", () => {
-    reindexBlockRefs(t.db, uid("uid_b2"), "((uid_b1))");
-    reindexBlockRefs(t.db, uid("uid_b1"), "((uid_b2))");
-    reindexBlockRefs(t.db, uid("uid_b1"), "no refs any more");
+    reindexBlockRefs(t.db, uidOf("uid_b2"), "((uid_b1))");
+    reindexBlockRefs(t.db, uidOf("uid_b1"), "((uid_b2))");
+    reindexBlockRefs(t.db, uidOf("uid_b1"), "no refs any more");
 
     expect(targets("uid_b1")).toEqual([]);
     expect(targets("uid_b2")).toEqual(["uid_b1"]);
   });
 
   test("keeps a dangling target and collapses duplicates", () => {
-    reindexBlockRefs(t.db, uid("uid_b1"), "((uid_absent)) ((uid_absent)) ((uid_b2))");
+    reindexBlockRefs(t.db, uidOf("uid_b1"), "((uid_absent)) ((uid_absent)) ((uid_b2))");
 
     expect(targets("uid_b1")).toEqual(["uid_absent", "uid_b2"]);
   });
 
   test("returns the parse so a caller can reuse it for refs", () => {
-    const parsed = reindexBlockRefs(t.db, uid("uid_b1"), "[[AI]] and ((uid_b2))");
+    const parsed = reindexBlockRefs(t.db, uidOf("uid_b1"), "[[AI]] and ((uid_b2))");
 
     expect(parsed.refs).toEqual([{ title: "AI", kind: "link" }]);
     expect(parsed.blockRefs).toEqual(["uid_b2"]);
@@ -121,10 +122,11 @@ describe("delegation", () => {
   });
 
   test("a created block is reindexed through the composition too", () => {
-    applyLocalOps(t.db, [{
-      op: "create", uid: "uid_new1", page_title: "AI", parent_uid: null,
-      order_idx: 5, text: "fresh ((uid_b1))",
-    } as BlockOp], 7000, { batchId: "t" as BatchId });
+    const op: BlockOp = {
+      op: "create", uid: uidOf("uid_new1"), page_title: "AI", parent_uid: null,
+      order_idx: orderIdxOf(5), text: "fresh ((uid_b1))",
+    };
+    applyLocalOps(t.db, [op], 7000, { batchId: batchIdOf("t") });
 
     expect(spy.mock.calls.map((c) => [c[1], c[2]]))
       .toEqual([["uid_new1", "fresh ((uid_b1))"]]);

@@ -1,7 +1,6 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError } from "../api/client";
-import type { ConfirmId } from "../api/brands";
 import type { AssistantEvent } from "./sse";
 
 const mocks = vi.hoisted(() => ({
@@ -15,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./client", () => mocks);
 
 import { useAssistant } from "./useAssistant";
+import { confirmIdOf } from "../test-helpers";
 
 let latest: ReturnType<typeof useAssistant>;
 function Harness() {
@@ -127,7 +127,7 @@ describe("useAssistant", () => {
     let release!: () => void;
     mocks.streamMessage.mockImplementation(
       async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent({ type: "confirm_request", confirm_id: "t1" as ConfirmId, ops_preview: "save_note(...)" });
+        onEvent({ type: "confirm_request", confirm_id: confirmIdOf("t1"), ops_preview: "save_note(...)" });
         await new Promise<void>((r) => (release = r));
         onEvent({ type: "text_delta", text: "Saved." });
         onEvent({ type: "turn_done", usage: null });
@@ -156,14 +156,14 @@ describe("useAssistant", () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     mocks.streamMessage.mockImplementation(
       async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent({ type: "confirm_request", confirm_id: "t1" as ConfirmId, ops_preview: "save_note(...)" });
+        onEvent({ type: "confirm_request", confirm_id: confirmIdOf("t1"), ops_preview: "save_note(...)" });
         await new Promise<void>(() => {}); // turn stays open awaiting the confirm decision
       },
     );
     mocks.confirmTool.mockRejectedValue(new Error("network down"));
     render(<Harness />);
     await act(async () => {
-      latest.send("please write");
+      void latest.send("please write");
       await Promise.resolve();
     });
     expect(latest.pendingConfirm).toEqual({ confirmId: "t1", opsPreview: "save_note(...)" });
@@ -193,9 +193,9 @@ describe("useAssistant", () => {
       sendDone = latest.send("tidy this page");
       await Promise.resolve();
     });
-    expect(latest.phase).toEqual({ label: "reasoning", since: expect.any(Number) });
+    expect(latest.phase).toEqual({ label: "reasoning", since: expect.any(Number) as number });
     await act(async () => release());
-    expect(latest.phase).toEqual({ label: "preparing save_note", since: expect.any(Number) });
+    expect(latest.phase).toEqual({ label: "preparing save_note", since: expect.any(Number) as number });
     await act(async () => {
       release();
       await sendDone;
@@ -227,11 +227,11 @@ describe("useAssistant", () => {
       sendDone = latest.send("find x");
       await Promise.resolve();
     });
-    expect(latest.phase).toEqual({ label: null, since: expect.any(Number) });
+    expect(latest.phase).toEqual({ label: null, since: expect.any(Number) as number });
     await act(async () => release());
-    expect(latest.phase).toEqual({ label: "preparing search", since: expect.any(Number) });
+    expect(latest.phase).toEqual({ label: "preparing search", since: expect.any(Number) as number });
     await act(async () => release());
-    expect(latest.phase).toEqual({ label: null, since: expect.any(Number) });
+    expect(latest.phase).toEqual({ label: null, since: expect.any(Number) as number });
     await act(async () => {
       release();
       await sendDone;
@@ -247,7 +247,7 @@ describe("useAssistant", () => {
     mocks.streamMessage.mockImplementation(
       async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
         onEvent({ type: "phase", label: "preparing save_note" });
-        onEvent({ type: "confirm_request", confirm_id: "t1" as ConfirmId, ops_preview: "save_note(...)" });
+        onEvent({ type: "confirm_request", confirm_id: confirmIdOf("t1"), ops_preview: "save_note(...)" });
         await new Promise<void>((r) => (release = r));
         onEvent({ type: "turn_done", usage: null });
       },
@@ -264,7 +264,7 @@ describe("useAssistant", () => {
       await latest.respondConfirm(true);
     });
     expect(latest.status).toBe("busy");
-    expect(latest.phase).toEqual({ label: null, since: expect.any(Number) });
+    expect(latest.phase).toEqual({ label: null, since: expect.any(Number) as number });
     await act(async () => {
       release();
       await sendDone;
@@ -491,7 +491,7 @@ describe("useAssistant", () => {
     // land in the fresh transcript
     act(() => {
       emit({ type: "text_delta", text: "y from the dead turn" });
-      emit({ type: "confirm_request", confirm_id: "t9" as ConfirmId, ops_preview: "x" });
+      emit({ type: "confirm_request", confirm_id: confirmIdOf("t9"), ops_preview: "x" });
       emit({ type: "error", message: "stale boom" });
     });
     expect(latest.items).toEqual([]);
@@ -685,7 +685,7 @@ describe("useAssistant", () => {
     mocks.streamMessage.mockImplementation(
       async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void,
              signal?: AbortSignal) => {
-        onEvent({ type: "confirm_request", confirm_id: "t1" as ConfirmId, ops_preview: "save_note(...)" });
+        onEvent({ type: "confirm_request", confirm_id: confirmIdOf("t1"), ops_preview: "save_note(...)" });
         await new Promise<void>((_resolve, reject) => {
           signal?.addEventListener("abort", () =>
             reject(new DOMException("aborted", "AbortError")));

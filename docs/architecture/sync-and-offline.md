@@ -283,8 +283,8 @@ carries the runtime values, not the brands.
 
 `OpBatch.client_id` and `OpBatch.batch_id` are branded too, as `ClientId` and
 `BatchId`, so the two bare uid strings sitting side by side in one request
-body can never swap. Both are minted by `newUid()` (web's per-tab `clientId`,
-`sync/opQueue.ts`) or `crypto.randomUUID()` (the worker's `newBatchId`,
+body can never swap. Both are minted by `uid.ts`'s `newClientId` (web's per-tab `clientId`,
+`sync/opQueue.ts`) and `newBatchId` (the default for `sync/opQueue.ts` and
 `replica/workerHandlers.ts`), and by `uuid4().hex` on the CLI/MCP side
 (`client/workflows.py _batch_id`). `BatchId` carries into `PendingBatch`,
 `AckedBatch` and `PoisonedBatch` too, since `batch_id` is also the replay-dedup
@@ -318,10 +318,10 @@ The shim holds these invariants:
 - Every response builder declares a generated return type (`PagePayload`,
   `JournalPayload`, `SearchPayload`, …), so an unfollowed server-side field
   rename fails `pnpm typecheck` instead of surfacing offline.
-  `ReplicaDb.select<T>` only asserts its type argument
-  (`selectObjects(...) as T[]`), so each query maps rows into a checked object
-  literal; a renamed *column* stays a runtime failure that
-  `shim_parity.json`'s recorded values catch.
+  `ReplicaDb.select` types its rows from the generated `Columns` vocabulary,
+  and under vitest checks each row against it
+  ([frontend.md](frontend.md#replica-database-access)); a renamed *column*
+  fails there, and `shim_parity.json`'s recorded values catch the rest.
 - Every recursive walk in the replica (`localApi/tree.ts`'s ancestor CTE,
   `localOps.ts::parentChain` and `subtreeUids`) is uncapped, cycle-safe and a
   copy of one server walk. The pairs and their shared guard are tabled in

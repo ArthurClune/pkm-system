@@ -3,14 +3,16 @@ batches (the repeated `pending` query param) they already hold: the ids
 found in applied_batches, each with its stored ack's seq and skipped list,
 read in the same read transaction that hydrates the payload."""
 import json
-import sqlite3
 
+from rawread import trace
 from pkm.server.db import open_db
 from pkm.server.routes_sync import sync_changes, sync_snapshot
-from pkm.contracts.ops import SyncSeq
+from pkm.test_data.ids import batch_id_of, seq_of
+from pkm.contracts.ops import BatchId
+from pkm.database import connect
 
 
-def _post(client, batch_id, ops):
+def _post(client, batch_id: BatchId, ops):
     r = client.post("/api/ops", json={"client_id": "c1", "batch_id": batch_id,
                                       "ops": ops})
     assert r.status_code == 200
@@ -23,7 +25,7 @@ def _latest(client):
 
 def test_changes_name_the_pending_batches_already_applied(client):
     start = _latest(client)
-    ack = _post(client, "applied_one",
+    ack = _post(client, batch_id_of("applied_one"),
                 [{"op": "update_text", "uid": "uid_b1", "text": "x"}])
     r = client.get(f"/api/sync/changes?since={start}"
                    "&pending=applied_one&pending=never_posted")
@@ -33,7 +35,7 @@ def test_changes_name_the_pending_batches_already_applied(client):
 
 
 def test_snapshot_names_the_pending_batches_already_applied(client):
-    ack = _post(client, "applied_snap",
+    ack = _post(client, batch_id_of("applied_snap"),
                 [{"op": "update_text", "uid": "uid_b1", "text": "y"}])
     r = client.get("/api/sync/snapshot?pending=never_posted&pending=applied_snap")
     assert r.status_code == 200
@@ -42,7 +44,7 @@ def test_snapshot_names_the_pending_batches_already_applied(client):
 
 
 def test_a_named_batch_carries_its_stored_skipped_ops(client):
-    ack = _post(client, "skips_one",
+    ack = _post(client, batch_id_of("skips_one"),
                 [{"op": "update_text", "uid": "ghost_uid", "text": "z"}])
     assert ack["skipped"] != []
     feed = client.get("/api/sync/changes?since=0&pending=skips_one").json()
@@ -52,7 +54,7 @@ def test_a_named_batch_carries_its_stored_skipped_ops(client):
 
 def test_an_ack_stored_before_seq_and_skipped_existed_reads_as_unknown(
         seeded_config, client):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("INSERT INTO applied_batches VALUES (?,?,?,?)",
                 ("old_ack_row", "h", json.dumps(
                     {"ok": True, "ts": 1, "applied": 1}), 1))
@@ -65,7 +67,7 @@ def test_an_ack_stored_before_seq_and_skipped_existed_reads_as_unknown(
 
 def test_no_pending_param_leaves_the_field_out(client):
     # the payload is the one a server without the field sent, byte for byte
-    _post(client, "never_asked", [{"op": "update_text", "uid": "uid_b1", "text": "w"}])
+    _post(client, batch_id_of("never_asked"), [{"op": "update_text", "uid": "uid_b1", "text": "w"}])
     assert "applied_batches" not in client.get("/api/sync/changes?since=0").json()
     assert "applied_batches" not in client.get("/api/sync/snapshot").json()
 
@@ -77,7 +79,7 @@ def test_named_batches_none_applied_leaves_the_field_out(client):
 
 
 def test_a_reset_answer_names_nothing(client):
-    _post(client, "before_reset",
+    _post(client, batch_id_of("before_reset"),
           [{"op": "update_text", "uid": "uid_b1", "text": "v"}])
     feed = client.get(
         "/api/sync/changes?since=999999&pending=before_reset").json()
@@ -87,18 +89,18 @@ def test_a_reset_answer_names_nothing(client):
 
 def _traced(con, fn):
     queries: list[str] = []
-    con.raw.set_trace_callback(queries.append)
+    trace(con, queries.append)
     try:
         return fn(), queries
     finally:
-        con.raw.set_trace_callback(None)
+        trace(con, None)
 
 
 def test_no_applied_batches_query_without_pending_ids(seeded_config):
     con = open_db(seeded_config.db_path)
     try:
         _, changes_sql = _traced(
-            con, lambda: sync_changes(since=SyncSeq(0), limit=1000, db=con))
+            con, lambda: sync_changes(since=seq_of(0), limit=1000, db=con))
         _, snapshot_sql = _traced(con, lambda: sync_snapshot(db=con))
     finally:
         con.close()
@@ -109,14 +111,14 @@ def test_one_applied_batches_query_for_a_few_pending_ids(seeded_config):
     con = open_db(seeded_config.db_path)
     try:
         _, sql = _traced(con, lambda: sync_changes(
-            since=SyncSeq(0), limit=1000, pending=["a1234567", "b1234567"], db=con))
+            since=seq_of(0), limit=1000, pending=["a1234567", "b1234567"], db=con))
     finally:
         con.close()
     assert sum("applied_batches" in q for q in sql) == 1
 
 
-def _commit_elsewhere(path, batch_id):
-    other = sqlite3.connect(path)
+def _commit_elsewhere(path, batch_id: BatchId):
+    other = connect(path)
     try:
         other.execute("INSERT INTO applied_batches VALUES (?,?,?,?)",
                       (batch_id, "h", json.dumps(
@@ -127,30 +129,30 @@ def _commit_elsewhere(path, batch_id):
         other.close()
 
 
-def _commit_during(con, path, batch_id, marker):
+def _commit_during(con, path, batch_id: BatchId, marker):
     """Commit `batch_id` from another connection when the route starts the
     statement containing `marker`, a read after its first: the read
     transaction already holds its snapshot by then, so a lookup inside it
     must not see the row."""
     done = False
 
-    def trace(sql: str) -> None:
+    def on_statement(sql: str) -> None:
         nonlocal done
         if not done and marker in sql:
             done = True
             _commit_elsewhere(path, batch_id)
 
-    con.raw.set_trace_callback(trace)
-    return lambda: con.raw.set_trace_callback(None)
+    trace(con, on_statement)
+    return lambda: trace(con, None)
 
 
 def test_changes_read_applied_batches_in_the_window_read_transaction(
         seeded_config):
     con = open_db(seeded_config.db_path)
-    stop = _commit_during(con, seeded_config.db_path, "late_batch",
+    stop = _commit_during(con, seeded_config.db_path, batch_id_of("late_batch"),
                           "SELECT seq, kind AS change_kind, entity_id")
     try:
-        feed = sync_changes(since=SyncSeq(0), limit=1000, pending=["late_batch"], db=con)
+        feed = sync_changes(since=seq_of(0), limit=1000, pending=["late_batch"], db=con)
     finally:
         stop()
         con.close()
@@ -158,7 +160,7 @@ def test_changes_read_applied_batches_in_the_window_read_transaction(
     assert feed.applied_batches == []
     con = open_db(seeded_config.db_path)
     try:
-        again = sync_changes(since=SyncSeq(0), limit=1000, pending=["late_batch"], db=con)
+        again = sync_changes(since=seq_of(0), limit=1000, pending=["late_batch"], db=con)
     finally:
         con.close()
     assert [a.batch_id for a in again.applied_batches] == ["late_batch"]
@@ -166,7 +168,7 @@ def test_changes_read_applied_batches_in_the_window_read_transaction(
 
 def test_snapshot_reads_applied_batches_in_its_read_transaction(seeded_config):
     con = open_db(seeded_config.db_path)
-    stop = _commit_during(con, seeded_config.db_path, "late_snap",
+    stop = _commit_during(con, seeded_config.db_path, batch_id_of("late_snap"),
                           "SELECT uid FROM blocks")
     try:
         snap = sync_snapshot(pending=["late_snap"], db=con)

@@ -116,7 +116,7 @@ export function diffTrees(a: BlockNode[], b: BlockNode[],
  * that no kept block lives on and no kept block's refs name. */
 export function pruneGraph(g: NormalGraph, known: ReadonlySet<string>,
                            keepPages: ReadonlySet<string>): NormalGraph {
-  const blocks = g.blocks.filter((b) => known.has(b.uid));
+  const blocks = g.blocks.filter((b) => known.has(b.key));
   const used = new Set<string>(keepPages);
   for (const b of blocks) {
     used.add(b.page);

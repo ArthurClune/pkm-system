@@ -1,14 +1,14 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { BatchId, CanonicalTitle, PageId } from "../api/brands";
+import type { BatchId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { opBumpsUpdatedAt } from "../outline/blockStamps";
 import { applyLocalOps, getOrCreateLocalPage, LocalOpError, subtreeUids } from "./localOps";
 import { setPlainSpaceTitleCanonicalization } from "./meta";
 import { openTestDb, type TestDb } from "./testDb";
-import { ord, uid } from "../test-helpers";
+import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, uidOf } from "../test-helpers";
 
-const bid = (s: string): BatchId => s as BatchId;
+const bid = (s: string): BatchId => batchIdOf(s);
 /** applyLocalOps for a fixed test batch; `opts` overrides the id. */
 const apply = (db: TestDb["db"], ops: BlockOp[], nowMs: number,
                opts: { batchId?: BatchId } = {}): void =>
@@ -27,24 +27,29 @@ beforeEach(async () => {
     " ('uid_r2c', 1, 'uid_r2', 0, 'child of second')");
 });
 
-const rows = <T>(sql: string): T[] => t.db.select<T>(sql);
-const blockRow = (uid: string) =>
-  rows<{ page_id: number; parent_uid: string | null; order_idx: number;
-         text: string; collapsed: number; heading: number | null;
-         view_type: "numbered" | "document" | null;
-         updated_at: number | null }>(
+const blockRow = (rawUid: string) =>
+  t.db.select<"page_id" | "parent_uid" | "order_idx" | "text" | "collapsed" | "heading" | "view_type" | "updated_at">(
     `SELECT page_id, parent_uid, order_idx, text, collapsed, heading, view_type,
             updated_at
-     FROM blocks WHERE uid = '${uid}'`)[0];
+     FROM blocks WHERE uid = '${rawUid}'`)[0];
 
 const replicaState = () => ({
-  pages: rows("SELECT * FROM pages ORDER BY id"),
-  blocks: rows("SELECT * FROM blocks ORDER BY uid"),
-  refs: rows("SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"),
-  blockRefs: rows(
+  pages: t.db.select<"page_id" | "title" | "created_at" | "updated_at">(
+    "SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id"),
+  blocks: t.db.select<"uid" | "page_id" | "parent_uid" | "order_idx" | "text" | "heading"
+    | "collapsed" | "created_at" | "updated_at" | "view_type">(
+    "SELECT * FROM blocks ORDER BY uid"),
+  refs: t.db.select<"src_block_uid" | "target_page_id" | "ref_kind">(
+    "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs"
+    + " ORDER BY src_block_uid, target_page_id, kind"),
+  blockRefs: t.db.select<"src_block_uid" | "target_block_uid">(
     "SELECT * FROM block_refs ORDER BY src_block_uid, target_block_uid"),
-  sidebar: rows("SELECT * FROM sidebar_entries ORDER BY id"),
-  metadata: rows("SELECT * FROM sync_client_meta ORDER BY key"),
+  sidebar: t.db.select<"sidebar_entry_id" | "title" | "sidebar_order_idx">(
+    "SELECT id AS sidebar_entry_id, title, order_idx AS sidebar_order_idx"
+    + " FROM sidebar_entries ORDER BY id"),
+  metadata: t.db.select<"client_meta_key" | "client_meta_value">(
+    "SELECT key AS client_meta_key, value AS client_meta_value FROM sync_client_meta"
+    + " ORDER BY key"),
 });
 
 const makeChain = (count: number, prefix: string) => {
@@ -75,13 +80,13 @@ describe("subtreeUids", () => {
   ] as const)("returns all %i nodes deepest-first", (count, prefix) => {
     const uids = makeChain(count, prefix);
 
-    expect(subtreeUids(t.db, uid(uids[0]))).toEqual([...uids].reverse());
+    expect(subtreeUids(t.db, uidOf(uids[0]))).toEqual([...uids].reverse());
   });
 
   test("returns each uid once across a corrupt cycle", () => {
     const [root, child] = makeCycle();
 
-    expect(subtreeUids(t.db, uid(root))).toEqual([child, root]);
+    expect(subtreeUids(t.db, uidOf(root))).toEqual([child, root]);
   });
 });
 
@@ -90,9 +95,9 @@ describe("getOrCreateLocalPage", () => {
     const padded = getOrCreateLocalPage(t.db, "  Offline Padded  ", 5);
     const control = getOrCreateLocalPage(t.db, "Control\nTitle", 5);
 
-    expect(rows("SELECT title FROM pages WHERE id = " + padded))
+    expect(t.db.select<"title">("SELECT title FROM pages WHERE id = " + padded))
       .toEqual([{ title: "  Offline Padded  " }]);
-    expect(rows("SELECT title FROM pages WHERE id = " + control))
+    expect(t.db.select<"title">("SELECT title FROM pages WHERE id = " + control))
       .toEqual([{ title: "Control Title" }]);
   });
 
@@ -101,8 +106,9 @@ describe("getOrCreateLocalPage", () => {
 
     const created = getOrCreateLocalPage(t.db, "  Active Page  ", 5);
     expect(getOrCreateLocalPage(t.db, "Active Page", 9)).toBe(created);
-    expect(rows("SELECT id, title FROM pages WHERE title LIKE '%Active%'"))
-      .toEqual([{ id: created, title: "Active Page" }]);
+    expect(t.db.select<"page_id" | "title">(
+      "SELECT id AS page_id, title FROM pages WHERE title LIKE '%Active%'"))
+      .toEqual([{ page_id: created, title: "Active Page" }]);
   });
 
   test("returns existing pages and mints distinct negative ids for new ones", () => {
@@ -125,30 +131,32 @@ describe("getOrCreateLocalPage", () => {
 });
 
 describe("applyLocalOps", () => {
-  test.each([
+  const forbiddenTitleOps: [string, BlockOp][] = [
     ["create_page target", { op: "create_page", page_title: "Bad #Page" }],
-    ["create target", { op: "create", uid: "uid_bad1",
-      page_title: "Bad [[Page", parent_uid: null, order_idx: 0, text: "plain" }],
-    ["move target", { op: "move", uid: "uid_r1", page_title: "Bad Page]]",
-      parent_uid: null, order_idx: 0 }],
-    ["create reference", { op: "create", uid: "uid_bad2", page_title: "AI",
-      parent_uid: null, order_idx: 0, text: "[[Bad #Ref]]" }],
-    ["update reference", { op: "update_text", uid: "uid_r1",
+    ["create target", { op: "create", uid: uidOf("uid_bad1"),
+      page_title: "Bad [[Page", parent_uid: null, order_idx: orderIdxOf(0), text: "plain" }],
+    ["move target", { op: "move", uid: uidOf("uid_r1"), page_title: "Bad Page]]",
+      parent_uid: null, order_idx: orderIdxOf(0) }],
+    ["create reference", { op: "create", uid: uidOf("uid_bad2"), page_title: "AI",
+      parent_uid: null, order_idx: orderIdxOf(0), text: "[[Bad #Ref]]" }],
+    ["update reference", { op: "update_text", uid: uidOf("uid_r1"),
       text: "[[Bad #Ref]]" }],
-  ] as const)("rejects a forbidden %s before mutation", (_name, op) => {
+  ];
+  test.each(forbiddenTitleOps)("rejects a forbidden %s before mutation", (_name, op) => {
     const before = replicaState();
 
-    expect(() => apply(t.db, [op as BlockOp], 99))
+    expect(() => apply(t.db, [op], 99))
       .toThrow(LocalOpError);
     expect(replicaState()).toEqual(before);
   });
 
-  test.each([
+  const atomicOps: [string, BlockOp, string, string][] = [
     ["explicit page title", { op: "create_page", page_title: "Atomic #Bad" },
       "page_title", "Atomic #Bad"],
-    ["extracted reference", { op: "update_text", uid: "uid_r2",
+    ["extracted reference", { op: "update_text", uid: uidOf("uid_r2"),
       text: "[[Atomic #Bad Ref]]" }, "reference", "Atomic #Bad Ref"],
-  ] as const)("preflights a full batch before a later forbidden %s",
+  ];
+  test.each(atomicOps)("preflights a full batch before a later forbidden %s",
     (_name, invalidOp, source, title) => {
       t.db.exec("INSERT INTO sidebar_entries(id, title, order_idx) VALUES (1, 'AI', 0)");
       const before = replicaState();
@@ -156,8 +164,8 @@ describe("applyLocalOps", () => {
       let thrown: unknown;
       try {
         apply(t.db, [
-          { op: "update_text", uid: uid("uid_r1"), text: "would partially apply" },
-          invalidOp as BlockOp,
+          { op: "update_text", uid: uidOf("uid_r1"), text: "would partially apply" },
+          invalidOp,
         ], 99);
       } catch (error) {
         thrown = error;
@@ -170,81 +178,81 @@ describe("applyLocalOps", () => {
 
   test("create shifts following siblings and reindexes refs", () => {
     apply(t.db, [{
-      op: "create", uid: uid("uid_new1"), page_title: "AI", parent_uid: null,
-      order_idx: ord(1), text: "links [[ML]] and [[Brand New]]", view_type: "numbered",
+      op: "create", uid: uidOf("uid_new1"), page_title: "AI", parent_uid: null,
+      order_idx: orderIdxOf(1), text: "links [[ML]] and [[Brand New]]", view_type: "numbered",
     }], 99);
     expect(blockRow("uid_new1").order_idx).toBe(1);
     expect(blockRow("uid_new1").view_type).toBe("numbered");
     expect(blockRow("uid_r2").order_idx).toBe(2); // shifted
     expect(blockRow("uid_r1").order_idx).toBe(0); // untouched
-    const refs = rows<{ target_page_id: number }>(
+    const refs = t.db.select<"target_page_id">(
       "SELECT target_page_id FROM refs WHERE src_block_uid = 'uid_new1'");
     expect(refs.length).toBe(2);
     // the implicit page got a negative id and the ref points at it
-    const brandNew = rows<{ id: number }>(
-      "SELECT id FROM pages WHERE title = 'Brand New'")[0];
-    expect(brandNew.id).toBeLessThan(0);
-    expect(refs.map((r) => r.target_page_id)).toContain(brandNew.id);
+    const brandNew = t.db.select<"page_id">(
+      "SELECT id AS page_id FROM pages WHERE title = 'Brand New'")[0];
+    expect(brandNew.page_id).toBeLessThan(0);
+    expect(refs.map((r) => r.target_page_id)).toContain(brandNew.page_id);
   });
 
   test("create skips blank refs while still indexing nonblank refs in the same block", () => {
     apply(t.db, [{
-      op: "create", uid: uid("uid_blank_ref"), page_title: "AI", parent_uid: null,
-      order_idx: ord(1), text: "skip [[   ]] but keep [[Valid Page]]",
+      op: "create", uid: uidOf("uid_blank_ref"), page_title: "AI", parent_uid: null,
+      order_idx: orderIdxOf(1), text: "skip [[   ]] but keep [[Valid Page]]",
     }], 99);
 
-    expect(rows("SELECT title FROM pages WHERE title = 'Untitled'")).toEqual([]);
-    expect(rows<{ title: string }>(
+    expect(t.db.select<"title">("SELECT title FROM pages WHERE title = 'Untitled'")).toEqual([]);
+    expect(t.db.select<"title">(
       "SELECT title FROM pages WHERE trim(title) = ''",
     )).toEqual([]);
-    expect(rows<{ kind: string; title: string }>(
-      "SELECT r.kind, p.title FROM refs r JOIN pages p ON p.id = r.target_page_id" +
+    expect(t.db.select<"ref_kind" | "title">(
+      "SELECT r.kind AS ref_kind, p.title FROM refs r JOIN pages p ON p.id = r.target_page_id" +
       " WHERE r.src_block_uid = 'uid_blank_ref' ORDER BY p.title, r.kind",
-    )).toEqual([{ kind: "link", title: "Valid Page" }]);
+    )).toEqual([{ ref_kind: "link", title: "Valid Page" }]);
   });
 
   test("update_text rewrites text and refs; FTS sees the new text", () => {
     apply(t.db, [
-      { op: "update_text", uid: uid("uid_r1"), text: "now mentions [[ML]]" },
+      { op: "update_text", uid: uidOf("uid_r1"), text: "now mentions [[ML]]" },
     ], 99);
     expect(blockRow("uid_r1").text).toBe("now mentions [[ML]]");
-    expect(rows("SELECT target_page_id FROM refs WHERE src_block_uid='uid_r1'"))
+    expect(t.db.select<"target_page_id">("SELECT target_page_id FROM refs WHERE src_block_uid='uid_r1'"))
       .toEqual([{ target_page_id: 2 }]);
-    expect(rows(
+    expect(t.db.select<"uid">(
       "SELECT b.uid FROM blocks b JOIN blocks_fts f ON f.rowid = b.rowid" +
       " WHERE blocks_fts MATCH 'mentions'")).toEqual([{ uid: "uid_r1" }]);
   });
 
   test("create and update_text maintain block_refs", () => {
     apply(t.db, [{
-      op: "create", uid: uid("uid_src1"), page_title: "P", parent_uid: null,
-      order_idx: ord(0), text: "see ((uid_tgt1)) and ((uid_tgt1))",
+      op: "create", uid: uidOf("uid_src1"), page_title: "P", parent_uid: null,
+      order_idx: orderIdxOf(0), text: "see ((uid_tgt1)) and ((uid_tgt1))",
     }], 99);
-    expect(rows("SELECT * FROM block_refs")).toEqual([
+    expect(t.db.select<"src_block_uid" | "target_block_uid">("SELECT * FROM block_refs")).toEqual([
       { src_block_uid: "uid_src1", target_block_uid: "uid_tgt1" }]);
 
     apply(t.db, [
-      { op: "update_text", uid: uid("uid_src1"), text: "now ((uid_tgt2))" },
+      { op: "update_text", uid: uidOf("uid_src1"), text: "now ((uid_tgt2))" },
     ], 99);
-    expect(rows("SELECT * FROM block_refs")).toEqual([
+    expect(t.db.select<"src_block_uid" | "target_block_uid">("SELECT * FROM block_refs")).toEqual([
       { src_block_uid: "uid_src1", target_block_uid: "uid_tgt2" }]);
   });
 
   test("delete cascades block_refs with the block", () => {
     apply(t.db, [{
-      op: "create", uid: uid("uid_src2"), page_title: "P", parent_uid: null,
-      order_idx: ord(0), text: "see ((uid_tgt1))",
+      op: "create", uid: uidOf("uid_src2"), page_title: "P", parent_uid: null,
+      order_idx: orderIdxOf(0), text: "see ((uid_tgt1))",
     }], 99);
 
-    apply(t.db, [{ op: "delete", uid: uid("uid_src2") }], 99);
+    apply(t.db, [{ op: "delete", uid: uidOf("uid_src2") }], 99);
 
-    expect(rows(
+    expect(t.db.select<"src_block_uid" | "target_block_uid">(
       "SELECT * FROM block_refs WHERE src_block_uid = 'uid_src2'")).toEqual([]);
   });
 
   test("cross-page move rewrites the whole subtree's page_id", () => {
     apply(t.db, [{
-      op: "move", uid: uid("uid_r2"), parent_uid: null, order_idx: ord(0),
+      op: "move", uid: uidOf("uid_r2"), parent_uid: null, order_idx: orderIdxOf(0),
       page_title: "ML",
     }], 99);
     expect(blockRow("uid_r2").page_id).toBe(2);
@@ -255,18 +263,18 @@ describe("applyLocalOps", () => {
     const uids = makeChain(150, "move_150");
 
     apply(t.db, [{
-      op: "move", uid: uid(uids[0]), parent_uid: null, order_idx: ord(0),
+      op: "move", uid: uidOf(uids[0]), parent_uid: null, order_idx: orderIdxOf(0),
       page_title: "ML",
     }], 99);
 
-    expect(rows<{ page_id: number }>(
+    expect(t.db.select<"page_id">(
       "SELECT page_id FROM blocks WHERE uid LIKE 'move_150_%' ORDER BY uid"
     ).map((row) => row.page_id)).toEqual(Array(150).fill(2));
   });
 
   test("move under a parent on the same page shifts siblings at the target", () => {
     apply(t.db, [{
-      op: "move", uid: uid("uid_r1"), parent_uid: uid("uid_r2"), order_idx: ord(0),
+      op: "move", uid: uidOf("uid_r1"), parent_uid: uidOf("uid_r2"), order_idx: orderIdxOf(0),
       page_title: null,
     }], 99);
     expect(blockRow("uid_r1").parent_uid).toBe("uid_r2");
@@ -275,17 +283,17 @@ describe("applyLocalOps", () => {
   });
 
   test("delete removes the subtree deepest-first (children gone too)", () => {
-    apply(t.db, [{ op: "delete", uid: uid("uid_r2") }], 99);
-    expect(rows("SELECT uid FROM blocks")).toEqual([{ uid: "uid_r1" }]);
-    expect(rows("SELECT COUNT(*) AS n FROM refs")).toEqual([{ n: 0 }]);
+    apply(t.db, [{ op: "delete", uid: uidOf("uid_r2") }], 99);
+    expect(t.db.select<"uid">("SELECT uid FROM blocks")).toEqual([{ uid: "uid_r1" }]);
+    expect(t.db.introspect("SELECT COUNT(*) AS n FROM refs")).toEqual([{ n: 0 }]);
   });
 
   test("delete removes every row from a 150-block subtree", () => {
     const uids = makeChain(150, "delete_150");
 
-    apply(t.db, [{ op: "delete", uid: uid(uids[0]) }], 99);
+    apply(t.db, [{ op: "delete", uid: uidOf(uids[0]) }], 99);
 
-    expect(rows<{ n: number }>(
+    expect(t.db.select<"n">(
       "SELECT COUNT(*) AS n FROM blocks WHERE uid LIKE 'delete_150_%'"
     )).toEqual([{ n: 0 }]);
   });
@@ -299,25 +307,25 @@ describe("applyLocalOps", () => {
     // touch the block's own updated_at, nor its page's — otherwise a
     // collapse toggle would reorder "recently touched" page lists.
     apply(t.db, [
-      { op: "set_collapsed", uid: uid("uid_r2"), collapsed: true },
+      { op: "set_collapsed", uid: uidOf("uid_r2"), collapsed: true },
     ], 99);
     expect(blockRow("uid_r2").collapsed).toBe(1);
     expect(blockRow("uid_r2").updated_at).toBe(10);
-    expect(rows("SELECT updated_at FROM pages WHERE id = 1"))
+    expect(t.db.introspect("SELECT updated_at FROM pages WHERE id = 1"))
       .toEqual([{ updated_at: 10 }]);
 
     apply(t.db, [
-      { op: "set_heading", uid: uid("uid_r1"), heading: 2 },
+      { op: "set_heading", uid: uidOf("uid_r1"), heading: 2 },
     ], 199);
     expect(blockRow("uid_r1").heading).toBe(2);
     expect(blockRow("uid_r1").updated_at).toBe(199);
-    expect(rows("SELECT updated_at FROM pages WHERE id = 1"))
+    expect(t.db.introspect("SELECT updated_at FROM pages WHERE id = 1"))
       .toEqual([{ updated_at: 199 }]);
   });
 
   test("set_view_type updates persistent metadata", () => {
     apply(t.db, [
-      { op: "set_view_type", uid: uid("uid_r1"), view_type: "numbered" },
+      { op: "set_view_type", uid: uidOf("uid_r1"), view_type: "numbered" },
     ], 99);
     expect(blockRow("uid_r1").view_type).toBe("numbered");
     expect(blockRow("uid_r1").text).toBe("first");
@@ -327,33 +335,33 @@ describe("applyLocalOps", () => {
   test("blank op titles use the server fallback instead of minting blank pages", () => {
     apply(t.db, [
       { op: "create_page", page_title: "   " },
-      { op: "create", uid: uid("uid_blank"), page_title: "\n\t",
-        parent_uid: null, order_idx: ord(0), text: "fallback" },
+      { op: "create", uid: uidOf("uid_blank"), page_title: "\n\t",
+        parent_uid: null, order_idx: orderIdxOf(0), text: "fallback" },
     ], 99);
 
-    expect(rows("SELECT title FROM pages WHERE trim(title) = ''")).toEqual([]);
-    const untitled = rows<{ id: number }>(
-      "SELECT id FROM pages WHERE title = 'Untitled'");
+    expect(t.db.select<"title">("SELECT title FROM pages WHERE trim(title) = ''")).toEqual([]);
+    const untitled = t.db.select<"page_id">(
+      "SELECT id AS page_id FROM pages WHERE title = 'Untitled'");
     expect(untitled).toHaveLength(1);
-    expect(blockRow("uid_blank").page_id).toBe(untitled[0].id);
+    expect(blockRow("uid_blank").page_id).toBe(untitled[0].page_id);
   });
 
   test("active create, create_page and cross-page move share canonical page ids", () => {
     setPlainSpaceTitleCanonicalization(t.db, true);
     apply(t.db, [
       { op: "create_page", page_title: "  Shared Target  " },
-      { op: "create", uid: uid("uid_active"), page_title: " Shared Target ",
-        parent_uid: null, order_idx: ord(0), text: "active" },
-      { op: "move", uid: uid("uid_r2"), parent_uid: null, order_idx: ord(1),
+      { op: "create", uid: uidOf("uid_active"), page_title: " Shared Target ",
+        parent_uid: null, order_idx: orderIdxOf(0), text: "active" },
+      { op: "move", uid: uidOf("uid_r2"), parent_uid: null, order_idx: orderIdxOf(1),
         page_title: "  Shared Target " },
     ], 99);
 
-    const target = rows<{ id: number }>(
-      "SELECT id FROM pages WHERE title = 'Shared Target'");
+    const target = t.db.select<"page_id">(
+      "SELECT id AS page_id FROM pages WHERE title = 'Shared Target'");
     expect(target).toHaveLength(1);
-    expect(blockRow("uid_active").page_id).toBe(target[0].id);
-    expect(blockRow("uid_r2").page_id).toBe(target[0].id);
-    expect(blockRow("uid_r2c").page_id).toBe(target[0].id);
+    expect(blockRow("uid_active").page_id).toBe(target[0].page_id);
+    expect(blockRow("uid_r2").page_id).toBe(target[0].page_id);
+    expect(blockRow("uid_r2c").page_id).toBe(target[0].page_id);
   });
 
   test("create_page is a local get-or-create (idempotent, negative id)", () => {
@@ -361,10 +369,10 @@ describe("applyLocalOps", () => {
       { op: "create_page", page_title: "Fresh Offline Page" },
       { op: "create_page", page_title: "Fresh Offline Page" },
     ], 99);
-    const pages = rows<{ id: number }>(
-      "SELECT id FROM pages WHERE title = 'Fresh Offline Page'");
+    const pages = t.db.select<"page_id">(
+      "SELECT id AS page_id FROM pages WHERE title = 'Fresh Offline Page'");
     expect(pages.length).toBe(1);
-    expect(pages[0].id).toBeLessThan(0);
+    expect(pages[0].page_id).toBeLessThan(0);
   });
 
   test("a batch applies atomically: a bad op rolls the whole batch back", () => {
@@ -372,9 +380,9 @@ describe("applyLocalOps", () => {
     // needs an op that still throws: a create whose uid already exists.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     expect(() => apply(t.db, [
-      { op: "update_text", uid: uid("uid_r1"), text: "changed" },
-      { op: "create", uid: uid("uid_r2"), page_title: "AI", parent_uid: null,
-        order_idx: ord(0), text: "collides" },
+      { op: "update_text", uid: uidOf("uid_r1"), text: "changed" },
+      { op: "create", uid: uidOf("uid_r2"), page_title: "AI", parent_uid: null,
+        order_idx: orderIdxOf(0), text: "collides" },
     ], 99)).toThrow();
     expect(warn).toHaveBeenCalledWith(
       "sqlite3_step() rc=", 1555, "SQLITE_CONSTRAINT_PRIMARYKEY", "SQL =",
@@ -383,35 +391,37 @@ describe("applyLocalOps", () => {
   });
 
   describe("missing-target ops are skipped, not thrown, like the server", () => {
-    test.each([
-      ["update_text", { op: "update_text", uid: "uid_missing", text: "x" }],
-      ["move", { op: "move", uid: "uid_missing", parent_uid: null, order_idx: 0 }],
-      ["delete", { op: "delete", uid: "uid_missing" }],
-      ["set_collapsed", { op: "set_collapsed", uid: "uid_missing", collapsed: true }],
-      ["set_heading", { op: "set_heading", uid: "uid_missing", heading: 1 }],
-      ["set_view_type", { op: "set_view_type", uid: "uid_missing", view_type: "numbered" }],
-    ] as const)("%s on a missing block is skipped; the batch's other ops still apply",
+    const missing = uidOf("uid_missing");
+    const missingOps: [string, BlockOp][] = [
+      ["update_text", { op: "update_text", uid: missing, text: "x" }],
+      ["move", { op: "move", uid: missing, parent_uid: null, order_idx: orderIdxOf(0) }],
+      ["delete", { op: "delete", uid: missing }],
+      ["set_collapsed", { op: "set_collapsed", uid: missing, collapsed: true }],
+      ["set_heading", { op: "set_heading", uid: missing, heading: 1 }],
+      ["set_view_type", { op: "set_view_type", uid: missing, view_type: "numbered" }],
+    ];
+    test.each(missingOps)("%s on a missing block is skipped; the batch's other ops still apply",
       (_label, missingOp) => {
         apply(t.db, [
-          missingOp as BlockOp,
-          { op: "update_text", uid: uid("uid_r1"), text: "still applied" },
+          missingOp,
+          { op: "update_text", uid: uidOf("uid_r1"), text: "still applied" },
         ], 99);
 
         expect(blockRow("uid_r1").text).toBe("still applied");
         // nothing about the missing op's uid was ever inserted
-        expect(rows("SELECT uid FROM blocks WHERE uid = 'uid_missing'")).toEqual([]);
+        expect(t.db.select<"uid">("SELECT uid FROM blocks WHERE uid = 'uid_missing'")).toEqual([]);
       });
 
     test("create under a missing parent leaves no row, and a follow-on" +
          " update_text to it in the same batch is skipped too", () => {
       apply(t.db, [
-        { op: "create", uid: uid("uid_orphan"), page_title: "AI",
-          parent_uid: uid("uid_ghost_parent"), order_idx: ord(0), text: "lost child" },
-        { op: "update_text", uid: uid("uid_orphan"), text: "still lost" },
-        { op: "update_text", uid: uid("uid_r1"), text: "sibling applied" },
+        { op: "create", uid: uidOf("uid_orphan"), page_title: "AI",
+          parent_uid: uidOf("uid_ghost_parent"), order_idx: orderIdxOf(0), text: "lost child" },
+        { op: "update_text", uid: uidOf("uid_orphan"), text: "still lost" },
+        { op: "update_text", uid: uidOf("uid_r1"), text: "sibling applied" },
       ], 99);
 
-      expect(rows("SELECT uid FROM blocks WHERE uid = 'uid_orphan'")).toEqual([]);
+      expect(t.db.select<"uid">("SELECT uid FROM blocks WHERE uid = 'uid_orphan'")).toEqual([]);
       expect(blockRow("uid_r1").text).toBe("sibling applied");
     });
 
@@ -419,8 +429,8 @@ describe("applyLocalOps", () => {
       const before = blockRow("uid_r1");
 
       apply(t.db, [
-        { op: "move", uid: uid("uid_r1"), parent_uid: uid("uid_ghost_parent"), order_idx: ord(0) },
-        { op: "update_text", uid: uid("uid_r2"), text: "sibling applied" },
+        { op: "move", uid: uidOf("uid_r1"), parent_uid: uidOf("uid_ghost_parent"), order_idx: orderIdxOf(0) },
+        { op: "update_text", uid: uidOf("uid_r2"), text: "sibling applied" },
       ], 99);
 
       expect(blockRow("uid_r1")).toEqual(before);
@@ -439,8 +449,8 @@ describe("applyLocalOps", () => {
 
     test("a create under a parent on another page follows the parent", () => {
       apply(t.db, [
-        { op: "create", uid: uid("uid_new1"), page_title: "AI",
-          parent_uid: uid("uid_m1"), order_idx: ord(0), text: "typed child" },
+        { op: "create", uid: uidOf("uid_new1"), page_title: "AI",
+          parent_uid: uidOf("uid_m1"), order_idx: orderIdxOf(0), text: "typed child" },
       ], 99);
 
       expect(blockRow("uid_new1")).toMatchObject(
@@ -449,25 +459,25 @@ describe("applyLocalOps", () => {
 
     test("a create under a live parent resolves no page for its stale title", () => {
       apply(t.db, [
-        { op: "create", uid: uid("uid_new1"), page_title: "Never Seen Here",
-          parent_uid: uid("uid_m1"), order_idx: ord(0), text: "typed child" },
+        { op: "create", uid: uidOf("uid_new1"), page_title: "Never Seen Here",
+          parent_uid: uidOf("uid_m1"), order_idx: orderIdxOf(0), text: "typed child" },
       ], 99);
 
       expect(blockRow("uid_new1").page_id).toBe(2);
-      expect(rows("SELECT id FROM pages WHERE title = 'Never Seen Here'"))
+      expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'Never Seen Here'"))
         .toEqual([]);
     });
 
     test("a move whose page_title no longer names the parent's page follows the parent", () => {
       apply(t.db, [
-        { op: "move", uid: uid("uid_r2"), parent_uid: uid("uid_m1"), order_idx: ord(0),
+        { op: "move", uid: uidOf("uid_r2"), parent_uid: uidOf("uid_m1"), order_idx: orderIdxOf(0),
           page_title: "Never Seen Here" },
       ], 99);
 
       expect(blockRow("uid_r2")).toMatchObject(
         { page_id: 2, parent_uid: "uid_m1" });
       expect(blockRow("uid_r2c").page_id).toBe(2);
-      expect(rows("SELECT id FROM pages WHERE title = 'Never Seen Here'"))
+      expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'Never Seen Here'"))
         .toEqual([]);
     });
 
@@ -478,22 +488,20 @@ describe("applyLocalOps", () => {
       const before = replicaState().blocks;
 
       apply(t.db, [
-        { op: "move", uid: uid("uid_r2"), parent_uid: uid(parent), order_idx: ord(0) },
-        { op: "update_text", uid: uid("uid_m1"), text: "sibling applied" },
+        { op: "move", uid: uidOf("uid_r2"), parent_uid: uidOf(parent), order_idx: orderIdxOf(0) },
+        { op: "update_text", uid: uidOf("uid_m1"), text: "sibling applied" },
       ], 99);
 
       expect(blockRow("uid_m1").text).toBe("sibling applied");
-      const after = rows<{ uid: string }>("SELECT * FROM blocks ORDER BY uid")
-        .filter((r) => r.uid !== "uid_m1");
-      expect(after).toEqual(
-        (before as { uid: string }[]).filter((r) => r.uid !== "uid_m1"));
+      const after = replicaState().blocks.filter((r) => r.uid !== "uid_m1");
+      expect(after).toEqual(before.filter((r) => r.uid !== "uid_m1"));
     });
 
     test("a move under a deeper descendant is skipped too", () => {
       const [root, , , leaf] = makeChain(4, "deep");
 
       apply(t.db, [
-        { op: "move", uid: uid(root), parent_uid: uid(leaf), order_idx: ord(0) },
+        { op: "move", uid: uidOf(root), parent_uid: uidOf(leaf), order_idx: orderIdxOf(0) },
       ], 99);
 
       expect(blockRow(root).parent_uid).toBeNull();
@@ -502,21 +510,21 @@ describe("applyLocalOps", () => {
 
   test("touches the page's updated_at", () => {
     apply(t.db, [
-      { op: "update_text", uid: uid("uid_r1"), text: "changed" },
+      { op: "update_text", uid: uidOf("uid_r1"), text: "changed" },
     ], 12345);
-    expect(rows("SELECT updated_at FROM pages WHERE id = 1"))
+    expect(t.db.introspect("SELECT updated_at FROM pages WHERE id = 1"))
       .toEqual([{ updated_at: 12345 }]);
   });
 });
 
 describe("opBumpsUpdatedAt agrees with what the replica actually writes", () => {
   const ops: Array<[string, BlockOp]> = [
-    ["update_text", { op: "update_text", uid: uid("uid_r1"), text: "changed" }],
-    ["move", { op: "move", uid: uid("uid_r1"), parent_uid: null, order_idx: ord(5) }],
-    ["set_heading", { op: "set_heading", uid: uid("uid_r1"), heading: 2 }],
+    ["update_text", { op: "update_text", uid: uidOf("uid_r1"), text: "changed" }],
+    ["move", { op: "move", uid: uidOf("uid_r1"), parent_uid: null, order_idx: orderIdxOf(5) }],
+    ["set_heading", { op: "set_heading", uid: uidOf("uid_r1"), heading: 2 }],
     ["set_view_type",
-     { op: "set_view_type", uid: uid("uid_r1"), view_type: "numbered" }],
-    ["set_collapsed", { op: "set_collapsed", uid: uid("uid_r1"), collapsed: true }],
+     { op: "set_view_type", uid: uidOf("uid_r1"), view_type: "numbered" }],
+    ["set_collapsed", { op: "set_collapsed", uid: uidOf("uid_r1"), collapsed: true }],
   ];
 
   test.each(ops)("%s", (_label, op) => {
@@ -528,21 +536,24 @@ describe("opBumpsUpdatedAt agrees with what the replica actually writes", () => 
 });
 
 describe("applyLocalOps: replay log", () => {
-  type Rec = { batch_id: string; kind: string; key: string;
-               order_idx: number | null; text: string | null;
-               updated_at: number | null; pre_page_id: number | null };
-  /** absent pre-images read as null order_idx, text and updated_at */
-  const log = () => rows<Rec>(
-    "SELECT batch_id, kind, key, pre_json ->> 'order_idx' AS order_idx," +
-    " pre_json ->> 'text' AS text, pre_json ->> 'updated_at' AS updated_at," +
-    " pre_page_id FROM replay_log ORDER BY batch_id, kind, key");
+  /** absent pre-images read as null order_idx, text and updated_at; the
+   * pre-image's values stay as the JSON stored them */
+  const log = () => t.db.select<"batch_id" | "replay_kind" | "replay_key" | "pre_json" | "pre_page_id">(
+    "SELECT batch_id, kind AS replay_kind, key AS replay_key, pre_json, pre_page_id" +
+    " FROM replay_log ORDER BY batch_id, kind, key").map((r) => {
+    const pre = r.pre_json === null ? {} : JSON.parse(r.pre_json) as Record<string, unknown>;
+    return { batch_id: r.batch_id, kind: r.replay_kind, key: r.replay_key,
+             order_idx: pre.order_idx ?? null, text: pre.text ?? null,
+             updated_at: pre.updated_at ?? null, pre_page_id: r.pre_page_id };
+  });
+  type Rec = ReturnType<typeof log>[number];
   const keys = () => log().map((r) => `${r.batch_id}:${r.kind}:${r.key}`);
   const create = (u: string, order = 0, page_title = "AI"): BlockOp =>
-    ({ op: "create", uid: uid(u), page_title, parent_uid: null,
-       order_idx: ord(order), text: u });
+    ({ op: "create", uid: uidOf(u), page_title, parent_uid: null,
+       order_idx: orderIdxOf(order), text: u });
   const b = (s: string) => ({ batchId: bid(s) });
   const rec = (key: string, over: Partial<Rec> = {}): Rec => ({
-    batch_id: "b1", kind: "block", key, order_idx: null, text: null,
+    batch_id: bid("b1"), kind: "block", key, order_idx: null, text: null,
     updated_at: null, pre_page_id: null, ...over,
   });
   const pageRec = (id: number, updated_at: number | null = null): Rec =>
@@ -551,11 +562,11 @@ describe("applyLocalOps: replay log", () => {
   test("a delete records the whole subtree, root included, before it goes", () => {
     t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
               " VALUES ('uid_r2cc', 1, 'uid_r2c', 0, 'grandchild')");
-    apply(t.db, [{ op: "delete", uid: uid("uid_r2") }], 99, b("b1"));
+    apply(t.db, [{ op: "delete", uid: uidOf("uid_r2") }], 99, b("b1"));
     expect(log()).toEqual([
-      rec("uid_r2", { order_idx: 1, text: "second", pre_page_id: 1 }),
-      rec("uid_r2c", { order_idx: 0, text: "child of second", pre_page_id: 1 }),
-      rec("uid_r2cc", { order_idx: 0, text: "grandchild", pre_page_id: 1 }),
+      rec("uid_r2", { order_idx: 1, text: "second", pre_page_id: pageIdOf(1) }),
+      rec("uid_r2c", { order_idx: 0, text: "child of second", pre_page_id: pageIdOf(1) }),
+      rec("uid_r2cc", { order_idx: 0, text: "grandchild", pre_page_id: pageIdOf(1) }),
       pageRec(1),
     ]);
   });
@@ -564,15 +575,15 @@ describe("applyLocalOps: replay log", () => {
     apply(t.db, [create("uid_new", 0)], 99, b("b1"));
     expect(log()).toEqual([
       rec("uid_new"),
-      rec("uid_r1", { order_idx: 0, text: "first", pre_page_id: 1 }),
-      rec("uid_r2", { order_idx: 1, text: "second", pre_page_id: 1 }),
+      rec("uid_r1", { order_idx: 0, text: "first", pre_page_id: pageIdOf(1) }),
+      rec("uid_r2", { order_idx: 1, text: "second", pre_page_id: pageIdOf(1) }),
       pageRec(1),
     ]);
   });
 
   test("a move within one group records the shifted siblings and the moved block once, before the shift", () => {
-    apply(t.db, [{ op: "move", uid: uid("uid_r2"), parent_uid: null,
-                   order_idx: ord(0), page_title: "AI" }], 99, b("b1"));
+    apply(t.db, [{ op: "move", uid: uidOf("uid_r2"), parent_uid: null,
+                   order_idx: orderIdxOf(0), page_title: "AI" }], 99, b("b1"));
     expect(keys()).toEqual(["b1:block:uid_r1", "b1:block:uid_r2", "b1:page:1"]);
     expect(log().find((r) => r.key === "uid_r2")!.order_idx).toBe(1);
   });
@@ -581,42 +592,42 @@ describe("applyLocalOps: replay log", () => {
     t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, updated_at)" +
               " VALUES ('uid_p2a', 2, NULL, 0, 'p2', 1)");
     t.db.exec("UPDATE blocks SET updated_at = 555 WHERE uid = 'uid_r2c'");
-    apply(t.db, [{ op: "move", uid: uid("uid_r2"), parent_uid: null,
-                   order_idx: ord(0), page_title: "ML" }], 99, b("b1"));
+    apply(t.db, [{ op: "move", uid: uidOf("uid_r2"), parent_uid: null,
+                   order_idx: orderIdxOf(0), page_title: "ML" }], 99, b("b1"));
     expect(log()).toEqual([
-      rec("uid_p2a", { order_idx: 0, text: "p2", updated_at: 1, pre_page_id: 2 }),
-      rec("uid_r2", { order_idx: 1, text: "second", pre_page_id: 1 }),
+      rec("uid_p2a", { order_idx: 0, text: "p2", updated_at: 1, pre_page_id: pageIdOf(2) }),
+      rec("uid_r2", { order_idx: 1, text: "second", pre_page_id: pageIdOf(1) }),
       rec("uid_r2c", { order_idx: 0, text: "child of second", updated_at: 555,
-                       pre_page_id: 1 }),
+                       pre_page_id: pageIdOf(1) }),
       pageRec(1), pageRec(2),
     ]);
   });
 
   test("a later write in the batch keeps the first pre-image; another batch records its own", () => {
     apply(t.db, [
-      { op: "move", uid: uid("uid_r2"), parent_uid: null, order_idx: ord(0),
+      { op: "move", uid: uidOf("uid_r2"), parent_uid: null, order_idx: orderIdxOf(0),
         page_title: "ML" },
-      { op: "move", uid: uid("uid_r2c"), parent_uid: null, order_idx: ord(0),
+      { op: "move", uid: uidOf("uid_r2c"), parent_uid: null, order_idx: orderIdxOf(0),
         page_title: "ML" },
-      { op: "update_text", uid: uid("uid_r2c"), text: "edited" },
+      { op: "update_text", uid: uidOf("uid_r2c"), text: "edited" },
     ], 99, b("b1"));
-    apply(t.db, [{ op: "update_text", uid: uid("uid_r2c"), text: "again" }], 100,
+    apply(t.db, [{ op: "update_text", uid: uidOf("uid_r2c"), text: "again" }], 100,
           b("b2"));
     expect(log().filter((r) => r.key === "uid_r2c")).toEqual([
-      rec("uid_r2c", { order_idx: 0, text: "child of second", pre_page_id: 1 }),
-      rec("uid_r2c", { batch_id: "b2", order_idx: 0, text: "edited",
-                       updated_at: 99, pre_page_id: 2 }),
+      rec("uid_r2c", { order_idx: 0, text: "child of second", pre_page_id: pageIdOf(1) }),
+      rec("uid_r2c", { batch_id: bid("b2"), order_idx: 0, text: "edited",
+                       updated_at: 99, pre_page_id: pageIdOf(2) }),
     ]);
   });
 
   test("text and field edits record their block, and every one but set_collapsed its page", () => {
-    apply(t.db, [{ op: "set_collapsed", uid: uid("uid_r1"), collapsed: true }], 99,
+    apply(t.db, [{ op: "set_collapsed", uid: uidOf("uid_r1"), collapsed: true }], 99,
           b("b1"));
     expect(keys()).toEqual(["b1:block:uid_r1"]);
     apply(t.db, [
-      { op: "update_text", uid: uid("uid_r2"), text: "x" },
-      { op: "set_heading", uid: uid("uid_r2c"), heading: 2 },
-      { op: "set_view_type", uid: uid("uid_r1"), view_type: "numbered" },
+      { op: "update_text", uid: uidOf("uid_r2"), text: "x" },
+      { op: "set_heading", uid: uidOf("uid_r2c"), heading: 2 },
+      { op: "set_view_type", uid: uidOf("uid_r1"), view_type: "numbered" },
     ], 99, b("b2"));
     expect(keys().filter((k) => k.startsWith("b2"))).toEqual(
       ["b2:block:uid_r1", "b2:block:uid_r2", "b2:block:uid_r2c", "b2:page:1"]);
@@ -624,30 +635,31 @@ describe("applyLocalOps: replay log", () => {
 
   test("a link to a new title records the minted page as absent, and the block's refs", () => {
     t.db.exec("INSERT INTO refs VALUES ('uid_r1', 2, 'link')");
-    apply(t.db, [{ op: "update_text", uid: uid("uid_r1"), text: "see [[Fresh]]" }],
+    apply(t.db, [{ op: "update_text", uid: uidOf("uid_r1"), text: "see [[Fresh]]" }],
           99, b("b1"));
-    const [minted] = rows<{ id: number }>("SELECT id FROM pages WHERE title = 'Fresh'");
+    const [minted] = t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'Fresh'");
     expect(log()).toEqual([
-      rec("uid_r1", { order_idx: 0, text: "first", pre_page_id: 1 }),
-      pageRec(minted.id), pageRec(1),
+      rec("uid_r1", { order_idx: 0, text: "first", pre_page_id: pageIdOf(1) }),
+      pageRec(minted.page_id), pageRec(1),
     ].sort((x, y) => (x.kind + x.key).localeCompare(y.kind + y.key)));
-    expect(rows("SELECT target_page_id, kind FROM replay_log_refs"))
-      .toEqual([{ target_page_id: 2, kind: "link" }]);
+    expect(t.db.select<"target_page_id" | "ref_kind">(
+      "SELECT target_page_id, kind AS ref_kind FROM replay_log_refs"))
+      .toEqual([{ target_page_id: 2, ref_kind: "link" }]);
   });
 
   test("create_page records its page whether it mints it or not", () => {
     apply(t.db, [{ op: "create_page", page_title: "AI" },
                  { op: "create_page", page_title: "Fresh" }], 99, b("b1"));
-    const [minted] = rows<{ id: number }>("SELECT id FROM pages WHERE title = 'Fresh'");
-    expect(rows("SELECT key, pre_json FROM replay_log ORDER BY key")).toEqual([
-      { key: String(minted.id), pre_json: null },
+    const [minted] = t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'Fresh'");
+    expect(t.db.introspect("SELECT key, pre_json FROM replay_log ORDER BY key")).toEqual([
+      { key: String(minted.page_id), pre_json: null },
       { key: "1", pre_json: JSON.stringify({ updated_at: null }) },
     ]);
   });
 
   test("a recorded mint reuses the id freed for its title while that id is free", () => {
-    const freed = new Map([["Fresh" as CanonicalTitle, -7 as PageId],
-                           ["Taken" as CanonicalTitle, -1 as PageId]]);
+    const freed = new Map([[canonicalTitleOf("Fresh"), pageIdOf(-7)],
+                           [canonicalTitleOf("Taken"), pageIdOf(-1)]]);
     t.db.exec("INSERT INTO pages(id, title) VALUES (-1, 'Other')");
     const record = { batchId: bid("b1"), freed };
     expect(getOrCreateLocalPage(t.db, "Fresh", 5, record)).toBe(-7);

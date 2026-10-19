@@ -3,14 +3,13 @@
 // queue and replica sync around an in-memory replica, so the call order and
 // the sync events can be read back exactly.
 import { describe, expect, test } from "vitest";
-import type { BatchId } from "../api/brands";
-import type { PendingRowId } from "../replica/client";
 import { ReplicaUnusableError } from "../replica/errors";
 import { createClientRuntime, type ClientRuntimeDeps } from "./clientRuntime";
 import { memReplica } from "./memReplica";
 import type { PoisonEvent, PoisonMarkFailure } from "./opQueue";
 import type { ReplicaState } from "./replicaSync";
 import type { SyncEvent } from "./syncState";
+import { pendingRowIdOf, batchIdOf } from "../test-helpers";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -20,7 +19,7 @@ function deferred<T>() {
 }
 
 const poisonEvent = (id: number, batch: string): PoisonEvent => ({
-  id: id as PendingRowId, batch_id: batch as BatchId, ops: [],
+  id: pendingRowIdOf(id), batch_id: batchIdOf(batch), ops: [],
   status: 400, message: "rejected",
 });
 

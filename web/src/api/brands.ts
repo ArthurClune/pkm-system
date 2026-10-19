@@ -17,8 +17,8 @@
 
 // A sha256 hex digest, distinct from a plain string so a text can never
 // be passed where a hash belongs. Minted only by `sha256Hex` in
-// replica/sha256.ts (and its server twin `text_hash`); a test literal
-// standing in for a hash casts `as Sha256Hex`.
+// replica/sha256.ts (and its server twin `text_hash`); a test mints one
+// with `shaOf` (test-helpers.ts).
 export type Sha256Hex = string & { readonly __brand: "Sha256Hex" };
 
 // The changes-journal sequence number (server `changes.seq`), distinct
@@ -30,15 +30,15 @@ export type Sha256Hex = string & { readonly __brand: "Sha256Hex" };
 export type SyncSeq = number & { readonly __brand: "SyncSeq" };
 
 // The per-tab sync identity (sync/opQueue.ts `clientId`, minted once per
-// tab with newUid()) and the replay-dedup key an OpBatch shares with the
-// pending_ops row it came from (minted at sync/opQueue.ts,
-// replica/workerHandlers.ts's newBatchId, and the server's
-// client/workflows.py `_batch_id`). Both are bare uid-shaped strings placed
-// next to each other in one request body (OpBatch.client_id/batch_id) --
-// distinct brands so the two, or a batch id and a row id, can never swap at
-// a call site. Crosses HTTP through OpBatch; the WS notify frame
-// (sync/socket.ts WsBatch.client_id) sits outside OpenAPI and is narrowed to
-// this type by hand at the one place that parses it.
+// tab through `newClientId`) and the replay-dedup key an OpBatch shares
+// with the pending_ops row it came from (minted through `newBatchId`, both
+// in uid.ts, and the server's client/workflows.py `_batch_id`). Both are
+// bare uid-shaped strings placed next to each other in one request body
+// (OpBatch.client_id/batch_id) -- distinct brands so the two, or a batch id
+// and a row id, can never swap at a call site. Crosses HTTP through
+// OpBatch; the WS notify frame (sync/socket.ts WsBatch.client_id) sits
+// outside OpenAPI and is narrowed to this type by hand at the one place that
+// parses it.
 export type ClientId = string & { readonly __brand: "ClientId" };
 export type BatchId = string & { readonly __brand: "BatchId" };
 
@@ -62,8 +62,8 @@ export type ConversationId = string & { readonly __brand: "ConversationId" };
 export type ConfirmId = string & { readonly __brand: "ConfirmId" };
 
 // A block's uid, matching server/src/pkm/refs.py's BLOCK_REF_TOKEN shape.
-// Minted by `newUid` (uid.ts) and `parseBlockUid` (ids.ts); a test literal
-// standing in for a uid casts `as BlockUid` inside a fixture helper.
+// Minted by `newUid` (uid.ts) and `parseBlockUid` (ids.ts); a test mints
+// one with `uidOf` (test-helpers.ts).
 export type BlockUid = string & { readonly __brand: "BlockUid" };
 
 // A page's row id. Offline pages mint a negative id (replica/localOps.ts)
@@ -95,8 +95,8 @@ export type CanonicalTitle = NormalizedTitle & { readonly __canonical: true };
 // dense array position -- a delete leaves a gap rather than renumbering, so
 // two siblings' keys are never assumed adjacent. `sidebar_entries.order_idx`
 // is `SidebarOrderIdx`, not this brand. Every
-// arithmetic site goes through outline/orderIdx.ts; a test literal standing
-// in for one casts `as OrderIdx` inside a fixture helper.
+// arithmetic site goes through outline/orderIdx.ts; a test mints one with
+// `orderIdxOf` (test-helpers.ts).
 export type OrderIdx = number & { readonly __brand: "OrderIdx" };
 
 // A sidebar entry's order key (`sidebar_entries.order_idx`): the server

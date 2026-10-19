@@ -1,9 +1,9 @@
 {
-  "commit": "2009eee9",
+  "commit": "466c6a5",
   "env": {
     "chromium": "149.0.7827.55"
   },
-  "fixture_hash": "df9e86e8f395ca70",
+  "fixture_hash": "6b317ff472e005ce",
   "scenarios": {
     "A/idle-big": {
       "fetches": {
@@ -73,7 +73,7 @@
       },
       "replica_ready_ms": {
         "class": "timing",
-        "value": 3507
+        "value": 3508
       },
       "requests": {
         "class": "exact",
@@ -122,7 +122,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 54.4
+        "value": 61.1
       },
       "not_prevented": {
         "class": "exact",
@@ -142,7 +142,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 16.7
+        "value": 20.2
       },
       "not_prevented": {
         "class": "exact",
@@ -259,7 +259,7 @@
       },
       "first_outline_ms": {
         "class": "timing",
-        "value": 212
+        "value": 218
       },
       "requests": {
         "class": "exact",

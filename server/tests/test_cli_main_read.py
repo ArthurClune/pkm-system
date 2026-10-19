@@ -1,14 +1,14 @@
 import json
-import sqlite3
 
 import pytest
 
 from pkm.cli.main import main
 from pkm.contracts.daily import title_for_date
+from pkm.database import connect
 
 
 def _seed_migration_graph(db_path) -> None:
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     con.executemany(
         "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
         [
@@ -465,7 +465,7 @@ def test_migrate_titles_audits_by_default_and_renders_human_output(
 
 def test_migrate_titles_json_audit_uses_the_validated_payload(run, seeded_config):
     _seed_migration_graph(seeded_config.db_path)
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("INSERT INTO pages(id, title) VALUES (18, 'Bad #Title')")
     con.commit()
     con.close()
@@ -487,7 +487,7 @@ def test_migrate_titles_json_audit_uses_the_validated_payload(run, seeded_config
 
 def test_migrate_titles_audit_renders_blocker_reason(run, seeded_config):
     _seed_migration_graph(seeded_config.db_path)
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("INSERT INTO pages(id, title) VALUES (18, 'Bad #Title')")
     con.commit()
     con.close()

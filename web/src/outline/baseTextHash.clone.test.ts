@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
-import { block, ord, uid } from "../test-helpers";
+import { block, orderIdxOf, uidOf } from "../test-helpers";
 import { stampBaseTextHashes } from "./baseTextHash";
 import * as treeModule from "./tree";
 
@@ -22,7 +22,7 @@ beforeEach(() => {
 function flatTree(count: number): BlockNode[] {
   return Array.from(
     { length: count },
-    (_, i) => block(`n${i}`, `text${i}`, { order_idx: ord(i) }),
+    (_, i) => block(`tuid-n${i}`, `text${i}`, { order_idx: orderIdxOf(i) }),
   );
 }
 
@@ -38,7 +38,7 @@ describe("stampBaseTextHashes clones the tree at most once per batch", () => {
 
   test("a batch with a single op needing a stamp clones zero times", () => {
     const tree = flatTree(2);
-    const ops: BlockOp[] = [{ op: "delete", uid: uid("n0") }];
+    const ops: BlockOp[] = [{ op: "delete", uid: uidOf("tuid-n0") }];
 
     stampBaseTextHashes(tree, "AI", ops);
 
@@ -48,8 +48,8 @@ describe("stampBaseTextHashes clones the tree at most once per batch", () => {
   test("a batch needing no stamps clones zero times", () => {
     const tree = flatTree(2);
     const ops: BlockOp[] = [
-      { op: "move", uid: uid("n0"), parent_uid: null, order_idx: ord(1) },
-      { op: "set_collapsed", uid: uid("n1"), collapsed: true },
+      { op: "move", uid: uidOf("tuid-n0"), parent_uid: null, order_idx: orderIdxOf(1) },
+      { op: "set_collapsed", uid: uidOf("tuid-n1"), collapsed: true },
     ];
 
     stampBaseTextHashes(tree, "AI", ops);
@@ -63,9 +63,9 @@ describe("stampBaseTextHashes leaves the caller's tree untouched", () => {
     const tree = flatTree(5);
     const before = structuredClone(tree);
     const ops: BlockOp[] = [
-      { op: "delete", uid: uid("n0") },
-      { op: "delete", uid: uid("n1") },
-      { op: "delete", uid: uid("n2") },
+      { op: "delete", uid: uidOf("tuid-n0") },
+      { op: "delete", uid: uidOf("tuid-n1") },
+      { op: "delete", uid: uidOf("tuid-n2") },
     ];
 
     stampBaseTextHashes(tree, "AI", ops);

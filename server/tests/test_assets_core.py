@@ -7,9 +7,10 @@ from rawread import read
 from pkm.assets_core import (
     asset_needs_repair, export_limit_violation, mime_category, sha256_hex,
     strip_asset_tokens, type_where, zip_arcnames)
-from pkm.contracts.ops import Sha256Hex
+from pkm.test_data.ids import sha_of
+from pkm.database import connect
 
-SHA = Sha256Hex("ab" * 32)
+SHA = sha_of("ab" * 32)
 URL = f"/assets/{SHA}/pic.png"
 
 
@@ -128,8 +129,7 @@ def test_mime_category(mime, cat):
 ])
 @pytest.mark.parametrize("category", ["image", "pdf", "document", "other"])
 def test_type_where_matches_mime_category(mime, category):
-    import sqlite3
-    db = sqlite3.connect(":memory:")
+    db = connect(":memory:")
     db.execute("CREATE TABLE assets (mime TEXT)")
     db.execute("INSERT INTO assets VALUES (?)", (mime,))
     frag, params = type_where(category)

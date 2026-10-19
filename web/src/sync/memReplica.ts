@@ -1,7 +1,8 @@
 // Test fake (coverage-excluded like src/test-helpers.ts): an in-memory Replica
 // mirroring queue.ts semantics. Not shipped — imported only by tests.
-import type { BatchId, SyncSeq } from "../api/brands";
-import type { PendingBatch, PendingRowId, Replica } from "../replica/client";
+import type { BatchId } from "../api/brands";
+import type { PendingBatch, Replica } from "../replica/client";
+import { seqOf, pendingRowIdOf } from "../test-helpers";
 
 /** In-memory replica queue mirroring queue.ts semantics. `enqueued` records
  * batch ids in enqueue order: the ids are caller-minted now, so assertions
@@ -16,14 +17,14 @@ export function memReplica(over: Partial<Replica> = {}): Replica & {
   const replica: Replica & { rows: PendingBatch[]; enqueued: BatchId[] } = {
     rows,
     enqueued,
-    init: async () => ({ empty: false, cursor: 0 as SyncSeq,
+    init: async () => ({ empty: false, cursor: seqOf(0),
                          schemaMismatch: false, pendingBatches: [] }),
     applySnapshot: async () => ({ status: "applied" }),
-    applyChanges: async () => ({ status: "applied", cursor: 0 as SyncSeq }),
+    applyChanges: async () => ({ status: "applied", cursor: seqOf(0) }),
     enqueue: async (ops, batchId) => {
       if (ops.length > 0) {
         enqueued.push(batchId);
-        rows.push({ id: nextId as PendingRowId, batch_id: batchId, ops, poisoned: false });
+        rows.push({ id: pendingRowIdOf(nextId), batch_id: batchId, ops, poisoned: false });
         nextId += 1;
       }
       return { pending: pending(), batchId };

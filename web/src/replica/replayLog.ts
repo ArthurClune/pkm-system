@@ -15,6 +15,7 @@
 // Every function runs inside the caller's transaction and opens none.
 
 import type { BatchId, BlockUid, OrderIdx, PageId } from "../api/brands";
+import type { Columns } from "./columns.gen";
 import type { ReplicaDb } from "./db";
 
 export type BlockPreImage = {
@@ -42,14 +43,14 @@ const BLOCK_PRE_JSON =
 
 /** The refs rows of the records the caller just inserted: a record that
  * already existed keeps the refs of its first touch. */
-const recordRefs = (db: ReplicaDb, inserted: { id: number }[]): void => {
+const recordRefs = (db: ReplicaDb, inserted: Pick<Columns, "log_id">[]): void => {
   if (inserted.length === 0) return;
   db.exec(
     `INSERT INTO replay_log_refs(log_id, target_page_id, kind)
        SELECT l.id, r.target_page_id, r.kind
          FROM replay_log l JOIN refs r ON r.src_block_uid = l.key
         WHERE l.id IN (SELECT value FROM json_each(?))`,
-    [JSON.stringify(inserted.map((r) => r.id))]);
+    [JSON.stringify(inserted.map((r) => r.log_id))]);
 };
 
 /** Call before any write to these blocks: the row as it stands, or a NULL
@@ -57,13 +58,13 @@ const recordRefs = (db: ReplicaDb, inserted: { id: number }[]): void => {
 export function recordBlocks(db: ReplicaDb, batchId: BatchId,
                              uids: readonly BlockUid[]): void {
   if (uids.length === 0) return;
-  recordRefs(db, db.select<{ id: number }>(
+  recordRefs(db, db.select<"log_id">(
     `INSERT OR IGNORE INTO replay_log(batch_id, kind, key, pre_json, pre_page_id)
        SELECT ?, 'block', j.value,
               CASE WHEN b.uid IS NULL THEN NULL ELSE ${BLOCK_PRE_JSON} END,
               b.page_id
          FROM json_each(?) j LEFT JOIN blocks b ON b.uid = j.value
-      RETURNING id`,
+      RETURNING id AS log_id`,
     [batchId, JSON.stringify(uids)]));
 }
 
@@ -72,12 +73,12 @@ export function recordSiblingsFrom(
   db: ReplicaDb, batchId: BatchId,
   group: { pageId: PageId; parentUid: BlockUid | null; fromOrderIdx: OrderIdx },
 ): void {
-  recordRefs(db, db.select<{ id: number }>(
+  recordRefs(db, db.select<"log_id">(
     `INSERT OR IGNORE INTO replay_log(batch_id, kind, key, pre_json, pre_page_id)
        SELECT ?, 'block', b.uid, ${BLOCK_PRE_JSON}, b.page_id
          FROM blocks b
         WHERE b.page_id = ? AND b.parent_uid IS ? AND b.order_idx >= ?
-      RETURNING id`,
+      RETURNING id AS log_id`,
     [batchId, group.pageId, group.parentUid, group.fromOrderIdx]));
 }
 
@@ -101,7 +102,7 @@ export function recordEnqueue(db: ReplicaDb, batchId: BatchId,
 }
 
 export function enqueuedAt(db: ReplicaDb, batchId: BatchId): number | null {
-  const rows = db.select<{ enqueued_ms: number }>(
+  const rows = db.select<"enqueued_ms">(
     "SELECT enqueued_ms FROM replay_batches WHERE batch_id = ?", [batchId]);
   return rows.length > 0 ? rows[0].enqueued_ms : null;
 }
@@ -114,7 +115,7 @@ export function dropWindowRecords(
   { uids, pageIds }: { uids: readonly BlockUid[]; pageIds: readonly PageId[] },
 ): void {
   if (uids.length === 0 && pageIds.length === 0) return;
-  if (db.select("SELECT 1 FROM replay_log LIMIT 1").length === 0) return;
+  if (db.select("SELECT 1 AS n FROM replay_log LIMIT 1").length === 0) return;
   db.exec(
     `DELETE FROM replay_log
       WHERE NOT ${PENDING_BATCH}

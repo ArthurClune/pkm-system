@@ -1,10 +1,13 @@
 // pattern: Functional Core
 // The rebase scenario's fixed workload, derived from the fixture snapshot:
 // which blocks of the big page the pending queue and the peer's windows
-// touch, and the ops they send. Deterministic from the snapshot alone, so a
-// branch and its merge base measure the same queue over the same windows.
+// touch, and the ops they send. The ops are deterministic from the snapshot
+// alone, so a branch and its merge base measure the same queue over the same
+// windows; the caller mints the batch ids, since a random draw is I/O.
 import type { BatchId, BlockUid, OrderIdx } from "../../src/api/brands";
 import type { BlockOp, CreateOp } from "../../src/api/ops";
+import { parseBlockUid } from "../../src/ids";
+import { FIRST_ORDER_IDX, orderIdxAfter, orderIdxPlus } from "../../src/outline/orderIdx";
 import type { Snapshot, SyncBlock } from "../../src/replica/apply";
 
 export interface Targets {
@@ -37,7 +40,12 @@ const PASTE_CREATES = 50;
 const byUid = (a: SyncBlock, b: SyncBlock): number =>
   a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0;
 
-const seq = (prefix: string, i: number): string => `${prefix}${String(i).padStart(2, "0")}`;
+const seq = (prefix: string, i: number): BlockUid => {
+  const raw = `${prefix}${String(i).padStart(2, "0")}`;
+  const uid = parseBlockUid(raw);
+  if (uid === null) throw new Error(`rebase scenario: ${raw} is not a block uid`);
+  return uid;
+};
 
 interface PageTree {
   title: string;
@@ -71,7 +79,8 @@ function subtree(tree: PageTree, uid: BlockUid): Set<BlockUid> {
   const out = new Set<BlockUid>();
   const stack = [uid];
   while (stack.length > 0) {
-    const next = stack.pop() as BlockUid;
+    const next = stack.pop();
+    if (next === undefined) break;
     out.add(next);
     for (const c of tree.children.get(next) ?? []) stack.push(c.uid);
   }
@@ -87,9 +96,10 @@ function holds(tree: PageTree, ancestor: BlockUid, uid: BlockUid): boolean {
 }
 
 /** The order index after `parent`'s current last child. */
-function appendIdx(tree: PageTree, parent: BlockUid): number {
+function appendIdx(tree: PageTree, parent: BlockUid): OrderIdx {
   const kids = tree.children.get(parent) ?? [];
-  return kids.reduce((max, c) => Math.max(max, c.order_idx), -1) + 1;
+  return kids.length === 0 ? FIRST_ORDER_IDX
+    : orderIdxAfter(kids.reduce((max, c) => (c.order_idx > max ? c.order_idx : max), kids[0].order_idx));
 }
 
 export function pickTargets(snapshot: Snapshot, pageTitle: string): Targets {
@@ -115,7 +125,7 @@ export function pickTargets(snapshot: Snapshot, pageTitle: string): Targets {
   const take = (role: string, ok: (uid: BlockUid) => boolean = () => true): BlockUid => {
     const at = pool.findIndex(ok);
     if (at < 0) throw new Error(`rebase scenario: ${pageTitle} runs out of blocks for ${role}`);
-    return pool.splice(at, 1)[0] as BlockUid;
+    return pool.splice(at, 1)[0];
   };
   const editUids = Array.from({ length: 8 }, () => take("editUids"));
   const moveUids = Array.from({ length: 3 }, () => take("moveUids"));
@@ -142,45 +152,59 @@ const textOf = (tree: PageTree, uid: BlockUid): string => {
 const edit = (tree: PageTree, uid: BlockUid, suffix: string): BlockOp =>
   ({ op: "update_text", uid, text: `${textOf(tree, uid)}${suffix}` });
 
-const creates = (tree: PageTree, parent: BlockUid, n: number, uid: (i: number) => string,
-                 text: (i: number) => string, firstIdx: number): CreateOp[] =>
+const creates = (tree: PageTree, parent: BlockUid, n: number, makeUid: (i: number) => BlockUid,
+                 text: (i: number) => string, firstIdx: OrderIdx): CreateOp[] =>
   Array.from({ length: n }, (_, k) => ({
-    op: "create", uid: uid(k + 1) as BlockUid, page_title: tree.title,
-    parent_uid: parent, order_idx: (firstIdx + k) as OrderIdx, text: text(k + 1),
+    op: "create", uid: makeUid(k + 1), page_title: tree.title,
+    parent_uid: parent, order_idx: orderIdxPlus(firstIdx, k), text: text(k + 1),
   }));
 
-const batch = (id: string, ops: BlockOp[]): Batch => ({ batchId: `perf-rebase-${id}` as BatchId, ops });
+export const PENDING_BATCHES = 6;
+export const WINDOW_BATCHES = 3;
 
-/** The local queue, in enqueue order. No base hashes: enqueue fills them. */
-export function pendingBatches(t: Targets, snapshot: Snapshot): Batch[] {
+const batch = (batchId: BatchId, ops: BlockOp[]): Batch => ({ batchId, ops });
+
+const takeIds = (ids: readonly BatchId[], n: number, what: string): BatchId[] => {
+  if (ids.length !== n) throw new Error(`rebase scenario: ${what} needs ${n} batch ids, got ${ids.length}`);
+  return [...ids];
+};
+
+/** The local queue, in enqueue order, one id from `ids` per batch. No base
+ * hashes: enqueue fills them. */
+export function pendingBatches(t: Targets, snapshot: Snapshot, ids: readonly BatchId[]): Batch[] {
+  const [p1, p2, p3, p4, p5, p6] = takeIds(ids, PENDING_BATCHES, "the pending queue");
   const tree = treeOf(snapshot, t.deleteRoot);
-  const createIdx = (tree.children.get(t.createParent) ?? []).length + 1;
+  // The first created index is the child count plus one, as the workload has
+  // always had it; it is not a dense-position pattern to copy.
+  const createIdx = orderIdxPlus(FIRST_ORDER_IDX, (tree.children.get(t.createParent) ?? []).length + 1);
   const moveIdx = appendIdx(tree, t.moveParent);
   return [
-    batch("p1", creates(tree, t.createParent, PENDING_CREATES, (i) => seq("perfrebc", i),
-                        (i) => `perf rebase create ${i}`, createIdx)),
-    batch("p2", t.editUids.slice(0, 4).map((uid) => edit(tree, uid, " (pending edit)"))),
-    batch("p3", t.moveUids.map((uid, k) => ({
-      op: "move", uid, parent_uid: t.moveParent, order_idx: (moveIdx + k) as OrderIdx,
+    batch(p1, creates(tree, t.createParent, PENDING_CREATES, (i) => seq("perfrebc", i),
+                      (i) => `perf rebase create ${i}`, createIdx)),
+    batch(p2, t.editUids.slice(0, 4).map((uid) => edit(tree, uid, " (pending edit)"))),
+    batch(p3, t.moveUids.map((uid, k) => ({
+      op: "move", uid, parent_uid: t.moveParent, order_idx: orderIdxPlus(moveIdx, k),
     }))),
-    batch("p4", t.editUids.slice(4, 8).map((uid) => edit(tree, uid, " (pending edit)"))),
-    batch("p5", [{ op: "delete", uid: t.deleteRoot }]),
-    batch("p6", [{ op: "update_text", uid: seq("perfrebc", 1) as BlockUid,
-                   text: "perf rebase create 1, edited" }]),
+    batch(p4, t.editUids.slice(4, 8).map((uid) => edit(tree, uid, " (pending edit)"))),
+    batch(p5, [{ op: "delete", uid: t.deleteRoot }]),
+    batch(p6, [{ op: "update_text", uid: seq("perfrebc", 1),
+                 text: "perf rebase create 1, edited" }]),
   ];
 }
 
-/** The peer's three batches, one feed window each. */
-export function windowBatches(t: Targets, snapshot: Snapshot): Batch[] {
+/** The peer's three batches, one feed window each, one id from `ids` per
+ * batch. */
+export function windowBatches(t: Targets, snapshot: Snapshot, ids: readonly BatchId[]): Batch[] {
+  const [w1, w2, w3] = takeIds(ids, WINDOW_BATCHES, "the peer windows");
   const tree = treeOf(snapshot, t.deleteRoot);
   return [
-    batch("w1", [edit(tree, t.windowEditUid, " (peer edit)")]),
-    batch("w2", creates(tree, t.pasteParent, PASTE_CREATES, (i) => seq("perfrebp", i),
-                        (i) => `perf rebase paste ${i}`, appendIdx(tree, t.pasteParent))),
-    batch("w3", [
-      edit(tree, t.editUids[0] as BlockUid, " (peer overlap)"),
+    batch(w1, [edit(tree, t.windowEditUid, " (peer edit)")]),
+    batch(w2, creates(tree, t.pasteParent, PASTE_CREATES, (i) => seq("perfrebp", i),
+                      (i) => `perf rebase paste ${i}`, appendIdx(tree, t.pasteParent))),
+    batch(w3, [
+      edit(tree, t.editUids[0], " (peer overlap)"),
       { op: "move", uid: t.overlapMoveUid, parent_uid: t.createParent,
-        order_idx: appendIdx(tree, t.createParent) as OrderIdx },
+        order_idx: appendIdx(tree, t.createParent) },
     ]),
   ];
 }

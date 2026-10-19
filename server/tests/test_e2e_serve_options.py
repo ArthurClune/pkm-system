@@ -1,7 +1,6 @@
 # pattern: Imperative Shell
 import os
 import signal
-import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -9,22 +8,25 @@ from fastapi.testclient import TestClient
 
 import e2e_serve
 from rawread import read
+from pkm.database import connect
 
 
 def test_prepare_db_empty(tmp_path):
     db = e2e_serve.prepare_db(tmp_path, None)
-    con = sqlite3.connect(db)
+    con = connect(db)
     assert read(con, "SELECT COUNT(*) FROM blocks").fetchone()[0] == 0
 
 
 def test_prepare_db_copies_source(tmp_path):
     src = e2e_serve.prepare_db(tmp_path / "seed", None)
-    con = sqlite3.connect(src)
+    con = connect(src)
     con.execute("INSERT INTO pages(id, title) VALUES (1, 'Copied')")
     con.commit()
     con.close()
     db = e2e_serve.prepare_db(tmp_path / "data", src)
-    assert sqlite3.connect(db).execute("SELECT title FROM pages").fetchone()[0] == "Copied"
+    copied = connect(db)
+    assert copied.select("SELECT title FROM pages")[0]["title"] == "Copied"
+    copied.close()
     assert db.parent == tmp_path / "data" and db != src
 
 

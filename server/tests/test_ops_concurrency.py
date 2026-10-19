@@ -10,7 +10,7 @@ import sqlite3
 import pytest
 
 from rawread import read
-from pkm.refs import CanonicalTitle, NormalizedTitle
+from pkm.test_data.ids import canonical_title_of
 
 
 def test_concurrent_page_delete_cannot_land_inside_the_batch(
@@ -20,7 +20,7 @@ def test_concurrent_page_delete_cannot_land_inside_the_batch(
     from pkm.server.store import delete_page_rows, fetch_page
 
     real_context_for = ops_apply._context_for
-    ai_title = CanonicalTitle(NormalizedTitle("AI"))
+    ai_title = canonical_title_of("AI")
 
     def racing(db, op, now_ms, is_stale=None):
         ctx = real_context_for(db, op, now_ms, is_stale)  # sees uid_b6 still on "AI"
@@ -50,8 +50,8 @@ def test_concurrent_rename_cannot_resurrect_the_old_title(
     from pkm.server.store import fetch_page, rename_page_rows
 
     real_hint_page_exists = ops_apply._hint_page_exists
-    ml_title = CanonicalTitle(NormalizedTitle("Machine Learning"))
-    ml_renamed_title = CanonicalTitle(NormalizedTitle("ML Renamed"))
+    ml_title = canonical_title_of("Machine Learning")
+    ml_renamed_title = canonical_title_of("ML Renamed")
 
     def racing(db, page_title):
         exists = real_hint_page_exists(db, page_title)  # True: not renamed yet

@@ -149,7 +149,11 @@ export function edgeDiagnostic(edge, sourceClassification, targetClassification)
 }
 
 /** Deterministic ordering: source file, then location, then target, then
- * diagnostic kind -- so a rerun with no code changes prints identically. */
+ * diagnostic kind -- so a rerun with no code changes prints identically.
+ * @template {{ file: string, line?: number, target?: string, kind: string }} D
+ * @param {D[]} diagnostics
+ * @returns {D[]}
+ */
 export function sortDiagnostics(diagnostics) {
   return [...diagnostics].sort((a, b) =>
     a.file.localeCompare(b.file) ||

@@ -1,28 +1,29 @@
 import { describe, expect, it } from "vitest";
-import type { BlockUid, OrderIdx } from "../../api/brands";
+import type { BlockUid } from "../../api/brands";
 import type { BlockNode } from "../../api/payloads";
 import type { PastedNode } from "../../outline/paste";
 import { expectedRows } from "./model";
 import { readingRows, type Row } from "./reading";
 import type { Resolved } from "./run";
+import { orderIdxOf, uidOf } from "../../test-helpers";
 
 type Over = Partial<Omit<BlockNode, "uid" | "children" | "order_idx">>;
 
 /** A block whose text is its uid unless overridden; children in order. */
-const t = (uid: string, ...rest: (BlockNode | Over)[]): BlockNode => {
+const t = (tag: string, ...rest: (BlockNode | Over)[]): BlockNode => {
   const over = rest.find((x): x is Over => !("uid" in x)) ?? {};
-  const children = rest.filter((x): x is BlockNode => "uid" in x)
-    .map((c, i) => ({ ...c, order_idx: i as OrderIdx }));
+  const children = rest.flatMap((x) => ("uid" in x ? [x] : []))
+    .map((c, i) => ({ ...c, order_idx: orderIdxOf(i) }));
   return {
-    uid: uid as BlockUid, text: uid, heading: null, view_type: null, collapsed: false,
-    order_idx: 0 as OrderIdx, created_at: null, updated_at: null, ...over, children,
+    uid: uidOf(`tuid-${tag}`), text: tag, heading: null, view_type: null, collapsed: false,
+    order_idx: orderIdxOf(0), created_at: null, updated_at: null, ...over, children,
   };
 };
 
 const page = (...roots: BlockNode[]): Row[] =>
-  readingRows(roots.map((r, i) => ({ ...r, order_idx: i as OrderIdx })));
+  readingRows(roots.map((r, i) => ({ ...r, order_idx: orderIdxOf(i) })));
 
-const u = (s: string): BlockUid => s as BlockUid;
+const u = (s: string): BlockUid => uidOf(`tuid-${s}`);
 const us = (...s: string[]): BlockUid[] => s.map(u);
 const rows = (...roots: BlockNode[]) => ({ kind: "rows", rows: page(...roots) });
 const noop = { kind: "noop" };
@@ -183,9 +184,9 @@ describe("selection inputs", () => {
   it("a selection naming a row the page lacks throws", () => {
     const before = page(t("a"), t("b"));
     expect(() => expectedRows(before, { kind: "deleteSel", uids: us("a", "x") }))
-      .toThrow("model: no row x");
+      .toThrow("model: no row tuid-x");
     expect(() => expectedRows(before, { kind: "indentSel", uids: us("x") }))
-      .toThrow("model: no row x");
+      .toThrow("model: no row tuid-x");
   });
 });
 

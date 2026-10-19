@@ -1,4 +1,5 @@
 from pkm.server.fts import escape_fts_query, phrase_query
+from pkm.database import connect
 
 
 def test_escape_fts_query():
@@ -44,9 +45,8 @@ def test_unlinked_preserves_inactive_padded_exact_reads(client):
 
 def test_unlinked_canonicalizes_padded_title_when_plain_space_migration_is_active(
         client, seeded_config):
-    import sqlite3
 
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "UPDATE sync_meta SET value = '1'"
         " WHERE key = 'plain_space_title_canonicalization'"

@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from pkm.describe.openai_client import OpenAIDescriber
 from pkm.describe.service import DescribeService
 from pkm.server.app import create_app
+from pkm.contracts.ops import Sha256Hex
 
 _NO_KEY_REASON = "no openai_key file and OPENAI_API_KEY is not set"
 _TEST_PASSWORD = "test-pw"  # must match conftest.py
@@ -19,7 +20,7 @@ def _upload(client, content=PNG, name="graph.png", mime="image/png"):
     return r.json()["sha256"]
 
 
-def _wait_processed(client, sha, tries=250):
+def _wait_processed(client, sha: Sha256Hex, tries=250):
     """The worker runs on the app loop in TestClient's portal thread, so it
     makes progress while this thread sleeps; poll until the row leaves
     'pending' (described or failed)."""

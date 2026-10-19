@@ -47,7 +47,7 @@ def test_committed_graph_covers_supported_examples() -> None:
             assert block.updated_at == 1784332860000
 
     pages = {page.title: page for page in source.pages}
-    blocks = {block.uid: block for page in source.pages for block in page.blocks}
+    blocks = {str(block.uid): block for page in source.pages for block in page.blocks}
 
     assert {"Project Atlas", "Formatting Lab", "Garden 🌱", "July 18th, 2026"} <= pages.keys()
     assert blocks["atlas-outline"].view_type == "numbered"

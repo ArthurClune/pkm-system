@@ -2,6 +2,8 @@
 window ships as a tombstone and a live row, so a replica drops what hung
 off the old entity before the new one lands."""
 
+from pkm.contracts.ops import PageId
+
 
 def _drain(client, since=0, limit=1000):
     r = client.get(f"/api/sync/changes?since={since}&limit={limit}")
@@ -120,7 +122,7 @@ def test_deleted_not_reused_page_runs_no_dependents_query(client,
     # a page that is simply gone must not cost the dependents fetch
     from pkm.server import routes_sync
 
-    def _must_not_run(db, page_ids):
+    def _must_not_run(db, page_ids: list[PageId]):
         raise AssertionError(f"dependents fetched for {page_ids}")
 
     monkeypatch.setattr(routes_sync, "_reused_page_dependents", _must_not_run)

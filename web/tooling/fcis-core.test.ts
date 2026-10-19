@@ -16,7 +16,7 @@ const mixedNeeds = { status: "ok", kind: "mixed", variant: "needs-refactoring" }
 const mixedUnavoidable = { status: "ok", kind: "mixed", variant: "unavoidable", reason: "why" };
 const exempt = { status: "exempt", reason: "generated data" };
 
-function edge(overrides) {
+function edge(overrides: Record<string, unknown> = {}) {
   return { source: "a.ts", target: "b.ts", kind: "import", typeOnly: false, line: 3, ...overrides };
 }
 

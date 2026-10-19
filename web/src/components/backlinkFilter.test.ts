@@ -1,18 +1,17 @@
 import { describe, expect, it } from "vitest";
-import type { BlockUid } from "../api/brands";
 import type { BacklinkGroup } from "../api/payloads";
 import { applyFilter, chipCounts, EMPTY_FILTER, isFiltering, itemRefTitles,
          toggleChip } from "./backlinkFilter";
-import { pageId, title } from "../test-helpers";
+import { pageIdOf, canonicalTitleOf, uidOf } from "../test-helpers";
 
-const item = (rawUid: string, text: string, breadcrumbs: string[] = []) =>
-  ({ uid: rawUid as BlockUid, text, breadcrumbs });
+const item = (tag: string, text: string, breadcrumbs: string[] = []) =>
+  ({ uid: uidOf(`tuid-${tag}`), text, breadcrumbs });
 
 const groups: BacklinkGroup[] = [
-  { page_id: pageId(1), page_title: title("Daily A"), items: [
+  { page_id: pageIdOf(1), page_title: canonicalTitleOf("Daily A"), items: [
     item("u1", "alpha [[Claude]] #Paper"),
     item("u2", "beta [[Claude]] #Idea")] },
-  { page_id: pageId(2), page_title: title("Daily B"), items: [
+  { page_id: pageIdOf(2), page_title: canonicalTitleOf("Daily B"), items: [
     item("u3", "gamma [[Claude]]", ["reading list #Paper"])] },
 ];
 
@@ -36,7 +35,7 @@ describe("applyFilter", () => {
 
   it("include keeps only items referencing ALL included titles", () => {
     const out = applyFilter(groups, { include: ["Paper"], exclude: [] });
-    expect(out.map((g) => g.items.map((i) => i.uid))).toEqual([["u1"], ["u3"]]);
+    expect(out.map((g) => g.items.map((i) => i.uid))).toEqual([["tuid-u1"], ["tuid-u3"]]);
     const both = applyFilter(groups, { include: ["Paper", "Idea"], exclude: [] });
     expect(both).toEqual([]); // no single item carries both
   });
@@ -44,7 +43,7 @@ describe("applyFilter", () => {
   it("exclude hides items (breadcrumb refs count) and drops empty groups", () => {
     const out = applyFilter(groups, { include: [], exclude: ["Paper"] });
     // u1 excluded by own text, u3 by ancestor; Daily B disappears entirely
-    expect(out.map((g) => g.items.map((i) => i.uid))).toEqual([["u2"]]);
+    expect(out.map((g) => g.items.map((i) => i.uid))).toEqual([["tuid-u2"]]);
   });
 });
 
@@ -57,7 +56,7 @@ describe("chipCounts", () => {
   });
 
   it("ties break alphabetically", () => {
-    const g: BacklinkGroup[] = [{ page_id: pageId(1), page_title: title("X"), items: [
+    const g: BacklinkGroup[] = [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("X"), items: [
       item("u1", "#zebra #apple")] }];
     expect(chipCounts(g, [])).toEqual([
       { title: "apple", count: 1 }, { title: "zebra", count: 1 }]);

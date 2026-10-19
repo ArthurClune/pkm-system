@@ -9,6 +9,7 @@
 // asks about row 40. Measuring every row up front to hand in an array would
 // spend the whole saving on the first dragover. The getter is the hook's
 // lazily-filled cache; every DOM read stays there.
+import type { BlockUid } from "../api/brands";
 import type { DragSource, DropRow } from "../outline/dnd";
 
 /** A row's vertical extent in viewport (client) coordinates — the two
@@ -30,7 +31,7 @@ export interface RectCache {
   containerTop: number;
   containerLeft: number;
   rects: (RowRect | null | undefined)[];
-  uids: (string | undefined)[];
+  uids: (BlockUid | undefined)[];
 }
 
 /** Boundary index for `clientY` among `rows`. Above a row's midpoint = the
@@ -72,7 +73,7 @@ export function indicatorTopFromRects(rows: DropRow[], rectAt: RectAt,
  * an indicator, and then a drop, one row out.
  */
 export function cachedRectFor(cache: RectCache, index: number,
-                              uid: string): RowRect | null | undefined {
+                              uid: BlockUid): RowRect | null | undefined {
   return cache.uids[index] === uid ? cache.rects[index] : undefined;
 }
 

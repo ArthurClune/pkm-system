@@ -6,17 +6,19 @@ multiple chunk boundaries and assert the executed-statement count is
 bounded by chunk count, not by entity count."""
 import math
 
-from rawread import read
+from rawread import read, trace
 from pkm.server.db import open_db
 from pkm.server.routes_sync import sync_changes, sync_snapshot
 from pkm.server.sync_core import CHUNK_SIZE
-from pkm.contracts.ops import SyncSeq
+from pkm.test_data.ids import page_id_of, seq_of
+from pkm.contracts.ops import PageId
 
 # spans 3 chunks so chunking (not just "fits in one query") is exercised
 BULK_N = CHUNK_SIZE * 2 + 200
 
 
-def _seed_bulk(con, n, page_id=1, target_page_id=4):
+def _seed_bulk(con, n, page_id: PageId = page_id_of(1),
+               target_page_id: PageId = page_id_of(4)):
     rows = [(f"uid_bulk_{i}", page_id, None, 1000 + i,
               f"bulk block {i} refs [[Paper]]", None, 0, None, None)
              for i in range(n)]
@@ -32,11 +34,11 @@ def _seed_bulk(con, n, page_id=1, target_page_id=4):
 
 def _traced(con, fn):
     queries: list[str] = []
-    con.raw.set_trace_callback(lambda sql: queries.append(sql))
+    trace(con, queries.append)
     try:
         return fn(), queries
     finally:
-        con.raw.set_trace_callback(None)
+        trace(con, None)
 
 
 def test_changes_feed_query_count_bounded_by_chunks_not_entities(seeded_config):
@@ -44,7 +46,7 @@ def test_changes_feed_query_count_bounded_by_chunks_not_entities(seeded_config):
     _seed_bulk(con, BULK_N)
 
     payload, queries = _traced(
-        con, lambda: sync_changes(since=SyncSeq(0), limit=5000, db=con))
+        con, lambda: sync_changes(since=seq_of(0), limit=5000, db=con))
 
     assert len(payload.blocks) == read(con,
         "SELECT count(*) FROM blocks").fetchone()[0]

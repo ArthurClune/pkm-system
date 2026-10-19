@@ -1,5 +1,4 @@
 import json
-import sqlite3
 import uuid
 from datetime import date
 from pathlib import Path
@@ -8,16 +7,19 @@ import pytest
 
 from rawread import read
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import Sha256Hex, subtree_hash, text_hash
+from pkm.contracts.ops import BatchId, BlockUid, ClientId, subtree_hash, SyncSeq, text_hash
+from pkm.test_data.ids import batch_id_of, client_id_of, sha_of, uid_of
+from pkm.database import connect
 
 
 _batch_counter = 0
 
-def _post(client, *ops, client_id="c1", batch_id=None):
+def _post(client, *ops, client_id: ClientId = client_id_of("c1"),
+          batch_id: BatchId | None = None):
     global _batch_counter
     if batch_id is None:
         _batch_counter += 1
-        batch_id = f"batch_{_batch_counter:08d}"
+        batch_id = batch_id_of(f"batch_{_batch_counter:08d}")
     return client.post("/api/ops",
                        json={"client_id": client_id, "batch_id": batch_id,
                              "ops": list(ops)})
@@ -116,21 +118,28 @@ def test_delete_subtree_via_endpoint(client):
 
 def _write_state(config):
     queries = {
-        "pages": "SELECT * FROM pages ORDER BY id",
+        "pages": "SELECT id AS page_id, title, created_at, updated_at"
+                 " FROM pages ORDER BY id",
         "blocks": "SELECT * FROM blocks ORDER BY uid",
         "refs": (
-            "SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"
+            "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs"
+            " ORDER BY 1, 2, 3"
         ),
-        "pages_fts": "SELECT rowid, * FROM pages_fts ORDER BY rowid",
-        "blocks_fts": "SELECT rowid, * FROM blocks_fts ORDER BY rowid",
-        "changes": "SELECT * FROM changes ORDER BY seq",
+        "changes": "SELECT seq, kind AS change_kind, entity_id, deleted,"
+                   " page_id AS change_page_id FROM changes ORDER BY seq",
         "applied_batches": "SELECT * FROM applied_batches ORDER BY batch_id",
     }
-    con = sqlite3.connect(config.db_path)
+    index_queries = {
+        "pages_fts": "SELECT rowid, title AS indexed_title FROM pages_fts"
+                     " ORDER BY rowid",
+        "blocks_fts": "SELECT rowid, * FROM blocks_fts ORDER BY rowid",
+    }
+    con = connect(config.db_path)
     try:
         return {
-            table: read(con, query).fetchall()
-            for table, query in queries.items()
+            **{table: con.select(query) for table, query in queries.items()},
+            **{table: read(con, query).fetchall()
+               for table, query in index_queries.items()},
         }
     finally:
         con.close()
@@ -234,10 +243,10 @@ def test_cross_page_move_under_parent(client, seeded_config):
         {"op": "move", "uid": "uid_b4", "parent_uid": "uid_b2",
          "order_idx": 99}]})
     assert r.status_code == 200
-    con = sqlite3.connect(seeded_config.db_path)
-    con.row_factory = sqlite3.Row
-    row = read(con,
-        "SELECT page_id, parent_uid FROM blocks WHERE uid='uid_b4'").fetchone()
+    con = connect(seeded_config.db_path)
+    row = con.select_one(
+        "SELECT page_id, parent_uid FROM blocks WHERE uid='uid_b4'")
+    assert row is not None
     assert row["page_id"] == 1 and row["parent_uid"] == "uid_b2"
     con.close()
 
@@ -248,14 +257,14 @@ def test_cross_page_move_top_level_auto_creates_page(client, seeded_config):
         {"op": "move", "uid": "uid_b4", "parent_uid": None, "order_idx": 0,
          "page_title": "July 1st, 2026"}]})
     assert r.status_code == 200
-    con = sqlite3.connect(seeded_config.db_path)
-    con.row_factory = sqlite3.Row
-    page = read(con,
-        "SELECT id FROM pages WHERE title='July 1st, 2026'").fetchone()
+    con = connect(seeded_config.db_path)
+    page = con.select_one(
+        "SELECT id AS page_id FROM pages WHERE title='July 1st, 2026'")
     assert page is not None
-    row = read(con,
-        "SELECT page_id, parent_uid FROM blocks WHERE uid='uid_b4'").fetchone()
-    assert row["page_id"] == page["id"] and row["parent_uid"] is None
+    row = con.select_one(
+        "SELECT page_id, parent_uid FROM blocks WHERE uid='uid_b4'")
+    assert row is not None
+    assert row["page_id"] == page["page_id"] and row["parent_uid"] is None
     con.close()
 
 
@@ -268,9 +277,8 @@ def test_cross_page_move_subtree_and_backlinks_survive(client, seeded_config):
         {"op": "move", "uid": "uid_b2", "parent_uid": None, "order_idx": 9,
          "page_title": "July 7th, 2026"}]})
     assert r.status_code == 200
-    con = sqlite3.connect(seeded_config.db_path)
-    con.row_factory = sqlite3.Row
-    pages = {r_["uid"]: r_["page_id"] for r_ in con.execute(
+    con = connect(seeded_config.db_path)
+    pages = {r_["uid"]: r_["page_id"] for r_ in con.select(
         "SELECT uid, page_id FROM blocks WHERE uid IN ('uid_b2','uid_b3')")}
     assert pages == {"uid_b2": 3, "uid_b3": 3}
     refs = read(con,
@@ -296,12 +304,12 @@ def test_batch_rollback_undoes_auto_created_page(client, seeded_config):
          "order_idx": 0, "text": "dup"}]})  # uid exists
     assert r.status_code == 400
     assert r.json()["detail"]["index"] == 1
-    con = sqlite3.connect(seeded_config.db_path)
-    con.row_factory = sqlite3.Row
-    assert read(con,
-        "SELECT id FROM pages WHERE title='Brand New Page'").fetchone() is None
-    row = read(con,
-        "SELECT page_id, parent_uid FROM blocks WHERE uid='uid_b4'").fetchone()
+    con = connect(seeded_config.db_path)
+    assert con.select_one(
+        "SELECT id AS page_id FROM pages WHERE title='Brand New Page'") is None
+    row = con.select_one(
+        "SELECT page_id, parent_uid FROM blocks WHERE uid='uid_b4'")
+    assert row is not None
     assert row["page_id"] == 3 and row["parent_uid"] is None  # move undone
     con.close()
 
@@ -345,7 +353,7 @@ def _conflicts(client, day=None):
             if b["text"].startswith("[[conflict]]")]
 
 
-def _orphan_edit(uid, text, page_title=None):
+def _orphan_edit(uid: BlockUid, text, page_title=None):
     op = {"op": "update_text", "uid": uid, "text": text,
           "base_text_hash": text_hash("whatever")}
     if page_title is not None:
@@ -406,7 +414,7 @@ def test_clean_hashed_edit_does_not_create_todays_daily_page(
 
 def test_orphan_conflict_names_hinted_page(client):
     _post(client, {"op": "delete", "uid": "uid_b6"})
-    r = _post(client, _orphan_edit("uid_b6", "edited after delete",
+    r = _post(client, _orphan_edit(uid_of("uid_b6"), "edited after delete",
                                    page_title="Machine Learning"))
     assert r.status_code == 200
     assert _conflicts(client) == [
@@ -441,7 +449,7 @@ def _seed_draft_flush_base(client):
     f = DRAFT_FLUSH
     r = _post(client, {"op": "update_text", "uid": f["uid"], "text": f["base"],
                        "base_text_hash": text_hash("Tags:: #AI")},
-              client_id="seed")
+              client_id=client_id_of("seed"))
     assert r.status_code == 200
     assert f["base"] in _ml_texts(client)
     assert _conflicts(client) == []
@@ -451,7 +459,8 @@ def _seed_draft_flush_base(client):
 def test_draft_flush_keeps_both_texts_whichever_arrives_first(client, order):
     _seed_draft_flush_base(client)
     remote_op, draft_op = _draft_flush_ops()
-    posts = [(remote_op, "other"), (draft_op, "editor")]
+    posts = [(remote_op, client_id_of("other")),
+             (draft_op, client_id_of("editor"))]
     if order == "draft_first":
         posts.reverse()
     for op, client_id in posts:
@@ -467,8 +476,8 @@ def test_draft_flush_after_delete_lands_on_the_daily_note(client):
     _seed_draft_flush_base(client)
     _, draft_op = _draft_flush_ops()
     assert _post(client, {"op": "delete", "uid": DRAFT_FLUSH["uid"]},
-                 client_id="other").status_code == 200
-    assert _post(client, draft_op, client_id="editor").status_code == 200
+                 client_id=client_id_of("other")).status_code == 200
+    assert _post(client, draft_op, client_id=client_id_of("editor")).status_code == 200
     assert _conflicts(client) == [
         ("[[conflict]] [[Machine Learning]]" + ORPHAN_SUFFIX,
          [DRAFT_FLUSH["draft"]])]
@@ -486,7 +495,7 @@ def test_orphan_conflict_hint_naming_a_renamed_away_page_does_not_recreate_it(
     r = client.post("/api/page/Machine Learning/rename",
                     json={"new_title": "ML Renamed"})
     assert r.status_code == 200
-    r = _post(client, _orphan_edit("uid_zz_renamed", "edited after rename",
+    r = _post(client, _orphan_edit(uid_of("uid_zz_renamed"), "edited after rename",
                                    page_title="Machine Learning"))
     assert r.status_code == 200
     assert _conflicts(client) == [
@@ -501,27 +510,27 @@ def test_orphan_conflict_hint_naming_a_renamed_away_page_does_not_recreate_it(
 
 def test_repeated_orphan_edits_group_under_one_header(client):
     for text in ("O", "Op", "Ope"):
-        assert _post(client, _orphan_edit("uid_zz1", text)).status_code == 200
+        assert _post(client, _orphan_edit(uid_of("uid_zz1"), text)).status_code == 200
     assert _conflicts(client) == [
         ("[[conflict]] (page unknown)" + ORPHAN_SUFFIX, ["O", "Op", "Ope"])]
 
 
 def test_two_conflicts_in_one_batch_group(client):
-    r = _post(client, _orphan_edit("uid_zz2", "first"),
-              _orphan_edit("uid_zz2", "second"))
+    r = _post(client, _orphan_edit(uid_of("uid_zz2"), "first"),
+              _orphan_edit(uid_of("uid_zz2"), "second"))
     assert r.status_code == 200
     assert _conflicts(client) == [
         ("[[conflict]] (page unknown)" + ORPHAN_SUFFIX, ["first", "second"])]
 
 
 def test_deleted_header_starts_a_fresh_one(client):
-    _post(client, _orphan_edit("uid_zz3", "before"))
+    _post(client, _orphan_edit(uid_of("uid_zz3"), "before"))
     daily = client.get(f"/api/page/{title_for_date(date.today())}").json()
     [header] = [b for b in daily["blocks"]
                 if b["text"].startswith("[[conflict]]")]
     assert _post(client, {"op": "delete", "uid": header["uid"]}
                  ).status_code == 200
-    _post(client, _orphan_edit("uid_zz3", "after"))
+    _post(client, _orphan_edit(uid_of("uid_zz3"), "after"))
     assert _conflicts(client) == [
         ("[[conflict]] (page unknown)" + ORPHAN_SUFFIX, ["after"])]
 
@@ -541,10 +550,10 @@ def test_new_day_starts_a_fresh_header_and_prunes(client, seeded_config):
     day1 = date.today() + timedelta(days=1)
     day2 = day1 + timedelta(days=1)
     with on(day1):
-        assert _post(client, _orphan_edit("uid_zz4", "day one")
+        assert _post(client, _orphan_edit(uid_of("uid_zz4"), "day one")
                      ).status_code == 200
     with on(day2):
-        assert _post(client, _orphan_edit("uid_zz4", "day two")
+        assert _post(client, _orphan_edit(uid_of("uid_zz4"), "day two")
                      ).status_code == 200
 
     label = "[[conflict]] (page unknown)" + ORPHAN_SUFFIX
@@ -557,7 +566,7 @@ def test_new_day_starts_a_fresh_header_and_prunes(client, seeded_config):
 
 
 def test_unusable_hint_is_labelled_not_rejected(client):
-    r = _post(client, _orphan_edit("uid_zz5", "kept",
+    r = _post(client, _orphan_edit(uid_of("uid_zz5"), "kept",
                                    page_title="bad[[title"))
     assert r.status_code == 200
     assert _conflicts(client) == [
@@ -565,9 +574,9 @@ def test_unusable_hint_is_labelled_not_rejected(client):
 
 
 def test_replayed_conflict_batch_adds_nothing(client):
-    op = _orphan_edit("uid_zz6", "once")
-    assert _post(client, op, batch_id="replayed_conflict1").status_code == 200
-    assert _post(client, op, batch_id="replayed_conflict1").status_code == 200
+    op = _orphan_edit(uid_of("uid_zz6"), "once")
+    assert _post(client, op, batch_id=batch_id_of("replayed_conflict1")).status_code == 200
+    assert _post(client, op, batch_id=batch_id_of("replayed_conflict1")).status_code == 200
     assert _conflicts(client) == [
         ("[[conflict]] (page unknown)" + ORPHAN_SUFFIX, ["once"])]
 
@@ -605,15 +614,15 @@ def test_hashless_update_on_missing_block_lands_like_a_hashed_one(client):
 # the server's texts, nested as they were, under today's conflict header.
 
 GD_PAGE = "P"
-GD_R, GD_C1, GD_C2, GD_G = "gd_r00", "gd_c01", "gd_c02", "gd_g01"
-GD_C3, GD_X = "gd_c03", "gd_x01"
+GD_R, GD_C1, GD_C2, GD_G = (uid_of(u) for u in ("gd_r00", "gd_c01", "gd_c02", "gd_g01"))
+GD_C3, GD_X = uid_of("gd_c03"), uid_of("gd_x01")
 GD_SUBTREE = {GD_R, GD_C1, GD_C2, GD_G}
 GD_H0 = subtree_hash([(GD_R, "root"), (GD_C1, "one"), (GD_C2, "two"),
                       (GD_G, "deep")])
 GD_DELETED_HEADER = f"[[conflict]] [[{GD_PAGE}]] — deleted while edited elsewhere"
 
 
-def _gd_create(uid, parent, idx, text):
+def _gd_create(uid: BlockUid, parent, idx, text):
     return {"op": "create", "uid": uid, "page_title": GD_PAGE,
             "parent_uid": parent, "order_idx": idx, "text": text}
 
@@ -625,11 +634,11 @@ def _gd_seed(client):
               _gd_create(GD_C2, GD_R, 1, "two"),
               _gd_create(GD_G, GD_C1, 0, "deep"),
               _gd_create(GD_X, None, 1, "outside"),
-              client_id="seed")
+              client_id=client_id_of("seed"))
     assert r.status_code == 200
 
 
-def _gd_delete(uid=GD_R, base=GD_H0):
+def _gd_delete(uid: BlockUid = GD_R, base=GD_H0):
     op = {"op": "delete", "uid": uid}
     if base is not None:
         op["base_subtree_hash"] = base
@@ -669,7 +678,7 @@ def test_hashless_delete_is_unchanged(client):
     _gd_seed(client)
     assert _post(client, {"op": "update_text", "uid": GD_G,
                           "text": "deep, edited elsewhere"},
-                 client_id="other").status_code == 200
+                 client_id=client_id_of("other")).status_code == 200
     assert _post(client, _gd_delete(base=None)).status_code == 200
     assert _gd_page_uids(client) & GD_SUBTREE == set()
     assert _conflicts(client) == []
@@ -687,7 +696,7 @@ _ONE = ("one", [("deep", [])])
 ], ids=["edit_descendant", "create_under_root", "move_in_from_outside"])
 def test_diverged_delete_lands_the_subtree_nested(client, divergence, landed):
     _gd_seed(client)
-    assert _post(client, divergence, client_id="other").status_code == 200
+    assert _post(client, divergence, client_id=client_id_of("other")).status_code == 200
     assert _post(client, _gd_delete()).status_code == 200
     assert _gd_page_uids(client) & (GD_SUBTREE | {GD_C3}) == set()
     assert _conflict_trees(client) == [
@@ -700,7 +709,7 @@ def test_diverged_delete_lands_the_subtree_nested(client, divergence, landed):
 ], ids=["reorder", "indent"])
 def test_reorder_inside_the_subtree_lands_no_copy(client, restructure):
     _gd_seed(client)
-    assert _post(client, restructure, client_id="other").status_code == 200
+    assert _post(client, restructure, client_id=client_id_of("other")).status_code == 200
     assert _post(client, _gd_delete()).status_code == 200
     assert _gd_page_uids(client) & GD_SUBTREE == set()
     assert _conflicts(client) == []
@@ -724,7 +733,7 @@ def test_diverged_delete_appends_under_todays_existing_header(client):
     assert _post(client, {"op": "update_text", "uid": GD_R,
                           "text": "root, edited elsewhere",
                           "base_text_hash": text_hash("a stale base")},
-                 client_id="other").status_code == 200
+                 client_id=client_id_of("other")).status_code == 200
     overwritten = f"[[conflict]] [[{GD_PAGE}]] — overwritten by (({GD_R}))"
     assert _conflicts(client) == [(overwritten, ["root"])]
     assert _post(client, _gd_delete()).status_code == 200
@@ -743,23 +752,23 @@ def test_diverged_delete_never_lands_under_a_header_it_deletes(
     from pkm.server.db import open_db
 
     today = title_for_date(date.today())
-    r_uid, c_uid = "gt_r00", "gt_c01"
+    r_uid, c_uid = uid_of("gt_r00"), uid_of("gt_c01")
     assert _post(client,
                  {"op": "create", "uid": r_uid, "page_title": today,
                   "parent_uid": None, "order_idx": 0, "text": "root"},
                  {"op": "create", "uid": c_uid, "page_title": today,
                   "parent_uid": r_uid, "order_idx": 0, "text": "one"},
-                 client_id="seed").status_code == 200
+                 client_id=client_id_of("seed")).status_code == 200
     assert _post(client, {"op": "update_text", "uid": r_uid,
                           "text": "root, edited elsewhere",
                           "base_text_hash": text_hash("a stale base")},
-                 client_id="other").status_code == 200
+                 client_id=client_id_of("other")).status_code == 200
     overwritten = f"[[conflict]] [[{today}]] — overwritten by (({r_uid}))"
     [header] = [b for b in _page_blocks(client, today)
                 if b["text"] == overwritten]
     assert _post(client, {"op": "move", "uid": header["uid"],
                           "parent_uid": r_uid, "order_idx": 1},
-                 client_id="other").status_code == 200
+                 client_id=client_id_of("other")).status_code == 200
 
     base = subtree_hash([(r_uid, "root"), (c_uid, "one")])
     assert _post(client, _gd_delete(r_uid, base)).status_code == 200
@@ -769,12 +778,9 @@ def test_diverged_delete_never_lands_under_a_header_it_deletes(
          [("root, edited elsewhere",
            [("one", []), (overwritten, [("root", [])])])])]
     con = open_db(seeded_config.db_path)
-    dangling = read(con,
-        "SELECT uid FROM blocks WHERE parent_uid IS NOT NULL"
-        " AND parent_uid NOT IN (SELECT uid FROM blocks)").fetchall()
-    gone = read(con,
-        "SELECT uid FROM blocks WHERE uid IN (?, ?, ?)",
-        (r_uid, c_uid, header["uid"])).fetchall()
+    dangling = con.select("SELECT uid FROM blocks WHERE parent_uid IS NOT NULL"
+        " AND parent_uid NOT IN (SELECT uid FROM blocks)")
+    gone = con.select("SELECT uid FROM blocks WHERE uid IN (?, ?, ?)", (r_uid, c_uid, header["uid"]))
     con.close()
     assert dangling == [] and gone == []
 
@@ -782,7 +788,7 @@ def test_diverged_delete_never_lands_under_a_header_it_deletes(
 def test_diverged_delete_copies_roll_back_with_a_failing_batch(client):
     _gd_seed(client)
     r = _post(client,
-              _gd_delete(base=Sha256Hex("0" * 64)),
+              _gd_delete(base=sha_of("0" * 64)),
               {"op": "create", "uid": "uid_b1", "page_title": "AI",
                "order_idx": 0, "text": "dup"})
     assert r.status_code == 400
@@ -797,11 +803,11 @@ def test_diverged_delete_copies_roll_back_with_a_failing_batch(client):
 # the batch applies, and the uids a replica may hold a ghost of are
 # journalled so the feed corrects it.
 
-def _skip_note(what, uid):
+def _skip_note(what, uid: BlockUid):
     return f"{what} skipped: block {uid} not found"
 
 
-def _skipped(index, op, uid, reason, noted=True):
+def _skipped(index, op, uid: BlockUid, reason, noted=True):
     return {"index": index, "op": op, "uid": uid, "reason": reason,
             "note_page": title_for_date(date.today()) if noted else None}
 
@@ -815,7 +821,7 @@ def _latest_seq(client):
     return client.get("/api/sync/changes?since=0&limit=1").json()["latest_seq"]
 
 
-def _feed_since(client, seq):
+def _feed_since(client, seq: SyncSeq):
     feed = client.get(f"/api/sync/changes?since={seq}").json()
     return ({b["uid"]: b for b in feed["blocks"]},
             {t["entity_id"] for t in feed["tombstones"] if t["kind"] == "block"})
@@ -840,7 +846,7 @@ def test_noop_on_missing_block_applies_the_rest_and_lands_nothing(
     r = _post(client, op, CLEAN_EDIT)
     assert r.status_code == 200
     assert r.json()["skipped"] == [
-        _skipped(0, op["op"], "ghost_c1", "block_not_found", noted=False)]
+        _skipped(0, op["op"], uid_of("ghost_c1"), "block_not_found", noted=False)]
     assert r.json()["applied"] == 2  # ops processed, skipped ones included
     assert _ml_texts(client)[0] == "kept edit"
     # no note, and a clean batch never pays for today's daily page
@@ -867,9 +873,9 @@ def test_structural_op_on_missing_block_is_skipped_with_a_note(
     r = _post(client, op, CLEAN_EDIT)
     assert r.status_code == 200
     assert r.json()["skipped"] == [
-        _skipped(0, op["op"], "ghost_s1", "block_not_found")]
+        _skipped(0, op["op"], uid_of("ghost_s1"), "block_not_found")]
     assert _ml_texts(client)[0] == "kept edit"
-    assert _conflicts(client) == [(UNKNOWN_ORPHAN, [_skip_note(what, "ghost_s1")])]
+    assert _conflicts(client) == [(UNKNOWN_ORPHAN, [_skip_note(what, uid_of("ghost_s1"))])]
     # a skipped cross-page move must not create its destination page
     assert not _page_exists(seeded_config, "Nowhere Yet")
     _, tombstones = _feed_since(client, start)
@@ -879,14 +885,14 @@ def test_structural_op_on_missing_block_is_skipped_with_a_note(
 
 def test_skipped_op_shares_the_header_of_an_orphan_edit_to_the_same_block(
         client):
-    r = _post(client, _orphan_edit("ghost_s2", "lost words",
+    r = _post(client, _orphan_edit(uid_of("ghost_s2"), "lost words",
                                    page_title="AI"),
               {"op": "move", "uid": "ghost_s2", "parent_uid": None,
                "order_idx": 0})
     assert r.status_code == 200
     assert _conflicts(client) == [
         ("[[conflict]] [[AI]]" + ORPHAN_SUFFIX,
-         ["lost words", _skip_note("move", "ghost_s2")])]
+         ["lost words", _skip_note("move", uid_of("ghost_s2"))])]
 
 
 def test_create_under_missing_parent_lands_its_text_not_the_block(
@@ -899,7 +905,7 @@ def test_create_under_missing_parent_lands_its_text_not_the_block(
               CLEAN_EDIT)
     assert r.status_code == 200
     assert r.json()["skipped"] == [
-        _skipped(0, "create", "diverted1", "parent_not_found")]
+        _skipped(0, "create", uid_of("diverted1"), "parent_not_found")]
     assert _ml_texts(client)[0] == "kept edit"
     assert "diverted1" not in {b["uid"] for b in
                                client.get("/api/page/AI").json()["blocks"]}
@@ -957,7 +963,7 @@ def test_move_to_missing_parent_leaves_the_block_where_it_is(
     assert blocks["uid_b3"]["parent_uid"] == "uid_b2"
     assert "ghost_p4" in tombstones
     assert r.json()["skipped"] == [
-        _skipped(0, "move", "uid_b3", "parent_not_found")]
+        _skipped(0, "move", uid_of("uid_b3"), "parent_not_found")]
 
 
 def test_move_to_missing_parent_reships_the_moved_blocks_descendants(client):
@@ -999,7 +1005,7 @@ def test_hint_that_would_not_link_back_is_named_not_linked(
     # "x]" would make the ref indexer create a page "x"
     assert _post(client, {"op": "create_page", "page_title": "x]"}
                  ).status_code == 200
-    r = _post(client, _orphan_edit("uid_gone01", "t", page_title="x]"))
+    r = _post(client, _orphan_edit(uid_of("uid_gone01"), "t", page_title="x]"))
     assert r.status_code == 200
     assert _conflicts(client) == [("[[conflict]] `x]`" + ORPHAN_SUFFIX, ["t"])]
     assert not _page_exists(seeded_config, "x")
@@ -1010,7 +1016,7 @@ def test_blank_orphan_edit_lands_nothing(client, seeded_config):
     r = _post(client, {"op": "update_text", "uid": "uid_gone02", "text": ""})
     assert r.status_code == 200
     assert r.json()["skipped"] == [
-        _skipped(0, "update_text", "uid_gone02", "block_not_found",
+        _skipped(0, "update_text", uid_of("uid_gone02"), "block_not_found",
                  noted=False)]
     assert not _page_exists(seeded_config, title_for_date(date.today()))
     _, tombstones = _feed_since(client, start)
@@ -1057,10 +1063,10 @@ def test_ops_chained_on_a_diverted_create_lose_no_text(client):
     _, tombstones = _feed_since(client, start)
     assert {"chain_x1", "chain_y1", "ghost_p5"} <= tombstones
     assert r.json()["skipped"] == [
-        _skipped(0, "create", "chain_x1", "parent_not_found"),
-        _skipped(1, "update_text", "chain_x1", "block_not_found"),
-        _skipped(2, "create", "chain_y1", "parent_not_found"),
-        _skipped(3, "move", "uid_b6", "parent_not_found")]
+        _skipped(0, "create", uid_of("chain_x1"), "parent_not_found"),
+        _skipped(1, "update_text", uid_of("chain_x1"), "block_not_found"),
+        _skipped(2, "create", uid_of("chain_y1"), "parent_not_found"),
+        _skipped(3, "move", uid_of("uid_b6"), "parent_not_found")]
 
 
 # --- concurrent structure edits never reject their batch --------------------
@@ -1140,7 +1146,7 @@ def test_move_that_would_make_a_cycle_is_skipped_with_a_note(
                "order_idx": 0, "page_title": "Page Since Deleted"},
               CLEAN_EDIT)
     assert r.status_code == 200
-    assert r.json()["skipped"] == [_skipped(0, "move", "uid_b2", "cycle")]
+    assert r.json()["skipped"] == [_skipped(0, "move", uid_of("uid_b2"), "cycle")]
     assert r.json()["applied"] == 2
     assert _ml_texts(client) == ["kept edit", "Papers"]
     [papers] = [b for b in _page_blocks(client, "Machine%20Learning")
@@ -1188,10 +1194,10 @@ def test_cycle_note_shares_the_blocks_header_with_another_skip(client):
 ], ids=["set_collapsed", "delete", "move", "set_heading", "set_view_type",
         "update_text", "create", "move_parent", "move_cycle"])
 def test_replayed_missing_target_batch_lands_nothing_twice(client, op):
-    first = _post(client, op, batch_id="missing_replay1")
+    first = _post(client, op, batch_id=batch_id_of("missing_replay1"))
     assert first.status_code == 200
     conflicts, seq = _conflicts(client), _latest_seq(client)
-    again = _post(client, op, batch_id="missing_replay1")
+    again = _post(client, op, batch_id=batch_id_of("missing_replay1"))
     assert again.status_code == 200
     assert again.json() == first.json()
     assert _conflicts(client) == conflicts
@@ -1287,7 +1293,7 @@ def test_edit_after_a_rename_keeps_the_conflict_path_under_the_new_title(client)
 
 def test_stale_edit_of_a_padded_link_stays_unlinked_under_plain_space(
         client, seeded_config):
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("UPDATE sync_meta SET value = '1'"
                 " WHERE key = 'plain_space_title_canonicalization'")
     con.commit()
@@ -1320,7 +1326,7 @@ def test_rewrite_records_are_pruned_past_the_retention_window(
     _rename(client, "AI", "Artificial Intelligence")
 
     con = open_db(seeded_config.db_path)
-    rows = [(r["uid"], r["old_title"], r["new_title"]) for r in read(con,
+    rows = [(r["uid"], r["old_title"], r["new_title"]) for r in con.select(
         "SELECT uid, old_title, new_title FROM block_rewrites")]
     con.close()
     assert rows == [("uid_b1", "AI", "Artificial Intelligence")]
@@ -1342,7 +1348,7 @@ def test_stale_edit_replays_a_delete_unlink_instead_of_resurrecting_the_title(
 # which still holds the old title: the server must have recorded that hash.
 
 
-def _chained_push(client, base_text, *texts, seen_seq=None, one_batch=False):
+def _chained_push(client, base_text, *texts, seen_seq: SyncSeq | None = None, one_batch=False):
     """Edits of uid_b1, each hashed against the text of the one before as
     the client sent it, starting from `base_text`."""
     ops, base = [], base_text
@@ -1352,8 +1358,9 @@ def _chained_push(client, base_text, *texts, seen_seq=None, one_batch=False):
         base = text
     batches = [ops] if one_batch else [[op] for op in ops]
     for i, batch in enumerate(batches):
-        body = {"client_id": "c1", "batch_id": f"chain_{uuid.uuid4().hex}",
-                "ops": batch}
+        body: dict[str, object] = {
+            "client_id": "c1", "batch_id": f"chain_{uuid.uuid4().hex}",
+            "ops": batch}
         if seen_seq is not None:
             body["seen_seq"] = seen_seq
         r = client.post("/api/ops", json=body)
@@ -1365,9 +1372,10 @@ def _rewrite_rows(seeded_config):
 
     con = open_db(seeded_config.db_path)
     try:
-        return [tuple(r) for r in read(con,
-            "SELECT uid, kind, old_title, new_title FROM block_rewrites"
-            " ORDER BY rowid")]
+        return [(r["uid"], r["rewrite_kind"], r["old_title"], r["new_title"])
+                for r in con.select(
+                    "SELECT uid, kind AS rewrite_kind, old_title, new_title"
+                    " FROM block_rewrites ORDER BY rowid")]
     finally:
         con.close()
 

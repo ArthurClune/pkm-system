@@ -4,25 +4,22 @@
 // localStorage involvement.
 import { describe, expect, test, vi } from "vitest";
 import { ApiError } from "../api/client";
-import type { BatchId, ClientId, SyncSeq } from "../api/brands";
+import type { BatchId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { OpsAck, OpBatch } from "../api/payloads";
-import type { PendingRowId } from "../replica/client";
-import { uid } from "../test-helpers";
+import { uidOf, seqOf, batchIdOf, clientIdOf, pendingRowIdOf } from "../test-helpers";
 import { memReplica } from "./memReplica";
 import { createOpQueue, type PoisonIntentStore } from "./opQueue";
 import type { PoisonEvent } from "./poisonIntents";
 
-const op = (rawUid: string): BlockOp => ({ op: "delete", uid: uid(rawUid) });
-const ack = (): OpsAck => ({
-  applied: true, seq: 1 as SyncSeq,
-} as unknown as OpsAck);
+const op = (rawUid: string): BlockOp => ({ op: "delete", uid: uidOf(rawUid) });
+const ack = (): OpsAck => ({ ok: true, ts: 1, applied: 1, seq: seqOf(1) });
 
-const bid = (s: string): BatchId => s as BatchId;
+const bid = (s: string): BatchId => batchIdOf(s);
 
 function minter(): () => BatchId {
   let n = 0;
-  return () => { n += 1; return `batch-${n}` as BatchId; };
+  return () => { n += 1; return batchIdOf(`batch-${n}`); };
 }
 
 function memStore(initial: PoisonEvent[] = []) {
@@ -38,7 +35,7 @@ describe("createOpQueue deps", () => {
   test("posts through deps.post with the injected client and batch ids", async () => {
     const post = vi.fn(async (_body: OpBatch) => ack());
     const q = createOpQueue(memReplica(), {
-      post, clientId: "client-x" as ClientId, newBatchId: minter(),
+      post, clientId: clientIdOf("client-x"), newBatchId: minter(),
     });
     await q.enqueue([op("aaaaaaaa")]).settled;
     await q.drain();
@@ -52,16 +49,16 @@ describe("createOpQueue deps", () => {
   test("a durable batch's seen_seq rides the post; one without omits the key", async () => {
     const post = vi.fn(async (_body: OpBatch) => ack());
     const batches = [
-      { id: 1 as PendingRowId, batch_id: bid("with"), ops: [op("aaaaaaaa")],
-        poisoned: false, seen_seq: 9 as SyncSeq },
-      { id: 2 as PendingRowId, batch_id: bid("without"), ops: [op("bbbbbbbb")],
+      { id: pendingRowIdOf(1), batch_id: bid("with"), ops: [op("aaaaaaaa")],
+        poisoned: false, seen_seq: seqOf(9) },
+      { id: pendingRowIdOf(2), batch_id: bid("without"), ops: [op("bbbbbbbb")],
         poisoned: false },
     ];
     const replica = memReplica({
       nextBatch: async () => batches[0] ?? null,
       deleteBatch: vi.fn(async () => { batches.shift(); return { pending: batches.length, matched: true }; }),
     });
-    const q = createOpQueue(replica, { post, clientId: "client-x" as ClientId });
+    const q = createOpQueue(replica, { post, clientId: clientIdOf("client-x") });
     await q.drain();
     expect(post.mock.calls.map((c) => c[0])).toStrictEqual([
       { client_id: "client-x", batch_id: "with", ops: [op("aaaaaaaa")], seen_seq: 9 },
@@ -72,7 +69,7 @@ describe("createOpQueue deps", () => {
 
   test("reads and writes poison intents through deps.poisonStore", async () => {
     const stored: PoisonEvent = {
-      id: 7 as PendingRowId, batch_id: "old-batch" as BatchId, ops: [op("bbbbbbbb")],
+      id: pendingRowIdOf(7), batch_id: batchIdOf("old-batch"), ops: [op("bbbbbbbb")],
       status: 400, message: "bad",
     };
     const { store, writes } = memStore([stored]);
@@ -111,10 +108,10 @@ describe("createOpQueue deps", () => {
     const postA = vi.fn(async (_body: OpBatch) => ack());
     const postB = vi.fn(async (_body: OpBatch) => ack());
     const a = createOpQueue(memReplica(), {
-      post: postA, clientId: "client-a" as ClientId, newBatchId: minter(),
+      post: postA, clientId: clientIdOf("client-a"), newBatchId: minter(),
     });
     const b = createOpQueue(memReplica(), {
-      post: postB, clientId: "client-b" as ClientId, newBatchId: minter(),
+      post: postB, clientId: clientIdOf("client-b"), newBatchId: minter(),
     });
     await a.enqueue([op("aaaaaaaa")]).settled;
     await b.enqueue([op("bbbbbbbb")]).settled;

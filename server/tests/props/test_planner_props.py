@@ -25,15 +25,15 @@ from hypothesis import event, given, settings, strategies as st
 from pkm.client.api import PkmClient
 from pkm.client.core import CliConfig
 from pkm.client.workflows import apply_batch
-from pkm.contracts.ops import (BatchId, BlockOp, CreateOp, CreatePageOp,
-                               DeleteOp, MoveOp)
+from pkm.contracts.ops import BatchId, BlockOp, BlockUid, CreateOp, CreatePageOp, DeleteOp, MoveOp
 from pkm.contracts.responses import BlockNode, OpsAck, walk_blocks
 from pkm.planning import BuildError
 from props.harness import (FROZEN_NOW, FreshApp, assert_unique_keys,
                            assert_well_formed, examples, fresh_app, seed_ops,
                            template_db_path)
-from props.model import MBlock, positions_after
+from props.model import Groups, MBlock, positions_after
 from props.strategies import PAGES, cli_batch, seed_tree, uid_pool
+from pkm.test_data.ids import batch_id_of, uid_of
 
 pytestmark = pytest.mark.proptest
 
@@ -41,7 +41,6 @@ UIDS = uid_pool(12)
 PAGE = PAGES[0]
 _UID_SPEC = re.compile(r"^\(\((.+)\)\)$")
 
-Groups = dict[str | None, list[str]]
 AnyOp = BlockOp | Mapping[str, Any]
 
 
@@ -51,7 +50,7 @@ class Racing(PkmClient):
     the ops the CLI posts: the uids the planner minted show up only there."""
 
     def __init__(self, config: CliConfig, http: httpx2.Client,
-                 concurrent: str | None) -> None:
+                 concurrent: BlockUid | None) -> None:
         super().__init__(config, http=http)
         self.concurrent = concurrent
         self.posted: list[AnyOp] = []
@@ -59,13 +58,13 @@ class Racing(PkmClient):
     def post_ops(self, ops: Sequence[AnyOp], batch_id: BatchId) -> OpsAck:
         if self.concurrent is not None:
             ack = super().post_ops([{"op": "delete", "uid": self.concurrent}],
-                                   batch_id=BatchId("concurrent-delete"))
+                                   batch_id=batch_id_of("concurrent-delete"))
             assert ack.skipped == []
         self.posted = list(ops)
         return super().post_ops(ops, batch_id)
 
 
-def _groups(pairs: Iterable[tuple[str | None, str, int]]) -> Groups:
+def _groups(pairs: Iterable[tuple[BlockUid | None, BlockUid, int]]) -> Groups:
     """(parent, uid, order_idx) triples as parent -> children in key
     order. Every block gets a (possibly empty) group of its own."""
     groups: Groups = {None: []}
@@ -86,21 +85,21 @@ def _page_groups(nodes: Sequence[BlockNode]) -> Groups:
     return _groups(top + below)
 
 
-def _parent(groups: Groups, uid: str) -> tuple[bool, str | None]:
+def _parent(groups: Groups, uid: BlockUid) -> tuple[bool, BlockUid | None]:
     for parent, kids in groups.items():
         if uid in kids:
             return True, parent
     return False, None
 
 
-def _subtree(groups: Groups, uid: str) -> list[str]:
+def _subtree(groups: Groups, uid: BlockUid) -> list[BlockUid]:
     found = [uid]
     for kid in groups.get(uid, []):
         found.extend(_subtree(groups, kid))
     return found
 
 
-def _without(groups: Groups, uid: str) -> Groups:
+def _without(groups: Groups, uid: BlockUid) -> Groups:
     """`groups` after `uid` and its subtree are deleted."""
     gone = set(_subtree(groups, uid))
     return {p: [k for k in kids if k not in gone]
@@ -111,17 +110,17 @@ def _nonempty(groups: Groups) -> Groups:
     return {p: kids for p, kids in groups.items() if kids}
 
 
-def _named_seed_uids(commands: Sequence[dict], rows: Sequence[MBlock]) -> list[str]:
+def _named_seed_uids(commands: Sequence[dict], rows: Sequence[MBlock]) -> list[BlockUid]:
     """Seeded uids some command names, as its block or its parent, in
     first-mention order."""
     seeded = {b.uid for b in rows}
-    named: list[str] = []
+    named: list[BlockUid] = []
     for command in commands:
         params = command["params"]
         m = _UID_SPEC.match(params.get("parent") or "")
         for uid in (params.get("uid"), m.group(1) if m else None):
             if isinstance(uid, str) and uid in seeded and uid not in named:
-                named.append(uid)
+                named.append(uid_of(uid))
     return named
 
 
@@ -134,7 +133,7 @@ def _gapped(rows: Sequence[MBlock]) -> bool:
 
 
 def _states(start: Groups, commands: Sequence[dict],
-            created: Sequence[str]) -> list[Groups]:
+            created: Sequence[BlockUid]) -> list[Groups]:
     """The arrangement before each command, from `start`: entry i is
     `positions_after` over the first i commands."""
     states: list[Groups] = []
@@ -162,7 +161,7 @@ def _index_events(commands: Sequence[dict], ops: Sequence[AnyOp],
 
 
 def _check(app: FreshApp, rows: Sequence[MBlock], commands: list[dict],
-           concurrent: str | None) -> None:
+           concurrent: BlockUid | None) -> None:
     r = app.client.post("/api/ops", json={
         "client_id": "proptest", "batch_id": "seed-batch",
         "ops": seed_ops(PAGE, rows)})

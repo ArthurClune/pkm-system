@@ -4,9 +4,8 @@ import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
-import type { DeliveryOutcome, TicketId, WriteTicket } from "../sync/opQueue";
-import { block, defer, makeSync, ord,
-         uid } from "../test-helpers";
+import type { DeliveryOutcome, WriteTicket } from "../sync/opQueue";
+import { block, defer, makeSync, orderIdxOf, uidOf, shaOf, ticketIdOf } from "../test-helpers";
 import { acquireOutlineSession } from "./outlineSessions";
 import { historyIdle, performRedo, performUndo,
          recordHistory, registerOutlineHistory, resetHistory,
@@ -19,12 +18,12 @@ const PAGE = "Undo Page";
 
 const entry = (): HistoryEntry => ({
   pageTitle: PAGE,
-  ops: [{ op: "update_text", uid: uid("a"), text: "after" }],
-  inverse: [{ op: "update_text", uid: uid("a"), text: "before" }],
+  ops: [{ op: "update_text", uid: uidOf("tuid-a"), text: "after" }],
+  inverse: [{ op: "update_text", uid: uidOf("tuid-a"), text: "before" }],
   anchors: { ops: [null], inverse: [null] },
   freshAssets: [],
-  focusBefore: { uid: uid("a"), cursor: 6 },
-  focusAfter: { uid: uid("a"), cursor: 5 },
+  focusBefore: { uid: uidOf("tuid-a"), cursor: 6 },
+  focusAfter: { uid: uidOf("tuid-a"), cursor: 5 },
 });
 
 // Unmounted pages are read through the page loader; an empty tree keeps the
@@ -37,13 +36,13 @@ it("undo enqueues the inverse batch scoped to the entry's page", async () => {
   recordHistory(entry());
   expect(performUndo(sync)).toBe(true);
   await historyIdle();
-  expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before" }]]);
+  expect(sync.sent).toEqual([[{ op: "update_text", uid: "tuid-a", text: "before" }]]);
   expect(sync.tickets[0].scope).toEqual(["page", PAGE]);
 });
 
 it("undo applies to a mounted session and restores focusBefore", () => {
   const sync = makeSync();
-  const handle = acquireOutlineSession(PAGE, [block("a", "after", { order_idx: ord(0) })]);
+  const handle = acquireOutlineSession(PAGE, [block("tuid-a", "after", { order_idx: orderIdxOf(0) })]);
   const focused: (unknown)[] = [];
   const unregister = registerOutlineHistory(PAGE, {
     flushPending: () => undefined,
@@ -52,7 +51,7 @@ it("undo applies to a mounted session and restores focusBefore", () => {
   recordHistory(entry());
   performUndo(sync);
   expect(handle.getSnapshot().blocks[0].text).toBe("before");
-  expect(focused).toEqual([{ uid: "a", cursor: 6 }]);
+  expect(focused).toEqual([{ uid: "tuid-a", cursor: 6 }]);
   unregister();
   handle.release();
 });
@@ -63,7 +62,7 @@ it("redo replays the forward batch and restores focusAfter", async () => {
   performUndo(sync);
   expect(performRedo(sync)).toBe(true);
   await historyIdle();
-  expect(sync.sent[1]).toEqual([{ op: "update_text", uid: "a", text: "after" }]);
+  expect(sync.sent[1]).toEqual([{ op: "update_text", uid: "tuid-a", text: "after" }]);
 });
 
 it("flushes registered drafts before undoing (pending draft becomes the undone entry)", async () => {
@@ -79,7 +78,7 @@ it("flushes registered drafts before undoing (pending draft becomes the undone e
   expect(performUndo(sync)).toBe(true); // flush recorded the entry it then undoes
   await historyIdle();
   expect(calls).toEqual(["flush"]);
-  expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before" }]]);
+  expect(sync.sent).toEqual([[{ op: "update_text", uid: "tuid-a", text: "before" }]]);
   unregister();
 });
 
@@ -102,14 +101,14 @@ it("navigates on undo when the page's session lingers with no mounted hooks (off
   // so the fix must still navigate — while also applying to the session so
   // its data stays fresh for when it's next mounted.
   const sync = makeSync();
-  const handle = acquireOutlineSession(PAGE, [block("a", "after", { order_idx: ord(0) })]);
+  const handle = acquireOutlineSession(PAGE, [block("tuid-a", "after", { order_idx: orderIdxOf(0) })]);
   const paths: string[] = [];
   const clear = setHistoryNavigator((p) => paths.push(p));
   recordHistory(entry());
   performUndo(sync);
   // The lingering session IS a tree, so the replayed op is stamped against
   // it; the other undo tests here have no session and go out unstamped.
-  expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before",
+  expect(sync.sent).toEqual([[{ op: "update_text", uid: "tuid-a", text: "before",
                                base_text_hash: sha256Hex("after"),
                                page_title: PAGE }]]);
   expect(handle.getSnapshot().blocks[0].text).toBe("before");
@@ -133,11 +132,11 @@ it("redo stamps against the current tree, not the recorded one", () => {
   // replacing —
   // not of "one", the text the entry was recorded against.
   const sync = makeSync();
-  const handle = acquireOutlineSession(PAGE, [block("a", "one", { order_idx: ord(0) })]);
+  const handle = acquireOutlineSession(PAGE, [block("tuid-a", "one", { order_idx: orderIdxOf(0) })]);
   recordHistory({
     pageTitle: PAGE,
-    ops: [{ op: "update_text", uid: uid("a"), text: "one" }],
-    inverse: [{ op: "update_text", uid: uid("a"), text: "zero" }],
+    ops: [{ op: "update_text", uid: uidOf("tuid-a"), text: "one" }],
+    inverse: [{ op: "update_text", uid: uidOf("tuid-a"), text: "zero" }],
     anchors: { ops: [null], inverse: [null] },
   freshAssets: [],
     focusBefore: null,
@@ -145,14 +144,14 @@ it("redo stamps against the current tree, not the recorded one", () => {
   });
   performUndo(sync);
   // A later edit of the user's own moves the block on before the redo.
-  const later: BlockOp[] = [{ op: "update_text", uid: uid("a"), text: "two" }];
+  const later: BlockOp[] = [{ op: "update_text", uid: uidOf("tuid-a"), text: "two" }];
   handle.applyLocal(sync.enqueue(later, ["page", PAGE]), later);
   expect(handle.getSnapshot().blocks[0].text).toBe("two");
 
   expect(performRedo(sync)).toBe(true);
 
   expect(sync.sent[sync.sent.length - 1][0]).toMatchObject({
-    op: "update_text", uid: "a", text: "one",
+    op: "update_text", uid: "tuid-a", text: "one",
     base_text_hash: sha256Hex("two"),
   });
   handle.release();
@@ -163,24 +162,24 @@ it("an undo that deletes is stamped against the tree at replay time", () => {
   // must cover the block's text as it is when the undo replays, or undoing a
   // block the user has since typed into would land a spurious conflict copy.
   const sync = makeSync();
-  const before = [block("a", "first", { order_idx: ord(0) })];
-  const create: BlockOp[] = [{ op: "create", uid: uid("n"), page_title: PAGE,
-                               parent_uid: null, order_idx: ord(1), text: "" }];
+  const before = [block("tuid-a", "first", { order_idx: orderIdxOf(0) })];
+  const create: BlockOp[] = [{ op: "create", uid: uidOf("tuid-n"), page_title: PAGE,
+                               parent_uid: null, order_idx: orderIdxOf(1), text: "" }];
   const inverse = invertOps(before, PAGE, create);
-  expect(inverse).toEqual([{ op: "delete", uid: "n" }]);
+  expect(inverse).toEqual([{ op: "delete", uid: "tuid-n" }]);
   const handle = acquireOutlineSession(PAGE, [
-    ...before, block("n", "", { order_idx: ord(1) })]);
+    ...before, block("tuid-n", "", { order_idx: orderIdxOf(1) })]);
   recordHistory({ pageTitle: PAGE, ops: create, inverse: inverse!,
                   anchors: historyAnchors(before, PAGE, create, inverse!),
                   freshAssets: [], focusBefore: null, focusAfter: null });
-  const typed: BlockOp[] = [{ op: "update_text", uid: uid("n"), text: "typed later" }];
+  const typed: BlockOp[] = [{ op: "update_text", uid: uidOf("tuid-n"), text: "typed later" }];
   handle.applyLocal(sync.enqueue(typed, ["page", PAGE]), typed);
 
   expect(performUndo(sync)).toBe(true);
 
   expect(sync.sent[sync.sent.length - 1]).toEqual([{
-    op: "delete", uid: "n",
-    base_subtree_hash: subtreeHash([["n", "typed later"]]),
+    op: "delete", uid: "tuid-n",
+    base_subtree_hash: subtreeHash([["tuid-n", "typed later"]]),
   }]);
   handle.release();
 });
@@ -189,8 +188,8 @@ it("undo re-keys placements against the mounted tree, not the recorded keys", ()
   // Two moves up in a row: undoing the second shifts keys up, so the first
   // entry's recorded key no longer names b1's old slot.
   const sync = makeSync();
-  const move = (u: string, orderIdx: number): BlockOp[] =>
-    [{ op: "move", uid: uid(u), parent_uid: null, order_idx: ord(orderIdx) }];
+  const move = (u: string, slot: number): BlockOp[] =>
+    [{ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(slot) }];
   const record = (pre: BlockNode[], ops: BlockOp[]) => {
     const inverse = invertOps(pre, PAGE, ops)!;
     recordHistory({ pageTitle: PAGE, ops, inverse,
@@ -198,22 +197,22 @@ it("undo re-keys placements against the mounted tree, not the recorded keys", ()
                     freshAssets: [], focusBefore: null, focusAfter: null });
     return applyOps(pre, ops, PAGE);
   };
-  let tree = ["b0", "b1", "b2"].map((u, i) => block(u, u, { order_idx: ord(i) }));
-  tree = record(tree, move("b1", 0));
-  tree = record(tree, move("b2", tree[1].order_idx));
+  let tree = ["tuid-b0", "tuid-b1", "tuid-b2"].map((u, i) => block(u, u, { order_idx: orderIdxOf(i) }));
+  tree = record(tree, move("tuid-b1", 0));
+  tree = record(tree, move("tuid-b2", tree[1].order_idx));
   const handle = acquireOutlineSession(PAGE, tree);
   const order = () => handle.getSnapshot().blocks.map((n) => n.uid);
-  expect(order()).toEqual(["b1", "b2", "b0"]);
+  expect(order()).toEqual(["tuid-b1", "tuid-b2", "tuid-b0"]);
 
   performUndo(sync);
-  expect(order()).toEqual(["b1", "b0", "b2"]);
+  expect(order()).toEqual(["tuid-b1", "tuid-b0", "tuid-b2"]);
   performUndo(sync);
-  expect(order()).toEqual(["b0", "b1", "b2"]);
+  expect(order()).toEqual(["tuid-b0", "tuid-b1", "tuid-b2"]);
   // the server gets the re-keyed op the session applied
-  expect(sync.sent[1]).toEqual([{ op: "move", uid: "b1", parent_uid: null,
+  expect(sync.sent[1]).toEqual([{ op: "move", uid: "tuid-b1", parent_uid: null,
                                   order_idx: handle.getSnapshot().blocks[1].order_idx }]);
   performRedo(sync);
-  expect(order()).toEqual(["b1", "b0", "b2"]);
+  expect(order()).toEqual(["tuid-b1", "tuid-b0", "tuid-b2"]);
   handle.release();
 });
 
@@ -225,24 +224,24 @@ it("recording clears redo (integration of AC through the manager)", () => {
   expect(performRedo(sync)).toBe(false);
 });
 
-const moveOp = (u: string, orderIdx: number): BlockOp[] =>
-  [{ op: "move", uid: uid(u), parent_uid: null, order_idx: ord(orderIdx) }];
+const moveOp = (u: string, slot: number): BlockOp[] =>
+  [{ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(slot) }];
 
 it("undo with no session re-keys placements against the loaded page", async () => {
   // Move b1 to the top, navigate away, and let another device add x at the
   // top, shifting every key up. The recorded inverse key now names b0's slot,
   // so shipping it unchanged would leave b1 in front of b0.
   const sync = makeSync();
-  const pre = ["b0", "b1", "b2"].map((u, i) => block(u, u, { order_idx: ord(i) }));
-  const ops = moveOp("b1", 0);
+  const pre = ["tuid-b0", "tuid-b1", "tuid-b2"].map((u, i) => block(u, u, { order_idx: orderIdxOf(i) }));
+  const ops = moveOp("tuid-b1", 0);
   const inverse = invertOps(pre, PAGE, ops)!;
   recordHistory({ pageTitle: PAGE, ops, inverse,
                   anchors: historyAnchors(pre, PAGE, ops, inverse),
                   freshAssets: [], focusBefore: null, focusAfter: null });
   const loaded = applyOps(applyOps(pre, ops, PAGE), [{
-    op: "create", uid: uid("x"), page_title: PAGE, parent_uid: null,
-    order_idx: ord(0), text: "x" }], PAGE);
-  expect(loaded.map((n) => n.uid)).toEqual(["x", "b1", "b0", "b2"]);
+    op: "create", uid: uidOf("tuid-x"), page_title: PAGE, parent_uid: null,
+    order_idx: orderIdxOf(0), text: "x" }], PAGE);
+  expect(loaded.map((n) => n.uid)).toEqual(["tuid-x", "tuid-b1", "tuid-b0", "tuid-b2"]);
   setHistoryPageLoader(async () => loaded);
   const paths: string[] = [];
   const clear = setHistoryNavigator((p) => paths.push(p));
@@ -252,18 +251,18 @@ it("undo with no session re-keys placements against the loaded page", async () =
 
   expect(sync.tickets[0].scope).toEqual(["page", PAGE]);
   expect(applyOps(loaded, sync.sent[0], PAGE).map((n) => n.uid))
-    .toEqual(["x", "b0", "b1", "b2"]);
+    .toEqual(["tuid-x", "tuid-b0", "tuid-b1", "tuid-b2"]);
   expect(paths).toHaveLength(1);
   clear();
 });
 
 it("undo with no session stamps base_text_hash against the loaded tree", async () => {
   const sync = makeSync();
-  setHistoryPageLoader(async () => [block("a", "typed elsewhere", { order_idx: ord(0) })]);
+  setHistoryPageLoader(async () => [block("tuid-a", "typed elsewhere", { order_idx: orderIdxOf(0) })]);
   recordHistory(entry());
   performUndo(sync);
   await historyIdle();
-  expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before",
+  expect(sync.sent).toEqual([[{ op: "update_text", uid: "tuid-a", text: "before",
                                base_text_hash: sha256Hex("typed elsewhere"),
                                page_title: PAGE }]]);
 });
@@ -275,7 +274,7 @@ it("a mounted-page undo queued behind an unmounted load waits its turn", async (
   setHistoryPageLoader(() => gate.promise);
   recordHistory(entry());
   recordHistory({ ...entry(), pageTitle: OTHER });
-  const mounted = acquireOutlineSession(PAGE, [block("a", "after", { order_idx: ord(0) })]);
+  const mounted = acquireOutlineSession(PAGE, [block("tuid-a", "after", { order_idx: orderIdxOf(0) })]);
   performUndo(sync); // OTHER: no session, load pending
   performUndo(sync); // PAGE: mounted, but must wait behind the load
   expect(sync.sent).toEqual([]);
@@ -300,8 +299,8 @@ it("a failed load ships the recorded batch unstamped, navigates, and later dispa
   performUndo(sync);
   await historyIdle();
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "a", text: "before" }],
-    [{ op: "update_text", uid: "a", text: "before" }]]);
+    [{ op: "update_text", uid: "tuid-a", text: "before" }],
+    [{ op: "update_text", uid: "tuid-a", text: "before" }]]);
   expect(paths).toHaveLength(2);
   expect(warn).toHaveBeenCalled();
   clear();
@@ -327,8 +326,8 @@ it("a throwing enqueue is logged and does not break later dispatches or leak the
 
 // --- releasing the fresh assets of an undone upload ---
 
-const S1 = "1".repeat(64) as Sha256Hex;
-const S2 = "2".repeat(64) as Sha256Hex;
+const S1 = shaOf("1".repeat(64));
+const S2 = shaOf("2".repeat(64));
 
 const upload = (...shas: Sha256Hex[]): HistoryEntry =>
   ({ ...entry(), freshAssets: shas });
@@ -342,7 +341,7 @@ function gatedSync() {
       const gate = defer<DeliveryOutcome>();
       gates.push(gate);
       return {
-        id: `gated-${gates.length}` as TicketId, scope: ["page", PAGE],
+        id: ticketIdOf(`gated-${gates.length}`), scope: ["page", PAGE],
         settled: Promise.resolve({ status: "persisted", pending: 0 }),
         delivered: gate.promise,
       } satisfies WriteTicket;

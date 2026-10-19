@@ -1,29 +1,31 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { ConfirmId } from "../api/brands";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { stubFetch } from "../test-helpers";
+import { stubFetch, confirmIdOf } from "../test-helpers";
 import type { ChatItem, PendingConfirm, PhaseInfo } from "./useAssistant";
 
-const state = vi.hoisted(() => ({
-  current: {
-    items: [] as ChatItem[],
-    status: "idle" as "idle" | "busy" | "confirm",
-    phase: null as PhaseInfo | null,
-    error: null as string | null,
-    model: "sonnet",
-    setModel: vi.fn(),
-    models: ["sonnet", "opus", "haiku"],
-    ensureModels: vi.fn(),
-    modelLocked: false,
-    pendingConfirm: null as PendingConfirm | null,
-    send: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn(),
-    respondConfirm: vi.fn().mockResolvedValue(undefined),
-    newChat: vi.fn().mockResolvedValue(undefined),
-  },
-}));
+const state = vi.hoisted(() => {
+  const noConfirm = (): PendingConfirm | null => null;
+  return {
+    current: {
+      items: [] as ChatItem[],
+      status: "idle" as "idle" | "busy" | "confirm",
+      phase: null as PhaseInfo | null,
+      error: null as string | null,
+      model: "sonnet",
+      setModel: vi.fn(),
+      models: ["sonnet", "opus", "haiku"],
+      ensureModels: vi.fn(),
+      modelLocked: false,
+      pendingConfirm: noConfirm(),
+      send: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn(),
+      respondConfirm: vi.fn().mockResolvedValue(undefined),
+      newChat: vi.fn().mockResolvedValue(undefined),
+    },
+  };
+});
 vi.mock("./useAssistant", () => ({ useAssistant: () => state.current }));
 
 import { AssistantPanel } from "./AssistantPanel";
@@ -90,7 +92,7 @@ describe("AssistantPanel", () => {
 
   test("confirm card wires Allow and Deny", () => {
     state.current.status = "confirm";
-    state.current.pendingConfirm = { confirmId: "t1" as ConfirmId, opsPreview: "save_note(title=Demo)" };
+    state.current.pendingConfirm = { confirmId: confirmIdOf("t1"), opsPreview: "save_note(title=Demo)" };
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByText("save_note(title=Demo)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
@@ -129,7 +131,7 @@ describe("AssistantPanel", () => {
     state.current.phase = { label: "reasoning", since: 995_000 };
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByText("reasoning… 5s")).toBeInTheDocument();
-    act(() => vi.advanceTimersByTime(3_000));
+    act(() => { vi.advanceTimersByTime(3_000); });
     expect(screen.getByText("reasoning… 8s")).toBeInTheDocument();
     vi.useRealTimers();
   });
@@ -163,7 +165,7 @@ describe("AssistantPanel", () => {
 
   test("Stop button is not shown during a confirm pause", () => {
     state.current.status = "confirm";
-    state.current.pendingConfirm = { confirmId: "t1" as ConfirmId, opsPreview: "save_note(title=Demo)" };
+    state.current.pendingConfirm = { confirmId: confirmIdOf("t1"), opsPreview: "save_note(title=Demo)" };
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
   });
@@ -171,7 +173,7 @@ describe("AssistantPanel", () => {
   test("long ops previews collapse with a Show full preview toggle", () => {
     const longPreview = `save_note(text=${"x".repeat(600)})`;
     state.current.status = "confirm";
-    state.current.pendingConfirm = { confirmId: "t1" as ConfirmId, opsPreview: longPreview };
+    state.current.pendingConfirm = { confirmId: confirmIdOf("t1"), opsPreview: longPreview };
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.queryByText(longPreview)).toBeNull(); // collapsed: not the full string
     const toggle = screen.getByRole("button", { name: /show full preview/i });
@@ -182,7 +184,7 @@ describe("AssistantPanel", () => {
 
   test("short ops previews render in full with no toggle", () => {
     state.current.status = "confirm";
-    state.current.pendingConfirm = { confirmId: "t1" as ConfirmId, opsPreview: "save_note(title=Demo)" };
+    state.current.pendingConfirm = { confirmId: confirmIdOf("t1"), opsPreview: "save_note(title=Demo)" };
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByText("save_note(title=Demo)")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /show full preview/i })).toBeNull();

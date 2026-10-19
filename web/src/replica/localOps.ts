@@ -18,6 +18,7 @@
 import type { BatchId, BlockUid, OrderIdx, PageId } from "../api/brands";
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
+import type { Columns } from "./columns.gen";
 import type { ReplicaDb } from "./db";
 import { skipsOnMissingTarget } from "./missingTarget";
 import { existingLocalPageId, localPageTitle, pageIdByTitle } from "./pageLookup";
@@ -72,10 +73,11 @@ export function getOrCreateLocalPage(db: ReplicaDb, requested: string,
   if (existing !== null) return existing;
   const reuse = record?.freed?.get(title);
   const next = reuse !== undefined
-      && db.select("SELECT 1 AS x FROM pages WHERE id = ?", [reuse]).length === 0
+      && db.select("SELECT 1 AS n FROM pages WHERE id = ?", [reuse]).length === 0
     ? reuse
-    : db.select<{ id: PageId }>(
-        "SELECT MIN(0, COALESCE((SELECT MIN(id) FROM pages), 0)) - 1 AS id")[0].id;
+    : db.select<"page_id">(
+        "SELECT MIN(0, COALESCE((SELECT MIN(id) FROM pages), 0)) - 1 AS page_id",
+      )[0].page_id;
   if (record !== undefined) recordPage(db, record.batchId, next, true);
   db.exec(
     "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
@@ -118,12 +120,10 @@ const shiftSiblings = (db: ReplicaDb, pageId: PageId,
     [pageId, parentUid, fromOrderIdx]);
 };
 
-interface BlockInfo {
-  page_id: PageId; parent_uid: BlockUid | null; order_idx: OrderIdx;
-}
+type BlockInfo = Pick<Columns, "page_id" | "parent_uid" | "order_idx">;
 
 const blockInfo = (db: ReplicaDb, uid: BlockUid): BlockInfo | null => {
-  const rows = db.select<BlockInfo>(
+  const rows = db.select<keyof BlockInfo>(
     "SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid = ?", [uid]);
   return rows.length > 0 ? rows[0] : null;
 };
@@ -131,7 +131,7 @@ const blockInfo = (db: ReplicaDb, uid: BlockUid): BlockInfo | null => {
 /** uid and every ancestor above it; the visited-path guard stops on a
  * loop already in the replica, as ops_apply._parent_chain does. */
 const parentChain = (db: ReplicaDb, uid: BlockUid): BlockUid[] =>
-  db.select<{ uid: BlockUid }>(
+  db.select<"uid">(
     `WITH RECURSIVE chain(uid, parent_uid, path) AS (
        SELECT uid, parent_uid, ',' || uid || ',' FROM blocks WHERE uid = ?
        UNION ALL
@@ -142,7 +142,7 @@ const parentChain = (db: ReplicaDb, uid: BlockUid): BlockUid[] =>
      SELECT uid FROM chain`, [uid]).map((r) => r.uid);
 
 export const subtreeUids = (db: ReplicaDb, uid: BlockUid): BlockUid[] =>
-  db.select<{ uid: BlockUid }>(
+  db.select<"uid">(
     `WITH RECURSIVE sub(uid, path, depth) AS (
        SELECT uid, ',' || uid || ',', 0 FROM blocks WHERE uid = ?
        UNION ALL

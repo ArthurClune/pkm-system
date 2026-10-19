@@ -4,15 +4,15 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import type { BlockRefText } from "../api/payloads";
 import { BlockRefProvider } from "./BlockRefProvider";
-import { journalBacklinks, pageId, title, uid } from "../test-helpers";
+import { journalBacklinks, pageIdOf, canonicalTitleOf, uidOf } from "../test-helpers";
 import { JournalDayReferences } from "./JournalDayReferences";
 
 afterEach(() => vi.unstubAllGlobals());
 
 const PLANS = [{
-  page_id: pageId(9),
-  page_title: title("Plans"),
-  items: [{ uid: uid("uid_p1"), text: "Remind me on [[July 7th, 2026]]",
+  page_id: pageIdOf(9),
+  page_title: canonicalTitleOf("Plans"),
+  items: [{ uid: uidOf("uid_p1"), text: "Remind me on [[July 7th, 2026]]",
             breadcrumbs: [] }],
 }];
 
@@ -53,10 +53,10 @@ it("resolves ((block refs)) in a reference's text from the journal-wide map",
   // The server merges the backlink items' own ((refs)) into the journal
   // payload's block_ref_texts, which the Journal seeds for every day.
   show(
-    [{ page_id: pageId(9), page_title: title("Plans"),
-       items: [{ uid: uid("uid_p1"), text: "see ((ref_local)) for details",
+    [{ page_id: pageIdOf(9), page_title: canonicalTitleOf("Plans"),
+       items: [{ uid: uidOf("uid_p1"), text: "see ((ref_local)) for details",
                  breadcrumbs: [] }] }],
-    { ref_local: { text: "resolved locally", page_title: title("Elsewhere") } },
+    { ref_local: { text: "resolved locally", page_title: canonicalTitleOf("Elsewhere") } },
   );
   expect(screen.getByText("resolved locally")).toBeInTheDocument();
 });

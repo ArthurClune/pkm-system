@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { block, ord, uid } from "../test-helpers";
+import { block, orderIdxOf, uidOf } from "../test-helpers";
 import type { BlockNode } from "../api/payloads";
 import { allowedDepths, depthFromX, dropRows, resolveDrop,
          INDENT_PX, type DragSource } from "./dnd";
@@ -7,21 +7,21 @@ import { allowedDepths, depthFromX, dropRows, resolveDrop,
 // Page "P":  a(0) [ b(0) [ c(0) ] ]  d(1, collapsed) [ e(0) ]  f(2)
 function page(): BlockNode[] {
   return [
-    { ...block("a", "A", { order_idx: ord(0) }), children: [
-      { ...block("b", "B", { order_idx: ord(0) }), children: [
-        block("c", "C", { order_idx: ord(0) })] }] },
-    { ...block("d", "D", { order_idx: ord(1), collapsed: true }), children: [
-      block("e", "E", { order_idx: ord(0) })] },
-    block("f", "F", { order_idx: ord(2) }),
+    { ...block("tuid-a", "A", { order_idx: orderIdxOf(0) }), children: [
+      { ...block("tuid-b", "B", { order_idx: orderIdxOf(0) }), children: [
+        block("tuid-c", "C", { order_idx: orderIdxOf(0) })] }] },
+    { ...block("tuid-d", "D", { order_idx: orderIdxOf(1), collapsed: true }), children: [
+      block("tuid-e", "E", { order_idx: orderIdxOf(0) })] },
+    block("tuid-f", "F", { order_idx: orderIdxOf(2) }),
   ];
 }
-const OTHER: DragSource = { kind: "blocks", uid: uid("zz"), pageTitle: "Elsewhere" };
+const OTHER: DragSource = { kind: "blocks", uid: uidOf("tuid-zz"), pageTitle: "Elsewhere" };
 
 it("dropRows hides collapsed children and excludes the dragged subtree", () => {
   expect(dropRows(page(), OTHER, "P").map((r) => r.uid))
-    .toEqual(["a", "b", "c", "d", "f"]); // e hidden under collapsed d
-  expect(dropRows(page(), { kind: "blocks", uid: uid("b"), pageTitle: "P" }, "P").map((r) => r.uid))
-    .toEqual(["a", "d", "f"]);           // b and c lifted out
+    .toEqual(["tuid-a", "tuid-b", "tuid-c", "tuid-d", "tuid-f"]); // e hidden under collapsed d
+  expect(dropRows(page(), { kind: "blocks", uid: uidOf("tuid-b"), pageTitle: "P" }, "P").map((r) => r.uid))
+    .toEqual(["tuid-a", "tuid-d", "tuid-f"]);           // b and c lifted out
 });
 
 it("allowedDepths spans below-depth..above-depth+1, capped by collapse", () => {
@@ -39,7 +39,7 @@ it("allowedDepths is never empty, at any boundary of any outline", () => {
   // which is only sound because no reachable pointer position resolves to
   // "this zone accepts nothing". Depth 0 is always legal, because the row
   // above a boundary can never sit below depth 0.
-  const outlines: BlockNode[][] = [page(), [], [block("solo", "S")]];
+  const outlines: BlockNode[][] = [page(), [], [block("tuid-solo", "S")]];
   for (const blocks of outlines) {
     const rows = dropRows(blocks, OTHER, "P");
     for (let boundary = 0; boundary <= rows.length; boundary++) {
@@ -58,10 +58,10 @@ it("depthFromX rounds by indent and clamps to the allowed range", () => {
 it("resolveDrop picks parent and order_idx from the chosen depth", () => {
   // boundary 3 = after c; depth 1 → child of a, after b → order_idx 1
   expect(resolveDrop(page(), "P", OTHER, { boundary: 3, depth: 1 }))
-    .toEqual({ parent_uid: "a", order_idx: 1, page_title: "P" });
+    .toEqual({ parent_uid: "tuid-a", order_idx: 1, page_title: "P" });
   // boundary 3, depth 3 → first child of c
   expect(resolveDrop(page(), "P", OTHER, { boundary: 3, depth: 3 }))
-    .toEqual({ parent_uid: "c", order_idx: 0, page_title: "P" });
+    .toEqual({ parent_uid: "tuid-c", order_idx: 0, page_title: "P" });
   // boundary 1 = after a (b is a's child at depth 1); depth 0 → top level.
   // First row at/after boundary with parent null (depth 0) is d with order_idx
   // 1 → insert before d at top level
@@ -70,12 +70,12 @@ it("resolveDrop picks parent and order_idx from the chosen depth", () => {
   // boundary 5 = end of outline, after f; depth 1 → child of f (childless) →
   // first child
   expect(resolveDrop(page(), "P", OTHER, { boundary: 5, depth: 1 }))
-    .toEqual({ parent_uid: "f", order_idx: 0, page_title: "P" });
+    .toEqual({ parent_uid: "tuid-f", order_idx: 0, page_title: "P" });
 });
 
 it("resolveDrop returns null for a same-position drop", () => {
   // dragging f, dropping at the very end at depth 0 = where it already is
-  const drag: DragSource = { kind: "blocks", uid: uid("f"), pageTitle: "P" };
+  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-f"), pageTitle: "P" };
   const rows = dropRows(page(), drag, "P");
   expect(resolveDrop(page(), "P", drag, { boundary: rows.length, depth: 0 })).toBeNull();
   // and dropping right before its own old slot is also a no-op
@@ -90,20 +90,23 @@ it("resolveDrop from another page never returns null (content must move)", () =>
 // --- group drag: a drag that carries a multi-block selection ---
 
 it("dropRows excludes every dragged subtree of a group drag", () => {
-  const drag: DragSource = { kind: "blocks", uid: uid("a"), pageTitle: "P", uids: [uid("a"), uid("d")] };
-  expect(dropRows(page(), drag, "P").map((r) => r.uid)).toEqual(["f"]);
+  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-a"), pageTitle: "P", uids: [uidOf("tuid-a"),
+    uidOf("tuid-d")] };
+  expect(dropRows(page(), drag, "P").map((r) => r.uid)).toEqual(["tuid-f"]);
 });
 
 it("resolveDrop resolves a group drop to the run's first slot", () => {
   // dragging [d, f] above a: insert at the top, before a
-  const drag: DragSource = { kind: "blocks", uid: uid("d"), pageTitle: "P", uids: [uid("d"), uid("f")] };
+  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-d"), pageTitle: "P", uids: [uidOf("tuid-d"),
+    uidOf("tuid-f")] };
   expect(resolveDrop(page(), "P", drag, { boundary: 0, depth: 0 }))
     .toEqual({ parent_uid: null, order_idx: 0, page_title: "P" });
 });
 
 it("resolveDrop returns null when a group drop changes nothing", () => {
   // [d, f] dropped right back where they already sit (after a's subtree)
-  const drag: DragSource = { kind: "blocks", uid: uid("d"), pageTitle: "P", uids: [uid("d"), uid("f")] };
+  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-d"), pageTitle: "P", uids: [uidOf("tuid-d"),
+    uidOf("tuid-f")] };
   const rows = dropRows(page(), drag, "P"); // [a, b, c]
   expect(resolveDrop(page(), "P", drag, { boundary: rows.length, depth: 0 })).toBeNull();
 });
@@ -114,7 +117,7 @@ const FILES: DragSource = { kind: "files" };
 
 it("dropRows keeps every row for a files drag, even on the same page", () => {
   expect(dropRows(page(), FILES, "P").map((r) => r.uid))
-    .toEqual(["a", "b", "c", "d", "f"]);
+    .toEqual(["tuid-a", "tuid-b", "tuid-c", "tuid-d", "tuid-f"]);
 });
 
 it("resolveDrop never returns the same-position null for a files drag", () => {

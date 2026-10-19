@@ -1,6 +1,5 @@
 import fcntl
 import os
-import sqlite3
 import time
 
 import pytest
@@ -8,6 +7,7 @@ import pytest
 from perfcheck import build as b
 from perfcheck.fixture import generate
 from rawread import read
+from pkm.database import connect
 
 
 @pytest.fixture()
@@ -21,7 +21,7 @@ def test_build_applies_every_create(tmp_path):
     b.build(dest, seed=1, scale=0.02)
     fx = generate(1, 0.02)
     n_creates = sum(1 for bt in fx.batches for op in bt.ops if op["op"] == "create")
-    con = sqlite3.connect(dest)
+    con = connect(dest)
     assert read(con, "SELECT COUNT(*) FROM blocks").fetchone()[0] == n_creates
     assert read(con, "SELECT COUNT(*) FROM assets").fetchone()[0] == len(fx.assets)
     assert read(con, "SELECT COUNT(*) FROM sidebar_entries").fetchone()[0] == len(fx.sidebar)
@@ -125,16 +125,17 @@ def test_build_seeds_a_rename_with_a_block_rewrites_row(tmp_path):
     dest = tmp_path / "fx.sqlite3"
     b.build(dest, seed=1, scale=0.02)
     fx = generate(1, 0.02)
-    con = sqlite3.connect(dest)
+    con = connect(dest)
     try:
-        titles = {r[0] for r in con.execute("SELECT title FROM pages")}
+        titles = {r["title"] for r in con.select("SELECT title FROM pages")}
         assert RENAME_TARGET_TITLE in titles
         assert RENAME_SOURCE_TITLE not in titles
-        rewritten = read(con,
+        rewritten = con.select(
             "SELECT base_hash, after_hash, old_title, new_title FROM block_rewrites"
-            " WHERE uid = ?", (fx.landmarks.rename_ref_uid,)).fetchall()
+            " WHERE uid = ?", (fx.landmarks.rename_ref_uid,))
         assert len(rewritten) == 1
-        base_hash, after_hash, old_title, new_title = rewritten[0]
+        base_hash, after_hash = rewritten[0]["base_hash"], rewritten[0]["after_hash"]
+        old_title, new_title = rewritten[0]["old_title"], rewritten[0]["new_title"]
         assert base_hash == text_hash(RENAME_REF_TEXT)
         assert old_title == RENAME_SOURCE_TITLE
         assert new_title == RENAME_TARGET_TITLE

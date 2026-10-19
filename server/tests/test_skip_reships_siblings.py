@@ -6,6 +6,8 @@ import pytest
 
 from rawread import read
 from pkm.server.db import open_db
+from pkm.contracts.ops import BlockUid, SyncSeq
+from pkm.test_data.ids import uid_of
 
 PAGE = "Sib Page"
 _counter = 0
@@ -21,26 +23,26 @@ def _post(client, *ops):
     return r.json()
 
 
-def _create(uid, idx, parent=None):
+def _create(uid: BlockUid, idx, parent=None):
     return {"op": "create", "uid": uid, "page_title": PAGE,
             "parent_uid": parent, "order_idx": idx, "text": f"text {uid}"}
 
 
 def _seed_top_level(client):
-    _post(client, *(_create(f"sib_s{i}", (i - 1) * 10) for i in range(1, 5)))
+    _post(client, *(_create(uid_of(f"sib_s{i}"), (i - 1) * 10) for i in range(1, 5)))
 
 
 def _latest_seq(client):
     return client.get("/api/sync/changes?since=0&limit=1").json()["latest_seq"]
 
 
-def _feed_since(client, seq):
+def _feed_since(client, seq: SyncSeq):
     feed = client.get(f"/api/sync/changes?since={seq}").json()
     return ({b["uid"]: b for b in feed["blocks"]},
             {t["entity_id"] for t in feed["tombstones"] if t["kind"] == "block"})
 
 
-def _journalled_since(seeded_config, seq):
+def _journalled_since(seeded_config, seq: SyncSeq):
     con = open_db(seeded_config.db_path)
     try:
         return [(r["entity_id"], r["deleted"]) for r in read(con,
@@ -56,13 +58,13 @@ def _block_state(seeded_config):
     one of them.)"""
     con = open_db(seeded_config.db_path)
     try:
-        blocks = [tuple(r) for r in read(con,
+        blocks = [tuple(r.values()) for r in con.select(
             "SELECT * FROM blocks WHERE uid LIKE 'sib\\_%' ESCAPE '\\'"
             " ORDER BY uid")]
-        refs = [tuple(r) for r in read(con,
-            "SELECT * FROM refs WHERE src_block_uid LIKE 'sib\\_%' ESCAPE '\\'"
-            " ORDER BY 1, 2, 3")]
-        block_refs = [tuple(r) for r in read(con,
+        refs = [tuple(r.values()) for r in con.select(
+            "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs"
+            " WHERE src_block_uid LIKE 'sib\\_%' ESCAPE '\\' ORDER BY 1, 2, 3")]
+        block_refs = [tuple(r.values()) for r in con.select(
             "SELECT * FROM block_refs ORDER BY 1, 2")]
         fts = [tuple(r) for r in read(con,
             "SELECT rowid, text FROM blocks_fts WHERE blocks_fts MATCH 'text'"
@@ -91,9 +93,9 @@ def test_skipped_move_reships_destination_siblings(client, page_title):
 
 
 def test_skipped_move_under_a_live_parent_reships_its_children(client):
-    _post(client, _create("sib_pp", 0),
-          _create("sib_c1", 0, "sib_pp"), _create("sib_c2", 10, "sib_pp"),
-          _create("sib_xx", 10))
+    _post(client, _create(uid_of("sib_pp"), 0),
+          _create(uid_of("sib_c1"), 0, "sib_pp"), _create(uid_of("sib_c2"), 10, "sib_pp"),
+          _create(uid_of("sib_xx"), 10))
     _post(client, {"op": "delete", "uid": "sib_xx"})
     since = _latest_seq(client)
     ack = _post(client, {"op": "move", "uid": "sib_xx", "parent_uid": "sib_pp",
@@ -127,8 +129,8 @@ def test_the_touch_changes_no_column_or_index_and_rides_the_batch(
 def test_cycle_skip_reships_the_targets_children(client):
     # sib_aa > sib_bb > (sib_c1, sib_c2); moving sib_aa under sib_bb is a cycle.
     # The replica's optimistic apply shifted sib_bb's children.
-    _post(client, _create("sib_aa", 0), _create("sib_bb", 0, "sib_aa"),
-          _create("sib_c1", 0, "sib_bb"), _create("sib_c2", 10, "sib_bb"))
+    _post(client, _create(uid_of("sib_aa"), 0), _create(uid_of("sib_bb"), 0, "sib_aa"),
+          _create(uid_of("sib_c1"), 0, "sib_bb"), _create(uid_of("sib_c2"), 10, "sib_bb"))
     since = _latest_seq(client)
     ack = _post(client, {"op": "move", "uid": "sib_aa", "parent_uid": "sib_bb",
                          "order_idx": 0})
@@ -150,7 +152,7 @@ def test_missing_parent_skip_reships_nothing_beyond_its_journal(
     # replica's shifted copies, and a child another device moved out first
     # ships with that move. No stray sibling rows.
     _seed_top_level(client)
-    _post(client, _create("sib_gone", 40), _create("sib_k1", 0, "sib_gone"))
+    _post(client, _create(uid_of("sib_gone"), 40), _create(uid_of("sib_k1"), 0, "sib_gone"))
     _post(client, {"op": "delete", "uid": "sib_gone"})
     since = _latest_seq(client)
     ack = _post(client, op)
@@ -224,7 +226,7 @@ def test_untitled_skip_of_a_uid_never_deleted_reships_nothing(
 
 def test_orphan_move_under_a_gone_parent_reships_nothing(client, seeded_config):
     _seed_top_level(client)
-    _post(client, _create("sib_gone3", 40), _create("sib_k3", 0, "sib_gone3"))
+    _post(client, _create(uid_of("sib_gone3"), 40), _create(uid_of("sib_k3"), 0, "sib_gone3"))
     _post(client, {"op": "delete", "uid": "sib_gone3"})
     _post(client, {"op": "delete", "uid": "sib_s2"})
     since = _latest_seq(client)
@@ -238,18 +240,20 @@ def test_orphan_move_under_a_gone_parent_reships_nothing(client, seeded_config):
 def _page_id(seeded_config, title):
     con = open_db(seeded_config.db_path)
     try:
-        return read(con, "SELECT id FROM pages WHERE title = ?",
-                           (title,)).fetchone()["id"]
+        row = con.select_one(
+            "SELECT id AS page_id FROM pages WHERE title = ?", (title,))
+        assert row is not None
+        return row["page_id"]
     finally:
         con.close()
 
 
-def _tombstone_pages(seeded_config, uid):
+def _tombstone_pages(seeded_config, uid: BlockUid):
     con = open_db(seeded_config.db_path)
     try:
-        return [r["page_id"] for r in read(con,
-            "SELECT page_id FROM changes WHERE entity_id = ? AND deleted = 1"
-            " ORDER BY seq", (uid,))]
+        return [r["change_page_id"] for r in con.select(
+            "SELECT page_id AS change_page_id FROM changes"
+            " WHERE entity_id = ? AND deleted = 1 ORDER BY seq", (uid,))]
     finally:
         con.close()
 
@@ -266,7 +270,7 @@ def test_skipped_move_of_a_diverted_create_reships_siblings(
     _post(client, {"op": "delete", "uid": "sib_s1"})
     _post(client, {"op": "create", "uid": "sib_new2", "page_title": PAGE,
                    "parent_uid": "sib_s1", "order_idx": 0, "text": text})
-    assert _tombstone_pages(seeded_config, "sib_new2") == [
+    assert _tombstone_pages(seeded_config, uid_of("sib_new2")) == [
         _page_id(seeded_config, PAGE)]
     since = _latest_seq(client)
     ack = _post(client, {"op": "move", "uid": "sib_new2", "parent_uid": None,
@@ -287,7 +291,7 @@ def test_diverted_create_with_a_stale_title_takes_its_parents_page(
     _post(client, {"op": "create", "uid": "sib_new3",
                    "page_title": "Title Since Renamed", "parent_uid": "sib_s1",
                    "order_idx": 0, "text": "x"})
-    assert _tombstone_pages(seeded_config, "sib_new3") == [
+    assert _tombstone_pages(seeded_config, uid_of("sib_new3")) == [
         _page_id(seeded_config, PAGE)]
 
 
@@ -296,4 +300,4 @@ def test_diverted_create_with_no_known_page_records_none(
     _post(client, {"op": "create", "uid": "sib_new4",
                    "page_title": "Never A Page", "parent_uid": "sib_never2",
                    "order_idx": 0, "text": "x"})
-    assert _tombstone_pages(seeded_config, "sib_new4") == [None]
+    assert _tombstone_pages(seeded_config, uid_of("sib_new4")) == [None]

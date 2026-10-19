@@ -6,18 +6,23 @@
 //
 // The replica code and sqlite-wasm come from $PERF_WEB_ROOT, never from this
 // file's own checkout, so a merge-base run measures the base's replica with
-// the branch's harness. Only types are imported from the branch statically.
+// the branch's harness. The branch's small modules (typed client, id and
+// uid helpers) are imported statically; the replica never is.
 import { renameSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "vitest";
-import type { ClientId, SyncSeq } from "../../src/api/brands";
-import type { OpsAck } from "../../src/api/payloads";
+import type { SyncSeq } from "../../src/api/brands";
+import { setUnauthorizedHandler } from "../../src/api/client";
+import { apiGet, apiPost } from "../../src/api/typedClient";
 import type { Changes, Snapshot } from "../../src/replica/apply";
 import type { Oo1DbLike } from "../../src/replica/db";
+import { newBatchId, newClientId } from "../../src/uid";
 import { installCounter, type Oo1Exec, type SqlCounts, type Sqlite3Like } from "./sqlcount";
-import { pendingBatches, pickTargets, windowBatches } from "./rebaseTargets";
+import {
+  PENDING_BATCHES, WINDOW_BATCHES, pendingBatches, pickTargets, windowBatches,
+} from "./rebaseTargets";
 
 type HandlersModule = typeof import("../../src/replica/workerHandlers");
 type DbModule = typeof import("../../src/replica/db");
@@ -35,9 +40,9 @@ const BASE_URL = env("PERF_BASE_URL");
 const OUT = env("PERF_REBASE_OUT");
 const FROZEN_MS = Date.parse(process.env.PERF_FROZEN_NOW ?? "2026-06-15T12:00:00+01:00");
 const PAGE = "Perf Big Page";
-const PEER = "perf-rebase-peer" as ClientId;
+const PEER = newClientId();
 const WINDOWS = ["R/rebase-edit", "R/rebase-paste", "R/rebase-overlap"] as const;
-const PENDING = 6;
+const mintIds = (n: number) => Array.from({ length: n }, () => newBatchId());
 
 async function loadReplica(): Promise<{ handlers: HandlersModule; db: DbModule; sqlite3: Sqlite3 }> {
   const src = (rel: string): string => path.join(WEB_ROOT, "src", rel);
@@ -70,31 +75,40 @@ async function login(): Promise<string> {
   return cookie;
 }
 
-async function call<T>(cookie: string, route: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}${route}`, body === undefined
-    ? { headers: { cookie } }
-    : { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(`rebase scenario: ${route} failed: ${res.status} ${await res.text()}`);
-  return await res.json() as T;
+/** Routes the typed client's relative fetches to the fixture server; the
+ * returned function puts the real fetch back. A 401 skips the app's
+ * redirect, which reads `window.location`, absent on Node. */
+function pointClientAt(cookie: string): () => void {
+  const real = globalThis.fetch;
+  setUnauthorizedHandler(() => {});
+  globalThis.fetch = (input, init) => real(`${BASE_URL}${String(input)}`, {
+    ...init, headers: { ...(init?.headers as Record<string, string> | undefined), cookie },
+  });
+  return () => { globalThis.fetch = real; };
 }
 
 /** The snapshot, then each peer batch posted and its window fetched. */
 async function fetchWorkload(): Promise<{ snapshot: Snapshot; feeds: Changes[] }> {
-  const cookie = await login();
-  const snapshot = await call<Snapshot>(cookie, "/api/sync/snapshot");
-  const targets = pickTargets(snapshot, PAGE);
-  const feeds: Changes[] = [];
-  let cursor: SyncSeq = snapshot.seq;
-  for (const w of windowBatches(targets, snapshot)) {
-    const ack = await call<OpsAck>(cookie, "/api/ops", { client_id: PEER, batch_id: w.batchId, ops: w.ops });
-    // a skipped op would silently shrink the window being measured
-    expect(ack.skipped ?? [], `${w.batchId} skipped ops`).toEqual([]);
-    expect(ack.applied, `${w.batchId} applied`).toBe(w.ops.length);
-    const feed = await call<Changes>(cookie, `/api/sync/changes?since=${cursor}`);
-    feeds.push(feed);
-    cursor = feed.next_since;
+  const restoreFetch = pointClientAt(await login());
+  try {
+    const snapshot = await apiGet("/api/sync/snapshot");
+    const targets = pickTargets(snapshot, PAGE);
+    const feeds: Changes[] = [];
+    let cursor: SyncSeq = snapshot.seq;
+    for (const w of windowBatches(targets, snapshot, mintIds(WINDOW_BATCHES))) {
+      const ack = await apiPost("/api/ops",
+        { body: { client_id: PEER, batch_id: w.batchId, ops: w.ops } });
+      // a skipped op would silently shrink the window being measured
+      expect(ack.skipped ?? [], `${w.batchId} skipped ops`).toEqual([]);
+      expect(ack.applied, `${w.batchId} applied`).toBe(w.ops.length);
+      const feed = await apiGet("/api/sync/changes", { query: { since: cursor } });
+      feeds.push(feed);
+      cursor = feed.next_since;
+    }
+    return { snapshot, feeds };
+  } finally {
+    restoreFetch();
   }
-  return { snapshot, feeds };
 }
 
 /** One fresh replica: snapshot, the pending queue, then each window
@@ -109,19 +123,19 @@ async function measurePass(
     raw.exec("PRAGMA recursive_triggers=ON");
     const counter = installCounter(replica.sqlite3, raw);
     const h = replica.handlers.buildHandlers({
-      openDb: async () => replica.db.wrapSqlite(raw),
+      openDb: async () => replica.db.wrapSqlite(raw, { checkRows: false }),
       nowMs: () => FROZEN_MS,
       newBatchId: () => { throw new Error("rebase scenario: every enqueue names its batch id"); },
     });
     await h.init(undefined);
     await h.applySnapshot({ snapshot, expectedPendingIds: [] });
-    for (const b of pendingBatches(pickTargets(snapshot, PAGE), snapshot)) {
+    for (const b of pendingBatches(pickTargets(snapshot, PAGE), snapshot, mintIds(PENDING_BATCHES))) {
       await h.enqueue({ ops: b.ops, batchId: b.batchId });
     }
     const out: SqlCounts[] = [];
     for (const [i, feed] of feeds.entries()) {
       const pending = await h.pendingBatches(undefined);
-      expect(pending.filter((b) => !b.poisoned), `${WINDOWS[i]} pending batches`).toHaveLength(PENDING);
+      expect(pending.filter((b) => !b.poisoned), `${WINDOWS[i]} pending batches`).toHaveLength(PENDING_BATCHES);
       const { result, counts } = await counter.measure(() =>
         h.applyChanges({ feed, expectedPendingIds: pending.map((b) => b.id) }));
       expect(result.status, `${WINDOWS[i]} apply status`).toBe("applied");

@@ -19,9 +19,10 @@
 // page it named at the start, another page, or no page at all, when the
 // server get_or_creates one under it.
 import fc from "fast-check";
-import type { BlockUid, OrderIdx } from "../../api/brands";
+import type { BlockUid } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import type { SyncModel } from "./model";
+import { uidOf, orderIdxOf } from "../../test-helpers";
 
 export const SEED_PAGE = "Proptest";
 export const SEED_UIDS = ["pt_seed_1", "pt_seed_2", "pt_seed_3",
@@ -57,7 +58,7 @@ export interface OpDraft {
    * page_title, and a null leaves the move on the block's own page. Only a
    * top-level create or move is placed by its title. */
   page: number | null;
-  orderIdx: number;
+  order: number;
   text: string;
   collapsed: boolean;
 }
@@ -101,7 +102,7 @@ export const opDraft: fc.Arbitrary<OpDraft> = fc.record({
   // move that stays on its page.
   page: fc.option(fc.nat({ max: PAGE_TITLES.length - 1 }), { nil: null, freq: 2 }),
   // The seed's keys are 0, 10 .. 50: this reaches before, between and after.
-  orderIdx: fc.nat({ max: 70 }),
+  order: fc.nat({ max: 70 }),
   text,
   collapsed: fc.boolean(),
 });
@@ -123,18 +124,18 @@ export function resolveOps(drafts: readonly OpDraft[], pool: readonly string[],
                            fresh: readonly string[]): { ops: BlockOp[]; used: string[] } {
   const live = [...pool];
   const used: string[] = [];
-  const pick = (i: number): BlockUid => live[i % live.length] as BlockUid;
+  const pick = (i: number): BlockUid => uidOf(live[i % live.length]);
   const ops = drafts.map((d): BlockOp => {
     const uid = pick(d.target);
     const parent = d.parent === null ? null : pick(d.parent);
-    const order = d.orderIdx as OrderIdx;
+    const order = orderIdxOf(d.order);
     switch (d.kind) {
       case "create": {
         const next = fresh[used.length];
         if (next === undefined) return { op: "update_text", uid, text: d.text };
         used.push(next);
         live.push(next);
-        return { op: "create", uid: next as BlockUid,
+        return { op: "create", uid: uidOf(next),
                  page_title: d.page === null ? SEED_PAGE : pageTitle(d.page),
                  parent_uid: parent, order_idx: order, text: d.text };
       }
@@ -188,12 +189,12 @@ export function showDraft(d: OpDraft): string {
   switch (d.kind) {
     case "create":
       return `create under ${d.parent === null ? top(`top of ${SEED_PAGE}`) : `#${d.parent}`}` +
-        ` at ${d.orderIdx} ${JSON.stringify(d.text)}`;
+        ` at ${d.order} ${JSON.stringify(d.text)}`;
     case "update_text":
       return `update_text #${d.target} ${JSON.stringify(d.text)}`;
     case "move":
       return `move #${d.target} under ${d.parent === null ? top("top") : `#${d.parent}`}` +
-        ` at ${d.orderIdx}`;
+        ` at ${d.order}`;
     case "delete":
       return `delete #${d.target}`;
     case "set_collapsed":

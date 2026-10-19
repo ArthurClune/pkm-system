@@ -4,7 +4,7 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { SidebarContext } from "../contexts";
 import { titleForDate } from "../replica/daily";
-import { block, ord, stubFetch } from "../test-helpers";
+import { block, orderIdxOf, stubFetch } from "../test-helpers";
 import type { OutlineHandlers } from "../outline/handlers";
 import { BlockInput } from "./BlockInput";
 
@@ -30,7 +30,7 @@ function handlers(): OutlineHandlers {
   };
 }
 
-const NODE = block("u1", "hello [[World]]", { order_idx: ord(0) });
+const NODE = block("tuid-u1", "hello [[World]]", { order_idx: orderIdxOf(0) });
 
 function inputElement(
   h: OutlineHandlers,
@@ -86,7 +86,7 @@ test.each([
 
 test("a focused plain-text block keeps block-input and omits heading classes", () => {
   const h = handlers();
-  mount(h, 0, false, block("plain", "Heading", { heading: null }));
+  mount(h, 0, false, block("tuid-plain", "Heading", { heading: null }));
 
   const ta = focusedTextarea();
   expect(ta).toHaveClass("block-input");
@@ -99,7 +99,7 @@ test("typing reports the draft", () => {
   const h = handlers();
   mount(h, 0);
   fireEvent.change(focusedTextarea(), { target: { value: "hi" } });
-  expect(h.onDraftChange).toHaveBeenCalledWith("u1", "hi");
+  expect(h.onDraftChange).toHaveBeenCalledWith("tuid-u1", "hi");
 });
 
 test("the first edit of a clean draft reports the text it was typed over", () => {
@@ -108,7 +108,7 @@ test("the first edit of a clean draft reports the text it was typed over", () =>
   fireEvent.change(focusedTextarea(), { target: { value: "hi" } });
   fireEvent.change(focusedTextarea(), { target: { value: "hi!" } });
   expect(h.onDraftStart).toHaveBeenCalledTimes(1);
-  expect(h.onDraftStart).toHaveBeenCalledWith("u1", "hello [[World]]");
+  expect(h.onDraftStart).toHaveBeenCalledWith("tuid-u1", "hello [[World]]");
   expect(vi.mocked(h.onDraftStart).mock.invocationCallOrder[0])
     .toBeLessThan(vi.mocked(h.onDraftChange).mock.invocationCallOrder[0]);
   // The draft commits (the tree catches up), so the next edit starts a new
@@ -116,12 +116,12 @@ test("the first edit of a clean draft reports the text it was typed over", () =>
   rerender(inputElement(h, { ...NODE, text: "hi!" }));
   fireEvent.change(focusedTextarea(), { target: { value: "hi!?" } });
   expect(h.onDraftStart).toHaveBeenCalledTimes(2);
-  expect(h.onDraftStart).toHaveBeenLastCalledWith("u1", "hi!");
+  expect(h.onDraftStart).toHaveBeenLastCalledWith("tuid-u1", "hi!");
 });
 
 test("a textarea mounting over a pending draft shows it and keeps its base", () => {
   const h = handlers();
-  vi.mocked(h.pendingDraft).mockImplementation((uid) => (uid === "u1"
+  vi.mocked(h.pendingDraft).mockImplementation((uid) => (uid === "tuid-u1"
     ? { text: "draft text", selection: { start: 2, end: 5 } } : null));
   const { rerender } = mount(h, 0);
   expect(focusedTextarea().value).toBe("draft text");
@@ -133,7 +133,7 @@ test("a textarea mounting over a pending draft shows it and keeps its base", () 
   // Its first edit starts no new draft, so the pending draft keeps its base.
   fireEvent.change(focusedTextarea(), { target: { value: "draft text!" } });
   expect(h.onDraftStart).not.toHaveBeenCalled();
-  expect(h.onDraftChange).toHaveBeenCalledWith("u1", "draft text!");
+  expect(h.onDraftChange).toHaveBeenCalledWith("tuid-u1", "draft text!");
 });
 
 test("a resumed draft with no recorded selection puts the caret at its end", () => {
@@ -150,7 +150,7 @@ test("an unmounting textarea reports its selection", () => {
   const { unmount } = mount(h, 0);
   focusedTextarea().setSelectionRange(3, 6);
   unmount();
-  expect(h.onInputUnmount).toHaveBeenCalledWith("u1", 3, 6);
+  expect(h.onInputUnmount).toHaveBeenCalledWith("tuid-u1", 3, 6);
 });
 
 test("keyboard map dispatches to the right handlers", () => {
@@ -159,22 +159,22 @@ test("keyboard map dispatches to the right handlers", () => {
   const ta = focusedTextarea();
   ta.setSelectionRange(3, 3);
   fireEvent.keyDown(ta, { key: "Enter" });
-  expect(h.onSplit).toHaveBeenCalledWith("u1", 3);
+  expect(h.onSplit).toHaveBeenCalledWith("tuid-u1", 3);
   fireEvent.keyDown(ta, { key: "Tab" });
-  expect(h.onIndent).toHaveBeenCalledWith("u1");
+  expect(h.onIndent).toHaveBeenCalledWith("tuid-u1");
   fireEvent.keyDown(ta, { key: "Tab", shiftKey: true });
-  expect(h.onOutdent).toHaveBeenCalledWith("u1");
+  expect(h.onOutdent).toHaveBeenCalledWith("tuid-u1");
   fireEvent.keyDown(ta, { key: "ArrowUp", shiftKey: true, metaKey: true });
-  expect(h.onMoveSubtreeUp).toHaveBeenCalledWith("u1");
+  expect(h.onMoveSubtreeUp).toHaveBeenCalledWith("tuid-u1");
   fireEvent.keyDown(ta, { key: "ArrowDown", shiftKey: true, metaKey: true });
-  expect(h.onMoveSubtreeDown).toHaveBeenCalledWith("u1");
+  expect(h.onMoveSubtreeDown).toHaveBeenCalledWith("tuid-u1");
   fireEvent.keyDown(ta, { key: "ArrowUp" }); // single-line: crosses up
-  expect(h.onArrow).toHaveBeenCalledWith("u1", "up");
+  expect(h.onArrow).toHaveBeenCalledWith("tuid-u1", "up");
   ta.setSelectionRange(0, 0);
   fireEvent.keyDown(ta, { key: "Backspace" });
-  expect(h.onBackspaceAtStart).toHaveBeenCalledWith("u1");
+  expect(h.onBackspaceAtStart).toHaveBeenCalledWith("tuid-u1");
   fireEvent.keyDown(ta, { key: "ArrowLeft" });
-  expect(h.onArrow).toHaveBeenCalledWith("u1", "left");
+  expect(h.onArrow).toHaveBeenCalledWith("tuid-u1", "left");
 });
 
 test("Option+Arrow stays with browser text handling", () => {
@@ -196,10 +196,10 @@ test("Cmd-Alt-0 through Cmd-Alt-3 set plain text and heading levels", () => {
   for (const key of ["0", "1", "2", "3"]) {
     fireEvent.keyDown(ta, { key, metaKey: true, altKey: true });
   }
-  expect(h.onSetHeading).toHaveBeenNthCalledWith(1, "u1", null);
-  expect(h.onSetHeading).toHaveBeenNthCalledWith(2, "u1", 1);
-  expect(h.onSetHeading).toHaveBeenNthCalledWith(3, "u1", 2);
-  expect(h.onSetHeading).toHaveBeenNthCalledWith(4, "u1", 3);
+  expect(h.onSetHeading).toHaveBeenNthCalledWith(1, "tuid-u1", null);
+  expect(h.onSetHeading).toHaveBeenNthCalledWith(2, "tuid-u1", 1);
+  expect(h.onSetHeading).toHaveBeenNthCalledWith(3, "tuid-u1", 2);
+  expect(h.onSetHeading).toHaveBeenNthCalledWith(4, "tuid-u1", 3);
   expect(h.onDraftChange).not.toHaveBeenCalled();
 });
 
@@ -227,7 +227,7 @@ test("heading shortcuts use the physical digit when Alt changes the key glyph", 
   fireEvent.keyDown(focusedTextarea(), {
     key: "™", code: "Digit2", metaKey: true, altKey: true,
   });
-  expect(h.onSetHeading).toHaveBeenCalledWith("u1", 2);
+  expect(h.onSetHeading).toHaveBeenCalledWith("tuid-u1", 2);
 });
 
 test("Shift-Enter does not split (literal newline)", () => {
@@ -246,7 +246,7 @@ test("arrows stay inside a multi-line draft until the edge line", () => {
   fireEvent.keyDown(ta, { key: "ArrowUp" });
   expect(h.onArrow).not.toHaveBeenCalled();
   fireEvent.keyDown(ta, { key: "ArrowDown" }); // last line: crosses
-  expect(h.onArrow).toHaveBeenCalledWith("u1", "down");
+  expect(h.onArrow).toHaveBeenCalledWith("tuid-u1", "down");
 });
 
 test("readOnly blocks structural keys but Escape still blurs", () => {
@@ -270,7 +270,7 @@ test("typing / opens the command menu; Enter wraps the block in a code fence", (
   expect(screen.getByRole("option", { name: "python code block" })).toBeInTheDocument();
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(h.onSplit).not.toHaveBeenCalled(); // Enter was consumed by the popup
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "```python\n\n```");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "```python\n\n```");
   expect(screen.queryByRole("listbox")).toBeNull(); // popup closed
 });
 
@@ -284,7 +284,7 @@ test("/t filters to text+todo; ArrowDown+Enter picks /todo", () => {
   expect(screen.getByRole("option", { name: "to-do" })).toBeInTheDocument();
   fireEvent.keyDown(ta, { key: "ArrowDown" }); // "text" -> "to-do"
   fireEvent.keyDown(ta, { key: "Enter" });
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{TODO}} ");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "{{TODO}} ");
 });
 
 test("Option/Alt+Arrow stays unhandled while autocomplete is open", () => {
@@ -298,14 +298,14 @@ test("Option/Alt+Arrow stays unhandled while autocomplete is open", () => {
   expect(screen.getByRole("option", { name: "to-do" })).toBeInTheDocument();
   expect(fireEvent.keyDown(ta, { key: "ArrowDown", altKey: true })).toBe(true);
   fireEvent.keyDown(ta, { key: "Enter" });
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "```\n\n```");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "```\n\n```");
 
   fireEvent.change(ta, { target: { value: "/t" } });
   ta.setSelectionRange(2, 2);
   fireEvent.keyDown(ta, { key: "ArrowDown" });
   expect(fireEvent.keyDown(ta, { key: "ArrowUp", altKey: true })).toBe(true);
   fireEvent.keyDown(ta, { key: "Enter" });
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{TODO}} ");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "{{TODO}} ");
 
   expect(h.onArrow).not.toHaveBeenCalled();
   expect(h.onMoveSubtreeUp).not.toHaveBeenCalled();
@@ -322,7 +322,7 @@ test("typing /tab offers Table; Enter inserts {{table}}", () => {
   ta.setSelectionRange(4, 4);
   expect(screen.getByRole("option", { name: "table" })).toBeInTheDocument();
   fireEvent.keyDown(ta, { key: "Enter" });
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{table}}")
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "{{table}}")
 });
 
 test("clicking a slash-menu row picks it (mouseDown, not click)", () => {
@@ -332,7 +332,7 @@ test("clicking a slash-menu row picks it (mouseDown, not click)", () => {
   fireEvent.change(ta, { target: { value: "/py" } });
   ta.setSelectionRange(3, 3);
   fireEvent.mouseDown(screen.getByRole("option", { name: "python code block" }));
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "```python\n\n```");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "```python\n\n```");
   expect(screen.queryByRole("listbox")).toBeNull();
 });
 
@@ -344,7 +344,7 @@ test("Tab accepts the highlighted slash-menu row, same as Enter", () => {
   ta.setSelectionRange(3, 3);
   fireEvent.keyDown(ta, { key: "Tab" });
   expect(h.onIndent).not.toHaveBeenCalled(); // Tab was consumed by the popup, not the indent binding
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "```python\n\n```");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "```python\n\n```");
   expect(screen.queryByRole("listbox")).toBeNull();
 });
 
@@ -356,7 +356,7 @@ test("/text on an empty block inserts a lang-less (plain text) fence", () => {
   ta.setSelectionRange(5, 5);
   expect(screen.getByRole("option", { name: "text" })).toBeInTheDocument();
   fireEvent.keyDown(ta, { key: "Enter" });
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "```\n\n```");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "```\n\n```");
 });
 
 test("a non-matching slash query shows no rows and Enter falls through to split", () => {
@@ -367,7 +367,7 @@ test("a non-matching slash query shows no rows and Enter falls through to split"
   ta.setSelectionRange(4, 4);
   expect(screen.queryByRole("listbox")).toBeNull();
   fireEvent.keyDown(ta, { key: "Enter" });
-  expect(h.onSplit).toHaveBeenCalledWith("u1", 4);
+  expect(h.onSplit).toHaveBeenCalledWith("tuid-u1", 4);
 });
 
 describe("a caret moved without an input event", () => {
@@ -388,9 +388,9 @@ describe("a caret moved without an input event", () => {
     ta.setSelectionRange(2, 2); // clicked back into "hello"
     fireEvent.keyDown(ta, { key: "Enter" });
 
-    expect(h.onSplit).toHaveBeenCalledWith("u1", 2);
+    expect(h.onSplit).toHaveBeenCalledWith("tuid-u1", 2);
     expect(h.onDraftChange)
-      .not.toHaveBeenCalledWith("u1", expect.stringContaining("```"));
+      .not.toHaveBeenCalledWith("tuid-u1", expect.stringContaining("```"));
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 
@@ -408,7 +408,7 @@ describe("a caret moved without an input event", () => {
     ta.setSelectionRange(3, 3);
     fireEvent.keyDown(ta, { key: "Tab" });
 
-    expect(h.onIndent).toHaveBeenCalledWith("u1");
+    expect(h.onIndent).toHaveBeenCalledWith("tuid-u1");
     expect(ta).toHaveValue("see [[Al");
     expect(screen.queryByRole("listbox")).toBeNull();
   });
@@ -438,7 +438,7 @@ describe("a caret moved without an input event", () => {
     ta.setSelectionRange(2, 2);
     fireEvent.mouseDown(row);
 
-    expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "hello /py");
+    expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "hello /py");
     expect(ta).toHaveValue("hello /py");
     expect(screen.queryByRole("listbox")).toBeNull();
   });
@@ -452,8 +452,8 @@ test("typing /h1 shows the heading rows; Enter strips the trigger and dispatches
   ta.setSelectionRange(19, 19);
   expect(screen.getByRole("option", { name: "heading 1" })).toBeInTheDocument();
   fireEvent.keyDown(ta, { key: "Enter" });
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "hello [[World]] ");
-  expect(h.onSetHeading).toHaveBeenCalledWith("u1", 1);
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "hello [[World]] ");
+  expect(h.onSetHeading).toHaveBeenCalledWith("tuid-u1", 1);
   expect(screen.queryByRole("listbox")).toBeNull();
 });
 
@@ -479,7 +479,7 @@ describe("caret placement after a programmatic replace", () => {
     const raf = holdFrames();
     try {
       const h = handlers();
-      mount(h, 0, false, block("u1", "", { order_idx: ord(0) }));
+      mount(h, 0, false, block("tuid-u1", "", { order_idx: orderIdxOf(0) }));
       const ta = focusedTextarea();
       fireEvent.change(ta, { target: { value: "/h1" } });
       ta.setSelectionRange(3, 3);
@@ -491,7 +491,7 @@ describe("caret placement after a programmatic replace", () => {
       raf.runFrames();
       expect([ta.selectionStart, ta.selectionEnd]).toEqual([5, 5]);
       fireEvent.keyDown(ta, { key: "Enter" });
-      expect(h.onSplit).toHaveBeenCalledWith("u1", 5);
+      expect(h.onSplit).toHaveBeenCalledWith("tuid-u1", 5);
     } finally {
       raf.restore();
     }
@@ -500,7 +500,7 @@ describe("caret placement after a programmatic replace", () => {
   test("an auto-paired bracket puts the caret inside the pair before any frame", () => {
     const raf = holdFrames();
     try {
-      mount(handlers(), 0, false, block("u1", "", { order_idx: ord(0) }));
+      mount(handlers(), 0, false, block("tuid-u1", "", { order_idx: orderIdxOf(0) }));
       const ta = focusedTextarea();
       fireEvent.keyDown(ta, { key: "[" });
       expect(ta).toHaveValue("[]");
@@ -513,7 +513,7 @@ describe("caret placement after a programmatic replace", () => {
   test("skipping over a closer (text unchanged) moves the caret before any frame", () => {
     const raf = holdFrames();
     try {
-      mount(handlers(), 1, false, block("u1", "[]", { order_idx: ord(0) }));
+      mount(handlers(), 1, false, block("tuid-u1", "[]", { order_idx: orderIdxOf(0) }));
       const ta = focusedTextarea();
       ta.setSelectionRange(1, 1);
       fireEvent.keyDown(ta, { key: "]" });
@@ -527,12 +527,12 @@ describe("caret placement after a programmatic replace", () => {
 
 test("/h1 on a block that is already h1 toggles back to plain text", () => {
   const h = handlers();
-  mount(h, 0, false, block("u1", "hello [[World]]", { order_idx: ord(0), heading: 1 }));
+  mount(h, 0, false, block("tuid-u1", "hello [[World]]", { order_idx: orderIdxOf(0), heading: 1 }));
   const ta = focusedTextarea();
   fireEvent.change(ta, { target: { value: "hello [[World]] /h1" } });
   ta.setSelectionRange(19, 19);
   fireEvent.keyDown(ta, { key: "Enter" });
-  expect(h.onSetHeading).toHaveBeenCalledWith("u1", null);
+  expect(h.onSetHeading).toHaveBeenCalledWith("tuid-u1", null);
 });
 
 test("/normal always clears the heading, even from plain text", () => {
@@ -542,7 +542,7 @@ test("/normal always clears the heading, even from plain text", () => {
   fireEvent.change(ta, { target: { value: "/normal" } });
   ta.setSelectionRange(7, 7);
   fireEvent.keyDown(ta, { key: "Enter" });
-  expect(h.onSetHeading).toHaveBeenCalledWith("u1", null);
+  expect(h.onSetHeading).toHaveBeenCalledWith("tuid-u1", null);
 });
 
 test("non-heading commands never call onSetHeading", () => {
@@ -560,7 +560,7 @@ test("a remote update arriving mid-composition is deferred until composition end
   const view = mount(h, 0);
   const ta = focusedTextarea();
   fireEvent.compositionStart(ta);
-  const updated = block("u1", "hola [[World]]", { order_idx: ord(0) });
+  const updated = block("tuid-u1", "hola [[World]]", { order_idx: orderIdxOf(0) });
   view.rerender(inputElement(h, updated, 0));
   expect(ta.value).toBe("hello [[World]]"); // untouched while composing
   fireEvent.compositionEnd(ta);
@@ -572,7 +572,7 @@ test("adopting a remote update preserves the caret in a focused, clean textarea"
   const view = mount(h, 0);
   const ta = focusedTextarea();
   ta.setSelectionRange(5, 5); // caret right after "hello"
-  const updated = block("u1", "hello there [[World]]", { order_idx: ord(0) });
+  const updated = block("tuid-u1", "hello there [[World]]", { order_idx: orderIdxOf(0) });
   view.rerender(inputElement(h, updated, 0));
   expect(ta.value).toBe("hello there [[World]]");
   expect(ta.selectionStart).toBe(5);
@@ -584,7 +584,7 @@ test("adopting a remote update clamps the caret to the new (shorter) length", ()
   const view = mount(h, 0);
   const ta = focusedTextarea();
   ta.setSelectionRange(15, 15);
-  const updated = block("u1", "hi", { order_idx: ord(0) });
+  const updated = block("tuid-u1", "hi", { order_idx: orderIdxOf(0) });
   view.rerender(inputElement(h, updated, 0));
   expect(ta.value).toBe("hi");
   expect(ta.selectionStart).toBe(2);
@@ -704,7 +704,7 @@ test("Cmd-K wraps the selection as a markdown link", () => {
   const ta = focusedTextarea();
   ta.setSelectionRange(0, 5); // select "hello" in "hello [[World]]"
   fireEvent.keyDown(ta, { key: "k", metaKey: true });
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[hello]() [[World]]");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "[hello]() [[World]]");
 });
 
 test("Cmd-K with no selection inserts an empty []()", () => {
@@ -713,7 +713,7 @@ test("Cmd-K with no selection inserts an empty []()", () => {
   const ta = focusedTextarea();
   ta.setSelectionRange(0, 0);
   fireEvent.keyDown(ta, { key: "k", metaKey: true });
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[]()hello [[World]]");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "[]()hello [[World]]");
 });
 
 test("Ctrl-K is left alone (mac kill-line, not link)", () => {
@@ -731,7 +731,7 @@ test("Cmd-Enter cycles the block's TODO state, updating the textarea immediately
   const ta = focusedTextarea();
   fireEvent.keyDown(ta, { key: "Enter", metaKey: true });
   expect(ta).toHaveValue("{{TODO}} hello [[World]]");
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{TODO}} hello [[World]]");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "{{TODO}} hello [[World]]");
   expect(h.onSplit).not.toHaveBeenCalled();
 });
 
@@ -741,7 +741,7 @@ test("Ctrl-Enter also cycles the block's TODO state", () => {
   const ta = focusedTextarea();
   fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
   expect(ta).toHaveValue("{{TODO}} hello [[World]]");
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{TODO}} hello [[World]]");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "{{TODO}} hello [[World]]");
 });
 
 test("Cmd-Shift-Enter does not cycle the TODO state", () => {
@@ -760,7 +760,7 @@ test("typing [ auto-closes the bracket", () => {
   const ta = focusedTextarea();
   ta.setSelectionRange(0, 0);
   fireEvent.keyDown(ta, { key: "[" });
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[]hello [[World]]");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "[]hello [[World]]");
 });
 
 test("typing ( around a selection wraps it", () => {
@@ -769,7 +769,7 @@ test("typing ( around a selection wraps it", () => {
   const ta = focusedTextarea();
   ta.setSelectionRange(0, 5); // "hello"
   fireEvent.keyDown(ta, { key: "(" });
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "(hello) [[World]]");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "(hello) [[World]]");
 });
 
 test("typing [ twice opens the [[ page-link autocomplete", () => {
@@ -785,7 +785,7 @@ test("typing [ twice opens the [[ page-link autocomplete", () => {
   ta.setSelectionRange(1, 1);
   fireEvent.keyDown(ta, { key: "[" }); // -> "[[]]" caret 2, ref popup opens
   // caret inside the open ref: the draft is flush-held
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[]]", true);
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "[[]]", true);
 });
 
 test("wrapping a selection in [[ ]] opens the ref popup for the selected text "
@@ -799,7 +799,7 @@ test("wrapping a selection in [[ ]] opens the ref popup for the selected text "
   // jsdom won't run the rAF that restores the selection; mirror the browser.
   ta.setSelectionRange(1, 6);
   fireEvent.keyDown(ta, { key: "[" }); // -> "[[hello]] [[World]]"
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[hello]] [[World]]", true);
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "[[hello]] [[World]]", true);
   ta.setSelectionRange(2, 7);
   // The query is the wrapped text, not the empty string at the selection start.
   expect(screen.getByRole("option", { name: /New page: hello/ }))
@@ -808,7 +808,7 @@ test("wrapping a selection in [[ ]] opens the ref popup for the selected text "
   // resolve() judges liveness at the selection END, so the pick is not stale.
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(h.onSplit).not.toHaveBeenCalled();
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[hello]] [[World]]");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "[[hello]] [[World]]");
   expect(screen.queryByRole("listbox")).toBeNull();
 });
 
@@ -820,7 +820,7 @@ test("typing with the caret inside an open [[ ref holds the draft flush", () => 
   fireEvent.change(ta, {
     target: { value: "[[How LLM]]", selectionStart: 9, selectionEnd: 9 },
   });
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[How LLM]]", true);
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "[[How LLM]]", true);
 });
 
 test("a #tag token holds the draft flush until the token ends", () => {
@@ -830,11 +830,11 @@ test("a #tag token holds the draft flush until the token ends", () => {
   fireEvent.change(ta, {
     target: { value: "#How", selectionStart: 4, selectionEnd: 4 },
   });
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "#How", true);
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "#How", true);
   fireEvent.change(ta, {
     target: { value: "#How ", selectionStart: 5, selectionEnd: 5 },
   });
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "#How ");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "#How ");
 });
 
 test("Shift+ArrowDown at a block edge starts a block selection", () => {
@@ -843,7 +843,7 @@ test("Shift+ArrowDown at a block edge starts a block selection", () => {
   const ta = focusedTextarea();
   ta.setSelectionRange(0, 0);
   fireEvent.keyDown(ta, { key: "ArrowDown", shiftKey: true });
-  expect(h.onStartBlockSelection).toHaveBeenCalledWith("u1", "down");
+  expect(h.onStartBlockSelection).toHaveBeenCalledWith("tuid-u1", "down");
 });
 
 test("Shift+ArrowUp at a block edge starts a block selection upward", () => {
@@ -852,7 +852,7 @@ test("Shift+ArrowUp at a block edge starts a block selection upward", () => {
   const ta = focusedTextarea();
   ta.setSelectionRange(0, 0);
   fireEvent.keyDown(ta, { key: "ArrowUp", shiftKey: true });
-  expect(h.onStartBlockSelection).toHaveBeenCalledWith("u1", "up");
+  expect(h.onStartBlockSelection).toHaveBeenCalledWith("tuid-u1", "up");
 });
 
 test("Shift+Arrow inside a multi-line block extends text, not blocks", () => {
@@ -871,7 +871,7 @@ test("Shift+ArrowUp with text selected starts a block selection, not a focus mov
   const ta = focusedTextarea();
   ta.setSelectionRange(2, 7);
   fireEvent.keyDown(ta, { key: "ArrowUp", shiftKey: true });
-  expect(h.onStartBlockSelection).toHaveBeenCalledWith("u1", "up");
+  expect(h.onStartBlockSelection).toHaveBeenCalledWith("tuid-u1", "up");
   expect(h.onArrow).not.toHaveBeenCalled();
 });
 
@@ -940,7 +940,7 @@ test("Ctrl+Cmd+ArrowUp/Down selects the whole block instead of moving focus", ()
   expect(fireEvent.keyDown(ta, {
     key: "ArrowUp", ctrlKey: true, metaKey: true,
   })).toBe(false);
-  expect(h.onSelectBlock).toHaveBeenCalledWith("u1");
+  expect(h.onSelectBlock).toHaveBeenCalledWith("tuid-u1");
   expect(fireEvent.keyDown(ta, {
     key: "ArrowDown", ctrlKey: true, metaKey: true,
   })).toBe(false);
@@ -976,7 +976,7 @@ test("Shift-Cmd-V arms the split: the next paste dispatches onPasteOutline "
     clipboardData: { files: [], getData: () => "a\n\tb" },
   });
   expect(prevented).toBe(true); // preventDefault: we own the paste
-  expect(h.onPasteOutline).toHaveBeenCalledWith("u1", 2, 5, "a\n\tb");
+  expect(h.onPasteOutline).toHaveBeenCalledWith("tuid-u1", 2, 5, "a\n\tb");
 });
 
 test("Ctrl-Shift-V (non-Mac) arms the split too", () => {
@@ -1065,7 +1065,7 @@ describe("/date picker", () => {
     ta.setSelectionRange(5, 5);
     expect(screen.getByRole("option", { name: "link to a date…" })).toBeInTheDocument();
     fireEvent.keyDown(ta, { key: "Enter" });
-    expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "");
+    expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "");
     expect(screen.getByRole("dialog", { name: "pick a date" })).toBeInTheDocument();
   });
 
@@ -1080,7 +1080,7 @@ describe("/date picker", () => {
     const now = new Date();
     const expected =
       `[[${titleForDate(new Date(now.getFullYear(), now.getMonth(), 15))}]]`;
-    expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", expected);
+    expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", expected);
     expect(screen.queryByRole("dialog", { name: "pick a date" })).toBeNull();
   });
 
@@ -1119,9 +1119,9 @@ describe("/date picker", () => {
     expect(screen.getByRole("dialog", { name: "pick a date" })).toBeInTheDocument();
     // The stripped draft ("") lands on the tree — dirty clears — then a
     // remote edit to the same block arrives and is adopted.
-    const flushed = block("u1", "", { order_idx: ord(0) });
+    const flushed = block("tuid-u1", "", { order_idx: orderIdxOf(0) });
     view.rerender(inputElement(h, flushed, 0));
-    const remote = block("u1", "remote text", { order_idx: ord(0) });
+    const remote = block("tuid-u1", "remote text", { order_idx: orderIdxOf(0) });
     view.rerender(inputElement(h, remote, 0));
     expect(ta.value).toBe("remote text");
     expect(screen.queryByRole("dialog", { name: "pick a date" })).toBeNull();

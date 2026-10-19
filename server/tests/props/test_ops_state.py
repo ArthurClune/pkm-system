@@ -16,14 +16,13 @@ from typing import Any
 
 import pytest
 import time_machine
+from httpx2 import Response
 from hypothesis import event, settings, strategies as st
 from hypothesis.stateful import (RuleBasedStateMachine, initialize, invariant,
                                  precondition, rule)
 
 from conftest import SEED_BLOCKS
-from rawread import read
-from pkm.contracts.ops import subtree_hash, text_hash
-from pkm.database import Db
+from pkm.contracts.ops import BlockUid, SyncSeq, subtree_hash, text_hash
 from pkm.refs import canonicalize_title, extract, is_blank_title
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
 from props.harness import (DAILY_TITLE, FROZEN_NOW, FreshApp,
@@ -31,6 +30,7 @@ from props.harness import (DAILY_TITLE, FROZEN_NOW, FreshApp,
                            fresh_app, read_db, seed_ops, template_db_path)
 from props.model import MBlock, Model
 from props.strategies import PAGES, batch_for, seed_tree, texts, uid_pool
+from pkm.test_data.ids import seq_of
 
 pytestmark = pytest.mark.proptest
 
@@ -44,7 +44,7 @@ HAND_SEEDED = frozenset(row[0] for row in SEED_BLOCKS)
 
 
 def _hash_events(model: Model, ops: list[dict],
-                 seen_seq: int | None) -> list[str]:
+                 seen_seq: SyncSeq | None) -> list[str]:
     """How each hashed op's base hash compares with the block as the
     earlier ops in its batch leave it: matching, stale, absent, aimed at a
     block that is gone, or the base of a recorded rewrite (a replay)."""
@@ -77,31 +77,36 @@ def _snapshot(app: FreshApp) -> tuple[Any, ...]:
     head."""
     with read_db(app.config.db_path) as con:
         return tuple(
-            read(con, sql).fetchall() for sql in (
+            con.select(sql) for sql in (
                 "SELECT * FROM blocks ORDER BY uid",
-                "SELECT * FROM pages ORDER BY id",
-                "SELECT * FROM refs ORDER BY 1, 2, 3",
+                "SELECT id AS page_id, title, created_at, updated_at"
+                " FROM pages ORDER BY id",
+                "SELECT src_block_uid, target_page_id, kind AS ref_kind"
+                " FROM refs ORDER BY 1, 2, 3",
                 "SELECT * FROM block_refs ORDER BY 1, 2",
-                "SELECT * FROM block_rewrites ORDER BY rowid",
+                "SELECT uid, base_hash, after_hash, old_title, new_title,"
+                " created_at AS rewrite_created_at, kind AS rewrite_kind"
+                " FROM block_rewrites ORDER BY rowid",
                 "SELECT * FROM page_deletions ORDER BY rowid",
-                "SELECT COALESCE(MAX(seq), 0) FROM changes"))
+                "SELECT COALESCE(MAX(seq), 0) AS latest_seq FROM changes"))
 
 
-def _head(app: FreshApp) -> int:
+def _head(app: FreshApp) -> SyncSeq:
     with read_db(app.config.db_path) as con:
-        return read(con,
-            "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
+        return con.select(
+            "SELECT COALESCE(MAX(seq), 0) AS latest_seq FROM changes"
+        )[0]["latest_seq"]
 
 
-def _untracked_texts(app: FreshApp, page: str) -> dict[str, str]:
+def _untracked_texts(app: FreshApp, page: str) -> dict[BlockUid, str]:
     """The text of every block the model does not track (conflict
     entries, seed rows) that is off `page`."""
     with read_db(app.config.db_path) as con:
-        return dict(read(con,
+        return {r["uid"]: r["text"] for r in con.select(
             "SELECT b.uid, b.text FROM blocks b"
             " JOIN pages p ON p.id = b.page_id"
             f" WHERE p.title <> ? AND b.uid NOT IN ({','.join('?' * len(UIDS))})",
-            (page, *UIDS)).fetchall())
+            (page, *UIDS))}
 
 
 class OpsMachine(RuleBasedStateMachine):
@@ -124,7 +129,7 @@ class OpsMachine(RuleBasedStateMachine):
         self.batches += 1
         return f"batch{self.batches:06d}"
 
-    def _post(self, payload: dict) -> Any:
+    def _post(self, payload: dict) -> Response:
         assert self.app is not None
         # Each request a second later, so a replayed ack carrying a
         # freshly minted ts could never pass for the stored one.
@@ -173,9 +178,9 @@ class OpsMachine(RuleBasedStateMachine):
         Hypothesis discard the examples whose rule draws keep missing it.
         A head past the journal's is never drawn."""
         assert self.app is not None
-        self._submit(data, data.draw(st.sampled_from(self.before_deletes),
+        self._submit(data, seq_of(data.draw(st.sampled_from(self.before_deletes),
                                      label="seen_seq")
-                     if self.before_deletes else _head(self.app))
+                     if self.before_deletes else _head(self.app)))
 
     @rule(data=st.data())
     def offline_edit(self, data: st.DataObject) -> None:
@@ -225,13 +230,13 @@ class OpsMachine(RuleBasedStateMachine):
         self._send([{"op": "update_text", "uid": uid, "text": online}], None)
         self._send([{"op": "update_text", "uid": uid, "text": offline,
                      "base_text_hash": text_hash(offline)}],
-                   self.before_deletes[0])
+                   seq_of(self.before_deletes[0]))
 
-    def _submit(self, data: st.DataObject, seen_seq: int | None) -> None:
+    def _submit(self, data: st.DataObject, seen_seq: SyncSeq | None) -> None:
         ops = data.draw(batch_for(self.model, UIDS, seen_seq), label="ops")
         self._send(ops, seen_seq)
 
-    def _send(self, ops: list[dict], seen_seq: int | None) -> None:
+    def _send(self, ops: list[dict], seen_seq: SyncSeq | None) -> None:
         """Post one batch and check the ack and the database against the
         model's outcome."""
         assert self.app is not None
@@ -286,7 +291,7 @@ class OpsMachine(RuleBasedStateMachine):
         before = _snapshot(self.app)
         self.clock.shift(timedelta(seconds=1))
         r = self.app.client.delete(f"/api/page/{title}")
-        outcome = self.model.delete_page(title, others, _head(self.app))
+        outcome = self.model.delete_page(title, others, seq_of(_head(self.app)))
         assert r.status_code == outcome.status, r.text
         event(f"delete page: {r.status_code}")
         if r.status_code != 200:
@@ -340,15 +345,17 @@ class OpsMachine(RuleBasedStateMachine):
         the model says, and no pool block the model lacks is."""
         assert self.app is not None
         with read_db(self.app.config.db_path) as con:
-            rows = read(con,
-                "SELECT b.uid, p.title, b.parent_uid, b.order_idx, b.text,"
-                " b.heading, b.collapsed, b.view_type"
+            rows = con.select(
+                "SELECT b.uid, p.title AS page_title, b.parent_uid,"
+                " b.order_idx, b.text, b.heading, b.collapsed, b.view_type"
                 " FROM blocks b JOIN pages p ON p.id = b.page_id"
                 f" WHERE b.uid IN ({','.join('?' * len(UIDS))})",
-                UIDS).fetchall()
-        actual = {r[0]: MBlock(uid=r[0], page=r[1], parent=r[2],
-                               order_idx=r[3], text=r[4], heading=r[5],
-                               collapsed=bool(r[6]), view_type=r[7])
+                UIDS)
+        actual = {r["uid"]: MBlock(
+                      uid=r["uid"], page=r["page_title"],
+                      parent=r["parent_uid"], order_idx=r["order_idx"],
+                      text=r["text"], heading=r["heading"],
+                      collapsed=bool(r["collapsed"]), view_type=r["view_type"])
                   for r in rows}
         assert actual == self.model.snapshot()
 
@@ -362,16 +369,17 @@ class OpsMachine(RuleBasedStateMachine):
         connection per step."""
         assert self.app is not None
         with read_db(self.app.config.db_path) as con:
-            pages = {r[0] for r in con.execute(
+            pages = {r["title"] for r in con.select(
                 f"SELECT title FROM pages WHERE title IN"
                 f" ({','.join('?' * len(PAGES))})", PAGES)}
-            rows = set(con.execute(
-                "SELECT uid, base_hash, after_hash, kind, old_title,"
-                " new_title FROM block_rewrites"
-                f" WHERE uid IN ({','.join('?' * len(UIDS))})", UIDS))
-            deletions = read(con,
-                "SELECT title, seq FROM page_deletions ORDER BY rowid"
-            ).fetchall()
+            rows = {(r["uid"], r["base_hash"], r["after_hash"],
+                     r["rewrite_kind"], r["old_title"], r["new_title"])
+                    for r in con.select(
+                "SELECT uid, base_hash, after_hash, kind AS rewrite_kind,"
+                " old_title, new_title FROM block_rewrites"
+                f" WHERE uid IN ({','.join('?' * len(UIDS))})", UIDS)}
+            deletions = [(r["title"], r["seq"]) for r in con.select(
+                "SELECT title, seq FROM page_deletions ORDER BY rowid")]
         assert pages == self.model.pages & set(PAGES)
         assert rows == self.model.rewrite_rows()
         assert deletions == self.model.deletions
@@ -392,7 +400,7 @@ class OpsMachine(RuleBasedStateMachine):
         with a `[[conflict]]` header among its ancestors."""
         assert self.app is not None
         with read_db(self.app.config.db_path) as con:
-            rows = {uid: (parent, text) for uid, parent, text in con.execute(
+            rows = {r["uid"]: (r["parent_uid"], r["text"]) for r in con.select(
                 "SELECT b.uid, b.parent_uid, b.text FROM blocks b"
                 " JOIN pages p ON p.id = b.page_id WHERE p.title = ?",
                 (DAILY_TITLE,))}
@@ -415,17 +423,19 @@ class OpsMachine(RuleBasedStateMachine):
         extracts to, and no row outlives its source block."""
         assert self.app is not None
         with read_db(self.app.config.db_path) as con:
-            plain_space = plain_space_title_canonicalization_active(
-                Db(con, check_rows=True))
-            texts = dict(con.execute("SELECT uid, text FROM blocks"))
-            refs: dict[str, set[tuple[str, str]]] = {}
-            for src, title, kind in con.execute(
-                    "SELECT r.src_block_uid, p.title, r.kind FROM refs r"
-                    " JOIN pages p ON p.id = r.target_page_id"):
-                refs.setdefault(src, set()).add((title, kind))
-            block_refs: dict[str, set[str]] = {}
-            for src, dst in con.execute("SELECT * FROM block_refs"):
-                block_refs.setdefault(src, set()).add(dst)
+            plain_space = plain_space_title_canonicalization_active(con)
+            texts = {r["uid"]: r["text"]
+                     for r in con.select("SELECT uid, text FROM blocks")}
+            refs: dict[BlockUid, set[tuple[str, str]]] = {}
+            for r in con.select(
+                    "SELECT r.src_block_uid, p.title, r.kind AS ref_kind"
+                    " FROM refs r JOIN pages p ON p.id = r.target_page_id"):
+                refs.setdefault(r["src_block_uid"], set()).add(
+                    (r["title"], r["ref_kind"]))
+            block_refs: dict[BlockUid, set[BlockUid]] = {}
+            for r in con.select("SELECT * FROM block_refs"):
+                block_refs.setdefault(r["src_block_uid"], set()).add(
+                    r["target_block_uid"])
         assert set(refs) <= set(texts), "refs row without its block"
         assert set(block_refs) <= set(texts), "block_refs row without its block"
         for uid, text in texts.items():

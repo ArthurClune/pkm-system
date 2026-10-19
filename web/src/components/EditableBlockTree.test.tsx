@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, test, vi } from "vitest";
-import { block, ord, uid } from "../test-helpers";
+import { block, orderIdxOf, uidOf } from "../test-helpers";
 import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { OutlineHandlers } from "../outline/handlers";
@@ -32,8 +32,8 @@ function handlers(): OutlineHandlers {
 }
 
 const BLOCKS = [
-  block("u1", "hello [[World]]", { order_idx: ord(0) }),
-  block("u2", "{{[[TODO]]}} task", { order_idx: ord(1) }),
+  block("tuid-u1", "hello [[World]]", { order_idx: orderIdxOf(0) }),
+  block("tuid-u2", "{{[[TODO]]}} task", { order_idx: orderIdxOf(1) }),
 ];
 
 function mount(h: OutlineHandlers, focus: { uid: BlockUid; cursor: number } | null,
@@ -55,25 +55,25 @@ test("unfocused blocks render segments; clicking one focuses it at text end", ()
   expect(screen.queryByRole("textbox")).toBeNull();
   expect(screen.getByRole("link", { name: "World" })).toBeInTheDocument();
   fireEvent.click(screen.getByText(/hello/));
-  expect(h.onFocusBlock).toHaveBeenCalledWith("u1", "hello [[World]]".length);
+  expect(h.onFocusBlock).toHaveBeenCalledWith("tuid-u1", "hello [[World]]".length);
 });
 
 test("quoted display hides the prefix while editing exposes the raw source", () => {
-  const quoted = [block("q1", "> **hello** [[World]]")];
+  const quoted = [block("tuid-q1", "> **hello** [[World]]")];
   const h = handlers();
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={quoted} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
-  const display = view.container.querySelector('[data-uid="q1"] .quote-block');
+  const display = view.container.querySelector('[data-uid="tuid-q1"] .quote-block');
   expect(display).not.toBeNull();
   expect(display).toHaveTextContent("hello World");
   expect(display).not.toHaveTextContent("> ");
 
   view.rerender(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <EditableBlockTree blocks={quoted} focus={{ uid: uid("q1"), cursor: 0 }}
+      <EditableBlockTree blocks={quoted} focus={{ uid: uidOf("tuid-q1"), cursor: 0 }}
                          handlers={h} readOnly={false} />
     </MemoryRouter>);
   expect(focusedTextarea()).toHaveValue("> **hello** [[World]]");
@@ -83,48 +83,48 @@ test("a TODO inside a quote remains interactive", () => {
   const h = handlers();
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <EditableBlockTree blocks={[block("q1", "> {{[[TODO]]}} task")]}
+      <EditableBlockTree blocks={[block("tuid-q1", "> {{[[TODO]]}} task")]}
                          focus={null} handlers={h} readOnly={false} />
     </MemoryRouter>);
   fireEvent.click(screen.getByRole("checkbox", { name: "TODO" }));
-  expect(h.onToggleTodo).toHaveBeenCalledWith("q1");
+  expect(h.onToggleTodo).toHaveBeenCalledWith("tuid-q1");
 });
 
 test("removing the quote prefix removes quote presentation", () => {
   const h = handlers();
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <EditableBlockTree blocks={[block("q1", "> hello")]} focus={null}
+      <EditableBlockTree blocks={[block("tuid-q1", "> hello")]} focus={null}
                          handlers={h} readOnly={false} />
     </MemoryRouter>);
-  expect(view.container.querySelector('[data-uid="q1"] .quote-block')).not.toBeNull();
+  expect(view.container.querySelector('[data-uid="tuid-q1"] .quote-block')).not.toBeNull();
   view.rerender(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <EditableBlockTree blocks={[block("q1", "hello")]} focus={null}
+      <EditableBlockTree blocks={[block("tuid-q1", "hello")]} focus={null}
                          handlers={h} readOnly={false} />
     </MemoryRouter>);
-  expect(view.container.querySelector('[data-uid="q1"] .quote-block')).toBeNull();
+  expect(view.container.querySelector('[data-uid="tuid-q1"] .quote-block')).toBeNull();
 });
 
 test("bullet shows the closed ring only when collapsed with children", () => {
   const blocks = [
-    block("p1", "parent", { collapsed: true, order_idx: ord(0),
-                            children: [block("c1", "child")] }),
-    block("p2", "collapsed leaf", { collapsed: true, order_idx: ord(1) }),
+    block("tuid-p1", "parent", { collapsed: true, order_idx: orderIdxOf(0),
+                            children: [block("tuid-c1", "child")] }),
+    block("tuid-p2", "collapsed leaf", { collapsed: true, order_idx: orderIdxOf(1) }),
   ];
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={blocks} focus={null} handlers={handlers()}
                          readOnly={false} />
     </MemoryRouter>);
-  expect(container.querySelector('[data-uid="p1"] .bullet.closed')).not.toBeNull();
-  expect(container.querySelector('[data-uid="p2"] .bullet.closed')).toBeNull();
+  expect(container.querySelector('[data-uid="tuid-p1"] .bullet.closed')).not.toBeNull();
+  expect(container.querySelector('[data-uid="tuid-p2"] .bullet.closed')).toBeNull();
 });
 
 test("chevron toggles collapse via handler; todo checkbox toggles via handler", () => {
   const h = handlers();
-  const withKids = [block("p", "parent", {
-    order_idx: ord(0), children: [block("k", "kid", { order_idx: ord(0) })],
+  const withKids = [block("tuid-p", "parent", {
+    order_idx: orderIdxOf(0), children: [block("tuid-k", "kid", { order_idx: orderIdxOf(0) })],
   })];
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -132,10 +132,11 @@ test("chevron toggles collapse via handler; todo checkbox toggles via handler", 
                          readOnly={false} />
     </MemoryRouter>);
   // jsdom does not apply the stylesheet's `.chevron.hidden { visibility:
-  // hidden }`, so the childless "kid" block's chevron is still reachable by
-  // role in this test even though the browser would hide it visually.
+  // hidden }`, so the childless "kid" block's chevron is still
+  // reachable by role in this test even though the browser would hide it
+  // visually.
   fireEvent.click(screen.getAllByRole("button", { name: "toggle children" })[0]);
-  expect(h.onToggleCollapsed).toHaveBeenCalledWith("p", true);
+  expect(h.onToggleCollapsed).toHaveBeenCalledWith("tuid-p", true);
 });
 
 test("todo checkbox is enabled in the editable tree and reports its uid", () => {
@@ -144,13 +145,13 @@ test("todo checkbox is enabled in the editable tree and reports its uid", () => 
   const box = screen.getByRole("checkbox");
   expect(box).toBeEnabled();
   fireEvent.click(box);
-  expect(h.onToggleTodo).toHaveBeenCalledWith("u2");
+  expect(h.onToggleTodo).toHaveBeenCalledWith("tuid-u2");
 });
 
 test("chevron is disabled on a childless block; enabled on a block with children", () => {
   const h = handlers();
-  const t = [block("p", "parent", {
-    order_idx: ord(0), children: [block("k", "kid", { order_idx: ord(0) })],
+  const t = [block("tuid-p", "parent", {
+    order_idx: orderIdxOf(0), children: [block("tuid-k", "kid", { order_idx: orderIdxOf(0) })],
   })];
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -167,10 +168,10 @@ test("chevron is disabled on a childless block; enabled on a block with children
 test("readOnly disables the chevron (even with children) and the todo checkbox", () => {
   const h = handlers();
   const t = [
-    block("p", "parent", {
-      order_idx: ord(0), children: [block("k", "kid", { order_idx: ord(0) })],
+    block("tuid-p", "parent", {
+      order_idx: orderIdxOf(0), children: [block("tuid-k", "kid", { order_idx: orderIdxOf(0) })],
     }),
-    block("u2", "{{[[TODO]]}} task", { order_idx: ord(1) }),
+    block("tuid-u2", "{{[[TODO]]}} task", { order_idx: orderIdxOf(1) }),
   ];
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -195,7 +196,7 @@ test("fallback renders nested rich text but exposes no editor controls", () => {
       <EditableBlockTree
         blocks={[block("parent", "Papers", {
           heading: 2,
-          children: [block("child", "read [[Paper]]")],
+          children: [block("tuid-child", "read [[Paper]]")],
         })]}
         focus={null}
         handlers={h}
@@ -218,25 +219,25 @@ test("fallback renders nested rich text but exposes no editor controls", () => {
 
 test("an emptied (previously-written) block still renders a clickable, focusable block-text", () => {
   const h = handlers();
-  const emptied = [block("u1", "", { order_idx: ord(0) })];
+  const emptied = [block("tuid-u1", "", { order_idx: orderIdxOf(0) })];
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={emptied} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
-  const row = container.querySelector('.block-row[data-uid="u1"]');
+  const row = container.querySelector('.block-row[data-uid="tuid-u1"]');
   expect(row).not.toBeNull();
   const blockText = row!.querySelector(".block-text");
   expect(blockText).not.toBeNull();
   fireEvent.click(blockText!);
-  expect(h.onFocusBlock).toHaveBeenCalledWith("u1", 0);
+  expect(h.onFocusBlock).toHaveBeenCalledWith("tuid-u1", 0);
 });
 
 test("collapsed children are hidden", () => {
   const h = handlers();
-  const t = [block("p", "parent", {
-    order_idx: ord(0), collapsed: true,
-    children: [block("k", "hidden kid", { order_idx: ord(0) })],
+  const t = [block("tuid-p", "parent", {
+    order_idx: orderIdxOf(0), collapsed: true,
+    children: [block("tuid-k", "hidden kid", { order_idx: orderIdxOf(0) })],
   })];
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -247,30 +248,30 @@ test("collapsed children are hidden", () => {
 
 test("/upload strips the trigger and hands picked files to onFiles", () => {
   const h = handlers();
-  mount(h, { uid: uid("u1"), cursor: 0 });
+  mount(h, { uid: uidOf("tuid-u1"), cursor: 0 });
   const ta = focusedTextarea();
   fireEvent.change(ta, { target: { value: "/upload" } });
   ta.setSelectionRange(7, 7);
   expect(screen.getByRole("option", { name: "upload file…" })).toBeInTheDocument();
   fireEvent.keyDown(ta, { key: "Enter" }); // pick /upload
   expect(h.onSplit).not.toHaveBeenCalled(); // Enter consumed by the popup
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", ""); // trigger stripped
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", ""); // trigger stripped
   // The pick gives up the block itself rather than relying on the
   // native dialog to blur it. The stripped-trigger draft must be registered
   // before the blur flushes it, so onDraftChange's call precedes onBlurBlock's.
-  expect(h.onBlurBlock).toHaveBeenCalledWith("u1");
+  expect(h.onBlurBlock).toHaveBeenCalledWith("tuid-u1");
   expect(vi.mocked(h.onDraftChange).mock.invocationCallOrder[0])
     .toBeLessThan(vi.mocked(h.onBlurBlock).mock.invocationCallOrder[0]);
   const input = screen.getByLabelText("Upload file") as HTMLInputElement;
   const file = new File(["x"], "pic.png", { type: "image/png" });
   fireEvent.change(input, { target: { files: [file] } });
-  expect(h.onFiles).toHaveBeenCalledWith("u1", 0, [file]);
+  expect(h.onFiles).toHaveBeenCalledWith("tuid-u1", 0, [file]);
 });
 
 test("the upload input survives the block blurring while the native picker is "
      + "open, so a late file choice still reaches onFiles", () => {
   const h = handlers();
-  const view = mount(h, { uid: uid("u1"), cursor: 0 });
+  const view = mount(h, { uid: uidOf("tuid-u1"), cursor: 0 });
   const ta = focusedTextarea();
   fireEvent.change(ta, { target: { value: "/upload" } });
   ta.setSelectionRange(7, 7);
@@ -289,11 +290,11 @@ test("the upload input survives the block blurring while the native picker is "
   const input = screen.getByLabelText("Upload file") as HTMLInputElement;
   const file = new File(["x"], "pic.png", { type: "image/png" });
   fireEvent.change(input, { target: { files: [file] } });
-  expect(h.onFiles).toHaveBeenCalledWith("u1", 0, [file]);
+  expect(h.onFiles).toHaveBeenCalledWith("tuid-u1", 0, [file]);
 });
 
 test("only one upload input exists in the tree regardless of block count", () => {
-  mount(handlers(), { uid: uid("u1"), cursor: 0 });
+  mount(handlers(), { uid: uidOf("tuid-u1"), cursor: 0 });
   expect(screen.getAllByLabelText("Upload file")).toHaveLength(1);
 });
 
@@ -315,14 +316,14 @@ function mountSelected(
 }
 
 test("selected block rows get the selected class", () => {
-  const { container } = mountSelected(handlers(), { anchor: uid("u1"), head: uid("u2") });
-  expect(container.querySelector('.block-row.selected[data-uid="u1"]')).not.toBeNull();
-  expect(container.querySelector('.block-row.selected[data-uid="u2"]')).not.toBeNull();
+  const { container } = mountSelected(handlers(), { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") });
+  expect(container.querySelector('.block-row.selected[data-uid="tuid-u1"]')).not.toBeNull();
+  expect(container.querySelector('.block-row.selected[data-uid="tuid-u2"]')).not.toBeNull();
 });
 
 test("Shift+Arrow on the selection extends it; Escape clears it", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u1") });
+  const { container } = mountSelected(h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u1") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
   fireEvent.keyDown(tree, { key: "ArrowDown", shiftKey: true });
   expect(h.onExtendBlockSelection).toHaveBeenCalledWith("down");
@@ -332,7 +333,7 @@ test("Shift+Arrow on the selection extends it; Escape clears it", () => {
 
 test("Tab and Shift-Tab indent and outdent an editable selection", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u2") });
+  const { container } = mountSelected(h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
 
   expect(fireEvent.keyDown(tree, { key: "Tab" })).toBe(false);
@@ -344,7 +345,7 @@ test("Tab and Shift-Tab indent and outdent an editable selection", () => {
 test("Tab does not mutate a read-only selection", () => {
   const h = handlers();
   const { container } = mountSelected(
-    h, { anchor: uid("u1"), head: uid("u2") }, true,
+    h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") }, true,
   );
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
 
@@ -356,10 +357,10 @@ test("Tab does not mutate a read-only selection", () => {
 
 test("a plain arrow collapses the selection back to editing the head", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u2") });
+  const { container } = mountSelected(h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
   fireEvent.keyDown(tree, { key: "ArrowDown" });
-  expect(h.onFocusBlock).toHaveBeenCalledWith("u2", 0);
+  expect(h.onFocusBlock).toHaveBeenCalledWith("tuid-u2", 0);
 });
 
 test("Cmd-C copies the selected blocks' text in document order", () => {
@@ -368,7 +369,7 @@ test("Cmd-C copies the selected blocks' text in document order", () => {
     value: { writeText }, configurable: true,
   });
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u2") });
+  const { container } = mountSelected(h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
   fireEvent.keyDown(tree, { key: "c", metaKey: true });
   expect(writeText).toHaveBeenCalledWith("hello [[World]]\n{{[[TODO]]}} task");
@@ -376,7 +377,7 @@ test("Cmd-C copies the selected blocks' text in document order", () => {
 
 test("Ctrl+Cmd+Arrow extends an active selection block-by-block", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u1") });
+  const { container } = mountSelected(h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u1") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
   expect(fireEvent.keyDown(tree, {
     key: "ArrowDown", ctrlKey: true, metaKey: true,
@@ -392,7 +393,7 @@ test("Ctrl+Cmd+Arrow extends an active selection block-by-block", () => {
 
 test("Shift+Cmd+Arrow moves a selection before plain Shift handling", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u2") });
+  const { container } = mountSelected(h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
 
   expect(fireEvent.keyDown(tree, {
@@ -408,7 +409,7 @@ test("Shift+Cmd+Arrow moves a selection before plain Shift handling", () => {
 
 test("selected Option+Arrow remains unhandled", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u2") });
+  const { container } = mountSelected(h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
 
   expect(fireEvent.keyDown(tree, { key: "ArrowUp", altKey: true })).toBe(true);
@@ -422,7 +423,7 @@ test("selected Option+Arrow remains unhandled", () => {
 test("read-only Shift+Cmd does not move or extend a selection", () => {
   const h = handlers();
   const { container } = mountSelected(
-    h, { anchor: uid("u1"), head: uid("u2") }, true,
+    h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") }, true,
   );
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
 
@@ -435,7 +436,7 @@ test("read-only Shift+Cmd does not move or extend a selection", () => {
 
 test("Backspace/Delete on a selection deletes the whole group", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u2") });
+  const { container } = mountSelected(h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
   fireEvent.keyDown(tree, { key: "Backspace" });
   expect(h.onDeleteBlockSelection).toHaveBeenCalledTimes(1);
@@ -445,7 +446,7 @@ test("Backspace/Delete on a selection deletes the whole group", () => {
 
 test("read-only Backspace/Delete cannot destroy a selection", () => {
   const h = handlers();
-  const { container } = mountSelected(h, { anchor: uid("u1"), head: uid("u2") }, true);
+  const { container } = mountSelected(h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") }, true);
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
 
   // not handled: the event stays uncancelled, exactly like read-only
@@ -462,7 +463,7 @@ test("read-only Backspace/Delete cannot destroy a selection", () => {
 
 test("a selection made while editable is safe once sync turns the outline read-only", () => {
   const h = handlers();
-  const selection = { anchor: uid("u1"), head: uid("u2") };
+  const selection = { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") };
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={BLOCKS} focus={null} selection={selection}
@@ -484,7 +485,7 @@ test("a selection made while editable is safe once sync turns the outline read-o
 
 // --- bullet context menu: Copy block reference ---
 
-function bullet(container: HTMLElement, uid: string): Element {
+function bullet(container: HTMLElement, uid: BlockUid): Element {
   const el = container.querySelector(`[data-uid="${uid}"] .bullet`);
   expect(el).not.toBeNull();
   return el as Element;
@@ -492,7 +493,7 @@ function bullet(container: HTMLElement, uid: string): Element {
 
 test("clicking a bullet opens the block menu", () => {
   const { container } = mount(handlers(), null);
-  fireEvent.click(bullet(container, "u1"));
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
   expect(screen.getByRole("menu")).toBeInTheDocument();
   expect(screen.getByRole("menuitem", { name: "Copy block reference" }))
     .toBeInTheDocument();
@@ -500,13 +501,13 @@ test("clicking a bullet opens the block menu", () => {
 
 test("right-clicking a bullet opens the block menu", () => {
   const { container } = mount(handlers(), null);
-  fireEvent.contextMenu(bullet(container, "u2"));
+  fireEvent.contextMenu(bullet(container, uidOf("tuid-u2")));
   expect(screen.getByRole("menu")).toBeInTheDocument();
 });
 
 test("keyboard opens and navigates the block menu, then restores trigger focus", () => {
   const { container } = mount(handlers(), null);
-  const trigger = bullet(container, "u1") as HTMLElement;
+  const trigger = bullet(container, uidOf("tuid-u1")) as HTMLElement;
   trigger.focus();
   expect(trigger).toHaveAttribute("aria-haspopup", "menu");
   expect(trigger).toHaveAttribute("aria-expanded", "false");
@@ -535,18 +536,18 @@ test("Copy block reference writes ((uid)) and closes the menu", () => {
     value: { writeText }, configurable: true,
   });
   const { container } = mount(handlers(), null);
-  fireEvent.click(bullet(container, "u1"));
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
   fireEvent.click(screen.getByRole("menuitem", { name: "Copy block reference" }));
-  expect(writeText).toHaveBeenCalledWith("((u1))");
+  expect(writeText).toHaveBeenCalledWith("((tuid-u1))");
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
 test("Escape and click-away close the block menu", () => {
   const { container } = mount(handlers(), null);
-  fireEvent.click(bullet(container, "u1"));
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
   fireEvent.keyDown(document, { key: "Escape" });
   expect(screen.queryByRole("menu")).toBeNull();
-  fireEvent.click(bullet(container, "u2"));
+  fireEvent.click(bullet(container, uidOf("tuid-u2")));
   fireEvent.mouseDown(document.body);
   expect(screen.queryByRole("menu")).toBeNull();
 });
@@ -557,7 +558,7 @@ test("Escape and click-away close the block menu", () => {
 // displaces the menu by its own offset (styling.md carries the invariant).
 test("the block menu renders in a portal at document.body", () => {
   const { container } = mount(handlers(), null);
-  fireEvent.click(bullet(container, "u1"));
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
   expect(container.querySelector(".block-menu")).toBeNull();
   expect(screen.getByRole("menu").parentElement).toBe(document.body);
 });
@@ -568,9 +569,9 @@ test("the block menu renders in a portal at document.body", () => {
 test("a menu item's click does not reach the row's click-to-edit", () => {
   const h = handlers();
   const { container } = mount(h, null);
-  fireEvent.click(bullet(container, "u1"));
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
   fireEvent.click(screen.getByRole("menuitemradio", { name: "Heading 1" }));
-  expect(h.onSetHeading).toHaveBeenCalledWith("u1", 1);
+  expect(h.onSetHeading).toHaveBeenCalledWith("tuid-u1", 1);
   expect(h.onFocusBlock).not.toHaveBeenCalled();
 });
 
@@ -579,7 +580,7 @@ test("a menu item's click does not reach the row's click-to-edit", () => {
 // notice one of the two going missing.
 test("the block menu keeps its roving focus and Tab-closes", () => {
   const { container } = mount(handlers(), null);
-  fireEvent.click(bullet(container, "u1"));
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
   const copy = screen.getByRole("menuitem", { name: "Copy block reference" });
   expect(copy).toHaveFocus();
   // fired on document, where the listener is: firing on a menu item would
@@ -595,16 +596,16 @@ test("the block menu keeps its roving focus and Tab-closes", () => {
 test("the block menu also opens in read-only mode", () => {
   // copying a ref is read-only-safe, same as multi-block copy
   const { container } = mount(handlers(), null, true);
-  fireEvent.click(bullet(container, "u1"));
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
   expect(screen.getByRole("menuitem", { name: "Copy block reference" }))
     .toBeInTheDocument();
 });
 
 test("block menu marks current heading/view and dispatches both control groups", () => {
   const h = handlers();
-  const blocks = [block("u1", "hello", {
+  const blocks = [block("tuid-u1", "hello", {
     heading: 2, view_type: "numbered",
-    children: [block("u2", "child")],
+    children: [block("tuid-u2", "child")],
   })];
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -612,30 +613,30 @@ test("block menu marks current heading/view and dispatches both control groups",
                          readOnly={false} />
     </MemoryRouter>);
 
-  fireEvent.click(bullet(view.container, "u1"));
+  fireEvent.click(bullet(view.container, uidOf("tuid-u1")));
   expect(screen.getByRole("menuitemradio", { name: "Heading 2" }))
     .toHaveAttribute("aria-checked", "true");
   expect(screen.getByRole("menuitemradio", { name: "View as numbered list" }))
     .toHaveAttribute("aria-checked", "true");
   fireEvent.click(screen.getByRole("menuitemradio", { name: "Heading 1" }));
-  expect(h.onSetHeading).toHaveBeenCalledWith("u1", 1);
+  expect(h.onSetHeading).toHaveBeenCalledWith("tuid-u1", 1);
 
-  fireEvent.click(bullet(view.container, "u1"));
+  fireEvent.click(bullet(view.container, uidOf("tuid-u1")));
   fireEvent.click(screen.getByRole("menuitemradio", { name: "View as document" }));
-  expect(h.onSetViewType).toHaveBeenCalledWith("u1", "document");
+  expect(h.onSetViewType).toHaveBeenCalledWith("tuid-u1", "document");
 });
 
 test("block menu exposes all heading choices; unset view shows document", () => {
   const h = handlers();
-  const blocks = [block("root", "root", { view_type: "numbered", children: [
-    block("child", "child", { heading: null, children: [block("leaf", "leaf")] }),
+  const blocks = [block("tuid-root", "root", { view_type: "numbered", children: [
+    block("tuid-child", "child", { heading: null, children: [block("tuid-leaf", "leaf")] }),
   ] })];
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={blocks} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
-  fireEvent.click(bullet(view.container, "child"));
+  fireEvent.click(bullet(view.container, uidOf("tuid-child")));
   for (const name of ["Plain text", "Heading 1", "Heading 2", "Heading 3"]) {
     expect(screen.getByRole("menuitemradio", { name })).toBeInTheDocument();
   }
@@ -650,7 +651,7 @@ test("block menu exposes all heading choices; unset view shows document", () => 
 test("read-only block menus show but disable mutation controls", () => {
   const h = handlers();
   const view = mount(h, null, true);
-  fireEvent.click(bullet(view.container, "u1"));
+  fireEvent.click(bullet(view.container, uidOf("tuid-u1")));
   expect(screen.getByRole("menuitem", { name: "Copy block reference" }))
     .toBeEnabled();
   for (const name of ["Plain text", "Heading 1", "Heading 2", "Heading 3",
@@ -663,27 +664,28 @@ test("read-only block menus show but disable mutation controls", () => {
 
 test("editable rendering numbers direct children only", () => {
   const h = handlers();
-  const blocks = [block("root", "root", { view_type: "numbered", children: [
-    block("a", "A", { order_idx: ord(0), children: [block("a1", "A1")] }),
-    block("b", "B", { order_idx: ord(1), view_type: "numbered",
-      children: [block("b1", "B1")] }),
+  const blocks = [block("tuid-root", "root", { view_type: "numbered", children: [
+    block("tuid-a", "A", { order_idx: orderIdxOf(0), children: [block("tuid-a1", "A1")] }),
+    block("tuid-b", "B", { order_idx: orderIdxOf(1), view_type: "numbered",
+      children: [block("tuid-b1", "B1")] }),
   ] })];
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={blocks} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
-  const marker = (uid: string) =>
+  const marker = (uid: BlockUid) =>
     view.container.querySelector(`[data-uid="${uid}"] > .bullet`)?.textContent;
-  expect([marker("root"), marker("a"), marker("b"), marker("a1"), marker("b1")])
+  const tags = ["tuid-root", "tuid-a", "tuid-b", "tuid-a1", "tuid-b1"];
+  expect(tags.map((tag) => marker(uidOf(tag))))
     .toEqual(["", "1.", "2.", "", "1."]);
 });
 
 test("a rendered Roam table focuses its macro and reveals raw editable blocks", () => {
   const h = handlers();
-  const macro = block("table", "{{[[table]]}}", { collapsed: true, children: [
+  const macro = block("tuid-table", "{{[[table]]}}", { collapsed: true, children: [
     block("header", "Model", { children: [block("header-2", "Price")] }),
-    block("row", "Claude", { children: [block("row-2", "$5")] }),
+    block("tuid-row", "Claude", { children: [block("tuid-row-2", "$5")] }),
   ] });
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -692,11 +694,11 @@ test("a rendered Roam table focuses its macro and reveals raw editable blocks", 
   );
 
   fireEvent.click(screen.getByRole("table"));
-  expect(h.onFocusBlock).toHaveBeenCalledWith("table", "{{[[table]]}}".length);
+  expect(h.onFocusBlock).toHaveBeenCalledWith("tuid-table", "{{[[table]]}}".length);
 
   view.rerender(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <EditableBlockTree blocks={[macro]} focus={{ uid: uid("table"), cursor: 0 }}
+      <EditableBlockTree blocks={[macro]} focus={{ uid: uidOf("tuid-table"), cursor: 0 }}
                          handlers={h} readOnly={false} />
     </MemoryRouter>,
   );
@@ -704,14 +706,14 @@ test("a rendered Roam table focuses its macro and reveals raw editable blocks", 
   expect(focusedTextarea()).toHaveValue("{{[[table]]}}");
   expect(screen.getByText("Model")).toBeInTheDocument();
   expect(screen.getByText("Claude")).toBeInTheDocument();
-  expect(view.container.querySelector('[data-uid="table"] .bullet.closed')).toBeNull();
+  expect(view.container.querySelector('[data-uid="tuid-table"] .bullet.closed')).toBeNull();
 });
 
 test("a rendered Roam table stays in raw mode when focus moves to a revealed descendant", () => {
   const h = handlers();
-  const macro = block("table", "{{[[table]]}}", { collapsed: true, children: [
+  const macro = block("tuid-table", "{{[[table]]}}", { collapsed: true, children: [
     block("header", "Model", { children: [block("header-2", "Price")] }),
-    block("row", "Claude", { children: [block("row-2", "$5")] }),
+    block("tuid-row", "Claude", { children: [block("tuid-row-2", "$5")] }),
   ] });
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -722,7 +724,7 @@ test("a rendered Roam table stays in raw mode when focus moves to a revealed des
   fireEvent.click(screen.getByRole("table"));
   view.rerender(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <EditableBlockTree blocks={[macro]} focus={{ uid: uid("table"), cursor: 0 }}
+      <EditableBlockTree blocks={[macro]} focus={{ uid: uidOf("tuid-table"), cursor: 0 }}
                          handlers={h} readOnly={false} />
     </MemoryRouter>,
   );
@@ -730,7 +732,7 @@ test("a rendered Roam table stays in raw mode when focus moves to a revealed des
 
   view.rerender(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <EditableBlockTree blocks={[macro]} focus={{ uid: uid("row-2"), cursor: 1 }}
+      <EditableBlockTree blocks={[macro]} focus={{ uid: uidOf("tuid-row-2"), cursor: 1 }}
                          handlers={h} readOnly={false} />
     </MemoryRouter>,
   );
@@ -739,20 +741,20 @@ test("a rendered Roam table stays in raw mode when focus moves to a revealed des
   expect(screen.getByText("Model")).toBeInTheDocument();
   expect(screen.getByText("Claude")).toBeInTheDocument();
   expect(focusedTextarea()).toHaveValue("$5");
-  expect(view.container.querySelector('[data-uid="table"] .chevron'))
+  expect(view.container.querySelector('[data-uid="tuid-table"] .chevron'))
     .not.toHaveClass("closed");
-  expect(view.container.querySelector('[data-uid="table"] .bullet.closed')).toBeNull();
+  expect(view.container.querySelector('[data-uid="tuid-table"] .bullet.closed')).toBeNull();
   expect(document.activeElement).toBe(focusedTextarea());
   expect(focusedTextarea().selectionStart).toBe(1);
 });
 
 test("an unfocused valid Roam table with a heading renders inside div.block-text, not a heading tag", () => {
   const h = handlers();
-  const macro = block("table", "{{[[table]]}}", {
+  const macro = block("tuid-table", "{{[[table]]}}", {
     heading: 2,
     children: [
       block("header", "Model", { children: [block("header-2", "Price")] }),
-      block("row", "Claude", { children: [block("row-2", "$5")] }),
+      block("tuid-row", "Claude", { children: [block("tuid-row-2", "$5")] }),
     ],
   });
   const { container } = render(
@@ -762,7 +764,7 @@ test("an unfocused valid Roam table with a heading renders inside div.block-text
   );
 
   const rendered = screen.getByRole("table");
-  const blockText = container.querySelector('[data-uid="table"] .block-text');
+  const blockText = container.querySelector('[data-uid="tuid-table"] .block-text');
   expect(blockText?.tagName).toBe("DIV");
   expect(rendered.closest(".block-text")).toBe(blockText);
   expect(rendered.closest("h1, h2, h3")).toBeNull();
@@ -781,7 +783,7 @@ function mountStamped(blocks: BlockNode[], stamps: boolean) {
 }
 
 test("renders no stamp column unless asked (journal and sidebar mounts)", () => {
-  const view = mountStamped([block("s1", "text", { updated_at: Date.now() })],
+  const view = mountStamped([block("tuid-s1", "text", { updated_at: Date.now() })],
                             false);
   expect(view.container.querySelector(".block-stamp")).toBeNull();
 });
@@ -789,24 +791,24 @@ test("renders no stamp column unless asked (journal and sidebar mounts)", () => 
 test("renders the stamp cell with the age band of updated_at", () => {
   const now = Date.now();
   const view = mountStamped([
-    block("s1", "this week", { updated_at: now - 2 * DAY, order_idx: ord(0) }),
-    block("s2", "this month", { updated_at: now - 20 * DAY, order_idx: ord(1) }),
-    block("s3", "this year", { updated_at: now - 200 * DAY, order_idx: ord(2) }),
-    block("s4", "ancient", { updated_at: now - 900 * DAY, order_idx: ord(3) }),
+    block("tuid-s1", "this week", { updated_at: now - 2 * DAY, order_idx: orderIdxOf(0) }),
+    block("tuid-s2", "this month", { updated_at: now - 20 * DAY, order_idx: orderIdxOf(1) }),
+    block("tuid-s3", "this year", { updated_at: now - 200 * DAY, order_idx: orderIdxOf(2) }),
+    block("tuid-s4", "ancient", { updated_at: now - 900 * DAY, order_idx: orderIdxOf(3) }),
   ], true);
-  const bandOf = (uid: string) =>
+  const bandOf = (uid: BlockUid) =>
     view.container.querySelector(`[data-uid="${uid}"] .block-stamp`)?.className;
 
-  expect(bandOf("s1")).toContain("block-stamp-week");
-  expect(bandOf("s2")).toContain("block-stamp-month");
-  expect(bandOf("s3")).toContain("block-stamp-year");
-  expect(bandOf("s4")).toContain("block-stamp-older");
+  expect(bandOf(uidOf("tuid-s1"))).toContain("block-stamp-week");
+  expect(bandOf(uidOf("tuid-s2"))).toContain("block-stamp-month");
+  expect(bandOf(uidOf("tuid-s3"))).toContain("block-stamp-year");
+  expect(bandOf(uidOf("tuid-s4"))).toContain("block-stamp-older");
 });
 
 test("shows created_at when updated_at is missing, with a full hover title", () => {
   const created = new Date(2026, 7, 3, 14, 22).getTime();
   const view = mountStamped(
-    [block("s1", "text", { created_at: created, updated_at: null })], true);
+    [block("tuid-s1", "text", { created_at: created, updated_at: null })], true);
   const cell = view.container.querySelector(".block-stamp")!;
 
   expect(cell).toHaveTextContent("3 Aug 26");
@@ -815,7 +817,7 @@ test("shows created_at when updated_at is missing, with a full hover title", () 
 
 test("keeps an empty cell when the block has no timestamps at all", () => {
   const view = mountStamped(
-    [block("s1", "text", { created_at: null, updated_at: null })], true);
+    [block("tuid-s1", "text", { created_at: null, updated_at: null })], true);
   const cell = view.container.querySelector(".block-stamp")!;
 
   // Present but blank: omitting it would let this row's text run wider than
@@ -828,11 +830,11 @@ test("keeps an empty cell when the block has no timestamps at all", () => {
 
 test("stamps nested rows too, as the last child of their own row", () => {
   const now = Date.now();
-  const view = mountStamped([block("p1", "parent", {
+  const view = mountStamped([block("tuid-p1", "parent", {
     updated_at: now,
-    children: [block("c1", "child", { updated_at: now - 200 * DAY })],
+    children: [block("tuid-c1", "child", { updated_at: now - 200 * DAY })],
   })], true);
-  const childRow = view.container.querySelector('[data-uid="c1"]')!;
+  const childRow = view.container.querySelector('[data-uid="tuid-c1"]')!;
 
   expect(childRow.lastElementChild).toHaveClass("block-stamp");
   expect(childRow.lastElementChild).toHaveClass("block-stamp-year");
@@ -842,11 +844,11 @@ test("the stamp stays the row's last child while the block is focused", () => {
   const now = Date.now();
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <EditableBlockTree blocks={[block("s1", "text", { updated_at: now })]}
-                         focus={{ uid: uid("s1"), cursor: 0 }} handlers={handlers()}
+      <EditableBlockTree blocks={[block("tuid-s1", "text", { updated_at: now })]}
+                         focus={{ uid: uidOf("tuid-s1"), cursor: 0 }} handlers={handlers()}
                          readOnly={false} stamps />
     </MemoryRouter>);
-  const row = view.container.querySelector('[data-uid="s1"]')!;
+  const row = view.container.querySelector('[data-uid="tuid-s1"]')!;
 
   expect(row.querySelector("textarea")).not.toBeNull();
   expect(row.lastElementChild).toHaveClass("block-stamp");
@@ -881,12 +883,12 @@ test("badge click does not focus the block", () => {
 // --- {{toc}} table of contents ---
 
 const TOC_TREE: BlockNode[] = [
-  block("h1", "Intro", { heading: 1 }),
-  block("toc", "{{toc}}"),
-  block("h2", "Details", {
+  block("tuid-h1", "Intro", { heading: 1 }),
+  block("tuid-toc", "{{toc}}"),
+  block("tuid-h2", "Details", {
     heading: 1,
-    children: [block("plain", "notes", {
-      children: [block("h3", "Deeper", { heading: 3 })],
+    children: [block("tuid-plain", "notes", {
+      children: [block("tuid-h3", "Deeper", { heading: 3 })],
     })],
   }),
 ];
@@ -915,16 +917,16 @@ test("an unfocused {{toc}} block lists the page's headings, nested by outline", 
   expect(Array.from(top[1].querySelectorAll(":scope > ol > li > a"))
     .map((a) => a.textContent)).toEqual(["Deeper"]);
   expect(container.querySelector("nav.toc a.toc-link")!.getAttribute("href"))
-    .toBe("/#h1");
+    .toBe("/#tuid-h1");
 });
 
 test("the toc follows heading edits and additions on the next render", () => {
   const h = handlers();
   const view = mountToc(TOC_TREE, h);
   const edited: BlockNode[] = [
-    block("h1", "Introduction", { heading: 1 }),
-    block("toc", "{{toc}}"),
-    block("h4", "Appendix", { heading: 2 }),
+    block("tuid-h1", "Introduction", { heading: 1 }),
+    block("tuid-toc", "{{toc}}"),
+    block("tuid-h4", "Appendix", { heading: 2 }),
   ];
   view.rerender(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -935,7 +937,7 @@ test("the toc follows heading edits and additions on the next render", () => {
 });
 
 test("focusing the toc block exposes the raw macro instead of the list", () => {
-  const { container } = mountToc(TOC_TREE, handlers(), { uid: uid("toc"), cursor: 0 });
+  const { container } = mountToc(TOC_TREE, handlers(), { uid: uidOf("tuid-toc"), cursor: 0 });
   expect(container.querySelector("nav.toc")).toBeNull();
   expect(focusedTextarea()).toHaveValue("{{toc}}");
 });
@@ -947,26 +949,26 @@ test("clicking an entry navigates without flipping the block into edit mode", ()
   expect(h.onFocusBlock).not.toHaveBeenCalled();
   // The rest of the block is still click-to-edit.
   fireEvent.click(container.querySelector("nav.toc")!);
-  expect(h.onFocusBlock).toHaveBeenCalledWith("toc", "{{toc}}".length);
+  expect(h.onFocusBlock).toHaveBeenCalledWith("tuid-toc", "{{toc}}".length);
 });
 
 test("a toc block with no headings on the page says so, and still edits", () => {
   const h = handlers();
-  const { container } = mountToc([block("toc", "{{toc}}")], h);
+  const { container } = mountToc([block("tuid-toc", "{{toc}}")], h);
   expect(container.querySelector(".toc-empty")).toHaveTextContent(
     "no headings on this page");
   fireEvent.click(container.querySelector(".toc-empty")!);
-  expect(h.onFocusBlock).toHaveBeenCalledWith("toc", "{{toc}}".length);
+  expect(h.onFocusBlock).toHaveBeenCalledWith("tuid-toc", "{{toc}}".length);
 });
 
 test("a toc block's own children still render as blocks", () => {
   const tree: BlockNode[] = [
-    block("toc", "{{toc}}",
-          { children: [block("kid", "Kid heading", { heading: 2 })] }),
+    block("tuid-toc", "{{toc}}",
+          { children: [block("tuid-kid", "Kid heading", { heading: 2 })] }),
   ];
   const { container } = mountToc(tree, handlers());
   expect(tocLinks(container)).toEqual(["Kid heading"]);
-  expect(container.querySelector('[data-uid="kid"]')).not.toBeNull();
+  expect(container.querySelector('[data-uid="tuid-kid"]')).not.toBeNull();
 });
 
 test("a fallback tree renders the toc read-only", () => {

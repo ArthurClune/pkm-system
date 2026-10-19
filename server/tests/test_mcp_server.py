@@ -3,6 +3,7 @@ import pytest
 from pkm.planning import BuildError
 from pkm.client.core import ApiError
 from pkm.mcp import server as mcp_server
+from pkm.contracts.ops import BatchId
 
 
 @pytest.fixture()
@@ -182,7 +183,7 @@ def test_update_block_sends_page_hint(tools, pkm_client, monkeypatch):
     captured: list = []
     real_post_ops = pkm_client.post_ops
 
-    def spy(ops, batch_id):
+    def spy(ops, batch_id: BatchId):
         captured.extend(ops)
         return real_post_ops(ops, batch_id=batch_id)
 
@@ -332,7 +333,7 @@ def test_upload_asset_post_ops_failure_deletes_the_orphaned_asset(
     f = tmp_path / "pic.png"
     f.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 50)
 
-    def _fail(ops, batch_id):
+    def _fail(ops, batch_id: BatchId):
         raise ApiError(500, "boom")
 
     monkeypatch.setattr(pkm_client, "post_ops", _fail)
@@ -347,7 +348,7 @@ def test_upload_asset_post_ops_failure_does_not_delete_a_pre_existing_asset(
     f.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 50)
     tools.upload_asset(str(f), page="AI")  # lands for real -- now in use
 
-    def _fail(ops, batch_id):
+    def _fail(ops, batch_id: BatchId):
         raise ApiError(500, "boom")
 
     monkeypatch.setattr(pkm_client, "post_ops", _fail)

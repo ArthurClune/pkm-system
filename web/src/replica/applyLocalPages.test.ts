@@ -7,7 +7,7 @@
 // nothing keeps it: no block on it, no ref to it, no replay-log record of a
 // pending batch naming it. Server pages are never dropped, however empty.
 import { beforeEach, describe, expect, test } from "vitest";
-import type { BatchId, BlockUid, CanonicalTitle, PageId, SyncSeq } from "../api/brands";
+import type { BatchId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
@@ -16,9 +16,9 @@ import type { ReplicaDb } from "./db";
 import { getOrCreateLocalPage } from "./localOps";
 import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
-import { ord, uid } from "../test-helpers";
+import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, uidOf } from "../test-helpers";
 
-const bid = (s: string): BatchId => s as BatchId;
+const bid = (s: string): BatchId => batchIdOf(s);
 
 /** The drain's delete of the batch at the head of the queue, on its ack. */
 const ackNext = (db: ReplicaDb): void => {
@@ -28,30 +28,33 @@ const ackNext = (db: ReplicaDb): void => {
 
 const block = (rawUid: string, rawPageId: number,
                over: Partial<SyncBlock> = {}): SyncBlock => ({
-  uid: rawUid as BlockUid, page_id: rawPageId as PageId, parent_uid: null,
-  order_idx: ord(0), text: `text of ${rawUid}`, heading: null,
+  uid: uidOf(rawUid), page_id: pageIdOf(rawPageId), parent_uid: null,
+  order_idx: orderIdxOf(0), text: `text of ${rawUid}`, heading: null,
   view_type: null, collapsed: 0, created_at: 1, updated_at: 1, refs: [],
   ...over,
 });
 
 const page = (rawId: number, rawTitle: string) =>
-  ({ id: rawId as PageId, title: rawTitle as CanonicalTitle, created_at: 1,
+  ({ id: pageIdOf(rawId), title: canonicalTitleOf(rawTitle), created_at: 1,
      updated_at: 1 });
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false,
-  seq: 10 as SyncSeq,
+  seq: seqOf(10),
   pages: [page(1, "Proptest"), page(2, "Second")],
-  blocks: [block("uid_b1", 1), block("uid_b2", 1, { order_idx: ord(1) })],
+  blocks: [block("uid_b1", 1), block("uid_b2", 1, { order_idx: orderIdxOf(1) })],
   sidebar: [],
 };
 
 const window = (over: Omit<Partial<Changes>, "next_since" | "latest_seq"> &
-  { next_since?: number; latest_seq?: number } = {}): Changes => ({
-  reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-  next_since: 11, latest_seq: 11,
-  pages: [], blocks: [], sidebar: [], tombstones: [], ...over,
-} as Changes);
+  { next_since?: number; latest_seq?: number } = {}): Changes => {
+  const { next_since = 11, latest_seq = 11, ...rest } = over;
+  return {
+    reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
+    next_since: seqOf(next_since), latest_seq: seqOf(latest_seq),
+    pages: [], blocks: [], sidebar: [], tombstones: [], ...rest,
+  };
+};
 
 const NOW = new Date(2026, 0, 15, 12).getTime();
 
@@ -63,7 +66,7 @@ beforeEach(async () => {
 });
 
 const titles = (): string[] =>
-  t.db.select<{ title: string }>("SELECT title FROM pages ORDER BY title")
+  (t.db.select<"title">("SELECT title FROM pages ORDER BY title"))
     .map((r) => r.title);
 
 const enqueue = (ops: BlockOp[], name: string): void => {
@@ -71,8 +74,8 @@ const enqueue = (ops: BlockOp[], name: string): void => {
 };
 
 const createOn = (rawUid: string, pageTitle: string): BlockOp =>
-  ({ op: "create", uid: uid(rawUid), page_title: pageTitle, parent_uid: null,
-     order_idx: ord(0), text: `text of ${rawUid}` });
+  ({ op: "create", uid: uidOf(rawUid), page_title: pageTitle, parent_uid: null,
+     order_idx: orderIdxOf(0), text: `text of ${rawUid}` });
 
 describe("applyChanges: a local page nothing keeps is dropped", () => {
   test("a create's page renamed on the server before the pull", () => {
@@ -91,8 +94,8 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
   });
 
   test("a top-level move to a new title, skipped by the server", () => {
-    enqueue([{ op: "move", uid: uid("uid_b1"), parent_uid: null,
-               order_idx: ord(0), page_title: "Third" }], "b-move");
+    enqueue([{ op: "move", uid: uidOf("uid_b1"), parent_uid: null,
+               order_idx: orderIdxOf(0), page_title: "Third" }], "b-move");
     expect(titles()).toContain("Third");
     ackNext(t.db);
 
@@ -107,8 +110,8 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
   // The pending move no longer keeps its page: the window rewinds the move,
   // and its replay skips it on the deleted block, as a first apply would.
   test("a pending move's page goes in the window that deletes its block", () => {
-    enqueue([{ op: "move", uid: uid("uid_b1"), parent_uid: null,
-               order_idx: ord(0), page_title: "Third" }], "b-move");
+    enqueue([{ op: "move", uid: uidOf("uid_b1"), parent_uid: null,
+               order_idx: orderIdxOf(0), page_title: "Third" }], "b-move");
     applyChanges(t.db, window({
       tombstones: [{ kind: "block", entity_id: "uid_b1" }],
     }), NOW);
@@ -119,7 +122,7 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
   // The pending link no longer keeps its page: its replay skips the update
   // on the deleted block, so no page is made.
   test("a pending link on a block the window deletes makes no page", () => {
-    enqueue([{ op: "update_text", uid: uid("uid_b2"),
+    enqueue([{ op: "update_text", uid: uidOf("uid_b2"),
                text: "see [[Linked]]" }], "b-link");
 
     applyChanges(t.db, window({
@@ -143,7 +146,7 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
 
   // Likewise for an acked link: the head window puts the old text back.
   test("an acked link the head window does not ship reverts and its page goes", () => {
-    enqueue([{ op: "update_text", uid: uid("uid_b2"),
+    enqueue([{ op: "update_text", uid: uidOf("uid_b2"),
                text: "see [[Linked]]" }], "b-link");
     ackNext(t.db);
 
@@ -168,12 +171,12 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
 describe("applyChanges: a local page something keeps stays", () => {
   test("a pending create_page page with nothing on it survives the head window", () => {
     enqueue([{ op: "create_page", page_title: "Draft" }], "b-page");
-    const [before] = t.db.select<{ id: number }>(
-      "SELECT id FROM pages WHERE title = 'Draft'");
+    const [before] = t.db.select<"page_id">(
+      "SELECT id AS page_id FROM pages WHERE title = 'Draft'");
 
     applyChanges(t.db, window(), NOW);
 
-    expect(t.db.select("SELECT id FROM pages WHERE title = 'Draft'"))
+    expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'Draft'"))
       .toEqual([before]);
   });
 
@@ -199,8 +202,8 @@ describe("applyChanges: a local page something keeps stays", () => {
 
   test("a pending batch's record names it, after the block moved off it", () => {
     enqueue([createOn("uid_n1", "Fourth"),
-             { op: "move", uid: uid("uid_n1"), parent_uid: null,
-               order_idx: ord(0), page_title: "Proptest" }], "b-made");
+             { op: "move", uid: uidOf("uid_n1"), parent_uid: null,
+               order_idx: orderIdxOf(0), page_title: "Proptest" }], "b-made");
 
     applyChanges(t.db, window(), NOW);
 
@@ -211,7 +214,7 @@ describe("applyChanges: a local page something keeps stays", () => {
     // a page a read made, linked by a row whose own batch's records are gone
     const linked = getOrCreateLocalPage(t.db, "Linked", NOW);
     t.db.exec("INSERT INTO refs VALUES ('uid_b2', ?, 'link')", [linked]);
-    enqueue([{ op: "update_text", uid: uid("uid_b2"), text: "plain" }], "b-unlink");
+    enqueue([{ op: "update_text", uid: uidOf("uid_b2"), text: "plain" }], "b-unlink");
 
     applyChanges(t.db, window(), NOW);
 
@@ -229,8 +232,8 @@ describe("applyChanges: a local page something keeps stays", () => {
   });
 
   test("its block's tombstone waits for the window at the journal head", () => {
-    enqueue([{ op: "move", uid: uid("uid_b1"), parent_uid: null,
-               order_idx: ord(0), page_title: "Third" }], "b-move");
+    enqueue([{ op: "move", uid: uidOf("uid_b1"), parent_uid: null,
+               order_idx: orderIdxOf(0), page_title: "Third" }], "b-move");
     ackNext(t.db);
 
     applyChanges(t.db, window({
@@ -275,12 +278,12 @@ describe("applyChanges: a local page an acked batch's frozen record names", () =
   const strandFourth = (): void => {
     enqueue([
       createOn("uid_n1", "Fourth"),
-      { op: "create", uid: uid("uid_n2"), page_title: "Fourth",
-        parent_uid: uid("uid_n1"), order_idx: ord(0), text: "child" },
-      { op: "move", uid: uid("uid_n1"), parent_uid: null, page_title: "Proptest",
-        order_idx: ord(0) },
+      { op: "create", uid: uidOf("uid_n2"), page_title: "Fourth",
+        parent_uid: uidOf("uid_n1"), order_idx: orderIdxOf(0), text: "child" },
+      { op: "move", uid: uidOf("uid_n1"), parent_uid: null, page_title: "Proptest",
+        order_idx: orderIdxOf(0) },
     ], "b-made");
-    enqueue([{ op: "delete", uid: uid("uid_n1") }], "b-delete");
+    enqueue([{ op: "delete", uid: uidOf("uid_n1") }], "b-delete");
     ackNext(t.db);
     ackNext(t.db);
   };
@@ -326,7 +329,7 @@ describe("applyChanges: dropping stranded local pages waits for the head window"
       next_since: 12, latest_seq: 12, pages: [page(7, "Draft")],
     }), NOW);
 
-    expect(t.db.select<{ id: number }>(
-      "SELECT id FROM pages WHERE title = 'Draft'")).toEqual([{ id: 7 }]);
+    expect(t.db.select<"page_id">(
+      "SELECT id AS page_id FROM pages WHERE title = 'Draft'")).toEqual([{ page_id: 7 }]);
   });
 });

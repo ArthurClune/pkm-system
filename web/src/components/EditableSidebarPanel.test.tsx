@@ -2,7 +2,6 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
-import type { ClientId } from "../api/brands";
 import {
   isOutlineEditorActive,
   isOutlineSessionActive,
@@ -13,14 +12,15 @@ import {
   block,
   jsonResponse,
   makeSync,
-  ord,
+  orderIdxOf,
   pagePayload,
   READ_INIT,
   reserveOutlineEditor,
   servePageApplyingSent,
   stubFetch,
-  title,
-  uid,
+  canonicalTitleOf,
+  uidOf,
+  clientIdOf,
 } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { EditablePage } from "../views/EditablePage";
@@ -35,7 +35,7 @@ function deferred<T>() {
 }
 
 function mount(sync = makeSync(), title = "Paper",
-               blocks = [block("uid_s1", "a paper block", { order_idx: ord(0) })]) {
+               blocks = [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })]) {
   stubFetch([["/api/page/Paper", pagePayload(title, blocks)]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -57,7 +57,7 @@ test("a title change cannot mount the previous payload under the new title", asy
     const url = String(input);
     if (url === "/api/page/Alpha") {
       return Promise.resolve(jsonResponse(pagePayload("Alpha", [
-        block("alpha", "alpha tree"),
+        block("tuid-alpha", "alpha tree"),
       ])));
     }
     if (url === "/api/page/Beta") return next.promise;
@@ -87,7 +87,7 @@ test("a title change cannot mount the previous payload under the new title", asy
 
   await act(async () => {
     next.resolve(jsonResponse(pagePayload("Beta", [
-      block("beta", "beta tree"),
+      block("tuid-beta", "beta tree"),
     ])));
     await next.promise;
     await Promise.resolve();
@@ -117,9 +117,9 @@ test("editing a block in the panel sends the op after the debounce", async () =>
 test("a remote websocket batch updates the panel", async () => {
   const sync = mount();
   await screen.findByText("a paper block");
-  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "create", uid: uid("r1"), page_title: "Paper", parent_uid: null,
-      order_idx: ord(1), text: "from the iPad" },
+  act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
+    { op: "create", uid: uidOf("tuid-r1"), page_title: "Paper", parent_uid: null,
+      order_idx: orderIdxOf(1), text: "from the iPad" },
   ] }));
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
 });
@@ -133,7 +133,7 @@ test("a non-canonical requested title keys the outline by the payload's title", 
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const sync = makeSync();
   stubFetch([["/api/page/", pagePayload("Paper",
-    [block("uid_s1", "a paper block", { order_idx: ord(0) })])]]);
+    [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })])]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
@@ -143,9 +143,9 @@ test("a non-canonical requested title keys the outline by the payload's title", 
   await screen.findByText("a paper block");
   expect(isOutlineEditorActive("Paper")).toBe(true);
 
-  act(() => sync.emit({ client_id: "other" as ClientId, ts: 1, ops: [
-    { op: "create", uid: uid("r1"), page_title: "Paper", parent_uid: null,
-      order_idx: ord(1), text: "from the iPad" },
+  act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
+    { op: "create", uid: uidOf("tuid-r1"), page_title: "Paper", parent_uid: null,
+      order_idx: orderIdxOf(1), text: "from the iPad" },
   ] }));
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
 
@@ -171,12 +171,12 @@ test("a page already open elsewhere in this tab falls back to read-only", async 
 });
 
 test("main-first same-title mounts keep one editor and one live fallback", async () => {
-  const blocks = [block("uid_s1", "a paper block", { order_idx: ord(0) })];
+  const blocks = [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })];
   stubFetch([["/api/page/Paper", pagePayload("Paper", blocks)]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditablePage title={title("Paper")} initial={blocks} />
+        <EditablePage title={canonicalTitleOf("Paper")} initial={blocks} />
         <EditableSidebarPanel title="Paper" />
       </SyncContext.Provider>
     </MemoryRouter>);
@@ -188,14 +188,14 @@ test("main-first same-title mounts keep one editor and one live fallback", async
 });
 
 test("sidebar-first same-title mounts preserve its editor when main joins", async () => {
-  const blocks = [block("uid_s1", "a paper block", { order_idx: ord(0) })];
+  const blocks = [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })];
   stubFetch([["/api/page/Paper", pagePayload("Paper", blocks)]]);
   const sync = makeSync();
   const view = (showMain: boolean) => (
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
         <EditableSidebarPanel title="Paper" />
-        {showMain && <EditablePage title={title("Paper")} initial={blocks} />}
+        {showMain && <EditablePage title={canonicalTitleOf("Paper")} initial={blocks} />}
       </SyncContext.Provider>
     </MemoryRouter>
   );
@@ -241,7 +241,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
 
     await act(async () => {
       newer.resolve(jsonResponse(pagePayload("Paper", [
-        block("new", "newer main response"),
+        block("tuid-new", "newer main response"),
       ])));
       await newer.promise;
       await Promise.resolve();
@@ -314,7 +314,7 @@ test("a uid prop scrolls to and flashes that block within the panel's own contai
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditableSidebarPanel title="Paper" uid={uid("uid_s1")} />
+        <EditableSidebarPanel title="Paper" uid={uidOf("uid_s1")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   await screen.findByText("target block");
@@ -339,7 +339,7 @@ test("a uid under a collapsed ancestor is expanded, then scrolled to and flashed
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditableSidebarPanel title="Paper" uid={uid("uid_s1")} />
+        <EditableSidebarPanel title="Paper" uid={uidOf("uid_s1")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   await screen.findByText("target block");
@@ -363,7 +363,7 @@ test("a uid under a collapsed ancestor stays hidden when the page is open elsewh
     render(
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
         <SyncContext.Provider value={sync}>
-          <EditableSidebarPanel title="Paper" uid={uid("uid_s1")} />
+          <EditableSidebarPanel title="Paper" uid={uidOf("uid_s1")} />
         </SyncContext.Provider>
       </MemoryRouter>);
     await screen.findByText("parent");
@@ -394,7 +394,7 @@ test("no uid prop: no scroll/flash side effect", async () => {
 test("a ((uid)) ref missing from the seed map resolves live in the panel", async () => {
   stubFetch([
     ["/api/page/Paper", pagePayload("Paper", [
-      block("uid_s1", "see ((ref_zz9))", { order_idx: ord(0) }),
+      block("uid_s1", "see ((ref_zz9))", { order_idx: orderIdxOf(0) }),
     ])],
     ["/api/block-refs", {
       block_ref_texts: { ref_zz9: { text: "the target block", page_title: "Paper" } },

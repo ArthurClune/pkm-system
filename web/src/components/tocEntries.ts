@@ -3,11 +3,12 @@
 // is stored: the {{toc}} block holds only the macro text, and this walk runs
 // on every render of an unfocused toc block, so a heading edit shows up in
 // the list immediately.
+import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { tokenizeBlock, type BlockSegment } from "../grammar/tokenize";
 
 export interface TocEntry {
-  uid: string;
+  uid: BlockUid;
   /** The heading as plain text: refs reduced to their titles, emphasis
    * unwrapped, so a `## [[Mathematics]]` heading lists as "Mathematics". */
   text: string;
@@ -62,7 +63,7 @@ function isHeading(node: BlockNode): node is BlockNode & { heading: 1 | 2 | 3 } 
  * subtrees are walked too: the contents page describes the page, not the
  * currently visible part of it.
  */
-export function tocEntries(blocks: BlockNode[], selfUid: string): TocEntry[] {
+export function tocEntries(blocks: BlockNode[], selfUid: BlockUid): TocEntry[] {
   const top: TocEntry[] = [];
   const walk = (nodes: BlockNode[], into: TocEntry[]) => {
     for (const node of nodes) {

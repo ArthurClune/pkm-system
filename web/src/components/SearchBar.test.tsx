@@ -1,3 +1,4 @@
+import type { ContextType } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
@@ -5,6 +6,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { jsonResponse, stubFetch } from "../test-helpers";
 import { SidebarContext } from "../contexts";
 import { SearchBar } from "./SearchBar";
+
+type SidebarApi = ContextType<typeof SidebarContext>;
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -20,7 +23,7 @@ function LocationProbe() {
   return <p data-testid="location">{pathname + hash}</p>;
 }
 
-function renderBar(openInSidebar: (title: string, uid?: string) => void = () => undefined) {
+function renderBar(openInSidebar: SidebarApi["openInSidebar"] = () => undefined) {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
       <SidebarContext.Provider value={{ openInSidebar }}>

@@ -8,7 +8,7 @@ text is enough, since ref indexing calls get_or_create_page() for every
 extracted ref. So the title is normalized where it is born (refs.extract)
 and again at the single creation choke point (store.get_or_create_page).
 """
-import sqlite3
+from pkm.database import connect
 
 MULTILINE = "Paper/Levels of AGI:\nthe Path to AGI"
 NORMALIZED = "Paper/Levels of AGI: the Path to AGI"
@@ -26,9 +26,9 @@ def _post_ops(client, *ops):
 
 
 def _titles(config) -> list[str]:
-    con = sqlite3.connect(config.db_path)
+    con = connect(config.db_path)
     try:
-        return [r[0] for r in con.execute("SELECT title FROM pages")]
+        return [r["title"] for r in con.select("SELECT title FROM pages")]
     finally:
         con.close()
 

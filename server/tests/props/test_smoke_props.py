@@ -1,10 +1,7 @@
-import sqlite3
-
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from props.harness import examples, fresh_app
-from rawread import read
+from props.harness import examples, fresh_app, read_db
 
 pytestmark = pytest.mark.proptest
 
@@ -17,11 +14,8 @@ def test_each_example_gets_its_own_db(template_db, n):
         r = app.client.post("/api/ops", json={"client_id": "p", "batch_id": f"smoke_{n:04d}xx",
             "ops": [{"op": "create_page", "page_title": f"Smoke {n}"}]})
         assert r.status_code == 200
-        con = sqlite3.connect(app.config.db_path)
-        try:
-            titles = [row[0] for row in read(con, "SELECT title FROM pages").fetchall()]
-        finally:
-            con.close()
+        with read_db(app.config.db_path) as con:
+            titles = [row["title"] for row in con.select("SELECT title FROM pages")]
         assert sum(t.startswith("Smoke ") for t in titles) == 1   # no leakage from earlier examples
     finally:
         app.close()

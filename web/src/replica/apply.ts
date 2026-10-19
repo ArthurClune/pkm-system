@@ -35,10 +35,13 @@ import type { components } from "../api/types";
 import { appliedPendingRows } from "./ackedRows";
 import { reindexBlockRefs } from "./blockRefs";
 import type { DroppedBatch, PendingBatch, PendingRowId } from "./client";
-import { type ReplicaDb, rollbackToSavepoint, type SqlValue } from "./db";
+import { foreignKeyViolations, type ReplicaDb, rollbackToSavepoint,
+         type SqlValue } from "./db";
 import { applyLocalOps } from "./localOps";
 import { deleteMeta, getMeta, setMeta,
          setPlainSpaceTitleCanonicalization } from "./meta";
+import { parseBlockUid } from "../ids";
+import { tombstoneIdOfWire, type TombstoneId } from "../sync/wire";
 import { allBatches, deleteBatch } from "./queue";
 import { dropStrandedLocalPages, reconcileActivationPageTitles,
          reconcilePage } from "./reconcile";
@@ -233,7 +236,7 @@ function replayPending(db: ReplicaDb, nowMs: number, freed: FreedPages): void {
  * The schema-pin test fails when a table gains an FK, which is the cue to
  * revisit these clauses. */
 export const targetedFkHit = (db: ReplicaDb, batchId: BatchId): boolean =>
-  db.select<{ hit: number }>(
+  db.select<"n">(
     `WITH u(key) AS (SELECT key FROM replay_log
                       WHERE batch_id = ?1 AND kind = 'block'),
           p(id)  AS (SELECT CAST(key AS INTEGER) FROM replay_log
@@ -245,8 +248,8 @@ export const targetedFkHit = (db: ReplicaDb, batchId: BatchId): boolean =>
        OR EXISTS(SELECT 1 FROM u
                   WHERE NOT EXISTS(SELECT 1 FROM blocks WHERE uid = u.key)
                     AND EXISTS(SELECT 1 FROM blocks WHERE parent_uid = u.key))
-       AS hit`,
-    [batchId])[0].hit === 1;
+       AS n`,
+    [batchId])[0].n === 1;
 
 /** Apply a batch's ops one at a time, each under its own savepoint, rolling
  * back an op that throws and, given a baseline, one that adds an FK
@@ -295,9 +298,7 @@ function replayOps(db: ReplicaDb, b: PendingBatch, stamp: number,
  * checks (0.32/1.72/7.41 ms) within noise. Scoping to `blocks` alone would drop
  * exactly the two tables the paragraph above is about. */
 const fkViolations = (db: ReplicaDb): Set<string> =>
-  new Set(db.select<{ table: string; rowid: SqlValue; parent: string;
-                      fkid: number }>("PRAGMA foreign_key_check")
-    .map((v) => JSON.stringify([v.table, v.rowid, v.parent, v.fkid])));
+  new Set(foreignKeyViolations(db));
 
 const addsFkViolation = (before: Set<string>, after: Set<string>): boolean => {
   for (const v of after) if (!before.has(v)) return true;
@@ -381,7 +382,7 @@ class StaleTitleHolderError extends Error {
  * not NUL: SQLite's string functions treat an embedded NUL as a terminator.
  * Its own type, never a CanonicalTitle: it is no title the server holds, so
  * no row read that types `title` canonical may run while one is parked. */
-type ParkedTitle = string & { readonly __brand: "ParkedTitle" };
+export type ParkedTitle = string & { readonly __brand: "ParkedTitle" };
 
 const parkedTitle = (id: PageId | SidebarEntryId): ParkedTitle =>
   `parked:${String(id)}` as ParkedTitle;
@@ -403,18 +404,28 @@ type TitledTableFor<Id extends PageId | SidebarEntryId> =
  * restores its real title. Negative ids are offline-created pages, which
  * reconcilePage remaps rather than retitles. Rows still parked once every
  * upsert has run are not a swap -- see the check in applyWindow. */
-export function parkTakenTitles<Id extends PageId | SidebarEntryId>(
-    db: ReplicaDb, table: TitledTableFor<Id>,
-    incoming: readonly { id: Id; title: CanonicalTitle }[]): Id[] {
-  const parked: Id[] = [];
+export function parkTakenTitles(
+    db: ReplicaDb, table: "pages",
+    incoming: readonly { id: PageId; title: CanonicalTitle }[]): PageId[];
+export function parkTakenTitles(
+    db: ReplicaDb, table: "sidebar_entries",
+    incoming: readonly { id: SidebarEntryId; title: CanonicalTitle }[],
+): SidebarEntryId[];
+export function parkTakenTitles(
+    db: ReplicaDb, table: "pages" | "sidebar_entries",
+    incoming: readonly { id: PageId | SidebarEntryId; title: CanonicalTitle }[],
+): (PageId | SidebarEntryId)[] {
+  const parked: (PageId | SidebarEntryId)[] = [];
   for (const row of incoming) {
-    const holders = db.select<{ id: Id }>(
-      `SELECT id FROM ${table} WHERE title = ? AND id != ? AND id >= 0`,
-      [row.title, row.id]);
+    const key = table === "pages" ? "page_id" : "sidebar_entry_id";
+    const holders = db.select<typeof key>(
+      `SELECT id AS ${key} FROM ${table}` +
+      " WHERE title = ? AND id != ? AND id >= 0",
+      [row.title, row.id]).map((h) => h[key]);
     for (const holder of holders) {
       db.exec(`UPDATE ${table} SET title = ? WHERE id = ?`,
-              [parkedTitle(holder.id), holder.id]);
-      parked.push(holder.id);
+              [parkedTitle(holder), holder]);
+      parked.push(holder);
     }
   }
   return parked;
@@ -423,33 +434,36 @@ export function parkTakenTitles<Id extends PageId | SidebarEntryId>(
 export function assertNoParkedTitles<Id extends PageId | SidebarEntryId>(
     db: ReplicaDb, table: TitledTableFor<Id>, parked: readonly Id[]): void {
   const still = parked.filter((id) => db.select(
-    `SELECT 1 AS x FROM ${table} WHERE id = ? AND title = ?`,
+    `SELECT 1 AS n FROM ${table} WHERE id = ? AND title = ?`,
     [id, parkedTitle(id)]).length > 0);
   if (still.length > 0) throw new StaleTitleHolderError(table, still);
 }
 
 /** Deletes one tombstone's row; its FK cascades take what hangs off it. */
-function applyTombstone(db: ReplicaDb, tomb: SyncTombstone): void {
+function applyTombstone(db: ReplicaDb, tomb: TombstoneId): void {
   if (tomb.kind === "block") {
-    // entity_id is one TEXT wire field for three kinds; a block
-    // tombstone's value is a block uid.
-    db.exec("DELETE FROM blocks WHERE uid = ?",
-            [tomb.entity_id as BlockUid]);
+    db.exec("DELETE FROM blocks WHERE uid = ?", [tomb.id]);
   } else if (tomb.kind === "page") {
-    db.exec("DELETE FROM pages WHERE id = ?",
-            [Number(tomb.entity_id) as PageId]);
-  } else if (tomb.kind === "sidebar") {
-    db.exec("DELETE FROM sidebar_entries WHERE id = ?",
-            [Number(tomb.entity_id) as SidebarEntryId]);
+    db.exec("DELETE FROM pages WHERE id = ?", [tomb.id]);
   } else {
-    // A kind this build doesn't know (an older replica meeting a kind a
-    // newer server added): skip it rather than fall through to a
-    // sidebar delete, which would destroy an unrelated row. The `never`
-    // assignment makes an unhandled EntityKind a compile error here.
-    const unhandled: never = tomb.kind;
-    console.warn("applyWindow: unknown tombstone kind, skipping",
-                 unhandled);
+    db.exec("DELETE FROM sidebar_entries WHERE id = ?", [tomb.id]);
   }
+}
+
+/** The wire tombstones this build understands. A kind it doesn't know (an
+ * older replica meeting a kind a newer server added) is skipped, never
+ * treated as a sidebar delete, which would destroy an unrelated row;
+ * tombstoneIdOfWire's exhaustive switch makes a new EntityKind a compile
+ * error there. */
+function knownTombstones(tombs: readonly SyncTombstone[]): TombstoneId[] {
+  return tombs.flatMap((tomb) => {
+    const id = tombstoneIdOfWire(tomb);
+    if (id === null) {
+      console.warn("applyWindow: unknown tombstone kind, skipping", tomb.kind);
+      return [];
+    }
+    return [id];
+  });
 }
 
 /** The sync_client_meta key holding the block tombstones a catch-up has
@@ -464,8 +478,13 @@ const DEFERRED_BLOCK_TOMBSTONES = "deferred_block_tombstones";
 function recordedBlockTombstones(recorded: string | null,
                                  cursor: string | null): BlockUid[] {
   if (recorded === null) return [];
-  const rec = JSON.parse(recorded) as { cursor: number; uids: BlockUid[] };
-  return cursor !== null && String(rec.cursor) === cursor ? rec.uids : [];
+  const rec = JSON.parse(recorded) as Record<string, unknown>;
+  if (cursor === null || String(rec.cursor) !== cursor) return [];
+  if (!Array.isArray(rec.uids)) return [];
+  return rec.uids.flatMap((u: unknown) => {
+    const uid = typeof u === "string" ? parseBlockUid(u) : null;
+    return uid === null ? [] : [uid];
+  });
 }
 
 /** The block tombstones still owed after a window: those recorded by
@@ -564,15 +583,15 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
   return db.transaction(() => {
     db.exec("PRAGMA defer_foreign_keys = ON");
     const recorded = getMeta(db, DEFERRED_BLOCK_TOMBSTONES);
+    const tombs = knownTombstones(feed.tombstones);
     const owed = owedBlockTombstones(
       recordedBlockTombstones(recorded, getMeta(db, "cursor")), feed.blocks,
-      feed.tombstones.filter((tm) => tm.kind === "block")
-        .map((tm) => tm.entity_id as BlockUid));
+      tombs.flatMap((tm) => tm.kind === "block" ? [tm.id] : []));
     const atHead = feed.next_since >= feed.latest_seq;
     const dropped = dropAppliedPending(db, feed.applied_batches, droppable);
     pruneReplayBatches(db);
     const freed = rewind(db, "pending");
-    for (const tomb of feed.tombstones) {
+    for (const tomb of tombs) {
       if (tomb.kind !== "block") applyTombstone(db, tomb);
     }
     const parkedPages = parkTakenTitles(db, "pages", feed.pages);
@@ -582,7 +601,7 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number,
     dropWindowRecords(db, { uids: [...feed.blocks.map((b) => b.uid), ...owed],
                             pageIds: feed.pages.map((p) => p.id) });
     if (atHead) {
-      for (const u of owed) applyTombstone(db, { kind: "block", entity_id: u });
+      for (const id of owed) applyTombstone(db, { kind: "block", id });
       // only acked batches' records remain: the pending ones were rewound
       for (const [title, id] of rewind(db, "all")) freed.set(title, id);
     }

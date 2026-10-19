@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
-import { makeSync, uid } from "../test-helpers";
+import { makeSync, uidOf } from "../test-helpers";
 import { historyIdle, recordHistory, resetHistory,
          setHistoryPageLoader } from "../outline/undoManager";
 import { UndoRedoKeys } from "./UndoRedoKeys";
@@ -15,8 +15,8 @@ afterEach(() => resetHistory());
 
 const entry = () => ({
   pageTitle: "Keys Page",
-  ops: [{ op: "update_text" as const, uid: uid("a"), text: "after" }],
-  inverse: [{ op: "update_text" as const, uid: uid("a"), text: "before" }],
+  ops: [{ op: "update_text" as const, uid: uidOf("tuid-a"), text: "after" }],
+  inverse: [{ op: "update_text" as const, uid: uidOf("tuid-a"), text: "before" }],
   anchors: { ops: [null], inverse: [null] },
   freshAssets: [],
   focusBefore: null,
@@ -39,7 +39,7 @@ it("Cmd-Z on the window dispatches undo", async () => {
   recordHistory(entry());
   fireEvent.keyDown(window, { key: "z", metaKey: true });
   await historyIdle();
-  expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before" }]]);
+  expect(sync.sent).toEqual([[{ op: "update_text", uid: "tuid-a", text: "before" }]]);
 });
 
 it("Shift-Cmd-Z dispatches redo", async () => {
@@ -49,7 +49,7 @@ it("Shift-Cmd-Z dispatches redo", async () => {
   fireEvent.keyDown(window, { key: "z", metaKey: true, shiftKey: true });
   await historyIdle();
   expect(sync.sent).toHaveLength(2);
-  expect(sync.sent[1]).toEqual([{ op: "update_text", uid: "a", text: "after" }]);
+  expect(sync.sent[1]).toEqual([{ op: "update_text", uid: "tuid-a", text: "after" }]);
 });
 
 it("ignores keystrokes from editable elements (native undo wins there)", () => {

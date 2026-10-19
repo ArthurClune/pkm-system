@@ -1,10 +1,10 @@
 import { afterEach, expect, test, vi } from "vitest";
-import type { Sha256Hex } from "../api/brands";
 import { releaseAssets, releaseUrl } from "./assetRelease";
 import type { DeliveryOutcome } from "./opQueue";
+import { shaOf } from "../test-helpers";
 
-const A = "aa".repeat(32) as Sha256Hex;
-const B = "bb".repeat(32) as Sha256Hex;
+const A = shaOf("aa".repeat(32));
+const B = shaOf("bb".repeat(32));
 const delivered: DeliveryOutcome = { status: "delivered" };
 
 function fetchReturning(status: number) {

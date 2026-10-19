@@ -2,6 +2,7 @@
 // Reading an /api/ops ack.
 import type { SyncSeq } from "../api/brands";
 import type { OpsAck, SkippedOp } from "../api/payloads";
+import { parseSyncSeq } from "../ids";
 
 export type SkipReason = SkippedOp["reason"];
 
@@ -21,11 +22,8 @@ export interface OpsAckReading {
  * malformed value would. Serves the drain, the lane and the recovery
  * flush -- every caller that reads an ack. */
 export function readOpsAck(ack: OpsAck): OpsAckReading {
-  const seq = (ack as { seq?: unknown }).seq;
-  const skipped = (ack as { skipped?: unknown }).skipped;
   return {
-    seq: typeof seq === "number" && Number.isFinite(seq)
-      ? seq as SyncSeq : undefined,
-    skipped: Array.isArray(skipped) ? skipped as SkippedOp[] : [],
+    seq: parseSyncSeq(ack.seq) ?? undefined,
+    skipped: Array.isArray(ack.skipped) ? ack.skipped : [],
   };
 }

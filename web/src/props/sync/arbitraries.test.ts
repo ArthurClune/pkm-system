@@ -9,7 +9,7 @@ import { countDown, FALL_BACK, freshPool, initialModel, londonMs, londonTime,
 const BLOCK_UID = /^[a-zA-Z0-9_-]{6,32}$/;
 
 const draft = (over: Partial<OpDraft>): OpDraft => ({
-  kind: "update_text", target: 0, parent: null, page: null, orderIdx: 0, text: "",
+  kind: "update_text", target: 0, parent: null, page: null, order: 0, text: "",
   collapsed: false,
   ...over,
 });
@@ -17,7 +17,7 @@ const draft = (over: Partial<OpDraft>): OpDraft => ({
 describe("resolveOps", () => {
   it("takes the client's fresh uids in order, and creates under top or the pool", () => {
     const { ops, used } = resolveOps(
-      [draft({ kind: "create", parent: 1, orderIdx: 5, text: "x" }),
+      [draft({ kind: "create", parent: 1, order: 5, text: "x" }),
        draft({ kind: "create" })],
       ["pt_seed_1", "pt_seed_2"], ["pt_A_1", "pt_A_2"]);
     expect(used).toEqual(["pt_A_1", "pt_A_2"]);
@@ -95,7 +95,7 @@ describe("resolveOps", () => {
 
   it("gives only a top-level move a page_title, and only when one is drawn", () => {
     const { ops } = resolveOps(
-      [draft({ kind: "move", page: 1, orderIdx: 4 }),
+      [draft({ kind: "move", page: 1, order: 4 }),
        draft({ kind: "move", page: null }),
        draft({ kind: "move", parent: 1, page: 3 })],
       ["pt_seed_1", "pt_seed_2"], []);

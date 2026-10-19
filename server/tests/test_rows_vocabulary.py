@@ -1,16 +1,17 @@
 import re
-import sqlite3
 from pathlib import Path
 from typing import NewType
 
 import pytest
 
 from brandlint.registry import load_registry
+from rawread import read
 from pkm import brand_registry as reg
 from pkm import goodlinks, refs, rows
 from pkm.contracts import ops, responses
 from pkm.refs import BLOCK_REF_TOKEN
 from pkm.schema import DDL
+from pkm.database import Db, connect
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -25,9 +26,9 @@ def _declared_server_brands() -> set[str]:
     return found
 
 
-def _tables(db: sqlite3.Connection) -> list[str]:
-    names = [r[0] for r in db.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table'")]
+def _tables(db: Db) -> list[str]:
+    names = [r[0] for r in read(
+        db, "SELECT name FROM sqlite_master WHERE type = 'table'")]
     fts = {n for n in names if n.endswith("_fts")}
     return [n for n in names
             if not n.startswith("sqlite_")
@@ -36,11 +37,11 @@ def _tables(db: sqlite3.Connection) -> list[str]:
 
 
 def _columns():
-    db = sqlite3.connect(":memory:")
+    db = connect(":memory:")
     db.executescript(DDL)
     for table in _tables(db):
-        for _, name, ctype, notnull, _, pk in db.execute(
-                f"PRAGMA table_info({table})"):
+        for _, name, ctype, notnull, _, pk in read(
+                db, f"PRAGMA table_info({table})"):
             key = reg.COLUMN_KEYS.get(table, {}).get(name, name)
             yield table, name, key, ctype, notnull, pk
 

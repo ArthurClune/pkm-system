@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, jsonResponse, makeSync, ord, title } from "../test-helpers";
+import { block, jsonResponse, makeSync, orderIdxOf, canonicalTitleOf } from "../test-helpers";
 import { useOutline } from "../outline/useOutline";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { EditableBlockTree } from "./EditableBlockTree";
@@ -15,7 +15,7 @@ const LINK = { id: ID, title: "UML", url: "https://tratt.net/uml.html", added_at
 const RESOLVE = "/api/goodlinks/resolve";
 
 function Page({ initial }: { initial: BlockNode[] }) {
-  const o = useOutline(title("Page"), initial);
+  const o = useOutline(canonicalTitleOf("Page"), initial);
   return (
     <>
       {o.goodlinksNotice && <p role="status">{o.goodlinksNotice}</p>}
@@ -46,8 +46,8 @@ function resolveCalls(mock: ReturnType<typeof stubResolve>) {
 }
 
 function tree() {
-  return [block("p1", "[UML](https://tratt.net/uml.html)", { order_idx: ord(0), children: [
-    block("c1", "", { order_idx: ord(0) }),
+  return [block("tuid-p1", "[UML](https://tratt.net/uml.html)", { order_idx: orderIdxOf(0), children: [
+    block("tuid-c1", "", { order_idx: orderIdxOf(0) }),
   ] })];
 }
 
@@ -110,7 +110,9 @@ it("reports a 503 as Goodlinks not running and inserts nothing", async () => {
 it("says No URL nearby without calling the server when nothing links out", async () => {
   const fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
-  renderPage([block("p1", "no links", { order_idx: ord(0), children: [block("c1", "", { order_idx: ord(0) })] })]);
+  renderPage([block("tuid-p1", "no links", {
+    order_idx: orderIdxOf(0),
+    children: [block("tuid-c1", "", { order_idx: orderIdxOf(0) })] })]);
   await pickGoodlinks();
   expect(fetchMock).not.toHaveBeenCalled();
   expect(screen.getByRole("status")).toHaveTextContent("No URL nearby");

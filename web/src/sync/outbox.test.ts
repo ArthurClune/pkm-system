@@ -12,13 +12,14 @@ import {
   settleHead,
   type OutboxState,
 } from "./outbox";
+import { batchIdOf, uidOf } from "../test-helpers";
 
-const op = (uid: string): BlockOp =>
-  ({ op: "update_text", uid, text: uid }) as unknown as BlockOp;
+const op = (tag: string): BlockOp =>
+  ({ op: "update_text", uid: uidOf(`tuid-${tag}`), text: tag });
 
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
-const bid = (s: string): BatchId => s as BatchId;
+const bid = (s: string): BatchId => batchIdOf(s);
 
 const withEntries = (...batchIds: string[]): OutboxState =>
   batchIds.map(bid).reduce((s, id) => append(s, id, [op(id)]), createOutbox());

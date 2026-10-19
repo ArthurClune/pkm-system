@@ -1,6 +1,5 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import type { BlockUid, OrderIdx } from "../../api/brands";
 import type { BlockNode } from "../../api/payloads";
 import { allowedDepths, dropRows } from "../../outline/dnd";
 import { emptyHistory } from "../../outline/history";
@@ -9,16 +8,18 @@ import { forestArb, PAGE_TITLE, renderForest, sequenceArb, treeArb, type Command
          type IndentStyle } from "./arbitraries";
 import { readingRows } from "./reading";
 import { REAL, runSequence } from "./run";
+import { uidOf, orderIdxOf } from "../../test-helpers";
 
-const node = (uid: string, order: number, over: Partial<BlockNode> = {},
+const uid = (tag: string) => uidOf(`tuid-${tag}`);
+
+const node = (tag: string, order: number, over: Partial<BlockNode> = {},
               children: BlockNode[] = []): BlockNode => ({
-  uid: uid as BlockUid, text: uid, heading: null, view_type: null, collapsed: false,
-  order_idx: order as OrderIdx, created_at: null, updated_at: null, children,
+  uid: uid(tag), text: tag, heading: null, view_type: null, collapsed: false,
+  order_idx: orderIdxOf(order), created_at: null, updated_at: null, children,
   ...over,
 });
 
-const flat = (): BlockNode[] => ["a", "b", "c", "d"].map((uid, i) => node(uid, i));
-const uid = (s: string) => s as BlockUid;
+const flat = (): BlockNode[] => ["a", "b", "c", "d"].map((tag, i) => node(tag, i));
 const textOf = (blocks: BlockNode[], u: string) => findNode(blocks, uid(u))?.text;
 
 describe("runSequence", () => {
@@ -29,11 +30,11 @@ describe("runSequence", () => {
     ]);
     const [typed, indent] = run.steps;
     expect(textOf(typed.after, "b")).toBe("zz");
-    expect(typed.ops).toEqual([{ op: "update_text", uid: "b", text: "zz" }]);
+    expect(typed.ops).toEqual([{ op: "update_text", uid: uid("b"), text: "zz" }]);
     expect(textOf(indent.base, "b")).toBe("zz");
     expect(indent.ops.every((op) => op.op !== "update_text")).toBe(true);
     expect(run.history.undo).toHaveLength(1);
-    expect(run.history.undo[0].ops[0]).toEqual({ op: "update_text", uid: "b", text: "zz" });
+    expect(run.history.undo[0].ops[0]).toEqual({ op: "update_text", uid: uid("b"), text: "zz" });
     expect(run.history.undo[0].ops.length).toBeGreaterThan(1);
   });
 
@@ -44,7 +45,7 @@ describe("runSequence", () => {
     ]);
     expect(textOf(run.steps[1].base, "a")).toBe("zz");
     expect(run.history.undo.map((e) => e.ops)).toEqual([
-      [{ op: "update_text", uid: "a", text: "zz" }],
+      [{ op: "update_text", uid: uid("a"), text: "zz" }],
       run.steps[1].ops,
     ]);
   });
@@ -55,7 +56,7 @@ describe("runSequence", () => {
       { kind: "indentSel", row: 1, span: 0 },
     ]);
     expect(run.history.undo.map((e) => e.ops)).toEqual([
-      [{ op: "update_text", uid: "b", text: "zz" }],
+      [{ op: "update_text", uid: uid("b"), text: "zz" }],
       run.steps[1].ops,
     ]);
   });
@@ -70,7 +71,7 @@ describe("runSequence", () => {
     expect(indent.after).toEqual(indent.base);
     expect(textOf(indent.after, "a")).toBe("zz");
     expect(run.history.undo.map((e) => e.ops)).toEqual([
-      [{ op: "update_text", uid: "a", text: "zz" }],
+      [{ op: "update_text", uid: uid("a"), text: "zz" }],
     ]);
   });
 
@@ -92,7 +93,7 @@ describe("runSequence", () => {
     expect(drop.ops).toEqual([]);
     expect(textOf(drop.base, "a")).toBe("zz");
     expect(run.history.undo.map((e) => e.ops)).toEqual([
-      [{ op: "update_text", uid: "a", text: "zz" }],
+      [{ op: "update_text", uid: uid("a"), text: "zz" }],
     ]);
   });
 
@@ -102,14 +103,14 @@ describe("runSequence", () => {
       { kind: "indentSel", row: 1, span: 0 },
     ]);
     expect(sel.history.undo.map((e) => e.focusBefore)).toEqual([
-      { uid: "a", cursor: 1 }, null,
+      { uid: uid("a"), cursor: 1 }, null,
     ]);
     const other = runSequence(flat(), [
       { kind: "type", row: 0, text: "zz" },
       { kind: "indent", row: 2 },
     ]);
     expect(other.history.undo.map((e) => e.focusBefore)).toEqual([
-      { uid: "a", cursor: 1 }, { uid: "c", cursor: 1 },
+      { uid: uid("a"), cursor: 1 }, { uid: uid("c"), cursor: 1 },
     ]);
   });
 
@@ -120,7 +121,7 @@ describe("runSequence", () => {
       { kind: "indent", row: 1 },
     ]);
     expect(run.steps.slice(0, 2).map((s) => s.focus)).toEqual([null, null]);
-    expect(run.history.undo.map((e) => e.focusBefore)).toEqual([{ uid: "b", cursor: 1 }]);
+    expect(run.history.undo.map((e) => e.focusBefore)).toEqual([{ uid: uid("b"), cursor: 1 }]);
   });
 
   it("undo flushes a pending draft as its own entry first", () => {
@@ -134,7 +135,7 @@ describe("runSequence", () => {
     expect(undo.undo?.expectedRows).toEqual(readingRows(flat()));
     expect(run.history.undo).toEqual([]);
     expect(run.history.redo).toHaveLength(1);
-    expect(run.history.redo[0].ops).toEqual([{ op: "update_text", uid: "a", text: "zz" }]);
+    expect(run.history.redo[0].ops).toEqual([{ op: "update_text", uid: uid("a"), text: "zz" }]);
     expect(textOf(run.end, "a")).toBe("a");
   });
 
@@ -144,7 +145,7 @@ describe("runSequence", () => {
       { kind: "type", row: 0, text: "a" },
       { kind: "indent", row: 0 },
     ]);
-    expect(run.steps[1].ops).toEqual([{ op: "update_text", uid: "a", text: "a" }]);
+    expect(run.steps[1].ops).toEqual([{ op: "update_text", uid: uid("a"), text: "a" }]);
     expect(run.history).toEqual(emptyHistory());
   });
 
@@ -209,7 +210,7 @@ describe("runSequence", () => {
   it("a collapse-only command records nothing", () => {
     const start = [node("a", 0, {}, [node("b", 0)]), node("c", 1)];
     const run = runSequence(start, [{ kind: "collapse", row: 0, value: true }]);
-    expect(run.steps[0].ops).toEqual([{ op: "set_collapsed", uid: "a", collapsed: true }]);
+    expect(run.steps[0].ops).toEqual([{ op: "set_collapsed", uid: uid("a"), collapsed: true }]);
     expect(run.steps[0].inverse).toEqual([]);
     expect(findNode(run.end, uid("a"))?.collapsed).toBe(true);
     expect(run.history).toEqual(emptyHistory());
@@ -227,9 +228,9 @@ describe("runSequence", () => {
       return r && "uids" in r ? r.uids : null;
     };
     expect(runSequence(flat(), [{ kind: "selUp", row: 1, span: 2 }]).steps[0].resolved)
-      .toEqual({ kind: "selUp", uids: ["b", "c", "d"] });
-    expect(uids({ kind: "selUp", row: 1, span: 40 })).toEqual(["b", "c", "d"]);
-    expect(uids({ kind: "deleteSel", row: 6, span: 0 })).toEqual(["c"]);
+      .toEqual({ kind: "selUp", uids: [uid("b"), uid("c"), uid("d")] });
+    expect(uids({ kind: "selUp", row: 1, span: 40 })).toEqual([uid("b"), uid("c"), uid("d")]);
+    expect(uids({ kind: "deleteSel", row: 6, span: 0 })).toEqual([uid("c")]);
   });
 
   it("split resolves its caret as a fraction of the text and mints a fresh uid", () => {
@@ -238,8 +239,8 @@ describe("runSequence", () => {
       { kind: "split", row: 0, caret: 40 },
       { kind: "split", row: 0, caret: 101 },
     ]);
-    expect(run.steps[0].resolved).toEqual({ kind: "split", uid: "a", caret: 2, fresh: "n0" });
-    expect(run.steps[1].resolved).toEqual({ kind: "split", uid: "a", caret: 0, fresh: "n1" });
+    expect(run.steps[0].resolved).toEqual({ kind: "split", uid: uid("a"), caret: 2, fresh: uid("n0") });
+    expect(run.steps[1].resolved).toEqual({ kind: "split", uid: uid("a"), caret: 0, fresh: uid("n1") });
   });
 
   it("drop resolves depth from allowedDepths", () => {
@@ -289,8 +290,8 @@ describe("runSequence", () => {
 
   describe("wire batches", () => {
     it("mintPrefix names the fresh uid a split mints", () => {
-      const run = runSequence(flat(), [{ kind: "split", row: 1, caret: 50 }], { mintPrefix: "opsn" });
-      expect(run.steps[0].resolved).toMatchObject({ kind: "split", fresh: "opsn0" });
+      const run = runSequence(flat(), [{ kind: "split", row: 1, caret: 50 }], { mintPrefix: "tuid-opsn" });
+      expect(run.steps[0].resolved).toMatchObject({ kind: "split", fresh: uid("opsn0") });
     });
 
     it("a draft folded into indent goes out as one batch, stamped", () => {
@@ -324,8 +325,8 @@ describe("runSequence", () => {
     });
 
     it("every batch's ops take pre to after", () => {
-      fc.assert(fc.property(sequenceArb, (seq) => {
-        const run = runSequence(seq.start, seq.commands);
+      fc.assert(fc.property(sequenceArb, (drawn) => {
+        const run = runSequence(drawn.start, drawn.commands);
         return run.batches.every((b) => blocksEqual(applyOps(b.pre, b.ops, PAGE_TITLE), b.after));
       }), { numRuns: 200 });
     });

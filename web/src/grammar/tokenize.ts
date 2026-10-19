@@ -10,6 +10,7 @@
 // scanner.
 
 import type { BlockUid, Sha256Hex } from "../api/brands";
+import { parseSha256Hex } from "../replica/sha256";
 import { scanMarkdownLinkAt } from "./markdown";
 import { normalizeRefTitle, scanGrammar, type GrammarToken } from "./scan";
 
@@ -185,13 +186,11 @@ function tokenizeInline(
         // trailing punctuation is prose, not filename: "see .../pic.jpg."
         const url = m[0].replace(/[.,;:!?'")\]}>]+$/, "");
         const parts = /^\/assets\/([0-9a-f]{64})\/(.+)$/.exec(url);
-        if (parts) {
+        const sha = parts ? parseSha256Hex(parts[1]) : null;
+        if (parts && sha) {
           flushText();
-          // parts[1] is captured by `([0-9a-f]{64})`, so it is already
-          // exactly 64 lowercase hex characters -- minting here, not
-          // validating again.
           out.push({
-            kind: "asset-link", url, sha: parts[1] as Sha256Hex,
+            kind: "asset-link", url, sha,
             filename: parts[2],
           });
           i += url.length;

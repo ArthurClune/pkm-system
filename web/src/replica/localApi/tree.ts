@@ -2,8 +2,9 @@
 // Ports of server tree.py (flat rows -> nested tree, ((ref)) collection)
 // and the transitive block-ref resolver from routes_pages.py.
 
-import type { BlockUid, CanonicalTitle, OrderIdx } from "../../api/brands";
+import type { BlockUid } from "../../api/brands";
 import type { BlockNode, PagePayload } from "../../api/payloads";
+import type { Columns } from "../columns.gen";
 import type { ReplicaDb } from "../db";
 import { extractRefs } from "../refs";
 
@@ -11,17 +12,9 @@ import { extractRefs } from "../refs";
  * `heading` is the raw stored column (see storedHeading below), and there
  * is no children list yet. buildTree turns these into the generated
  * BlockNode the server sends. */
-export interface BlockRow {
-  uid: BlockUid;
-  parent_uid: BlockUid | null;
-  order_idx: OrderIdx;
-  text: string;
-  heading: number | null;
-  view_type: BlockNode["view_type"];
-  collapsed: number;
-  created_at: number | null;
-  updated_at: number | null;
-}
+export type BlockRow = Pick<Columns, "uid" | "parent_uid" | "order_idx"
+  | "text" | "heading" | "view_type" | "collapsed" | "created_at"
+  | "updated_at">;
 
 export const BLOCK_COLS =
   "uid, parent_uid, order_idx, text, heading, collapsed," +
@@ -105,8 +98,7 @@ export function resolveRefUids(db: ReplicaDb, uids: BlockUid[]): BlockRefTexts {
     if (fresh.length === 0) return out;
     fresh.forEach((u) => seen.add(u));
     const marks = fresh.map(() => "?").join(",");
-    const rows = db.select<{ uid: BlockUid; text: string;
-                             page_title: CanonicalTitle }>(
+    const rows = db.select<"uid" | "text" | "page_title">(
       `SELECT b.uid, b.text, p.title AS page_title FROM blocks b
         JOIN pages p ON p.id = b.page_id WHERE b.uid IN (${marks})`, fresh);
     for (const r of rows) {
@@ -128,7 +120,7 @@ export function blockRefCounts(db: ReplicaDb,
   if (uids.length === 0) return {};
   const marks = uids.map(() => "?").join(",");
   const out: Record<string, number> = {};
-  for (const r of db.select<{ target_block_uid: BlockUid; n: number }>(
+  for (const r of db.select<"target_block_uid" | "n">(
     `SELECT target_block_uid, count(*) AS n FROM block_refs
       WHERE target_block_uid IN (${marks})
       GROUP BY target_block_uid`, uids)) {
@@ -143,7 +135,7 @@ export function fetchAncestors(db: ReplicaDb,
   const out = new Map<BlockUid, string[]>();
   if (uids.length === 0) return out;
   const marks = uids.map(() => "?").join(",");
-  const rows = db.select<{ start_uid: BlockUid; text: string; depth: number }>(
+  const rows = db.select<"start_uid" | "text" | "depth">(
     `WITH RECURSIVE anc(start_uid, uid, parent_uid, text, depth, path) AS (
        SELECT uid, uid, parent_uid, text, 0, ',' || uid || ',' FROM blocks
         WHERE uid IN (${marks})

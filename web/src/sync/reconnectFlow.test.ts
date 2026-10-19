@@ -1,17 +1,17 @@
 import { expect, test, vi } from "vitest";
-import type { ClientId, SyncSeq } from "../api/brands";
 import type { Changes } from "../replica/apply";
 import { ReplicaUnusableError } from "../replica/errors";
 import { memReplica } from "./memReplica";
 import { createReconnectFlow } from "./reconnectFlow";
 import { createReplicaSync } from "./replicaSync";
 import type { DrainOutcome } from "./opQueue";
+import { seqOf, clientIdOf } from "../test-helpers";
 
 /** A changes window with nothing in it: the flapping-link case, where the
  * cursor the replica already holds is the latest the server has. */
 const QUIET_FEED: Changes = {
   reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
-  next_since: (0 as SyncSeq), latest_seq: (0 as SyncSeq),
+  next_since: seqOf(0), latest_seq: seqOf(0),
   pages: [], blocks: [], sidebar: [], tombstones: [],
 };
 
@@ -253,7 +253,7 @@ test("a reconnect resyncs once a pull reports the replica has become unusable",
   const sync = createReplicaSync({
     replica,
     fetchJson: async () => QUIET_FEED,
-    clientId: "c1" as ClientId,
+    clientId: clientIdOf("c1"),
     onState: () => undefined,
   });
   const { flow, trace } = harness({

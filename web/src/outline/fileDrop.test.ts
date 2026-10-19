@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { block, ord, title, uid } from "../test-helpers";
+import { block, orderIdxOf, canonicalTitleOf, uidOf } from "../test-helpers";
 import type { BlockUid } from "../api/brands";
 import { fileDropNotice, isUploadableType, partitionUploadable, planFileDropBlocks,
          uploadableDrag } from "./fileDrop";
@@ -48,56 +48,56 @@ describe("partitionUploadable", () => {
 });
 
 describe("planFileDropBlocks", () => {
-  const P = title("P");
+  const P = canonicalTitleOf("P");
   const tree = () => [
-    block("a", "A", { order_idx: ord(0) }),
-    block("b", "B", { order_idx: ord(1), children: [
-      block("b1", "B1", { order_idx: ord(0) })] }),
+    block("tuid-a", "A", { order_idx: orderIdxOf(0) }),
+    block("tuid-b", "B", { order_idx: orderIdxOf(1), children: [
+      block("tuid-b1", "B1", { order_idx: orderIdxOf(0) })] }),
   ];
-  const uids = [uid("n1"), uid("n2")];
+  const uids = [uidOf("tuid-n1"), uidOf("tuid-n2")];
 
   it("creates one block per text at consecutive slots under the target", () => {
     const plan = planFileDropBlocks(tree(), P,
-      { parent_uid: null, order_idx: ord(1), page_title: P },
+      { parent_uid: null, order_idx: orderIdxOf(1), page_title: P },
       ["![x](/1)", "![y](/2)"], uids);
     expect(plan.fellBack).toBe(false);
     expect(plan.result.focus).toBeNull();
     expect(plan.result.ops).toEqual([
-      { op: "create", uid: "n1", page_title: P, parent_uid: null,
+      { op: "create", uid: "tuid-n1", page_title: P, parent_uid: null,
         order_idx: 1, text: "![x](/1)" },
-      { op: "create", uid: "n2", page_title: P, parent_uid: null,
+      { op: "create", uid: "tuid-n2", page_title: P, parent_uid: null,
         order_idx: 2, text: "![y](/2)" }]);
-    expect(plan.result.blocks.map((n) => n.uid)).toEqual(["a", "n1", "n2", "b"]);
+    expect(plan.result.blocks.map((n) => n.uid)).toEqual(["tuid-a", "tuid-n1", "tuid-n2", "tuid-b"]);
   });
 
   it("targets a nested parent", () => {
     const plan = planFileDropBlocks(tree(), P,
-      { parent_uid: uid("b"), order_idx: ord(1), page_title: P },
-      ["t"], [uid("n1")]);
+      { parent_uid: uidOf("tuid-b"), order_idx: orderIdxOf(1), page_title: P },
+      ["t"], [uidOf("tuid-n1")]);
     expect(plan.fellBack).toBe(false);
-    expect(plan.result.blocks[1].children.map((n) => n.uid)).toEqual(["b1", "n1"]);
+    expect(plan.result.blocks[1].children.map((n) => n.uid)).toEqual(["tuid-b1", "tuid-n1"]);
   });
 
   it("falls back to the end of the page when the parent has vanished", () => {
     const plan = planFileDropBlocks(tree(), P,
-      { parent_uid: uid("gone"), order_idx: ord(0), page_title: P },
+      { parent_uid: uidOf("tuid-gone"), order_idx: orderIdxOf(0), page_title: P },
       ["t1", "t2"], uids);
     expect(plan.fellBack).toBe(true);
-    expect(plan.result.blocks.map((n) => n.uid)).toEqual(["a", "b", "n1", "n2"]);
+    expect(plan.result.blocks.map((n) => n.uid)).toEqual(["tuid-a", "tuid-b", "tuid-n1", "tuid-n2"]);
     expect(plan.result.ops.map((o) => "order_idx" in o && o.order_idx))
       .toEqual([2, 3]);
   });
 
   it("creates nothing for no texts", () => {
     const plan = planFileDropBlocks(tree(), P,
-      { parent_uid: null, order_idx: ord(0), page_title: P }, [], []);
+      { parent_uid: null, order_idx: orderIdxOf(0), page_title: P }, [], []);
     expect(plan.result.ops).toEqual([]);
   });
 
   it("first uid is exposed for scrolling", () => {
     const plan = planFileDropBlocks(tree(), P,
-      { parent_uid: null, order_idx: ord(0), page_title: P }, ["t"], [uid("n1")]);
-    expect(plan.firstUid satisfies BlockUid | null).toBe("n1");
+      { parent_uid: null, order_idx: orderIdxOf(0), page_title: P }, ["t"], [uidOf("tuid-n1")]);
+    expect(plan.firstUid satisfies BlockUid | null).toBe("tuid-n1");
   });
 });
 

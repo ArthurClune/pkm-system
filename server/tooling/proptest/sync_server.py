@@ -19,7 +19,6 @@ import atexit
 import copy
 import dataclasses
 import itertools
-import json
 import logging
 import os
 import shutil
@@ -40,7 +39,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-from pkm.contracts.ops import BlockOp, OpBatch, SyncSeq
+from pkm.contracts.ops import BatchId, BlockOp, OpBatch, SyncSeq
 from pkm.database import Db
 from pkm.refs import CanonicalTitle
 from pkm.server import ops_apply, sync_meta
@@ -176,14 +175,6 @@ class Clock:
         self._travel.stop()
 
 
-def _dicts(db: Db, sql: str) -> list[dict]:
-    """Rows of a test-only table read by column name (their columns are not
-    `Row` keys, so `Db.select` would not accept them)."""
-    cursor = db.raw.execute(sql)
-    names = [d[0] for d in cursor.description]
-    return [dict(zip(names, values)) for values in cursor.fetchall()]
-
-
 def build_template(path: Path) -> None:
     """A fresh DB holding page "Proptest" with five top-level blocks, page
     "Second" with three and page "Fixture" with one, written through the real
@@ -259,6 +250,25 @@ class _StaleTeethBody(BaseModel):
 
 class _RewriteTeethBody(BaseModel):
     drop_replayed: bool
+
+
+def _batch_lookup(con: Db) -> list[tuple[int, BatchId]]:
+    """Every applied batch as (rowid, batch_id), in rowid order."""
+    rows = con.select("SELECT rowid AS n, batch_id FROM applied_batches ORDER BY rowid")
+    return [(r["n"], r["batch_id"]) for r in rows]
+
+
+def _after_rowids(con: Db, log: str) -> list[int]:
+    """The applied_batches rowid each row of `log` recorded, in row order;
+    0 when no batch had been applied. `log` is one of the harness's own
+    table names, never user input."""
+    rows = con.select(f"SELECT after_batch AS n FROM {log} ORDER BY rowid")
+    return [r["n"] for r in rows]
+
+
+def _after_batches(con: Db, log: str, lookup: list[tuple[int, BatchId]]) -> list[BatchId | None]:
+    named = dict(lookup)
+    return [named.get(n) for n in _after_rowids(con, log)]
 
 
 def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI:
@@ -344,7 +354,7 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     def applied(request: Request) -> list[dict]:
         con = open_db(request.app.state.config.db_path)
         try:
-            rows = _dicts(con,
+            rows = con.select(
                 "SELECT batch_id, applied_at FROM applied_batches ORDER BY rowid")
         finally:
             con.close()
@@ -354,42 +364,58 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     def renames(request: Request) -> list[dict]:
         con = open_db(request.app.state.config.db_path)
         try:
-            # The batch each followed by id: the serial replay walks
-            # /__proptest/applied's list, which names batches, not rowids.
-            rows = _dicts(con,
-                "SELECT r.old_title, r.new_title, a.batch_id AS after_batch_id, r.at, r.ord"
-                " FROM proptest_renames r"
-                " LEFT JOIN applied_batches a ON a.rowid = r.after_batch"
-                " ORDER BY r.rowid")
+            # updated_at stands for `at` and n for `ord`. The batch each
+            # followed is read apart (see _batch_lookup): the log keeps its
+            # applied_batches rowid, and 0 means no batch preceded.
+            rows = con.select(
+                "SELECT old_title, new_title, at AS updated_at, ord AS n"
+                " FROM proptest_renames ORDER BY rowid")
+            after = _after_batches(con, "proptest_renames", _batch_lookup(con))
         finally:
             con.close()
-        return rows
+        return [{"old_title": r["old_title"], "new_title": r["new_title"],
+                 "after_batch_id": batch_id,
+                 "at": r["updated_at"], "ord": r["n"]}
+                for r, batch_id in zip(rows, after, strict=True)]
 
     @app.get("/__proptest/deletes", dependencies=[Depends(require_auth)])
     def deletes(request: Request) -> list[dict]:
         con = open_db(request.app.state.config.db_path)
         try:
-            rows = _dicts(con,
-                "SELECT d.title, d.seq, a.batch_id AS after_batch_id, d.at, d.ord, d.uids"
-                " FROM proptest_deletes d"
-                " LEFT JOIN applied_batches a ON a.rowid = d.after_batch"
-                " ORDER BY d.rowid")
+            # Read as for renames. Each deleted block uid is its own row,
+            # grouped by the delete's `ord` (unique across both logs).
+            rows = con.select(
+                "SELECT title, seq, at AS deleted_at, ord AS n"
+                " FROM proptest_deletes ORDER BY rowid")
+            uid_rows = con.select(
+                "SELECT d.ord AS n, j.value AS uid"
+                " FROM proptest_deletes d, json_each(d.uids) j"
+                " ORDER BY d.rowid, j.key")
+            after = _after_batches(con, "proptest_deletes", _batch_lookup(con))
         finally:
             con.close()
-        return [{**r, "uids": json.loads(r["uids"])} for r in rows]
+        uids: dict[int, list[str]] = {}
+        for u in uid_rows:
+            uids.setdefault(u["n"], []).append(u["uid"])
+        return [{"title": r["title"], "seq": r["seq"],
+                 "after_batch_id": batch_id, "at": r["deleted_at"],
+                 "ord": r["n"], "uids": uids.get(r["n"], [])}
+                for r, batch_id in zip(rows, after, strict=True)]
 
     @app.get("/__proptest/conflicts", dependencies=[Depends(require_auth)])
     def conflicts(request: Request) -> list[dict]:
         con = open_db(request.app.state.config.db_path)
         try:
-            rows = _dicts(con,
-                "SELECT c.header_uid, c.text,"
-                " (SELECT a.batch_id FROM applied_batches a WHERE a.rowid > c.after_batch"
-                "   ORDER BY a.rowid LIMIT 1) AS batch_id"
-                " FROM proptest_conflicts c ORDER BY c.rowid")
+            rows = con.select(
+                "SELECT header_uid, text FROM proptest_conflicts ORDER BY rowid")
+            lookup = _batch_lookup(con)
+            # the first batch applied after the header was created
+            after = [next((b for rowid, b in lookup if rowid > n), None)
+                     for n in _after_rowids(con, "proptest_conflicts")]
         finally:
             con.close()
-        return rows
+        return [{"header_uid": r["header_uid"], "text": r["text"],
+                 "batch_id": batch_id} for r, batch_id in zip(rows, after, strict=True)]
 
     @app.post("/__proptest/echo/take", dependencies=[Depends(require_auth)])
     def echo_take() -> dict:

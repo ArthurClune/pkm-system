@@ -259,7 +259,7 @@ export async function checkQuiescent(clients: HarnessClient[], server: ServerCon
 export class CursorWatch {
   private readonly highest = new Map<string, SyncSeq>();
 
-  observe(clients: HarnessClient[]): void {
+  observe(clients: readonly Pick<HarnessClient, "name" | "cursor">[]): void {
     for (const c of clients) {
       const now = c.cursor();
       const before = this.highest.get(c.name);

@@ -11,14 +11,14 @@ from pkm.assistant.events import (
     encode_sse,
     event_name,
 )
-from pkm.contracts.responses import ConfirmId
+from pkm.test_data.ids import confirm_id_of
 
 
 def test_event_names():
     assert event_name(TextDelta(text="hi")) == "text_delta"
     assert event_name(ToolStarted(name="search", summary='searching "x"')) == "tool_started"
     assert event_name(ToolFinished(name="search")) == "tool_finished"
-    assert event_name(ConfirmRequest(confirm_id=ConfirmId("c1"), ops_preview="Create note")) == "confirm_request"
+    assert event_name(ConfirmRequest(confirm_id=confirm_id_of("c1"), ops_preview="Create note")) == "confirm_request"
     assert event_name(TurnDone(usage=None)) == "turn_done"
     assert event_name(ErrorEvent(message="boom")) == "error"
     assert event_name(Phase(label="reasoning")) == "phase"

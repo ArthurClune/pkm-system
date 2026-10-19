@@ -1,9 +1,12 @@
 from pkm.edn import parse_edn
 from pkm.importer.parse_export import Block, Export, Page, parse_export
 from pkm.importer.rows import RECOVERY_PAGE_TITLE, to_rows
+from pkm.contracts.ops import BlockUid
+from pkm.test_data.ids import uid_of
 
 
-def _block(uid, text, children=(), heading=None, open_=True, view_type=None):
+def _block(uid: BlockUid, text, children=(), heading=None, open_=True,
+           view_type=None):
     return Block(uid=uid, text=text, heading=heading, view_type=view_type, open=open_,
                  created_at=None, edited_at=None, children=tuple(children))
 
@@ -11,9 +14,9 @@ def _block(uid, text, children=(), heading=None, open_=True, view_type=None):
 EXPORT = Export(
     pages=(
         Page("Machine Learning", 1600000000000, 1600000001000, (
-            _block("uid-attr1", "Tags:: #AI"),
-            _block("uid-head1", "Papers", heading=2, open_=False, children=(
-                _block("uid-link1", "read [[Attention]] and [[AI]]"),
+            _block(uid_of("uid-attr1"), "Tags:: #AI"),
+            _block(uid_of("uid-head1"), "Papers", heading=2, open_=False, children=(
+                _block(uid_of("uid-link1"), "read [[Attention]] and [[AI]]"),
             )),
         )),
     ),
@@ -79,12 +82,12 @@ def test_transform_applied_before_extraction():
 MERMAID_EXPORT = Export(
     pages=(
         Page("Diagrams", None, None, (
-            _block("uid-mermaid1", "{{[[mermaid]]}}", children=(
-                _block("uid-line1", "flowchart TB"),
-                _block("uid-line2", "a --> b"),
+            _block(uid_of("uid-mermaid1"), "{{[[mermaid]]}}", children=(
+                _block(uid_of("uid-line1"), "flowchart TB"),
+                _block(uid_of("uid-line2"), "a --> b"),
             )),
-            _block("uid-plain1", "not a diagram, mentions [[mermaid]] in passing"),
-            _block("uid-mention1", "{{[[mermaid]]}}"),  # childless mention
+            _block(uid_of("uid-plain1"), "not a diagram, mentions [[mermaid]] in passing"),
+            _block(uid_of("uid-mention1"), "{{[[mermaid]]}}"),  # childless mention
         )),
     ),
     orphan_block_count=0,
@@ -123,11 +126,11 @@ def test_unreferenced_mermaid_subtree_reports_no_preserved_refs():
 MERMAID_REF_EXPORT = Export(
     pages=(
         Page("Diagrams", None, None, (
-            _block("uid-mermaid2", "{{[[mermaid]]}}", children=(
-                _block("uid-refline1", "flowchart TB"),
-                _block("uid-refline2", "a --> b"),
+            _block(uid_of("uid-mermaid2"), "{{[[mermaid]]}}", children=(
+                _block(uid_of("uid-refline1"), "flowchart TB"),
+                _block(uid_of("uid-refline2"), "a --> b"),
             )),
-            _block("uid-citer", "see ((uid-refline2)) for detail"),
+            _block(uid_of("uid-citer"), "see ((uid-refline2)) for detail"),
         )),
     ),
     orphan_block_count=0,
@@ -153,13 +156,13 @@ def test_externally_referenced_descendant_prevents_flattening():
 MERMAID_INTERNAL_REF_EXPORT = Export(
     pages=(
         Page("Diagrams", None, None, (
-            _block("uid-mermaid3", "{{[[mermaid]]}}", children=(
-                _block("uid-iline1", "flowchart TB"),
+            _block(uid_of("uid-mermaid3"), "{{[[mermaid]]}}", children=(
+                _block(uid_of("uid-iline1"), "flowchart TB"),
                 # references a sibling *within the same subtree* -- this
                 # must NOT count as an external reference: the whole
                 # subtree (this block included) is dropped together, so
                 # nothing outside the flatten ever needed it to resolve
-                _block("uid-iline2", "see ((uid-iline1)) for the start node"),
+                _block(uid_of("uid-iline2"), "see ((uid-iline1)) for the start node"),
             )),
         )),
     ),
@@ -192,15 +195,15 @@ NESTED_MERMAID_EXPORT = Export(
             None,
             (
                 _block(
-                    "outer-uid",
+                    uid_of("outer-uid"),
                     "{{[[mermaid]]}}",
                     children=(
                         _block(
-                            "inner-uid",
+                            uid_of("inner-uid"),
                             "{{[[mermaid]]}}",
-                            children=(_block("line-uid", "flowchart TB"),),
+                            children=(_block(uid_of("line-uid"), "flowchart TB"),),
                         ),
-                        _block("citer-uid", "see ((line-uid))"),
+                        _block(uid_of("citer-uid"), "see ((line-uid))"),
                     ),
                 ),
             ),
@@ -235,13 +238,13 @@ def test_no_recovery_page_when_no_orphans():
 ORPHAN_EXPORT = Export(
     pages=(
         Page("Machine Learning", None, None, (
-            _block("uid-attr1", "Tags:: #AI"),
+            _block(uid_of("uid-attr1"), "Tags:: #AI"),
         )),
     ),
     orphan_block_count=2,
     orphan_blocks=(
-        _block("uid-orphan-root", "orphan root [[AI]]", children=(
-            _block("uid-orphan-child", "orphan child"),
+        _block(uid_of("uid-orphan-root"), "orphan root [[AI]]", children=(
+            _block(uid_of("uid-orphan-child"), "orphan child"),
         )),
     ),
     skipped_entities=0,
@@ -272,7 +275,7 @@ def test_orphan_references_contribute_to_implicit_page_count():
         pages=(Page("Explicit", None, None, ()),),
         orphan_block_count=1,
         orphan_blocks=(
-            _block("orphan-ref-uid", "see [[Orphan-only target]]"),
+            _block(uid_of("orphan-ref-uid"), "see [[Orphan-only target]]"),
         ),
         skipped_entities=0,
         attr_counts={},
@@ -295,15 +298,15 @@ def test_orphan_mermaid_composes_with_recovery_and_global_protection():
                 "Sources",
                 None,
                 None,
-                (_block("source-citer-uid", "see ((orphan-line-uid))"),),
+                (_block(uid_of("source-citer-uid"), "see ((orphan-line-uid))"),),
             ),
         ),
         orphan_block_count=2,
         orphan_blocks=(
             _block(
-                "orphan-mermaid-uid",
+                uid_of("orphan-mermaid-uid"),
                 "{{[[mermaid]]}}",
-                children=(_block("orphan-line-uid", "flowchart LR"),),
+                children=(_block(uid_of("orphan-line-uid"), "flowchart LR"),),
             ),
         ),
         skipped_entities=0,
@@ -328,7 +331,7 @@ def test_orphan_mermaid_composes_with_recovery_and_global_protection():
 BLOCK_REF_EXPORT = Export(
     pages=(
         Page("Notes", None, None, (
-            _block("uid-refsrc", "see ((uid_target)) and ((uid_target))"),
+            _block(uid_of("uid-refsrc"), "see ((uid_target)) and ((uid_target))"),
         )),
     ),
     orphan_block_count=0,
@@ -347,11 +350,11 @@ def test_recovery_page_title_avoids_collision_with_an_existing_page():
     collide = Export(
         pages=(
             Page(RECOVERY_PAGE_TITLE, None, None, (
-                _block("uid-real", "a page the user actually made"),
+                _block(uid_of("uid-real"), "a page the user actually made"),
             )),
         ),
         orphan_block_count=1,
-        orphan_blocks=(_block("uid-orphan-x", "orphan text"),),
+        orphan_blocks=(_block(uid_of("uid-orphan-x"), "orphan text"),),
         skipped_entities=0,
         attr_counts={},
     )

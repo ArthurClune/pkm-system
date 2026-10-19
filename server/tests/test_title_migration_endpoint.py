@@ -1,16 +1,15 @@
-import sqlite3
-
 import pkm.server.notify as notify
-from rawread import read
+from rawread import table_rows
 from pkm.server.db import get_db, open_db
 from pkm.server.sync_meta import (
     database_generation,
     plain_space_title_canonicalization_active,
 )
+from pkm.database import connect
 
 
 def _seed_migration_graph(db_path) -> None:
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     con.executemany(
         "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
         [
@@ -73,9 +72,9 @@ def _seed_migration_graph(db_path) -> None:
 
 
 def _table_rows(db_path, table: str) -> list[tuple[object, ...]]:
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     try:
-        return sorted(tuple(row) for row in con.execute(f"SELECT * FROM {table}"))
+        return table_rows(con, table)
     finally:
         con.close()
 
@@ -159,7 +158,7 @@ def test_title_migration_audit_returns_truthful_payload_without_side_effects(
 
 def test_title_migration_audit_surfaces_reasoned_blockers(client, seeded_config):
     _seed_migration_graph(seeded_config.db_path)
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.executemany(
         "INSERT INTO pages(id, title) VALUES (?, ?)",
         [(18, "   "), (19, "Bad #Title")],
@@ -264,8 +263,8 @@ def test_title_migration_apply_activates_rotates_generation_and_nudges_once(
     assert plain_space_title_canonicalization_active(db) is True
     assert database_generation(db) != old_generation
     assert database_generation(db) == r.json()["generation"]
-    assert [tuple(row) for row in read(db,
-        "SELECT id, title FROM pages ORDER BY id"
+    assert [tuple(row.values()) for row in db.select(
+        "SELECT id AS page_id, title FROM pages ORDER BY id"
     )] == [
         (1, "Machine Learning"),
         (2, "AI"),
@@ -303,7 +302,7 @@ def test_title_migration_apply_returns_409_for_stale_digest(client, seeded_confi
 
 def test_title_migration_apply_returns_409_for_blocked_migration(client, seeded_config):
     _seed_migration_graph(seeded_config.db_path)
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("INSERT INTO pages(id, title) VALUES (?, ?)", (18, "   "))
     con.commit()
     con.close()
@@ -323,7 +322,7 @@ def test_title_migration_apply_returns_409_for_already_active_database(
     client, seeded_config
 ):
     _seed_migration_graph(seeded_config.db_path)
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute(
         "UPDATE sync_meta SET value='1' WHERE key='plain_space_title_canonicalization'"
     )

@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { BatchId, SyncSeq } from "../../api/brands";
-import type { Changes, Snapshot } from "../../replica/apply";
 import { cancellable, ExampleCancelled } from "./cancel";
 import type { ServerControl } from "./serverControl";
+import { seqOf } from "../../test-helpers";
 
 /** A ServerControl that records each call by name. */
 function fakeServer(calls: string[]): ServerControl {
@@ -15,17 +14,24 @@ function fakeServer(calls: string[]): ServerControl {
     reset: () => note("reset"),
     setClock: () => note("setClock"),
     rotateGeneration: () => note("rotateGeneration"),
-    applied: async () => { await note("applied"); return [] as { batch_id: BatchId; applied_at: number }[]; },
+    applied: async () => { await note("applied"); return []; },
     renames: async () => { await note("renames"); return []; },
     deletes: async () => { await note("deletes"); return []; },
     conflicts: async () => { await note("conflicts"); return []; },
-    snapshot: async () => { await note("snapshot"); return {} as Snapshot; },
+    snapshot: async () => { await note("snapshot"); return {
+      generation: "gen-1", plain_space_title_canonicalization: false, seq: seqOf(0),
+      pages: [], blocks: [], sidebar: [],
+    }; },
     takeEcho: async () => { await note("takeEcho"); return null; },
     setEchoTeeth: () => note("setEchoTeeth"),
     setStaleTeeth: () => note("setStaleTeeth"),
     setRewriteTeeth: () => note("setRewriteTeeth"),
-    changes: async () => { await note("changes"); return {} as Changes; },
-    latestSeq: async () => { await note("latestSeq"); return 7 as SyncSeq; },
+    changes: async () => { await note("changes"); return {
+      reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
+      next_since: seqOf(0), latest_seq: seqOf(0), pages: [], blocks: [], sidebar: [],
+      tombstones: [],
+    }; },
+    latestSeq: async () => { await note("latestSeq"); return seqOf(7); },
     postRaw: async () => { await note("postRaw"); return new Response(null); },
     postRename: async () => { await note("postRename"); return new Response(null); },
     postDelete: async () => { await note("postDelete"); return new Response(null); },

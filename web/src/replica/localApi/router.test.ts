@@ -9,6 +9,7 @@ import { titleForDate } from "../daily";
 import { setPlainSpaceTitleCanonicalization } from "../meta";
 import { openTestDb, type TestDb } from "../testDb";
 import { handleLocalApi, type LocalApiResult } from "./router";
+import { batchIdOf } from "../../test-helpers";
 
 const NOW = 1752403200000; // 2025-07-13 (mid-day UTC, same day in local time)
 
@@ -30,7 +31,7 @@ beforeEach(async () => {
 
 function call(method: string, path: string, body?: unknown,
               deps: { newBatchId(): BatchId } =
-                { newBatchId: () => "batch-test-1" as BatchId }): LocalApiResult {
+                { newBatchId: () => batchIdOf("batch-test-1") }): LocalApiResult {
   return handleLocalApi(t.db, { method, path, body, nowMs: NOW }, deps);
 }
 
@@ -106,7 +107,7 @@ describe("error statuses", () => {
   });
 
   test("create page with a blank title 422s", () => {
-    const deps = { newBatchId: () => "b1" as BatchId };
+    const deps = { newBatchId: () => batchIdOf("b1") };
     expectStatus(call("POST", "/api/pages", { title: "   " }, deps), 422);
     expectStatus(call("POST", "/api/pages", {}, deps), 422);
     // whitespace-only stays a 422 rather than normalizing to ""
@@ -122,7 +123,9 @@ describe("daily auto-creation", () => {
     ) as { page: { id: number; title: string } };
     expect(body.page.title).toBe(title);
     expect(body.page.id).toBeLessThan(0); // local negative id
-    expect(t.db.select("SELECT * FROM pending_ops")).toEqual([]);
+    expect(t.db.select<"pending_row_id" | "batch_id" | "ops_json" | "poisoned" | "pending_error">(
+      "SELECT id AS pending_row_id, batch_id, ops_json, poisoned, error AS pending_error"
+      + " FROM pending_ops")).toEqual([]);
   });
 
   test("missing past daily 404s locally and creates no row", () => {
@@ -131,7 +134,9 @@ describe("daily auto-creation", () => {
                  404);
     expectStatus(call("GET", `/api/page/${encodeURIComponent(yesterday)}`),
                  404);
-    expect(t.db.select("SELECT * FROM pages WHERE title = ?", [yesterday]))
+    expect(t.db.select<"page_id" | "title" | "created_at" | "updated_at">(
+      "SELECT id AS page_id, title, created_at, updated_at FROM pages WHERE title = ?",
+      [yesterday]))
       .toEqual([]);
   });
 
@@ -139,7 +144,9 @@ describe("daily auto-creation", () => {
     const tomorrow = titleForDate(new Date(NOW + 24 * 60 * 60 * 1000));
     expectStatus(call("GET", `/api/page/${encodeURIComponent(tomorrow)}`),
                  404);
-    expect(t.db.select("SELECT * FROM pages WHERE title = ?", [tomorrow]))
+    expect(t.db.select<"page_id" | "title" | "created_at" | "updated_at">(
+      "SELECT id AS page_id, title, created_at, updated_at FROM pages WHERE title = ?",
+      [tomorrow]))
       .toEqual([]);
   });
 
@@ -193,8 +200,8 @@ describe("daily auto-creation", () => {
     expect(body.days).toEqual([]);
   });
 
-  function addRef(srcUid: string, targetPageId: number, kind = "link") {
-    t.db.exec("INSERT INTO refs VALUES (?,?,?)", [srcUid, targetPageId, kind]);
+  function addRef(srcUid: string, rawTargetPageId: number, kind = "link") {
+    t.db.exec("INSERT INTO refs VALUES (?,?,?)", [srcUid, rawTargetPageId, kind]);
   }
 
   test("journal surfaces an empty day referenced from elsewhere",
@@ -352,24 +359,26 @@ describe("create page", () => {
     "rejects shared forbidden title case $name before local or durable creation",
     ({ title }) => {
       const result = call("POST", "/api/pages", { title }, {
-        newBatchId: () => "batch-forbidden" as BatchId,
+        newBatchId: () => batchIdOf("batch-forbidden"),
       });
 
       expectStatus(result, 422);
-      expect(t.db.select("SELECT id, title FROM pages WHERE id < 0")).toEqual([]);
-      expect(t.db.select("SELECT * FROM pending_ops")).toEqual([]);
+      expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages WHERE id < 0")).toEqual([]);
+      expect(t.db.select<"pending_row_id" | "batch_id" | "ops_json" | "poisoned" | "pending_error">(
+      "SELECT id AS pending_row_id, batch_id, ops_json, poisoned, error AS pending_error"
+      + " FROM pending_ops")).toEqual([]);
     },
   );
 
   test("preserves exact boundary U+0020 while inactive", () => {
     const body = expectStatus(
       call("POST", "/api/pages", { title: "  Fresh Page  " },
-           { newBatchId: () => "batch-1" as BatchId }), 200,
+           { newBatchId: () => batchIdOf("batch-1") }), 200,
     ) as { id: number; title: string };
     expect(body.title).toBe("  Fresh Page  ");
     expect(body.id).toBeLessThan(0);
-    const rows = t.db.select<{ batch_id: string; ops_json: string }>(
-      "SELECT batch_id, ops_json FROM pending_ops");
+    const rows = (t.db.select<"batch_id" | "ops_json">(
+      "SELECT batch_id, ops_json FROM pending_ops"));
     expect(rows).toHaveLength(1);
     expect(rows[0].batch_id).toBe("batch-1");
     expect(JSON.parse(rows[0].ops_json)).toEqual(
@@ -381,12 +390,12 @@ describe("create page", () => {
 
     const body = expectStatus(
       call("POST", "/api/pages", { title: "  Active Post  " },
-           { newBatchId: () => "batch-active" as BatchId }), 200,
+           { newBatchId: () => batchIdOf("batch-active") }), 200,
     ) as { id: number; title: string };
     expect(body.title).toBe("Active Post");
     expect(body.id).toBeLessThan(0);
-    const queued = t.db.select<{ ops_json: string }>(
-      "SELECT ops_json FROM pending_ops");
+    const queued = (t.db.select<"ops_json">(
+      "SELECT ops_json FROM pending_ops"));
     expect(JSON.parse(queued[0].ops_json)).toEqual(
       [{ op: "create_page", page_title: "Active Post" }]);
   });
@@ -398,14 +407,14 @@ describe("create page", () => {
     // title would be unreachable through /api/page/<title> anyway.
     const body = expectStatus(
       call("POST", "/api/pages", { title: "Levels of AGI:\nthe Path" },
-           { newBatchId: () => "batch-nl" as BatchId }), 200,
+           { newBatchId: () => batchIdOf("batch-nl") }), 200,
     ) as { id: number; title: string };
     expect(body.title).toBe("Levels of AGI: the Path");
-    expect(t.db.select<{ title: string }>(
+    expect((t.db.select<"title">(
       "SELECT title FROM pages WHERE title LIKE 'Levels%'",
-    )).toEqual([{ title: "Levels of AGI: the Path" }]);
-    const rows = t.db.select<{ ops_json: string }>(
-      "SELECT ops_json FROM pending_ops");
+    ))).toEqual([{ title: "Levels of AGI: the Path" }]);
+    const rows = (t.db.select<"ops_json">(
+      "SELECT ops_json FROM pending_ops"));
     expect(JSON.parse(rows[0].ops_json)).toEqual(
       [{ op: "create_page", page_title: "Levels of AGI: the Path" }]);
   });

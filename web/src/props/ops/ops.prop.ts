@@ -10,13 +10,13 @@
 // what the examples reached is printed once, after the file.
 import fc from "fast-check";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import type { BatchId, BlockUid, OrderIdx } from "../../api/brands";
 import type { BlockNode } from "../../api/payloads";
 import { PATH, SEED } from "../sync/env";
 import { connectServer, type ServerControl } from "../sync/serverControl";
 import { type Example, exampleArb, OPS_PAGES } from "./arbitraries";
 import { newTally, runExample, showTally } from "./example";
 import { captureFaultWarnings } from "../warningsCapture";
+import { uidOf, orderIdxOf, batchIdOf } from "../../test-helpers";
 
 captureFaultWarnings("ops");
 
@@ -88,9 +88,9 @@ function report(details: fc.RunDetails<[Example]>): string {
   ].join("\n");
 }
 
-const block = (uid: string, order: number, text: string): BlockNode => ({
-  uid: uid as BlockUid, text, heading: null, view_type: null, collapsed: false,
-  order_idx: order as OrderIdx, created_at: null, updated_at: null, children: [],
+const block = (tag: string, order: number, text: string): BlockNode => ({
+  uid: uidOf(tag), text, heading: null, view_type: null, collapsed: false,
+  order_idx: orderIdxOf(order), created_at: null, updated_at: null, children: [],
 });
 
 test("a move onto an open page whose tree lacks the block reloads that page", async () => {
@@ -118,7 +118,7 @@ test("a batch id reused with other ops is a harness error", async () => {
     steps: [{ batch: [{ kind: "update_text", target: { of: "live", n: 0 }, text: "two",
                         hash: "none" }], other: null }],
   };
-  await expect(runExample(server, ex, { tally: newTally(), batchId: () => "ops-fixed-seed" as BatchId }))
+  await expect(runExample(server, ex, { tally: newTally(), batchIds: () => batchIdOf("ops-fixed-seed") }))
     .rejects.toThrow(/^harness: POST \/api\/ops ops-fixed-seed answered 409/);
 });
 

@@ -1,10 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import type { GoodlinksId } from "../api/brands";
-import { jsonResponse } from "../test-helpers";
+import { jsonResponse, goodlinksIdOf } from "../test-helpers";
 import { GoodlinksLink } from "./GoodlinksLink";
 
-const ID = "e4966bb2483b5c78f658398c0ae7b03f" as GoodlinksId;
+const ID = goodlinksIdOf("e4966bb2483b5c78f658398c0ae7b03f");
 const ARTICLE = { id: ID, title: "UML My Part", url: "https://tratt.net/uml.html",
                   added_at: "2022-10-06T15:07:12Z", html: "<p>Archived</p>" };
 

@@ -1,13 +1,13 @@
 // @vitest-environment node
 import { afterEach, describe, expect, test } from "vitest";
 import type { BlockUid } from "../../api/brands";
-import { ord, uid } from "../../test-helpers";
+import { orderIdxOf, uidOf } from "../../test-helpers";
 import { openTestDb, type TestDb } from "../testDb";
 import { buildTree, fetchAncestors, type BlockRow } from "./tree";
 
 function blockRow(over: Partial<BlockRow> = {}): BlockRow {
   return {
-    uid: uid("u1"), parent_uid: null, order_idx: ord(0), text: "hi",
+    uid: uidOf("tuid-u1"), parent_uid: null, order_idx: orderIdxOf(0), text: "hi",
     heading: null, view_type: null, collapsed: 0, created_at: null,
     updated_at: null, ...over,
   };
@@ -31,8 +31,8 @@ afterEach(() => {
   t?.close();
 });
 
-function insertPage(pageId: number, title: string) {
-  t.db.exec("INSERT INTO pages(id, title) VALUES (?, ?)", [pageId, title]);
+function insertPage(rawPageId: number, title: string) {
+  t.db.exec("INSERT INTO pages(id, title) VALUES (?, ?)", [rawPageId, title]);
 }
 
 function seedLinearChain(prefix: string, ancestors: number): BlockUid {
@@ -48,7 +48,7 @@ function seedLinearChain(prefix: string, ancestors: number): BlockUid {
     );
     parentUid = uid;
   }
-  return `${prefix}-${ancestors}` as BlockUid;
+  return uidOf(`${prefix}-${ancestors}`);
 }
 
 function seedFiveNodeCycle(prefix: string): BlockUid {
@@ -68,7 +68,7 @@ function seedFiveNodeCycle(prefix: string): BlockUid {
       [uids[(i + 1) % uids.length], uids[i]],
     );
   }
-  return uids[0] as BlockUid;
+  return uidOf(uids[0]);
 }
 
 describe("fetchAncestors", () => {

@@ -2,6 +2,8 @@
 blocks, removes row + file."""
 from rawread import read
 from pkm.server.db import open_db
+from pkm.contracts.ops import BlockUid, OrderIdx, Sha256Hex
+from pkm.test_data.ids import order_idx_of, uid_of
 
 
 def _upload(client, content=b"PNGDATA", name="pic.png"):
@@ -11,8 +13,9 @@ def _upload(client, content=b"PNGDATA", name="pic.png"):
     return r.json()
 
 
-def _create_block(client, uid, page_title, text, parent_uid=None,
-                  order_idx=0):
+def _create_block(client, uid: BlockUid, page_title, text,
+                  parent_uid: BlockUid | None = None,
+                  order_idx: OrderIdx = order_idx_of(0)):
     r = client.post("/api/ops", json={
         "client_id": "test", "batch_id": f"batch-{uid}",
         "ops": [{"op": "create", "uid": uid, "page_title": page_title,
@@ -21,7 +24,7 @@ def _create_block(client, uid, page_title, text, parent_uid=None,
     assert r.status_code == 200, r.text
 
 
-def _block_text(config, uid):
+def _block_text(config, uid: BlockUid):
     db = open_db(config.db_path)
     row = read(db, "SELECT text FROM blocks WHERE uid = ?",
                      (uid,)).fetchone()
@@ -29,7 +32,7 @@ def _block_text(config, uid):
     return None if row is None else row["text"]
 
 
-def _asset_path(config, sha):
+def _asset_path(config, sha: Sha256Hex):
     return config.assets_dir / sha[:2] / sha
 
 
@@ -56,27 +59,27 @@ def test_delete_malformed_sha_404(client):
 
 def test_delete_strips_token_keeps_block_with_text(client, seeded_config):
     a = _upload(client)
-    _create_block(client, "del001", "AI", f"diagram: ![x]({a['url']})")
+    _create_block(client, uid_of("del001"), "AI", f"diagram: ![x]({a['url']})")
     r = client.delete(f"/api/assets/{a['sha256']}")
     assert r.json() == {"deleted": True, "refs_removed": 1}
-    assert _block_text(seeded_config, "del001") == "diagram:"
+    assert _block_text(seeded_config, uid_of("del001")) == "diagram:"
 
 
 def test_delete_removes_emptied_leaf_block(client, seeded_config):
     a = _upload(client)
-    _create_block(client, "del002", "AI", f"![]({a['url']})")
+    _create_block(client, uid_of("del002"), "AI", f"![]({a['url']})")
     client.delete(f"/api/assets/{a['sha256']}")
-    assert _block_text(seeded_config, "del002") is None
+    assert _block_text(seeded_config, uid_of("del002")) is None
 
 
 def test_emptied_block_with_children_is_kept(client, seeded_config):
     a = _upload(client)
-    _create_block(client, "del003", "AI", f"![]({a['url']})")
-    _create_block(client, "del003kid", "AI", "child text",
-                  parent_uid="del003", order_idx=0)
+    _create_block(client, uid_of("del003"), "AI", f"![]({a['url']})")
+    _create_block(client, uid_of("del003kid"), "AI", "child text",
+                  parent_uid=uid_of("del003"), order_idx=order_idx_of(0))
     client.delete(f"/api/assets/{a['sha256']}")
-    assert _block_text(seeded_config, "del003") == ""
-    assert _block_text(seeded_config, "del003kid") == "child text"
+    assert _block_text(seeded_config, uid_of("del003")) == ""
+    assert _block_text(seeded_config, uid_of("del003kid")) == "child text"
 
 
 def test_deleted_block_drops_out_of_fts_refs(client):
@@ -85,7 +88,7 @@ def test_deleted_block_drops_out_of_fts_refs(client):
     reports it."""
     a = _upload(client, b"AAA", "a.png")
     b = _upload(client, b"BBB", "b.png")
-    _create_block(client, "del004", "AI", f"![]({a['url']}) ![]({b['url']})")
+    _create_block(client, uid_of("del004"), "AI", f"![]({a['url']}) ![]({b['url']})")
     # deleting asset A strips its token; block still holds B's token
     client.delete(f"/api/assets/{a['sha256']}")
     hit = next(h for h in client.get("/api/assets/search").json()["assets"]
@@ -111,11 +114,11 @@ def test_delete_with_missing_disk_file_still_removes_row(client,
 
 def test_delete_strips_pdf_macro_and_bare_url(client, seeded_config):
     a = _upload(client)
-    _create_block(client, "del005", "AI",
+    _create_block(client, uid_of("del005"), "AI",
                   f"{{{{[[pdf]]: {a['url']}}}}} see also {a['url']}")
     r = client.delete(f"/api/assets/{a['sha256']}")
     assert r.json()["refs_removed"] == 1
-    assert _block_text(seeded_config, "del005") == "see also"
+    assert _block_text(seeded_config, uid_of("del005")) == "see also"
 
 
 def test_delete_strips_link_with_spaces_and_parens_in_filename(
@@ -126,10 +129,10 @@ def test_delete_strips_link_with_spaces_and_parens_in_filename(
     a = _upload(client)
     name = "AI for Research Day 2026 - Programme (Public) - Schedule.pdf"
     url = f"/assets/{a['sha256']}/{name}"
-    _create_block(client, "del006", "AI", f"before [{name}]({url}) after")
+    _create_block(client, uid_of("del006"), "AI", f"before [{name}]({url}) after")
     r = client.delete(f"/api/assets/{a['sha256']}")
     assert r.json()["refs_removed"] == 1
-    assert _block_text(seeded_config, "del006") == "before after"
+    assert _block_text(seeded_config, uid_of("del006")) == "before after"
 
 
 def test_if_unreferenced_deletes_an_orphan(client, seeded_config):
@@ -149,11 +152,11 @@ def test_if_unreferenced_deletes_an_orphan(client, seeded_config):
 def test_if_unreferenced_refuses_a_referenced_asset(client, seeded_config):
     a = _upload(client)
     text = f"![pic.png]({a['url']})"
-    _create_block(client, "cond001", "AI", text)
+    _create_block(client, uid_of("cond001"), "AI", text)
     r = client.delete(f"/api/assets/{a['sha256']}?if_unreferenced=true")
     assert r.status_code == 409
     assert r.json()["detail"] == "asset is referenced"
-    assert _block_text(seeded_config, "cond001") == text
+    assert _block_text(seeded_config, uid_of("cond001")) == text
     assert _asset_path(seeded_config, a["sha256"]).is_file()
     db = open_db(seeded_config.db_path)
     row = read(db, "SELECT 1 FROM assets WHERE sha256 = ?",
@@ -170,7 +173,7 @@ def test_if_unreferenced_unknown_is_404(client):
 
 def test_without_flag_still_strips(client, seeded_config):
     a = _upload(client)
-    _create_block(client, "cond002", "AI", f"x ![p]({a['url']})")
+    _create_block(client, uid_of("cond002"), "AI", f"x ![p]({a['url']})")
     r = client.delete(f"/api/assets/{a['sha256']}")
     assert r.json()["refs_removed"] == 1
 

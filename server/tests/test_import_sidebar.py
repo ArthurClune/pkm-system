@@ -1,21 +1,19 @@
-import sqlite3
-
-from rawread import read
 from pkm.importer.import_sidebar import SIDEBAR_ENTRIES, main
+from pkm.database import connect
 
 
 def _titles_in_order(db_path):
-    con = sqlite3.connect(db_path)
-    rows = read(con,
-        "SELECT title FROM sidebar_entries ORDER BY order_idx").fetchall()
+    con = connect(db_path)
+    rows = con.select(
+        "SELECT title FROM sidebar_entries ORDER BY order_idx")
     con.close()
-    return [r[0] for r in rows]
+    return [r["title"] for r in rows]
 
 
 def test_import_creates_table_and_inserts_all_entries(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    con = sqlite3.connect(data_dir / "pkm.sqlite3")
+    con = connect(data_dir / "pkm.sqlite3")
     con.execute("CREATE TABLE pages(id INTEGER PRIMARY KEY, title TEXT)")
     con.commit()
     con.close()
@@ -27,7 +25,7 @@ def test_import_creates_table_and_inserts_all_entries(tmp_path):
 def test_import_is_idempotent(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    sqlite3.connect(data_dir / "pkm.sqlite3").close()
+    connect(data_dir / "pkm.sqlite3").close()
 
     assert main(["--data-dir", str(data_dir)]) == 0
     assert main(["--data-dir", str(data_dir)]) == 0
@@ -42,7 +40,7 @@ def test_import_skips_pre_existing_title_and_appends_the_rest_in_order(tmp_path)
     # in SIDEBAR_ENTRIES order.
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    con = sqlite3.connect(data_dir / "pkm.sqlite3")
+    con = connect(data_dir / "pkm.sqlite3")
     con.execute(
         "CREATE TABLE sidebar_entries(id INTEGER PRIMARY KEY,"
         " title TEXT NOT NULL UNIQUE, order_idx INTEGER NOT NULL)")

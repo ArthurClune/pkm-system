@@ -10,6 +10,7 @@
 // Journal, every loaded day). Here a batch wakes only the consumers of the
 // uids it actually resolved.
 import type { BlockUid } from "../api/brands";
+import { parseBlockUid } from "../ids";
 import type { BlockRefText } from "../api/payloads";
 
 export interface BlockRefStore {
@@ -33,16 +34,16 @@ export interface BlockRefStore {
 }
 
 export function createBlockRefStore(): BlockRefStore {
-  const texts = new Map<string, BlockRefText>();
-  const listeners = new Map<string, Set<() => void>>();
+  const texts = new Map<BlockUid, BlockRefText>();
+  const listeners = new Map<BlockUid, Set<() => void>>();
   // Bounded by the number of uids seen that the server could NOT resolve:
   // `resolve` drops the claim for every uid it fills, because a consumer
   // holding a resolved text stops asking, so that claim can never be the
   // thing preventing a refetch loop. Only unknown uids need the guard, and
   // only they are retained.
-  const claimed = new Set<string>();
+  const claimed = new Set<BlockUid>();
 
-  const notify = (uid: string): void => {
+  const notify = (uid: BlockUid): void => {
     const set = listeners.get(uid);
     if (!set) return;
     for (const onChange of set) onChange();
@@ -65,7 +66,10 @@ export function createBlockRefStore(): BlockRefStore {
       };
     },
     resolve(entries) {
-      for (const [uid, entry] of Object.entries(entries)) {
+      for (const [key, entry] of Object.entries(entries)) {
+        // The payload's keys are plain strings: parse each into a uid.
+        const uid = parseBlockUid(key);
+        if (uid === null) continue;
         texts.set(uid, entry);
         claimed.delete(uid);
         notify(uid);

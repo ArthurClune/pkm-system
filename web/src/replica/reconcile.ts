@@ -30,10 +30,11 @@ export const remapLocalPage = (db: ReplicaDb,
 };
 
 export function reconcilePage(db: ReplicaDb, incoming: SyncPage): void {
-  const local = db.select<{ id: PageId }>(
-    "SELECT id FROM pages WHERE title = ? AND id < 0", [incoming.title]);
+  const local = db.select<"page_id">(
+    "SELECT id AS page_id FROM pages WHERE title = ? AND id < 0",
+    [incoming.title]);
   if (local.length === 0) return;
-  remapLocalPage(db, { localId: local[0].id, targetId: incoming.id });
+  remapLocalPage(db, { localId: local[0].page_id, targetId: incoming.id });
 }
 
 /** Reconcile optimistic pages created under pre-activation title rules.
@@ -45,21 +46,22 @@ export function reconcilePage(db: ReplicaDb, incoming: SyncPage): void {
 export function reconcileActivationPageTitles(db: ReplicaDb): void {
   const read = titleReader(db);
   if (!read.plainSpaceActive) return;
-  // Not CanonicalTitle: these rows were titled under the pre-activation
-  // rules, and finding the ones that are no longer canonical is the point.
-  const localPages = db.select<{ id: PageId; title: string }>(
-    "SELECT id, title FROM pages WHERE id < 0 ORDER BY id");
+  // The key brands these titles CanonicalTitle, but they were titled under
+  // the pre-activation rules; finding the ones that are no longer canonical
+  // is the point.
+  const localPages = db.select<"page_id" | "title">(
+    "SELECT id AS page_id, title FROM pages WHERE id < 0 ORDER BY id");
   for (const local of localPages) {
     const title = read(local.title);
     if (title === local.title) continue;
-    const targets = db.select<{ id: PageId }>(
-      "SELECT id FROM pages WHERE title = ? AND id != ?" +
+    const targets = db.select<"page_id">(
+      "SELECT id AS page_id FROM pages WHERE title = ? AND id != ?" +
       " ORDER BY CASE WHEN id >= 0 THEN 0 ELSE 1 END, id LIMIT 1",
-      [title, local.id]);
+      [title, local.page_id]);
     if (targets.length === 0) {
-      db.exec("UPDATE pages SET title = ? WHERE id = ?", [title, local.id]);
+      db.exec("UPDATE pages SET title = ? WHERE id = ?", [title, local.page_id]);
     } else {
-      remapLocalPage(db, { localId: local.id, targetId: targets[0].id });
+      remapLocalPage(db, { localId: local.page_id, targetId: targets[0].page_id });
     }
   }
 }

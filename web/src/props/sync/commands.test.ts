@@ -3,10 +3,31 @@ import { describe, expect, it } from "vitest";
 import { ApiError } from "../../api/client";
 import { FIXTURE_PAGE, PAGE_TITLES } from "./arbitraries";
 import { ExampleCancelled } from "./cancel";
-import { commandsFor, connectTally, connectTiming, DeletePage, Fault, Offline, offlineBack, Reload,
+import { type ClientPort, commandsFor, connectTally, connectTiming, DeletePage, Fault, Offline, offlineBack, Reload,
          Rename, type SyncCommand, type World } from "./commands";
-import type { HarnessClient } from "./harnessClient";
 import { initialModel } from "./model";
+
+const unstubbed = (what: string) => (): never => {
+  throw new Error(`stub client: ${what} was not stubbed`);
+};
+
+/** A client whose every member throws unless `over` replaces it. */
+const stubClient = (over: Partial<ClientPort> = {}): ClientPort => ({
+  name: "A",
+  writeFailArmed: () => false,
+  unsentInMemory: () => 0,
+  online: unstubbed("online"),
+  offline: unstubbed("offline"),
+  edit: unstubbed("edit"),
+  pull: unstubbed("pull"),
+  nudge: unstubbed("nudge"),
+  failNextWrite: unstubbed("failNextWrite"),
+  reload: unstubbed("reload"),
+  connectLanded: unstubbed("connectLanded"),
+  cursor: unstubbed("cursor"),
+  transport: { arm: unstubbed("arm"), fetchJson: unstubbed("fetchJson") },
+  ...over,
+});
 
 /** The client a command names, or null for one that names none. */
 const clientOf = (cmd: SyncCommand): string | null =>
@@ -53,21 +74,22 @@ describe("DeletePage", () => {
 
   /** Runs a delete of Second whose transport rejects with `error`, or
    * resolves when null. */
-  async function outcomeOf(error: unknown):
+  async function outcomeOf(error: Error | null):
       Promise<{ line: string; counted: string[]; url: string }> {
     const counted: string[] = [];
     let url = "";
-    const client = {
-      writeFailArmed: () => false,
-      unsentInMemory: () => 0,
-      transport: { fetchJson: async (u: string, init: RequestInit) => {
-        url = `${init.method} ${u}`;
-        if (error !== null) throw error;
-        return {};
-      } },
-    } as unknown as HarnessClient;
-    const w = { ...stubWorld([]), clients: new Map([["A", client]]),
-                count: (k: string) => { counted.push(k); } } as World;
+    const client = stubClient({
+      transport: {
+        arm: unstubbed("arm"),
+        fetchJson: async (u: string, init?: RequestInit) => {
+          url = `${init?.method} ${u}`;
+          if (error !== null) throw error;
+          return {};
+        },
+      },
+    });
+    const w: World = { ...stubWorld([]), clients: new Map([["A", client]]),
+                       count: (k: string) => { counted.push(k); } };
     await new DeletePage("A", 1).run(initialModel(["A"]), w);
     return { line: w.transcript.join("\n"), counted, url };
   }
@@ -135,17 +157,16 @@ describe("offlineBack", () => {
 
 /** A world with one client "A" whose calls land in `events`. */
 function stubWorld(events: string[], cancelled = false): World {
-  const client = {
+  const client = stubClient({
     offline: () => { events.push("offline"); },
     online: () => { events.push("online"); return Promise.resolve(); },
-    transport: { arm: (kind: string) => { events.push(`arm ${kind}`); } },
-    writeFailArmed: () => false,
-    unsentInMemory: () => 0,
-  } as unknown as HarnessClient;
+    transport: { arm: (kind) => { events.push(`arm ${kind}`); },
+                 fetchJson: unstubbed("fetchJson") },
+  });
   return {
     server: {} as World["server"],
     clients: new Map([["A", client]]),
-    watch: { observe: () => undefined } as unknown as World["watch"],
+    watch: { observe: () => undefined },
     transcript: [],
     count: () => undefined,
     cancelled: () => cancelled,

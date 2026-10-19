@@ -12,6 +12,8 @@ from pkm.importer.assets import Asset
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
 from pkm.importer.run import main
 from pkm.refs import title_syntax_reason
+from pkm.test_data.ids import sha_of
+from pkm.database import connect
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_export.edn"
 
@@ -172,8 +174,8 @@ def test_end_to_end_import(tmp_path):
     rc = main([str(FIXTURE), "--files", str(files), "--out", str(out)])
     assert rc == 0
 
-    con = sqlite3.connect(out / "pkm.sqlite3")
-    titles = {r[0] for r in con.execute("SELECT title FROM pages")}
+    con = connect(out / "pkm.sqlite3")
+    titles = {r["title"] for r in con.select("SELECT title FROM pages")}
     assert titles == {"Machine Learning", "July 8th, 2026", "Tags", "AI",
                       "Generative Models", "Attention Is All You Need",
                       "query", "Paper", RECOVERY_PAGE_TITLE}
@@ -210,15 +212,16 @@ def test_orphan_block_is_preserved_not_silently_dropped(tmp_path):
     out = tmp_path / "data"
     assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
 
-    con = sqlite3.connect(out / "pkm.sqlite3")
-    row = read(con,
-        "SELECT page_id, parent_uid, text FROM blocks WHERE uid='uid-orphan'").fetchone()
+    con = connect(out / "pkm.sqlite3")
+    row = con.select_one(
+        "SELECT page_id, parent_uid, text FROM blocks WHERE uid='uid-orphan'")
     assert row is not None, "orphan block must still exist somewhere in the database"
-    page_id, parent_uid, text = row
+    page_id, parent_uid, text = row["page_id"], row["parent_uid"], row["text"]
     assert text == "unreachable block"
     assert parent_uid is None  # top-level on the recovery page, not nested under anything
-    recovery_page_id = read(con,
-        "SELECT id FROM pages WHERE title=?", (RECOVERY_PAGE_TITLE,)).fetchone()[0]
+    recovery_page_id = con.select(
+        "SELECT id AS page_id FROM pages WHERE title=?",
+        (RECOVERY_PAGE_TITLE,))[0]["page_id"]
     assert page_id == recovery_page_id
 
 
@@ -259,8 +262,8 @@ def test_orphan_classes_survive_the_full_pipeline_without_integrity_error(tmp_pa
     rc = main([str(export_file), "--out", str(out)])
     assert rc == 0
 
-    con = sqlite3.connect(out / "pkm.sqlite3")
-    recovered = {r[0] for r in con.execute(
+    con = connect(out / "pkm.sqlite3")
+    recovered = {r["uid"] for r in con.select(
         "SELECT uid FROM blocks WHERE uid != 'uid-page-child'")}
     assert recovered == {"uid-real-orphan-child", "uid-cycle-a", "uid-cycle-b"}
 
@@ -272,12 +275,12 @@ def test_rerun_replaces_database(tmp_path):
     files = _setup_files(tmp_path)
     out = tmp_path / "data"
     assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
-    con = sqlite3.connect(out / "pkm.sqlite3")
+    con = connect(out / "pkm.sqlite3")
     con.execute("INSERT INTO pages VALUES (999, 'Scribble', NULL, NULL)")
     con.commit()
     con.close()
     assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
-    con = sqlite3.connect(out / "pkm.sqlite3")
+    con = connect(out / "pkm.sqlite3")
     assert read(con, "SELECT count(*) FROM pages WHERE title='Scribble'"
                        ).fetchone()[0] == 0
 
@@ -355,7 +358,7 @@ def test_report_publication_failure_keeps_published_database_and_old_report(
         main([str(FIXTURE), "--out", str(out)])
 
     assert (out / "pkm.sqlite3").read_bytes() != original_db
-    con = sqlite3.connect(out / "pkm.sqlite3")
+    con = connect(out / "pkm.sqlite3")
     assert read(con, "SELECT count(*) FROM pages").fetchone()[0] > 0
     assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
     assert not (out / "pkm.sqlite3.tmp").exists()
@@ -421,7 +424,7 @@ def test_duplicate_content_assets_do_not_crash(tmp_path):
     rc = main([str(FIXTURE), "--files", str(files), "--out", str(out)])
     assert rc == 0
 
-    con = sqlite3.connect(out / "pkm.sqlite3")
+    con = connect(out / "pkm.sqlite3")
     assert read(con, "SELECT count(*) FROM assets").fetchone()[0] == 1
 
     report = (out / "import-report.txt").read_text()
@@ -569,7 +572,7 @@ def test_copy_assets_repairs_only_what_is_wrong(tmp_path):
     for name, payload in payloads.items():
         path = src_dir / name
         path.write_bytes(payload)
-        sha = Sha256Hex(hashlib.sha256(payload).hexdigest())
+        sha = sha_of(hashlib.sha256(payload).hexdigest())
         sources[sha] = path
         assets[sha] = Asset(sha, name, "application/octet-stream", len(payload))
 
@@ -672,7 +675,7 @@ def test_overlong_filename_import_produces_bounded_asset_row(tmp_path):
     rc = main([str(FIXTURE), "--files", str(files), "--out", str(out)])
     assert rc == 0
 
-    con = sqlite3.connect(out / "pkm.sqlite3")
+    con = connect(out / "pkm.sqlite3")
     sha = hashlib.sha256(b"OVERLONG").hexdigest()
     filename = read(con,
         "SELECT filename FROM assets WHERE sha256 = ?", (sha,)).fetchone()[0]
@@ -694,16 +697,16 @@ def test_import_canonicalizes_padded_titles_before_publication(tmp_path):
     rc = main([str(export_file), "--out", str(out)])
 
     assert rc == 0
-    con = sqlite3.connect(out / "pkm.sqlite3")
+    con = connect(out / "pkm.sqlite3")
     assert read(con,
         "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
     ).fetchone()[0] == "1"
     page_ids = {
-        title: page_id
-        for page_id, title in con.execute("SELECT id, title FROM pages ORDER BY id")
+        str(row["title"]): row["page_id"]
+        for row in con.select("SELECT id AS page_id, title FROM pages ORDER BY id")
     }
     assert page_ids.keys() == {"Acme", "Watcher", "Other"}
-    assert [tuple(row) for row in con.execute(
+    assert [tuple(row.values()) for row in con.select(
         "SELECT uid, page_id, parent_uid, order_idx, text FROM blocks ORDER BY uid"
     )] == [
         ("uid-clean-root", page_ids["Acme"], None, 0, "clean root"),
@@ -723,8 +726,8 @@ def test_import_canonicalizes_padded_titles_before_publication(tmp_path):
         ),
         ("uid-watcher", page_ids["Watcher"], None, 0, "[[Acme]] and [[Acme]]"),
     ]
-    assert [tuple(row) for row in con.execute(
-        "SELECT src_block_uid, target_page_id, kind FROM refs ORDER BY 1, 2, 3"
+    assert [tuple(row.values()) for row in con.select(
+        "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3"
     )] == [
         ("uid-padded-root", page_ids["Acme"], "link"),
         ("uid-padded-root", page_ids["Other"], "link"),
@@ -739,13 +742,13 @@ def test_import_sanitizes_title_syntax_before_rows_and_reports_merges(tmp_path):
     rc = main([str(export_file), "--out", str(out)])
 
     assert rc == 0
-    con = sqlite3.connect(out / "pkm.sqlite3")
+    con = connect(out / "pkm.sqlite3")
     assert read(con,
         "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
     ).fetchone()[0] == "1"
     page_ids = {
-        title: page_id
-        for page_id, title in con.execute("SELECT id, title FROM pages ORDER BY id")
+        str(row["title"]): row["page_id"]
+        for row in con.select("SELECT id AS page_id, title FROM pages ORDER BY id")
     }
     assert page_ids.keys() == {
         "Project",
@@ -758,7 +761,7 @@ def test_import_sanitizes_title_syntax_before_rows_and_reports_merges(tmp_path):
     assert read(con,
         "SELECT created_at, updated_at FROM pages WHERE title='Project'"
     ).fetchone() == (200, 201)
-    assert [tuple(row) for row in con.execute(
+    assert [tuple(row.values()) for row in con.select(
         "SELECT uid, parent_uid, order_idx, text FROM blocks "
         "WHERE page_id=? ORDER BY CASE WHEN parent_uid IS NULL THEN order_idx ELSE 99 END",
         (page_ids["Project"],),
@@ -775,8 +778,8 @@ def test_import_sanitizes_title_syntax_before_rows_and_reports_merges(tmp_path):
     assert read(con,
         "SELECT text FROM blocks WHERE uid='uid-watcher'"
     ).fetchone()[0] == "[[Project]]"
-    assert [tuple(row) for row in con.execute(
-        "SELECT src_block_uid, target_page_id, kind FROM refs ORDER BY 1, 2, 3"
+    assert [tuple(row.values()) for row in con.select(
+        "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3"
     )] == sorted([
         ("uid-dirty-root", page_ids["Outer Inner"], "link"),
         ("uid-dirty-root", page_ids["Topic One"], "link"),
@@ -804,21 +807,21 @@ def test_import_rewrites_every_extracted_title_before_rows(tmp_path):
 
     assert main([str(export_file), "--out", str(out)]) == 0
 
-    con = sqlite3.connect(out / "pkm.sqlite3")
+    con = connect(out / "pkm.sqlite3")
     page_ids = {
-        title: page_id
-        for page_id, title in con.execute("SELECT id, title FROM pages ORDER BY id")
+        str(row["title"]): row["page_id"]
+        for row in con.select("SELECT id AS page_id, title FROM pages ORDER BY id")
     }
     assert page_ids.keys() == {"Source", "BadTitle", "Bad Title"}
     assert all(title_syntax_reason(title) is None for title in page_ids)
     assert read(con,
         "SELECT text FROM blocks WHERE uid='uid-source'"
     ).fetchone()[0] == "  BadTitle:: value and [[Bad Title]] tail"
-    assert read(con,
+    assert [tuple(row.values()) for row in con.select(
         "SELECT parent_uid, text FROM blocks WHERE uid='uid-child'"
-    ).fetchone() == ("uid-source", "unchanged child")
-    assert [tuple(row) for row in con.execute(
-        "SELECT src_block_uid, target_page_id, kind FROM refs ORDER BY kind"
+    )] == [("uid-source", "unchanged child")]
+    assert [tuple(row.values()) for row in con.select(
+        "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY kind"
     )] == [
         ("uid-source", page_ids["BadTitle"], "attribute"),
         ("uid-source", page_ids["Bad Title"], "link"),
@@ -832,11 +835,11 @@ def test_import_marks_ordinary_database_active(tmp_path):
     rc = main([str(export_file), "--out", str(out)])
 
     assert rc == 0
-    con = sqlite3.connect(out / "pkm.sqlite3")
+    con = connect(out / "pkm.sqlite3")
     assert read(con,
         "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
     ).fetchone()[0] == "1"
-    assert read(con, "SELECT title FROM pages").fetchall() == [("Solo",)]
+    assert [row["title"] for row in con.select("SELECT title FROM pages")] == ["Solo"]
 
 
 def test_title_activation_runs_after_all_linked_assets_are_copied(
@@ -859,7 +862,7 @@ def test_title_activation_runs_after_all_linked_assets_are_copied(
 
     assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
 
-    con = sqlite3.connect(out / "pkm.sqlite3")
+    con = connect(out / "pkm.sqlite3")
     assert read(con,
         "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
     ).fetchone()[0] == "1"

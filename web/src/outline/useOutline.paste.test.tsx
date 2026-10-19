@@ -6,14 +6,16 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, ord, type SyncFake, title, uid } from "../test-helpers";
+import { block, makeSync, orderIdxOf, type SyncFake, canonicalTitleOf, uidOf } from "../test-helpers";
 import { resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
 
 vi.mock("../uid", () => {
   let n = 0;
   const next = () => `n${++n}`;
-  return { newUid: next, newRawUid: next };
+  return {
+    newUid: next, newRawUid: next, newClientId: next, newBatchId: next,
+  };
 });
 
 function Harness({ pageTitle, initial, onReady }: {
@@ -21,7 +23,7 @@ function Harness({ pageTitle, initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(title(pageTitle), initial);
+  const outline = useOutline(canonicalTitleOf(pageTitle), initial);
   useEffect(() => onReady(outline));
   return null;
 }
@@ -41,21 +43,23 @@ afterEach(() => resetHistory());
 it("onPasteOutline enqueues one batch and focuses the last pasted block", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", [
-    block("a", "seed", { order_idx: ord(0) }),
+    block("tuid-a", "seed", { order_idx: orderIdxOf(0) }),
   ]);
 
-  act(() => getOutline().handlers.onPasteOutline(uid("a"), 4, 4, "!\nnext\n\tkid"));
+  act(() => getOutline().handlers.onPasteOutline(uidOf("tuid-a"), 4, 4, "!\nnext\n\tkid"));
 
   expect(sync.sent).toEqual([[
-    { op: "update_text", uid: "a", text: "seed!",
+    { op: "update_text", uid: "tuid-a", text: "seed!",
       base_text_hash: sha256Hex("seed"), page_title: "Page" },
-    { op: "create", uid: expect.any(String), page_title: "Page",
+    { op: "create", uid: expect.any(String) as string, page_title: "Page",
       parent_uid: null, order_idx: 1, text: "next" },
-    { op: "create", uid: expect.any(String), page_title: "Page",
-      parent_uid: expect.any(String), order_idx: 0, text: "kid" },
+    { op: "create", uid: expect.any(String) as string, page_title: "Page",
+      parent_uid: expect.any(String) as string, order_idx: 0, text: "kid" },
   ]]);
-  const [, createNext, createKid] = sync.sent[0] as
-    [unknown, { uid: string }, { parent_uid: string; uid: string }];
+  const [, createNext, createKid] = sync.sent[0] ?? [];
+  if (createNext?.op !== "create" || createKid?.op !== "create") {
+    throw new Error("expected the paste to create two blocks");
+  }
   expect(createKid.parent_uid).toBe(createNext.uid);
   expect(getOutline().blocks.map((b) => b.text)).toEqual(["seed!", "next"]);
   expect(getOutline().blocks[1].children.map((b) => b.text)).toEqual(["kid"]);
@@ -66,10 +70,10 @@ it("onPasteOutline enqueues one batch and focuses the last pasted block", () => 
 it("a paste is one undo entry: undo restores the pre-paste tree", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", [
-    block("a", "seed", { order_idx: ord(0) }),
+    block("tuid-a", "seed", { order_idx: orderIdxOf(0) }),
   ]);
 
-  act(() => getOutline().handlers.onPasteOutline(uid("a"), 4, 4, "!\nnext\n\tkid"));
+  act(() => getOutline().handlers.onPasteOutline(uidOf("tuid-a"), 4, 4, "!\nnext\n\tkid"));
   expect(getOutline().blocks.map((b) => b.text)).toEqual(["seed!", "next"]);
 
   act(() => getOutline().handlers.onUndo());
@@ -81,8 +85,8 @@ it("a paste is one undo entry: undo restores the pre-paste tree", () => {
 it("a paste that plans nothing enqueues nothing", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", [
-    block("a", "seed", { order_idx: ord(0) }),
+    block("tuid-a", "seed", { order_idx: orderIdxOf(0) }),
   ]);
-  act(() => getOutline().handlers.onPasteOutline(uid("gone"), 0, 0, "x\ny"));
+  act(() => getOutline().handlers.onPasteOutline(uidOf("tuid-gone"), 0, 0, "x\ny"));
   expect(sync.sent).toEqual([]);
 });

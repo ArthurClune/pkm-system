@@ -3,22 +3,153 @@ import { acquireOutlineSession } from "./outline/outlineSessions";
 import { applyOps } from "./outline/tree";
 import type { BlockOp } from "./api/ops";
 import type { Backlinks, BlockNode, PagePayload } from "./api/payloads";
-import type { BlockUid, CanonicalTitle, NormalizedTitle, OrderIdx, PageId,
-             SidebarEntryId, SidebarOrderIdx } from "./api/brands";
+import type { BatchId, BlockUid, CanonicalTitle, ClientId, ConfirmId, ConversationId,
+             GoodlinksId, NormalizedTitle, OrderIdx, PageId, Sha256Hex,
+             SidebarEntryId, SidebarOrderIdx, SyncSeq } from "./api/brands";
+import type { RequestId, Revision } from "./outline/outlineState";
+import type { ParkedTitle } from "./replica/apply";
+import type { PendingRowId } from "./replica/client";
+import { BRAND_SHAPES } from "./replica/columns.gen";
+import registry from "../tooling/brandRegistry.gen.json";
 import type { WsBatch } from "./sync/socket";
 import type { Sync, SyncStatus } from "./sync/SyncProvider";
 import type { TicketId, WriteTicket } from "./sync/opQueue";
 
-/** Fixture casts for brand-typed ids and titles: a test stands in a
- * plain literal for a value the production code only ever mints, so the
- * cast belongs here rather than at each test's call site. */
-export function uid(s: string): BlockUid { return s as BlockUid; }
-export function pageId(n: number): PageId { return n as PageId; }
-export function entryId(n: number): SidebarEntryId { return n as SidebarEntryId; }
-export function normTitle(s: string): NormalizedTitle { return s as NormalizedTitle; }
-export function title(s: string): CanonicalTitle { return s as CanonicalTitle; }
-export function ord(n: number): OrderIdx { return n as OrderIdx; }
-export function sidebarOrd(n: number): SidebarOrderIdx { return n as SidebarOrderIdx; }
+// The tests' one mint module (the brand registry's TEST_MINT_SITES): a
+// checked helper per brand, `<stem>Of`, named from its TEST_HELPERS. Each
+// throws unless the value fits the brand's shape (BRAND_SHAPES) or base
+// type, so a fixture value is always one the product could have produced:
+// a short tag becomes a uid as `tuid-<tag>` (`uidOf("tuid-a")`). A negative
+// test forges a bad value with `malformedUid`, `malformedSha`, `malformedSeq`
+// or `malformedCanonicalTitle`, which return it unchecked. Product code may
+// not import this module (the lint's no-restricted-imports).
+
+// The base type of the web's own brands, which the server's BRAND_SHAPES
+// does not list.
+const WEB_BASES: { readonly [brand: string]: "int" | "text" } = {
+  PendingRowId: "int",
+  TicketId: "text",
+  RequestId: "int",
+  Revision: "int",
+  ParkedTitle: "text",
+};
+
+// brand -> the `malformed<Stem>` forger the registry lists for it.
+const FORGERS: { readonly [brand: string]: string } = Object.fromEntries(
+  Object.entries<string>(registry.malformed)
+    .map(([brand, stem]) => [brand, `malformed${stem.charAt(0).toUpperCase()}${stem.slice(1)}`]),
+);
+
+// Throws unless `value` fits `brand`. The parameter types already say
+// string or number; the check repeats it at run time, where a value read
+// from JSON or `unknown` has no type to keep it honest.
+function check(brand: string, value: string | number): void {
+  const shape: (typeof BRAND_SHAPES)[string] | undefined = BRAND_SHAPES[brand];
+  const base = shape?.base ?? WEB_BASES[brand];
+  if (base === "int") {
+    if (typeof value !== "number" || !Number.isInteger(value)) {
+      throw new Error(`${brand} takes an integer, not ${JSON.stringify(value)}`);
+    }
+    return;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`${brand} takes a string, not ${JSON.stringify(value)}`);
+  }
+  const pattern = shape?.pattern ?? null;
+  if (pattern !== null && !new RegExp(`^(?:${pattern})$`).test(value)) {
+    const forger = FORGERS[brand];
+    throw new Error(`${JSON.stringify(value)} is not a valid ${brand}`
+      + (forger === undefined ? "" : `; a negative test forges one with ${forger}`));
+  }
+}
+
+export function uidOf(value: string): BlockUid {
+  check("BlockUid", value);
+  return value as BlockUid;
+}
+export function pageIdOf(value: number): PageId {
+  check("PageId", value);
+  return value as PageId;
+}
+export function sidebarEntryIdOf(value: number): SidebarEntryId {
+  check("SidebarEntryId", value);
+  return value as SidebarEntryId;
+}
+export function orderIdxOf(value: number): OrderIdx {
+  check("OrderIdx", value);
+  return value as OrderIdx;
+}
+export function sidebarOrderIdxOf(value: number): SidebarOrderIdx {
+  check("SidebarOrderIdx", value);
+  return value as SidebarOrderIdx;
+}
+export function seqOf(value: number): SyncSeq {
+  check("SyncSeq", value);
+  return value as SyncSeq;
+}
+export function clientIdOf(value: string): ClientId {
+  check("ClientId", value);
+  return value as ClientId;
+}
+export function batchIdOf(value: string): BatchId {
+  check("BatchId", value);
+  return value as BatchId;
+}
+export function shaOf(value: string): Sha256Hex {
+  check("Sha256Hex", value);
+  return value as Sha256Hex;
+}
+export function conversationIdOf(value: string): ConversationId {
+  check("ConversationId", value);
+  return value as ConversationId;
+}
+export function confirmIdOf(value: string): ConfirmId {
+  check("ConfirmId", value);
+  return value as ConfirmId;
+}
+export function goodlinksIdOf(value: string): GoodlinksId {
+  check("GoodlinksId", value);
+  return value as GoodlinksId;
+}
+export function normalizedTitleOf(value: string): NormalizedTitle {
+  check("NormalizedTitle", value);
+  return value as NormalizedTitle;
+}
+export function canonicalTitleOf(value: string): CanonicalTitle {
+  check("CanonicalTitle", value);
+  return value as CanonicalTitle;
+}
+export function pendingRowIdOf(value: number): PendingRowId {
+  check("PendingRowId", value);
+  return value as PendingRowId;
+}
+export function ticketIdOf(value: string): TicketId {
+  check("TicketId", value);
+  return value as TicketId;
+}
+export function requestIdOf(value: number): RequestId {
+  check("RequestId", value);
+  return value as RequestId;
+}
+export function revisionOf(value: number): Revision {
+  check("Revision", value);
+  return value as Revision;
+}
+export function parkedTitleOf(value: string): ParkedTitle {
+  check("ParkedTitle", value);
+  return value as ParkedTitle;
+}
+
+/** A deliberately bad uid for a negative test, unchecked. */
+export function malformedUid(value: string | null): BlockUid { return value as BlockUid; }
+/** A deliberately bad digest for a negative test, unchecked. */
+export function malformedSha(value: string): Sha256Hex { return value as Sha256Hex; }
+/** A deliberately bad seq (NaN, a float) for a negative test, unchecked. */
+export function malformedSeq(value: number): SyncSeq { return value as SyncSeq; }
+/** A deliberately bad title (null: a missing one) for a negative test. */
+export function malformedCanonicalTitle(value: string | null): CanonicalTitle {
+  return value as CanonicalTitle;
+}
 
 /** Hold the outline editor for `title` so a test's own mount cannot win the
  * lease, and return the release. Sessions are global to the module, so the
@@ -40,7 +171,54 @@ export function reserveOutlineEditor(title: string): () => void {
 /** What `apiFetch` hands `fetch` for a read: the verb, plus the abort signal
  * carrying the READ_TIMEOUT_MS deadline. Assert with this rather
  * than a bare `{ method: "GET" }`, which no longer matches. */
-export const READ_INIT = { method: "GET", signal: expect.any(AbortSignal) };
+export const READ_INIT: { method: string; signal: unknown } =
+  { method: "GET", signal: expect.any(AbortSignal) };
+
+/** A parsed JSON object as a record of unknowns; throws on anything else. */
+export function jsonRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`expected a JSON object, got ${JSON.stringify(value)}`);
+  }
+  return { ...value };
+}
+
+/** The batch id a POST /api/ops body carries, as the checked brand. */
+export function bodyBatchId(body: unknown): BatchId {
+  const id = jsonRecord(body).batch_id;
+  if (typeof id !== "string") throw new Error(`batch_id is not a string: ${String(id)}`);
+  return batchIdOf(id);
+}
+
+/** The JSON body a mocked `fetch` was called with, as a record. */
+export function sentBody(init: RequestInit | undefined): Record<string, unknown> {
+  return jsonRecord(JSON.parse(String(init?.body)));
+}
+
+/** The ops of the POST /api/ops a mocked `fetch` was called with, each as a
+ * record. */
+export function sentOps(init: RequestInit | undefined): Record<string, unknown>[] {
+  const ops = sentBody(init).ops;
+  if (!Array.isArray(ops)) throw new Error("the request body has no ops array");
+  return ops.map((op: unknown) => jsonRecord(op));
+}
+
+/** The batch id of the POST /api/ops a mocked `fetch` was called with. */
+export function sentBatchId(init: RequestInit | undefined): BatchId {
+  return bodyBatchId(sentBody(init));
+}
+
+/** `expect.any(String)`, typed so it can sit in an expected object. */
+export const ANY_STRING: unknown = expect.any(String);
+
+/** `expect.objectContaining`, typed so it can sit in an expected object. */
+export function objectContaining(shape: Record<string, unknown>): unknown {
+  return expect.objectContaining(shape);
+}
+
+/** `expect.stringContaining`, typed so it can sit in an expected object. */
+export function stringContaining(part: string): unknown {
+  return expect.stringContaining(part);
+}
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -92,10 +270,10 @@ export function servePageApplyingSent(sync: SyncFake, pageTitle: string,
   return mock;
 }
 
-export function block(blockUid: string, text: string,
+export function block(rawUid: string, text: string,
                       over: Partial<BlockNode> = {}): BlockNode {
-  return { uid: blockUid as BlockUid, text, heading: null, view_type: null,
-           collapsed: false, order_idx: ord(0), created_at: 1000,
+  return { uid: uidOf(rawUid), text, heading: null, view_type: null,
+           collapsed: false, order_idx: orderIdxOf(0), created_at: 1000,
            updated_at: 2000, children: [], ...over };
 }
 
@@ -120,7 +298,7 @@ export function journalBacklinks(groups: Backlinks["groups"] = [],
 export function pagePayload(pageTitle: string, blocks: BlockNode[],
                             over: Partial<PagePayload> = {}): PagePayload {
   return {
-    page: { id: pageId(1), title: pageTitle as CanonicalTitle,
+    page: { id: pageIdOf(1), title: canonicalTitleOf(pageTitle),
             created_at: 1000, updated_at: 2000 },
     blocks,
     backlinks: backlinks(),
@@ -233,7 +411,7 @@ export interface SyncFake extends Sync {
  * under test. */
 export function deliveredTicket(scope: readonly string[] = []): WriteTicket {
   return {
-    id: `delivered-${Math.random()}` as TicketId, scope,
+    id: ticketIdOf(`delivered-${Math.random()}`), scope,
     settled: Promise.resolve({ status: "persisted", pending: 0 }),
     delivered: Promise.resolve({ status: "delivered" }),
   };
@@ -259,7 +437,7 @@ export function makeSync(status: SyncStatus = "connected",
     enqueue: (ops, scope): WriteTicket => {
       sent.push(ops);
       const write = {
-        id: `fake-write-${nextTicket++}` as TicketId,
+        id: ticketIdOf(`fake-write-${nextTicket++}`),
         scope: scope ?? [],
         settled: Promise.resolve({ status: "persisted", pending: 0 }),
         delivered: Promise.resolve({ status: "delivered" }),

@@ -10,7 +10,7 @@ import { sha256Hex } from "./sha256";
 // "sqlite3_step() rc= ..." lines via testDb.ts, plus the wrapper's); each test
 // that provokes one spies and asserts it.
 const quietWarn = () => vi.spyOn(console, "warn").mockImplementation(() => undefined);
-afterEach(() => { vi.restoreAllMocks(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 describe("sha256Hex", () => {
   test("matches known vectors", () => {
@@ -38,8 +38,62 @@ describe("wrapSqlite + installSchema", () => {
   test("select round-trips typed rows", async () => {
     const t = await openTestDb();
     t.db.exec("INSERT INTO pages(id, title) VALUES (?, ?)", [1, "AI"]);
-    expect(t.db.select("SELECT id, title FROM pages")).toEqual(
-      [{ id: 1, title: "AI" }]);
+    expect(t.db.select("SELECT id AS page_id, title FROM pages")).toEqual(
+      [{ page_id: 1, title: "AI" }]);
+    t.close();
+  });
+
+  test("select with the check on throws on SELECT text AS uid", async () => {
+    const t = await openTestDb();
+    t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
+    expect(() => t.db.select("SELECT title AS uid FROM pages"))
+      .toThrow(/row check failed.*uid: "AI" is not a valid BlockUid/);
+    expect(() => t.db.select("SELECT id FROM pages"))
+      .toThrow(/id: not a registered row key/);
+    t.close();
+  });
+
+  test("select names Columns keys and nothing else", async () => {
+    const t = await openTestDb();
+    // @ts-expect-error no key named, so no column is typed
+    expect(t.db.select("SELECT 1 AS n")[0].n).toBe(1);
+    // @ts-expect-error "nope" is not a Columns key
+    expect(() => t.db.select<"nope">("SELECT 1 AS nope")).toThrow(/nope/);
+    expect(t.db.select<"n">("SELECT 1 AS n")[0].n).toBe(1);
+    t.close();
+  });
+
+  test("introspect returns the engine's own columns unchecked", async () => {
+    const t = await openTestDb();
+    expect(t.db.introspect("PRAGMA table_info(pages)")[0]).toHaveProperty("name");
+    t.close();
+  });
+
+  test("introspect refuses a brand column under the row check", async () => {
+    const t = await openTestDb();
+    // Refused on the column, so an empty result is refused too.
+    expect(() => t.db.introspect("SELECT uid FROM blocks"))
+      .toThrow('uid carries BlockUid: read it with select<"uid">');
+    // A raw name that a table's column maps to a branded key.
+    expect(() => t.db.introspect("SELECT id FROM pages"))
+      .toThrow(/^id carries PageId or PendingRowId or SidebarEntryId: .*select/);
+    t.close();
+  });
+
+  test("introspect allows catalog columns", async () => {
+    const t = await openTestDb();
+    expect(t.db.introspect("PRAGMA quick_check")).toEqual([{ quick_check: "ok" }]);
+    expect(t.db.introspect("SELECT uid AS u FROM blocks")).toEqual([]);
+    t.close();
+  });
+
+  test("introspect refuses only under the row check", async () => {
+    const t = await openTestDb({ checkRows: false });
+    t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
+    t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)"
+      + " VALUES ('tuid-a', 1, NULL, 0, 'x')");
+    expect(t.db.introspect("SELECT uid FROM blocks")).toEqual([{ uid: "tuid-a" }]);
+    expect(t.db.introspect("SELECT id FROM pages")).toEqual([{ id: 1 }]);
     t.close();
   });
 
@@ -70,7 +124,7 @@ describe("wrapSqlite + installSchema", () => {
     })).toThrow("SQLITE_CORRUPT");
     expect(warn).toHaveBeenCalledWith(
       "replica: ROLLBACK after a failed transaction",
-      expect.objectContaining({ message: expect.stringContaining("no transaction is active") }));
+      expect.objectContaining({ message: expect.stringContaining("no transaction is active") as unknown }));
     expect(warn).toHaveBeenCalledWith(
       "sqlite3_step() rc=", 1, "SQLITE_ERROR", "SQL =", "ROLLBACK");
     expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 0 }]);
@@ -118,8 +172,8 @@ describe("wrapSqlite + installSchema", () => {
 
   test("installs base + client tables with working FTS triggers", async () => {
     const t = await openTestDb();
-    const names = t.db.select<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'table'")
+    const names = (t.db.introspect(
+      "SELECT name FROM sqlite_master WHERE type = 'table'") as { name: string }[])
       .map((r) => r.name);
     for (const table of ["pages", "blocks", "refs", "sidebar_entries",
                          "sync_client_meta", "pending_ops"]) {
@@ -137,8 +191,8 @@ describe("wrapSqlite + installSchema", () => {
 
   test("does not install server-only journal tables", async () => {
     const t = await openTestDb();
-    const names = t.db.select<{ name: string }>(
-      "SELECT name FROM sqlite_master").map((r) => r.name);
+    const names = (t.db.introspect(
+      "SELECT name FROM sqlite_master") as { name: string }[]).map((r) => r.name);
     expect(names).not.toContain("changes");
     expect(names).not.toContain("applied_batches");
     t.close();
@@ -146,8 +200,8 @@ describe("wrapSqlite + installSchema", () => {
 
   test("installSchema creates replay_log, replay_log_refs and replay_batches with their indexes", async () => {
     const t = await openTestDb();
-    const names = t.db.select<{ name: string }>(
-      "SELECT name FROM sqlite_master").map((r) => r.name);
+    const names = (t.db.introspect(
+      "SELECT name FROM sqlite_master") as { name: string }[]).map((r) => r.name);
     for (const n of ["replay_log", "replay_log_refs", "replay_batches",
                      "idx_replay_log_key", "idx_replay_log_refs_log"]) {
       expect(names).toContain(n);
@@ -174,5 +228,32 @@ describe("meta", () => {
     setMeta(t.db, "cursor", "43");
     expect(getMeta(t.db, "cursor")).toBe("43");
     t.close();
+  });
+});
+
+describe("the row check outside test mode", () => {
+  const badRows = { exec: () => undefined, selectObjects: () => [{ nope: 1 }] };
+
+  test("is on under test and throws on a bad row", async () => {
+    const { wrapSqlite } = await import("./db");
+    expect(() => wrapSqlite(badRows).select("SELECT 1 AS nope"))
+      .toThrow(/not a registered row key/);
+  });
+
+  test("is not built into a production module, so a bad row passes", async () => {
+    vi.stubEnv("MODE", "production");
+    vi.resetModules();
+    const { wrapSqlite } = await import("./db");
+    expect(wrapSqlite(badRows).select("SELECT 1 AS nope")).toEqual([{ nope: 1 }]);
+    vi.resetModules();
+  });
+
+  test("is not built into a production module, so introspect reads a brand column", async () => {
+    vi.stubEnv("MODE", "production");
+    vi.resetModules();
+    const { wrapSqlite } = await import("./db");
+    const uidRows = { exec: () => undefined, selectObjects: () => [{ uid: "x" }] };
+    expect(wrapSqlite(uidRows).introspect("SELECT uid FROM blocks")).toEqual([{ uid: "x" }]);
+    vi.resetModules();
   });
 });

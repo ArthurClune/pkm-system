@@ -3,12 +3,12 @@ import json
 import httpx2
 import pytest
 
-from pkm.goodlinks import GoodlinksId
 from pkm.server.goodlinks_gateway import (GoodlinksGateway, GoodlinksRejected,
                                           GoodlinksUnauthorized, GoodlinksUnavailable)
+from pkm.test_data.ids import goodlinks_id_of
 
 BASE = "http://goodlinks.test/api/v1"
-ID = GoodlinksId("e4966bb2483b5c78f658398c0ae7b03f")
+ID = goodlinks_id_of("e4966bb2483b5c78f658398c0ae7b03f")
 LINK = {"id": ID, "url": "https://a.example/p", "title": "A", "addedAt": "2025-02-13T19:51:00Z"}
 
 

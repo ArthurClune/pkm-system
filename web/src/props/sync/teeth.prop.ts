@@ -4,7 +4,7 @@
 // run and a correctly handled bad batch must pass. If a broken scenario passes,
 // the oracle is blind and the gate fails before the property runs.
 import { afterEach, beforeAll, beforeEach, expect, test } from "vitest";
-import type { BatchId, BlockUid, OrderIdx } from "../../api/brands";
+import type { BatchId } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import { FIXTURE_PAGE } from "./arbitraries";
 import { startClient, type HarnessClient } from "./harnessClient";
@@ -14,6 +14,7 @@ import { quiesce, QuiesceError } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
 import type { Broken } from "./transport";
 import { captureFaultWarnings } from "../warningsCapture";
+import { uidOf, orderIdxOf, seqOf } from "../../test-helpers";
 
 captureFaultWarnings("sync teeth");
 
@@ -39,8 +40,8 @@ async function start(name: string, broken?: Broken): Promise<HarnessClient> {
   return c;
 }
 
-const setText = (uid: string, text: string): BlockOp[] =>
-  [{ op: "update_text", uid: uid as BlockUid, text }];
+const setText = (rawUid: string, text: string): BlockOp[] =>
+  [{ op: "update_text", uid: uidOf(rawUid), text }];
 
 /** The fixed command list every teeth scenario runs: A edits twice, B edits
  * once, both pull, then quiescence. Each client's delivery is awaited before
@@ -143,8 +144,8 @@ async function renameScenario(): Promise<{
   });
   await a.pull();
   const a2 = await a.edit([{
-    op: "create", uid: "pt_A_1" as BlockUid, page_title: "Second",
-    parent_uid: null, order_idx: 0 as OrderIdx, text: "on a new Second",
+    op: "create", uid: uidOf("pt_A_1"), page_title: "Second",
+    parent_uid: null, order_idx: orderIdxOf(0), text: "on a new Second",
   }]);
   await a.queue.drain();
   await quiesce([a, b], server);
@@ -190,13 +191,13 @@ async function staleDeleteScenario(): Promise<{
   const b = await start("B");
   a.offline();
   const a1 = await a.edit([
-    { op: "update_text", uid: "pt_seed_1" as BlockUid, text: "left [[Second]]" },
-    { op: "create", uid: "pt_A_1" as BlockUid, page_title: "Proptest", parent_uid: null,
-      order_idx: 5 as OrderIdx, text: "right [[Second]]" },
+    { op: "update_text", uid: uidOf("pt_seed_1"), text: "left [[Second]]" },
+    { op: "create", uid: uidOf("pt_A_1"), page_title: "Proptest", parent_uid: null,
+      order_idx: orderIdxOf(5), text: "right [[Second]]" },
   ]);
   const a2 = await a.edit([{
-    op: "create", uid: "pt_A_2" as BlockUid, page_title: "Second", parent_uid: null,
-    order_idx: 0 as OrderIdx, text: "parked [[Second]]",
+    op: "create", uid: uidOf("pt_A_2"), page_title: "Second", parent_uid: null,
+    order_idx: orderIdxOf(0), text: "parked [[Second]]",
   }]);
   await b.transport.fetchJson("/api/page/Second", { method: "DELETE" });
   await a.online();
@@ -339,8 +340,8 @@ async function freshRecreateScenario(): Promise<{
   await b.transport.fetchJson("/api/page/Second", { method: "DELETE" });
   await a.pull();
   const a1 = await a.edit([{
-    op: "create", uid: "pt_A_1" as BlockUid, page_title: "Second", parent_uid: null,
-    order_idx: 0 as OrderIdx, text: "after the delete",
+    op: "create", uid: uidOf("pt_A_1"), page_title: "Second", parent_uid: null,
+    order_idx: orderIdxOf(0), text: "after the delete",
   }]);
   await a.queue.drain();
   await quiesce([a, b], server);
@@ -360,7 +361,7 @@ test("a replay that ignores the delete record's seqs trips serial replay", async
   // Seqs past every batch's seen_seq: the replay maps A's seen_seq to before
   // the delete, so A's create is stale there and parks instead.
   const { a, b, exp } = await freshRecreateScenario();
-  const deletes = (await server.deletes()).map((d) => ({ ...d, seq: d.seq + 1000 }));
+  const deletes = (await server.deletes()).map((d) => ({ ...d, seq: seqOf(d.seq + 1000) }));
   expect(await failures("shifted delete seqs", checkQuiescent([a, b], server, exp, { deletes })))
     .toContain("serial replay");
 });
@@ -389,8 +390,8 @@ async function badBatchScenario(): Promise<{
   const b = await start("B");
   const good = await a.edit(setText("pt_seed_1", "good before bad"));
   const bad = await a.edit([{
-    op: "create", uid: "pt_seed_6" as BlockUid, page_title: FIXTURE_PAGE,
-    parent_uid: null, order_idx: 60 as OrderIdx, text: "a create of a live uid",
+    op: "create", uid: uidOf("pt_seed_6"), page_title: FIXTURE_PAGE,
+    parent_uid: null, order_idx: orderIdxOf(60), text: "a create of a live uid",
   }]);
   const b1 = await b.edit(setText("pt_seed_2", "B alongside"));
   await quiesce([a, b], server);
@@ -447,8 +448,8 @@ test("quiesce waits for a lone client's poison repair", async () => {
     return deleteBatch(...args);
   };
   const bad = await a.edit([{
-    op: "create", uid: "pt_seed_6" as BlockUid, page_title: FIXTURE_PAGE,
-    parent_uid: null, order_idx: 60 as OrderIdx, text: "a create of a live uid",
+    op: "create", uid: uidOf("pt_seed_6"), page_title: FIXTURE_PAGE,
+    parent_uid: null, order_idx: orderIdxOf(60), text: "a create of a live uid",
   }]);
   await quiesce([a], server);
   expect(await a.replica.poisonedBatches()).toEqual([]);

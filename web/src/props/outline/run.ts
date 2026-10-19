@@ -28,6 +28,7 @@ import { isOutlinePaste, planOutlinePaste,
 import { applyOps, findNode, visibleUids } from "../../outline/tree";
 import { PAGE_TITLE, renderForest, type Command } from "./arbitraries";
 import { readingRows, type Row } from "./reading";
+import { uidOf } from "../../test-helpers";
 
 /** The concrete inputs a command resolved to against the tree it ran on. */
 export type Resolved =
@@ -129,7 +130,7 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
                             seamOrOptions: Seam | RunOptions = REAL): Run {
   const options: RunOptions = "invertOps" in seamOrOptions ? { seam: seamOrOptions } : seamOrOptions;
   const seam = options.seam ?? REAL;
-  const prefix = options.mintPrefix ?? "n";
+  const prefix = options.mintPrefix ?? "tuid-n";
   const batches: WireBatch[] = [];
   let tree = start;
   let draft: PendingDraft | null = null;
@@ -141,7 +142,7 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
   const entryRows = new Map<HistoryEntry, EntryRows>();
   let newest = readingRows(start);
   const steps: Step[] = [];
-  const mint = (): BlockUid => `${prefix}${minted++}` as BlockUid;
+  const mint = (): BlockUid => uidOf(`${prefix}${minted++}`);
 
   /** What the editor shows: the committed tree with the draft typed over it. */
   const displayed = (): BlockNode[] =>
@@ -159,7 +160,8 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
     const base = textOps.length > 0 ? applyOps(pre, textOps, PAGE_TITLE) : pre;
     const result = fn(base);
     if (textOps.length + result.ops.length === 0) {
-      return { base, after: base, result, inverse: [] as BlockOp[] | null };
+      const noInverse: BlockOp[] | null = [];
+      return { base, after: base, result, inverse: noInverse };
     }
     const next = result.ops.length > 0 ? result.blocks : base;
     tree = next;

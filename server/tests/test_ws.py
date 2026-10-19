@@ -1,21 +1,27 @@
 import asyncio
 import time
-from typing import cast
 
 import pytest
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from pkm.contracts.ops import SyncSeq
 from pkm.database import connect
 from pkm.server.notify import SeqFrame
+from pkm.test_data.ids import client_id_of, seq_of
+from pkm.contracts.ops import ClientId
 
 
 def _frame(n: int) -> SeqFrame:
-    return SeqFrame(seq=SyncSeq(n))
+    return SeqFrame(seq=seq_of(n))
 
 
 def _wire(n: int) -> dict[str, object]:
     return {"type": "seq", "seq": n}
+
+
+def _as_ws(fake: object) -> WebSocket:
+    # The hub only accepts, sends and closes, and each fake below provides
+    # just the calls its test makes, so none is a WebSocket to the checker.
+    return fake  # pyrefly: ignore[bad-return]
 
 
 class _GoodWS:
@@ -203,7 +209,7 @@ def test_failed_batch_broadcasts_nothing(client):
         assert ws.receive_json()["client_id"] == "sender-2"
 
 
-def _ops_frames(frames, client_id):
+def _ops_frames(frames, client_id: ClientId):
     return [f for f in frames if f.get("client_id") == client_id]
 
 
@@ -228,7 +234,7 @@ def test_skipped_ops_are_absent_from_the_ws_echo(client):
         assert r.status_code == 200
         assert [s["uid"] for s in r.json()["skipped"]] == [
             "ghost_ws1", "ghost_ws1", "uid_b3", "uid_b2"]
-        frames = _ops_frames(_frames_until_seq(ws), "sender-skip")
+        frames = _ops_frames(_frames_until_seq(ws), client_id_of("sender-skip"))
         assert [f["ops"] for f in frames] == [
             [{"op": "set_collapsed", "uid": "uid_b1", "collapsed": True}]]
 
@@ -244,7 +250,7 @@ def test_an_all_skipped_batch_puts_no_op_on_the_socket(client):
             ]})
         assert r.status_code == 200
         assert len(r.json()["skipped"]) == 2
-        frames = _ops_frames(_frames_until_seq(ws), "sender-skip")
+        frames = _ops_frames(_frames_until_seq(ws), client_id_of("sender-skip"))
         assert all(f["ops"] == [] for f in frames)
 
 
@@ -256,7 +262,7 @@ def test_broadcast_drops_bad_connections_and_still_delivers(monkeypatch):
         hub = ws_module.Hub()
         good, raising, stalling = _GoodWS(), _RaisingWS(), _StallingWS()
         for conn in (raising, stalling, good):
-            await hub.connect(cast(WebSocket, conn))
+            await hub.connect(_as_ws(conn))
         await hub.broadcast(_frame(1))
         # delivery now happens on each client's own drain task, not
         # synchronously inside broadcast() -- wait for it to land.
@@ -289,7 +295,7 @@ def test_broadcast_does_not_block_on_stalled_clients(monkeypatch):
         hub = ws_module.Hub()
         stalling = [_StallingWS() for _ in range(10)]
         for conn in stalling:
-            await hub.connect(cast(WebSocket, conn))
+            await hub.connect(_as_ws(conn))
         start = time.monotonic()
         await hub.broadcast(_frame(1))
         elapsed = time.monotonic() - start
@@ -310,7 +316,7 @@ def test_broadcast_preserves_per_client_order_when_first_send_is_slow():
     async def _run():
         hub = ws_module.Hub()
         client = _SlowThenFastWS(first_delay=0.1)
-        await hub.connect(cast(WebSocket, client))
+        await hub.connect(_as_ws(client))
         # fired concurrently, not awaited one after another, so a naive
         # unordered concurrent fan-out could let seq 2 win the race
         await asyncio.gather(hub.broadcast(_frame(1)),
@@ -334,12 +340,12 @@ def test_broadcast_disconnects_client_whose_queue_overflows(monkeypatch):
     async def _run():
         hub = ws_module.Hub()
         client = _StallingWS()
-        await hub.connect(cast(WebSocket, client))
+        await hub.connect(_as_ws(client))
         # No awaits occur between these calls, so the client's drain
         # task never gets a turn to dequeue -- the queue genuinely fills.
         for i in range(5):
             await hub.broadcast(_frame(i))
-        assert cast(WebSocket, client) not in hub._conns
+        assert _as_ws(client) not in hub._conns
         # The close is fired via asyncio.create_task (broadcast()'s
         # enqueue loop can't await it), so give it a turn to run.
         await _until(lambda: client.closed)
@@ -359,7 +365,7 @@ def test_default_thresholds_keep_a_backlogged_client():
     async def _run():
         hub = ws_module.Hub()
         client = _StallingWS()
-        await hub.connect(cast(WebSocket, client))
+        await hub.connect(_as_ws(client))
         # Four times the pre-decision bound of 8. broadcast() only ever
         # put_nowait()s, so awaiting it yields no turn to the stalled
         # drain task and the backlog is real -- asserted below rather
@@ -367,9 +373,9 @@ def test_default_thresholds_keep_a_backlogged_client():
         # drain task took one frame before blocking on its send.
         for i in range(32):
             await hub.broadcast(_frame(i))
-        queued = hub._clients[cast(WebSocket, client)].queue.qsize()
+        queued = hub._clients[_as_ws(client)].queue.qsize()
         assert queued > 8, f"backlog never built: {queued} queued"
-        assert cast(WebSocket, client) in hub._conns
+        assert _as_ws(client) in hub._conns
         assert not client.closed
 
     asyncio.run(_run())
@@ -383,12 +389,12 @@ def test_default_send_timeout_waits_out_a_slow_send():
     async def _run():
         hub = ws_module.Hub()
         client = _SlowThenFastWS(first_delay=1.2)
-        await hub.connect(cast(WebSocket, client))
+        await hub.connect(_as_ws(client))
         await hub.broadcast(_frame(1))
         await hub.broadcast(_frame(2))
         await _until(lambda: client.sent == [_wire(1), _wire(2)],
                      timeout=5.0)
-        assert cast(WebSocket, client) in hub._conns
+        assert _as_ws(client) in hub._conns
 
     asyncio.run(_run())
 
@@ -407,7 +413,7 @@ def test_drain_close_survives_concurrent_broadcast_overflow(monkeypatch):
     async def _run():
         hub = ws_module.Hub()
         client = _EventGatedCloseWS()
-        await hub.connect(cast(WebSocket, client))
+        await hub.connect(_as_ws(client))
         # One message is enough to make the drain task dequeue it, fail
         # on send_json, and start closing.
         await hub.broadcast(_frame(0))
@@ -444,7 +450,7 @@ def test_safe_close_swallows_close_errors():
         async def close(self):
             raise RuntimeError("already closed")
 
-    asyncio.run(_safe_close(cast(WebSocket, _AlreadyClosedWS())))  # no raise
+    asyncio.run(_safe_close(_as_ws(_AlreadyClosedWS())))  # no raise
 
 
 def _frames_until_seq(ws, tries=5):

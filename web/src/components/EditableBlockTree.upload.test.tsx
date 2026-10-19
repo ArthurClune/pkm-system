@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { expect, it } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, ord, stubFetch, title } from "../test-helpers";
+import { block, makeSync, orderIdxOf, stubFetch, canonicalTitleOf } from "../test-helpers";
 import { useOutline } from "../outline/useOutline";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { EditableBlockTree } from "./EditableBlockTree";
@@ -14,7 +14,7 @@ const INFO = { sha256: "ab".repeat(32), filename: "cat.png",
                mime: "image/png", size: 3, url: `/assets/${"ab".repeat(32)}/cat.png` };
 
 function Page({ initial }: { initial: BlockNode[] }) {
-  const o = useOutline(title("Page"), initial);
+  const o = useOutline(canonicalTitleOf("Page"), initial);
   return <EditableBlockTree blocks={o.blocks} focus={o.focus}
                             selection={o.selection} handlers={o.handlers}
                             readOnly={o.readOnly} />;
@@ -30,7 +30,7 @@ it("the /upload pick gives up the block itself, so the uploaded image "
   const view = render(
     <SyncContext.Provider value={makeSync()}>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-        <Page initial={[block("u1", "hello", { order_idx: ord(0) })]} />
+        <Page initial={[block("tuid-u1", "hello", { order_idx: orderIdxOf(0) })]} />
       </MemoryRouter>
     </SyncContext.Provider>);
 

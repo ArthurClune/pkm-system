@@ -4,7 +4,7 @@
 // The head batch auto-creates today locally (negative id, deliberately
 // not pushed) so there is always a page to compose into.
 
-import type { BlockUid, CanonicalTitle } from "../../api/brands";
+import type { BlockUid } from "../../api/brands";
 import type { JournalDay, JournalPayload } from "../../api/payloads";
 import { dateForTitle, selectJournalDays, titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
@@ -57,10 +57,10 @@ export function journalPayload(db: ReplicaDb, before: string | null,
   // contribute one Date -- selectJournalDays takes a plain array, not a
   // set, and would otherwise double the day up in its output.
   const nonemptyTitles = new Set<string>();
-  for (const row of db.select<{ title: CanonicalTitle }>(NONEMPTY_DAILY_SQL)) {
+  for (const row of db.select<"title">(NONEMPTY_DAILY_SQL)) {
     nonemptyTitles.add(row.title);
   }
-  for (const row of db.select<{ title: CanonicalTitle }>(REFERENCED_DAILY_SQL)) {
+  for (const row of db.select<"title">(REFERENCED_DAILY_SQL)) {
     nonemptyTitles.add(row.title);
   }
   const nonempty: Date[] = [];
@@ -74,7 +74,7 @@ export function journalPayload(db: ReplicaDb, before: string | null,
   for (const d of selectJournalDays(nonempty, today, cursor, window)) {
     const page = fetchPage(db, titleForDate(d));
     if (page === null) continue; // unreachable: selected days exist
-    const blocks = db.select<BlockRow>(
+    const blocks = db.select<keyof BlockRow>(
       `SELECT ${BLOCK_COLS} FROM blocks WHERE page_id = ?`, [page.id]);
     const bl = backlinks(db, page.id, 0, BACKLINK_PREVIEW);
     texts.push(...blocks.map((r) => r.text), ...bl.texts);

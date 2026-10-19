@@ -2,12 +2,22 @@
 // Narrow interface over a sqlite-wasm oo1 DB so every module that touches
 // replica SQL is testable against a real in-memory database in Node.
 
+import type { Columns } from "./columns.gen";
+import { brandedColumnMessage, rowCheckMessage, rowProblems } from "./rowCheck";
+
 export type SqlValue = string | number | null | Uint8Array;
 export type Row = Record<string, SqlValue>;
 
 export interface ReplicaDb {
   exec(sql: string, params?: SqlValue[]): void;
-  select<T = Row>(sql: string, params?: SqlValue[]): T[];
+  /** Rows carrying exactly the named `Columns` keys; with the row check on
+   * a column that is not a key, or a value that does not fit it, throws. */
+  select<K extends keyof Columns = never>(sql: string, params?: SqlValue[]): Pick<Columns, K>[];
+  /** Raw, unchecked rows under SQLite's own column names. Production code
+   * reads the catalog through the helpers below, never through this. With
+   * the row check on, a returned column that may carry a brand throws: it
+   * is read with `select`. */
+  introspect(sql: string, params?: SqlValue[]): Row[];
   /** BEGIN/COMMIT with ROLLBACK on throw; nested calls join the outer
    * transaction (SQLite has no nested BEGIN). */
   transaction<T>(fn: () => T): T;
@@ -15,7 +25,13 @@ export interface ReplicaDb {
 
 /** The slice of sqlite-wasm's oo1.DB that the wrapper needs. */
 export interface Oo1DbLike {
-  exec(opts: { sql: string; bind?: SqlValue[] }): unknown;
+  exec(opts: {
+    sql: string;
+    bind?: SqlValue[];
+    rowMode?: "object";
+    resultRows?: Row[];
+    columnNames?: string[];
+  }): unknown;
   selectObjects(sql: string, bind?: SqlValue[]): Row[];
 }
 
@@ -33,14 +49,74 @@ export function rollbackToSavepoint(
   }
 }
 
-export function wrapSqlite(raw: Oo1DbLike): ReplicaDb {
+/** Each violation of `PRAGMA foreign_key_check` as one identity string
+ * (table, rowid, parent, fkid), so two checks can be compared. */
+export const foreignKeyViolations = (db: ReplicaDb): string[] =>
+  db.introspect("PRAGMA foreign_key_check")
+    .map((v) => JSON.stringify([v.table, v.rowid, v.parent, v.fkid]));
+
+export const quickCheck = (db: ReplicaDb): string[] =>
+  db.introspect("PRAGMA quick_check(5)").map((r) => String(r.quick_check));
+
+export const sqliteVersion = (db: ReplicaDb): string =>
+  String(db.introspect("SELECT sqlite_version() AS v")[0].v);
+
+/** Names of the user-owned catalog objects of one kind, by name; `virtual`
+ * is the virtual tables, `table` every user table. */
+export function catalogNames(
+  db: ReplicaDb, kind: "trigger" | "view" | "index" | "table" | "virtual",
+): string[] {
+  const where = kind === "virtual"
+    ? "type = 'table' AND upper(sql) LIKE 'CREATE VIRTUAL TABLE%'"
+    : kind === "index" ? "type = 'index' AND sql IS NOT NULL"
+    : `type = '${kind}'`;
+  return db.introspect(
+    `SELECT name FROM sqlite_master WHERE ${where}` +
+    " AND name NOT LIKE 'sqlite_%' ORDER BY name",
+  ).map((r) => String(r.name));
+}
+
+export interface WrapOptions {
+  /** `false` skips the row check, which otherwise runs under test. */
+  checkRows?: boolean;
+}
+
+/** The row check exists only in test mode: the mode test folds to a constant
+ * at build time, so the production worker bundle drops `rowCheck` and the
+ * generated vocabulary behind it. */
+const ROW_CHECK = import.meta.env.MODE === "test"
+  ? { rowProblems, rowCheckMessage, brandedColumnMessage }
+  : null;
+
+export function wrapSqlite(raw: Oo1DbLike, opts: WrapOptions = {}): ReplicaDb {
+  const rowCheck = opts.checkRows === false ? null : ROW_CHECK;
   let inTxn = false;
   const db: ReplicaDb = {
     exec(sql, params) {
       raw.exec(params ? { sql, bind: params } : { sql });
     },
-    select<T>(sql: string, params?: SqlValue[]) {
-      return raw.selectObjects(sql, params) as T[];
+    select<K extends keyof Columns = never>(sql: string, params?: SqlValue[]) {
+      const rows = raw.selectObjects(sql, params);
+      if (rowCheck !== null) {
+        for (const row of rows) {
+          const problems = rowCheck.rowProblems(row);
+          if (problems.length > 0) {
+            throw new Error(rowCheck.rowCheckMessage(sql, problems));
+          }
+        }
+      }
+      return rows as unknown as Pick<Columns, K>[];
+    },
+    introspect(sql: string, params?: SqlValue[]) {
+      if (rowCheck === null) return raw.selectObjects(sql, params);
+      // The engine names the columns even when no row comes back, so an
+      // empty read of a branded column is refused too.
+      const resultRows: Row[] = [];
+      const columnNames: string[] = [];
+      raw.exec({ sql, ...(params ? { bind: params } : {}), rowMode: "object", resultRows, columnNames });
+      const refused = rowCheck.brandedColumnMessage(columnNames);
+      if (refused !== null) throw new Error(refused);
+      return resultRows;
     },
     transaction<T>(fn: () => T): T {
       if (inTxn) return fn();

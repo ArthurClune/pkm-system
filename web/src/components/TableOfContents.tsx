@@ -5,6 +5,7 @@
 // exactly as an incoming ((uid)) link does.
 import { useContext } from "react";
 import { Link } from "react-router-dom";
+import type { BlockUid } from "../api/brands";
 import { RootBlocksContext } from "../contexts";
 import { tocEntries, type TocEntry } from "./tocEntries";
 
@@ -41,7 +42,7 @@ export function TableOfContents({ entries }: { entries: TocEntry[] }) {
 /** The toc block's own render: the walk needs the whole page tree, which a
  * memoised row never sees, so it comes from the tree-root context. Only this
  * branch reads it, which is what keeps every other row's memo intact. */
-export function TocBlock({ selfUid }: { selfUid: string }) {
+export function TocBlock({ selfUid }: { selfUid: BlockUid }) {
   const blocks = useContext(RootBlocksContext);
   return <TableOfContents entries={tocEntries(blocks, selfUid)} />;
 }

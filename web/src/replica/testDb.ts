@@ -2,7 +2,7 @@
 // sqlite-wasm database in memory, wrapped and schema-installed, so replica
 // modules are tested against the engine the browser runs.
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
-import { type ReplicaDb, type Oo1DbLike, wrapSqlite } from "./db";
+import { type ReplicaDb, type Oo1DbLike, type WrapOptions, wrapSqlite } from "./db";
 import type { CarryFiles } from "./carryStore";
 import { installSchema } from "./clientSchema";
 
@@ -33,15 +33,17 @@ async function initQuietly(): Promise<Sqlite3Module> {
   }
 }
 
-export async function openTestDb(): Promise<TestDb> {
-  const t = await openRawTestDb();
+/** `checkRows: false` is for the one test whose premise is data the row
+ * check rejects, such as a uid no wire op can carry. */
+export async function openTestDb(opts: WrapOptions = {}): Promise<TestDb> {
+  const t = await openRawTestDb(opts);
   installSchema(t.db);
   return t;
 }
 
 /** Same, but without installing the schema — for code paths that must see
  * a brand-new empty database (worker init). */
-export async function openRawTestDb(): Promise<TestDb> {
+export async function openRawTestDb(opts: WrapOptions = {}): Promise<TestDb> {
   if (!sqlite3) {
     sqlite3 = await initQuietly();
     // The engine reports failed statements through config.warn, bound to
@@ -50,7 +52,7 @@ export async function openRawTestDb(): Promise<TestDb> {
     sqlite3.config.warn = (...args) => console.warn(...args);
   }
   const raw = new sqlite3.oo1.DB(":memory:");
-  const db = wrapSqlite(raw);
+  const db = wrapSqlite(raw, opts);
   db.exec("PRAGMA foreign_keys=ON");
   db.exec("PRAGMA recursive_triggers=ON");
   return { db, close: () => raw.close() };

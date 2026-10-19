@@ -9,16 +9,18 @@
 
 import type { ApiFetchOptions } from "../api/client";
 import type { BatchId, ClientId, SyncSeq } from "../api/brands";
-import type { OpsAck, SkippedOp } from "../api/payloads";
+import type { SkippedOp } from "../api/payloads";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { ReplicaDiagnostics } from "../replica/client";
 import type {
   AckedBatch, PendingBatch, RecoveryCommit, RecoveryLease, Replica, ReplicaInit,
 } from "../replica/client";
 import { availabilityOf } from "../replica/errors";
+import { INITIAL_SEQ } from "../ids";
 import { listeners } from "./listeners";
 import type { OpQueue } from "./opQueue";
 import { readOpsAck } from "./opsAck";
+import { changesOfWire, opsAckOfWire, snapshotOfWire } from "./wire";
 import { isFreshCorruption, isStallShaped, isWindowFailure, PullStarvedError } from "./syncFailures";
 
 export type ReplicaState =
@@ -238,7 +240,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     resume: () => undefined,
   };
   const isOffline = deps.isOffline ?? (() => false);
-  let cursor = 0 as SyncSeq;
+  let cursor = INITIAL_SEQ;
   // See appliedVersion(): bumped only through adoptCursor, so a new place that
   // moves the replica forward has to state whether views must refetch.
   let appliedVersion = 0;
@@ -370,9 +372,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     pending: readonly PendingBatch[] = [],
   ): Promise<Snapshot> => {
     const query = pendingQuery(pending);
-    return (await fetchJson(
+    return snapshotOfWire(await fetchJson(
       query === "" ? "/api/sync/snapshot" : `/api/sync/snapshot?${query}`,
-      undefined, UNTIMED)) as Snapshot;
+      undefined, UNTIMED));
   };
 
   /** Batches a payload named as already applied, whose rows the replica
@@ -431,14 +433,14 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // recovery during it.
       await queue.deliverLaneAhead?.(b.batch_id);
       beforePost();
-      const ack = (await fetchJson("/api/ops", {
+      const ack = opsAckOfWire(await fetchJson("/api/ops", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           client_id: clientId, batch_id: b.batch_id, ops: b.ops,
           ...(b.seen_seq !== undefined ? { seen_seq: b.seen_seq } : {}),
         }),
-      })) as OpsAck;
+      }));
       const reading = readOpsAck(ack);
       // This batch committed (skipped ops are not a rejection), same as the
       // lane and the durable drain: the view is told so it can refetch the
@@ -676,8 +678,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
           const pending = await replica.pendingBatches();
           const expectedPendingIds = pending.map((batch) => batch.id);
           const query = pendingQuery(pending);
-          feed = (await fetchJson(`/api/sync/changes?since=${cursor}` +
-            (query === "" ? "" : `&${query}`))) as Changes;
+          feed = changesOfWire(await fetchJson(
+            `/api/sync/changes?since=${cursor}` +
+            (query === "" ? "" : `&${query}`)));
           res = await replica.applyChanges(feed, expectedPendingIds);
         } catch (error: unknown) {
           // Corruption first: it is the one window failure whose repair must

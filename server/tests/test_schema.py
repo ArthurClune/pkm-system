@@ -94,10 +94,9 @@ def test_db_generation_token_created_and_stable(db):
 
 def test_db_generation_token_differs_between_databases():
     """A rebuilt database (importer swap) must mint a different token."""
-    import sqlite3 as _sqlite3
     tokens = set()
     for _ in range(2):
-        con = _sqlite3.connect(":memory:")
+        con = connect(":memory:")
         con.executescript(DDL)
         tokens.add(read(con,
             "SELECT value FROM sync_meta WHERE key = 'db_generation'"
@@ -133,7 +132,8 @@ def test_block_refs_table_exists(tmp_path):
     con = open_db(db_path)
     cols = [r[1] for r in read(con, "PRAGMA table_info(block_refs)")]
     assert cols == ["src_block_uid", "target_block_uid"]
-    indexes = {r[1] for r in read(con, "PRAGMA index_list(block_refs)")}
+    indexes = {r["name"] for r in read(
+        con, "SELECT name FROM pragma_index_list('block_refs')")}
     assert "idx_block_refs_target" in indexes
     con.close()
 

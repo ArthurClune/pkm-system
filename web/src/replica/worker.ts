@@ -29,9 +29,11 @@ interface PoolUtil extends CapacityPool {
   getFileNames(): string[];
 }
 
-let sqlite3: {
+interface Sqlite3 {
   installOpfsSAHPoolVfs(opts: SahPoolOptions): Promise<PoolUtil>;
-} | null = null;
+}
+
+let sqlite3: Sqlite3 | null = null;
 let pool: PoolUtil | null = null;
 let rawDb: (Oo1DbLike & { close(): void }) | null = null;
 
@@ -45,7 +47,7 @@ const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 async function openDb(): Promise<ReplicaDb> {
-  sqlite3 ??= (await sqlite3InitModule()) as unknown as NonNullable<typeof sqlite3>;
+  sqlite3 ??= (await sqlite3InitModule()) as unknown as Sqlite3;
   // A page reload/navigation can spawn this worker before the previous one
   // has released the OPFS SAH pool; retry through that transient contention
   // instead of surfacing it as a spurious "server rejected"

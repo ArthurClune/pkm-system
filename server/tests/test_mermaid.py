@@ -1,10 +1,10 @@
 from pkm.importer.mermaid import convert_to_fence, is_mermaid_trigger
 from pkm.importer.parse_export import Block
-from pkm.contracts.ops import BlockUid
+from pkm.test_data.ids import uid_of
 
 
 def _block(text, children=()):
-    return Block(uid=BlockUid("u"), text=text, heading=None, view_type=None, open=True,
+    return Block(uid=uid_of("tuid-u"), text=text, heading=None, view_type=None, open=True,
                  created_at=None, edited_at=None, children=tuple(children))
 
 

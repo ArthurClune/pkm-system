@@ -1,6 +1,7 @@
 // pattern: Imperative Shell
 import { useRef, useState } from "react";
 import { apiGet } from "../api/typedClient";
+import type { BlockUid } from "../api/brands";
 import type { UpdateTextOp } from "../api/ops";
 import type { BlockGroup } from "../api/payloads";
 import { linkUnlinkedReference } from "../grammar/linkReference";
@@ -30,11 +31,11 @@ export function UnlinkedSection({ title, onLinked }: {
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [itemStatus, setItemStatus] = useState<Record<string, ItemStatus>>({});
-  const [hiddenUids, setHiddenUids] = useState<ReadonlySet<string>>(new Set());
-  const inFlight = useRef(new Set<string>());
+  const [itemStatus, setItemStatus] = useState<Record<BlockUid, ItemStatus>>({});
+  const [hiddenUids, setHiddenUids] = useState<ReadonlySet<BlockUid>>(new Set());
+  const inFlight = useRef(new Set<BlockUid>());
 
-  const setStatus = (uid: string, status?: ItemStatus) => {
+  const setStatus = (uid: BlockUid, status?: ItemStatus) => {
     setItemStatus((current) => {
       const next = { ...current };
       if (status) next[uid] = status;

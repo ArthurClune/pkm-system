@@ -1,10 +1,10 @@
-import sqlite3
-
 from fastapi.testclient import TestClient
 
 from conftest import GL_ID
-from pkm.goodlinks import GoodlinksId, goodlinks_href
+from pkm.goodlinks import goodlinks_href
 from pkm.server.app import create_app
+from pkm.test_data.ids import goodlinks_id_of
+from pkm.database import connect
 
 
 def resolve(client, url, save=False):
@@ -174,10 +174,10 @@ def test_requires_auth(seeded_config):
 
 
 def _seed_goodlinks_links(db_path):
-    con = sqlite3.connect(db_path)
+    con = connect(db_path)
     rows = [
         ("uid_g1", 1, None, 10, f"Local copy:: [Goodlinks]({goodlinks_href(GL_ID)})"),
-        ("uid_g2", 1, None, 11, f"Local copy:: [Goodlinks]({goodlinks_href(GoodlinksId('0' * 32))})"),
+        ("uid_g2", 1, None, 11, f"Local copy:: [Goodlinks]({goodlinks_href(goodlinks_id_of('0' * 32))})"),
         ("uid_g3", 2, None, 10, "see /api/goodlinks/not-hex and [dup](" + goodlinks_href(GL_ID) + ")"),
         ("uid_g4", 2, None, 11, "no goodlinks here"),
     ]

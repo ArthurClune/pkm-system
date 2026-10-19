@@ -8,19 +8,20 @@ from pathlib import Path
 from hypothesis import given, settings, strategies as st
 
 from pkm.batch import validate_batch
-from pkm.contracts.ops import BlockUid, OpBatch, UID_RE, subtree_hash, text_hash
+from pkm.contracts.ops import BlockUid, OpBatch, subtree_hash, SyncSeq, text_hash, UID_RE
 from props.harness import DAILY_TITLE
 from props.model import (MBlock, Model, Outcome, Rewrite, positions_after,
                          replay_chain, unlink_stale)
 from props.strategies import (PAGES, batch_for, cli_batch, op_for, seed_tree,
                               texts, uid_pool)
+from pkm.test_data.ids import malformed_uid, order_idx_of, seq_of, uid_of
 
-A, B, C, P, X, Y = "blk_aa", "blk_bb", "blk_cc", "blk_pp", "blk_xx", "blk_yy"
+A, B, C, P, X, Y = (uid_of(u) for u in ("blk_aa", "blk_bb", "blk_cc", "blk_pp", "blk_xx", "blk_yy"))
 
 
-def blk(uid, page="Alpha", parent=None, idx=0, text="", heading=None,
+def blk(uid: BlockUid, page="Alpha", parent=None, idx=0, text="", heading=None,
         collapsed=False, view_type=None):
-    return MBlock(uid=uid, page=page, parent=parent, order_idx=idx, text=text,
+    return MBlock(uid=uid, page=page, parent=parent, order_idx=order_idx_of(idx), text=text,
                   heading=heading, collapsed=collapsed, view_type=view_type)
 
 
@@ -33,12 +34,12 @@ def keys(m, parent=None, page="Alpha"):
                   if b.parent == parent and b.page == page)
 
 
-def create(uid, idx, parent=None, text="t", page="Alpha", **kw):
+def create(uid: BlockUid, idx, parent=None, text="t", page="Alpha", **kw):
     return {"op": "create", "uid": uid, "page_title": page,
             "parent_uid": parent, "order_idx": idx, "text": text, **kw}
 
 
-def move(uid, parent, idx, page=None):
+def move(uid: BlockUid, parent, idx, page=None):
     op = {"op": "move", "uid": uid, "parent_uid": parent, "order_idx": idx}
     if page is not None:
         op["page_title"] = page
@@ -267,11 +268,12 @@ def test_create_existing_uid_is_400_and_atomic():
 
 def test_invalid_uid_is_400():
     m = model(blk(A))
-    assert m.apply([create("bad uid!", 0)]).status == 400
-    assert m.apply([{"op": "delete", "uid": "bad uid!"}]).status == 400
-    assert m.apply([move(A, "bad uid!", 0)]).status == 400
+    bad = malformed_uid("bad uid!")
+    assert m.apply([create(bad, 0)]).status == 400
+    assert m.apply([{"op": "delete", "uid": bad}]).status == 400
+    assert m.apply([move(A, bad, 0)]).status == 400
     # a missing block's move never checks its parent uid's shape
-    assert m.apply([move(X, "bad uid!", 0)]).status == 200
+    assert m.apply([move(X, bad, 0)]).status == 200
 
 
 def test_title_syntax_is_400():
@@ -286,7 +288,7 @@ def test_title_syntax_is_400():
 def test_delete_missing_page_is_404():
     m = model()
     m.pages.discard("Gamma")
-    assert m.delete_page("Gamma", {}, seq=9).status == 404
+    assert m.delete_page("Gamma", {}, seq=seq_of(9)).status == 404
     assert m.deletions == []
 
 
@@ -294,7 +296,9 @@ def test_delete_page_refused_by_an_attribute_naming_it():
     m = model(blk(A, page="Alpha"), blk(B, page="Beta", text="Alpha:: v"),
               blk(C, page="Beta", text="[[Alpha]]:: v"))
     before = m.snapshot()
-    out = m.delete_page("Alpha", {"other_1": "Alpha:: w", "other_2": "x"}, 9)
+    out = m.delete_page(
+        "Alpha", {uid_of("other_1"): "Alpha:: w", uid_of("other_2"): "x"},
+        seq_of(9))
     assert out.status == 409
     assert out.blockers == {B: "used_as_attribute", C: "attribute",
                             "other_1": "used_as_attribute"}
@@ -307,7 +311,7 @@ def test_delete_page_refused_when_a_copy_would_add_an_attribute():
     # unlinking it there makes the referencing block a property block
     m = model(blk(P, page="Alpha", text="[[Alpha]]:: v"),
               blk(B, page="Beta", text=f"(({P}))"))
-    assert m.delete_page("Alpha", {}, 9).blockers == {B: "attribute"}
+    assert m.delete_page("Alpha", {}, seq_of(9)).blockers == {B: "attribute"}
 
 
 def test_delete_page_removes_its_blocks_and_rewrites_references():
@@ -315,7 +319,8 @@ def test_delete_page_removes_its_blocks_and_rewrites_references():
               blk(A, page="Alpha", idx=1, text=f"inner (({P}))"),
               blk(B, page="Beta", text=f"see [[Alpha]] (({P})) #Beta"),
               blk(C, page="Gamma", text="untouched [[Beta]]"))
-    out = m.delete_page("Alpha", {"conflict_1": f"[[Alpha]] (({A}))"}, 9)
+    out = m.delete_page(
+        "Alpha", {uid_of("conflict_1"): f"[[Alpha]] (({A}))"}, seq_of(9))
     assert out.status == 200
     # a copy drops its attribute, inlines one level, blanks the rest
     assert out.copies == {P: "copy Alpha inner ", A: "inner copy Alpha "}
@@ -332,7 +337,7 @@ def test_delete_page_removes_its_blocks_and_rewrites_references():
 
 # --- backend.md § Stale batches -----------------------------------------------
 
-def deleted(*rows, title="Alpha", seq=9):
+def deleted(*rows, title="Alpha", seq: SyncSeq = seq_of(9)):
     """A model whose `title` page was deleted at journal head `seq`."""
     m = model(*rows)
     assert m.delete_page(title, {}, seq).status == 200
@@ -342,8 +347,8 @@ def deleted(*rows, title="Alpha", seq=9):
 def test_stale_titles_follow_seen_seq():
     m = deleted()
     assert m.stale_titles(None) == frozenset()
-    assert m.stale_titles(9) == frozenset()
-    assert m.stale_titles(8) == {"Alpha"}
+    assert m.stale_titles(seq_of(9)) == frozenset()
+    assert m.stale_titles(seq_of(8)) == {"Alpha"}
 
 
 def test_unlink_stale_fences_a_leading_attribute():
@@ -356,16 +361,16 @@ def test_unlink_stale_fences_a_leading_attribute():
 
 def test_stale_create_page_is_dropped():
     m = deleted()
-    out = m.apply([{"op": "create_page", "page_title": "Alpha"}], seen_seq=8)
+    out = m.apply([{"op": "create_page", "page_title": "Alpha"}], seen_seq=seq_of(8))
     assert out == Outcome(200, (), ()) and "Alpha" not in m.pages
-    m.apply([{"op": "create_page", "page_title": "Alpha"}], seen_seq=9)
+    m.apply([{"op": "create_page", "page_title": "Alpha"}], seen_seq=seq_of(9))
     assert "Alpha" in m.pages
 
 
 def test_stale_top_level_create_on_the_deleted_page_is_parked():
     m = deleted()
     out = m.apply([create(X, 0, text="Alpha:: [[Alpha]]", page="Alpha"),
-                   create(Y, 0, text="", page="Alpha")], seen_seq=8)
+                   create(Y, 0, text="", page="Alpha")], seen_seq=seq_of(8))
     assert out.skipped == ((0, "create", X, "page_deleted"),
                            (1, "create", Y, "page_deleted"))
     assert out.kept_texts == ("`Alpha`:: Alpha",)
@@ -374,13 +379,13 @@ def test_stale_top_level_create_on_the_deleted_page_is_parked():
 
 def test_stale_child_create_follows_its_parent_not_the_title():
     m = deleted(blk(B, page="Beta"))
-    out = m.apply([create(X, 0, parent=B, page="Alpha")], seen_seq=8)
+    out = m.apply([create(X, 0, parent=B, page="Alpha")], seen_seq=seq_of(8))
     assert out.skipped == () and m.blocks[X].page == "Beta"
 
 
 def test_stale_top_level_move_onto_the_deleted_page_stays_put():
     m = deleted(blk(B, page="Beta"))
-    out = m.apply([move(B, None, 3, page="Alpha")], seen_seq=8)
+    out = m.apply([move(B, None, 3, page="Alpha")], seen_seq=seq_of(8))
     assert out == Outcome(200, ((0, "move", B, "page_deleted"),), ())
     assert m.blocks[B] == blk(B, page="Beta")
 
@@ -389,7 +394,7 @@ def test_stale_text_is_unlinked_and_records_its_rewrite():
     m = deleted(blk(B, page="Beta", text="old"))
     out = m.apply([create(X, 0, text="[[Alpha]]:: v", page="Beta"),
                    {"op": "update_text", "uid": B, "text": "see #Alpha"}],
-                  seen_seq=8)
+                  seen_seq=seq_of(8))
     assert out == Outcome(200, (), ())
     assert m.blocks[X].text == "`Alpha`:: v"
     assert m.blocks[B].text == "see Alpha"
@@ -402,7 +407,7 @@ def test_stale_text_is_unlinked_and_records_its_rewrite():
 def test_unstale_text_recreates_the_page():
     m = deleted(blk(B, page="Beta", text="old"))
     m.apply([{"op": "update_text", "uid": B, "text": "see [[Alpha]]"}],
-            seen_seq=9)
+            seen_seq=seq_of(9))
     assert m.blocks[B].text == "see [[Alpha]]" and "Alpha" in m.pages
     assert B not in m.rewrites
 
@@ -410,7 +415,7 @@ def test_unstale_text_recreates_the_page():
 def test_chained_edit_after_a_stale_fence_replays_clean():
     m = deleted(blk(B, page="Beta", text="old"))
     m.apply([{"op": "update_text", "uid": B, "text": "Alpha:: v",
-              "base_text_hash": text_hash("old")}], seen_seq=8)
+              "base_text_hash": text_hash("old")}], seen_seq=seq_of(8))
     assert m.blocks[B].text == "`Alpha`:: v"
     # the device never saw the fence: its next edit is based on its own text
     out = m.apply([{"op": "update_text", "uid": B, "text": "Alpha:: v2",
@@ -426,7 +431,7 @@ def test_chained_edit_after_a_stale_fence_replays_clean():
 def test_edit_based_on_a_page_deletes_rewrite_replays_its_inline():
     m = model(blk(P, page="Alpha", text="copied"),
               blk(B, page="Beta", text=f"x (({P}))"))
-    m.delete_page("Alpha", {}, 9)
+    m.delete_page("Alpha", {}, seq_of(9))
     assert m.blocks[B].text == "x copied"
     out = m.apply([{"op": "update_text", "uid": B, "text": f"y (({P}))",
                     "base_text_hash": text_hash(f"x (({P}))")}])
@@ -436,14 +441,14 @@ def test_edit_based_on_a_page_deletes_rewrite_replays_its_inline():
 def test_recorded_rewrites_remember_the_text_they_rewrote():
     m = deleted(blk(B, page="Beta", text="see [[Alpha]]"))
     assert m.rewrites[B][0].before == "see [[Alpha]]"
-    m.apply([create(X, 0, text="Alpha:: v", page="Beta")], seen_seq=8)
+    m.apply([create(X, 0, text="Alpha:: v", page="Beta")], seen_seq=seq_of(8))
     assert m.rewrites[X][0].before == "Alpha:: v"
 
 
 def test_outcome_names_the_rewrite_paths_its_edits_took():
     m = deleted(blk(B, page="Beta", text="Alpha w"))
     out = m.apply([{"op": "update_text", "uid": B, "text": "[[Alpha]] w",
-                    "base_text_hash": text_hash("[[Alpha]] w")}], seen_seq=8)
+                    "base_text_hash": text_hash("[[Alpha]] w")}], seen_seq=seq_of(8))
     assert out.paths == ("update_text: identical after stale unlink",)
     assert B in m.rewrites
     m = deleted(blk(B, page="Beta", text="see [[Alpha]]"))
@@ -457,22 +462,25 @@ def test_outcome_names_the_rewrite_paths_its_edits_took():
 def test_stale_conflicting_edit_keeps_the_current_text():
     m = deleted(blk(B, page="Beta", text="current"))
     out = m.apply([{"op": "update_text", "uid": B, "text": "[[Alpha]] mine",
-                    "base_text_hash": text_hash("other")}], seen_seq=8)
+                    "base_text_hash": text_hash("other")}], seen_seq=seq_of(8))
     assert out.kept_texts == ("current",)
     assert m.blocks[B].text == "Alpha mine"
     assert len(m.rewrites[B]) == 1
 
 
+H0, H1, H2 = (text_hash(h) for h in ("h0", "h1", "h2"))
+
+
 def test_recorded_rewrites_sharing_hashes_replay_as_one():
     m = model()
-    m._record(A, Rewrite("h1", "h2", frozenset({"Alpha"})))
-    m._record(A, Rewrite("h0", "h1", frozenset({"Beta"})))
-    m._record(A, Rewrite("h1", "h2", frozenset({"Gamma"}), ((B, "c"),)))
+    m._record(A, Rewrite(H1, H2, frozenset({"Alpha"})))
+    m._record(A, Rewrite(H0, H1, frozenset({"Beta"})))
+    m._record(A, Rewrite(H1, H2, frozenset({"Gamma"}), ((B, "c"),)))
     assert m.rewrites[A] == [
-        Rewrite("h1", "h2", frozenset({"Alpha", "Gamma"}), ((B, "c"),)),
-        Rewrite("h0", "h1", frozenset({"Beta"}))]
-    assert replay_chain(m.rewrites[A], f"#Beta (({B}))", "h0") == (
-        "Beta c", "h2", [m.rewrites[A][1], m.rewrites[A][0]])
+        Rewrite(H1, H2, frozenset({"Alpha", "Gamma"}), ((B, "c"),)),
+        Rewrite(H0, H1, frozenset({"Beta"}))]
+    assert replay_chain(m.rewrites[A], f"#Beta (({B}))", H0) == (
+        "Beta c", H2, [m.rewrites[A][1], m.rewrites[A][0]])
 
 
 @settings(max_examples=50)
@@ -488,16 +496,16 @@ def test_text_model_matches_the_unlinker_on_generated_texts(data):
     text = data.draw(texts(pool, (title,)))
     assert unlink_stale(text, {title}) == unlink_stale_refs(
         text, lambda raw: normalize_title(raw) == title)
-    page = {BlockUid(u): t for u, t in zip(pool[:3], data.draw(st.lists(
+    page = {uid_of(u): t for u, t in zip(pool[:3], data.draw(st.lists(
         texts(pool), min_size=3, max_size=3)))}
     sources = dict(zip(pool[3:], data.draw(st.lists(
         texts(pool, (title,)), min_size=3, max_size=3))))
     plan = plan_page_delete(lambda raw: normalize_title(raw) == title, page,
-                            [SourceBlock(BlockUid(u), "Other", t)
+                            [SourceBlock(uid_of(u), "Other", t)
                              for u, t in sources.items()])
     m = Model.from_rows(PAGES, [blk(u, page=title, text=t)
                                 for u, t in page.items()])
-    out = m.delete_page(title, sources, 9)
+    out = m.delete_page(title, sources, seq_of(9))
     assert out.blockers == {b.uid: b.reason for b in plan.blockers}
     if out.status == 200:
         assert {u: out.rewrite(t)[0] for u, t in sources.items()
@@ -513,13 +521,14 @@ def cr(index=None, parent=None, alias=None, command="create"):
     return {"command": command, "params": params}
 
 
-def mv(uid, parent=None, index=None):
+def mv(target: str, parent=None, index=None):
+    """A move of `target`, a uid or a `{{alias}}` spec."""
     return {"command": "move",
-            "params": {"uid": uid, "page": "Alpha", "parent": parent,
+            "params": {"uid": target, "page": "Alpha", "parent": parent,
                        "index": index}}
 
 
-def dl(uid):
+def dl(uid: BlockUid):
     return {"command": "delete", "params": {"uid": uid}}
 
 
@@ -681,7 +690,7 @@ def test_op_for_draws_wire_valid_ops(data):
 @given(st.data())
 def test_batch_for_does_not_mutate_the_model(data):
     pool = uid_pool(6)
-    m = model(blk(pool[0]), blk(pool[1], parent=pool[0]))
+    m = model(blk(uid_of(pool[0])), blk(uid_of(pool[1]), parent=pool[0]))
     before = copy.deepcopy((m.snapshot(), m.pages, m.deleted))
     data.draw(batch_for(m, pool))
     assert (m.snapshot(), m.pages, m.deleted) == before

@@ -3,14 +3,14 @@ import type { BlockUid } from "../api/brands";
 import { isOutlinePaste, isOutlinePasteChord, parseOutlineForest,
          planOutlinePaste } from "./paste";
 import type { PastedNode } from "./paste";
-import { block, ord, title, uid } from "../test-helpers";
+import { block, orderIdxOf, canonicalTitleOf, uidOf } from "../test-helpers";
 
 const node = (text: string, children: PastedNode[] = []): PastedNode =>
   ({ text, children });
 
 function uidGen(): () => BlockUid {
   let n = 0;
-  return () => uid(`n${++n}`);
+  return () => uidOf(`tuid-n${++n}`);
 }
 
 describe("parseOutlineForest", () => {
@@ -137,64 +137,64 @@ describe("isOutlinePasteChord", () => {
   });
 });
 
-const PAGE = title("Page");
+const PAGE = canonicalTitleOf("Page");
 
 describe("planOutlinePaste", () => {
   it("splices the first root at the caret and creates the rest as siblings", () => {
     const blocks = [
-      block("a", "hello world", { order_idx: ord(0) }),
-      block("z", "after", { order_idx: ord(1) }),
+      block("tuid-a", "hello world", { order_idx: orderIdxOf(0) }),
+      block("tuid-z", "after", { order_idx: orderIdxOf(1) }),
     ];
-    const r = planOutlinePaste(blocks, PAGE, uid("a"), 5, 5, "X\nY\nZ", uidGen());
+    const r = planOutlinePaste(blocks, PAGE, uidOf("tuid-a"), 5, 5, "X\nY\nZ", uidGen());
     expect(r.ops).toEqual([
-      { op: "update_text", uid: "a", text: "helloX world" },
-      { op: "create", uid: "n1", page_title: PAGE, parent_uid: null,
+      { op: "update_text", uid: "tuid-a", text: "helloX world" },
+      { op: "create", uid: "tuid-n1", page_title: PAGE, parent_uid: null,
         order_idx: 1, text: "Y" },
-      { op: "create", uid: "n2", page_title: PAGE, parent_uid: null,
+      { op: "create", uid: "tuid-n2", page_title: PAGE, parent_uid: null,
         order_idx: 2, text: "Z" },
     ]);
     // applyOps mirror: a, Y, Z, after in order
     expect(r.blocks.map((b) => b.text)).toEqual(
       ["helloX world", "Y", "Z", "after"]);
-    expect(r.focus).toEqual({ uid: "n2", cursor: 1 });
+    expect(r.focus).toEqual({ uid: "tuid-n2", cursor: 1 });
   });
 
   it("replaces a text selection with the first root's text", () => {
-    const blocks = [block("a", "abcdef", { order_idx: ord(0) })];
-    const r = planOutlinePaste(blocks, PAGE, uid("a"), 1, 4, "XY\nrest", uidGen());
-    expect(r.ops[0]).toEqual({ op: "update_text", uid: "a", text: "aXYef" });
+    const blocks = [block("tuid-a", "abcdef", { order_idx: orderIdxOf(0) })];
+    const r = planOutlinePaste(blocks, PAGE, uidOf("tuid-a"), 1, 4, "XY\nrest", uidGen());
+    expect(r.ops[0]).toEqual({ op: "update_text", uid: "tuid-a", text: "aXYef" });
   });
 
   it("nests pasted children under their pasted parents (depth-first creates)", () => {
-    const blocks = [block("a", "", { order_idx: ord(0) })];
-    const r = planOutlinePaste(blocks, PAGE, uid("a"), 0, 0,
+    const blocks = [block("tuid-a", "", { order_idx: orderIdxOf(0) })];
+    const r = planOutlinePaste(blocks, PAGE, uidOf("tuid-a"), 0, 0,
                                "top\nnext\n\tchild\n\t\tgrand", uidGen());
     expect(r.ops).toEqual([
-      { op: "update_text", uid: "a", text: "top" },
-      { op: "create", uid: "n1", page_title: PAGE, parent_uid: null,
+      { op: "update_text", uid: "tuid-a", text: "top" },
+      { op: "create", uid: "tuid-n1", page_title: PAGE, parent_uid: null,
         order_idx: 1, text: "next" },
-      { op: "create", uid: "n2", page_title: PAGE, parent_uid: "n1",
+      { op: "create", uid: "tuid-n2", page_title: PAGE, parent_uid: "tuid-n1",
         order_idx: 0, text: "child" },
-      { op: "create", uid: "n3", page_title: PAGE, parent_uid: "n2",
+      { op: "create", uid: "tuid-n3", page_title: PAGE, parent_uid: "tuid-n2",
         order_idx: 0, text: "grand" },
     ]);
-    expect(r.focus).toEqual({ uid: "n3", cursor: "grand".length });
+    expect(r.focus).toEqual({ uid: "tuid-n3", cursor: "grand".length });
   });
 
   it("the first root's children become the target's FIRST children", () => {
     const blocks = [
-      block("a", "parent", {
-        order_idx: ord(0),
-        children: [block("a0", "existing", { order_idx: ord(4) })],
+      block("tuid-a", "parent", {
+        order_idx: orderIdxOf(0),
+        children: [block("tuid-a0", "existing", { order_idx: orderIdxOf(4) })],
       }),
     ];
-    const r = planOutlinePaste(blocks, PAGE, uid("a"), 6, 6, "!\n\tk1\n\tk2",
+    const r = planOutlinePaste(blocks, PAGE, uidOf("tuid-a"), 6, 6, "!\n\tk1\n\tk2",
                                uidGen());
     expect(r.ops).toEqual([
-      { op: "update_text", uid: "a", text: "parent!" },
-      { op: "create", uid: "n1", page_title: PAGE, parent_uid: "a",
+      { op: "update_text", uid: "tuid-a", text: "parent!" },
+      { op: "create", uid: "tuid-n1", page_title: PAGE, parent_uid: "tuid-a",
         order_idx: 4, text: "k1" },
-      { op: "create", uid: "n2", page_title: PAGE, parent_uid: "a",
+      { op: "create", uid: "tuid-n2", page_title: PAGE, parent_uid: "tuid-a",
         order_idx: 5, text: "k2" },
     ]);
     const a = r.blocks[0];
@@ -203,33 +203,33 @@ describe("planOutlinePaste", () => {
 
   it("expands a collapsed target that receives children", () => {
     const blocks = [
-      block("a", "p", {
-        order_idx: ord(0), collapsed: true,
-        children: [block("a0", "hidden", { order_idx: ord(0) })],
+      block("tuid-a", "p", {
+        order_idx: orderIdxOf(0), collapsed: true,
+        children: [block("tuid-a0", "hidden", { order_idx: orderIdxOf(0) })],
       }),
     ];
     // first root "!" carries a child, so the collapsed target must expand
-    const r = planOutlinePaste(blocks, PAGE, uid("a"), 1, 1, "!\n\tkid", uidGen());
-    expect(r.ops[0]).toEqual({ op: "update_text", uid: "a", text: "p!" });
-    expect(r.ops).toContainEqual({ op: "set_collapsed", uid: "a",
+    const r = planOutlinePaste(blocks, PAGE, uidOf("tuid-a"), 1, 1, "!\n\tkid", uidGen());
+    expect(r.ops[0]).toEqual({ op: "update_text", uid: "tuid-a", text: "p!" });
+    expect(r.ops).toContainEqual({ op: "set_collapsed", uid: "tuid-a",
                                    collapsed: false });
   });
 
   it("sibling roots insert between the target and its next sibling", () => {
     const blocks = [
-      block("p", "P", {
-        order_idx: ord(0),
+      block("tuid-p", "P", {
+        order_idx: orderIdxOf(0),
         children: [
-          block("p0", "first", { order_idx: ord(2) }),
-          block("p1", "second", { order_idx: ord(7) }),
+          block("tuid-p0", "first", { order_idx: orderIdxOf(2) }),
+          block("tuid-p1", "second", { order_idx: orderIdxOf(7) }),
         ],
       }),
     ];
-    const r = planOutlinePaste(blocks, PAGE, uid("p0"), 0, 5, "first\nmid",
+    const r = planOutlinePaste(blocks, PAGE, uidOf("tuid-p0"), 0, 5, "first\nmid",
                                uidGen());
     // splice replaces "first" with "first": no update_text op is emitted
     expect(r.ops).toEqual([
-      { op: "create", uid: "n1", page_title: PAGE, parent_uid: "p",
+      { op: "create", uid: "tuid-n1", page_title: PAGE, parent_uid: "tuid-p",
         order_idx: 7, text: "mid" },
     ]);
     expect(r.blocks[0].children.map((c) => c.text))
@@ -237,23 +237,23 @@ describe("planOutlinePaste", () => {
   });
 
   it("single root with no children: splice only, focus after the pasted text", () => {
-    const blocks = [block("a", "ab", { order_idx: ord(0) })];
-    const r = planOutlinePaste(blocks, PAGE, uid("a"), 1, 1, "XY\n", uidGen());
-    expect(r.ops).toEqual([{ op: "update_text", uid: "a", text: "aXYb" }]);
-    expect(r.focus).toEqual({ uid: "a", cursor: 3 });
+    const blocks = [block("tuid-a", "ab", { order_idx: orderIdxOf(0) })];
+    const r = planOutlinePaste(blocks, PAGE, uidOf("tuid-a"), 1, 1, "XY\n", uidGen());
+    expect(r.ops).toEqual([{ op: "update_text", uid: "tuid-a", text: "aXYb" }]);
+    expect(r.focus).toEqual({ uid: "tuid-a", cursor: 3 });
   });
 
   it("clamps out-of-range caret offsets", () => {
-    const blocks = [block("a", "ab", { order_idx: ord(0) })];
-    const r = planOutlinePaste(blocks, PAGE, uid("a"), 99, 99, "X\nY", uidGen());
-    expect(r.ops[0]).toEqual({ op: "update_text", uid: "a", text: "abX" });
+    const blocks = [block("tuid-a", "ab", { order_idx: orderIdxOf(0) })];
+    const r = planOutlinePaste(blocks, PAGE, uidOf("tuid-a"), 99, 99, "X\nY", uidGen());
+    expect(r.ops[0]).toEqual({ op: "update_text", uid: "tuid-a", text: "abX" });
   });
 
   it("no-ops on a missing uid or an empty parse", () => {
-    const blocks = [block("a", "ab", { order_idx: ord(0) })];
-    expect(planOutlinePaste(blocks, PAGE, uid("gone"), 0, 0, "x\ny", uidGen()).ops)
+    const blocks = [block("tuid-a", "ab", { order_idx: orderIdxOf(0) })];
+    expect(planOutlinePaste(blocks, PAGE, uidOf("tuid-gone"), 0, 0, "x\ny", uidGen()).ops)
       .toEqual([]);
-    expect(planOutlinePaste(blocks, PAGE, uid("a"), 0, 0, " \n ", uidGen()).ops)
+    expect(planOutlinePaste(blocks, PAGE, uidOf("tuid-a"), 0, 0, " \n ", uidGen()).ops)
       .toEqual([]);
   });
 });

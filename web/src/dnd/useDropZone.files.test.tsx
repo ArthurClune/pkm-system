@@ -6,7 +6,7 @@ import { useRef } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, ord } from "../test-helpers";
+import { block, makeSync, orderIdxOf } from "../test-helpers";
 import { DndProvider, useDnd } from "./DndContext";
 import { useDropZone } from "./useDropZone";
 
@@ -21,7 +21,7 @@ function stubRects() {
     .mockImplementation(function (this: Element) {
       const uid = (this as HTMLElement).dataset?.uid;
       if (uid === undefined) return rect(0, 3 * ROW_H);
-      const top = (Number(uid.slice(1)) - 1) * ROW_H;
+      const top = (Number(uid.slice("tuid-u".length)) - 1) * ROW_H;
       return rect(top, top + ROW_H);
     });
 }
@@ -44,19 +44,21 @@ function filesTransfer(files: File[], { listed = files } = {}) {
 }
 
 const blocks: BlockNode[] = [
-  block("u1", "one", { order_idx: ord(0) }),
-  block("u2", "two", { order_idx: ord(1) }),
-  block("u3", "three", { order_idx: ord(2) }),
+  block("tuid-u1", "one", { order_idx: orderIdxOf(0) }),
+  block("tuid-u2", "two", { order_idx: orderIdxOf(1) }),
+  block("tuid-u3", "three", { order_idx: orderIdxOf(2) }),
 ];
+
+type DropFiles = Parameters<typeof useDropZone>[3];
 
 let dnd!: ReturnType<typeof useDnd>;
 function Capture() { dnd = useDnd(); return null; }
 
-function setup(onDropFiles: ((f: File[], t: unknown) => void) | null = vi.fn()) {
+function setup(onDropFiles: DropFiles | null = vi.fn()) {
   function Zone() {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const { indicator, zoneProps } = useDropZone(
-      "P", () => blocks, containerRef, (onDropFiles ?? undefined) as never);
+      "P", () => blocks, containerRef, onDropFiles ?? undefined);
     return (
       <div ref={containerRef} data-testid="zone" {...zoneProps}>
         {blocks.map((b) => <div key={b.uid} data-uid={b.uid}>{b.text}</div>)}

@@ -22,6 +22,13 @@ const K = new Uint32Array([
 
 const rotr = (x: number, n: number): number => (x >>> n) | (x << (32 - n));
 
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
+
+/** A 64-character lowercase hex string as a Sha256Hex, else null. */
+export function parseSha256Hex(raw: string): Sha256Hex | null {
+  return SHA256_HEX_RE.test(raw) ? (raw as Sha256Hex) : null;
+}
+
 export function sha256Hex(text: string): Sha256Hex {
   const data = new TextEncoder().encode(text);
   const bitLen = data.length * 8;

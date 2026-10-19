@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, expect, test, vi } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { block, uid } from "../test-helpers";
+import { block, uidOf } from "../test-helpers";
 import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { OutlineHandlers } from "../outline/handlers";
@@ -21,18 +21,18 @@ vi.mock("../outline/tree", async (importOriginal) => {
 const handlers = () =>
   new Proxy({}, { get: () => vi.fn() }) as unknown as OutlineHandlers;
 
-/** A spine of nested blocks, "b0" outermost down to "b{depth-1}". */
+/** A spine of nested blocks, "tuid-b0" outermost down to "tuid-b{depth-1}". */
 function spine(depth: number): BlockNode[] {
-  let node = block(`b${depth - 1}`, `text ${depth - 1}`);
+  let node = block(`tuid-b${depth - 1}`, `text ${depth - 1}`);
   for (let i = depth - 2; i >= 0; i--) {
-    node = block(`b${i}`, `text ${i}`, { children: [node] });
+    node = block(`tuid-b${i}`, `text ${i}`, { children: [node] });
   }
   return [node];
 }
 
-function table(uid: string): BlockNode {
-  return block(uid, "{{[[table]]}}", { children: [
-    block(`${uid}-row`, "Claude", { children: [block(`${uid}-cell`, "$5")] }),
+function table(tag: string): BlockNode {
+  return block(tag, "{{[[table]]}}", { children: [
+    block(`${tag}-row`, "Claude", { children: [block(`${tag}-cell`, "$5")] }),
   ] });
 }
 
@@ -49,7 +49,7 @@ beforeEach(() => { vi.mocked(tree.ancestorChain).mockClear(); });
 
 test("walks for the focused block's ancestors once per render, not once per row",
      () => {
-  mount(spine(12), { uid: uid("b11"), cursor: 0 });
+  mount(spine(12), { uid: uidOf("tuid-b11"), cursor: 0 });
 
   // Twelve rendered rows, one walk: the per-row "is the focus inside me?"
   // test is a lookup in the chain the root computed. A walk per row is the
@@ -65,7 +65,7 @@ test("does not walk at all when no block is focused", () => {
 });
 
 test("focus inside one table subtree leaves a sibling table rendered", () => {
-  mount([table("t1"), table("t2")], { uid: uid("t1-cell"), cursor: 0 });
+  mount([table("tuid-t1"), table("tuid-t2")], { uid: uidOf("tuid-t1-cell"), cursor: 0 });
 
   // t1 is in raw editable rows; t2 is untouched by t1's focus.
   expect(screen.getAllByRole("table")).toHaveLength(1);

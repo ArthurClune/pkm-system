@@ -1,11 +1,8 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import type { BatchId } from "../api/brands";
-import type { PendingRowId } from "../replica/client";
-import type { TicketId } from "../sync/opQueue";
 import { SyncContext, type Sync, type SyncProblem } from "../sync/SyncProvider";
 import { OfflineIndicator } from "./OfflineIndicator";
-import { uid } from "../test-helpers";
+import { uidOf, ticketIdOf, pendingRowIdOf, batchIdOf } from "../test-helpers";
 
 function syncWith(overrides: Partial<Sync>): Sync {
   return {
@@ -20,7 +17,7 @@ function syncWith(overrides: Partial<Sync>): Sync {
     discardProblem: () => Promise.resolve(),
     resetReplica: () => Promise.resolve(),
     enqueue: () => ({
-      id: "test-write" as TicketId, scope: [],
+      id: ticketIdOf("test-write"), scope: [],
       settled: Promise.resolve({ status: "persisted", pending: 0 }),
       delivered: Promise.resolve({ status: "delivered" }),
     }),
@@ -142,8 +139,8 @@ it("does not double a full stop when the read-only reason already ends with one"
 const rejected = {
   kind: "rejected-batch" as const,
   event: {
-    id: 7 as PendingRowId, batch_id: "batch-rejected" as BatchId,
-    ops: [{ op: "delete" as const, uid: uid("uid_bad") }],
+    id: pendingRowIdOf(7), batch_id: batchIdOf("batch-rejected"),
+    ops: [{ op: "delete" as const, uid: uidOf("uid_bad") }],
     status: 400, message: "request failed: 400 /api/ops",
   },
 };
@@ -162,7 +159,7 @@ it("failed repair offers Retry but cannot be dismissed", () => {
   const dismissProblem = vi.fn();
   renderWith({
     problem: { ...rejected, repair: "failed", error: "snapshot unavailable" },
-    ...({ retryProblem, dismissProblem } as unknown as Partial<Sync>),
+    retryProblem, dismissProblem,
   });
   expect(screen.getByRole("alert")).toHaveTextContent(
     "Local repair failed: snapshot unavailable");
@@ -177,7 +174,7 @@ it("failed durable poison marking is visible and offers Retry", () => {
   renderWith({
     problem: {
       ...rejected, repair: "mark-failed", error: "local worker unavailable",
-    } as unknown as Sync["problem"],
+    },
     retryProblem,
   });
   expect(screen.getByRole("alert")).toHaveTextContent(
@@ -195,7 +192,7 @@ it("failed durable poison marking offers a discard escape", () => {
   const { rerender } = renderWith({
     problem: {
       ...rejected, repair: "mark-failed", error: "local worker unavailable",
-    } as unknown as Sync["problem"],
+    },
     discardProblem,
   });
   fireEvent.click(screen.getByRole("button", { name: "Discard rejected change" }));
@@ -223,7 +220,7 @@ it("an online-only session says so and offers a Reload, not a Retry", async () =
     renderWith({
       problem: {
         kind: "replica-unusable", error: "Access Handles cannot be created",
-      } as unknown as Sync["problem"],
+      },
     });
     expect(screen.getByRole("status")).toHaveTextContent(
       "Working online only — offline editing is unavailable for now.");
@@ -252,7 +249,7 @@ it("warns instead of reassuring when an online-only session goes offline", () =>
     canEdit: false,
     problem: {
       kind: "replica-unusable", error: "Access Handles cannot be created",
-    } as unknown as Sync["problem"],
+    },
     pending: 2,
   });
   // The problem banner renders before the connectivity banner.
@@ -271,7 +268,7 @@ it("uses the singular for one unsent change in an offline online-only session", 
     canEdit: false,
     problem: {
       kind: "replica-unusable", error: "Access Handles cannot be created",
-    } as unknown as Sync["problem"],
+    },
     pending: 1,
   });
   expect(screen.getAllByRole("status")[0]).toHaveTextContent(
@@ -287,7 +284,7 @@ it("says nothing about safety when an offline online-only session is clean", () 
     canEdit: false,
     problem: {
       kind: "replica-unusable", error: "Access Handles cannot be created",
-    } as unknown as Sync["problem"],
+    },
     pending: 0,
   });
   const banner = screen.getAllByRole("status")[0];
@@ -313,7 +310,7 @@ it("Reload confirms before discarding undelivered work", async () => {
     renderWith({
       problem: {
         kind: "replica-unusable", error: "Access Handles cannot be created",
-      } as unknown as Sync["problem"],
+      },
       pending: 2,
     });
     fireEvent.click(screen.getByRole("button", { name: "Reload" }));
@@ -336,7 +333,7 @@ it("failed startup poison discovery is visible and offers Retry", () => {
   renderWith({
     problem: {
       kind: "poison-discovery", error: "worker read failed",
-    } as unknown as Sync["problem"],
+    },
     retryProblem,
   });
   expect(screen.getByRole("alert")).toHaveTextContent(
@@ -351,7 +348,7 @@ it("failed legacy authoritative repair is visible and offers Retry", () => {
     problem: {
       kind: "legacy-rejected", repair: "failed",
       error: "request failed: 400 /api/ops", repairError: "page read failed",
-    } as unknown as Sync["problem"],
+    },
     retryProblem,
   });
   expect(screen.getByRole("alert")).toHaveTextContent(
@@ -365,7 +362,7 @@ it("repaired rejection keeps details until Dismiss", () => {
   const dismissProblem = vi.fn();
   renderWith({
     problem: { ...rejected, repair: "repaired" },
-    ...({ retryProblem, dismissProblem } as unknown as Partial<Sync>),
+    retryProblem, dismissProblem,
   });
   expect(screen.getByRole("status")).toHaveTextContent("Local state repaired");
   expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
@@ -378,7 +375,7 @@ it("shows a stalled replica banner with a reset button", () => {
   renderWith({
     problem: {
       kind: "replica-stalled", error: "replica db locked", reset: "idle",
-    } as unknown as Sync["problem"],
+    },
   });
   expect(screen.getByRole("alert"))
     .toHaveTextContent("Local sync is stuck: replica db locked");
@@ -390,7 +387,7 @@ it("clicking Reset local data calls resetReplica(false)", () => {
   renderWith({
     problem: {
       kind: "replica-stalled", error: "replica db locked", reset: "idle",
-    } as unknown as Sync["problem"],
+    },
     resetReplica,
   });
   fireEvent.click(screen.getByRole("button", { name: "Reset local data" }));
@@ -402,7 +399,7 @@ it("disables the reset button while a reset is running", () => {
   renderWith({
     problem: {
       kind: "replica-stalled", error: "replica db locked", reset: "running",
-    } as unknown as Sync["problem"],
+    },
   });
   expect(screen.getByRole("button", { name: "Reset local data" })).toBeDisabled();
 });
@@ -412,7 +409,7 @@ it("shows the reset failure message alongside the retry button", () => {
     problem: {
       kind: "replica-stalled", error: "replica db locked", reset: "failed",
       resetError: "disk full",
-    } as unknown as Sync["problem"],
+    },
   });
   expect(screen.getByRole("alert")).toHaveTextContent(
     "Local sync is stuck: replica db locked Reset failed: disk full.");
@@ -425,7 +422,7 @@ it("shows the blocked-reset banner with discard and keep-waiting actions", () =>
   renderWith({
     problem: {
       kind: "replica-stalled", error: "replica db locked", reset: "blocked", pending: 3,
-    } as unknown as Sync["problem"],
+    },
     resetReplica,
     dismissProblem,
   });
@@ -444,7 +441,7 @@ it("uses the singular for one unsent blocked change", () => {
   renderWith({
     problem: {
       kind: "replica-stalled", error: "replica db locked", reset: "blocked", pending: 1,
-    } as unknown as Sync["problem"],
+    },
   });
   expect(screen.getByRole("alert"))
     .toHaveTextContent("1 unsent change could not be delivered.");

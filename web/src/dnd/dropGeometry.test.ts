@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { DragSource, DropRow } from "../outline/dnd";
-import { uid } from "../test-helpers";
+import { uidOf } from "../test-helpers";
 import { boundaryFromRects, cacheIsUsable, cachedRectFor,
          indicatorTopFromRects, type RowRect } from "./dropGeometry";
 
 const rows = (n: number): DropRow[] =>
   Array.from({ length: n }, (_, i) =>
-    ({ uid: uid(`u${i + 1}`), depth: 0, collapsed: false }));
+    ({ uid: uidOf(`tuid-u${i + 1}`), depth: 0, collapsed: false }));
 
 /** Rows 20px tall stacked from clientY=100 — so midpoints land at 110, 130,
  * 150, ... — plus a record of which ones were actually looked up. `holes`
@@ -70,16 +70,16 @@ describe("indicatorTopFromRects", () => {
 });
 
 describe("cachedRectFor", () => {
-  const drag: DragSource = { kind: "blocks", uid: uid("u9"), pageTitle: "P" };
+  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-u9"), pageTitle: "P" };
   const measured = { drag, rowCount: 3, containerTop: 0, containerLeft: 0,
                      rects: [{ top: 0, bottom: 20 }, null,
                              { top: 40, bottom: 60 }],
-                     uids: ["u1", "u2", "u3"] };
+                     uids: [uidOf("tuid-u1"), uidOf("tuid-u2"), uidOf("tuid-u3")] };
 
   it("hands back the rect measured for that uid, including a known miss", () => {
-    expect(cachedRectFor(measured, 0, "u1")).toEqual({ top: 0, bottom: 20 });
+    expect(cachedRectFor(measured, 0, uidOf("tuid-u1"))).toEqual({ top: 0, bottom: 20 });
     // null is an answer -- "this row has no element" -- not an empty slot
-    expect(cachedRectFor(measured, 1, "u2")).toBeNull();
+    expect(cachedRectFor(measured, 1, uidOf("tuid-u2"))).toBeNull();
   });
 
   it("treats a rect measured for a different uid as unmeasured", () => {
@@ -87,17 +87,17 @@ describe("cachedRectFor", () => {
     // one remote create and one remote delete slide every uid up an index, and
     // every cached rect then describes the wrong block. Nothing else in the
     // cache notices, so the per-row uid is what catches it.
-    expect(cachedRectFor(measured, 0, "u2")).toBeUndefined();
-    expect(cachedRectFor(measured, 1, "u3")).toBeUndefined();
+    expect(cachedRectFor(measured, 0, uidOf("tuid-u2"))).toBeUndefined();
+    expect(cachedRectFor(measured, 1, uidOf("tuid-u3"))).toBeUndefined();
   });
 
   it("treats a never-measured index as unmeasured", () => {
-    expect(cachedRectFor(measured, 7, "u8")).toBeUndefined();
+    expect(cachedRectFor(measured, 7, uidOf("tuid-u8"))).toBeUndefined();
   });
 });
 
 describe("cacheIsUsable", () => {
-  const drag: DragSource = { kind: "blocks", uid: uid("u1"), pageTitle: "P" };
+  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: "P" };
   const cache = (over: object) =>
     ({ drag, rowCount: 3, containerTop: 0, containerLeft: 0,
        rects: [], uids: [], ...over });
@@ -108,7 +108,7 @@ describe("cacheIsUsable", () => {
 
   it("never reuses a cache from a previous drag", () => {
     // the drop that ended the last drag re-laid-out the rows it moved
-    expect(cacheIsUsable(cache({}), { kind: "blocks", uid: uid("u1"), pageTitle: "P" }, rows(3)))
+    expect(cacheIsUsable(cache({}), { kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: "P" }, rows(3)))
       .toBe(false);
   });
 

@@ -1,0 +1,393 @@
+{
+  "names": {
+    "uid": [
+      "BlockUid"
+    ],
+    "uids": [
+      "BlockUid"
+    ],
+    "parent_uid": [
+      "BlockUid"
+    ],
+    "parentUid": [
+      "BlockUid"
+    ],
+    "block_uid": [
+      "BlockUid"
+    ],
+    "blockUid": [
+      "BlockUid"
+    ],
+    "block_uids": [
+      "BlockUid"
+    ],
+    "blockUids": [
+      "BlockUid"
+    ],
+    "src_block_uid": [
+      "BlockUid"
+    ],
+    "srcBlockUid": [
+      "BlockUid"
+    ],
+    "target_block_uid": [
+      "BlockUid"
+    ],
+    "targetBlockUid": [
+      "BlockUid"
+    ],
+    "target_uid": [
+      "BlockUid"
+    ],
+    "targetUid": [
+      "BlockUid"
+    ],
+    "header_uid": [
+      "BlockUid"
+    ],
+    "headerUid": [
+      "BlockUid"
+    ],
+    "page_id": [
+      "PageId"
+    ],
+    "pageId": [
+      "PageId"
+    ],
+    "page_ids": [
+      "PageId"
+    ],
+    "pageIds": [
+      "PageId"
+    ],
+    "target_page_id": [
+      "PageId"
+    ],
+    "targetPageId": [
+      "PageId"
+    ],
+    "src_page_id": [
+      "PageId"
+    ],
+    "srcPageId": [
+      "PageId"
+    ],
+    "sidebar_entry_id": [
+      "SidebarEntryId"
+    ],
+    "sidebarEntryId": [
+      "SidebarEntryId"
+    ],
+    "sidebar_id": [
+      "SidebarEntryId"
+    ],
+    "sidebarId": [
+      "SidebarEntryId"
+    ],
+    "order_idx": [
+      "OrderIdx",
+      "SidebarOrderIdx"
+    ],
+    "orderIdx": [
+      "OrderIdx",
+      "SidebarOrderIdx"
+    ],
+    "sidebar_order_idx": [
+      "SidebarOrderIdx"
+    ],
+    "sidebarOrderIdx": [
+      "SidebarOrderIdx"
+    ],
+    "seq": [
+      "SyncSeq"
+    ],
+    "seen_seq": [
+      "SyncSeq"
+    ],
+    "seenSeq": [
+      "SyncSeq"
+    ],
+    "client_id": [
+      "ClientId"
+    ],
+    "clientId": [
+      "ClientId"
+    ],
+    "batch_id": [
+      "BatchId"
+    ],
+    "batchId": [
+      "BatchId"
+    ],
+    "goodlinks_id": [
+      "GoodlinksId"
+    ],
+    "goodlinksId": [
+      "GoodlinksId"
+    ],
+    "conversation_id": [
+      "ConversationId"
+    ],
+    "conversationId": [
+      "ConversationId"
+    ],
+    "confirm_id": [
+      "ConfirmId"
+    ],
+    "confirmId": [
+      "ConfirmId"
+    ],
+    "sha": [
+      "Sha256Hex"
+    ],
+    "sha256": [
+      "Sha256Hex"
+    ],
+    "expected_sha256": [
+      "Sha256Hex"
+    ],
+    "expectedSha256": [
+      "Sha256Hex"
+    ],
+    "actual_sha256": [
+      "Sha256Hex"
+    ],
+    "actualSha256": [
+      "Sha256Hex"
+    ],
+    "digest": [
+      "Sha256Hex"
+    ],
+    "expected_digest": [
+      "Sha256Hex"
+    ],
+    "expectedDigest": [
+      "Sha256Hex"
+    ],
+    "actual_digest": [
+      "Sha256Hex"
+    ],
+    "actualDigest": [
+      "Sha256Hex"
+    ],
+    "audit_digest": [
+      "Sha256Hex"
+    ],
+    "auditDigest": [
+      "Sha256Hex"
+    ],
+    "base_hash": [
+      "Sha256Hex"
+    ],
+    "baseHash": [
+      "Sha256Hex"
+    ],
+    "after_hash": [
+      "Sha256Hex"
+    ],
+    "afterHash": [
+      "Sha256Hex"
+    ],
+    "base_text_hash": [
+      "Sha256Hex"
+    ],
+    "baseTextHash": [
+      "Sha256Hex"
+    ],
+    "base_subtree_hash": [
+      "Sha256Hex"
+    ],
+    "baseSubtreeHash": [
+      "Sha256Hex"
+    ],
+    "pending_row_id": [
+      "PendingRowId"
+    ],
+    "pendingRowId": [
+      "PendingRowId"
+    ],
+    "ticket_id": [
+      "TicketId"
+    ],
+    "ticketId": [
+      "TicketId"
+    ],
+    "request_id": [
+      "RequestId"
+    ],
+    "requestId": [
+      "RequestId"
+    ],
+    "revision": [
+      "Revision"
+    ]
+  },
+  "mintSites": {
+    "BlockUid": [
+      "server/src/pkm/contracts/",
+      "server/src/pkm/batch.py",
+      "server/src/pkm/planning.py",
+      "server/src/pkm/refs.py",
+      "server/src/pkm/server/sync_core.py",
+      "web/src/ids.ts",
+      "web/src/uid.ts",
+      "web/src/grammar/scan.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts",
+      "web/src/replica/pendingOps.ts",
+      "web/src/sync/poisonIntents.ts"
+    ],
+    "PageId": [
+      "server/src/pkm/contracts/",
+      "server/src/pkm/server/sync_core.py",
+      "web/src/outline/missingPage.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts"
+    ],
+    "SidebarEntryId": [
+      "server/src/pkm/contracts/",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts"
+    ],
+    "ClientId": [
+      "server/src/pkm/contracts/",
+      "server/src/pkm/client/api.py",
+      "web/src/uid.ts",
+      "web/src/sync/wire.ts"
+    ],
+    "BatchId": [
+      "server/src/pkm/contracts/",
+      "server/src/pkm/client/workflows.py",
+      "web/src/uid.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts",
+      "web/src/sync/poisonIntents.ts"
+    ],
+    "OrderIdx": [
+      "server/src/pkm/contracts/",
+      "server/src/pkm/planning.py",
+      "server/src/pkm/importer/rows.py",
+      "server/src/pkm/server/ops_core.py",
+      "web/src/outline/orderIdx.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts",
+      "web/src/replica/pendingOps.ts",
+      "web/src/sync/poisonIntents.ts"
+    ],
+    "SidebarOrderIdx": [
+      "server/src/pkm/contracts/",
+      "server/src/pkm/importer/sidebar_rows.py",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts"
+    ],
+    "Sha256Hex": [
+      "server/src/pkm/contracts/",
+      "server/src/pkm/assets_core.py",
+      "server/src/pkm/title_migration.py",
+      "web/src/replica/sha256.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts",
+      "web/src/replica/pendingOps.ts",
+      "web/src/sync/poisonIntents.ts"
+    ],
+    "SyncSeq": [
+      "server/src/pkm/contracts/",
+      "web/src/ids.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts"
+    ],
+    "ConversationId": [
+      "server/src/pkm/contracts/",
+      "server/src/pkm/assistant/service.py"
+    ],
+    "ConfirmId": [
+      "server/src/pkm/contracts/",
+      "server/src/pkm/assistant/claude_engine.py",
+      "web/src/assistant/sse.ts"
+    ],
+    "GoodlinksId": [
+      "server/src/pkm/contracts/",
+      "web/src/components/goodlinks.ts"
+    ],
+    "NormalizedTitle": [
+      "server/src/pkm/contracts/",
+      "web/src/grammar/scan.ts",
+      "web/src/replica/titles.ts"
+    ],
+    "CanonicalTitle": [
+      "server/src/pkm/contracts/",
+      "server/src/pkm/server/sync_meta.py",
+      "web/src/replica/meta.ts",
+      "web/src/replica/daily.ts",
+      "web/src/replica/db.ts",
+      "web/src/sync/wire.ts"
+    ],
+    "CanonicalQueryNode": [
+      "server/src/pkm/server/query_exec.py"
+    ],
+    "PendingRowId": [
+      "web/src/replica/db.ts",
+      "web/src/sync/poisonIntents.ts"
+    ],
+    "TicketId": [
+      "web/src/ids.ts"
+    ],
+    "RequestId": [
+      "web/src/outline/outlineState.ts"
+    ],
+    "Revision": [
+      "web/src/outline/outlineState.ts"
+    ],
+    "ParkedTitle": [
+      "web/src/replica/apply.ts"
+    ]
+  },
+  "testMintSites": [
+    "server/src/pkm/test_data/ids.py",
+    "web/src/test-helpers.ts"
+  ],
+  "testHelpers": {
+    "BlockUid": "uid",
+    "PageId": "pageId",
+    "SidebarEntryId": "sidebarEntryId",
+    "OrderIdx": "orderIdx",
+    "SidebarOrderIdx": "sidebarOrderIdx",
+    "SyncSeq": "seq",
+    "ClientId": "clientId",
+    "BatchId": "batchId",
+    "Sha256Hex": "sha",
+    "ConversationId": "conversationId",
+    "ConfirmId": "confirmId",
+    "GoodlinksId": "goodlinksId",
+    "NormalizedTitle": "normalizedTitle",
+    "CanonicalTitle": "canonicalTitle",
+    "CanonicalQueryNode": "canonicalQueryNode",
+    "PendingRowId": "pendingRowId",
+    "TicketId": "ticketId",
+    "RequestId": "requestId",
+    "Revision": "revision",
+    "ParkedTitle": "parkedTitle"
+  },
+  "malformed": {
+    "BlockUid": "uid",
+    "Sha256Hex": "sha",
+    "SyncSeq": "seq",
+    "CanonicalTitle": "canonicalTitle"
+  },
+  "testCode": [
+    "server/tests/",
+    "server/src/pkm/test_data/",
+    "web/src/test-setup.ts",
+    "web/src/test-helpers.ts",
+    "web/src/props/",
+    "web/src/replica/replayArbs.ts",
+    "web/src/replica/testDb.ts",
+    "web/src/sync/memReplica.ts"
+  ],
+  "optOutFiles": [
+    "server/src/pkm/**/routes_*.py",
+    "server/src/pkm/**/routes.py",
+    "web/tooling/viteBudgetPlugin.ts",
+    "web/src/api/client.ts"
+  ]
+}

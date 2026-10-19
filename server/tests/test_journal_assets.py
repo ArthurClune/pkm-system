@@ -1,10 +1,12 @@
 import hashlib
 from datetime import date
 
-import sqlite3
 
 from pkm.contracts.daily import title_for_date
 from pkm.server.routes_pages import JOURNAL_BACKLINK_PREVIEW
+from pkm.contracts.ops import PageId
+from pkm.test_data.ids import page_id_of
+from pkm.database import connect
 
 
 def test_journal_includes_seeded_daily(client):
@@ -34,14 +36,14 @@ def test_journal_resolves_block_refs(client):
 
 def test_journal_auto_creates_today_only(client, seeded_config):
     today = date.today()
-    con = sqlite3.connect(seeded_config.db_path)
-    before = {r[0] for r in con.execute("SELECT title FROM pages")}
+    con = connect(seeded_config.db_path)
+    before = {r["title"] for r in con.select("SELECT title FROM pages")}
     con.close()
     r = client.get("/api/journal", params={"days": 3})
     days = r.json()["days"]
     assert days[0]["date"] == today.isoformat()
-    con = sqlite3.connect(seeded_config.db_path)
-    after = {r[0] for r in con.execute("SELECT title FROM pages")}
+    con = connect(seeded_config.db_path)
+    after = {r["title"] for r in con.select("SELECT title FROM pages")}
     con.close()
     assert title_for_date(today) in after
     assert after - before == {title_for_date(today)}
@@ -57,8 +59,8 @@ def test_journal_head_is_today_plus_recent_nonempty_days(client):
     assert all(d["exists"] for d in days)
 
 
-def _add_daily(db_path, page_id, title, texts):
-    con = sqlite3.connect(db_path)
+def _add_daily(db_path, page_id: PageId, title, texts):
+    con = connect(db_path)
     con.execute("INSERT INTO pages VALUES (?,?,NULL,NULL)", (page_id, title))
     for i, text in enumerate(texts):
         con.execute(
@@ -71,8 +73,8 @@ def _add_daily(db_path, page_id, title, texts):
 
 
 def test_journal_skips_whitespace_only_dailies(client, seeded_config):
-    _add_daily(seeded_config.db_path, 90, "July 5th, 2026", [" ", "\t\n"])
-    _add_daily(seeded_config.db_path, 91, "July 3rd, 2026", ["real entry"])
+    _add_daily(seeded_config.db_path, page_id_of(90), "July 5th, 2026", [" ", "\t\n"])
+    _add_daily(seeded_config.db_path, page_id_of(91), "July 3rd, 2026", ["real entry"])
     r = client.get("/api/journal",
                    params={"before": "2026-07-08", "days": 2})
     days = r.json()["days"]
@@ -81,7 +83,7 @@ def test_journal_skips_whitespace_only_dailies(client, seeded_config):
 
 def test_journal_cursor_pages_through_nonempty_days_until_exhausted(
         client, seeded_config):
-    _add_daily(seeded_config.db_path, 92, "June 20th, 2026", ["older entry"])
+    _add_daily(seeded_config.db_path, page_id_of(92), "June 20th, 2026", ["older entry"])
     r = client.get("/api/journal",
                    params={"before": "2026-07-07", "days": 5})
     days = r.json()["days"]
@@ -96,7 +98,7 @@ def test_journal_surfaces_an_empty_day_referenced_from_elsewhere(
     # non-empty days show, and it isn't "today"). A [[link]] from
     # another page's block still means it has something worth surfacing --
     # linked references -- so it counts as non-empty too.
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("INSERT INTO pages VALUES (?,?,NULL,NULL)", (90, "July 5th, 2026"))
     con.execute(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
@@ -128,7 +130,7 @@ def test_journal_day_backlinks_carry_their_own_block_ref_texts(
     # A referencing block may itself embed ((uid)). The journal merges those
     # texts into the payload's one block_ref_texts map, so the day's inline
     # references resolve without a per-day page read.
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("INSERT INTO pages VALUES (?,?,NULL,NULL)", (91, "July 4th, 2026"))
     con.execute(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
@@ -148,7 +150,7 @@ def test_journal_day_backlinks_carry_their_own_block_ref_texts(
 def test_journal_day_backlinks_are_a_preview_page(client, seeded_config):
     # Each day carries JOURNAL_BACKLINK_PREVIEW referencing pages and states
     # that limit, so the client's "Show more" pages the rest from /api/page.
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("INSERT INTO pages VALUES (?,?,NULL,NULL)", (95, "July 3rd, 2026"))
     for n in range(7):
         con.execute("INSERT INTO pages VALUES (?,?,?,NULL)",
@@ -173,7 +175,7 @@ def test_journal_does_not_surface_an_unreferenced_empty_day(
         client, seeded_config):
     # Sanity check for the fixture above: a bare empty daily page (no
     # blocks, no inbound refs) still stays hidden.
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("INSERT INTO pages VALUES (?,?,NULL,NULL)", (91, "July 6th, 2026"))
     con.commit()
     con.close()
@@ -189,7 +191,7 @@ def test_asset_serving(client, seeded_config):
     dest = seeded_config.assets_dir / sha[:2] / sha
     dest.parent.mkdir(parents=True)
     dest.write_bytes(data)
-    con = sqlite3.connect(seeded_config.db_path)
+    con = connect(seeded_config.db_path)
     con.execute("INSERT INTO assets(sha256, filename, mime, size, created_at)"
                 " VALUES (?,?,?,?,NULL)",
                 (sha, "fig.png", "image/png", len(data)))

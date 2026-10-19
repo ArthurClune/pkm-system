@@ -1,10 +1,11 @@
 import pytest
 
-from pkm.goodlinks import (GOODLINKS_PREFIX, GoodlinksId, candidate_urls,
+from pkm.goodlinks import (GOODLINKS_PREFIX, candidate_urls,
                            extract_goodlinks_hrefs, goodlinks_href, link_id_from_href,
                            parse_link_id, sanitize_article, search_match, search_query)
+from pkm.test_data.ids import goodlinks_id_of
 
-ID = GoodlinksId("e4966bb2483b5c78f658398c0ae7b03f")
+ID = goodlinks_id_of("e4966bb2483b5c78f658398c0ae7b03f")
 
 
 @pytest.mark.parametrize("value,ok", [

@@ -5,7 +5,7 @@ import { expect, it, vi } from "vitest";
 import type { BacklinkGroup } from "../api/payloads";
 import { SidebarContext } from "../contexts";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { pageIdOf, canonicalTitleOf, uidOf } from "../test-helpers";
+import { pageIdOf, canonicalTitleOf, typeProbe, uidOf } from "../test-helpers";
 import { BacklinkGroupList } from "./BacklinkGroupList";
 
 type OnNavigate = NonNullable<ComponentProps<typeof BacklinkGroupList>["onNavigate"]>;
@@ -32,10 +32,10 @@ it("navigates with the group's page title and the clicked item's uid", () => {
   expect(onNavigate).toHaveBeenCalledWith("Source", "tuid-uid_a");
 });
 
-it("pageTitle and uid can't be swapped", () => {
+// pageTitle and uid can't be swapped.
+typeProbe(() => {
   const someUid = uidOf("abcdef");
   const onNavigate: OnNavigate = () => undefined;
   // @ts-expect-error (pageTitle, uid) swapped
   onNavigate(someUid, "Page");
-  expect(true).toBe(true);
 });

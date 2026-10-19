@@ -6,7 +6,7 @@ import { canonicalizeTitle, findOpTitleViolation,
          titleSyntaxReason } from "./titles";
 import type { CanonicalTitle, NormalizedTitle } from "../api/brands";
 import type { components } from "../api/types";
-import { normalizedTitleOf, orderIdxOf, canonicalTitleOf, uidOf } from "../test-helpers";
+import { normalizedTitleOf, orderIdxOf, canonicalTitleOf, typeProbe, uidOf } from "../test-helpers";
 
 interface TitleSyntaxCase {
   name: string;
@@ -89,24 +89,25 @@ describe("canonicalizeTitle", () => {
   });
 });
 
-describe("title brands", () => {
-  test("a CanonicalTitle passes where a NormalizedTitle is expected, not the reverse", () => {
-    const canonical: CanonicalTitle = canonicalTitleOf("Page");
-    const normalized: NormalizedTitle = canonical;
-    // @ts-expect-error a NormalizedTitle is not a CanonicalTitle
-    const back: CanonicalTitle = normalizedTitleOf("Page");
-    expect([normalized, back]).toEqual(["Page", "Page"]);
-  });
+// A CanonicalTitle passes where a NormalizedTitle is expected, not the
+// reverse.
+typeProbe(() => {
+  const canonical: CanonicalTitle = canonicalTitleOf("Page");
+  const normalized: NormalizedTitle = canonical;
+  // @ts-expect-error a NormalizedTitle is not a CanonicalTitle
+  const back: CanonicalTitle = normalizedTitleOf("Page");
+  void [normalized, back];
+});
 
-  test("a generated response title is the CanonicalTitle brand", () => {
-    type PageMetaTitle = components["schemas"]["PageMeta"]["title"];
-    const fromWire: PageMetaTitle = canonicalTitleOf("Page");
-    const normalized: NormalizedTitle = fromWire;
-    // @ts-expect-error a NormalizedTitle is not a generated CanonicalTitle
-    // field
-    const back: PageMetaTitle = normalizedTitleOf("Page");
-    // @ts-expect-error a raw string is not a generated CanonicalTitle field
-    const raw: PageMetaTitle = "Page";
-    expect([normalized, back, raw]).toEqual(["Page", "Page", "Page"]);
-  });
+// A generated response title is the CanonicalTitle brand.
+typeProbe(() => {
+  type PageMetaTitle = components["schemas"]["PageMeta"]["title"];
+  const fromWire: PageMetaTitle = canonicalTitleOf("Page");
+  const normalized: NormalizedTitle = fromWire;
+  // @ts-expect-error a NormalizedTitle is not a generated CanonicalTitle
+  // field
+  const back: PageMetaTitle = normalizedTitleOf("Page");
+  // @ts-expect-error a raw string is not a generated CanonicalTitle field
+  const raw: PageMetaTitle = "Page";
+  void [normalized, back, raw];
 });

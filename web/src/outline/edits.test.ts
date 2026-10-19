@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { block, orderIdxOf, canonicalTitleOf, uidOf } from "../test-helpers";
+import { block, orderIdxOf, canonicalTitleOf, typeProbe, uidOf } from "../test-helpers";
 import { findNode } from "./tree";
 import { backspaceAtStart, clampCaret, deleteSelection, indentBlock,
          indentSelection, moveBlockDown, moveBlocksTo, moveBlockUp,
@@ -98,16 +98,13 @@ describe("splitBlock", () => {
   });
 });
 
-test("pageTitle and uid can't be swapped", () => {
+// pageTitle and uid can't be swapped, and a raw string can't stand in for
+// the page's title.
+typeProbe(() => {
   // @ts-expect-error (title, uid) swapped
-  const r = indentBlock(tree(), someUid, "Page");
-  expect(r.ops).toEqual([]);
-});
-
-test("a raw string can't stand in for the page's title", () => {
+  indentBlock(tree(), someUid, "Page");
   // @ts-expect-error a raw string is not a CanonicalTitle
-  const r = indentBlock(tree(), "Page", someUid);
-  expect(r.ops).toEqual([]);
+  indentBlock(tree(), "Page", someUid);
 });
 
 describe("indent / outdent", () => {

@@ -32,6 +32,11 @@ interface FixtureCase {
   // Exact number of diagnostics the bad fixture reports for `rule`, when
   // the fixture carries several cases of it.
   count?: number;
+  // A web-root path to lint `corrected` as, when the fixture's own location
+  // forbids what the corrected text needs (importing the test helpers).
+  correctedAs?: string;
+  // Text each message of `rule` must contain, in order, from the first.
+  messages?: string[][];
 }
 
 const cases: readonly FixtureCase[] = [
@@ -527,6 +532,45 @@ const cases: readonly FixtureCase[] = [
       "export const sameKind = (x: unknown) => x instanceof Object;\n",
   },
   {
+    file: "ts-expect-error-in-probe.ts",
+    rule: "brands/ts-expect-error-in-probe",
+    count: 6,
+    correctedAs: "src/paths.test.ts",
+    corrected:
+      'import { typeProbe } from "./test-helpers";\n' +
+      "typeProbe(() => {\n" +
+      "  // @ts-expect-error -- a string where a number goes\n" +
+      '  const n: number = "x";\n' +
+      "  return n;\n" +
+      "});\n",
+  },
+  {
+    file: "off-type-brand.ts",
+    rule: "brands/no-brand-assertion",
+    count: 14,
+    // a brand with a malformed helper names it; one without asks for one
+    messages: [
+      ["malformedUid"], ["PageId", "adding one"], [], [], [], [], [],
+      ["`uid`", "malformedUid"],
+    ],
+    correctedAs: "src/paths.test.ts",
+    corrected:
+      'import type { BlockUid } from "./api/brands";\n' +
+      'import type { SyncProblem } from "./sync/syncState";\n' +
+      'import { offType, uidOf } from "./test-helpers";\n' +
+      'export const d = uidOf("tuid-a");\n' +
+      'export const e = offType<{ uid: BlockUid }>({ uid: uidOf("tuid-a") });\n' +
+      "export const f = offType<{ w: { uid: BlockUid } }>(\n" +
+      '  { w: { uid: uidOf("tuid-a") } });\n' +
+      "const typed = { uid: uidOf(\"tuid-a\"), note: 1 };\n" +
+      "export const g = offType<{ uid: BlockUid }>(typed);\n" +
+      // a library type with a `digest` method is not walked
+      "export const h = offType<unknown>(crypto.subtle);\n" +
+      'export const a = offType<SyncProblem>({ kind: "brand-new" });\n' +
+      'export const b = offType<{ label: string }>({ label: 1 });\n' +
+      "export const c: unknown = offType(3);\n",
+  },
+  {
     file: "restricted-test-code-import.ts",
     rule: "no-restricted-imports",
     count: 2,
@@ -561,6 +605,11 @@ describe("eslint flat config", () => {
         expect(ruleIds.filter((id) => id === c.rule), c.file)
           .toHaveLength(c.count);
       }
+      const texts = results.flatMap((r) => r.messages)
+        .filter((m) => m.ruleId === c.rule).map((m) => m.message);
+      (c.messages ?? []).forEach((parts, i) => {
+        for (const part of parts) expect(texts[i], c.file).toContain(part);
+      });
     }
   }, ESLINT_TIMEOUT_MS);
 
@@ -568,7 +617,8 @@ describe("eslint flat config", () => {
     const linter = makeLinter();
     for (const c of cases) {
       const results = await linter.lintText(c.corrected, {
-        filePath: join(fixturesDir, c.file),
+        filePath: c.correctedAs === undefined
+          ? join(fixturesDir, c.file) : join(webRoot, c.correctedAs),
       });
       const messages = results.flatMap((r) => r.messages);
       expect(messages, `${c.file} messages: ${JSON.stringify(messages)}`)
@@ -931,12 +981,106 @@ describe("tests under the lint", () => {
       + "export const a: number = 1;\n"
       + "// @ts-expect-error\n"
       + "export const b: number = 2;\n");
-    expect(rulesOf(banned)).toEqual(
-      Array<string>(3).fill("@typescript-eslint/ban-ts-comment"));
+    expect(rulesOf(banned).filter((id) => id.startsWith("@typescript-eslint/")))
+      .toEqual(Array<string>(3).fill("@typescript-eslint/ban-ts-comment"));
     const described = await messagesFor("src/paths.test.ts",
-      "// @ts-expect-error -- a string where the type wants a number\n"
-      + 'export const c: number = "3";\n');
-    expect(described).toEqual([]);
+      'import { typeProbe } from "./test-helpers";\n'
+      + "typeProbe(() => {\n"
+      + "  // @ts-expect-error -- a string where the type wants a number\n"
+      + '  const c: number = "3";\n'
+      + "  return c;\n"
+      + "});\n");
+    // an earlier test may leave the module's text replaced in the project
+    // service, so judge the comment rules alone
+    expect(rulesOf(described).filter((id) => !id.includes("unsafe")))
+      .toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("allows ts-expect-error only inside an imported typeProbe callback", async () => {
+    const head = 'import { typeProbe } from "./test-helpers";\n';
+    const err = "// @ts-expect-error -- a string where a number goes\n"
+      + 'const n: number = "x";\n';
+    const rule = "brands/ts-expect-error-in-probe";
+    // this rule's reports alone: an import from the wrong module is also an
+    // unsafe call
+    const reported = async (text: string): Promise<string[]> =>
+      rulesOf(await messagesFor("src/paths.test.ts", text))
+        .filter((id) => id === rule);
+    // clean: an arrow or a function expression passed to the import, at
+    // top level or nested in an `it`
+    expect(await reported(head + `typeProbe(() => {\n${err}void n;\n});\n`))
+      .toEqual([]);
+    expect(await reported(
+      head + `typeProbe(function () {\n${err}void n;\n});\n`)).toEqual([]);
+    expect(await reported(head + "typeProbe(() => {\n"
+      + `  const f = () => {\n${err}void n;\n};\n  void f;\n});\n`))
+      .toEqual([]);
+    expect(await reported(
+      'import { it } from "vitest";\n' + head
+      + `it("x", () => { typeProbe(() => {\n${err}void n;\n}); });\n`))
+      .toEqual([]);
+    // reported: bare, in a runner, a lookalike, by reference, a renamed or
+    // wrongly sourced import, a second argument, a block comment
+    expect(await reported(`${err}void n;\n`)).toEqual([rule]);
+    expect(await reported(
+      'import { it } from "vitest";\n'
+      + `it("x", () => {\n${err}void n;\n});\n`)).toEqual([rule]);
+    expect(await reported(
+      `function typeProbe(f: () => void) { f(); }\n`
+      + `typeProbe(() => {\n${err}void n;\n});\n`)).toEqual([rule]);
+    expect(await reported(
+      head + `const f = () => {\n${err}void n;\n};\ntypeProbe(f);\n`))
+      .toEqual([rule]);
+    expect(await reported(
+      'import { typeProbe } from "./paths";\n'
+      + `typeProbe(() => {\n${err}void n;\n});\n`)).toEqual([rule]);
+    expect(await reported(
+      'import { offType as typeProbe } from "./test-helpers";\n'
+      + `typeProbe(() => {\n${err}void n;\n});\n`)).toEqual([rule]);
+    expect(await reported(
+      head + `typeProbe(class {\n  m() {\n${err}void n;\n  }\n});\n`))
+      .toEqual([rule]);
+    expect(await reported(
+      head + `typeProbe(() => {}, () => {\n${err}void n;\n});\n`))
+      .toEqual([rule]);
+    expect(await reported(
+      head + `typeProbe(() => 1);\n/* @ts-expect-error -- why */\n`
+      + 'const m: number = "x";\nvoid m;\n')).toEqual([rule]);
+    // not a suppression: the words in a comment, or in a string
+    expect(await reported(
+      "// the @ts-expect-error directive is explained here\n"
+      + 'export const s = "// @ts-expect-error";\n')).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("only the exported offType may assert to a type parameter in the test mint module", async () => {
+    const offType = "export function offType<T>(value: unknown): T {\n"
+      + "  return value as T;\n}\n";
+    expect(await messagesFor("src/test-helpers.ts", offType)).toEqual([]);
+    expect(rulesOf(await messagesFor("src/props/ops/compare.ts", offType)))
+      .toEqual(["brands/no-brand-assertion"]);
+    // a second helper, a non-exported offType and an arrow are launders
+    const others = offType
+      + "export function other<T>(value: unknown): T {\n"
+      + "  return value as T;\n}\n"
+      + "function offType2<T>(value: unknown): T {\n"
+      + "  return value as T;\n}\n"
+      + "export const arrow = <T,>(value: unknown): T => value as T;\n";
+    const found = await messagesFor("src/test-helpers.ts", others);
+    expect(rulesOf(found)).toEqual(
+      Array<string>(3).fill("brands/no-brand-assertion"));
+    expect(found.every((m) => m.message.includes("launders"))).toBe(true);
+    const unexported = await messagesFor("src/test-helpers.ts",
+      "function offType<T>(value: unknown): T {\n"
+      + "  return value as T;\n}\nexport { offType as handle };\n");
+    expect(rulesOf(unexported)).toEqual(["brands/no-brand-assertion"]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("a local offType is not the test helper", async () => {
+    const found = await messagesFor("src/paths.test.ts",
+      'import type { BlockUid } from "./api/brands";\n'
+      + "function offType<T>(v: T): T { return v; }\n"
+      + 'export const u = offType<BlockUid>(undefined as unknown as BlockUid);\n');
+    expect(found.some((m) => m.message.includes("offType"))).toBe(false);
   }, ESLINT_TIMEOUT_MS);
 
   it("any reaches a branded slot only with a report in tests", async () => {

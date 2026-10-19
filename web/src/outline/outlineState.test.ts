@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
-import { block, orderIdxOf, uidOf, requestIdOf, ticketIdOf } from "../test-helpers";
+import { block, orderIdxOf, uidOf, requestIdOf, ticketIdOf, typeProbe } from "../test-helpers";
 import {
   beginAuthoritativeRead,
   captureDraft,
@@ -19,10 +19,11 @@ const update = (text: string): BlockOp => ({
   op: "update_text", uid: uidOf("tuid-u1"), text,
 });
 
-it("requestId and revisionAtDispatch cannot be swapped", () => {
+// requestId and revisionAtDispatch cannot be swapped.
+typeProbe(() => {
   // @ts-expect-error a RequestId is not a Revision
   const bad: ReadToken = { requestId: requestIdOf(1), revisionAtDispatch: requestIdOf(1) };
-  expect(bad.revisionAtDispatch).toBe(1);
+  void bad;
 });
 
 describe("outline causality", () => {

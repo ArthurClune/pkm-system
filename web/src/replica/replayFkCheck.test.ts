@@ -77,7 +77,7 @@ const opArb: fc.Arbitrary<BlockOp> = fc.tuple(shapedOpArb, fc.nat({ max: 19 })).
   ([op, roll]) => (roll === 0 && "uid" in op ? { ...op, uid: malformedUid(null) } : op));
 
 const baseBlockArb = fc.record({
-  uid: fc.constantFrom(...UIDS),
+  rawUid: fc.constantFrom(...UIDS),
   page: fc.constantFrom(1, 2, 3, 4, 9),
   parent: fc.option(fc.constantFrom(...UIDS, "u_gone01"), { nil: null }),
   order: orderArb,
@@ -87,7 +87,7 @@ const baseBlockArb = fc.record({
 
 type Scenario = {
   fksOff: boolean; pageD: boolean; dangling: boolean;
-  blocks: { uid: string; page: number; parent: string | null; order: number;
+  blocks: { rawUid: string; page: number; parent: string | null; order: number;
             ref: number | null; bref: string | null }[];
   ghost: boolean; prior: BlockOp[]; priorShared: BlockOp[]; ops: BlockOp[];
 };
@@ -124,10 +124,10 @@ const childCaseArb = fc.tuple(randomScenarioArb, fc.boolean(), orderArb, orderAr
       op: "create", uid: malformedUid(null), page_title: "A",
       parent_uid: mintUid(parent), order_idx: childOrder, text: "plain" };
     const drop: BlockOp = { op: "delete", uid: mintUid(parent) };
-    const blocks = [{ uid: parent, page: 1, parent: null, order, ref: null,
+    const blocks = [{ rawUid: parent, page: 1, parent: null, order, ref: null,
                       bref: null }, ...s.blocks];
     if (pair) {
-      blocks.unshift({ uid: pair[1], page: 1, parent: parent, order: childOrder,
+      blocks.unshift({ rawUid: pair[1], page: 1, parent: parent, order: childOrder,
                        ref: null, bref: null });
       return { ...s, fksOff: true, blocks, ops: [drop, ...s.ops] };
     }
@@ -150,7 +150,7 @@ const pageCaseArb = fc.tuple(randomScenarioArb, fc.boolean(), orderArb)
     ...s,
     dangling: true,
     pageD: nine ? s.pageD : false,
-    blocks: [{ uid: "u_aaaaa7", page: nine ? 9 : 4, parent: null, order,
+    blocks: [{ rawUid: "u_aaaaa7", page: nine ? 9 : 4, parent: null, order,
                ref: null, bref: null }, ...s.blocks],
     ops: [{ op: "create", uid: uidOf("u_aaaaa6"), page_title: "A",
             parent_uid: uidOf("u_aaaaa7"), order_idx: order, text: "plain" },
@@ -180,15 +180,15 @@ describe("targetedFkHit is a sound pre-check for the whole-database comparison",
           if (s.pageD) db.exec("INSERT INTO pages(id,title) VALUES (4,'D')");
           const seen = new Set<string>();
           for (const b of s.blocks) {
-            if (seen.has(b.uid)) continue;
-            seen.add(b.uid);
+            if (seen.has(b.rawUid)) continue;
+            seen.add(b.rawUid);
             // a dangling baseline is a window the feed itself left incomplete
             const page = !s.dangling && b.page === 9 ? 1 : b.page;
             const parent = !s.dangling && b.parent === "u_gone01" ? null : b.parent;
             db.exec("INSERT INTO blocks(uid,page_id,parent_uid,order_idx,text) VALUES (?,?,?,?,'t')",
-                    [b.uid, page, parent, b.order]);
-            if (b.ref !== null) db.exec("INSERT OR IGNORE INTO refs VALUES (?,?,'link')", [b.uid, b.ref]);
-            if (b.bref !== null) db.exec("INSERT OR IGNORE INTO block_refs VALUES (?,?)", [b.uid, b.bref]);
+                    [b.rawUid, page, parent, b.order]);
+            if (b.ref !== null) db.exec("INSERT OR IGNORE INTO refs VALUES (?,?,'link')", [b.rawUid, b.ref]);
+            if (b.bref !== null) db.exec("INSERT OR IGNORE INTO block_refs VALUES (?,?)", [b.rawUid, b.bref]);
           }
           if (s.ghost && s.dangling) {
             db.exec("INSERT OR IGNORE INTO refs VALUES ('u_ghost1',1,'tag')");

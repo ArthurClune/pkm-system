@@ -76,3 +76,10 @@ export function firstOf<T>(xs: readonly T[]): T | undefined;
 export function firstOf<T>(xs: readonly T[], n?: number): T | undefined {
   return xs[n ?? 0];
 }
+interface Plain {
+  k: 1;
+}
+export function exact(s: string): Plain | { k: 2; uid?: BlockUid };
+export function exact(s: string): Plain {
+  return { k: 1, ...{ s } };
+}

@@ -1009,8 +1009,10 @@ function failingSchemaReads(db: ReplicaDb, message: string) {
         failRead(sql);
         return db.introspect(sql, params);
       },
-      transaction: (fn: () => void) => db.transaction(fn),
-    } as ReplicaDb,
+      transaction<T>(fn: () => T): T {
+        return db.transaction(fn);
+      },
+    } satisfies ReplicaDb,
   };
 }
 
@@ -1642,8 +1644,10 @@ const schemaChecks = (db: ReplicaDb) => {
       if (/sqlite_master/.test(sql)) count += 1;
       return db.introspect(sql, params);
     },
-    transaction: (fn: () => void) => db.transaction(fn),
-  } as ReplicaDb;
+    transaction<T>(fn: () => T): T {
+      return db.transaction(fn);
+    },
+  } satisfies ReplicaDb;
   return { db: counted, count: () => count };
 };
 

@@ -44,10 +44,17 @@ const PEER = newClientId();
 const WINDOWS = ["R/rebase-edit", "R/rebase-paste", "R/rebase-overlap"] as const;
 const mintIds = (n: number) => Array.from({ length: n }, () => newBatchId());
 
+const src = (rel: string): string => path.join(WEB_ROOT, "src", rel);
+
+/** A module of the checkout under measurement, typed as this checkout's. */
+async function importReplica<M>(rel: string): Promise<M> {
+  // brand: untrusted -- code of the checkout under measurement, not this one
+  return await import(/* @vite-ignore */ src(rel)) as M;
+}
+
 async function loadReplica(): Promise<{ handlers: HandlersModule; db: DbModule; sqlite3: Sqlite3 }> {
-  const src = (rel: string): string => path.join(WEB_ROOT, "src", rel);
-  const handlers = await import(/* @vite-ignore */ src("replica/workerHandlers.ts")) as HandlersModule;
-  const db = await import(/* @vite-ignore */ src("replica/db.ts")) as DbModule;
+  const handlers = await importReplica<HandlersModule>("replica/workerHandlers.ts");
+  const db = await importReplica<DbModule>("replica/db.ts");
   const wasm = createRequire(path.join(WEB_ROOT, "package.json")).resolve("@sqlite.org/sqlite-wasm");
   const mod = await import(/* @vite-ignore */ pathToFileURL(wasm).href) as
     { default: () => Promise<unknown> };

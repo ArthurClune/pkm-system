@@ -387,6 +387,7 @@
   "optOutFiles": [
     "server/src/pkm/**/routes_*.py",
     "web/tooling/viteBudgetPlugin.ts",
-    "web/src/api/client.ts"
+    "web/src/api/client.ts",
+    "web/tooling/perf/rebase.perf.ts"
   ]
 }

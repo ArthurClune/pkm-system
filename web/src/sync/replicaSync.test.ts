@@ -2052,14 +2052,14 @@ describe("window strikes", () => {
       // Each pull applies one window (moving the cursor) and then fails on the
       // next one, so no two failures share a cursor.
       let call = 0;
-      const applyChanges = vi.fn(async (f: Changes) => {
+      const applyChanges = vi.fn<Replica["applyChanges"]>(async (f) => {
         call += 1;
         if (call % 2 === 1) return { status: "applied", cursor: f.next_since };
         throw UNAPPLIABLE();
       });
       const commitRecovery = vi.fn(async () => undefined);
       const replica = fakeReplica({
-        applyChanges: applyChanges as unknown as Replica["applyChanges"],
+        applyChanges,
         commitRecovery,
       });
       const fetchJson = vi.fn(async (path: string) => {

@@ -381,7 +381,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-overload.ts",
     rule: "brands/no-brand-assertion",
-    count: 18,
+    count: 19,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export function same(x: BlockUid): BlockUid;\n" +
@@ -493,7 +493,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-name-positions.ts",
     rule: "brands/name-carries-brand",
-    count: 7,
+    count: 9,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export type Handler = (uid: BlockUid) => void;\n" +
@@ -502,6 +502,10 @@ const cases: readonly FixtureCase[] = [
       "}\n" +
       "export function rest(...uids: BlockUid[]): void {\n" +
       "  void uids;\n" +
+      "}\n" +
+      "export interface Callable {\n" +
+      "  (uid: BlockUid): void;\n" +
+      "  new (uid: BlockUid): object;\n" +
       "}\n",
   },
   {
@@ -585,6 +589,92 @@ const cases: readonly FixtureCase[] = [
     corrected:
       'export const load = () => import("../../src/api/typedClient");\n' +
       "export const named = (name: string) => import(`../../src/${name}`);\n",
+  },
+  {
+    file: "brand-ambient.ts",
+    rule: "brands/no-brand-assertion",
+    count: 9,
+    corrected:
+      "declare global {\n" +
+      "  var ambientName: string;\n" +
+      "  function ambientFn(): string;\n" +
+      "}\n" +
+      "declare namespace Ns {\n" +
+      "  const inner: string;\n" +
+      "  function innerFn(): string;\n" +
+      "  class Inner {\n" +
+      "    label: string;\n" +
+      "    make(): string;\n" +
+      "  }\n" +
+      "}\n" +
+      "export class Fields {\n" +
+      "  declare label: string;\n" +
+      "}\n" +
+      "export declare class Ambient {\n" +
+      "  label: string;\n" +
+      "  make(): string;\n" +
+      "}\n" +
+      "export { Ns };\n",
+  },
+  {
+    file: "brand-assertion-function.ts",
+    rule: "brands/no-brand-assertion",
+    count: 8,
+    corrected:
+      "export const asFn = (f: unknown) => f as (s: string) => string;\n" +
+      "export const asNew = (f: unknown) => f as new (s: string) => string;\n" +
+      "export const asProp = (f: unknown) => f as { make(): string };\n" +
+      "// A type parameter a parameter mentions is the caller's own value.\n" +
+      "export const asTied = (f: unknown) => f as { run<T>(fn: () => T): T };\n" +
+      "// A function that returns `never` does not come back.\n" +
+      "export const asNever = (f: unknown) => f as () => Promise<never>;\n",
+  },
+  {
+    file: "brand-merge.ts",
+    rule: "brands/no-brand-assertion",
+    count: 3,
+    corrected:
+      'import type { BlockUid } from "../../src/api/brands";\n' +
+      "export class Q {}\n" +
+      "export interface Q {\n" +
+      "  label: string;\n" +
+      "}\n" +
+      "export class Maker {\n" +
+      "  make(): BlockUid | null {\n" +
+      "    return null;\n" +
+      "  }\n" +
+      "}\n" +
+      "export interface Maker {\n" +
+      "  make(): BlockUid;\n" +
+      "}\n" +
+      "declare global {\n" +
+      "  interface Window {\n" +
+      "    ambientName: string;\n" +
+      "  }\n" +
+      "}\n",
+  },
+  {
+    file: "brand-generic-value.ts",
+    rule: "brands/no-brand-assertion",
+    count: 6,
+    corrected:
+      "export const parse = (s: string): unknown => JSON.parse(s) as unknown;\n" +
+      "export function mk(s: string): unknown {\n" +
+      "  return JSON.parse(s) as unknown;\n" +
+      "}\n" +
+      "export function identity<T>(x: T): T {\n" +
+      "  return x;\n" +
+      "}\n" +
+      "export const alias: <T>(x: T) => T = identity;\n" +
+      "export const keep: <T>(x: T) => T = (x) => x;\n" +
+      "interface Reader {\n" +
+      "  get(s: string): unknown;\n" +
+      "}\n" +
+      "export class Impl implements Reader {\n" +
+      "  get(s: string): unknown {\n" +
+      "    return JSON.parse(s) as unknown;\n" +
+      "  }\n" +
+      "}\n",
   },
 ];
 
@@ -777,6 +867,35 @@ describe("brands plugin judgement", () => {
     expect(await messagesFor("src/sync/opQueue.ts", text)).toEqual([]);
   }, ESLINT_TIMEOUT_MS);
 
+  it("lets a predicate keep some of the union members its parameter has", async () => {
+    // B's `uid` is not minted by narrowing to `A | B`: the parameter was
+    // already `A | B | C`.
+    const text =
+      'import type { BlockUid } from "../api/brands";\n' +
+      'interface A { op: "a" }\n' +
+      'interface B { op: "b"; uid?: BlockUid }\n' +
+      'interface C { op: "c" }\n' +
+      "export const isAb = (o: A | B | C): o is A | B => o.op !== \"c\";\n";
+    expect(await messagesFor("src/sync/opQueue.ts", text)).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("compares what a function member returns when a predicate narrows", async () => {
+    const head =
+      'import type { BlockUid } from "../api/brands";\n' +
+      "interface P { f(): BlockUid }\n" +
+      "interface R { f(): BlockUid }\n" +
+      "interface W { f(): BlockUid | string }\n";
+    // R returns what P does: nothing is minted.
+    expect(await messagesFor("src/sync/opQueue.ts", head +
+      "export const isR = (x: P | string): x is R => typeof x !== 'string';\n"))
+      .toEqual([]);
+    // P returns a BlockUid where W returned a string too.
+    const minted = await messagesFor("src/sync/opQueue.ts", head +
+      "export const isP = (x: W | number): x is P => typeof x !== 'number';\n");
+    expect(minted.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(minted[0].message).toContain("BlockUid");
+  }, ESLINT_TIMEOUT_MS);
+
   it("honours an opt-out line on a constrained launder in a boundary", async () => {
     const text =
       "export function f<T extends string>(x: string): T {\n" +
@@ -836,6 +955,72 @@ describe("brands plugin judgement", () => {
     expect(picked).toHaveLength(1);
     expect(picked[0].message).toContain("BlockUid");
     expect(picked[0].message).not.toContain("PageId");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("lets an opt-out cover one site, the leftmost on its line", async () => {
+    const text =
+      "export function f<T>(x: unknown, y: unknown): [T, T] {\n" +
+      "  // brand: untrusted -- a response body\n" +
+      "  return [x as T, y as T];\n" +
+      "}\n";
+    const found = await messagesFor("src/api/client.ts", text);
+    expect(found.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(found[0].message).toContain("launders");
+    const both =
+      "export function f<T>(x: unknown, y: unknown): [T, T] {\n" +
+      "  return [\n" +
+      "    // brand: untrusted -- a response body\n" +
+      "    x as T,\n" +
+      "    y as T, // brand: untrusted -- a response body\n" +
+      "  ];\n" +
+      "}\n";
+    expect(await messagesFor("src/api/client.ts", both)).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("pairs one opt-out with a name and an assertion by position", async () => {
+    // The parameter is the leftmost site on the line and takes the opt-out;
+    // the assertion after it is reported, whichever rule walks first.
+    const text =
+      "// brand: untrusted -- a response body\n" +
+      "export const g = (uid: string, x: unknown) => [uid, x as never];\n";
+    const found = await messagesFor("src/api/client.ts", text);
+    expect(found.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(found[0].message).toContain("`never`");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("reports an opt-out that covers no site", async () => {
+    const stale =
+      "// brand: untrusted -- a response body\n" +
+      "export function f(n: number): number {\n" +
+      "  return n;\n" +
+      "}\n";
+    for (const rel of ["src/api/client.ts", "src/sync/opQueue.ts"]) {
+      const found = await messagesFor(rel, stale);
+      expect(found, rel).toHaveLength(1);
+      expect(found[0].message, rel).toContain("covers no site");
+    }
+    // A comment after code does not reach the next line's site: it covers
+    // its own line's, and with none there it is unused.
+    const trailing =
+      "export function f<T>(x: unknown): [number, T] {\n" +
+      "  const a = 1; // brand: untrusted -- a response body\n" +
+      "  const b = x as T;\n" +
+      "  return [a, b];\n" +
+      "}\n";
+    const found = await messagesFor("src/api/client.ts", trailing);
+    expect(found.map((m) => m.message.includes("covers no site")))
+      .toEqual([true, false]);
+    expect(found.filter((m) => m.message.includes("launders"))).toHaveLength(1);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("honours an opt-out on a generic return no body backs", async () => {
+    const text =
+      "// brand: untrusted -- a response body\n" +
+      "export declare function mk<T>(s: string): T;\n";
+    expect(await messagesFor("src/api/client.ts", text)).toEqual([]);
+    const outside = await messagesFor("src/sync/opQueue.ts", text);
+    expect(outside.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(outside[0].message).toContain("no body");
   }, ESLINT_TIMEOUT_MS);
 
   it("asks for a reason when an opt-out file's marker has none", async () => {

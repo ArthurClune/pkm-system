@@ -8,8 +8,17 @@
 //     brand (directly or through a type parameter's constraint), a type
 //     predicate (`x is B`), an overload signature returning a brand its
 //     implementation does not, and a `declare`d value or function returning
-//     one are reported outside the brand's mint sites. An assertion reports
-//     whatever its operand: an upcast is written as an annotated declaration
+//     one are reported outside the brand's mint sites. A declaration is
+//     ambient when `declare` stands on it or on an ancestor (`declare
+//     global`, `declare namespace`, `declare class`) or the file is a
+//     declaration file. An interface merged with a class, or with a lib or
+//     dependency declaration, mints what its added members carry. A function
+//     or constructor type holds what it returns, so asserting to one mints
+//     through the return. An ambient function, field or variable, or a value
+//     that returns `any` (`JSON.parse`) where a function type with a generic
+//     return is wanted, launders: nothing the checker reads backs it. An
+//     assertion reports whatever its operand: an upcast is written as an
+//     annotated declaration
 //     (`const ys: readonly BlockUid[] = xs`). A predicate mints only what
 //     its narrowing adds to the parameter's declared type, and an overload
 //     what its return adds over the implementation's, compared position by
@@ -19,7 +28,9 @@
 //     toward `keyof T`, whose keys the caller picks (`keyof Record<BlockUid,
 //     1>`), launders any value, also inside `T[]`, `{ v: T }`, `Promise<T>`
 //     ..., and is allowed only on a `brand: untrusted -- <reason>` line in
-//     an opt-out file.
+//     an opt-out file. An opt-out covers one site, the leftmost needing one
+//     on its line or on the line below a comment standing alone; one that
+//     covers none is reported.
 //   * brands/no-brand-bypass: `Reflect.apply`, and a brand-named field
 //     written through `Object.assign` or `Object.defineProperty`, which skip
 //     the checks the two rules above rely on tsc to raise.
@@ -116,6 +127,8 @@ const SUBTYPE_BRAND = "CanonicalTitle";
 const SUBTYPE_PARENT = "NormalizedTitle";
 const BRAND_TAGS = new Set(["__brand", SUBTYPE_KEY]);
 
+const SIGNATURE_KINDS = [ts.SignatureKind.Call, ts.SignatureKind.Construct];
+
 // A type declared only in the TypeScript lib or a dependency.
 function isForeign(type) {
   const decls = type.symbol?.declarations ?? [];
@@ -171,11 +184,15 @@ function brandsOf(checker, type) {
       }
       const foreign = isForeign(t);
       // A guard type (`type Guard<T> = (v: string) => v is T`) carries its
-      // brand in the predicate of its call signature.
+      // brand in the predicate of its call signature, and a function or
+      // constructor type in what it returns.
       if (!foreign) {
-        for (const sig of checker.getSignaturesOfType(t, ts.SignatureKind.Call)) {
-          const predicate = checker.getTypePredicateOfSignature(sig);
-          if (predicate?.type) walk(predicate.type);
+        for (const kind of SIGNATURE_KINDS) {
+          for (const sig of checker.getSignaturesOfType(t, kind)) {
+            const predicate = checker.getTypePredicateOfSignature(sig);
+            if (predicate?.type) walk(predicate.type);
+            walk(checker.getReturnTypeOfSignature(sig));
+          }
         }
       }
       // A lib mapped type (Partial, Pick, Record ...) takes its properties
@@ -244,22 +261,57 @@ function laundersParam(checker, param, asValue) {
   });
 }
 
+// Whether `param` occurs in `type`, through unions, intersections, type
+// arguments, alias arguments, properties, index signatures and the
+// parameters and returns of signatures.
+function mentions(checker, type, param, seen = new Set()) {
+  if (seen.has(type)) return false;
+  seen.add(type);
+  if (type === param) return true;
+  const go = (t) => mentions(checker, t, param, seen);
+  if (type.aliasTypeArguments?.some(go)) return true;
+  if (type.flags & ts.TypeFlags.IndexedAccess) {
+    return go(type.objectType) || go(type.indexType);
+  }
+  if (type.flags & ts.TypeFlags.Index) return go(type.type);
+  if (type.flags & ts.TypeFlags.Conditional) {
+    return go(type.checkType) || go(type.extendsType);
+  }
+  if (type.isUnionOrIntersection()) return type.types.some(go);
+  if (!(type.flags & ts.TypeFlags.Object)) return false;
+  if ((type.objectFlags & ts.ObjectFlags.Reference)
+    && checker.getTypeArguments(type).some(go)) return true;
+  if (isForeign(type)) return false;
+  return type.getProperties().some((p) => go(checker.getTypeOfSymbol(p)))
+    || checker.getIndexInfosOfType(type).some((i) => go(i.keyType) || go(i.type))
+    || SIGNATURE_KINDS.some((kind) => checker.getSignaturesOfType(type, kind)
+      .some((sig) => sig.getParameters()
+        .some((a) => go(checker.getTypeOfSymbol(a)))
+        || go(checker.getReturnTypeOfSignature(sig))));
+}
+
 // An assertion toward this type accepts any value: `never`, or a laundering
 // type parameter anywhere in it (`T`, `T[]`, `{ v: T }`, `Promise<T>`,
 // `T & {}`, `T[K]`, `Partial<T>`, `ReturnType<F>` ...), walked like
 // brandsOf walks brands, and through the arguments of any type alias. Alias
 // arguments, index keys and a mapped type's keys are walked as keys; the
 // structure behind an alias is walked as values.
-function launders(checker, type) {
+function launders(checker, type, neverLaunders = true) {
   const seen = [new Set(), new Set()];
+  // The type parameters of a function type in the target that a parameter
+  // of that function mentions (`transaction<T>(fn: () => T): T`): its caller
+  // ties them to a value they passed. Inside a return, `never` is a function
+  // that does not come back.
+  const tied = new Set();
+  let inReturn = 0;
   const walk = (t, asValue = true) => {
     const visited = seen[asValue ? 1 : 0];
     if (visited.has(t)) return false;
     visited.add(t);
     const key = (u) => walk(u, false);
-    if (t.flags & ts.TypeFlags.Never) return true;
+    if (t.flags & ts.TypeFlags.Never) return neverLaunders && inReturn === 0;
     if (t.flags & ts.TypeFlags.TypeParameter) {
-      return laundersParam(checker, t, asValue);
+      return !tied.has(t) && laundersParam(checker, t, asValue);
     }
     // `keyof T` (or `keyof T[K]`) stays unresolved only while its keys come
     // from a type parameter, and a caller picks them: `keyof
@@ -298,7 +350,19 @@ function launders(checker, type) {
         || decl.type !== undefined && walk(checker.getTypeFromTypeNode(decl.type));
     }
     return props.some((p) => walk(checker.getTypeOfSymbol(p)))
-      || infos.some((i) => key(i.keyType) || walk(i.type));
+      || infos.some((i) => key(i.keyType) || walk(i.type))
+      || SIGNATURE_KINDS.some((kind) => checker.getSignaturesOfType(t, kind)
+        .some(walkReturn));
+  };
+  const walkReturn = (sig) => {
+    const own = (sig.typeParameters ?? []).filter((p) => sig.getParameters()
+      .some((a) => mentions(checker, checker.getTypeOfSymbol(a), p)));
+    own.forEach((p) => tied.add(p));
+    inReturn++;
+    const found = walk(checker.getReturnTypeOfSignature(sig));
+    inReturn--;
+    own.forEach((p) => tied.delete(p));
+    return found;
   };
   return walk(type);
 }
@@ -586,13 +650,29 @@ function mintedBrands(checker, from, to, seen = new Map()) {
   const minted = new Set();
   const add = (brands) => brands.forEach((b) => minted.add(b));
   const every = () => new Set(cachedBrands(checker, to));
+  // What a member `to` lends `from` where `from` cannot be it: the brands of
+  // the properties `from` does not declare.
+  const lentBy = (source, member) => {
+    if (overlaps(checker, source, member)) {
+      return mintedBrands(checker, source, member, seen);
+    }
+    return isObjectish(member) && isObjectish(source)
+      ? undeclaredBrands(checker, source, member) : new Set();
+  };
   const compare = (source, target) => add(source === undefined
     ? cachedBrands(checker, target) : mintedBrands(checker, source, target, seen));
   if (from === to) return minted;
   if (from.flags & ts.TypeFlags.Any) return every();
   if (from.isUnion()) {
     for (const m of from.types) {
-      if (overlaps(checker, m, to)) add(mintedBrands(checker, m, to, seen));
+      // A member of both unions gains nothing as itself, and only what the
+      // members of `to` that `from` lacks lend it.
+      if (to.isUnion() && to.types.includes(m)) {
+        for (const t of to.types) {
+          if (!from.types.includes(t)) add(lentBy(m, t));
+        }
+      }
+      else if (overlaps(checker, m, to)) add(mintedBrands(checker, m, to, seen));
     }
     return minted;
   }
@@ -608,20 +688,21 @@ function mintedBrands(checker, from, to, seen = new Map()) {
     return common ?? minted;
   }
   if (to.isUnion()) {
-    // A member `from` is gains nothing. Otherwise a member `from` could be
-    // is compared, and a member it cannot be (a discriminant rules it out)
-    // still lends the union its properties: `{ k: 1 }` believed to be
+    // A member `from` is gains nothing. Any other member `from` could be is
+    // compared, and a member it cannot be (a discriminant rules it out)
+    // still lends the union its properties, whether or not `from` is one of
+    // the members: `{ k: 1 }` believed to be
     // `{ k: 1 } | { k: 2; uid?: BlockUid }` reads `uid` as a BlockUid. A
     // `from` that could be no member (`null` believed to be `BlockUid |
     // undefined`) gains every brand.
-    if (to.types.includes(from)) return minted;
     let overlapping = false;
     for (const m of to.types) {
-      if (overlaps(checker, from, m)) {
+      if (m === from) overlapping = true;
+      else if (overlaps(checker, from, m)) {
         overlapping = true;
         add(mintedBrands(checker, from, m, seen));
       }
-      else if (isObjectish(m) && isObjectish(from)) add(undeclaredBrands(checker, from, m));
+      else add(lentBy(from, m));
     }
     return overlapping ? minted : every();
   }
@@ -688,6 +769,16 @@ function mintedBrands(checker, from, to, seen = new Map()) {
     position(declared ? checker.getTypeOfSymbol(declared) : stringIndex,
       checker.getTypeOfSymbol(p));
   }
+  // A function or constructor type holds what it returns: compared with the
+  // signature at the same place in `from`, or minted outright where `from`
+  // has none.
+  for (const kind of SIGNATURE_KINDS) {
+    const fromSigs = checker.getSignaturesOfType(from, kind);
+    checker.getSignaturesOfType(to, kind).forEach((sig, i) => {
+      position(fromSigs[i] && checker.getReturnTypeOfSignature(fromSigs[i]),
+        checker.getReturnTypeOfSignature(sig));
+    });
+  }
   // Our own `class Index<K, V> extends Map<K, V>` holds its arguments where
   // its base does, however many classes down: compare them with a `from` of
   // that base's type, or of a lib type of the same arity (`ReadonlyMap`
@@ -747,19 +838,125 @@ function cachedBy(compute, checker, type) {
 }
 const cachedBrands = (checker, type) => cachedBy(brandsOf, checker, type);
 const cachedLaunders = (checker, type) => cachedBy(launders, checker, type);
+// What a function returns launders unless it is `never`: a function that
+// returns `never` never produces a value.
+const launderingReturn = (checker, type) => launders(checker, type, false);
+const cachedLaunderingReturn = (checker, type) =>
+  cachedBy(launderingReturn, checker, type);
 
-// "reason" for `// brand: untrusted -- <why>` on the node's line or the one
-// above, "bare" for the marker with no reason, null when there is none.
-function optOutOf(sourceCode, node) {
-  const line = node.loc.start.line;
-  let found = null;
-  for (const c of sourceCode.getAllComments()) {
-    if (c.loc.end.line !== line && c.loc.end.line !== line - 1) continue;
-    if (/^\s*brand: untrusted -- \S/.test(c.value)) return "reason";
-    if (/^\s*brand: untrusted\b/.test(c.value)) found = "bare";
-  }
-  return found;
+const members = (type) => (type.isUnion() ? type.types : [type]);
+
+// Whether a call of this function type lets the caller name what comes back:
+// a signature with type parameters of its own whose return launders
+// (`<T>(s: string) => T`, `<T>(s: string) => Promise<T[]>`).
+function genericReturn(checker, type) {
+  return members(type).some((m) =>
+    checker.getSignaturesOfType(m, ts.SignatureKind.Call).some((sig) =>
+      (sig.typeParameters?.length ?? 0) > 0
+      && cachedLaunderingReturn(checker, checker.getReturnTypeOfSignature(sig))));
 }
+
+// Whether `any` is the type or sits in a union, intersection or type
+// argument of it: what `JSON.parse` returns, which fits any `T`.
+function holdsAny(checker, type, seen = new Set()) {
+  if (seen.has(type)) return false;
+  seen.add(type);
+  if (type.flags & ts.TypeFlags.Any) return true;
+  if (type.isUnionOrIntersection()) {
+    return type.types.some((m) => holdsAny(checker, m, seen));
+  }
+  return (type.objectFlags & ts.ObjectFlags.Reference) !== 0
+    && checker.getTypeArguments(type).some((a) => holdsAny(checker, a, seen));
+}
+
+// Whether a value of this type is, or returns, `any` somewhere, so that
+// assigning it to `<T>(s: string) => T` is accepted for any `T`.
+function anyReturning(checker, type) {
+  return holdsAny(checker, type) || members(type).some((m) =>
+    checker.getSignaturesOfType(m, ts.SignatureKind.Call).some((sig) =>
+      holdsAny(checker, checker.getReturnTypeOfSignature(sig))));
+}
+
+// Whether a declaration sits in the TypeScript lib or a dependency.
+const inForeignFile = (decl) => {
+  const f = decl.getSourceFile();
+  return f.hasNoDefaultLib || f.isDeclarationFile
+    && /node_modules|typescript\/lib/.test(f.fileName);
+};
+
+// "reason" for `// brand: untrusted -- <why>`, "bare" for the marker with no
+// reason, null for any other comment.
+function optOutKind(comment) {
+  if (/^\s*brand: untrusted -- \S/.test(comment.value)) return "reason";
+  if (/^\s*brand: untrusted\b/.test(comment.value)) return "bare";
+  return null;
+}
+
+// An opt-out covers exactly one site: the leftmost site (by line, then
+// column) that needs one, on the comment's own line or on the line below a
+// comment standing alone. A second site on the line is reported, and so is
+// an opt-out that covers none, as the server's `brand-opt-out-unused` does.
+// The two brand rules that read opt-outs (`name-carries-brand`,
+// `no-brand-assertion`) hand their sites to one ledger per file, which pairs
+// them once every rule has finished the traversal, so the order the rules
+// walk in cannot change who is covered. A site is `{ line, column, resolve }`
+// and `resolve(kind)` reports it given the kind of the comment that covers it
+// ("reason", "bare") or null.
+const ledgers = new WeakMap();
+
+function joinLedger(context) {
+  const { sourceCode } = context;
+  let ledger = ledgers.get(sourceCode);
+  if (!ledger) {
+    ledger = {
+      rules: 0,
+      sites: [],
+      reportUnused: (comment) =>
+        context.report({ loc: comment.loc, messageId: "optOutUnused" }),
+    };
+    ledgers.set(sourceCode, ledger);
+  }
+  ledger.rules++;
+  return {
+    site(node, resolve) {
+      const { line, column } = node.loc.start;
+      ledger.sites.push({ line, column, resolve });
+    },
+    exit() {
+      if (--ledger.rules > 0) return;
+      ledgers.delete(sourceCode);
+      settleOptOuts(sourceCode, ledger);
+    },
+  };
+}
+
+function settleOptOuts(sourceCode, ledger) {
+  const standsAlone = (c) =>
+    sourceCode.lines[c.loc.start.line - 1].slice(0, c.loc.start.column)
+      .trim() === "";
+  const comments = sourceCode.getAllComments()
+    .map((comment) => ({ comment, kind: optOutKind(comment) }))
+    .filter((o) => o.kind !== null);
+  const claimed = new Set();
+  const sites = [...ledger.sites].sort(
+    (a, b) => a.line - b.line || a.column - b.column);
+  for (const site of sites) {
+    const cover = comments.find(({ comment: c }) => !claimed.has(c)
+      && (c.loc.end.line === site.line
+        || c.loc.end.line === site.line - 1 && standsAlone(c)));
+    if (cover) claimed.add(cover.comment);
+    site.resolve(cover?.kind ?? null);
+  }
+  for (const { comment } of comments) {
+    if (!claimed.has(comment)) ledger.reportUnused(comment);
+  }
+}
+
+const OPT_OUT_UNUSED =
+  "this `// brand: untrusted -- <reason>` covers no site: an opt-out covers "
+  + "the leftmost name or assertion on its line, or on the line below it "
+  + "when it stands alone, that needs one, so remove it, or give each "
+  + "further site its own line and its own opt-out";
 
 // The brand-specific parser, where the web has one.
 const MODULES_SHOWN = 3;
@@ -827,6 +1024,7 @@ const nameCarriesBrand = {
       noReason:
         "`{{name}}` is `brand: untrusted` with no reason: add a reason after "
         + "`--` saying what untrusted input is parsed here",
+      optOutUnused: OPT_OUT_UNUSED,
     },
   },
   create(context) {
@@ -835,6 +1033,7 @@ const nameCarriesBrand = {
     const { program, esTreeNodeToTSNodeMap } = servicesOf(context);
     const checker = program.getTypeChecker();
     const mayOptOut = optOutFiles.some((m) => m(path));
+    const ledger = joinLedger(context);
 
     const check = (name, anchor, tsNode) => {
       const wanted = registry.names[name];
@@ -846,12 +1045,13 @@ const nameCarriesBrand = {
         brand: brandText(name, wanted),
         remedy: remedy(wanted, inTest),
       };
-      const optOut = optOutOf(context.sourceCode, anchor);
-      if (optOut === "reason" && mayOptOut) return;
-      let messageId = "missing";
-      if (optOut === "reason") messageId = "optOut";
-      else if (optOut === "bare" && mayOptOut) messageId = "noReason";
-      context.report({ node: anchor, messageId, data });
+      ledger.site(anchor, (optOut) => {
+        if (optOut === "reason" && mayOptOut) return;
+        let messageId = "missing";
+        if (optOut === "reason") messageId = "optOut";
+        else if (optOut === "bare" && mayOptOut) messageId = "noReason";
+        context.report({ node: anchor, messageId, data });
+      });
     };
     const keyName = (member) => {
       const key = member.key;
@@ -882,10 +1082,13 @@ const nameCarriesBrand = {
       TSFunctionType: checkFunction,
       TSConstructorType: checkFunction,
       TSMethodSignature: checkFunction,
+      TSCallSignatureDeclaration: checkFunction,
+      TSConstructSignatureDeclaration: checkFunction,
       TSDeclareFunction: checkFunction,
       TSEmptyBodyFunctionExpression: checkFunction,
       TSPropertySignature: checkMember,
       PropertyDefinition: checkMember,
+      "Program:exit": ledger.exit,
     };
   },
 };
@@ -908,6 +1111,12 @@ const noBrandAssertion = {
         "asserting to `{{target}}` launders any value; parse it, or mark the "
         + "boundary with `// brand: untrusted -- <reason>` in a boundary "
         + "module",
+      launderValue:
+        "`{{type}}` returns whatever its caller names, and no body the "
+        + "checker sees backs it: write a body that returns `unknown` or a "
+        + "parsed value, or mark the boundary with `// brand: untrusted -- "
+        + "<reason>` in a boundary module",
+      optOutUnused: OPT_OUT_UNUSED,
       offTypeBrand:
         "`offType` would forge {{brand}}: {{remedy}}",
       offTypeSlot:
@@ -921,6 +1130,7 @@ const noBrandAssertion = {
     const { program, esTreeNodeToTSNodeMap } = servicesOf(context);
     const checker = program.getTypeChecker();
     const mayOptOut = optOutFiles.some((m) => m(path));
+    const ledger = joinLedger(context);
     const inTestMint = testMintSites.some((m) => m(path));
     const typeOf = (estreeNode) =>
       checker.getTypeAtLocation(esTreeNodeToTSNodeMap.get(estreeNode));
@@ -936,20 +1146,19 @@ const noBrandAssertion = {
     };
     const checkBrands = (node, type, messageId) =>
       report(node, cachedBrands(checker, type), messageId);
-    // Whether `type` launders; reported unless an opt-out line allows it.
     // Whether `type` launders beyond what `from`, where given, already
     // holds; reported unless an opt-out line allows it.
     const reportLaunder = (node, type, from) => {
       if (!cachedLaunders(checker, type)) return false;
       if (from !== undefined && !unbackedLaunder(checker, from, type)) return false;
-      const optOut = optOutOf(context.sourceCode, node);
-      if (optOut !== "reason" || !mayOptOut) {
+      ledger.site(node, (optOut) => {
+        if (optOut === "reason" && mayOptOut) return;
         context.report({
           node,
           messageId: "launder",
           data: { target: checker.typeToString(type) },
         });
-      }
+      });
       return true;
     };
     // The operand is not consulted: an upcast is an annotated declaration
@@ -1030,32 +1239,146 @@ const noBrandAssertion = {
         returned,
       ), "overload");
     };
-    // `declare` asserts a function exists with no body to check; without it
-    // a TSDeclareFunction is an overload signature.
-    const checkDeclaredFunction = (node) => {
-      if (!node.declare) {
-        checkOverload(node, esTreeNodeToTSNodeMap.get(node));
-        return;
-      }
-      const annotation = node.returnType?.typeAnnotation;
+    // Whether the node sits in an ambient context: `declare` on it or on an
+    // ancestor (`declare namespace`, `declare global`, `declare class`), or
+    // a declaration file. An ambient declaration asserts a value exists with
+    // no body to check, however deep it is nested.
+    const ambientFile = /\.d\.[cm]?ts$/.test(context.filename);
+    const isAmbient = (node) => ambientFile || node.declare === true
+      || context.sourceCode.getAncestors(node).some((a) => a.declare === true
+        || a.type === "TSModuleDeclaration" && a.kind === "global");
+    // A function a caller can ask to return anything, backed by no body the
+    // checker sees (`declare function mk<T>(s: string): T`): reported like
+    // an assertion toward `T`.
+    const reportGenericValue = (node, type) => {
+      if (!genericReturn(checker, type)) return;
+      ledger.site(node, (optOut) => {
+        if (optOut === "reason" && mayOptOut) return;
+        context.report({
+          node,
+          messageId: "launderValue",
+          data: { type: checker.typeToString(type) },
+        });
+      });
+    };
+    // An ambient declaration mints what its type carries: nothing checks the
+    // value behind it, and a generic return is whatever the caller names.
+    const checkAmbient = (node, type) => {
+      checkBrands(node, type, "declaration");
+      reportGenericValue(node, type);
+    };
+    // An ambient signature's own return, which `typeOf` of the whole
+    // declaration (a function type) does not carry for a generic.
+    const checkAmbientSignature = (node, returnType) => {
+      const annotation = returnType?.typeAnnotation;
       if (annotation && annotation.type !== "TSTypePredicate") {
         checkBrands(node, typeOf(annotation), "declaration");
       }
+      const tsNode = esTreeNodeToTSNodeMap.get(node);
+      const signature = checker.getSignatureFromDeclaration(tsNode);
+      if (signature && !checker.getTypePredicateOfSignature(signature)) {
+        reportGenericValue(node, checker.getTypeAtLocation(tsNode));
+      }
+    };
+    // Without `declare`, a TSDeclareFunction is an overload signature.
+    const checkDeclaredFunction = (node) => {
+      if (isAmbient(node)) checkAmbientSignature(node, node.returnType);
+      else checkOverload(node, esTreeNodeToTSNodeMap.get(node));
     };
     const checkMethodOverload = (node) => {
       if (node.value.type !== "TSEmptyBodyFunctionExpression") return;
-      checkOverload(node, esTreeNodeToTSNodeMap.get(node));
+      if (isAmbient(node)) checkAmbientSignature(node, node.value.returnType);
+      else checkOverload(node, esTreeNodeToTSNodeMap.get(node));
     };
     const checkDeclaredVariable = (node) => {
-      if (!node.declare) return;
+      if (!isAmbient(node)) return;
       for (const d of node.declarations) {
-        if (d.id.typeAnnotation) {
-          checkBrands(d, typeOf(d.id), "declaration");
+        if (d.id.typeAnnotation) checkAmbient(d, typeOf(d.id));
+      }
+    };
+    // A value that is not a function expression, so no body the checker
+    // reads backs it, where a generic-return function type is wanted and the
+    // value returns `any` (`JSON.parse`), which fits any `T`.
+    const BODIED = new Set([
+      "ArrowFunctionExpression", "FunctionExpression", "TSAsExpression",
+      "TSTypeAssertion", "SpreadElement",
+    ]);
+    const checkValue = (value, contextual) => {
+      if (!contextual || !genericReturn(checker, contextual)) return;
+      if (anyReturning(checker, typeOf(value))) {
+        reportGenericValue(value, contextual);
+      }
+    };
+    const checkContextual = (value) => {
+      if (!value || BODIED.has(value.type)) return;
+      checkValue(value,
+        checker.getContextualType(esTreeNodeToTSNodeMap.get(value)));
+    };
+    // A `declare` field, or a field of an ambient class, has no initialiser
+    // to check. A field with no annotation takes its type from its
+    // initialiser, so the generic-return type is declared by a base class or
+    // an interface the class implements.
+    const checkField = (node) => {
+      const annotation = node.typeAnnotation?.typeAnnotation;
+      if (annotation && isAmbient(node)) {
+        checkAmbient(node, typeOf(annotation));
+        return;
+      }
+      if (!node.value || BODIED.has(node.value.type)) return;
+      if (annotation) {
+        checkContextual(node.value);
+        return;
+      }
+      const tsNode = esTreeNodeToTSNodeMap.get(node);
+      const name = tsNode.name.getText();
+      for (const clause of tsNode.parent.heritageClauses ?? []) {
+        for (const heritage of clause.types) {
+          const base = checker.getTypeAtLocation(heritage).getProperty(name);
+          if (!base) continue;
+          checkValue(node.value,
+            checker.getTypeOfSymbolAtLocation(base, heritage));
         }
+      }
+    };
+    // An interface merged with a class, or with a declaration in the lib or a
+    // dependency (`declare global { interface Window { ... } }`), adds
+    // members to a value that nothing checks: a new member mints what its
+    // type carries, and a method re-declared with another return is an
+    // unchecked overload, minting what it adds over each declaration it
+    // overloads.
+    const checkMerge = (node) => {
+      const tsNode = esTreeNodeToTSNodeMap.get(node);
+      const merges = (checker.getSymbolAtLocation(tsNode.name)?.declarations ?? [])
+        .some((d) => d !== tsNode && (ts.isClassLike(d) || inForeignFile(d)));
+      if (!merges) return;
+      for (const member of node.body.body) {
+        const tsMember = esTreeNodeToTSNodeMap.get(member);
+        if (!tsMember.name) continue;
+        const peers = (checker.getSymbolAtLocation(tsMember.name)?.declarations
+          ?? []).filter((d) => d !== tsMember);
+        if (peers.length === 0) {
+          report(member, cachedBrands(
+            checker, checker.getTypeAtLocation(tsMember)), "declaration");
+          continue;
+        }
+        if (!ts.isMethodSignature(tsMember)) continue;
+        const returned = checker.getReturnTypeOfSignature(
+          checker.getSignatureFromDeclaration(tsMember));
+        let minted;
+        for (const peer of peers) {
+          const gained = ts.isMethodDeclaration(peer) || ts.isMethodSignature(peer)
+            ? mintedBrands(checker, checker.getReturnTypeOfSignature(
+              checker.getSignatureFromDeclaration(peer)), returned)
+            : cachedBrands(checker, returned);
+          minted = minted === undefined
+            ? gained : new Set([...minted].filter((b) => gained.has(b)));
+        }
+        report(member, minted, "declaration");
       }
     };
     return {
       CallExpression(node) {
+        node.arguments.forEach(checkContextual);
         if (node.callee.type !== "Identifier" || node.callee.name !== OFF_TYPE) {
           return;
         }
@@ -1123,6 +1446,24 @@ const noBrandAssertion = {
       TSDeclareFunction: checkDeclaredFunction,
       MethodDefinition: checkMethodOverload,
       VariableDeclaration: checkDeclaredVariable,
+      NewExpression(node) {
+        node.arguments.forEach(checkContextual);
+      },
+      VariableDeclarator(node) {
+        checkContextual(node.init);
+      },
+      PropertyDefinition: checkField,
+      Property(node) {
+        checkContextual(node.value);
+      },
+      AssignmentExpression(node) {
+        if (node.operator === "=") checkContextual(node.right);
+      },
+      ReturnStatement(node) {
+        checkContextual(node.argument);
+      },
+      TSInterfaceDeclaration: checkMerge,
+      "Program:exit": ledger.exit,
     };
   },
 };

@@ -719,11 +719,7 @@ describe("poison marks and retained mark intents", () => {
     const q = createOpQueue(replica);
     const markFailures: unknown[] = [];
     const poisons: PoisonEvent[] = [];
-    const recovery = q as unknown as {
-      onPoisonMarkFailed?: (fn: (failure: unknown) => void) => () => void;
-      retryPoisonMarks?: () => Promise<readonly PoisonEvent[]>;
-    };
-    recovery.onPoisonMarkFailed?.((failure) => markFailures.push(failure));
+    q.onPoisonMarkFailed((failure) => markFailures.push(failure));
     q.onPoison((event) => poisons.push(event));
 
     q.enqueue([op("tuid-bad")]);
@@ -731,8 +727,6 @@ describe("poison marks and retained mark intents", () => {
     await q.settled();
     await q.drain();
 
-    expect(recovery.onPoisonMarkFailed).toBeTypeOf("function");
-    expect(recovery.retryPoisonMarks).toBeTypeOf("function");
     expect(markFailures).toEqual([{
       event: objectContaining({ id: 1, batch_id: replica.enqueued[0] }),
       error,
@@ -741,7 +735,7 @@ describe("poison marks and retained mark intents", () => {
     expect(markAttempts).toBe(1);
     expect(bodies).toHaveLength(1);
 
-    await recovery.retryPoisonMarks?.();
+    await q.retryPoisonMarks();
 
     expect(markAttempts).toBe(2);
     expect(poisons).toEqual([
@@ -779,21 +773,17 @@ describe("poison marks and retained mark intents", () => {
     const reloaded = createOpQueue(replica);
     const poisons: PoisonEvent[] = [];
     reloaded.onPoison((event) => poisons.push(event));
-    const recovery = reloaded as unknown as {
-      poisonMarkIntents?: () => readonly PoisonEvent[];
-      retryPoisonMarks?: () => Promise<readonly PoisonEvent[]>;
-    };
 
     await expect(reloaded.drain()).resolves.toMatchObject({
       status: "blocked", reason: "recovering", pending: 2,
     });
     expect(bodies).toHaveLength(1); // reload did not resend rejected or later work
     expect(markAttempts).toBe(1);
-    expect(recovery.poisonMarkIntents?.()).toEqual([
+    expect(reloaded.poisonMarkIntents()).toEqual([
       expect.objectContaining({ id: 1, batch_id: replica.enqueued[0] }),
     ]);
 
-    await recovery.retryPoisonMarks?.();
+    await reloaded.retryPoisonMarks();
 
     expect(markAttempts).toBe(2);
     expect(bodies).toHaveLength(1);
@@ -831,13 +821,9 @@ describe("poison marks and retained mark intents", () => {
     const q = createOpQueue(replica);
     const published: PoisonEvent[] = [];
     q.onPoison((event) => published.push(event));
-    const recovery = q as unknown as {
-      poisonMarkIntents(): readonly PoisonEvent[];
-      retryPoisonMarks(): Promise<readonly PoisonEvent[]>;
-    };
 
-    expect(recovery.poisonMarkIntents()).toEqual([first, second]);
-    await recovery.retryPoisonMarks();
+    expect(q.poisonMarkIntents()).toEqual([first, second]);
+    await q.retryPoisonMarks();
 
     expect(marked).toEqual([1, 2]);
     expect(published).toEqual([first, second]);
@@ -860,12 +846,9 @@ describe("poison marks and retained mark intents", () => {
     const mark = vi.fn(async () => ({ pending: 0, matched: true }));
     replica.markPoisoned = mark;
     const q = createOpQueue(replica);
-    const recovery = q as unknown as {
-      retryPoisonMarks(): Promise<readonly PoisonEvent[]>;
-    };
 
     await expect(q.drain()).resolves.toMatchObject({ reason: "recovering" });
-    await recovery.retryPoisonMarks();
+    await q.retryPoisonMarks();
 
     expect(mark).toHaveBeenCalledWith(1, expect.any(String), "batch-1");
     expect(bodies).toEqual([]);

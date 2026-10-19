@@ -392,11 +392,20 @@ def _imports_module(node: ast.Import | ast.ImportFrom, path: str, module: str) -
 # Calls whose argument at this position is a type, not a value: the brand
 # there is not a function to apply.
 _TYPE_SLOTS = {"cast": 0, "NewType": 1, "TypeAdapter": 0, "isinstance": 1, "assert_type": 1}
+# A TypeVar's constraints are the positional arguments after its name; its
+# bound and default are keywords.
+_TYPEVAR_KEYWORDS = ("bound", "default")
+
+
+def _is_type_alias(annotation: ast.expr) -> bool:
+    return _leaf(annotation) == "TypeAlias"
 
 
 def _type_expressions(tree: ast.AST) -> set[int]:
-    """ids of every node inside a subscript's slice or a type-taking call's
-    type slot: `dict[str, BlockUid]`, `isinstance(x, (A, B))`."""
+    """ids of every node inside a subscript's slice, a type-taking call's
+    type slot, a TypeVar's constraints, bound or default, or the value of a
+    `TypeAlias` annotation: `dict[str, BlockUid]`, `isinstance(x, (A, B))`,
+    `TypeVar("T", bound=BlockUid)`, `X: TypeAlias = BlockUid`."""
     roots: list[ast.AST] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Subscript):
@@ -405,6 +414,11 @@ def _type_expressions(tree: ast.AST) -> set[int]:
             slot = _TYPE_SLOTS.get(_leaf(node.func) or "")
             if slot is not None and len(node.args) > slot:
                 roots.append(node.args[slot])
+            if _leaf(node.func) == "TypeVar":
+                roots.extend(node.args[1:])
+                roots.extend(k.value for k in node.keywords if k.arg in _TYPEVAR_KEYWORDS)
+        elif isinstance(node, ast.AnnAssign) and node.value is not None and _is_type_alias(node.annotation):
+            roots.append(node.value)
     return {id(n) for root in roots for n in ast.walk(root)}
 
 

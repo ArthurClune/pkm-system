@@ -123,7 +123,7 @@ async function measurePass(
     raw.exec("PRAGMA recursive_triggers=ON");
     const counter = installCounter(replica.sqlite3, raw);
     const h = replica.handlers.buildHandlers({
-      openDb: async () => replica.db.wrapSqlite(raw),
+      openDb: async () => replica.db.wrapSqlite(raw, { checkRows: false }),
       nowMs: () => FROZEN_MS,
       newBatchId: () => { throw new Error("rebase scenario: every enqueue names its batch id"); },
     });

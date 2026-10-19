@@ -314,7 +314,7 @@ COLUMN_KEYS: dict[str, dict[str, str]] = {
 # Brand -> (base type, full-match regex or None). A brand value that
 # fails its shape is a row the database should never have produced.
 SHAPES: dict[str, tuple[str, str | None]] = {
-    # The body of refs.BLOCK_REF_TOKEN; a test asserts they are equal.
+    # The body of contracts.ops.BLOCK_REF_TOKEN; a test asserts they are equal.
     "BlockUid": ("text", r"[a-zA-Z0-9_-]{6,32}"),
     "Sha256Hex": ("text", r"[0-9a-f]{64}"),
     "PageId": ("int", None),

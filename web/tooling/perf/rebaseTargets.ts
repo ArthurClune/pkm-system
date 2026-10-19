@@ -48,7 +48,7 @@ const seq = (prefix: string, i: number): BlockUid => {
 };
 
 interface PageTree {
-  title: string;
+  title: CanonicalTitle;
   blocks: SyncBlock[];
   byUid: Map<BlockUid, SyncBlock>;
   children: Map<BlockUid | null, SyncBlock[]>;

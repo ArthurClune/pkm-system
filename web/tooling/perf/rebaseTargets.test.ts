@@ -8,7 +8,7 @@ import {
 } from "../../src/test-helpers";
 import { pendingBatches, pickTargets, windowBatches, type Targets } from "./rebaseTargets";
 
-const PAGE = "Perf Big Page";
+const PAGE = canonicalTitleOf("Perf Big Page");
 const PENDING_IDS = ["p1", "p2", "p3", "p4", "p5", "p6"].map((p) => batchIdOf(`perf-rebase-${p}`));
 const WINDOW_IDS = ["w1", "w2", "w3"].map((w) => batchIdOf(`perf-rebase-${w}`));
 

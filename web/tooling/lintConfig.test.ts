@@ -94,6 +94,16 @@ const cases: readonly FixtureCase[] = [
       "}\n",
   },
   {
+    file: "restricted-select-keys.ts",
+    rule: "no-restricted-syntax",
+    count: 2,
+    corrected:
+      'import type { ReplicaDb } from "../../src/replica/db";\n' +
+      "export function load(db: ReplicaDb) {\n" +
+      '  return db.select("SELECT uid FROM blocks", ["uid"]);\n' +
+      "}\n",
+  },
+  {
     file: "explicit-any.ts",
     rule: "@typescript-eslint/no-explicit-any",
     corrected:
@@ -724,6 +734,16 @@ describe("tests under the lint", () => {
     expect(rulesOf(found)).toEqual(["brands/no-brand-assertion"]);
     expect(found[0].message).toContain("uidOf");
     expect(found[0].message).toContain("test-helpers");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("a test file may not widen select's keys", async () => {
+    const text =
+      'import type { ReplicaDb } from "./replica/db";\n'
+      + "export const f = (db: ReplicaDb, ks: [\"uid\"]) =>\n"
+      + '  db.select("SELECT uid FROM blocks", ks);\n';
+    const found = await messagesFor("src/paths.test.ts", text);
+    expect(rulesOf(found)).toEqual(["no-restricted-syntax"]);
+    expect(found[0].message).toContain("array literal of string literals");
   }, ESLINT_TIMEOUT_MS);
 
   it("names the helper for a name that means a brand in a test", async () => {

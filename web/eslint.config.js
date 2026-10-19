@@ -48,6 +48,26 @@ const testHelpersDynamicBan = {
   message: TEST_HELPERS_MESSAGE,
 };
 
+// `.select` is ReplicaDb's alone, so a selector finds its calls. The keys
+// (second argument) are array-literal strings: a widened array would type
+// every column as present.
+const SELECT_KEYS_MESSAGE =
+  "ReplicaDb.select takes its keys as an array literal of string literals";
+const selectKeysBans = [
+  {
+    selector:
+      "CallExpression[callee.property.name='select'][arguments.length>=2]"
+      + "[arguments.1.type!='ArrayExpression']",
+    message: SELECT_KEYS_MESSAGE,
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='select'] > ArrayExpression"
+      + ":nth-child(2) > :not(Literal[value=/./])",
+    message: SELECT_KEYS_MESSAGE,
+  },
+];
+
 export default tseslint.config(
   {
     // Global ignores (config object with only `ignores`): skipped entirely by
@@ -111,7 +131,7 @@ export default tseslint.config(
       "no-restricted-imports": ["error", {
         patterns: [apiFetchBan, testHelpersBan],
       }],
-      "no-restricted-syntax": ["error", testHelpersDynamicBan],
+      "no-restricted-syntax": ["error", testHelpersDynamicBan, ...selectKeysBans],
     },
   },
   {
@@ -133,7 +153,7 @@ export default tseslint.config(
     files: testFileGlobs,
     rules: {
       "no-restricted-imports": ["error", { patterns: [apiFetchBan] }],
-      "no-restricted-syntax": "off",
+      "no-restricted-syntax": ["error", ...selectKeysBans],
     },
   },
   {

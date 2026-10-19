@@ -10,15 +10,38 @@ function lastWs(): FakeWebSocket {
   return FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
 }
 
+const unstubbed = (what: string) => (): never => {
+  throw new Error(`fake queue: ${what} was not stubbed`);
+};
+
 /** A queue whose drain always reports success at once — the reconnect flow
- * under test needs nothing more than that to reach replicaSync.start(). */
+ * under test needs nothing more than that to reach replicaSync.start(). Every
+ * other member throws. */
 function fakeQueue(): OpQueue {
   return {
-    setOnline: () => undefined,
-    dispose: () => undefined,
+    enqueue: unstubbed("enqueue"),
+    settled: unstubbed("settled"),
     drain: async () => ({ status: "drained" }),
+    setOnline: () => undefined,
+    pause: unstubbed("pause"),
+    resume: unstubbed("resume"),
+    dispose: () => undefined,
+    onDesync: unstubbed("onDesync"),
     onDrain: () => () => undefined,
-  } as unknown as OpQueue;
+    onSkipped: unstubbed("onSkipped"),
+    onPending: unstubbed("onPending"),
+    refreshPending: unstubbed("refreshPending"),
+    onUnsentInMemory: unstubbed("onUnsentInMemory"),
+    onPoisonPending: unstubbed("onPoisonPending"),
+    onPoisonMarkFailed: unstubbed("onPoisonMarkFailed"),
+    onPoison: unstubbed("onPoison"),
+    onPoisonMarkUnmatched: unstubbed("onPoisonMarkUnmatched"),
+    poisonMarkIntents: unstubbed("poisonMarkIntents"),
+    retryPoisonMarks: unstubbed("retryPoisonMarks"),
+    discardPoisonIntents: unstubbed("discardPoisonIntents"),
+    deliverLaneAhead: unstubbed("deliverLaneAhead"),
+    settleCommitted: unstubbed("settleCommitted"),
+  };
 }
 
 function fakeDeps(over: Partial<SocketLifecycleDeps> = {}): SocketLifecycleDeps {

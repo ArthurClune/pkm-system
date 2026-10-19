@@ -6,6 +6,7 @@ import { ExampleCancelled } from "./cancel";
 import { type ClientPort, commandsFor, connectTally, connectTiming, DeletePage, Fault, Offline, offlineBack, Reload,
          Rename, type SyncCommand, type World } from "./commands";
 import { initialModel } from "./model";
+import type { ServerControl } from "./serverControl";
 
 const unstubbed = (what: string) => (): never => {
   throw new Error(`stub client: ${what} was not stubbed`);
@@ -27,6 +28,29 @@ const stubClient = (over: Partial<ClientPort> = {}): ClientPort => ({
   cursor: unstubbed("cursor"),
   transport: { arm: unstubbed("arm"), fetchJson: unstubbed("fetchJson") },
   ...over,
+});
+
+/** A server whose every member throws: no command in these tests reaches it. */
+const stubServer = (): ServerControl => ({
+  cookie: "",
+  reset: unstubbed("reset"),
+  setClock: unstubbed("setClock"),
+  rotateGeneration: unstubbed("rotateGeneration"),
+  applied: unstubbed("applied"),
+  renames: unstubbed("renames"),
+  deletes: unstubbed("deletes"),
+  conflicts: unstubbed("conflicts"),
+  snapshot: unstubbed("snapshot"),
+  takeEcho: unstubbed("takeEcho"),
+  setEchoTeeth: unstubbed("setEchoTeeth"),
+  setStaleTeeth: unstubbed("setStaleTeeth"),
+  setRewriteTeeth: unstubbed("setRewriteTeeth"),
+  changes: unstubbed("changes"),
+  latestSeq: unstubbed("latestSeq"),
+  postRaw: unstubbed("postRaw"),
+  postRename: unstubbed("postRename"),
+  postDelete: unstubbed("postDelete"),
+  withSignal: unstubbed("withSignal"),
 });
 
 /** The client a command names, or null for one that names none. */
@@ -164,7 +188,7 @@ function stubWorld(events: string[], cancelled = false): World {
                  fetchJson: unstubbed("fetchJson") },
   });
   return {
-    server: {} as World["server"],
+    server: stubServer(),
     clients: new Map([["A", client]]),
     watch: { observe: () => undefined },
     transcript: [],

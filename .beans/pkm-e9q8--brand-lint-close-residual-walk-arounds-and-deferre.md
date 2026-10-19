@@ -1,11 +1,11 @@
 ---
 # pkm-e9q8
 title: 'Brand lint: close residual walk-arounds and deferred minors'
-status: todo
+status: completed
 type: task
 priority: normal
 created_at: 2026-10-17T21:12:42Z
-updated_at: 2026-10-19T09:09:55Z
+updated_at: 2026-10-19T14:12:27Z
 blocking:
     - pkm-zv2s
 ---
@@ -19,11 +19,11 @@ The first four items land on `feat/brand-check-web` before the Phase 2 merge (Ar
 - [x] Overload signatures mint: `function p(s: string): BlockUid; function p(s: string): string {...}` passes tsc and lint. For a non-declare overload, report brands in its return type that the implementation's return type lacks (also class method overloads).
 - [x] Launder variants pass: `<T extends string>(x): T { return x as T }`, `<T extends {}>`, `as T & {}`, `as T[]`, `as { v: T }`, `as Promise<T>`. Treat a type parameter whose constraint carries no brand but admits a brand's base as laundering, inside composites too.
 - [x] Regression: `{} as Record<BlockUid, number>` / `Partial<Record<BlockUid, 1>>` no longer reported; walk index-info keyType too (also catches `{ [k: BlockUid]: 1 }`).
-- [ ] Ambient declarations nested in `declare global`/`declare namespace`, `declare` class fields; rule 1 on TSCallSignatureDeclaration/TSConstructSignatureDeclaration; function-type assertion targets.
+- [x] Ambient declarations nested in `declare global`/`declare namespace`, `declare` class fields; rule 1 on TSCallSignatureDeclaration/TSConstructSignatureDeclaration; function-type assertion targets.
   Also parked here: class and interface declaration merging mints with no assertion (`class Q {}` + `interface Q { uid: BlockUid }`; an interface method re-declaring a class method's return as a brand acts as an unchecked overload).
   Parked (web plugin, overload path): an overload whose return union holds the implementation's return type as an exact member skips the comparison, so another member's undeclared `uid?: BlockUid` reads through after the discriminant is narrowed away (probe/cases13.json M2a, M2b).
   Parked (web plugin, function-typed values): a generic return with no checked body launders and nothing reports it: `const parse: <T>(s: string) => T = JSON.parse`, a class field `get = JSON.parse` implementing `get<T>(s): T`, `declare function mk<T>(s: string): T` (probe/cases15.json Mh1a-Mh1c).
-- [ ] Opt-out covers every site on its line; stale opt-outs unreported (server brandlint too).
+- [x] Opt-out covers every site on its line; stale opt-outs unreported (server brandlint too).
 
 ## Server brandlint
 - [x] Aliased brand imports (`BlockUid as U`), `map(BlockUid, xs)` not caught; NewType scan is column-0 bare-name only (misses typing.NewType, annotated, indented) (fixed on feat/brand-check-web).
@@ -63,3 +63,11 @@ The vocabulary/data and tidy part is merged (fix/vocab-and-tidy). Notes:
 - uidOf vs `tuid-` literals: no change needed. uidOf has about 1370 uses, and the remaining literals feed string-taking helpers or assertions, never a branded slot.
 - Stray blank lines: only one of the three was found and fixed.
 - normalise.ts no longer puts `?page N` under `title`.
+
+## Summary of Changes
+
+Done in four branches:
+- **fix/brandlint-residuals (server):** staged registry and NewType reads; TypeVar, TypeAlias and functional-field type positions; brand-named parameters carry the brand in the web rule's shapes; the name rule reaches attributes, guarded class fields and functional TypedDict/NamedTuple; `test_brandlint_registry` fails on stale or idle registered sites; an opt-out covers one site, and an unused one is reported; honest proptest log keys.
+- **fix/vocab-and-tidy:** client literal domains; columns.test reads SQLite types faithfully; `canonical_daily_title(date)`; one tombstone parser with no silent drops; checked selects in server tests; renamed tests; response_model consistency; remedy text; honest normalise.ts.
+- **fix/brand-plugin-gaps (web):** ambient and `declare` mints at any nesting; rule 1 on call/construct signatures; function-type assertion targets (tied type parameters excepted); declaration-merging mints; per-member overload comparison; generic-return function values with no checked body; opt-outs claim one site, and unused ones are reported. Tree hits were fixed with typed stubs; the perf harness's cross-checkout import is a declared opt-out file.
+- **Kept:** `latest_seq` (read by the props suite).

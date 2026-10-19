@@ -20,8 +20,11 @@
 //     1>`), launders any value, also inside `T[]`, `{ v: T }`, `Promise<T>`
 //     ..., and is allowed only on a `brand: untrusted -- <reason>` line in
 //     an opt-out file.
-// Both read tooling/brandRegistry.gen.json, generated from the server's
-// brand registry, and both apply to tests as they do to product code. The
+//   * brands/no-brand-bypass: `Reflect.apply`, and a brand-named field
+//     written through `Object.assign` or `Object.defineProperty`, which skip
+//     the checks the two rules above rely on tsc to raise.
+// All read tooling/brandRegistry.gen.json, generated from the server's
+// brand registry, and all apply to tests as they do to product code. The
 // test mint module (`testMintSites`) is a mint site for every brand, and in
 // test code (`*.test.*` and the registry's `testCode` paths) a report names
 // the module's checked helper (`uidOf`) instead of the product remedy.
@@ -998,6 +1001,122 @@ const noBrandAssertion = {
   },
 };
 
+// `Object.assign` and `Object.defineProperty` write a field past the type
+// the object was declared with, and `Reflect.apply` calls past the
+// parameter types, so each puts an off-type value into a branded slot that
+// neither tsc nor the rules above see. A field written by a literal key that
+// means a brand is reported (`Object.defineProperties` and
+// `Reflect.defineProperty` count); a key that is only a `string` at the call
+// is unknown here and not reported.
+const KEY_WRITERS = new Set([
+  "Object.defineProperty", "Reflect.defineProperty",
+]);
+
+const noBrandBypass = {
+  meta: {
+    type: "problem",
+    schema: [],
+    messages: {
+      reflectApply:
+        "`Reflect.apply` calls past the parameter types, so a value that is "
+        + "not a brand can reach a branded parameter: call the function "
+        + "directly, or `.call` / `.apply` it",
+      write:
+        "`{{api}}` writes `{{name}}`, a name that means {{brand}}, without "
+        + "the type check: put `{{name}}` in the object's own literal so the "
+        + "type is checked, with a value that already is {{brand}}; "
+        + "{{remedy}}",
+    },
+  },
+  create(context) {
+    const path = repoPath(context.filename);
+    const inTest = isTestCode(path);
+    const { program, esTreeNodeToTSNodeMap } = servicesOf(context);
+    const checker = program.getTypeChecker();
+    // `Object.assign` for `Object.assign(...)` or `Object["assign"](...)`.
+    const apiOf = (callee) => {
+      if (callee.type !== "MemberExpression") return null;
+      if (callee.object.type !== "Identifier") return null;
+      let prop = null;
+      if (!callee.computed && callee.property.type === "Identifier") {
+        prop = callee.property.name;
+      }
+      else if (callee.computed) prop = staticText(callee.property);
+      return prop === null ? null : `${callee.object.name}.${prop}`;
+    };
+    const staticText = (node) => {
+      if (node.type === "Literal" && typeof node.value === "string") {
+        return node.value;
+      }
+      if (node.type === "TemplateLiteral" && node.expressions.length === 0) {
+        return node.quasis[0].value.cooked ?? null;
+      }
+      return null;
+    };
+    const reportKey = (node, api, name) => {
+      if (!Object.hasOwn(registry.names, name)) return;
+      const wanted = registry.names[name];
+      if (wanted.every((b) => isMintSite(b, path))) return;
+      context.report({
+        node,
+        messageId: "write",
+        data: {
+          api,
+          name,
+          brand: brandText(name, wanted),
+          remedy: remedy(wanted, inTest),
+        },
+      });
+    };
+    // The names an object literal sets, by identifier, string or computed
+    // string key.
+    const literalKeys = (obj) => obj.properties.flatMap((p) => {
+      if (p.type !== "Property") return [];
+      const name = p.computed ? staticText(p.key)
+        : p.key.type === "Identifier" ? p.key.name : staticText(p.key);
+      return name === null ? [] : [[p, name]];
+    });
+    // The names a key argument can be: its text, or the string literals its
+    // type is made of.
+    const keyNames = (arg) => {
+      const text = staticText(arg);
+      if (text !== null) return [text];
+      const type = checker.getTypeAtLocation(esTreeNodeToTSNodeMap.get(arg));
+      const parts = type.isUnion() ? type.types : [type];
+      return parts.every((t) => t.isStringLiteral())
+        ? parts.map((t) => t.value) : [];
+    };
+    return {
+      CallExpression(node) {
+        const api = apiOf(node.callee);
+        if (api === "Reflect.apply") {
+          context.report({ node, messageId: "reflectApply" });
+        }
+        else if (api === "Object.assign") {
+          for (const arg of node.arguments.slice(1)) {
+            if (arg.type !== "ObjectExpression") continue;
+            for (const [prop, name] of literalKeys(arg)) {
+              reportKey(prop, api, name);
+            }
+          }
+        }
+        else if (api === "Object.defineProperties") {
+          const [, props] = node.arguments;
+          if (props?.type !== "ObjectExpression") return;
+          for (const [prop, name] of literalKeys(props)) {
+            reportKey(prop, api, name);
+          }
+        }
+        else if (api !== null && KEY_WRITERS.has(api)) {
+          const key = node.arguments[1];
+          if (!key || key.type === "SpreadElement") return;
+          for (const name of keyNames(key)) reportKey(key, api, name);
+        }
+      },
+    };
+  },
+};
+
 // The test mint module may mint every brand.
 function isMintSite(brand, path) {
   return testMintSites.some((m) => m(path))
@@ -1010,5 +1129,6 @@ export default {
   rules: {
     "name-carries-brand": nameCarriesBrand,
     "no-brand-assertion": noBrandAssertion,
+    "no-brand-bypass": noBrandBypass,
   },
 };

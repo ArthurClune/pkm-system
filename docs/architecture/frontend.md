@@ -633,7 +633,7 @@ Playwright e2e against that build.**
   (default 8975).
 - **Lint** (flat, type-aware ESLint): `web/eslint.config.js` owns the rule
   list and names its six families in its header: React Hooks correctness,
-  promise/error safety, import control (`apiFetch`, `test-helpers`), no
+  promise/error safety, import control (`apiFetch`, `test-helpers` and other test code), no
   `any`, brand discipline, and no unexplained `@ts-` suppression. It lints
   tests and tooling like product code. `tooling/lintConfig.test.ts` proves
   each rule fires on a fixture.

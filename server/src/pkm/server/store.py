@@ -10,6 +10,7 @@ from pkm.contracts.daily import date_for_title
 from pkm.contracts.ops import (BlockUid, PageId, SidebarEntryId,
                                SidebarOrderIdx, SyncSeq, text_hash)
 from pkm.database import Db
+from pkm.contracts.titles import RawTitle
 from pkm.refs import (CanonicalTitle, NormalizedTitle, extract,
                       is_blank_title, normalize_title, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
@@ -155,7 +156,7 @@ def _record_block_rewrite(
     uid: BlockUid,
     original_text: str,
     new_text: str,
-    replacements: Mapping[str, str],
+    replacements: Mapping[str, RawTitle],
     now_ms: int,
 ) -> None:
     """Record what this rewrite did to one block, for push-time replay.
@@ -199,7 +200,7 @@ def _prune_page_deletions(db: Db, now_ms: int) -> None:
 def rewrite_snapshotted_blocks(
     db: Db,
     snapshots: Sequence[tuple[BlockUid, str]],
-    replacements: Mapping[str, str],
+    replacements: Mapping[str, RawTitle],
     now_ms: int,
 ) -> int:
     """Rewrite each original block snapshot once, then replace its ref index.

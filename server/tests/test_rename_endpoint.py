@@ -433,7 +433,8 @@ def test_rewrite_snapshots_updates_and_reindexes_each_block_once(seeded_config):
     rewritten = rewrite_snapshotted_blocks(
         db,
         ((uid_of("uid_multi"), original),),
-        {"AI": "Machine Learning", "Paper": "Machine Learning"},
+        {"AI": raw_title_of("Machine Learning"),
+         "Paper": raw_title_of("Machine Learning")},
         9_003,
     )
 

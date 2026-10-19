@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from pkm.contracts.ops import Sha256Hex
 from pkm.database import Db
+from pkm.contracts.titles import RawTitle
 from pkm.refs import target_canonical_title, title_syntax_reason
 from pkm.title_migration import (
     InventoryBlock,
@@ -205,9 +206,9 @@ def apply_title_migration(
             for uid in sorted(inbound_uids)
         )
         # rewrite_snapshotted_blocks matches replacement keys against raw
-        # text spans, so the map widens to plain str here -- CanonicalTitle
-        # only matters up to the lookup that minted plan.replacements.
-        replacements: dict[str, str] = {
+        # text spans, so the keys widen to plain str here; the values
+        # (CanonicalTitle) pass as RawTitle, which any title kind satisfies.
+        replacements: dict[str, RawTitle] = {
             old: new for old, new in plan.replacements.items()
         }
 

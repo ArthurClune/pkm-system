@@ -29,7 +29,7 @@ from pkm.refs import (
 )
 
 # Resolves a title as written in the text to its replacement, or None.
-_TitleLookup = Callable[[RawTitle], "str | None"]
+_TitleLookup = Callable[[RawTitle], "RawTitle | None"]
 
 
 def _verbatim(title: str) -> str:
@@ -37,9 +37,9 @@ def _verbatim(title: str) -> str:
 
 
 def _title_lookup(
-    replacements: Mapping[str, str], normalize: Callable[[str], str]
+    replacements: Mapping[str, RawTitle], normalize: Callable[[str], str]
 ) -> _TitleLookup:
-    def lookup(raw_title: RawTitle) -> str | None:
+    def lookup(raw_title: RawTitle) -> RawTitle | None:
         return replacements.get(normalize(raw_title))
 
     return lookup
@@ -69,7 +69,7 @@ def _rewrite_tags(
         new_title = lookup(tag.raw_title)
         if new_title is not None:
             spans.append(
-                (tag.start, tag.end, _tag_form(as_raw_title(new_title)))
+                (tag.start, tag.end, _tag_form(new_title))
             )
 
 
@@ -115,7 +115,7 @@ def _rewrite_range(
 
 def rewrite_title_refs_map(
     text: str,
-    replacements: Mapping[str, str],
+    replacements: Mapping[str, RawTitle],
     *,
     normalize: Callable[[str], str] = _verbatim,
 ) -> str:
@@ -142,7 +142,7 @@ def rewrite_title_refs_map(
         if new_title is not None:
             spans.append(
                 (attribute.start, attribute.end,
-                 _attribute_form(as_raw_title(new_title)))
+                 _attribute_form(new_title))
             )
 
     _rewrite_range(

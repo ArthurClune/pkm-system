@@ -20,7 +20,7 @@ from pkm.server import ops_apply, store
 from pkm.server.db import open_db
 from pkm.server.ops_apply import apply_batch
 from pkm.server.store import reindex_refs_for_text, rewrite_snapshotted_blocks
-from pkm.test_data.ids import uid_of
+from pkm.test_data.ids import raw_title_of, uid_of
 
 # Texts exercising every branch the composition owns: no refs, all three ref
 # kinds, duplicates, a blank-normalizing ref (skipped, never indexed onto a
@@ -98,7 +98,7 @@ def test_snapshot_rewriting_reindexes_through_the_shared_composition(
 
     rewritten = rewrite_snapshotted_blocks(
         con, [(uid_of("uid_b3"), "[[Paper]] and ((uid_b1))")],
-        {"Paper": "Papers"}, 5150)
+        {"Paper": raw_title_of("Papers")}, 5150)
 
     assert rewritten == 1
     # the rewritten text is what gets indexed, never the original snapshot

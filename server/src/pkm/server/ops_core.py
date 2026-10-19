@@ -20,7 +20,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                SetViewTypeOp, Sha256Hex, UID_RE, UpdateTextOp,
                                ViewType, subtree_hash, text_hash)
 from pkm.contracts.responses import SkipReason, SkippedOp
-from pkm.contracts.titles import RawTitle
+from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.refs import (CanonicalTitle, TitleSyntaxReason, extract,
                       normalize_title, parse_block_uid, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
@@ -102,7 +102,7 @@ class RewriteStep:
     """One pass over a block: what `replay_title_rewrites` consumes."""
     base_hash: Sha256Hex
     after_hash: Sha256Hex
-    retitles: dict[str, str]
+    retitles: dict[str, RawTitle]
     unlinked: set[str]
     inlines: dict[str, str]
 
@@ -126,7 +126,7 @@ def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[RewriteStep]:
         elif record.kind == "inline":
             step.inlines[record.old_text] = record.new_text
         elif record.kind == "retitle":
-            step.retitles[record.old_text] = record.new_text
+            step.retitles[record.old_text] = as_raw_title(record.new_text)
     return steps
 
 

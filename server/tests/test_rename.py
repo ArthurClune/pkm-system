@@ -6,13 +6,18 @@ import pytest
 from pkm import rename
 from pkm import refs
 from pkm.refs import normalize_title
-from pkm.rename import rewrite_title_refs, rewrite_title_refs_map
+from pkm.rename import rewrite_title_refs, rewrite_title_refs_map as _rewrite_map
 from pkm.test_data.ids import normalized_title_of, raw_title_of
 
 GRAMMAR_FIXTURE = (
     Path(__file__).parents[2] / "shared" / "fixtures" / "ref_grammar.json"
 )
 GRAMMAR_CASES = json.loads(GRAMMAR_FIXTURE.read_text())["cases"]
+
+
+def _map(text, replacements, **kwargs):
+    return _rewrite_map(
+        text, {k: raw_title_of(v) for k, v in replacements.items()}, **kwargs)
 
 
 def _rewrite(text, old, new):
@@ -159,7 +164,7 @@ def test_lone_hash_is_not_a_tag():
 def test_outer_replacement_wins_over_a_tag_nested_inside_it():
     # Rewriting both would need overlapping spans; the outer one takes the
     # whole bracket and the inner tag is never visited.
-    assert rewrite_title_refs_map(
+    assert _map(
         "[[A #Old]]", {"A #Old": "Outer", "Old": "New"}
     ) == "[[Outer]]"
 
@@ -178,10 +183,10 @@ def test_descent_reaches_a_title_nested_two_levels_deep():
 def test_a_replaced_middle_title_swallows_the_ref_nested_inside_it():
     # Outer-wins applies at every depth, not just the top: the middle bracket
     # is replaced whole, so the "Old" inside it is never visited.
-    assert rewrite_title_refs_map(
+    assert _map(
         "[[A [[B [[Old]]]]]]", {"B [[Old]]": "Inner", "Old": "New"}
     ) == "[[A [[Inner]]]]"
-    assert rewrite_title_refs_map(
+    assert _map(
         "[[A [[B [[Old]]]]]]", {"A [[B [[Old]]]]": "Top", "Old": "New"}
     ) == "[[Top]]"
 
@@ -245,7 +250,7 @@ def test_a_tag_inside_an_unreplaced_title_is_rewritten_at_any_depth():
 
 
 def test_block_refs_and_embeds_are_not_bracket_runs():
-    assert rewrite_title_refs_map(
+    assert _map(
         "{{[[embed]]: ((abcdef123))}} [[Old]]",
         {"Old": "New", "embed": "E"},
     ) == "{{[[E]]: ((abcdef123))}} [[New]]"
@@ -273,7 +278,7 @@ def test_the_rewriter_reaches_every_ref_the_extractor_reports(case):
     # one reported title must change the text it was reported from.
     text = case["text"]
     for ref in refs.extract(text).refs:
-        rewritten = rewrite_title_refs_map(
+        rewritten = _map(
             text, {ref.title: "Sentinel"}, normalize=normalize_title
         )
         assert rewritten != text, (ref, text)
@@ -284,7 +289,7 @@ def test_no_refs_no_change():
 
 
 def test_map_rewrites_multiple_titles_simultaneously():
-    assert rewrite_title_refs_map(
+    assert _map(
         "[[ Acme]] and [[Acme ]] plus #Legacy",
         {" Acme": "Acme", "Acme ": "Acme", "Legacy": "New Name"},
     ) == "[[Acme]] and [[Acme]] plus #[[New Name]]"
@@ -292,7 +297,7 @@ def test_map_rewrites_multiple_titles_simultaneously():
 
 def test_map_preserves_code_and_attributes_and_ignores_unrelated_casing():
     text = "Legacy:: `[[ Acme]]`\n```\n#Legacy\n```\n[[ Acme]] [[acme]]"
-    assert rewrite_title_refs_map(
+    assert _map(
         text,
         {" Acme": "Acme", "Legacy": "New Name"},
     ) == "New Name:: `[[ Acme]]`\n```\n#Legacy\n```\n[[Acme]] [[acme]]"
@@ -300,11 +305,11 @@ def test_map_preserves_code_and_attributes_and_ignores_unrelated_casing():
 
 def test_map_order_does_not_change_the_result():
     text = "[[ Acme]] [[Acme ]] #Legacy"
-    first = rewrite_title_refs_map(
+    first = _map(
         text,
         {" Acme": "Acme", "Acme ": "Acme", "Legacy": "New Name"},
     )
-    second = rewrite_title_refs_map(
+    second = _map(
         text,
         {"Legacy": "New Name", "Acme ": "Acme", " Acme": "Acme"},
     )
@@ -316,19 +321,19 @@ def test_map_matches_written_spellings_verbatim_by_default():
     # Rename and the title migration key their maps by the stored title, so
     # a ref spelled with control whitespace is not theirs to rewrite.
     text = "Two\tLine:: v and [[Two\nLine]]"
-    assert rewrite_title_refs_map(text, {"Two Line": "One"}) == text
+    assert _map(text, {"Two Line": "One"}) == text
 
 
 def test_map_normalizes_written_spellings_when_given_a_normalizer():
     # The importer's keys come from extract(), which normalizes every title.
     text = "Two\tLine:: v and [[Two\nLine]]"
-    assert rewrite_title_refs_map(
+    assert _map(
         text, {"Two Line": "One"}, normalize=normalize_title
     ) == "One:: v and [[One]]"
 
 
 def test_map_treats_replacement_values_as_opaque():
-    assert rewrite_title_refs_map(
+    assert _map(
         "[[Old]] and [[Other]]",
         {"Old": "New #Old", "Other": "Old"},
     ) == "[[New #Old]] and [[Old]]"

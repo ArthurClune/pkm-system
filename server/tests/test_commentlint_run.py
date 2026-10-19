@@ -164,3 +164,45 @@ def test_the_header_names_only_the_families_that_fired(repo: Path, capsys):
     main([], repo)
     header = capsys.readouterr().err.splitlines()[0]
     assert "rots" in header and "brand rules" not in header
+
+
+REGISTRY_FILE = "server/src/pkm/brand_registry.py"
+MINTER = "server/src/pkm/minter.py"
+
+
+def registry_text(mint_sites: str) -> str:
+    return (
+        "NAMES = {}\nOPT_OUT_FILES = ()\nSHAPES = {'Thing': ('text', None)}\n"
+        f"MINT_SITES = {{'Thing': ({mint_sites})}}\nCAST_SITES = ()\nSQLITE_SITES = ()\n"
+        "TEST_MINT_SITES = ()\nTEST_HELPERS = {}\nMALFORMED = {}\nTEST_CODE = ()\n"
+    )
+
+
+def test_judges_the_staged_registry_not_the_working_tree_one(repo: Path, capsys):
+    write(repo, REGISTRY_FILE, registry_text(""))
+    write(repo, MINTER, "t = Thing('x')\n")
+    git(repo, "add", "server")
+    assert main([], repo) == 1
+    capsys.readouterr()
+    write(repo, REGISTRY_FILE, registry_text(f"'{MINTER}',"))
+    git(repo, "add", REGISTRY_FILE)
+    write(repo, REGISTRY_FILE, registry_text(""))
+    assert main([], repo) == 0
+
+
+def test_a_registry_change_left_unstaged_does_not_excuse_a_staged_mint(repo: Path):
+    write(repo, REGISTRY_FILE, registry_text(""))
+    git(repo, "add", REGISTRY_FILE)
+    git(repo, "commit", "-q", "-m", "base")
+    write(repo, MINTER, "t = Thing('x')\n")
+    git(repo, "add", MINTER)
+    write(repo, REGISTRY_FILE, registry_text(f"'{MINTER}',"))
+    assert main([], repo) == 1
+
+
+def test_a_staged_newtype_declaration_counts_as_a_brand(repo: Path):
+    write(repo, REGISTRY_FILE, registry_text(""))
+    write(repo, "server/src/pkm/ids.py", "Fresh = NewType('Fresh', str)\n")
+    write(repo, MINTER, "t = Fresh('x')\n")
+    git(repo, "add", "server")
+    assert main([], repo) == 1

@@ -59,6 +59,10 @@ export interface Columns {
   next_order_idx: OrderIdx;
   next_sidebar_order_idx: SidebarOrderIdx;
   latest_seq: SyncSeq;
+  applied_rowid: number;
+  after_batch_rowid: number;
+  log_at: number;
+  log_ord: number;
   pending_row_id: PendingRowId;
   ops_json: string;
   poisoned: number;
@@ -145,6 +149,10 @@ export const COLUMN_META: { readonly [K in keyof Columns]: ColumnMeta } = {
   next_order_idx: { brand: "OrderIdx", base: "int", nullable: false, literals: null },
   next_sidebar_order_idx: { brand: "SidebarOrderIdx", base: "int", nullable: false, literals: null },
   latest_seq: { brand: "SyncSeq", base: "int", nullable: false, literals: null },
+  applied_rowid: { brand: null, base: "int", nullable: false, literals: null },
+  after_batch_rowid: { brand: null, base: "int", nullable: false, literals: null },
+  log_at: { brand: null, base: "int", nullable: false, literals: null },
+  log_ord: { brand: null, base: "int", nullable: false, literals: null },
   pending_row_id: { brand: "PendingRowId", base: "int", nullable: false, literals: null },
   ops_json: { brand: null, base: "text", nullable: false, literals: null },
   poisoned: { brand: null, base: "int", nullable: false, literals: null },

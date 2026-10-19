@@ -351,6 +351,13 @@ def test_rebinding_an_import_alias_is_a_mint():
     "X = tuple[BlockUid, PageId] | None",
     "X: TypeAlias = list[BlockUid]",
     'X = NewType("X", BlockUid)',
+    'T = TypeVar("T", bound=BlockUid)',
+    'T = typing.TypeVar("T", BlockUid, PageId)',
+    'T = TypeVar("T", bound="BlockUid")',
+    'T = TypeVar("T", default=BlockUid)',
+    "X: TypeAlias = BlockUid",
+    "X: typing.TypeAlias = ops.BlockUid",
+    "type X = BlockUid",
     "def f() -> BlockUid: ...",
     "x: BlockUid = y",
     "def f(x: tuple[BlockUid, ...]) -> None: ...",
@@ -366,6 +373,8 @@ def test_a_brand_in_a_type_expression_is_not_a_value(source: str):
     "isinstance(BlockUid, type)",
     'NewType(BlockUid, str)',
     "TypeAdapter(int, BlockUid)",
+    'T = TypeVar(BlockUid)',
+    "X: object = BlockUid",
 ])
 def test_only_the_type_slot_of_a_type_taking_call_is_exempt(source: str):
     assert "brand-mint" in rules(source + "\n", TEST)
@@ -510,7 +519,7 @@ def test_an_annotated_brand_attribute_under_a_type_ignore_is_flagged():
     source = "class A:\n    def __init__(self, x: object):\n        self.uid: BlockUid = x  # type: ignore\n"
     assert rules(source, TEST) == ["brand-launder"]
     assert rules(source.replace("  # type: ignore", ""), TEST) == []
-    plain = source.replace("BlockUid", "str")
+    plain = source.replace("BlockUid", "str").replace("uid", "title")
     assert rules(plain, TEST) == []
 
 

@@ -49,6 +49,9 @@ RULES = {
                    "under a newer python3",
     "brand-opt-out": "`# brand: untrusted -- <reason>` is allowed only in route modules (routes_*.py) and "
                      "must give a reason",
+    "brand-opt-out-unused": "this `# brand: untrusted -- <reason>` covers no site: an opt-out covers the leftmost "
+                            "brand-named parameter or field it is on that is not already carrying its brand, "
+                            "so remove it, or give each further site its own line and its own opt-out",
     "test-mint-import": "`pkm.test_data.ids` mints any brand unchecked by the product's rules and is for "
                         "tests only: in product code read the value from a `select()` row, a contract model "
                         "or a parser",
@@ -184,9 +187,58 @@ def _scan(node: ast.expr, in_union: bool, found: list[tuple[str, bool]]) -> None
             _scan(elt, in_union, found)
 
 
+# Generics whose elements are the ids themselves, and generics whose key is;
+# the web rule accepts the same shapes (an array, a Set, a Map or Record key).
+_ELEMENTS = frozenset({
+    "list", "List", "set", "Set", "frozenset", "FrozenSet", "tuple", "Tuple", "deque", "Deque",
+    "Sequence", "MutableSequence", "Iterable", "Iterator", "Collection", "AbstractSet", "MutableSet",
+})
+_KEYED = frozenset({
+    "dict", "Dict", "Mapping", "MutableMapping", "defaultdict", "DefaultDict", "OrderedDict", "Counter",
+})
+# Wrappers that annotate their first argument without changing the type.
+_WRAPPERS = frozenset({"Annotated", "Final", "ClassVar", "Required", "NotRequired", "ReadOnly"})
+
+
+def _carries(node: ast.expr, brands: tuple[str, ...]) -> bool:
+    """Whether the annotation is one of `brands`, `None`, a list, tuple or
+    set of those, a mapping keyed by one, or a union of such: the shapes the
+    web rule accepts. A union with the base type, or a brand merely nested in
+    another generic (`dict[str, BlockUid]`), does not carry it."""
+    if isinstance(node, (ast.Name, ast.Attribute)):
+        return _leaf(node) in brands
+    if isinstance(node, ast.Constant):
+        if node.value is None:
+            return True
+        if isinstance(node.value, str):
+            try:
+                return _carries(ast.parse(node.value.strip(), mode="eval").body, brands)
+            except SyntaxError:
+                return False
+        return False
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return _carries(node.left, brands) and _carries(node.right, brands)
+    if isinstance(node, ast.Subscript):
+        head = _leaf(node.value)
+        args = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+        if head in ("Union", "Optional") or head in _ELEMENTS:
+            return all(_carries(a, brands) or _is_ellipsis(a) for a in args)
+        if head in _WRAPPERS:
+            return _carries(args[0], brands)
+        if head in _KEYED:
+            return _carries(args[0], brands)
+    return False
+
+
+def _is_ellipsis(node: ast.expr) -> bool:
+    return isinstance(node, ast.Constant) and node.value is Ellipsis
+
+
 def _problem(name: str, annotation: ast.expr, registry: Registry) -> str | None:
     """Why `annotation` does not carry the brand of `name`, or None."""
     brands = registry.names[name]
+    if _carries(annotation, brands):
+        return None
     found: list[tuple[str, bool]] = []
     _scan(annotation, False, found)
     bases = {_BASES.get(registry.shapes.get(b, ("", None))[0], "") for b in brands} - {""}
@@ -194,26 +246,68 @@ def _problem(name: str, annotation: ast.expr, registry: Registry) -> str | None:
     allows = sorted({t for t, member in found if member and t in loose})
     if allows:
         return f"`{name}` must be {' or '.join(brands)}, but the annotation also allows `{allows[0]}`"
-    if not {t for t, _ in found} & set(brands):
-        return f"`{name}` must be {' or '.join(brands)}"
-    return None
+    return f"`{name}` must be {' or '.join(brands)}"
+
+
+def _class_statements(body: list[ast.stmt]):
+    """The statements of a class body, including those under `if`, `try`,
+    `with` and loops, but not inside a nested function or class."""
+    for stmt in body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        yield stmt
+        for field_name in ("body", "orelse", "finalbody"):
+            yield from _class_statements(getattr(stmt, field_name, []))
+        for handler in getattr(stmt, "handlers", []):
+            yield from _class_statements(handler.body)
+        for case in getattr(stmt, "cases", []):
+            yield from _class_statements(case.body)
+
+
+def _functional_fields(call: ast.Call):
+    """(name, annotation, first line, last line, column) of each field a
+    functional `TypedDict("A", {"uid": str})` or `NamedTuple("A", [("uid",
+    str)])` (or its keyword form) declares."""
+    kind = _leaf(call.func)
+    if kind not in ("TypedDict", "NamedTuple"):
+        return
+    pairs: list[tuple[ast.expr | None, ast.expr, ast.expr]] = []
+    fields = call.args[1] if len(call.args) > 1 else None
+    if kind == "TypedDict" and isinstance(fields, ast.Dict):
+        pairs += [(k, v, v) for k, v in zip(fields.keys, fields.values)]
+    elif kind == "NamedTuple" and isinstance(fields, (ast.List, ast.Tuple)):
+        for elt in fields.elts:
+            if isinstance(elt, (ast.Tuple, ast.List)) and len(elt.elts) == 2:
+                pairs.append((elt.elts[0], elt.elts[1], elt))
+    for pair_key, value, span in pairs:
+        if isinstance(pair_key, ast.Constant) and isinstance(pair_key.value, str):
+            yield pair_key.value, value, span.lineno, span.end_lineno or span.lineno, span.col_offset
+    for k in call.keywords:
+        if k.arg is not None:
+            yield k.arg, k.value, k.value.lineno, k.value.end_lineno or k.value.lineno, k.value.col_offset
 
 
 def _annotated_names(tree: ast.AST):
-    """(name, annotation or None, first line, last line) for every checked
-    site. A function parameter without an annotation is checked too, since
-    it takes anything; a lambda's is not."""
+    """(name, annotation or None, first line, last line, column) for every
+    checked site: a function parameter (without an annotation too, since it
+    takes anything; a lambda's is not), a class field however deeply under
+    `if` or `try`, an annotated attribute (`self.uid: str = ...`) and a field
+    of a functional TypedDict or NamedTuple."""
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             a = node.args
             params = [*a.posonlyargs, *a.args, *a.kwonlyargs]
             params += [p for p in (a.vararg, a.kwarg) if p is not None]
             for p in params:
-                yield p.arg, p.annotation, p.lineno, p.end_lineno or p.lineno
+                yield p.arg, p.annotation, p.lineno, p.end_lineno or p.lineno, p.col_offset
         elif isinstance(node, ast.ClassDef):
-            for stmt in node.body:
+            for stmt in _class_statements(node.body):
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                    yield stmt.target.id, stmt.annotation, stmt.lineno, stmt.end_lineno or stmt.lineno
+                    yield stmt.target.id, stmt.annotation, stmt.lineno, stmt.end_lineno or stmt.lineno, stmt.col_offset
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Attribute):
+            yield node.target.attr, node.annotation, node.lineno, node.end_lineno or node.lineno, node.col_offset
+        elif isinstance(node, ast.Call):
+            yield from _functional_fields(node)
 
 
 def _is_any(node: ast.expr) -> bool:
@@ -392,11 +486,21 @@ def _imports_module(node: ast.Import | ast.ImportFrom, path: str, module: str) -
 # Calls whose argument at this position is a type, not a value: the brand
 # there is not a function to apply.
 _TYPE_SLOTS = {"cast": 0, "NewType": 1, "TypeAdapter": 0, "isinstance": 1, "assert_type": 1}
+# A TypeVar's constraints are the positional arguments after its name; its
+# bound and default are keywords.
+_TYPEVAR_KEYWORDS = ("bound", "default")
+
+
+def _is_type_alias(annotation: ast.expr) -> bool:
+    return _leaf(annotation) == "TypeAlias"
 
 
 def _type_expressions(tree: ast.AST) -> set[int]:
-    """ids of every node inside a subscript's slice or a type-taking call's
-    type slot: `dict[str, BlockUid]`, `isinstance(x, (A, B))`."""
+    """ids of every node inside a subscript's slice, a type-taking call's
+    type slot, a TypeVar's constraints, bound or default, the field types of a
+    functional TypedDict or NamedTuple, or the value of a
+    `TypeAlias` annotation: `dict[str, BlockUid]`, `isinstance(x, (A, B))`,
+    `TypeVar("T", bound=BlockUid)`, `X: TypeAlias = BlockUid`."""
     roots: list[ast.AST] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Subscript):
@@ -405,6 +509,14 @@ def _type_expressions(tree: ast.AST) -> set[int]:
             slot = _TYPE_SLOTS.get(_leaf(node.func) or "")
             if slot is not None and len(node.args) > slot:
                 roots.append(node.args[slot])
+            if _leaf(node.func) in ("TypedDict", "NamedTuple"):
+                roots.extend(node.args[1:])
+                roots.extend(k.value for k in node.keywords)
+            if _leaf(node.func) == "TypeVar":
+                roots.extend(node.args[1:])
+                roots.extend(k.value for k in node.keywords if k.arg in _TYPEVAR_KEYWORDS)
+        elif isinstance(node, ast.AnnAssign) and node.value is not None and _is_type_alias(node.annotation):
+            roots.append(node.value)
     return {id(n) for root in roots for n in ast.walk(root)}
 
 
@@ -557,7 +669,7 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
     allowed = _opt_out_allowed(path, registry)
     is_test = _site_allowed(path, registry.test_code)
     out: list[Violation] = []
-    opted: set[int] = set()
+    opted: dict[int, str] = {}
     ignored: set[int] = set()
     first_code = tree.body[0].lineno if tree.body else len(lines) + 1
     for n, comment in _comments(text):
@@ -575,20 +687,30 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
         if not allowed or not _REASON.match(m.group("rest")):
             out.append(Violation(path, n, "brand-opt-out", comment.strip()))
         else:
-            opted.add(n)
-    for name, annotation, first, last in _annotated_names(tree):
+            opted[n] = comment.strip()
+    # An opt-out covers one site: the leftmost brand-named site, still not
+    # carrying its brand, on the lines the comment sits in. A second site on
+    # the line is reported, and an opt-out that covered none is too.
+    claimed: set[int] = set()
+    for name, annotation, first, last, _col in sorted(_annotated_names(tree), key=lambda s: (s[2], s[4])):
         if name not in registry.names:
             continue
         if annotation is None:
             problem = f"`{name}` has no annotation: annotate it `{' or '.join(registry.names[name])}`"
         else:
             problem = _problem(name, annotation, registry)
-        if problem is None or any(n in opted for n in range(first, last + 1)):
+        if problem is None:
+            continue
+        cover = next((n for n in range(first, last + 1) if n in opted and n not in claimed), None)
+        if cover is not None:
+            claimed.add(cover)
             continue
         fix = _test_fix(registry.names[name][0], registry) if is_test else ""
         if fix:
             problem += f"; for a value in a test, {fix}"
         out.append(Violation(path, first, "brand-name", f"{problem}: {lines[first - 1].strip()}"))
+    out.extend(Violation(path, n, "brand-opt-out-unused", comment) for n, comment in opted.items()
+               if n not in claimed)
     for line, name, brand in _ignored_literals(path, tree, ignored, registry):
         fix = _test_fix(brand, registry) if is_test else ""
         what = f"`{name}=` value on a line whose type check is silenced"

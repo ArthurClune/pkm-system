@@ -1,21 +1,20 @@
 import { describe, expect, test } from "vitest";
-import { block, orderIdxOf, uidOf } from "../test-helpers";
+import { block, orderIdxOf, typeProbe, uidOf } from "../test-helpers";
 import type { MoveOp } from "../api/ops";
 import { FIRST_ORDER_IDX, orderIdxAfter, orderIdxAfterLast,
          orderIdxPlus } from "./orderIdx";
 import { locate } from "./tree";
 
-describe("OrderIdx narrowing", () => {
-  test("a MoveOp's order_idx cannot be a dense sibling position", () => {
-    const siblings = [block("tuid-a", "A"), block("tuid-b", "B")];
-    const found = locate(siblings, uidOf("tuid-b"))!;
-    const op: MoveOp = {
-      op: "move", uid: uidOf("tuid-a"), parent_uid: null,
-      // @ts-expect-error a dense position is not an OrderIdx
-      order_idx: found.index,
-    };
-    void op;
-  });
+// A MoveOp's order_idx cannot be a dense sibling position.
+typeProbe(() => {
+  const siblings = [block("tuid-a", "A"), block("tuid-b", "B")];
+  const found = locate(siblings, uidOf("tuid-b"))!;
+  const op: MoveOp = {
+    op: "move", uid: uidOf("tuid-a"), parent_uid: null,
+    // @ts-expect-error a dense position is not an OrderIdx
+    order_idx: found.index,
+  };
+  void op;
 });
 
 describe("orderIdxAfter", () => {

@@ -1,10 +1,10 @@
 // Drift probes and behaviour tests for the generated-type API boundary.
-// Most of this file is a COMPILE-time test: `pnpm typecheck` is
-// what runs it. Every expected-error directive below must stay an error --
+// The typeProbe blocks are COMPILE-time tests: `pnpm typecheck` is what runs
+// them. Every expected-error directive below must stay an error --
 // TypeScript reports an UNUSED suppression as an error of its own, so a probe
 // that stops catching its drift fails the build rather than silently passing.
 import { afterEach, expect, it, vi } from "vitest";
-import { READ_INIT, sidebarEntryIdOf, canonicalTitleOf } from "../test-helpers";
+import { READ_INIT, sidebarEntryIdOf, canonicalTitleOf, typeProbe } from "../test-helpers";
 import type { CurrentWorkPayload, JournalPayload, PageMeta,
               PagePayload } from "./payloads";
 import { setOfflineGateway } from "./client";
@@ -24,7 +24,7 @@ it("types the rename response as a discriminated result", () => {
 
 // --- the path + method determine the response type ---
 
-function responseTypes() {
+typeProbe(() => {
   const page: Promise<PagePayload> =
     apiGet("/api/page/{title}", { path: { title: "T" } });
   const work: Promise<CurrentWorkPayload> = apiGet("/api/current-work");
@@ -35,18 +35,18 @@ function responseTypes() {
       path: { title: "T" },
       body: { new_title: "U", allow_merge: false },
     });
-  return { page, work, created, renamed };
-}
+  void [page, work, created, renamed];
+});
 
 // A caller can no longer name a response type the route does not return.
-function wrongResponseType() {
+typeProbe(() => {
   // @ts-expect-error /api/page/{title} returns PagePayload, not JournalPayload
   const wrong: Promise<JournalPayload> =
     apiGet("/api/page/{title}", { path: { title: "T" } });
-  return wrong;
-}
+  void wrong;
+});
 
-function methodAndPathAreChecked() {
+typeProbe(() => {
   // Options are supplied on purpose: without them the call would fail on
   // arity alone, which is not the drift these probes are pinning down.
   // @ts-expect-error /api/journal has no POST
@@ -55,9 +55,9 @@ function methodAndPathAreChecked() {
   void apiGet("/api/not-a-route", { query: { q: "x" } });
   // @ts-expect-error /api/sidebar has no DELETE (only /api/sidebar/{entry_id})
   void apiDelete("/api/sidebar", {});
-}
+});
 
-function parametersAreChecked() {
+typeProbe(() => {
   // @ts-expect-error {title} is a required path parameter
   void apiGet("/api/page/{title}", {});
   // @ts-expect-error /api/current-work takes no path parameters
@@ -68,21 +68,21 @@ function parametersAreChecked() {
   void apiGet("/api/block-refs");
   // @ts-expect-error bl_limit is a number
   void apiGet("/api/page/{title}", { path: { title: "T" }, query: { bl_limit: "5" } });
-}
+});
 
-function headersMustBeAPlainRecord() {
+typeProbe(() => {
   // @ts-expect-error a Headers instance would be dropped by the merge
   void apiGet("/api/current-work", { init: { headers: new Headers() } });
-}
+});
 
-function requestBodiesAreChecked() {
+typeProbe(() => {
   // @ts-expect-error the field is `title`, not `titel`
   void apiPost("/api/pages", { body: { titel: "T" } });
   // @ts-expect-error POST /api/pages requires a body
   void apiPost("/api/pages");
   // @ts-expect-error GET /api/current-work takes no request body
   void apiGet("/api/current-work", { body: { title: "T" } });
-}
+});
 
 // --- runtime behaviour: URL building and dispatch through apiFetch ---
 
@@ -199,15 +199,4 @@ it("still routes through the offline gateway", async () => {
   const payload = await apiGet("/api/current-work");
   expect(payload).toEqual({ sections: [], path: "/api/current-work" });
   expect(fetchMock).not.toHaveBeenCalled();
-});
-
-// Referenced so `noUnusedLocals` does not delete the compile-time probes and
-// so a probe helper that throws at runtime would be noticed.
-it("keeps the compile-time probes referenced", () => {
-  expect(typeof responseTypes).toBe("function");
-  expect(typeof wrongResponseType).toBe("function");
-  expect(typeof methodAndPathAreChecked).toBe("function");
-  expect(typeof parametersAreChecked).toBe("function");
-  expect(typeof headersMustBeAPlainRecord).toBe("function");
-  expect(typeof requestBodiesAreChecked).toBe("function");
 });

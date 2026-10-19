@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import type { SyncSeq } from "../api/brands";
 import type { PendingRowId } from "./client";
 import { pendingSetStillCovered } from "./pendingGuard";
-import { pendingRowIdOf, seqOf } from "../test-helpers";
+import { pendingRowIdOf, seqOf, typeProbe } from "../test-helpers";
 
 const rid = (n: number): PendingRowId => pendingRowIdOf(n);
 
@@ -60,7 +60,7 @@ test("a reordered set is never covered", () => {
 
 // `pendingSetStillCovered`'s id/seq pair looks interchangeable as bare
 // numbers -- this is the swap the brands exist to block at compile time.
-test("the id/seq brands reject a swapped call (compile-time only)", () => {
+typeProbe(() => {
   const id = rid(1);
   const seq = seqOf(7);
   // @ts-expect-error a PendingRowId array is not a SyncSeq array
@@ -70,5 +70,4 @@ test("the id/seq brands reject a swapped call (compile-time only)", () => {
   // @ts-expect-error the acked map is keyed by PendingRowId, valued by
   // SyncSeq -- swapping them must not typecheck even though both are numbers
   pendingSetStillCovered([], [], new Map([[seq, id]]), seq);
-  expect(true).toBe(true); // the assertions above are compile-time only
 });

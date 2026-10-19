@@ -1,16 +1,38 @@
 // @vitest-environment node
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { rollbackToSavepoint } from "./db";
+import { rollbackToSavepoint, type ReplicaDb } from "./db";
 import { openTestDb } from "./testDb";
 import { CLIENT_DDL, SCHEMA_VERSION, installSchema } from "./clientSchema";
 import { getMeta, setMeta } from "./meta";
 import { sha256Hex } from "./sha256";
+import { offType, typeProbe } from "../test-helpers";
 
 // Deliberate engine failures log through console.warn (the engine's own
 // "sqlite3_step() rc= ..." lines via testDb.ts, plus the wrapper's); each test
 // that provokes one spies and asserts it.
 const quietWarn = () => vi.spyOn(console, "warn").mockImplementation(() => undefined);
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
+
+// A ReplicaDb whose select takes any key list, for the tests that hand the
+// row check a key the types already refuse.
+const anyKeys = (db: ReplicaDb) =>
+  offType<{ select(sql: string, keys: string[]): unknown[] }>(db);
+
+// select names Columns keys and nothing else: the keys are required and
+// non-empty, and a raw column name is not a key.
+typeProbe(() => {
+  const probe = (db: ReplicaDb) => {
+    // @ts-expect-error "id" is the raw column; the key is page_id
+    db.select("SELECT id FROM pages", ["id"]);
+    // @ts-expect-error "nope" is not a Columns key
+    db.select("SELECT 1 AS nope", ["nope"]);
+    // @ts-expect-error keys are required
+    db.select("SELECT 1 AS n");
+    // @ts-expect-error keys are non-empty
+    db.select("SELECT 1 AS n", []);
+  };
+  void probe;
+});
 
 describe("sha256Hex", () => {
   test("matches known vectors", () => {
@@ -48,24 +70,15 @@ describe("wrapSqlite + installSchema", () => {
     t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
     expect(() => t.db.select("SELECT title AS uid FROM pages", ["uid"]))
       .toThrow(/row check failed.*uid: "AI" is not a valid BlockUid/);
-    // @ts-expect-error "id" is the raw column; the key is page_id
-    expect(() => t.db.select("SELECT id FROM pages", ["id"]))
+    expect(() => anyKeys(t.db).select("SELECT id FROM pages", ["id"]))
       .toThrow(/id: not a registered row key/);
     t.close();
   });
 
   test("select names Columns keys and nothing else", async () => {
     const t = await openTestDb();
-    // @ts-expect-error "nope" is not a Columns key
-    expect(() => t.db.select("SELECT 1 AS nope", ["nope"])).toThrow(/nope/);
-    // Type-only: the keys are required and non-empty.
-    const never = () => {
-      // @ts-expect-error keys are required
-      t.db.select("SELECT 1 AS n");
-      // @ts-expect-error keys are non-empty
-      t.db.select("SELECT 1 AS n", []);
-    };
-    expect(never).toBeTypeOf("function");
+    expect(() => anyKeys(t.db).select("SELECT 1 AS nope", ["nope"]))
+      .toThrow(/nope/);
     expect(t.db.select("SELECT 1 AS n", ["n"])[0].n).toBe(1);
     t.close();
   });
@@ -287,8 +300,7 @@ describe("the row check outside test mode", () => {
 
   test("is on under test and throws on a bad row", async () => {
     const { wrapSqlite } = await import("./db");
-    // @ts-expect-error "nope" is not a Columns key
-    expect(() => wrapSqlite(badRows).select("SELECT 1 AS nope", ["nope"]))
+    expect(() => anyKeys(wrapSqlite(badRows)).select("SELECT 1 AS nope", ["nope"]))
       .toThrow(/not a registered row key/);
   });
 
@@ -296,8 +308,8 @@ describe("the row check outside test mode", () => {
     vi.stubEnv("MODE", "production");
     vi.resetModules();
     const { wrapSqlite } = await import("./db");
-    // @ts-expect-error "nope" is not a Columns key
-    expect(wrapSqlite(badRows).select("SELECT 1 AS nope", ["nope"])).toEqual([{ nope: 1 }]);
+    expect(anyKeys(wrapSqlite(badRows)).select("SELECT 1 AS nope", ["nope"]))
+      .toEqual([{ nope: 1 }]);
     vi.resetModules();
   });
 

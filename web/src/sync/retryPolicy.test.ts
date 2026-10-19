@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { uidOf, pendingRowIdOf, batchIdOf } from "../test-helpers";
+import { uidOf, pendingRowIdOf, batchIdOf, offType } from "../test-helpers";
 import { planRetry, type RetryPlan } from "./retryPolicy";
 import type { SyncProblem } from "./syncState";
 
@@ -68,8 +68,7 @@ describe("planRetry", () => {
   it("rejects an unknown problem kind rather than silently doing nothing", () => {
     expect(() => planRetry(
       // A kind the union lacks, which the planner must refuse.
-      // @ts-expect-error -- not a SyncProblem kind
-      { kind: "brand-new" }, closed,
+      offType<SyncProblem>({ kind: "brand-new" }), closed,
     )).toThrow(/unhandled sync problem/);
   });
 });

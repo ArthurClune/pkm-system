@@ -14,6 +14,7 @@ import {
   orderIdxOf,
   type SyncFake,
   canonicalTitleOf,
+  typeProbe,
   uidOf,
   clientIdOf,
 } from "../test-helpers";
@@ -38,13 +39,13 @@ function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
   return () => outline;
 }
 
-// Never rendered: a type-only probe that useOutline's title is the stored
-// (canonical) form, not one only normalized.
-export function NormalizedTitleProbe() {
+// useOutline's title is the stored (canonical) form, not one only normalized.
+// The hook is not called: a hook call has no place in a probe.
+typeProbe(() => {
   // @ts-expect-error a NormalizedTitle is not a CanonicalTitle
-  useOutline(normalizedTitleOf("Page"), []);
-  return null;
-}
+  const title: Parameters<typeof useOutline>[0] = normalizedTitleOf("Page");
+  void title;
+});
 
 afterEach(() => resetHistory());
 

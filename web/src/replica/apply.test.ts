@@ -11,7 +11,7 @@ import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "
 import { openTestDb, type TestDb } from "./testDb";
 import type { ReplicaDb } from "./db";
 import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, sidebarEntryIdOf,
-         sidebarOrderIdxOf, uidOf } from "../test-helpers";
+         sidebarOrderIdxOf, typeProbe, uidOf } from "../test-helpers";
 
 // Tests that provoke a failure path on purpose spy on console.warn and assert
 // the line applyChanges or the engine (via testDb.ts) logs for it.
@@ -66,6 +66,13 @@ const emptyFeed = (over: Omit<Partial<Changes>, "next_since" | "latest_seq"> &
 };
 
 let t: TestDb;
+
+// A pages table's parked ids aren't a sidebar entry's.
+typeProbe(() => {
+  const parkedPages = parkTakenTitles(t.db, "pages", []);
+  // @ts-expect-error a pages table's parked ids aren't a sidebar entry's
+  assertNoParkedTitles(t.db, "sidebar_entries", parkedPages);
+});
 beforeEach(async () => {
   t?.close();
   t = await openTestDb();
@@ -491,8 +498,6 @@ describe("applyChanges", () => {
     const parkedPages = parkTakenTitles(t.db, "pages",
       [{ id: pageIdOf(2), title: canonicalTitleOf("a title nothing holds") }]);
     assertNoParkedTitles(t.db, "pages", parkedPages);
-    // @ts-expect-error a pages table's parked ids aren't a sidebar entry's
-    assertNoParkedTitles(t.db, "sidebar_entries", parkedPages);
   });
 
   test("a title still parked once the upserts ran trips assertNoParkedTitles", () => {

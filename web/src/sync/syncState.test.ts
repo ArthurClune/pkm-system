@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { PoisonEvent } from "./opQueue";
-import { computeEditability, transitionSync, type SyncProblem, type SyncState } from "./syncState";
-import { pendingRowIdOf, batchIdOf } from "../test-helpers";
+import { computeEditability, transitionSync, type SyncEvent, type SyncProblem,
+         type SyncState } from "./syncState";
+import { pendingRowIdOf, batchIdOf, offType } from "../test-helpers";
 
 // Test-only: production code builds a SyncState inline (SyncProvider.tsx's
 // applySync does `{ problem: prev }`), so this constructor lives here rather
@@ -478,8 +479,8 @@ describe("transitionSync ops-skipped", () => {
 describe("transitionSync exhaustiveness", () => {
   it("throws on an unknown event", () => {
     // An event type the union lacks, which the machine must refuse.
-    // @ts-expect-error -- not a SyncEvent type
-    expect(() => transitionSync(createSyncState(), { type: "nope" }))
+    expect(() => transitionSync(createSyncState(),
+      offType<SyncEvent>({ type: "nope" })))
       .toThrow();
   });
 });

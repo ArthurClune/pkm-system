@@ -13,11 +13,11 @@ const sources = import.meta.glob<string>(
 );
 
 // Brand -> its declared base: `string & { __brand }`, `number & { __brand }`,
-// or a subtype brand's parent (`NormalizedTitle & { __canonical }`).
+// or a subtype brand's parent (`RawTitle & { __normalized }`).
 function webBrands(): Map<string, "string" | "number"> {
   const parents = new Map<string, string>();
   for (const text of Object.values(sources)) {
-    for (const m of text.matchAll(/type (\w+) =\s*(\w+) & \{ readonly __(?:brand|canonical)\b/g)) {
+    for (const m of text.matchAll(/type (\w+) =\s*(\w+) & \{ readonly __(?:brand|normalized|canonical)\b/g)) {
       parents.set(m[1], m[2]);
     }
   }

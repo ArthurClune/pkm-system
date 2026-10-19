@@ -69,7 +69,10 @@ export function createBlockRefStore(): BlockRefStore {
       for (const [key, entry] of Object.entries(entries)) {
         // The payload's keys are plain strings: parse each into a uid.
         const uid = parseBlockUid(key);
-        if (uid === null) continue;
+        if (uid === null) {
+          console.warn("blockRefStore.resolve: dropping a key that is not a block uid", key);
+          continue;
+        }
         texts.set(uid, entry);
         claimed.delete(uid);
         notify(uid);

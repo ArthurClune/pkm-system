@@ -3,6 +3,7 @@ from datetime import date
 import pytest
 
 from pkm.contracts.daily import date_for_title, title_for_date
+from pkm.refs import canonical_daily_title
 from pkm.server.daily import (is_page_empty, past_week_dates,
                               select_journal_days)
 
@@ -96,3 +97,8 @@ def test_select_journal_days_cursor_is_exclusive_newest_first():
 def test_select_journal_days_cursor_returns_fewer_when_exhausted():
     assert select_journal_days(NONEMPTY, today=date(2026, 7, 22),
                                before=date(2026, 7, 2), limit=5) == []
+
+
+@pytest.mark.parametrize("day,title", CASES)
+def test_canonical_daily_title_is_the_daily_title_of_a_date(day, title):
+    assert canonical_daily_title(day) == title

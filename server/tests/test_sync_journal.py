@@ -17,7 +17,7 @@ def db(tmp_path):
 
 
 def _changed(db, kind):
-    return {r["entity_id"] for r in read(db,
+    return {r["entity_id"] for r in db.select(
         "SELECT entity_id FROM changes WHERE kind = ?", (kind,))}
 
 
@@ -49,7 +49,7 @@ def test_sibling_shift_journals_every_shifted_row(db):
     db.execute("UPDATE blocks SET order_idx = order_idx + 1"
                " WHERE page_id = 1 AND parent_uid IS NULL")
     db.commit()
-    shifted = {r["entity_id"] for r in read(db,
+    shifted = {r["entity_id"] for r in db.select(
         "SELECT entity_id FROM changes WHERE kind='block' AND seq > ?",
         (before,))}
     assert shifted == {"uid_aa1", "uid_aa2"}
@@ -59,11 +59,11 @@ def test_cascade_delete_journals_descendant_tombstones(db):
     _seed_page_with_blocks(db)
     db.execute("DELETE FROM pages WHERE id = 1")
     db.commit()
-    tombs = {r["entity_id"] for r in read(db,
+    tombs = {r["entity_id"] for r in db.select(
         "SELECT entity_id FROM changes WHERE kind='block' AND deleted=1")}
     # ON DELETE CASCADE removed all three blocks: all must be journaled
     assert tombs == {"uid_aa1", "uid_aa2", "uid_aa3"}
-    assert "1" in {r["entity_id"] for r in read(db,
+    assert "1" in {r["entity_id"] for r in db.select(
         "SELECT entity_id FROM changes WHERE kind='page' AND deleted=1")}
 
 
@@ -76,9 +76,8 @@ def test_page_and_sidebar_writes_journal(db):
     assert "3" in _changed(db, "sidebar")
     db.execute("DELETE FROM sidebar_entries WHERE id = 3")
     db.commit()
-    assert read(db,
-        "SELECT deleted FROM changes WHERE kind='sidebar' AND entity_id='3'"
-        " ORDER BY seq DESC LIMIT 1").fetchone()[0] == 1
+    assert db.select_one("SELECT deleted FROM changes WHERE kind='sidebar' AND entity_id='3'"
+        " ORDER BY seq DESC LIMIT 1")["deleted"] == 1
 
 
 def test_base_ddl_contains_no_server_tables():

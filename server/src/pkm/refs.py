@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 from typing import Iterable, Iterator, Literal, NewType
 
 from pkm.contracts.brands import brand
+from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BLOCK_REF_TOKEN, UID_RE, BlockUid
 
 # A title that has been through normalize_title: control whitespace
@@ -100,11 +102,11 @@ def parse_block_uid(text: str) -> BlockUid | None:
     return BlockUid(text) if UID_RE.fullmatch(text) else None
 
 
-def canonical_daily_title(day: str) -> CanonicalTitle:
-    """A `title_for_date` title as the canonical title it already is: its
-    fixed format never has control whitespace or boundary padding, all
+def canonical_daily_title(day: date) -> CanonicalTitle:
+    """The daily page title for `day`, as the canonical title it already is:
+    its fixed format never has control whitespace or boundary padding, all
     `canonicalize_title` ever changes, under either plain_space setting."""
-    return CanonicalTitle(NormalizedTitle(day))
+    return CanonicalTitle(NormalizedTitle(title_for_date(day)))
 
 
 def target_canonical_title(title: str) -> CanonicalTitle:

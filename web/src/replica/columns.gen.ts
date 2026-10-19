@@ -71,7 +71,7 @@ export interface Columns {
   client_meta_key: string;
   client_meta_value: string;
   replay_log_id: number;
-  replay_kind: string;
+  replay_kind: "block" | "page";
   replay_key: string;
   pre_json: string | null;
   pre_page_id: PageId | null;
@@ -79,9 +79,9 @@ export interface Columns {
   enqueued_ms: number;
   start_uid: BlockUid;
   depth: number;
-  has_pre: number;
-  present: number;
-  text_changed: number;
+  has_pre: 0 | 1;
+  present: 0 | 1;
+  text_changed: 0 | 1;
   pre_text: string | null;
   edited_at: number;
   joined_seen_seq: SyncSeq | null;
@@ -161,7 +161,7 @@ export const COLUMN_META: { readonly [K in keyof Columns]: ColumnMeta } = {
   client_meta_key: { brand: null, base: "text", nullable: false, literals: null },
   client_meta_value: { brand: null, base: "text", nullable: false, literals: null },
   replay_log_id: { brand: null, base: "int", nullable: false, literals: null },
-  replay_kind: { brand: null, base: "text", nullable: false, literals: null },
+  replay_kind: { brand: null, base: "text", nullable: false, literals: ["block", "page"] },
   replay_key: { brand: null, base: "text", nullable: false, literals: null },
   pre_json: { brand: null, base: "text", nullable: true, literals: null },
   pre_page_id: { brand: "PageId", base: "int", nullable: true, literals: null },
@@ -169,9 +169,9 @@ export const COLUMN_META: { readonly [K in keyof Columns]: ColumnMeta } = {
   enqueued_ms: { brand: null, base: "int", nullable: false, literals: null },
   start_uid: { brand: "BlockUid", base: "text", nullable: false, literals: null },
   depth: { brand: null, base: "int", nullable: false, literals: null },
-  has_pre: { brand: null, base: "int", nullable: false, literals: null },
-  present: { brand: null, base: "int", nullable: false, literals: null },
-  text_changed: { brand: null, base: "int", nullable: false, literals: null },
+  has_pre: { brand: null, base: "int", nullable: false, literals: [0, 1] },
+  present: { brand: null, base: "int", nullable: false, literals: [0, 1] },
+  text_changed: { brand: null, base: "int", nullable: false, literals: [0, 1] },
   pre_text: { brand: null, base: "text", nullable: true, literals: null },
   edited_at: { brand: null, base: "int", nullable: false, literals: null },
   joined_seen_seq: { brand: "SyncSeq", base: "int", nullable: true, literals: null },

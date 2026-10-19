@@ -1,13 +1,15 @@
-"""Read a database from a test outside the `Row` vocabulary that
-`Db.select` enforces (catalog tables, journal columns, counts). Rows are
-tuples that also index by column name, so they compare equal to plain tuples
-and `dict(row)` works.
+"""Read a database from a test for what `Db.select` cannot: catalog tables
+and PRAGMAs, FTS virtual tables, raw `rowid` and unaliased counts. A value
+under a `Row` key is read with `Db.select`, whose row check validates it;
+this module guards only the brands of that.
 
 A returned column named for a row key that carries a brand is refused, and
 so is a raw column name that COLUMN_KEYS maps to one (a bare `id`, the
-sidebar's `order_idx`): that value is read with `Db.select`, whose row check
-validates it. The refusal goes by returned name, so `uid AS u` reads an
-unbranded value and is not refused."""
+sidebar's `order_idx`). Nothing else is checked: an unbranded key read here
+gets no type, nullability or domain check, so reading one is a choice to
+skip it. The refusal goes by returned name, so `uid AS u` reads an unbranded
+value and is not refused. Rows are tuples that also index by column name, so
+they compare equal to plain tuples and `dict(row)` works."""
 import sqlite3
 from collections.abc import Callable
 

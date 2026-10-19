@@ -115,8 +115,7 @@ def test_hashed_clean_edit_lands_the_new_text(small_fixture):
 
     lm = backend.generate(1, 0.02).landmarks
     with _run_scenario(small_fixture, "ops/edit-hashed-clean") as con:
-        text = read(con, "SELECT text FROM blocks WHERE uid = ?",
-                           (lm.hashed_edit_uid,)).fetchone()[0]
+        text = con.select("SELECT text FROM blocks WHERE uid = ?", (lm.hashed_edit_uid,))[0]["text"]
         assert text == HASHED_EDIT_TEXT + " (clean edit)"
         # a clean apply never lands a conflict entry
         assert read(con, "SELECT COUNT(*) FROM conflict_headers").fetchone()[0] == 0
@@ -128,17 +127,15 @@ def test_hashed_identical_edit_is_a_true_noop(small_fixture):
     lm = backend.generate(1, 0.02).landmarks
     before = connect(small_fixture)
     try:
-        updated_at_before = read(before,
-            "SELECT updated_at FROM blocks WHERE uid = ?",
-            (lm.hashed_edit_uid,)).fetchone()[0]
+        updated_at_before = before.select(
+            "SELECT updated_at FROM blocks WHERE uid = ?", (lm.hashed_edit_uid,))[0]["updated_at"]
     finally:
         before.close()
     with _run_scenario(small_fixture, "ops/edit-hashed-identical") as con:
-        text, updated_at = read(con,
+        row = con.select_one(
             "SELECT text, updated_at FROM blocks WHERE uid = ?",
-            (lm.hashed_edit_uid,)).fetchone()
-        assert text == HASHED_EDIT_TEXT
-        assert updated_at == updated_at_before  # check 2: no write at all
+            (lm.hashed_edit_uid,))
+        assert row == {"text": HASHED_EDIT_TEXT, "updated_at": updated_at_before}  # check 2: no write at all
 
 
 def test_hashed_conflict_lands_the_loser_and_keeps_the_winner(small_fixture):
@@ -146,15 +143,14 @@ def test_hashed_conflict_lands_the_loser_and_keeps_the_winner(small_fixture):
 
     lm = backend.generate(1, 0.02).landmarks
     with _run_scenario(small_fixture, "ops/edit-hashed-conflict") as con:
-        text = read(con, "SELECT text FROM blocks WHERE uid = ?",
-                           (lm.hashed_edit_uid,)).fetchone()[0]
+        text = con.select("SELECT text FROM blocks WHERE uid = ?", (lm.hashed_edit_uid,))[0]["text"]
         assert text == HASHED_EDIT_TEXT + " (stale offline edit)"  # incoming wins
         headers = con.select("SELECT target_uid FROM conflict_headers")
         assert headers == [{"target_uid": lm.hashed_edit_uid}]
-        lost = read(con,
+        lost = con.select(
             "SELECT text FROM blocks WHERE parent_uid IN"
-            " (SELECT header_uid FROM conflict_headers)").fetchall()
-        assert lost == [(HASHED_EDIT_TEXT,)]  # the old text, preserved
+            " (SELECT header_uid FROM conflict_headers)")
+        assert lost == [{"text": HASHED_EDIT_TEXT}]  # the old text, preserved
 
 
 def test_rename_replay_applies_cleanly_onto_the_renamed_text(small_fixture):
@@ -162,8 +158,7 @@ def test_rename_replay_applies_cleanly_onto_the_renamed_text(small_fixture):
 
     lm = backend.generate(1, 0.02).landmarks
     with _run_scenario(small_fixture, "ops/edit-rename-replay") as con:
-        text = read(con, "SELECT text FROM blocks WHERE uid = ?",
-                           (lm.rename_ref_uid,)).fetchone()[0]
+        text = con.select("SELECT text FROM blocks WHERE uid = ?", (lm.rename_ref_uid,))[0]["text"]
         expected = (RENAME_REF_TEXT.replace("Perf Rename Source", RENAME_TARGET_TITLE)
                     + " (offline edit predating the rename)")
         assert text == expected
@@ -179,9 +174,8 @@ def test_edit_missing_block_lands_an_orphan_entry(small_fixture):
                            (MISSING_BLOCK_UID,)).fetchone()[0] == 0
         headers = con.select("SELECT target_uid FROM conflict_headers")
         assert headers == [{"target_uid": MISSING_BLOCK_UID}]
-        lost = read(con,
-            "SELECT text FROM blocks WHERE parent_uid IN"
-            " (SELECT header_uid FROM conflict_headers)").fetchone()[0]
+        lost = con.select("SELECT text FROM blocks WHERE parent_uid IN"
+            " (SELECT header_uid FROM conflict_headers)")[0]["text"]
         assert lost == "orphaned edit, block already gone"
 
 
@@ -193,9 +187,8 @@ def test_create_missing_parent_diverts_the_text(small_fixture):
                            (MISSING_PARENT_UID,)).fetchone()[0] == 0
         headers = con.select("SELECT target_uid FROM conflict_headers")
         assert headers == [{"target_uid": MISSING_PARENT_UID}]
-        lost = read(con,
-            "SELECT text FROM blocks WHERE parent_uid IN"
-            " (SELECT header_uid FROM conflict_headers)").fetchone()[0]
+        lost = con.select("SELECT text FROM blocks WHERE parent_uid IN"
+            " (SELECT header_uid FROM conflict_headers)")[0]["text"]
         assert lost == "diverted create, parent already gone"
 
 

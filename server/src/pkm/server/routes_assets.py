@@ -189,7 +189,7 @@ def _delete_if_unreferenced(request: Request, sha: Sha256Hex,
     return AssetDeleteAck(deleted=True, refs_removed=0)
 
 
-@router.delete("/api/assets/{sha256}")
+@router.delete("/api/assets/{sha256}", response_model=AssetDeleteAck)
 def delete_asset(request: Request, sha256: Sha256Hex,
                  if_unreferenced: bool = False,
                  db: Db = Depends(get_db),

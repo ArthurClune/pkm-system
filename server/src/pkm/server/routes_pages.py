@@ -54,7 +54,7 @@ class RenamePageRequest(BaseModel):
 
 
 def _daily_title(d: date) -> CanonicalTitle:
-    return canonical_daily_title(title_for_date(d))
+    return canonical_daily_title(d)
 
 
 def _block_ref_texts(db: Db,
@@ -310,7 +310,7 @@ def delete_preview(title: str,
         blockers=_blocker_models(plan.blockers))
 
 
-@router.delete("/api/page/{title:path}")
+@router.delete("/api/page/{title:path}", response_model=OkAck)
 def delete_page(request: Request, title: str,
                 db: Db = Depends(get_db)) -> OkAck:
     """Deletes the page, its blocks, and any sidebar entry for it. Inbound
@@ -577,7 +577,7 @@ def _daily_is_linked(db: Db, page_id: PageId) -> bool:
         (page_id, page_id, page_id, page_id)) is not None
 
 
-@router.post("/api/journal/cleanup")
+@router.post("/api/journal/cleanup", response_model=JournalCleanupResponse)
 def cleanup_journal(request: Request,
                     db: Db = Depends(get_db)) -> JournalCleanupResponse:
     """Deletes completely-empty daily pages from the 7 days before today

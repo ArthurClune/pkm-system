@@ -300,9 +300,8 @@ def test_zero_group_title_activation_forces_an_equal_cursor_replica_pull(
         latest_seq = read(db,
             "SELECT COALESCE(MAX(seq), 0) FROM changes"
         ).fetchone()[0]
-        old_generation = read(db,
-            "SELECT value FROM sync_meta WHERE key='db_generation'"
-        ).fetchone()[0]
+        old_generation = db.select(
+            "SELECT value AS sync_meta_value FROM sync_meta WHERE key='db_generation'")[0]["sync_meta_value"]
     finally:
         db.close()
 

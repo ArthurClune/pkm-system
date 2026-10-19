@@ -69,10 +69,16 @@ def _server_key(name: str, spec: KeySpec, exported: set[str]) -> _Key:
 
 
 def _client_key(name: str, type_name: str, nullable: bool,
-                exported: set[str]) -> _Key:
+                exported: set[str],
+                literals: tuple[str | int, ...] | None = None) -> _Key:
+    if literals is not None and type_name not in ("string", "number"):
+        raise RowsDumpError(
+            f"{name}: literals need a string or number key, not {type_name}")
     if type_name in ("string", "number"):
         base = "text" if type_name == "string" else "int"
-        return _Key(name, type_name, None, base, nullable, None)
+        ts = (type_name if literals is None
+              else " | ".join(json.dumps(v) for v in literals))
+        return _Key(name, ts, None, base, nullable, literals)
     if type_name in WEB_ONLY:
         return _Key(name, type_name, type_name, WEB_ONLY[type_name][1],
                     nullable, None)
@@ -90,7 +96,10 @@ def _all_keys() -> list[_Key]:
     if overlap:
         raise RowsDumpError(f"keys in both Row and CLIENT_KEYS: {overlap}")
     keys = [_server_key(n, s, exported) for n, s in KEYS.items()]
-    keys += [_client_key(n, t, nullable, exported)
+    stray = set(reg.CLIENT_LITERALS) - set(reg.CLIENT_KEYS)
+    if stray:
+        raise RowsDumpError(f"CLIENT_LITERALS names no client key: {stray}")
+    keys += [_client_key(n, t, nullable, exported, reg.CLIENT_LITERALS.get(n))
              for n, (t, nullable) in reg.CLIENT_KEYS.items()]
     return keys
 

@@ -823,6 +823,25 @@ describe("brands plugin judgement", () => {
     expect(found[1].message).toContain("`BlockUid[]`");
   }, ESLINT_TIMEOUT_MS);
 
+  it("says how many mint modules the remedy leaves out", async () => {
+    const text =
+      'import type { BlockUid } from "../api/brands";\n' +
+      "export const f = (s: string) => s as BlockUid;\n";
+    const found = await messagesFor("src/sync/opQueue.ts", text);
+    // BlockUid has seven web mint modules and the remedy names three
+    expect(found[0].message).toContain("and 4 more");
+    expect(found[0].message).not.toContain("...");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("points a brand with no web mint site at where the value enters", async () => {
+    const text =
+      'import type { ConversationId } from "../api/brands";\n' +
+      "export const f = (s: string) => s as ConversationId;\n";
+    const found = await messagesFor("src/sync/opQueue.ts", text);
+    expect(found[0].message).toContain("pass it in already branded");
+    expect(found[0].message).not.toContain("register");
+  }, ESLINT_TIMEOUT_MS);
+
   it("honours an opt-out line on a laundering assertion in a boundary", async () => {
     const text =
       "export function f<T>(x: unknown): T {\n" +

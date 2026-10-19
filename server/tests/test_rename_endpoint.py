@@ -231,8 +231,7 @@ def test_merge_block_with_both_titles_dedupes_refs(client, seeded_config):
     con.close()
     _rename(client, "cLaude", "Claude", allow_merge=True)
     con = connect(seeded_config.db_path)
-    text = read(con, "SELECT text FROM blocks WHERE uid = 'uid_both'"
-                       ).fetchone()[0]
+    text = con.select("SELECT text FROM blocks WHERE uid = 'uid_both'")[0]["text"]
     refs = con.select("SELECT target_page_id, kind AS ref_kind FROM refs"
                       " WHERE src_block_uid = 'uid_both'")
     con.close()
@@ -344,7 +343,7 @@ def test_retitle_without_rewrite_changes_only_page_and_sidebar_title(seeded_conf
     db.execute(
         "INSERT INTO sidebar_entries(id, title, order_idx) VALUES (20, 'Machine Learning', 0)"
     )
-    before_text = read(db, "SELECT text FROM blocks WHERE uid='uid_b4'").fetchone()[0]
+    before_text = db.select("SELECT text FROM blocks WHERE uid='uid_b4'")[0]["text"]
     inbound_refs = ("SELECT src_block_uid, target_page_id, kind AS ref_kind"
                     " FROM refs WHERE src_block_uid='uid_b4'")
     before_refs = db.select(inbound_refs)
@@ -361,7 +360,7 @@ def test_retitle_without_rewrite_changes_only_page_and_sidebar_title(seeded_conf
                           " FROM sidebar_entries WHERE id=20")
     assert entry is not None
     assert (entry["sidebar_entry_id"], entry["title"]) == (20, "Deep Learning Notes")
-    assert read(db, "SELECT text FROM blocks WHERE uid='uid_b4'").fetchone()[0] == before_text
+    assert db.select("SELECT text FROM blocks WHERE uid='uid_b4'")[0]["text"] == before_text
     assert db.select(inbound_refs) == before_refs
     assert read(db,
         "SELECT count(*) FROM pages_fts WHERE pages_fts MATCH '\"Deep Learning Notes\"'"
@@ -404,7 +403,7 @@ def test_append_without_rewrite_preserves_stable_subtrees_and_target_sidebar(see
     assert [(r["sidebar_entry_id"], r["title"]) for r in db.select(
         "SELECT id AS sidebar_entry_id, title FROM sidebar_entries ORDER BY id"
     )] == [(21, "Machine Learning")]
-    assert read(db, "SELECT text FROM blocks WHERE uid='uid_b1'").fetchone()[0] == "Tags:: #AI"
+    assert db.select("SELECT text FROM blocks WHERE uid='uid_b1'")[0]["text"] == "Tags:: #AI"
     db.rollback()
     db.close()
 
@@ -439,9 +438,9 @@ def test_rewrite_snapshots_updates_and_reindexes_each_block_once(seeded_config):
     )
 
     assert rewritten == 1
-    assert tuple(read(db,
+    assert tuple(db.select(
         "SELECT text, updated_at FROM blocks WHERE uid='uid_multi'"
-    ).fetchone()) == (
+    )[0].values()) == (
         "[[Machine Learning]] then [[Machine Learning]] and [[Machine Learning]]",
         9_003,
     )
@@ -482,8 +481,7 @@ def test_rename_self_referencing_block_rewrites_in_place(client, seeded_config):
     assert r.status_code == 200
 
     con = connect(seeded_config.db_path)
-    text = read(con, "SELECT text FROM blocks WHERE uid = 'uid_self'"
-                       ).fetchone()[0]
+    text = con.select("SELECT text FROM blocks WHERE uid = 'uid_self'")[0]["text"]
     refs = con.select("SELECT target_page_id, kind AS ref_kind FROM refs"
                       " WHERE src_block_uid = 'uid_self'")
     con.close()

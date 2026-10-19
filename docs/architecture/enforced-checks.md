@@ -67,12 +67,14 @@ Each `<stem>_of` raises `ValueError` unless the value fits the brand's
 `SHAPES` regex or base type (an integer brand refuses a `bool` or a float);
 the web's `<stem>Of` throws the same way
 ([frontend.md](frontend.md#api-layer)).
-`rawread.read`, the tests' reader for catalog tables and counts, raises when
+`rawread.read`, the tests' reader for catalog tables, FTS tables and counts, raises when
 a returned column may carry a brand: a `pkm.rows` key with a brand, or a raw
 name `COLUMN_KEYS` maps to one (a bare `id`, the sidebar's `order_idx`). That
 value is read with `Db.select`, whose row check validates it. The refusal
 goes by returned name, so `SELECT uid AS u` passes; it returns an unbranded
-value, so it mints nothing.
+value, so it mints nothing. An unbranded key read through it gets no type,
+nullability or domain check, so a value under a `Row` key goes through
+`Db.select` too.
 
 #### Web side
 

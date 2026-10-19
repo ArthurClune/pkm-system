@@ -40,6 +40,13 @@ describe("rowProblems", () => {
     expect(rowProblems({ ref_kind: "tag" })).toEqual([]);
   });
 
+  test("a client key's closed set is enforced", () => {
+    expect(rowProblems({ replay_kind: "page", present: 1 })).toEqual([]);
+    expect(rowProblems({ replay_kind: "blok" })[0]).toContain('"blok" is not one of "block", "page"');
+    expect(rowProblems({ has_pre: 2 })[0]).toContain("has_pre: 2 is not one of 0, 1");
+    expect(rowProblems({ text_changed: -1 })).toHaveLength(1);
+  });
+
   test("one message per offending column", () => {
     expect(rowProblems({ id: 1, uid: "a", text: null })).toHaveLength(3);
   });

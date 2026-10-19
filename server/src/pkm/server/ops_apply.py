@@ -196,8 +196,9 @@ def _conflict_landing(db: Db, target_uid: BlockUid,
     one: a delete passes the subtree it removes, and a header inside that
     subtree would take the copies down with it. The fresh header is then
     recorded in its place."""
-    day = title_for_date(datetime.fromtimestamp(now_ms / 1000).date())
-    daily_title = canonical_daily_title(day)
+    local_day = datetime.fromtimestamp(now_ms / 1000).date()
+    day = title_for_date(local_day)
+    daily_title = canonical_daily_title(local_day)
     daily = get_or_create_page(db, day, now_ms)
     daily_page_id = daily["page_id"]
     next_top = db.select_one(

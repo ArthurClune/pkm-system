@@ -26,8 +26,7 @@ def _create_block(client, uid: BlockUid, page_title, text,
 
 def _block_text(config, uid: BlockUid):
     db = open_db(config.db_path)
-    row = read(db, "SELECT text FROM blocks WHERE uid = ?",
-                     (uid,)).fetchone()
+    row = db.select_one("SELECT text FROM blocks WHERE uid = ?", (uid,))
     db.close()
     return None if row is None else row["text"]
 

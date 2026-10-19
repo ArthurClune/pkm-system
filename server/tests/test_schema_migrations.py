@@ -35,9 +35,10 @@ def test_existing_assets_table_gains_description_columns(tmp_path):
     con = open_db(db_path)
     cols = {r[1] for r in read(con, "PRAGMA table_info(assets)")}
     assert {"description", "described_at", "describe_error"} <= cols
-    row = read(con, "SELECT description, described_at, describe_error"
-                      " FROM assets").fetchone()
-    assert tuple(row) == (None, None, None)
+    row = con.select_one("SELECT description, described_at, describe_error"
+                         " FROM assets")
+    assert row == {"description": None, "described_at": None,
+                   "describe_error": None}
     con.close()
 
 
@@ -60,11 +61,11 @@ def test_existing_db_gains_plain_space_title_canonicalization_metadata(tmp_path)
     init_db(db_path)
 
     con = open_db(db_path)
-    row = read(con,
-        "SELECT value FROM sync_meta WHERE key = 'plain_space_title_canonicalization'"
-    ).fetchone()
+    row = con.select_one(
+        "SELECT value AS sync_meta_value FROM sync_meta"
+        " WHERE key = 'plain_space_title_canonicalization'")
     assert row is not None
-    assert row["value"] == "0"
+    assert row["sync_meta_value"] == "0"
     assert plain_space_title_canonicalization_active(con) is False
     con.close()
 
@@ -89,9 +90,8 @@ def test_block_refs_backfill_fills_historical_rows(tmp_path):
     con = open_db(db_path)
     rows = {tuple(r.values()) for r in con.select(
         "SELECT src_block_uid, target_block_uid FROM block_refs")}
-    marker = read(con,
-        "SELECT value FROM sync_meta WHERE key = 'block_refs_backfilled'"
-    ).fetchone()[0]
+    marker = con.select(
+        "SELECT value AS sync_meta_value FROM sync_meta WHERE key = 'block_refs_backfilled'")[0]["sync_meta_value"]
     con.close()
     assert rows == {("uid_src01", "uid_tgt01")}
     assert marker == "1"
@@ -191,7 +191,6 @@ def test_fresh_journal_records_a_deleted_blocks_page(tmp_path):
         ("block", "uid_new02", 0, None), ("block", "uid_new02", 1, 7)]
 
 
-
 def test_block_rewrites_gains_kind_on_an_old_database(tmp_path):
     db_path = tmp_path / "pkm.sqlite3"
     con = connect(db_path)
@@ -214,7 +213,8 @@ def test_block_rewrites_gains_kind_on_an_old_database(tmp_path):
     con = open_db(db_path)
     cols = {r[1] for r in read(con, "PRAGMA table_info(block_rewrites)")}
     assert "kind" in cols
-    assert read(con, "SELECT kind FROM block_rewrites").fetchone()[0] == "retitle"
+    assert con.select(
+        "SELECT kind AS rewrite_kind FROM block_rewrites")[0]["rewrite_kind"] == "retitle"
     with pytest.raises(sqlite3.IntegrityError):
         con.execute("INSERT INTO block_rewrites VALUES"
                     " ('u2', 'a', 'b', 'x', 'y', 1, 'bogus')")

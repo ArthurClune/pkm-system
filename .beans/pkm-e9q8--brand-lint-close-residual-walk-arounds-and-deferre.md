@@ -34,25 +34,32 @@ The first four items land on `feat/brand-check-web` before the Phase 2 merge (Ar
 - [x] No check that MINT_SITES / CAST_SITES / TEST_SUPPORT / OPT_OUT_FILES paths still exist or still mint.
 
 ## Vocabulary and data
-- [ ] rows.py `latest_seq` Row key orphaned (dead vocabulary).
-- [ ] CLIENT_KEYS has no literal domains: replay_kind ('block'|'page'), has_pre/present/text_changed (0|1).
-- [ ] columns.test.ts reads any non-INTEGER column type as text.
-- [ ] refs.canonical_daily_title(day: str) mints CanonicalTitle from any string; take a date.
-- [ ] Tombstone validation asymmetric (wire trusted vs deferred_block_tombstones parsed and silently dropped); blockRefStore.resolve drops non-uid keys silently; add warn + tests.
-- [ ] registry header 'declaring file always allowed' holds only on the server; ids.ts imports TicketId from sync/opQueue.
+- [x] rows.py `latest_seq` Row key orphaned (dead vocabulary).
+- [x] CLIENT_KEYS has no literal domains: replay_kind ('block'|'page'), has_pre/present/text_changed (0|1).
+- [x] columns.test.ts reads any non-INTEGER column type as text.
+- [x] refs.canonical_daily_title(day: str) mints CanonicalTitle from any string; take a date.
+- [x] Tombstone validation asymmetric (wire trusted vs deferred_block_tombstones parsed and silently dropped); blockRefStore.resolve drops non-uid keys silently; add warn + tests.
+- [x] registry header 'declaring file always allowed' holds only on the server; ids.ts imports TicketId from sync/opQueue.
 
 ## Tests and tidy
-- [ ] test_backlinks_left_join_missing_page misnamed (no LEFT JOIN exists); test_either_brand_of_a_two_brand_name_satisfies_it misnamed.
-- [ ] rawread.read used for vocabulary-key reads in server tests; docstring overstates; test_database sets private _check_rows; stray blank lines in three tests.
-- [ ] uidOf has ~5 call sites vs ~300 hand-written tuid- literals; decide helper vs literal norm.
-- [ ] response_model= declared inconsistently on three handlers; remedy text MODULES_SHOWN truncation; remedy fallback invites registry growth.
+- [x] test_backlinks_left_join_missing_page misnamed (no LEFT JOIN exists); test_either_brand_of_a_two_brand_name_satisfies_it misnamed.
+- [x] rawread.read used for vocabulary-key reads in server tests; docstring overstates; test_database sets private _check_rows; stray blank lines in three tests.
+- [x] uidOf has ~5 call sites vs ~300 hand-written tuid- literals; decide helper vs literal norm.
+- [x] response_model= declared inconsistently on three handlers; remedy text MODULES_SHOWN truncation; remedy fallback invites registry growth.
 
 
 ## Harness vocabulary (from the feat/brand-check-web final review)
 
-- [ ] server/tooling/proptest/sync_server.py reads harness logs under keys of another meaning (`ord AS n`, `rowid AS n`, `at AS deleted_at`), and web/src/props/sync/normalise.ts puts `?page N` placeholders under `title`; R23 in spirit (no alias that puts a different kind of value under a key).
+- [x] server/tooling/proptest/sync_server.py reads harness logs under keys of another meaning (`ord AS n`, `rowid AS n`, `at AS deleted_at`), and web/src/props/sync/normalise.ts puts `?page N` placeholders under `title`; R23 in spirit (no alias that puts a different kind of value under a key).
 - See pkm-iqxv for the mutation-API and ignore-comment walk-arounds.
 
 ## Progress (2026-10-19)
 
 The server part is merged (fix/brandlint-residuals). The opt-out item is done server-side: an opt-out covers one site, and an unused one is reported as `brand-opt-out-unused`; the web half is still open. The harness-vocabulary item is done for sync_server.py (honest keys `applied_rowid`, `after_batch_rowid`, `log_at`, `log_ord` in Row); normalise.ts is still open.
+
+The vocabulary/data and tidy part is merged (fix/vocab-and-tidy). Notes:
+- `latest_seq` is not dead: `server/tests/props/test_ops_state.py` reads it (the props suite is deselected from the default pytest run, which is why it looked orphaned). Kept.
+- Tombstones: `parseTombstoneId` (sync/wire.ts) is the one parser. A malformed wire tombstone of a known kind rejects its window; a dropped deferred entry and a non-uid blockRefStore key warn. A prod-copy check found 0 of 57,824 block uids and 0 of 88,812 `changes` entity ids that would fail it.
+- uidOf vs `tuid-` literals: no change needed. uidOf has about 1370 uses, and the remaining literals feed string-taking helpers or assertions, never a branded slot.
+- Stray blank lines: only one of the three was found and fixed.
+- normalise.ts no longer puts `?page N` under `title`.

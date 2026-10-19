@@ -54,7 +54,9 @@ RULES = {
                         "or a parser",
     "brand-launder": "a function that returns a brand must annotate every parameter and none may be `Any`: "
                      "an untyped value passed through `-> BlockUid` becomes a brand with no mint; give the "
-                     "parameter its real type and parse it, or read the value from a `select()` row",
+                     "parameter its real type and parse it, or read the value from a `select()` row. A brand "
+                     "return or annotated brand assignment under a `pyrefly: ignore` or `type: ignore` "
+                     "is the same mint: parse the value instead of silencing the checker",
     "brand-ignore": "a `pyrefly: ignore` or `type: ignore` silences every argument of its call, a brand "
                     "literal included: pass the value through its helper (`uid_of` and kin from "
                     "pkm.test_data.ids in a test) or its parser",
@@ -247,6 +249,41 @@ def _launderers(path: str, tree: ast.AST, registry: Registry):
         params += [p for p in (a.vararg, a.kwarg) if p is not None]
         if any(p.annotation is None or _is_any(p.annotation) for p in params):
             yield node.lineno, node.name, returned[0]
+
+
+def _ignored_returns(path: str, tree: ast.AST, ignored: set[int], registry: Registry):
+    """(line, name, brand) for each `return` in a function whose return
+    annotation carries a brand it may not mint, and each annotated
+    assignment to a brand-typed name, whose line carries a type-check
+    ignore: the ignore lets any value through as the brand."""
+    brands = set(registry.shapes) | set(registry.mint_sites) | registry.declared
+    declared, derived = _declared_brands(path, tree, brands)
+    brands |= derived
+    if _site_allowed(path, registry.test_mint_sites):
+        return
+
+    def carried(annotation: ast.expr) -> list[str]:
+        found: list[tuple[str, bool]] = []
+        _scan(annotation, False, found)
+        return [b for b in sorted({t for t, _ in found} & brands)
+                if b not in declared and not _site_allowed(path, registry.mint_sites.get(b, ()))]
+
+    def ignores(node: ast.stmt) -> bool:
+        end = node.end_lineno or node.lineno
+        return any(n in ignored for n in range(node.lineno, end + 1))
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.returns is not None:
+            returned = carried(node.returns)
+            if not returned:
+                continue
+            for stmt in ast.walk(node):
+                if isinstance(stmt, ast.Return) and ignores(stmt):
+                    yield stmt.lineno, node.name, returned[0]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and ignores(node):
+            held = carried(node.annotation)
+            if held:
+                yield node.lineno, node.target.id, held[0]
 
 
 def _site_allowed(path: str, sites: tuple[str, ...]) -> bool:
@@ -503,6 +540,11 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
         what = f"`{name}` returns `{brand}` but takes an unannotated or `Any` parameter"
         out.append(Violation(path, line, "brand-launder",
                              f"{what}{'; ' + fix if fix else ''}: {lines[line - 1].strip()}"))
+    for line, name, brand in _ignored_returns(path, tree, ignored, registry):
+        fix = _test_fix(brand, registry) if is_test else ""
+        what = f"`{name}` is held as `{brand}` on a line whose type check is silenced"
+        out.append(Violation(path, line, "brand-launder",
+                             f"{what}: {fix or 'parse it'}: {lines[line - 1].strip()}"))
     for line, rule, what in _escape_hatches(path, tree, registry, is_test):
         out.append(Violation(path, line, rule, f"{what}: {lines[line - 1].strip()}"))
     return sorted(out, key=lambda v: v.line)

@@ -459,3 +459,39 @@ def test_the_launder_rule_covers_tests_and_names_the_fix():
     [v] = check_text("server/tests/test_x.py", "def f(x) -> BlockUid: ...\n", REGISTRY)
     assert v.rule == "brand-launder"
     assert "annotate" in RULES["brand-launder"] and "Any" in RULES["brand-launder"]
+
+
+@pytest.mark.parametrize("source", [
+    "def f(x: object) -> BlockUid:\n    return x  # pyrefly: ignore[bad-return]\n",
+    "def f(x: object) -> BlockUid | None:\n    return x  # type: ignore\n",
+    "def f(x: object) -> BlockUid:\n    # pyrefly: ignore[bad-return]\n    return x\n",
+    "def f(x: object) -> list[BlockUid]:\n    return [x]  # type: ignore\n",
+])
+def test_a_brand_return_under_a_type_ignore_is_flagged(source: str):
+    assert rules(source, TEST) == ["brand-launder"]
+    assert rules(source, ROUTES) == ["brand-launder"]
+
+
+def test_an_annotated_brand_assignment_under_a_type_ignore_is_flagged():
+    source = "def f(x: object):\n    y: BlockUid = x  # pyrefly: ignore[bad-assignment]\n    return y\n"
+    assert rules(source, TEST) == ["brand-launder"]
+
+
+def test_an_ignored_return_that_is_not_a_brand_stays_clean():
+    assert rules("def f(x: object) -> str:\n    return x  # type: ignore\n", TEST) == []
+    assert rules("def f(x: object):\n    y: str = x  # type: ignore\n    return y\n", TEST) == []
+
+
+def test_an_ignored_brand_return_at_a_mint_site_stays_clean():
+    source = "def f(x: object) -> BlockUid:\n    return x  # type: ignore\n"
+    assert rules(source, CONTRACT) == []
+
+
+def test_an_unignored_typed_brand_return_stays_clean():
+    assert rules("def f(x: object) -> BlockUid:\n    return parse(x)\n", TEST) == []
+
+
+def test_the_ignored_return_message_names_the_helper_in_a_test():
+    source = "def f(x: object) -> BlockUid:\n    return x  # type: ignore\n"
+    [v] = check_text(TEST, source, REGISTRY)
+    assert "uid_of" in v.text and "silenced" in v.text

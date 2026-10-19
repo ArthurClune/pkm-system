@@ -230,8 +230,10 @@ function replayPending(db: ReplicaDb, nowMs: number, freed: FreedPages): void {
  *          that sees an op whose NULL uid INSERT OR IGNORE left unrecorded;
  *          it relies on touchPage following every blocks.page_id write.
  *   CHILD  a block whose parent_uid is a recorded uid with no blocks row
- *          (FKs off; reachable when a uid holds a ',' and subtreeUids'
- *          path match misses the child).
+ *          (FKs off; reachable when subtreeUids' path match skips the
+ *          child: its uid is NULL, as instr over a NULL is NULL, or holds
+ *          a ',' and sits inside the parent's path. The row check refuses
+ *          such a uid, but runs only in tests).
  * The schema-pin test fails when a table gains an FK, which is the cue to
  * revisit these clauses. */
 export const targetedFkHit = (db: ReplicaDb, batchId: BatchId): boolean =>

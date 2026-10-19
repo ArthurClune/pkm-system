@@ -85,7 +85,14 @@ const baseBlockArb = fc.record({
   bref: fc.option(fc.constantFrom(...UIDS), { nil: null }),
 });
 
-const scenarioArb = fc.record({
+type Scenario = {
+  fksOff: boolean; pageD: boolean; dangling: boolean;
+  blocks: { uid: string; page: number; parent: string | null; order: number;
+            ref: number | null; bref: string | null }[];
+  ghost: boolean; prior: BlockOp[]; priorShared: BlockOp[]; ops: BlockOp[];
+};
+
+const randomScenarioArb: fc.Arbitrary<Scenario> = fc.record({
   fksOff: fc.boolean(),
   pageD: fc.boolean(),
   dangling: fc.boolean(),
@@ -96,8 +103,66 @@ const scenarioArb = fc.record({
   ops: fc.array(opArb, { minLength: 1, maxLength: 4 }),
 });
 
+// Random draws almost never make a batch add a violation key, so two
+// scenario shapes are drawn on purpose, each prepended to a random scenario.
+// The first block of a uid wins in the setup, so a prepended block overrides
+// a random one, and the batch's first op is the prepended one.
+
+// The case CHILD exists for: FKs are off, so deleting a block leaves behind a
+// child that subtreeUids' path match skips, and the child's own uid is never
+// recorded, so only the deleted parent's record shows it. The match skips a
+// NULL uid (instr over a NULL is NULL) and a child whose uid sits in the
+// parent's path, as "u_aaaaa2" does in the path of "x,u_aaaaa2". A NULL-uid
+// child needs a create, in this batch or an earlier one; the comma pair is
+// plain baseline rows.
+const COMMA_PAIRS = [["x,u_aaaaa2", "u_aaaaa2"], ["u_aaaaa3,y", "u_aaaaa3"]];
+const childCaseArb = fc.tuple(randomScenarioArb, fc.boolean(), orderArb, orderArb,
+                              fc.constantFrom(...COMMA_PAIRS, null))
+  .map(([s, earlier, order, childOrder, pair]): Scenario => {
+    const parent = pair?.[0] ?? "u_aaaaa5";
+    const create: BlockOp = {
+      op: "create", uid: malformedUid(null), page_title: "A",
+      parent_uid: mintUid(parent), order_idx: childOrder, text: "plain" };
+    const drop: BlockOp = { op: "delete", uid: mintUid(parent) };
+    const blocks = [{ uid: parent, page: 1, parent: null, order, ref: null,
+                      bref: null }, ...s.blocks];
+    if (pair) {
+      blocks.unshift({ uid: pair[1], page: 1, parent: parent, order: childOrder,
+                       ref: null, bref: null });
+      return { ...s, fksOff: true, blocks, ops: [drop, ...s.ops] };
+    }
+    return {
+      ...s,
+      fksOff: true,
+      blocks,
+      prior: earlier ? [create, ...s.prior] : s.prior,
+      ops: earlier ? [drop, ...s.ops] : [create, drop, ...s.ops],
+    };
+  });
+
+// The case PAGE exists for: a dangling block on a page with no row (page 9
+// never gets one, page 4 only with pageD), then a create beneath it. The new
+// block inherits the missing page and takes a fresh rowid, so its violation
+// key is new, and only the recorded page shows it. The page's blocks all
+// share one order_idx, so a guard that needs order_idx > 0 misses it.
+const pageCaseArb = fc.tuple(randomScenarioArb, fc.boolean(), orderArb)
+  .map(([s, nine, order]): Scenario => ({
+    ...s,
+    dangling: true,
+    pageD: nine ? s.pageD : false,
+    blocks: [{ uid: "u_aaaaa7", page: nine ? 9 : 4, parent: null, order,
+               ref: null, bref: null }, ...s.blocks],
+    ops: [{ op: "create", uid: uidOf("u_aaaaa6"), page_title: "A",
+            parent_uid: uidOf("u_aaaaa7"), order_idx: order, text: "plain" },
+          ...s.ops],
+  }));
+
+const scenarioArb = fc.oneof(randomScenarioArb, childCaseArb, pageCaseArb);
+
 let t: TestDb;
-beforeAll(async () => { t = await openTestDb(); });
+// Unchecked rows, as in the production worker: comma uids are data the row
+// check refuses, and the property must see what production sees.
+beforeAll(async () => { t = await openTestDb({ checkRows: false }); });
 afterAll(() => t.close());
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -143,11 +208,12 @@ describe("targetedFkHit is a sound pre-check for the whole-database comparison",
       } finally {
         if (s.fksOff) db.exec("PRAGMA foreign_keys=ON");
       }
-    // 3000 runs: the rare cases (a batch that adds a violation key, about
-    // 0.8% of runs; a comma uid the CHILD clause must catch) need that many to
-    // be drawn, so the count is not cut.
-    }), { numRuns: 3000 });
-  // About 1.4 s alone and 2.2 s under coverage; 30 s leaves ten times that
-  // for a loaded machine without hiding a hang.
-  }, 30_000);
+    // 1000 runs: the two targeted shapes make about half the runs add a
+    // violation key, and dropping either clause, or narrowing it, fails by the
+    // 53rd run on every seed tried, so the count has a margin of about twenty.
+    // The random third of the runs keeps the other states in play.
+    }), { numRuns: 1000 });
+  // About 0.7 s alone and 1.1 s under coverage; 10 s leaves nine times the
+  // slower for a loaded machine without hiding a hang.
+  }, 10_000);
 });

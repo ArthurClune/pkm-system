@@ -569,3 +569,71 @@ def test_bootstrap_allow_busy_skips_the_gate(tmp_path, monkeypatch, capsys):
     _load(monkeypatch, [9.0])
     assert run.do_bootstrap(tmp_path, "backend", 2, at_merge_base=False, allow_busy=True) == 0
     assert "load check skipped (--allow-busy)" in capsys.readouterr().out
+
+
+def test_missing_pkm_import_names_a_missing_module():
+    out = ("Traceback (most recent call last):\n  File ...\n"
+           "ModuleNotFoundError: No module named 'pkm.test_data.ids'\n")
+    assert run_core.missing_pkm_import(out) == "pkm.test_data.ids"
+
+
+def test_missing_pkm_import_names_a_missing_name():
+    out = ("ImportError: cannot import name 'mint_id' from 'pkm.test_data' "
+           "(/wt/server/src/pkm/test_data/__init__.py)\n")
+    assert run_core.missing_pkm_import(out) == "mint_id from pkm.test_data"
+
+
+def test_missing_pkm_import_ignores_other_packages():
+    assert run_core.missing_pkm_import("ModuleNotFoundError: No module named 'numpy'") is None
+    assert run_core.missing_pkm_import("ModuleNotFoundError: No module named 'pkmx.foo'") is None
+    assert run_core.missing_pkm_import("ImportError: cannot import name 'a' from 'pkmx'") is None
+    assert run_core.missing_pkm_import("fixture server exited with 1") is None
+
+
+def test_missing_import_advice_names_the_import_the_base_and_the_way_out():
+    msg = run_core.missing_import_advice("pkm.test_data.ids", "abc1234", "frontend")
+    assert "pkm.test_data.ids" in msg and "abc1234" in msg
+    assert "main" in msg and "perf/check.sh frontend --bootstrap" in msg
+
+
+def _failing_run(stderr):
+    def fake(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr=stderr)
+    return fake
+
+
+def test_backend_run_names_an_import_the_merge_base_lacks(tmp_path, monkeypatch):
+    monkeypatch.setattr(run.subprocess, "run", _failing_run(
+        "ModuleNotFoundError: No module named 'pkm.test_data.ids'\n"))
+    with pytest.raises(run.PerfRunError, match=r"pkm\.test_data\.ids.*abc1234"):
+        run.BackendRunner(tmp_path).run(tmp_path / "wt", None, "abc1234")
+
+
+def test_backend_run_keeps_the_exit_status_for_other_failures(tmp_path, monkeypatch):
+    monkeypatch.setattr(run.subprocess, "run", _failing_run("boom\n"))
+    with pytest.raises(subprocess.CalledProcessError):
+        run.BackendRunner(tmp_path).run(tmp_path / "wt", None, "abc1234")
+
+
+def test_frontend_fixture_server_dying_at_import_names_the_import(tmp_path, monkeypatch):
+    fr = run.FrontendRunner(tmp_path)
+    fr.out_dir.mkdir(parents=True)
+
+    @contextmanager
+    def fake_lock(name, holder):
+        yield
+    monkeypatch.setattr(run, "cache_lock", fake_lock)
+    monkeypatch.setattr(fr, "fixture_path", lambda wt: tmp_path / "fixture.sqlite3")
+    monkeypatch.setattr(fr, "ensure_port_free", lambda: None)
+    monkeypatch.setattr(run, "_stop", lambda server: None)
+
+    def popen(cmd, **kwargs):  # the server's dying words land in its log
+        kwargs["stdout"].write("ImportError: cannot import name 'x' from 'pkm.foo' (/p)\n")
+        return object()
+    monkeypatch.setattr(run.subprocess, "Popen", popen)
+
+    def dies(server, instance):
+        raise run.PerfRunError("fixture server exited with 1")
+    monkeypatch.setattr(fr, "_wait_healthy", dies)
+    with pytest.raises(run.PerfRunError, match=r"x from pkm\.foo.*abc1234"):
+        fr.run(tmp_path / "other", None, "abc1234")

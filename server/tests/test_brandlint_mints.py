@@ -520,7 +520,7 @@ def test_an_unchecked_value_for_a_brand_keyword_under_an_ignore_is_flagged(value
     assert rules(f"f(uid={value})\n", TEST) == []
 
 
-@pytest.mark.parametrize("value", ["uid_of('x')", "parse_uid(raw)", "None"])
+@pytest.mark.parametrize("value", ["uid_of('x')", "None"])
 def test_a_helper_call_for_a_brand_keyword_under_an_ignore_is_clean(value: str):
     assert rules(f"f(uid={value})  # type: ignore[arg-type]\n", TEST) == []
 
@@ -530,6 +530,8 @@ def test_a_helper_call_for_a_brand_keyword_under_an_ignore_is_clean(value: str):
     "# pyright: basic",
     "# pyright: reportGeneralTypeIssues=false",
     "# pyright: reportArgumentType=none, reportReturnType=false",
+    "# pyright: reportArgumentType=warning",
+    "# pyright: reportArgumentType=information",
     "# type: ignore",
 ])
 def test_a_file_level_ignore_is_flagged(comment: str):
@@ -571,3 +573,18 @@ def test_a_return_belongs_to_its_innermost_function():
               "        return y  # type: ignore\n"
               "    return parse(inner(x))\n")
     assert rules(deeper, TEST) == ["brand-launder"]
+
+
+@pytest.mark.parametrize("value", ['row.get("uid")', "str(x)", "parse_uid(x)", "[str(x)]"])
+def test_an_unrelated_call_for_a_brand_keyword_under_an_ignore_is_flagged(value: str):
+    assert rules(f"f(uid={value})  # type: ignore[arg-type]\n", TEST) == ["brand-ignore"]
+
+
+@pytest.mark.parametrize("value", ['uid_of("x")', 'malformed_uid("x")', "[uid_of('x')]", "None"])
+def test_the_brands_checked_helper_is_vouched_for_under_an_ignore(value: str):
+    assert rules(f"f(uid={value})  # type: ignore[arg-type]\n", TEST) == []
+
+
+def test_a_brands_constructor_is_vouched_for_where_the_file_may_mint_it():
+    assert rules("f(uid=BlockUid(x))  # type: ignore[arg-type]\n", CONTRACT) == []
+    assert rules("f(uid=BlockUid(x))  # type: ignore[arg-type]\n", ROUTES) == ["brand-ignore", "brand-mint"]

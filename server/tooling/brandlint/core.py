@@ -60,9 +60,10 @@ RULES = {
                      "silencing the checker",
     "brand-ignore": "a `pyrefly: ignore`, `pyright: ignore` or `type: ignore` silences every argument of its "
                     "call, a brand literal or an unchecked value included: pass the value through its "
-                    "helper (`uid_of` and kin from pkm.test_data.ids in a test) or its parser, and drop "
-                    "the ignore",
-    "brand-file-ignore": "a file-level `# pyrefly: ignore-errors`, `# pyright: basic`, `# pyright: <rule>=false` "
+                    "helper (`uid_of` and kin from pkm.test_data.ids in a test) and drop the ignore; in "
+                    "product code drop the ignore and fix the type",
+    "brand-file-ignore": "a file-level `# pyrefly: ignore-errors`, `# pyright: basic`, `# pyright: <rule>=false`, "
+                         "`=none`, `=warning` or `=information` "
                          "or a `# type: ignore` ahead of the code silences the checker for the whole file, "
                          "brand mints included: remove it and fix or line-ignore the specific error",
 }
@@ -76,7 +77,7 @@ _REASON = re.compile(r"^\s*--\s*\S")
 _IGNORE = re.compile(r"#\s*(?:(?:pyrefly|pyright):\s*ignore(?![-\w])|type:\s*ignore\b)")
 # A comment that silences or weakens the type checker for the whole file.
 _FILE_DIRECTIVE = re.compile(
-    r"#\s*(?:pyrefly:\s*ignore-errors\b|pyright:\s*(?:basic\b|\w+\s*=\s*(?:false|none)\b))")
+    r"#\s*(?:pyrefly:\s*ignore-errors\b|pyright:\s*(?:basic\b|\w+\s*=\s*(?:false|none|warning|information)\b))")
 # `type: ignore` on a line of its own ahead of all code is file-level too.
 _TYPE_IGNORE = re.compile(r"#\s*type:\s*ignore\b")
 
@@ -492,19 +493,39 @@ def _escape_hatches(path: str, tree: ast.AST, registry: Registry,
     return out
 
 
-def _is_unchecked(node: ast.expr) -> bool:
-    """A value the lint cannot vouch for: anything but a call (a helper or
-    parser), `None`, or a list, tuple or set whose elements are all those."""
+def _vouchers(brands: tuple[str, ...], path: str, registry: Registry) -> set[str]:
+    """The call names that produce one of `brands` checked: its test helper
+    (`uid_of`) and forging helper (`malformed_uid`), and its own constructor
+    where this file may mint it."""
+    names: set[str] = set()
+    for brand in brands:
+        stem = registry.test_helpers.get(brand)
+        if stem is not None:
+            names.add(f"{stem}_of")
+        if brand in registry.malformed:
+            names.add(f"malformed_{registry.malformed[brand]}")
+        if _site_allowed(path, registry.mint_sites.get(brand, ())) or _site_allowed(path, registry.test_mint_sites):
+            names.add(brand)
+    return names
+
+
+def _is_unchecked(node: ast.expr, vouched: set[str]) -> bool:
+    """A value the lint cannot vouch for: anything but `None`, a call of one
+    of the `vouched` names, or a list, tuple or set whose elements are all
+    those."""
     if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
-        return any(_is_unchecked(e) for e in node.elts)
-    return not isinstance(node, ast.Call) and not (isinstance(node, ast.Constant) and node.value is None)
+        return any(_is_unchecked(e, vouched) for e in node.elts)
+    if isinstance(node, ast.Call):
+        return _leaf(node.func) not in vouched
+    return not (isinstance(node, ast.Constant) and node.value is None)
 
 
-def _ignored_literals(tree: ast.AST, ignored: set[int], registry: Registry):
+def _ignored_literals(path: str, tree: ast.AST, ignored: set[int], registry: Registry):
     """(line, name, brand) for each plain literal, or other value that is
-    not a call, passed to a keyword with a rule-1 name in a call whose lines
-    carry a type-check ignore, or inside such a call. A positional value is
-    not seen: that needs the callee's signature."""
+    not a call of the brand's checked helper, passed to a keyword with a
+    rule-1 name in a call whose lines carry a type-check ignore, or inside
+    such a call. A positional value is not seen: that needs the callee's
+    signature."""
     seen: set[int] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -514,7 +535,9 @@ def _ignored_literals(tree: ast.AST, ignored: set[int], registry: Registry):
             continue
         for inner in ast.walk(node):
             for k in inner.keywords if isinstance(inner, ast.Call) else ():
-                if id(k) not in seen and k.arg in registry.names and _is_unchecked(k.value):
+                if id(k) in seen or k.arg not in registry.names:
+                    continue
+                if _is_unchecked(k.value, _vouchers(registry.names[k.arg], path, registry)):
                     seen.add(id(k))
                     yield k.value.lineno, k.arg, registry.names[k.arg][0]
 
@@ -566,7 +589,7 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
         if fix:
             problem += f"; for a value in a test, {fix}"
         out.append(Violation(path, first, "brand-name", f"{problem}: {lines[first - 1].strip()}"))
-    for line, name, brand in _ignored_literals(tree, ignored, registry):
+    for line, name, brand in _ignored_literals(path, tree, ignored, registry):
         fix = _test_fix(brand, registry) if is_test else ""
         what = f"`{name}=` value on a line whose type check is silenced"
         out.append(Violation(path, line, "brand-ignore",

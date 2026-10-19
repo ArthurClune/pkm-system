@@ -13,3 +13,7 @@ export declare function declared(uid: string): void;
 export abstract class Base {
   abstract find(uid: string): void;
 }
+export interface Callable {
+  (uid: string): void;
+  new (uid: string): object;
+}

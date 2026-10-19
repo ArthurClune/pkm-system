@@ -273,7 +273,8 @@ TEST_CODE: tuple[str, ...] = (
 # Glob patterns for files where a line may carry `# brand: untrusted --
 # <reason>`: the HTTP boundary reads route input that is not one value,
 # such as a comma-separated query param, and parses it in the handler. The
-# web has one: a build plugin reading another tool's output.
+# web has some: a build plugin reading another tool's output, and the perf
+# harness loading another checkout's code.
 OPT_OUT_FILES: tuple[str, ...] = (
     "server/src/pkm/**/routes_*.py",
     # Workbox's precache manifest is external build output; its `revision`
@@ -283,6 +284,9 @@ OPT_OUT_FILES: tuple[str, ...] = (
     # generated API types name the brands a response carries; the web twin
     # of the routes_*.py parse points.
     "web/src/api/client.ts",
+    # The perf harness imports the replica from the checkout it measures,
+    # which this checkout's types describe but cannot check.
+    "web/tooling/perf/rebase.perf.ts",
 )
 
 # Columns whose key is not their own name: table -> {column: key}. One

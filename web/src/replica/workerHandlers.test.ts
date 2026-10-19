@@ -998,11 +998,11 @@ function failingSchemaReads(db: ReplicaDb, message: string) {
     arm: (reads = 1) => { left = reads; },
     db: {
       ...db,
-      select(sql: string, params?: Parameters<ReplicaDb["select"]>[1]) {
+      select(sql: string, keys: Parameters<ReplicaDb["select"]>[1], params?: Parameters<ReplicaDb["select"]>[2]) {
         failRead(sql);
-        return db.select(sql, params);
+        return db.select(sql, keys, params);
       },
-      introspect(sql: string, params?: Parameters<ReplicaDb["select"]>[1]) {
+      introspect(sql: string, params?: Parameters<ReplicaDb["introspect"]>[1]) {
         failRead(sql);
         return db.introspect(sql, params);
       },
@@ -1629,11 +1629,11 @@ const schemaChecks = (db: ReplicaDb) => {
   let count = 0;
   const counted = {
     ...db,
-    select(sql: string, params?: Parameters<ReplicaDb["select"]>[1]) {
+    select(sql: string, keys: Parameters<ReplicaDb["select"]>[1], params?: Parameters<ReplicaDb["select"]>[2]) {
       if (/sqlite_master/.test(sql)) count += 1;
-      return db.select(sql, params);
+      return db.select(sql, keys, params);
     },
-    introspect(sql: string, params?: Parameters<ReplicaDb["select"]>[1]) {
+    introspect(sql: string, params?: Parameters<ReplicaDb["introspect"]>[1]) {
       if (/sqlite_master/.test(sql)) count += 1;
       return db.introspect(sql, params);
     },

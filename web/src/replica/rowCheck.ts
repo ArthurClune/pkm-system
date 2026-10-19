@@ -73,6 +73,26 @@ export function rowCheckMessage(sql: string, problems: string[]): string {
     + "NULL aggregate or use a nullable key; never loosen rowProblems.";
 }
 
+/** The error text for a `select` whose named keys are not the columns the
+ * query returns, or null when the two are the same set. */
+export function keyColumnsMessage(
+  sql: string, keys: readonly string[], columns: readonly string[],
+): string | null {
+  const wanted = new Set(keys);
+  const returned = new Set(columns);
+  const missing = [...wanted].filter((k) => !returned.has(k));
+  const extra = [...returned].filter((c) => !wanted.has(c));
+  const duplicated = keys.length !== wanted.size;
+  if (missing.length === 0 && extra.length === 0 && !duplicated) return null;
+  const parts: string[] = [];
+  if (missing.length > 0) parts.push(`named but not returned: ${missing.join(", ")}`);
+  if (extra.length > 0) parts.push(`returned but not named: ${extra.join(", ")}`);
+  if (duplicated) parts.push(`a key is named twice: ${keys.join(", ")}`);
+  return `select keys do not match the columns of '${sql.split(/\s+/).join(" ").trim()}': `
+    + `${parts.join("; ")}. Fix the call: the keys array names exactly the `
+    + "columns the query returns, once each (alias the column or edit the keys).";
+}
+
 // Returned column name -> the Columns keys it may stand for that carry a
 // brand: a key's own name, and every raw name COLUMN_KEYS maps to one (a
 // bare `id`, the sidebar's `order_idx`). Built on first use, like `shapes`.
@@ -106,7 +126,7 @@ export function brandedColumnMessage(columns: readonly string[]): string | null 
     const brands = [...new Set(sorted.map((k) => metas[k].brand))].sort();
     const aliased = keys.has(column) ? "" : ", aliased to its key";
     return `${column} carries ${brands.join(" or ")}: read it with `
-      + `select<${sorted.map((k) => JSON.stringify(k)).join(" | ")}>${aliased}`;
+      + `select(sql, [${sorted.map((k) => JSON.stringify(k)).join(", ")}])${aliased}`;
   }
   return null;
 }

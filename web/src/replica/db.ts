@@ -3,16 +3,20 @@
 // replica SQL is testable against a real in-memory database in Node.
 
 import type { Columns } from "./columns.gen";
-import { brandedColumnMessage, rowCheckMessage, rowProblems } from "./rowCheck";
+import { brandedColumnMessage, keyColumnsMessage, rowCheckMessage, rowProblems } from "./rowCheck";
 
 export type SqlValue = string | number | null | Uint8Array;
 export type Row = Record<string, SqlValue>;
 
 export interface ReplicaDb {
   exec(sql: string, params?: SqlValue[]): void;
-  /** Rows carrying exactly the named `Columns` keys; with the row check on
-   * a column that is not a key, or a value that does not fit it, throws. */
-  select<K extends keyof Columns = never>(sql: string, params?: SqlValue[]): Pick<Columns, K>[];
+  /** Rows carrying exactly the named `Columns` keys. `keys` come second so
+   * sql is first and params last, as in `exec` and `introspect`. With the
+   * row check on, the query's columns (an empty result too) must equal
+   * `keys` as sets, and a value that does not fit its key throws. */
+  select<const K extends keyof Columns>(
+    sql: string, keys: readonly [K, ...K[]], params?: SqlValue[],
+  ): Pick<Columns, K>[];
   /** Raw, unchecked rows under SQLite's own column names. Production code
    * reads the catalog through the helpers below, never through this. With
    * the row check on, a returned column that may carry a brand throws: it
@@ -85,7 +89,7 @@ export interface WrapOptions {
  * at build time, so the production worker bundle drops `rowCheck` and the
  * generated vocabulary behind it. */
 const ROW_CHECK = import.meta.env.MODE === "test"
-  ? { rowProblems, rowCheckMessage, brandedColumnMessage }
+  ? { rowProblems, rowCheckMessage, brandedColumnMessage, keyColumnsMessage }
   : null;
 
 export function wrapSqlite(raw: Oo1DbLike, opts: WrapOptions = {}): ReplicaDb {
@@ -95,14 +99,23 @@ export function wrapSqlite(raw: Oo1DbLike, opts: WrapOptions = {}): ReplicaDb {
     exec(sql, params) {
       raw.exec(params ? { sql, bind: params } : { sql });
     },
-    select<K extends keyof Columns = never>(sql: string, params?: SqlValue[]) {
-      const rows = raw.selectObjects(sql, params);
-      if (rowCheck !== null) {
-        for (const row of rows) {
-          const problems = rowCheck.rowProblems(row);
-          if (problems.length > 0) {
-            throw new Error(rowCheck.rowCheckMessage(sql, problems));
-          }
+    select<const K extends keyof Columns>(
+      sql: string, keys: readonly [K, ...K[]], params?: SqlValue[],
+    ) {
+      if (rowCheck === null) {
+        return raw.selectObjects(sql, params) as unknown as Pick<Columns, K>[];
+      }
+      // The engine names the columns even when no row comes back, so a
+      // wrong key list is refused on an empty result too.
+      const rows: Row[] = [];
+      const columnNames: string[] = [];
+      raw.exec({ sql, ...(params ? { bind: params } : {}), rowMode: "object", resultRows: rows, columnNames });
+      const mismatch = rowCheck.keyColumnsMessage(sql, keys, columnNames);
+      if (mismatch !== null) throw new Error(mismatch);
+      for (const row of rows) {
+        const problems = rowCheck.rowProblems(row);
+        if (problems.length > 0) {
+          throw new Error(rowCheck.rowCheckMessage(sql, problems));
         }
       }
       return rows as unknown as Pick<Columns, K>[];

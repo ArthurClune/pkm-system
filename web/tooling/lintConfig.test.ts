@@ -547,14 +547,25 @@ const cases: readonly FixtureCase[] = [
   {
     file: "off-type-brand.ts",
     rule: "brands/no-brand-assertion",
-    count: 7,
+    count: 14,
     // a brand with a malformed helper names it; one without asks for one
-    messages: [["malformedUid"], ["PageId", "adding one"]],
+    messages: [
+      ["malformedUid"], ["PageId", "adding one"], [], [], [], [], [],
+      ["`uid`", "malformedUid"],
+    ],
     correctedAs: "src/paths.test.ts",
     corrected:
+      'import type { BlockUid } from "./api/brands";\n' +
       'import type { SyncProblem } from "./sync/syncState";\n' +
       'import { offType, uidOf } from "./test-helpers";\n' +
       'export const d = uidOf("tuid-a");\n' +
+      'export const e = offType<{ uid: BlockUid }>({ uid: uidOf("tuid-a") });\n' +
+      "export const f = offType<{ w: { uid: BlockUid } }>(\n" +
+      '  { w: { uid: uidOf("tuid-a") } });\n' +
+      "const typed = { uid: uidOf(\"tuid-a\"), note: 1 };\n" +
+      "export const g = offType<{ uid: BlockUid }>(typed);\n" +
+      // a library type with a `digest` method is not walked
+      "export const h = offType<unknown>(crypto.subtle);\n" +
       'export const a = offType<SyncProblem>({ kind: "brand-new" });\n' +
       'export const b = offType<{ label: string }>({ label: 1 });\n' +
       "export const c: unknown = offType(3);\n",

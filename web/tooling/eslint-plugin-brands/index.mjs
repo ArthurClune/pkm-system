@@ -42,9 +42,10 @@
 // launders anywhere else. An `offType<T>(...)` call whose T is a brand (or a
 // union, array, Set, Map key or index key of one) is reported in
 // `no-brand-assertion`: a bad brand is forged with a `malformed*` helper. A
-// brand nested in an object property does not count. In test code
-// (`*.test.*` and the registry's `testCode` paths) a report names the
-// module's checked helper (`uidOf`) instead of the product remedy.
+// brand nested in an object property does not count, but the argument's
+// brand-named properties, nested to a fixed depth, must already be the brand.
+// In test code (`*.test.*` and the registry's `testCode` paths) a report names
+// the module's checked helper (`uidOf`) instead of the product remedy.
 // `satisfies` and non-null `!` are not assertions toward a brand and are left
 // alone.
 import { readFileSync } from "node:fs";
@@ -906,6 +907,9 @@ const noBrandAssertion = {
         + "module",
       offTypeBrand:
         "`offType` would forge {{brand}}: {{remedy}}",
+      offTypeSlot:
+        "`offType`'s argument puts a value that is not {{brand}} in `{{name}}`, "
+        + "a brand slot: {{remedy}}",
     },
   },
   create(context) {
@@ -1056,23 +1060,59 @@ const noBrandAssertion = {
           esTreeNodeToTSNodeMap.get(node))?.declaration;
         if (decl === undefined || !TEST_HELPERS_SOURCE.test(
           decl.getSourceFile().fileName.replace(/\.[cm]?[jt]sx?$/, ""))) return;
+        const forged = (brands) => {
+          const forgers = brands.map((b) => registry.malformed[b])
+            .filter((stem) => stem !== undefined)
+            .map((stem) => `malformed${stem[0].toUpperCase()}${stem.slice(1)}`);
+          return forgers.length === brands.length
+            ? `use ${forgers.join(" or ")} from ${webTestMints.join(", ")}`
+            : "forge a bad brand with a malformed helper, adding one to "
+              + `the test mint module (${webTestMints.join(", ")}) if the `
+              + "brand has none";
+        };
         const brands = [...shallowBrands(checker, typeOf(node))];
-        if (brands.length === 0) return;
-        const forgers = brands.map((b) => registry.malformed[b])
-          .filter((stem) => stem !== undefined)
-          .map((stem) => `malformed${stem[0].toUpperCase()}${stem.slice(1)}`);
-        context.report({
-          node,
-          messageId: "offTypeBrand",
-          data: {
-            brand: brands.join(", "),
-            remedy: forgers.length === brands.length
-              ? `use ${forgers.join(" or ")} from ${webTestMints.join(", ")}`
-              : "forge a bad brand with a malformed helper, adding one to "
-                + `the test mint module (${webTestMints.join(", ")}) if the `
-                + "brand has none",
-          },
-        });
+        if (brands.length > 0) {
+          context.report({
+            node,
+            messageId: "offTypeBrand",
+            data: { brand: brands.join(", "), remedy: forged(brands) },
+          });
+        }
+        // The argument's own brand-named properties, through nested objects,
+        // arrays and unions to a fixed depth, whatever the argument's source.
+        const arg = node.arguments[0];
+        if (arg === undefined || arg.type === "SpreadElement") return;
+        const walk = (type, depth) => {
+          if (depth > OFF_TYPE_DEPTH) return;
+          if (type.isUnion()) return type.types.forEach((m) => walk(m, depth));
+          if (checker.isArrayType(type) || checker.isTupleType(type)) {
+            return checker.getTypeArguments(type)
+              .forEach((m) => walk(m, depth + 1));
+          }
+          if (!(type.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection))
+            || isForeign(type)) {
+            return undefined;
+          }
+          for (const symbol of checker.getPropertiesOfType(type)) {
+            const own = checker.getTypeOfSymbolAtLocation(
+              symbol, esTreeNodeToTSNodeMap.get(arg));
+            if (Object.hasOwn(registry.names, symbol.name)
+              && !declaresBrand(checker, own, registry.names[symbol.name])) {
+              context.report({
+                node: arg,
+                messageId: "offTypeSlot",
+                data: {
+                  name: symbol.name,
+                  brand: registry.names[symbol.name].join(" or "),
+                  remedy: forged(registry.names[symbol.name]),
+                },
+              });
+            }
+            walk(own, depth + 1);
+          }
+          return undefined;
+        };
+        walk(typeOf(arg), 0);
       },
       TSAsExpression: check,
       TSTypeAssertion: check,
@@ -1468,6 +1508,7 @@ const PROBE_MESSAGES = {
 
 const TEST_HELPERS_SOURCE = /(?:^|\/)test-helpers(?:\.[cm]?[jt]sx?)?$/;
 const OFF_TYPE = "offType";
+const OFF_TYPE_DEPTH = 4;
 
 // The directive TypeScript reads: a line comment whose text starts with it,
 // or a block comment whose last line does.

@@ -27,11 +27,11 @@ The first four items land on `feat/brand-check-web` before the Phase 2 merge (Ar
 
 ## Server brandlint
 - [x] Aliased brand imports (`BlockUid as U`), `map(BlockUid, xs)` not caught; NewType scan is column-0 bare-name only (misses typing.NewType, annotated, indented) (fixed on feat/brand-check-web).
-- [ ] Staged mode reads the working-tree registry.
-- [ ] `_held_values` over-reports `TypeVar("T", bound=BlockUid)` and `X: TypeAlias = BlockUid` as brand-mint; add TypeVar bound/constraints and a TypeAlias-annotated value to the type positions.
-- [ ] Non-union generic mentioning the brand passes loosely (`uid: dict[str, BlockUid]`).
-- [ ] self.x attributes, class fields under if, functional TypedDict/NamedTuple unchecked.
-- [ ] No check that MINT_SITES / CAST_SITES / TEST_SUPPORT / OPT_OUT_FILES paths still exist or still mint.
+- [x] Staged mode reads the working-tree registry.
+- [x] `_held_values` over-reports `TypeVar("T", bound=BlockUid)` and `X: TypeAlias = BlockUid` as brand-mint; add TypeVar bound/constraints and a TypeAlias-annotated value to the type positions.
+- [x] Non-union generic mentioning the brand passes loosely (`uid: dict[str, BlockUid]`).
+- [x] self.x attributes, class fields under if, functional TypedDict/NamedTuple unchecked.
+- [x] No check that MINT_SITES / CAST_SITES / TEST_SUPPORT / OPT_OUT_FILES paths still exist or still mint.
 
 ## Vocabulary and data
 - [ ] rows.py `latest_seq` Row key orphaned (dead vocabulary).
@@ -52,3 +52,7 @@ The first four items land on `feat/brand-check-web` before the Phase 2 merge (Ar
 
 - [ ] server/tooling/proptest/sync_server.py reads harness logs under keys of another meaning (`ord AS n`, `rowid AS n`, `at AS deleted_at`), and web/src/props/sync/normalise.ts puts `?page N` placeholders under `title`; R23 in spirit (no alias that puts a different kind of value under a key).
 - See pkm-iqxv for the mutation-API and ignore-comment walk-arounds.
+
+## Progress (2026-10-19)
+
+The server part is merged (fix/brandlint-residuals). The opt-out item is done server-side: an opt-out covers one site, and an unused one is reported as `brand-opt-out-unused`; the web half is still open. The harness-vocabulary item is done for sync_server.py (honest keys `applied_rowid`, `after_batch_rowid`, `log_at`, `log_ord` in Row); normalise.ts is still open.

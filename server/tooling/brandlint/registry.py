@@ -5,10 +5,11 @@ The registry is import-free data, so it loads under a bare `python3`
 without the server's package or its dependencies."""
 from __future__ import annotations
 
-import importlib.util
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 REGISTRY_RELPATH = "server/src/pkm/brand_registry.py"
 SOURCE_RELPATH = "server/src/pkm"
@@ -18,9 +19,22 @@ SOURCE_RELPATH = "server/src/pkm"
 _NEWTYPE = re.compile(r"^[ \t]*(\w+)\s*(?::[^=\n]*)?=\s*(?:\w+\.)*NewType\(", re.MULTILINE)
 
 
-def declared_newtypes(repo: Path) -> frozenset[str]:
+# Reads one repo-relative file: the staged copy in the pre-commit hook.
+Reader = Callable[[Path, str], str]
+
+
+def declared_newtypes(repo: Path, read: Reader | None = None, paths: list[str] | None = None) -> frozenset[str]:
     """Every `X = NewType(...)` under server/src/pkm, however spelled, so a
-    new brand is under rule 2 the moment it is declared."""
+    new brand is under rule 2 the moment it is declared. With `read` and
+    `paths` (the files the commit would contain), those are scanned instead
+    of the working tree."""
+    if read is not None and paths is not None:
+        return frozenset(
+            name
+            for path in paths
+            if path.startswith(SOURCE_RELPATH + "/") and path.endswith(".py")
+            for name in _NEWTYPE.findall(read(repo, path))
+        )
     root = repo / SOURCE_RELPATH
     if not root.is_dir():
         return frozenset()
@@ -46,25 +60,31 @@ class Registry:
     test_code: tuple[str, ...] = ()
 
 
-def load_registry(repo: Path) -> Registry:
-    path = repo / REGISTRY_RELPATH
-    if not path.exists():
-        return Registry({}, (), declared=declared_newtypes(repo))
-    spec = importlib.util.spec_from_file_location("pkm_brand_registry", path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+def load_registry(repo: Path, read: Reader | None = None, paths: list[str] | None = None) -> Registry:
+    """The registry of the working tree, or with `read` and `paths` the one
+    the commit would contain: a commit that stages a registry change with
+    the code it allows is judged against the staged registry."""
+    if read is not None and paths is not None:
+        present = REGISTRY_RELPATH in paths
+        source = read(repo, REGISTRY_RELPATH) if present else ""
+    else:
+        present = (repo / REGISTRY_RELPATH).exists()
+        source = (repo / REGISTRY_RELPATH).read_text(encoding="utf-8") if present else ""
+    declared = declared_newtypes(repo, read, paths)
+    if not present:
+        return Registry({}, (), declared=declared)
+    namespace: dict[str, Any] = {}
+    exec(compile(source, REGISTRY_RELPATH, "exec"), namespace)
     return Registry(
-        names=dict(module.NAMES),
-        opt_out_files=tuple(module.OPT_OUT_FILES),
-        shapes=dict(module.SHAPES),
-        mint_sites=dict(module.MINT_SITES),
-        cast_sites=tuple(module.CAST_SITES),
-        sqlite_sites=tuple(module.SQLITE_SITES),
-        declared=declared_newtypes(repo),
-        test_mint_sites=tuple(module.TEST_MINT_SITES),
-        test_helpers=dict(module.TEST_HELPERS),
-        malformed=dict(module.MALFORMED),
-        test_code=tuple(module.TEST_CODE),
+        names=dict(namespace["NAMES"]),
+        opt_out_files=tuple(namespace["OPT_OUT_FILES"]),
+        shapes=dict(namespace["SHAPES"]),
+        mint_sites=dict(namespace["MINT_SITES"]),
+        cast_sites=tuple(namespace["CAST_SITES"]),
+        sqlite_sites=tuple(namespace["SQLITE_SITES"]),
+        declared=declared,
+        test_mint_sites=tuple(namespace["TEST_MINT_SITES"]),
+        test_helpers=dict(namespace["TEST_HELPERS"]),
+        malformed=dict(namespace["MALFORMED"]),
+        test_code=tuple(namespace["TEST_CODE"]),
     )

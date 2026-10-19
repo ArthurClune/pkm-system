@@ -276,7 +276,6 @@ TEST_CODE: tuple[str, ...] = (
 # web has one: a build plugin reading another tool's output.
 OPT_OUT_FILES: tuple[str, ...] = (
     "server/src/pkm/**/routes_*.py",
-    "server/src/pkm/**/routes.py",
     # Workbox's precache manifest is external build output; its `revision`
     # is a content hash string, not a replica `Revision`.
     "web/tooling/viteBudgetPlugin.ts",

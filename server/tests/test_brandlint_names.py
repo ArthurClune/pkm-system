@@ -34,6 +34,17 @@ def test_an_untyped_brand_name_parameter_is_flagged():
     "def f(uid: BlockUid) -> None: ...",
     "def f(uid: BlockUid | None) -> None: ...",
     "def f(uids: list[BlockUid]) -> None: ...",
+    "def f(uids: Sequence[BlockUid] | None) -> None: ...",
+    "def f(uids: tuple[BlockUid, ...]) -> None: ...",
+    "def f(uids: frozenset[BlockUid]) -> None: ...",
+    "def f(uids: typing.Optional[list[BlockUid]]) -> None: ...",
+    "def f(uids: Annotated[list[BlockUid], 'doc']) -> None: ...",
+    "def f(uid: Annotated[BlockUid, 'doc']) -> None: ...",
+    "def f(uid: dict[BlockUid, str]) -> None: ...",
+    "def f(uid: Mapping[BlockUid, list[str]]) -> None: ...",
+    "def f(uid: Union[BlockUid, None]) -> None: ...",
+    "def f(uid: 'list[BlockUid | None]') -> None: ...",
+    "def f(uid: BlockUid = None) -> None: ...",
     "def f(uid: 'BlockUid') -> None: ...",
     "def f(uid: 'BlockUid | None') -> None: ...",
     "def f(uid: ops.BlockUid) -> None: ...",
@@ -137,7 +148,7 @@ def test_every_rule_has_a_remedy_that_names_the_fix():
     assert set(RULES) == {"brand-name", "brand-opt-out", "brand-parse", "brand-mint",
                           "brand-cast", "model-construct", "raw-sqlite",
                           "test-mint-import", "brand-ignore", "brand-launder",
-                          "brand-file-ignore"}
+                          "brand-file-ignore", "brand-opt-out-unused"}
     assert "select()" in RULES["brand-name"] and "untrusted" in RULES["brand-name"]
 
 
@@ -178,3 +189,92 @@ def test_unparseable_source_is_a_loud_violation_naming_the_interpreter():
     assert "needs >= 3.12 for PEP 695 syntax" in v.text
     assert "invalid syntax" in v.text
     assert "brand-parse" in RULES
+
+
+@pytest.mark.parametrize("source", [
+    "def f(uid: dict[str, BlockUid]) -> None: ...",
+    "def f(uid: Mapping[str, BlockUid]) -> None: ...",
+    "def f(uid: Callable[[BlockUid], int]) -> None: ...",
+    "def f(uid: Awaitable[BlockUid]) -> None: ...",
+    "def f(uid: Literal['a'] | BlockUid) -> None: ...",
+    "def f(uid: BlockUid | Other) -> None: ...",
+    "def f(uids: list[str | BlockUid]) -> None: ...",
+    "def f(uids: list[dict[str, BlockUid]]) -> None: ...",
+    "def f(uid: Box[BlockUid]) -> None: ...",
+    "def f(uid: type[BlockUid]) -> None: ...",
+])
+def test_a_generic_that_merely_mentions_the_brand_is_flagged(source: str):
+    assert rules(source + "\n") == ["brand-name"]
+
+
+@pytest.mark.parametrize("source", [
+    "class A:\n    def __init__(self, x: int) -> None:\n        self.uid: str = x\n",
+    "class A:\n    def m(self) -> None:\n        self.page_id: int | None = None\n",
+    "class A:\n    if TYPE_CHECKING:\n        uid: str\n",
+    "class A:\n    try:\n        seq: int = 0\n    except Exception:\n        pass\n",
+    "class A:\n    with ctx():\n        page_id: int\n",
+    "A = TypedDict('A', {'uid': str})",
+    "A = TypedDict('A', uid=str)",
+    "A = typing.TypedDict('A', {'page_id': int}, total=False)",
+    "A = NamedTuple('A', [('seq', int)])",
+    "A = typing.NamedTuple('A', [('uid', str), ('title', str)])",
+    "A = NamedTuple('A', uid=str)",
+])
+def test_attributes_conditional_fields_and_functional_forms_are_checked(source: str):
+    assert rules(source) == ["brand-name"]
+
+
+@pytest.mark.parametrize("source", [
+    "class A:\n    def __init__(self, x: BlockUid) -> None:\n        self.uid: BlockUid = x\n",
+    "class A:\n    def m(self, x: int) -> None:\n        self.uid = x\n",
+    "class A:\n    if TYPE_CHECKING:\n        uid: BlockUid\n",
+    "A = TypedDict('A', {'uid': BlockUid, 'title': str})",
+    "A = NamedTuple('A', [('seq', SyncSeq), ('title', str)])",
+    "A = TypedDict('A', {})",
+    "A = NamedTuple('A', fields)",
+    "A = TypedDict('A', {**base, 'uid': BlockUid})",
+])
+def test_branded_or_unannotated_attributes_and_functional_forms_are_clean(source: str):
+    assert rules(source + "\n") == []
+
+
+def test_a_nested_function_in_a_class_conditional_is_not_a_class_field():
+    source = "class A:\n    if X:\n        def m(self) -> None:\n            uid: str = ''\n"
+    assert rules(source) == []
+
+
+def test_an_opt_out_covers_one_site_not_every_site_on_its_line():
+    source = ("def f(uids: str, page_ids: str) -> None: ...  # brand: untrusted -- comma-separated query\n")
+    assert rules(source, ROUTES) == ["brand-name"]
+
+
+def test_an_opt_out_covers_the_leftmost_site_on_its_line():
+    source = "def f(uids: str, page_ids: str) -> None: ...  # brand: untrusted -- comma-separated query\n"
+    [v] = check_text(ROUTES, source, REGISTRY)
+    assert "`page_ids`" in v.text
+
+
+def test_each_wrapped_site_takes_its_own_opt_out():
+    source = ("def f(\n    uids: str,  # brand: untrusted -- comma-separated query\n"
+              "    page_ids: str,  # brand: untrusted -- comma-separated query\n) -> None: ...\n")
+    assert rules(source, ROUTES) == []
+
+
+def test_an_opt_out_that_covers_nothing_is_reported():
+    source = "def f(uids: list[BlockUid]) -> None: ...  # brand: untrusted -- comma-separated query\n"
+    assert rules(source, ROUTES) == ["brand-opt-out-unused"]
+
+
+def test_an_opt_out_on_an_unrelated_line_is_reported_and_the_site_is_not_covered():
+    source = "x = 1  # brand: untrusted -- query\ndef f(uids: str) -> None: ...\n"
+    assert sorted(rules(source, ROUTES)) == ["brand-name", "brand-opt-out-unused"]
+
+
+def test_a_used_opt_out_is_not_reported():
+    assert rules(OPT_OUT, ROUTES) == []
+
+
+def test_the_stale_opt_out_names_its_line():
+    source = "x = 1\ny = 2  # brand: untrusted -- query\n"
+    [v] = check_text(ROUTES, source, REGISTRY)
+    assert (v.line, v.rule) == (2, "brand-opt-out-unused")

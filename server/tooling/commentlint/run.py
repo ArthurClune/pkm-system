@@ -49,7 +49,7 @@ def main(argv: list[str], repo: Path | None = None) -> int:
     whole_tree = "--all" in argv
     paths = tree_paths(repo) if whole_tree else staged_paths(repo)
     read = _tree_text if whole_tree else _staged_text
-    registry = load_registry(repo)
+    registry = load_registry(repo) if whole_tree else load_registry(repo, read, tree_paths(repo))
     violations: list[Violation] = []
     for path in paths:
         if is_scanned(path):

@@ -254,16 +254,16 @@ class _RewriteTeethBody(BaseModel):
 
 def _batch_lookup(con: Db) -> list[tuple[int, BatchId]]:
     """Every applied batch as (rowid, batch_id), in rowid order."""
-    rows = con.select("SELECT rowid AS n, batch_id FROM applied_batches ORDER BY rowid")
-    return [(r["n"], r["batch_id"]) for r in rows]
+    rows = con.select("SELECT rowid AS applied_rowid, batch_id FROM applied_batches ORDER BY rowid")
+    return [(r["applied_rowid"], r["batch_id"]) for r in rows]
 
 
 def _after_rowids(con: Db, log: str) -> list[int]:
     """The applied_batches rowid each row of `log` recorded, in row order;
     0 when no batch had been applied. `log` is one of the harness's own
     table names, never user input."""
-    rows = con.select(f"SELECT after_batch AS n FROM {log} ORDER BY rowid")
-    return [r["n"] for r in rows]
+    rows = con.select(f"SELECT after_batch AS after_batch_rowid FROM {log} ORDER BY rowid")
+    return [r["after_batch_rowid"] for r in rows]
 
 
 def _after_batches(con: Db, log: str, lookup: list[tuple[int, BatchId]]) -> list[BatchId | None]:
@@ -364,18 +364,18 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     def renames(request: Request) -> list[dict]:
         con = open_db(request.app.state.config.db_path)
         try:
-            # updated_at stands for `at` and n for `ord`. The batch each
-            # followed is read apart (see _batch_lookup): the log keeps its
-            # applied_batches rowid, and 0 means no batch preceded.
+            # The batch each followed is read apart (see _batch_lookup): the
+            # log keeps its applied_batches rowid, and 0 means no batch
+            # preceded.
             rows = con.select(
-                "SELECT old_title, new_title, at AS updated_at, ord AS n"
+                "SELECT old_title, new_title, at AS log_at, ord AS log_ord"
                 " FROM proptest_renames ORDER BY rowid")
             after = _after_batches(con, "proptest_renames", _batch_lookup(con))
         finally:
             con.close()
         return [{"old_title": r["old_title"], "new_title": r["new_title"],
                  "after_batch_id": batch_id,
-                 "at": r["updated_at"], "ord": r["n"]}
+                 "at": r["log_at"], "ord": r["log_ord"]}
                 for r, batch_id in zip(rows, after, strict=True)]
 
     @app.get("/__proptest/deletes", dependencies=[Depends(require_auth)])
@@ -385,10 +385,10 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
             # Read as for renames. Each deleted block uid is its own row,
             # grouped by the delete's `ord` (unique across both logs).
             rows = con.select(
-                "SELECT title, seq, at AS deleted_at, ord AS n"
+                "SELECT title, seq, at AS log_at, ord AS log_ord"
                 " FROM proptest_deletes ORDER BY rowid")
             uid_rows = con.select(
-                "SELECT d.ord AS n, j.value AS uid"
+                "SELECT d.ord AS log_ord, j.value AS uid"
                 " FROM proptest_deletes d, json_each(d.uids) j"
                 " ORDER BY d.rowid, j.key")
             after = _after_batches(con, "proptest_deletes", _batch_lookup(con))
@@ -396,10 +396,10 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
             con.close()
         uids: dict[int, list[str]] = {}
         for u in uid_rows:
-            uids.setdefault(u["n"], []).append(u["uid"])
+            uids.setdefault(u["log_ord"], []).append(u["uid"])
         return [{"title": r["title"], "seq": r["seq"],
-                 "after_batch_id": batch_id, "at": r["deleted_at"],
-                 "ord": r["n"], "uids": uids.get(r["n"], [])}
+                 "after_batch_id": batch_id, "at": r["log_at"],
+                 "ord": r["log_ord"], "uids": uids.get(r["log_ord"], [])}
                 for r, batch_id in zip(rows, after, strict=True)]
 
     @app.get("/__proptest/conflicts", dependencies=[Depends(require_auth)])

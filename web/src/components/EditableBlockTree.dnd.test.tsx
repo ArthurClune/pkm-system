@@ -189,7 +189,7 @@ it("a drop that changes nothing enqueues nothing and still ends the drag", () =>
 it("a fallback panel (title already active elsewhere) is excluded from DnD both ways", () => {
   // Claim "P" as the live instance elsewhere in the tab, so the P mount below
   // renders as the read-only fallback.
-  const release = reserveOutlineEditor("P");
+  const release = reserveOutlineEditor(canonicalTitleOf("P"));
   try {
     const sync = makeSync();
     render(

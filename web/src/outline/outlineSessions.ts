@@ -9,6 +9,7 @@
 // post-settlement repair pass). This module owns what is left: the registry,
 // handle refcounts, the editor lease, loader election, write tracking, and
 // read causality.
+import type { RawTitle } from "../api/brands";
 import type { BlockNode, PagePayload } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { TicketId, WriteTicket } from "../sync/opQueue";
@@ -121,7 +122,7 @@ interface RegisteredLoader {
 }
 
 interface Session {
-  title: string;
+  title: RawTitle;
   state: OutlineState;
   snapshot: SharedOutlineSnapshot;
   bootstrapped: boolean;
@@ -440,7 +441,7 @@ function canBootstrapExistingSession(session: Session): boolean {
 }
 
 function createSession(
-  title: string,
+  title: RawTitle,
   bootstrap: BlockNode[] | null,
 ): Session {
   const state = createOutlineState(title, bootstrap ?? []);
@@ -482,7 +483,7 @@ function createSession(
  * later mounts observe that established tree instead of replacing it. `null`
  * reserves editor ownership without supplying a page snapshot. */
 export function acquireOutlineSession(
-  title: string,
+  title: RawTitle,
   bootstrap: BlockNode[] | null,
 ): OutlineSessionHandle {
   let session = sessions.get(title);
@@ -667,7 +668,7 @@ export function acquireOutlineSession(
  * never creates one — the undo manager uses it to apply history batches
  * instantly to mounted outlines without leaving behind an un-bootstrapped
  * session for pages that aren't rendered. Callers must release(). */
-export function peekOutlineSession(title: string): OutlineSessionHandle | null {
+export function peekOutlineSession(title: RawTitle): OutlineSessionHandle | null {
   if (!sessions.has(title)) return null;
   return acquireOutlineSession(title, null);
 }

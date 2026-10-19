@@ -385,10 +385,12 @@ def test_no_harness_alias_puts_another_kind_of_value_under_a_vocabulary_key():
     meaning: `j.value` is a block uid out of a JSON array, the one such
     computed value."""
     source = Path(sync_server.__file__).read_text(encoding="utf-8")
-    harness = {"applied_rowid", "after_batch_rowid", "log_at", "log_ord"}
+    harness = {"applied_rowid", "after_batch_rowid", "log_at", "log_ord",
+               "log_old_title", "log_new_title"}
     aliased = {(m["expr"], m["alias"]) for m in re.finditer(r"(?P<expr>[\w.]+)\s+AS\s+(?P<alias>\w+)", source)
                if m["alias"] in KEYS}
     assert {a for a in aliased if a[1] not in harness} == {("j.value", "uid")}
     assert {a for a in aliased if a[1] in harness} == {
         ("rowid", "applied_rowid"), ("after_batch", "after_batch_rowid"),
-        ("at", "log_at"), ("ord", "log_ord"), ("d.ord", "log_ord")}
+        ("at", "log_at"), ("ord", "log_ord"), ("d.ord", "log_ord"),
+        ("old_title", "log_old_title"), ("new_title", "log_new_title")}

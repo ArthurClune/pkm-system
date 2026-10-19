@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 import { useRef, useState } from "react";
 import { apiGet } from "../api/typedClient";
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { UpdateTextOp } from "../api/ops";
 import type { BlockGroup } from "../api/payloads";
 import { linkUnlinkedReference } from "../grammar/linkReference";
@@ -20,7 +20,7 @@ type ItemStatus =
   | { state: "error"; message: string };
 
 export function UnlinkedSection({ title, onLinked }: {
-  title: string;
+  title: CanonicalTitle;
   onLinked?: () => void;
 }) {
   const sync = useSyncActions();

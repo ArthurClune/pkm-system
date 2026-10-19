@@ -2,6 +2,7 @@
 // DOM measurement for one outline's drop zone: pixel positions in, pure
 // dnd.ts semantics out. One indicator per outline.
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { allowedDepths, depthFromX, dropRows, resolveDrop, INDENT_PX,
          type DragSource, type DropPosition, type DropRow,
@@ -38,7 +39,7 @@ const overBlockTextarea = (e: React.DragEvent) =>
 /** `onDropFiles` makes this zone a target for files dragged in from outside
  * the app: it uploads them into this page at the drop target. Without it the
  * zone only takes block drags. */
-export function useDropZone(pageTitle: string,
+export function useDropZone(pageTitle: CanonicalTitle,
                             getBlocks: () => BlockNode[],
                             containerRef: React.RefObject<HTMLElement | null>,
                             onDropFiles?: (files: File[], target: DropTarget) => void) {

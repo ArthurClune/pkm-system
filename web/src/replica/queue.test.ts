@@ -10,7 +10,7 @@ import { sha256Hex } from "./sha256";
 import { subtreeHash } from "./subtreeHash";
 import { openTestDb, type TestDb } from "./testDb";
 import { setMeta } from "./meta";
-import { batchIdOf, orderIdxOf, pendingRowIdOf, shaOf, uidOf } from "../test-helpers";
+import { batchIdOf, orderIdxOf, pendingRowIdOf, shaOf, uidOf, rawTitleOf } from "../test-helpers";
 
 // Every test here picks an arbitrary batch-id string, same shape as the
 // production mint; this mints the brand once rather than at every call.
@@ -61,7 +61,7 @@ describe("enqueueBatch", () => {
       " VALUES ('uid_q2', 1, NULL, 1, 'at the slot')," +
       " ('uid_q3', 1, NULL, 2, 'reused uid')");
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_q3"), page_title: "AI", parent_uid: null,
+      { op: "create", uid: uidOf("uid_q3"), page_title: rawTitleOf("AI"), parent_uid: null,
         order_idx: orderIdxOf(1), text: "dup" },
     ], 99, bid("batch-dup"));
     expect(warn).toHaveBeenCalledWith(
@@ -83,7 +83,7 @@ describe("enqueueBatch", () => {
   });
 
   const invalidOps: [string, BlockOp, string, string][] = [
-    ["explicit page title", { op: "create_page", page_title: "Queue #Bad" },
+    ["explicit page title", { op: "create_page", page_title: rawTitleOf("Queue #Bad") },
       "page_title", "Queue #Bad"],
     ["extracted reference", { op: "update_text", uid: uidOf("uid_q1"),
       text: "[[Queue #Bad Ref]]" }, "reference", "Queue #Bad Ref"],
@@ -144,7 +144,7 @@ describe("enqueueBatch", () => {
     // batch MUST persist — dropping it loses the edit
     const res = enqueueBatch(t.db, [
       { op: "update_text", uid: uidOf("uid_ghost"), text: "edited before hydration" },
-      { op: "create", uid: uidOf("uid_orphan"), page_title: "AI",
+      { op: "create", uid: uidOf("uid_orphan"), page_title: rawTitleOf("AI"),
         parent_uid: uidOf("uid_ghost2"), order_idx: orderIdxOf(0), text: "child of a ghost" },
       { op: "update_text", uid: uidOf("uid_q1"), text: "this one applies" },
     ], 99, bid("batch-ghost"));
@@ -175,7 +175,7 @@ describe("enqueueBatch", () => {
 
   test("update of a block created in the same batch carries no base hash", () => {
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_q2"), page_title: "AI", parent_uid: null,
+      { op: "create", uid: uidOf("uid_q2"), page_title: rawTitleOf("AI"), parent_uid: null,
         order_idx: orderIdxOf(1), text: "brand new" },
       { op: "update_text", uid: uidOf("uid_q2"), text: "edited new" },
     ], 99, bid("batch-cccc"));
@@ -210,7 +210,7 @@ describe("enqueueBatch", () => {
   test("preserves an explicit page_title", () => {
     enqueueBatch(t.db, [{
       op: "update_text", uid: uidOf("uid_q1"), text: "edited",
-      page_title: "Explicit Page",
+      page_title: rawTitleOf("Explicit Page"),
     }], 99, bid("batch-title-explicit"));
     const ops = JSON.parse((t.db.select(
       "SELECT ops_json FROM pending_ops", ["ops_json"]))[0].ops_json) as Record<string, unknown>[];

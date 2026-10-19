@@ -10,14 +10,14 @@ from pkm.server.store import (
     retitle_page_without_rewrite,
     rewrite_snapshotted_blocks,
 )
-from pkm.test_data.ids import canonical_title_of, page_id_of, uid_of
+from pkm.test_data.ids import canonical_title_of, page_id_of, raw_title_of, uid_of
 from pkm.contracts.ops import PageId
 from pkm.database import connect
 
 
-def _rename(client, title, new_title, allow_merge=False):
+def _rename(client, title, new, allow_merge=False):
     return client.post(f"/api/page/{title}/rename",
-                       json={"new_title": new_title,
+                       json={"new_title": raw_title_of(new),
                              "allow_merge": allow_merge})
 
 
@@ -271,15 +271,15 @@ def test_rename_forbidden_hash_title_is_rejected_before_any_mutation(
 
 
 @pytest.mark.parametrize(
-    "new_title",
+    "bad_title",
     ["Project [[Acme", "Project Acme]]", "Project [[Acme]]"],
 )
-def test_rename_new_title_with_brackets_422(client, new_title):
-    response = _rename(client, "AI", new_title)
+def test_rename_new_title_with_brackets_422(client, bad_title):
+    response = _rename(client, "AI", bad_title)
 
     assert response.status_code == 422
     assert response.json()["detail"] == (
-        f"unsupported page-title syntax: {new_title!r}"
+        f"unsupported page-title syntax: {bad_title!r}"
     )
     assert client.get("/api/page/AI").status_code == 200
 
@@ -433,7 +433,8 @@ def test_rewrite_snapshots_updates_and_reindexes_each_block_once(seeded_config):
     rewritten = rewrite_snapshotted_blocks(
         db,
         ((uid_of("uid_multi"), original),),
-        {"AI": "Machine Learning", "Paper": "Machine Learning"},
+        {"AI": raw_title_of("Machine Learning"),
+         "Paper": raw_title_of("Machine Learning")},
         9_003,
     )
 

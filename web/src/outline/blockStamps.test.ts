@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
-import { orderIdxOf, uidOf } from "../test-helpers";
+import { orderIdxOf, uidOf, rawTitleOf } from "../test-helpers";
 import {
   bumpedUids,
   formatStamp,
@@ -66,7 +66,7 @@ describe("formatStampTitle", () => {
 
 describe("opBumpsUpdatedAt", () => {
   const cases: Array<[BlockOp, boolean]> = [
-    [{ op: "create", uid: uidOf("tuid-u1"), page_title: "P", parent_uid: null,
+    [{ op: "create", uid: uidOf("tuid-u1"), page_title: rawTitleOf("P"), parent_uid: null,
        order_idx: orderIdxOf(0), text: "hi" }, true],
     [{ op: "update_text", uid: uidOf("tuid-u1"), text: "hi" }, true],
     [{ op: "move", uid: uidOf("tuid-u1"), parent_uid: null, order_idx: orderIdxOf(1) }, true],
@@ -75,7 +75,7 @@ describe("opBumpsUpdatedAt", () => {
     // collapsing is a view toggle, not a change
     [{ op: "set_collapsed", uid: uidOf("tuid-u1"), collapsed: true }, false],
     [{ op: "delete", uid: uidOf("tuid-u1") }, false],
-    [{ op: "create_page", page_title: "P" }, false],
+    [{ op: "create_page", page_title: rawTitleOf("P") }, false],
   ];
   test.each(cases)("%o -> %s", (op, expected) => {
     expect(opBumpsUpdatedAt(op)).toBe(expected);
@@ -89,7 +89,7 @@ describe("bumpedUids", () => {
       { op: "set_collapsed", uid: uidOf("tuid-u2"), collapsed: true },
       { op: "update_text", uid: uidOf("tuid-u1"), text: "ab" },
       { op: "set_heading", uid: uidOf("tuid-u3"), heading: 1 },
-      { op: "create_page", page_title: "P" },
+      { op: "create_page", page_title: rawTitleOf("P") },
     ])).toEqual(["tuid-u1", "tuid-u3"]);
   });
 

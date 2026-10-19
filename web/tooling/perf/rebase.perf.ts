@@ -13,7 +13,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "vitest";
-import type { SyncSeq } from "../../src/api/brands";
+import type { CanonicalTitle, SyncSeq } from "../../src/api/brands";
 import { setUnauthorizedHandler } from "../../src/api/client";
 import { apiGet, apiPost } from "../../src/api/typedClient";
 import type { Changes, Snapshot } from "../../src/replica/apply";
@@ -94,12 +94,19 @@ function pointClientAt(cookie: string): () => void {
   return () => { globalThis.fetch = real; };
 }
 
+/** The stored title of the scenario page, read from the snapshot. */
+function pageTitleIn(snapshot: Snapshot): CanonicalTitle {
+  const title = snapshot.pages.find((p) => p.title === PAGE)?.title;
+  if (title === undefined) throw new Error(`rebase perf: no page titled ${PAGE}`);
+  return title;
+}
+
 /** The snapshot, then each peer batch posted and its window fetched. */
 async function fetchWorkload(): Promise<{ snapshot: Snapshot; feeds: Changes[] }> {
   const restoreFetch = pointClientAt(await login());
   try {
     const snapshot = await apiGet("/api/sync/snapshot");
-    const targets = pickTargets(snapshot, PAGE);
+    const targets = pickTargets(snapshot, pageTitleIn(snapshot));
     const feeds: Changes[] = [];
     let cursor: SyncSeq = snapshot.seq;
     for (const w of windowBatches(targets, snapshot, mintIds(WINDOW_BATCHES))) {
@@ -136,7 +143,7 @@ async function measurePass(
     });
     await h.init(undefined);
     await h.applySnapshot({ snapshot, expectedPendingIds: [] });
-    for (const b of pendingBatches(pickTargets(snapshot, PAGE), snapshot, mintIds(PENDING_BATCHES))) {
+    for (const b of pendingBatches(pickTargets(snapshot, pageTitleIn(snapshot)), snapshot, mintIds(PENDING_BATCHES))) {
       await h.enqueue({ ops: b.ops, batchId: b.batchId });
     }
     const out: SqlCounts[] = [];

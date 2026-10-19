@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 // The harness's handle on the proptest server: the session cookie and the
 // /__proptest/* control routes (server/tooling/proptest/sync_server.py).
-import type { BatchId, BlockUid, SyncSeq } from "../../api/brands";
+import type { BatchId, CanonicalTitle, BlockUid, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import type { Changes, Snapshot } from "../../replica/apply";
 import { BASE_URL, PASSWORD } from "./env";
@@ -13,8 +13,8 @@ import {
 /** One page retitle, in commit order: the batch it followed (null: before
  * every batch) and the server clock it ran at. */
 export interface RenameRecord {
-  old_title: string;
-  new_title: string;
+  old_title: CanonicalTitle;
+  new_title: CanonicalTitle;
   after_batch_id: BatchId | null;
   at: number;
   /** Position among renames and deletes together, in commit order. */

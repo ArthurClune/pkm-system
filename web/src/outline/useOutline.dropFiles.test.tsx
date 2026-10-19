@@ -7,7 +7,13 @@ import type { BlockNode } from "../api/payloads";
 import { releaseUrl } from "../sync/assetRelease";
 import { SyncContext } from "../sync/SyncProvider";
 import {
-  block, canonicalTitleOf, jsonResponse, makeSync, orderIdxOf, shaOf, uidOf,
+  block,
+  canonicalTitleOf,
+  jsonResponse,
+  makeSync,
+  orderIdxOf,
+  shaOf,
+  uidOf,
   type SyncFake,
 } from "../test-helpers";
 import type { DropTarget } from "./dnd";
@@ -58,7 +64,7 @@ const AB = () => [block("tuid-a", "alpha", { order_idx: orderIdxOf(0) }),
                   block("tuid-b", "beta", { order_idx: orderIdxOf(1) })];
 const at = (parent: string | null, idx: number): DropTarget =>
   ({ parent_uid: parent === null ? null : uidOf(parent), order_idx: orderIdxOf(idx),
-     page_title: "Page" });
+     page_title: canonicalTitleOf("Page") });
 const drop = async (o: () => Outline, files: File[], target: DropTarget) => {
   await act(async () => { await o().onDropFiles(files, target); });
 };

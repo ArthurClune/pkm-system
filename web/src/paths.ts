@@ -2,6 +2,8 @@
 // Titles may contain "/" (namespace pages): encode per segment so the slash
 // stays literal for the server's path-typed {title:path} routes.
 
+import type { RawTitle } from "./api/brands";
+import { asRawTitle } from "./replica/titles";
 import { PAGE_ROUTE_PREFIX } from "./routeMeta";
 
 export function encodeTitle(title: string): string {
@@ -12,8 +14,8 @@ export function pagePath(title: string): string {
   return `${PAGE_ROUTE_PREFIX}${encodeTitle(title)}`;
 }
 
-export function titleFromPathname(pathname: string): string {
-  return pathname
+export function titleFromPathname(pathname: string): RawTitle {
+  return asRawTitle(pathname
     .replace(/^\/page\//, "")
     .split("/")
     .map((segment) => {
@@ -26,5 +28,5 @@ export function titleFromPathname(pathname: string): string {
         return segment;
       }
     })
-    .join("/");
+    .join("/"));
 }

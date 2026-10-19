@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from pkm.contracts.ops import BlockUid, UID_RE
+from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.importer.parse_export import Block, Export
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
 
@@ -73,7 +74,7 @@ class InvalidUid:
     title it would land under if the import proceeded)."""
 
     uid: BlockUid
-    page_title: str
+    page_title: RawTitle
 
 
 class ImportUidError(ValueError):
@@ -104,7 +105,7 @@ def validate_export_uids(export: Export) -> None:
     RECOVERY_PAGE_TITLE."""
     invalid: list[InvalidUid] = []
 
-    def visit(block: Block, page_title: str) -> None:
+    def visit(block: Block, page_title: RawTitle) -> None:
         # :block/uid is free-form EDN (Block.uid is typed str, but nothing
         # validates a parsed export against that): UID_RE.fullmatch() raises
         # TypeError on a non-str argument, so a malformed export handing
@@ -120,9 +121,9 @@ def validate_export_uids(export: Export) -> None:
 
     for page in export.pages:
         for child in page.children:
-            visit(child, page.title)
+            visit(child, as_raw_title(page.title))
     for orphan in export.orphan_blocks:
-        visit(orphan, RECOVERY_PAGE_TITLE)
+        visit(orphan, as_raw_title(RECOVERY_PAGE_TITLE))
 
     if invalid:
         raise ImportUidError(tuple(invalid))

@@ -3,7 +3,7 @@
 // applying committed op semantics so local state mirrors the server's
 // ops_apply.py exactly. ShiftSiblings leaves order_idx gaps on the server;
 // everything here keys on order_idx VALUES, never array positions.
-import type { BlockUid, OrderIdx } from "../api/brands";
+import type { BlockUid, OrderIdx, RawTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import { orderIdxAfter } from "./orderIdx";
@@ -41,7 +41,7 @@ export function findNode(blocks: BlockNode[], uid: BlockUid): BlockNode | null {
  *  the page and back reloads, and one that creates a block here before moving
  *  it does not. Never mutates `blocks`. */
 export function needsAuthoritativeReload(
-  blocks: BlockNode[], ops: readonly BlockOp[], pageTitle: string,
+  blocks: BlockNode[], ops: readonly BlockOp[], pageTitle: RawTitle,
 ): boolean {
   const movesHere = (op: BlockOp): op is Extract<BlockOp, { op: "move" }> =>
     op.op === "move" && op.page_title === pageTitle;
@@ -220,7 +220,7 @@ export interface AppliedOps {
  * relevant create adds no uids, and the ops that remove them only ever shrink
  * the set this is asking about. */
 function opsTouchPage(blocks: BlockNode[], ops: BlockOp[],
-                      pageTitle: string): boolean {
+                      pageTitle: RawTitle): boolean {
   const uids = new Set<BlockUid>();
   for (const op of ops) {
     if (op.op === "create_page") continue;
@@ -254,7 +254,7 @@ function holdsAny(nodes: BlockNode[], uids: ReadonlySet<BlockUid>): boolean {
  * clone, which may still be `blocksEqual` to the input when the ops resolved
  * to what was already there; `changed` is the verdict either way. */
 export function applyOpsWithChange(blocks: BlockNode[], ops: BlockOp[],
-                                   pageTitle: string): AppliedOps {
+                                   pageTitle: RawTitle): AppliedOps {
   if (!opsTouchPage(blocks, ops, pageTitle)) return { blocks, changed: false };
   const tree = cloneTree(blocks);
   let changed = false;
@@ -264,7 +264,7 @@ export function applyOpsWithChange(blocks: BlockNode[], ops: BlockOp[],
 
 /** applyOpsWithChange for the callers that only want the tree. */
 export function applyOps(blocks: BlockNode[], ops: BlockOp[],
-                         pageTitle: string): BlockNode[] {
+                         pageTitle: RawTitle): BlockNode[] {
   return applyOpsWithChange(blocks, ops, pageTitle).blocks;
 }
 
@@ -289,7 +289,7 @@ function layoutHeld(before: Layout, siblings: BlockNode[]): boolean {
  * one tree it cloned itself (stampBaseTextHashes, notably) calls this
  * directly instead of paying a fresh clone per op via applyOps. Either way,
  * the clone is the caller's responsibility — this function never clones. */
-export function applyOpInPlace(tree: BlockNode[], op: BlockOp, pageTitle: string): boolean {
+export function applyOpInPlace(tree: BlockNode[], op: BlockOp, pageTitle: RawTitle): boolean {
   if (op.op === "create") {
     if (op.page_title !== pageTitle) return false;
     if (locate(tree, op.uid)) return false; // replay of a block we already have

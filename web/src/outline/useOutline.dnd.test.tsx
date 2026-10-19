@@ -19,21 +19,21 @@ import {
 import { findNode } from "./tree";
 import { useOutline, type Outline } from "./useOutline";
 
-function Harness({ pageTitle, initial, onReady }: {
-  pageTitle: string;
+function Harness({ titleText, initial, onReady }: {
+  titleText: string;
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf(pageTitle), initial);
+  const outline = useOutline(canonicalTitleOf(titleText), initial);
   useEffect(() => onReady(outline));
   return null;
 }
 
-function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
+function setup(sync: SyncFake, titleText: string, initial: BlockNode[]) {
   let outline!: Outline;
   render(
     <SyncContext.Provider value={sync}>
-      <Harness pageTitle={pageTitle} initial={initial}
+      <Harness titleText={titleText} initial={initial}
                onReady={(o) => { outline = o; }} />
     </SyncContext.Provider>);
   return () => outline;
@@ -48,7 +48,7 @@ it("dnd.moveTo enqueues one move op with no page_title and reorders optimistical
   const getOutline = setup(sync, "Page", initial);
   act(() => {
     getOutline().dnd.moveTo([uidOf("tuid-u2")],
-      { parent_uid: null, order_idx: orderIdxOf(0), page_title: "Page" });
+      { parent_uid: null, order_idx: orderIdxOf(0), page_title: canonicalTitleOf("Page") });
   });
   expect(sync.sent).toEqual([
     [{ op: "move", uid: "tuid-u2", parent_uid: null, order_idx: 0 }],
@@ -66,7 +66,7 @@ it("dnd.moveTo with a group moves every block, order preserved", () => {
   const getOutline = setup(sync, "Page", initial);
   act(() => {
     getOutline().dnd.moveTo([uidOf("tuid-u2"), uidOf("tuid-u3")],
-      { parent_uid: null, order_idx: orderIdxOf(0), page_title: "Page" });
+      { parent_uid: null, order_idx: orderIdxOf(0), page_title: canonicalTitleOf("Page") });
   });
   expect(sync.sent).toEqual([[
     { op: "move", uid: "tuid-u2", parent_uid: null, order_idx: 0 },
@@ -106,9 +106,9 @@ it("applies one remote move exactly once across two same-title views", () => {
   const outlines: Outline[] = [];
   render(
     <SyncContext.Provider value={sync}>
-      <Harness pageTitle="Page" initial={initial}
+      <Harness titleText="Page" initial={initial}
         onReady={(outline) => { outlines[0] = outline; }} />
-      <Harness pageTitle="Page" initial={initial}
+      <Harness titleText="Page" initial={initial}
         onReady={(outline) => { outlines[1] = outline; }} />
     </SyncContext.Provider>);
 
@@ -127,17 +127,17 @@ it("applies one remote move exactly once across two same-title views", () => {
 it("starts one target refetch for one remote batch across same-title views", async () => {
   const sync = makeSync();
   const fetchMock = stubFetch([
-    ["/api/page/Page", pagePayload("Page", [
+    ["/api/page/Page", pagePayload(canonicalTitleOf("Page"), [
       block("tuid-known", "known", { order_idx: orderIdxOf(0) }),
       block("tuid-moved", "moved", { order_idx: orderIdxOf(1) }),
     ])],
   ]);
   render(
     <SyncContext.Provider value={sync}>
-      <Harness pageTitle="Page"
+      <Harness titleText="Page"
         initial={[block("tuid-known", "known", { order_idx: orderIdxOf(0) })]}
         onReady={() => undefined} />
-      <Harness pageTitle="Page"
+      <Harness titleText="Page"
         initial={[block("tuid-known", "known", { order_idx: orderIdxOf(0) })]}
         onReady={() => undefined} />
     </SyncContext.Provider>);
@@ -147,7 +147,7 @@ it("starts one target refetch for one remote batch across same-title views", asy
       client_id: clientIdOf("other"),
       ts: 1,
       ops: [{ op: "move", uid: uidOf("tuid-moved"), parent_uid: null,
-              order_idx: orderIdxOf(1), page_title: "Page" }],
+              order_idx: orderIdxOf(1), page_title: canonicalTitleOf("Page") }],
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -201,7 +201,7 @@ it("dnd.insertSubtreeLocal inserts at the target and sends no ops", () => {
   const node: BlockNode = block("tuid-new", "inserted", { order_idx: orderIdxOf(0) });
   act(() => {
     getOutline().dnd.insertSubtreeLocal(node,
-      { parent_uid: null, order_idx: orderIdxOf(0), page_title: "Page" });
+      { parent_uid: null, order_idx: orderIdxOf(0), page_title: canonicalTitleOf("Page") });
   });
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-new", "tuid-u1"]);
   expect(sync.sent).toEqual([]);
@@ -215,7 +215,7 @@ it("a remote parent-based cross-page move (server-resolved "
   // the block, the target refetches (the op carries no block content).
   const sync = makeSync();
   const fetchMock = stubFetch([
-    ["/api/page/Dst", pagePayload("Dst", [
+    ["/api/page/Dst", pagePayload(canonicalTitleOf("Dst"), [
       block("tuid-tp", "target parent", { order_idx: orderIdxOf(0) }),
       block("tuid-moved", "moved here", { order_idx: orderIdxOf(1) }),
     ])],
@@ -224,11 +224,11 @@ it("a remote parent-based cross-page move (server-resolved "
   let dst!: Outline;
   render(
     <SyncContext.Provider value={sync}>
-      <Harness pageTitle="Src"
+      <Harness titleText="Src"
         initial={[{ ...block("tuid-p", "parent", { order_idx: orderIdxOf(0) }),
                     children: [block("tuid-moved", "moved here", { order_idx: orderIdxOf(0) })] }]}
         onReady={(o) => { src = o; }} />
-      <Harness pageTitle="Dst"
+      <Harness titleText="Dst"
         initial={[block("tuid-tp", "target parent", { order_idx: orderIdxOf(0) })]}
         onReady={(o) => { dst = o; }} />
     </SyncContext.Provider>);
@@ -237,7 +237,7 @@ it("a remote parent-based cross-page move (server-resolved "
     sync.emit({
       client_id: clientIdOf("other"), ts: 1,
       ops: [{ op: "move", uid: uidOf("tuid-moved"), parent_uid: uidOf("tuid-tp"), order_idx: orderIdxOf(0),
-               page_title: "Dst" }],
+               page_title: canonicalTitleOf("Dst") }],
     });
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
   });
@@ -257,7 +257,7 @@ it("target-side refetch ignores global settlement and adopts a safe response", a
   });
   const serverBlocks = [block("tuid-srv", "from server", { order_idx: orderIdxOf(0) })];
   const fetchMock = stubFetch([
-    ["/api/page/Page", pagePayload("Page", serverBlocks)],
+    ["/api/page/Page", pagePayload(canonicalTitleOf("Page"), serverBlocks)],
   ]);
   const getOutline = setup(sync, "Page",
     [block("tuid-u1", "first", { order_idx: orderIdxOf(0) })]);
@@ -267,7 +267,7 @@ it("target-side refetch ignores global settlement and adopts a safe response", a
     sync.emit({
       client_id: clientIdOf("other"), ts: 1,
       ops: [{ op: "move", uid: uidOf("unknown"), parent_uid: null,
-               order_idx: orderIdxOf(0), page_title: "Page" }],
+               order_idx: orderIdxOf(0), page_title: canonicalTitleOf("Page") }],
     });
   });
 

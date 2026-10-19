@@ -114,7 +114,7 @@ describe("formatSize", () => {
 describe("refUidChunks", () => {
   it("chunks ref uids at the block-refs cap of 50", () => {
     const refs = Array.from({ length: 101 }, (_, i) =>
-      ({ uid: uidOf(`tuid-u${i}`), page_title: "P" }));
+      ({ uid: uidOf(`tuid-u${i}`), page_title: canonicalTitleOf("P") }));
     const chunks = refUidChunks(refs);
     expect(chunks.map((c) => c.length)).toEqual([50, 50, 1]);
     expect(chunks[0][0]).toBe("tuid-u0");
@@ -129,14 +129,14 @@ describe("refUidChunks", () => {
 describe("refGroups", () => {
   it("groups refs by page in first-seen order with fetched text", () => {
     const refs = [
-      { uid: uidOf("tuid-a1"), page_title: "Alpha" },
-      { uid: uidOf("tuid-b1"), page_title: "Beta" },
-      { uid: uidOf("tuid-a2"), page_title: "Alpha" },
+      { uid: uidOf("tuid-a1"), page_title: canonicalTitleOf("Alpha") },
+      { uid: uidOf("tuid-b1"), page_title: canonicalTitleOf("Beta") },
+      { uid: uidOf("tuid-a2"), page_title: canonicalTitleOf("Alpha") },
     ];
     const texts = {
-      "tuid-a1": { text: "first", page_title: "Alpha" },
-      "tuid-b1": { text: "second", page_title: "Beta" },
-      "tuid-a2": { text: "third", page_title: "Alpha" },
+      "tuid-a1": { text: "first", page_title: canonicalTitleOf("Alpha") },
+      "tuid-b1": { text: "second", page_title: canonicalTitleOf("Beta") },
+      "tuid-a2": { text: "third", page_title: canonicalTitleOf("Alpha") },
     };
     expect(refGroups(refs, texts)).toEqual([
       { page_title: "Alpha", items: [
@@ -150,7 +150,7 @@ describe("refGroups", () => {
   });
 
   it("falls back to a placeholder for uids the endpoint omitted", () => {
-    const groups = refGroups([{ uid: uidOf("tuid-gone"), page_title: "P" }], {});
+    const groups = refGroups([{ uid: uidOf("tuid-gone"), page_title: canonicalTitleOf("P") }], {});
     expect(groups[0].items[0].text).toBe(MISSING_BLOCK_TEXT);
   });
 });

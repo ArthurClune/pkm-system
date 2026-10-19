@@ -37,6 +37,7 @@
 //    controller, cancels the outstanding token, removes the loader and
 //    releases the session — in that order, so cancellation can never elect
 //    a controller belonging to the unmounting surface.
+import type { RawTitle } from "../api/brands";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGet } from "../api/typedClient";
 import type { PagePayload } from "../api/payloads";
@@ -66,15 +67,15 @@ export interface OutlinePageLoad {
 }
 
 export function useOutlinePageLoad(
-  title: string,
+  title: RawTitle,
   missingPage: MissingPagePolicy,
 ): OutlinePageLoad {
   const [payloadState, setPayloadState] = useState<{
-    title: string;
+    title: RawTitle;
     payload: PagePayload;
   } | null>(null);
   const [errorState, setErrorState] = useState<{
-    title: string;
+    title: RawTitle;
     message: string;
   } | null>(null);
   const seqRef = useRef(0);

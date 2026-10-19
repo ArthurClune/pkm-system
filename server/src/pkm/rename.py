@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import Callable, Iterable, Mapping
 
+from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.refs import (
     BracketSpan,
     attribute_title_span,
@@ -28,7 +29,7 @@ from pkm.refs import (
 )
 
 # Resolves a title as written in the text to its replacement, or None.
-_TitleLookup = Callable[[str], "str | None"]
+_TitleLookup = Callable[[RawTitle], "RawTitle | None"]
 
 
 def _verbatim(title: str) -> str:
@@ -36,21 +37,21 @@ def _verbatim(title: str) -> str:
 
 
 def _title_lookup(
-    replacements: Mapping[str, str], normalize: Callable[[str], str]
+    replacements: Mapping[str, RawTitle], normalize: Callable[[str], str]
 ) -> _TitleLookup:
-    def lookup(raw_title: str) -> str | None:
+    def lookup(raw_title: RawTitle) -> RawTitle | None:
         return replacements.get(normalize(raw_title))
 
     return lookup
 
 
-def _tag_form(new_title: str) -> str:
+def _tag_form(new_title: RawTitle) -> str:
     if is_bare_tag_title(new_title):
         return f"#{new_title}"
     return f"#[[{new_title}]]"
 
 
-def _attribute_form(new_title: str) -> str:
+def _attribute_form(new_title: RawTitle) -> str:
     span = attribute_title_span(f"{new_title}::")
     if span is not None and span.raw_title == new_title:
         return f"{new_title}::"
@@ -67,7 +68,9 @@ def _rewrite_tags(
     for tag in tag_spans(clean, start, stop):
         new_title = lookup(tag.raw_title)
         if new_title is not None:
-            spans.append((tag.start, tag.end, _tag_form(new_title)))
+            spans.append(
+                (tag.start, tag.end, _tag_form(new_title))
+            )
 
 
 def _rewrite_range(
@@ -93,7 +96,8 @@ def _rewrite_range(
     index = start
     for bracket in brackets:
         _rewrite_tags(clean, lookup, index, bracket.start, spans)
-        new_title = lookup(clean[bracket.inner_start:bracket.inner_end])
+        new_title = lookup(
+            as_raw_title(clean[bracket.inner_start:bracket.inner_end]))
         if new_title is not None:
             spans.append((bracket.start, bracket.end, f"[[{new_title}]]"))
         else:
@@ -111,7 +115,7 @@ def _rewrite_range(
 
 def rewrite_title_refs_map(
     text: str,
-    replacements: Mapping[str, str],
+    replacements: Mapping[str, RawTitle],
     *,
     normalize: Callable[[str], str] = _verbatim,
 ) -> str:
@@ -137,7 +141,8 @@ def rewrite_title_refs_map(
         new_title = lookup(attribute.raw_title)
         if new_title is not None:
             spans.append(
-                (attribute.start, attribute.end, _attribute_form(new_title))
+                (attribute.start, attribute.end,
+                 _attribute_form(new_title))
             )
 
     _rewrite_range(
@@ -150,5 +155,6 @@ def rewrite_title_refs_map(
     return out
 
 
-def rewrite_title_refs(text: str, old_title: str, new_title: str) -> str:
+def rewrite_title_refs(text: str, old_title: RawTitle,
+                       new_title: RawTitle) -> str:
     return rewrite_title_refs_map(text, {old_title: new_title})

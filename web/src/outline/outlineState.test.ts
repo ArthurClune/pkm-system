@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
-import { block, orderIdxOf, uidOf, requestIdOf, ticketIdOf, typeProbe } from "../test-helpers";
+import {
+  block, orderIdxOf, uidOf, requestIdOf, ticketIdOf, typeProbe, rawTitleOf,
+  canonicalTitleOf,
+} from "../test-helpers";
 import {
   beginAuthoritativeRead,
   captureDraft,
@@ -28,7 +31,7 @@ typeProbe(() => {
 
 describe("outline causality", () => {
   it("increments revision only for state-changing local and remote ops", () => {
-    const initial = createOutlineState("Page", [block("tuid-u1", "old")]);
+    const initial = createOutlineState(rawTitleOf("Page"), [block("tuid-u1", "old")]);
     const local = transitionOutline(initial, {
       type: "local-ops", ticketId: ticketIdOf("write-1"), nowMs: 0, ops: [update("local")],
     }).state;
@@ -46,7 +49,7 @@ describe("outline causality", () => {
 
   it("adopts the newest response when its dispatch revision is unchanged", () => {
     const started = beginAuthoritativeRead(
-      createOutlineState("Page", [block("tuid-u1", "old")]),
+      createOutlineState(rawTitleOf("Page"), [block("tuid-u1", "old")]),
     );
 
     const result = transitionOutline(started.state, {
@@ -62,7 +65,7 @@ describe("outline causality", () => {
 
   it("defers a response dispatched before a local edit", () => {
     const started = beginAuthoritativeRead(
-      createOutlineState("Page", [block("tuid-u1", "old")]),
+      createOutlineState(rawTitleOf("Page"), [block("tuid-u1", "old")]),
     );
     const edited = transitionOutline(started.state, {
       type: "local-ops", ticketId: ticketIdOf("write-1"), nowMs: 0, ops: [update("local")],
@@ -80,7 +83,7 @@ describe("outline causality", () => {
 
   it("requests a replacement when a remote revision advanced after dispatch", () => {
     const started = beginAuthoritativeRead(
-      createOutlineState("Page", [block("tuid-u1", "old")]),
+      createOutlineState(rawTitleOf("Page"), [block("tuid-u1", "old")]),
     );
     const remote = transitionOutline(started.state, {
       type: "remote-ops", nowMs: 0, ops: [update("remote")],
@@ -99,7 +102,7 @@ describe("outline causality", () => {
 
   it("retains only the newest deferred authoritative payload", () => {
     const first = beginAuthoritativeRead(
-      createOutlineState("Page", [block("tuid-u1", "old")]),
+      createOutlineState(rawTitleOf("Page"), [block("tuid-u1", "old")]),
     );
     const second = beginAuthoritativeRead(first.state);
     const pending = transitionOutline(second.state, {
@@ -121,7 +124,7 @@ describe("outline causality", () => {
 
   it("replaces a candidate that arrived while a relevant ticket was blocked", () => {
     const started = beginAuthoritativeRead(
-      createOutlineState("Page", [block("tuid-u1", "old")]),
+      createOutlineState(rawTitleOf("Page"), [block("tuid-u1", "old")]),
     );
     const pending = transitionOutline(started.state, {
       type: "write-started", ticketId: ticketIdOf("write-1"), scope: ["page", "Page"],
@@ -145,7 +148,7 @@ describe("outline causality", () => {
 
   it("never adopts a pre-delivery response dispatched after the local edit", () => {
     const edited = transitionOutline(
-      createOutlineState("Page", [block("tuid-u1", "old")]),
+      createOutlineState(rawTitleOf("Page"), [block("tuid-u1", "old")]),
       { type: "local-ops", ticketId: ticketIdOf("write-1"), nowMs: 0,
         ops: [update("local")] },
     ).state;
@@ -168,7 +171,7 @@ describe("outline causality", () => {
 
   it("does not let an unrelated-title ticket block safe adoption", () => {
     const started = beginAuthoritativeRead(
-      createOutlineState("Page A", [block("tuid-u1", "old")]),
+      createOutlineState(rawTitleOf("Page A"), [block("tuid-u1", "old")]),
     );
     const unrelated = transitionOutline(started.state, {
       type: "write-started", ticketId: ticketIdOf("write-b"),
@@ -186,7 +189,7 @@ describe("outline causality", () => {
 
   it("ignores a stale transport token once a newer request exists", () => {
     const first = beginAuthoritativeRead(
-      createOutlineState("Page", [block("tuid-u1", "old")]),
+      createOutlineState(rawTitleOf("Page"), [block("tuid-u1", "old")]),
     );
     const second = beginAuthoritativeRead(first.state);
 
@@ -259,7 +262,7 @@ describe("outline causality", () => {
 
   it("requests one fresh read instead of adopting a pre-edit candidate", () => {
     const started = beginAuthoritativeRead(
-      createOutlineState("Page", [block("tuid-u1", "old")]),
+      createOutlineState(rawTitleOf("Page"), [block("tuid-u1", "old")]),
     );
     const edited = transitionOutline(started.state, {
       type: "local-ops", ticketId: ticketIdOf("write-1"), nowMs: 0, ops: [update("local")],
@@ -284,7 +287,7 @@ describe("outline causality", () => {
   });
 
   it("authoritative repair adopts server state and reapplies only unresolved ops", () => {
-    const initial = createOutlineState("Page", [
+    const initial = createOutlineState(rawTitleOf("Page"), [
       block("tuid-u1", "old"), block("tuid-u2", "old other", { order_idx: orderIdxOf(1) }),
     ]);
     const rejected = transitionOutline(initial, {
@@ -316,7 +319,7 @@ describe("outline causality", () => {
 
   it("rejects a repair response when the revision advanced after dispatch", () => {
     const started = beginAuthoritativeRead(
-      createOutlineState("Page", [block("tuid-u1", "old")]),
+      createOutlineState(rawTitleOf("Page"), [block("tuid-u1", "old")]),
     );
     const advanced = transitionOutline(started.state, {
       type: "remote-ops", nowMs: 0, ops: [update("remote advance")],
@@ -336,7 +339,7 @@ describe("outline causality", () => {
     const moved = block("tuid-moved", "moved", {
       children: [block("tuid-child", "child")],
     });
-    const initial = createOutlineState("Target", [targetParent]);
+    const initial = createOutlineState(rawTitleOf("Target"), [targetParent]);
     const moveTracked = transitionOutline(initial, {
       type: "write-started", ticketId: ticketIdOf("move"),
       scope: ["page", "Source", "Target"],
@@ -368,7 +371,7 @@ describe("outline causality", () => {
     const moved = block("tuid-moved", "server moved");
     const target = block("target", "target", { children: [] });
     const tracked = transitionOutline(
-      createOutlineState("Target", [target]),
+      createOutlineState(rawTitleOf("Target"), [target]),
       {
         type: "write-started", ticketId: ticketIdOf("move"),
         scope: ["page", "Source", "Target"],
@@ -392,7 +395,7 @@ describe("outline causality", () => {
 
   it("flushes a changed pending draft before a structural op", () => {
     const ops = pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "typed", base: "old" }, [block("tuid-u1", "old")], "Page",
+      { uid: uidOf("tuid-u1"), text: "typed", base: "old" }, [block("tuid-u1", "old")], canonicalTitleOf("Page"),
     );
     expect(ops).toEqual([{
       op: "update_text", uid: "tuid-u1", text: "typed",
@@ -402,13 +405,13 @@ describe("outline causality", () => {
 
   it("drops a no-op pending draft whose text is unchanged", () => {
     expect(pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "same", base: "same" }, [block("tuid-u1", "same")], "Page",
+      { uid: uidOf("tuid-u1"), text: "same", base: "same" }, [block("tuid-u1", "same")], canonicalTitleOf("Page"),
     )).toEqual([]);
   });
 
   it("flushes a draft whose block a remote batch deleted, stamped with its base", () => {
     expect(pendingTextOps(
-      { uid: uidOf("tuid-gone"), text: "typed", base: "old" }, [block("tuid-u1", "old")], "Page",
+      { uid: uidOf("tuid-gone"), text: "typed", base: "old" }, [block("tuid-u1", "old")], canonicalTitleOf("Page"),
     )).toEqual([{
       op: "update_text", uid: "tuid-gone", text: "typed",
       base_text_hash: sha256Hex("old"), page_title: "Page",
@@ -416,12 +419,12 @@ describe("outline causality", () => {
   });
 
   it("has nothing to flush without a pending draft", () => {
-    expect(pendingTextOps(null, [block("tuid-u1", "old")], "Page")).toEqual([]);
+    expect(pendingTextOps(null, [block("tuid-u1", "old")], canonicalTitleOf("Page"))).toEqual([]);
   });
 
   it("stamps the base, not the tree, when a remote edit landed under the draft", () => {
     const ops = pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "typed", base: "old" }, [block("tuid-u1", "remote")], "Page",
+      { uid: uidOf("tuid-u1"), text: "typed", base: "old" }, [block("tuid-u1", "remote")], canonicalTitleOf("Page"),
     );
     expect(ops).toEqual([{
       op: "update_text", uid: "tuid-u1", text: "typed",
@@ -431,19 +434,19 @@ describe("outline causality", () => {
 
   it("drops a draft typed back to its base, even over a remote edit", () => {
     expect(pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "old", base: "old" }, [block("tuid-u1", "remote")], "Page",
+      { uid: uidOf("tuid-u1"), text: "old", base: "old" }, [block("tuid-u1", "remote")], canonicalTitleOf("Page"),
     )).toEqual([]);
   });
 
   it("drops a draft a remote edit already made", () => {
     expect(pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "same", base: "old" }, [block("tuid-u1", "same")], "Page",
+      { uid: uidOf("tuid-u1"), text: "same", base: "old" }, [block("tuid-u1", "same")], canonicalTitleOf("Page"),
     )).toEqual([]);
   });
 
   it("a draft with no captured base carries page_title and no hash", () => {
     const ops = pendingTextOps(
-      { uid: uidOf("tuid-gone"), text: "typed", base: null }, [], "Page",
+      { uid: uidOf("tuid-gone"), text: "typed", base: null }, [], canonicalTitleOf("Page"),
     );
     expect(ops).toEqual([
       { op: "update_text", uid: "tuid-gone", text: "typed", page_title: "Page" },
@@ -472,7 +475,7 @@ describe("outline causality", () => {
   // silently lose the local edit if the guard ever went away.
   it("keeps a recorded replay when the same ticket is announced again", () => {
     const recorded = transitionOutline(
-      createOutlineState("Page", [block("tuid-u1", "old")]),
+      createOutlineState(rawTitleOf("Page"), [block("tuid-u1", "old")]),
       { type: "local-ops", ticketId: ticketIdOf("write-1"), nowMs: 0,
         ops: [update("local edit")] },
     ).state;
@@ -493,7 +496,7 @@ describe("outline causality", () => {
   it("keeps captured replay metadata when the ticket is announced again", () => {
     const target = block("target", "target", { children: [] });
     const tracked = transitionOutline(
-      createOutlineState("Target", [target]),
+      createOutlineState(rawTitleOf("Target"), [target]),
       {
         type: "write-started", ticketId: ticketIdOf("move"),
         scope: ["page", "Source", "Target"],
@@ -519,7 +522,7 @@ describe("outline causality", () => {
   it("does not replay explicit subtree metadata after its ticket settles", () => {
     const target = block("target", "target", { children: [] });
     const tracked = transitionOutline(
-      createOutlineState("Target", [target]),
+      createOutlineState(rawTitleOf("Target"), [target]),
       {
         type: "write-started", ticketId: ticketIdOf("terminal-move"),
         scope: ["page", "Source", "Target"],
@@ -551,7 +554,7 @@ describe("block stamps", () => {
   const NOW = 9_000_000;
 
   it("stamps the blocks a local batch changed and leaves the rest alone", () => {
-    const state = transitionOutline(createOutlineState("Page", tree()), {
+    const state = transitionOutline(createOutlineState(rawTitleOf("Page"), tree()), {
       type: "local-ops", ticketId: ticketIdOf("w1"), nowMs: NOW,
       ops: [{ op: "update_text", uid: uidOf("tuid-u2c"), text: "edited" }],
     }).state;
@@ -562,9 +565,9 @@ describe("block stamps", () => {
   });
 
   it("stamps a block the batch created, so a new row shows today", () => {
-    const state = transitionOutline(createOutlineState("Page", tree()), {
+    const state = transitionOutline(createOutlineState(rawTitleOf("Page"), tree()), {
       type: "local-ops", ticketId: ticketIdOf("w1"), nowMs: NOW,
-      ops: [{ op: "create", uid: uidOf("tuid-u3"), page_title: "Page", parent_uid: null,
+      ops: [{ op: "create", uid: uidOf("tuid-u3"), page_title: rawTitleOf("Page"), parent_uid: null,
               order_idx: orderIdxOf(2), text: "fresh" }],
     }).state;
 
@@ -572,7 +575,7 @@ describe("block stamps", () => {
   });
 
   it("does not stamp for a collapse-only batch", () => {
-    const state = transitionOutline(createOutlineState("Page", tree()), {
+    const state = transitionOutline(createOutlineState(rawTitleOf("Page"), tree()), {
       type: "local-ops", ticketId: ticketIdOf("w1"), nowMs: NOW,
       ops: [{ op: "set_collapsed", uid: uidOf("tuid-u2"), collapsed: true }],
     }).state;
@@ -582,7 +585,7 @@ describe("block stamps", () => {
   });
 
   it("stamps remote batches exactly as local ones", () => {
-    const state = transitionOutline(createOutlineState("Page", tree()), {
+    const state = transitionOutline(createOutlineState(rawTitleOf("Page"), tree()), {
       type: "remote-ops", nowMs: NOW,
       ops: [{ op: "set_heading", uid: uidOf("tuid-u1"), heading: 2 }],
     }).state;
@@ -591,7 +594,7 @@ describe("block stamps", () => {
   });
 
   it("ignores ops for blocks that are not on this page or were deleted", () => {
-    const state = transitionOutline(createOutlineState("Page", tree()), {
+    const state = transitionOutline(createOutlineState(rawTitleOf("Page"), tree()), {
       type: "remote-ops", nowMs: NOW,
       ops: [
         { op: "update_text", uid: uidOf("elsewhere"), text: "other page" },
@@ -611,7 +614,7 @@ describe("outline change detection", () => {
   ];
 
   it("returns the identical state for a remote op that changes nothing", () => {
-    const state = createOutlineState("Page", nested());
+    const state = createOutlineState(rawTitleOf("Page"), nested());
 
     const result = transitionOutline(state, {
       type: "remote-ops", nowMs: 9000,
@@ -623,7 +626,7 @@ describe("outline change detection", () => {
   });
 
   it("returns the identical state for a tree rebuilt with the same content", () => {
-    const state = createOutlineState("Page", nested());
+    const state = createOutlineState(rawTitleOf("Page"), nested());
 
     const result = transitionOutline(state, {
       type: "local-tree", blocks: nested(), // equal content, fresh objects
@@ -633,7 +636,7 @@ describe("outline change detection", () => {
   });
 
   it("adopts a tree whose content differs, keeping the given array", () => {
-    const state = createOutlineState("Page", nested());
+    const state = createOutlineState(rawTitleOf("Page"), nested());
     const moved = [nested()[1], nested()[0]];
 
     const result = transitionOutline(state, {
@@ -645,7 +648,7 @@ describe("outline change detection", () => {
   });
 
   it("registers a local write whose ops changed nothing, without a revision", () => {
-    const state = createOutlineState("Page", nested());
+    const state = createOutlineState(rawTitleOf("Page"), nested());
 
     const result = transitionOutline(state, {
       type: "local-ops", ticketId: ticketIdOf("w1"), nowMs: 9000,
@@ -661,7 +664,7 @@ describe("outline change detection", () => {
     // The server bumps updated_at for every update_text without comparing the
     // text (ops_apply.py's UpdateText), so the mirror here must too: the tree
     // really did change even though the op was a no-op.
-    const state = createOutlineState("Page", [
+    const state = createOutlineState(rawTitleOf("Page"), [
       block("tuid-u1", "same", { updated_at: 2000 })]);
 
     const result = transitionOutline(state, {
@@ -674,7 +677,7 @@ describe("outline change detection", () => {
   });
 
   it("returns the identical state when even the stamp lands on the same ms", () => {
-    const state = createOutlineState("Page", [
+    const state = createOutlineState(rawTitleOf("Page"), [
       block("tuid-u1", "same", { updated_at: 9000 })]);
 
     const result = transitionOutline(state, {
@@ -686,7 +689,7 @@ describe("outline change detection", () => {
   });
 
   it("keeps the existing blocks when an authoritative read matches them", () => {
-    const started = beginAuthoritativeRead(createOutlineState("Page", nested()));
+    const started = beginAuthoritativeRead(createOutlineState(rawTitleOf("Page"), nested()));
 
     const result = transitionOutline(started.state, {
       type: "authoritative", token: started.token, blocks: nested(),
@@ -698,7 +701,7 @@ describe("outline change detection", () => {
   });
 
   it("never serializes the tree to decide whether it changed", () => {
-    const state = createOutlineState("Page", nested());
+    const state = createOutlineState(rawTitleOf("Page"), nested());
     const spy = vi.spyOn(JSON, "stringify");
 
     let next = transitionOutline(state, {
@@ -725,7 +728,7 @@ describe("outline change detection", () => {
     let reads = 0;
     const watched = watchFieldReads(nested(), () => { reads += 1; });
     const nodes = 3;
-    const state = createOutlineState("Page", watched);
+    const state = createOutlineState(rawTitleOf("Page"), watched);
 
     transitionOutline(state, {
       type: "local-ops", ticketId: ticketIdOf("w1"), nowMs: 9000,

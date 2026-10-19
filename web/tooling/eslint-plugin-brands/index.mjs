@@ -122,10 +122,14 @@ const testFileGlobs = [
 
 const SET_TYPES = new Set(["Set", "ReadonlySet"]);
 const MAP_TYPES = new Set(["Map", "ReadonlyMap"]);
-const SUBTYPE_KEY = "__canonical";
-const SUBTYPE_BRAND = "CanonicalTitle";
-const SUBTYPE_PARENT = "NormalizedTitle";
-const BRAND_TAGS = new Set(["__brand", SUBTYPE_KEY]);
+// The subtype chain of api/brands.ts, most derived first: [key, brand].
+const SUBTYPES = [
+  ["__canonical", "CanonicalTitle"],
+  ["__normalized", "NormalizedTitle"],
+];
+// The `__brand` brand every subtype in the chain sits on.
+const SUBTYPE_ROOT = "RawTitle";
+const BRAND_TAGS = new Set(["__brand", ...SUBTYPES.map(([key]) => key)]);
 
 const SIGNATURE_KINDS = [ts.SignatureKind.Call, ts.SignatureKind.Construct];
 
@@ -158,14 +162,19 @@ function brandsOf(checker, type) {
       return;
     }
     if (t.isUnionOrIntersection()) {
-      // A subtype brand adds a `__canonical` key to its parent's brand
+      // A subtype brand adds its own key to its parent's brand
       // (api/brands.ts), so the intersection names the subtype, which has
-      // its own mint sites, not the parent.
-      if (t.isIntersection() && t.types.some((m) => m.getProperty(SUBTYPE_KEY))) {
+      // its own mint sites, and drops every ancestor brand.
+      const subtype = t.isIntersection()
+        ? SUBTYPES.find(([key]) => t.types.some((m) => m.getProperty(key)))
+        : undefined;
+      if (subtype) {
         const inner = new Set();
         for (const m of t.types) brandsOf(checker, m).forEach((b) => inner.add(b));
-        inner.delete(SUBTYPE_PARENT);
-        inner.add(SUBTYPE_BRAND);
+        const at = SUBTYPES.indexOf(subtype);
+        for (const [, ancestor] of SUBTYPES.slice(at + 1)) inner.delete(ancestor);
+        inner.delete(SUBTYPE_ROOT);
+        inner.add(subtype[1]);
         inner.forEach((b) => found.add(b));
         return;
       }
@@ -367,8 +376,12 @@ function launders(checker, type, neverLaunders = true) {
   return walk(type);
 }
 
-// The brand literal a type itself carries (not one nested inside it).
+// The brand literal a type itself carries (not one nested inside it): the
+// most derived subtype key's brand when it holds one (SUBTYPES), else its
+// `__brand` literal.
 function ownBrand(checker, type) {
+  const subtype = SUBTYPES.find(([key]) => type.getProperty(key));
+  if (subtype) return subtype[1];
   const brand = type.getProperty("__brand");
   if (!brand) return null;
   const bt = checker.getTypeOfSymbol(brand);

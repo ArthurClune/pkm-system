@@ -5,7 +5,7 @@
 // silently passing.
 import { expect, it } from "vitest";
 import type { AssetRefGroup } from "../views/filesCore";
-import { pageIdOf, typeProbe, uidOf } from "../test-helpers";
+import { pageIdOf, typeProbe, uidOf, canonicalTitleOf } from "../test-helpers";
 import { mergeGroups } from "./groups";
 
 // AssetRefGroup (asset refs, keyed by page_title -- the search payload
@@ -13,8 +13,8 @@ import { mergeGroups } from "./groups";
 // exists to dedupe real pages. Passing two unrelated asset groups through
 // it would merge their items under a shared synthetic counter.
 typeProbe(() => {
-  const a: AssetRefGroup[] = [{ page_title: "Alpha", items: [] }];
-  const b: AssetRefGroup[] = [{ page_title: "Beta", items: [] }];
+  const a: AssetRefGroup[] = [{ page_title: canonicalTitleOf("Alpha"), items: [] }];
+  const b: AssetRefGroup[] = [{ page_title: canonicalTitleOf("Beta"), items: [] }];
   // @ts-expect-error AssetRefGroup has no page_id; mergeGroups must reject it
   mergeGroups(a, b);
 });

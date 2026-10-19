@@ -7,6 +7,7 @@
 // semantic decision. All DOM effects (preventDefault, blur, navigation,
 // setState) stay in the shells. Ordering mirrors the former inline onKeyDown
 // chains exactly, so behaviour is unchanged.
+import type { NormalizedTitle } from "../api/brands";
 import type { HeadingLevel } from "../api/ops";
 import { cycleTodo } from "../grammar/todo";
 import { autoPairBracket, BRACKET_CHARS, toggleEmphasis, wrapLink,
@@ -46,7 +47,7 @@ export type KeyDecision =
   | { type: "blur" }
   /** sidebar: Ctrl-Shift-O — open in the sidebar (same as shift-clicking a
    * wiki link) instead of navigating the main pane. */
-  | { type: "navigate-ref"; title: string; sidebar: boolean }
+  | { type: "navigate-ref"; title: NormalizedTitle; sidebar: boolean }
   | { type: "start-block-selection"; dir: "up" | "down" }
   | { type: "select-to-block-edge"; edge: "start" | "end" }
   /** Replace the textarea selection with this exact range (used by

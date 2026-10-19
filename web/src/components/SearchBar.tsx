@@ -2,18 +2,19 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiGet, apiPost } from "../api/typedClient";
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, RawTitle } from "../api/brands";
 import type { SearchPayload } from "../api/payloads";
 import { SidebarContext } from "../contexts";
 import { parseSnippet } from "../grammar/snippet";
 import { pagePath } from "../paths";
+import { asRawTitle } from "../replica/titles";
 import { useDismiss } from "../useDismiss";
 import { useStaleGuard } from "../useStaleGuard";
 import { SearchIcon } from "./icons";
 
 interface ResultRow {
   key: string;
-  title: string;          // navigation target (page title)
+  title: RawTitle;        // navigation target (page title)
   label: string;
   snippet: string | null; // block hits only
   uid?: BlockUid;         // block hits only: jump-to-block target on the page
@@ -130,7 +131,7 @@ export function SearchBar() {
   const showCreateRow = trimmedQuery !== "" && resultsQuery === trimmedQuery
     && !hasExactPageMatch(rows, trimmedQuery);
   const displayRows: ResultRow[] = showCreateRow
-    ? [{ key: CREATE_ROW_KEY, title: trimmedQuery,
+    ? [{ key: CREATE_ROW_KEY, title: asRawTitle(trimmedQuery),
          label: `Create page "${trimmedQuery}"`, snippet: null }, ...rows]
     : rows;
 

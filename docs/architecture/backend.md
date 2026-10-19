@@ -157,6 +157,7 @@ name is read under an alias:
 | `pages.id` / `sidebar_entries.id` | `page_id` / `sidebar_entry_id` |
 | `sidebar_entries.order_idx` | `sidebar_order_idx` |
 | `kind` of `refs`, `block_rewrites`, `changes` | `ref_kind`, `rewrite_kind`, `change_kind` |
+| `block_rewrites.old_title` / `new_title` | `rewrite_old_text` / `rewrite_new_text` |
 | `changes.page_id` (nullable) | `change_page_id` |
 | a computed value | the alias the query gives it (`COUNT(*) AS n`, `... AS page_title`) |
 
@@ -695,15 +696,25 @@ durable `plain_space_title_canonicalization` flag selects the second:
 | inactive (default) | a control character makes ASCII-whitespace runs collapse to one space and trims their boundary; plain-space padding stays byte-exact, so legacy rows still resolve |
 | active | the above, plus stripping leading and trailing U+0020; internal ordinary spaces and NBSP are unchanged |
 
+The title brands are a chain declared in `contracts/titles.py`; each passes
+where the one before it is expected, never the reverse:
+
+| Brand | Meaning | Minted by |
+|---|---|---|
+| `RawTitle` | text no check has run on | `as_raw_title`, the general mint; `refs.py` (`normalize_title`, `attribute_title_span`, `tag_spans`); the other sites are in `brand_registry.MINT_SITES` |
+| `NormalizedTitle` | a `RawTitle` through `normalize_title` | `refs.normalize_title`, `refs.canonicalize_title` |
+| `CanonicalTitle` | a `NormalizedTitle` in the exact stored spelling | the paragraph below |
+
 `refs.normalize_title` and `refs.canonicalize_title` both return the
 `NewType` `NormalizedTitle`. `canonicalize_title` takes `plain_space` as a
 caller-supplied bool, not this database's live flag, so its result is the
 canonical spelling only when the caller passes that flag's current value.
-`CanonicalTitle` (a subtype of `NormalizedTitle`) is minted in exactly two
-places: `sync_meta.read_title`/`title_reader`, which read the live flag, and
+`CanonicalTitle` (a subtype of `NormalizedTitle`) is minted in exactly three
+places: `sync_meta.read_title`/`title_reader`, which read the live flag;
 `refs.target_canonical_title`, the deliberate exception the title migration
 uses to plan and apply against the post-activation state before the flag
-flips. `store.fetch_page`, the rename/merge/retitle/sidebar-insert helpers
+flips; and `refs.canonical_daily_title`, whose fixed format is canonical
+under either flag setting. `store.fetch_page`, the rename/merge/retitle/sidebar-insert helpers
 in `store.py`, `routes_search.py`'s todos/changed page filter, `query.py`'s
 `plan_sql` (via a `CanonicalQueryNode` wrapper only `parse_canonical_query`
 mints), and the row-mapped `InventoryPage`/`InventorySidebar` in
@@ -865,8 +876,9 @@ consume the value afterward (`ShiftSiblings`, `SetParent`, `InsertBlock`,
 | `OrderIdx`, `SidebarOrderIdx` | `contracts/ops.py` | `int` |
 | `ConversationId`, `ConfirmId` | `contracts/responses.py` | `str` |
 | `GoodlinksId` | `goodlinks.py` | `str` |
-| `NormalizedTitle` | `refs.py` | `str` |
-| `CanonicalTitle` | `refs.py` | `NormalizedTitle` |
+| `RawTitle` | `contracts/titles.py` | `str` |
+| `NormalizedTitle` | `contracts/titles.py` | `RawTitle` |
+| `CanonicalTitle` | `contracts/titles.py` | `NormalizedTitle` |
 
 `SidebarEntryId` is `sidebar_entries.id`, not `PageId` — that table has its
 own `INTEGER PRIMARY KEY`, distinct from `pages.id` even though every entry

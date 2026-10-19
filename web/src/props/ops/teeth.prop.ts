@@ -7,7 +7,7 @@
 // alone, is not the property seeing the bug.
 import fc from "fast-check";
 import { expect, test } from "vitest";
-import type { BlockUid } from "../../api/brands";
+import type { BlockUid, RawTitle } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import type { BlockNode } from "../../api/payloads";
 import { cloneTree, locate, applyOpsWithChange } from "../../outline/tree";
@@ -31,7 +31,7 @@ const CLEAN_LIMIT_MS = 120_000;
 
 /** The move branch of the real apply, except that the block lands first and
  * the shift then takes it along with its new siblings. */
-function applyEchoShiftingMoved(tree: BlockNode[], ops: BlockOp[], title: string): BlockNode[] {
+function applyEchoShiftingMoved(tree: BlockNode[], ops: BlockOp[], title: RawTitle): BlockNode[] {
   const out = cloneTree(tree);
   for (const op of ops) {
     const found = op.op === "move" && (op.page_title == null || op.page_title === title)

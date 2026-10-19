@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
-import { makeSync, uidOf } from "../test-helpers";
+import { makeSync, canonicalTitleOf, uidOf } from "../test-helpers";
 import { historyIdle, recordHistory, resetHistory,
          setHistoryPageLoader } from "../outline/undoManager";
 import { UndoRedoKeys } from "./UndoRedoKeys";
@@ -14,7 +14,7 @@ beforeEach(() => { setHistoryPageLoader(async () => []); });
 afterEach(() => resetHistory());
 
 const entry = () => ({
-  pageTitle: "Keys Page",
+  pageTitle: canonicalTitleOf("Keys Page"),
   ops: [{ op: "update_text" as const, uid: uidOf("tuid-a"), text: "after" }],
   inverse: [{ op: "update_text" as const, uid: uidOf("tuid-a"), text: "before" }],
   anchors: { ops: [null], inverse: [null] },

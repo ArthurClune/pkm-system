@@ -2,7 +2,7 @@
 // Drop-semantics for block drag-and-drop: which boundaries and depths are
 // legal, and what move op a (boundary, depth) resolves to. The DOM shell
 // (useDropZone) only measures pixels and calls in here.
-import type { BlockUid, OrderIdx } from "../api/brands";
+import type { BlockUid, OrderIdx, CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { groupMoveOps } from "./edits";
 import { FIRST_ORDER_IDX, orderIdxAfter } from "./orderIdx";
@@ -15,7 +15,7 @@ export interface BlockDragSource {
   kind: "blocks";
   /** The grabbed block (the drag handle). */
   uid: BlockUid;
-  pageTitle: string;
+  pageTitle: CanonicalTitle;
   /** When the grabbed block is part of a multi-block selection, the whole
    * group being dragged: the selection's root uids in document order,
    * including `uid`. Absent for a plain single-block drag. */
@@ -36,7 +36,7 @@ export function dragUids(drag: BlockDragSource): BlockUid[] {
 export interface DropTarget {
   parent_uid: BlockUid | null;
   order_idx: OrderIdx;
-  page_title: string;
+  page_title: CanonicalTitle;
 }
 export interface DropRow { uid: BlockUid; depth: number; collapsed: boolean }
 
@@ -51,7 +51,7 @@ export interface DropPosition { boundary: number; depth: number }
  * subtree when the drag comes from this page — boundaries behave as if the
  * blocks were already lifted out. */
 export function dropRows(blocks: BlockNode[], drag: DragSource,
-                         pageTitle: string): DropRow[] {
+                         pageTitle: CanonicalTitle): DropRow[] {
   const out: DropRow[] = [];
   const skip = drag.kind === "blocks" && drag.pageTitle === pageTitle
     ? new Set(dragUids(drag)) : new Set<BlockUid>();
@@ -103,7 +103,7 @@ function shape(blocks: BlockNode[]): string {
 /** Resolve a drop position to a move target. Returns null when the drop
  * would change nothing (same page, same position); a files drag always
  * changes something, so only a missing parent yields null. */
-export function resolveDrop(blocks: BlockNode[], pageTitle: string,
+export function resolveDrop(blocks: BlockNode[], pageTitle: CanonicalTitle,
                             drag: DragSource,
                             position: DropPosition): DropTarget | null {
   const { boundary, depth } = position;

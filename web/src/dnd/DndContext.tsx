@@ -5,7 +5,7 @@
 // source/target outlines and enqueued as a move op.
 import { createContext, useContext, useEffect, useMemo, useRef, useState,
          type ReactNode } from "react";
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import { dragUids, type BlockDragSource, type DragSource,
@@ -30,7 +30,7 @@ export interface Dnd {
   drag: DragSource | null;
   startDrag(d: DragSource): void;
   endDrag(): void;
-  registerOutline(pageTitle: string, api: OutlineDndApi): DndRegistration;
+  registerOutline(pageTitle: CanonicalTitle, api: OutlineDndApi): DndRegistration;
   /** Dispatch a block drag's drop. A files drag never comes through here:
    * its zone uploads straight into its own page. */
   drop(drag: BlockDragSource, target: DropTarget): void;

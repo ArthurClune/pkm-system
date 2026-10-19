@@ -7,6 +7,7 @@ from pkm.server.db import init_db, open_db
 from pkm.server.store import fetch_page, get_or_create_page
 from pkm.test_data.ids import canonical_title_of, page_id_of
 from pkm.contracts.ops import PageId
+from pkm.contracts.titles import CanonicalTitle
 
 SECRET = b"s" * 32
 NOW = 1_700_000_000_000
@@ -48,7 +49,7 @@ def _seed_linear_chain(
     db_path,
     *,
     page_id: PageId,
-    page_title: str,
+    page_title: CanonicalTitle,
     ancestor_count: int,
     prefix: str,
 ) -> tuple[str, list[str]]:
@@ -91,7 +92,7 @@ def test_block_ancestor_breadcrumbs_are_complete_for_deep_linear_chain(
     leaf_uid, expected = _seed_linear_chain(
         seeded_config.db_path,
         page_id=page_id_of(99),
-        page_title=f"Deep Chain {ancestor_count}",
+        page_title=canonical_title_of(f"Deep Chain {ancestor_count}"),
         ancestor_count=ancestor_count,
         prefix=f"chain{ancestor_count}",
     )

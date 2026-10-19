@@ -23,6 +23,7 @@ from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
                                   upload_and_link)
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import UID_RE
+from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.planning import BuildError
 from pkm.render import (RenderError, clip_depth, render_assets,
                         render_backlinks, render_block, render_changed,
@@ -496,8 +497,14 @@ def _read_text_arg(text: str | None) -> str:
     return text
 
 
+def _raw_page(page: str | None) -> RawTitle | None:
+    """A `--page` argument: typed text, so a raw title."""
+    return None if page is None else as_raw_title(page)
+
+
 def cmd_save(args: argparse.Namespace, client: PkmClient) -> int:
-    save_ops = save_blocks(client, _read_text_arg(args.text), page=args.page,
+    save_ops = save_blocks(client, _read_text_arg(args.text),
+                           page=_raw_page(args.page),
                            parent=args.parent, todo=args.todo)
     for op in save_ops:
         print(f"created ^{op.uid}")
@@ -524,7 +531,8 @@ def cmd_upload(args: argparse.Namespace, client: PkmClient) -> int:
     if args.no_block:
         print(client.upload(Path(args.file)).url)
         return 0
-    linked = upload_and_link(client, Path(args.file), page=args.page,
+    linked = upload_and_link(client, Path(args.file),
+                             page=_raw_page(args.page),
                              parent=args.parent)
     print(linked.url)
     print(f"created ^{linked.uid}")
@@ -604,7 +612,7 @@ def cmd_migrate_titles(args: argparse.Namespace, client: PkmClient) -> int:
 
 def cmd_rename(args: argparse.Namespace, client: PkmClient) -> int:
     try:
-        payload = client.rename_page(args.title, args.new_title,
+        payload = client.rename_page(args.title, as_raw_title(args.new_title),
                                      allow_merge=args.allow_merge)
     except ApiError as e:
         if e.status == 409 and not args.allow_merge:

@@ -11,7 +11,7 @@ import { performUndo, resetHistory } from "../outline/undoManager";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, journalBacklinks, jsonResponse, makeSync, orderIdxOf, pageIdOf, pagePayload, READ_INIT,
          servePageApplyingSent, stubFetch, canonicalTitleOf, uidOf,
-         malformedUid } from "../test-helpers";
+         malformedUid, rawTitleOf } from "../test-helpers";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
 import { BlockStampsContext } from "../contexts";
 import { Journal } from "./Journal";
@@ -52,7 +52,7 @@ class NoopIntersectionObserver {
 
 it("fetches and renders a page, resolving block refs from the payload", async () => {
   const fetchMock = stubFetch([
-    ["/api/page/Generative%20Models", pagePayload("Generative Models", [
+    ["/api/page/Generative%20Models", pagePayload(canonicalTitleOf("Generative Models"), [
       block("uid_p1", "intro [[Paper]]"),
       block("uid_p2", "See ((uid_r1))"),
     ], { block_ref_texts: { uid_r1: { text: "the referenced text", page_title: canonicalTitleOf("Paper") } } })],
@@ -66,7 +66,7 @@ it("fetches and renders a page, resolving block refs from the payload", async ()
 
 it("keeps literal slashes in namespace titles", async () => {
   const fetchMock = stubFetch([
-    ["/api/page/AWS/SCP", pagePayload("AWS/SCP", [block("uid_n1", "scp notes")])],
+    ["/api/page/AWS/SCP", pagePayload(canonicalTitleOf("AWS/SCP"), [block("uid_n1", "scp notes")])],
   ]);
   renderAt("/page/AWS/SCP");
   expect(await screen.findByRole("heading", { name: "AWS/SCP" })).toBeInTheDocument();
@@ -75,7 +75,7 @@ it("keeps literal slashes in namespace titles", async () => {
 
 it("links with the canonical payload title and refreshes backlinks", async () => {
   const sync = makeSync();
-  const refreshed = pagePayload("ACME", [], { backlinks: {
+  const refreshed = pagePayload(canonicalTitleOf("ACME"), [], { backlinks: {
     groups: [{ page_id: pageIdOf(9), page_title: canonicalTitleOf("Source"), items: [{
       uid: uidOf("uid_unlinked"), text: "[[ACME]] mention", breadcrumbs: [],
     }] }],
@@ -89,7 +89,7 @@ it("links with the canonical payload title and refreshes backlinks", async () =>
       ] }],
       total: 1,
     }],
-    ["/api/page/acme", pagePayload("ACME", [])],
+    ["/api/page/acme", pagePayload(canonicalTitleOf("ACME"), [])],
   ]);
 
   render(
@@ -159,7 +159,7 @@ it("an expired same-title parent response cannot publish an empty child", async 
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -168,7 +168,7 @@ it("an expired same-title parent response cannot publish an empty child", async 
   try {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await act(async () => {
-      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
       await older.promise;
       await Promise.resolve();
       await Promise.resolve();
@@ -176,7 +176,7 @@ it("an expired same-title parent response cannot publish an empty child", async 
     expiredPublished = screen.queryByRole("heading", { name: "Paper" }) !== null;
 
     await act(async () => {
-      newer.resolve(jsonResponse(pagePayload("Paper", [
+      newer.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
         block("tuid-new", "newer response"),
       ])));
       await newer.promise;
@@ -185,8 +185,8 @@ it("an expired same-title parent response cannot publish an empty child", async 
     });
     newerCopies = screen.queryAllByText("newer response").length;
   } finally {
-    older.resolve(jsonResponse(pagePayload("Paper", [])));
-    newer.resolve(jsonResponse(pagePayload("Paper", [])));
+    older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    newer.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
     view.unmount();
   }
 
@@ -208,7 +208,7 @@ it("a losing failed parent renders the accepted same-title winner without error"
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -223,7 +223,7 @@ it("a losing failed parent renders the accepted same-title winner without error"
       await Promise.resolve();
     });
     await act(async () => {
-      newer.resolve(jsonResponse(pagePayload("Paper", [
+      newer.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
         block("winner", "accepted winner"),
         block("winner-ref", "((winner_ref))"),
       ], {
@@ -239,8 +239,8 @@ it("a losing failed parent renders the accepted same-title winner without error"
     metadataCopies = screen.queryAllByText("shared payload metadata").length;
     errors = document.querySelectorAll(".error").length;
   } finally {
-    older.resolve(jsonResponse(pagePayload("Paper", [])));
-    newer.resolve(jsonResponse(pagePayload("Paper", [])));
+    older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    newer.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
     view.unmount();
   }
 
@@ -269,7 +269,7 @@ it("a failed newer parent elects one fresh controller for both panes", async () 
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -278,7 +278,7 @@ it("a failed newer parent elects one fresh controller for both panes", async () 
   try {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await act(async () => {
-      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
       await older.promise;
       await Promise.resolve();
     });
@@ -290,7 +290,7 @@ it("a failed newer parent elects one fresh controller for both panes", async () 
     });
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     await act(async () => {
-      recovery.resolve(jsonResponse(pagePayload("Paper", [
+      recovery.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
         block("recovered", "recovered once"),
       ])));
       await recovery.promise;
@@ -300,9 +300,9 @@ it("a failed newer parent elects one fresh controller for both panes", async () 
     copies = screen.queryAllByText("recovered once").length;
     errors = document.querySelectorAll(".error").length;
   } finally {
-    older.resolve(jsonResponse(pagePayload("Paper", [])));
-    newer.resolve(jsonResponse(pagePayload("Paper", [])));
-    recovery.resolve(jsonResponse(pagePayload("Paper", [])));
+    older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    newer.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    recovery.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
     view.unmount();
   }
 
@@ -331,7 +331,7 @@ it("unmounting the newer parent elects one surviving controller", async () => {
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        {showSidebar && <EditableSidebarPanel title="Paper" />}
+        {showSidebar && <EditableSidebarPanel title={rawTitleOf("Paper")} />}
       </MemoryRouter>
     </SyncContext.Provider>
   );
@@ -342,7 +342,7 @@ it("unmounting the newer parent elects one surviving controller", async () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     view.rerender(tree(false));
     await act(async () => {
-      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
       await older.promise;
       await Promise.resolve();
       await Promise.resolve();
@@ -350,7 +350,7 @@ it("unmounting the newer parent elects one surviving controller", async () => {
     });
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     await act(async () => {
-      recovery.resolve(jsonResponse(pagePayload("Paper", [
+      recovery.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
         block("survivor", "surviving controller"),
       ])));
       await recovery.promise;
@@ -360,9 +360,9 @@ it("unmounting the newer parent elects one surviving controller", async () => {
     copies = screen.queryAllByText("surviving controller").length;
     errors = document.querySelectorAll(".error").length;
   } finally {
-    older.resolve(jsonResponse(pagePayload("Paper", [])));
-    abandoned.resolve(jsonResponse(pagePayload("Paper", [])));
-    recovery.resolve(jsonResponse(pagePayload("Paper", [])));
+    older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    abandoned.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    recovery.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
     view.unmount();
   }
 
@@ -392,7 +392,7 @@ it("unmounting the newer parent recovers while the older transport still hangs",
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        {showSidebar && <EditableSidebarPanel title="Paper" />}
+        {showSidebar && <EditableSidebarPanel title={rawTitleOf("Paper")} />}
       </MemoryRouter>
     </SyncContext.Provider>
   );
@@ -407,7 +407,7 @@ it("unmounting the newer parent recovers while the older transport still hangs",
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
 
     await act(async () => {
-      recovery.resolve(jsonResponse(pagePayload("Paper", [
+      recovery.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
         block("survivor", "hung-parent recovery"),
         block("survivor-ref", "((hung_ref))"),
       ], {
@@ -416,7 +416,7 @@ it("unmounting the newer parent recovers while the older transport still hangs",
         },
       })));
       await recovery.promise;
-      older.resolve(jsonResponse(pagePayload("Paper", [
+      older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
         block("stale-older", "late hung response"),
       ])));
       await older.promise;
@@ -428,9 +428,9 @@ it("unmounting the newer parent recovers while the older transport still hangs",
     staleCopies = screen.queryAllByText("late hung response").length;
     errors = document.querySelectorAll(".error").length;
   } finally {
-    older.resolve(jsonResponse(pagePayload("Paper", [])));
-    abandoned.resolve(jsonResponse(pagePayload("Paper", [])));
-    recovery.resolve(jsonResponse(pagePayload("Paper", [])));
+    older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    abandoned.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    recovery.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
     view.unmount();
   }
 
@@ -464,11 +464,11 @@ it("an automatic read superseding elected recovery permits one replacement paren
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
-  const automaticHandle = acquireOutlineSession("Paper", null);
+  const automaticHandle = acquireOutlineSession(rawTitleOf("Paper"), null);
   let copies = 0;
   let metadataCopies = 0;
   let staleCopies = 0;
@@ -476,7 +476,7 @@ it("an automatic read superseding elected recovery permits one replacement paren
   try {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await act(async () => {
-      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
       await older.promise;
       newer.reject(new Error("newest initial parent failed"));
       await newer.promise.catch(() => undefined);
@@ -497,7 +497,7 @@ it("an automatic read superseding elected recovery permits one replacement paren
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
 
     await act(async () => {
-      replacement.resolve(jsonResponse(pagePayload("Paper", [
+      replacement.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
         block("replacement", "post-automatic winner"),
         block("replacement-ref", "((replacement_ref))"),
       ], {
@@ -515,7 +515,7 @@ it("an automatic read superseding elected recovery permits one replacement paren
     expect(fetchMock).toHaveBeenCalledTimes(4);
 
     await act(async () => {
-      elected.resolve(jsonResponse(pagePayload("Paper", [
+      elected.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
         block("stale-elected", "stale elected response"),
       ])));
       await elected.promise;
@@ -527,10 +527,10 @@ it("an automatic read superseding elected recovery permits one replacement paren
     staleCopies = screen.queryAllByText("stale elected response").length;
     errors = document.querySelectorAll(".error").length;
   } finally {
-    older.resolve(jsonResponse(pagePayload("Paper", [])));
-    newer.resolve(jsonResponse(pagePayload("Paper", [])));
-    elected.resolve(jsonResponse(pagePayload("Paper", [])));
-    replacement.resolve(jsonResponse(pagePayload("Paper", [])));
+    older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    newer.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    elected.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    replacement.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
     automatic.resolve([]);
     automaticHandle.release();
     view.unmount();
@@ -545,7 +545,7 @@ it("an automatic read superseding elected recovery permits one replacement paren
 });
 
 it("a hung automatic read cannot strand eager full-parent readiness", async () => {
-  const pageTitle = "Hung Automatic Paper";
+  const pageTitle = canonicalTitleOf("Hung Automatic Paper");
   const older = deferred<Response>();
   const current = deferred<Response>();
   const recovery = deferred<Response>();
@@ -662,7 +662,7 @@ it("a repair superseding elected recovery permits one post-repair parent", async
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -673,7 +673,7 @@ it("a repair superseding elected recovery permits one post-repair parent", async
   try {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await act(async () => {
-      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
       await older.promise;
       newer.reject(new Error("newest initial parent failed"));
       await newer.promise.catch(() => undefined);
@@ -685,7 +685,7 @@ it("a repair superseding elected recovery permits one post-repair parent", async
     const repairing = repairActiveOutlineSessions();
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
     await act(async () => {
-      repair.resolve(jsonResponse(pagePayload("Paper", [
+      repair.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
         block("repair", "block-only repair"),
       ])));
       await repairing;
@@ -695,7 +695,7 @@ it("a repair superseding elected recovery permits one post-repair parent", async
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
 
     await act(async () => {
-      replacement.resolve(jsonResponse(pagePayload("Paper", [
+      replacement.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
         block("replacement", "post-repair winner"),
         block("replacement-ref", "((repair_ref))"),
       ], {
@@ -713,7 +713,7 @@ it("a repair superseding elected recovery permits one post-repair parent", async
     expect(fetchMock).toHaveBeenCalledTimes(5);
 
     await act(async () => {
-      elected.resolve(jsonResponse(pagePayload("Paper", [
+      elected.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
         block("stale-elected", "stale elected response"),
       ])));
       await elected.promise;
@@ -725,11 +725,11 @@ it("a repair superseding elected recovery permits one post-repair parent", async
     staleCopies = screen.queryAllByText("stale elected response").length;
     errors = document.querySelectorAll(".error").length;
   } finally {
-    older.resolve(jsonResponse(pagePayload("Paper", [])));
-    newer.resolve(jsonResponse(pagePayload("Paper", [])));
-    elected.resolve(jsonResponse(pagePayload("Paper", [])));
-    repair.resolve(jsonResponse(pagePayload("Paper", [])));
-    replacement.resolve(jsonResponse(pagePayload("Paper", [])));
+    older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    newer.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    elected.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    repair.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    replacement.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
     view.unmount();
   }
 
@@ -761,7 +761,7 @@ it("canceling elected recovery does not start a second recovery", async () => {
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        {showSidebar && <EditableSidebarPanel title="Paper" />}
+        {showSidebar && <EditableSidebarPanel title={rawTitleOf("Paper")} />}
       </MemoryRouter>
     </SyncContext.Provider>
   );
@@ -770,7 +770,7 @@ it("canceling elected recovery does not start a second recovery", async () => {
   try {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await act(async () => {
-      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
       await older.promise;
       newer.reject(new Error("newest initial parent failed"));
       await newer.promise.catch(() => undefined);
@@ -789,7 +789,7 @@ it("canceling elected recovery does not start a second recovery", async () => {
     ).length;
 
     await act(async () => {
-      elected.resolve(jsonResponse(pagePayload("Paper", [
+      elected.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
         block("stale-elected", "stale elected response"),
       ])));
       await elected.promise;
@@ -797,9 +797,9 @@ it("canceling elected recovery does not start a second recovery", async () => {
       await Promise.resolve();
     });
   } finally {
-    older.resolve(jsonResponse(pagePayload("Paper", [])));
-    newer.resolve(jsonResponse(pagePayload("Paper", [])));
-    elected.resolve(jsonResponse(pagePayload("Paper", [])));
+    older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    newer.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    elected.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
     view.unmount();
   }
 
@@ -809,7 +809,7 @@ it("canceling elected recovery does not start a second recovery", async () => {
 });
 
 it("a captured Journal response superseding recovery elects one full parent", async () => {
-  const pageTitle = "Captured Paper";
+  const pageTitle = canonicalTitleOf("Captured Paper");
   const older = deferred<Response>();
   const newer = deferred<Response>();
   const elected = deferred<Response>();
@@ -936,7 +936,7 @@ it("a captured Journal response superseding recovery elects one full parent", as
 });
 
 it("a dormant Journal capture cannot strand parent recovery", async () => {
-  const pageTitle = "Dormant Capture Paper";
+  const pageTitle = canonicalTitleOf("Dormant Capture Paper");
   const older = deferred<Response>();
   const current = deferred<Response>();
   const recovery = deferred<Response>();
@@ -1062,7 +1062,7 @@ it("a dormant Journal capture cannot strand parent recovery", async () => {
 });
 
 it("unmounting Journal releases a hung capture before parent recovery", async () => {
-  const pageTitle = "Unmount Capture Paper";
+  const pageTitle = canonicalTitleOf("Unmount Capture Paper");
   const lateTitle = "Late Journal Inactive";
   const older = deferred<Response>();
   const current = deferred<Response>();
@@ -1175,7 +1175,7 @@ it("unmounting Journal releases a hung capture before parent recovery", async ()
 });
 
 it("a superseded resync failure cannot replace a newer parent winner with error", async () => {
-  const title = "Resync Paper";
+  const title = canonicalTitleOf("Resync Paper");
   const resync = deferred<Response>();
   const winner = deferred<Response>();
   const initial = pagePayload(title, [block("initial", "initial page")]);
@@ -1250,7 +1250,7 @@ it("scrolls to and flashes the block named in the location hash", async () => {
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [
       block("uid_t0", "some other block"),
       block("uid_t1", "target block"),
     ])],
@@ -1275,7 +1275,7 @@ describe("a hash naming a block inside a collapsed subtree", () => {
 
   function renderCollapsed() {
     const sync = makeSync();
-    servePageApplyingSent(sync, "Paper", collapsedPaper());
+    servePageApplyingSent(sync, canonicalTitleOf("Paper"), collapsedPaper());
     const view = render(
       <SyncContext.Provider value={sync}>
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}
@@ -1329,7 +1329,7 @@ it("a hash naming no block on the page is a no-op", async () => {
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("uid_t0", "only block")])],
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_t0", "only block")])],
   ]);
   renderAt("/page/Paper#uid_gone");
   await screen.findByRole("heading", { name: "Paper" });
@@ -1340,7 +1340,8 @@ it("a hash that isn't a well-formed uid flashes nothing", async () => {
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [block("tuid-abcde", "a block", { uid: malformedUid("abcde") })])],
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [
+      block("tuid-abcde", "a block", { uid: malformedUid("abcde") })])],
   ]);
   const { container } = renderAt("/page/Paper#abcde");
   await screen.findByRole("heading", { name: "Paper" });
@@ -1355,7 +1356,7 @@ it("a parent resync response dispatched before a local split cannot erase it", a
   let resolveFresh!: (response: Response) => void;
   const fresh = new Promise<Response>((done) => { resolveFresh = done; });
   let calls = 0;
-  const initial = pagePayload("Paper", [block("tuid-u1", "first")]);
+  const initial = pagePayload(canonicalTitleOf("Paper"), [block("tuid-u1", "first")]);
   const fetchMock = vi.fn(() => {
     calls += 1;
     if (calls === 1) return Promise.resolve(jsonResponse(initial));
@@ -1396,7 +1397,7 @@ it("a parent resync response dispatched before a local split cannot erase it", a
   expect(document.querySelector(".block-input")).toHaveValue("");
 
   await act(async () => {
-    resolveFresh(jsonResponse(pagePayload("Paper", [
+    resolveFresh(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
       block("tuid-u1", "first", { order_idx: orderIdxOf(0) }),
       block(created.uid, created.text, { order_idx: created.order_idx }),
     ])));
@@ -1410,7 +1411,7 @@ it("a parent resync response dispatched before a local split cannot erase it", a
 it("shows the stamp column on a page but not in the journal or a sidebar panel", async () => {
   const blocks = [block("uid_s1", "stamped", { updated_at: Date.now() })];
   stubFetch([
-    ["/api/page/Stamps", pagePayload("Stamps", blocks)],
+    ["/api/page/Stamps", pagePayload(canonicalTitleOf("Stamps"), blocks)],
     ["/api/journal/cleanup", { deleted: [] }],
     ["/api/journal", { days: [{ date: "2026-08-03", title: "Stamps",
                                exists: true, blocks,
@@ -1438,7 +1439,7 @@ it("shows the stamp column on a page but not in the journal or a sidebar panel",
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
         <BlockStampsContext.Provider value={stampsOn}>
-          <EditableSidebarPanel title="Stamps" />
+          <EditableSidebarPanel title={rawTitleOf("Stamps")} />
         </BlockStampsContext.Provider>
       </SyncContext.Provider>
     </MemoryRouter>,

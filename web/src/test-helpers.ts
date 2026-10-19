@@ -4,7 +4,7 @@ import { applyOps } from "./outline/tree";
 import type { BlockOp } from "./api/ops";
 import type { Backlinks, BlockNode, PagePayload } from "./api/payloads";
 import type { BatchId, BlockUid, CanonicalTitle, ClientId, ConfirmId, ConversationId,
-             GoodlinksId, NormalizedTitle, OrderIdx, PageId, Sha256Hex,
+             GoodlinksId, NormalizedTitle, OrderIdx, PageId, RawTitle, Sha256Hex,
              SidebarEntryId, SidebarOrderIdx, SyncSeq } from "./api/brands";
 import type { RequestId, Revision } from "./outline/outlineState";
 import type { ParkedTitle } from "./replica/apply";
@@ -111,6 +111,10 @@ export function goodlinksIdOf(value: string): GoodlinksId {
   check("GoodlinksId", value);
   return value as GoodlinksId;
 }
+export function rawTitleOf(value: string): RawTitle {
+  check("RawTitle", value);
+  return value as RawTitle;
+}
 export function normalizedTitleOf(value: string): NormalizedTitle {
   check("NormalizedTitle", value);
   return value as NormalizedTitle;
@@ -171,7 +175,7 @@ export function offType<T>(value: unknown): T {
  * lease, and return the release. Sessions are global to the module, so the
  * handle is released before throwing on an ungranted lease:
  * leaking it would cascade into every later test in the process. */
-export function reserveOutlineEditor(title: string): () => void {
+export function reserveOutlineEditor(title: CanonicalTitle): () => void {
   const handle = acquireOutlineSession(title, null);
   const lease = handle.claimEditor(Symbol(`test-reservation:${title}`));
   if (!lease.granted) {
@@ -274,7 +278,7 @@ export function stubFetch(handlers: [string, unknown][]) {
 /** Serve one page the way the server would after this tab's writes: every
  * read of /api/page/<title> is `blocks` with all of `sync.sent` applied, so a
  * re-read after a write settles does not undo it. */
-export function servePageApplyingSent(sync: SyncFake, pageTitle: string,
+export function servePageApplyingSent(sync: SyncFake, pageTitle: CanonicalTitle,
                                       blocks: BlockNode[]) {
   const path = `/api/page/${encodeURIComponent(pageTitle)}`;
   const mock = vi.fn(async (input: RequestInfo | URL) => (
@@ -311,10 +315,10 @@ export function journalBacklinks(groups: Backlinks["groups"] = [],
   return backlinks(groups, { limit: 5, ...over });
 }
 
-export function pagePayload(pageTitle: string, blocks: BlockNode[],
+export function pagePayload(pageTitle: CanonicalTitle, blocks: BlockNode[],
                             over: Partial<PagePayload> = {}): PagePayload {
   return {
-    page: { id: pageIdOf(1), title: canonicalTitleOf(pageTitle),
+    page: { id: pageIdOf(1), title: pageTitle,
             created_at: 1000, updated_at: 2000 },
     blocks,
     backlinks: backlinks(),

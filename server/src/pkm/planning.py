@@ -23,6 +23,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                HeadingLevel, OrderIdx, SetHeadingOp,
                                UpdateTextOp, text_hash)
 from pkm.contracts.responses import BlockNode, walk_blocks
+from pkm.contracts.titles import RawTitle
 from pkm.todo import TaskMark, with_state
 
 _HEADING_SPEC = re.compile(r"^(#{1,3}) (.+)$")
@@ -142,7 +143,7 @@ def split_heading(text: str) -> tuple[str, HeadingLevel | None]:
         else (text, None)
 
 
-def _create(uid: BlockUid, page: str, parent: str | None, idx: OrderIdx, text: str,
+def _create(uid: BlockUid, page: RawTitle, parent: str | None, idx: OrderIdx, text: str,
             heading: HeadingLevel | None = None) -> CreateOp:
     return CreateOp(op="create", uid=uid, page_title=page, parent_uid=parent,
                     order_idx=idx, text=text, heading=heading)
@@ -273,7 +274,7 @@ class Planner:
             self._siblings[loc] = [p for p in self._siblings[loc]
                                    if p[0] != uid]
 
-    def heading(self, blocks: Sequence[BlockNode], page: str,
+    def heading(self, blocks: Sequence[BlockNode], page: RawTitle,
                level: HeadingLevel, text: str) -> tuple[BlockUid, list[CreateOp]]:
         """The uid of a page-top-level heading with `level` and `text`, plus
         the op creating it -- or no ops, if this run planned it already.
@@ -291,7 +292,7 @@ class Planner:
         self._land(_sibling_key(page, None), uid, idx)
         return uid, [_create(uid, page, None, idx, text, level)]
 
-    def _one(self, uid: BlockUid, page: str, parent: str | None, idx: OrderIdx,
+    def _one(self, uid: BlockUid, page: RawTitle, parent: str | None, idx: OrderIdx,
             text: str, todo: bool) -> CreateOp:
         """One create op at a decided (uid, position): heading marker split
         off the text, task marker applied when asked.
@@ -309,7 +310,7 @@ class Planner:
             self._headings.setdefault((page, level, body), uid)
         return _create(uid, page, parent, idx, body, level)
 
-    def creates(self, blocks: Sequence[BlockNode], page: str,
+    def creates(self, blocks: Sequence[BlockNode], page: RawTitle,
                 parent: str | None, items: list[tuple[int, str]], todo: bool,
                 parent_off_page: bool = False) -> list[CreateOp]:
         """Plan appended creates for `items` (depth, text) pairs under the
@@ -342,7 +343,7 @@ class Planner:
                 stack[depth + 1] = op.uid
         return ops
 
-    def create_at(self, blocks: Sequence[BlockNode], page: str,
+    def create_at(self, blocks: Sequence[BlockNode], page: RawTitle,
                   parent: str | None, position: int, text: str, todo: bool,
                   parent_off_page: bool = False) -> CreateOp:
         """One create landing at `position`: 0-based among (page, parent)'s
@@ -356,7 +357,7 @@ class Planner:
         self._land(_sibling_key(page, parent), uid, idx)
         return self._one(uid, page, parent, idx, text, todo)
 
-    def move(self, blocks: Sequence[BlockNode], page: str,
+    def move(self, blocks: Sequence[BlockNode], page: RawTitle,
             parent: str | None, uid: BlockUid, position: int | None,
             parent_off_page: bool = False) -> OrderIdx:
         """Mint the order key for moving `uid` to (page, parent), landing
@@ -384,7 +385,7 @@ class Planner:
         self._remove(uid)
 
 
-def plan_save(blocks: Sequence[BlockNode], page_title: str,
+def plan_save(blocks: Sequence[BlockNode], page_title: RawTitle,
               parent_spec: str | None, text: str, todo: bool,
               uids: Iterator[BlockUid]) -> list[CreateOp]:
     """Plan the create ops for `pkm save`: an outline of `text` nested
@@ -415,7 +416,7 @@ _NOT_GIVEN = _NotGiven()
 
 def plan_update(uid: BlockUid, text: str, base_text: str | None = None,
                 current_heading: HeadingLevel | None | _NotGiven = _NOT_GIVEN,
-                page_title: str | None = None
+                page_title: RawTitle | None = None
                 ) -> list[BlockOp]:
     """Ops for replacing a block's text: `update_text` plus, when the
     heading level is actually changing, the `set_heading` that keeps the
@@ -459,7 +460,7 @@ def plan_update(uid: BlockUid, text: str, base_text: str | None = None,
 
 
 def plan_mark(uid: BlockUid, current_text: str, mark: TaskMark,
-             page_title: str | None = None) -> list[UpdateTextOp]:
+             page_title: RawTitle | None = None) -> list[UpdateTextOp]:
     """Ops for a task-marker change (`pkm update -D`/`-T`, `update_block
     mark=`): `update_text` with the marker applied to `current_text`, plus
     the `base_text_hash` concurrent-edit guard. Deliberately never
@@ -487,7 +488,7 @@ def asset_block_text(filename: str, mime: str, url: str) -> str:
     return f"[{filename}]({url})"
 
 
-def create_page_ops(titles: Iterable[str]) -> list[CreatePageOp]:
+def create_page_ops(titles: Iterable[RawTitle]) -> list[CreatePageOp]:
     """`create_page` ops for pages that don't exist yet, meant to be
     prepended to a planned batch's ops so a missing page's creation rides
     inside the same atomic OpBatch as the blocks that reference it --

@@ -14,7 +14,9 @@ from props.model import (MBlock, Model, Outcome, Rewrite, positions_after,
                          replay_chain, unlink_stale)
 from props.strategies import (PAGES, batch_for, cli_batch, op_for, seed_tree,
                               texts, uid_pool)
-from pkm.test_data.ids import malformed_uid, order_idx_of, seq_of, uid_of
+from pkm.test_data.ids import (
+    canonical_title_of, malformed_uid, order_idx_of, seq_of, uid_of,
+)
 
 A, B, C, P, X, Y = (uid_of(u) for u in ("blk_aa", "blk_bb", "blk_cc", "blk_pp", "blk_xx", "blk_yy"))
 
@@ -501,7 +503,8 @@ def test_text_model_matches_the_unlinker_on_generated_texts(data):
     sources = dict(zip(pool[3:], data.draw(st.lists(
         texts(pool, (title,)), min_size=3, max_size=3))))
     plan = plan_page_delete(lambda raw: normalize_title(raw) == title, page,
-                            [SourceBlock(uid_of(u), "Other", t)
+                            [SourceBlock(uid_of(u), canonical_title_of("Other"),
+                                        t)
                              for u, t in sources.items()])
     m = Model.from_rows(PAGES, [blk(u, page=title, text=t)
                                 for u, t in page.items()])

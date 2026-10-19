@@ -3,10 +3,15 @@
 // always normalized by the reference-title rule; migration activation adds
 // removal of boundary U+0020 only, preserving NBSP and internal spaces.
 
-import type { NormalizedTitle } from "../api/brands";
+import type { NormalizedTitle, RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { normalizeRefTitle } from "../grammar/scan";
 import { extractRefs } from "./refs";
+
+// The general mint of RawTitle: text no check has run on.
+export function asRawTitle(text: string): RawTitle {
+  return text as RawTitle;
+}
 
 export type TitleSyntaxReason = "forbidden_syntax";
 

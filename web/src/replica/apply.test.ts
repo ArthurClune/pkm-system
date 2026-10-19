@@ -11,7 +11,7 @@ import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "
 import { openTestDb, type TestDb } from "./testDb";
 import type { ReplicaDb } from "./db";
 import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, sidebarEntryIdOf,
-         sidebarOrderIdxOf, typeProbe, uidOf } from "../test-helpers";
+         sidebarOrderIdxOf, typeProbe, uidOf, rawTitleOf } from "../test-helpers";
 
 // Tests that provoke a failure path on purpose spy on console.warn and assert
 // the line applyChanges or the engine (via testDb.ts) logs for it.
@@ -37,8 +37,8 @@ const block = (rawUid: string, rawPageId: number, over: Partial<SyncBlock> = {})
   refs: [], ...over,
 });
 
-const page = (rawId: number, rawTitle: string) =>
-  ({ id: pageIdOf(rawId), title: canonicalTitleOf(rawTitle), created_at: 1, updated_at: 1 });
+const page = (rawId: number, titleText: string) =>
+  ({ id: pageIdOf(rawId), title: canonicalTitleOf(titleText), created_at: 1, updated_at: 1 });
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false,
@@ -140,7 +140,7 @@ describe("applySnapshot", () => {
     // pre-snapshot database and sit in pending_ops. The wipe must not lose
     // that state, or later ops on those blocks throw "block not found".
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_opt"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("uid_opt"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: null, order_idx: orderIdxOf(0), text: "typed during bootstrap" },
     ], 5, bid("batch-opt"));
     applySnapshot(t.db, SNAP, 6);
@@ -153,7 +153,7 @@ describe("applySnapshot", () => {
 
   test("a queued batch that no longer applies is skipped, not fatal", () => {
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_keep"), page_title: "AI",
+      { op: "create", uid: uidOf("uid_keep"), page_title: rawTitleOf("AI"),
         parent_uid: null, order_idx: orderIdxOf(0), text: "kept" },
     ], 5, bid("batch-keep"));
     // references a block that exists now but is not in the snapshot and
@@ -178,7 +178,7 @@ describe("applySnapshot", () => {
   test("repair removes rejected text and structure without losing valid work", () => {
     enqueueBatch(t.db, [
       { op: "update_text", uid: uidOf("uid_b1"), text: "rejected text" },
-      { op: "move", uid: uidOf("uid_b2"), page_title: "Machine Learning",
+      { op: "move", uid: uidOf("uid_b2"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: uidOf("uid_b1"), order_idx: orderIdxOf(0) },
     ], 5, bid("batch-rejected"));
     const rejected = nextBatch(t.db)!;
@@ -288,15 +288,15 @@ describe("applyChanges", () => {
 
   test("activation reconciles already-applied pending page targets before replay", () => {
     enqueueBatch(t.db, [
-      { op: "create_page", page_title: "  New Page Target  " },
+      { op: "create_page", page_title: rawTitleOf("  New Page Target  ") },
     ], 5, bid("pending-create-page"));
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_pending1"), page_title: "  Created Block Target  ",
+      { op: "create", uid: uidOf("uid_pending1"), page_title: rawTitleOf("  Created Block Target  "),
         parent_uid: null, order_idx: orderIdxOf(0), text: "pending create" },
     ], 5, bid("pending-create"));
     enqueueBatch(t.db, [
       { op: "move", uid: uidOf("uid_b2"), parent_uid: null, order_idx: orderIdxOf(0),
-        page_title: "  Moved Block Target  " },
+        page_title: rawTitleOf("  Moved Block Target  ") },
     ], 5, bid("pending-move"));
 
     expect(t.db.select(
@@ -357,8 +357,8 @@ describe("applyChanges", () => {
   test("activation remaps or retitles the local pages an acked batch left, short of the head", () => {
     // a pending batch's pages are rewound before activation and replayed
     // under the new titles; an acked batch's stay until the head window
-    enqueueBatch(t.db, [{ op: "create_page", page_title: "  Shipped Target  " },
-                        { op: "create_page", page_title: "  Lonely Target  " }],
+    enqueueBatch(t.db, [{ op: "create_page", page_title: rawTitleOf("  Shipped Target  ") },
+                        { op: "create_page", page_title: rawTitleOf("  Lonely Target  ") }],
                  5, bid("acked-pages"));
     ackNext(t.db);
 
@@ -602,7 +602,7 @@ describe("applyChanges: a title moving between ids inside one window", () => {
   test("an offline-created page taking an incoming title is remapped, not parked", () => {
     // Negative ids belong to reconcilePage (blocks and refs move onto the
     // authoritative row); parking one would break its title match.
-    enqueueBatch(t.db, [{ op: "create", uid: uidOf("uid_new1"), page_title: "New",
+    enqueueBatch(t.db, [{ op: "create", uid: uidOf("uid_new1"), page_title: rawTitleOf("New"),
                           parent_uid: null, order_idx: orderIdxOf(0), text: "hi" }], 5, bid("batch-n"));
     expect(t.db.select("SELECT id AS page_id FROM pages WHERE title = 'New'", ["page_id"])).toEqual([{ page_id: -1 }]);
     const feed = emptyFeed({ next_since: 20, latest_seq: 20, pages: [page(9, "New")] });
@@ -805,9 +805,9 @@ describe("applyChanges: in one window, a block tombstone's cascade reaches only 
 
   test("a pending create under the deleted parent goes; one under the moved-out child stays", () => {
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_ghost_p"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("uid_ghost_p"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: uidOf("tuid-p"), order_idx: orderIdxOf(1), text: "typed under p" },
-      { op: "create", uid: uidOf("uid_ghost_c"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("uid_ghost_c"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: uidOf("tuid-c"), order_idx: orderIdxOf(1), text: "typed under c" },
     ], 5, bid("batch-ghosts"));
     expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid LIKE 'uid_ghost_%'"))
@@ -1011,7 +1011,7 @@ describe("applyChanges: block tombstones wait for the window that reaches the jo
 
   test("a pending create under a block tombstoned short of the head goes once the head is reached", () => {
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_dd_ghost"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("uid_dd_ghost"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: uidOf("uid_dd_d"), order_idx: orderIdxOf(1), text: "typed under d" },
     ], 5, bid("batch-dd-ghost"));
 
@@ -1046,7 +1046,7 @@ describe("applySnapshot and applyChanges: a create under a ghost parent keeps th
       " heading, collapsed, created_at, updated_at)" +
       " VALUES ('uid_ghost1', 1, NULL, 9, 'ghost parent', NULL, 0, 5, 5)");
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_child1"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("uid_child1"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: uidOf("uid_ghost1"), order_idx: orderIdxOf(0), text: "lost child" },
       { op: "update_text", uid: uidOf("uid_b1"), text: "mine" },
     ], 5, batchId);
@@ -1103,7 +1103,7 @@ describe("applyChanges: a replayed batch whose create already applied keeps its 
     "SELECT uid, order_idx FROM blocks WHERE page_id = 1" +
     " AND parent_uid IS NULL ORDER BY order_idx, uid", ["uid", "order_idx"]));
   const enqueueCreateAndEdit = () => enqueueBatch(t.db, [
-    { op: "create", uid: uidOf("uid_new1"), page_title: "Machine Learning",
+    { op: "create", uid: uidOf("uid_new1"), page_title: rawTitleOf("Machine Learning"),
       parent_uid: null, order_idx: orderIdxOf(1), text: "fresh" },
     { op: "update_text", uid: uidOf("uid_b1"), text: "mine" },
   ], 5, bid("batch-create"));
@@ -1323,7 +1323,7 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     // (with uid_b3) to AI. The server will create our block on AI, beside
     // its parent, so the replay puts it there too.
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_new1"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("uid_new1"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: uidOf("uid_b2"), order_idx: orderIdxOf(1), text: "typed child" },
     ], 5, bid("batch-create"));
 
@@ -1356,7 +1356,7 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
       " heading, collapsed, created_at, updated_at)" +
       " VALUES ('uid_q1', 1, 'uid_b1', 0, 'under b1', NULL, 0, 1, 1)");
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_new1"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("uid_new1"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: uidOf("uid_b2"), order_idx: orderIdxOf(1), text: "typed child" },
     ], 5, bid("batch-create"));
     enqueueBatch(t.db, [
@@ -1394,7 +1394,7 @@ describe("applyChanges: a window that names a pending batch as applied drops it 
   const mv = (u: string, o: number): BlockOp =>
     ({ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(o) });
   const cr = (u: string, o: number): BlockOp =>
-    ({ op: "create", uid: uidOf(u), page_title: "P", parent_uid: null,
+    ({ op: "create", uid: uidOf(u), page_title: rawTitleOf("P"), parent_uid: null,
        order_idx: orderIdxOf(o), text: `text of ${u}` });
   const ut = (u: string, text: string): BlockOp =>
     ({ op: "update_text", uid: uidOf(u), text });
@@ -1585,8 +1585,8 @@ describe("applyChanges: the replay log", () => {
       " ORDER BY order_idx, uid", ["uid", "order_idx"], [rawPageId]))
       .map((r) => `${r.uid}${r.order_idx}`).join(" ");
 
-  const createTop = (u: string, o: number, pageTitle = "P"): BlockOp =>
-    ({ op: "create", uid: uidOf(u), page_title: pageTitle, parent_uid: null,
+  const createTop = (u: string, o: number, titleText = "P"): BlockOp =>
+    ({ op: "create", uid: uidOf(u), page_title: rawTitleOf(titleText), parent_uid: null,
        order_idx: orderIdxOf(o), text: `text of ${u}` });
   // An untitled top-level move stays on the page the replica sees the
   // block on.
@@ -1780,13 +1780,13 @@ describe("applyChanges: the replay log", () => {
         blocks: [block("tuid-Q", 1), block("tuid-C", 1, { parent_uid: uidOf("tuid-Q") })],
       }, 1);
       enqueueBatch(t.db, [
-        { op: "create", uid: uidOf("tuid-X"), page_title: "P", parent_uid: uidOf("tuid-Q"),
+        { op: "create", uid: uidOf("tuid-X"), page_title: rawTitleOf("P"), parent_uid: uidOf("tuid-Q"),
           order_idx: orderIdxOf(0), text: "x" },
-        { op: "create", uid: uidOf("tuid-Y"), page_title: "P", parent_uid: uidOf("tuid-X"),
+        { op: "create", uid: uidOf("tuid-Y"), page_title: rawTitleOf("P"), parent_uid: uidOf("tuid-X"),
           order_idx: orderIdxOf(0), text: "y" },
       ], 2, bid("b1"));
       enqueueBatch(t.db, [
-        { op: "move", uid: uidOf("tuid-Q"), parent_uid: null, page_title: "P",
+        { op: "move", uid: uidOf("tuid-Q"), parent_uid: null, page_title: rawTitleOf("P"),
           order_idx: orderIdxOf(0) },
       ], 2, bid("b2"));
 
@@ -1896,9 +1896,9 @@ describe("applyChanges: a create or move the two sides place in different groups
       .toEqual({ status: "applied", cursor: 11 });
   };
 
-  const moveTop = (u: string, o: number, pageTitle?: string): BlockOp =>
+  const moveTop = (u: string, o: number, titleText?: string): BlockOp =>
     ({ op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(o),
-       ...(pageTitle !== undefined ? { page_title: pageTitle } : {}) });
+       ...(titleText !== undefined ? { page_title: rawTitleOf(titleText) } : {}) });
   const moveUnder = (u: string, parent: string, o: number): BlockOp =>
     ({ op: "move", uid: uidOf(u), parent_uid: uidOf(parent), order_idx: orderIdxOf(o) });
 
@@ -1942,7 +1942,7 @@ describe("applyChanges: a create or move the two sides place in different groups
 
   test("a top-level create on a title renamed away before the pull", () => {
     seedRenamed();
-    enqueueAndAck([{ op: "create", uid: uidOf("tuid-X"), page_title: "Proptest",
+    enqueueAndAck([{ op: "create", uid: uidOf("tuid-X"), page_title: rawTitleOf("Proptest"),
                      parent_uid: null, order_idx: orderIdxOf(0), text: "text of X" }]);
     expect(group(1)).toBe("tuid-X@0 tuid-s1@1 tuid-s2@2 tuid-s3@3");
 
@@ -2117,7 +2117,7 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
       sidebar: [],
     }, 1);
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("tuid-x"), page_title: "P", parent_uid: null,
+      { op: "create", uid: uidOf("tuid-x"), page_title: rawTitleOf("P"), parent_uid: null,
         order_idx: orderIdxOf(1), text: "[[New]]" }], 2, bid("b1"));
     const [local] = t.db.select("SELECT id AS page_id FROM pages WHERE title = 'New'", ["page_id"]);
     expect(local.page_id).toBeLessThan(0);
@@ -2147,7 +2147,7 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
   test("a pending re-create of a cascaded block the server kept fails its replay", () => {
     const warn = quietWarn();
     enqueueBatch(t.db, [deleteP], 2, bid("b1"));
-    enqueueBatch(t.db, [{ op: "create", uid: uidOf("tuid-g"), page_title: "P", parent_uid: null,
+    enqueueBatch(t.db, [{ op: "create", uid: uidOf("tuid-g"), page_title: rawTitleOf("P"), parent_uid: null,
                           order_idx: orderIdxOf(0), text: "text of g" }], 2, bid("b2"));
     ackNext(t.db);
     applyChanges(t.db, emptyFeed({

@@ -976,7 +976,7 @@ export interface components {
         /** AddSidebarEntryRequest */
         AddSidebarEntryRequest: {
             /** Title */
-            title: string;
+            title: Brands.RawTitle;
         };
         /**
          * AppliedBatch
@@ -1309,7 +1309,7 @@ export interface components {
             /** Uid */
             uid: Brands.BlockUid;
             /** Page Title */
-            page_title: string;
+            page_title: Brands.RawTitle;
             /** Parent Uid */
             parent_uid?: Brands.BlockUid | null;
             /** Order Idx */
@@ -1335,12 +1335,12 @@ export interface components {
              */
             op: "create_page";
             /** Page Title */
-            page_title: string;
+            page_title: Brands.RawTitle;
         };
         /** CreatePageRequest */
         CreatePageRequest: {
             /** Title */
-            title: string;
+            title: Brands.RawTitle;
         };
         /** CurrentWorkPage */
         CurrentWorkPage: {
@@ -1378,7 +1378,7 @@ export interface components {
             /** Uid */
             uid: Brands.BlockUid;
             /** Page Title */
-            page_title: string;
+            page_title: Brands.CanonicalTitle;
             /** Text */
             text: string;
             /**
@@ -1612,7 +1612,7 @@ export interface components {
             /** Order Idx */
             order_idx: Brands.OrderIdx;
             /** Page Title */
-            page_title?: string | null;
+            page_title?: Brands.RawTitle | null;
         };
         /**
          * OkAck
@@ -1693,7 +1693,7 @@ export interface components {
         /** RenamePageRequest */
         RenamePageRequest: {
             /** New Title */
-            new_title: string;
+            new_title: Brands.RawTitle;
             /**
              * Allow Merge
              * @default false
@@ -2001,7 +2001,7 @@ export interface components {
             /** Base Text Hash */
             base_text_hash?: Brands.Sha256Hex | null;
             /** Page Title */
-            page_title?: string | null;
+            page_title?: Brands.RawTitle | null;
         };
         /** ValidationError */
         ValidationError: {

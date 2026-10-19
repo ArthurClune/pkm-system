@@ -66,7 +66,7 @@ it("mergeGroups merges batches by page_id and dedupes items", () => {
 });
 
 it("renders backlink groups with breadcrumbs and loads more on demand", async () => {
-  const more = pagePayload("Machine Learning", [], {
+  const more = pagePayload(canonicalTitleOf("Machine Learning"), [], {
     backlinks: {
       groups: [{ page_id: pageIdOf(9), page_title: canonicalTitleOf("AI"), items: [
         { uid: uidOf("uid_b9"), text: "more [[Machine Learning]]", breadcrumbs: [] }] }],
@@ -102,7 +102,7 @@ it("backlinks show-more merges batches from the same source page", async () => {
   const backlinksInitial: Backlinks =
     { groups: [groupA], total_pages: 2, offset: 0, limit: 1 };
   stubFetch([
-    ["/api/page/T?bl_offset=1", pagePayload("T", [],
+    ["/api/page/T?bl_offset=1", pagePayload(canonicalTitleOf("T"), [],
       { backlinks: { groups: [groupAmore], total_pages: 2, offset: 1, limit: 1 } })],
   ]);
   render(
@@ -130,7 +130,7 @@ it("shows an error and re-enables the button when show-more fails", async () => 
 });
 
 it("refresh generation replaces the first backlink batch", async () => {
-  const refreshed = pagePayload("ACME", [], {
+  const refreshed = pagePayload(canonicalTitleOf("ACME"), [], {
     backlinks: {
       groups: [{ page_id: pageIdOf(8), page_title: canonicalTitleOf("Fresh Source"), items: [
         { uid: uidOf("tuid-fresh"), text: "[[ACME]] now linked", breadcrumbs: [] },
@@ -155,7 +155,7 @@ it("refresh generation replaces the first backlink batch", async () => {
 
 it("refresh with an open filter panel refetches from offset 0 at limit 100 until complete", async () => {
   const fetchMock = stubFetch([
-    ["/api/page/Claude?bl_offset=1&bl_limit=100", pagePayload("Claude", [], {
+    ["/api/page/Claude?bl_offset=1&bl_limit=100", pagePayload(canonicalTitleOf("Claude"), [], {
       backlinks: {
         groups: [{ page_id: pageIdOf(12), page_title: canonicalTitleOf("Fresh B"), items: [
           { uid: uidOf("fresh-b"), text: "beta [[Claude]] #Idea", breadcrumbs: [] },
@@ -163,7 +163,7 @@ it("refresh with an open filter panel refetches from offset 0 at limit 100 until
         total_pages: 2, offset: 1, limit: 100,
       },
     })],
-    ["/api/page/Claude?bl_offset=0&bl_limit=100", pagePayload("Claude", [], {
+    ["/api/page/Claude?bl_offset=0&bl_limit=100", pagePayload(canonicalTitleOf("Claude"), [], {
       backlinks: {
         groups: [{ page_id: pageIdOf(11), page_title: canonicalTitleOf("Fresh A"), items: [
           { uid: uidOf("fresh-a"), text: "alpha [[Claude]] #Paper", breadcrumbs: [] },
@@ -197,7 +197,7 @@ it("refresh with an open filter panel refetches from offset 0 at limit 100 until
 });
 
 it("refresh preserves filter selections and panel state while replacing groups", async () => {
-  const refreshed = pagePayload("Claude", [], {
+  const refreshed = pagePayload(canonicalTitleOf("Claude"), [], {
     backlinks: {
       groups: [
         { page_id: pageIdOf(11), page_title: canonicalTitleOf("Fresh Visible"), items: [
@@ -243,7 +243,7 @@ it("failed refresh keeps old groups and offers retry refresh", async () => {
       if (refreshCalls === 1) {
         return new Response(JSON.stringify({ detail: "refresh boom" }), { status: 500 });
       }
-      return jsonResponse(pagePayload("ACME", [], {
+      return jsonResponse(pagePayload(canonicalTitleOf("ACME"), [], {
         backlinks: {
           groups: [{ page_id: pageIdOf(10), page_title: canonicalTitleOf("Recovered Source"), items: [
             { uid: uidOf("recovered"), text: "[[ACME]] linked", breadcrumbs: [] },
@@ -299,7 +299,7 @@ it("ignores an older refresh response that resolves after a newer generation", a
     </MemoryRouter>,
   );
   await act(async () => {
-    newer.resolve(jsonResponse(pagePayload("ACME", [], {
+    newer.resolve(jsonResponse(pagePayload(canonicalTitleOf("ACME"), [], {
       backlinks: {
         groups: [{ page_id: pageIdOf(11), page_title: canonicalTitleOf("Newest Source"), items: [
           { uid: uidOf("newest"), text: "[[ACME]] newest", breadcrumbs: [] },
@@ -312,7 +312,7 @@ it("ignores an older refresh response that resolves after a newer generation", a
   });
   expect(await screen.findByRole("link", { name: "Newest Source" })).toBeInTheDocument();
   await act(async () => {
-    older.resolve(jsonResponse(pagePayload("ACME", [], {
+    older.resolve(jsonResponse(pagePayload(canonicalTitleOf("ACME"), [], {
       backlinks: {
         groups: [{ page_id: pageIdOf(12), page_title: canonicalTitleOf("Stale Source"), items: [
           { uid: uidOf("tuid-stale"), text: "[[ACME]] stale", breadcrumbs: [] },
@@ -333,7 +333,7 @@ it("disables show-more during refresh so stale pagination cannot start", async (
     const url = String(input);
     if (url === "/api/page/ACME?bl_offset=0&bl_limit=20") return refresh.promise;
     if (url === "/api/page/ACME?bl_offset=1&bl_limit=20") {
-      return Promise.resolve(jsonResponse(pagePayload("ACME", [], {
+      return Promise.resolve(jsonResponse(pagePayload(canonicalTitleOf("ACME"), [], {
         backlinks: {
           groups: [{ page_id: pageIdOf(11), page_title: canonicalTitleOf("Stale Page"), items: [
             { uid: uidOf("stale-more"), text: "[[ACME]] stale page", breadcrumbs: [] },
@@ -362,7 +362,7 @@ it("disables show-more during refresh so stale pagination cannot start", async (
   fireEvent.click(screen.getByRole("button", { name: "Show more" }));
   expect(fetchMock).toHaveBeenCalledTimes(1);
   await act(async () => {
-    refresh.resolve(jsonResponse(pagePayload("ACME", [], {
+    refresh.resolve(jsonResponse(pagePayload(canonicalTitleOf("ACME"), [], {
       backlinks: {
         groups: [{ page_id: pageIdOf(10), page_title: canonicalTitleOf("Fresh Source"), items: [
           { uid: uidOf("tuid-fresh"), text: "[[ACME]] refreshed", breadcrumbs: [] },
@@ -387,7 +387,7 @@ it("a concurrent loadAll's groups survive a loadMore that started from a stale s
     const url = String(input);
     if (url === "/api/page/T?bl_offset=1&bl_limit=1") return loadMoreBatch.promise;
     if (url === "/api/page/T?bl_offset=1&bl_limit=100") {
-      return Promise.resolve(jsonResponse(pagePayload("T", [], {
+      return Promise.resolve(jsonResponse(pagePayload(canonicalTitleOf("T"), [], {
         backlinks: {
           groups: [
             { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-b1"), text: "b",
@@ -424,7 +424,7 @@ it("a concurrent loadAll's groups survive a loadMore that started from a stale s
   expect(screen.queryByText(/loading all references/i)).toBeNull();
 
   await act(async () => {
-    loadMoreBatch.resolve(jsonResponse(pagePayload("T", [], {
+    loadMoreBatch.resolve(jsonResponse(pagePayload(canonicalTitleOf("T"), [], {
       backlinks: {
         groups: [
           { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-b1"), text: "b",
@@ -453,7 +453,7 @@ it("prevents opening the filter panel during refresh so stale load-all cannot st
     const url = String(input);
     if (url === "/api/page/Claude?bl_offset=0&bl_limit=20") return refresh.promise;
     if (url === "/api/page/Claude?bl_offset=1&bl_limit=100") {
-      return Promise.resolve(jsonResponse(pagePayload("Claude", [], {
+      return Promise.resolve(jsonResponse(pagePayload(canonicalTitleOf("Claude"), [], {
         backlinks: {
           groups: [{ page_id: pageIdOf(2), page_title: canonicalTitleOf("Daily B"), items: [
             { uid: uidOf("stale-load-all"), text: "gamma [[Claude]]", breadcrumbs: ["reading #Paper"] },
@@ -487,7 +487,7 @@ it("prevents opening the filter panel during refresh so stale load-all cannot st
   expect(screen.getByRole("button", { name: /filter/i })).toHaveAttribute("aria-expanded", "false");
   expect(fetchMock).toHaveBeenCalledTimes(1);
   await act(async () => {
-    refresh.resolve(jsonResponse(pagePayload("Claude", [], {
+    refresh.resolve(jsonResponse(pagePayload(canonicalTitleOf("Claude"), [], {
       backlinks: {
         groups: [{ page_id: pageIdOf(10), page_title: canonicalTitleOf("Fresh Visible"), items: [
           { uid: uidOf("fresh-visible"), text: "clean [[Claude]] #Idea", breadcrumbs: [] },
@@ -529,7 +529,7 @@ it("changing filter-panel state does not issue a second refresh for the same gen
   await act(async () => { await Promise.resolve(); });
   expect(fetchMock).toHaveBeenCalledTimes(1);
   await act(async () => {
-    refresh.resolve(jsonResponse(pagePayload("ACME", [], {
+    refresh.resolve(jsonResponse(pagePayload(canonicalTitleOf("ACME"), [], {
       backlinks: {
         groups: singlePage.groups,
         total_pages: 1,
@@ -557,7 +557,7 @@ it("unlinked references fetch lazily on first open and paginate", async () => {
   ]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <UnlinkedSection title="Machine Learning" />
+      <UnlinkedSection title={canonicalTitleOf("Machine Learning")} />
     </MemoryRouter>,
   );
   expect(fetchMock).not.toHaveBeenCalled(); // collapsed = no fetch
@@ -574,7 +574,7 @@ it("queues a canonical update with the snapshot hash and source scope", async ()
   render(
     <SyncContext.Provider value={sync}>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-        <UnlinkedSection title="ACME" />
+        <UnlinkedSection title={canonicalTitleOf("ACME")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -610,7 +610,7 @@ it("renders one Link button per result and disables only the pending result", as
   render(
     <SyncContext.Provider value={sync}>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-        <UnlinkedSection title="ACME" />
+        <UnlinkedSection title={canonicalTitleOf("ACME")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -629,7 +629,7 @@ it("disables Link with the read-only reason as its tooltip", async () => {
   render(
     <SyncContext.Provider value={sync}>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-        <UnlinkedSection title="ACME" />
+        <UnlinkedSection title={canonicalTitleOf("ACME")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -667,7 +667,7 @@ it("hides a durably persisted item and notifies only after delivery", async () =
   render(
     <SyncContext.Provider value={sync}>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-        <UnlinkedSection title="ACME" onLinked={onLinked} />
+        <UnlinkedSection title={canonicalTitleOf("ACME")} onLinked={onLinked} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -708,7 +708,7 @@ it("retains the item when local persistence fails", async () => {
   render(
     <SyncContext.Provider value={sync}>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-        <UnlinkedSection title="ACME" />
+        <UnlinkedSection title={canonicalTitleOf("ACME")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -755,7 +755,7 @@ it("restores the item and permits retry after delivery fails", async () => {
   render(
     <SyncContext.Provider value={sync}>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-        <UnlinkedSection title="ACME" />
+        <UnlinkedSection title={canonicalTitleOf("ACME")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -790,7 +790,7 @@ it("reports no-safe-match without enqueueing", async () => {
   render(
     <SyncContext.Provider value={sync}>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-        <UnlinkedSection title="ACME" />
+        <UnlinkedSection title={canonicalTitleOf("ACME")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -815,7 +815,7 @@ it("shows an error and re-enables the button when unlinked show-more fails", asy
   }));
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <UnlinkedSection title="Machine Learning" />
+      <UnlinkedSection title={canonicalTitleOf("Machine Learning")} />
     </MemoryRouter>,
   );
   fireEvent.click(screen.getByText(/unlinked references/i));
@@ -881,7 +881,7 @@ it("filter panel: include, exclude via shift-click, clear", () => {
 });
 
 it("opening the filter panel loads all remaining backlinks first", async () => {
-  const rest = pagePayload("Claude", [], {
+  const rest = pagePayload(canonicalTitleOf("Claude"), [], {
     backlinks: {
       groups: [{ page_id: pageIdOf(5), page_title: canonicalTitleOf("Daily C"), items: [
         { uid: uidOf("tuid-f9"), text: "delta [[Claude]] #Paper", breadcrumbs: [] }] }],
@@ -911,7 +911,7 @@ it("filter panel reaches loaded state when the backlink total shrinks server-sid
     // stale total_pages=3 frozen at mount; server now only has 1 page.
     total_pages: 3, offset: 0, limit: 20,
   };
-  const shrunk = pagePayload("Claude", [], {
+  const shrunk = pagePayload(canonicalTitleOf("Claude"), [], {
     backlinks: { groups: [], total_pages: 1, offset: 1, limit: 100 },
   });
   stubFetch([["/api/page/Claude?bl_offset=1&bl_limit=100", shrunk]]);
@@ -933,7 +933,7 @@ it("the unlinked header is a focusable button reporting its expanded state", asy
   stubFetch([["/api/unlinked?title=ACME", unlinkedPayload()]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <UnlinkedSection title="ACME" />
+      <UnlinkedSection title={canonicalTitleOf("ACME")} />
     </MemoryRouter>,
   );
   const toggle = screen.getByRole("button", { name: /unlinked references/i });

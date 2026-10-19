@@ -3,7 +3,7 @@ import type { BatchId } from "../../api/brands";
 import { BEYOND_ANY_SEQ, deleteWins, type DeleteWinsRun, replaySeenSeq, staleNamers,
          withSeenSeq } from "./deleteWins";
 import type { DeleteRecord, RenameRecord } from "./serverControl";
-import { batchIdOf, pageIdOf, seqOf, uidOf } from "../../test-helpers";
+import { batchIdOf, canonicalTitleOf, pageIdOf, seqOf, uidOf } from "../../test-helpers";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -69,7 +69,8 @@ const del = (over: Partial<DeleteRecord> = {}): DeleteRecord => ({
 });
 
 const rename = (over: Partial<RenameRecord> = {}): RenameRecord => ({
-  old_title: "Third", new_title: "Second", after_batch_id: id("b2"), at: 1000, ord: 2,
+  old_title: canonicalTitleOf("Third"), new_title: canonicalTitleOf("Second"),
+  after_batch_id: id("b2"), at: 1000, ord: 2,
   ...over,
 });
 
@@ -196,7 +197,8 @@ describe("deleteWins", () => {
 
   test("a rename clock past the retention window prunes nothing either", () => {
     const r = run(body([createOn("Second")], 10), {
-      renames: [rename({ old_title: "Fourth", new_title: "Fifth", at: 1000 + 31 * DAY,
+      renames: [rename({ old_title: canonicalTitleOf("Fourth"),
+                         new_title: canonicalTitleOf("Fifth"), at: 1000 + 31 * DAY,
                          after_batch_id: id("b1") })] });
     expect(deleteWins(r)).toHaveLength(1);
   });

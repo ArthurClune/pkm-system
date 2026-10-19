@@ -10,7 +10,7 @@ import { setMeta } from "./meta";
 import { deleteBatch, enqueueBatch, nextBatch } from "./queue";
 import { remapLocalPage } from "./reconcile";
 import { openTestDb, type TestDb } from "./testDb";
-import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, uidOf } from "../test-helpers";
+import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, uidOf, rawTitleOf } from "../test-helpers";
 
 let t: TestDb;
 let negId: number;
@@ -23,9 +23,9 @@ beforeEach(async () => {
   // offline, still pending: create a page implicitly (via a link) and
   // explicitly add a block
   enqueueBatch(t.db, [
-    { op: "create", uid: uidOf("uid_l1"), page_title: "Offline Page", parent_uid: null,
+    { op: "create", uid: uidOf("uid_l1"), page_title: rawTitleOf("Offline Page"), parent_uid: null,
       order_idx: orderIdxOf(0), text: "links back to [[AI]]" },
-    { op: "create", uid: uidOf("uid_l2"), page_title: "Offline Page", parent_uid: uidOf("uid_l1"),
+    { op: "create", uid: uidOf("uid_l2"), page_title: rawTitleOf("Offline Page"), parent_uid: uidOf("uid_l1"),
       order_idx: orderIdxOf(0), text: "a child" },
   ], 50, batchIdOf("t"));
   negId = t.db.select(
@@ -150,7 +150,7 @@ describe("reconcile on feed page delivery", () => {
     t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
               " VALUES ('tuid-s', ?, NULL, 1, 'kept')", [negId]);
     applyLocalOps(t.db, [{ op: "move", uid: uidOf("tuid-s"), parent_uid: null,
-                           order_idx: orderIdxOf(0), page_title: "AI" }],
+                           order_idx: orderIdxOf(0), page_title: rawTitleOf("AI") }],
                   60, { batchId: batchIdOf("u") });
 
     // the server's page for the title arrives short of the head

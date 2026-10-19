@@ -2108,7 +2108,8 @@
           "title": {
             "type": "string",
             "minLength": 1,
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "RawTitle"
           }
         },
         "type": "object",
@@ -3006,7 +3007,8 @@
           "page_title": {
             "type": "string",
             "minLength": 1,
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "RawTitle"
           },
           "parent_uid": {
             "anyOf": [
@@ -3081,7 +3083,8 @@
           "page_title": {
             "type": "string",
             "minLength": 1,
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "RawTitle"
           }
         },
         "type": "object",
@@ -3097,7 +3100,8 @@
           "title": {
             "type": "string",
             "minLength": 1,
-            "title": "Title"
+            "title": "Title",
+            "x-brand": "RawTitle"
           }
         },
         "type": "object",
@@ -3182,7 +3186,8 @@
           },
           "page_title": {
             "type": "string",
-            "title": "Page Title"
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
           },
           "text": {
             "type": "string",
@@ -3724,7 +3729,8 @@
             "anyOf": [
               {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "x-brand": "RawTitle"
               },
               {
                 "type": "null"
@@ -4012,7 +4018,8 @@
           "new_title": {
             "type": "string",
             "minLength": 1,
-            "title": "New Title"
+            "title": "New Title",
+            "x-brand": "RawTitle"
           },
           "allow_merge": {
             "type": "boolean",
@@ -4889,7 +4896,8 @@
           "page_title": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "x-brand": "RawTitle"
               },
               {
                 "type": "null"

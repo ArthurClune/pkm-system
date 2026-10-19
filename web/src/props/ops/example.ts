@@ -34,7 +34,7 @@
 // so that pull settles the batch's replay-log records as the app's
 // would, and the pending set a later step's replay and check R see is the
 // unacked batches only.
-import type { BatchId, ClientId, SyncSeq } from "../../api/brands";
+import type { BatchId, ClientId, RawTitle, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import type { BlockNode, OpsAck } from "../../api/payloads";
 import { applyOpsWithChange, needsAuthoritativeReload } from "../../outline/tree";
@@ -52,12 +52,12 @@ import type { ServerControl } from "../sync/serverControl";
 import { type Example, OPS_PAGES, type RawDraft, rawUidMinter, resolveRaw, seedOps,
          TITLE_POOL } from "./arbitraries";
 import { diffTrees, pruneGraph, pruneTree, treesFromSnapshot } from "./compare";
-import { batchIdOf, clientIdOf, seqOf } from "../../test-helpers";
+import { batchIdOf, clientIdOf, rawTitleOf, seqOf } from "../../test-helpers";
 import { parseOpsAck } from "../sync/wire";
 
 /** The implementations a teeth check swaps for deliberately wrong ones. */
 export interface OpsSeam {
-  applyEcho(tree: BlockNode[], ops: BlockOp[], title: string): BlockNode[];
+  applyEcho(tree: BlockNode[], ops: BlockOp[], title: RawTitle): BlockNode[];
   enqueue(db: ReplicaDb, ops: BlockOp[], nowMs: number, batchId: BatchId): void;
   applyWindow(db: ReplicaDb, feed: Changes, nowMs: number): ApplyResult;
 }
@@ -269,12 +269,12 @@ export async function runExample(server: ServerControl, ex: Example,
       for (const p of titles) {
         const expected = pruneTree(held.get(p) ?? [], known);
         const tree = trees.get(p) ?? [];
-        if (needsAuthoritativeReload(tree, echo, p)) {
+        if (needsAuthoritativeReload(tree, echo, rawTitleOf(p))) {
           tally.reloads += 1;
           trees.set(p, expected);
           continue;
         }
-        const next = seam.applyEcho(tree, echo, p);
+        const next = seam.applyEcho(tree, echo, rawTitleOf(p));
         for (const line of diffTrees(next, expected, ["tree", "server"])) {
           problems.push(`check 1: ${label}, page ${JSON.stringify(p)}: ${line}`);
         }

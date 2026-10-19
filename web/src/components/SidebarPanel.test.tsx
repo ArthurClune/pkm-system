@@ -5,7 +5,9 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, pageIdOf, pagePayload, stubFetch, canonicalTitleOf, uidOf } from "../test-helpers";
+import {
+  block, makeSync, pageIdOf, pagePayload, stubFetch, canonicalTitleOf, uidOf, rawTitleOf,
+} from "../test-helpers";
 import { SidebarPanel } from "./SidebarPanel";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -35,7 +37,7 @@ function renderPanel(title: string) {
       <DndProvider>
         <Harness onReady={(d) => { dnd = d; }} />
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-          <SidebarPanel title={title} onClose={() => undefined} />
+          <SidebarPanel title={rawTitleOf(title)} onClose={() => undefined} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
@@ -43,13 +45,13 @@ function renderPanel(title: string) {
 }
 
 it("fetches its page and renders title plus block tree, no backlinks", async () => {
-  stubFetch([["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "a paper block")], {
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "a paper block")], {
     backlinks: { groups: [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("Machine Learning"), items: [
       { uid: uidOf("uid_b3"), text: "should not render", breadcrumbs: [] }] }],
       total_pages: 1, offset: 0, limit: 20 },
   })]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-    <SidebarPanel title="Paper" onClose={() => undefined} />
+    <SidebarPanel title={rawTitleOf("Paper")} onClose={() => undefined} />
   </MemoryRouter>);
   expect(await screen.findByText("a paper block")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Paper" })).toBeInTheDocument();
@@ -57,17 +59,17 @@ it("fetches its page and renders title plus block tree, no backlinks", async () 
 });
 
 it("close button fires onClose", async () => {
-  stubFetch([["/api/page/Paper", pagePayload("Paper", [])]]);
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [])]]);
   const onClose = vi.fn();
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-    <SidebarPanel title="Paper" onClose={onClose} />
+    <SidebarPanel title={rawTitleOf("Paper")} onClose={onClose} />
   </MemoryRouter>);
   fireEvent.click(await screen.findByRole("button", { name: "close panel" }));
   expect(onClose).toHaveBeenCalledOnce();
 });
 
 it("panel bullets are draggable and start a drag for the panel's page", async () => {
-  stubFetch([["/api/page/Some%20Page", pagePayload("Some Page",
+  stubFetch([["/api/page/Some%20Page", pagePayload(canonicalTitleOf("Some Page"),
     [block("tuid-s1", "side one")])]]);
   const { dnd } = renderPanel("Some Page");
   await screen.findByText("side one");
@@ -80,12 +82,12 @@ it("panel bullets are draggable and start a drag for the panel's page", async ()
 
 it("dragging is disabled while disconnected (writes paused invariant)", async () => {
   const sync = makeSync("reconnecting");
-  stubFetch([["/api/page/Paper", pagePayload("Paper", [block("tuid-s1", "side one")])]]);
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("tuid-s1", "side one")])]]);
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-          <SidebarPanel title="Paper" onClose={() => undefined} />
+          <SidebarPanel title={rawTitleOf("Paper")} onClose={() => undefined} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);

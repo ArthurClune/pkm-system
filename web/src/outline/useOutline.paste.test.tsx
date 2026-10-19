@@ -18,21 +18,21 @@ vi.mock("../uid", () => {
   };
 });
 
-function Harness({ pageTitle, initial, onReady }: {
-  pageTitle: string;
+function Harness({ titleText, initial, onReady }: {
+  titleText: string;
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf(pageTitle), initial);
+  const outline = useOutline(canonicalTitleOf(titleText), initial);
   useEffect(() => onReady(outline));
   return null;
 }
 
-function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
+function setup(sync: SyncFake, titleText: string, initial: BlockNode[]) {
   let outline!: Outline;
   render(
     <SyncContext.Provider value={sync}>
-      <Harness pageTitle={pageTitle} initial={initial}
+      <Harness titleText={titleText} initial={initial}
                onReady={(o) => { outline = o; }} />
     </SyncContext.Provider>);
   return () => outline;

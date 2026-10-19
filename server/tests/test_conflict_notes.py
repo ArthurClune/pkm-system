@@ -9,11 +9,11 @@ from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        orphan_header_text,
                                        overwritten_header_text,
                                        stale_page_move_note)
-from pkm.test_data.ids import uid_of
+from pkm.test_data.ids import canonical_title_of, raw_title_of, uid_of
 
 
 @pytest.mark.parametrize(
-    "page_title, hint_page_exists, label",
+    "hint, hint_page_exists, label",
     [
         ("AI Agent Security", True, "[[AI Agent Security]]"),
         ("Old Title", False, "`Old Title` (page not found)"),
@@ -34,7 +34,8 @@ from pkm.test_data.ids import uid_of
         ("a`b`c", True, "(page unknown)"),
         ("  Padded  ", True, "[[  Padded  ]]"),
     ])
-def test_conflict_label_table(page_title, hint_page_exists, label):
+def test_conflict_label_table(hint, hint_page_exists, label):
+    page_title = None if hint is None else raw_title_of(hint)
     assert conflict_label(page_title, hint_page_exists) == label
 
 
@@ -45,12 +46,12 @@ def test_existing_page_label_falls_back_when_a_link_would_not_read_back():
 
 
 def test_headers_name_the_page_and_embed_or_name_the_block():
-    assert overwritten_header_text("Paper", uid_of("uid_b3")) == (
+    assert overwritten_header_text(canonical_title_of("Paper"), uid_of("uid_b3")) == (
         "[[conflict]] [[Paper]] — overwritten by ((uid_b3))")
-    assert orphan_header_text("Old", False) == (
+    assert orphan_header_text(raw_title_of("Old"), False) == (
         "[[conflict]] `Old` (page not found) — edit to a block the server"
         " no longer has")
-    assert live_block_header_text("Paper", uid_of("uid_b3")) == (
+    assert live_block_header_text(canonical_title_of("Paper"), uid_of("uid_b3")) == (
         "[[conflict]] [[Paper]] — ((uid_b3))")
 
 
@@ -73,12 +74,12 @@ def test_move_notes_say_why_the_block_stayed_put():
 
 
 def test_deleted_header_links_the_page():
-    assert deleted_header_text("Project X") == (
+    assert deleted_header_text(canonical_title_of("Project X")) == (
         "[[conflict]] [[Project X]] — deleted while edited elsewhere")
 
 
 def test_deleted_header_fences_a_title_that_does_not_link_back():
-    assert deleted_header_text("Project X]") == (
+    assert deleted_header_text(canonical_title_of("Project X]")) == (
         "[[conflict]] `Project X]` — deleted while edited elsewhere")
 
 

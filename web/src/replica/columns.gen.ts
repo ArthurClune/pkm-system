@@ -42,8 +42,8 @@ export interface Columns {
   base_hash: Sha256Hex;
   after_hash: Sha256Hex;
   rewrite_kind: "retitle" | "unlink" | "inline";
-  old_title: string;
-  new_title: string;
+  rewrite_old_text: string;
+  rewrite_new_text: string;
   rewrite_created_at: number;
   target_uid: BlockUid;
   day: string;
@@ -63,6 +63,8 @@ export interface Columns {
   after_batch_rowid: number;
   log_at: number;
   log_ord: number;
+  log_old_title: CanonicalTitle;
+  log_new_title: CanonicalTitle;
   pending_row_id: PendingRowId;
   ops_json: string;
   poisoned: number;
@@ -132,8 +134,8 @@ export const COLUMN_META: { readonly [K in keyof Columns]: ColumnMeta } = {
   base_hash: { brand: "Sha256Hex", base: "text", nullable: false, literals: null },
   after_hash: { brand: "Sha256Hex", base: "text", nullable: false, literals: null },
   rewrite_kind: { brand: null, base: "text", nullable: false, literals: ["retitle", "unlink", "inline"] },
-  old_title: { brand: null, base: "text", nullable: false, literals: null },
-  new_title: { brand: null, base: "text", nullable: false, literals: null },
+  rewrite_old_text: { brand: null, base: "text", nullable: false, literals: null },
+  rewrite_new_text: { brand: null, base: "text", nullable: false, literals: null },
   rewrite_created_at: { brand: null, base: "int", nullable: false, literals: null },
   target_uid: { brand: "BlockUid", base: "text", nullable: false, literals: null },
   day: { brand: null, base: "text", nullable: false, literals: null },
@@ -153,6 +155,8 @@ export const COLUMN_META: { readonly [K in keyof Columns]: ColumnMeta } = {
   after_batch_rowid: { brand: null, base: "int", nullable: false, literals: null },
   log_at: { brand: null, base: "int", nullable: false, literals: null },
   log_ord: { brand: null, base: "int", nullable: false, literals: null },
+  log_old_title: { brand: "CanonicalTitle", base: "text", nullable: false, literals: null },
+  log_new_title: { brand: "CanonicalTitle", base: "text", nullable: false, literals: null },
   pending_row_id: { brand: "PendingRowId", base: "int", nullable: false, literals: null },
   ops_json: { brand: null, base: "text", nullable: false, literals: null },
   poisoned: { brand: null, base: "int", nullable: false, literals: null },
@@ -196,7 +200,9 @@ export const COLUMN_KEYS: { readonly [table: string]: { readonly [column: string
   },
   "block_rewrites": {
     "created_at": "rewrite_created_at",
-    "kind": "rewrite_kind"
+    "kind": "rewrite_kind",
+    "old_title": "rewrite_old_text",
+    "new_title": "rewrite_new_text"
   },
   "sync_meta": {
     "key": "sync_meta_key",
@@ -267,6 +273,10 @@ export const BRAND_SHAPES: { readonly [brand: string]: { readonly base: string; 
     "pattern": null
   },
   "GoodlinksId": {
+    "base": "text",
+    "pattern": null
+  },
+  "RawTitle": {
     "base": "text",
     "pattern": null
   },

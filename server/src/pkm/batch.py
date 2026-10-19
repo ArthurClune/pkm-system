@@ -24,6 +24,7 @@ from pydantic import (BaseModel, ConfigDict, Field, TypeAdapter,
 from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, DeleteOp, MoveOp,
                                Sha256Hex, UpdateTextOp, subtree_hash)
 from pkm.contracts.responses import BlockNode, walk_blocks
+from pkm.contracts.titles import RawTitle
 from pkm.planning import (BuildError, Planner, parse_uid_spec, plan_update,
                           resolve_parent)
 
@@ -101,7 +102,7 @@ class _Strict(BaseModel):
 class CreateParams(_Strict):
     """Shared by `create` and `todo` -- identical shape, `todo` only
     changes how the planner stores the text."""
-    page: str = Field(min_length=1)
+    page: RawTitle = Field(min_length=1)
     text: str
     parent: str | None = None
     # A 0-based position among the parent's current children (past the
@@ -112,7 +113,7 @@ class CreateParams(_Strict):
 
 
 class OutlineParams(_Strict):
-    page: str = Field(min_length=1)
+    page: RawTitle = Field(min_length=1)
     parent: str | None = None
     items: list[NestedItem] = Field(min_length=1)
 
@@ -136,7 +137,7 @@ class UpdateParams(_Strict):
 class MoveParams(_Strict):
     # A uid or an `{{alias}}` placeholder; `_alias_uid` resolves it.
     uid_spec: str = Field(alias="uid", min_length=1)
-    page: str = Field(min_length=1)
+    page: RawTitle = Field(min_length=1)
     parent: str | None = None
     # See CreateParams.index -- same position, not order_idx, reasoning.
     # position counts the destination's children without the moving
@@ -231,13 +232,13 @@ def validate_batch(commands: object) -> list[BatchCommand]:
     return [_parse_command(cmd, i) for i, cmd in enumerate(commands)]
 
 
-def referenced_pages(commands: Sequence[BatchCommand]) -> list[str]:
+def referenced_pages(commands: Sequence[BatchCommand]) -> list[RawTitle]:
     """Page titles a batch's commands need fetched (in first-seen order),
     so the shell knows what to fetch/create before planning. Reads the
     validated commands rather than the raw JSON: `update` and `delete`
     address a block by uid and name no page, and those are exactly the
     two params models without a `page` field."""
-    seen: list[str] = []
+    seen: list[RawTitle] = []
     for cmd in commands:
         params = cmd.params
         if isinstance(params, CreateParams | OutlineParams | MoveParams) \
@@ -355,7 +356,7 @@ class _BatchCtx:
                 model.apply(op)
 
     def resolve_parent(
-        self, blocks: Sequence[BlockNode], page: str, spec: str | None
+        self, blocks: Sequence[BlockNode], page: RawTitle, spec: str | None
     ) -> tuple[str | None, bool, list[CreateOp]]:
         """A create/outline command's parent spec resolved to
         (parent uid, whether it is off-page, ops creating a missing

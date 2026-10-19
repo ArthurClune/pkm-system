@@ -58,6 +58,18 @@ NAMES: dict[str, tuple[str, ...]] = {
     "after_hash": ("Sha256Hex",),
     "base_text_hash": ("Sha256Hex",),
     "base_subtree_hash": ("Sha256Hex",),
+    # Titles. page_title, new_title and old_title are wire-shared: requests
+    # carry raw titles and responses canonical ones under the same name, so
+    # they accept any title brand. The internal names take one kind.
+    "raw_title": ("RawTitle",),
+    "ref_title": ("NormalizedTitle",),
+    "normalized_title": ("NormalizedTitle",),
+    "canonical_title": ("CanonicalTitle",),
+    "daily_title": ("CanonicalTitle",),
+    "src_page_title": ("CanonicalTitle",),
+    "page_title": ("RawTitle", "NormalizedTitle", "CanonicalTitle"),
+    "new_title": ("RawTitle", "NormalizedTitle", "CanonicalTitle"),
+    "old_title": ("RawTitle", "NormalizedTitle", "CanonicalTitle"),
     # Web-only brands
     "pending_row_id": ("PendingRowId",),
     "ticket_id": ("TicketId",),
@@ -161,14 +173,23 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
                     # `goodlinksIdFromHref` checks an href's id against
                     # GoodLinks' own id shape.
                     "web/src/components/goodlinks.ts"),
+    # `as_raw_title` / `asRawTitle` are the mints of RawTitle, the root of
+    # the title hierarchy; refs.py wraps the text it normalizes. Stored op
+    # lists and poison intents carry op `page_title`s, so their readers
+    # declare it as they do the other brands a BlockOp holds.
+    "RawTitle": (_CONTRACTS, "server/src/pkm/refs.py",
+                 "web/src/replica/titles.ts", _WEB_WIRE,
+                 _WEB_PENDING_OPS, _WEB_POISON),
     # `normalizeRefTitle` and `canonicalizeTitle` are the normalisers; the
     # tokenizer's hashtag match holds no whitespace.
-    "NormalizedTitle": (_CONTRACTS, "web/src/grammar/scan.ts",
+    "NormalizedTitle": (_CONTRACTS, "server/src/pkm/refs.py",
+                        "web/src/grammar/scan.ts",
                         "web/src/replica/titles.ts"),
     # `title_reader` is the one general mint: it alone knows the database's
     # live plain-space flag. The web's twin is `titleReader`, and a daily
     # title is canonical by its format.
-    "CanonicalTitle": (_CONTRACTS, "server/src/pkm/server/sync_meta.py",
+    "CanonicalTitle": (_CONTRACTS, "server/src/pkm/refs.py",
+                       "server/src/pkm/server/sync_meta.py",
                        "web/src/replica/meta.ts", "web/src/replica/daily.ts",
                        _WEB_ROWS, _WEB_WIRE),
     # An internal NewType, not a wire brand: `parse_canonical_query` and
@@ -236,6 +257,7 @@ TEST_HELPERS: dict[str, str] = {
     "ConversationId": "conversation_id",
     "ConfirmId": "confirm_id",
     "GoodlinksId": "goodlinks_id",
+    "RawTitle": "raw_title",
     "NormalizedTitle": "normalized_title",
     "CanonicalTitle": "canonical_title",
     "CanonicalQueryNode": "canonical_query_node",
@@ -305,7 +327,9 @@ COLUMN_KEYS: dict[str, dict[str, str]] = {
     "changes": {"page_id": "change_page_id", "kind": "change_kind"},
     # NOT NULL here, nullable in pages, blocks and assets.
     "block_rewrites": {"created_at": "rewrite_created_at",
-                       "kind": "rewrite_kind"},
+                       "kind": "rewrite_kind",
+                       "old_title": "rewrite_old_text",
+                       "new_title": "rewrite_new_text"},
     "sync_meta": {"key": "sync_meta_key", "value": "sync_meta_value"},
     # Client-only tables (web/src/replica/clientSchema.ts).
     "pending_ops": {"id": "pending_row_id", "error": "pending_error"},
@@ -332,6 +356,7 @@ SHAPES: dict[str, tuple[str, str | None]] = {
     "ConversationId": ("text", None),
     "ConfirmId": ("text", None),
     "GoodlinksId": ("text", None),
+    "RawTitle": ("text", None),
     "NormalizedTitle": ("text", None),
     "CanonicalTitle": ("text", None),
 }

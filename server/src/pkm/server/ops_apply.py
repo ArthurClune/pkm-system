@@ -15,6 +15,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                UpdateTextOp, new_uid)
 from pkm.contracts.responses import SkippedOp
 from pkm.database import Db
+from pkm.contracts.titles import RawTitle
 from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
                       normalize_title)
 from pkm.rows import Row
@@ -68,7 +69,7 @@ def _resolve_page(db: Db, title: str,
         return get_or_create_page(db, UNTITLED_PAGE_TITLE, now_ms)
 
 
-def _hint_page_exists(db: Db, page_title: str | None) -> bool:
+def _hint_page_exists(db: Db, page_title: RawTitle | None) -> bool:
     """Does check 1's page_title hint name a page that exists now?
     Canonicalized the way get_or_create_page looks pages up. A hint whose
     page was renamed or deleted since the client saw it simply doesn't
@@ -93,11 +94,11 @@ def _block_rewrites(db: Db,
     """Every recorded rename/merge/delete rewrite of this block, newest
     first -- the order `ops_core.replay_title_rewrites` walks the chain in."""
     rows = db.select(
-        "SELECT base_hash, after_hash, old_title, new_title,"
-        " kind AS rewrite_kind FROM block_rewrites WHERE uid = ?"
+        "SELECT base_hash, after_hash, old_title AS rewrite_old_text,"
+        " new_title AS rewrite_new_text, kind AS rewrite_kind FROM block_rewrites WHERE uid = ?"
         " ORDER BY created_at DESC, rowid DESC", (uid,))
     return tuple(BlockRewrite(row["base_hash"], row["after_hash"],
-                              row["old_title"], row["new_title"],
+                              row["rewrite_old_text"], row["rewrite_new_text"],
                               row["rewrite_kind"])
                  for row in rows)
 
@@ -466,7 +467,7 @@ def _execute(db: Db, eff: Effect, now_ms: int) -> None:
         db.executemany(
             "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
             " new_title, created_at, kind) VALUES (?,?,?,?,?,?,?)",
-            [(eff.uid, r.base_hash, r.after_hash, r.old_title, r.new_title,
+            [(eff.uid, r.base_hash, r.after_hash, r.old_text, r.new_text,
               now_ms, r.kind) for r in eff.rewrites])
     elif isinstance(eff, JournalBlock):
         # the same row the blocks triggers write (schema.py SERVER_DDL)

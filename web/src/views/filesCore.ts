@@ -1,7 +1,7 @@
 // pattern: Functional Core
 // Pure logic for the /files asset browser. The Files view is
 // the imperative shell; everything testable without I/O lives here.
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { AssetSearchItem, BacklinkItem } from "../api/payloads";
 
 export interface FileFilters {
@@ -109,7 +109,7 @@ export function formatSize(bytes: number): string {
 
 export interface AssetRef {
   uid: BlockUid;
-  page_title: string;
+  page_title: CanonicalTitle;
 }
 
 // GET /api/block-refs rejects more than 50 uids per call.
@@ -131,7 +131,7 @@ export const MISSING_BLOCK_TEXT = "(block not found)";
 // whose page_id key dedupes real pages -- asset refs from different pages
 // must never collide through that key.
 export interface AssetRefGroup {
-  page_title: string;
+  page_title: CanonicalTitle;
   items: BacklinkItem[];
 }
 
@@ -139,10 +139,10 @@ export interface AssetRefGroup {
 // (breadcrumbs aren't available here, so rows carry text only).
 export function refGroups(
   refs: readonly AssetRef[],
-  texts: Record<string, { text: string; page_title: string }>,
+  texts: Record<string, { text: string; page_title: CanonicalTitle }>,
 ): AssetRefGroup[] {
   const groups: AssetRefGroup[] = [];
-  const byTitle = new Map<string, AssetRefGroup>();
+  const byTitle = new Map<CanonicalTitle, AssetRefGroup>();
   for (const ref of refs) {
     let group = byTitle.get(ref.page_title);
     if (group === undefined) {

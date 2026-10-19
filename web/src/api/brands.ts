@@ -7,13 +7,13 @@
 // brand adds a second key instead of a second `__brand`, because two
 // different `__brand` literals intersect to `never`:
 //
-//   export type NormalizedTitle =
-//     string & { readonly __brand: "NormalizedTitle" };
+//   export type RawTitle = string & { readonly __brand: "RawTitle" };
+//   export type NormalizedTitle = RawTitle & { readonly __normalized: true };
 //   export type CanonicalTitle =
 //     NormalizedTitle & { readonly __canonical: true };
 //
-// A CanonicalTitle then passes wherever a NormalizedTitle is expected, and
-// not the reverse.
+// A CanonicalTitle then passes wherever a NormalizedTitle is expected, and a
+// NormalizedTitle wherever a RawTitle is, and not the reverse.
 
 // A sha256 hex digest, distinct from a plain string so a text can never
 // be passed where a hash belongs. Minted only by `sha256Hex` in
@@ -75,12 +75,18 @@ export type PageId = number & { readonly __brand: "PageId" };
 // id can never swap at a call site even though both are plain numbers.
 export type SidebarEntryId = number & { readonly __brand: "SidebarEntryId" };
 
-// A title that has been through normalize_title / normalizeRefTitle: one
+// A title no check has run on: text as typed or received. The root of the
+// title hierarchy. `asRawTitle` (replica/titles.ts) is the general mint, as
+// `as_raw_title` is on the server; the other sites are in the brand
+// registry's MINT_SITES. A test mints one with `rawTitleOf` (test-helpers.ts).
+export type RawTitle = string & { readonly __brand: "RawTitle" };
+
+// A RawTitle that has been through normalize_title / normalizeRefTitle: one
 // holding control whitespace has had every whitespace run collapsed to a
 // space and been trimmed; any other is unchanged. Minted by
 // `normalizeRefTitle` and the hashtag token (grammar/scan.ts) and by
 // `canonicalizeTitle` (replica/titles.ts), which knows no live flag.
-export type NormalizedTitle = string & { readonly __brand: "NormalizedTitle" };
+export type NormalizedTitle = RawTitle & { readonly __normalized: true };
 
 // A title as stored in `pages.title` / `sidebar_entries.title`: normalized,
 // and additionally canonical under the live plain-space-title flag. A

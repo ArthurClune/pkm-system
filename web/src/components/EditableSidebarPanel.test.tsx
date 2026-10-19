@@ -20,7 +20,7 @@ import {
   stubFetch,
   canonicalTitleOf,
   uidOf,
-  clientIdOf,
+  clientIdOf, rawTitleOf,
 } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { EditablePage } from "../views/EditablePage";
@@ -36,11 +36,11 @@ function deferred<T>() {
 
 function mount(sync = makeSync(), title = "Paper",
                blocks = [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })]) {
-  stubFetch([["/api/page/Paper", pagePayload(title, blocks)]]);
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf(title), blocks)]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditableSidebarPanel title={title} />
+        <EditableSidebarPanel title={rawTitleOf(title)} />
       </SyncContext.Provider>
     </MemoryRouter>);
   return sync;
@@ -56,7 +56,7 @@ test("a title change cannot mount the previous payload under the new title", asy
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
     if (url === "/api/page/Alpha") {
-      return Promise.resolve(jsonResponse(pagePayload("Alpha", [
+      return Promise.resolve(jsonResponse(pagePayload(canonicalTitleOf("Alpha"), [
         block("tuid-alpha", "alpha tree"),
       ])));
     }
@@ -68,7 +68,7 @@ test("a title change cannot mount the previous payload under the new title", asy
   const tree = (title: string) => (
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditableSidebarPanel title={title} />
+        <EditableSidebarPanel title={rawTitleOf(title)} />
       </SyncContext.Provider>
     </MemoryRouter>
   );
@@ -86,7 +86,7 @@ test("a title change cannot mount the previous payload under the new title", asy
   expect(isOutlineSessionActive("Alpha")).toBe(false);
 
   await act(async () => {
-    next.resolve(jsonResponse(pagePayload("Beta", [
+    next.resolve(jsonResponse(pagePayload(canonicalTitleOf("Beta"), [
       block("tuid-beta", "beta tree"),
     ])));
     await next.promise;
@@ -118,7 +118,7 @@ test("a remote websocket batch updates the panel", async () => {
   const sync = mount();
   await screen.findByText("a paper block");
   act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
-    { op: "create", uid: uidOf("tuid-r1"), page_title: "Paper", parent_uid: null,
+    { op: "create", uid: uidOf("tuid-r1"), page_title: rawTitleOf("Paper"), parent_uid: null,
       order_idx: orderIdxOf(1), text: "from the iPad" },
   ] }));
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
@@ -132,19 +132,19 @@ test("a remote websocket batch updates the panel", async () => {
 test("a non-canonical requested title keys the outline by the payload's title", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const sync = makeSync();
-  stubFetch([["/api/page/", pagePayload("Paper",
+  stubFetch([["/api/page/", pagePayload(canonicalTitleOf("Paper"),
     [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })])]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditableSidebarPanel title="  Paper  " />
+        <EditableSidebarPanel title={rawTitleOf("  Paper  ")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   await screen.findByText("a paper block");
   expect(isOutlineEditorActive("Paper")).toBe(true);
 
   act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
-    { op: "create", uid: uidOf("tuid-r1"), page_title: "Paper", parent_uid: null,
+    { op: "create", uid: uidOf("tuid-r1"), page_title: rawTitleOf("Paper"), parent_uid: null,
       order_idx: orderIdxOf(1), text: "from the iPad" },
   ] }));
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
@@ -160,7 +160,7 @@ test("a non-canonical requested title keys the outline by the payload's title", 
 });
 
 test("a page already open elsewhere in this tab falls back to read-only", async () => {
-  const release = reserveOutlineEditor("Paper");
+  const release = reserveOutlineEditor(canonicalTitleOf("Paper"));
   try {
     mount();
     fireEvent.click(await screen.findByText("a paper block"));
@@ -172,12 +172,12 @@ test("a page already open elsewhere in this tab falls back to read-only", async 
 
 test("main-first same-title mounts keep one editor and one live fallback", async () => {
   const blocks = [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })];
-  stubFetch([["/api/page/Paper", pagePayload("Paper", blocks)]]);
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), blocks)]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
         <EditablePage title={canonicalTitleOf("Paper")} initial={blocks} />
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </SyncContext.Provider>
     </MemoryRouter>);
 
@@ -189,12 +189,12 @@ test("main-first same-title mounts keep one editor and one live fallback", async
 
 test("sidebar-first same-title mounts preserve its editor when main joins", async () => {
   const blocks = [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })];
-  stubFetch([["/api/page/Paper", pagePayload("Paper", blocks)]]);
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), blocks)]]);
   const sync = makeSync();
   const view = (showMain: boolean) => (
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
         {showMain && <EditablePage title={canonicalTitleOf("Paper")} initial={blocks} />}
       </SyncContext.Provider>
     </MemoryRouter>
@@ -218,7 +218,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
     <SyncContext.Provider value={makeSync()}>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}
                     initialEntries={["/page/Paper"]}>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
@@ -230,7 +230,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
   try {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await act(async () => {
-      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
       await older.promise;
       await Promise.resolve();
       await Promise.resolve();
@@ -240,7 +240,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
     }) !== null;
 
     await act(async () => {
-      newer.resolve(jsonResponse(pagePayload("Paper", [
+      newer.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [
         block("tuid-new", "newer main response"),
       ])));
       await newer.promise;
@@ -249,8 +249,8 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
     });
     newerCopies = screen.queryAllByText("newer main response").length;
   } finally {
-    older.resolve(jsonResponse(pagePayload("Paper", [])));
-    newer.resolve(jsonResponse(pagePayload("Paper", [])));
+    older.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
+    newer.resolve(jsonResponse(pagePayload(canonicalTitleOf("Paper"), [])));
     view.unmount();
   }
 
@@ -263,7 +263,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
 // auto-creates only today's). That is an empty page, not an error, in every
 // surface that displays it — the same fixture in the main pane and in a
 // sidebar panel must both render an editable empty outline.
-const MISSING_DAILY = "June 3rd, 2026";
+const MISSING_DAILY = rawTitleOf("June 3rd, 2026");
 
 const missingDailyTree = (surface: "main" | "sidebar") => (
   <SyncContext.Provider value={makeSync()}>
@@ -298,7 +298,7 @@ test("shows the fetch error", async () => {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditableSidebarPanel title="Missing" />
+        <EditableSidebarPanel title={rawTitleOf("Missing")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   expect(await screen.findByText(/request failed: 404/i)).toBeInTheDocument();
@@ -307,14 +307,14 @@ test("shows the fetch error", async () => {
 test("a uid prop scrolls to and flashes that block within the panel's own container", async () => {
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
-  stubFetch([["/api/page/Paper", pagePayload("Paper", [
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [
     block("uid_s0", "some other block"),
     block("uid_s1", "target block"),
   ])]]);
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditableSidebarPanel title="Paper" uid={uidOf("uid_s1")} />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} uid={uidOf("uid_s1")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   await screen.findByText("target block");
@@ -335,11 +335,11 @@ test("a uid under a collapsed ancestor is expanded, then scrolled to and flashed
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   const sync = makeSync();
-  servePageApplyingSent(sync, "Paper", collapsedPaper());
+  servePageApplyingSent(sync, canonicalTitleOf("Paper"), collapsedPaper());
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditableSidebarPanel title="Paper" uid={uidOf("uid_s1")} />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} uid={uidOf("uid_s1")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   await screen.findByText("target block");
@@ -357,13 +357,13 @@ test("a uid under a collapsed ancestor stays hidden when the page is open elsewh
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   const sync = makeSync();
-  servePageApplyingSent(sync, "Paper", collapsedPaper());
-  const release = reserveOutlineEditor("Paper");
+  servePageApplyingSent(sync, canonicalTitleOf("Paper"), collapsedPaper());
+  const release = reserveOutlineEditor(canonicalTitleOf("Paper"));
   try {
     render(
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
         <SyncContext.Provider value={sync}>
-          <EditableSidebarPanel title="Paper" uid={uidOf("uid_s1")} />
+          <EditableSidebarPanel title={rawTitleOf("Paper")} uid={uidOf("uid_s1")} />
         </SyncContext.Provider>
       </MemoryRouter>);
     await screen.findByText("parent");
@@ -378,11 +378,11 @@ test("a uid under a collapsed ancestor stays hidden when the page is open elsewh
 test("no uid prop: no scroll/flash side effect", async () => {
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
-  stubFetch([["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "target block")])]]);
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "target block")])]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   await screen.findByText("target block");
@@ -393,7 +393,7 @@ test("no uid prop: no scroll/flash side effect", async () => {
 // same as it does in the main pane -- not only after the panel is reopened.
 test("a ((uid)) ref missing from the seed map resolves live in the panel", async () => {
   stubFetch([
-    ["/api/page/Paper", pagePayload("Paper", [
+    ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [
       block("uid_s1", "see ((ref_zz9))", { order_idx: orderIdxOf(0) }),
     ])],
     ["/api/block-refs", {
@@ -403,7 +403,7 @@ test("a ((uid)) ref missing from the seed map resolves live in the panel", async
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </SyncContext.Provider>
     </MemoryRouter>);
 
@@ -419,7 +419,7 @@ test("releases a failed parent read when the panel unmounts", async () => {
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditableSidebarPanel title="Failed sidebar read" />
+        <EditableSidebarPanel title={rawTitleOf("Failed sidebar read")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   expect(await screen.findByText(/request failed: 404/i)).toBeInTheDocument();

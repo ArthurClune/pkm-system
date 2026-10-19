@@ -7,6 +7,7 @@ does not exist renders broken."""
 from __future__ import annotations
 
 from pkm.contracts.ops import BlockUid, MoveOp, SetHeadingOp, SetViewTypeOp
+from pkm.contracts.titles import CanonicalTitle, RawTitle
 from pkm.refs import extract, normalize_title, title_syntax_reason
 
 
@@ -31,7 +32,8 @@ def existing_page_label(title: str) -> str:
     return f"`{title}`"
 
 
-def conflict_label(page_title: str | None, hint_page_exists: bool) -> str:
+def conflict_label(page_title: RawTitle | None,
+                   hint_page_exists: bool) -> str:
     """Label for check 1's client page-title hint (offline-editing-design.md
     §2). It never fails the op, and it must not produce a `[[link]]` to a
     page that does not exist, or the ref indexer creates one:
@@ -50,7 +52,7 @@ def conflict_label(page_title: str | None, hint_page_exists: bool) -> str:
     return "(page unknown)" if span is None else f"{span} (page not found)"
 
 
-def missing_page_code_span(page_title: str | None) -> str | None:
+def missing_page_code_span(page_title: RawTitle | None) -> str | None:
     """A page that does not exist, as inline code (which the ref extractor
     never scans); None for an unusable title or one holding a backtick."""
     if (page_title is None or not page_title.strip()
@@ -60,14 +62,14 @@ def missing_page_code_span(page_title: str | None) -> str | None:
     return f"`{page_title}`"
 
 
-def overwritten_header_text(page_title: str, uid: BlockUid) -> str:
+def overwritten_header_text(page_title: CanonicalTitle, uid: BlockUid) -> str:
     """Header for check 5: the live block's own page, read straight from
     its row -- always a real title, never a client-supplied hint."""
     return (f"[[conflict]] {existing_page_label(page_title)}"
             f" — overwritten by (({uid}))")
 
 
-def deleted_header_text(page_title: str) -> str:
+def deleted_header_text(page_title: CanonicalTitle) -> str:
     """Header for a subtree whose delete diverged (offline-editing-design.md
     §3): names the block's own page, read from its row before the delete. It
     cannot embed `((uid))` like `live_block_header_text` -- by the time this
@@ -77,7 +79,8 @@ def deleted_header_text(page_title: str) -> str:
             " — deleted while edited elsewhere")
 
 
-def orphan_header_text(page_title: str | None, hint_page_exists: bool) -> str:
+def orphan_header_text(page_title: RawTitle | None,
+                       hint_page_exists: bool) -> str:
     """Header for check 1: page_title is the client's op.page_title hint,
     which may be missing, unusable, or stale (naming a page the store no
     longer has); hint_page_exists is resolved by the shell. Also heads every
@@ -87,7 +90,7 @@ def orphan_header_text(page_title: str | None, hint_page_exists: bool) -> str:
            " — edit to a block the server no longer has")
 
 
-def live_block_header_text(page_title: str, uid: BlockUid) -> str:
+def live_block_header_text(page_title: CanonicalTitle, uid: BlockUid) -> str:
     """Header for a change to a live block that could not be applied (a
     move whose target parent is gone): names the block's own page, read
     from its row like check 5's, and embeds the block itself."""
@@ -114,7 +117,7 @@ def move_parent_missing_note(parent_uid: BlockUid) -> str:
 MOVE_CYCLE_NOTE = "move skipped: would create a cycle"
 
 
-def stale_page_move_note(page_title: str) -> str:
+def stale_page_move_note(page_title: RawTitle) -> str:
     """Note for a move whose destination page was deleted before the
     device that sent it saw the delete: the block stays put."""
     span = missing_page_code_span(page_title) or "(page unknown)"

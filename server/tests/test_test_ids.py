@@ -78,7 +78,7 @@ VALID = {
     "order_idx_of": 3, "sidebar_order_idx_of": 4, "seq_of": 5,
     "client_id_of": "client-1", "batch_id_of": "batch-1", "sha_of": SHA,
     "conversation_id_of": "conv-1", "confirm_id_of": "confirm-1",
-    "goodlinks_id_of": "gl-1", "normalized_title_of": "a title",
+    "goodlinks_id_of": "gl-1", "raw_title_of": "a title", "normalized_title_of": "a title",
     "canonical_title_of": "A Title",
     "canonical_query_node_of": QueryNode("page", "a"),
 }

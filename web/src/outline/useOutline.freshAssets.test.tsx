@@ -6,7 +6,14 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import {
-  block, jsonResponse, makeSync, orderIdxOf, type SyncFake, canonicalTitleOf, shaOf, uidOf,
+  block,
+  jsonResponse,
+  makeSync,
+  orderIdxOf,
+  type SyncFake,
+  canonicalTitleOf,
+  shaOf,
+  uidOf,
 } from "../test-helpers";
 import type { DropTarget } from "./dnd";
 import * as undoManager from "./undoManager";
@@ -45,7 +52,7 @@ afterEach(() => { undoManager.resetHistory(); vi.restoreAllMocks(); vi.unstubAll
 const png = (name: string) => new File(["x"], name, { type: "image/png" });
 const AB = () => [block("tuid-a", "alpha", { order_idx: orderIdxOf(0) }),
                   block("tuid-b", "beta", { order_idx: orderIdxOf(1) })];
-const target: DropTarget = { parent_uid: null, order_idx: orderIdxOf(1), page_title: "Page" };
+const target: DropTarget = { parent_uid: null, order_idx: orderIdxOf(1), page_title: canonicalTitleOf("Page") };
 
 function recorded() {
   const spy = vi.spyOn(undoManager, "recordHistory");

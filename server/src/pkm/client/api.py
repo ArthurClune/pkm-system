@@ -38,6 +38,7 @@ from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      TitleMigrationApplyRequest,
                                      TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload)
+from pkm.contracts.titles import RawTitle
 from pkm.refs import normalize_title
 
 if TYPE_CHECKING:
@@ -289,7 +290,7 @@ class PkmClient:
         return self._request("GET", "/api/changed", ChangedPayload,
                              params=params)
 
-    def rename_page(self, title: str, new_title: str,
+    def rename_page(self, title: str, new_title: RawTitle,
                    allow_merge: bool = False) -> RenamePageResponse:
         """POST /api/page/{title}/rename. `new_title` is sent as-is -- the
         server canonicalizes it and reports the landed title back in the

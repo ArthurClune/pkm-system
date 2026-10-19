@@ -255,6 +255,29 @@ const cases: readonly FixtureCase[] = [
       "}\n",
   },
   {
+    file: "brand-name-titles.ts",
+    rule: "brands/name-carries-brand",
+    count: 2,
+    corrected:
+      "import type {\n" +
+      "  CanonicalTitle,\n" +
+      "  NormalizedTitle,\n" +
+      "  RawTitle,\n" +
+      '} from "../../src/api/brands";\n' +
+      "export function wire(pageTitle: NormalizedTitle): void {\n" +
+      "  void pageTitle;\n" +
+      "}\n" +
+      "export function raw(rawTitle: RawTitle): void {\n" +
+      "  void rawTitle;\n" +
+      "}\n" +
+      "export function normalized(normalizedTitle: NormalizedTitle): void {\n" +
+      "  void normalizedTitle;\n" +
+      "}\n" +
+      "export function canonical(canonicalTitle: CanonicalTitle): void {\n" +
+      "  void canonicalTitle;\n" +
+      "}\n",
+  },
+  {
     file: "brand-name-shallow.ts",
     rule: "brands/name-carries-brand",
     count: 5,
@@ -807,6 +830,56 @@ describe("brands plugin judgement", () => {
     expect(inScan[0].message).toContain("CanonicalTitle");
     expect(inScan[0].message).not.toContain("NormalizedTitle");
     expect(await messagesFor("src/replica/daily.ts", text)).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("reports RawTitle outside its mint sites", async () => {
+    const text =
+      'import type { RawTitle } from "../api/brands";\n' +
+      "export const t = (s: string) => s as RawTitle;\n";
+    const found = await messagesFor("src/grammar/scan.ts", text);
+    expect(found.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(found[0].message).toContain("RawTitle");
+    expect(await messagesFor("src/replica/titles.ts", text)).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("counts NormalizedTitle as its own brand, not RawTitle", async () => {
+    const text =
+      'import type { NormalizedTitle } from "../api/brands";\n' +
+      "export const t = (s: string) => s as NormalizedTitle;\n";
+    expect(await messagesFor("src/replica/titles.ts", text)).toEqual([]);
+    const found = await messagesFor("src/sync/opQueue.ts", text);
+    expect(found.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(found[0].message).toContain("NormalizedTitle");
+    expect(found[0].message).not.toContain("RawTitle");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("reports NormalizedTitle in a RawTitle-only mint site", async () => {
+    const norm =
+      'import type { NormalizedTitle } from "../api/brands";\n' +
+      "export const t = (s: string) => s as NormalizedTitle;\n";
+    const found = await messagesFor("src/replica/pendingOps.ts", norm);
+    expect(found.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(found[0].message).toContain("NormalizedTitle");
+    const raw =
+      'import type { RawTitle } from "../api/brands";\n' +
+      "export const t = (s: string) => s as RawTitle;\n";
+    expect(await messagesFor("src/replica/pendingOps.ts", raw)).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("names each title subtype itself when offType forges one", async () => {
+    const header =
+      'import type { CanonicalTitle, NormalizedTitle } from "../api/brands";\n' +
+      'import { offType } from "../test-helpers";\n';
+    const canonical = await messagesFor("src/replica/titles.test.ts",
+      header + 'export const c = offType<CanonicalTitle>("y");\n');
+    expect(canonical.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(canonical[0].message).toContain("malformedCanonicalTitle");
+    expect(canonical[0].message).not.toContain("RawTitle");
+    const normalized = await messagesFor("src/replica/titles.test.ts",
+      header + 'export const n = offType<NormalizedTitle>("x");\n');
+    expect(normalized.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(normalized[0].message).toContain("NormalizedTitle");
+    expect(normalized[0].message).not.toContain("RawTitle");
   }, ESLINT_TIMEOUT_MS);
 
   it("names the parser and the mint module in the remedy", async () => {

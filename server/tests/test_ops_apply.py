@@ -12,7 +12,7 @@ from pkm.server.db import open_db
 from pkm.server.ops_apply import (_parent_chain, _subtree_deepest_first,
                                   _subtree_rows, apply_batch)
 from pkm.server.ops_core import OpError, SubtreeRow
-from pkm.test_data.ids import order_idx_of, sha_of, uid_of
+from pkm.test_data.ids import order_idx_of, raw_title_of, sha_of, uid_of
 
 NOW = 1_800_000_000_000
 NOW_DAY = title_for_date(datetime.fromtimestamp(NOW / 1000).date())
@@ -34,7 +34,7 @@ def _batch(*ops) -> OpBatch:
                    ops=list(ops))
 
 
-def _linear_chain(page_title: str, depth: int, prefix: str = "level"):
+def _linear_chain(page: str, depth: int, prefix: str = "level"):
     """CreateOps for a straight-line hierarchy of `depth` blocks, each
     nested one under the previous: prefix0 (top-level) .. prefix{depth-1}
     (deepest leaf)."""
@@ -42,7 +42,7 @@ def _linear_chain(page_title: str, depth: int, prefix: str = "level"):
     parent = None
     for i in range(depth):
         uid = f"{prefix}{i}"
-        ops.append({"op": "create", "uid": uid, "page_title": page_title,
+        ops.append({"op": "create", "uid": uid, "page_title": raw_title_of(page),
                     "parent_uid": parent, "order_idx": 0, "text": f"n{i}"})
         parent = uid
     return ops
@@ -586,7 +586,7 @@ def _rewrite_chain(steps: int) -> tuple[ops_core.BlockRewrite, ...]:
         after = f"[[T{i + 1}]]"
         records.append(ops_core.BlockRewrite(
             base_hash=text_hash(text), after_hash=text_hash(after),
-            old_title=f"T{i}", new_title=f"T{i + 1}"))
+            old_text=f"T{i}", new_text=f"T{i + 1}"))
         text = after
     return tuple(reversed(records))
 
@@ -613,7 +613,7 @@ def test_replay_ignores_an_inline_record_whose_key_is_no_uid():
     before, after = "[[Gone]] ((abc123def))", "Gone copy"
     record = ops_core.BlockRewrite(
         base_hash=text_hash(before), after_hash=text_hash(after),
-        old_title="not a uid", new_title="copy", kind="inline")
+        old_text="not a uid", new_text="copy", kind="inline")
 
     assert ops_core.replay_title_rewrites(
         before, text_hash(before), (record,)) == (before, text_hash(after))

@@ -1,7 +1,7 @@
 """Filters + pagination on GET /api/assets/search."""
 from pkm.server.db import open_db
 from pkm.contracts.ops import BlockUid, Sha256Hex
-from pkm.test_data.ids import uid_of
+from pkm.test_data.ids import raw_title_of, uid_of
 
 
 def _upload(client, content, name, mime="image/png"):
@@ -10,10 +10,10 @@ def _upload(client, content, name, mime="image/png"):
     return r.json()
 
 
-def _create_block(client, uid: BlockUid, page_title, text):
+def _create_block(client, uid: BlockUid, page, text):
     r = client.post("/api/ops", json={
         "client_id": "test", "batch_id": f"batch-{uid}",
-        "ops": [{"op": "create", "uid": uid, "page_title": page_title,
+        "ops": [{"op": "create", "uid": uid, "page_title": raw_title_of(page),
                  "parent_uid": None, "order_idx": 0, "text": text}]})
     assert r.status_code == 200, r.text
 

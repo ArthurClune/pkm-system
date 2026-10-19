@@ -7,6 +7,7 @@ from typing import AbstractSet, Literal, Mapping, NamedTuple, Sequence
 
 from pkm.importer.parse_export import Block, Export, Page
 from pkm.refs import (
+    NormalizedTitle,
     extract,
     is_blank_title,
     normalize_title,
@@ -96,7 +97,8 @@ def _strip_brackets(
     return "".join(visible), index
 
 
-def sanitize_import_title(title: str, *, location: str) -> str:
+def sanitize_import_title(title: str, *,
+                          location: str) -> NormalizedTitle:
     """Remove balanced Roam title markers or refuse an unsafe result."""
     without_brackets, _ = _strip_brackets(
         title,
@@ -135,7 +137,8 @@ def _walk_block(block: Block) -> tuple[Block, ...]:
     )
 
 
-def _rewrite_block(block: Block, title_map: dict[str, str]) -> Block:
+def _rewrite_block(block: Block,
+                   title_map: dict[str, NormalizedTitle]) -> Block:
     # Every lookup normalizes first, which reaches both halves of title_map's
     # key set -- see _collect_title_locations for why that is safe.
     return Block(
@@ -238,7 +241,7 @@ def _merge_sanitized_pages(
 
 
 def _title_changes(
-    title_map: Mapping[str, str],
+    title_map: Mapping[str, NormalizedTitle],
     locations: Mapping[str, list[str]],
     merged_pages_titles: AbstractSet[str],
 ) -> tuple[ImportTitleChange, ...]:

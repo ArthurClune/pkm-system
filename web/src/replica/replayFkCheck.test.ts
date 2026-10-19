@@ -12,7 +12,7 @@ import { targetedFkHit } from "./apply";
 import type { ReplicaDb, SqlValue } from "./db";
 import { applyLocalOps } from "./localOps";
 import { openTestDb, type TestDb } from "./testDb";
-import { batchIdOf, malformedUid, orderIdxOf, uidOf } from "../test-helpers";
+import { batchIdOf, malformedUid, orderIdxOf, uidOf, rawTitleOf } from "../test-helpers";
 
 const fkKeys = (db: ReplicaDb): Set<string> =>
   new Set((db.introspect(
@@ -55,7 +55,7 @@ const parentArb = fc.oneof(
 const textArb = fc.constantFrom("plain", "see [[A]]", "[[D]] and ((u_aaaaa1))",
                                 "#B ((u_aaaaa3))", "[[C]]", "[[E]]");
 const orderArb = fc.integer({ min: 0, max: 2 }).map(orderIdxOf);
-const titleArb = fc.constantFrom(...TITLES);
+const titleArb = fc.constantFrom(...TITLES).map(rawTitleOf);
 
 const shapedOpArb: fc.Arbitrary<BlockOp> = fc.oneof(
   fc.record({ op: fc.constant("create" as const), uid: uidArb, page_title: titleArb,
@@ -121,7 +121,7 @@ const childCaseArb = fc.tuple(randomScenarioArb, fc.boolean(), orderArb, orderAr
   .map(([s, earlier, order, childOrder, pair]): Scenario => {
     const parent = pair?.[0] ?? "u_aaaaa5";
     const create: BlockOp = {
-      op: "create", uid: malformedUid(null), page_title: "A",
+      op: "create", uid: malformedUid(null), page_title: rawTitleOf("A"),
       parent_uid: mintUid(parent), order_idx: childOrder, text: "plain" };
     const drop: BlockOp = { op: "delete", uid: mintUid(parent) };
     const blocks = [{ rawUid: parent, page: 1, parent: null, order, ref: null,
@@ -152,7 +152,7 @@ const pageCaseArb = fc.tuple(randomScenarioArb, fc.boolean(), orderArb)
     pageD: nine ? s.pageD : false,
     blocks: [{ rawUid: "u_aaaaa7", page: nine ? 9 : 4, parent: null, order,
                ref: null, bref: null }, ...s.blocks],
-    ops: [{ op: "create", uid: uidOf("u_aaaaa6"), page_title: "A",
+    ops: [{ op: "create", uid: uidOf("u_aaaaa6"), page_title: rawTitleOf("A"),
             parent_uid: uidOf("u_aaaaa7"), order_idx: order, text: "plain" },
           ...s.ops],
   }));

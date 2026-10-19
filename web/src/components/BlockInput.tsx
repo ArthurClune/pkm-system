@@ -11,7 +11,7 @@
 import { useContext, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiPost } from "../api/typedClient";
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, NormalizedTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { SidebarContext } from "../contexts";
 import { applyCompletion, holdsDraftFlush } from "../outline/autocomplete";
@@ -131,7 +131,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   // navigating to -- would otherwise be lost. Flushing before POST
   // /api/pages also keeps the ref row a product of the normal ops path
   // instead of racing it.
-  const ensureRefPageThenOpen = async (title: string, sidebar: boolean) => {
+  const ensureRefPageThenOpen = async (title: NormalizedTitle, sidebar: boolean) => {
     handlers.onFlushDraft();
     try {
       await apiPost("/api/pages", { body: { title } });

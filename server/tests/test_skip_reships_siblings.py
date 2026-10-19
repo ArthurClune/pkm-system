@@ -45,7 +45,7 @@ def _feed_since(client, seq: SyncSeq):
 def _journalled_since(seeded_config, seq: SyncSeq):
     con = open_db(seeded_config.db_path)
     try:
-        return [(r["entity_id"], r["deleted"]) for r in read(con,
+        return [(r["entity_id"], r["deleted"]) for r in con.select(
             "SELECT entity_id, deleted FROM changes WHERE seq > ?"
             " AND kind = 'block' ORDER BY seq", (seq,))]
     finally:

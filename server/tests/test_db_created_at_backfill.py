@@ -4,7 +4,6 @@ updated_at (merged/moved blocks can sit on pages younger than their last
 edit) and never writes NULL back. Re-running init_db() must be a no-op
 (the backfill is a plain UPDATE ... WHERE created_at IS NULL)."""
 
-from rawread import read
 from pkm.schema import DDL
 from pkm.server.db import init_db
 from pkm.database import connect
@@ -34,10 +33,10 @@ def _seed(path, pages, blocks) -> None:
 
 def _created_at(path, uid: BlockUid) -> int | None:
     con = connect(path)
-    row = read(con, "SELECT created_at FROM blocks WHERE uid = ?",
-                      (uid,)).fetchone()
+    row = con.select_one("SELECT created_at FROM blocks WHERE uid = ?", (uid,))
     con.close()
-    return row[0]
+    assert row is not None
+    return row["created_at"]
 
 
 def test_backfill_takes_the_pages_created_at_when_it_is_older(tmp_path):

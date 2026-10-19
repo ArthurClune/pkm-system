@@ -79,8 +79,13 @@ def test_the_violation_names_the_site_and_the_brand():
     assert v == Violation(PRODUCT, 2, "brand-name", "`uid` must be BlockUid: def f(uid: str) -> None: ...")
 
 
-def test_either_brand_of_a_two_brand_name_satisfies_it():
+def test_a_plain_int_for_a_two_brand_name_is_a_violation():
     assert rules("def f(order_idx: int) -> None: ...\n") == ["brand-name"]
+
+
+def test_either_brand_of_a_two_brand_name_satisfies_it():
+    for brand in ("OrderIdx", "SidebarOrderIdx"):
+        assert rules(f"def f(order_idx: {brand}) -> None: ...\n") == []
 
 
 OPT_OUT = "def f(uids: str) -> None: ...  # brand: untrusted -- comma-separated query param\n"

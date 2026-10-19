@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from pkm import brand_registry as reg
 from pkm import rows_dump
 from pkm.rows import KEYS, KeySpec
 from pkm.rows_dump import (COLUMNS_TS, REGISTRY_JSON, RowsDumpError,
@@ -27,6 +28,22 @@ def test_literal_keys_generate_unions_and_member_lists():
     assert "  heading: 0 | 1 | 2 | 3 | null;" in out
     assert '  ref_kind: "link" | "tag" | "attribute";' in out
     assert "literals: [0, 1, 2, 3] }" in out
+
+
+def test_client_literal_keys_generate_unions_and_member_lists():
+    out = columns_module()
+    assert '  replay_kind: "block" | "page";' in out
+    assert "  has_pre: 0 | 1;" in out
+    assert "  present: 0 | 1;" in out
+    assert "  text_changed: 0 | 1;" in out
+    assert 'literals: ["block", "page"] }' in out
+
+
+def test_client_literals_name_client_keys_of_the_matching_base():
+    for key, members in reg.CLIENT_LITERALS.items():
+        type_name, _ = reg.CLIENT_KEYS[key]
+        want = {"string": str, "number": int}[type_name]
+        assert {type(m) for m in members} == {want}, key
 
 
 def test_registry_has_both_spellings():

@@ -139,9 +139,7 @@ def test_build_seeds_a_rename_with_a_block_rewrites_row(tmp_path):
         assert base_hash == text_hash(RENAME_REF_TEXT)
         assert old_title == RENAME_SOURCE_TITLE
         assert new_title == RENAME_TARGET_TITLE
-        current_text = read(con,
-            "SELECT text FROM blocks WHERE uid = ?",
-            (fx.landmarks.rename_ref_uid,)).fetchone()[0]
+        current_text = con.select("SELECT text FROM blocks WHERE uid = ?", (fx.landmarks.rename_ref_uid,))[0]["text"]
         assert after_hash == text_hash(current_text)
         assert current_text == RENAME_REF_TEXT.replace(RENAME_SOURCE_TITLE, RENAME_TARGET_TITLE)
     finally:

@@ -798,9 +798,12 @@ function remedy(brands, inTest) {
   if (parsers.length) parts.push(`parse it with ${parsers.join(", ")}`);
   if (modules.length) {
     const shown = modules.slice(0, MODULES_SHOWN).join(", ");
-    parts.push(`mint it in ${shown}${modules.length > MODULES_SHOWN ? " ..." : ""}`);
+    const more = modules.length - MODULES_SHOWN;
+    parts.push(`mint it in ${shown}${more > 0 ? ` and ${more} more` : ""}`);
   }
-  else parts.push("register a web mint site for it in the brand registry");
+  // No web mint site: the value belongs to where it enters the app, not to a
+  // new registry entry here.
+  else parts.push("pass it in already branded: this brand has no web mint site");
   return parts.join(", or ");
 }
 

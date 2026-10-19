@@ -560,7 +560,7 @@ def test_new_day_starts_a_fresh_header_and_prunes(client, seeded_config):
     assert _conflicts(client, day1) == [(label, ["day one"])]
     assert _conflicts(client, day2) == [(label, ["day two"])]
     con = open_db(seeded_config.db_path)
-    days = [r["day"] for r in read(con, "SELECT day FROM conflict_headers")]
+    days = [r["day"] for r in con.select("SELECT day FROM conflict_headers")]
     con.close()
     assert days == [title_for_date(day2)]
 
@@ -991,7 +991,7 @@ def test_tombstones_lead_the_journal_rows_a_skipped_op_writes(
                           "parent_uid": "uid_ghostP", "order_idx": 0}
                  ).status_code == 200
     con = open_db(seeded_config.db_path)
-    rows = [(r["entity_id"], r["deleted"]) for r in read(con,
+    rows = [(r["entity_id"], r["deleted"]) for r in con.select(
         "SELECT entity_id, deleted FROM changes WHERE seq > ? AND"
         " kind = 'block' ORDER BY seq", (start,))]
     con.close()

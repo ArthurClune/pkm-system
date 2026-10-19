@@ -148,6 +148,13 @@ transaction:
   newer server added would otherwise destroy an unrelated row. The one TEXT
   `entity_id` is minted into `BlockUid`, `PageId` or `SidebarEntryId` per
   branch, never before the dispatch picks the kind.
+- `parseTombstoneId` (`sync/wire.ts`) is the one reader of that text id. A
+  wire tombstone of a known kind whose id is not an id of that kind
+  (`parseBlockUid` fails, or a page or sidebar id is not a decimal integer)
+  throws `MalformedTombstoneError`, so the window rolls back and fails like
+  any other malformed feed row. The `deferred_block_tombstones` record is
+  read with the same parser; an entry that fails it is dropped with a
+  `console.warn` naming it, since a stored record cannot be refused.
 
 | Step in `applyWindow` | Why it sits there |
 |---|---|

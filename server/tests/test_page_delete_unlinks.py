@@ -23,8 +23,7 @@ def db(seeded_config):
 
 
 def _text(db, uid: BlockUid):
-    return read(db, "SELECT text FROM blocks WHERE uid = ?",
-                      (uid,)).fetchone()["text"]
+    return db.select_one("SELECT text FROM blocks WHERE uid = ?", (uid,))["text"]
 
 
 def _add_block(db, uid: BlockUid, text, page_id: PageId = page_id_of(3), order=9):

@@ -112,4 +112,18 @@ describe("createBlockRefStore", () => {
 
     expect(onAa1).not.toHaveBeenCalled();
   });
+
+  test("warns about a key that is no uid and resolves the rest", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const store = createBlockRefStore();
+      store.resolve({ "bad key": text("x"), "ref_aa1": text("alpha") });
+      expect(warn).toHaveBeenCalledWith(
+        "blockRefStore.resolve: dropping a key that is not a block uid", "bad key");
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(store.get(uidOf("ref_aa1"))).toEqual(text("alpha"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });

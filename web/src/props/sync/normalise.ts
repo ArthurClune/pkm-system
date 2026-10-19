@@ -82,28 +82,28 @@ export function fromSnapshot(s: Snapshot, opts: NormaliseOptions = {}): NormalGr
 }
 
 
-/** The replica's graph tables, without timestamps. */
+/** The replica's graph tables, without timestamps. A row naming a page the
+ * replica does not hold reads as `?page N` through `pageName`, as in
+ * fromSnapshot: the placeholder is made here, never selected into a key. */
 export function fromReplica(db: ReplicaDb): NormalGraph {
-  const pages = db.select("SELECT title FROM pages", ["title"])
-    .map((p) => p.title).sort();
+  const titles = new Map<number, string>(
+    db.select("SELECT id AS page_id, title FROM pages", ["page_id", "title"])
+      .map((p) => [p.page_id, p.title]));
   const refs = new Map<string, string[]>();
   for (const r of db.select(
-    "SELECT r.src_block_uid AS uid, r.kind AS ref_kind," +
-    " COALESCE(p.title, '?page ' || r.target_page_id) AS title" +
-    " FROM refs r LEFT JOIN pages p ON p.id = r.target_page_id", ["uid", "ref_kind", "title"])) {
-    const list = refs.get(r.uid) ?? [];
-    list.push(`${r.ref_kind}:${r.title}`);
-    refs.set(r.uid, list);
+    "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs",
+    ["src_block_uid", "target_page_id", "ref_kind"])) {
+    const list = refs.get(r.src_block_uid) ?? [];
+    list.push(`${r.ref_kind}:${pageName(titles, r.target_page_id)}`);
+    refs.set(r.src_block_uid, list);
   }
   const blocks = db.select(
-    "SELECT b.uid, COALESCE(p.title, '?page ' || b.page_id) AS title," +
-    " b.parent_uid, b.order_idx," +
-    " b.text, b.heading, b.collapsed, b.view_type" +
-    " FROM blocks b LEFT JOIN pages p ON p.id = b.page_id",
-      ["uid", "title", "parent_uid", "order_idx", "text", "heading", "collapsed", "view_type"],
+    "SELECT uid, page_id, parent_uid, order_idx, text, heading, collapsed, view_type" +
+    " FROM blocks",
+    ["uid", "page_id", "parent_uid", "order_idx", "text", "heading", "collapsed", "view_type"],
   ).map((b): NormalBlock => ({
     key: b.uid,
-    page: b.title,
+    page: pageName(titles, b.page_id),
     parentKey: b.parent_uid,
     order_idx: b.order_idx,
     text: b.text,
@@ -112,7 +112,7 @@ export function fromReplica(db: ReplicaDb): NormalGraph {
     view_type: b.view_type,
     refs: (refs.get(b.uid) ?? []).sort(),
   })).sort(byKey);
-  return { pages, blocks };
+  return { pages: [...titles.values()].sort(), blocks };
 }
 
 const FIELDS = ["page", "parentKey", "order_idx", "text", "heading", "collapsed",

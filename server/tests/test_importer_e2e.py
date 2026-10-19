@@ -185,7 +185,7 @@ def test_end_to_end_import(tmp_path):
 
     # asset url rewritten to content-addressed path
     sha = hashlib.sha256(b"PNGDATA").hexdigest()
-    text = read(con, "SELECT text FROM blocks WHERE uid='uid-link1x'").fetchone()[0]
+    text = con.select("SELECT text FROM blocks WHERE uid='uid-link1x'")[0]["text"]
     assert f"/assets/{sha}/paper-fig.png" in text
     assert "firebasestorage" not in text
     assert (out / "assets" / sha[:2] / sha).read_bytes() == b"PNGDATA"
@@ -194,8 +194,8 @@ def test_end_to_end_import(tmp_path):
     assert read(con, "SELECT count(*) FROM assets").fetchone()[0] == 2
     assert read(con, "SELECT count(*) FROM blocks_fts WHERE blocks_fts"
                        " MATCH 'Attention'").fetchone()[0] == 1
-    kinds = dict(read(con,
-        "SELECT kind, count(*) FROM refs GROUP BY kind").fetchall())
+    kinds = {r["ref_kind"]: r["n"] for r in con.select(
+        "SELECT kind AS ref_kind, count(*) AS n FROM refs GROUP BY kind")}
     assert kinds["attribute"] == 1
     assert kinds["tag"] == 2
 
@@ -677,8 +677,7 @@ def test_overlong_filename_import_produces_bounded_asset_row(tmp_path):
 
     con = connect(out / "pkm.sqlite3")
     sha = hashlib.sha256(b"OVERLONG").hexdigest()
-    filename = read(con,
-        "SELECT filename FROM assets WHERE sha256 = ?", (sha,)).fetchone()[0]
+    filename = con.select("SELECT filename FROM assets WHERE sha256 = ?", (sha,))[0]["filename"]
     assert filename.endswith(".png")
     assert len(filename.encode("utf-8")) <= 200
     assert filename != overlong_name
@@ -698,9 +697,9 @@ def test_import_canonicalizes_padded_titles_before_publication(tmp_path):
 
     assert rc == 0
     con = connect(out / "pkm.sqlite3")
-    assert read(con,
-        "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
-    ).fetchone()[0] == "1"
+    assert con.select(
+        "SELECT value AS sync_meta_value FROM sync_meta"
+        " WHERE key='plain_space_title_canonicalization'")[0]["sync_meta_value"] == "1"
     page_ids = {
         str(row["title"]): row["page_id"]
         for row in con.select("SELECT id AS page_id, title FROM pages ORDER BY id")
@@ -743,9 +742,9 @@ def test_import_sanitizes_title_syntax_before_rows_and_reports_merges(tmp_path):
 
     assert rc == 0
     con = connect(out / "pkm.sqlite3")
-    assert read(con,
-        "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
-    ).fetchone()[0] == "1"
+    assert con.select(
+        "SELECT value AS sync_meta_value FROM sync_meta"
+        " WHERE key='plain_space_title_canonicalization'")[0]["sync_meta_value"] == "1"
     page_ids = {
         str(row["title"]): row["page_id"]
         for row in con.select("SELECT id AS page_id, title FROM pages ORDER BY id")
@@ -758,9 +757,9 @@ def test_import_sanitizes_title_syntax_before_rows_and_reports_merges(tmp_path):
         "Tag",
     }
     assert all(title_syntax_reason(title) is None for title in page_ids)
-    assert read(con,
+    assert con.select_one(
         "SELECT created_at, updated_at FROM pages WHERE title='Project'"
-    ).fetchone() == (200, 201)
+    ) == {"created_at": 200, "updated_at": 201}
     assert [tuple(row.values()) for row in con.select(
         "SELECT uid, parent_uid, order_idx, text FROM blocks "
         "WHERE page_id=? ORDER BY CASE WHEN parent_uid IS NULL THEN order_idx ELSE 99 END",
@@ -775,9 +774,7 @@ def test_import_sanitizes_title_syntax_before_rows_and_reports_merges(tmp_path):
         ),
         ("uid-dirty-child", "uid-dirty-root", 0, "keep ((uid-clean-root))"),
     ]
-    assert read(con,
-        "SELECT text FROM blocks WHERE uid='uid-watcher'"
-    ).fetchone()[0] == "[[Project]]"
+    assert con.select("SELECT text FROM blocks WHERE uid='uid-watcher'")[0]["text"] == "[[Project]]"
     assert [tuple(row.values()) for row in con.select(
         "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3"
     )] == sorted([
@@ -814,9 +811,8 @@ def test_import_rewrites_every_extracted_title_before_rows(tmp_path):
     }
     assert page_ids.keys() == {"Source", "BadTitle", "Bad Title"}
     assert all(title_syntax_reason(title) is None for title in page_ids)
-    assert read(con,
-        "SELECT text FROM blocks WHERE uid='uid-source'"
-    ).fetchone()[0] == "  BadTitle:: value and [[Bad Title]] tail"
+    assert con.select(
+        "SELECT text FROM blocks WHERE uid='uid-source'")[0]["text"] == "  BadTitle:: value and [[Bad Title]] tail"
     assert [tuple(row.values()) for row in con.select(
         "SELECT parent_uid, text FROM blocks WHERE uid='uid-child'"
     )] == [("uid-source", "unchanged child")]
@@ -836,9 +832,9 @@ def test_import_marks_ordinary_database_active(tmp_path):
 
     assert rc == 0
     con = connect(out / "pkm.sqlite3")
-    assert read(con,
-        "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
-    ).fetchone()[0] == "1"
+    assert con.select(
+        "SELECT value AS sync_meta_value FROM sync_meta"
+        " WHERE key='plain_space_title_canonicalization'")[0]["sync_meta_value"] == "1"
     assert [row["title"] for row in con.select("SELECT title FROM pages")] == ["Solo"]
 
 
@@ -863,9 +859,9 @@ def test_title_activation_runs_after_all_linked_assets_are_copied(
     assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
 
     con = connect(out / "pkm.sqlite3")
-    assert read(con,
-        "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
-    ).fetchone()[0] == "1"
+    assert con.select(
+        "SELECT value AS sync_meta_value FROM sync_meta"
+        " WHERE key='plain_space_title_canonicalization'")[0]["sync_meta_value"] == "1"
 
 
 @pytest.mark.parametrize(

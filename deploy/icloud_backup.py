@@ -220,7 +220,8 @@ class DataMirror:
         write_json_atomic(self.main_manifest, manifest_obj(today, manifest))
 
     def previous_manifest(self, today: dt.date) -> Tuple[dt.date, Manifest]:
-        """The latest snapshot strictly before today (so a rerun today rebuilds today's incr)."""
+        """The latest snapshot strictly before today (so a rerun today
+        rebuilds today's incr)."""
         earlier = [d for d in self.incr_dates() if d < today]
         if earlier:
             return read_manifest(self.incr_dir(earlier[-1]) / "manifest.json")
@@ -253,7 +254,8 @@ class DataMirror:
         return len(changed), len(deleted)
 
     def fold(self, today: dt.date, keep_days: int) -> List[dt.date]:
-        """Fold the oldest incrementals into main until main is within keep_days."""
+        """Fold the oldest incrementals into main until main is within
+        keep_days."""
         cutoff = today - dt.timedelta(days=keep_days)
         folded: List[dt.date] = []
         while True:

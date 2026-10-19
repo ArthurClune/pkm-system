@@ -9,7 +9,8 @@
 # 3. Fill fields using refs
 # 4. Submit and verify result
 #
-# Customize: Update the refs (@e1, @e2, etc.) based on your form's snapshot output
+# Customize: Update the refs (@e1, @e2, etc.) based on your form's snapshot
+# output
 
 set -euo pipefail
 

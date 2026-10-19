@@ -2,14 +2,15 @@
 """Driver library + CLI for exercising this repo's web app in the iOS
 simulator's Safari, via safaridriver/selenium.
 
-Consolidates three proven ad-hoc scripts (pkm-youp's autogrow check,
-pkm-ikk0's seed + drag-and-drop check) into one reusable module: a small
+Consolidates proven ad-hoc scripts (an autogrow check, a seed +
+drag-and-drop check) into one reusable module: a small
 `Api` client for seeding/reading data over HTTP, a `session()` driver
 context manager, and page-interaction helpers (focus, textarea value
 injection, synthetic drag sweep, screenshots).
 
 Run as a CLI:
-    uv run --with selenium python .claude/skills/ipad-simulator/scripts/simpad.py <cmd>
+    uv run --with selenium python \
+        .claude/skills/ipad-simulator/scripts/simpad.py <cmd>
 
 Subcommands: up, down, shot, udid. See `--help` on each for options, or
 the module docstrings below for the importable library API.
@@ -85,7 +86,8 @@ class Api:
             return json.loads(raw) if raw else None
 
     def login(self) -> Any:
-        """POST /api/login with the fixed e2e password; stores the session cookie."""
+        """POST /api/login with the fixed e2e password; stores the
+        session cookie."""
         return self.request("POST", "/api/login", {"password": self.password})
 
     def post_ops(self, ops: list[dict[str, Any]], client_id: str = "simpad") -> Any:
@@ -107,7 +109,8 @@ class Api:
 
 
 def seed_page(api: Api, title: str, texts: list[str], uid_prefix: str | None = None) -> list[str]:
-    """Create `title` and one top-level block per string in `texts`; returns the uids used.
+    """Create `title` and one top-level block per string in `texts`; returns
+    the uids used.
 
     The default prefix is time-based so repeated seeds in one server lifetime
     don't collide (a duplicate uid makes /api/ops answer 400).
@@ -185,7 +188,8 @@ def check_xcode_first_launch() -> None:
 
 
 def find_booted_udid(name: str = DEFAULT_DEVICE) -> str:
-    """Return the UDID of the currently-Booted device matching `name`, booting it if needed."""
+    """Return the UDID of the currently-Booted device matching `name`,
+    booting it if needed."""
     udid = find_device_udid(name)
     devices = _simctl_devices()
     for runtime_devices in devices.values():
@@ -211,7 +215,8 @@ def _check_port_allowed(port: int) -> None:
 
 
 def _listeners(port: int) -> list[int]:
-    """Pids listening on `port`; a process that only holds a connection to it is not one."""
+    """Pids listening on `port`; a process that only holds a connection to
+    it is not one."""
     out = subprocess.run(["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"],
                          capture_output=True, text=True, check=False)
     return [int(p) for p in out.stdout.split()]
@@ -243,7 +248,8 @@ def _needs_build(web_dir: Path) -> bool:
 
 
 def cmd_up(port: int, device: str, no_build: bool) -> None:
-    """Boot the simulator device (if needed), build the SPA (if stale), start the e2e server."""
+    """Boot the simulator device (if needed), build the SPA (if stale),
+    start the e2e server."""
     _check_port_allowed(port)
     check_xcode_first_launch()
     busy = _listeners(port)
@@ -284,7 +290,8 @@ def cmd_up(port: int, device: str, no_build: bool) -> None:
         except (urllib.error.URLError, ConnectionError):
             pass
         time.sleep(0.5)
-    # `uv run` starts the server as a child, so the listener is proc or its child.
+    # `uv run` starts the server as a child, so the listener is proc or
+    # its child.
     ours = [p for p in _listeners(port) if p == proc.pid or _parent_pid(p) == proc.pid]
     if not up or not ours:
         if proc.poll() is None:
@@ -298,7 +305,8 @@ def cmd_up(port: int, device: str, no_build: bool) -> None:
 
 
 def cmd_down(port: int, shutdown_sim: bool) -> None:
-    """Kill the server `up` started on `port`, then optionally shut down booted iPads.
+    """Kill the server `up` started on `port`, then optionally shut down
+    booted iPads.
 
     Kills the listener pid `up` recorded when it is still listening, otherwise
     whatever listens on `port`; never a pid that is not listening there.
@@ -400,7 +408,8 @@ def session(port: int = DEFAULT_PORT, udid: str | None = None,
 
 
 def goto(driver: Any, port: int, path: str) -> None:
-    """Navigate to `path` on the local server, wait for load, and (re)install error capture."""
+    """Navigate to `path` on the local server, wait for load, and
+    (re)install error capture."""
     driver.get(f"http://localhost:{port}{path}")
     time.sleep(1.5)
     install_error_capture(driver)
@@ -422,7 +431,8 @@ return 'installed';
 
 
 def install_error_capture(driver: Any) -> None:
-    """Install window.onerror/unhandledrejection capture into window.__simpadErrors (idempotent)."""
+    """Install window.onerror/unhandledrejection capture into
+    window.__simpadErrors (idempotent)."""
     driver.execute_script(_ERR_CAPTURE_JS)
 
 
@@ -444,7 +454,8 @@ return 'DISPATCHED';
 
 
 def dispatch_click(driver: Any, selector: str, index: int = 0) -> str:
-    """Fire synthetic mousedown/mouseup/click on the `index`-th match of `selector`.
+    """Fire synthetic mousedown/mouseup/click on the `index`-th match of
+    `selector`.
 
     Never use element.click(): on iPadOS Safari via safaridriver, a real
     click starts native text selection (or has crashed the driver session
@@ -468,12 +479,14 @@ return {
 
 
 def textarea_info(driver: Any) -> dict[str, Any] | None:
-    """Return offset/scroll/client heights, computed height, and value of the focused block textarea."""
+    """Return offset/scroll/client heights, computed height, and value of
+    the focused block textarea."""
     return driver.execute_script(_FIND_TA_JS)
 
 
 def focus_block(driver: Any, index: int = 0) -> dict[str, Any] | None:
-    """Click the `index`-th .block-text into edit mode and return its textarea_info()."""
+    """Click the `index`-th .block-text into edit mode and return its
+    textarea_info()."""
     dispatch_click(driver, ".block-text", index)
     time.sleep(0.5)
     return textarea_info(driver)
@@ -490,7 +503,8 @@ return 'OK';
 
 
 def set_textarea(driver: Any, text: str) -> str:
-    """Set the focused block textarea's value via the native setter + input event.
+    """Set the focused block textarea's value via the native setter + input
+    event.
 
     React/controlled textareas ignore .value assignment through send_keys
     or plain property set (the framework's own setter intercepts it); this
@@ -502,7 +516,8 @@ def set_textarea(driver: Any, text: str) -> str:
 
 
 def rect(driver: Any, selector: str, index: int = 0) -> dict[str, float] | None:
-    """Return getBoundingClientRect() of the `index`-th match of `selector`, or None."""
+    """Return getBoundingClientRect() of the `index`-th match of `selector`,
+    or None."""
     return driver.execute_script(
         "var els = document.querySelectorAll(arguments[0]); var el = els[arguments[1]];"
         "if (!el) return null; var r = el.getBoundingClientRect();"
@@ -537,13 +552,14 @@ def screenshot(abs_path: str, device: str = DEFAULT_DEVICE) -> None:
 
 
 def page_screenshot(driver: Any, abs_path: str) -> None:
-    """WebDriver document screenshot (no Safari chrome, no fixed overlays); see screenshot()."""
+    """WebDriver document screenshot (no Safari chrome, no fixed overlays);
+    see screenshot()."""
     if not Path(abs_path).is_absolute():
         raise ValueError("refusing relative path; pass an absolute path")
     driver.get_screenshot_as_file(abs_path)
 
 
-# The in-page synthetic HTML5 drag sweep from pkm-ikk0's check_dnd.py:
+# The in-page synthetic HTML5 drag sweep from an earlier check_dnd.py:
 # dragstart on row `fromIdx`'s drag handle, `events` dragover events marching
 # clientY from the top of the drop zone toward row `toIdx`, sampling
 # defaultPrevented and the .drop-indicator's position on each, then drop +
@@ -618,7 +634,8 @@ try {
 
 
 def dnd_sweep(driver: Any, from_idx: int, to_idx: int, events: int, pace_ms: int) -> dict[str, Any]:
-    """Run DND_SWEEP_JS dragging row `from_idx` toward row `to_idx`; returns the parsed result."""
+    """Run DND_SWEEP_JS dragging row `from_idx` toward row `to_idx`; returns
+    the parsed result."""
     cfg = {"fromIdx": from_idx, "toIdx": to_idx, "events": events, "paceMs": pace_ms}
     raw = driver.execute_async_script(DND_SWEEP_JS, cfg)
     return json.loads(raw)

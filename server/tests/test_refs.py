@@ -20,7 +20,7 @@ from pkm.refs import (
     tag_spans,
     title_syntax_reason,
 )
-from pkm.test_data.ids import normalized_title_of
+from pkm.test_data.ids import normalized_title_of, raw_title_of
 
 FIXTURE = Path(__file__).parents[2] / "shared" / "fixtures" / "ref_grammar.json"
 CASES = json.loads(FIXTURE.read_text())["cases"]
@@ -114,16 +114,16 @@ def test_tag_spans_window_keeps_the_lookbehind_outside_it():
     # window starts past "[[", and "#Old" is still a tag because the space
     # before it is read even though it sits outside the window.
     text = "[[A #Old]]"
-    assert tag_spans(text, 2, len(text) - 2) == (TagSpan(4, 8, "Old"),)
+    assert tag_spans(text, 2, len(text) - 2) == (TagSpan(4, 8, raw_title_of("Old")),)
     # The same window one character later cannot see a boundary at all.
     assert tag_spans(text, 5, len(text) - 2) == ()
 
 
 def test_tag_spans_over_the_whole_text_by_default():
     assert tag_spans("a #one and (#two)") == (
-        TagSpan(2, 6, "one"),
+        TagSpan(2, 6, raw_title_of("one")),
         # The "(" is a lookbehind, so the span starts at the "#".
-        TagSpan(12, 16, "two"),
+        TagSpan(12, 16, raw_title_of("two")),
     )
 
 
@@ -169,7 +169,7 @@ def test_strip_code_blanks_code_without_moving_what_follows():
 
 def test_attribute_title_span_starts_at_the_title_not_at_the_indent():
     assert attribute_title_span("  Tags:: [[B]]") == AttributeSpan(
-        start=2, end=8, raw_title="Tags", title=normalized_title_of("Tags")
+        start=2, end=8, raw_title=raw_title_of("Tags"), title=normalized_title_of("Tags")
     )
 
 

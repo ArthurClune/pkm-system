@@ -1,7 +1,7 @@
 """GET /api/assets/search returns referencing blocks."""
 
 from pkm.contracts.ops import BlockUid, OrderIdx, Sha256Hex
-from pkm.test_data.ids import order_idx_of, uid_of
+from pkm.test_data.ids import order_idx_of, raw_title_of, uid_of
 
 
 def _upload(client, content=b"PNGDATA", name="pic.png"):
@@ -11,11 +11,11 @@ def _upload(client, content=b"PNGDATA", name="pic.png"):
     return r.json()
 
 
-def _create_block(client, uid: BlockUid, page_title, text,
+def _create_block(client, uid: BlockUid, page, text,
                   order_idx: OrderIdx = order_idx_of(10)):
     r = client.post("/api/ops", json={
         "client_id": "test", "batch_id": f"batch-{uid}",
-        "ops": [{"op": "create", "uid": uid, "page_title": page_title,
+        "ops": [{"op": "create", "uid": uid, "page_title": raw_title_of(page),
                  "parent_uid": None, "order_idx": order_idx, "text": text}]})
     assert r.status_code == 200, r.text
 

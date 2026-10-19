@@ -368,12 +368,14 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
             # log keeps its applied_batches rowid, and 0 means no batch
             # preceded.
             rows = con.select(
-                "SELECT old_title, new_title, at AS log_at, ord AS log_ord"
+                "SELECT old_title AS log_old_title,"
+                " new_title AS log_new_title, at AS log_at, ord AS log_ord"
                 " FROM proptest_renames ORDER BY rowid")
             after = _after_batches(con, "proptest_renames", _batch_lookup(con))
         finally:
             con.close()
-        return [{"old_title": r["old_title"], "new_title": r["new_title"],
+        return [{"old_title": r["log_old_title"],
+                 "new_title": r["log_new_title"],
                  "after_batch_id": batch_id,
                  "at": r["log_at"], "ord": r["log_ord"]}
                 for r, batch_id in zip(rows, after, strict=True)]

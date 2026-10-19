@@ -167,7 +167,8 @@ def upload_asset(path: str, page: str | None = None,
     return f"{linked.url}\ncreated ^{linked.uid}"
 
 
-def rename_page(title: str, new_title: str, allow_merge: bool = False) -> str:
+def rename_page(title: str, new_title: RawTitle,
+                allow_merge: bool = False) -> str:
     """Rename a page, rewriting every [[link]]/#tag/attr:: reference to it
     in block text so it points at new_title instead. Case-sensitive;
     daily-note pages cannot be renamed. If new_title already names an
@@ -175,7 +176,7 @@ def rename_page(title: str, new_title: str, allow_merge: bool = False) -> str:
     title's page is merged into new_title (its top-level blocks appended
     after new_title's, its page row then dropped) -- irreversible, so
     default to False and confirm with the user first."""
-    result = _client().rename_page(title, as_raw_title(new_title),
+    result = _client().rename_page(title, new_title,
                                     allow_merge=allow_merge)
     if result.result == "merged":
         return f'merged "{title}" into "{result.title}"'

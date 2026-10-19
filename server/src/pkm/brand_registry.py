@@ -315,7 +315,9 @@ COLUMN_KEYS: dict[str, dict[str, str]] = {
     "changes": {"page_id": "change_page_id", "kind": "change_kind"},
     # NOT NULL here, nullable in pages, blocks and assets.
     "block_rewrites": {"created_at": "rewrite_created_at",
-                       "kind": "rewrite_kind"},
+                       "kind": "rewrite_kind",
+                       "old_title": "rewrite_old_text",
+                       "new_title": "rewrite_new_text"},
     "sync_meta": {"key": "sync_meta_key", "value": "sync_meta_value"},
     # Client-only tables (web/src/replica/clientSchema.ts).
     "pending_ops": {"id": "pending_row_id", "error": "pending_error"},

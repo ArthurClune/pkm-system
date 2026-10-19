@@ -84,7 +84,8 @@ def _snapshot(app: FreshApp) -> tuple[Any, ...]:
                 "SELECT src_block_uid, target_page_id, kind AS ref_kind"
                 " FROM refs ORDER BY 1, 2, 3",
                 "SELECT * FROM block_refs ORDER BY 1, 2",
-                "SELECT uid, base_hash, after_hash, old_title, new_title,"
+                "SELECT uid, base_hash, after_hash, old_title AS rewrite_old_text,"
+                " new_title AS rewrite_new_text,"
                 " created_at AS rewrite_created_at, kind AS rewrite_kind"
                 " FROM block_rewrites ORDER BY rowid",
                 "SELECT * FROM page_deletions ORDER BY rowid",
@@ -373,10 +374,12 @@ class OpsMachine(RuleBasedStateMachine):
                 f"SELECT title FROM pages WHERE title IN"
                 f" ({','.join('?' * len(PAGES))})", PAGES)}
             rows = {(r["uid"], r["base_hash"], r["after_hash"],
-                     r["rewrite_kind"], r["old_title"], r["new_title"])
+                     r["rewrite_kind"], r["rewrite_old_text"],
+                     r["rewrite_new_text"])
                     for r in con.select(
                 "SELECT uid, base_hash, after_hash, kind AS rewrite_kind,"
-                " old_title, new_title FROM block_rewrites"
+                " old_title AS rewrite_old_text, new_title AS rewrite_new_text"
+                " FROM block_rewrites"
                 f" WHERE uid IN ({','.join('?' * len(UIDS))})", UIDS)}
             deletions = [(r["title"], r["seq"]) for r in con.select(
                 "SELECT title, seq FROM page_deletions ORDER BY rowid")]

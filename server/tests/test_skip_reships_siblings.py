@@ -7,7 +7,7 @@ import pytest
 from rawread import read
 from pkm.server.db import open_db
 from pkm.contracts.ops import BlockUid, SyncSeq
-from pkm.test_data.ids import uid_of
+from pkm.test_data.ids import raw_title_of, uid_of
 
 PAGE = "Sib Page"
 _counter = 0
@@ -76,14 +76,14 @@ def _block_state(seeded_config):
 
 # untitled: the move targets the block's own page, which the server reads
 # from the block's delete row in the journal
-@pytest.mark.parametrize("page_title", [PAGE, None], ids=["titled", "untitled"])
-def test_skipped_move_reships_destination_siblings(client, page_title):
+@pytest.mark.parametrize("hint", [PAGE, None], ids=["titled", "untitled"])
+def test_skipped_move_reships_destination_siblings(client, hint):
     _seed_top_level(client)
     _post(client, {"op": "delete", "uid": "sib_s2"})
     since = _latest_seq(client)
     move = {"op": "move", "uid": "sib_s2", "parent_uid": None, "order_idx": 0}
-    if page_title is not None:
-        move["page_title"] = page_title
+    if hint is not None:
+        move["page_title"] = raw_title_of(hint)
     ack = _post(client, move)
     assert [s["reason"] for s in ack["skipped"]] == ["block_not_found"]
     blocks, tombstones = _feed_since(client, since)

@@ -171,7 +171,7 @@ class AttributeSpan:
 
     start: int
     end: int
-    raw_title: str
+    raw_title: RawTitle
     title: NormalizedTitle
 
 
@@ -191,7 +191,7 @@ def attribute_title_span(text: str) -> AttributeSpan | None:
     match = _ATTRIBUTE.match(text, offset)
     if match is None:
         return None
-    raw_title = match.group(1).strip()
+    raw_title = RawTitle(match.group(1).strip())
     return AttributeSpan(
         start=match.start(1),
         end=match.end(),
@@ -230,7 +230,7 @@ class TagSpan:
 
     start: int
     end: int
-    raw_title: str
+    raw_title: RawTitle
 
 
 def bracket_spans(text: str) -> tuple[BracketSpan, ...]:
@@ -316,7 +316,7 @@ def tag_spans(
     run gets the same answer the whole-text scan would give there.
     """
     return tuple(
-        TagSpan(m.start(), m.end(), m.group(1))
+        TagSpan(m.start(), m.end(), RawTitle(m.group(1)))
         for m in _HASHTAG.finditer(text, start, len(text) if stop is None else stop)
     )
 

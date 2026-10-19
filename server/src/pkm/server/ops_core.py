@@ -20,6 +20,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                SetViewTypeOp, Sha256Hex, UID_RE, UpdateTextOp,
                                ViewType, subtree_hash, text_hash)
 from pkm.contracts.responses import SkipReason, SkippedOp
+from pkm.contracts.titles import RawTitle
 from pkm.refs import (CanonicalTitle, TitleSyntaxReason, extract,
                       normalize_title, parse_block_uid, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
@@ -59,7 +60,7 @@ def find_op_title_violation(
     ops: Sequence[BlockOp],
 ) -> OpTitleViolation | None:
     for op_index, op in enumerate(ops):
-        page_title: str | None = None
+        page_title: RawTitle | None = None
         if isinstance(op, (CreateOp, CreatePageOp)):
             page_title = op.page_title
         elif isinstance(op, MoveOp):
@@ -87,12 +88,12 @@ class BlockRewrite:
     to one block, with the sha256 of that block's text either side of the
     whole rewrite. Rows of the server-only `block_rewrites` table, handed to
     the planner as data. `kind` says what the titles mean: `retitle` is
-    old_title -> new_title; `unlink` is a deleted page's title (new_title
+    old_text -> new_text; `unlink` is a deleted page's title (new_text
     empty); `inline` is a target block uid and the text copied in its place."""
     base_hash: Sha256Hex
     after_hash: Sha256Hex
-    old_title: str
-    new_title: str
+    old_text: str
+    new_text: str
     kind: RewriteKind = "retitle"
 
 
@@ -121,11 +122,11 @@ def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[RewriteStep]:
             by_hashes[key] = step
             steps.append(step)
         if record.kind == "unlink":
-            step.unlinked.add(normalize_title(record.old_title))
+            step.unlinked.add(normalize_title(record.old_text))
         elif record.kind == "inline":
-            step.inlines[record.old_title] = record.new_title
+            step.inlines[record.old_text] = record.new_text
         elif record.kind == "retitle":
-            step.retitles[record.old_title] = record.new_title
+            step.retitles[record.old_text] = record.new_text
     return steps
 
 
@@ -178,7 +179,7 @@ def _replay_step(text: str, step: RewriteStep,
         def is_deleted(raw: str) -> bool:
             return canonical(normalize_title(raw)) in unlinked
 
-        # An inline record keeps the block-ref's uid in old_title. The copy
+        # An inline record keeps the block-ref's uid in old_text. The copy
         # map is keyed by uid; a key that is no uid never matches a `((ref))`.
         copies = {uid: copy for key, copy in step.inlines.items()
                   if (uid := parse_block_uid(key)) is not None}
@@ -411,7 +412,7 @@ class DeleteConflictContext:
     copy; `copy_uids` maps every other row's uid to its copy's uid."""
     block: BlockInfo
     rows: tuple[SubtreeRow, ...]
-    page_title: str
+    page_title: CanonicalTitle
     landing: ConflictLanding
     copy_uids: Mapping[BlockUid, BlockUid]
 
@@ -485,7 +486,7 @@ class TextConflictContext:
     block: BlockInfo
     text: str
     current_text: str
-    page_title: str
+    page_title: CanonicalTitle
     landing: ConflictLanding
     replayed: tuple[RewriteStep, ...] = ()
     canonical: Callable[[str], str] = normalize_title
@@ -529,7 +530,7 @@ class StuckMoveContext:
     and `subtree` (deepest first) is re-journalled."""
     skip: Skip
     landing: ConflictLanding
-    page_title: str
+    page_title: CanonicalTitle
     subtree: tuple[BlockUid, ...]
 
 

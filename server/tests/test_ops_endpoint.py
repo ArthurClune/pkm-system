@@ -8,7 +8,7 @@ import pytest
 from rawread import read
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BatchId, BlockUid, ClientId, subtree_hash, SyncSeq, text_hash
-from pkm.test_data.ids import batch_id_of, client_id_of, sha_of, uid_of
+from pkm.test_data.ids import batch_id_of, client_id_of, raw_title_of, sha_of, uid_of
 from pkm.database import connect
 
 
@@ -353,11 +353,11 @@ def _conflicts(client, day=None):
             if b["text"].startswith("[[conflict]]")]
 
 
-def _orphan_edit(uid: BlockUid, text, page_title=None):
+def _orphan_edit(uid: BlockUid, text, hint=None):
     op = {"op": "update_text", "uid": uid, "text": text,
           "base_text_hash": text_hash("whatever")}
-    if page_title is not None:
-        op["page_title"] = page_title
+    if hint is not None:
+        op["page_title"] = raw_title_of(hint)
     return op
 
 
@@ -415,7 +415,7 @@ def test_clean_hashed_edit_does_not_create_todays_daily_page(
 def test_orphan_conflict_names_hinted_page(client):
     _post(client, {"op": "delete", "uid": "uid_b6"})
     r = _post(client, _orphan_edit(uid_of("uid_b6"), "edited after delete",
-                                   page_title="Machine Learning"))
+                                   hint="Machine Learning"))
     assert r.status_code == 200
     assert _conflicts(client) == [
         ("[[conflict]] [[Machine Learning]]" + ORPHAN_SUFFIX,
@@ -496,7 +496,7 @@ def test_orphan_conflict_hint_naming_a_renamed_away_page_does_not_recreate_it(
                     json={"new_title": "ML Renamed"})
     assert r.status_code == 200
     r = _post(client, _orphan_edit(uid_of("uid_zz_renamed"), "edited after rename",
-                                   page_title="Machine Learning"))
+                                   hint="Machine Learning"))
     assert r.status_code == 200
     assert _conflicts(client) == [
         ("[[conflict]] `Machine Learning` (page not found)" + ORPHAN_SUFFIX,
@@ -567,7 +567,7 @@ def test_new_day_starts_a_fresh_header_and_prunes(client, seeded_config):
 
 def test_unusable_hint_is_labelled_not_rejected(client):
     r = _post(client, _orphan_edit(uid_of("uid_zz5"), "kept",
-                                   page_title="bad[[title"))
+                                   hint="bad[[title"))
     assert r.status_code == 200
     assert _conflicts(client) == [
         ("[[conflict]] (page unknown)" + ORPHAN_SUFFIX, ["kept"])]
@@ -886,7 +886,7 @@ def test_structural_op_on_missing_block_is_skipped_with_a_note(
 def test_skipped_op_shares_the_header_of_an_orphan_edit_to_the_same_block(
         client):
     r = _post(client, _orphan_edit(uid_of("ghost_s2"), "lost words",
-                                   page_title="AI"),
+                                   hint="AI"),
               {"op": "move", "uid": "ghost_s2", "parent_uid": None,
                "order_idx": 0})
     assert r.status_code == 200
@@ -1005,7 +1005,7 @@ def test_hint_that_would_not_link_back_is_named_not_linked(
     # "x]" would make the ref indexer create a page "x"
     assert _post(client, {"op": "create_page", "page_title": "x]"}
                  ).status_code == 200
-    r = _post(client, _orphan_edit(uid_of("uid_gone01"), "t", page_title="x]"))
+    r = _post(client, _orphan_edit(uid_of("uid_gone01"), "t", hint="x]"))
     assert r.status_code == 200
     assert _conflicts(client) == [("[[conflict]] `x]`" + ORPHAN_SUFFIX, ["t"])]
     assert not _page_exists(seeded_config, "x")
@@ -1215,9 +1215,9 @@ STALE_BASE = "Tags:: #AI"
 STALE_EDIT = "Tags:: #AI plus offline words"
 
 
-def _rename(client, title, new_title, allow_merge=False):
+def _rename(client, title, new, allow_merge=False):
     r = client.post(f"/api/page/{title}/rename",
-                    json={"new_title": new_title, "allow_merge": allow_merge})
+                    json={"new_title": raw_title_of(new), "allow_merge": allow_merge})
     assert r.status_code == 200, r.text
     return r
 
@@ -1326,8 +1326,10 @@ def test_rewrite_records_are_pruned_past_the_retention_window(
     _rename(client, "AI", "Artificial Intelligence")
 
     con = open_db(seeded_config.db_path)
-    rows = [(r["uid"], r["old_title"], r["new_title"]) for r in con.select(
-        "SELECT uid, old_title, new_title FROM block_rewrites")]
+    rows = [(r["uid"], r["rewrite_old_text"], r["rewrite_new_text"])
+            for r in con.select(
+        "SELECT uid, old_title AS rewrite_old_text,"
+        " new_title AS rewrite_new_text FROM block_rewrites")]
     con.close()
     assert rows == [("uid_b1", "AI", "Artificial Intelligence")]
 
@@ -1372,9 +1374,12 @@ def _rewrite_rows(seeded_config):
 
     con = open_db(seeded_config.db_path)
     try:
-        return [(r["uid"], r["rewrite_kind"], r["old_title"], r["new_title"])
+        return [(r["uid"], r["rewrite_kind"], r["rewrite_old_text"],
+                 r["rewrite_new_text"])
                 for r in con.select(
-                    "SELECT uid, kind AS rewrite_kind, old_title, new_title"
+                    "SELECT uid, kind AS rewrite_kind,"
+                    " old_title AS rewrite_old_text,"
+                    " new_title AS rewrite_new_text"
                     " FROM block_rewrites ORDER BY rowid")]
     finally:
         con.close()

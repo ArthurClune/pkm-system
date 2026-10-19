@@ -10,6 +10,7 @@ import sqlite3
 import pytest
 
 from rawread import read
+from pkm.contracts.titles import RawTitle
 from pkm.test_data.ids import canonical_title_of
 
 
@@ -53,7 +54,7 @@ def test_concurrent_rename_cannot_resurrect_the_old_title(
     ml_title = canonical_title_of("Machine Learning")
     ml_renamed_title = canonical_title_of("ML Renamed")
 
-    def racing(db, page_title):
+    def racing(db, page_title: RawTitle | None):
         exists = real_hint_page_exists(db, page_title)  # True: not renamed yet
         con2 = open_db(seeded_config.db_path)
         con2.execute("PRAGMA busy_timeout=50")

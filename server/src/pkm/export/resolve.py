@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from pkm.contracts.ops import BlockUid
+from pkm.contracts.titles import CanonicalTitle
 from pkm.export.markdown import rewrite_asset_links
 from pkm.refs import BLOCK_REF_TOKEN
 
@@ -51,7 +52,7 @@ class QueryResultItem:
 
 @dataclass(frozen=True)
 class QueryResultGroup:
-    page_title: str
+    page_title: CanonicalTitle
     items: tuple[QueryResultItem, ...]
 
 

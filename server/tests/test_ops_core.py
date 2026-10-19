@@ -10,6 +10,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                SetHeadingOp,
                                SetViewTypeOp, UpdateTextOp, subtree_hash,
                                text_hash)
+from pkm.contracts.titles import CanonicalTitle, RawTitle
 from pkm.refs import normalize_title
 from pkm.server.conflict_notes import (deleted_header_text,
                                        live_block_header_text,
@@ -38,7 +39,8 @@ from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  unlink_stale_text)
 from pkm.server.ops_core import MAX_REPLAYED_REWRITES
 from pkm.unlink import unlink_stale_refs
-from pkm.test_data.ids import canonical_title_of, order_idx_of, page_id_of, sha_of, uid_of
+from pkm.test_data.ids import (canonical_title_of, order_idx_of, page_id_of, raw_title_of, sha_of,
+                               uid_of)
 
 B = BlockInfo(uid=uid_of("uid_b3"), page_id=page_id_of(1),
              parent_uid=uid_of("uid_b2"))
@@ -60,7 +62,8 @@ def _skip_ctx(op: BlockOp, *, block_exists: bool = False,
               parent_exists: bool = False, chain: tuple[str, ...] = (),
               header: ExistingHeader | None = None,
               hint_page_exists: bool = False,
-              page_title: str = "Machine Learning",
+              page_title: CanonicalTitle = canonical_title_of(
+                  "Machine Learning"),
               subtree: tuple[BlockUid, ...] = (uid_of("uid_b3"),),
               page_stale: bool = False
               ) -> SkippedContext:
@@ -261,12 +264,12 @@ def test_plan_diverged_delete_lands_copies_then_deletes():
     landing = _landing()  # FreshHeader, entry_uid "uid_ch1"
     ctx = DeleteConflictContext(
         BlockInfo(uid_of("tuid-r"), page_id_of(1), None), _SUBTREE_ROWS,
-        "Project X", landing, copy_uids)
+        canonical_title_of("Project X"), landing, copy_uids)
     op = DeleteOp(op="delete", uid="tuid-r",
                  base_subtree_hash=sha_of("a" * 64))
     assert plan_op(0, op, ctx) == (
         *conflict_entry_effects(uid_of("tuid-r"), _ROOT.text,
-                                deleted_header_text("Project X"), landing),
+                                deleted_header_text(canonical_title_of("Project X")), landing),
         *descendant_copy_effects(_SUBTREE_ROWS, uid_of("tuid-r"),
                                  landing.entry_uid, copy_uids,
                                  landing.daily_page_id),
@@ -349,7 +352,7 @@ def test_a_skip_context_that_does_not_fit_its_skip_kind_is_a_programmer_error():
     with pytest.raises(AssertionError):
         plan_op(0, heading, StuckMoveContext(
             Skip("orphan_structural", uid_of("ghost1")), _landing(),
-            "Machine Learning", (uid_of("ghost1"),)))
+            canonical_title_of("Machine Learning"), (uid_of("ghost1"),)))
 
 
 def _move_ctx(block_page: int = 1, parent_page: int = 1,
@@ -416,15 +419,16 @@ def test_move_follows_its_parent_whatever_page_title_says(
 _BLK = BlockInfo(uid_of("uid_t1"), page_id=page_id_of(1), parent_uid=None)
 
 
-def _op(text="new text", base="old text", page_title=None):
+def _op(text="new text", base="old text", hint: str | None = None):
     return UpdateTextOp(op="update_text", uid="uid_t1", text=text,
                         base_text_hash=text_hash(base),
-                        page_title=page_title)
+                        page_title=None if hint is None else raw_title_of(hint))
 
 
 def _text_ctx(op: UpdateTextOp, current: str,
               header: ExistingHeader | None = None,
-              page_title: str = "Machine Learning",
+              page_title: CanonicalTitle = canonical_title_of(
+                  "Machine Learning"),
               ) -> TextEditContext | TextConflictContext:
     """The context ops_apply._context_for builds for a hashed edit of _BLK
     whose live text is `current`."""
@@ -437,7 +441,7 @@ def _text_ctx(op: UpdateTextOp, current: str,
 
 
 def test_missing_block_creates_daily_header_naming_the_hint():
-    op = _op(page_title="AI Agent Security")
+    op = _op(hint="AI Agent Security")
     effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=True))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
@@ -453,11 +457,11 @@ def test_missing_block_creates_daily_header_naming_the_hint():
                                           uid_of("uid_hd1"))
 
 
-@pytest.mark.parametrize("page_title", [None, "  ", "a[[b"])
-def test_missing_block_without_usable_hint_says_page_unknown(page_title):
+@pytest.mark.parametrize("hint", [None, "  ", "a[[b"])
+def test_missing_block_without_usable_hint_says_page_unknown(hint):
     # hint_page_exists is irrelevant here -- an unusable hint always falls
     # back to the generic label regardless.
-    op = _op(page_title=page_title)
+    op = _op(hint=hint)
     effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=True))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
@@ -469,7 +473,7 @@ def test_missing_block_hint_names_a_renamed_away_page_says_not_found():
     # usable hint, but hint_page_exists is False: the page it names is gone
     # -- renamed or deleted since the client last saw it -- so the header
     # must not link it (that would recreate the page).
-    op = _op(page_title="Old Title")
+    op = _op(hint="Old Title")
     effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=False))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
@@ -481,7 +485,7 @@ def test_missing_block_hint_with_backtick_and_no_page_says_page_unknown():
     # usable hint, no such page, but the title itself holds a backtick: an
     # inline-code span can't safely wrap it, so this also falls back to the
     # generic label rather than emitting a broken/misleading code span.
-    op = _op(page_title="a`b")
+    op = _op(hint="a`b")
     effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=False))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
@@ -490,7 +494,7 @@ def test_missing_block_hint_with_backtick_and_no_page_says_page_unknown():
 
 
 def test_missing_block_appends_under_todays_header():
-    op = _op(page_title="AI Agent Security")
+    op = _op(hint="AI Agent Security")
     effs = plan_op(0, op, _skip_ctx(op, header=_EXISTING))
     inserts = [e for e in effs if isinstance(e, InsertBlock)]
     assert inserts == [InsertBlock(
@@ -556,7 +560,8 @@ def test_check_5_applies_the_replayed_edit_not_the_callers_text():
                       text="note about [[Old]] plus comment",
                       base_text_hash=text_hash(t0))
     ctx = TextConflictContext(_BLK, "note about [[New]] plus comment", t1,
-                              "Machine Learning", _landing())
+                              canonical_title_of("Machine Learning"),
+                              _landing())
     effs = plan_op(0, op, ctx)
     assert effs[-3:] == (
         UpdateText(uid_of("uid_t1"), "note about [[New]] plus comment"),
@@ -636,7 +641,7 @@ _ORPHAN_HEADER = ("[[conflict]] (page unknown) — edit to a block the server"
 
 
 def _create_under(parent_uid: BlockUid | None = uid_of("ghost_p1"), text="lost child",
-                  page_title="AI"):
+                  page_title: RawTitle = raw_title_of("AI")):
     return CreateOp(op="create", uid="newuid1", page_title=page_title,
                     parent_uid=parent_uid, order_idx=0, text=text)
 
@@ -827,7 +832,7 @@ def test_blank_orphan_edit_only_journals():
 def test_unhashed_edit_of_missing_block_lands_like_a_hashed_one():
     op = UpdateTextOp(op="update_text", uid="uid_t1", text="new text",
                       page_title="AI Agent Security")
-    hashed_op = _op(page_title="AI Agent Security")
+    hashed_op = _op(hint="AI Agent Security")
     effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=True))
     hashed = plan_op(0, hashed_op, _skip_ctx(hashed_op, hint_page_exists=True))
     assert effs == hashed
@@ -858,7 +863,7 @@ def test_create_under_missing_parent_lands_its_text_under_the_parent():
 
 
 def test_create_under_missing_parent_names_a_missing_page_without_linking():
-    op = _create_under(page_title="Gone Page")
+    op = _create_under(page_title=raw_title_of("Gone Page"))
     effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=False))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
@@ -1153,7 +1158,7 @@ def test_plan_stale_create_parks_text_under_a_code_span_header():
     assert plan_op(0, op, ctx) == (
         JournalBlock(uid_of("uid_c0000001"), True),
         *conflict_entry_effects(uid_of("uid_c0000001"), "kept text",
-                                orphan_header_text("X", False),
+                                orphan_header_text(raw_title_of("X"), False),
                                 ctx.landing))
 
 
@@ -1169,12 +1174,12 @@ def test_plan_stale_move_keeps_block_and_notes_it():
     op = _top_move("X")
     subtree = (uid_of("uid_kid"), uid_of("uid_m0000001"))
     ctx = _skip_ctx(op, block_exists=True, page_stale=True,
-                    page_title="Home", subtree=subtree)
+                    page_title=canonical_title_of("Home"), subtree=subtree)
     assert isinstance(ctx, StuckMoveContext)
     assert plan_op(0, op, ctx) == (
         *conflict_entry_effects(
-            uid_of("uid_m0000001"), stale_page_move_note("X"),
-            live_block_header_text("Home", uid_of("uid_m0000001")), ctx.landing),
+            uid_of("uid_m0000001"), stale_page_move_note(raw_title_of("X")),
+            live_block_header_text(canonical_title_of("Home"), uid_of("uid_m0000001")), ctx.landing),
         JournalBlock(uid_of("uid_m0000001"), False),
         JournalBlock(uid_of("uid_kid"), False))
     assert not any(isinstance(e, JournalBlock) and e.deleted
@@ -1189,7 +1194,8 @@ def test_plan_stale_context_must_fit_the_op():
     create = _top_create("X", "t")
     with pytest.raises(AssertionError):
         plan_op(0, create, StuckMoveContext(
-            Skip("stale_page", uid_of("uid_c0000001")), _landing(), "Home", ()))
+            Skip("stale_page", uid_of("uid_c0000001")), _landing(),
+            canonical_title_of("Home"), ()))
 
 
 def test_skip_report_stale_page_reason():

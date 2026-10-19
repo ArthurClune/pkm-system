@@ -77,8 +77,8 @@ class Row(TypedDict, total=False):
     base_hash: Sha256Hex
     after_hash: Sha256Hex
     rewrite_kind: RewriteKind
-    old_title: str
-    new_title: str
+    rewrite_old_text: str
+    rewrite_new_text: str
     rewrite_created_at: int
     # conflict_headers
     target_uid: BlockUid
@@ -103,6 +103,8 @@ class Row(TypedDict, total=False):
     after_batch_rowid: int
     log_at: int
     log_ord: int
+    log_old_title: CanonicalTitle
+    log_new_title: CanonicalTitle
 
 
 class KeySpec(NamedTuple):

@@ -131,11 +131,12 @@ def test_build_seeds_a_rename_with_a_block_rewrites_row(tmp_path):
         assert RENAME_TARGET_TITLE in titles
         assert RENAME_SOURCE_TITLE not in titles
         rewritten = con.select(
-            "SELECT base_hash, after_hash, old_title, new_title FROM block_rewrites"
+            "SELECT base_hash, after_hash, old_title AS rewrite_old_text,"
+            " new_title AS rewrite_new_text FROM block_rewrites"
             " WHERE uid = ?", (fx.landmarks.rename_ref_uid,))
         assert len(rewritten) == 1
         base_hash, after_hash = rewritten[0]["base_hash"], rewritten[0]["after_hash"]
-        old_title, new_title = rewritten[0]["old_title"], rewritten[0]["new_title"]
+        old_title, new_title = rewritten[0]["rewrite_old_text"], rewritten[0]["rewrite_new_text"]
         assert base_hash == text_hash(RENAME_REF_TEXT)
         assert old_title == RENAME_SOURCE_TITLE
         assert new_title == RENAME_TARGET_TITLE

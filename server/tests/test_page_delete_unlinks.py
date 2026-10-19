@@ -72,20 +72,22 @@ def test_delete_block_with_link_and_ref_is_rewritten_once(db):
 def test_delete_records_replay_rows(db):
     before4, before5 = _text(db, uid_of("uid_b4")), _text(db, uid_of("uid_b5"))
     delete_page_unlinking(db, page_id_of(1), TITLE, NOW)
-    unlink = db.select("SELECT uid, base_hash, after_hash, old_title,"
-                       " new_title, kind AS rewrite_kind FROM block_rewrites"
+    unlink = db.select("SELECT uid, base_hash, after_hash,"
+                       " old_title AS rewrite_old_text,"
+                       " new_title AS rewrite_new_text, kind AS rewrite_kind FROM block_rewrites"
                        " WHERE uid = 'uid_b4'")
-    assert [(r["rewrite_kind"], r["old_title"], r["new_title"])
+    assert [(r["rewrite_kind"], r["rewrite_old_text"], r["rewrite_new_text"])
             for r in unlink] == [
         ("unlink", TITLE, "")]
     assert unlink[0]["base_hash"] == text_hash(before4)
     assert unlink[0]["after_hash"] == text_hash(_text(db, uid_of("uid_b4")))
-    inline = db.select("SELECT uid, base_hash, after_hash, old_title,"
-                       " new_title, kind AS rewrite_kind FROM block_rewrites"
+    inline = db.select("SELECT uid, base_hash, after_hash,"
+                       " old_title AS rewrite_old_text,"
+                       " new_title AS rewrite_new_text, kind AS rewrite_kind FROM block_rewrites"
                        " WHERE uid = 'uid_b5'")
-    assert [(r["rewrite_kind"], r["old_title"]) for r in inline] == [
+    assert [(r["rewrite_kind"], r["rewrite_old_text"]) for r in inline] == [
         ("inline", "uid_b3")]
-    assert inline[0]["new_title"] == (
+    assert inline[0]["rewrite_new_text"] == (
         "[[Attention Is All You Need]] is a [[Paper]]")
     assert inline[0]["base_hash"] == text_hash(before5)
     assert inline[0]["after_hash"] == text_hash(_text(db, uid_of("uid_b5")))

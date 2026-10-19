@@ -71,13 +71,15 @@ value, so it mints nothing.
 #### Web side
 
 `web/tooling/eslint-plugin-brands` is the same two rules over TypeScript
-types (plus `no-brand-bypass` and the unrelated `select-keys-literal`), run by `pnpm lint`. It reads `web/tooling/brandRegistry.gen.json`,
+types (plus `no-brand-bypass` and the unrelated `select-keys-literal` and `ts-expect-error-in-probe`), run by `pnpm lint`. It reads `web/tooling/brandRegistry.gen.json`,
 which `pkm.rows_dump` generates from the server registry, so one `NAMES` and
 one `MINT_SITES` serve both languages. Tests and test support are linted
 like product code. `test-helpers.ts` (`TEST_MINT_SITES`) may mint every
 brand. In a test, by name (`*.test.*`) or by location (`TEST_CODE`), a report
 names the helper instead of the product remedy: "use uidOf or malformedUid
-from web/src/test-helpers.ts".
+from web/src/test-helpers.ts". The module may also assert to a type parameter
+(`offType<T>`, which launders anywhere else): it is the declared way for a
+test to feed a runtime guard a value its type forbids.
 
 | Rule | Fails when |
 |---|---|
@@ -85,6 +87,7 @@ from web/src/test-helpers.ts".
 | `brands/no-brand-assertion` | an `as` or `<T>` assertion, a type predicate (`x is B`, `asserts x is B`), an overload signature, or a `declare`d variable or function that mints a brand outside that brand's mint sites, or an assertion that launders (below). It walks the target's structure, including mapped types, index signature keys and values, `Row[K]` and a type parameter's constraint (`as T` with `T extends BlockUid`). A subtype brand (`CanonicalTitle`) counts as its own brand rather than its parent's |
 | `brands/no-brand-bypass` | `Reflect.apply` or `Reflect.construct`, or a write past the type: a brand-named key whose value is not already that brand, set by `Object.assign` (each object-literal property, and the properties of any other source's type, spread or not), `Object.defineProperty` and `Reflect.defineProperty` (a `{ value }` descriptor is judged by its value, a getter or non-literal descriptor is not), `Object.defineProperties` or `Reflect.set`. A key counts when it is a string literal, a template without expressions, or typed as a union of string literals. A use of `Object` or `Reflect` that is not a direct call of one of those functions is reported too: `const { assign } = Object`, `const R = Reflect`, `Object.assign.call(...)`; `globalThis.`, `window.` and `self.` count as `Object` and `Reflect`. `x instanceof Object` and stubbing a global (`Object.defineProperty(navigator, "clipboard", ...)`) are unaffected |
 | `brands/select-keys-literal` | the keys argument of a call to `ReplicaDb.select` (found by the method's declaration, not the name) is neither an array literal whose elements are all string literals nor an array or tuple whose element type is a type parameter inside a method or property named `select` (a wrapper forwarding its generic `K`; a free generic helper is reported). A variable typed `(keyof Columns)[]` or a concrete union, a spread in the array, spread call arguments and a computed callee (`db["select"]`) are reported. Not a brand rule: it lives in the plugin as the type-aware rule home |
+| `brands/ts-expect-error-in-probe` | a `@ts-expect-error` comment (line, or the last line of a block comment) is not inside the body of a function expression or arrow passed as the only argument of a call to `typeProbe` imported from `test-helpers`. A local function named `typeProbe`, a renamed import, a probe body passed by reference and a second argument are reported; a probe nested in an `it` is accepted. Product code can never import the helper, so any `@ts-expect-error` there is reported. Not a brand rule either |
 
 What `no-brand-assertion` counts as minted:
 
@@ -133,7 +136,7 @@ Known limits, where TypeScript itself is unsound and no cheap lint closes it:
 
 | Step | Fails when |
 |---|---|
-| `lint` (`eslint.config.js`), over product code, tests and tooling alike | a hook dependency array drifts, a promise floats or is misused, a non-Error is thrown, a caught error is untyped, `apiFetch` is imported outside the transport boundary, `test-helpers`, `testDb` or `memReplica` is imported (also by `import()`, template literals included) outside a test, an `any` flows through the code (written, assigned, returned, passed, called or member-accessed), a name that means a brand does not carry it, the keys argument of `ReplicaDb.select` is not an array literal of string literals ([Web side](#web-side)), a brand is asserted outside its mint sites, or `Reflect.apply` or a brand-named `Object.assign` / `defineProperty` writes around that ([Web side](#web-side)), `@ts-ignore` or `@ts-nocheck` appears or `@ts-expect-error` has no description, or a disable directive is stale |
+| `lint` (`eslint.config.js`), over product code, tests and tooling alike | a hook dependency array drifts, a promise floats or is misused, a non-Error is thrown, a caught error is untyped, `apiFetch` is imported outside the transport boundary, `test-helpers`, `testDb` or `memReplica` is imported (also by `import()`, template literals included) outside a test, an `any` flows through the code (written, assigned, returned, passed, called or member-accessed), a name that means a brand does not carry it, the keys argument of `ReplicaDb.select` is not an array literal of string literals ([Web side](#web-side)), a brand is asserted outside its mint sites, or `Reflect.apply` or a brand-named `Object.assign` / `defineProperty` writes around that ([Web side](#web-side)), `@ts-ignore` or `@ts-nocheck` appears, `@ts-expect-error` has no description or sits outside a `typeProbe` block ([Web side](#web-side)), or a disable directive is stale |
 | `check:fcis` (`tooling/fcis.mjs`) | a Functional Core module imports an Imperative Shell one at runtime ([overview.md](overview.md#functional-core--imperative-shell)) |
 | `test:coverage` | statements or lines under 95%, branches under 91%, functions under 89% (`vite.config.ts`) |
 | row check (vitest only, `ReplicaDb.select`) | the query's columns (an empty result too) differ from the `keys` argument as sets: missing, extra or duplicate; a selected row has a column that is not a `Columns` key, or a value that does not fit its key's base type, nullability, literals or brand shape; the error carries the SQL and the fix. `ReplicaDb.introspect` refuses a column that may carry a brand ([frontend.md](frontend.md#replica-database-access)) |

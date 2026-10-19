@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from collections.abc import Iterator
@@ -17,6 +18,7 @@ from proptest.sync_server import (FIXTURE_PAGE, FIXTURE_UIDS, PASSWORD, SECOND_U
                                   SEED_UIDS, START_MS, Clock, build_app)
 from pkm.test_data.ids import batch_id_of, uid_of
 from pkm.database import connect
+from pkm.rows import KEYS
 
 
 @pytest.fixture()
@@ -375,3 +377,18 @@ def test_rewrite_teeth_route_needs_auth(tmp_path: Path, clock: Clock) -> None:
     with TestClient(build_app(tmp_path, clock)) as anon:
         assert anon.post("/__proptest/rewrites/teeth",
                          json={"drop_replayed": True}).status_code == 401
+
+
+def test_no_harness_alias_puts_another_kind_of_value_under_a_vocabulary_key():
+    """`ord AS n` read an ordinal under the count key. An alias to a `Row`
+    key outside the harness's own four must name a value of that key's own
+    meaning: `j.value` is a block uid out of a JSON array, the one such
+    computed value."""
+    source = Path(sync_server.__file__).read_text(encoding="utf-8")
+    harness = {"applied_rowid", "after_batch_rowid", "log_at", "log_ord"}
+    aliased = {(m["expr"], m["alias"]) for m in re.finditer(r"(?P<expr>[\w.]+)\s+AS\s+(?P<alias>\w+)", source)
+               if m["alias"] in KEYS}
+    assert {a for a in aliased if a[1] not in harness} == {("j.value", "uid")}
+    assert {a for a in aliased if a[1] in harness} == {
+        ("rowid", "applied_rowid"), ("after_batch", "after_batch_rowid"),
+        ("at", "log_at"), ("ord", "log_ord"), ("d.ord", "log_ord")}

@@ -98,6 +98,11 @@ class Row(TypedDict, total=False):
     next_order_idx: OrderIdx
     next_sidebar_order_idx: SidebarOrderIdx
     latest_seq: SyncSeq
+    # The proptest sync server's own logs (tooling/proptest/sync_server.py)
+    applied_rowid: int
+    after_batch_rowid: int
+    log_at: int
+    log_ord: int
 
 
 class KeySpec(NamedTuple):

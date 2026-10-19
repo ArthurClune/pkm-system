@@ -1,11 +1,11 @@
 import { expect, test } from "vitest";
 import fixture from "../../../shared/fixtures/ops_acks.json";
-import { parseOpsAck } from "../props/sync/wire";
 import { readOpsAck, type SkipReason } from "./opsAck";
+import { opsAckOfWire } from "./wire";
 import { malformedSeq, seqOf } from "../test-helpers";
 
 test.each(fixture.cases)("reads the $name wire ack", ({ wire }) => {
-  const ack = parseOpsAck(wire);
+  const ack = opsAckOfWire(wire);
   expect(readOpsAck(ack)).toEqual({ seq: ack.seq ?? undefined, skipped: ack.skipped });
 });
 
@@ -24,10 +24,9 @@ test("a null or non-finite seq is unknown", () => {
 });
 
 test("a malformed skipped field reads as no skips", () => {
-  // A wire value the reader must survive.
-  // @ts-expect-error -- skipped is no array
-  expect(readOpsAck({ ok: true, ts: 1, applied: 1, skipped: "nope" }).skipped)
-    .toEqual([]);
+  // A wire value the reader must survive, read as the app reads it.
+  const ack = opsAckOfWire(JSON.parse('{"ok":true,"ts":1,"applied":1,"skipped":"nope"}'));
+  expect(readOpsAck(ack).skipped).toEqual([]);
 });
 
 test("SkipReason is exactly the shared fixture's reasons", () => {

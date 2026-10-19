@@ -110,8 +110,8 @@ def malformed_sha(value: str) -> Sha256Hex:
     return Sha256Hex(value)
 
 
-def malformed_seq(value: int | None) -> SyncSeq:
-    return SyncSeq(value)  # pyrefly: ignore[bad-argument-type]
+def malformed_seq(value: int) -> SyncSeq:
+    return SyncSeq(value)
 
 
 def malformed_canonical_title(value: str | None) -> CanonicalTitle:

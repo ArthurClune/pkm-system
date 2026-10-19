@@ -72,10 +72,9 @@ describe("checked test helpers", () => {
     expect(Number.isNaN(malformedSeq(Number.NaN))).toBe(true);
   });
 
-  test("malformedUid and malformedCanonicalTitle pass a missing value through", () => {
+  test("malformedUid and malformedCanonicalTitle return null unchecked", () => {
     expect(malformedUid(null)).toBeNull();
     expect(malformedCanonicalTitle(null)).toBeNull();
-    expect(malformedSeq(null)).toBeNull();
   });
 
   test("shaOf refuses a value that is not a digest", () => {

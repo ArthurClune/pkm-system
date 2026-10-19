@@ -143,7 +143,7 @@ export function malformedUid(value: string | null): BlockUid { return value as B
 /** A deliberately bad digest for a negative test, unchecked. */
 export function malformedSha(value: string): Sha256Hex { return value as Sha256Hex; }
 /** A deliberately bad seq (NaN, a float) for a negative test, unchecked. */
-export function malformedSeq(value: number | null): SyncSeq { return value as SyncSeq; }
+export function malformedSeq(value: number): SyncSeq { return value as SyncSeq; }
 /** A deliberately bad title (null: a missing one) for a negative test. */
 export function malformedCanonicalTitle(value: string | null): CanonicalTitle {
   return value as CanonicalTitle;
@@ -268,9 +268,9 @@ export function servePageApplyingSent(sync: SyncFake, pageTitle: string,
   return mock;
 }
 
-export function block(tag: string, text: string,
+export function block(rawUid: string, text: string,
                       over: Partial<BlockNode> = {}): BlockNode {
-  return { uid: uidOf(tag), text, heading: null, view_type: null,
+  return { uid: uidOf(rawUid), text, heading: null, view_type: null,
            collapsed: false, order_idx: orderIdxOf(0), created_at: 1000,
            updated_at: 2000, children: [], ...over };
 }

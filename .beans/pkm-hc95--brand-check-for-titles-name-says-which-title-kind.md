@@ -29,5 +29,11 @@ Plan (branch 1): docs/superpowers/plans/2026-10-19-title-brands-1.md.
 Bugs the survey found, filed separately: pkm-ebkf, pkm-9hn0.
 
 - [x] survey and decide names
-- [ ] branch 1: RawTitle, wire fields, kind-specific names
+- [x] branch 1: RawTitle, wire fields, kind-specific names (feat/title-brands-1)
 - [ ] branch 2: bare `title` (plan after branch 1 lands)
+
+Follow-ups found in branch 1: pkm-aa5q (pyrefly lets a plain str reach a
+branded pydantic field at construction), pkm-mqma (web/tooling is not
+type-checked). Branch 2 must also settle the wire `title` fields that are
+not page titles (GoodLinks, CurrentWorkSection) and the route path/query
+`title` params.

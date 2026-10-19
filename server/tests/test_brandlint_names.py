@@ -34,6 +34,17 @@ def test_an_untyped_brand_name_parameter_is_flagged():
     "def f(uid: BlockUid) -> None: ...",
     "def f(uid: BlockUid | None) -> None: ...",
     "def f(uids: list[BlockUid]) -> None: ...",
+    "def f(uids: Sequence[BlockUid] | None) -> None: ...",
+    "def f(uids: tuple[BlockUid, ...]) -> None: ...",
+    "def f(uids: frozenset[BlockUid]) -> None: ...",
+    "def f(uids: typing.Optional[list[BlockUid]]) -> None: ...",
+    "def f(uids: Annotated[list[BlockUid], 'doc']) -> None: ...",
+    "def f(uid: Annotated[BlockUid, 'doc']) -> None: ...",
+    "def f(uid: dict[BlockUid, str]) -> None: ...",
+    "def f(uid: Mapping[BlockUid, list[str]]) -> None: ...",
+    "def f(uid: Union[BlockUid, None]) -> None: ...",
+    "def f(uid: 'list[BlockUid | None]') -> None: ...",
+    "def f(uid: BlockUid = None) -> None: ...",
     "def f(uid: 'BlockUid') -> None: ...",
     "def f(uid: 'BlockUid | None') -> None: ...",
     "def f(uid: ops.BlockUid) -> None: ...",
@@ -178,3 +189,19 @@ def test_unparseable_source_is_a_loud_violation_naming_the_interpreter():
     assert "needs >= 3.12 for PEP 695 syntax" in v.text
     assert "invalid syntax" in v.text
     assert "brand-parse" in RULES
+
+
+@pytest.mark.parametrize("source", [
+    "def f(uid: dict[str, BlockUid]) -> None: ...",
+    "def f(uid: Mapping[str, BlockUid]) -> None: ...",
+    "def f(uid: Callable[[BlockUid], int]) -> None: ...",
+    "def f(uid: Awaitable[BlockUid]) -> None: ...",
+    "def f(uid: Literal['a'] | BlockUid) -> None: ...",
+    "def f(uid: BlockUid | Other) -> None: ...",
+    "def f(uids: list[str | BlockUid]) -> None: ...",
+    "def f(uids: list[dict[str, BlockUid]]) -> None: ...",
+    "def f(uid: Box[BlockUid]) -> None: ...",
+    "def f(uid: type[BlockUid]) -> None: ...",
+])
+def test_a_generic_that_merely_mentions_the_brand_is_flagged(source: str):
+    assert rules(source + "\n") == ["brand-name"]

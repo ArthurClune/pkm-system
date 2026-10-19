@@ -184,9 +184,58 @@ def _scan(node: ast.expr, in_union: bool, found: list[tuple[str, bool]]) -> None
             _scan(elt, in_union, found)
 
 
+# Generics whose elements are the ids themselves, and generics whose key is;
+# the web rule accepts the same shapes (an array, a Set, a Map or Record key).
+_ELEMENTS = frozenset({
+    "list", "List", "set", "Set", "frozenset", "FrozenSet", "tuple", "Tuple", "deque", "Deque",
+    "Sequence", "MutableSequence", "Iterable", "Iterator", "Collection", "AbstractSet", "MutableSet",
+})
+_KEYED = frozenset({
+    "dict", "Dict", "Mapping", "MutableMapping", "defaultdict", "DefaultDict", "OrderedDict", "Counter",
+})
+# Wrappers that annotate their first argument without changing the type.
+_WRAPPERS = frozenset({"Annotated", "Final", "ClassVar", "Required", "NotRequired", "ReadOnly"})
+
+
+def _carries(node: ast.expr, brands: tuple[str, ...]) -> bool:
+    """Whether the annotation is one of `brands`, `None`, a list, tuple or
+    set of those, a mapping keyed by one, or a union of such: the shapes the
+    web rule accepts. A union with the base type, or a brand merely nested in
+    another generic (`dict[str, BlockUid]`), does not carry it."""
+    if isinstance(node, (ast.Name, ast.Attribute)):
+        return _leaf(node) in brands
+    if isinstance(node, ast.Constant):
+        if node.value is None:
+            return True
+        if isinstance(node.value, str):
+            try:
+                return _carries(ast.parse(node.value.strip(), mode="eval").body, brands)
+            except SyntaxError:
+                return False
+        return False
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return _carries(node.left, brands) and _carries(node.right, brands)
+    if isinstance(node, ast.Subscript):
+        head = _leaf(node.value)
+        args = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+        if head in ("Union", "Optional") or head in _ELEMENTS:
+            return all(_carries(a, brands) or _is_ellipsis(a) for a in args)
+        if head in _WRAPPERS:
+            return _carries(args[0], brands)
+        if head in _KEYED:
+            return _carries(args[0], brands)
+    return False
+
+
+def _is_ellipsis(node: ast.expr) -> bool:
+    return isinstance(node, ast.Constant) and node.value is Ellipsis
+
+
 def _problem(name: str, annotation: ast.expr, registry: Registry) -> str | None:
     """Why `annotation` does not carry the brand of `name`, or None."""
     brands = registry.names[name]
+    if _carries(annotation, brands):
+        return None
     found: list[tuple[str, bool]] = []
     _scan(annotation, False, found)
     bases = {_BASES.get(registry.shapes.get(b, ("", None))[0], "") for b in brands} - {""}
@@ -194,9 +243,7 @@ def _problem(name: str, annotation: ast.expr, registry: Registry) -> str | None:
     allows = sorted({t for t, member in found if member and t in loose})
     if allows:
         return f"`{name}` must be {' or '.join(brands)}, but the annotation also allows `{allows[0]}`"
-    if not {t for t, _ in found} & set(brands):
-        return f"`{name}` must be {' or '.join(brands)}"
-    return None
+    return f"`{name}` must be {' or '.join(brands)}"
 
 
 def _annotated_names(tree: ast.AST):

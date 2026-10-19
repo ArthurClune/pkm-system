@@ -271,7 +271,7 @@ def _functional_fields(call: ast.Call):
     kind = _leaf(call.func)
     if kind not in ("TypedDict", "NamedTuple"):
         return
-    pairs: list[tuple[ast.expr | None, ast.expr, ast.AST]] = []
+    pairs: list[tuple[ast.expr | None, ast.expr, ast.expr]] = []
     fields = call.args[1] if len(call.args) > 1 else None
     if kind == "TypedDict" and isinstance(fields, ast.Dict):
         pairs += [(k, v, v) for k, v in zip(fields.keys, fields.values)]

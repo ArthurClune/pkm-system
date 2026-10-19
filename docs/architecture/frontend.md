@@ -553,10 +553,11 @@ data the check would reject. Seeds spell uids as `tuid-<tag>`, the shape
 `uidOf` (`test-helpers.ts`) accepts.
 
 In production `select` is `selectObjects` and ignores `keys`. The lint rule
-`no-restricted-syntax` (`eslint.config.js`) requires the keys argument to be
-an array literal of string literals, because a widened array
-(`(keyof Columns)[]`) would type every column as present. A wrapper that
-forwards a caller's keys carries a disable comment saying so.
+`brands/select-keys-literal` requires the keys argument to be an array
+literal of string literals, because a widened array (`(keyof Columns)[]`)
+would type every column as present. The one other shape it allows is an array
+or tuple whose element type is a type parameter, so a wrapper can forward its
+generic `K` unchanged.
 
 `introspect(sql)` returns raw, unchecked rows under SQLite's own column
 names, for catalog reads, counts and tests. Production code does not call it:
@@ -640,7 +641,7 @@ Playwright e2e against that build.**
   (default 8975).
 - **Lint** (flat, type-aware ESLint): `web/eslint.config.js` owns the rule
   list and names its six families in its header: React Hooks correctness,
-  promise/error safety, import control (`apiFetch`, `test-helpers`), no
+  promise/error safety, import control (`apiFetch`, `test-helpers` and other test code), no
   `any`, brand discipline, and no unexplained `@ts-` suppression. It lints
   tests and tooling like product code. `tooling/lintConfig.test.ts` proves
   each rule fires on a fixture.

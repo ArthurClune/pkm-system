@@ -13,6 +13,9 @@ from commentlint.core import (RULES, Violation, check_text, comment_spans, forma
     "web/src/App.test.tsx",
     "web/tooling/fcis.mjs",
     "web/e2e/outline.spec.ts",
+    "web/eslint.config.js",
+    "web/vite.config.ts",
+    "web/playwright.config.ts",
     "server/src/pkm/batch.py",
     "server/tests/test_ws.py",
     "server/tooling/perfcheck/run.py",
@@ -35,6 +38,9 @@ def test_source_and_architecture_docs_are_scanned(path):
     "web/tooling/perf/budgets.json",
     ".beans/pkm-rfkp--comment-rot-lint.md",
     "web/src/assets/logo.svg",
+    "web/package.json",
+    "web/public/sw.js",
+    "web/node_modules/x/index.js",
 ])
 def test_history_generated_and_unrelated_files_are_not(path):
     assert not is_scanned(path)

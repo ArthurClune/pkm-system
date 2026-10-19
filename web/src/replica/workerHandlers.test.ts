@@ -7,7 +7,8 @@ import type { AckedBatch, PendingBatch, PendingRowId, ReplicaDiagnostics } from 
 import { SCHEMA_VERSION } from "./clientSchema";
 import { availabilityOf, ReplicaUnusableError } from "./errors";
 import { type CarryStore, createCarryStore } from "./carryStore";
-import type { ReplicaDb } from "./db";
+import type { Columns } from "./columns.gen";
+import type { ReplicaDb, SqlValue } from "./db";
 import type { DurablePendingRow } from "./queue";
 import { failingOnce, fakeCarryFiles, openRawTestDb, openTestDb,
          withDamagedFreelist } from "./testDb";
@@ -998,9 +999,10 @@ function failingSchemaReads(db: ReplicaDb, message: string) {
     arm: (reads = 1) => { left = reads; },
     db: {
       ...db,
-      select(sql: string, keys: Parameters<ReplicaDb["select"]>[1], params?: Parameters<ReplicaDb["select"]>[2]) {
+      select<const K extends keyof Columns>(
+      sql: string, keys: readonly [K, ...K[]], params?: SqlValue[],
+    ) {
         failRead(sql);
-        // eslint-disable-next-line no-restricted-syntax -- forwards the keys
         return db.select(sql, keys, params);
       },
       introspect(sql: string, params?: Parameters<ReplicaDb["introspect"]>[1]) {
@@ -1630,9 +1632,10 @@ const schemaChecks = (db: ReplicaDb) => {
   let count = 0;
   const counted = {
     ...db,
-    select(sql: string, keys: Parameters<ReplicaDb["select"]>[1], params?: Parameters<ReplicaDb["select"]>[2]) {
+    select<const K extends keyof Columns>(
+      sql: string, keys: readonly [K, ...K[]], params?: SqlValue[],
+    ) {
       if (/sqlite_master/.test(sql)) count += 1;
-      // eslint-disable-next-line no-restricted-syntax -- forwards the keys
       return db.select(sql, keys, params);
     },
     introspect(sql: string, params?: Parameters<ReplicaDb["introspect"]>[1]) {

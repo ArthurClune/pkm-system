@@ -4,6 +4,7 @@ scenarios to re-run, the exit code, what to do next, and which cache entries
 to prune."""
 from __future__ import annotations
 
+import re
 from collections.abc import Collection, Iterable, Mapping
 
 from perfcheck.compare import TIMING_FACTOR, Comparison, Outcome
@@ -95,3 +96,33 @@ def stale_entries(last_used: Mapping[str, float], now: float, keep: Collection[s
 
 def exit_code(c: Comparison, outcomes: Mapping[tuple[str, str], Outcome]) -> int:
     return 1 if c.blocking or outcomes else 0
+
+
+_NO_MODULE = re.compile(r"ModuleNotFoundError: No module named '([\w.]+)'")
+_NO_NAME = re.compile(r"ImportError: cannot import name '(\w+)' from '([\w.]+)'")
+
+
+def _is_pkm(module: str) -> bool:
+    return module == "pkm" or module.startswith("pkm.")
+
+
+def missing_pkm_import(output: str) -> str | None:
+    """The `pkm` import a failed subprocess's `output` says is missing: a
+    module, or `name from module`. None for anything else, including a missing
+    third-party module."""
+    for m in _NO_MODULE.finditer(output):
+        if _is_pkm(m.group(1)):
+            return m.group(1)
+    for m in _NO_NAME.finditer(output):
+        if _is_pkm(m.group(2)):
+            return f"{m.group(1)} from {m.group(2)}"
+    return None
+
+
+def missing_import_advice(name: str, merge_base: str, side: str) -> str:
+    """Why a merge-base run died importing `name`, and the way out."""
+    return (f"this branch's harness imports {name}, which merge base {merge_base} lacks; "
+            "a merge-base run uses the branch's harness with the base's `pkm` package. "
+            "Land that module on `main` first, so the merge base has it; or, if the "
+            f"comparison with main is not needed, run `perf/check.sh {side} --bootstrap` "
+            "and give the reason in the commit message")

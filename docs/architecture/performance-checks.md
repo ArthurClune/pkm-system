@@ -165,6 +165,12 @@ frontend run times out waiting for it. A harness change on the branch moves
 the merge-base run as well, so it reads as `stale-baseline`, not
 `regression`.
 
+The branch's harness may import only `pkm` names the merge base has. When it
+imports a newer one, the run stops and names the import
+(`missing_pkm_import`, `missing_import_advice` in `run_core.py`); the way out
+is to land that module on `main` first, or `--bootstrap` when the comparison
+with main is not needed.
+
 ## Recording a baseline
 
 `--bootstrap` records a baseline from `--runs` runs (default 5, at least 2)
@@ -389,6 +395,7 @@ backend's `sqlite` differs because it is the libsqlite in the worktree's Python.
 | Change a metric's class | `reclassified` | `--bootstrap` |
 | Remove a scenario or metric | `lost` | `--bootstrap` |
 | Change how a check measures, moving counts | `stale-baseline` (the merge-base run uses the new harness) | `--rebaseline` |
+| Import a new `pkm` module from the harness chain | the merge-base run stops, naming the import | land the module on `main` first, or `--bootstrap` |
 | Edit `fixture.py` | both sides refuse: `fixture_hash` differs | `--rebaseline` on each side |
 
 `frontend_letters` drops a letter missing from `_CONTEXT_GROUPS`. A scenario

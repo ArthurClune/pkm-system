@@ -10,14 +10,16 @@
 //     floated promises, promise-valued void callbacks (e.g. React event
 //     handlers), thrown non-Errors, and untyped caught errors.
 //   * Import control: concrete JSON requests use typedClient, raw apiFetch
-//     stays at the transport boundary, and only tests import test-helpers, testDb and memReplica.
+//     stays at the transport boundary, and only tests import test-helpers,
+//     testDb and memReplica.
 //   * No `any` flowing through production code (no-explicit-any and the
 //     no-unsafe-* rules): an untyped JSON value reaching code that assumes
 //     its shape fails at runtime instead of at the type check.
 //   * Brand discipline (tooling/eslint-plugin-brands): a name that means a
 //     brand carries it, brands are asserted only at their mint sites, and
-//     `Reflect.apply` and brand-named `Object.assign` / `defineProperty`
-//     writes do not route around either.
+//     `Reflect.apply` / `construct` / `set` and brand-named `Object.assign` /
+//     `defineProperty` writes, or an alias of them, do not route around
+//     either.
 //   * No unchecked suppression of the type checker: `@ts-ignore` and
 //     `@ts-nocheck` are banned and `@ts-expect-error` says why, so a test
 //     cannot silence a brand error the rules above rely on tsc to raise.

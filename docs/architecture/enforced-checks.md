@@ -80,7 +80,7 @@ from web/src/test-helpers.ts".
 |---|---|
 | `brands/name-carries-brand` | a parameter, property signature or class property named like a brand is not declared with that brand, or allows its base type in a union. The check is shallow: `null`, an array of the brand, and a `Set`, `Map` key or `Record` key of it are accepted. Parameters are read in every position: functions, arrows, methods, function and constructor types, method signatures, `declare` and overload signatures, constructor parameter properties and rest parameters |
 | `brands/no-brand-assertion` | an `as` or `<T>` assertion, a type predicate (`x is B`, `asserts x is B`), an overload signature, or a `declare`d variable or function that mints a brand outside that brand's mint sites, or an assertion that launders (below). It walks the target's structure, including mapped types, index signature keys and values, `Row[K]` and a type parameter's constraint (`as T` with `T extends BlockUid`). A subtype brand (`CanonicalTitle`) counts as its own brand rather than its parent's |
-| `brands/no-brand-bypass` | `Reflect.apply` anywhere, or a field a brand-named literal key writes through `Object.assign` (any object-literal argument after the first), `Object.defineProperty`, `Object.defineProperties` or `Reflect.defineProperty` outside the brand's mint sites. A key counts when it is a string literal, a template without expressions, or typed as a union of string literals (`field: "uid" \| "text"`). Stubbing a global (`Object.defineProperty(navigator, "clipboard", ...)`) is unaffected |
+| `brands/no-brand-bypass` | `Reflect.apply` or `Reflect.construct`, or a write past the type: a brand-named key whose value is not already that brand, set by `Object.assign` (each object-literal property, and the properties of any other source's type, spread or not), `Object.defineProperty` and `Reflect.defineProperty` (a `{ value }` descriptor is judged by its value, a getter or non-literal descriptor is not), `Object.defineProperties` or `Reflect.set`. A key counts when it is a string literal, a template without expressions, or typed as a union of string literals. A use of `Object` or `Reflect` that is not a direct call of one of those functions is reported too: `const { assign } = Object`, `const R = Reflect`, `Object.assign.call(...)`; `globalThis.`, `window.` and `self.` count as `Object` and `Reflect`. `x instanceof Object` and stubbing a global (`Object.defineProperty(navigator, "clipboard", ...)`) are unaffected |
 
 What `no-brand-assertion` counts as minted:
 
@@ -103,7 +103,7 @@ vocabulary is in [backend.md](backend.md#typed-database-access) and
 
 Known limits, where TypeScript itself is unsound and no cheap lint closes it:
 
-- A computed key typed `string` writes any field: `{ ...base, [field]: "junk" }`, or `Object.defineProperty(o, field, ...)` with `field: string`.
+- A computed key typed `string` writes any field: `{ ...base, [field]: "junk" }`, or `Object.defineProperty(o, field, ...)` with `field: string`. An `Object.assign` source typed `Record<string, string>` is not read for brand names either.
 - Method shorthand is bivariant: an interface method `m(x: string)` is implemented by `m(uid: BlockUid)` without an error.
 
 ## On every test run

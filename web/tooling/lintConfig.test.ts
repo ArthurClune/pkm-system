@@ -465,21 +465,29 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-bypass.ts",
     rule: "brands/no-brand-bypass",
-    count: 8,
+    count: 19,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export function call(f: (uid: BlockUid) => void, uid: BlockUid): void {\n" +
       "  f(uid);\n" +
       "  f.call(undefined, uid);\n" +
       "}\n" +
-      "export function write(row: { uid: BlockUid; text: string }): void {\n" +
+      "interface Row {\n  uid: BlockUid;\n  text: string;\n}\n" +
+      "export function write(row: Row): void {\n" +
       '  Object.assign(row, { text: "t" });\n' +
       '  Object.defineProperty(row, "text", { value: "t" });\n' +
       '  Object.defineProperties(row, { text: { value: "t" } });\n' +
       "}\n" +
       "export function dynamic(o: object, key: string): void {\n" +
       "  Object.defineProperty(o, key, { value: 1 });\n" +
-      "}\n",
+      "}\n" +
+      "export function branded(row: Row, uid: BlockUid, other: Row): void {\n" +
+      "  Object.assign(row, { uid });\n" +
+      "  Object.assign({}, other);\n" +
+      "  Object.defineProperty(row, \"uid\", { value: uid });\n" +
+      "  Reflect.set(row, \"uid\", uid);\n" +
+      "}\n" +
+      "export const sameKind = (x: unknown) => x instanceof Object;\n",
   },
   {
     file: "restricted-test-code-import.ts",

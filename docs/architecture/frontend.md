@@ -461,7 +461,8 @@ brand: `uidOf`, `pageIdOf`, `seqOf` ... (the registry's `TEST_HELPERS`). Each
 throws unless the value fits the brand's `BRAND_SHAPES` pattern or base type
 (an integer brand refuses `1.5`), so a fixture holds only values the product
 could produce. A short tag becomes a uid as `tuid-<tag>`. A negative test
-forges a bad value with `malformedUid` or `malformedSha`, which skip the check.
+forges a bad value with `malformedUid`, `malformedSha`, `malformedSeq` or
+`malformedCanonicalTitle`, which skip the check; only the uid and canonical-title forgers accept null.
 Product code may not import the module ([enforced-checks.md](enforced-checks.md#web-side)).
 
 A raw or navigational title stays a plain `string`, never a brand: request

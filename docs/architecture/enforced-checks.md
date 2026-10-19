@@ -51,7 +51,7 @@ Tests are exempt from nothing. They mint through the checked helpers instead:
 |---|---|
 | `TEST_MINT_SITES` | the one module per side that may mint every brand: `server/src/pkm/test_data/ids.py` and `web/src/test-helpers.ts` |
 | `TEST_HELPERS` | brand -> helper stem: `uid_of`, `page_id_of`, `sha_of` ... in Python, the camel `uidOf` ... on the web |
-| `MALFORMED` | brands with a shape whose bad values a negative test forges unchecked: `malformed_uid`, `malformed_sha` |
+| `MALFORMED` | brands a negative test needs a deliberately bad value for, forged unchecked: `malformed_uid`, `malformed_sha`, `malformed_seq`, `malformed_canonical_title`; only the uid and canonical-title forgers accept null |
 | `TEST_CODE` | files that are tests by location (`server/tests/`, `server/src/pkm/test_data/`, the web's `test-setup.ts`, `test-helpers.ts`, `props/`, `replayArbs.ts`, `testDb.ts` and `memReplica.ts`): they may import the mint modules, and a violation there names the helper |
 
 Each `<stem>_of` raises `ValueError` unless the value fits the brand's

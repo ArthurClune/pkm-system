@@ -123,11 +123,11 @@ def _base_env() -> dict[str, str]:
     return {**os.environ, "TZ": TZ, "PKM_ROW_CHECK": "0"}
 
 
-def _fail_if_import_missing(output: str, commit: str) -> None:
+def _fail_if_import_missing(output: str, commit: str, side: str) -> None:
     """Say which import the merge base lacks instead of an exit code."""
     name = missing_pkm_import(output)
     if name:
-        raise PerfRunError(missing_import_advice(name, commit))
+        raise PerfRunError(missing_import_advice(name, commit, side))
 
 
 def _python(worktree: Path) -> list[str]:
@@ -154,7 +154,7 @@ class BackendRunner:
         proc = subprocess.run(cmd, env=env, cwd=worktree / "server", stderr=subprocess.PIPE, text=True)
         sys.stderr.write(proc.stderr)
         if proc.returncode:
-            _fail_if_import_missing(proc.stderr, commit)
+            _fail_if_import_missing(proc.stderr, commit, "backend")
             proc.check_returncode()
         return json.loads(out.read_text())
 
@@ -217,7 +217,7 @@ class FrontendRunner:
             fixture = self.fixture_path(worktree)
         except subprocess.CalledProcessError as e:
             sys.stderr.write(e.stderr or "")
-            _fail_if_import_missing(e.stderr or "", commit)
+            _fail_if_import_missing(e.stderr or "", commit, "frontend")
             raise
         self.out_dir.mkdir(parents=True, exist_ok=True)
         out = self.out_dir / "result-frontend.json"
@@ -277,7 +277,7 @@ class FrontendRunner:
             path = self.out_dir / name
             if path.exists():
                 try:
-                    _fail_if_import_missing(path.read_text(errors="replace"), commit)
+                    _fail_if_import_missing(path.read_text(errors="replace"), commit, "frontend")
                 except PerfRunError as advice:
                     raise advice from cause
 

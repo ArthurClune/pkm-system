@@ -591,9 +591,9 @@ def test_missing_pkm_import_ignores_other_packages():
 
 
 def test_missing_import_advice_names_the_import_the_base_and_the_way_out():
-    msg = run_core.missing_import_advice("pkm.test_data.ids", "abc1234")
+    msg = run_core.missing_import_advice("pkm.test_data.ids", "abc1234", "frontend")
     assert "pkm.test_data.ids" in msg and "abc1234" in msg
-    assert "main" in msg and "--bootstrap" in msg
+    assert "main" in msg and "perf/check.sh frontend --bootstrap" in msg
 
 
 def _failing_run(stderr):

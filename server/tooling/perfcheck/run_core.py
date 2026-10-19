@@ -119,10 +119,10 @@ def missing_pkm_import(output: str) -> str | None:
     return None
 
 
-def missing_import_advice(name: str, merge_base: str) -> str:
+def missing_import_advice(name: str, merge_base: str, side: str) -> str:
     """Why a merge-base run died importing `name`, and the way out."""
     return (f"this branch's harness imports {name}, which merge base {merge_base} lacks; "
             "a merge-base run uses the branch's harness with the base's `pkm` package. "
             "Land that module on `main` first, so the merge base has it; or, if the "
-            "comparison with main is not needed, run `perf/check.sh <side> --bootstrap` "
+            f"comparison with main is not needed, run `perf/check.sh {side} --bootstrap` "
             "and give the reason in the commit message")

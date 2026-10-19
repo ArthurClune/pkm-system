@@ -29,8 +29,8 @@ from perfcheck.build import UNUSED_FOR_S, CacheLockTimeout, cache_dir, cache_loc
 from perfcheck.compare import (bootstrap, compare, confirm, incomparable_reason,
                                render_table)
 from perfcheck.fixture import FROZEN_NOW
-from perfcheck.run_core import (busy_reason, exit_code, frontend_letters, incomparable_advice, next_steps,
-                                scenarios_of, sides_for, stale_entries)
+from perfcheck.run_core import (busy_reason, exit_code, frontend_letters, incomparable_advice, missing_import_advice,
+                                missing_pkm_import, next_steps, scenarios_of, sides_for, stale_entries)
 
 FRONTEND_PORT = 8977
 TZ = "Europe/London"
@@ -123,6 +123,13 @@ def _base_env() -> dict[str, str]:
     return {**os.environ, "TZ": TZ, "PKM_ROW_CHECK": "0"}
 
 
+def _fail_if_import_missing(output: str, commit: str) -> None:
+    """Say which import the merge base lacks instead of an exit code."""
+    name = missing_pkm_import(output)
+    if name:
+        raise PerfRunError(missing_import_advice(name, commit))
+
+
 def _python(worktree: Path) -> list[str]:
     """Python in `worktree`'s server venv. The harness imports time-machine,
     which a merge base older than this tooling doesn't have installed."""
@@ -144,7 +151,11 @@ class BackendRunner:
         out = self.repo / "perf" / "out" / "result-backend.json"
         out.unlink(missing_ok=True)
         cmd, env = self.command(worktree, only, commit, out)
-        subprocess.run(cmd, check=True, env=env, cwd=worktree / "server")
+        proc = subprocess.run(cmd, env=env, cwd=worktree / "server", stderr=subprocess.PIPE, text=True)
+        sys.stderr.write(proc.stderr)
+        if proc.returncode:
+            _fail_if_import_missing(proc.stderr, commit)
+            proc.check_returncode()
         return json.loads(out.read_text())
 
 
@@ -202,7 +213,12 @@ class FrontendRunner:
             subprocess.run(["pnpm", "build"], check=True, cwd=self.repo / "web",
                            env={**_base_env(), "CI": "true"})
             self._built = True
-        fixture = self.fixture_path(worktree)
+        try:
+            fixture = self.fixture_path(worktree)
+        except subprocess.CalledProcessError as e:
+            sys.stderr.write(e.stderr or "")
+            _fail_if_import_missing(e.stderr or "", commit)
+            raise
         self.out_dir.mkdir(parents=True, exist_ok=True)
         out = self.out_dir / "result-frontend.json"
         with cache_lock("frontend", f"port {FRONTEND_PORT}"):
@@ -224,8 +240,10 @@ class FrontendRunner:
                 self._wait_healthy(server, instance)
                 node, node_env = self.check_command(worktree, only, commit, out)
                 subprocess.run(node, check=True, cwd=self.repo / "web", env=node_env)
-            except (PerfRunError, subprocess.CalledProcessError):
+            except (PerfRunError, subprocess.CalledProcessError) as e:
                 self._print_server_logs()
+                if isinstance(e, PerfRunError):
+                    self._fail_if_server_import_missing(commit, e)
                 raise
             finally:
                 _stop(server)
@@ -253,6 +271,15 @@ class FrontendRunner:
                 raise PerfRunError(f"fixture server exited with {server.returncode}")
             return
         raise PerfRunError("fixture server did not become healthy within 60 s")
+
+    def _fail_if_server_import_missing(self, commit: str, cause: PerfRunError) -> None:
+        for name in ("fixture-server.log", "fixture-server-errors.log"):
+            path = self.out_dir / name
+            if path.exists():
+                try:
+                    _fail_if_import_missing(path.read_text(errors="replace"), commit)
+                except PerfRunError as advice:
+                    raise advice from cause
 
     def _print_server_logs(self) -> None:
         for name in ("fixture-server.log", "fixture-server-errors.log"):

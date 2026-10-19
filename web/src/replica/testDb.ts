@@ -33,8 +33,8 @@ async function initQuietly(): Promise<Sqlite3Module> {
   }
 }
 
-/** `checkRows: false` is for the one test whose premise is data the row
- * check rejects, such as a uid no wire op can carry. */
+/** `checkRows: false` is for a test whose premise is data the row check
+ * rejects, such as a uid no wire op can carry; production runs without it. */
 export async function openTestDb(opts: WrapOptions = {}): Promise<TestDb> {
   const t = await openRawTestDb(opts);
   installSchema(t.db);

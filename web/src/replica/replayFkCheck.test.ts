@@ -109,24 +109,34 @@ const randomScenarioArb: fc.Arbitrary<Scenario> = fc.record({
 // a random one, and the batch's first op is the prepended one.
 
 // The case CHILD exists for: FKs are off, so deleting a block leaves behind a
-// child whose NULL uid subtreeUids' path match skips (instr over a NULL is
-// NULL). A NULL-uid child needs a create, in this batch or an earlier one,
-// and its own uid is never recorded, so only the deleted parent's record
-// shows the dangling child.
-const childCaseArb = fc.tuple(randomScenarioArb, fc.boolean(), orderArb, orderArb)
-  .map(([s, earlier, order, childOrder]): Scenario => {
-    const child: BlockOp = {
+// child that subtreeUids' path match skips, and the child's own uid is never
+// recorded, so only the deleted parent's record shows it. The match skips a
+// NULL uid (instr over a NULL is NULL) and a child whose uid sits in the
+// parent's path, as "u_aaaaa2" does in the path of "x,u_aaaaa2". A NULL-uid
+// child needs a create, in this batch or an earlier one; the comma pair is
+// plain baseline rows.
+const COMMA_PAIRS = [["x,u_aaaaa2", "u_aaaaa2"], ["u_aaaaa3,y", "u_aaaaa3"]];
+const childCaseArb = fc.tuple(randomScenarioArb, fc.boolean(), orderArb, orderArb,
+                              fc.constantFrom(...COMMA_PAIRS, null))
+  .map(([s, earlier, order, childOrder, pair]): Scenario => {
+    const parent = pair?.[0] ?? "u_aaaaa5";
+    const create: BlockOp = {
       op: "create", uid: malformedUid(null), page_title: "A",
-      parent_uid: uidOf("u_aaaaa5"), order_idx: childOrder,
-      text: "plain" };
-    const drop: BlockOp = { op: "delete", uid: uidOf("u_aaaaa5") };
+      parent_uid: mintUid(parent), order_idx: childOrder, text: "plain" };
+    const drop: BlockOp = { op: "delete", uid: mintUid(parent) };
+    const blocks = [{ uid: parent, page: 1, parent: null, order, ref: null,
+                      bref: null }, ...s.blocks];
+    if (pair) {
+      blocks.unshift({ uid: pair[1], page: 1, parent: parent, order: childOrder,
+                       ref: null, bref: null });
+      return { ...s, fksOff: true, blocks, ops: [drop, ...s.ops] };
+    }
     return {
       ...s,
       fksOff: true,
-      blocks: [{ uid: "u_aaaaa5", page: 1, parent: null, order, ref: null,
-                 bref: null }, ...s.blocks],
-      prior: earlier ? [child, ...s.prior] : s.prior,
-      ops: earlier ? [drop, ...s.ops] : [child, drop, ...s.ops],
+      blocks,
+      prior: earlier ? [create, ...s.prior] : s.prior,
+      ops: earlier ? [drop, ...s.ops] : [create, drop, ...s.ops],
     };
   });
 
@@ -150,7 +160,9 @@ const pageCaseArb = fc.tuple(randomScenarioArb, fc.boolean(), orderArb)
 const scenarioArb = fc.oneof(randomScenarioArb, childCaseArb, pageCaseArb);
 
 let t: TestDb;
-beforeAll(async () => { t = await openTestDb(); });
+// Unchecked rows, as in the production worker: comma uids are data the row
+// check refuses, and the property must see what production sees.
+beforeAll(async () => { t = await openTestDb({ checkRows: false }); });
 afterAll(() => t.close());
 afterEach(() => { vi.restoreAllMocks(); });
 

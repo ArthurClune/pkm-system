@@ -11,6 +11,7 @@ import type { ReplicaDb } from "./db";
 import type { DurablePendingRow } from "./queue";
 import { failingOnce, fakeCarryFiles, openRawTestDb, openTestDb,
          withDamagedFreelist } from "./testDb";
+import { setMeta } from "./meta";
 import { subtreeHash } from "./subtreeHash";
 import { buildHandlers, type WorkerDeps } from "./workerHandlers";
 import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, pendingRowIdOf, seqOf, uidOf } from "../test-helpers";
@@ -99,6 +100,15 @@ test("diagnostics reports counts, meta and integrity results even over a broken 
   expect(warn).toHaveBeenCalledWith(
     "sqlite3_step() rc=", expect.any(Number), "SQLITE_CORRUPT_VTAB", "SQL =",
     expect.stringContaining("integrity-check"));
+});
+
+test("init reads a stored cursor that is not a number as the initial seq", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db });
+  await handlers.init(undefined);
+  setMeta(t.db, "cursor", "junk");
+
+  await expect(handlers.init(undefined)).resolves.toMatchObject({ cursor: 0 });
 });
 
 test("abort rejects invalid and double-used recovery tokens", async () => {

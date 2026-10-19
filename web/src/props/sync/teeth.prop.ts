@@ -14,7 +14,7 @@ import { quiesce, QuiesceError } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
 import type { Broken } from "./transport";
 import { captureFaultWarnings } from "../warningsCapture";
-import { uidOf, orderIdxOf, seqOf } from "../../test-helpers";
+import { uidOf, orderIdxOf, rawTitleOf, seqOf } from "../../test-helpers";
 
 captureFaultWarnings("sync teeth");
 
@@ -144,7 +144,7 @@ async function renameScenario(): Promise<{
   });
   await a.pull();
   const a2 = await a.edit([{
-    op: "create", uid: uidOf("pt_A_1"), page_title: "Second",
+    op: "create", uid: uidOf("pt_A_1"), page_title: rawTitleOf("Second"),
     parent_uid: null, order_idx: orderIdxOf(0), text: "on a new Second",
   }]);
   await a.queue.drain();
@@ -192,11 +192,11 @@ async function staleDeleteScenario(): Promise<{
   a.offline();
   const a1 = await a.edit([
     { op: "update_text", uid: uidOf("pt_seed_1"), text: "left [[Second]]" },
-    { op: "create", uid: uidOf("pt_A_1"), page_title: "Proptest", parent_uid: null,
+    { op: "create", uid: uidOf("pt_A_1"), page_title: rawTitleOf("Proptest"), parent_uid: null,
       order_idx: orderIdxOf(5), text: "right [[Second]]" },
   ]);
   const a2 = await a.edit([{
-    op: "create", uid: uidOf("pt_A_2"), page_title: "Second", parent_uid: null,
+    op: "create", uid: uidOf("pt_A_2"), page_title: rawTitleOf("Second"), parent_uid: null,
     order_idx: orderIdxOf(0), text: "parked [[Second]]",
   }]);
   await b.transport.fetchJson("/api/page/Second", { method: "DELETE" });
@@ -340,7 +340,7 @@ async function freshRecreateScenario(): Promise<{
   await b.transport.fetchJson("/api/page/Second", { method: "DELETE" });
   await a.pull();
   const a1 = await a.edit([{
-    op: "create", uid: uidOf("pt_A_1"), page_title: "Second", parent_uid: null,
+    op: "create", uid: uidOf("pt_A_1"), page_title: rawTitleOf("Second"), parent_uid: null,
     order_idx: orderIdxOf(0), text: "after the delete",
   }]);
   await a.queue.drain();

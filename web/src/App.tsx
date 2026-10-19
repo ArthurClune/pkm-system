@@ -1,7 +1,8 @@
 // pattern: Imperative Shell
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, Route, Routes, useNavigate } from "react-router-dom";
-import type { BlockUid } from "./api/brands";
+import type { BlockUid, RawTitle } from "./api/brands";
+import { asRawTitle } from "./replica/titles";
 import { AssistantPanel } from "./assistant/AssistantPanel";
 import { ExternalLinkInterceptor } from "./components/ExternalLinkInterceptor";
 import { MenuIcon } from "./components/icons";
@@ -29,7 +30,7 @@ import { Settings } from "./views/Settings";
 
 interface SidebarEntry {
   id: number; // monotonic: the same title can be stacked twice
-  title: string;
+  title: RawTitle;
   // The block to scroll to and flash within this panel, e.g. a
   // shift-clicked block ref or assistant asset link.
   uid?: BlockUid;
@@ -70,7 +71,7 @@ export function App() {
   const rightSidebarOpen = stack.length > 0 && !sidebarHidden;
 
   const sidebarApi = useMemo(() => ({
-    openInSidebar: (title: string, uid?: BlockUid) => {
+    openInSidebar: (title: RawTitle, uid?: BlockUid) => {
       const id = idRef.current;
       idRef.current += 1;
       setStack((s) => [{ id, title, uid }, ...s]); // newest on top
@@ -178,7 +179,7 @@ export function App() {
                 </NavRouteLink>
                 {/* A real page, unlike the routes around it, so shift-click
                   * opens it in the sidebar rather than a second window. */}
-                <NavPageLink title="TODO" className="nav-link primary"
+                <NavPageLink title={asRawTitle("TODO")} className="nav-link primary"
                              onNavigate={() => setNavOpen(false)} />
                 <ThemeToggle />
                 <SidebarNav onNavigate={() => setNavOpen(false)} />

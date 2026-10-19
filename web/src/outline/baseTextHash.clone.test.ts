@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
-import { block, orderIdxOf, uidOf } from "../test-helpers";
+import { block, orderIdxOf, uidOf, rawTitleOf } from "../test-helpers";
 import { stampBaseTextHashes } from "./baseTextHash";
 import * as treeModule from "./tree";
 
@@ -31,7 +31,7 @@ describe("stampBaseTextHashes clones the tree at most once per batch", () => {
     const tree = flatTree(101);
     const ops: BlockOp[] = tree.slice(0, 100).map((n) => ({ op: "delete", uid: n.uid }));
 
-    stampBaseTextHashes(tree, "AI", ops);
+    stampBaseTextHashes(tree, rawTitleOf("AI"), ops);
 
     expect(cloneTreeMock).toHaveBeenCalledTimes(1);
   });
@@ -40,7 +40,7 @@ describe("stampBaseTextHashes clones the tree at most once per batch", () => {
     const tree = flatTree(2);
     const ops: BlockOp[] = [{ op: "delete", uid: uidOf("tuid-n0") }];
 
-    stampBaseTextHashes(tree, "AI", ops);
+    stampBaseTextHashes(tree, rawTitleOf("AI"), ops);
 
     expect(cloneTreeMock).not.toHaveBeenCalled();
   });
@@ -52,7 +52,7 @@ describe("stampBaseTextHashes clones the tree at most once per batch", () => {
       { op: "set_collapsed", uid: uidOf("tuid-n1"), collapsed: true },
     ];
 
-    stampBaseTextHashes(tree, "AI", ops);
+    stampBaseTextHashes(tree, rawTitleOf("AI"), ops);
 
     expect(cloneTreeMock).not.toHaveBeenCalled();
   });
@@ -68,7 +68,7 @@ describe("stampBaseTextHashes leaves the caller's tree untouched", () => {
       { op: "delete", uid: uidOf("tuid-n2") },
     ];
 
-    stampBaseTextHashes(tree, "AI", ops);
+    stampBaseTextHashes(tree, rawTitleOf("AI"), ops);
 
     expect(tree).toEqual(before);
   });

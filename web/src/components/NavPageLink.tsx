@@ -1,6 +1,7 @@
 // pattern: Imperative Shell
 // Reads SidebarContext and navigates via react-router's NavLink -- runtime
 // React context and navigation, not a pure rendering decision.
+import type { RawTitle } from "../api/brands";
 import { type ReactNode, useContext } from "react";
 import { NavLink } from "react-router-dom";
 import { SidebarContext } from "../contexts";
@@ -17,7 +18,7 @@ import { pagePath } from "../paths";
  * Files, Settings) deliberately keep the native behaviour: a SidebarPanel
  * renders a page by title, and there is no page behind those routes. */
 export function NavPageLink({ title, className, onNavigate, children }: {
-  title: string;
+  title: RawTitle;
   /** Base class; " active" is appended while the route matches. */
   className: string;
   onNavigate?: () => void;

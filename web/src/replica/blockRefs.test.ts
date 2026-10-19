@@ -12,7 +12,7 @@ import { applyChanges, applySnapshot } from "./apply";
 import { reindexBlockRefs } from "./blockRefs";
 import { applyLocalOps } from "./localOps";
 import { openTestDb, type TestDb } from "./testDb";
-import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, uidOf } from "../test-helpers";
+import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, uidOf, rawTitleOf } from "../test-helpers";
 
 vi.mock("./blockRefs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./blockRefs")>();
@@ -123,7 +123,7 @@ describe("delegation", () => {
 
   test("a created block is reindexed through the composition too", () => {
     const op: BlockOp = {
-      op: "create", uid: uidOf("uid_new1"), page_title: "AI", parent_uid: null,
+      op: "create", uid: uidOf("uid_new1"), page_title: rawTitleOf("AI"), parent_uid: null,
       order_idx: orderIdxOf(5), text: "fresh ((uid_b1))",
     };
     applyLocalOps(t.db, [op], 7000, { batchId: batchIdOf("t") });

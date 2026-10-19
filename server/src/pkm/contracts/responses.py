@@ -131,7 +131,7 @@ class DeleteBlockerModel(BaseModel):
     turning it into a property block. `residual`: the rewritten text would
     still reference the page or one of its blocks."""
     uid: BlockUid
-    page_title: str
+    page_title: CanonicalTitle
     text: str
     reason: Literal["query", "used_as_attribute", "attribute", "residual"]
 

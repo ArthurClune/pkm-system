@@ -5,7 +5,9 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, pageIdOf, pagePayload, stubFetch, canonicalTitleOf, uidOf } from "../test-helpers";
+import {
+  block, makeSync, pageIdOf, pagePayload, stubFetch, canonicalTitleOf, uidOf, rawTitleOf,
+} from "../test-helpers";
 import { SidebarPanel } from "./SidebarPanel";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -35,7 +37,7 @@ function renderPanel(title: string) {
       <DndProvider>
         <Harness onReady={(d) => { dnd = d; }} />
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-          <SidebarPanel title={title} onClose={() => undefined} />
+          <SidebarPanel title={rawTitleOf(title)} onClose={() => undefined} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
@@ -49,7 +51,7 @@ it("fetches its page and renders title plus block tree, no backlinks", async () 
       total_pages: 1, offset: 0, limit: 20 },
   })]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-    <SidebarPanel title="Paper" onClose={() => undefined} />
+    <SidebarPanel title={rawTitleOf("Paper")} onClose={() => undefined} />
   </MemoryRouter>);
   expect(await screen.findByText("a paper block")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Paper" })).toBeInTheDocument();
@@ -60,7 +62,7 @@ it("close button fires onClose", async () => {
   stubFetch([["/api/page/Paper", pagePayload("Paper", [])]]);
   const onClose = vi.fn();
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-    <SidebarPanel title="Paper" onClose={onClose} />
+    <SidebarPanel title={rawTitleOf("Paper")} onClose={onClose} />
   </MemoryRouter>);
   fireEvent.click(await screen.findByRole("button", { name: "close panel" }));
   expect(onClose).toHaveBeenCalledOnce();
@@ -85,7 +87,7 @@ it("dragging is disabled while disconnected (writes paused invariant)", async ()
     <SyncContext.Provider value={sync}>
       <DndProvider>
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-          <SidebarPanel title="Paper" onClose={() => undefined} />
+          <SidebarPanel title={rawTitleOf("Paper")} onClose={() => undefined} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);

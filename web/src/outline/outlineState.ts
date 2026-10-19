@@ -2,7 +2,7 @@
 // Causality for one title's shared outline. The shell supplies ticket ids,
 // read tokens, and I/O; this module only decides whether a tree is safe to
 // adopt and whether settlement requires a fresh authoritative read.
-import type { BlockUid, OrderIdx } from "../api/brands";
+import type { BlockUid, OrderIdx, RawTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
@@ -37,7 +37,7 @@ export type OutlineReplayAction =
       parentUid: BlockUid | null; orderIdx: OrderIdx };
 
 export interface OutlineState {
-  title: string;
+  title: RawTitle;
   blocks: BlockNode[];
   revision: Revision;
   nextRequestId: RequestId;
@@ -74,7 +74,7 @@ export interface OutlineTransition {
 }
 
 export function createOutlineState(
-  title: string,
+  title: RawTitle,
   blocks: BlockNode[],
 ): OutlineState {
   return {
@@ -176,7 +176,7 @@ function applyBatch(state: OutlineState, ops: readonly BlockOp[],
 function replayActions(
   blocks: BlockNode[],
   actions: readonly OutlineReplayAction[],
-  title: string,
+  title: RawTitle,
 ): BlockNode[] {
   let replayed = blocks;
   for (const action of actions) {
@@ -410,7 +410,7 @@ export function captureDraft(
 export function pendingTextOps(
   pending: PendingDraft | null,
   blocks: BlockNode[],
-  pageTitle: string,
+  pageTitle: RawTitle,
 ): UpdateTextOp[] {
   if (!pending) return [];
   const { uid, text, base } = pending;

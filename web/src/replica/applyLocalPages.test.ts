@@ -16,7 +16,7 @@ import type { ReplicaDb } from "./db";
 import { getOrCreateLocalPage } from "./localOps";
 import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
-import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, uidOf } from "../test-helpers";
+import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, uidOf, rawTitleOf } from "../test-helpers";
 
 const bid = (s: string): BatchId => batchIdOf(s);
 
@@ -74,7 +74,7 @@ const enqueue = (ops: BlockOp[], name: string): void => {
 };
 
 const createOn = (rawUid: string, pageTitle: string): BlockOp =>
-  ({ op: "create", uid: uidOf(rawUid), page_title: pageTitle, parent_uid: null,
+  ({ op: "create", uid: uidOf(rawUid), page_title: rawTitleOf(pageTitle), parent_uid: null,
      order_idx: orderIdxOf(0), text: `text of ${rawUid}` });
 
 describe("applyChanges: a local page nothing keeps is dropped", () => {
@@ -95,7 +95,7 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
 
   test("a top-level move to a new title, skipped by the server", () => {
     enqueue([{ op: "move", uid: uidOf("uid_b1"), parent_uid: null,
-               order_idx: orderIdxOf(0), page_title: "Third" }], "b-move");
+               order_idx: orderIdxOf(0), page_title: rawTitleOf("Third") }], "b-move");
     expect(titles()).toContain("Third");
     ackNext(t.db);
 
@@ -111,7 +111,7 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
   // and its replay skips it on the deleted block, as a first apply would.
   test("a pending move's page goes in the window that deletes its block", () => {
     enqueue([{ op: "move", uid: uidOf("uid_b1"), parent_uid: null,
-               order_idx: orderIdxOf(0), page_title: "Third" }], "b-move");
+               order_idx: orderIdxOf(0), page_title: rawTitleOf("Third") }], "b-move");
     applyChanges(t.db, window({
       tombstones: [{ kind: "block", entity_id: "uid_b1" }],
     }), NOW);
@@ -158,7 +158,7 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
   });
 
   test("a poisoned batch names nothing: it is not replayed", () => {
-    enqueue([{ op: "create_page", page_title: "Draft" }], "b-page");
+    enqueue([{ op: "create_page", page_title: rawTitleOf("Draft") }], "b-page");
     const b = nextBatch(t.db)!;
     markPoisoned(t.db, b.id, "rejected", b.batch_id);
 
@@ -170,7 +170,7 @@ describe("applyChanges: a local page nothing keeps is dropped", () => {
 
 describe("applyChanges: a local page something keeps stays", () => {
   test("a pending create_page page with nothing on it survives the head window", () => {
-    enqueue([{ op: "create_page", page_title: "Draft" }], "b-page");
+    enqueue([{ op: "create_page", page_title: rawTitleOf("Draft") }], "b-page");
     const [before] = t.db.select(
       "SELECT id AS page_id FROM pages WHERE title = 'Draft'", ["page_id"]);
 
@@ -182,7 +182,7 @@ describe("applyChanges: a local page something keeps stays", () => {
 
   test("a pending create_page of a local page that already exists keeps it", () => {
     getOrCreateLocalPage(t.db, "Draft", NOW); // a read made it, no op behind it
-    enqueue([{ op: "create_page", page_title: "Draft" }], "b-page");
+    enqueue([{ op: "create_page", page_title: rawTitleOf("Draft") }], "b-page");
 
     applyChanges(t.db, window(), NOW);
 
@@ -192,7 +192,7 @@ describe("applyChanges: a local page something keeps stays", () => {
   test("a pending op names it by a title that canonicalizes to it", () => {
     applySnapshot(t.db, { ...SNAP, plain_space_title_canonicalization: true },
                   NOW);
-    enqueue([{ op: "create_page", page_title: "  Draft  " }], "b-page");
+    enqueue([{ op: "create_page", page_title: rawTitleOf("  Draft  ") }], "b-page");
 
     applyChanges(t.db, window({ plain_space_title_canonicalization: true }),
                  NOW);
@@ -203,7 +203,7 @@ describe("applyChanges: a local page something keeps stays", () => {
   test("a pending batch's record names it, after the block moved off it", () => {
     enqueue([createOn("uid_n1", "Fourth"),
              { op: "move", uid: uidOf("uid_n1"), parent_uid: null,
-               order_idx: orderIdxOf(0), page_title: "Proptest" }], "b-made");
+               order_idx: orderIdxOf(0), page_title: rawTitleOf("Proptest") }], "b-made");
 
     applyChanges(t.db, window(), NOW);
 
@@ -233,7 +233,7 @@ describe("applyChanges: a local page something keeps stays", () => {
 
   test("its block's tombstone waits for the window at the journal head", () => {
     enqueue([{ op: "move", uid: uidOf("uid_b1"), parent_uid: null,
-               order_idx: orderIdxOf(0), page_title: "Third" }], "b-move");
+               order_idx: orderIdxOf(0), page_title: rawTitleOf("Third") }], "b-move");
     ackNext(t.db);
 
     applyChanges(t.db, window({
@@ -278,9 +278,9 @@ describe("applyChanges: a local page an acked batch's frozen record names", () =
   const strandFourth = (): void => {
     enqueue([
       createOn("uid_n1", "Fourth"),
-      { op: "create", uid: uidOf("uid_n2"), page_title: "Fourth",
+      { op: "create", uid: uidOf("uid_n2"), page_title: rawTitleOf("Fourth"),
         parent_uid: uidOf("uid_n1"), order_idx: orderIdxOf(0), text: "child" },
-      { op: "move", uid: uidOf("uid_n1"), parent_uid: null, page_title: "Proptest",
+      { op: "move", uid: uidOf("uid_n1"), parent_uid: null, page_title: rawTitleOf("Proptest"),
         order_idx: orderIdxOf(0) },
     ], "b-made");
     enqueue([{ op: "delete", uid: uidOf("uid_n1") }], "b-delete");
@@ -310,7 +310,7 @@ describe("applyChanges: a local page an acked batch's frozen record names", () =
 
 describe("applyChanges: dropping stranded local pages waits for the head window", () => {
   test("an acked batch's page survives a window short of the head", () => {
-    enqueue([{ op: "create_page", page_title: "Draft" }], "b-page");
+    enqueue([{ op: "create_page", page_title: rawTitleOf("Draft") }], "b-page");
     ackNext(t.db);
 
     applyChanges(t.db, window({ next_since: 11, latest_seq: 12 }), NOW);
@@ -321,7 +321,7 @@ describe("applyChanges: dropping stranded local pages waits for the head window"
   });
 
   test("the server's page for the acked batch replaces it at the head", () => {
-    enqueue([{ op: "create_page", page_title: "Draft" }], "b-page");
+    enqueue([{ op: "create_page", page_title: rawTitleOf("Draft") }], "b-page");
     ackNext(t.db);
 
     applyChanges(t.db, window({ next_since: 11, latest_seq: 12 }), NOW);

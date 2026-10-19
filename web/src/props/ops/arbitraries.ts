@@ -21,7 +21,7 @@ import {
   BLOCK_TEXT, commandArb, depthsFor, gapArb, nest, type Command, type Slot,
 } from "../outline/arbitraries";
 import type { NormalGraph } from "../sync/normalise";
-import { uidOf, orderIdxOf } from "../../test-helpers";
+import { uidOf, orderIdxOf, rawTitleOf } from "../../test-helpers";
 
 export const OPS_PAGES = ["Outline Props", "Ops Two", "Ops Three"] as const;
 /** The pages plus one that never exists at the start, so a create or a move
@@ -129,7 +129,7 @@ export function seedOps(s: StartState): BlockOp[] {
     const walk = (nodes: readonly BlockNode[], parent: BlockUid | null): void => {
       for (const n of nodes) {
         creates.push({
-          op: "create", uid: n.uid, page_title: title, parent_uid: parent,
+          op: "create", uid: n.uid, page_title: rawTitleOf(title), parent_uid: parent,
           order_idx: n.order_idx, text: n.text,
           ...(n.heading !== null ? { heading: n.heading } : {}),
           ...(n.view_type !== null ? { view_type: n.view_type } : {}),
@@ -141,7 +141,7 @@ export function seedOps(s: StartState): BlockOp[] {
     walk(s.pages[title], null);
   }
   return [
-    ...OPS_PAGES.map((title): BlockOp => ({ op: "create_page", page_title: title })),
+    ...OPS_PAGES.map((title): BlockOp => ({ op: "create_page", page_title: rawTitleOf(title) })),
     ...creates,
     ...collapses,
   ];
@@ -362,7 +362,7 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
         const order = place(parentRow ? keysUnder(parent, page)
                             : parent === null ? keysUnder(null, page) : [], d.slot);
         ops.push({
-          op: "create", uid: uidOf(uid), page_title: page,
+          op: "create", uid: uidOf(uid), page_title: rawTitleOf(page),
           parent_uid: parent === null ? null : uidOf(parent), order_idx: order, text: d.text,
           ...(d.heading !== null ? { heading: d.heading } : {}),
           ...(d.view_type !== null ? { view_type: d.view_type } : {}),
@@ -396,7 +396,7 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
                             : parentRow ? keysUnder(parent, dest) : [], d.slot);
         ops.push({
           op: "move", uid: uidOf(uid), parent_uid: parent === null ? null : uidOf(parent),
-          order_idx: order, ...(titled !== null ? { page_title: titled } : {}),
+          order_idx: order, ...(titled !== null ? { page_title: rawTitleOf(titled) } : {}),
         });
         const lands = parent === null || (parentRow !== undefined && !subtree(uid).includes(parent));
         if (row && lands) {
@@ -414,7 +414,7 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
         // A hashed edit carries its block's page, as the editor stamps it.
         ops.push({
           op: "update_text", uid: uidOf(uid), text: d.text,
-          ...(base !== null ? { base_text_hash: base, ...(page ? { page_title: page } : {}) } : {}),
+          ...(base !== null ? { base_text_hash: base, ...(page ? { page_title: rawTitleOf(page) } : {}) } : {}),
         });
         const row = rows.get(uid);
         if (row) row.text = d.text;
@@ -450,7 +450,7 @@ export function resolveRaw(drafts: readonly RawDraft[], g: NormalGraph,
         ops.push({ op: "set_view_type", uid: uidOf(subject), view_type: d.view_type });
         break;
       case "create_page":
-        ops.push({ op: "create_page", page_title: d.page });
+        ops.push({ op: "create_page", page_title: rawTitleOf(d.page) });
         break;
     }
     if (i === 0) first = subject;

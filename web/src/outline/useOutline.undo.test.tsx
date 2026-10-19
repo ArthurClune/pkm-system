@@ -16,7 +16,7 @@ import {
   canonicalTitleOf,
   typeProbe,
   uidOf,
-  clientIdOf,
+  clientIdOf, rawTitleOf,
 } from "../test-helpers";
 import { recordHistory, resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
@@ -49,7 +49,7 @@ typeProbe(() => {
 
 afterEach(() => resetHistory());
 
-const PAGE = "Undo Wire";
+const PAGE = rawTitleOf("Undo Wire");
 const ab = () => [
   block("tuid-a", "alpha", { order_idx: orderIdxOf(0) }),
   block("tuid-b", "beta", { order_idx: orderIdxOf(1) }),

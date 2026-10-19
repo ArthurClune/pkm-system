@@ -314,7 +314,9 @@
       "server/src/pkm/refs.py",
       "web/src/replica/titles.ts",
       "web/src/replica/db.ts",
-      "web/src/sync/wire.ts"
+      "web/src/sync/wire.ts",
+      "web/src/replica/pendingOps.ts",
+      "web/src/sync/poisonIntents.ts"
     ],
     "NormalizedTitle": [
       "server/src/pkm/contracts/",

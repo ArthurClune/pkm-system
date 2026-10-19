@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import type { BlockUid, OrderIdx } from "../api/brands";
+import type { BlockUid, OrderIdx, RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { applyChanges } from "./apply";
 import { applyLocalOps } from "./localOps";
@@ -9,7 +9,7 @@ import { setMeta } from "./meta";
 import { skipsOnMissingTarget } from "./missingTarget";
 import { enqueueBatch } from "./queue";
 import { openTestDb } from "./testDb";
-import { batchIdOf, orderIdxOf, seqOf, shaOf, uidOf } from "../test-helpers";
+import { batchIdOf, orderIdxOf, rawTitleOf, seqOf, shaOf, uidOf } from "../test-helpers";
 
 // The fixture's JSON, as it is on disk: plain values, no brands. `mintOp`
 // and `placedOf` turn a row into the typed shape the code under test takes.
@@ -71,14 +71,14 @@ const only = (raw: Raw, allowed: string[]): void => {
     if (!allowed.includes(k)) throw new Error(`fixture key ${k} is not one the minter knows`);
   }
 };
-const optionalTitle = (raw: Raw): { page_title?: string } =>
-  raw.page_title === undefined ? {} : { page_title: text(raw, "page_title") };
+const optionalTitle = (raw: Raw): { page_title?: RawTitle } =>
+  raw.page_title === undefined ? {} : { page_title: rawTitleOf(text(raw, "page_title")) };
 
 function mintOp(raw: Raw): BlockOp {
   switch (raw.op) {
     case "create":
       only(raw, ["op", "uid", "page_title", "parent_uid", "order_idx", "text"]);
-      return { op: "create", uid: uidField(raw, "uid"), page_title: text(raw, "page_title"),
+      return { op: "create", uid: uidField(raw, "uid"), page_title: rawTitleOf(text(raw, "page_title")),
                parent_uid: parentField(raw), order_idx: orderIdxOf(int(raw, "order_idx")),
                text: text(raw, "text") };
     case "update_text":
@@ -110,7 +110,7 @@ function mintOp(raw: Raw): BlockOp {
       return { op: "set_view_type", uid: uidField(raw, "uid"), view_type: raw.view_type };
     case "create_page":
       only(raw, ["op", "page_title"]);
-      return { op: "create_page", page_title: text(raw, "page_title") };
+      return { op: "create_page", page_title: rawTitleOf(text(raw, "page_title")) };
     default:
       throw new Error(`fixture op ${String(raw.op)} is not one mintOp knows`);
   }

@@ -2,14 +2,14 @@ import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
-import { block, orderIdxOf, canonicalTitleOf, uidOf, shaOf } from "../test-helpers";
+import { block, orderIdxOf, canonicalTitleOf, uidOf, shaOf, rawTitleOf } from "../test-helpers";
 import { nodeSubtreePairs, stampBaseTextHashes, withoutStamps } from "./baseTextHash";
 import { backspaceAtStart } from "./edits";
 
 describe("stampBaseTextHashes", () => {
   test("stamps the hash of the text the op replaces", () => {
     const ops: BlockOp[] = [{ op: "update_text", uid: uidOf("tuid-u1"), text: "after" }];
-    const [stamped] = stampBaseTextHashes([block("tuid-u1", "before")], "AI", ops);
+    const [stamped] = stampBaseTextHashes([block("tuid-u1", "before")], rawTitleOf("AI"), ops);
     expect(stamped).toMatchObject({
       op: "update_text", uid: "tuid-u1", text: "after",
       base_text_hash: sha256Hex("before"),
@@ -18,7 +18,7 @@ describe("stampBaseTextHashes", () => {
 
   test("does not mutate the input ops", () => {
     const ops: BlockOp[] = [{ op: "update_text", uid: uidOf("tuid-u1"), text: "after" }];
-    stampBaseTextHashes([block("tuid-u1", "before")], "AI", ops);
+    stampBaseTextHashes([block("tuid-u1", "before")], rawTitleOf("AI"), ops);
     expect(ops[0]).not.toHaveProperty("base_text_hash");
   });
 
@@ -29,7 +29,7 @@ describe("stampBaseTextHashes", () => {
       { op: "update_text", uid: uidOf("tuid-u1"), text: "one" },
       { op: "update_text", uid: uidOf("tuid-u1"), text: "two" },
     ];
-    const stamped = stampBaseTextHashes([block("tuid-u1", "zero")], "AI", ops);
+    const stamped = stampBaseTextHashes([block("tuid-u1", "zero")], rawTitleOf("AI"), ops);
     expect(stamped[0]).toMatchObject({ base_text_hash: sha256Hex("zero") });
     expect(stamped[1]).toMatchObject({ base_text_hash: sha256Hex("one") });
   });
@@ -39,13 +39,13 @@ describe("stampBaseTextHashes", () => {
       { op: "update_text", uid: uidOf("tuid-u1"), text: "after",
         base_text_hash: shaOf("deadbeef".repeat(8)) },
     ];
-    expect(stampBaseTextHashes([block("tuid-u1", "before")], "AI", ops)[0])
+    expect(stampBaseTextHashes([block("tuid-u1", "before")], rawTitleOf("AI"), ops)[0])
       .toMatchObject({ base_text_hash: "deadbeef".repeat(8) });
   });
 
   test("a block unknown in this tree gets no hash (plain LWW, as the worker does)", () => {
     const ops: BlockOp[] = [{ op: "update_text", uid: uidOf("elsewhere"), text: "after" }];
-    expect(stampBaseTextHashes([block("tuid-u1", "before")], "AI", ops)[0])
+    expect(stampBaseTextHashes([block("tuid-u1", "before")], rawTitleOf("AI"), ops)[0])
       .not.toHaveProperty("base_text_hash");
   });
 
@@ -56,19 +56,19 @@ describe("stampBaseTextHashes", () => {
       { op: "set_collapsed", uid: uidOf("tuid-u1"), collapsed: true },
     ];
     const stamped = stampBaseTextHashes(
-      [block("tuid-u1", "before"), block("tuid-u2", "x", { order_idx: orderIdxOf(1) })], "AI", ops);
+      [block("tuid-u1", "before"), block("tuid-u2", "x", { order_idx: orderIdxOf(1) })], rawTitleOf("AI"), ops);
     expect(stamped[0]).toBe(ops[0]);
     expect(stamped[2]).toBe(ops[2]);
     expect(stamped[1]).toMatchObject({ base_text_hash: sha256Hex("before") });
   });
 
   test("an empty batch is returned as an empty batch", () => {
-    expect(stampBaseTextHashes([block("tuid-u1", "a")], "AI", [])).toEqual([]);
+    expect(stampBaseTextHashes([block("tuid-u1", "a")], rawTitleOf("AI"), [])).toEqual([]);
   });
 
   test("stamps the planning page's title on update_text ops it finds", () => {
     const ops: BlockOp[] = [{ op: "update_text", uid: uidOf("tuid-u1"), text: "after" }];
-    const [stamped] = stampBaseTextHashes([block("tuid-u1", "before")], "AI", ops);
+    const [stamped] = stampBaseTextHashes([block("tuid-u1", "before")], rawTitleOf("AI"), ops);
     expect(stamped).toEqual({
       op: "update_text", uid: "tuid-u1", text: "after",
       base_text_hash: sha256Hex("before"),
@@ -78,15 +78,15 @@ describe("stampBaseTextHashes", () => {
 
   test("leaves page_title off ops for blocks the tree does not know", () => {
     const ops: BlockOp[] = [{ op: "update_text", uid: uidOf("elsewhere"), text: "after" }];
-    expect(stampBaseTextHashes([block("tuid-u1", "before")], "AI", ops)[0])
+    expect(stampBaseTextHashes([block("tuid-u1", "before")], rawTitleOf("AI"), ops)[0])
       .not.toHaveProperty("page_title");
   });
 
   test("keeps a caller-supplied page_title", () => {
     const ops: BlockOp[] = [
-      { op: "update_text", uid: uidOf("tuid-u1"), text: "after", page_title: "Other Page" },
+      { op: "update_text", uid: uidOf("tuid-u1"), text: "after", page_title: rawTitleOf("Other Page") },
     ];
-    expect(stampBaseTextHashes([block("tuid-u1", "before")], "AI", ops)[0])
+    expect(stampBaseTextHashes([block("tuid-u1", "before")], rawTitleOf("AI"), ops)[0])
       .toMatchObject({ page_title: "Other Page" });
   });
 });
@@ -103,7 +103,7 @@ describe("stampBaseTextHashes on delete", () => {
   ];
 
   test("stamps a delete with the hash of its subtree", () => {
-    const [stamped] = stampBaseTextHashes(tree(), "AI", [{ op: "delete", uid: uidOf("tuid-r") }]);
+    const [stamped] = stampBaseTextHashes(tree(), rawTitleOf("AI"), [{ op: "delete", uid: uidOf("tuid-r") }]);
     expect(stamped).toEqual({
       op: "delete", uid: "tuid-r",
       base_subtree_hash: subtreeHash([
@@ -116,12 +116,12 @@ describe("stampBaseTextHashes on delete", () => {
     const ops: BlockOp[] = [
       { op: "delete", uid: uidOf("tuid-r"), base_subtree_hash: shaOf("feedface".repeat(8)) },
     ];
-    expect(stampBaseTextHashes(tree(), "AI", ops)[0]).toBe(ops[0]);
+    expect(stampBaseTextHashes(tree(), rawTitleOf("AI"), ops)[0]).toBe(ops[0]);
   });
 
   test("leaves a delete of an unknown node unstamped", () => {
     const ops: BlockOp[] = [{ op: "delete", uid: uidOf("elsewhere") }];
-    expect(stampBaseTextHashes(tree(), "AI", ops)[0])
+    expect(stampBaseTextHashes(tree(), rawTitleOf("AI"), ops)[0])
       .not.toHaveProperty("base_subtree_hash");
   });
 
@@ -135,7 +135,7 @@ describe("stampBaseTextHashes on delete", () => {
     ];
     const { ops } = backspaceAtStart(blocks, canonicalTitleOf("AI"), uidOf("tuid-b"));
     expect(ops.map((op) => op.op)).toEqual(["update_text", "delete"]);
-    const stamped = stampBaseTextHashes(blocks, "AI", ops);
+    const stamped = stampBaseTextHashes(blocks, rawTitleOf("AI"), ops);
     expect(stamped[1]).toEqual({
       op: "delete", uid: "tuid-b",
       base_subtree_hash: subtreeHash([["tuid-b", " world"]]),
@@ -151,13 +151,13 @@ describe("stampBaseTextHashes on delete", () => {
       { op: "move", uid: uidOf("tuid-c2"), parent_uid: null, order_idx: orderIdxOf(2) },
       { op: "delete", uid: uidOf("tuid-r") },
     ];
-    expect(stampBaseTextHashes(tree(), "AI", ops)[2]).toEqual({
+    expect(stampBaseTextHashes(tree(), rawTitleOf("AI"), ops)[2]).toEqual({
       op: "delete", uid: "tuid-r", base_subtree_hash: subtreeHash([["tuid-r", "root"]]),
     });
   });
 
   test("stamps a parent delete after its child's delete in the same batch", () => {
-    const stamped = stampBaseTextHashes(tree(), "AI", [
+    const stamped = stampBaseTextHashes(tree(), rawTitleOf("AI"), [
       { op: "delete", uid: uidOf("tuid-c1") },
       { op: "delete", uid: uidOf("tuid-r") },
     ]);
@@ -170,7 +170,7 @@ describe("stampBaseTextHashes on delete", () => {
   });
 
   test("a child update then a parent delete hashes the updated text", () => {
-    const stamped = stampBaseTextHashes(tree(), "AI", [
+    const stamped = stampBaseTextHashes(tree(), rawTitleOf("AI"), [
       { op: "update_text", uid: uidOf("tuid-g"), text: "edited" },
       { op: "delete", uid: uidOf("tuid-r") },
     ]);
@@ -197,7 +197,7 @@ describe("withoutStamps", () => {
   test("withoutStamps drops both stamps and keeps the op", () => {
     expect(withoutStamps({
       op: "update_text", uid: uidOf("tuid-a"), text: "t",
-      base_text_hash: shaOf("b".repeat(64)), page_title: "P",
+      base_text_hash: shaOf("b".repeat(64)), page_title: rawTitleOf("P"),
     })).toEqual({ op: "update_text", uid: "tuid-a", text: "t" });
   });
 });

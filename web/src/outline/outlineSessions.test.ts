@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 import type { DeliveryOutcome, TicketId, WriteOutcome, WriteTicket } from "../sync/opQueue";
-import { block, orderIdxOf, uidOf, ticketIdOf, clientIdOf, typeProbe } from "../test-helpers";
+import type { RawTitle } from "../api/brands";
+import { block, orderIdxOf, uidOf, ticketIdOf, clientIdOf, typeProbe, rawTitleOf } from "../test-helpers";
 import { acquireOutlineSession, attachActiveOutlineWriteReplay,
          isOutlineSessionActive,
          peekOutlineSession,
@@ -28,8 +29,8 @@ typeProbe(() => {
 });
 
 it("shares each flushed tree with every handle of a title", () => {
-  const first = acquireOutlineSession("Shared", [block("tuid-u1", "initial")]);
-  const second = acquireOutlineSession("Shared", [block("tuid-other", "ignored")]);
+  const first = acquireOutlineSession(rawTitleOf("Shared"), [block("tuid-u1", "initial")]);
+  const second = acquireOutlineSession(rawTitleOf("Shared"), [block("tuid-other", "ignored")]);
   const onSecondChange = vi.fn();
   const unsubscribe = second.subscribe(onSecondChange);
 
@@ -44,8 +45,8 @@ it("shares each flushed tree with every handle of a title", () => {
 });
 
 it("grants one editor and hands ownership to the next live claimant", () => {
-  const first = acquireOutlineSession("Lease", []);
-  const second = acquireOutlineSession("Lease", []);
+  const first = acquireOutlineSession(rawTitleOf("Lease"), []);
+  const second = acquireOutlineSession(rawTitleOf("Lease"), []);
   const firstLease = first.claimEditor(Symbol("first"));
   const secondLease = second.claimEditor(Symbol("second"));
   const onHandoff = vi.fn();
@@ -64,9 +65,9 @@ it("grants one editor and hands ownership to the next live claimant", () => {
 });
 
 it("lease and handle cleanup are idempotent and skip abandoned claimants", () => {
-  const first = acquireOutlineSession("Cleanup", []);
-  const abandoned = acquireOutlineSession("Cleanup", []);
-  const remaining = acquireOutlineSession("Cleanup", []);
+  const first = acquireOutlineSession(rawTitleOf("Cleanup"), []);
+  const abandoned = acquireOutlineSession(rawTitleOf("Cleanup"), []);
+  const remaining = acquireOutlineSession(rawTitleOf("Cleanup"), []);
   const firstLease = first.claimEditor(Symbol("first"));
   const abandonedLease = abandoned.claimEditor(Symbol("abandoned"));
   const remainingLease = remaining.claimEditor(Symbol("remaining"));
@@ -84,10 +85,10 @@ it("lease and handle cleanup are idempotent and skip abandoned claimants", () =>
 });
 
 it("deletes a released session so a later mount gets a fresh bootstrap", () => {
-  const old = acquireOutlineSession("Fresh", [block("tuid-old", "old")]);
+  const old = acquireOutlineSession(rawTitleOf("Fresh"), [block("tuid-old", "old")]);
   old.release();
 
-  const fresh = acquireOutlineSession("Fresh", [block("tuid-new", "new")]);
+  const fresh = acquireOutlineSession(rawTitleOf("Fresh"), [block("tuid-new", "new")]);
 
   expect(fresh.getSnapshot().blocks.map((node) => node.uid)).toEqual(["tuid-new"]);
   fresh.release();
@@ -95,7 +96,7 @@ it("deletes a released session so a later mount gets a fresh bootstrap", () => {
 
 it("retains delivery causality across release and reacquire", async () => {
   const delivered = deferred<DeliveryOutcome>();
-  const first = acquireOutlineSession("Pinned write", [block("tuid-u1", "old")]);
+  const first = acquireOutlineSession(rawTitleOf("Pinned write"), [block("tuid-u1", "old")]);
   first.applyLocal({
     id: ticketIdOf("slow-write"), scope: ["page", "Pinned write"],
     settled: Promise.resolve({ status: "persisted", pending: 1 }),
@@ -104,7 +105,7 @@ it("retains delivery causality across release and reacquire", async () => {
   first.release();
 
   const reopened = acquireOutlineSession(
-    "Pinned write", [block("tuid-u1", "stale bootstrap")],
+    rawTitleOf("Pinned write"), [block("tuid-u1", "stale bootstrap")],
   );
   expect(reopened.getSnapshot().blocks[0].text).toBe("local");
 
@@ -114,7 +115,7 @@ it("retains delivery causality across release and reacquire", async () => {
   reopened.release();
 
   const fresh = acquireOutlineSession(
-    "Pinned write", [block("tuid-u1", "fresh bootstrap")],
+    rawTitleOf("Pinned write"), [block("tuid-u1", "fresh bootstrap")],
   );
   expect(fresh.getSnapshot().blocks[0].text).toBe("fresh bootstrap");
   fresh.release();
@@ -123,13 +124,13 @@ it("retains delivery causality across release and reacquire", async () => {
 it("retains an authoritative read across release and reacquire", async () => {
   const response = deferred<ReturnType<typeof block>[]>();
   const first = acquireOutlineSession(
-    "Pinned read", [block("tuid-u1", "before read")],
+    rawTitleOf("Pinned read"), [block("tuid-u1", "before read")],
   );
   const reading = first.requestAuthoritative(() => response.promise);
   first.release();
 
   const reopened = acquireOutlineSession(
-    "Pinned read", [block("tuid-u1", "stale bootstrap")],
+    rawTitleOf("Pinned read"), [block("tuid-u1", "stale bootstrap")],
   );
   expect(reopened.getSnapshot().blocks[0].text).toBe("before read");
 
@@ -139,7 +140,7 @@ it("retains an authoritative read across release and reacquire", async () => {
   reopened.release();
 
   const fresh = acquireOutlineSession(
-    "Pinned read", [block("tuid-u1", "fresh bootstrap")],
+    rawTitleOf("Pinned read"), [block("tuid-u1", "fresh bootstrap")],
   );
   expect(fresh.getSnapshot().blocks[0].text).toBe("fresh bootstrap");
   fresh.release();
@@ -147,13 +148,13 @@ it("retains an authoritative read across release and reacquire", async () => {
 
 it("pins a token-based authoritative read across release and reacquire", () => {
   const first = acquireOutlineSession(
-    "Pinned manual read", [block("tuid-u1", "before read")],
+    rawTitleOf("Pinned manual read"), [block("tuid-u1", "before read")],
   );
   const token = first.beginAuthoritativeRead("parent");
   first.release();
 
   const reopened = acquireOutlineSession(
-    "Pinned manual read", [block("tuid-u1", "stale bootstrap")],
+    rawTitleOf("Pinned manual read"), [block("tuid-u1", "stale bootstrap")],
   );
   expect(reopened.getSnapshot().blocks[0].text).toBe("before read");
 
@@ -164,14 +165,14 @@ it("pins a token-based authoritative read across release and reacquire", () => {
 
 it("cancels a failed token-based read so the session can be collected", () => {
   const first = acquireOutlineSession(
-    "Cancelled manual read", [block("tuid-u1", "before read")],
+    rawTitleOf("Cancelled manual read"), [block("tuid-u1", "before read")],
   );
   const token = first.beginAuthoritativeRead("parent");
   first.cancelAuthoritativeRead(token);
   first.release();
 
   const fresh = acquireOutlineSession(
-    "Cancelled manual read", [block("tuid-u1", "fresh bootstrap")],
+    rawTitleOf("Cancelled manual read"), [block("tuid-u1", "fresh bootstrap")],
   );
   expect(fresh.getSnapshot().blocks[0].text).toBe("fresh bootstrap");
   first.receiveAuthoritative(token, [block("tuid-u1", "late result")]);
@@ -180,8 +181,8 @@ it("cancels a failed token-based read so the session can be collected", () => {
 });
 
 it("coalesces overlapping authoritative reads and publishes their tree once", async () => {
-  const first = acquireOutlineSession("Authoritative", [block("tuid-old", "old")]);
-  const second = acquireOutlineSession("Authoritative", [block("tuid-old", "old")]);
+  const first = acquireOutlineSession(rawTitleOf("Authoritative"), [block("tuid-old", "old")]);
+  const second = acquireOutlineSession(rawTitleOf("Authoritative"), [block("tuid-old", "old")]);
   let resolve!: (blocks: ReturnType<typeof block>[]) => void;
   const response = new Promise<ReturnType<typeof block>[]>((done) => {
     resolve = done;
@@ -211,7 +212,7 @@ it("invalidates an automatic read at final delivery settlement before replacing 
   const responses = [stale.promise, fresh.promise];
   const load = vi.fn(() => responses.shift()!);
   const session = acquireOutlineSession(
-    "Settlement supersedes", [block("tuid-u1", "old")],
+    rawTitleOf("Settlement supersedes"), [block("tuid-u1", "old")],
   );
   const removeLoader = session.setAuthoritativeLoader("editable", load);
   const published: string[] = [];
@@ -247,9 +248,9 @@ it("invalidates an automatic read at final delivery settlement before replacing 
 
 it("a newer manual read expires an older handle reservation", () => {
   const first = acquireOutlineSession(
-    "Manual supersession", [block("tuid-u1", "old")],
+    rawTitleOf("Manual supersession"), [block("tuid-u1", "old")],
   );
-  const second = acquireOutlineSession("Manual supersession", null);
+  const second = acquireOutlineSession(rawTitleOf("Manual supersession"), null);
   const oldToken = first.beginAuthoritativeRead("parent");
   const newToken = second.beginAuthoritativeRead("resync");
   second.receiveAuthoritative(newToken, [block("tuid-u1", "new")]);
@@ -258,7 +259,7 @@ it("a newer manual read expires an older handle reservation", () => {
 
   expect(isOutlineSessionActive("Manual supersession")).toBe(false);
   const fresh = acquireOutlineSession(
-    "Manual supersession", [block("tuid-u1", "fresh bootstrap")],
+    rawTitleOf("Manual supersession"), [block("tuid-u1", "fresh bootstrap")],
   );
   first.receiveAuthoritative(oldToken, [block("tuid-u1", "late old")]);
   first.cancelAuthoritativeRead(oldToken);
@@ -267,7 +268,7 @@ it("a newer manual read expires an older handle reservation", () => {
 });
 
 it("an expired unbootstrapped parent cannot reset the newer manual read", () => {
-  const title = "Overlapping empty parents";
+  const title = rawTitleOf("Overlapping empty parents");
   const older = acquireOutlineSession(title, null);
   const newer = acquireOutlineSession(title, null);
   const olderToken = older.beginAuthoritativeRead("parent");
@@ -299,7 +300,7 @@ it("an expired unbootstrapped parent cannot reset the newer manual read", () => 
 });
 
 it("an existing-session bootstrap cannot overwrite an unresolved local write", async () => {
-  const title = "Unbootstrapped relevant write";
+  const title = rawTitleOf("Unbootstrapped relevant write");
   const delivered = deferred<DeliveryOutcome>();
   const session = acquireOutlineSession(title, null);
   session.applyLocal({
@@ -325,7 +326,7 @@ it("an existing-session bootstrap cannot overwrite an unresolved local write", a
 });
 
 it("a genuine later bootstrap preserves monotonic manual request ids", () => {
-  const title = "Bootstrap request identity";
+  const title = rawTitleOf("Bootstrap request identity");
   const first = acquireOutlineSession(title, null);
   const cancelled = first.beginAuthoritativeRead("parent");
   first.cancelAuthoritativeRead(cancelled);
@@ -350,7 +351,7 @@ it("a genuine later bootstrap preserves monotonic manual request ids", () => {
 
 it("an automatic read expires an older manual reservation", async () => {
   const session = acquireOutlineSession(
-    "Automatic supersession", [block("tuid-u1", "old")],
+    rawTitleOf("Automatic supersession"), [block("tuid-u1", "old")],
   );
   const oldToken = session.beginAuthoritativeRead("parent");
   await session.requestAuthoritative(async () => [block("tuid-u1", "automatic")]);
@@ -358,7 +359,7 @@ it("an automatic read expires an older manual reservation", async () => {
 
   expect(isOutlineSessionActive("Automatic supersession")).toBe(false);
   const fresh = acquireOutlineSession(
-    "Automatic supersession", [block("tuid-u1", "fresh bootstrap")],
+    rawTitleOf("Automatic supersession"), [block("tuid-u1", "fresh bootstrap")],
   );
   session.receiveAuthoritative(oldToken, [block("tuid-u1", "late old")]);
   session.cancelAuthoritativeRead(oldToken);
@@ -367,9 +368,9 @@ it("an automatic read expires an older manual reservation", async () => {
 });
 
 it("routes a cross-page ticket to source and fallback target but not another title", async () => {
-  const source = acquireOutlineSession("Source", [block("tuid-s", "old source")]);
-  const target = acquireOutlineSession("Target", [block("tuid-t", "old target")]);
-  const other = acquireOutlineSession("Other", [block("tuid-o", "old other")]);
+  const source = acquireOutlineSession(rawTitleOf("Source"), [block("tuid-s", "old source")]);
+  const target = acquireOutlineSession(rawTitleOf("Target"), [block("tuid-t", "old target")]);
+  const other = acquireOutlineSession(rawTitleOf("Other"), [block("tuid-o", "old other")]);
   const loadSource = vi.fn(async () => [block("tuid-s", "new source")]);
   const loadTarget = vi.fn(async () => [block("tuid-t", "new target")]);
   const removeSourceLoader = source.setAuthoritativeLoader("editable", loadSource);
@@ -418,7 +419,7 @@ it("attaches an unresolved scoped ticket when its target session opens later", a
   }, []);
 
   const target = acquireOutlineSession(
-    "Late target", [block("tuid-u1", "opened optimistic target")],
+    rawTitleOf("Late target"), [block("tuid-u1", "opened optimistic target")],
   );
   const loadTarget = vi.fn(async () => [block("tuid-u1", "post-delivery target")]);
   const removeLoader = target.setAuthoritativeLoader("editable", loadTarget);
@@ -441,7 +442,7 @@ it("attaches an unresolved scoped ticket when its target session opens later", a
 it("waits for active session loaders at the legacy repair boundary", async () => {
   const response = deferred<ReturnType<typeof block>[]>();
   const session = acquireOutlineSession(
-    "Legacy repair", [block("tuid-u1", "optimistic")],
+    rawTitleOf("Legacy repair"), [block("tuid-u1", "optimistic")],
   );
   const load = vi.fn(() => response.promise);
   const removeLoader = session.setAuthoritativeLoader("editable", load);
@@ -465,7 +466,7 @@ it("legacy repair supersedes and awaits an existing automatic read", async () =>
   const stale = deferred<ReturnType<typeof block>[]>();
   const forced = deferred<ReturnType<typeof block>[]>();
   const session = acquireOutlineSession(
-    "Forced after existing", [block("tuid-u1", "optimistic")],
+    rawTitleOf("Forced after existing"), [block("tuid-u1", "optimistic")],
   );
   const loadForced = vi.fn(() => forced.promise);
   const removeLoader = session.setAuthoritativeLoader("editable", loadForced);
@@ -492,7 +493,7 @@ it("legacy repair supersedes and awaits an existing automatic read", async () =>
 it("legacy repair adopts server state and reapplies a wholly later ticket", async () => {
   const rejected = deferred<DeliveryOutcome>();
   const later = deferred<DeliveryOutcome>();
-  const session = acquireOutlineSession("Repair rebase", [
+  const session = acquireOutlineSession(rawTitleOf("Repair rebase"), [
     block("tuid-u1", "old"), block("tuid-u2", "old other", { order_idx: orderIdxOf(1) }),
   ]);
   session.applyLocal({
@@ -531,18 +532,18 @@ it("legacy repair adopts server state and reapplies a wholly later ticket", asyn
 });
 
 it("asks for authority when a remote batch moves a block off the page and back", () => {
-  const title = "Remote off and back";
+  const title = rawTitleOf("Remote off and back");
   const session = acquireOutlineSession(title, [
     block("tuid-x1", "X", { order_idx: orderIdxOf(0) }),
   ]);
   try {
-    const move = (pageTitle: string) => ({
+    const move = (pageTitle: RawTitle) => ({
       op: "move" as const, uid: uidOf("tuid-x1"), parent_uid: null,
       order_idx: orderIdxOf(0), page_title: pageTitle,
     });
     const result = session.applyRemote({
       client_id: clientIdOf("remote"), ts: 1,
-      ops: [move("Elsewhere"), move(title)],
+      ops: [move(rawTitleOf("Elsewhere")), move(title)],
     });
     expect(result).toEqual({ applied: true, needsAuthoritative: true });
   } finally {
@@ -552,7 +553,7 @@ it("asks for authority when a remote batch moves a block off the page and back",
 
 it("legacy repair rejects when an active session has no loader", async () => {
   const session = acquireOutlineSession(
-    "Missing repair loader", [block("tuid-u1", "optimistic")],
+    rawTitleOf("Missing repair loader"), [block("tuid-u1", "optimistic")],
   );
   try {
     await expect(repairActiveOutlineSessions()).rejects.toThrow(
@@ -568,7 +569,7 @@ it("keeps repair pending when a remote revision advances during its GET", async 
   const fresh = deferred<ReturnType<typeof block>[]>();
   const responses = [stale.promise, fresh.promise];
   const session = acquireOutlineSession(
-    "Repair remote advance", [block("tuid-u1", "before repair")],
+    rawTitleOf("Repair remote advance"), [block("tuid-u1", "before repair")],
   );
   const load = vi.fn(() => responses.shift()!);
   const removeLoader = session.setAuthoritativeLoader("editable", load);
@@ -604,7 +605,7 @@ it("keeps repair pending when a remote revision advances during its GET", async 
 it("enrolls sessions acquired during a repair and ignores released newcomers", async () => {
   const firstResponse = deferred<ReturnType<typeof block>[]>();
   const secondResponse = deferred<ReturnType<typeof block>[]>();
-  const first = acquireOutlineSession("Repair cohort first", [
+  const first = acquireOutlineSession(rawTitleOf("Repair cohort first"), [
     block("tuid-u1", "first optimistic"),
   ]);
   const firstLoad = vi.fn(() => firstResponse.promise);
@@ -614,12 +615,12 @@ it("enrolls sessions acquired during a repair and ignores released newcomers", a
   let removeSecondLoader: (() => void) | undefined;
   try {
     await vi.waitFor(() => expect(firstLoad).toHaveBeenCalledTimes(1));
-    second = acquireOutlineSession("Repair cohort second", [
+    second = acquireOutlineSession(rawTitleOf("Repair cohort second"), [
       block("tuid-u2", "second optimistic"),
     ]);
     const secondLoad = vi.fn(() => secondResponse.promise);
     removeSecondLoader = second.setAuthoritativeLoader("editable", secondLoad);
-    const released = acquireOutlineSession("Repair cohort released", [
+    const released = acquireOutlineSession(rawTitleOf("Repair cohort released"), [
       block("tuid-gone", "released immediately"),
     ]);
     released.release();
@@ -649,7 +650,7 @@ it("enrolls sessions acquired during a repair and ignores released newcomers", a
 
 it("reports a missing loader for a live session that joins a repair", async () => {
   const firstResponse = deferred<ReturnType<typeof block>[]>();
-  const first = acquireOutlineSession("Repair loader first", [
+  const first = acquireOutlineSession(rawTitleOf("Repair loader first"), [
     block("tuid-u1", "first optimistic"),
   ]);
   const removeLoader = first.setAuthoritativeLoader(
@@ -659,7 +660,7 @@ it("reports a missing loader for a live session that joins a repair", async () =
   let missing: ReturnType<typeof acquireOutlineSession> | undefined;
   try {
     await Promise.resolve();
-    missing = acquireOutlineSession("Repair loader late missing", [
+    missing = acquireOutlineSession(rawTitleOf("Repair loader late missing"), [
       block("tuid-u2", "late optimistic"),
     ]);
     firstResponse.resolve([block("tuid-u1", "first repaired")]);
@@ -682,10 +683,10 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
   const moved = block("tuid-moved", "moved", {
     children: [block("tuid-child", "child")],
   });
-  const source = acquireOutlineSession("Replay source", [
+  const source = acquireOutlineSession(rawTitleOf("Replay source"), [
     block("source-root", "source", { children: [moved] }),
   ]);
-  const target = acquireOutlineSession("Replay target", [
+  const target = acquireOutlineSession(rawTitleOf("Replay target"), [
     block("target-root", "target", { children: [] }),
   ]);
   source.applyLocal({
@@ -707,7 +708,7 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
   } satisfies WriteTicket;
   const moveOps = [{
     op: "move" as const, uid: uidOf("tuid-moved"), parent_uid: uidOf("target-root"),
-    order_idx: orderIdxOf(0), page_title: "Replay target",
+    order_idx: orderIdxOf(0), page_title: rawTitleOf("Replay target"),
   }];
   trackActiveOutlineWrite(move, moveOps);
   attachActiveOutlineWriteReplay(move, "Replay target", [{
@@ -760,7 +761,7 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
 // the local edit for any ticket the delivery registry has not pre-tracked.
 it("rebases a local write tracked only through applyLocal", async () => {
   const delivered = deferred<DeliveryOutcome>();
-  const session = acquireOutlineSession("Self-tracked replay", [
+  const session = acquireOutlineSession(rawTitleOf("Self-tracked replay"), [
     block("tuid-u1", "server"),
   ]);
   session.applyLocal({
@@ -803,7 +804,7 @@ async function settleWriteOn(
 }
 
 it("elects the page loader over an editable one whatever the mount order", async () => {
-  const title = "Loader precedence";
+  const title = rawTitleOf("Loader precedence");
   const pageLoad = vi.fn(async () => [block("tuid-u1", "page loader")]);
   const editableLoad = vi.fn(async () => [block("tuid-u1", "editable loader")]);
   const first = acquireOutlineSession(title, [block("tuid-u1", "old")]);
@@ -828,7 +829,7 @@ it("elects the page loader over an editable one whatever the mount order", async
 });
 
 it("falls back through day to editable as higher-precedence loaders go away", async () => {
-  const title = "Loader fallback";
+  const title = rawTitleOf("Loader fallback");
   const dayLoad = vi.fn(async () => [block("tuid-u1", "day loader")]);
   const editableLoad = vi.fn(async () => [block("tuid-u1", "editable loader")]);
   const session = acquireOutlineSession(title, [block("tuid-u1", "old")]);
@@ -854,7 +855,7 @@ it("falls back through day to editable as higher-precedence loaders go away", as
 });
 
 it("elects the newest loader of the winning kind", async () => {
-  const title = "Loader same kind";
+  const title = rawTitleOf("Loader same kind");
   const older = vi.fn(async () => [block("tuid-u1", "older page")]);
   const newer = vi.fn(async () => [block("tuid-u1", "newer page")]);
   const session = acquireOutlineSession(title, [block("tuid-u1", "old")]);
@@ -871,7 +872,7 @@ it("elects the newest loader of the winning kind", async () => {
 });
 
 it("repairs through the elected loader, not the last one registered", async () => {
-  const title = "Repair precedence";
+  const title = rawTitleOf("Repair precedence");
   const pageLoad = vi.fn(async () => [block("tuid-u1", "page repaired")]);
   const editableLoad = vi.fn(async () => [block("tuid-u1", "editable repaired")]);
   const session = acquireOutlineSession(title, [block("tuid-u1", "optimistic")]);
@@ -893,12 +894,12 @@ it("repairs through the elected loader, not the last one registered", async () =
 });
 
 it("peekOutlineSession returns a handle only for live sessions", () => {
-  expect(peekOutlineSession("Peek Test")).toBeNull();
-  const handle = acquireOutlineSession("Peek Test", []);
-  const peeked = peekOutlineSession("Peek Test");
+  expect(peekOutlineSession(rawTitleOf("Peek Test"))).toBeNull();
+  const handle = acquireOutlineSession(rawTitleOf("Peek Test"), []);
+  const peeked = peekOutlineSession(rawTitleOf("Peek Test"));
   expect(peeked).not.toBeNull();
   expect(peeked!.getSnapshot()).toEqual(handle.getSnapshot());
   peeked!.release();
   handle.release();
-  expect(peekOutlineSession("Peek Test")).toBeNull(); // released -> evicted
+  expect(peekOutlineSession(rawTitleOf("Peek Test"))).toBeNull(); // released -> evicted
 });

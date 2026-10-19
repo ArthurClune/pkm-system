@@ -1,13 +1,14 @@
 // pattern: Imperative Shell
 // Reads SidebarContext and navigates via react-router's Link/shift-click --
 // runtime React context and navigation, not a pure rendering decision.
+import type { RawTitle } from "../api/brands";
 import { useContext } from "react";
 import { Link } from "react-router-dom";
 import { SidebarContext } from "../contexts";
 import { pagePath } from "../paths";
 import { pageNamespace } from "./pageNamespace";
 
-export function PageLink({ title, tag }: { title: string; tag: boolean }) {
+export function PageLink({ title, tag }: { title: RawTitle; tag: boolean }) {
   const { openInSidebar } = useContext(SidebarContext);
   return (
     <Link

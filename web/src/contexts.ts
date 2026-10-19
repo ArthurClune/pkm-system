@@ -4,7 +4,7 @@
 // context here exists purely to carry mutable app state/callbacks across
 // the tree -- there's no pure decision to extract.
 import { createContext } from "react";
-import type { BlockUid } from "./api/brands";
+import type { BlockUid, RawTitle } from "./api/brands";
 import type { BlockNode, BlockRefText } from "./api/payloads";
 import { createBlockRefStore } from "./components/blockRefStore";
 
@@ -13,7 +13,7 @@ export interface SidebarApi {
    * page has rendered -- scoped to that panel's own container,
    * never a document-wide lookup (the same page may be open in the main
    * window at the same time). */
-  openInSidebar: (title: string, uid?: BlockUid) => void;
+  openInSidebar: (title: RawTitle, uid?: BlockUid) => void;
 }
 
 export const SidebarContext = createContext<SidebarApi>({

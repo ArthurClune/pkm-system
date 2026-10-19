@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
-import { block, orderIdxOf, uidOf } from "../test-helpers";
+import { block, orderIdxOf, uidOf, rawTitleOf } from "../test-helpers";
 import { ancestorChain, applyOps, applyOpsWithChange, blocksEqual, findNode,
          hidesChildren, hidingAncestors, insertSubtree, locate, needsAuthoritativeReload,
          removeSubtree, selectableUids, visibleNeighbor,
@@ -46,19 +46,19 @@ describe("locate / visibility", () => {
 
 describe("applyOps mirrors ops_apply.py", () => {
   test("create shifts later siblings and inserts sorted", () => {
-    const op: BlockOp = { op: "create", uid: uidOf("tuid-n1"), page_title: "P",
+    const op: BlockOp = { op: "create", uid: uidOf("tuid-n1"), page_title: rawTitleOf("P"),
                           parent_uid: null, order_idx: orderIdxOf(5), text: "new",
                           view_type: "numbered" };
-    const out = applyOps(tree(), [op], "P");
+    const out = applyOps(tree(), [op], rawTitleOf("P"));
     expect(out.map((n) => [n.uid, n.order_idx])).toEqual(
       [["tuid-a", 0], ["tuid-n1", 5], ["tuid-b", 6], ["tuid-c", 8]]);
     expect(findNode(out, uidOf("tuid-n1"))!.view_type).toBe("numbered");
   });
 
   test("create for another page is skipped", () => {
-    const op: BlockOp = { op: "create", uid: uidOf("tuid-n1"), page_title: "Other",
+    const op: BlockOp = { op: "create", uid: uidOf("tuid-n1"), page_title: rawTitleOf("Other"),
                           parent_uid: null, order_idx: orderIdxOf(0), text: "x" };
-    expect(applyOps(tree(), [op], "P").map((n) => n.uid)).toEqual(["tuid-a", "tuid-b", "tuid-c"]);
+    expect(applyOps(tree(), [op], rawTitleOf("P")).map((n) => n.uid)).toEqual(["tuid-a", "tuid-b", "tuid-c"]);
   });
 
   test("move follows insert-before-pre-removal semantics ([A,B,C] A->2 = [B,A,C])", () => {
@@ -66,14 +66,14 @@ describe("applyOps mirrors ops_apply.py", () => {
                  block("tuid-b", "B", { order_idx: orderIdxOf(1) }),
                  block("tuid-c", "C", { order_idx: orderIdxOf(2) })];
     const op: BlockOp = { op: "move", uid: uidOf("tuid-a"), parent_uid: null, order_idx: orderIdxOf(2) };
-    const out = applyOps(abc, [op], "P");
+    const out = applyOps(abc, [op], rawTitleOf("P"));
     expect(out.map((n) => n.uid)).toEqual(["tuid-b", "tuid-a", "tuid-c"]);
     expect(out.map((n) => n.order_idx)).toEqual([1, 2, 3]);
   });
 
   test("move reparents into a nested target", () => {
     const op: BlockOp = { op: "move", uid: uidOf("tuid-a"), parent_uid: uidOf("tuid-b"), order_idx: orderIdxOf(3) };
-    const out = applyOps(tree(), [op], "P");
+    const out = applyOps(tree(), [op], rawTitleOf("P"));
     expect(out.map((n) => n.uid)).toEqual(["tuid-b", "tuid-c"]);
     expect(findNode(out, uidOf("tuid-b"))!.children.map((n) => [n.uid, n.order_idx]))
       .toEqual([["tuid-b1", 0], ["tuid-a", 3], ["tuid-b2", 4]]);
@@ -84,7 +84,7 @@ describe("applyOps mirrors ops_apply.py", () => {
       { op: "delete", uid: uidOf("tuid-b") },
       { op: "update_text", uid: uidOf("tuid-a"), text: "A!" },
       { op: "set_collapsed", uid: uidOf("tuid-c"), collapsed: false },
-    ], "P");
+    ], rawTitleOf("P"));
     expect(out.map((n) => n.uid)).toEqual(["tuid-a", "tuid-c"]);
     expect(findNode(out, uidOf("tuid-a"))!.text).toBe("A!");
     expect(findNode(out, uidOf("tuid-c"))!.collapsed).toBe(false);
@@ -94,11 +94,11 @@ describe("applyOps mirrors ops_apply.py", () => {
   test("set_heading sets or clears the node's heading (applies to remote batches too)", () => {
     const out = applyOps(tree(), [
       { op: "set_heading", uid: uidOf("tuid-a"), heading: 2 },
-    ], "P");
+    ], rawTitleOf("P"));
     expect(findNode(out, uidOf("tuid-a"))!.heading).toBe(2);
     const cleared = applyOps(out, [
       { op: "set_heading", uid: uidOf("tuid-a"), heading: null },
-    ], "P");
+    ], rawTitleOf("P"));
     expect(findNode(cleared, uidOf("tuid-a"))!.heading).toBeNull();
   });
 
@@ -106,7 +106,7 @@ describe("applyOps mirrors ops_apply.py", () => {
     const before = tree();
     const out = applyOps(before, [
       { op: "set_view_type", uid: uidOf("tuid-b"), view_type: "numbered" },
-    ], "P");
+    ], rawTitleOf("P"));
     expect(findNode(out, uidOf("tuid-b"))!.view_type).toBe("numbered");
     expect(findNode(out, uidOf("tuid-b"))!.text).toBe(findNode(before, uidOf("tuid-b"))!.text);
     expect(findNode(out, uidOf("tuid-b"))!.collapsed).toBe(findNode(before, uidOf("tuid-b"))!.collapsed);
@@ -122,13 +122,13 @@ describe("applyOps mirrors ops_apply.py", () => {
       { op: "set_collapsed", uid: uidOf("tuid-zz"), collapsed: true },
       { op: "set_heading", uid: uidOf("tuid-zz"), heading: 1 },
       { op: "set_view_type", uid: uidOf("tuid-zz"), view_type: "numbered" },
-    ], "P");
+    ], rawTitleOf("P"));
     expect(out.map((n) => n.uid)).toEqual(["tuid-a", "tuid-b", "tuid-c"]);
   });
 
   test("does not mutate its input", () => {
     const input = tree();
-    applyOps(input, [{ op: "update_text", uid: uidOf("tuid-a"), text: "changed" }], "P");
+    applyOps(input, [{ op: "update_text", uid: uidOf("tuid-a"), text: "changed" }], rawTitleOf("P"));
     expect(input[0].text).toBe("A");
   });
 
@@ -136,7 +136,7 @@ describe("applyOps mirrors ops_apply.py", () => {
     const tree = [block("tuid-a", "A"), { ...block("tuid-b", "B"), children: [block("tuid-c", "C")] }];
     const next = applyOps(tree, [
       { op: "move", uid: uidOf("tuid-b"), parent_uid: null, order_idx: orderIdxOf(0),
-        page_title: "Elsewhere" }], "Here");
+        page_title: rawTitleOf("Elsewhere") }], rawTitleOf("Here"));
     expect(next.map((n) => n.uid)).toEqual(["tuid-a"]);
   });
 
@@ -145,7 +145,7 @@ describe("applyOps mirrors ops_apply.py", () => {
                   block("tuid-b", "B", { order_idx: orderIdxOf(1) })];
     const next = applyOps(tree, [
       { op: "move", uid: uidOf("tuid-b"), parent_uid: null, order_idx: orderIdxOf(0),
-        page_title: "Here" }], "Here");
+        page_title: rawTitleOf("Here") }], rawTitleOf("Here"));
     expect(next.map((n) => n.uid)).toEqual(["tuid-b", "tuid-a"]);
   });
 
@@ -356,18 +356,18 @@ describe("applyOpsWithChange reports exactly what a serialize-compare would", ()
   // op reported as a change would re-render (and bump the revision) for
   // nothing, and a real change reported as none would strand the edit.
   const cases: [string, BlockOp][] = [
-    ["a create for this page", { op: "create", uid: uidOf("tuid-n1"), page_title: "P",
+    ["a create for this page", { op: "create", uid: uidOf("tuid-n1"), page_title: rawTitleOf("P"),
                                  parent_uid: null, order_idx: orderIdxOf(5), text: "new" }],
     ["a create for another page", { op: "create", uid: uidOf("tuid-n1"),
-                                    page_title: "Other", parent_uid: null,
+                                    page_title: rawTitleOf("Other"), parent_uid: null,
                                     order_idx: orderIdxOf(0), text: "new" }],
     ["a create replaying a uid already here", {
-      op: "create", uid: uidOf("tuid-b"), page_title: "P", parent_uid: null,
+      op: "create", uid: uidOf("tuid-b"), page_title: rawTitleOf("P"), parent_uid: null,
       order_idx: orderIdxOf(5), text: "B" }],
     ["a create under a parent this tree does not hold", {
-      op: "create", uid: uidOf("tuid-n1"), page_title: "P", parent_uid: uidOf("tuid-zz"),
+      op: "create", uid: uidOf("tuid-n1"), page_title: rawTitleOf("P"), parent_uid: uidOf("tuid-zz"),
       order_idx: orderIdxOf(0), text: "new" }],
-    ["a page creation", { op: "create_page", page_title: "Other" }],
+    ["a page creation", { op: "create_page", page_title: rawTitleOf("Other") }],
     ["update_text to a different text", {
       op: "update_text", uid: uidOf("tuid-a"), text: "A!" }],
     ["update_text to the text already there", {
@@ -393,7 +393,7 @@ describe("applyOpsWithChange reports exactly what a serialize-compare would", ()
       op: "move", uid: uidOf("tuid-a"), parent_uid: uidOf("tuid-b"), order_idx: orderIdxOf(3) }],
     ["a move whose page_title names another page", {
       op: "move", uid: uidOf("tuid-b"), parent_uid: null, order_idx: orderIdxOf(0),
-      page_title: "Elsewhere" }],
+      page_title: rawTitleOf("Elsewhere") }],
     ["a move under a parent this tree does not hold", {
       op: "move", uid: uidOf("tuid-a"), parent_uid: uidOf("tuid-zz"), order_idx: orderIdxOf(0) }],
     ["a move of a uid not here", {
@@ -403,7 +403,7 @@ describe("applyOpsWithChange reports exactly what a serialize-compare would", ()
   for (const [name, op] of cases) {
     test(name, () => {
       const before = tree();
-      const applied = applyOpsWithChange(before, [op], "P");
+      const applied = applyOpsWithChange(before, [op], rawTitleOf("P"));
       expect(applied.changed)
         .toBe(JSON.stringify(before) !== JSON.stringify(applied.blocks));
     });
@@ -417,7 +417,7 @@ describe("applyOpsWithChange reports exactly what a serialize-compare would", ()
     const before = tree().map((n) =>
       n.uid === "tuid-a" ? { ...n, view_type: "numbered" as const } : n);
     const op: BlockOp = { op: "set_view_type", uid: uidOf("tuid-a"), view_type: "numbered" };
-    const applied = applyOpsWithChange(before, [op], "P");
+    const applied = applyOpsWithChange(before, [op], rawTitleOf("P"));
     expect(applied.changed)
       .toBe(JSON.stringify(before) !== JSON.stringify(applied.blocks));
   });
@@ -428,15 +428,15 @@ describe("applyOpsWithChange reports exactly what a serialize-compare would", ()
       { op: "update_text", uid: uidOf("tuid-a"), text: "A" },   // no-op
       { op: "update_text", uid: uidOf("tuid-a"), text: "A!" },  // real
       { op: "delete", uid: uidOf("tuid-zz") },                  // other page
-    ], "P");
+    ], rawTitleOf("P"));
     expect(applied.changed).toBe(true);
     expect(findNode(applied.blocks, uidOf("tuid-a"))!.text).toBe("A!");
   });
 
   test("applyOps is the same application without the flag", () => {
     const op: BlockOp = { op: "update_text", uid: uidOf("tuid-a"), text: "A!" };
-    expect(applyOps(tree(), [op], "P"))
-      .toEqual(applyOpsWithChange(tree(), [op], "P").blocks);
+    expect(applyOps(tree(), [op], rawTitleOf("P")))
+      .toEqual(applyOpsWithChange(tree(), [op], rawTitleOf("P")).blocks);
   });
 });
 
@@ -446,22 +446,22 @@ describe("applyOpsWithChange allocates nothing for a batch that misses this page
   // Cloning it to throw the clone away costs one fresh node per block per
   // remote batch; these tests fail the moment the clone comes back.
   const elsewhere: BlockOp[] = [
-    { op: "create", uid: uidOf("tuid-n1"), page_title: "Other", parent_uid: null,
+    { op: "create", uid: uidOf("tuid-n1"), page_title: rawTitleOf("Other"), parent_uid: null,
       order_idx: orderIdxOf(0), text: "new" },
-    { op: "create_page", page_title: "Other" },
+    { op: "create_page", page_title: rawTitleOf("Other") },
     { op: "update_text", uid: uidOf("tuid-zz"), text: "x" },
     { op: "set_collapsed", uid: uidOf("tuid-zz"), collapsed: true },
     { op: "set_heading", uid: uidOf("tuid-zz"), heading: 1 },
     { op: "set_view_type", uid: uidOf("tuid-zz"), view_type: "numbered" },
     { op: "move", uid: uidOf("tuid-zz"), parent_uid: null, order_idx: orderIdxOf(0) },
     { op: "move", uid: uidOf("tuid-zz"), parent_uid: null, order_idx: orderIdxOf(0),
-      page_title: "Other" },
+      page_title: rawTitleOf("Other") },
     { op: "delete", uid: uidOf("tuid-zz") },
   ];
 
   test("returns the very tree it was given, nodes and all", () => {
     const before = tree();
-    const applied = applyOpsWithChange(before, elsewhere, "P");
+    const applied = applyOpsWithChange(before, elsewhere, rawTitleOf("P"));
     expect(applied.changed).toBe(false);
     expect(applied.blocks).toBe(before);
     // Reference-identity all the way down: a clone would rebuild the nested
@@ -474,7 +474,7 @@ describe("applyOpsWithChange allocates nothing for a batch that misses this page
   test("each miss on its own returns the same tree", () => {
     for (const op of elsewhere) {
       const before = tree();
-      expect(applyOpsWithChange(before, [op], "P").blocks,
+      expect(applyOpsWithChange(before, [op], rawTitleOf("P")).blocks,
              `cloned for ${op.op}`).toBe(before);
     }
   });
@@ -482,7 +482,7 @@ describe("applyOpsWithChange allocates nothing for a batch that misses this page
   test("one op landing on a nested uid still clones and applies the batch", () => {
     const before = tree();
     const applied = applyOpsWithChange(
-      before, [...elsewhere, { op: "update_text", uid: uidOf("tuid-b2"), text: "B2!" }], "P");
+      before, [...elsewhere, { op: "update_text", uid: uidOf("tuid-b2"), text: "B2!" }], rawTitleOf("P"));
     expect(applied.changed).toBe(true);
     expect(applied.blocks).not.toBe(before);
     expect(findNode(applied.blocks, uidOf("tuid-b2"))!.text).toBe("B2!");
@@ -494,13 +494,13 @@ describe("applyOpsWithChange allocates nothing for a batch that misses this page
     // they are this page's ops: the skip may only key on relevance, never on
     // the outcome, or the change flag would start disagreeing with the tree.
     for (const op of [
-      { op: "create", uid: uidOf("tuid-b"), page_title: "P", parent_uid: null,
+      { op: "create", uid: uidOf("tuid-b"), page_title: rawTitleOf("P"), parent_uid: null,
         order_idx: orderIdxOf(5), text: "B" },
-      { op: "create", uid: uidOf("tuid-n1"), page_title: "P", parent_uid: uidOf("tuid-zz"),
+      { op: "create", uid: uidOf("tuid-n1"), page_title: rawTitleOf("P"), parent_uid: uidOf("tuid-zz"),
         order_idx: orderIdxOf(0), text: "new" },
     ] satisfies BlockOp[]) {
       const before = tree();
-      const applied = applyOpsWithChange(before, [op], "P");
+      const applied = applyOpsWithChange(before, [op], rawTitleOf("P"));
       expect(applied.changed).toBe(false);
       expect(applied.blocks).toEqual(before);
     }
@@ -509,54 +509,55 @@ describe("applyOpsWithChange allocates nothing for a batch that misses this page
 
 describe("needsAuthoritativeReload", () => {
   const move = (u: string, page_title: string | null): BlockOp => ({
-    op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(0), page_title,
+    op: "move", uid: uidOf(u), parent_uid: null, order_idx: orderIdxOf(0),
+    page_title: page_title === null ? null : rawTitleOf(page_title),
   });
 
   test("true for a move into this page of a uid the tree lacks", () => {
-    expect(needsAuthoritativeReload(tree(), [move("tuid-zz", "P")], "P")).toBe(true);
+    expect(needsAuthoritativeReload(tree(), [move("tuid-zz", "P")], rawTitleOf("P"))).toBe(true);
   });
   test("false when the uid is present", () => {
-    expect(needsAuthoritativeReload(tree(), [move("tuid-b1", "P")], "P")).toBe(false);
+    expect(needsAuthoritativeReload(tree(), [move("tuid-b1", "P")], rawTitleOf("P"))).toBe(false);
   });
   test("false when page_title is null", () => {
-    expect(needsAuthoritativeReload(tree(), [move("tuid-zz", null)], "P")).toBe(false);
+    expect(needsAuthoritativeReload(tree(), [move("tuid-zz", null)], rawTitleOf("P"))).toBe(false);
   });
   test("false for a move naming another page", () => {
-    expect(needsAuthoritativeReload(tree(), [move("tuid-zz", "Q")], "P")).toBe(false);
+    expect(needsAuthoritativeReload(tree(), [move("tuid-zz", "Q")], rawTitleOf("P"))).toBe(false);
   });
   test("false for non-move ops on absent uids", () => {
     const ops: BlockOp[] = [
       { op: "delete", uid: uidOf("tuid-zz") },
       { op: "update_text", uid: uidOf("tuid-zz"), text: "x" },
     ];
-    expect(needsAuthoritativeReload(tree(), ops, "P")).toBe(false);
+    expect(needsAuthoritativeReload(tree(), ops, rawTitleOf("P"))).toBe(false);
   });
   test("true when one batch moves a present block off the page and back", () => {
     // The echo removes "tuid-a" on the first move and cannot place it on the
     // second, so the rule is asked of the tree as each op leaves it.
     expect(needsAuthoritativeReload(
-      tree(), [move("tuid-a", "Q"), move("tuid-a", "P")], "P")).toBe(true);
+      tree(), [move("tuid-a", "Q"), move("tuid-a", "P")], rawTitleOf("P"))).toBe(true);
   });
   test("true when a batch moves a parent off the page and then its child onto it", () => {
     // The first move takes "tuid-b1" away with its parent "tuid-b", so the
     // echo cannot place "tuid-b1" on the second.
     expect(needsAuthoritativeReload(
-      tree(), [move("tuid-b", "Q"), move("tuid-b1", "P")], "P")).toBe(true);
+      tree(), [move("tuid-b", "Q"), move("tuid-b1", "P")], rawTitleOf("P"))).toBe(true);
   });
   test("false when the batch created the block on this page before moving it", () => {
     const ops: BlockOp[] = [
       { op: "create", uid: uidOf("tuid-zz"), parent_uid: null, order_idx: orderIdxOf(9),
-        text: "Z", page_title: "P" },
+        text: "Z", page_title: rawTitleOf("P") },
       move("tuid-zz", "P"),
     ];
-    expect(needsAuthoritativeReload(tree(), ops, "P")).toBe(false);
+    expect(needsAuthoritativeReload(tree(), ops, rawTitleOf("P"))).toBe(false);
   });
   test("false for a batch that only moves a present block off the page", () => {
-    expect(needsAuthoritativeReload(tree(), [move("tuid-a", "Q")], "P")).toBe(false);
+    expect(needsAuthoritativeReload(tree(), [move("tuid-a", "Q")], rawTitleOf("P"))).toBe(false);
   });
   test("leaves the caller's tree untouched", () => {
     const blocks = tree();
-    needsAuthoritativeReload(blocks, [move("tuid-a", "Q"), move("tuid-a", "P")], "P");
+    needsAuthoritativeReload(blocks, [move("tuid-a", "Q"), move("tuid-a", "P")], rawTitleOf("P"));
     expect(blocks).toEqual(tree());
   });
 });

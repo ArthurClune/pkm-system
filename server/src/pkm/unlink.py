@@ -23,6 +23,7 @@ from pkm.export.resolve import find_query_macros
 from pkm.refs import (
     BLOCK_REF_TOKEN,
     BracketSpan,
+    CanonicalTitle,
     attribute_title_span,
     bracket_spans,
     extract,
@@ -197,7 +198,7 @@ BlockerReason = Literal["query", "used_as_attribute", "attribute", "residual"]
 @dataclass(frozen=True)
 class DeleteBlocker:
     uid: BlockUid
-    page_title: str
+    page_title: CanonicalTitle
     text: str
     reason: BlockerReason
 
@@ -205,7 +206,7 @@ class DeleteBlocker:
 @dataclass(frozen=True)
 class SourceBlock:
     uid: BlockUid
-    page_title: str
+    page_title: CanonicalTitle
     text: str
 
 

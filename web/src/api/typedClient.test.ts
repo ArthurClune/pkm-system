@@ -4,7 +4,7 @@
 // TypeScript reports an UNUSED suppression as an error of its own, so a probe
 // that stops catching its drift fails the build rather than silently passing.
 import { afterEach, expect, it, vi } from "vitest";
-import { READ_INIT, sidebarEntryIdOf, canonicalTitleOf, typeProbe } from "../test-helpers";
+import { READ_INIT, sidebarEntryIdOf, canonicalTitleOf, typeProbe, rawTitleOf } from "../test-helpers";
 import type { CurrentWorkPayload, JournalPayload, PageMeta,
               PagePayload } from "./payloads";
 import { setOfflineGateway } from "./client";
@@ -29,11 +29,11 @@ typeProbe(() => {
     apiGet("/api/page/{title}", { path: { title: "T" } });
   const work: Promise<CurrentWorkPayload> = apiGet("/api/current-work");
   const created: Promise<PageMeta> =
-    apiPost("/api/pages", { body: { title: "T" } });
+    apiPost("/api/pages", { body: { title: rawTitleOf("T") } });
   const renamed: Promise<RenameResponse> =
     apiPost("/api/page/{title}/rename", {
       path: { title: "T" },
-      body: { new_title: "U", allow_merge: false },
+      body: { new_title: rawTitleOf("U"), allow_merge: false },
     });
   void [page, work, created, renamed];
 });
@@ -148,7 +148,7 @@ it("omits the query string entirely when nothing is supplied", async () => {
 it("sends a JSON body with the method the path declares", async () => {
   const fetchMock = stubFetch();
   await apiPost("/api/page/{title}/rename",
-                { path: { title: "Old" }, body: { new_title: "New", allow_merge: true } });
+                { path: { title: "Old" }, body: { new_title: rawTitleOf("New"), allow_merge: true } });
   expect(fetchMock.mock.calls[0]).toEqual([
     "/api/page/Old/rename",
     {
@@ -179,7 +179,7 @@ it("passes extra init through and lets the caller's headers win", async () => {
   const fetchMock = stubFetch();
   const signal = AbortSignal.abort();
   await apiPost("/api/pages",
-                { body: { title: "T" }, init: { signal, headers: { "X-Test": "1" } } })
+                { body: { title: rawTitleOf("T") }, init: { signal, headers: { "X-Test": "1" } } })
     .catch(() => undefined);
   expect(fetchMock.mock.calls[0][1]).toEqual({
     method: "POST",

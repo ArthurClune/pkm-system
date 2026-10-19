@@ -19,14 +19,14 @@
 // a collapsed subtree is revealed first, as in the main pane: EditablePage
 // expands its hiding ancestors and reports when the rows have rendered.
 import { useCallback, useRef, useState } from "react";
-import type { BlockUid } from "../api/brands";
+import type { BlockUid, RawTitle } from "../api/brands";
 import { BlockRefProvider } from "./BlockRefProvider";
 import { substituteMissingDaily } from "../outline/missingPage";
 import { useOutlinePageLoad } from "../outline/useOutlinePageLoad";
 import { useScrollFlashTarget } from "../useScrollFlashTarget";
 import { EditablePage } from "../views/EditablePage";
 
-export function EditableSidebarPanel({ title, uid }: { title: string; uid?: BlockUid }) {
+export function EditableSidebarPanel({ title, uid }: { title: RawTitle; uid?: BlockUid }) {
   const { payload, error } = useOutlinePageLoad(title, substituteMissingDaily);
   const containerRef = useRef<HTMLDivElement>(null);
 

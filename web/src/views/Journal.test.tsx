@@ -18,7 +18,7 @@ import {
   pageIdOf,
   stubFetch,
   canonicalTitleOf,
-  uidOf,
+  uidOf, rawTitleOf,
 } from "../test-helpers";
 import { Journal } from "./Journal";
 
@@ -215,7 +215,7 @@ it("keeps day sections mounted across a resync (no remount churn)", async () => 
 });
 
 it("does not adopt a journal payload over an active session changed in flight", async () => {
-  const title = "July 8th, 2026";
+  const title = rawTitleOf("July 8th, 2026");
   const journal = deferred<Response>();
   const freshPage = deferred<Response>();
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -259,7 +259,7 @@ it("does not adopt a journal payload over an active session changed in flight", 
 });
 
 it("does not adopt an old journal payload into a session created mid-flight", async () => {
-  const title = "July 9th, 2026";
+  const title = rawTitleOf("July 9th, 2026");
   const journal = deferred<Response>();
   const freshPage = deferred<Response>();
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -304,7 +304,7 @@ it("does not adopt an old journal payload into a session created mid-flight", as
 });
 
 it("does not create a session from a response received after unmount", async () => {
-  const title = "Late Journal Leak";
+  const title = rawTitleOf("Late Journal Leak");
   const journal = deferred<Response>();
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
@@ -338,7 +338,7 @@ it("does not create a session from a response received after unmount", async () 
 });
 
 it("releases captured session reservations when unmounted in flight", async () => {
-  const title = "Journal Unmount Reservation";
+  const title = rawTitleOf("Journal Unmount Reservation");
   const journal = deferred<Response>();
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
@@ -489,7 +489,7 @@ async () => {
 
 it("treats a 404 on an active session's authoritative refetch as an empty day, " +
    "not a failed load (day deleted underneath us)", async () => {
-  const title = "July 8th, 2026";
+  const title = rawTitleOf("July 8th, 2026");
   const journal = deferred<Response>();
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
@@ -542,7 +542,7 @@ it("treats a 404 on an active session's authoritative refetch as an empty day, "
 });
 
 it("a repair-triggered day reload treats a 404 as an empty day", async () => {
-  const title = "July 8th, 2026";
+  const title = rawTitleOf("July 8th, 2026");
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
     if (url === "/api/journal/cleanup") {

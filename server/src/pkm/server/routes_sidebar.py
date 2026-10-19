@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from pkm.contracts.ops import SidebarEntryId
 from pkm.contracts.responses import OkAck, SidebarNavEntry, SidebarNavPayload
+from pkm.contracts.titles import RawTitle
 from pkm.database import Db
 from pkm.importer.sidebar_rows import next_order_idx, reorder_is_valid
 from pkm.refs import is_blank_title
@@ -22,7 +23,7 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 class AddSidebarEntryRequest(BaseModel):
-    title: str = Field(min_length=1)
+    title: RawTitle = Field(min_length=1)
 
 
 class ReorderSidebarEntriesRequest(BaseModel):

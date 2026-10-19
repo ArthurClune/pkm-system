@@ -11,7 +11,7 @@ import { performUndo, resetHistory } from "../outline/undoManager";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, journalBacklinks, jsonResponse, makeSync, orderIdxOf, pageIdOf, pagePayload, READ_INIT,
          servePageApplyingSent, stubFetch, canonicalTitleOf, uidOf,
-         malformedUid } from "../test-helpers";
+         malformedUid, rawTitleOf } from "../test-helpers";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
 import { BlockStampsContext } from "../contexts";
 import { Journal } from "./Journal";
@@ -159,7 +159,7 @@ it("an expired same-title parent response cannot publish an empty child", async 
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -208,7 +208,7 @@ it("a losing failed parent renders the accepted same-title winner without error"
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -269,7 +269,7 @@ it("a failed newer parent elects one fresh controller for both panes", async () 
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -331,7 +331,7 @@ it("unmounting the newer parent elects one surviving controller", async () => {
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        {showSidebar && <EditableSidebarPanel title="Paper" />}
+        {showSidebar && <EditableSidebarPanel title={rawTitleOf("Paper")} />}
       </MemoryRouter>
     </SyncContext.Provider>
   );
@@ -392,7 +392,7 @@ it("unmounting the newer parent recovers while the older transport still hangs",
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        {showSidebar && <EditableSidebarPanel title="Paper" />}
+        {showSidebar && <EditableSidebarPanel title={rawTitleOf("Paper")} />}
       </MemoryRouter>
     </SyncContext.Provider>
   );
@@ -464,11 +464,11 @@ it("an automatic read superseding elected recovery permits one replacement paren
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
-  const automaticHandle = acquireOutlineSession("Paper", null);
+  const automaticHandle = acquireOutlineSession(rawTitleOf("Paper"), null);
   let copies = 0;
   let metadataCopies = 0;
   let staleCopies = 0;
@@ -545,7 +545,7 @@ it("an automatic read superseding elected recovery permits one replacement paren
 });
 
 it("a hung automatic read cannot strand eager full-parent readiness", async () => {
-  const pageTitle = "Hung Automatic Paper";
+  const pageTitle = rawTitleOf("Hung Automatic Paper");
   const older = deferred<Response>();
   const current = deferred<Response>();
   const recovery = deferred<Response>();
@@ -569,7 +569,7 @@ it("a hung automatic read cannot strand eager full-parent readiness", async () =
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title={pageTitle} />
+        <EditableSidebarPanel title={rawTitleOf(pageTitle)} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -662,7 +662,7 @@ it("a repair superseding elected recovery permits one post-repair parent", async
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </MemoryRouter>
     </SyncContext.Provider>,
   );
@@ -761,7 +761,7 @@ it("canceling elected recovery does not start a second recovery", async () => {
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        {showSidebar && <EditableSidebarPanel title="Paper" />}
+        {showSidebar && <EditableSidebarPanel title={rawTitleOf("Paper")} />}
       </MemoryRouter>
     </SyncContext.Provider>
   );
@@ -809,7 +809,7 @@ it("canceling elected recovery does not start a second recovery", async () => {
 });
 
 it("a captured Journal response superseding recovery elects one full parent", async () => {
-  const pageTitle = "Captured Paper";
+  const pageTitle = rawTitleOf("Captured Paper");
   const older = deferred<Response>();
   const newer = deferred<Response>();
   const elected = deferred<Response>();
@@ -842,7 +842,7 @@ it("a captured Journal response superseding recovery elects one full parent", as
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title={pageTitle} />
+        <EditableSidebarPanel title={rawTitleOf(pageTitle)} />
         {showJournal && <Journal />}
       </MemoryRouter>
     </SyncContext.Provider>
@@ -936,7 +936,7 @@ it("a captured Journal response superseding recovery elects one full parent", as
 });
 
 it("a dormant Journal capture cannot strand parent recovery", async () => {
-  const pageTitle = "Dormant Capture Paper";
+  const pageTitle = rawTitleOf("Dormant Capture Paper");
   const older = deferred<Response>();
   const current = deferred<Response>();
   const recovery = deferred<Response>();
@@ -967,7 +967,7 @@ it("a dormant Journal capture cannot strand parent recovery", async () => {
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title={pageTitle} />
+        <EditableSidebarPanel title={rawTitleOf(pageTitle)} />
         {showJournal && <Journal />}
       </MemoryRouter>
     </SyncContext.Provider>
@@ -1062,7 +1062,7 @@ it("a dormant Journal capture cannot strand parent recovery", async () => {
 });
 
 it("unmounting Journal releases a hung capture before parent recovery", async () => {
-  const pageTitle = "Unmount Capture Paper";
+  const pageTitle = rawTitleOf("Unmount Capture Paper");
   const lateTitle = "Late Journal Inactive";
   const older = deferred<Response>();
   const current = deferred<Response>();
@@ -1094,7 +1094,7 @@ it("unmounting Journal releases a hung capture before parent recovery", async ()
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        <EditableSidebarPanel title={pageTitle} />
+        <EditableSidebarPanel title={rawTitleOf(pageTitle)} />
         {showJournal && <Journal />}
       </MemoryRouter>
     </SyncContext.Provider>
@@ -1175,7 +1175,7 @@ it("unmounting Journal releases a hung capture before parent recovery", async ()
 });
 
 it("a superseded resync failure cannot replace a newer parent winner with error", async () => {
-  const title = "Resync Paper";
+  const title = rawTitleOf("Resync Paper");
   const resync = deferred<Response>();
   const winner = deferred<Response>();
   const initial = pagePayload(title, [block("initial", "initial page")]);
@@ -1200,7 +1200,7 @@ it("a superseded resync failure cannot replace a newer parent winner with error"
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
-        {showSidebar && <EditableSidebarPanel title={title} />}
+        {showSidebar && <EditableSidebarPanel title={rawTitleOf(title)} />}
       </MemoryRouter>
     </SyncContext.Provider>
   );
@@ -1438,7 +1438,7 @@ it("shows the stamp column on a page but not in the journal or a sidebar panel",
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
         <BlockStampsContext.Provider value={stampsOn}>
-          <EditableSidebarPanel title="Stamps" />
+          <EditableSidebarPanel title={rawTitleOf("Stamps")} />
         </BlockStampsContext.Provider>
       </SyncContext.Provider>
     </MemoryRouter>,

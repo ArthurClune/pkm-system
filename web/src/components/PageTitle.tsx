@@ -8,7 +8,9 @@ import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { apiPost } from "../api/typedClient";
+import type { RawTitle } from "../api/brands";
 import { pagePath } from "../paths";
+import { asRawTitle } from "../replica/titles";
 import { dateForTitle } from "../replica/daily";
 import { useConfirm } from "./ConfirmDialog";
 
@@ -20,7 +22,7 @@ export function PageTitle({ title }: { title: string }) {
   const editable = dateForTitle(title) === null;
   const { confirm, dialog } = useConfirm();
 
-  const rename = (newTitle: string, allowMerge: boolean) =>
+  const rename = (newTitle: RawTitle, allowMerge: boolean) =>
     apiPost("/api/page/{title}/rename", {
       path: { title },
       body: { new_title: newTitle, allow_merge: allowMerge },
@@ -28,7 +30,7 @@ export function PageTitle({ title }: { title: string }) {
 
   const commit = async (value: string) => {
     setEditing(false);
-    const newTitle = value.trim();
+    const newTitle = asRawTitle(value.trim());
     if (!newTitle || newTitle === title) return;
     try {
       const r = await rename(newTitle, false);

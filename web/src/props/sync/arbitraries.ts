@@ -19,16 +19,16 @@
 // page it named at the start, another page, or no page at all, when the
 // server get_or_creates one under it.
 import fc from "fast-check";
-import type { BlockUid } from "../../api/brands";
+import type { BlockUid, RawTitle } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import type { SyncModel } from "./model";
-import { uidOf, orderIdxOf } from "../../test-helpers";
+import { uidOf, orderIdxOf, rawTitleOf } from "../../test-helpers";
 
 export const SEED_PAGE = "Proptest";
 export const SEED_UIDS = ["pt_seed_1", "pt_seed_2", "pt_seed_3",
                           "pt_seed_4", "pt_seed_5"] as const;
 /** The only page outside PAGE_TITLES: nothing deletes, renames or edits it. */
-export const FIXTURE_PAGE = "Fixture";
+export const FIXTURE_PAGE = rawTitleOf("Fixture");
 /** Live for the whole example: BadBatch creates it. It is on FIXTURE_PAGE, so
  * a batch naming that page is never stale and reaches the uid check. */
 export const BAD_UID = "pt_seed_6";
@@ -43,7 +43,8 @@ export const EDIT_TARGETS: readonly string[] = [...SEED_UIDS, ...SECOND_UIDS];
 export const PAGE_TITLES = [SEED_PAGE, SECOND_PAGE, "Third", "Fourth"] as const;
 
 /** The title pool's entry `i` names (mod its size). */
-export const pageTitle = (i: number): string => PAGE_TITLES[i % PAGE_TITLES.length];
+export const pageTitle = (i: number): RawTitle =>
+  rawTitleOf(PAGE_TITLES[i % PAGE_TITLES.length]);
 
 export type OpKind = "update_text" | "move" | "delete" | "set_collapsed" | "create";
 
@@ -136,7 +137,7 @@ export function resolveOps(drafts: readonly OpDraft[], pool: readonly string[],
         used.push(next);
         live.push(next);
         return { op: "create", uid: uidOf(next),
-                 page_title: d.page === null ? SEED_PAGE : pageTitle(d.page),
+                 page_title: d.page === null ? rawTitleOf(SEED_PAGE) : pageTitle(d.page),
                  parent_uid: parent, order_idx: order, text: d.text };
       }
       case "update_text":

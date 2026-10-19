@@ -15,7 +15,9 @@ import { failingOnce, fakeCarryFiles, openRawTestDb, openTestDb,
 import { setMeta } from "./meta";
 import { subtreeHash } from "./subtreeHash";
 import { buildHandlers, type WorkerDeps } from "./workerHandlers";
-import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, pendingRowIdOf, seqOf, uidOf } from "../test-helpers";
+import {
+  batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, pendingRowIdOf, rawTitleOf, seqOf, uidOf,
+} from "../test-helpers";
 
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -1509,7 +1511,7 @@ test("a rebase commit drops the rows its snapshot names beside the acked ones", 
 });
 
 const shiftingCreate = (id: string) => ({
-  ops: [{ op: "create" as const, uid: uidOf("uid_new"), page_title: "AI",
+  ops: [{ op: "create" as const, uid: uidOf("uid_new"), page_title: rawTitleOf("AI"),
           parent_uid: null, order_idx: orderIdxOf(0), text: "new" }],
   batchId: bid(id),
 });

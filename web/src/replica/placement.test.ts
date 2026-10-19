@@ -1,10 +1,10 @@
 import { describe, expect, test } from "vitest";
 import type { CreateOp, MoveOp } from "../api/ops";
 import { type PlacementFacts, placementFor } from "./placement";
-import { orderIdxOf, pageIdOf, uidOf } from "../test-helpers";
+import { orderIdxOf, pageIdOf, uidOf, rawTitleOf } from "../test-helpers";
 
 const create = (over: Partial<CreateOp> = {}): CreateOp => ({
-  op: "create", uid: uidOf("tuid-n1"), page_title: "Home", parent_uid: uidOf("tuid-p1"),
+  op: "create", uid: uidOf("tuid-n1"), page_title: rawTitleOf("Home"), parent_uid: uidOf("tuid-p1"),
   order_idx: orderIdxOf(0), text: "typed", ...over,
 });
 
@@ -69,28 +69,28 @@ describe("move", () => {
   });
 
   test("a move under a parent on another page re-pages the block", () => {
-    expect(placementFor(move({ page_title: "Gone" }),
+    expect(placementFor(move({ page_title: rawTitleOf("Gone") }),
                         facts({ block, parent: { page_id: pageIdOf(2) } })))
       .toEqual({ kind: "place", page: { id: 2 }, parentUid: "tuid-p1",
                  orderIdx: 0, repage: true });
   });
 
   test("a top-level move to a title with no page yet creates it and re-pages", () => {
-    expect(placementFor(move({ parent_uid: null, page_title: "New" }),
+    expect(placementFor(move({ parent_uid: null, page_title: rawTitleOf("New") }),
                         facts({ block })))
       .toEqual({ kind: "place", page: { title: "New" }, parentUid: null,
                  orderIdx: 0, repage: true });
   });
 
   test("a top-level move to a title on the block's own page does not re-page", () => {
-    expect(placementFor(move({ parent_uid: null, page_title: "Home" }),
+    expect(placementFor(move({ parent_uid: null, page_title: rawTitleOf("Home") }),
                         facts({ block, titlePageId: pageIdOf(1) })))
       .toEqual({ kind: "place", page: { title: "Home" }, parentUid: null,
                  orderIdx: 0, repage: false });
   });
 
   test("a top-level move to another existing title page re-pages", () => {
-    expect(placementFor(move({ parent_uid: null, page_title: "Other" }),
+    expect(placementFor(move({ parent_uid: null, page_title: rawTitleOf("Other") }),
                         facts({ block, titlePageId: pageIdOf(2) })))
       .toEqual({ kind: "place", page: { title: "Other" }, parentUid: null,
                  orderIdx: 0, repage: true });

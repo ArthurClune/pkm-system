@@ -14,7 +14,7 @@
 // undo's write has reached the server its fresh uploads are released (a
 // conditional server delete, refused while any block still references the
 // file). An undo whose delivery fails leaves the files.
-import type { Sha256Hex } from "../api/brands";
+import type { Sha256Hex, RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { releaseAssets } from "../sync/assetRelease";
@@ -44,7 +44,7 @@ let state: HistoryState = emptyHistory();
 const hooks = new Map<string, Set<OutlineHistoryHooks>>();
 let navigator: ((path: string) => void) | null = null;
 
-type PageLoader = (title: string) => Promise<BlockNode[]>;
+type PageLoader = (title: RawTitle) => Promise<BlockNode[]>;
 const defaultPageLoader: PageLoader =
   (title) => loadOutlineBlocks(title, substituteMissingDaily);
 let loadPage: PageLoader = defaultPageLoader;
@@ -63,7 +63,7 @@ const defaultReleaser: AssetReleaser = {
 let releaser: AssetReleaser = defaultReleaser;
 
 export function registerOutlineHistory(
-  title: string, h: OutlineHistoryHooks,
+  title: RawTitle, h: OutlineHistoryHooks,
 ): () => void {
   let set = hooks.get(title);
   if (!set) {
@@ -156,7 +156,7 @@ const failed = (error: unknown): Promise<DeliveryOutcome> =>
 // Resolves with the dispatched write's delivery, never rejects: a dispatch
 // that throws or is dropped by a reset resolves "failed".
 function dispatch(sync: HistoryDispatch, batch: BlockOp[],
-                  anchors: BatchAnchors, title: string,
+                  anchors: BatchAnchors, title: RawTitle,
                   focus: FocusTarget | null): Promise<DeliveryOutcome> {
   // Dispatches apply in keypress order. With nothing queued and a session for
   // the page, apply synchronously; otherwise join the chain, so a mounted
@@ -199,7 +199,7 @@ type SessionHandle = NonNullable<ReturnType<typeof peekOutlineSession>>;
 
 function dispatchWithSession(sync: HistoryDispatch, handle: SessionHandle,
                              batch: BlockOp[], anchors: BatchAnchors,
-                             title: string,
+                             title: RawTitle,
                              focus: FocusTarget | null): WriteTicket {
   // The tree must be read BEFORE enqueueing: the hash must be taken against the
   // tree as it is now, not as it was when the entry was recorded, or a replay
@@ -227,7 +227,7 @@ function dispatchWithSession(sync: HistoryDispatch, handle: SessionHandle,
 
 async function dispatchUnmounted(
   sync: HistoryDispatch, batch: BlockOp[], anchors: BatchAnchors,
-  title: string, focus: FocusTarget | null,
+  title: RawTitle, focus: FocusTarget | null,
 ): Promise<WriteTicket> {
   // A session disappears only when it has no handles and no undelivered
   // writes, so with none this tab holds nothing unresolved for the page and
@@ -249,7 +249,7 @@ async function dispatchUnmounted(
   return write;
 }
 
-function settle(title: string, focus: FocusTarget | null): void {
+function settle(title: RawTitle, focus: FocusTarget | null): void {
   const registered = hooks.get(title);
   if (registered) {
     registered.forEach((h) => h.applyFocus(focus));

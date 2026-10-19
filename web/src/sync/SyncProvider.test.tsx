@@ -9,7 +9,7 @@ import { acquireOutlineSession } from "../outline/outlineSessions";
 import { sha256Hex } from "../replica/sha256";
 import {
   block, FakeWebSocket, jsonResponse, orderIdxOf, stubFetch, canonicalTitleOf, uidOf, batchIdOf,
-  seqOf, pendingRowIdOf, sentBatchId, sentOps, stringContaining,
+  seqOf, pendingRowIdOf, sentBatchId, sentOps, stringContaining, rawTitleOf,
 } from "../test-helpers";
 import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
@@ -384,8 +384,8 @@ describe("legacy repair of a rejected batch", () => {
   });
 
   test("legacy repair rebases an unmounted cross-page target before resuming its move", async () => {
-    const sourceTitle = "Unmounted replay source";
-    const targetTitle = "Unmounted replay target";
+    const sourceTitle = rawTitleOf("Unmounted replay source");
+    const targetTitle = rawTitleOf("Unmounted replay target");
     const moved = block("tuid-moved", "moved", {
       children: [block("tuid-child", "child")],
     });
@@ -490,7 +490,7 @@ describe("legacy repair of a rejected batch", () => {
     }));
     let releaseRepair!: () => void;
     const repairGate = new Promise<void>((done) => { releaseRepair = done; });
-    const session = acquireOutlineSession("Legacy repair target", []);
+    const session = acquireOutlineSession(rawTitleOf("Legacy repair target"), []);
     const load = vi.fn(async () => {
       await repairGate;
       return [];
@@ -552,7 +552,7 @@ describe("legacy repair of a rejected batch", () => {
       return { promise, resolve };
     })();
     const session = acquireOutlineSession(
-      "Legacy forced target", [block("tuid-u1", "optimistic")],
+      rawTitleOf("Legacy forced target"), [block("tuid-u1", "optimistic")],
     );
     const loadForced = vi.fn(() => forced.promise);
     const removeLoader = session.setAuthoritativeLoader("editable", loadForced);
@@ -609,7 +609,7 @@ describe("legacy repair of a rejected batch", () => {
     const firstGate = new Promise<void>((done) => { releaseFirst = done; });
     let releaseSecond!: () => void;
     const secondGate = new Promise<void>((done) => { releaseSecond = done; });
-    const first = acquireOutlineSession("Dynamic repair first", []);
+    const first = acquireOutlineSession(rawTitleOf("Dynamic repair first"), []);
     const firstLoad = vi.fn(async () => {
       await firstGate;
       return [];
@@ -632,7 +632,7 @@ describe("legacy repair of a rejected batch", () => {
       await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
       await vi.waitFor(() => expect(firstLoad).toHaveBeenCalledTimes(1));
 
-      second = acquireOutlineSession("Dynamic repair second", []);
+      second = acquireOutlineSession(rawTitleOf("Dynamic repair second"), []);
       const secondLoad = vi.fn(async () => {
         await secondGate;
         return [];
@@ -672,8 +672,8 @@ describe("legacy repair of a rejected batch", () => {
       return null;
     }
     const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
-    const targetTitle = "Same-page fallback target";
-    const otherTitle = "Unrelated fallback title";
+    const targetTitle = rawTitleOf("Same-page fallback target");
+    const otherTitle = rawTitleOf("Unrelated fallback title");
     let target: ReturnType<typeof acquireOutlineSession> | undefined;
     let other: ReturnType<typeof acquireOutlineSession> | undefined;
     let removeLoader: (() => void) | undefined;
@@ -721,7 +721,7 @@ describe("legacy repair of a rejected batch", () => {
         ? jsonResponse({ detail: "bad op" }, 400)
         : jsonResponse({ ok: true });
     }));
-    const session = acquireOutlineSession("Retry legacy repair", []);
+    const session = acquireOutlineSession(rawTitleOf("Retry legacy repair"), []);
     let loadCount = 0;
     const removeLoader = session.setAuthoritativeLoader("editable", async () => {
       loadCount += 1;
@@ -765,7 +765,7 @@ describe("legacy repair of a rejected batch", () => {
         ? jsonResponse({ detail: "bad op" }, 400)
         : jsonResponse({ ok: true });
     }));
-    const session = acquireOutlineSession("Reconnect legacy repair", []);
+    const session = acquireOutlineSession(rawTitleOf("Reconnect legacy repair"), []);
     let loadCount = 0;
     const removeLoader = session.setAuthoritativeLoader("editable", async () => {
       loadCount += 1;

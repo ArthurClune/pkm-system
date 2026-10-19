@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/client";
 import { apiDelete, apiGet, apiPost, apiPut } from "../api/typedClient";
 import type { SidebarEntryId } from "../api/brands";
+import { asRawTitle } from "../replica/titles";
 import type { SidebarNavEntry } from "../api/payloads";
 import { NavPageLink } from "./NavPageLink";
 
@@ -85,7 +86,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
     setAddError(null);
     await runMutation(async () => {
       try {
-        await apiPost("/api/sidebar", { body: { title: newTitle } });
+        await apiPost("/api/sidebar", { body: { title: asRawTitle(newTitle) } });
         setNewTitle("");
       } catch (err) {
         setAddError(err instanceof ApiError && err.status === 409

@@ -18,6 +18,7 @@ from pkm.contracts.responses import (
     BlockBacklinksPayload, BlockPayload, BlockRefsPayload, BlockRefText, CurrentWorkPayload,
     DeleteBlockerModel, DeletePreview, GroupsPayload, JournalCleanupResponse,
     JournalPayload, OkAck, PageMeta, PagePayload, RenamePageResponse)
+from pkm.contracts.titles import RawTitle
 from pkm.database import Db
 from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
                       parse_block_uid, title_syntax_reason)
@@ -45,11 +46,11 @@ _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
 
 
 class CreatePageRequest(BaseModel):
-    title: str = Field(min_length=1)
+    title: RawTitle = Field(min_length=1)
 
 
 class RenamePageRequest(BaseModel):
-    new_title: str = Field(min_length=1)
+    new_title: RawTitle = Field(min_length=1)
     allow_merge: bool = False
 
 

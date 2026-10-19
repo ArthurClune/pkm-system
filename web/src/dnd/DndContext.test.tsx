@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext, type Sync } from "../sync/SyncProvider";
-import { block, makeSync, orderIdxOf, uidOf } from "../test-helpers";
+import { block, makeSync, orderIdxOf, uidOf, rawTitleOf } from "../test-helpers";
 import { DndProvider, useDnd, type OutlineDndApi } from "./DndContext";
 
 function Harness({ onReady }: { onReady: (dnd: ReturnType<typeof useDnd>) => void }) {
@@ -31,8 +31,8 @@ it("same-page drop delegates to the registered outline's moveTo", () => {
   const { sync, dnd } = setup();
   const api = fakeOutline();
   dnd().registerOutline("P", api);
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: "P" },
-             { parent_uid: null, order_idx: orderIdxOf(2), page_title: "P" });
+  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: rawTitleOf("P") },
+             { parent_uid: null, order_idx: orderIdxOf(2), page_title: rawTitleOf("P") });
   expect(api.moveTo).toHaveBeenCalledWith(["tuid-u1"],
     { parent_uid: null, order_idx: 2, page_title: "P" });
   expect(sync.sent).toEqual([]); // moveTo enqueues internally, fake doesn't
@@ -42,9 +42,10 @@ it("a same-page group drop passes the whole selection to moveTo", () => {
   const { sync, dnd } = setup();
   const api = fakeOutline();
   dnd().registerOutline("P", api);
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u2"), pageTitle: "P", uids: [uidOf("tuid-u1"), uidOf("tuid-u2"),
+  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u2"), pageTitle: rawTitleOf("P"),
+    uids: [uidOf("tuid-u1"), uidOf("tuid-u2"),
     uidOf("tuid-u3")] },
-             { parent_uid: null, order_idx: orderIdxOf(5), page_title: "P" });
+             { parent_uid: null, order_idx: orderIdxOf(5), page_title: rawTitleOf("P") });
   expect(api.moveTo).toHaveBeenCalledWith(["tuid-u1", "tuid-u2", "tuid-u3"],
     { parent_uid: null, order_idx: 5, page_title: "P" });
   expect(sync.sent).toEqual([]);
@@ -52,8 +53,8 @@ it("a same-page group drop passes the whole selection to moveTo", () => {
 
 it("same-page drop with no registered outline enqueues the op directly", () => {
   const { sync, dnd } = setup();
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: "P" },
-             { parent_uid: uidOf("tuid-x"), order_idx: orderIdxOf(0), page_title: "P" });
+  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: rawTitleOf("P") },
+             { parent_uid: uidOf("tuid-x"), order_idx: orderIdxOf(0), page_title: rawTitleOf("P") });
   expect(sync.sent).toEqual([[
     { op: "move", uid: "tuid-u1", parent_uid: "tuid-x", order_idx: 0 }]]);
   expect(sync.tickets[0].scope).toEqual(["page", "P"]);
@@ -61,8 +62,9 @@ it("same-page drop with no registered outline enqueues the op directly", () => {
 
 it("group drop with no registered outline enqueues sequential move ops", () => {
   const { sync, dnd } = setup();
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: "P", uids: [uidOf("tuid-u1"), uidOf("tuid-u2")] },
-             { parent_uid: uidOf("tuid-x"), order_idx: orderIdxOf(3), page_title: "P" });
+  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: rawTitleOf("P"),
+    uids: [uidOf("tuid-u1"), uidOf("tuid-u2")] },
+             { parent_uid: uidOf("tuid-x"), order_idx: orderIdxOf(3), page_title: rawTitleOf("P") });
   expect(sync.sent).toEqual([[
     { op: "move", uid: "tuid-u1", parent_uid: "tuid-x", order_idx: 3 },
     { op: "move", uid: "tuid-u2", parent_uid: "tuid-x", order_idx: 4 }]]);
@@ -79,8 +81,8 @@ it("cross-page drop does two-outline surgery and one op with page_title", () => 
   const dst = fakeOutline();
   dnd().registerOutline("A", src);
   dnd().registerOutline("B", dst);
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: "A" },
-             { parent_uid: null, order_idx: orderIdxOf(1), page_title: "B" });
+  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: rawTitleOf("A") },
+             { parent_uid: null, order_idx: orderIdxOf(1), page_title: rawTitleOf("B") });
   expect(src.removeSubtreeLocal).toHaveBeenCalledWith("tuid-u1");
   expect(dst.insertSubtreeLocal).toHaveBeenCalledWith(moved,
     { parent_uid: null, order_idx: 1, page_title: "B" });
@@ -107,8 +109,8 @@ it("unmounted cross-page target skips insertion but retains subtree replay", () 
   const targetRegistration = dnd().registerOutline("B", unmountedDst);
   if (targetRegistration.accepted) targetRegistration.unregister();
   // target page "B" has no registered outline: nothing to insert into.
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: "A" },
-             { parent_uid: null, order_idx: orderIdxOf(1), page_title: "B" });
+  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: rawTitleOf("A") },
+             { parent_uid: null, order_idx: orderIdxOf(1), page_title: rawTitleOf("B") });
   expect(src.removeSubtreeLocal).toHaveBeenCalledWith("tuid-u1");
   expect(unmountedDst.insertSubtreeLocal).not.toHaveBeenCalled();
   expect(sync.sent).toEqual([[
@@ -132,8 +134,9 @@ it("a cross-page group drop moves every block: surgery, ops, and replays", () =>
   const dst = fakeOutline();
   dnd().registerOutline("A", src);
   dnd().registerOutline("B", dst);
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: "A", uids: [uidOf("tuid-u1"), uidOf("tuid-u2")] },
-             { parent_uid: null, order_idx: orderIdxOf(1), page_title: "B" });
+  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: rawTitleOf("A"),
+    uids: [uidOf("tuid-u1"), uidOf("tuid-u2")] },
+             { parent_uid: null, order_idx: orderIdxOf(1), page_title: rawTitleOf("B") });
   expect(removeSubtreeLocal.mock.calls.map((c) => c[0])).toEqual(["tuid-u1", "tuid-u2"]);
   expect(dst.insertSubtreeLocal).toHaveBeenNthCalledWith(1, one,
     { parent_uid: null, order_idx: 1, page_title: "B" });
@@ -157,8 +160,8 @@ it("cross-page drop without a source node fabricates no target replay", () => {
   const dst = fakeOutline();
   dnd().registerOutline("B", dst);
 
-  dnd().drop({ kind: "blocks", uid: uidOf("missing"), pageTitle: "A" },
-             { parent_uid: null, order_idx: orderIdxOf(0), page_title: "B" });
+  dnd().drop({ kind: "blocks", uid: uidOf("missing"), pageTitle: rawTitleOf("A") },
+             { parent_uid: null, order_idx: orderIdxOf(0), page_title: rawTitleOf("B") });
 
   expect(dst.insertSubtreeLocal).not.toHaveBeenCalled();
   expect(attachOutlineReplay).not.toHaveBeenCalled();
@@ -174,8 +177,8 @@ it("unregister stops delivery", () => {
   const registration = dnd().registerOutline("P", api);
   expect(registration.accepted).toBe(true);
   if (registration.accepted) registration.unregister();
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: "P" },
-             { parent_uid: null, order_idx: orderIdxOf(0), page_title: "P" });
+  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: rawTitleOf("P") },
+             { parent_uid: null, order_idx: orderIdxOf(0), page_title: rawTitleOf("P") });
   expect(api.moveTo).not.toHaveBeenCalled();
   expect(sync.sent.length).toBe(1); // fell back to direct enqueue
 });
@@ -198,8 +201,8 @@ it.each(["first", "duplicate"] as const)(
       firstRegistration.unregister();
     }
 
-    dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: "P" },
-      { parent_uid: null, order_idx: orderIdxOf(0), page_title: "P" });
+    dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: rawTitleOf("P") },
+      { parent_uid: null, order_idx: orderIdxOf(0), page_title: rawTitleOf("P") });
     if (released === "first") {
       expect(first.moveTo).not.toHaveBeenCalled();
       expect(sync.sent).toHaveLength(1);

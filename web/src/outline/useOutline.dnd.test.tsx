@@ -14,7 +14,7 @@ import {
   type SyncFake,
   canonicalTitleOf,
   uidOf,
-  clientIdOf,
+  clientIdOf, rawTitleOf,
 } from "../test-helpers";
 import { findNode } from "./tree";
 import { useOutline, type Outline } from "./useOutline";
@@ -48,7 +48,7 @@ it("dnd.moveTo enqueues one move op with no page_title and reorders optimistical
   const getOutline = setup(sync, "Page", initial);
   act(() => {
     getOutline().dnd.moveTo([uidOf("tuid-u2")],
-      { parent_uid: null, order_idx: orderIdxOf(0), page_title: "Page" });
+      { parent_uid: null, order_idx: orderIdxOf(0), page_title: rawTitleOf("Page") });
   });
   expect(sync.sent).toEqual([
     [{ op: "move", uid: "tuid-u2", parent_uid: null, order_idx: 0 }],
@@ -66,7 +66,7 @@ it("dnd.moveTo with a group moves every block, order preserved", () => {
   const getOutline = setup(sync, "Page", initial);
   act(() => {
     getOutline().dnd.moveTo([uidOf("tuid-u2"), uidOf("tuid-u3")],
-      { parent_uid: null, order_idx: orderIdxOf(0), page_title: "Page" });
+      { parent_uid: null, order_idx: orderIdxOf(0), page_title: rawTitleOf("Page") });
   });
   expect(sync.sent).toEqual([[
     { op: "move", uid: "tuid-u2", parent_uid: null, order_idx: 0 },
@@ -147,7 +147,7 @@ it("starts one target refetch for one remote batch across same-title views", asy
       client_id: clientIdOf("other"),
       ts: 1,
       ops: [{ op: "move", uid: uidOf("tuid-moved"), parent_uid: null,
-              order_idx: orderIdxOf(1), page_title: "Page" }],
+              order_idx: orderIdxOf(1), page_title: rawTitleOf("Page") }],
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -201,7 +201,7 @@ it("dnd.insertSubtreeLocal inserts at the target and sends no ops", () => {
   const node: BlockNode = block("tuid-new", "inserted", { order_idx: orderIdxOf(0) });
   act(() => {
     getOutline().dnd.insertSubtreeLocal(node,
-      { parent_uid: null, order_idx: orderIdxOf(0), page_title: "Page" });
+      { parent_uid: null, order_idx: orderIdxOf(0), page_title: rawTitleOf("Page") });
   });
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-new", "tuid-u1"]);
   expect(sync.sent).toEqual([]);
@@ -237,7 +237,7 @@ it("a remote parent-based cross-page move (server-resolved "
     sync.emit({
       client_id: clientIdOf("other"), ts: 1,
       ops: [{ op: "move", uid: uidOf("tuid-moved"), parent_uid: uidOf("tuid-tp"), order_idx: orderIdxOf(0),
-               page_title: "Dst" }],
+               page_title: rawTitleOf("Dst") }],
     });
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
   });
@@ -267,7 +267,7 @@ it("target-side refetch ignores global settlement and adopts a safe response", a
     sync.emit({
       client_id: clientIdOf("other"), ts: 1,
       ops: [{ op: "move", uid: uidOf("unknown"), parent_uid: null,
-               order_idx: orderIdxOf(0), page_title: "Page" }],
+               order_idx: orderIdxOf(0), page_title: rawTitleOf("Page") }],
     });
   });
 

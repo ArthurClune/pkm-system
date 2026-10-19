@@ -19,6 +19,7 @@ from typing import Annotated, Literal, NewType, Union
 from pydantic import BaseModel, Field
 
 from pkm.contracts.brands import brand
+from pkm.contracts.titles import RawTitle
 
 # A block uid's shape, the body of UID_RE below ({6,32}): a run outside it
 # can never have been minted, so render.py, export/markdown.py and
@@ -153,7 +154,7 @@ class CreateOp(BaseModel):
     # the page for a top-level create (created if absent). Under a live
     # parent the block lands on the parent's page and this is ignored:
     # another device may have moved the parent since the op was queued.
-    page_title: str = Field(min_length=1)
+    page_title: RawTitle = Field(min_length=1)
     parent_uid: BlockUid | None = None
     order_idx: OrderIdx
     text: str
@@ -176,7 +177,7 @@ class UpdateTextOp(BaseModel):
     # lands (edit-vs-delete race). Never checked against the target block
     # and never validated as a title -- an unusable hint just falls back
     # to a generic label, it can never fail the op.
-    page_title: str | None = None
+    page_title: RawTitle | None = None
 
 
 class MoveOp(BaseModel):
@@ -187,7 +188,7 @@ class MoveOp(BaseModel):
     # cross-page target when parent_uid is null; ignored when parent_uid
     # is set, since the block follows its parent to whatever page that is
     # on now. None = stay on current page.
-    page_title: str | None = Field(default=None, min_length=1)
+    page_title: RawTitle | None = Field(default=None, min_length=1)
 
 
 class DeleteOp(BaseModel):
@@ -229,7 +230,7 @@ class CreatePageOp(BaseModel):
     page creation is itself an op -- get_or_create semantics, safely
     replayable."""
     op: Literal["create_page"]
-    page_title: str = Field(min_length=1)
+    page_title: RawTitle = Field(min_length=1)
 
 
 BlockOp = Annotated[Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,

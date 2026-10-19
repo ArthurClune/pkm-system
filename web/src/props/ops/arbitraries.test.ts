@@ -6,7 +6,7 @@ import { applyOps } from "../../outline/tree";
 import { sha256Hex } from "../../replica/sha256";
 import { subtreeHash } from "../../replica/subtreeHash";
 import { findOpTitleViolation } from "../../replica/titles";
-import { orderIdxOf } from "../../test-helpers";
+import { orderIdxOf, rawTitleOf } from "../../test-helpers";
 import { treeProblems } from "../outline/reading";
 import type { NormalBlock, NormalGraph } from "../sync/normalise";
 import {
@@ -110,7 +110,7 @@ describe("ops start states", () => {
       const ops = seedOps(s);
       expect(ops.filter((o) => o.op === "create_page").map((o) => o.page_title))
         .toEqual([...OPS_PAGES]);
-      for (const p of OPS_PAGES) expect(applyOps([], ops, p)).toEqual(s.pages[p]);
+      for (const p of OPS_PAGES) expect(applyOps([], ops, rawTitleOf(p))).toEqual(s.pages[p]);
     }
   });
 

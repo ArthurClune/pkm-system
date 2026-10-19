@@ -13,7 +13,7 @@ import {
   canonicalTitleOf,
   uidOf,
   ticketIdOf,
-  clientIdOf,
+  clientIdOf, rawTitleOf,
 } from "../test-helpers";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
@@ -349,7 +349,7 @@ test("Shift+Arrow starts and extends a block selection; Escape clears it", () =>
 test("remote batches patch the tree; own-echo filtering is the provider's job", () => {
   const sync = mount();
   act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
-    { op: "create", uid: uidOf("tuid-r1"), page_title: "Page", parent_uid: null,
+    { op: "create", uid: uidOf("tuid-r1"), page_title: rawTitleOf("Page"), parent_uid: null,
       order_idx: orderIdxOf(2), text: "from the iPad" },
   ] }));
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
@@ -725,7 +725,7 @@ test("navigating away with no blur still flushes a held draft", () => {
 });
 
 const CROSS_PAGE_MOVE = { op: "move", uid: uidOf("tuid-u1"), parent_uid: null,
-                         order_idx: orderIdxOf(0), page_title: "Elsewhere" } as const;
+                         order_idx: orderIdxOf(0), page_title: rawTitleOf("Elsewhere") } as const;
 
 function hideTab() {
   Object.defineProperty(document, "visibilityState",
@@ -835,7 +835,7 @@ test("a held draft whose block a remote cross-page move took flushes on tab hide
 // typed over, not the remounted tree's text), and puts the caret back where
 // the old textarea left it.
 const SAME_PAGE_MOVE = { op: "move", uid: uidOf("tuid-u1"), parent_uid: uidOf("tuid-u2"),
-                         order_idx: orderIdxOf(0), page_title: "Page" } as const;
+                         order_idx: orderIdxOf(0), page_title: rawTitleOf("Page") } as const;
 
 test("a remote same-page move of the focused block keeps its draft on the remounted textarea", () => {
   vi.useFakeTimers();
@@ -1065,7 +1065,7 @@ test("the read-only fallback still reflects genuinely remote batches", () => {
   try {
     const sync = mount();
     act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
-      { op: "create", uid: uidOf("tuid-r1"), page_title: "Page", parent_uid: null,
+      { op: "create", uid: uidOf("tuid-r1"), page_title: rawTitleOf("Page"), parent_uid: null,
         order_idx: orderIdxOf(2), text: "from elsewhere" },
     ] }));
     expect(screen.getByText("from elsewhere")).toBeInTheDocument();

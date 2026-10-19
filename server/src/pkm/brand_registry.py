@@ -162,9 +162,12 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
                     # GoodLinks' own id shape.
                     "web/src/components/goodlinks.ts"),
     # `as_raw_title` / `asRawTitle` are the mints of RawTitle, the root of
-    # the title hierarchy; refs.py wraps the text it normalizes.
+    # the title hierarchy; refs.py wraps the text it normalizes. Stored op
+    # lists and poison intents carry op `page_title`s, so their readers
+    # declare it as they do the other brands a BlockOp holds.
     "RawTitle": (_CONTRACTS, "server/src/pkm/refs.py",
-                 "web/src/replica/titles.ts", _WEB_ROWS, _WEB_WIRE),
+                 "web/src/replica/titles.ts", _WEB_ROWS, _WEB_WIRE,
+                 _WEB_PENDING_OPS, _WEB_POISON),
     # `normalizeRefTitle` and `canonicalizeTitle` are the normalisers; the
     # tokenizer's hashtag match holds no whitespace.
     "NormalizedTitle": (_CONTRACTS, "server/src/pkm/refs.py",

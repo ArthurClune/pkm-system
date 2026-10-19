@@ -176,7 +176,7 @@ export function offType<T>(value: unknown): T {
  * handle is released before throwing on an ungranted lease:
  * leaking it would cascade into every later test in the process. */
 export function reserveOutlineEditor(title: string): () => void {
-  const handle = acquireOutlineSession(title, null);
+  const handle = acquireOutlineSession(rawTitleOf(title), null);
   const lease = handle.claimEditor(Symbol(`test-reservation:${title}`));
   if (!lease.granted) {
     handle.release();
@@ -284,7 +284,7 @@ export function servePageApplyingSent(sync: SyncFake, pageTitle: string,
   const mock = vi.fn(async (input: RequestInfo | URL) => (
     String(input).startsWith(path)
       ? jsonResponse(pagePayload(pageTitle,
-                                 applyOps(blocks, sync.sent.flat(), pageTitle)))
+                                 applyOps(blocks, sync.sent.flat(), rawTitleOf(pageTitle))))
       : jsonResponse({ detail: "not found" }, 404)));
   vi.stubGlobal("fetch", mock);
   return mock;

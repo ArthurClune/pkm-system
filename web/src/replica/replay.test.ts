@@ -14,7 +14,7 @@ import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { batchesArb, type DrawnBatch, replicaStateArb, type ReplicaState,
          snapshotOf } from "./replayArbs";
 import { openTestDb, type TestDb } from "./testDb";
-import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, uidOf } from "../test-helpers";
+import { batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, seqOf, uidOf, rawTitleOf } from "../test-helpers";
 
 const NOW = 500;
 const bid = (s: string): BatchId => batchIdOf(s);
@@ -31,7 +31,7 @@ const block = (rawUid: string, over: Partial<SyncBlock> = {}): SyncBlock => ({
 const at = (order: number): Partial<SyncBlock> => ({ order_idx: orderIdxOf(order) });
 const create = (rawUid: string, order: number,
                 parent: string | null = null): BlockOp => ({
-  op: "create", uid: u(rawUid), page_title: "Page One", parent_uid: parent ? u(parent) : null,
+  op: "create", uid: u(rawUid), page_title: rawTitleOf("Page One"), parent_uid: parent ? u(parent) : null,
   order_idx: orderIdxOf(order), text: rawUid,
 });
 const move = (rawUid: string, order: number, over: Partial<MoveOp> = {}): BlockOp => ({
@@ -149,7 +149,7 @@ describe("a window replays pending batches as a first apply", () => {
   test("phantom page: a move of B to the top of a title no page holds, over a window that deletes B", async () => {
     const before = { pages: [page(1, "Page One")], blocks: [block("tuid-b"), block("tuid-a", at(1))] };
     const after = { pages: before.pages, blocks: [block("tuid-a", at(1))] };
-    const batches = [batch("b1", move("tuid-b", 0, { page_title: "Ops Four" }))];
+    const batches = [batch("b1", move("tuid-b", 0, { page_title: rawTitleOf("Ops Four") }))];
     const db = await replicaOf(before, batches);
     expect(db.select("SELECT title FROM pages WHERE id < 0", ["title"]))
       .toEqual([{ title: "Ops Four" }]);

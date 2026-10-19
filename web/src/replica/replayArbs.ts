@@ -5,7 +5,7 @@ import fc from "fast-check";
 import type { BatchId, BlockUid } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { Snapshot, SyncBlock, SyncPage } from "./apply";
-import { uidOf, pageIdOf, canonicalTitleOf, orderIdxOf, batchIdOf, seqOf } from "../test-helpers";
+import { uidOf, pageIdOf, canonicalTitleOf, rawTitleOf, orderIdxOf, batchIdOf, seqOf } from "../test-helpers";
 
 export type ReplicaState = { pages: SyncPage[]; blocks: SyncBlock[] };
 export type DrawnBatch = { batchId: BatchId; ops: BlockOp[] };
@@ -71,12 +71,12 @@ export const batchesArb = (state: ReplicaState): fc.Arbitrary<DrawnBatch[]> => {
   const op: fc.Arbitrary<BlockOp> = fc.oneof(
     fc.record({ uid: fc.constantFrom(...NEW_UIDS), parent_uid: parentUid,
                 order_idx: orderIdx, text,
-                page_title: fc.constantFrom("Page One", "Page Two", "Fresh Page") })
+                page_title: fc.constantFrom("Page One", "Page Two", "Fresh Page").map(rawTitleOf) })
       .map((o): BlockOp => ({ op: "create", ...o })),
     fc.record({ uid: anyUid, parent_uid: parentUid, order_idx: orderIdx,
                 title: fc.constantFrom(null, "Page One", "Page Two", "No Such Page") })
       .map(({ title, ...o }): BlockOp => ({
-        op: "move", ...o, ...(title !== null ? { page_title: title } : {}),
+        op: "move", ...o, ...(title !== null ? { page_title: rawTitleOf(title) } : {}),
       })),
     fc.record({ uid: anyUid, text })
       .map((o): BlockOp => ({ op: "update_text", ...o })),
@@ -89,7 +89,7 @@ export const batchesArb = (state: ReplicaState): fc.Arbitrary<DrawnBatch[]> => {
                 view_type: fc.constantFrom("numbered" as const, "document" as const) })
       .map((o): BlockOp => ({ op: "set_view_type", ...o })),
     fc.constantFrom("Page One", "Fresh Page", "Made Page")
-      .map((title): BlockOp => ({ op: "create_page", page_title: title })),
+      .map((title): BlockOp => ({ op: "create_page", page_title: rawTitleOf(title) })),
   );
   return fc.array(fc.array(op, { minLength: 1, maxLength: 4 }),
                   { minLength: 1, maxLength: 3 })

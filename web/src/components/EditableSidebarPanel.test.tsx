@@ -20,7 +20,7 @@ import {
   stubFetch,
   canonicalTitleOf,
   uidOf,
-  clientIdOf,
+  clientIdOf, rawTitleOf,
 } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { EditablePage } from "../views/EditablePage";
@@ -40,7 +40,7 @@ function mount(sync = makeSync(), title = "Paper",
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditableSidebarPanel title={title} />
+        <EditableSidebarPanel title={rawTitleOf(title)} />
       </SyncContext.Provider>
     </MemoryRouter>);
   return sync;
@@ -68,7 +68,7 @@ test("a title change cannot mount the previous payload under the new title", asy
   const tree = (title: string) => (
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditableSidebarPanel title={title} />
+        <EditableSidebarPanel title={rawTitleOf(title)} />
       </SyncContext.Provider>
     </MemoryRouter>
   );
@@ -118,7 +118,7 @@ test("a remote websocket batch updates the panel", async () => {
   const sync = mount();
   await screen.findByText("a paper block");
   act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
-    { op: "create", uid: uidOf("tuid-r1"), page_title: "Paper", parent_uid: null,
+    { op: "create", uid: uidOf("tuid-r1"), page_title: rawTitleOf("Paper"), parent_uid: null,
       order_idx: orderIdxOf(1), text: "from the iPad" },
   ] }));
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
@@ -137,14 +137,14 @@ test("a non-canonical requested title keys the outline by the payload's title", 
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditableSidebarPanel title="  Paper  " />
+        <EditableSidebarPanel title={rawTitleOf("  Paper  ")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   await screen.findByText("a paper block");
   expect(isOutlineEditorActive("Paper")).toBe(true);
 
   act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
-    { op: "create", uid: uidOf("tuid-r1"), page_title: "Paper", parent_uid: null,
+    { op: "create", uid: uidOf("tuid-r1"), page_title: rawTitleOf("Paper"), parent_uid: null,
       order_idx: orderIdxOf(1), text: "from the iPad" },
   ] }));
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
@@ -177,7 +177,7 @@ test("main-first same-title mounts keep one editor and one live fallback", async
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
         <EditablePage title={canonicalTitleOf("Paper")} initial={blocks} />
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </SyncContext.Provider>
     </MemoryRouter>);
 
@@ -194,7 +194,7 @@ test("sidebar-first same-title mounts preserve its editor when main joins", asyn
   const view = (showMain: boolean) => (
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
         {showMain && <EditablePage title={canonicalTitleOf("Paper")} initial={blocks} />}
       </SyncContext.Provider>
     </MemoryRouter>
@@ -218,7 +218,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
     <SyncContext.Provider value={makeSync()}>
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}
                     initialEntries={["/page/Paper"]}>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
         <Routes>
           <Route path="/page/*" element={<PageView />} />
         </Routes>
@@ -263,7 +263,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
 // auto-creates only today's). That is an empty page, not an error, in every
 // surface that displays it — the same fixture in the main pane and in a
 // sidebar panel must both render an editable empty outline.
-const MISSING_DAILY = "June 3rd, 2026";
+const MISSING_DAILY = rawTitleOf("June 3rd, 2026");
 
 const missingDailyTree = (surface: "main" | "sidebar") => (
   <SyncContext.Provider value={makeSync()}>
@@ -298,7 +298,7 @@ test("shows the fetch error", async () => {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditableSidebarPanel title="Missing" />
+        <EditableSidebarPanel title={rawTitleOf("Missing")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   expect(await screen.findByText(/request failed: 404/i)).toBeInTheDocument();
@@ -314,7 +314,7 @@ test("a uid prop scrolls to and flashes that block within the panel's own contai
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditableSidebarPanel title="Paper" uid={uidOf("uid_s1")} />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} uid={uidOf("uid_s1")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   await screen.findByText("target block");
@@ -339,7 +339,7 @@ test("a uid under a collapsed ancestor is expanded, then scrolled to and flashed
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditableSidebarPanel title="Paper" uid={uidOf("uid_s1")} />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} uid={uidOf("uid_s1")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   await screen.findByText("target block");
@@ -363,7 +363,7 @@ test("a uid under a collapsed ancestor stays hidden when the page is open elsewh
     render(
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
         <SyncContext.Provider value={sync}>
-          <EditableSidebarPanel title="Paper" uid={uidOf("uid_s1")} />
+          <EditableSidebarPanel title={rawTitleOf("Paper")} uid={uidOf("uid_s1")} />
         </SyncContext.Provider>
       </MemoryRouter>);
     await screen.findByText("parent");
@@ -382,7 +382,7 @@ test("no uid prop: no scroll/flash side effect", async () => {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   await screen.findByText("target block");
@@ -403,7 +403,7 @@ test("a ((uid)) ref missing from the seed map resolves live in the panel", async
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditableSidebarPanel title="Paper" />
+        <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </SyncContext.Provider>
     </MemoryRouter>);
 
@@ -419,7 +419,7 @@ test("releases a failed parent read when the panel unmounts", async () => {
   const view = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
-        <EditableSidebarPanel title="Failed sidebar read" />
+        <EditableSidebarPanel title={rawTitleOf("Failed sidebar read")} />
       </SyncContext.Provider>
     </MemoryRouter>);
   expect(await screen.findByText(/request failed: 404/i)).toBeInTheDocument();

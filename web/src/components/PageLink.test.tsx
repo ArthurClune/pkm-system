@@ -5,13 +5,14 @@ import { MemoryRouter } from "react-router-dom";
 import { expect, it, vi } from "vitest";
 import { SidebarContext } from "../contexts";
 import { ROUTER_FUTURE_FLAGS } from "../router";
+import { rawTitleOf } from "../test-helpers";
 import { PageLink } from "./PageLink";
 
 function mount(title: string, tag = false) {
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
       <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
-        <PageLink title={title} tag={tag} />
+        <PageLink title={rawTitleOf(title)} tag={tag} />
       </SidebarContext.Provider>
     </MemoryRouter>);
   return container.querySelector("a")!;

@@ -16,7 +16,7 @@ import {
   canonicalTitleOf,
   uidOf,
   clientIdOf,
-  ticketIdOf,
+  ticketIdOf, rawTitleOf,
 } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -54,7 +54,7 @@ it("does not let an old target refetch erase a split made after dispatch", async
   act(() => sync.emit({
     client_id: clientIdOf("other"), ts: 1,
     ops: [{ op: "move", uid: uidOf("unknown"), parent_uid: null,
-            order_idx: orderIdxOf(0), page_title: "Page" }],
+            order_idx: orderIdxOf(0), page_title: rawTitleOf("Page") }],
   }));
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
@@ -109,7 +109,7 @@ it("adopts an empty daily rather than rejecting when the cross-page-move catch-u
   act(() => sync.emit({
     client_id: clientIdOf("other"), ts: 1,
     ops: [{ op: "move", uid: uidOf("incoming"), parent_uid: null, order_idx: orderIdxOf(0),
-            page_title: "August 17th, 2026" }],
+            page_title: rawTitleOf("August 17th, 2026") }],
   }));
 
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());

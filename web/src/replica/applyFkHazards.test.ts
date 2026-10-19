@@ -19,7 +19,7 @@ import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 const bid = (s: string): BatchId => batchIdOf(s);
 import { openTestDb, type TestDb } from "./testDb";
 import {
-  batchIdOf, canonicalTitleOf, malformedCanonicalTitle, malformedUid, orderIdxOf, pageIdOf, seqOf, uidOf,
+  batchIdOf, canonicalTitleOf, malformedCanonicalTitle, malformedUid, orderIdxOf, pageIdOf, seqOf, uidOf, rawTitleOf,
 } from "../test-helpers";
 
 /** The drain's delete of the batch at the head of the queue, on its ack. */
@@ -111,7 +111,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // must not re-create the child under the now-missing parent — a
     // dangling insert the savepoint does NOT catch under deferred FKs.
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_child"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("uid_child"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: uidOf("uid_b2"), order_idx: orderIdxOf(0), text: "typed offline" },
     ], 5, bid("batch-child"));
     const res = applyChanges(t.db, emptyFeed({
@@ -134,12 +134,12 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // uid_never_seen is a journalled uid this replica never had (the
     // missing parent of a diverted create) -- a DELETE that matches no row.
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_ghost"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("uid_ghost"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: null, order_idx: orderIdxOf(5), text: "diverted server-side" },
     ], 5, bid("batch-ghost"));
     ackNext(t.db); // the ack
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_ghost_child"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("uid_ghost_child"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: uidOf("uid_ghost"), order_idx: orderIdxOf(0), text: "typed under it" },
     ], 6, bid("batch-child"));
     expect(uids(t.db)).toContain("uid_ghost_child");
@@ -165,7 +165,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // uid_b2 and uid_b3 away locally; the upserts that follow must
     // bring both back at their real position.
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_ghost_p"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("uid_ghost_p"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: null, order_idx: orderIdxOf(5), text: "ghost parent" },
     ], 5, bid("batch-ghost-p"));
     ackNext(t.db);
@@ -199,7 +199,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     applySnapshot(t.db, { ...SNAP, blocks: [...SNAP.blocks, block("tuid-v", 1)] });
     enqueueBatch(t.db, [{ op: "delete", uid: uidOf("tuid-v") }], 5, bid("batch-del-v"));
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("tuid-uid_y"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("tuid-uid_y"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: uidOf("uid_b3"), order_idx: orderIdxOf(0), text: "typed offline" },
     ], 6, bid("batch-create-y"));
     t.db.exec("PRAGMA foreign_keys=OFF");
@@ -229,7 +229,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // parent_uid that fails the snapshot COMMIT — that makes repair/reset
     // churn forever.
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_opt_parent"), page_title: "AI",
+      { op: "create", uid: uidOf("uid_opt_parent"), page_title: rawTitleOf("AI"),
         parent_uid: null, order_idx: orderIdxOf(0), text: "rejected parent" },
     ], 5, bid("batch-parent"));
     const rejected = nextBatch(t.db)!;
@@ -237,13 +237,13 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
       status: 400, message: "request failed: 400 /api/ops",
     }), bid("batch-parent"));
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_opt_child"), page_title: "AI",
+      { op: "create", uid: uidOf("uid_opt_child"), page_title: rawTitleOf("AI"),
         parent_uid: uidOf("uid_opt_parent"), order_idx: orderIdxOf(0), text: "child" },
     ], 6, bid("batch-child"));
     // a batch that still applies cleanly must survive the skip of the one
     // before it: skipping is per op, not a bail-out of the whole replay
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_opt_ok"), page_title: "AI",
+      { op: "create", uid: uidOf("uid_opt_ok"), page_title: rawTitleOf("AI"),
         parent_uid: null, order_idx: orderIdxOf(1), text: "still valid" },
     ], 6, bid("batch-ok"));
     applySnapshot(t.db, SNAP, 7);
@@ -257,12 +257,12 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
   // the whole batch used to roll back.
   test("a replayed batch keeps its other ops when one op adds an FK violation", () => {
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("tuid-x"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("tuid-x"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: uidOf("uid_b2"), order_idx: orderIdxOf(1), text: "x" },
       { op: "update_text", uid: uidOf("uid_b1"), text: "mine" },
     ], 5, bid("batch-x"));
     enqueueBatch(t.db, [
-      { op: "move", uid: uidOf("uid_b2"), parent_uid: null, page_title: "AI",
+      { op: "move", uid: uidOf("uid_b2"), parent_uid: null, page_title: rawTitleOf("AI"),
         order_idx: orderIdxOf(0) },
     ], 5, bid("batch-move"));
 
@@ -316,7 +316,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // into a NOT NULL column), so the page record is the only trace of the
     // block it inserts on the missing page.
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("tuid-x"), page_title: "Machine Learning",
+      { op: "create", uid: uidOf("tuid-x"), page_title: rawTitleOf("Machine Learning"),
         parent_uid: uidOf("uid_b2"), order_idx: orderIdxOf(1), text: "x" },
     ], 5, bid("batch-x"));
     // the typed API mints a uid; a crafted or old-build row need not
@@ -325,7 +325,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     queued[0].uid = null;
     t.db.exec("UPDATE pending_ops SET ops_json = ?", [JSON.stringify(queued)]);
     enqueueBatch(t.db, [
-      { op: "move", uid: uidOf("uid_b2"), parent_uid: null, page_title: "AI",
+      { op: "move", uid: uidOf("uid_b2"), parent_uid: null, page_title: rawTitleOf("AI"),
         order_idx: orderIdxOf(0) },
     ], 5, bid("batch-move"));
     const res = applyChanges(t.db, emptyFeed({

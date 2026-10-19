@@ -13,7 +13,7 @@ import { createRpcClient, serveRpc, toPortLike, type RpcHandlers } from "./rpc";
 import { openRawTestDb, type TestDb } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
 import { batchIdOf, canonicalTitleOf, clientIdOf, orderIdxOf, pageIdOf, pendingRowIdOf, seqOf,
-         typeProbe, uidOf } from "../test-helpers";
+         typeProbe, uidOf, rawTitleOf } from "../test-helpers";
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -221,7 +221,7 @@ test("an edit arriving before init persists (schema installs on demand)", async 
   // durability must not depend on that ordering
   const { replica } = await setup();
   const { pending } = await replica.enqueue([
-    { op: "create", uid: uidOf("uid_pre"), page_title: "Today",
+    { op: "create", uid: uidOf("uid_pre"), page_title: rawTitleOf("Today"),
       parent_uid: null, order_idx: orderIdxOf(0), text: "typed before init" },
   ], bid("batch-pre"));
   expect(pending).toBe(1);

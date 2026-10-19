@@ -1,8 +1,8 @@
 #!/bin/bash
 # Post-deploy smoke: run on the target machine after install.sh.
 # Checks loopback + tailscale-ip binds, Serve HTTPS, login, an authed
-# read, the asset auth gate, and a REAL websocket upgrade (plan-5 lesson:
-# TestClient suites pass even when real WS upgrades would fail).
+# read, the asset auth gate, and a REAL websocket upgrade (TestClient suites
+# pass even when real WS upgrades would fail).
 set -euo pipefail
 APP="$(cd "$(dirname "$0")/.." && pwd)"
 PORT=8974

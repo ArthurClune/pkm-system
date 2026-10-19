@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Checks for an architecture-doc revision. Run from the repo root:
 //
-//   node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/frontend.md docs/troubleshooting.md
+//   node .claude/skills/architecture-docs/check-docs.mjs \
+//     docs/architecture/frontend.md docs/troubleshooting.md
 //
 // Five things, none of which a read-through reliably catches:
 //
@@ -11,17 +12,17 @@
 //                 INBOUND anchors from sibling docs: renaming a heading breaks
 //                 another doc's deep link with no other symptom.
 //  3. sentences — the longest prose sentences, printed for judgement, with any
-//                 40+ word sentence THIS EDIT INTRODUCED marked NEW. One idea per
-//                 sentence is the aim; no single number is a gate.
+//                 40+ word sentence THIS EDIT INTRODUCED marked NEW. One idea
+//                 per sentence is the aim; no single number is a gate.
 //  4. names     — the set of `inline-code` identifiers dropped since HEAD. A
 //                 clarity pass is meant to delete sentences, not the
 //                 CONSTANT_NAMES and function names agents grep for. Dropped
 //                 names are printed for judgement, not failed on: rewording
 //                 `foo()` to `foo` shows up here too.
-//  5. beans     — bean ids (pkm-xxxx) in prose. Their one home is the Ref
-//                 column of docs/troubleshooting.md; in architecture prose
-//                 they are provenance tags every rebalance pass has had to
-//                 strip again.
+//  5. beans     — bean ids (`pkm-` plus four characters) in prose. Their one
+//                 home is the Ref column of docs/troubleshooting.md; in
+//                 architecture prose they are provenance tags every rebalance
+//                 pass has had to strip again.
 //
 // Exits non-zero only for a broken diagram, an unresolved link/anchor, or a
 // bean id in prose.
@@ -116,10 +117,10 @@ function checkInbound(file, text) {
 
 // ------------------------------------------------------------- sentences ---
 
-// The longest prose sentences, for judgement — not a pass/fail on length. A long
-// sentence is sometimes right (a quoted banner string, a list of four names);
-// several long ones in a row is the thing to look at. Code blocks, tables and
-// headings are excluded; bullets count as their own units.
+// The longest prose sentences, for judgement — not a pass/fail on length. A
+// long sentence is sometimes right (a quoted banner string, a list of four
+// names); several long ones in a row is the thing to look at. Code blocks,
+// tables and headings are excluded; bullets count as their own units.
 function sentencesOf(text) {
   const prose = text
     .replace(/```[\s\S]*?```/g, "")
@@ -186,10 +187,11 @@ function checkNames(file, text, before) {
 
 // ------------------------------------------------------------------ beans ---
 
-// Table rows (troubleshooting.md's Ref column) and linked spec/plan filenames are the
-// legitimate places a bean id appears. Product names like `pkm-replica` and
-// `pkm-specific` never match: the id shape ends at a word boundary four
-// characters in. Code blocks are blanked line-for-line so numbers stay right.
+// Table rows (troubleshooting.md's Ref column) and linked spec/plan filenames
+// are the legitimate places a bean id appears. Product names like
+// `pkm-replica` and `pkm-specific` never match: the id shape ends at a word
+// boundary four characters in. Code blocks are blanked line-for-line so
+// numbers stay right.
 function checkBeans(file, text) {
   const lines = text
     .replace(/```[\s\S]*?```/g, (b) => b.replace(/[^\n]/g, ""))

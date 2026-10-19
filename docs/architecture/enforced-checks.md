@@ -12,7 +12,7 @@ clone enables them. `--no-verify` bypasses both.
 | Hook | Rejects | Owner |
 |---|---|---|
 | `commit-msg` | a Claude session URL or `Claude-Session:` trailer in the message | `AGENTS.md` § Git |
-| `pre-commit` | in any staged source file or architecture doc: a bean id, a line number or a spec/plan pointer with no path in a comment; a comment line over 80 columns or any other line over 120 (`noqa: E501` exempts a line) | [backend.md](backend.md#testing), `server/tooling/commentlint` |
+| `pre-commit` | in any staged code file (any tracked `.py`, `.ts`, `.tsx`, `.mjs`, `.js`, `.css`, `.sh` or `.swift`, or an extensionless script with a shell, Python or node shebang) or architecture doc: a bean id, a line number or a spec/plan pointer with no path in a comment; a comment line over 80 columns or any other line over 120 (`noqa: E501` exempts a line) | [backend.md](backend.md#testing), `server/tooling/commentlint` |
 | `pre-commit` | in a staged `server/src`, `server/tooling` or `server/tests` file: a parameter, field or key named like a brand and not carrying it (`uid: str`, or no annotation); a brand constructed, held as a value or `cast` outside its registered sites; a function returning a brand while taking an unannotated or `Any` parameter; `model_construct`; raw `sqlite3` outside `SQLITE_SITES` | [Brand rules](#brand-rules), `server/tooling/brandlint` |
 
 ### Brand rules

@@ -1,7 +1,7 @@
 import pytest
 
 from commentlint.core import (RULES, Violation, check_text, comment_spans, format_report,
-                              is_scanned)
+                              is_scanned, language)
 
 
 # -- which files the lint reads ------------------------------------------------
@@ -22,6 +22,15 @@ from commentlint.core import (RULES, Violation, check_text, comment_spans, forma
     "perf/check.sh",
     "proptest/check.sh",
     "docs/architecture/backend.md",
+    "deploy/update.sh",
+    "deploy/icloud_backup.py",
+    "deploy/launcher/build.sh",
+    "deploy/launcher/pkm-server.swift",
+    ".claude/skills/architecture-docs/check-docs.mjs",
+    ".claude/skills/agent-browser/templates/form-automation.sh",
+    ".claude/skills/ipad-simulator/scripts/simpad.py",
+    ".githooks/pre-commit",
+    ".githooks/commit-msg",
 ])
 def test_source_and_architecture_docs_are_scanned(path):
     assert is_scanned(path)
@@ -40,10 +49,36 @@ def test_source_and_architecture_docs_are_scanned(path):
     "web/src/assets/logo.svg",
     "web/package.json",
     "web/public/sw.js",
+    "web/dist/assets/index.js",
+    "server/.venv/lib/site.py",
+    ".claude/skills/pkm/SKILL.md",
     "web/node_modules/x/index.js",
 ])
 def test_history_generated_and_unrelated_files_are_not(path):
     assert not is_scanned(path)
+
+
+@pytest.mark.parametrize("shebang,suffix", [
+    ("#!/bin/sh", ".sh"),
+    ("#!/bin/bash", ".sh"),
+    ("#!/usr/bin/env bash", ".sh"),
+    ("#!/usr/bin/env python3", ".py"),
+    ("#!/usr/bin/python3", ".py"),
+    ("#!/usr/bin/env node", ".mjs"),
+    ("#!/usr/bin/awk -f", ""),
+])
+def test_an_extensionless_script_is_read_as_its_shebang_language(shebang, suffix):
+    assert language(".githooks/hook", shebang + "\nexit 0\n") == suffix
+
+
+def test_an_extensionless_file_without_a_shebang_has_no_comments_to_lint():
+    assert check_text("LICENSE", "see pkm-abcd " + "x" * 200 + "\n") == []
+    assert language("LICENSE", "MIT License\n") == ""
+
+
+def test_an_extensionless_script_is_linted_with_its_shebang_syntax():
+    out = check_text(".githooks/hook", "#!/bin/sh\n# per pkm-abcd\n")
+    assert [(v.line, v.rule) for v in out] == [(2, "bean-id")]
 
 
 # -- what counts as a comment

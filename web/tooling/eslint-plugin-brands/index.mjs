@@ -38,9 +38,13 @@
 // The brand rules read tooling/brandRegistry.gen.json, generated from the
 // server's brand registry, and all apply to tests as they do to product code.
 // The test mint module (`testMintSites`) is a mint site for every brand, and
-// may assert to a type parameter (`offType<T>`), which elsewhere launders; and
-// in test code (`*.test.*` and the registry's `testCode` paths) a report names
-// the module's checked helper (`uidOf`) instead of the product remedy.
+// its exported `offType` alone may assert to a type parameter, which
+// launders anywhere else. An `offType<T>(...)` call whose T is a brand (or a
+// union, array, Set, Map key or index key of one) is reported in
+// `no-brand-assertion`: a bad brand is forged with a `malformed*` helper. A
+// brand nested in an object property does not count. In test code
+// (`*.test.*` and the registry's `testCode` paths) a report names the
+// module's checked helper (`uidOf`) instead of the product remedy.
 // `satisfies` and non-null `!` are not assertions toward a brand and are left
 // alone.
 import { readFileSync } from "node:fs";
@@ -304,6 +308,35 @@ function ownBrand(checker, type) {
   if (!brand) return null;
   const bt = checker.getTypeOfSymbol(brand);
   return bt.isStringLiteral() ? bt.value : null;
+}
+
+// The brands a type is, not merely holds: its own brand, or that of the
+// members of a union, the elements of an array or tuple, a Set's element, a
+// Map's or index signature's key. A brand nested in an object's property is
+// not counted, so a junk union of object shapes that mention ids is not a
+// forged brand.
+function shallowBrands(checker, type) {
+  const found = new Set();
+  const walk = (t) => {
+    if (t.isUnion()) return t.types.forEach(walk);
+    const own = ownBrand(checker, t);
+    if (own !== null) return found.add(own);
+    if (checker.isArrayType(t) || checker.isTupleType(t)) {
+      return checker.getTypeArguments(t).forEach(walk);
+    }
+    const name = t.symbol?.name;
+    if (SET_TYPES.has(name) || MAP_TYPES.has(name)) {
+      const [first] = checker.getTypeArguments(t);
+      if (first !== undefined) walk(first);
+      return undefined;
+    }
+    if (t.getProperties().length === 0) {
+      checker.getIndexInfosOfType(t).forEach((i) => walk(i.keyType));
+    }
+    return undefined;
+  };
+  walk(type);
+  return found;
 }
 
 // Rule 1's check: the declared type is one of `wanted`, null/undefined, or an
@@ -871,6 +904,8 @@ const noBrandAssertion = {
         "asserting to `{{target}}` launders any value; parse it, or mark the "
         + "boundary with `// brand: untrusted -- <reason>` in a boundary "
         + "module",
+      offTypeBrand:
+        "`offType` would forge {{brand}}: {{remedy}}",
     },
   },
   create(context) {
@@ -898,8 +933,6 @@ const noBrandAssertion = {
     // Whether `type` launders beyond what `from`, where given, already
     // holds; reported unless an opt-out line allows it.
     const reportLaunder = (node, type, from) => {
-      // The test mint module's `offType<T>` is the declared junk mint.
-      if (inTestMint) return false;
       if (!cachedLaunders(checker, type)) return false;
       if (from !== undefined && !unbackedLaunder(checker, from, type)) return false;
       const optOut = optOutOf(context.sourceCode, node);
@@ -914,7 +947,15 @@ const noBrandAssertion = {
     };
     // The operand is not consulted: an upcast is an annotated declaration
     // (`const ys: readonly BlockUid[] = xs`), never an assertion.
+    // Whether the assertion is in the body of the test mint module's
+    // exported `offType`, the one declared junk mint: it asserts to its type
+    // parameter, which launders anywhere else.
+    const inOffType = (node) => inTestMint
+      && context.sourceCode.getAncestors(node).some((a) =>
+        a.type === "FunctionDeclaration" && a.id?.name === OFF_TYPE
+        && a.parent.type === "ExportNamedDeclaration");
     const check = (node) => {
+      if (inOffType(node)) return;
       const target = node.typeAnnotation;
       if (target.type === "TSTypeReference" && target.typeName.name === "const") {
         return;
@@ -1007,6 +1048,32 @@ const noBrandAssertion = {
       }
     };
     return {
+      CallExpression(node) {
+        if (node.callee.type !== "Identifier" || node.callee.name !== OFF_TYPE) {
+          return;
+        }
+        const decl = checker.getResolvedSignature(
+          esTreeNodeToTSNodeMap.get(node))?.declaration;
+        if (decl === undefined || !TEST_HELPERS_SOURCE.test(
+          decl.getSourceFile().fileName.replace(/\.[cm]?[jt]sx?$/, ""))) return;
+        const brands = [...shallowBrands(checker, typeOf(node))];
+        if (brands.length === 0) return;
+        const forgers = brands.map((b) => registry.malformed[b])
+          .filter((stem) => stem !== undefined)
+          .map((stem) => `malformed${stem[0].toUpperCase()}${stem.slice(1)}`);
+        context.report({
+          node,
+          messageId: "offTypeBrand",
+          data: {
+            brand: brands.join(", "),
+            remedy: forgers.length === brands.length
+              ? `use ${forgers.join(" or ")} from ${webTestMints.join(", ")}`
+              : "forge a bad brand with a malformed helper, adding one to "
+                + `the test mint module (${webTestMints.join(", ")}) if the `
+                + "brand has none",
+          },
+        });
+      },
       TSAsExpression: check,
       TSTypeAssertion: check,
       TSTypePredicate: checkPredicate,
@@ -1400,6 +1467,7 @@ const PROBE_MESSAGES = {
 };
 
 const TEST_HELPERS_SOURCE = /(?:^|\/)test-helpers(?:\.[cm]?[jt]sx?)?$/;
+const OFF_TYPE = "offType";
 
 // The directive TypeScript reads: a line comment whose text starts with it,
 // or a block comment whose last line does.

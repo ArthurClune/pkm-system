@@ -35,6 +35,8 @@ interface FixtureCase {
   // A web-root path to lint `corrected` as, when the fixture's own location
   // forbids what the corrected text needs (importing the test helpers).
   correctedAs?: string;
+  // Text each message of `rule` must contain, in order, from the first.
+  messages?: string[][];
 }
 
 const cases: readonly FixtureCase[] = [
@@ -543,6 +545,21 @@ const cases: readonly FixtureCase[] = [
       "});\n",
   },
   {
+    file: "off-type-brand.ts",
+    rule: "brands/no-brand-assertion",
+    count: 7,
+    // a brand with a malformed helper names it; one without asks for one
+    messages: [["malformedUid"], ["PageId", "adding one"]],
+    correctedAs: "src/paths.test.ts",
+    corrected:
+      'import type { SyncProblem } from "./sync/syncState";\n' +
+      'import { offType, uidOf } from "./test-helpers";\n' +
+      'export const d = uidOf("tuid-a");\n' +
+      'export const a = offType<SyncProblem>({ kind: "brand-new" });\n' +
+      'export const b = offType<{ label: string }>({ label: 1 });\n' +
+      "export const c: unknown = offType(3);\n",
+  },
+  {
     file: "restricted-test-code-import.ts",
     rule: "no-restricted-imports",
     count: 2,
@@ -577,6 +594,11 @@ describe("eslint flat config", () => {
         expect(ruleIds.filter((id) => id === c.rule), c.file)
           .toHaveLength(c.count);
       }
+      const texts = results.flatMap((r) => r.messages)
+        .filter((m) => m.ruleId === c.rule).map((m) => m.message);
+      (c.messages ?? []).forEach((parts, i) => {
+        for (const part of parts) expect(texts[i], c.file).toContain(part);
+      });
     }
   }, ESLINT_TIMEOUT_MS);
 
@@ -1019,12 +1041,35 @@ describe("tests under the lint", () => {
       + 'export const s = "// @ts-expect-error";\n')).toEqual([]);
   }, ESLINT_TIMEOUT_MS);
 
-  it("offType asserts to a type parameter only in the test mint module", async () => {
-    const text = "export function offType<T>(value: unknown): T {\n"
+  it("only the exported offType may assert to a type parameter in the test mint module", async () => {
+    const offType = "export function offType<T>(value: unknown): T {\n"
       + "  return value as T;\n}\n";
-    expect(await messagesFor("src/test-helpers.ts", text)).toEqual([]);
-    expect(rulesOf(await messagesFor("src/props/ops/compare.ts", text)))
+    expect(await messagesFor("src/test-helpers.ts", offType)).toEqual([]);
+    expect(rulesOf(await messagesFor("src/props/ops/compare.ts", offType)))
       .toEqual(["brands/no-brand-assertion"]);
+    // a second helper, a non-exported offType and an arrow are launders
+    const others = offType
+      + "export function other<T>(value: unknown): T {\n"
+      + "  return value as T;\n}\n"
+      + "function offType2<T>(value: unknown): T {\n"
+      + "  return value as T;\n}\n"
+      + "export const arrow = <T,>(value: unknown): T => value as T;\n";
+    const found = await messagesFor("src/test-helpers.ts", others);
+    expect(rulesOf(found)).toEqual(
+      Array<string>(3).fill("brands/no-brand-assertion"));
+    expect(found.every((m) => m.message.includes("launders"))).toBe(true);
+    const unexported = await messagesFor("src/test-helpers.ts",
+      "function offType<T>(value: unknown): T {\n"
+      + "  return value as T;\n}\nexport { offType as handle };\n");
+    expect(rulesOf(unexported)).toEqual(["brands/no-brand-assertion"]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("a local offType is not the test helper", async () => {
+    const found = await messagesFor("src/paths.test.ts",
+      'import type { BlockUid } from "./api/brands";\n'
+      + "function offType<T>(v: T): T { return v; }\n"
+      + 'export const u = offType<BlockUid>(undefined as unknown as BlockUid);\n');
+    expect(found.some((m) => m.message.includes("offType"))).toBe(false);
   }, ESLINT_TIMEOUT_MS);
 
   it("any reaches a branded slot only with a report in tests", async () => {

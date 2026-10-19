@@ -448,6 +448,7 @@ openapi-typescript CLI would turn every brand back into `string`.
 | `SidebarEntryId` | a selected column, branded by `ReplicaDb.select`; `sync/wire.ts`'s `tombstoneIdOfWire` |
 | `OrderIdx` | `outline/orderIdx.ts` (`FIRST_ORDER_IDX`, `orderIdxAfter`, `orderIdxAfterLast`, `orderIdxPlus`, `freshChildOrderIdx` — the one order-key arithmetic in the web); `outline/edits.ts`'s `orderIdxAfterPosition`, the dense position→order-key conversion; a selected `order_idx`, branded by `ReplicaDb.select`; `replica/pendingOps.ts`'s `parsePendingOps` |
 | `SidebarOrderIdx` | carried from generated response types; a selected `sidebar_entries.order_idx`, branded by `ReplicaDb.select` |
+| `RawTitle` | `replica/titles.ts`'s `asRawTitle`, the general mint; the readers of stored and wire op lists (`sync/wire.ts`, `replica/pendingOps.ts`, `sync/poisonIntents.ts`) |
 | `NormalizedTitle` | `grammar/scan.ts`'s `normalizeRefTitle` and hashtag token, `replica/titles.ts`'s `canonicalizeTitle` |
 | `CanonicalTitle` | a selected `pages.title` / `sidebar_entries.title`, branded by `ReplicaDb.select`; `replica/meta.ts`'s `canonicalTitle`/`titleReader` (which read the live plain-space flag), `replica/daily.ts`'s `titleForDate`/`dailyTitle` |
 | `Sha256Hex` | `replica/sha256.ts`'s `sha256Hex` and `parseSha256Hex`, `replica/subtreeHash.ts`'s `subtreeHash`; the asset-link token (`grammar/tokenize.ts`); a selected `sha256`, `base_hash` or `after_hash`, branded by `ReplicaDb.select` |
@@ -469,8 +470,9 @@ A title no check has run on is a `RawTitle`: request bodies
 (`CreatePageRequest.title`, `RenamePageRequest.new_title`), `paths.ts`'s
 `titleFromPathname`, and the op `page_title`, which is raw inbound and only
 canonical on the server's WS echo, so a `CanonicalTitle` is assignable either
-way. `asRawTitle` (`replica/titles.ts`) is the one mint and is called only on
-plain text at its entry.
+way. `asRawTitle` (`replica/titles.ts`) is the general mint and is called only on
+plain text at its entry; stored and wire op lists carry titles already, so
+their readers mint too (see the table above).
 `replica/apply.ts`'s `parkedTitle` — the placeholder a window transaction
 writes into `pages.title` while two rows swap titles — is its own
 `ParkedTitle` brand, not `CanonicalTitle`: it is

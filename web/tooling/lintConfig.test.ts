@@ -853,6 +853,19 @@ describe("brands plugin judgement", () => {
     expect(found[0].message).not.toContain("RawTitle");
   }, ESLINT_TIMEOUT_MS);
 
+  it("reports NormalizedTitle in a RawTitle-only mint site", async () => {
+    const norm =
+      'import type { NormalizedTitle } from "../api/brands";\n' +
+      "export const t = (s: string) => s as NormalizedTitle;\n";
+    const found = await messagesFor("src/replica/pendingOps.ts", norm);
+    expect(found.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(found[0].message).toContain("NormalizedTitle");
+    const raw =
+      'import type { RawTitle } from "../api/brands";\n' +
+      "export const t = (s: string) => s as RawTitle;\n";
+    expect(await messagesFor("src/replica/pendingOps.ts", raw)).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
   it("names each title subtype itself when offType forges one", async () => {
     const header =
       'import type { CanonicalTitle, NormalizedTitle } from "../api/brands";\n' +

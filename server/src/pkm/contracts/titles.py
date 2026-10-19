@@ -7,8 +7,8 @@
                     spelling pages.title and sidebar_entries.title hold
 
 A level passes wherever a less-refined one is expected, never the reverse.
-`as_raw_title` is the one mint of RawTitle. NormalizedTitle and
-CanonicalTitle are minted in pkm.refs and pkm.server.sync_meta.
+`as_raw_title` is the general mint of RawTitle; the other mint sites of every
+level are listed in pkm.brand_registry.MINT_SITES.
 """
 from __future__ import annotations
 

@@ -8,7 +8,7 @@ import type { BlockOp } from "../api/ops";
 import { normalizeRefTitle } from "../grammar/scan";
 import { extractRefs } from "./refs";
 
-// The one mint of RawTitle: text no check has run on.
+// The general mint of RawTitle: text no check has run on.
 export function asRawTitle(text: string): RawTitle {
   return text as RawTitle;
 }

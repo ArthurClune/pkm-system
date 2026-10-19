@@ -76,9 +76,9 @@ export type PageId = number & { readonly __brand: "PageId" };
 export type SidebarEntryId = number & { readonly __brand: "SidebarEntryId" };
 
 // A title no check has run on: text as typed or received. The root of the
-// title hierarchy, minted only by `asRawTitle` (replica/titles.ts) and its
-// server twin `as_raw_title`; a test mints one with `rawTitleOf`
-// (test-helpers.ts).
+// title hierarchy. `asRawTitle` (replica/titles.ts) is the general mint, as
+// `as_raw_title` is on the server; the other sites are in the brand
+// registry's MINT_SITES. A test mints one with `rawTitleOf` (test-helpers.ts).
 export type RawTitle = string & { readonly __brand: "RawTitle" };
 
 // A RawTitle that has been through normalize_title / normalizeRefTitle: one

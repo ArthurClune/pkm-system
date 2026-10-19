@@ -404,8 +404,8 @@ in `pending_ops` and still flushes to the server.
 With FKs off nothing cascades, so the local `delete` removes each deleted
 block's `refs` and `block_refs` rows itself (`localOps.ts`); a replayed delete
 then lands the same on the reset and window paths. The one dependant it can
-leave is a child whose uid holds a `,`, which `subtreeUids`' path match misses;
-`targetedFkHit` catches that.
+leave is a child whose uid is NULL, which `subtreeUids`' path match skips (its
+`instr` over a NULL is NULL); `targetedFkHit` catches that.
 
 The replay itself is described in [§ The replay log](#the-replay-log).
 

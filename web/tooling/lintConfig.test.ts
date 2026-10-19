@@ -465,7 +465,7 @@ const cases: readonly FixtureCase[] = [
   {
     file: "brand-bypass.ts",
     rule: "brands/no-brand-bypass",
-    count: 19,
+    count: 23,
     corrected:
       'import type { BlockUid } from "../../src/api/brands";\n' +
       "export function call(f: (uid: BlockUid) => void, uid: BlockUid): void {\n" +

@@ -91,7 +91,12 @@ def is_scanned(path: str) -> bool:
     suffix = PurePosixPath(path).suffix
     if _under(path, DOC_ROOTS):
         return suffix == ".md"
-    return _under(path, CODE_ROOTS) and suffix in CODE_EXTENSIONS
+    if suffix not in CODE_EXTENSIONS:
+        return False
+    # The web root's own config and script files (`eslint.config.js`,
+    # `vite.config.ts`) sit directly in web/, outside every code root.
+    in_web_root = path.startswith("web/") and "/" not in path[len("web/"):]
+    return in_web_root or _under(path, CODE_ROOTS)
 
 
 def _under(path: str, roots: Iterable[str]) -> bool:

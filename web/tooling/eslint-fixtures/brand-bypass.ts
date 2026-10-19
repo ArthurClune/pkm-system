@@ -38,3 +38,9 @@ export function aliases(row: Row): void {
   Object.assign.call(Object, row, { uid: "junk" });
   void [assign, apply, R];
 }
+export function viaGlobal(row: Row): void {
+  const g = globalThis;
+  const holder = { Reflect };
+  g.Object.assign(row, { uid: "junk" });
+  holder.Reflect.apply(() => undefined, undefined, []);
+}

@@ -1258,6 +1258,13 @@ const noBrandBypass = {
         const base = baseOf(node);
         if (base !== null && node.object.type === "Identifier") {
           checkBaseUse(node, base);
+          return;
+        }
+        // `g.Object` on an alias of the global object: the name alone says
+        // what it reaches.
+        const name = memberName(node);
+        if (name !== null && Object.hasOwn(WATCHED, name)) {
+          context.report({ node, messageId: "alias", data: { base: name } });
         }
       },
     };

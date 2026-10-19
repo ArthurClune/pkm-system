@@ -161,7 +161,7 @@ function lifeDb(current: () => ReplicaDb): LifeDb {
   return {
     db: {
       exec: (sql, params) => live().exec(sql, params),
-      select: (sql, params) => live().select(sql, params),
+      select: (sql, keys, params) => live().select(sql, keys, params),
       introspect: (sql, params) => live().introspect(sql, params),
       transaction: (fn) => live().transaction(fn),
     },
@@ -466,7 +466,7 @@ export async function startClient(
     connectLanded: () => landed,
     cursor() {
       const hasMeta = db.select(
-        "SELECT 1 AS n FROM sqlite_master WHERE type = 'table' AND name = 'sync_client_meta'",
+        "SELECT 1 AS n FROM sqlite_master WHERE type = 'table' AND name = 'sync_client_meta'", ["n"],
       ).length > 0;
       return seqOf(Number(hasMeta ? getMeta(db, "cursor") ?? 0 : 0));
     },

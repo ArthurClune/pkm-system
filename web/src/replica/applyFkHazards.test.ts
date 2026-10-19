@@ -56,14 +56,14 @@ const emptyFeed = (over: Partial<Changes> = {}): Changes => ({
 });
 
 const uids = (db: ReplicaDb): string[] =>
-  (db.select<"uid">("SELECT uid FROM blocks ORDER BY uid"))
+  (db.select("SELECT uid FROM blocks ORDER BY uid", ["uid"]))
     .map((r) => r.uid);
 
 /** Batch ids still queued, poisoned rows included: the queue is the user's
  * intent, so nothing on this path may delete one. */
 const queuedBatchIds = (db: ReplicaDb): string[] =>
-  (db.select<"batch_id">(
-    "SELECT batch_id FROM pending_ops ORDER BY id")).map((r) => r.batch_id);
+  (db.select(
+    "SELECT batch_id FROM pending_ops ORDER BY id", ["batch_id"])).map((r) => r.batch_id);
 
 // Tests that fail a COMMIT or a statement on purpose spy on console.warn and
 // assert what the engine and applyChanges log; the engine's own
@@ -180,7 +180,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
                block("uid_b3", 1, { parent_uid: uidOf("uid_b2") })],
     }));
     expect(res).toEqual({ status: "applied", cursor: 11 });
-    expect(t.db.select("SELECT uid, parent_uid FROM blocks ORDER BY uid"))
+    expect(t.db.select("SELECT uid, parent_uid FROM blocks ORDER BY uid", ["uid", "parent_uid"]))
       .toEqual([{ uid: "uid_b1", parent_uid: null },
                 { uid: "uid_b2", parent_uid: null },
                 { uid: "uid_b3", parent_uid: "uid_b2" }]);
@@ -217,8 +217,8 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // missing) would take it, and must roll back
     expect(uids(t.db)).toEqual(["uid_b1", "uid_b2", "uid_b3"]);
     expect(queuedBatchIds(t.db)).toEqual([bid("batch-del-v"), bid("batch-create-y")]);
-    expect(t.db.select<"n" | "page_id">(
-      "SELECT rowid AS n, page_id FROM blocks WHERE page_id > 90"))
+    expect(t.db.select(
+      "SELECT rowid AS n, page_id FROM blocks WHERE page_id > 90", ["n", "page_id"]))
       .toEqual([{ n: 3, page_id: 98 }]);
   });
 
@@ -275,7 +275,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     }));
 
     expect(res).toEqual({ status: "applied", cursor: 11 });
-    expect(t.db.select("SELECT uid, page_id, text FROM blocks ORDER BY uid"))
+    expect(t.db.select("SELECT uid, page_id, text FROM blocks ORDER BY uid", ["uid", "page_id", "text"]))
       .toEqual([{ uid: "uid_b1", page_id: 1, text: "mine" },
                 { uid: "uid_b2", page_id: 2, text: "text of uid_b2" },
                 { uid: "uid_b3", page_id: 2, text: "text of uid_b3" }]);
@@ -320,8 +320,8 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
         parent_uid: uidOf("uid_b2"), order_idx: orderIdxOf(1), text: "x" },
     ], 5, bid("batch-x"));
     // the typed API mints a uid; a crafted or old-build row need not
-    const queued = JSON.parse((t.db.select<"ops_json">(
-      "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
+    const queued = JSON.parse((t.db.select(
+      "SELECT ops_json FROM pending_ops", ["ops_json"]))[0].ops_json) as Record<string, unknown>[];
     queued[0].uid = null;
     t.db.exec("UPDATE pending_ops SET ops_json = ?", [JSON.stringify(queued)]);
     enqueueBatch(t.db, [
@@ -333,7 +333,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
       blocks: [block("uid_b2", 99)],
     }));
     expect(res).toEqual({ status: "applied", cursor: 11 });
-    expect(t.db.select("SELECT COUNT(*) AS n FROM blocks WHERE uid IS NULL"))
+    expect(t.db.select("SELECT COUNT(*) AS n FROM blocks WHERE uid IS NULL", ["n"]))
       .toEqual([{ n: 0 }]);
     expect(t.db.introspect("PRAGMA foreign_key_check")).toEqual([]);
   });
@@ -348,8 +348,12 @@ describe("a pending delete replayed with foreign_keys=OFF", () => {
 
   const rows = (db: ReplicaDb) => ({
     blocks: uids(db),
-    refs: db.select("SELECT src_block_uid, target_page_id, kind FROM refs ORDER BY 1, 2, 3"),
-    blockRefs: db.select("SELECT src_block_uid, target_block_uid FROM block_refs ORDER BY 1, 2"),
+    refs: db.select(
+      "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3",
+      ["src_block_uid", "target_page_id", "ref_kind"]),
+    blockRefs: db.select(
+      "SELECT src_block_uid, target_block_uid FROM block_refs ORDER BY 1, 2",
+      ["src_block_uid", "target_block_uid"]),
   });
 
   const replayDelete = (snap: Snapshot, victim: BlockUid, fksOff: boolean): void => {
@@ -395,8 +399,9 @@ describe("a pending delete replayed with foreign_keys=OFF", () => {
       block("uid_r1", 1, { text: "see [[AI]]",
         refs: [{ target_page_id: pageIdOf(2), kind: "link" }] }),
     ]), "uid_r1", []);
-    expect(t.db.select<"src_block_uid" | "target_page_id" | "ref_kind">(
-      "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs")).toEqual([]);
+    expect(t.db.select(
+      "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs",
+        ["src_block_uid", "target_page_id", "ref_kind"])).toEqual([]);
   });
 
   test("a block with a ((uid)) ref is deleted along with its block_refs rows", () => {
@@ -404,7 +409,7 @@ describe("a pending delete replayed with foreign_keys=OFF", () => {
       block("uid_s1", 1, { text: "see ((uid_s2))" }),
       block("uid_s2", 1),
     ]), "uid_s1", ["uid_s2"]);
-    expect(t.db.select<"src_block_uid" | "target_block_uid">("SELECT * FROM block_refs")).toEqual([]);
+    expect(t.db.select("SELECT * FROM block_refs", ["target_block_uid", "src_block_uid"])).toEqual([]);
   });
 });
 

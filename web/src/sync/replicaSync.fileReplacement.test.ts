@@ -93,6 +93,6 @@ test("a poison repair whose file replacement fails keeps every queued row for it
       { id: 1, batch_id: "rejected", poisoned: true },
       { id: 2, batch_id: "valid", poisoned: false },
     ]);
-  expect(fresh.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+  expect(fresh.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]))
     .toEqual([{ text: "edited" }]);
 });

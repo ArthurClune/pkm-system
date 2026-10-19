@@ -94,6 +94,43 @@ const cases: readonly FixtureCase[] = [
       "}\n",
   },
   {
+    file: "select-keys-literal.ts",
+    rule: "brands/select-keys-literal",
+    count: 10,
+    corrected:
+      'import type { Columns } from "../../src/replica/columns.gen";\n' +
+      'import type { ReplicaDb } from "../../src/replica/db";\n' +
+      "export function load(db: ReplicaDb) {\n" +
+      '  return db.select("SELECT uid FROM blocks", ["uid"]);\n' +
+      "}\n" +
+      "// A select implementation passes its generic K through unchanged.\n" +
+      "export const wrapped = (db: ReplicaDb): ReplicaDb => ({\n" +
+      "  ...db,\n" +
+      "  select<const K extends keyof Columns>(\n" +
+      "    sql: string, keys: readonly [K, ...K[]],\n" +
+      "  ) {\n" +
+      "    return db.select(sql, keys);\n" +
+      "  },\n" +
+      "});\n" +
+      "export const viaProperty = (db: ReplicaDb) => ({\n" +
+      "  select: <K extends keyof Columns>(sql: string, keys: K[]) =>\n" +
+      "    db.select(sql, keys),\n" +
+      "});\n" +
+      "export class Wrapper {\n" +
+      "  constructor(private db: ReplicaDb) {}\n" +
+      "  select<const K extends keyof Columns>(\n" +
+      "    sql: string, keys: readonly [K, ...K[]],\n" +
+      "  ) {\n" +
+      "    return this.db.select(sql, keys);\n" +
+      "  }\n" +
+      "}\n" +
+      "// Only ReplicaDb's select is governed.\n" +
+      "export const other = {\n" +
+      "  select: (sql: string, keys: string[]) => [sql, keys],\n" +
+      "};\n" +
+      'export const run = (ks: string[]) => other.select("x", ks);\n',
+  },
+  {
     file: "explicit-any.ts",
     rule: "@typescript-eslint/no-explicit-any",
     corrected:
@@ -767,6 +804,16 @@ describe("tests under the lint", () => {
     expect(rulesOf(found)).toEqual(["brands/no-brand-assertion"]);
     expect(found[0].message).toContain("uidOf");
     expect(found[0].message).toContain("test-helpers");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("a test file may not widen select's keys", async () => {
+    const text =
+      'import type { ReplicaDb } from "./replica/db";\n'
+      + "export const f = (db: ReplicaDb, ks: [\"uid\"]) =>\n"
+      + '  db.select("SELECT uid FROM blocks", ks);\n';
+    const found = await messagesFor("src/paths.test.ts", text);
+    expect(rulesOf(found)).toEqual(["brands/select-keys-literal"]);
+    expect(found[0].message).toContain("array literal of string literals");
   }, ESLINT_TIMEOUT_MS);
 
   it("names the helper for a name that means a brand in a test", async () => {

@@ -15,7 +15,7 @@ import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
 import { canonicalTitle } from "../meta";
 import { phraseQuery } from "./fts";
-import { BLOCK_COLS, type BlockRow, blockRefCounts, blockRefTexts, buildTree,
+import { BLOCK_COLS, blockRefCounts, blockRefTexts, buildTree,
          fetchAncestors } from "./tree";
 
 // db.select names `Columns` keys, so a row's types are the vocabulary's and
@@ -24,9 +24,9 @@ import { BLOCK_COLS, type BlockRow, blockRefCounts, blockRefTexts, buildTree,
 // server-side field into a compile error here.
 
 const fetchPage = (db: ReplicaDb, requested: string): PageMeta | null => {
-  const rows = db.select<"page_id" | "title" | "created_at" | "updated_at">(
+  const rows = db.select(
     "SELECT id AS page_id, title, created_at, updated_at FROM pages" +
-    " WHERE title = ?",
+    " WHERE title = ?", ["page_id", "title", "created_at", "updated_at"],
     [canonicalTitle(db, requested)]);
   if (rows.length === 0) return null;
   const row = rows[0];
@@ -54,26 +54,26 @@ const CURRENT_WORK_SECTIONS = [
 export function backlinks(db: ReplicaDb, pageId: PageId, offset: number,
                           limit: number):
     { groups: BacklinkGroup[]; total: number; texts: string[] } {
-  const total = Number(db.select<"n">(
+  const total = Number(db.select(
     `SELECT count(DISTINCT b.page_id) AS n FROM refs r
       JOIN blocks b ON b.uid = r.src_block_uid
-     WHERE r.target_page_id = ? AND b.page_id != ?`, [pageId, pageId])[0].n);
-  const pageIds = db.select<"page_id">(
+     WHERE r.target_page_id = ? AND b.page_id != ?`, ["n"], [pageId, pageId])[0].n);
+  const pageIds = db.select(
     `SELECT DISTINCT b.page_id FROM refs r
       JOIN blocks b ON b.uid = r.src_block_uid
       JOIN pages p ON p.id = b.page_id
      WHERE r.target_page_id = ? AND b.page_id != ?
      ORDER BY p.updated_at DESC NULLS LAST, p.title
-     LIMIT ? OFFSET ?`, [pageId, pageId, limit, offset]).map((r) => r.page_id);
+     LIMIT ? OFFSET ?`, ["page_id"], [pageId, pageId, limit, offset]).map((r) => r.page_id);
   if (pageIds.length === 0) return { groups: [], total, texts: [] };
   const marks = pageIds.map(() => "?").join(",");
-  const rows = db.select<keyof BacklinkRow>(
+  const rows = db.select(
     `SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
        FROM refs r
        JOIN blocks b ON b.uid = r.src_block_uid
        JOIN pages p ON p.id = b.page_id
       WHERE r.target_page_id = ? AND b.page_id IN (${marks})
-      ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid`,
+      ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid`, ["uid", "text", "src_page_id", "src_page_title"],
     [pageId, ...pageIds]);
   const groups = groupBacklinkRows(
     rows, fetchAncestors(db, rows.map((r) => r.uid)));
@@ -102,16 +102,16 @@ function groupBacklinkRows(rows: BacklinkRow[],
 /** null = block not found: the router 404s. */
 export function blockBacklinks(db: ReplicaDb,
                                uid: BlockUid): BlockBacklinksPayload | null {
-  const exists = db.select<"n">(
-    "SELECT 1 AS n FROM blocks WHERE uid = ?", [uid]);
+  const exists = db.select(
+    "SELECT 1 AS n FROM blocks WHERE uid = ?", ["n"], [uid]);
   if (exists.length === 0) return null;
-  const rows = db.select<keyof BacklinkRow>(
+  const rows = db.select(
     `SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
        FROM block_refs r
        JOIN blocks b ON b.uid = r.src_block_uid
        JOIN pages p ON p.id = b.page_id
       WHERE r.target_block_uid = ?
-      ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid`, [uid]);
+      ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid`, ["uid", "text", "src_page_id", "src_page_title"], [uid]);
   return { groups: groupBacklinkRows(
     rows, fetchAncestors(db, rows.map((r) => r.uid))) };
 }
@@ -130,8 +130,10 @@ export function pagePayload(db: ReplicaDb, requested: string, blOffset: number,
     page = fetchPage(db, title);
     if (page === null) return null; // unreachable
   }
-  const blocks = db.select<keyof BlockRow>(
-    `SELECT ${BLOCK_COLS} FROM blocks WHERE page_id = ?`, [page.id]);
+  const blocks = db.select(
+    `SELECT ${BLOCK_COLS} FROM blocks WHERE page_id = ?`,
+      ["uid", "text", "parent_uid", "order_idx", "created_at", "updated_at", "heading", "view_type",
+       "collapsed"], [page.id]);
   const bl = backlinks(db, page.id, blOffset, limit);
   return {
     page,
@@ -158,11 +160,11 @@ export function unlinked(db: ReplicaDb, requested: string, limit: number,
                                    WHERE r.src_block_uid = b.uid
                                      AND r.target_page_id = ?)`;
   const params = [phraseQuery(title), page.id, page.id];
-  const total = Number(db.select<"n">(
-    `SELECT count(*) AS n ${where}`, params)[0].n);
-  const rows = db.select<"uid" | "text" | "page_id" | "page_title">(
+  const total = Number(db.select(
+    `SELECT count(*) AS n ${where}`, ["n"], params)[0].n);
+  const rows = db.select(
     `SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
-     ${where} ORDER BY p.title, b.uid LIMIT ? OFFSET ?`,
+     ${where} ORDER BY p.title, b.uid LIMIT ? OFFSET ?`, ["uid", "text", "page_id", "page_title"],
     [...params, lim, offset]);
   const groups: BlockGroup[] = [];
   const index = new Map<PageId, BlockGroup>();
@@ -189,12 +191,12 @@ export function currentWorkPayload(db: ReplicaDb,
         id: section.id,
         title: section.title,
         // the WHERE clause is what makes the page's edit time non-null
-        pages: db.select<"page_id" | "title" | "edited_at">(
+        pages: db.select(
           `SELECT id AS page_id, title, updated_at AS edited_at FROM pages
              WHERE updated_at IS NOT NULL
                AND updated_at ${lowerOperator} ?
                AND updated_at <= ?
-             ORDER BY updated_at DESC, title`,
+             ORDER BY updated_at DESC, title`, ["page_id", "title", "edited_at"],
           [newerThan, olderThan],
         ).map((row): CurrentWorkPage => ({
           id: row.page_id, title: row.title, updated_at: row.edited_at,

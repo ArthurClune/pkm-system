@@ -40,11 +40,11 @@ const setText = (rawUid: string, text: string): BlockOp[] =>
   [{ op: "update_text", uid: uidOf(rawUid), text }];
 
 const pendingRows = (c: HarnessClient): number =>
-  c.db.select<"n">("SELECT COUNT(*) AS n FROM pending_ops")[0].n;
+  c.db.select("SELECT COUNT(*) AS n FROM pending_ops", ["n"])[0].n;
 
 const blockText = (c: HarnessClient, rawUid: string): string | undefined =>
-  c.db.select<"text">(
-    "SELECT text FROM blocks WHERE uid = ?", [rawUid])[0]?.text;
+  c.db.select(
+    "SELECT text FROM blocks WHERE uid = ?", ["text"], [rawUid])[0]?.text;
 
 const appliedIds = async (): Promise<BatchId[]> =>
   (await server.applied()).map((row) => row.batch_id);
@@ -134,8 +134,8 @@ test("edits started together each get their own batch id", async () => {
   ]);
   expect([first, second]).toEqual(a.enqueued);
   expect(first).not.toBe(second);
-  const rows = a.db.select<"batch_id" | "ops_json">(
-    "SELECT batch_id, ops_json FROM pending_ops ORDER BY id");
+  const rows = a.db.select(
+    "SELECT batch_id, ops_json FROM pending_ops ORDER BY id", ["batch_id", "ops_json"]);
   expect(rows.map((r) => r.batch_id)).toEqual([first, second]);
   expect(rows[0].ops_json).toContain("first");
   expect(rows[1].ops_json).toContain("second");

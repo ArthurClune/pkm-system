@@ -525,9 +525,11 @@ frontend contributor day-to-day:
 
 ### Replica database access
 
-`ReplicaDb.select<K extends keyof Columns = never>(sql, params)` returns rows
-typed `Pick<Columns, K>[]`: the type argument names the columns the SQL
-returns, and each carries the type and brand `Columns` gives that key. A
+`ReplicaDb.select(sql, keys, params?)` returns rows typed `Pick<Columns, K>[]`:
+`keys` is a required, non-empty array of the columns the SQL returns, `K` is
+inferred from it, and each carries the type and brand `Columns` gives that
+key. The keys come second so that sql is first and params last, as in `exec`
+and `introspect`. A
 column the query returns under another name is aliased in the SQL to a key
 (`id AS pending_row_id`), which is how one SQLite column maps to a
 table-level key. `Columns`, `COLUMN_META` (brand, base type, nullability,
@@ -537,8 +539,10 @@ literal domain), `COLUMN_KEYS` and `BRAND_SHAPES` are in
 ([backend.md](backend.md#generated-artifacts-and-parity-fixtures)).
 `columns.test.ts` checks the client-only tables against it.
 
-Under vitest (`import.meta.env.MODE === "test"`) every selected row also goes
-through `rowProblems` (`replica/rowCheck.ts`), the TypeScript twin of the
+Under vitest (`import.meta.env.MODE === "test"`) `select` reads the engine's
+column names, empty results included, and throws unless they equal `keys` as
+sets: a missing column, an extra column and a duplicate key are each an error
+(`keyColumnsMessage`). Every selected row also goes through `rowProblems` (`replica/rowCheck.ts`), the TypeScript twin of the
 server's `row_problems`. It throws on an unregistered column, a NULL in a
 non-null key, a wrong base type, a value outside a literal domain or a value
 that fails its brand's shape. The check is chosen once at module load in
@@ -548,9 +552,14 @@ the worker bundle contains neither `rowCheck.ts` nor the vocabulary behind it.
 data the check would reject. Seeds spell uids as `tuid-<tag>`, the shape
 `uidOf` (`test-helpers.ts`) accepts.
 
-`K` exists only in the type system. Nothing at runtime compares it with the
-SQL, so a `K` naming a column the query does not return types that column as
-present; the test-time check covers only the columns actually returned.
+In production `select` is `selectObjects` and ignores `keys`. The lint rule
+`brands/select-keys-literal` requires the keys argument to be an array
+literal of string literals, because a widened array (`(keyof Columns)[]`)
+would type every column as present. The one other shape it allows is an array
+or tuple whose element type is a type parameter, and only inside a method or
+property named `select`, so a `ReplicaDb` wrapper can forward its generic `K`
+unchanged. A free generic helper is reported: its callers do not call
+`ReplicaDb.select`, so nothing would check their keys.
 
 `introspect(sql)` returns raw, unchecked rows under SQLite's own column
 names, for catalog reads, counts and tests. Production code does not call it:

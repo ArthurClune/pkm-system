@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { rowCheckMessage, rowProblems } from "./rowCheck";
+import { keyColumnsMessage, rowCheckMessage, rowProblems } from "./rowCheck";
 
 const UID = "abcDEF_123-";
 const HASH = "a".repeat(64);
@@ -50,5 +50,33 @@ describe("rowCheckMessage", () => {
     const msg = rowCheckMessage("SELECT  id\n FROM pages", ["id: not a registered row key"]);
     expect(msg).toContain("'SELECT id FROM pages'");
     expect(msg).toContain("alias the column to a key of Columns");
+  });
+});
+
+describe("keyColumnsMessage", () => {
+  const sql = "SELECT uid,\n  text FROM blocks";
+
+  test("the same set, in any order, is fine", () => {
+    expect(keyColumnsMessage(sql, ["uid", "text"], ["text", "uid"])).toBeNull();
+    expect(keyColumnsMessage(sql, ["uid"], ["uid"])).toBeNull();
+  });
+
+  test("a key the query does not return is named", () => {
+    const m = keyColumnsMessage(sql, ["uid", "text"], ["uid"]);
+    expect(m).toContain("named but not returned: text");
+    expect(m).not.toContain("returned but not named");
+    expect(m).toContain("'SELECT uid, text FROM blocks'");
+    expect(m).toContain("Fix the call");
+  });
+
+  test("a column no key names is named", () => {
+    const m = keyColumnsMessage(sql, ["uid"], ["uid", "text"]);
+    expect(m).toContain("returned but not named: text");
+    expect(m).not.toContain("named but not returned");
+  });
+
+  test("a duplicate key is refused", () => {
+    expect(keyColumnsMessage(sql, ["uid", "uid"], ["uid"]))
+      .toContain("a key is named twice: uid, uid");
   });
 });

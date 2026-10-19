@@ -9,6 +9,7 @@ import { expect, test } from "vitest";
 import type { Snapshot } from "../replica/apply";
 import { createReplica, type PendingRowId, type Replica } from "../replica/client";
 import { serveRpc, toPortLike } from "../replica/rpc";
+import type { ReplicaDb } from "../replica/db";
 import { openRawTestDb } from "../replica/testDb";
 import { buildHandlers } from "../replica/workerHandlers";
 import { createReplicaSync, PENDING_CHANGED_CAP } from "./replicaSync";
@@ -63,13 +64,13 @@ async function setup(
   return { t, replica, sync, snapshotPaths };
 }
 
-const textOf = (t: { db: { select: (sql: string) => unknown[] } }): unknown =>
-  t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'");
+const textOf = (t: { db: ReplicaDb }): unknown =>
+  t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]);
 
 test("a snapshot answered before a batch acked during its fetch is refetched", async () => {
   const textsSeenAtFetch: unknown[] = [];
   const ctx = await setup(async (n, replica, id, db) => {
-    textsSeenAtFetch.push(db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"));
+    textsSeenAtFetch.push(db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]));
     if (n === 1) {
       await replica.deleteBatch(id, batchIdOf("b-edit"), seqOf(7));
       return snapshotAt(5, "hello");

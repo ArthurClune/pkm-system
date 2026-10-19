@@ -38,7 +38,7 @@ describe("wrapSqlite + installSchema", () => {
   test("select round-trips typed rows", async () => {
     const t = await openTestDb();
     t.db.exec("INSERT INTO pages(id, title) VALUES (?, ?)", [1, "AI"]);
-    expect(t.db.select("SELECT id AS page_id, title FROM pages")).toEqual(
+    expect(t.db.select("SELECT id AS page_id, title FROM pages", ["page_id", "title"])).toEqual(
       [{ page_id: 1, title: "AI" }]);
     t.close();
   });
@@ -46,20 +46,64 @@ describe("wrapSqlite + installSchema", () => {
   test("select with the check on throws on SELECT text AS uid", async () => {
     const t = await openTestDb();
     t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
-    expect(() => t.db.select("SELECT title AS uid FROM pages"))
+    expect(() => t.db.select("SELECT title AS uid FROM pages", ["uid"]))
       .toThrow(/row check failed.*uid: "AI" is not a valid BlockUid/);
-    expect(() => t.db.select("SELECT id FROM pages"))
+    // @ts-expect-error "id" is the raw column; the key is page_id
+    expect(() => t.db.select("SELECT id FROM pages", ["id"]))
       .toThrow(/id: not a registered row key/);
     t.close();
   });
 
   test("select names Columns keys and nothing else", async () => {
     const t = await openTestDb();
-    // @ts-expect-error no key named, so no column is typed
-    expect(t.db.select("SELECT 1 AS n")[0].n).toBe(1);
     // @ts-expect-error "nope" is not a Columns key
-    expect(() => t.db.select<"nope">("SELECT 1 AS nope")).toThrow(/nope/);
-    expect(t.db.select<"n">("SELECT 1 AS n")[0].n).toBe(1);
+    expect(() => t.db.select("SELECT 1 AS nope", ["nope"])).toThrow(/nope/);
+    // Type-only: the keys are required and non-empty.
+    const never = () => {
+      // @ts-expect-error keys are required
+      t.db.select("SELECT 1 AS n");
+      // @ts-expect-error keys are non-empty
+      t.db.select("SELECT 1 AS n", []);
+    };
+    expect(never).toBeTypeOf("function");
+    expect(t.db.select("SELECT 1 AS n", ["n"])[0].n).toBe(1);
+    t.close();
+  });
+
+  test("select passes when the keys are the columns, in any order", async () => {
+    const t = await openTestDb();
+    t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
+    expect(t.db.select("SELECT title, id AS page_id FROM pages", ["page_id", "title"]))
+      .toEqual([{ title: "AI", page_id: 1 }]);
+    t.close();
+  });
+
+  test("select refuses a key the query does not return, even on no rows", async () => {
+    const t = await openTestDb();
+    expect(() => t.db.select("SELECT title FROM pages", ["title", "page_id"]))
+      .toThrow(/named but not returned: page_id/);
+    t.close();
+  });
+
+  test("select refuses a column no key names, even on no rows", async () => {
+    const t = await openTestDb();
+    expect(() => t.db.select("SELECT id AS page_id, title FROM pages", ["page_id"]))
+      .toThrow(/returned but not named: title/);
+    t.close();
+  });
+
+  test("select refuses a key named twice", async () => {
+    const t = await openTestDb();
+    expect(() => t.db.select("SELECT title FROM pages", ["title", "title"]))
+      .toThrow(/a key is named twice: title, title/);
+    t.close();
+  });
+
+  test("select does not compare keys and columns with the check off", async () => {
+    const t = await openTestDb({ checkRows: false });
+    t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
+    expect(t.db.select("SELECT title FROM pages", ["title", "page_id"]))
+      .toEqual([{ title: "AI" }]);
     t.close();
   });
 
@@ -73,7 +117,7 @@ describe("wrapSqlite + installSchema", () => {
     const t = await openTestDb();
     // Refused on the column, so an empty result is refused too.
     expect(() => t.db.introspect("SELECT uid FROM blocks"))
-      .toThrow('uid carries BlockUid: read it with select<"uid">');
+      .toThrow('uid carries BlockUid: read it with select(sql, ["uid"])');
     // A raw name that a table's column maps to a branded key.
     expect(() => t.db.introspect("SELECT id FROM pages"))
       .toThrow(/^id carries PageId or PendingRowId or SidebarEntryId: .*select/);
@@ -103,11 +147,11 @@ describe("wrapSqlite + installSchema", () => {
       t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
       throw new Error("boom");
     })).toThrow("boom");
-    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 0 }]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages", ["n"])).toEqual([{ n: 0 }]);
     t.db.transaction(() => {
       t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
     });
-    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 1 }]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages", ["n"])).toEqual([{ n: 1 }]);
     t.close();
   });
 
@@ -127,11 +171,11 @@ describe("wrapSqlite + installSchema", () => {
       expect.objectContaining({ message: expect.stringContaining("no transaction is active") as unknown }));
     expect(warn).toHaveBeenCalledWith(
       "sqlite3_step() rc=", 1, "SQLITE_ERROR", "SQL =", "ROLLBACK");
-    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 0 }]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages", ["n"])).toEqual([{ n: 0 }]);
     t.db.transaction(() => {
       t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
     });
-    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 1 }]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages", ["n"])).toEqual([{ n: 1 }]);
     t.close();
   });
 
@@ -154,7 +198,7 @@ describe("wrapSqlite + installSchema", () => {
       rollbackToSavepoint(t.db, "sp", cause);
       t.db.exec("RELEASE sp");
     });
-    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 0 }]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages", ["n"])).toEqual([{ n: 0 }]);
     t.close();
   });
 
@@ -166,7 +210,7 @@ describe("wrapSqlite + installSchema", () => {
         t.db.exec("INSERT INTO pages(id, title) VALUES (2, 'ML')");
       });
     });
-    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 2 }]);
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages", ["n"])).toEqual([{ n: 2 }]);
     t.close();
   });
 
@@ -185,7 +229,7 @@ describe("wrapSqlite + installSchema", () => {
       " ('uid_aaa111', 1, 0, 'searchable attention text')");
     expect(t.db.select(
       "SELECT b.uid FROM blocks b JOIN blocks_fts f ON f.rowid = b.rowid" +
-      " WHERE blocks_fts MATCH 'attention'")).toEqual([{ uid: "uid_aaa111" }]);
+      " WHERE blocks_fts MATCH 'attention'", ["uid"])).toEqual([{ uid: "uid_aaa111" }]);
     t.close();
   });
 
@@ -232,11 +276,19 @@ describe("meta", () => {
 });
 
 describe("the row check outside test mode", () => {
-  const badRows = { exec: () => undefined, selectObjects: () => [{ nope: 1 }] };
+  const rowsOf = (...rows: Record<string, string | number>[]) => ({
+    exec: (o: { resultRows?: unknown[]; columnNames?: string[] }) => {
+      o.resultRows?.push(...rows);
+      o.columnNames?.push(...Object.keys(rows[0] ?? {}));
+    },
+    selectObjects: () => rows,
+  });
+  const badRows = rowsOf({ nope: 1 });
 
   test("is on under test and throws on a bad row", async () => {
     const { wrapSqlite } = await import("./db");
-    expect(() => wrapSqlite(badRows).select("SELECT 1 AS nope"))
+    // @ts-expect-error "nope" is not a Columns key
+    expect(() => wrapSqlite(badRows).select("SELECT 1 AS nope", ["nope"]))
       .toThrow(/not a registered row key/);
   });
 
@@ -244,7 +296,17 @@ describe("the row check outside test mode", () => {
     vi.stubEnv("MODE", "production");
     vi.resetModules();
     const { wrapSqlite } = await import("./db");
-    expect(wrapSqlite(badRows).select("SELECT 1 AS nope")).toEqual([{ nope: 1 }]);
+    // @ts-expect-error "nope" is not a Columns key
+    expect(wrapSqlite(badRows).select("SELECT 1 AS nope", ["nope"])).toEqual([{ nope: 1 }]);
+    vi.resetModules();
+  });
+
+  test("is not built into a production module, so keys are not compared", async () => {
+    vi.stubEnv("MODE", "production");
+    vi.resetModules();
+    const { wrapSqlite } = await import("./db");
+    expect(wrapSqlite(rowsOf({ uid: "x" })).select("SELECT uid FROM blocks", ["text"]))
+      .toEqual([{ uid: "x" }]);
     vi.resetModules();
   });
 
@@ -252,8 +314,8 @@ describe("the row check outside test mode", () => {
     vi.stubEnv("MODE", "production");
     vi.resetModules();
     const { wrapSqlite } = await import("./db");
-    const uidRows = { exec: () => undefined, selectObjects: () => [{ uid: "x" }] };
-    expect(wrapSqlite(uidRows).introspect("SELECT uid FROM blocks")).toEqual([{ uid: "x" }]);
+    expect(wrapSqlite(rowsOf({ uid: "x" })).introspect("SELECT uid FROM blocks"))
+      .toEqual([{ uid: "x" }]);
     vi.resetModules();
   });
 });

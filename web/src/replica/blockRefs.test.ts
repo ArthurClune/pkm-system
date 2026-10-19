@@ -61,9 +61,9 @@ beforeEach(async () => {
 });
 
 const targets = (srcUid: string): string[] =>
-  (t.db.select<"target_block_uid">(
+  (t.db.select(
     "SELECT target_block_uid FROM block_refs WHERE src_block_uid = ?" +
-    " ORDER BY target_block_uid", [srcUid])).map((r) => r.target_block_uid);
+    " ORDER BY target_block_uid", ["target_block_uid"], [srcUid])).map((r) => r.target_block_uid);
 
 const updateText = (rawUid: string, text: string): void => {
   const op: BlockOp = { op: "update_text", uid: uidOf(rawUid), text };

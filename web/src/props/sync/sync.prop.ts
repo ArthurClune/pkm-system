@@ -350,8 +350,8 @@ test("lost ack, own nudge pulls before the redelivery", async () => {
       // The race this scenario is about: still pending and sent once, so the
       // pull below lands before the redelivery, not after it.
       const [id] = a.transport.committed.keys();
-      const pending = a.db.select<"n">(
-        "SELECT COUNT(*) AS n FROM pending_ops")[0].n;
+      const pending = a.db.select(
+        "SELECT COUNT(*) AS n FROM pending_ops", ["n"])[0].n;
       if (pending !== 1 || a.transport.sends(id) !== 1) {
         throw new Error(`the redelivery won the race: ${pending} pending,` +
                         ` ${a.transport.sends(id)} sends`);
@@ -375,8 +375,8 @@ class Drained extends SyncCommand {
   protected async act(_m: SyncModel, w: World<HarnessClient>): Promise<string> {
     const c = w.clients.get(this.client);
     if (!c) throw new Error(`no client ${this.client}`);
-    const pending = (): number => c.db.select<"n">(
-      "SELECT COUNT(*) AS n FROM pending_ops")[0].n;
+    const pending = (): number => c.db.select(
+      "SELECT COUNT(*) AS n FROM pending_ops", ["n"])[0].n;
     const drained = await within((async () => {
       while (pending() > 0 || c.unsentInMemory() > 0) {
         await new Promise((resolve) => setTimeout(resolve, 5));

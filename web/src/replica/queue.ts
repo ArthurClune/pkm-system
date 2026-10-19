@@ -27,16 +27,16 @@ import { subtreeHash } from "./subtreeHash";
 import { findOpTitleViolation } from "./titles";
 
 const currentText = (db: ReplicaDb, uid: BlockUid): string | null => {
-  const rows = db.select<"text">(
-    "SELECT text FROM blocks WHERE uid = ?", [uid]);
+  const rows = db.select(
+    "SELECT text FROM blocks WHERE uid = ?", ["text"], [uid]);
   return rows.length > 0 ? rows[0].text : null;
 };
 
 const currentPageTitle = (db: ReplicaDb,
                           uid: BlockUid): CanonicalTitle | null => {
-  const rows = db.select<"title">(
+  const rows = db.select(
     "SELECT p.title FROM blocks b JOIN pages p ON p.id = b.page_id" +
-    " WHERE b.uid = ?", [uid]);
+    " WHERE b.uid = ?", ["title"], [uid]);
   return rows.length > 0 ? rows[0].title : null;
 };
 
@@ -46,14 +46,14 @@ const currentPageTitle = (db: ReplicaDb,
  * the guard only ever ends the walk on already-corrupted parent links. */
 const currentSubtreePairs = (db: ReplicaDb,
                              uid: BlockUid): [BlockUid, string][] | null => {
-  const rows = db.select<"uid" | "text">(
+  const rows = db.select(
     `WITH RECURSIVE sub(uid, text, path) AS (
        SELECT uid, text, ',' || uid || ',' FROM blocks WHERE uid = ?
        UNION ALL
        SELECT b.uid, b.text, s.path || b.uid || ','
          FROM sub s JOIN blocks b ON b.parent_uid = s.uid
         WHERE instr(s.path, ',' || b.uid || ',') = 0
-     ) SELECT uid, text FROM sub`, [uid]);
+     ) SELECT uid, text FROM sub`, ["uid", "text"], [uid]);
   return rows.length > 0 ? rows.map((r) => [r.uid, r.text]) : null;
 };
 
@@ -141,12 +141,12 @@ const toBatch = (r: Pick<Columns, "pending_row_id" | "batch_id" | "ops_json"
 });
 
 export function nextBatch(db: ReplicaDb): PendingBatch | null {
-  const rows = db.select<"pending_row_id" | "batch_id" | "ops_json" | "poisoned"
-                           | "joined_seen_seq">(
+  const rows = db.select(
     "SELECT o.id AS pending_row_id, o.batch_id, o.ops_json, o.poisoned," +
     " s.seen_seq AS joined_seen_seq" +
     " FROM pending_ops o LEFT JOIN pending_seen s ON s.batch_id = o.batch_id" +
-    " WHERE o.poisoned = 0 ORDER BY o.id LIMIT 1");
+    " WHERE o.poisoned = 0 ORDER BY o.id LIMIT 1",
+      ["pending_row_id", "batch_id", "ops_json", "poisoned", "joined_seen_seq"]);
   return rows.length > 0 ? toBatch(rows[0]) : null;
 }
 
@@ -154,8 +154,9 @@ export function nextBatch(db: ReplicaDb): PendingBatch | null {
  * flush wants the full picture. Reads only the migration-stable columns
  * (offline-editing-design.md §6 guardrail). */
 export function allBatches(db: ReplicaDb): PendingBatch[] {
-  return db.select<"pending_row_id" | "batch_id" | "ops_json" | "poisoned">(
+  return db.select(
     "SELECT id AS pending_row_id, batch_id, ops_json, poisoned FROM pending_ops ORDER BY id",
+      ["pending_row_id", "batch_id", "ops_json", "poisoned"],
   ).map(toBatch);
 }
 
@@ -177,10 +178,10 @@ const poisonDetails = (error: string | null): Pick<PoisonedBatch,
 /** Rejected rows are queried separately from allBatches so Task 2's
  * schema-mismatch recovery read remains limited to migration-stable columns. */
 export function poisonedBatches(db: ReplicaDb): PoisonedBatch[] {
-  return db.select<"pending_row_id" | "batch_id" | "ops_json" | "pending_error">(
+  return db.select(
     "SELECT id AS pending_row_id, batch_id, ops_json, error AS pending_error"
     + " FROM pending_ops" +
-    " WHERE poisoned != 0 ORDER BY id",
+    " WHERE poisoned != 0 ORDER BY id", ["pending_row_id", "batch_id", "ops_json", "pending_error"],
   ).map((row) => ({
     id: row.pending_row_id,
     batch_id: row.batch_id,
@@ -190,8 +191,8 @@ export function poisonedBatches(db: ReplicaDb): PoisonedBatch[] {
 }
 
 export function pendingCount(db: ReplicaDb): number {
-  return Number(db.select<"n">(
-    "SELECT COUNT(*) AS n FROM pending_ops WHERE poisoned = 0")[0].n);
+  return Number(db.select(
+    "SELECT COUNT(*) AS n FROM pending_ops WHERE poisoned = 0", ["n"])[0].n);
 }
 
 /** Delete one row, matched by id AND batch id; returns whether it matched.
@@ -199,8 +200,8 @@ export function pendingCount(db: ReplicaDb): number {
  * the AUTOINCREMENT ids, so a delete that was queued for a batch the
  * rebuild dropped would otherwise remove the new batch that took its id. */
 export function deleteBatch(db: ReplicaDb, id: PendingRowId, batchId: BatchId): boolean {
-  const matches = db.select<"pending_row_id">(
-    "SELECT id AS pending_row_id FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
+  const matches = db.select(
+    "SELECT id AS pending_row_id FROM pending_ops WHERE id = ? AND batch_id = ?", ["pending_row_id"], [id, batchId]);
   if (matches.length === 0) return false;
   db.transaction(() => {
     db.exec("DELETE FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
@@ -211,8 +212,8 @@ export function deleteBatch(db: ReplicaDb, id: PendingRowId, batchId: BatchId): 
 
 export function markPoisoned(db: ReplicaDb, id: PendingRowId, error: string,
                              batchId: BatchId): boolean {
-  const matches = db.select<"pending_row_id">(
-    "SELECT id AS pending_row_id FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
+  const matches = db.select(
+    "SELECT id AS pending_row_id FROM pending_ops WHERE id = ? AND batch_id = ?", ["pending_row_id"], [id, batchId]);
   if (matches.length === 0) return false;
   db.exec(
     "UPDATE pending_ops SET poisoned = 1, error = ? WHERE id = ? AND batch_id = ?",

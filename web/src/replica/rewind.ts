@@ -44,7 +44,7 @@ const ids = (records: readonly BlockRecord[]): string =>
 
 /** The uids of present rows, deepest first. */
 const deepestFirst = (db: ReplicaDb, uids: readonly BlockUid[]): BlockUid[] =>
-  db.select<"uid">(
+  db.select(
     `WITH RECURSIVE up(uid, at, path, depth) AS (
        SELECT uid, parent_uid, ',' || uid || ',', 0 FROM blocks
         WHERE uid IN (SELECT value FROM json_each(?))
@@ -53,7 +53,7 @@ const deepestFirst = (db: ReplicaDb, uids: readonly BlockUid[]): BlockUid[] =>
          FROM up JOIN blocks p ON p.uid = up.at
         WHERE instr(up.path, ',' || p.uid || ',') = 0
      )
-     SELECT uid FROM up GROUP BY uid ORDER BY MAX(depth) DESC, uid`,
+     SELECT uid FROM up GROUP BY uid ORDER BY MAX(depth) DESC, uid`, ["uid"],
     [JSON.stringify(uids)]).map((r) => r.uid);
 
 const deleteBlocks = (db: ReplicaDb, uids: readonly BlockUid[]): void => {
@@ -86,7 +86,7 @@ const BLOCK_COLUMNS =
 export function rewind(db: ReplicaDb, scope: LogScope): Map<CanonicalTitle, PageId> {
   const freed = new Map<CanonicalTitle, PageId>();
   const inScope = scope === "pending" ? PENDING_BATCH : "1";
-  if (db.select(`SELECT 1 AS n FROM replay_log WHERE ${inScope} LIMIT 1`).length === 0) {
+  if (db.select(`SELECT 1 AS n FROM replay_log WHERE ${inScope} LIMIT 1`, ["n"]).length === 0) {
     return freed;
   }
   // A bare column beside MIN() takes its value from the row MIN() picked.
@@ -94,12 +94,13 @@ export function rewind(db: ReplicaDb, scope: LogScope): Map<CanonicalTitle, Page
     `SELECT id, key, pre_json, pre_page_id, MIN(id) FROM replay_log
       WHERE ${inScope} AND kind = '${kind}' GROUP BY key`;
 
-  const blocks = db.select<keyof BlockRecord>(
+  const blocks = db.select(
     `SELECT w.id AS replay_log_id, w.key AS uid, w.pre_json IS NOT NULL AS has_pre,
             b.uid IS NOT NULL AS present,
             b.text IS NOT (w.pre_json ->> 'text') AS text_changed,
             w.pre_json ->> 'text' AS pre_text
-       FROM (${winners("block")}) w LEFT JOIN blocks b ON b.uid = w.key`);
+       FROM (${winners("block")}) w LEFT JOIN blocks b ON b.uid = w.key`,
+         ["replay_log_id", "uid", "has_pre", "present", "text_changed", "pre_text"]);
   const restored = blocks.filter((r) => r.has_pre && r.present);
   const absent = blocks.filter((r) => r.has_pre && !r.present);
   const created = blocks.filter((r) => !r.has_pre && r.present);
@@ -131,7 +132,7 @@ export function rewind(db: ReplicaDb, scope: LogScope): Map<CanonicalTitle, Page
     const logId = new Map(absent.map((r) => [r.uid, r.replay_log_id]));
     const placed: { id: number; uid: BlockUid; text: string }[] = [];
     for (;;) {
-      const round = db.select<"uid" | "text">(
+      const round = db.select(
         `INSERT INTO blocks(${BLOCK_COLUMNS})
            SELECT l.key, COALESCE(p.page_id, l.pre_page_id),
                   l.pre_json ->> 'parent_uid', l.pre_json ->> 'order_idx',
@@ -145,7 +146,7 @@ export function rewind(db: ReplicaDb, scope: LogScope): Map<CanonicalTitle, Page
               AND CASE WHEN l.pre_json ->> 'parent_uid' IS NULL
                        THEN EXISTS (SELECT 1 FROM pages WHERE id = l.pre_page_id)
                        ELSE p.uid IS NOT NULL END
-         RETURNING uid, text`,
+         RETURNING uid, text`, ["uid", "text"],
         [ids(absent)]);
       if (round.length === 0) break;
       for (const row of round) placed.push({ id: logId.get(row.uid)!, ...row });
@@ -162,24 +163,24 @@ export function rewind(db: ReplicaDb, scope: LogScope): Map<CanonicalTitle, Page
     `UPDATE pages SET updated_at = w.pre_json ->> 'updated_at'
        FROM (${winners("page")}) w
       WHERE w.pre_json IS NOT NULL AND pages.id = CAST(w.key AS INTEGER)`);
-  const minted = db.select<"page_id" | "title">(
+  const minted = db.select(
     `DELETE FROM pages
       WHERE id < 0
         AND id IN (SELECT CAST(key AS INTEGER) FROM (${winners("page")})
                     WHERE pre_json IS NULL)
         AND NOT EXISTS (SELECT 1 FROM blocks WHERE page_id = pages.id)
         AND NOT EXISTS (SELECT 1 FROM refs WHERE target_page_id = pages.id)
-     RETURNING id AS page_id, title`);
+     RETURNING id AS page_id, title`, ["page_id", "title"]);
   for (const page of minted) freed.set(page.title, page.page_id);
 
   // 5. orphans: a rewound row whose parent or page is gone
   if (blocks.length > 0) {
-    deleteBlocks(db, db.select<"uid">(
+    deleteBlocks(db, db.select(
       `SELECT b.uid FROM blocks b
         WHERE b.uid IN (SELECT value FROM json_each(?))
           AND ((b.parent_uid IS NOT NULL
                 AND NOT EXISTS (SELECT 1 FROM blocks p WHERE p.uid = b.parent_uid))
-            OR NOT EXISTS (SELECT 1 FROM pages WHERE id = b.page_id))`,
+            OR NOT EXISTS (SELECT 1 FROM pages WHERE id = b.page_id))`, ["uid"],
       [JSON.stringify(blocks.map((r) => r.uid))]).map((r) => r.uid));
   }
 

@@ -32,23 +32,25 @@ beforeEach(async () => {
 });
 
 const durableAndOptimisticState = () => ({
-  pending: t.db.select<"pending_row_id" | "batch_id" | "ops_json" | "poisoned" | "pending_error">(
+  pending: t.db.select(
     "SELECT id AS pending_row_id, batch_id, ops_json, poisoned, error AS pending_error"
-    + " FROM pending_ops ORDER BY id"),
-  pages: t.db.select<"page_id" | "title" | "created_at" | "updated_at">(
-    "SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id"),
-  blocks: t.db.select<"uid" | "page_id" | "parent_uid" | "order_idx" | "text" | "heading"
-    | "collapsed" | "created_at" | "updated_at" | "view_type">(
-    "SELECT * FROM blocks ORDER BY uid"),
-  refs: t.db.select<"src_block_uid" | "target_page_id" | "ref_kind">(
+    + " FROM pending_ops ORDER BY id", ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"]),
+  pages: t.db.select(
+    "SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id",
+      ["page_id", "title", "created_at", "updated_at"]),
+  blocks: t.db.select(
+    "SELECT * FROM blocks ORDER BY uid",
+      ["page_id", "uid", "text", "parent_uid", "order_idx", "created_at", "updated_at", "heading", "view_type",
+       "collapsed"]),
+  refs: t.db.select(
     "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs"
-    + " ORDER BY src_block_uid, target_page_id, kind"),
-  sidebar: t.db.select<"sidebar_entry_id" | "title" | "sidebar_order_idx">(
+    + " ORDER BY src_block_uid, target_page_id, kind", ["src_block_uid", "target_page_id", "ref_kind"]),
+  sidebar: t.db.select(
     "SELECT id AS sidebar_entry_id, title, order_idx AS sidebar_order_idx"
-    + " FROM sidebar_entries ORDER BY id"),
-  metadata: t.db.select<"client_meta_key" | "client_meta_value">(
+    + " FROM sidebar_entries ORDER BY id", ["sidebar_entry_id", "title", "sidebar_order_idx"]),
+  metadata: t.db.select(
     "SELECT key AS client_meta_key, value AS client_meta_value FROM sync_client_meta"
-    + " ORDER BY key"),
+    + " ORDER BY key", ["client_meta_key", "client_meta_value"]),
 });
 
 describe("enqueueBatch", () => {
@@ -65,9 +67,10 @@ describe("enqueueBatch", () => {
     expect(warn).toHaveBeenCalledWith(
       "sqlite3_step() rc=", 1555, "SQLITE_CONSTRAINT_PRIMARYKEY", "SQL =",
       expect.stringContaining("INSERT INTO blocks"));
-    expect(t.db.select<"batch_id" | "replay_kind" | "replay_key">(
-      "SELECT batch_id, kind AS replay_kind, key AS replay_key FROM replay_log")).toEqual([]);
-    expect(t.db.select("SELECT batch_id FROM pending_ops"))
+    expect(t.db.select(
+      "SELECT batch_id, kind AS replay_kind, key AS replay_key FROM replay_log",
+        ["batch_id", "replay_kind", "replay_key"])).toEqual([]);
+    expect(t.db.select("SELECT batch_id FROM pending_ops", ["batch_id"]))
       .toEqual([{ batch_id: "batch-dup" }]);
   });
 
@@ -75,7 +78,7 @@ describe("enqueueBatch", () => {
     const op = { op: "set_collapsed" as const, uid: uidOf("uid_q1"), collapsed: true };
     enqueueBatch(t.db, [op], 99, bid("batch-a"));
     enqueueBatch(t.db, [op], 150, bid("batch-a"));
-    expect(t.db.select("SELECT batch_id, enqueued_ms FROM replay_batches"))
+    expect(t.db.select("SELECT batch_id, enqueued_ms FROM replay_batches", ["batch_id", "enqueued_ms"]))
       .toEqual([{ batch_id: "batch-a", enqueued_ms: 99 }]);
   });
 
@@ -110,13 +113,13 @@ describe("enqueueBatch", () => {
       { op: "update_text", uid: uidOf("uid_q1"), text: "edited once" },
     ], 99, bid("batch-aaaa"));
     expect(res.pending).toBe(1);
-    const row = (t.db.select<"batch_id" | "ops_json">(
-      "SELECT batch_id, ops_json FROM pending_ops"))[0];
+    const row = (t.db.select(
+      "SELECT batch_id, ops_json FROM pending_ops", ["batch_id", "ops_json"]))[0];
     expect(row.batch_id).toBe(bid("batch-aaaa"));
     const ops = JSON.parse(row.ops_json) as Record<string, unknown>[];
     expect(ops[0].base_text_hash).toBe(sha256Hex("original text"));
     // optimistic apply happened
-    expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_q1'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_q1'", ["text"]))
       .toEqual([{ text: "edited once" }]);
   });
 
@@ -128,10 +131,10 @@ describe("enqueueBatch", () => {
       base_text_hash: SNAPSHOT_HASH,
     }], 99, bid("batch-explicit"));
 
-    const ops = JSON.parse((t.db.select<"ops_json">(
-      "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
+    const ops = JSON.parse((t.db.select(
+      "SELECT ops_json FROM pending_ops", ["ops_json"]))[0].ops_json) as Record<string, unknown>[];
     expect(ops[0].base_text_hash).toBe(SNAPSHOT_HASH);
-    expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_q1'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_q1'", ["text"]))
       .toEqual([{ text: "linked snapshot" }]);
   });
 
@@ -152,10 +155,10 @@ describe("enqueueBatch", () => {
     const first = batch.ops[0];
     expect(first.op === "update_text" ? first.base_text_hash : "not an update_text").toBeUndefined();
     // the appliable op in the same batch still applied locally
-    expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_q1'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_q1'", ["text"]))
       .toEqual([{ text: "this one applies" }]);
     // the skipped ops left no partial rows behind
-    expect(t.db.select("SELECT uid FROM blocks WHERE uid='uid_orphan'"))
+    expect(t.db.select("SELECT uid FROM blocks WHERE uid='uid_orphan'", ["uid"]))
       .toEqual([]);
   });
 
@@ -164,8 +167,8 @@ describe("enqueueBatch", () => {
       { op: "update_text", uid: uidOf("uid_q1"), text: "v2" },
       { op: "update_text", uid: uidOf("uid_q1"), text: "v3" },
     ], 99, bid("batch-bbbb"));
-    const ops = JSON.parse((t.db.select<"ops_json">(
-      "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
+    const ops = JSON.parse((t.db.select(
+      "SELECT ops_json FROM pending_ops", ["ops_json"]))[0].ops_json) as Record<string, unknown>[];
     expect(ops[0].base_text_hash).toBe(sha256Hex("original text"));
     expect(ops[1].base_text_hash).toBe(sha256Hex("v2"));
   });
@@ -176,8 +179,8 @@ describe("enqueueBatch", () => {
         order_idx: orderIdxOf(1), text: "brand new" },
       { op: "update_text", uid: uidOf("uid_q2"), text: "edited new" },
     ], 99, bid("batch-cccc"));
-    const ops = JSON.parse((t.db.select<"ops_json">(
-      "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
+    const ops = JSON.parse((t.db.select(
+      "SELECT ops_json FROM pending_ops", ["ops_json"]))[0].ops_json) as Record<string, unknown>[];
     expect(ops[1].base_text_hash).toBe(sha256Hex("brand new"));
   });
 
@@ -190,8 +193,8 @@ describe("enqueueBatch", () => {
     enqueueBatch(t.db, [
       { op: "update_text", uid: uidOf("uid_q1"), text: "edited once" },
     ], 99, bid("batch-title"));
-    const ops = JSON.parse((t.db.select<"ops_json">(
-      "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
+    const ops = JSON.parse((t.db.select(
+      "SELECT ops_json FROM pending_ops", ["ops_json"]))[0].ops_json) as Record<string, unknown>[];
     expect(ops[0].page_title).toBe("AI");
   });
 
@@ -199,8 +202,8 @@ describe("enqueueBatch", () => {
     enqueueBatch(t.db, [
       { op: "update_text", uid: uidOf("uid_ghost"), text: "edited before hydration" },
     ], 99, bid("batch-title-ghost"));
-    const ops = JSON.parse((t.db.select<"ops_json">(
-      "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
+    const ops = JSON.parse((t.db.select(
+      "SELECT ops_json FROM pending_ops", ["ops_json"]))[0].ops_json) as Record<string, unknown>[];
     expect(ops[0].page_title).toBeUndefined();
   });
 
@@ -209,8 +212,8 @@ describe("enqueueBatch", () => {
       op: "update_text", uid: uidOf("uid_q1"), text: "edited",
       page_title: "Explicit Page",
     }], 99, bid("batch-title-explicit"));
-    const ops = JSON.parse((t.db.select<"ops_json">(
-      "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
+    const ops = JSON.parse((t.db.select(
+      "SELECT ops_json FROM pending_ops", ["ops_json"]))[0].ops_json) as Record<string, unknown>[];
     expect(ops[0].page_title).toBe("Explicit Page");
   });
 
@@ -224,8 +227,8 @@ describe("enqueueBatch", () => {
       base_text_hash: sha256Hex("original text"),
     }];
     enqueueBatch(t.db, ops, 99, bid("batch-lane-copy"));
-    expect((t.db.select<"ops_json">(
-      "SELECT ops_json FROM pending_ops"))[0].ops_json)
+    expect((t.db.select(
+      "SELECT ops_json FROM pending_ops", ["ops_json"]))[0].ops_json)
       .toBe(JSON.stringify(ops));
   });
 });
@@ -240,8 +243,8 @@ describe("enqueueBatch on delete", () => {
       " ('tuid-g', 1, 'uid_c1', 0, 'grandchild')," +
       " ('uid_c2', 1, 'tuid-r', 1, '')");
   };
-  const storedOps = () => JSON.parse((t.db.select<"ops_json">(
-    "SELECT ops_json FROM pending_ops"))[0].ops_json) as Record<string, unknown>[];
+  const storedOps = () => JSON.parse((t.db.select(
+    "SELECT ops_json FROM pending_ops", ["ops_json"]))[0].ops_json) as Record<string, unknown>[];
 
   test("fills a delete's subtree hash from the replica before the optimistic apply", () => {
     seedSubtree();
@@ -251,7 +254,7 @@ describe("enqueueBatch on delete", () => {
       ["uid_c2", ""],
     ]));
     // the optimistic apply still removed the whole subtree after the capture
-    expect(t.db.select("SELECT uid FROM blocks ORDER BY uid"))
+    expect(t.db.select("SELECT uid FROM blocks ORDER BY uid", ["uid"]))
       .toEqual([{ uid: "uid_q1" }]);
   });
 
@@ -274,8 +277,8 @@ describe("enqueueBatch on delete", () => {
       { op: "delete", uid: uidOf("tuid-r"), base_subtree_hash: CALLER_HASH },
     ];
     enqueueBatch(t.db, ops, 99, bid("batch-del-hashed"));
-    expect((t.db.select<"ops_json">(
-      "SELECT ops_json FROM pending_ops"))[0].ops_json)
+    expect((t.db.select(
+      "SELECT ops_json FROM pending_ops", ["ops_json"]))[0].ops_json)
       .toBe(JSON.stringify(ops));
   });
 
@@ -356,9 +359,9 @@ describe("queue reads and lifecycle", () => {
 });
 
 describe("importPendingRows", () => {
-  const readRows = () => t.db.select<"pending_row_id" | "batch_id" | "ops_json" | "poisoned" | "pending_error">(
+  const readRows = () => t.db.select(
     "SELECT id AS pending_row_id, batch_id, ops_json, poisoned, error AS pending_error"
-    + " FROM pending_ops ORDER BY id");
+    + " FROM pending_ops ORDER BY id", ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"]);
   const asRead = (rows: DurablePendingRow[]) => rows.map((r) => ({
     pending_row_id: r.id, batch_id: r.batch_id, ops_json: r.ops_json,
     poisoned: r.poisoned, pending_error: r.error }));
@@ -375,8 +378,8 @@ describe("importPendingRows", () => {
     queue.importPendingRows(t.db, rows);
     expect(readRows()).toEqual(asRead(rows));
     enqueueBatch(t.db, [{ op: "delete", uid: uidOf("tuid-x") }], 10, bid("after"));
-    expect(t.db.select<"pending_row_id">(
-      "SELECT id AS pending_row_id FROM pending_ops WHERE batch_id = 'after'"))
+    expect(t.db.select(
+      "SELECT id AS pending_row_id FROM pending_ops WHERE batch_id = 'after'", ["pending_row_id"]))
       .toEqual([{ pending_row_id: 8 }]);
   });
 
@@ -385,7 +388,7 @@ describe("importPendingRows", () => {
     queue.importPendingRows(t.db, [
       { id: pendingRowIdOf(1), batch_id: bid("other"), ops_json: "[]", poisoned: 0, error: null },
     ]);
-    expect(t.db.select("SELECT batch_id FROM pending_ops WHERE id = 1"))
+    expect(t.db.select("SELECT batch_id FROM pending_ops WHERE id = 1", ["batch_id"]))
       .toEqual([{ batch_id: "kept" }]);
   });
 });
@@ -412,7 +415,7 @@ describe("seen_seq", () => {
     enqueueBatch(t.db, [op], 1, bid("b1"));
     const batch = nextBatch(t.db)!;
     expect(deleteBatch(t.db, batch.id, batch.batch_id)).toBe(true);
-    expect(t.db.select<"batch_id" | "seen_seq">("SELECT * FROM pending_seen")).toEqual([]);
+    expect(t.db.select("SELECT * FROM pending_seen", ["batch_id", "seen_seq"])).toEqual([]);
   });
 
   test("allBatches reads only the stable columns", () => {

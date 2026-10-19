@@ -123,9 +123,9 @@ describe("daily auto-creation", () => {
     ) as { page: { id: number; title: string } };
     expect(body.page.title).toBe(title);
     expect(body.page.id).toBeLessThan(0); // local negative id
-    expect(t.db.select<"pending_row_id" | "batch_id" | "ops_json" | "poisoned" | "pending_error">(
+    expect(t.db.select(
       "SELECT id AS pending_row_id, batch_id, ops_json, poisoned, error AS pending_error"
-      + " FROM pending_ops")).toEqual([]);
+      + " FROM pending_ops", ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"])).toEqual([]);
   });
 
   test("missing past daily 404s locally and creates no row", () => {
@@ -134,8 +134,9 @@ describe("daily auto-creation", () => {
                  404);
     expectStatus(call("GET", `/api/page/${encodeURIComponent(yesterday)}`),
                  404);
-    expect(t.db.select<"page_id" | "title" | "created_at" | "updated_at">(
+    expect(t.db.select(
       "SELECT id AS page_id, title, created_at, updated_at FROM pages WHERE title = ?",
+        ["page_id", "title", "created_at", "updated_at"],
       [yesterday]))
       .toEqual([]);
   });
@@ -144,8 +145,9 @@ describe("daily auto-creation", () => {
     const tomorrow = titleForDate(new Date(NOW + 24 * 60 * 60 * 1000));
     expectStatus(call("GET", `/api/page/${encodeURIComponent(tomorrow)}`),
                  404);
-    expect(t.db.select<"page_id" | "title" | "created_at" | "updated_at">(
+    expect(t.db.select(
       "SELECT id AS page_id, title, created_at, updated_at FROM pages WHERE title = ?",
+        ["page_id", "title", "created_at", "updated_at"],
       [tomorrow]))
       .toEqual([]);
   });
@@ -363,10 +365,10 @@ describe("create page", () => {
       });
 
       expectStatus(result, 422);
-      expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages WHERE id < 0")).toEqual([]);
-      expect(t.db.select<"pending_row_id" | "batch_id" | "ops_json" | "poisoned" | "pending_error">(
+      expect(t.db.select("SELECT id AS page_id, title FROM pages WHERE id < 0", ["page_id", "title"])).toEqual([]);
+      expect(t.db.select(
       "SELECT id AS pending_row_id, batch_id, ops_json, poisoned, error AS pending_error"
-      + " FROM pending_ops")).toEqual([]);
+      + " FROM pending_ops", ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"])).toEqual([]);
     },
   );
 
@@ -377,8 +379,8 @@ describe("create page", () => {
     ) as { id: number; title: string };
     expect(body.title).toBe("  Fresh Page  ");
     expect(body.id).toBeLessThan(0);
-    const rows = (t.db.select<"batch_id" | "ops_json">(
-      "SELECT batch_id, ops_json FROM pending_ops"));
+    const rows = (t.db.select(
+      "SELECT batch_id, ops_json FROM pending_ops", ["batch_id", "ops_json"]));
     expect(rows).toHaveLength(1);
     expect(rows[0].batch_id).toBe("batch-1");
     expect(JSON.parse(rows[0].ops_json)).toEqual(
@@ -394,8 +396,8 @@ describe("create page", () => {
     ) as { id: number; title: string };
     expect(body.title).toBe("Active Post");
     expect(body.id).toBeLessThan(0);
-    const queued = (t.db.select<"ops_json">(
-      "SELECT ops_json FROM pending_ops"));
+    const queued = (t.db.select(
+      "SELECT ops_json FROM pending_ops", ["ops_json"]));
     expect(JSON.parse(queued[0].ops_json)).toEqual(
       [{ op: "create_page", page_title: "Active Post" }]);
   });
@@ -410,11 +412,11 @@ describe("create page", () => {
            { newBatchId: () => batchIdOf("batch-nl") }), 200,
     ) as { id: number; title: string };
     expect(body.title).toBe("Levels of AGI: the Path");
-    expect((t.db.select<"title">(
-      "SELECT title FROM pages WHERE title LIKE 'Levels%'",
+    expect((t.db.select(
+      "SELECT title FROM pages WHERE title LIKE 'Levels%'", ["title"],
     ))).toEqual([{ title: "Levels of AGI: the Path" }]);
-    const rows = (t.db.select<"ops_json">(
-      "SELECT ops_json FROM pending_ops"));
+    const rows = (t.db.select(
+      "SELECT ops_json FROM pending_ops", ["ops_json"]));
     expect(JSON.parse(rows[0].ops_json)).toEqual(
       [{ op: "create_page", page_title: "Levels of AGI: the Path" }]);
   });

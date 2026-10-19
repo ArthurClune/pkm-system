@@ -73,12 +73,12 @@ beforeEach(async () => {
 });
 
 const count = (sql: string): number =>
-  Number((t.db.select<"n">(sql))[0].n);
+  Number((t.db.select(sql, ["n"]))[0].n);
 
 const ftsHits = (term: string): string[] =>
-  (t.db.select<"uid">(
+  (t.db.select(
     "SELECT b.uid FROM blocks b JOIN blocks_fts f ON f.rowid = b.rowid" +
-    " WHERE blocks_fts MATCH ?", [term])).map((r) => r.uid);
+    " WHERE blocks_fts MATCH ?", ["uid"], [term])).map((r) => r.uid);
 
 describe("applySnapshot", () => {
   test("accepts authoritative page titles with forbidden local-write syntax", () => {
@@ -90,11 +90,11 @@ describe("applySnapshot", () => {
                   order_idx: sidebarOrderIdxOf(0) }],
     });
 
-    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages")).toEqual([
+    expect(t.db.select("SELECT id AS page_id, title FROM pages", ["page_id", "title"])).toEqual([
       { page_id: 30, title: "Authoritative #Page" },
     ]);
-    expect(t.db.select<"sidebar_entry_id" | "title">(
-      "SELECT id AS sidebar_entry_id, title FROM sidebar_entries")).toEqual([
+    expect(t.db.select(
+      "SELECT id AS sidebar_entry_id, title FROM sidebar_entries", ["sidebar_entry_id", "title"])).toEqual([
       { sidebar_entry_id: 30, title: "Authoritative #Page" },
     ]);
   });
@@ -102,7 +102,7 @@ describe("applySnapshot", () => {
   test("populates graph, refs, sidebar, FTS, cursor and generation", () => {
     expect(count("SELECT COUNT(*) AS n FROM pages")).toBe(2);
     expect(count("SELECT COUNT(*) AS n FROM blocks")).toBe(3);
-    expect(t.db.select("SELECT target_page_id, kind AS ref_kind FROM refs"))
+    expect(t.db.select("SELECT target_page_id, kind AS ref_kind FROM refs", ["target_page_id", "ref_kind"]))
       .toEqual([{ target_page_id: 2, ref_kind: "link" }]);
     expect(count("SELECT COUNT(*) AS n FROM sidebar_entries")).toBe(1);
     expect(ftsHits("searchable")).toEqual(["uid_b3"]);
@@ -116,7 +116,7 @@ describe("applySnapshot", () => {
       blocks: [block("uid_b1", 1, { view_type: "numbered" })],
     });
     expect(t.db.select(
-      "SELECT view_type FROM blocks WHERE uid = 'uid_b1'"))
+      "SELECT view_type FROM blocks WHERE uid = 'uid_b1'", ["view_type"]))
       .toEqual([{ view_type: "numbered" }]);
 
     applyChanges(t.db, emptyFeed({
@@ -124,7 +124,7 @@ describe("applySnapshot", () => {
       blocks: [block("uid_b1", 1, { view_type: "document" })],
     }));
     expect(t.db.select(
-      "SELECT view_type FROM blocks WHERE uid = 'uid_b1'"))
+      "SELECT view_type FROM blocks WHERE uid = 'uid_b1'", ["view_type"]))
       .toEqual([{ view_type: "document" }]);
   });
 
@@ -137,7 +137,7 @@ describe("applySnapshot", () => {
         parent_uid: null, order_idx: orderIdxOf(0), text: "typed during bootstrap" },
     ], 5, bid("batch-opt"));
     applySnapshot(t.db, SNAP, 6);
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_opt'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_opt'", ["text"]))
       .toEqual([{ text: "typed during bootstrap" }]);
     // the batch itself still flushes to the server untouched
     expect(count("SELECT COUNT(*) AS n FROM pending_ops WHERE poisoned = 0"))
@@ -159,7 +159,7 @@ describe("applySnapshot", () => {
       { op: "set_heading", uid: uidOf("uid_gone_after_wipe"), heading: 1 },
     ], 5, bid("batch-doomed"));
     applySnapshot(t.db, SNAP, 6);
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_keep'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_keep'", ["text"]))
       .toEqual([{ text: "kept" }]);
     expect(count("SELECT COUNT(*) AS n FROM blocks" +
                  " WHERE uid = 'uid_gone_after_wipe'")).toBe(0);
@@ -184,13 +184,13 @@ describe("applySnapshot", () => {
 
     applySnapshot(t.db, SNAP, 6);
     expect(t.db.select(
-      "SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+      "SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]))
       .toEqual([{ text: "links [[AI]]" }]);
     expect(t.db.select(
-      "SELECT parent_uid, order_idx FROM blocks WHERE uid = 'uid_b2'"))
+      "SELECT parent_uid, order_idx FROM blocks WHERE uid = 'uid_b2'", ["parent_uid", "order_idx"]))
       .toEqual([{ parent_uid: null, order_idx: 1 }]);
     expect(t.db.select(
-      "SELECT heading FROM blocks WHERE uid = 'uid_b3'"))
+      "SELECT heading FROM blocks WHERE uid = 'uid_b3'", ["heading"]))
       .toEqual([{ heading: 2 }]);
 
     // Successful repair deletes the poison audit row. A later valid edit of
@@ -204,18 +204,18 @@ describe("applySnapshot", () => {
       blocks: [block("uid_b1", 1, { text: "authoritative feed text" })],
     }), 8);
     expect(t.db.select(
-      "SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+      "SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]))
       .toEqual([{ text: "later valid text" }]);
     expect(t.db.select(
-      "SELECT parent_uid, order_idx FROM blocks WHERE uid = 'uid_b2'"))
+      "SELECT parent_uid, order_idx FROM blocks WHERE uid = 'uid_b2'", ["parent_uid", "order_idx"]))
       .toEqual([{ parent_uid: null, order_idx: 1 }]);
 
     applySnapshot(t.db, SNAP, 9);
     expect(t.db.select(
-      "SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+      "SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]))
       .toEqual([{ text: "later valid text" }]);
     expect(t.db.select(
-      "SELECT parent_uid, order_idx FROM blocks WHERE uid = 'uid_b2'"))
+      "SELECT parent_uid, order_idx FROM blocks WHERE uid = 'uid_b2'", ["parent_uid", "order_idx"]))
       .toEqual([{ parent_uid: null, order_idx: 1 }]);
   });
 
@@ -233,7 +233,7 @@ describe("applySnapshot", () => {
     }, 6);
 
     expect(getMeta(t.db, "plain_space_title_canonicalization")).toBe("1");
-    expect(t.db.select("SELECT title FROM pages WHERE title LIKE '%Pending%'"))
+    expect(t.db.select("SELECT title FROM pages WHERE title LIKE '%Pending%'", ["title"]))
       .toEqual([{ title: "Snapshot Pending" }]);
   });
 
@@ -244,7 +244,7 @@ describe("applySnapshot", () => {
       pages: [page(7, "Fresh")], blocks: [block("uid_new1", 7)],
       sidebar: [],
     });
-    expect(t.db.select("SELECT title FROM pages")).toEqual([{ title: "Fresh" }]);
+    expect(t.db.select("SELECT title FROM pages", ["title"])).toEqual([{ title: "Fresh" }]);
     expect(count("SELECT COUNT(*) AS n FROM blocks")).toBe(1);
     expect(count("SELECT COUNT(*) AS n FROM sidebar_entries")).toBe(0);
     expect(ftsHits("searchable")).toEqual([]); // FTS wiped with the rows
@@ -257,7 +257,7 @@ describe("applySnapshot", () => {
 
     applySnapshot(t.db, SNAP); // no block refs in any of its texts
 
-    expect(t.db.select<"src_block_uid" | "target_block_uid">("SELECT * FROM block_refs")).toEqual([]);
+    expect(t.db.select("SELECT * FROM block_refs", ["target_block_uid", "src_block_uid"])).toEqual([]);
   });
 });
 
@@ -271,11 +271,11 @@ describe("applyChanges", () => {
                   order_idx: sidebarOrderIdxOf(0) }],
     }))).toEqual({ status: "applied", cursor: 11 });
 
-    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages WHERE id = 31")).toEqual([
+    expect(t.db.select("SELECT id AS page_id, title FROM pages WHERE id = 31", ["page_id", "title"])).toEqual([
       { page_id: 31, title: "Authoritative [[Feed]]" },
     ]);
-    expect(t.db.select<"sidebar_entry_id" | "title">(
-      "SELECT id AS sidebar_entry_id, title FROM sidebar_entries WHERE id = 31"))
+    expect(t.db.select(
+      "SELECT id AS sidebar_entry_id, title FROM sidebar_entries WHERE id = 31", ["sidebar_entry_id", "title"]))
       .toEqual([{ sidebar_entry_id: 31, title: "Authoritative [[Feed]]" }]);
   });
 
@@ -292,8 +292,8 @@ describe("applyChanges", () => {
         page_title: "  Moved Block Target  " },
     ], 5, bid("pending-move"));
 
-    expect(t.db.select<"page_id" | "title">(
-      "SELECT id AS page_id, title FROM pages WHERE id < 0 ORDER BY title"))
+    expect(t.db.select(
+      "SELECT id AS page_id, title FROM pages WHERE id < 0 ORDER BY title", ["page_id", "title"]))
       .toEqual([
         { page_id: -2, title: "  Created Block Target  " },
         { page_id: -3, title: "  Moved Block Target  " },
@@ -301,7 +301,7 @@ describe("applyChanges", () => {
       ]);
     expect(t.db.select(
       "SELECT uid, page_id FROM blocks" +
-      " WHERE uid IN ('uid_pending1', 'uid_b2', 'uid_b3') ORDER BY uid"))
+      " WHERE uid IN ('uid_pending1', 'uid_b2', 'uid_b3') ORDER BY uid", ["uid", "page_id"]))
       .toEqual([
         { uid: "uid_b2", page_id: -3 },
         { uid: "uid_b3", page_id: -3 },
@@ -328,17 +328,17 @@ describe("applyChanges", () => {
     }), 6)).toEqual({ status: "applied", cursor: 11 });
 
     expect(getMeta(t.db, "plain_space_title_canonicalization")).toBe("1");
-    expect(t.db.select<"page_id" | "title">(
-      "SELECT id AS page_id, title FROM pages WHERE title LIKE '%Target%' ORDER BY id"))
+    expect(t.db.select(
+      "SELECT id AS page_id, title FROM pages WHERE title LIKE '%Target%' ORDER BY id", ["page_id", "title"]))
       .toEqual([
         { page_id: 10, title: "New Page Target" },
         { page_id: 11, title: "Created Block Target" },
         { page_id: 12, title: "Moved Block Target" },
       ]);
-    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages WHERE id < 0")).toEqual([]);
+    expect(t.db.select("SELECT id AS page_id, title FROM pages WHERE id < 0", ["page_id", "title"])).toEqual([]);
     expect(t.db.select(
       "SELECT uid, page_id FROM blocks" +
-      " WHERE uid IN ('uid_pending1', 'uid_b2', 'uid_b3') ORDER BY uid"))
+      " WHERE uid IN ('uid_pending1', 'uid_b2', 'uid_b3') ORDER BY uid", ["uid", "page_id"]))
       .toEqual([
         { uid: "uid_b2", page_id: 12 },
         { uid: "uid_b3", page_id: 12 },
@@ -360,8 +360,8 @@ describe("applyChanges", () => {
       pages: [page(10, "Shipped Target")],
     }), 6)).toEqual({ status: "applied", cursor: 11 });
 
-    expect(t.db.select<"page_id" | "title">(
-      "SELECT id AS page_id, title FROM pages WHERE title LIKE '%Target%' ORDER BY title")
+    expect(t.db.select(
+      "SELECT id AS page_id, title FROM pages WHERE title LIKE '%Target%' ORDER BY title", ["page_id", "title"])
       .map((r) => ({ local: r.page_id < 0 ? 1 : 0, title: r.title })))
       .toEqual([{ local: 1, title: "Lonely Target" },
                 { local: 0, title: "Shipped Target" }]);
@@ -379,7 +379,7 @@ describe("applyChanges", () => {
       next_since: 12, latest_seq: 12,
       blocks: [block("uid_b1", 1, { text: "older server text" })],
     }), 6);
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]))
       .toEqual([{ text: "local newer text" }]);
   });
 
@@ -394,7 +394,7 @@ describe("applyChanges", () => {
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 15 });
     expect(ftsHits("cites")).toEqual(["uid_b9"]);
-    expect(t.db.select("SELECT target_page_id FROM refs WHERE src_block_uid = 'uid_b9'"))
+    expect(t.db.select("SELECT target_page_id FROM refs WHERE src_block_uid = 'uid_b9'", ["target_page_id"]))
       .toEqual([{ target_page_id: 1 }]);
     expect(getMeta(t.db, "cursor")).toBe("15");
   });
@@ -407,7 +407,7 @@ describe("applyChanges", () => {
     applyChanges(t.db, feed);
     expect(count("SELECT COUNT(*) AS n FROM refs WHERE src_block_uid = 'uid_b1'")).toBe(0);
     expect(ftsHits("links")).toEqual(["uid_b1"]);
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]))
       .toEqual([{ text: "no more links" }]);
   });
 
@@ -419,7 +419,7 @@ describe("applyChanges", () => {
       blocks: [block("uid_b1", 1, { text: "cites ((uid_tgtA))", refs: [] })],
     }));
 
-    expect(t.db.select<"src_block_uid" | "target_block_uid">("SELECT * FROM block_refs")).toEqual([
+    expect(t.db.select("SELECT * FROM block_refs", ["target_block_uid", "src_block_uid"])).toEqual([
       { src_block_uid: "uid_b1", target_block_uid: "uid_tgtA" }]);
 
     applyChanges(t.db, emptyFeed({
@@ -427,7 +427,7 @@ describe("applyChanges", () => {
       blocks: [block("uid_b1", 1, { text: "cites nothing now", refs: [] })],
     }));
 
-    expect(t.db.select<"src_block_uid" | "target_block_uid">("SELECT * FROM block_refs")).toEqual([]);
+    expect(t.db.select("SELECT * FROM block_refs", ["target_block_uid", "src_block_uid"])).toEqual([]);
   });
 
   test("re-applying the same window is idempotent", () => {
@@ -572,7 +572,7 @@ describe("applyChanges: a title moving between ids inside one window", () => {
       tombstones: [{ kind: "page", entity_id: "2" }],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
-    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages ORDER BY id")).toEqual([
+    expect(t.db.select("SELECT id AS page_id, title FROM pages ORDER BY id", ["page_id", "title"])).toEqual([
       { page_id: 1, title: "Machine Learning" }, { page_id: 3, title: "AI" },
     ]);
   });
@@ -583,7 +583,7 @@ describe("applyChanges: a title moving between ids inside one window", () => {
       pages: [page(1, "AI"), page(2, "Machine Learning")],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
-    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages ORDER BY id")).toEqual([
+    expect(t.db.select("SELECT id AS page_id, title FROM pages ORDER BY id", ["page_id", "title"])).toEqual([
       { page_id: 1, title: "AI" }, { page_id: 2, title: "Machine Learning" },
     ]);
     // the FTS mirror followed both retitles, and the parking placeholder
@@ -599,11 +599,11 @@ describe("applyChanges: a title moving between ids inside one window", () => {
     // authoritative row); parking one would break its title match.
     enqueueBatch(t.db, [{ op: "create", uid: uidOf("uid_new1"), page_title: "New",
                           parent_uid: null, order_idx: orderIdxOf(0), text: "hi" }], 5, bid("batch-n"));
-    expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'New'")).toEqual([{ page_id: -1 }]);
+    expect(t.db.select("SELECT id AS page_id FROM pages WHERE title = 'New'", ["page_id"])).toEqual([{ page_id: -1 }]);
     const feed = emptyFeed({ next_since: 20, latest_seq: 20, pages: [page(9, "New")] });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
-    expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'New'")).toEqual([{ page_id: 9 }]);
-    expect(t.db.select("SELECT page_id FROM blocks WHERE uid = 'uid_new1'"))
+    expect(t.db.select("SELECT id AS page_id FROM pages WHERE title = 'New'", ["page_id"])).toEqual([{ page_id: 9 }]);
+    expect(t.db.select("SELECT page_id FROM blocks WHERE uid = 'uid_new1'", ["page_id"]))
       .toEqual([{ page_id: 9 }]);
   });
 
@@ -617,7 +617,7 @@ describe("applyChanges: a title moving between ids inside one window", () => {
     expect(warn).toHaveBeenCalledWith(
       "applyChanges: stale title holder, rebootstrapping", expect.objectContaining({ name: "StaleTitleHolderError" }));
     expect(getMeta(t.db, "cursor")).toBe("10");
-    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages ORDER BY id")).toEqual([
+    expect(t.db.select("SELECT id AS page_id, title FROM pages ORDER BY id", ["page_id", "title"])).toEqual([
       { page_id: 1, title: "Machine Learning" }, { page_id: 2, title: "AI" },
     ]);
   });
@@ -629,7 +629,7 @@ describe("applyChanges: a title moving between ids inside one window", () => {
       tombstones: [{ kind: "sidebar", entity_id: "1" }],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
-    expect(t.db.select<"sidebar_entry_id" | "title">("SELECT id AS sidebar_entry_id, title FROM sidebar_entries"))
+    expect(t.db.select("SELECT id AS sidebar_entry_id, title FROM sidebar_entries", ["sidebar_entry_id", "title"]))
       .toEqual([{ sidebar_entry_id: 7, title: "AI" }]);
   });
 
@@ -647,8 +647,8 @@ describe("applyChanges: a title moving between ids inside one window", () => {
                   order_idx: sidebarOrderIdxOf(1) }],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
-    expect(t.db.select<"sidebar_entry_id" | "title">(
-      "SELECT id AS sidebar_entry_id, title FROM sidebar_entries ORDER BY id")).toEqual([
+    expect(t.db.select(
+      "SELECT id AS sidebar_entry_id, title FROM sidebar_entries ORDER BY id", ["sidebar_entry_id", "title"])).toEqual([
       { sidebar_entry_id: 1, title: "Machine Learning" }, { sidebar_entry_id: 2, title: "AI" },
     ]);
   });
@@ -671,7 +671,7 @@ describe("applyChanges: a page id deleted and reused inside one window", () => {
       pages: [page(2, "Reborn")],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 12 });
-    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages WHERE id = 2"))
+    expect(t.db.select("SELECT id AS page_id, title FROM pages WHERE id = 2", ["page_id", "title"]))
       .toEqual([{ page_id: 2, title: "Reborn" }]);
     expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid = 'uid_on_ai'")).toBe(0);
     expect(count("SELECT COUNT(*) AS n FROM refs WHERE target_page_id = 2")).toBe(0);
@@ -690,9 +690,9 @@ describe("applyChanges: a page id deleted and reused inside one window", () => {
       ],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 12 });
-    expect(t.db.select("SELECT page_id FROM blocks WHERE uid = 'uid_new'"))
+    expect(t.db.select("SELECT page_id FROM blocks WHERE uid = 'uid_new'", ["page_id"]))
       .toEqual([{ page_id: 2 }]);
-    expect(t.db.select("SELECT target_page_id FROM refs WHERE src_block_uid = 'uid_b1'"))
+    expect(t.db.select("SELECT target_page_id FROM refs WHERE src_block_uid = 'uid_b1'", ["target_page_id"]))
       .toEqual([{ target_page_id: 2 }]);
   });
 
@@ -703,7 +703,7 @@ describe("applyChanges: a page id deleted and reused inside one window", () => {
       pages: [page(2, "AI")],
     });
     expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 12 });
-    expect(t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages WHERE id = 2"))
+    expect(t.db.select("SELECT id AS page_id, title FROM pages WHERE id = 2", ["page_id", "title"]))
       .toEqual([{ page_id: 2, title: "AI" }]);
     expect(count("SELECT COUNT(*) AS n FROM refs WHERE target_page_id = 2")).toBe(0);
   });
@@ -716,8 +716,8 @@ describe("applyChanges: in one window, a block tombstone's cascade reaches only 
   // only the ancestor's row ships: the window's upserts have to take the
   // subtree out from under the tombstoned block before its local cascade
   // runs.
-  const tree = () => (t.db.select<"uid" | "page_id" | "parent_uid">(
-    "SELECT uid, page_id, parent_uid FROM blocks ORDER BY uid"));
+  const tree = () => (t.db.select(
+    "SELECT uid, page_id, parent_uid FROM blocks ORDER BY uid", ["uid", "page_id", "parent_uid"]));
   beforeEach(() => {
     // uid_p > uid_c > uid_g on Machine Learning, and a page that will go
     applyChanges(t.db, emptyFeed({
@@ -790,7 +790,7 @@ describe("applyChanges: in one window, a block tombstone's cascade reaches only 
       blocks: [block("tuid-x", 4), block("tuid-y", 4, { parent_uid: uidOf("tuid-x") })],
     }));
     expect(result).toEqual({ status: "applied", cursor: 12 });
-    expect(t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'Doomed'"))
+    expect(t.db.select("SELECT id AS page_id FROM pages WHERE title = 'Doomed'", ["page_id"]))
       .toEqual([{ page_id: 4 }]);
     expect(tree().filter((r) => ["tuid-x", "tuid-y"].includes(r.uid))).toEqual([
       { uid: "tuid-x", page_id: 4, parent_uid: null },
@@ -834,8 +834,8 @@ describe("applyChanges: block tombstones wait for the window that reaches the jo
   // absent now and its delete row lies in a later window), so D's
   // tombstone, cascaded at once, would take the stale D > A > K > L, and
   // L's row never changes to ship again.
-  const tree = () => (t.db.select<"uid" | "parent_uid">(
-    "SELECT uid, parent_uid FROM blocks WHERE uid LIKE 'uid_dd_%' ORDER BY uid"));
+  const tree = () => (t.db.select(
+    "SELECT uid, parent_uid FROM blocks WHERE uid LIKE 'uid_dd_%' ORDER BY uid", ["uid", "parent_uid"]));
   const deferred = (): string[] | null => {
     const raw = getMeta(t.db, "deferred_block_tombstones");
     return raw === null ? null : (JSON.parse(raw) as Record<string, string[]>).uids;
@@ -1015,7 +1015,7 @@ describe("applySnapshot and applyChanges: a create under a ghost parent keeps th
       { op: "update_text", uid: uidOf("uid_b1"), text: "mine" },
     ], 5, batchId);
     // optimistic apply landed both ops while the ghost parent still existed
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]))
       .toEqual([{ text: "mine" }]);
   };
 
@@ -1024,9 +1024,9 @@ describe("applySnapshot and applyChanges: a create under a ghost parent keeps th
 
     applySnapshot(t.db, SNAP, 6); // SNAP has no uid_ghost1; uid_b1 at server text
 
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]))
       .toEqual([{ text: "mine" }]);
-    expect(t.db.select("SELECT uid FROM blocks WHERE uid = 'uid_child1'"))
+    expect(t.db.select("SELECT uid FROM blocks WHERE uid = 'uid_child1'", ["uid"]))
       .toEqual([]);
     const batches = allBatches(t.db);
     expect(batches).toHaveLength(1);
@@ -1047,9 +1047,9 @@ describe("applySnapshot and applyChanges: a create under a ghost parent keeps th
     }), 6);
 
     expect(result).toEqual({ status: "applied", cursor: 11 });
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]))
       .toEqual([{ text: "mine" }]);
-    expect(t.db.select("SELECT uid FROM blocks WHERE uid = 'uid_child1'"))
+    expect(t.db.select("SELECT uid FROM blocks WHERE uid = 'uid_child1'", ["uid"]))
       .toEqual([]);
     const batches = allBatches(t.db);
     expect(batches).toHaveLength(1);
@@ -1063,9 +1063,9 @@ describe("applyChanges: a replayed batch whose create already applied keeps its 
   // A window rewinds the pending create before the replay, so the replay's
   // INSERT finds no row of its own; where the window shipped the row (the
   // echo), the create alone fails and the batch's other ops still land.
-  const topLevel = () => (t.db.select<"uid" | "order_idx">(
+  const topLevel = () => (t.db.select(
     "SELECT uid, order_idx FROM blocks WHERE page_id = 1" +
-    " AND parent_uid IS NULL ORDER BY order_idx, uid"));
+    " AND parent_uid IS NULL ORDER BY order_idx, uid", ["uid", "order_idx"]));
   const enqueueCreateAndEdit = () => enqueueBatch(t.db, [
     { op: "create", uid: uidOf("uid_new1"), page_title: "Machine Learning",
       parent_uid: null, order_idx: orderIdxOf(1), text: "fresh" },
@@ -1088,9 +1088,9 @@ describe("applyChanges: a replayed batch whose create already applied keeps its 
     }), 6);
 
     expect(result).toEqual({ status: "applied", cursor: 11 });
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]))
       .toEqual([{ text: "mine" }]);
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_new1'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_new1'", ["text"]))
       .toEqual([{ text: "fresh" }]);
     expect(topLevel()).toEqual([
       { uid: "uid_b1", order_idx: 0 },
@@ -1115,7 +1115,7 @@ describe("applyChanges: a replayed batch whose create already applied keeps its 
     }), 6);
 
     expect(warn).toHaveBeenCalledWith(...engineStep("SQLITE_CONSTRAINT_PRIMARYKEY"));
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'", ["text"]))
       .toEqual([{ text: "mine" }]);
     expect(topLevel()).toEqual([
       { uid: "uid_b1", order_idx: 0 },
@@ -1153,9 +1153,9 @@ describe("applyChanges: a replayed batch whose create already applied keeps its 
 });
 
 describe("applyChanges: a replayed move leaves its siblings where its first apply put them", () => {
-  const topLevel = () => (t.db.select<"uid" | "order_idx">(
+  const topLevel = () => (t.db.select(
     "SELECT uid, order_idx FROM blocks WHERE page_id = 1" +
-    " AND parent_uid IS NULL ORDER BY order_idx, uid"));
+    " AND parent_uid IS NULL ORDER BY order_idx, uid", ["uid", "order_idx"]));
 
   test("sibling order_idx is stable across windows", () => {
     enqueueBatch(t.db, [
@@ -1197,8 +1197,9 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
   // The server no longer 400s these batches (a 400 used to buy a snapshot
   // repair that also cleaned the optimistic state), so the replica has to
   // reach the server's rows from the feed alone.
-  const tree = () => (t.db.select<"uid" | "page_id" | "parent_uid" | "order_idx">(
-    "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid"));
+  const tree = () => (t.db.select(
+    "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid",
+      ["uid", "page_id", "parent_uid", "order_idx"]));
   // Another device moved uid_b2 (and its child uid_b3) under uid_b1 before
   // our move of uid_b1 under uid_b3 reached the server, so ours would
   // nest uid_b1 under its own descendant: the server skips it.
@@ -1250,7 +1251,7 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     // no loop survives the window: the replay skips the move as a cycle,
     // and the batch's other op survives it
     expect(tree()).toEqual(SERVER_AFTER_CYCLE);
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b3'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b3'", ["text"]))
       .toEqual([{ text: "mine" }]);
     expect(allBatches(t.db)).toHaveLength(1);
     ackNext(t.db);
@@ -1276,7 +1277,7 @@ describe("applyChanges: concurrent structure edits converge without a snapshot r
     ] }, 6);
 
     expect(tree()).toEqual(SERVER_AFTER_CYCLE);
-    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b3'"))
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b3'", ["text"]))
       .toEqual([{ text: "mine" }]);
     expect(allBatches(t.db)).toHaveLength(1);
   });
@@ -1361,8 +1362,8 @@ describe("applyChanges: a window that names a pending batch as applied drops it 
        order_idx: orderIdxOf(o), text: `text of ${u}` });
   const ut = (u: string, text: string): BlockOp =>
     ({ op: "update_text", uid: uidOf(u), text });
-  const rows = (db: ReplicaDb) => db.select<"uid" | "parent_uid" | "order_idx" | "text">(
-    "SELECT uid, parent_uid, order_idx, text FROM blocks ORDER BY uid");
+  const rows = (db: ReplicaDb) => db.select(
+    "SELECT uid, parent_uid, order_idx, text FROM blocks ORDER BY uid", ["uid", "parent_uid", "order_idx", "text"]);
   const asSync = (db: ReplicaDb, keep: (u: string) => boolean = () => true): SyncBlock[] =>
     rows(db).filter((r) => keep(r.uid)).map((r) => block(r.uid, 1, {
       parent_uid: r.parent_uid, order_idx: r.order_idx,
@@ -1537,15 +1538,15 @@ describe("applyChanges: the replay log", () => {
 
   /** `batch:kind:key` per record, in (batch, kind, key) order. */
   const logKeys = (): string[] =>
-    (t.db.select<"batch_id" | "replay_kind" | "replay_key">(
+    (t.db.select(
       "SELECT batch_id, kind AS replay_kind, key AS replay_key FROM replay_log" +
-      " ORDER BY batch_id, kind, key"))
+      " ORDER BY batch_id, kind, key", ["batch_id", "replay_kind", "replay_key"]))
       .map((r) => `${r.batch_id}:${r.replay_kind}:${r.replay_key}`);
   /** A page's top level as `uid` + `order_idx`, in order. */
   const keys = (rawPageId: number): string =>
-    (t.db.select<"uid" | "order_idx">(
+    (t.db.select(
       "SELECT uid, order_idx FROM blocks WHERE page_id = ? AND parent_uid IS NULL" +
-      " ORDER BY order_idx, uid", [rawPageId]))
+      " ORDER BY order_idx, uid", ["uid", "order_idx"], [rawPageId]))
       .map((r) => `${r.uid}${r.order_idx}`).join(" ");
 
   const createTop = (u: string, o: number, pageTitle = "P"): BlockOp =>
@@ -1578,7 +1579,7 @@ describe("applyChanges: the replay log", () => {
     applyChanges(t.db, emptyFeed({ next_since: 12, latest_seq: 12 }), 4);
     expect(keys(1)).toBe("tuid-m0 tuid-a1 tuid-r2");
     expect(logKeys()).toEqual([]);
-    expect(t.db.select("SELECT batch_id FROM replay_batches")).toEqual([]);
+    expect(t.db.select("SELECT batch_id FROM replay_batches", ["batch_id"])).toEqual([]);
   });
 
   test("a block tombstone, deferred or applied, drops an acked batch's records on its row", () => {
@@ -1732,7 +1733,7 @@ describe("applyChanges: the replay log", () => {
       expect(res).toEqual({ status: "applied", cursor: 11 });
       expect(warn).toHaveBeenCalledWith(...engineStep("SQLITE_CONSTRAINT_TRIGGER"));
       expect(keys(1)).toBe("tuid-X0 tuid-m1 tuid-z1 tuid-a2 tuid-r3");
-      expect(t.db.select("SELECT text FROM blocks WHERE uid = 'tuid-X'"))
+      expect(t.db.select("SELECT text FROM blocks WHERE uid = 'tuid-X'", ["text"]))
         .toEqual([{ text: "text of tuid-X" }]);
     });
 
@@ -1762,7 +1763,7 @@ describe("applyChanges: the replay log", () => {
       }), 3);
 
       expect(res).toEqual({ status: "applied", cursor: 11 });
-      expect(t.db.select("SELECT uid, page_id FROM blocks ORDER BY uid"))
+      expect(t.db.select("SELECT uid, page_id FROM blocks ORDER BY uid", ["uid", "page_id"]))
         .toEqual([{ uid: "tuid-C", page_id: 1 }, { uid: "tuid-Q", page_id: 1 }]);
     });
   });
@@ -1805,9 +1806,10 @@ describe("applyChanges: the replay log", () => {
     applySnapshot(srv.db, LOG_SNAP, 1);
     applyLocalOps(srv.db, batch, 2, { batchId: bid("srv") });
     const serverRows = (db: ReplicaDb) => db.select(
-      "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid");
-    const echo = (srv.db.select<"uid" | "order_idx">(
-      "SELECT uid, order_idx FROM blocks WHERE page_id = 1"))
+      "SELECT uid, page_id, parent_uid, order_idx FROM blocks ORDER BY uid",
+        ["uid", "page_id", "parent_uid", "order_idx"]);
+    const echo = (srv.db.select(
+      "SELECT uid, order_idx FROM blocks WHERE page_id = 1", ["uid", "order_idx"]))
       .map((r) => block(r.uid, 1, { order_idx: orderIdxOf(r.order_idx) }));
     enqueueBatch(t.db, batch, 2, bid("b1"));
 
@@ -1841,12 +1843,12 @@ describe("applyChanges: a create or move the two sides place in different groups
     block(rawUid, rawPageId, { order_idx: orderIdxOf(o), ...over });
   /** One sibling group as `uid@order_idx`, in order. */
   const group = (rawPageId: number, parent: string | null = null): string =>
-    (t.db.select<"uid" | "order_idx">(
+    (t.db.select(
       "SELECT uid, order_idx FROM blocks WHERE page_id = ? AND parent_uid IS ?" +
-      " ORDER BY order_idx, uid", [rawPageId, parent]))
+      " ORDER BY order_idx, uid", ["uid", "order_idx"], [rawPageId, parent]))
       .map((r) => `${r.uid}@${r.order_idx}`).join(" ");
   const titles = () =>
-    t.db.select<"page_id" | "title">("SELECT id AS page_id, title FROM pages ORDER BY id");
+    t.db.select("SELECT id AS page_id, title FROM pages ORDER BY id", ["page_id", "title"]);
   const logRows = (): number => count("SELECT COUNT(*) AS n FROM replay_log");
 
   const enqueueAndAck = (ops: BlockOp[]): void => {
@@ -1974,7 +1976,7 @@ describe("applyChanges: a create or move the two sides place in different groups
          [at("tuid-s1", 1, 0), at("tuid-s2", 1, 0, { parent_uid: uidOf("tuid-s1"), updated_at: 5 }),
           at("tuid-t1", 2, 0), at("tuid-t2", 2, 1)]);
     enqueueAndAck([moveUnder("tuid-s1", "tuid-t1", 0)]);
-    expect(t.db.select("SELECT page_id FROM blocks WHERE uid IN ('tuid-s1', 'tuid-s2')"))
+    expect(t.db.select("SELECT page_id FROM blocks WHERE uid IN ('tuid-s1', 'tuid-s2')", ["page_id"]))
       .toEqual([{ page_id: 2 }, { page_id: 2 }]);
 
     // s1 stays on P under t1: the server re-pages nothing.
@@ -1982,7 +1984,7 @@ describe("applyChanges: a create or move the two sides place in different groups
 
     expect(t.db.select(
       "SELECT uid, page_id, parent_uid, updated_at FROM blocks" +
-      " WHERE uid = 'tuid-s2'"))
+      " WHERE uid = 'tuid-s2'", ["uid", "page_id", "parent_uid", "updated_at"]))
       .toEqual([{ uid: "tuid-s2", page_id: 1, parent_uid: "tuid-s1", updated_at: 5 }]);
     expect(group(1)).toBe("tuid-t1@0");
     expect(group(1, "tuid-t1")).toBe("tuid-s1@0");
@@ -2004,12 +2006,13 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
       sidebar: [],
     }, 1);
   });
-  const tree = () => (t.db.select<"uid" | "parent_uid">(
-    "SELECT uid, parent_uid FROM blocks WHERE uid IN ('tuid-p', 'tuid-k', 'tuid-g') ORDER BY uid"));
+  const tree = () => (t.db.select(
+    "SELECT uid, parent_uid FROM blocks WHERE uid IN ('tuid-p', 'tuid-k', 'tuid-g') ORDER BY uid",
+      ["uid", "parent_uid"]));
   /** The block records, as `batch:uid`. */
-  const records = () => (t.db.select<"batch_id" | "replay_key">(
+  const records = () => (t.db.select(
     "SELECT batch_id, key AS replay_key FROM replay_log WHERE kind = 'block'" +
-    " ORDER BY batch_id, key")).map((r) => `${r.batch_id}:${r.replay_key}`);
+    " ORDER BY batch_id, key", ["batch_id", "replay_key"])).map((r) => `${r.batch_id}:${r.replay_key}`);
   const deleteP: BlockOp = { op: "delete", uid: uidOf("tuid-p") };
   const kMovedOut = block("tuid-k", 1, { order_idx: orderIdxOf(1) });
   const pTomb: SyncTombstone = { kind: "block", entity_id: "tuid-p" };
@@ -2080,7 +2083,7 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
     enqueueBatch(t.db, [
       { op: "create", uid: uidOf("tuid-x"), page_title: "P", parent_uid: null,
         order_idx: orderIdxOf(1), text: "[[New]]" }], 2, bid("b1"));
-    const [local] = t.db.select<"page_id">("SELECT id AS page_id FROM pages WHERE title = 'New'");
+    const [local] = t.db.select("SELECT id AS page_id FROM pages WHERE title = 'New'", ["page_id"]);
     expect(local.page_id).toBeLessThan(0);
     // a recorded ref by hand: g's snapshot row carries none, and the delete's
     // record needs one to the local page for replay_log_refs to remap
@@ -2096,7 +2099,8 @@ describe("applyChanges: a local delete's cascade past a block the server kept", 
       tombstones: [pTomb] }), 3);
     expect(tree()).toEqual([{ uid: "tuid-g", parent_uid: "tuid-k" },
                             { uid: "tuid-k", parent_uid: null }]);
-    expect(t.db.select("SELECT target_page_id, kind AS ref_kind FROM refs WHERE src_block_uid = 'tuid-g'"))
+    expect(t.db.select("SELECT target_page_id, kind AS ref_kind FROM refs WHERE src_block_uid = 'tuid-g'",
+      ["target_page_id", "ref_kind"]))
       .toEqual([{ target_page_id: 3, ref_kind: "link" }]);
     expect(count("SELECT COUNT(*) AS n FROM pages WHERE id < 0")).toBe(0);
   });

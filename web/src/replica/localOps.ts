@@ -73,10 +73,10 @@ export function getOrCreateLocalPage(db: ReplicaDb, requested: string,
   if (existing !== null) return existing;
   const reuse = record?.freed?.get(title);
   const next = reuse !== undefined
-      && db.select("SELECT 1 AS n FROM pages WHERE id = ?", [reuse]).length === 0
+      && db.select("SELECT 1 AS n FROM pages WHERE id = ?", ["n"], [reuse]).length === 0
     ? reuse
-    : db.select<"page_id">(
-        "SELECT MIN(0, COALESCE((SELECT MIN(id) FROM pages), 0)) - 1 AS page_id",
+    : db.select(
+        "SELECT MIN(0, COALESCE((SELECT MIN(id) FROM pages), 0)) - 1 AS page_id", ["page_id"],
       )[0].page_id;
   if (record !== undefined) recordPage(db, record.batchId, next, true);
   db.exec(
@@ -123,15 +123,15 @@ const shiftSiblings = (db: ReplicaDb, pageId: PageId,
 type BlockInfo = Pick<Columns, "page_id" | "parent_uid" | "order_idx">;
 
 const blockInfo = (db: ReplicaDb, uid: BlockUid): BlockInfo | null => {
-  const rows = db.select<keyof BlockInfo>(
-    "SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid = ?", [uid]);
+  const rows = db.select(
+    "SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid = ?", ["page_id", "parent_uid", "order_idx"], [uid]);
   return rows.length > 0 ? rows[0] : null;
 };
 
 /** uid and every ancestor above it; the visited-path guard stops on a
  * loop already in the replica, as ops_apply._parent_chain does. */
 const parentChain = (db: ReplicaDb, uid: BlockUid): BlockUid[] =>
-  db.select<"uid">(
+  db.select(
     `WITH RECURSIVE chain(uid, parent_uid, path) AS (
        SELECT uid, parent_uid, ',' || uid || ',' FROM blocks WHERE uid = ?
        UNION ALL
@@ -139,10 +139,10 @@ const parentChain = (db: ReplicaDb, uid: BlockUid): BlockUid[] =>
          FROM chain c JOIN blocks b ON b.uid = c.parent_uid
         WHERE instr(c.path, ',' || b.uid || ',') = 0
      )
-     SELECT uid FROM chain`, [uid]).map((r) => r.uid);
+     SELECT uid FROM chain`, ["uid"], [uid]).map((r) => r.uid);
 
 export const subtreeUids = (db: ReplicaDb, uid: BlockUid): BlockUid[] =>
-  db.select<"uid">(
+  db.select(
     `WITH RECURSIVE sub(uid, path, depth) AS (
        SELECT uid, ',' || uid || ',', 0 FROM blocks WHERE uid = ?
        UNION ALL
@@ -150,7 +150,7 @@ export const subtreeUids = (db: ReplicaDb, uid: BlockUid): BlockUid[] =>
          FROM sub s JOIN blocks b ON b.parent_uid = s.uid
         WHERE instr(s.path, ',' || b.uid || ',') = 0
      )
-     SELECT uid FROM sub ORDER BY depth DESC`, [uid]).map((r) => r.uid);
+     SELECT uid FROM sub ORDER BY depth DESC`, ["uid"], [uid]).map((r) => r.uid);
 
 /** The facts placementFor reads for a create or move. */
 const placementFacts = (db: ReplicaDb, op: CreateOp | MoveOp,

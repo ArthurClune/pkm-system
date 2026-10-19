@@ -134,6 +134,7 @@ export default tseslint.config(
       "brands/name-carries-brand": "error",
       "brands/no-brand-assertion": "error",
       "brands/no-brand-bypass": "error",
+      "brands/select-keys-literal": "error",
       "@typescript-eslint/ban-ts-comment": ["error", {
         "ts-ignore": true,
         "ts-nocheck": true,

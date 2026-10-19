@@ -55,13 +55,13 @@ export function createCarryStore(files: CarryFiles): CarryStore {
     },
     read() {
       return withCarry((db) => {
-        const table = db.select<"n">(
-          "SELECT 1 AS n FROM sqlite_master WHERE type='table' AND name='pending_ops'");
+        const table = db.select(
+          "SELECT 1 AS n FROM sqlite_master WHERE type='table' AND name='pending_ops'", ["n"]);
         if (table.length === 0) return [];
-        return db.select<"pending_row_id" | "batch_id" | "ops_json"
-          | "poisoned" | "pending_error">(
+        return db.select(
           "SELECT id AS pending_row_id, batch_id, ops_json, poisoned," +
           " error AS pending_error FROM pending_ops ORDER BY id",
+            ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"],
         ).map((r) => ({
           id: r.pending_row_id, batch_id: r.batch_id, ops_json: r.ops_json,
           poisoned: r.poisoned, error: r.pending_error,

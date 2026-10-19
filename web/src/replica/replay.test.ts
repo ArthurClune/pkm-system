@@ -55,35 +55,43 @@ const blockTomb = (rawUid: string): SyncTombstone => ({ kind: "block", entity_id
 /** Pages by title and blocks with their page's title, so local page ids
  * minted in another order still compare equal. */
 const dump = (db: ReplicaDb) => ({
-  pages: db.select("SELECT title, created_at, updated_at FROM pages ORDER BY title"),
+  pages: db.select("SELECT title, created_at, updated_at FROM pages ORDER BY title",
+    ["title", "created_at", "updated_at"]),
   blocks: db.select(
     "SELECT b.uid, p.title AS page_title, b.parent_uid, b.order_idx, b.text, b.heading," +
     " b.collapsed, b.created_at, b.updated_at, b.view_type" +
-    " FROM blocks b JOIN pages p ON p.id = b.page_id ORDER BY b.uid"),
+    " FROM blocks b JOIN pages p ON p.id = b.page_id ORDER BY b.uid",
+      ["uid", "page_title", "parent_uid", "order_idx", "text", "heading", "collapsed", "created_at", "updated_at",
+       "view_type"]),
   refs: db.select(
     "SELECT r.src_block_uid, p.title, r.kind AS ref_kind FROM refs r" +
-    " JOIN pages p ON p.id = r.target_page_id ORDER BY 1, 2, 3"),
+    " JOIN pages p ON p.id = r.target_page_id ORDER BY 1, 2, 3", ["src_block_uid", "title", "ref_kind"]),
   blockRefs: db.select(
-    "SELECT src_block_uid, target_block_uid FROM block_refs ORDER BY 1, 2"),
+    "SELECT src_block_uid, target_block_uid FROM block_refs ORDER BY 1, 2", ["src_block_uid", "target_block_uid"]),
 });
 
 /** Every column, local page ids and the log included. */
 const exactDump = (db: ReplicaDb) => ({
-  pages: db.select("SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id"),
+  pages: db.select("SELECT id AS page_id, title, created_at, updated_at FROM pages ORDER BY id",
+    ["page_id", "title", "created_at", "updated_at"]),
   blocks: db.select(
     "SELECT uid, page_id, parent_uid, order_idx, text, heading, collapsed," +
-    " created_at, updated_at, view_type FROM blocks ORDER BY uid"),
+    " created_at, updated_at, view_type FROM blocks ORDER BY uid",
+      ["uid", "page_id", "parent_uid", "order_idx", "text", "heading", "collapsed", "created_at", "updated_at",
+       "view_type"]),
   refs: db.select(
-    "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3"),
+    "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs ORDER BY 1, 2, 3",
+      ["src_block_uid", "target_page_id", "ref_kind"]),
   blockRefs: db.select(
-    "SELECT src_block_uid, target_block_uid FROM block_refs ORDER BY 1, 2"),
+    "SELECT src_block_uid, target_block_uid FROM block_refs ORDER BY 1, 2", ["src_block_uid", "target_block_uid"]),
   log: db.select(
     "SELECT batch_id, kind AS replay_kind, key AS replay_key, pre_json, pre_page_id FROM replay_log" +
-    " ORDER BY batch_id, kind, key"),
+    " ORDER BY batch_id, kind, key", ["batch_id", "replay_kind", "replay_key", "pre_json", "pre_page_id"]),
   logRefs: db.select(
     "SELECT l.batch_id, l.key AS replay_key, r.target_page_id, r.kind AS ref_kind FROM replay_log_refs r" +
-    " JOIN replay_log l ON l.id = r.log_id ORDER BY 1, 2, 3, 4"),
-  batches: db.select("SELECT batch_id, enqueued_ms FROM replay_batches ORDER BY 1"),
+    " JOIN replay_log l ON l.id = r.log_id ORDER BY 1, 2, 3, 4",
+      ["batch_id", "replay_key", "target_page_id", "ref_kind"]),
+  batches: db.select("SELECT batch_id, enqueued_ms FROM replay_batches ORDER BY 1", ["batch_id", "enqueued_ms"]),
   meta: db.introspect("SELECT key, value FROM sync_client_meta ORDER BY key"),
 });
 
@@ -108,9 +116,9 @@ const firstApply = async (server: ReplicaState,
   dump(await replicaOf(server, batches));
 
 const order = (db: ReplicaDb, parent: string | null = null): string[] =>
-  (db.select<"uid">(
+  (db.select(
     "SELECT uid FROM blocks WHERE page_id = 1 AND parent_uid IS ?" +
-    " ORDER BY order_idx, uid", [parent])).map((r) => r.uid);
+    " ORDER BY order_idx, uid", ["uid"], [parent])).map((r) => r.uid);
 
 describe("a window replays pending batches as a first apply", () => {
   test("order: create X at 0 then move it to 1, over a window that ships another device's Y at 0", async () => {
@@ -134,7 +142,7 @@ describe("a window replays pending batches as a first apply", () => {
 
     applyChanges(db, headWindow(after, 11, [blockTomb("tuid-p")]), NOW + 100);
 
-    expect(db.select("SELECT uid FROM blocks ORDER BY uid")).toEqual([{ uid: "tuid-q" }]);
+    expect(db.select("SELECT uid FROM blocks ORDER BY uid", ["uid"])).toEqual([{ uid: "tuid-q" }]);
     expect(dump(db)).toEqual(await firstApply(after, batches));
   });
 
@@ -143,12 +151,12 @@ describe("a window replays pending batches as a first apply", () => {
     const after = { pages: before.pages, blocks: [block("tuid-a", at(1))] };
     const batches = [batch("b1", move("tuid-b", 0, { page_title: "Ops Four" }))];
     const db = await replicaOf(before, batches);
-    expect(db.select("SELECT title FROM pages WHERE id < 0"))
+    expect(db.select("SELECT title FROM pages WHERE id < 0", ["title"]))
       .toEqual([{ title: "Ops Four" }]);
 
     applyChanges(db, headWindow(after, 11, [blockTomb("tuid-b")]), NOW + 100);
 
-    expect(db.select("SELECT title FROM pages ORDER BY title"))
+    expect(db.select("SELECT title FROM pages ORDER BY title", ["title"]))
       .toEqual([{ title: "Page One" }]);
     expect(dump(db)).toEqual(await firstApply(after, batches));
   });
@@ -159,7 +167,7 @@ describe("a window replays pending batches as a first apply", () => {
     const batches = [batch("b1", move("tuid-s", 0), move("tuid-s", 1))];
     const db = await replicaOf(before, batches);
     const orderIdx = () => db.select(
-      "SELECT uid, order_idx FROM blocks WHERE page_id = 1 ORDER BY uid");
+      "SELECT uid, order_idx FROM blocks WHERE page_id = 1 ORDER BY uid", ["uid", "order_idx"]);
     const enqueued = orderIdx();
     // each window ships only another device's new block on another page
     const z1 = block("tuid-z1", { page_id: pageIdOf(2) });
@@ -186,7 +194,7 @@ describe("a window replays pending batches as a first apply", () => {
 
     applyChanges(db, headWindow(after, 11), NOW + 100);
 
-    expect(db.select("SELECT updated_at FROM pages WHERE id = 1"))
+    expect(db.select("SELECT updated_at FROM pages WHERE id = 1", ["updated_at"]))
       .toEqual([{ updated_at: NOW + 50 }]);
     expect(dump(db)).toEqual(await firstApply(after, batches));
   });
@@ -229,11 +237,11 @@ describe("the log across acks, poison and upgrades", () => {
       block("tuid-x", { created_at: NOW, updated_at: NOW }), block("tuid-a", at(1)),
     ] }, 12), NOW + 200);
 
-    expect(db.select("SELECT uid, parent_uid, order_idx FROM blocks ORDER BY uid"))
+    expect(db.select("SELECT uid, parent_uid, order_idx FROM blocks ORDER BY uid", ["uid", "parent_uid", "order_idx"]))
       .toEqual([{ uid: "tuid-a", parent_uid: null, order_idx: 1 },
                 { uid: "tuid-x", parent_uid: null, order_idx: 0 },
                 { uid: "tuid-y", parent_uid: "tuid-x", order_idx: 0 }]);
-    expect(db.select("SELECT COUNT(*) AS n FROM replay_log")).toEqual([{ n: 0 }]);
+    expect(db.select("SELECT COUNT(*) AS n FROM replay_log", ["n"])).toEqual([{ n: 0 }]);
   });
 
   test("a poisoned middle batch's effects leave at the next window "
@@ -244,15 +252,15 @@ describe("the log across acks, poison and upgrades", () => {
                      { op: "update_text", uid: u("tuid-b"), text: "edited b" });
     const db = await replicaOf(server, [b1, batch("b2", create("tuid-p2", 0)), b3]);
     expect(order(db, "tuid-p2")).toEqual(["tuid-c"]);
-    const poisoned = db.select<"pending_row_id">(
-      "SELECT id AS pending_row_id FROM pending_ops WHERE batch_id = 'b2'")[0];
+    const poisoned = db.select(
+      "SELECT id AS pending_row_id FROM pending_ops WHERE batch_id = 'b2'", ["pending_row_id"])[0];
     markPoisoned(db, poisoned.pending_row_id, "rejected", bid("b2"));
 
     expect(applyChanges(db, window({ pages: [], blocks: [] }, 11, { latest: 12 }),
                         NOW + 100))
       .toEqual({ status: "applied", cursor: 11 });
 
-    expect(db.select("SELECT uid, text FROM blocks ORDER BY uid"))
+    expect(db.select("SELECT uid, text FROM blocks ORDER BY uid", ["uid", "text"]))
       .toEqual([{ uid: "tuid-a", text: "edited a" }, { uid: "tuid-b", text: "edited b" }]);
     expect(dump(db)).toEqual(await firstApply(server, [b1, b3]));
   });
@@ -264,7 +272,7 @@ describe("the log across acks, poison and upgrades", () => {
     // queued before the log existed, or imported by a rebuild
     db.exec("DELETE FROM replay_batches");
     const stamps = () => db.select(
-      "SELECT uid, created_at, updated_at FROM blocks ORDER BY uid");
+      "SELECT uid, created_at, updated_at FROM blocks ORDER BY uid", ["uid", "created_at", "updated_at"]);
 
     applyChanges(db, headWindow({ pages: [], blocks: [] }, 10), 600);
     expect(stamps()).toEqual([{ uid: "tuid-a", created_at: 1, updated_at: 600 },
@@ -272,7 +280,7 @@ describe("the log across acks, poison and upgrades", () => {
     applyChanges(db, headWindow({ pages: [], blocks: [] }, 10), 700);
     expect(stamps()).toEqual([{ uid: "tuid-a", created_at: 1, updated_at: 600 },
                               { uid: "tuid-x", created_at: 600, updated_at: 600 }]);
-    expect(db.select("SELECT batch_id, enqueued_ms FROM replay_batches"))
+    expect(db.select("SELECT batch_id, enqueued_ms FROM replay_batches", ["batch_id", "enqueued_ms"]))
       .toEqual([{ batch_id: "b1", enqueued_ms: 600 }]);
   });
 });

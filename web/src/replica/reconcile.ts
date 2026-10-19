@@ -30,8 +30,8 @@ export const remapLocalPage = (db: ReplicaDb,
 };
 
 export function reconcilePage(db: ReplicaDb, incoming: SyncPage): void {
-  const local = db.select<"page_id">(
-    "SELECT id AS page_id FROM pages WHERE title = ? AND id < 0",
+  const local = db.select(
+    "SELECT id AS page_id FROM pages WHERE title = ? AND id < 0", ["page_id"],
     [incoming.title]);
   if (local.length === 0) return;
   remapLocalPage(db, { localId: local[0].page_id, targetId: incoming.id });
@@ -49,14 +49,14 @@ export function reconcileActivationPageTitles(db: ReplicaDb): void {
   // The key brands these titles CanonicalTitle, but they were titled under
   // the pre-activation rules; finding the ones that are no longer canonical
   // is the point.
-  const localPages = db.select<"page_id" | "title">(
-    "SELECT id AS page_id, title FROM pages WHERE id < 0 ORDER BY id");
+  const localPages = db.select(
+    "SELECT id AS page_id, title FROM pages WHERE id < 0 ORDER BY id", ["page_id", "title"]);
   for (const local of localPages) {
     const title = read(local.title);
     if (title === local.title) continue;
-    const targets = db.select<"page_id">(
+    const targets = db.select(
       "SELECT id AS page_id FROM pages WHERE title = ? AND id != ?" +
-      " ORDER BY CASE WHEN id >= 0 THEN 0 ELSE 1 END, id LIMIT 1",
+      " ORDER BY CASE WHEN id >= 0 THEN 0 ELSE 1 END, id LIMIT 1", ["page_id"],
       [title, local.page_id]);
     if (targets.length === 0) {
       db.exec("UPDATE pages SET title = ? WHERE id = ?", [title, local.page_id]);

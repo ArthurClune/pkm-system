@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import type { DeliveryOutcome, TicketId, WriteOutcome, WriteTicket } from "../sync/opQueue";
-import { block, orderIdxOf, uidOf, ticketIdOf, clientIdOf } from "../test-helpers";
+import { block, orderIdxOf, uidOf, ticketIdOf, clientIdOf, typeProbe } from "../test-helpers";
 import { acquireOutlineSession, attachActiveOutlineWriteReplay,
          isOutlineSessionActive,
          peekOutlineSession,
@@ -18,12 +18,13 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-it("a page title cannot stand in for a ticket id", () => {
+// A page title cannot stand in for a ticket id.
+typeProbe(() => {
   const title = "Some page" as const;
   // @ts-expect-error a page title is not a TicketId: the two kinds of key
   // unresolvedWrites/trackedWrites and capturedByTitle use must not swap.
   const id: TicketId = title;
-  expect(id).toBe(title);
+  void id;
 });
 
 it("shares each flushed tree with every handle of a title", () => {

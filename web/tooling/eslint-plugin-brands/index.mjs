@@ -29,10 +29,22 @@
 //     `select` (a wrapper passing its generic keys through). Any other
 //     array could widen K to every column. Not a brand rule; it lives here
 //     as the repo's type-aware rule home.
-// All but the last read tooling/brandRegistry.gen.json, generated from the
+//   * brands/ts-expect-error-in-probe: a `@ts-expect-error` comment sits in
+//     the body of a function expression or arrow passed directly to the
+//     `typeProbe` imported from the test helpers, which never calls it, so a
+//     suppression cannot carry an off-type value into code that runs. A
+//     value a test must feed a runtime guard is `offType<T>(v)` from the
+//     same module. Not a brand rule either.
+// The brand rules read tooling/brandRegistry.gen.json, generated from the
 // server's brand registry, and all apply to tests as they do to product code.
 // The test mint module (`testMintSites`) is a mint site for every brand, and
-// in test code (`*.test.*` and the registry's `testCode` paths) a report names
+// its exported `offType` alone may assert to a type parameter, which
+// launders anywhere else. An `offType<T>(...)` call whose T is a brand (or a
+// union, array, Set, Map key or index key of one) is reported in
+// `no-brand-assertion`: a bad brand is forged with a `malformed*` helper. A
+// brand nested in an object property does not count, but the argument's
+// brand-named properties, nested to a fixed depth, must already be the brand.
+// In test code (`*.test.*` and the registry's `testCode` paths) a report names
 // the module's checked helper (`uidOf`) instead of the product remedy.
 // `satisfies` and non-null `!` are not assertions toward a brand and are left
 // alone.
@@ -297,6 +309,35 @@ function ownBrand(checker, type) {
   if (!brand) return null;
   const bt = checker.getTypeOfSymbol(brand);
   return bt.isStringLiteral() ? bt.value : null;
+}
+
+// The brands a type is, not merely holds: its own brand, or that of the
+// members of a union, the elements of an array or tuple, a Set's element, a
+// Map's or index signature's key. A brand nested in an object's property is
+// not counted, so a junk union of object shapes that mention ids is not a
+// forged brand.
+function shallowBrands(checker, type) {
+  const found = new Set();
+  const walk = (t) => {
+    if (t.isUnion()) return t.types.forEach(walk);
+    const own = ownBrand(checker, t);
+    if (own !== null) return found.add(own);
+    if (checker.isArrayType(t) || checker.isTupleType(t)) {
+      return checker.getTypeArguments(t).forEach(walk);
+    }
+    const name = t.symbol?.name;
+    if (SET_TYPES.has(name) || MAP_TYPES.has(name)) {
+      const [first] = checker.getTypeArguments(t);
+      if (first !== undefined) walk(first);
+      return undefined;
+    }
+    if (t.getProperties().length === 0) {
+      checker.getIndexInfosOfType(t).forEach((i) => walk(i.keyType));
+    }
+    return undefined;
+  };
+  walk(type);
+  return found;
 }
 
 // Rule 1's check: the declared type is one of `wanted`, null/undefined, or an
@@ -867,6 +908,11 @@ const noBrandAssertion = {
         "asserting to `{{target}}` launders any value; parse it, or mark the "
         + "boundary with `// brand: untrusted -- <reason>` in a boundary "
         + "module",
+      offTypeBrand:
+        "`offType` would forge {{brand}}: {{remedy}}",
+      offTypeSlot:
+        "`offType`'s argument puts a value that is not {{brand}} in `{{name}}`, "
+        + "a brand slot: {{remedy}}",
     },
   },
   create(context) {
@@ -875,6 +921,7 @@ const noBrandAssertion = {
     const { program, esTreeNodeToTSNodeMap } = servicesOf(context);
     const checker = program.getTypeChecker();
     const mayOptOut = optOutFiles.some((m) => m(path));
+    const inTestMint = testMintSites.some((m) => m(path));
     const typeOf = (estreeNode) =>
       checker.getTypeAtLocation(esTreeNodeToTSNodeMap.get(estreeNode));
     // Report `brands` outside their mint sites.
@@ -907,7 +954,15 @@ const noBrandAssertion = {
     };
     // The operand is not consulted: an upcast is an annotated declaration
     // (`const ys: readonly BlockUid[] = xs`), never an assertion.
+    // Whether the assertion is in the body of the test mint module's
+    // exported `offType`, the one declared junk mint: it asserts to its type
+    // parameter, which launders anywhere else.
+    const inOffType = (node) => inTestMint
+      && context.sourceCode.getAncestors(node).some((a) =>
+        a.type === "FunctionDeclaration" && a.id?.name === OFF_TYPE
+        && a.parent.type === "ExportNamedDeclaration");
     const check = (node) => {
+      if (inOffType(node)) return;
       const target = node.typeAnnotation;
       if (target.type === "TSTypeReference" && target.typeName.name === "const") {
         return;
@@ -1000,6 +1055,68 @@ const noBrandAssertion = {
       }
     };
     return {
+      CallExpression(node) {
+        if (node.callee.type !== "Identifier" || node.callee.name !== OFF_TYPE) {
+          return;
+        }
+        const decl = checker.getResolvedSignature(
+          esTreeNodeToTSNodeMap.get(node))?.declaration;
+        if (decl === undefined || !TEST_HELPERS_SOURCE.test(
+          decl.getSourceFile().fileName.replace(/\.[cm]?[jt]sx?$/, ""))) return;
+        const forged = (brands) => {
+          const forgers = brands.map((b) => registry.malformed[b])
+            .filter((stem) => stem !== undefined)
+            .map((stem) => `malformed${stem[0].toUpperCase()}${stem.slice(1)}`);
+          return forgers.length === brands.length
+            ? `use ${forgers.join(" or ")} from ${webTestMints.join(", ")}`
+            : "forge a bad brand with a malformed helper, adding one to "
+              + `the test mint module (${webTestMints.join(", ")}) if the `
+              + "brand has none";
+        };
+        const brands = [...shallowBrands(checker, typeOf(node))];
+        if (brands.length > 0) {
+          context.report({
+            node,
+            messageId: "offTypeBrand",
+            data: { brand: brands.join(", "), remedy: forged(brands) },
+          });
+        }
+        // The argument's own brand-named properties, through nested objects,
+        // arrays and unions to a fixed depth, whatever the argument's source.
+        const arg = node.arguments[0];
+        if (arg === undefined || arg.type === "SpreadElement") return;
+        const walk = (type, depth) => {
+          if (depth > OFF_TYPE_DEPTH) return;
+          if (type.isUnion()) return type.types.forEach((m) => walk(m, depth));
+          if (checker.isArrayType(type) || checker.isTupleType(type)) {
+            return checker.getTypeArguments(type)
+              .forEach((m) => walk(m, depth + 1));
+          }
+          if (!(type.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection))
+            || isForeign(type)) {
+            return undefined;
+          }
+          for (const symbol of checker.getPropertiesOfType(type)) {
+            const own = checker.getTypeOfSymbolAtLocation(
+              symbol, esTreeNodeToTSNodeMap.get(arg));
+            if (Object.hasOwn(registry.names, symbol.name)
+              && !declaresBrand(checker, own, registry.names[symbol.name])) {
+              context.report({
+                node: arg,
+                messageId: "offTypeSlot",
+                data: {
+                  name: symbol.name,
+                  brand: registry.names[symbol.name].join(" or "),
+                  remedy: forged(registry.names[symbol.name]),
+                },
+              });
+            }
+            walk(own, depth + 1);
+          }
+          return undefined;
+        };
+        walk(typeOf(arg), 0);
+      },
       TSAsExpression: check,
       TSTypeAssertion: check,
       TSTypePredicate: checkPredicate,
@@ -1385,6 +1502,72 @@ const selectKeysLiteral = {
   },
 };
 
+const PROBE_MESSAGES = {
+  outsideProbe:
+    "`@ts-expect-error` is allowed only inside a `typeProbe(() => { ... })` "
+    + "block from the test helpers, which never runs its body; to feed a "
+    + "runtime guard a value its type forbids, use `offType<T>(value)`",
+};
+
+const TEST_HELPERS_SOURCE = /(?:^|\/)test-helpers(?:\.[cm]?[jt]sx?)?$/;
+const OFF_TYPE = "offType";
+const OFF_TYPE_DEPTH = 4;
+
+// The directive TypeScript reads: a line comment whose text starts with it,
+// or a block comment whose last line does.
+function isExpectError(comment) {
+  if (comment.type === "Line") {
+    return /^\/*\s*@ts-expect-error\b/.test(comment.value);
+  }
+  const last = comment.value.split("\n").at(-1);
+  return /^[\s*]*@ts-expect-error\b/.test(last);
+}
+
+const tsExpectErrorInProbe = {
+  meta: {
+    type: "problem",
+    schema: [],
+    messages: PROBE_MESSAGES,
+  },
+  create(context) {
+    const { sourceCode } = context;
+    const bodies = [];
+    // Whether `name` at `node` is the `typeProbe` import of the test
+    // helpers: a local function of the same name is another binding.
+    const isTypeProbe = (node) => {
+      let scope = sourceCode.getScope(node);
+      let variable;
+      while (scope !== null && variable === undefined) {
+        variable = scope.set.get(node.name);
+        scope = scope.upper;
+      }
+      const def = variable?.defs[0];
+      return def !== undefined && def.node.type === "ImportSpecifier"
+        && def.node.imported.name === "typeProbe"
+        && TEST_HELPERS_SOURCE.test(String(def.parent.source.value));
+    };
+    return {
+      CallExpression(node) {
+        if (node.callee.type !== "Identifier" || node.arguments.length !== 1) {
+          return;
+        }
+        const probe = node.arguments[0];
+        if (probe.type !== "ArrowFunctionExpression"
+          && probe.type !== "FunctionExpression") return;
+        if (isTypeProbe(node.callee)) bodies.push(probe.body.range);
+      },
+      "Program:exit"() {
+        for (const comment of sourceCode.getAllComments()) {
+          if (!isExpectError(comment)) continue;
+          const [start, end] = comment.range;
+          if (bodies.some(([from, to]) => from <= start && end <= to)) continue;
+          context.report({ loc: comment.loc, messageId: "outsideProbe" });
+        }
+      },
+    };
+  },
+};
+
 // The test mint module may mint every brand.
 function isMintSite(brand, path) {
   return testMintSites.some((m) => m(path))
@@ -1399,5 +1582,6 @@ export default {
     "no-brand-assertion": noBrandAssertion,
     "no-brand-bypass": noBrandBypass,
     "select-keys-literal": selectKeysLiteral,
+    "ts-expect-error-in-probe": tsExpectErrorInProbe,
   },
 };

@@ -13,7 +13,7 @@ import { createRpcClient, serveRpc, toPortLike, type RpcHandlers } from "./rpc";
 import { openRawTestDb, type TestDb } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
 import { batchIdOf, canonicalTitleOf, clientIdOf, orderIdxOf, pageIdOf, pendingRowIdOf, seqOf,
-         uidOf } from "../test-helpers";
+         typeProbe, uidOf } from "../test-helpers";
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -416,7 +416,7 @@ test("a recovery lease gates enqueue and offline POST until the fresh database i
 // Replica.deleteBatch's `id`/`ackedSeq` pair is the public shape of the
 // worker's noteAck(id, seq): both are plain numbers at runtime, so the
 // brands are the only thing stopping a caller from swapping them.
-test("deleteBatch's id/ackedSeq brands reject a swapped call (compile-time only)", () => {
+typeProbe(() => {
   const rowId = pendingRowIdOf(1);
   const seq = seqOf(7);
   const deleteBatch: Replica["deleteBatch"] = async () => ({ pending: 0 });
@@ -427,13 +427,13 @@ test("deleteBatch's id/ackedSeq brands reject a swapped call (compile-time only)
   // @ts-expect-error same pair, swapped: AckedBatch.id is a PendingRowId
   // and AckedBatch.seq is a SyncSeq | null, not the reverse
   const swapped: AckedBatch = { id: seq, batch_id: bid("b"), seq: rowId };
-  expect(swapped).toBeDefined();
+  void swapped;
 });
 
 // OpBatch's client_id/batch_id look interchangeable as bare uid strings --
 // this is the swap the brands exist to block at compile time (web's
 // sync/opQueue.ts postOps builds exactly this body shape).
-test("OpBatch's client_id/batch_id brands reject a swapped body (compile-time only)", () => {
+typeProbe(() => {
   const clientId = clientIdOf("tab-1");
   const batchId = bid("batch-1");
   const swapped: components["schemas"]["OpBatch"] = {
@@ -443,13 +443,13 @@ test("OpBatch's client_id/batch_id brands reject a swapped body (compile-time on
     batch_id: clientId,
     ops: [],
   };
-  expect(swapped).toBeDefined();
+  void swapped;
 });
 
 // markPoisoned's `error`/`batchId` pair is two bare strings at runtime
 // (JSON.stringify(...) and a uid); the brand is the only thing stopping a
 // caller from passing the error message where the batch id belongs.
-test("markPoisoned's error/batchId brand rejects an unbranded batchId (compile-time only)", () => {
+typeProbe(() => {
   const rowId = pendingRowIdOf(1);
   const error = "request failed: 422 /api/ops";
   const markPoisoned: Replica["markPoisoned"] = async () => (
@@ -457,39 +457,32 @@ test("markPoisoned's error/batchId brand rejects an unbranded batchId (compile-t
   );
   // @ts-expect-error batchId takes a BatchId, not the bare error string
   void markPoisoned(rowId, error, error);
-  expect(markPoisoned).toBeDefined();
 });
 
 // ReplicaRpc is the one contract createReplica's rpc.call and
 // workerHandlers.ts's buildHandlers both compile against; these four probes
 // are what a plain `Record<string, ...>` map (what rpc.ts had before) could
 // not catch, each at build time rather than at "unknown replica method: …".
-test("rpc.call rejects a method ReplicaRpc does not declare (compile-time only)", () => {
-  const rpc = createRpcClient<ReplicaRpc>(toPortLike(new MessageChannel().port1));
-  // @ts-expect-error "bogus" is not a key of ReplicaRpc
-  void rpc.call("bogus");
-  expect(rpc).toBeDefined();
-});
-
-test("rpc.call rejects a wrongly-shaped payload (compile-time only)", () => {
+typeProbe(() => {
   const rpc = createRpcClient<ReplicaRpc>(toPortLike(new MessageChannel().port1));
   const rowId = pendingRowIdOf(1);
   const seq = seqOf(7);
+  // rpc.call rejects a method ReplicaRpc does not declare
+  // @ts-expect-error "bogus" is not a key of ReplicaRpc
+  void rpc.call("bogus");
+  // rpc.call rejects a wrongly-shaped payload
   // @ts-expect-error deleteBatch's batchId takes a BatchId, not a plain string
   void rpc.call("deleteBatch", { id: rowId, batchId: "b" });
   // @ts-expect-error deleteBatch's id takes a PendingRowId, not a SyncSeq
   void rpc.call("deleteBatch", { id: seq, batchId: bid("b") });
-  expect(rpc).toBeDefined();
-});
-
-test("rpc.call's result is typed per method, not as a free type parameter (compile-time only)", () => {
-  const rpc = createRpcClient<ReplicaRpc>(toPortLike(new MessageChannel().port1));
+  // rpc.call's result is typed per method, not as a free type parameter
   // @ts-expect-error pendingCount resolves a number, not a string
   const asString: Promise<string> = rpc.call("pendingCount");
-  expect(asString).toBeDefined();
+  void asString;
 });
 
-test("RpcHandlers<ReplicaRpc> rejects an incomplete or mistyped handler record (compile-time only)", () => {
+// RpcHandlers<ReplicaRpc> rejects an incomplete or mistyped handler record.
+typeProbe(() => {
   // @ts-expect-error missing every method but init: not every key of
   // ReplicaRpc is covered
   const incomplete: RpcHandlers<ReplicaRpc> = {
@@ -500,6 +493,5 @@ test("RpcHandlers<ReplicaRpc> rejects an incomplete or mistyped handler record (
   const pendingCount: RpcHandlers<ReplicaRpc>["pendingCount"] =
     // @ts-expect-error pendingCount must resolve a number, not a string
     async () => "nope";
-  expect(incomplete).toBeDefined();
-  expect(pendingCount).toBeDefined();
+  void [incomplete, pendingCount];
 });

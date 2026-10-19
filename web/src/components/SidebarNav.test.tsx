@@ -3,13 +3,13 @@ import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { SidebarContext } from "../contexts";
-import { defer, jsonResponse, pageIdOf, stubFetch } from "../test-helpers";
+import { defer, jsonResponse, pageIdOf, stubFetch, typeProbe } from "../test-helpers";
 import { deleteSidebarEntry, SidebarNav } from "./SidebarNav";
 
 afterEach(() => vi.unstubAllGlobals());
 
-it("a PageId is not a SidebarEntryId", () => {
-  // Type-only: assigning, not calling, so this can't itself fire a fetch.
+// A PageId is not a SidebarEntryId.
+typeProbe(() => {
   // @ts-expect-error a PageId is not a SidebarEntryId
   const arg: Parameters<typeof deleteSidebarEntry>[0] = pageIdOf(3);
   void arg;

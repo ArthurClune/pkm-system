@@ -8,7 +8,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { SidebarContext } from "../contexts";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { AssetLink } from "./AssetLink";
-import { shaOf } from "../test-helpers";
+import { shaOf, typeProbe } from "../test-helpers";
 
 const SHA = shaOf("492d80a8b6a72a7c4615c69a9a7def6fac0e019d452f9c88bb61ca8a671dbfd7");
 const URL = `/assets/${SHA}/IMG_0868.jpeg`;
@@ -17,12 +17,11 @@ const URL = `/assets/${SHA}/IMG_0868.jpeg`;
 // unused @ts-expect-error directive is an error of its own, so a probe
 // that stops catching a plain string fails the build rather than
 // silently passing.
-const plainSha: string = SHA;
-// @ts-expect-error a plain string is not a Sha256Hex
-const badAssetLink = <AssetLink url={URL} sha={plainSha} filename="x" />;
-
-it("carries a branded Sha256Hex through the AssetLink prop", () => {
-  expect(badAssetLink).toBeTruthy();
+typeProbe(() => {
+  const plainSha: string = SHA;
+  // @ts-expect-error a plain string is not a Sha256Hex
+  const badAssetLink = <AssetLink url={URL} sha={plainSha} filename="x" />;
+  void badAssetLink;
 });
 
 function Probe() {

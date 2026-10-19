@@ -151,6 +151,22 @@ export function malformedCanonicalTitle(value: string | null): CanonicalTitle {
   return value as CanonicalTitle;
 }
 
+/** A block of compile-time checks. The callback is never called: tsc still
+ * type-checks its body (`pnpm typecheck` covers tests), so a
+ * `@ts-expect-error` inside it fails the build once the line stops
+ * erroring, but nothing in it ever runs. It is the only place the lint
+ * allows a `@ts-expect-error`. */
+export function typeProbe(probe: () => void): void {
+  void probe;
+}
+
+/** Deliberate junk for a runtime guard (an exhaustiveness throw, defensive
+ * parsing): the one declared way for a test to feed code that runs a value
+ * its type forbids. Never for a value the test then treats as valid. */
+export function offType<T>(value: unknown): T {
+  return value as T;
+}
+
 /** Hold the outline editor for `title` so a test's own mount cannot win the
  * lease, and return the release. Sessions are global to the module, so the
  * handle is released before throwing on an ungranted lease:

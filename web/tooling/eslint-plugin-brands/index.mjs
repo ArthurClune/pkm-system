@@ -376,8 +376,12 @@ function launders(checker, type, neverLaunders = true) {
   return walk(type);
 }
 
-// The brand literal a type itself carries (not one nested inside it).
+// The brand literal a type itself carries (not one nested inside it): the
+// most derived subtype key's brand when it holds one (SUBTYPES), else its
+// `__brand` literal.
 function ownBrand(checker, type) {
+  const subtype = SUBTYPES.find(([key]) => type.getProperty(key));
+  if (subtype) return subtype[1];
   const brand = type.getProperty("__brand");
   if (!brand) return null;
   const bt = checker.getTypeOfSymbol(brand);

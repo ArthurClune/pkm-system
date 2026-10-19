@@ -830,6 +830,22 @@ describe("brands plugin judgement", () => {
     expect(found[0].message).not.toContain("RawTitle");
   }, ESLINT_TIMEOUT_MS);
 
+  it("names each title subtype itself when offType forges one", async () => {
+    const header =
+      'import type { CanonicalTitle, NormalizedTitle } from "../api/brands";\n' +
+      'import { offType } from "../test-helpers";\n';
+    const canonical = await messagesFor("src/replica/titles.test.ts",
+      header + 'export const c = offType<CanonicalTitle>("y");\n');
+    expect(canonical.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(canonical[0].message).toContain("malformedCanonicalTitle");
+    expect(canonical[0].message).not.toContain("RawTitle");
+    const normalized = await messagesFor("src/replica/titles.test.ts",
+      header + 'export const n = offType<NormalizedTitle>("x");\n');
+    expect(normalized.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
+    expect(normalized[0].message).toContain("NormalizedTitle");
+    expect(normalized[0].message).not.toContain("RawTitle");
+  }, ESLINT_TIMEOUT_MS);
+
   it("names the parser and the mint module in the remedy", async () => {
     const text =
       'import type { BlockUid } from "../api/brands";\n' +

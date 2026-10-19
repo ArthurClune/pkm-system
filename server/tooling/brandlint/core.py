@@ -246,10 +246,50 @@ def _problem(name: str, annotation: ast.expr, registry: Registry) -> str | None:
     return f"`{name}` must be {' or '.join(brands)}"
 
 
+def _class_statements(body: list[ast.stmt]):
+    """The statements of a class body, including those under `if`, `try`,
+    `with` and loops, but not inside a nested function or class."""
+    for stmt in body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        yield stmt
+        for field_name in ("body", "orelse", "finalbody"):
+            yield from _class_statements(getattr(stmt, field_name, []))
+        for handler in getattr(stmt, "handlers", []):
+            yield from _class_statements(handler.body)
+        for case in getattr(stmt, "cases", []):
+            yield from _class_statements(case.body)
+
+
+def _functional_fields(call: ast.Call):
+    """(name, annotation, first line, last line) of each field a functional
+    `TypedDict("A", {"uid": str})` or `NamedTuple("A", [("uid", str)])` (or
+    its keyword form) declares."""
+    kind = _leaf(call.func)
+    if kind not in ("TypedDict", "NamedTuple"):
+        return
+    pairs: list[tuple[ast.expr | None, ast.expr, ast.AST]] = []
+    fields = call.args[1] if len(call.args) > 1 else None
+    if kind == "TypedDict" and isinstance(fields, ast.Dict):
+        pairs += [(k, v, v) for k, v in zip(fields.keys, fields.values)]
+    elif kind == "NamedTuple" and isinstance(fields, (ast.List, ast.Tuple)):
+        for elt in fields.elts:
+            if isinstance(elt, (ast.Tuple, ast.List)) and len(elt.elts) == 2:
+                pairs.append((elt.elts[0], elt.elts[1], elt))
+    for pair_key, value, span in pairs:
+        if isinstance(pair_key, ast.Constant) and isinstance(pair_key.value, str):
+            yield pair_key.value, value, span.lineno, span.end_lineno or span.lineno
+    for k in call.keywords:
+        if k.arg is not None:
+            yield k.arg, k.value, k.value.lineno, k.value.end_lineno or k.value.lineno
+
+
 def _annotated_names(tree: ast.AST):
     """(name, annotation or None, first line, last line) for every checked
-    site. A function parameter without an annotation is checked too, since
-    it takes anything; a lambda's is not."""
+    site: a function parameter (without an annotation too, since it takes
+    anything; a lambda's is not), a class field however deeply under `if` or
+    `try`, an annotated attribute (`self.uid: str = ...`) and a field of a
+    functional TypedDict or NamedTuple."""
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             a = node.args
@@ -258,9 +298,13 @@ def _annotated_names(tree: ast.AST):
             for p in params:
                 yield p.arg, p.annotation, p.lineno, p.end_lineno or p.lineno
         elif isinstance(node, ast.ClassDef):
-            for stmt in node.body:
+            for stmt in _class_statements(node.body):
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                     yield stmt.target.id, stmt.annotation, stmt.lineno, stmt.end_lineno or stmt.lineno
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Attribute):
+            yield node.target.attr, node.annotation, node.lineno, node.end_lineno or node.lineno
+        elif isinstance(node, ast.Call):
+            yield from _functional_fields(node)
 
 
 def _is_any(node: ast.expr) -> bool:
@@ -450,7 +494,8 @@ def _is_type_alias(annotation: ast.expr) -> bool:
 
 def _type_expressions(tree: ast.AST) -> set[int]:
     """ids of every node inside a subscript's slice, a type-taking call's
-    type slot, a TypeVar's constraints, bound or default, or the value of a
+    type slot, a TypeVar's constraints, bound or default, the field types of a
+    functional TypedDict or NamedTuple, or the value of a
     `TypeAlias` annotation: `dict[str, BlockUid]`, `isinstance(x, (A, B))`,
     `TypeVar("T", bound=BlockUid)`, `X: TypeAlias = BlockUid`."""
     roots: list[ast.AST] = []
@@ -461,6 +506,9 @@ def _type_expressions(tree: ast.AST) -> set[int]:
             slot = _TYPE_SLOTS.get(_leaf(node.func) or "")
             if slot is not None and len(node.args) > slot:
                 roots.append(node.args[slot])
+            if _leaf(node.func) in ("TypedDict", "NamedTuple"):
+                roots.extend(node.args[1:])
+                roots.extend(k.value for k in node.keywords)
             if _leaf(node.func) == "TypeVar":
                 roots.extend(node.args[1:])
                 roots.extend(k.value for k in node.keywords if k.arg in _TYPEVAR_KEYWORDS)

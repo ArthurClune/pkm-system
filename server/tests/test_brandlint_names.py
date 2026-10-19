@@ -205,3 +205,39 @@ def test_unparseable_source_is_a_loud_violation_naming_the_interpreter():
 ])
 def test_a_generic_that_merely_mentions_the_brand_is_flagged(source: str):
     assert rules(source + "\n") == ["brand-name"]
+
+
+@pytest.mark.parametrize("source", [
+    "class A:\n    def __init__(self, x: int) -> None:\n        self.uid: str = x\n",
+    "class A:\n    def m(self) -> None:\n        self.page_id: int | None = None\n",
+    "class A:\n    if TYPE_CHECKING:\n        uid: str\n",
+    "class A:\n    try:\n        seq: int = 0\n    except Exception:\n        pass\n",
+    "class A:\n    with ctx():\n        page_id: int\n",
+    "A = TypedDict('A', {'uid': str})",
+    "A = TypedDict('A', uid=str)",
+    "A = typing.TypedDict('A', {'page_id': int}, total=False)",
+    "A = NamedTuple('A', [('seq', int)])",
+    "A = typing.NamedTuple('A', [('uid', str), ('title', str)])",
+    "A = NamedTuple('A', uid=str)",
+])
+def test_attributes_conditional_fields_and_functional_forms_are_checked(source: str):
+    assert rules(source) == ["brand-name"]
+
+
+@pytest.mark.parametrize("source", [
+    "class A:\n    def __init__(self, x: BlockUid) -> None:\n        self.uid: BlockUid = x\n",
+    "class A:\n    def m(self, x: int) -> None:\n        self.uid = x\n",
+    "class A:\n    if TYPE_CHECKING:\n        uid: BlockUid\n",
+    "A = TypedDict('A', {'uid': BlockUid, 'title': str})",
+    "A = NamedTuple('A', [('seq', SyncSeq), ('title', str)])",
+    "A = TypedDict('A', {})",
+    "A = NamedTuple('A', fields)",
+    "A = TypedDict('A', {**base, 'uid': BlockUid})",
+])
+def test_branded_or_unannotated_attributes_and_functional_forms_are_clean(source: str):
+    assert rules(source + "\n") == []
+
+
+def test_a_nested_function_in_a_class_conditional_is_not_a_class_field():
+    source = "class A:\n    if X:\n        def m(self) -> None:\n            uid: str = ''\n"
+    assert rules(source) == []

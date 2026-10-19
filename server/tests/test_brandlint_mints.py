@@ -519,7 +519,7 @@ def test_an_annotated_brand_attribute_under_a_type_ignore_is_flagged():
     source = "class A:\n    def __init__(self, x: object):\n        self.uid: BlockUid = x  # type: ignore\n"
     assert rules(source, TEST) == ["brand-launder"]
     assert rules(source.replace("  # type: ignore", ""), TEST) == []
-    plain = source.replace("BlockUid", "str")
+    plain = source.replace("BlockUid", "str").replace("uid", "title")
     assert rules(plain, TEST) == []
 
 

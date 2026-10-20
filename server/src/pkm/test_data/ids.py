@@ -104,8 +104,6 @@ def canonical_title_of(value: str) -> CanonicalTitle:
     return CanonicalTitle(normalized_title_of(value))
 
 
-
-
 def malformed_uid(value: str | None) -> BlockUid:
     return BlockUid(value)  # pyrefly: ignore[bad-argument-type]
 

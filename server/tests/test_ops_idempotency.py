@@ -6,11 +6,13 @@ from typing import assert_type
 
 import pytest
 
-from pkm.contracts.ops import (OpBatch, Sha256Hex, UpdateTextOp, subtree_hash,
+from pkm.contracts.ops import (CreateOp, DeleteOp, OpBatch, SetCollapsedOp,
+                               Sha256Hex, SyncSeq, UpdateTextOp, subtree_hash,
                                text_hash)
 from pkm.server.db import open_db
 from pkm.server.ops_hash import batch_replay_hash, batch_request_hash
-from pkm.test_data.ids import sha_of
+from pkm.test_data.ids import (batch_id_of, client_id_of, malformed_uid, order_idx_of, raw_title_of,
+                               seq_of, sha_of, uid_of)
 
 CASES = json.loads(
     (Path(__file__).parents[2] / "shared" / "fixtures" / "ops_acks.json")
@@ -64,17 +66,16 @@ def test_stored_ack_replays_through_the_model_as_the_fixture_wire(client, i,
     through OpsAck exactly as the fixture's wire value, whatever field the
     stored row predates."""
     batch_id = f"ack-fixture-{i:04d}"
-    batch = {"client_id": "c1", "batch_id": batch_id,
-             "ops": [{"op": "set_collapsed", "uid": "uid_b1",
-                      "collapsed": True}]}
-    replay_hash = batch_replay_hash(OpBatch.model_validate(batch))
+    batch = OpBatch(client_id=client_id_of("c1"), batch_id=batch_id_of(batch_id),
+                    ops=[_collapse("uid_b1")])
+    replay_hash = batch_replay_hash(batch)
     con = open_db(client.app.state.config.db_path)
     con.execute("INSERT INTO applied_batches VALUES (?,?,?,?)",
                 (batch_id, replay_hash, json.dumps(case["stored"]), 1))
     con.commit()
     con.close()
 
-    r = client.post("/api/ops", json=batch)
+    r = client.post("/api/ops", json=batch.model_dump(mode="json"))
     assert r.status_code == 200
     assert r.json() == case["wire"]
     assert "seq" in r.json()  # null stays on the wire: read as unknown
@@ -171,15 +172,38 @@ def test_ack_carries_the_journal_seq_that_includes_the_batch(client):
     assert client.post("/api/ops", json=BATCH).json()["seq"] == after
 
 
+def _idem_batch(seen_seq: SyncSeq | None = None) -> OpBatch:
+    """BATCH as a model."""
+    return OpBatch(
+        client_id=client_id_of("c1"), batch_id=batch_id_of("batch-0001-aaaa"),
+        ops=[CreateOp(op="create", uid=uid_of("uid_idem1"),
+                      page_title=raw_title_of("AI"), parent_uid=None,
+                      order_idx=order_idx_of(0), text="queued offline")],
+        seen_seq=seen_seq)
+
+
+def _gold_batch(ops) -> OpBatch:
+    return OpBatch(client_id=client_id_of("c1"), batch_id=batch_id_of("batch-gold-0001"),
+                   ops=ops)
+
+
+def _update(uid_text: str, text: str, base: str | None = None,
+            title_text: str | None = None) -> UpdateTextOp:
+    return UpdateTextOp(
+        op="update_text", uid=uid_of(uid_text), text=text,
+        base_text_hash=None if base is None else sha_of(base),
+        page_title=None if title_text is None else raw_title_of(title_text))
+
+
+def _collapse(uid_text: str) -> SetCollapsedOp:
+    return SetCollapsedOp(op="set_collapsed", uid=uid_of(uid_text), collapsed=True)
+
+
 def _request_hash(ops) -> str:
-    from pkm.contracts.ops import OpBatch
-    from pkm.server.ops_hash import batch_request_hash
-    return batch_request_hash(OpBatch.model_validate_json(
-        json.dumps({"client_id": "c1", "batch_id": "batch-gold-0001", "ops": ops})))
+    return batch_request_hash(_gold_batch(ops))
 
 
-HINTLESS = [{"op": "update_text", "uid": "uid_b1", "text": "golden",
-             "base_text_hash": "0" * 64}]
+HINTLESS = [_update("uid_b1", "golden", base="0" * 64)]
 
 
 def test_hintless_update_text_hash_is_unchanged_across_deploys():
@@ -188,13 +212,13 @@ def test_hintless_update_text_hash_is_unchanged_across_deploys():
     were computed with the code before page_title existed (770af38)."""
     assert _request_hash(HINTLESS) == (
         "dad8c889b2956a264f6eb8a10486d50ed0e6d9314b294fdd813988d828cf9e14")
-    hashless = [{"op": "update_text", "uid": "uid_b1", "text": "golden"}]
+    hashless = [_update("uid_b1", "golden")]
     assert _request_hash(hashless) == (
         "06914b5c0599a33509bbc46f3da86a3e3e931924fdf6121c976738960b28fac1")
 
 
 def test_page_title_hint_is_part_of_the_request_hash():
-    hinted = [dict(HINTLESS[0], page_title="AI")]
+    hinted = [_update("uid_b1", "golden", base="0" * 64, title_text="AI")]
     assert _request_hash(hinted) != _request_hash(HINTLESS)
 
 
@@ -204,35 +228,24 @@ def test_page_title_hint_is_part_of_the_request_hash():
 # never change which op is applied, so the replay hash must ignore them
 # while the strict request hash above stays pinned unchanged.
 def _replay_hash(ops) -> str:
-    from pkm.contracts.ops import OpBatch
-    from pkm.server.ops_hash import batch_replay_hash
-    return batch_replay_hash(OpBatch.model_validate_json(
-        json.dumps({"client_id": "c1", "batch_id": "batch-gold-0001", "ops": ops})))
+    return batch_replay_hash(_gold_batch(ops))
 
 
 def test_replay_hash_ignores_worker_filled_guard_fields():
-    bare = [{"op": "update_text", "uid": "uid_b1", "text": "golden"}]
-    hashed = [dict(bare[0], base_text_hash=sha_of("0" * 64))]
-    hashed_and_titled = [dict(hashed[0], page_title="AI")]
+    bare = [_update("uid_b1", "golden")]
+    hashed = [_update("uid_b1", "golden", base="0" * 64)]
+    hashed_and_titled = [_update("uid_b1", "golden", base="0" * 64, title_text="AI")]
     assert (_replay_hash(bare) == _replay_hash(hashed)
             == _replay_hash(hashed_and_titled))
 
 
 def test_replay_hash_still_differs_for_a_genuinely_different_batch():
-    base = [{"op": "update_text", "uid": "uid_b1", "text": "golden"}]
+    base = [_update("uid_b1", "golden")]
     base_hash = _replay_hash(base)
-    assert _replay_hash(
-        [{"op": "update_text", "uid": "uid_b1", "text": "other"}]
-    ) != base_hash
-    assert _replay_hash(
-        [{"op": "update_text", "uid": "uid_b2", "text": "golden"}]
-    ) != base_hash
-    assert _replay_hash(
-        [{"op": "set_collapsed", "uid": "uid_b1", "collapsed": True}]
-    ) != base_hash
-    assert _replay_hash(
-        base + [{"op": "set_collapsed", "uid": "uid_b1", "collapsed": True}]
-    ) != base_hash
+    assert _replay_hash([_update("uid_b1", "other")]) != base_hash
+    assert _replay_hash([_update("uid_b2", "golden")]) != base_hash
+    assert _replay_hash([_collapse("uid_b1")]) != base_hash
+    assert _replay_hash(base + [_collapse("uid_b1")]) != base_hash
 
 
 def test_worker_filled_then_bare_replays_with_one_effect(client):
@@ -245,7 +258,7 @@ def test_worker_filled_then_bare_replays_with_one_effect(client):
     assert r1.status_code == 200
     filled = dict(bare, ops=[dict(bare["ops"][0],
                                  base_text_hash=sha_of("0" * 64),
-                                 page_title="AI")])
+                                 title_text="AI")])
     r2 = client.post("/api/ops", json=filled)
     assert r2.status_code == 200
     assert r2.json() == r1.json()  # replayed ack, same seq: no second apply
@@ -294,7 +307,9 @@ def test_pre_deploy_strict_hash_row_still_replays_and_still_409s(client):
 
     batch = {"client_id": "c1", "batch_id": "batch-95ss-0004",
             "ops": [{"op": "update_text", "uid": "uid_b1", "text": "v1"}]}
-    strict = batch_request_hash(OpBatch.model_validate(batch))
+    strict = batch_request_hash(OpBatch(
+        client_id=client_id_of("c1"), batch_id=batch_id_of("batch-95ss-0004"),
+        ops=[_update("uid_b1", "v1")]))
     ack = {"ok": True, "ts": 1, "applied": 1, "seq": 0}
     con = open_db(client.app.state.config.db_path)
     con.execute("INSERT INTO applied_batches VALUES (?,?,?,?)",
@@ -311,9 +326,11 @@ def test_pre_deploy_strict_hash_row_still_replays_and_still_409s(client):
     assert r_diff.status_code == 409
 
 
-def _delete_batch(**fields):
-    return OpBatch.model_validate_json(json.dumps({"client_id": "c", "batch_id": "batch-0001",
-        "ops": [{"op": "delete", "uid": "uid_a", **fields}]}))
+def _delete_batch(base_subtree_hash: Sha256Hex | None = None) -> OpBatch:
+    return OpBatch(
+        client_id=client_id_of("c"), batch_id=batch_id_of("batch-0001"),
+        ops=[DeleteOp(op="delete", uid=malformed_uid("uid_a"),  # the hash was recorded with it
+                      base_subtree_hash=base_subtree_hash)])
 
 
 def test_hashless_delete_keeps_its_pre_field_hash():
@@ -325,7 +342,7 @@ def test_hashless_delete_keeps_its_pre_field_hash():
 
 
 def test_delete_replay_hash_ignores_base_subtree_hash():
-    filled = _delete_batch(base_subtree_hash="a" * 64)  # raw JSON: no Sha256Hex needed
+    filled = _delete_batch(base_subtree_hash=sha_of("a" * 64))
     assert batch_replay_hash(filled) == batch_replay_hash(_delete_batch())
     assert batch_request_hash(filled) != batch_request_hash(_delete_batch())
 
@@ -349,8 +366,8 @@ def test_filled_delete_then_bare_replays_with_one_effect(client):
 
 
 def test_seen_seq_is_not_part_of_the_batch_hashes(client):
-    plain = OpBatch.model_validate(BATCH)
-    seen = OpBatch.model_validate_json(json.dumps(dict(BATCH, seen_seq=7)))
+    plain = _idem_batch()
+    seen = _idem_batch(seen_seq=seq_of(7))
     assert seen.seen_seq == 7 and plain.seen_seq is None
     assert batch_request_hash(plain) == batch_request_hash(seen)
     assert batch_replay_hash(plain) == batch_replay_hash(seen)

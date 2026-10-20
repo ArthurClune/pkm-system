@@ -419,6 +419,38 @@ def test_get_depth_clips_and_filters_json(run):
     assert all(b["children"] == [] for b in blocks)
 
 
+def test_get_depth_keeps_every_other_page_field(run, pkm_client):
+    page = pkm_client.get_page("Machine Learning")
+    # a new PagePayload field fails here until the CLI rebuild carries it
+    assert page.model_fields_set == set(type(page).model_fields)
+    code, out, _ = run("get", "Machine Learning", "--depth", "1", "--json")
+    assert code == 0
+    assert {k: v for k, v in json.loads(out).items() if k != "blocks"} == \
+        page.model_dump(mode="json", exclude={"blocks"})
+
+
+def test_get_depth_keeps_every_other_block_payload_field(run, pkm_client):
+    pkm_client.post_ops([
+        {"op": "create", "uid": "clirefblk001", "page_title": "Machine Learning",
+         "parent_uid": None, "order_idx": 9, "text": "see ((uid_b2))"},
+    ], batch_id="cli-get-depth-ref-0001")
+    payload = pkm_client.get_block("clirefblk001")
+    assert payload.block_ref_texts  # the field the rebuild must carry
+    assert payload.model_fields_set == set(type(payload).model_fields)
+    code, out, _ = run("get", "clirefblk001", "--depth", "1", "--json")
+    assert code == 0
+    assert {k: v for k, v in json.loads(out).items() if k != "block"} == \
+        payload.model_dump(mode="json", exclude={"block"})
+
+
+def test_get_section_keeps_every_other_page_field(run, pkm_client):
+    page = pkm_client.get_page("Machine Learning")
+    code, out, _ = run("get", "Machine Learning", "--section", "## Papers", "--json")
+    assert code == 0
+    assert {k: v for k, v in json.loads(out).items() if k != "blocks"} == \
+        page.model_dump(mode="json", exclude={"blocks"})
+
+
 def test_get_section_on_uid_is_error(run):
     code, _, err = run("get", "uid_b3", "--section", "## Papers")
     assert code == 1

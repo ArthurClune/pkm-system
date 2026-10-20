@@ -1,4 +1,3 @@
-import json
 import secrets
 from datetime import datetime
 from typing import get_args
@@ -7,7 +6,9 @@ import pytest
 
 from rawread import read, trace
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import BlockUid, OpBatch, subtree_hash, SyncSeq, text_hash
+from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp, MoveOp, OpBatch,
+                               SetCollapsedOp, SetHeadingOp, SetViewTypeOp, subtree_hash,
+                               SyncSeq, text_hash, UpdateTextOp)
 from pkm.server import ops_apply, ops_core
 from pkm.server.db import open_db
 from pkm.server.ops_apply import (_parent_chain, _subtree_deepest_first,
@@ -399,9 +400,8 @@ def test_diverged_delete_mints_header_then_root_then_descendants(
                    "descmint0002"])
     monkeypatch.setattr(secrets, "token_urlsafe",
                         lambda n: next(minted))
-    op = OpBatch.model_validate_json(json.dumps({"client_id": "t", "batch_id": "mint_order",
-        "ops": [{"op": "delete", "uid": "uid_b2",
-                 "base_subtree_hash": "0" * 64}]})).ops[0]
+    op = DeleteOp(op="delete", uid=uid_of("uid_b2"),
+                  base_subtree_hash=sha_of("0" * 64))
     ctx = ops_apply._context_for(db, op, NOW)
     assert isinstance(ctx, ops_core.DeleteConflictContext)
     assert isinstance(ctx.landing.header, ops_core.FreshHeader)
@@ -888,72 +888,66 @@ _B6_TEXT = "AI overview mentions Machine Learning in plain text"
 _B2_SUBTREE_HASH = subtree_hash([
     ("uid_b2", "Papers"),
     ("uid_b3", "[[Attention Is All You Need]] is a [[Paper]]")])
-_GHOST = "ghost99"
+_GHOST = uid_of("ghost99")
+_GHOST_PARENT = uid_of("ghost_p1")
 
 
-def _edit(uid: BlockUid, text, base=None):
-    op = {"op": "update_text", "uid": uid, "text": text}
-    if base is not None:
-        op["base_text_hash"] = text_hash(base)
-    return op
+def _edit(uid: BlockUid, text: str, base: str | None = None) -> UpdateTextOp:
+    return UpdateTextOp(op="update_text", uid=uid, text=text,
+                        base_text_hash=None if base is None else text_hash(base))
+
+
+def _create(uid_text: str, text: str = "t", parent: BlockUid | None = None) -> CreateOp:
+    return CreateOp(op="create", uid=uid_of(uid_text), page_title=raw_title_of("AI"),
+                    parent_uid=parent, order_idx=order_idx_of(0), text=text)
+
+
+def _move(uid: BlockUid, parent: BlockUid | None) -> MoveOp:
+    return MoveOp(op="move", uid=uid, parent_uid=parent, order_idx=order_idx_of(0))
 
 
 @pytest.mark.parametrize("op, context, detail", [
-    ({"op": "create_page", "page_title": "Fresh"}, "PageContext", None),
-    ({"op": "create", "uid": "new_u1", "page_title": "AI", "order_idx": 0,
-      "text": "t"}, "CreateContext", False),
-    ({"op": "create", "uid": "new_u1", "page_title": "AI",
-      "parent_uid": "uid_b2", "order_idx": 0, "text": "t"},
-     "CreateContext", False),
-    ({"op": "create", "uid": "uid_b1", "page_title": "AI",
-      "parent_uid": "ghost_p1", "order_idx": 0, "text": "t"},
-     "CreateContext", True),
-    ({"op": "create", "uid": "new_u1", "page_title": "AI",
-      "parent_uid": "ghost_p1", "order_idx": 0, "text": "t"},
-     "LandedSkipContext", "diverted_create"),
-    ({"op": "create", "uid": "new_u1", "page_title": "AI",
-      "parent_uid": "ghost_p1", "order_idx": 0, "text": " "},
-     "SkipContext", "diverted_create"),
-    ({"op": "move", "uid": "uid_b3", "parent_uid": None, "order_idx": 0},
-     "MoveContext", None),
-    ({"op": "move", "uid": "uid_b3", "parent_uid": "uid_b6", "order_idx": 0},
-     "MoveContext", None),
-    ({"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3", "order_idx": 0},
-     "StuckMoveContext", "move_cycle"),
-    ({"op": "move", "uid": "uid_b2", "parent_uid": "ghost_p1", "order_idx": 0},
-     "StuckMoveContext", "move_parent_missing"),
-    ({"op": "move", "uid": _GHOST, "parent_uid": None, "order_idx": 0},
-     "LandedSkipContext", "orphan_structural"),
-    ({"op": "delete", "uid": "uid_b2"}, "DeleteContext", None),
-    ({"op": "delete", "uid": "uid_b2", "base_subtree_hash": _B2_SUBTREE_HASH},
+    (CreatePageOp(op="create_page", page_title=raw_title_of("Fresh")),
+     "PageContext", None),
+    (_create("new_u1"), "CreateContext", False),
+    (_create("new_u1", parent=uid_of("uid_b2")), "CreateContext", False),
+    (_create("uid_b1", parent=_GHOST_PARENT), "CreateContext", True),
+    (_create("new_u1", parent=_GHOST_PARENT), "LandedSkipContext", "diverted_create"),
+    (_create("new_u1", text=" ", parent=_GHOST_PARENT), "SkipContext", "diverted_create"),
+    (_move(uid_of("uid_b3"), None), "MoveContext", None),
+    (_move(uid_of("uid_b3"), uid_of("uid_b6")), "MoveContext", None),
+    (_move(uid_of("uid_b2"), uid_of("uid_b3")), "StuckMoveContext", "move_cycle"),
+    (_move(uid_of("uid_b2"), _GHOST_PARENT), "StuckMoveContext", "move_parent_missing"),
+    (_move(_GHOST, None), "LandedSkipContext", "orphan_structural"),
+    (DeleteOp(op="delete", uid=uid_of("uid_b2")), "DeleteContext", None),
+    (DeleteOp(op="delete", uid=uid_of("uid_b2"), base_subtree_hash=_B2_SUBTREE_HASH),
      "DeleteContext", None),
-    ({"op": "delete", "uid": "uid_b2", "base_subtree_hash": "0" * 64},
+    (DeleteOp(op="delete", uid=uid_of("uid_b2"), base_subtree_hash=sha_of("0" * 64)),
      "DeleteConflictContext", None),
-    ({"op": "delete", "uid": _GHOST}, "SkipContext", "noop"),
-    ({"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
+    (DeleteOp(op="delete", uid=_GHOST), "SkipContext", "noop"),
+    (SetCollapsedOp(op="set_collapsed", uid=uid_of("uid_b2"), collapsed=True),
      "BlockContext", None),
-    ({"op": "set_collapsed", "uid": _GHOST, "collapsed": True},
+    (SetCollapsedOp(op="set_collapsed", uid=_GHOST, collapsed=True),
      "SkipContext", "noop"),
-    ({"op": "set_heading", "uid": "uid_b2", "heading": 1},
+    (SetHeadingOp(op="set_heading", uid=uid_of("uid_b2"), heading=1),
      "BlockContext", None),
-    ({"op": "set_heading", "uid": _GHOST, "heading": 1},
+    (SetHeadingOp(op="set_heading", uid=_GHOST, heading=1),
      "LandedSkipContext", "orphan_structural"),
-    ({"op": "set_view_type", "uid": _GHOST, "view_type": "numbered"},
+    (SetViewTypeOp(op="set_view_type", uid=_GHOST, view_type="numbered"),
      "LandedSkipContext", "orphan_structural"),
     (_edit(uid_of("uid_b6"), "plain"), "BlockContext", None),
     (_edit(uid_of("uid_b6"), "clean", base=_B6_TEXT), "TextEditContext", "clean"),
     (_edit(uid_of("uid_b6"), _B6_TEXT, base="stale"), "TextEditContext", "identical"),
     (_edit(uid_of("uid_b6"), "mine", base="stale"), "TextConflictContext", None),
-    (_edit(uid_of(_GHOST), "lost"), "LandedSkipContext", "orphan_edit"),
-    (_edit(uid_of(_GHOST), " "), "SkipContext", "orphan_edit"),
+    (_edit(_GHOST, "lost"), "LandedSkipContext", "orphan_edit"),
+    (_edit(_GHOST, " "), "SkipContext", "orphan_edit"),
 ])
 def test_context_for_picks_the_context_its_classification_calls_for(
         db, op, context, detail):
     # The planner trusts the context type; this pins the shell's choice of
     # it for every way an op can plan. `detail` is the skip kind, the text
     # edit outcome, or whether a create's uid is taken.
-    parsed = OpBatch.model_validate_json(
-        json.dumps({"client_id": "t", "batch_id": "ctx_types", "ops": [op]})).ops[0]
+    parsed = _batch(op).ops[0]
     ctx = ops_apply._context_for(db, parsed, NOW)
     assert type(ctx).__name__ == context
     if isinstance(ctx, ops_core.SKIPPED_CONTEXTS):

@@ -82,12 +82,11 @@ def _skip_ctx(op: BlockOp, *, block_exists: bool = False,
 
 
 def test_batch_parses_discriminated_ops():
-    batch = OpBatch.model_validate_json(json.dumps({"client_id": "c1", "batch_id": "test_batch1",
-                                   "ops": [
-        {"op": "create", "uid": "newuid1", "page_title": "P",
-         "order_idx": 0, "text": "hi"},
-        {"op": "delete", "uid": "uid_b3"},
-    ]}))
+    batch = OpBatch.model_validate_json(
+        '{"client_id": "c1", "batch_id": "test_batch1", "ops": ['
+        '{"op": "create", "uid": "newuid1", "page_title": "P",'
+        ' "order_idx": 0, "text": "hi"},'
+        '{"op": "delete", "uid": "uid_b3"}]}')
     assert isinstance(batch.ops[0], CreateOp)
     assert isinstance(batch.ops[1], DeleteOp)
 
@@ -95,8 +94,8 @@ def test_batch_parses_discriminated_ops():
 def test_batch_rejects_unknown_op_and_empty():
     with pytest.raises(ValidationError):
         OpBatch.model_validate_json(
-            json.dumps({"client_id": "c1", "batch_id": "test_batch2",
-             "ops": [{"op": "explode", "uid": "uid_b3"}]}))
+            '{"client_id": "c1", "batch_id": "test_batch2",'
+            ' "ops": [{"op": "explode", "uid": "uid_b3"}]}')
     with pytest.raises(ValidationError):
         OpBatch(client_id=client_id_of("c1"), batch_id=batch_id_of("test_batch3"), ops=[])
 
@@ -738,9 +737,13 @@ def test_placement_matches_shared_fixture(case, tmp_path):
             [(b["uid"], page_ids[b["page"]], b["parent_uid"], b["order_idx"],
               b["uid"]) for b in PLACEMENT_STATE["blocks"]])
         db.commit()
-        apply_batch(db, OpBatch.model_validate_json(json.dumps({
-            "client_id": "fixture", "batch_id": f"placement_{case['name']}"[:64],
-            "ops": case["ops"]})), 1_800_000_000_000)
+        # The shared fixture is decoded JSON: each op is validated as wire
+        # input, then the batch is built from the checked ops.
+        ops = [TypeAdapter(BlockOp).validate_python(op) for op in case["ops"]]
+        batch = OpBatch(client_id=client_id_of("fixture"),
+                        batch_id=batch_id_of(f"placement_{case['name']}"[:64]),
+                        ops=ops)
+        apply_batch(db, batch, 1_800_000_000_000)
         db.commit()
         placed = {r["uid"]: {"uid": r["uid"], "page": r["title"],
                              "parent_uid": r["parent_uid"],
@@ -1134,6 +1137,26 @@ def test_unlink_stale_text_rewrites_create_and_update_text_only():
     assert unlink_stale_text(move, is_x) is move
     delete = DeleteOp(op="delete", uid=uid_of("uid_d0000001"))
     assert unlink_stale_text(delete, is_x) is delete
+
+
+def test_unlink_stale_text_keeps_every_field_but_the_text():
+    def is_x(raw: str) -> bool:
+        return normalize_title(raw) == "X"
+    create = CreateOp(op="create", uid=uid_of("uid_c0000001"),
+                      page_title=raw_title_of("P"),
+                      parent_uid=uid_of("uid_p0000001"),
+                      order_idx=order_idx_of(3), text="see [[X]]", heading=2,
+                      view_type="numbered")
+    upd = UpdateTextOp(op="update_text", uid=uid_of("uid_u0000001"),
+                       text="see [[X]]", base_text_hash=text_hash("old"),
+                       page_title=raw_title_of("P"))
+    for op in (create, upd):
+        # a new field on the op fails here until this fixture sets it
+        assert op.model_fields_set == set(type(op).model_fields)
+        out = unlink_stale_text(op, is_x)
+        assert type(out) is type(op)
+        assert out.text == "see X"
+        assert out.model_dump(exclude={"text"}) == op.model_dump(exclude={"text"})
 
 
 def test_classify_skip_stale_page():

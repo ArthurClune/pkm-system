@@ -1,4 +1,3 @@
-import json
 import os
 
 import pytest
@@ -7,10 +6,10 @@ from pkm.client import api as client_api
 from pkm.client.api import PkmClient, login
 from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.contracts.ops import UID_RE, CreateOp, CreatePageOp, new_uid
-from pkm.contracts.responses import Backlinks, PagePayload
+from pkm.contracts.responses import BacklinkGroup, Backlinks, PageMeta, PagePayload
 from pkm.contracts.titles import RawTitle
 from pkm.server.db import open_db
-from pkm.test_data.ids import order_idx_of, raw_title_of, uid_of
+from pkm.test_data.ids import canonical_title_of, order_idx_of, page_id_of, raw_title_of, uid_of
 
 
 def test_new_uid_matches_server_uid_re():
@@ -452,14 +451,15 @@ def test_get_backlinks_gives_up_loudly_if_ordering_never_stabilizes(
     set. Rather than eventually returning a possibly-incomplete result,
     it must raise: no silent truncation, in either direction."""
     def flaky_get_page(title: RawTitle, bl_limit=100, bl_offset=0):
-        return PagePayload.model_validate_json(
-            json.dumps({"page": {"id": 1, "title": "X", "created_at": None,
-                      "updated_at": None},
-             "blocks": [], "block_ref_texts": {}, "block_ref_counts": {},
-             "backlinks": {"groups": [{"page_id": 1, "page_title": "X",
-                                       "items": []}],
-                           "total_pages": 2, "offset": bl_offset,
-                           "limit": bl_limit}}))
+        title_x = canonical_title_of("X")
+        return PagePayload(
+            page=PageMeta(id=page_id_of(1), title=title_x, created_at=None,
+                          updated_at=None),
+            blocks=[], block_ref_texts={}, block_ref_counts={},
+            backlinks=Backlinks(
+                groups=[BacklinkGroup(page_id=page_id_of(1), page_title=title_x,
+                                      items=[])],
+                total_pages=2, offset=bl_offset, limit=bl_limit))
 
     monkeypatch.setattr(pkm_client, "get_page", flaky_get_page)
     with pytest.raises(ApiError, match="reorder"):

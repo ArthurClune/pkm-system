@@ -38,6 +38,27 @@ def test_a_strict_model_subclass_is_clean():
     assert rules("class M(StrictModel):\n    x: int\n") == []
 
 
+def test_an_aliased_basemodel_is_reported():
+    assert rules("from pydantic import BaseModel as BM\nclass X(BM):\n    pass\n") == ["model-strict"]
+    assert rules("import pydantic as pd\nclass X(pd.BaseModel):\n    pass\n") == ["model-strict"]
+    assert rules("from pydantic import BaseModel as BM\nclass X(StrictModel):\n    pass\n") == []
+
+
+def test_a_rootmodel_subclass_is_reported_under_any_spelling():
+    assert rules("class X(RootModel):\n    root: int\n") == ["model-strict"]
+    assert rules("class X(RootModel[int]):\n    pass\n") == ["model-strict"]
+    assert rules("class X(pydantic.RootModel[int]):\n    pass\n") == ["model-strict"]
+    assert rules("from pydantic import RootModel as RM\nclass X(RM[int]):\n    pass\n") == ["model-strict"]
+    assert rules("import pydantic as pd\nclass X(pd.RootModel):\n    pass\n") == ["model-strict"]
+
+
+@pytest.mark.parametrize("value", ["None", "flag", "False", "0"])
+def test_strict_other_than_true_is_reported(value: str):
+    assert rules(f"c = ConfigDict(strict={value})\n") == ["model-strict"]
+    assert rules(f"x: int = Field(strict={value})\n") == ["model-strict"]
+    assert rules(f'c = {{"strict": {value}}}\n') == ["model-strict"]
+
+
 def test_turning_strict_off_is_reported():
     assert rules('class M(StrictModel):\n    model_config = {"strict": False}\n') == ["model-strict"]
     assert rules("class M(StrictModel):\n    model_config = ConfigDict(strict=False)\n") == ["model-strict"]
@@ -71,6 +92,37 @@ def test_validating_a_dict_built_in_place_is_reported():
     assert rules("m = M.model_validate({'a': 1})\n") == ["model-unchecked"]
     assert rules("m = M.model_validate(dict(a=1))\n") == ["model-unchecked"]
     assert rules("m = M.model_validate({k: v for k, v in xs})\n") == ["model-unchecked"]
+
+
+@pytest.mark.parametrize("call", [
+    "M.model_validate(obj={'a': 1})",
+    "M.model_validate_strings({'a': '1'})",
+    "M.model_validate_strings(dict(a='1'))",
+    "TypeAdapter(M).validate_python({'a': 1})",
+    "adapter.validate_python(object={'a': 1})",
+    "M.model_validate_json(json.dumps({'a': 1}))",
+    "M.model_validate_json(dumps({'a': 1}))",
+    "M.model_validate_json(data=json.dumps(x))",
+    "adapter.validate_json(json.dumps(x))",
+])
+def test_every_spelling_of_a_dict_built_in_place_is_reported(call: str):
+    if "data=" in call:
+        call = call.replace("data=", "json_data=")
+    assert rules(f"m = {call}\n") == ["model-unchecked"]
+
+
+def test_an_aliased_dumps_is_reported():
+    text = "from json import dumps as d\nm = M.model_validate_json(d(x))\n"
+    assert rules(text) == ["model-unchecked"]
+
+
+def test_decoding_a_literal_or_a_variable_is_clean():
+    assert rules("m = M.model_validate_json('{\"a\": 1}')\n") == []
+    assert rules("m = M.model_validate_json(text)\n") == []
+    assert rules("m = M.model_validate_json(resp.text)\n") == []
+    assert rules("m = M.model_validate(BATCH)\n") == []
+    assert rules("m = adapter.validate_python(row)\n") == []
+    assert rules("m = adapter.validate_json(raw)\n") == []
 
 
 def test_validating_decoded_input_is_clean():

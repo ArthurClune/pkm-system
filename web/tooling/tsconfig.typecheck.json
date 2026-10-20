@@ -1,0 +1,5 @@
+{
+  "//": "The tooling project as tsc sees it (pnpm typecheck). The eslint-fixtures carry intentional violations, so only the lint project in tsconfig.json includes them.",
+  "extends": "./tsconfig.json",
+  "exclude": ["eslint-fixtures/**"]
+}

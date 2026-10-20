@@ -9,7 +9,7 @@
     "test": "vitest",
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc && tsc -p tsconfig.apitypes.json",
+    "typecheck": "tsc && tsc -p tsconfig.apitypes.json && tsc -p tooling/tsconfig.typecheck.json",
     "lint": "eslint src tooling",
     "check:fcis": "node tooling/fcis.mjs",
     "lint:comments": "PYTHONPATH=../server/tooling python3 -m commentlint.run --all",

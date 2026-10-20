@@ -9,7 +9,7 @@ from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        orphan_header_text,
                                        overwritten_header_text,
                                        stale_page_move_note)
-from pkm.test_data.ids import canonical_title_of, raw_title_of, uid_of
+from pkm.test_data.ids import canonical_title_of, order_idx_of, raw_title_of, uid_of
 
 
 @pytest.mark.parametrize(
@@ -57,13 +57,13 @@ def test_headers_name_the_page_and_embed_or_name_the_block():
 
 def test_block_missing_note_names_what_was_skipped():
     assert block_missing_note(MoveOp(
-        op="move", uid="ghost99", parent_uid=None, order_idx=0)) == (
+        op="move", uid=uid_of("ghost99"), parent_uid=None, order_idx=order_idx_of(0))) == (
         "move skipped: block ghost99 not found")
     assert block_missing_note(SetHeadingOp(
-        op="set_heading", uid="ghost99", heading=1)) == (
+        op="set_heading", uid=uid_of("ghost99"), heading=1)) == (
         "heading change skipped: block ghost99 not found")
     assert block_missing_note(SetViewTypeOp(
-        op="set_view_type", uid="ghost99", view_type="numbered")) == (
+        op="set_view_type", uid=uid_of("ghost99"), view_type="numbered")) == (
         "view type change skipped: block ghost99 not found")
 
 

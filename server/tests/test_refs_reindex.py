@@ -20,7 +20,7 @@ from pkm.server import ops_apply, store
 from pkm.server.db import open_db
 from pkm.server.ops_apply import apply_batch
 from pkm.server.store import reindex_refs_for_text, rewrite_snapshotted_blocks
-from pkm.test_data.ids import raw_title_of, uid_of
+from pkm.test_data.ids import batch_id_of, client_id_of, raw_title_of, uid_of
 
 # Texts exercising every branch the composition owns: no refs, all three ref
 # kinds, duplicates, a blank-normalizing ref (skipped, never indexed onto a
@@ -63,7 +63,7 @@ def _update_text(con: Db, uid: BlockUid, text: str,
                  now_ms: int) -> None:
     apply_batch(
         con,
-        OpBatch(client_id="t-t3qw", batch_id="batch-t3qw-01",
+        OpBatch(client_id=client_id_of("t-t3qw"), batch_id=batch_id_of("batch-t3qw-01"),
                 ops=[{"op": "update_text", "uid": uid, "text": text}]),
         now_ms)
 

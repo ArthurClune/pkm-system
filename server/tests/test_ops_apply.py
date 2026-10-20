@@ -12,7 +12,7 @@ from pkm.server.db import open_db
 from pkm.server.ops_apply import (_parent_chain, _subtree_deepest_first,
                                   _subtree_rows, apply_batch)
 from pkm.server.ops_core import OpError, SubtreeRow
-from pkm.test_data.ids import order_idx_of, raw_title_of, sha_of, uid_of
+from pkm.test_data.ids import batch_id_of, client_id_of, order_idx_of, raw_title_of, sha_of, uid_of
 
 NOW = 1_800_000_000_000
 NOW_DAY = title_for_date(datetime.fromtimestamp(NOW / 1000).date())
@@ -30,7 +30,7 @@ _batch_counter = 0
 def _batch(*ops) -> OpBatch:
     global _batch_counter
     _batch_counter += 1
-    return OpBatch(client_id="t", batch_id=f"test_batch_{_batch_counter:08d}",
+    return OpBatch(client_id=client_id_of("t"), batch_id=batch_id_of(f"test_batch_{_batch_counter:08d}"),
                    ops=list(ops))
 
 

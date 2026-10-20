@@ -10,6 +10,7 @@ from pkm.database import connect
 from pkm.schema import DDL
 from pkm.server.db import open_db
 from pkm.server.ops_apply import apply_batch
+from pkm.test_data.ids import batch_id_of, client_id_of, order_idx_of, raw_title_of, uid_of
 
 NOW = 1_800_000_000_000
 
@@ -51,10 +52,10 @@ def test_concurrent_open_db_calls_survive_an_in_flight_ops_transaction(tmp_path)
 
     writer = connect(db_path)
     writer.execute("BEGIN IMMEDIATE")
-    apply_batch(writer, OpBatch(client_id="writer", batch_id="concurrent_test1",
+    apply_batch(writer, OpBatch(client_id=client_id_of("writer"), batch_id=batch_id_of("concurrent_test1"),
                                 ops=[
-        CreateOp(op="create", uid="uid_writer1", page_title="P",
-                 parent_uid=None, order_idx=0, text="hello"),
+        CreateOp(op="create", uid=uid_of("uid_writer1"), page_title=raw_title_of("P"),
+                 parent_uid=None, order_idx=order_idx_of(0), text="hello"),
     ]), NOW)
     # writer's ops transaction is now open and uncommitted, matching the
     # checklist scenario: other connections opening while an ops

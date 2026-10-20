@@ -10,7 +10,8 @@ from pkm.contracts.responses import (AssetSearchPayload, Backlinks,
                                      GroupsPayload, PagePayload, QueryPayload,
                                      SearchPayload, TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload)
-from pkm.test_data.ids import raw_title_of, canonical_title_of, malformed_uid, uid_of
+from pkm.test_data.ids import (
+    canonical_title_of, malformed_uid, order_idx_of, raw_title_of, sha_of, uid_of)
 from pkm.contracts.ops import BlockUid
 
 TZ = timezone(timedelta(hours=1))
@@ -18,7 +19,7 @@ TZ = timezone(timedelta(hours=1))
 
 def _node(uid: BlockUid, text, children=(), heading=None) -> BlockNode:
     return BlockNode(uid=uid, text=text, heading=heading, view_type=None,
-                     collapsed=False, order_idx=0, created_at=None,
+                     collapsed=False, order_idx=order_idx_of(0), created_at=None,
                      updated_at=None, children=list(children))
 
 
@@ -155,7 +156,7 @@ def test_resolve_ref_texts_inlines_and_keeps_uid():
     from pkm.render import resolve_ref_texts
     from pkm.contracts.responses import BlockRefText
     ref_map = {uid_of("uid_u9"):
-               BlockRefText(text="the target", page_title="P")}
+               BlockRefText(text="the target", page_title=canonical_title_of("P"))}
     assert resolve_ref_texts("see ((uid_u9)) here", ref_map) == \
         'see "the target" ((uid_u9)) here'
 
@@ -169,9 +170,9 @@ def test_resolve_ref_texts_nested_and_cyclic():
     from pkm.render import resolve_ref_texts
     from pkm.contracts.responses import BlockRefText
     ref_map = {uid_of("uid_a1"):
-               BlockRefText(text="A says ((uid_b1))", page_title="P"),
+               BlockRefText(text="A says ((uid_b1))", page_title=canonical_title_of("P")),
                uid_of("uid_b1"):
-               BlockRefText(text="B says ((uid_a1))", page_title="P")}
+               BlockRefText(text="B says ((uid_a1))", page_title=canonical_title_of("P"))}
     out = resolve_ref_texts("root ((uid_a1))", ref_map)
     # a inlined; b inlined inside it; the cyclic ((a)) inside b stays bare
     assert out == 'root "A says "B says ((uid_a1))" ((uid_b1))" ((uid_a1))'
@@ -185,7 +186,7 @@ def test_resolve_ref_texts_non_ascii_token_stays_bare():
     from pkm.render import resolve_ref_texts
     from pkm.contracts.responses import BlockRefText
     ref_map = {malformed_uid("uidé12"):
-               BlockRefText(text="unreachable", page_title="P")}
+               BlockRefText(text="unreachable", page_title=canonical_title_of("P"))}
     assert resolve_ref_texts("see ((uidé12)) here", ref_map) == \
         "see ((uidé12)) here"
 
@@ -196,7 +197,7 @@ def test_resolve_ref_texts_32_char_token_resolves():
     from pkm.render import resolve_ref_texts
     from pkm.contracts.responses import BlockRefText
     uid32 = uid_of("a" * 32)
-    ref_map = {uid32: BlockRefText(text="the target", page_title="P")}
+    ref_map = {uid32: BlockRefText(text="the target", page_title=canonical_title_of("P"))}
     assert resolve_ref_texts(f"see (({uid32})) here", ref_map) == \
         f'see "the target" (({uid32})) here'
 
@@ -208,7 +209,7 @@ def test_resolve_ref_texts_token_over_32_chars_stays_bare():
     from pkm.render import resolve_ref_texts
     from pkm.contracts.responses import BlockRefText
     overlong = malformed_uid("a" * 33)
-    ref_map = {overlong: BlockRefText(text="unreachable", page_title="P")}
+    ref_map = {overlong: BlockRefText(text="unreachable", page_title=canonical_title_of("P"))}
     assert resolve_ref_texts(f"see (({overlong})) here", ref_map) == \
         f"see (({overlong})) here"
 
@@ -323,7 +324,7 @@ def test_render_title_migration_audit_includes_state_group_details_and_merge_ord
 def test_render_title_migration_audit_empty_explains_that_only_a_reviewed_audit_can_be_applied():
     payload = TitleMigrationAuditPayload(
         active=False,
-        digest="1" * 64,
+        digest=sha_of("1" * 64),
         groups=[],
         blockers=[],
     )
@@ -343,7 +344,7 @@ def test_render_title_migration_audit_empty_explains_that_only_a_reviewed_audit_
 def test_render_title_migration_audit_active_empty_says_apply_is_unavailable_because_it_is_already_active():
     payload = TitleMigrationAuditPayload(
         active=True,
-        digest="2" * 64,
+        digest=sha_of("2" * 64),
         groups=[],
         blockers=[],
     )
@@ -362,7 +363,7 @@ def test_render_title_migration_audit_active_empty_says_apply_is_unavailable_bec
 
 def test_render_title_migration_apply_includes_applied_counts_and_generation():
     payload = TitleMigrationApplyResponse(
-        digest="8" * 64,
+        digest=sha_of("8" * 64),
         groups_applied=2,
         pages_retitled=1,
         pages_merged=3,
@@ -494,8 +495,8 @@ def test_render_ops_ack_clean_and_skipped():
     from pkm.contracts.responses import OpsAck, SkippedOp
     from pkm.render import render_ops_ack
     assert render_ops_ack(OpsAck(ok=True, ts=1, applied=3)) == "applied 3 ops"
-    gone = SkippedOp(index=0, op="move", uid="uid_x1", reason="parent_not_found",
-                     note_page="September 28th, 2026")
+    gone = SkippedOp(index=0, op="move", uid=uid_of("uid_x1"), reason="parent_not_found",
+                     note_page=canonical_title_of("September 28th, 2026"))
     assert render_ops_ack(OpsAck(ok=True, ts=1, applied=1, skipped=[gone])) == (
         "warning: skipped 1 of 1 ops; nothing else was applied\n"
         "  move ^uid_x1: parent block not found; noted on"
@@ -510,8 +511,8 @@ def test_render_ops_ack_names_a_cycle_skip():
     # A move nesting a block under its own descendant is skipped
     from pkm.contracts.responses import OpsAck, SkippedOp
     from pkm.render import render_ops_ack
-    loop = SkippedOp(index=1, op="move", uid="uid_b2", reason="cycle",
-                     note_page="September 28th, 2026")
+    loop = SkippedOp(index=1, op="move", uid=uid_of("uid_b2"), reason="cycle",
+                     note_page=canonical_title_of("September 28th, 2026"))
     assert render_ops_ack(OpsAck(ok=True, ts=1, applied=2, skipped=[loop])
                           ).splitlines()[1] == (
         "  move ^uid_b2: target is the block itself or one of its"

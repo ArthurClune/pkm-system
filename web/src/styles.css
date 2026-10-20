@@ -529,8 +529,10 @@ button { font: inherit; }
  * ring differs in colour and sits outside the border it would be confused
  * with. */
 .bullet:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+/* A numeral is text: it joins the row's baseline alignment rather than the
+ * dot's flex-start, or it rides high beside larger text and headings. */
 .bullet.numbered { box-sizing: border-box; width: 21px; height: auto;
-  margin: 0 8px 0 0; border: 0; border-radius: 0;
+  align-self: baseline; margin: 0 8px 0 0; border: 0; border-radius: 0;
   background: none; color: var(--color-text-muted); font-size: 13px;
   line-height: 1.4; text-align: right; }
 .bullet.numbered.closed { border-color: transparent; }

@@ -10,6 +10,7 @@ import { skipsOnMissingTarget } from "./missingTarget";
 import { enqueueBatch } from "./queue";
 import { openTestDb } from "./testDb";
 import { batchIdOf, canonicalTitleOf, fixtureText, orderIdxOf, rawTitleOf, seqOf, shaOf, uidOf } from "../test-helpers";
+import type { CanonicalTitle } from "../api/brands";
 
 // The fixture's JSON, as it is on disk: plain values, no brands. `mintOp`
 // and `placedOf` turn a row into the typed shape the code under test takes.
@@ -139,7 +140,7 @@ describe("applyLocalOps placement agrees with the server", () => {
   test.each(fixture.placement_cases)("$name", async (c) => {
     const t = await openTestDb();
     try {
-      const pageIds = new Map<string, number>(
+      const pageIds = new Map<CanonicalTitle, number>(
         fixture.placement_state.pages.map((p) => [
           canonicalTitleOf(fixtureText(p, "title")), (p as { id: number }).id]));
       for (const [title, id] of pageIds) {
@@ -149,7 +150,7 @@ describe("applyLocalOps placement agrees with the server", () => {
         t.db.exec(
           "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
           " VALUES (?,?,?,?,?)",
-          [b.uid, pageIds.get(b.page)!, b.parent_uid, b.order_idx, b.uid]);
+          [b.uid, pageIds.get(canonicalTitleOf(b.page))!, b.parent_uid, b.order_idx, b.uid]);
       }
 
       if (c.replay) {

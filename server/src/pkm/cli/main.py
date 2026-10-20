@@ -413,27 +413,28 @@ def cmd_login(args: argparse.Namespace) -> int:
 
 def cmd_get(args: argparse.Namespace, client: PkmClient) -> int:
     target = args.target
-    page_title = as_raw_title(target)
     if target in _RELATIVE:
         page_title = canonical_daily_title(
             date.today() + timedelta(days=_RELATIVE[target]))
-    elif UID_RE.fullmatch(target):
-        try:
-            block_payload = client.get_block(target)
-            if args.section:
-                print("--section only applies to pages", file=sys.stderr)
-                return 1
-            if args.depth:
-                clipped = clip_depth([block_payload.block], args.depth)[0]
-                block_payload = block_payload.model_copy(
-                    update={"block": clipped})
-            _emit(block_payload,
-                  render_block(block_payload, args.uids,
-                               resolve_refs=args.resolve_refs), args.json)
-            return 0
-        except ApiError as e:
-            if e.status != 404:
-                raise
+    else:
+        page_title = as_raw_title(target)
+        if UID_RE.fullmatch(target):
+            try:
+                block_payload = client.get_block(target)
+                if args.section:
+                    print("--section only applies to pages", file=sys.stderr)
+                    return 1
+                if args.depth:
+                    clipped = clip_depth([block_payload.block], args.depth)[0]
+                    block_payload = block_payload.model_copy(
+                        update={"block": clipped})
+                _emit(block_payload,
+                      render_block(block_payload, args.uids,
+                                   resolve_refs=args.resolve_refs), args.json)
+                return 0
+            except ApiError as e:
+                if e.status != 404:
+                    raise
     payload = client.get_page(page_title)
     blocks = payload.blocks
     if args.section:
@@ -453,8 +454,9 @@ def cmd_search(args: argparse.Namespace, client: PkmClient) -> int:
 
 
 def cmd_refs(args: argparse.Namespace, client: PkmClient) -> int:
-    backlinks = client.get_backlinks(as_raw_title(args.title))
-    _emit(backlinks, render_backlinks(args.title, backlinks), args.json)
+    title = as_raw_title(args.title)
+    backlinks = client.get_backlinks(title)
+    _emit(backlinks, render_backlinks(title, backlinks), args.json)
     return 0
 
 

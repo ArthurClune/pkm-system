@@ -501,8 +501,11 @@ def test_every_page_route_resolves_a_control_whitespace_title(
         assert r.status_code == 200
         assert r.json()["links"] == 1
     elif route == "unlinked":
+        _set_b4(client, "a plain mention of Ctrl Title here")
         r = client.get(f"/api/unlinked?title={raw}")
         assert r.status_code == 200
+        assert [b["uid"] for g in r.json()["groups"] for b in g["items"]] \
+            == ["uid_b4"]
     elif route == "export":
         r = client.get(f"/api/export/page/{raw}")
         assert r.status_code == 200

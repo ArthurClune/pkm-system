@@ -48,7 +48,9 @@ registry. `--all` reads the working tree.
 `old_title` accept any title brand, because requests carry raw titles and
 responses canonical ones under the same name. `raw_title`, `ref_title`,
 `normalized_title`, `canonical_title`, `daily_title` and `src_page_title` take
-one kind.
+one kind. The sanctioned renames for a name that is not a title: `text` for
+an input that is not yet one (parsers, normalizers, title readers), and
+`title_text` / `titleText` for a test helper that mints a literal.
 
 The type-check ignores the rules recognise are `# pyrefly: ignore`, `# pyright: ignore` and `# type: ignore`, each with or without `[rule]`; one pattern in `brandlint/core.py` owns the match.
 

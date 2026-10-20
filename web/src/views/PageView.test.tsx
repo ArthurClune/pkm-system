@@ -90,6 +90,8 @@ it("links with the canonical payload title and refreshes backlinks", async () =>
       total: 1,
     }],
     ["/api/page/acme", pagePayload(canonicalTitleOf("ACME"), [])],
+    // The case-different request re-keys the session to the canonical title.
+    ["/api/page/ACME", pagePayload(canonicalTitleOf("ACME"), [])],
   ]);
 
   render(

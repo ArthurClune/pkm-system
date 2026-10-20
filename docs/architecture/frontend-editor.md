@@ -37,6 +37,13 @@ surfaces must wrap their content in `BlockRefProvider`, not the bare
 `BlockRefContext.Provider`. `PageView` answers a `resyncGeneration` bump with
 `reload("resync")`; the sidebar does not subscribe to resync.
 
+The hook's session is keyed by the page's canonical title, not the requested
+one. The main thread cannot canonicalize (the plain-space flag lives in the
+replica worker), so the first read runs under the requested title; when it
+reports a different `page.title` the hook re-keys once and issues a fresh
+`"parent"` read under the canonical session, which another surface may
+already hold at a newer revision. A non-canonical title costs one extra GET.
+
 The Journal is the third editable surface and bypasses the hook: it loads many
 days in one batched `/api/journal` request and delivers each day's blocks
 through its own capture-ticket path.

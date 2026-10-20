@@ -9,7 +9,22 @@
 // the previous title can never render under the new one, and a title change
 // resets to loading rather than re-showing a payload from an earlier mount.
 //
-// Per mounted title the hook holds one refcounted outline session and
+// The requested title (the hook argument) is what payload and error state
+// are keyed by. The session is keyed by the canonical title instead, because
+// every other surface (the editor, Journal, undo, tracked writes) keys by
+// the page's own title, and two sessions for one page cannot see each
+// other's remote batches. The main thread cannot canonicalize a title (the
+// plain-space flag lives in the replica worker), so the hook acquires the
+// session under the requested title first. When an accepted read reports a
+// different page title, it re-keys once: the effect releases the raw session,
+// acquires the canonical one and issues a fresh "parent" read under it. The
+// payload already in hand is not seeded into the canonical session, since
+// another surface may hold that session at a newer revision. A canonical
+// title therefore costs one GET and a padded one two. The re-key converges
+// unless the title changes again mid-flight; a second differing page title
+// is accepted as is, so there is no loop.
+//
+// Per mount the hook holds one refcounted outline session at a time and
 // registers two things on it: an authoritative loader (blocks only, for
 // reads the session starts itself) and a parent read controller (the
 // session calls it to elect a fresh full-payload read when the current
@@ -37,7 +52,7 @@
 //    controller, cancels the outstanding token, removes the loader and
 //    releases the session — in that order, so cancellation can never elect
 //    a controller belonging to the unmounting surface.
-import type { RawTitle } from "../api/brands";
+import type { CanonicalTitle, RawTitle } from "../api/brands";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGet } from "../api/typedClient";
 import type { PagePayload } from "../api/payloads";
@@ -78,6 +93,11 @@ export function useOutlinePageLoad(
     title: RawTitle;
     message: string;
   } | null>(null);
+  const [resolved, setResolved] = useState<{
+    requested: RawTitle;
+    page: CanonicalTitle;
+  } | null>(null);
+  const key: RawTitle = resolved?.requested === title ? resolved.page : title;
   const seqRef = useRef(0);
   const sessionRef = useRef<OutlineSessionHandle | null>(null);
   const readRef = useRef<OutlineRead | null>(null);
@@ -105,6 +125,10 @@ export function useOutlinePageLoad(
         .then((winner) => {
           if (seq !== seqRef.current) return;
           if (readRef.current === read) readRef.current = null;
+          if (key === title && winner.page.title !== key) {
+            setResolved({ requested: title, page: winner.page.title });
+            return;
+          }
           setErrorState(null);
           setPayloadState({
             title,
@@ -130,16 +154,20 @@ export function useOutlinePageLoad(
         readRef.current = null;
       }
       if (accepted && source !== "parent") {
+        if (key === title && page.page.title !== key) {
+          setResolved({ requested: title, page: page.page.title });
+          return;
+        }
         setPayloadState({
           title,
           payload: { ...page, blocks: handle.getSnapshot().blocks },
         });
       }
     };
-    apiGet("/api/page/{title}", { path: { title } })
+    apiGet("/api/page/{title}", { path: { title: key } })
       .then(deliver)
       .catch((e: unknown) => {
-        const substitute = missingPageRef.current(title, statusOf(e));
+        const substitute = missingPageRef.current(key, statusOf(e));
         if (substitute) {
           deliver(substitute);
           return;
@@ -153,12 +181,12 @@ export function useOutlinePageLoad(
           setErrorState({ title, message: String(e) });
         }
       });
-  }, [title]);
+  }, [title, key]);
 
   useEffect(() => {
     setPayloadState(null);
     setErrorState(null);
-    const handle = acquireOutlineSession(title, null);
+    const handle = acquireOutlineSession(key, null);
     sessionRef.current = handle;
     // The "page" kind outranks every other loader for this title (see
     // outlineSessions' LOADER_PRECEDENCE): this surface owns the full-payload
@@ -166,7 +194,7 @@ export function useOutlinePageLoad(
     // same injected missing-page policy the view was constructed with.
     const removeLoader = handle.setAuthoritativeLoader(
       "page",
-      () => loadOutlineBlocks(title, (t, s) => missingPageRef.current(t, s)),
+      () => loadOutlineBlocks(key, (t, s) => missingPageRef.current(t, s)),
     );
     const removeParentController = handle.setParentReadController(
       () => load("parent", handle),
@@ -185,7 +213,7 @@ export function useOutlinePageLoad(
       if (sessionRef.current === handle) sessionRef.current = null;
       handle.release();
     };
-  }, [load, title]);
+  }, [load, key]);
 
   const reload = useCallback(
     (source: AuthoritativeReadSource) => load(source), [load],

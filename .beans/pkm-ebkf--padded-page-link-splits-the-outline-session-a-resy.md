@@ -1,11 +1,11 @@
 ---
 # pkm-ebkf
 title: Padded page link splits the outline session; a resync can erase a remote edit
-status: todo
+status: completed
 type: bug
 priority: high
 created_at: 2026-10-19T15:59:04Z
-updated_at: 2026-10-19T15:59:04Z
+updated_at: 2026-10-20T10:00:31Z
 ---
 
 ## Symptom
@@ -48,6 +48,10 @@ Key `useOutlinePageLoad`'s session by the canonical title (the replica
 the payload title. Not affected: undo history, double replay, first
 render.
 
-- [ ] failing test (both checks above, `%09` and `%20`)
-- [ ] key the session canonically
-- [ ] troubleshooting.md row
+- [x] failing test (both checks above, `%09` and `%20`)
+- [x] key the session canonically
+- [x] troubleshooting.md row
+
+## Summary of Changes
+
+useOutlinePageLoad keyed its outline session by the requested title. The main thread cannot canonicalize a title (the plain-space flag lives in the replica worker), so the hook now keeps the requested title only until an accepted read names a different page title. It then re-keys once: it releases the raw session, acquires the canonical one, and reads afresh under it. It never seeds the canonical session with the payload already in hand. A non-canonical title costs one extra GET. Tests: the PageView session-key repro (%09, %20 and a control), hook tests for padded, canonical, resync-before-first-answer, rename-race and missing-daily cases, and an EditableSidebarPanel test. There is a troubleshooting.md row, and frontend-editor.md now describes the loader's keying. The web verify gate and perf (frontend: no change) pass.

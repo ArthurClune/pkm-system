@@ -5,7 +5,7 @@ status: todo
 type: bug
 priority: deferred
 created_at: 2026-10-01T19:35:45Z
-updated_at: 2026-10-01T19:44:13Z
+updated_at: 2026-10-20T12:18:47Z
 ---
 
 A page opened under a non-canonical title runs two outline sessions: one for the loader, one for the editor. This happens on PageView via a URL like `/page/%20%20Paper%20%20` (from clicking a `[[  Paper  ]]` ref), and in a sidebar panel opened with such a title.
@@ -38,3 +38,13 @@ This predates pkm-thee on PageView. pkm-thee gave the sidebar the same shape, bu
 - [ ] One session per page, keyed by the canonical title
 - [ ] Sidebar variant of the test
 - [ ] Troubleshooting row if it reproduces
+
+## 2026-10-20
+
+pkm-ebkf (merged 5eb6b93e) made `useOutlinePageLoad` re-key its session to
+the canonical title after the first accepted read. That may have collapsed
+the two sessions. Arthur: re-run the padded-URL copy of PageView's
+"a parent resync response dispatched before a local split cannot erase it"
+test, and close this bean if it now makes 3 fetches like the canonical URL.
+
+- [ ] re-run the padded-URL check against main; close or narrow this bean

@@ -24,6 +24,9 @@ def test_unlinked_endpoint(client):
 
 
 def test_unlinked_normalizes_routable_control_whitespace(client):
+    # This pins the page lookup, not the search phrase: full-text search
+    # tokenises a tab like a space, so phrase_query of the raw title and of
+    # the canonical one match the same blocks.
     r = client.get("/api/unlinked", params={"title": "Machine\tLearning"})
     assert r.status_code == 200
     body = r.json()

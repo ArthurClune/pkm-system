@@ -8,8 +8,8 @@ comes through this module -- the live
 `/api/query` endpoint (routes_search) and the resolved single-page markdown
 export (routes_export) -- so the source-block exclusion, the total and the
 row ordering cannot drift apart between them. Result *shaping* stays with
-each route: /api/query returns `grouping.group_by_page` dicts, the export
-its own typed groups.
+each route: /api/query returns the `BlockGroup` models of
+`grouping.group_by_page`, the export its own typed groups.
 """
 from __future__ import annotations
 

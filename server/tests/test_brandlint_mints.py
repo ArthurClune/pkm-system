@@ -117,7 +117,7 @@ def test_other_trees_are_not_checked(path: str):
 
 def test_each_remedy_names_the_fix():
     assert "select()" in RULES["brand-cast"]
-    assert "model_validate" in RULES["model-construct"]
+    assert "keyword" in RULES["model-construct"]
     assert "Db" in RULES["raw-sqlite"]
 
 

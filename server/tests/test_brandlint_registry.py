@@ -104,3 +104,19 @@ def test_an_opt_out_file_still_has_an_opt_out(pattern: str):
     assert matches, f"{pattern} is an OPT_OUT_FILES entry but matches no tracked file"
     assert any("brand: untrusted --" in text_of(p) for p in matches), \
         f"no file matching {pattern} carries an opt-out any more"
+
+
+def test_the_strict_base_exists():
+    assert REGISTRY.strict_base is not None
+    path, name = REGISTRY.strict_base
+    assert under(path), f"{path} is STRICT_BASE's file but no tracked file matches"
+    assert f"class {name}(BaseModel)" in text_of(path), f"{path} no longer defines {name}"
+
+
+def test_a_missing_strict_base_class_is_reported():
+    """The check above fails when the class is renamed: its text no longer
+    matches, and the rule would then flag the renamed class."""
+    assert REGISTRY.strict_base is not None
+    path, name = REGISTRY.strict_base
+    renamed = text_of(path).replace(name, "Renamed")
+    assert [v.rule for v in check_text(path, renamed, REGISTRY)] == ["model-strict"]

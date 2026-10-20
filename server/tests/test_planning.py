@@ -7,13 +7,13 @@ from pkm.batch import (delete_uids, plan_batch, referenced_pages,
 from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp,
                                MoveOp, OrderIdx, SetHeadingOp, UpdateTextOp,
                                subtree_hash, text_hash)
-from pkm.contracts.responses import BlockNode, PagePayload
+from pkm.contracts.responses import Backlinks, BlockNode, PageMeta, PagePayload
 from pkm.planning import (BuildError, asset_block_text, create_page_ops,
                           order_idx_at_position, parse_outline, plan_mark,
                           plan_save, plan_update, resolve_parent,
                           split_heading)
 from pkm.render import render_page
-from pkm.test_data.ids import order_idx_of, raw_title_of, uid_of
+from pkm.test_data.ids import canonical_title_of, order_idx_of, page_id_of, raw_title_of, uid_of
 
 
 def _node(uid: BlockUid, text, children=(), heading=None,
@@ -959,13 +959,12 @@ def test_plan_batch_created_heading_resolves_as_a_later_parent():
 
 
 def test_render_then_save_round_trips_a_heading():
-    page = PagePayload.model_validate(
-        {"page": {"id": 1, "title": "Machine Learning", "created_at": None,
-                  "updated_at": None},
-         "blocks": BLOCKS,
-         "backlinks": {"groups": [], "total_pages": 0, "offset": 0,
-                       "limit": 100},
-         "block_ref_texts": {}, "block_ref_counts": {}})
+    page = PagePayload(
+        page=PageMeta(id=page_id_of(1), title=canonical_title_of("Machine Learning"),
+                      created_at=None, updated_at=None),
+        blocks=BLOCKS,
+        backlinks=Backlinks(groups=[], total_pages=0, offset=0, limit=100),
+        block_ref_texts={}, block_ref_counts={})
     line = next(ln for ln in render_page(page).splitlines()
                 if "Papers" in ln)
     assert line == "- ## Papers"

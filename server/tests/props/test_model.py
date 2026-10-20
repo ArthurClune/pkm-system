@@ -1,6 +1,7 @@
 """Example tests for the reference op model and its strategies. Unmarked:
 these run in the default suite on every commit, guarding the oracle the
 property tests trust. One test per doc table row the model encodes."""
+import json
 import ast
 import copy
 from pathlib import Path
@@ -670,8 +671,8 @@ def test_batches_are_wire_valid_and_model_applies(data):
     m = Model.from_rows(PAGES, data.draw(seed_tree(pool)))
     ops = data.draw(batch_for(m, pool))
     assert 1 <= len(ops) <= 20
-    OpBatch.model_validate({"client_id": "c", "batch_id": "b" * 8,
-                            "ops": ops})
+    OpBatch.model_validate_json(json.dumps({"client_id": "c", "batch_id": "b" * 8,
+                            "ops": ops}))
     before = m.snapshot()
     out = m.apply(ops)
     assert out.status in (200, 400)
@@ -685,8 +686,8 @@ def test_op_for_draws_wire_valid_ops(data):
     pool = uid_pool(8)
     m = Model.from_rows(PAGES, data.draw(seed_tree(pool)))
     op = data.draw(op_for(m, pool))
-    OpBatch.model_validate({"client_id": "c", "batch_id": "b" * 8,
-                            "ops": [op]})
+    OpBatch.model_validate_json(json.dumps({"client_id": "c", "batch_id": "b" * 8,
+                            "ops": [op]}))
     assert isinstance(data.draw(texts()), str)
 
 

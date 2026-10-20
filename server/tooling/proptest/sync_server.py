@@ -19,6 +19,7 @@ import atexit
 import copy
 import dataclasses
 import itertools
+import json
 import logging
 import os
 import shutil
@@ -191,8 +192,8 @@ def build_template(path: Path) -> None:
                                           (SECOND_PAGE, "second", SECOND_UIDS),
                                           (FIXTURE_PAGE, "fixture", FIXTURE_UIDS))
                for i, uid in enumerate(uids)]
-        batch = OpBatch.model_validate({
-            "client_id": "proptest-seed", "batch_id": "proptest-seed-batch", "ops": ops})
+        batch = OpBatch.model_validate_json(json.dumps({
+            "client_id": "proptest-seed", "batch_id": "proptest-seed-batch", "ops": ops}))
         con.execute("BEGIN IMMEDIATE")
         apply_batch(con, batch, START_MS)
         con.commit()

@@ -400,3 +400,8 @@ CLIENT_LITERALS: dict[str, tuple[str | int, ...]] = {
 
 # SQLite's FTS5 shadow tables carry no data of ours.
 FTS_SHADOW_SUFFIXES = ("_data", "_idx", "_config", "_docsize", "_content")
+
+# The one file and class that may subclass pydantic's `BaseModel` directly;
+# every other model inherits it, so models are strict and pyrefly checks
+# their constructors.
+STRICT_BASE: tuple[str, str] = ("server/src/pkm/contracts/strict.py", "StrictModel")

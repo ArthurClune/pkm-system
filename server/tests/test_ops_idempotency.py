@@ -174,8 +174,8 @@ def test_ack_carries_the_journal_seq_that_includes_the_batch(client):
 def _request_hash(ops) -> str:
     from pkm.contracts.ops import OpBatch
     from pkm.server.ops_hash import batch_request_hash
-    return batch_request_hash(OpBatch.model_validate(
-        {"client_id": "c1", "batch_id": "batch-gold-0001", "ops": ops}))
+    return batch_request_hash(OpBatch.model_validate_json(
+        json.dumps({"client_id": "c1", "batch_id": "batch-gold-0001", "ops": ops})))
 
 
 HINTLESS = [{"op": "update_text", "uid": "uid_b1", "text": "golden",
@@ -206,8 +206,8 @@ def test_page_title_hint_is_part_of_the_request_hash():
 def _replay_hash(ops) -> str:
     from pkm.contracts.ops import OpBatch
     from pkm.server.ops_hash import batch_replay_hash
-    return batch_replay_hash(OpBatch.model_validate(
-        {"client_id": "c1", "batch_id": "batch-gold-0001", "ops": ops}))
+    return batch_replay_hash(OpBatch.model_validate_json(
+        json.dumps({"client_id": "c1", "batch_id": "batch-gold-0001", "ops": ops})))
 
 
 def test_replay_hash_ignores_worker_filled_guard_fields():
@@ -312,8 +312,8 @@ def test_pre_deploy_strict_hash_row_still_replays_and_still_409s(client):
 
 
 def _delete_batch(**fields):
-    return OpBatch.model_validate({"client_id": "c", "batch_id": "batch-0001",
-        "ops": [{"op": "delete", "uid": "uid_a", **fields}]})
+    return OpBatch.model_validate_json(json.dumps({"client_id": "c", "batch_id": "batch-0001",
+        "ops": [{"op": "delete", "uid": "uid_a", **fields}]}))
 
 
 def test_hashless_delete_keeps_its_pre_field_hash():
@@ -350,7 +350,7 @@ def test_filled_delete_then_bare_replays_with_one_effect(client):
 
 def test_seen_seq_is_not_part_of_the_batch_hashes(client):
     plain = OpBatch.model_validate(BATCH)
-    seen = OpBatch.model_validate(dict(BATCH, seen_seq=7))
+    seen = OpBatch.model_validate_json(json.dumps(dict(BATCH, seen_seq=7)))
     assert seen.seen_seq == 7 and plain.seen_seq is None
     assert batch_request_hash(plain) == batch_request_hash(seen)
     assert batch_replay_hash(plain) == batch_replay_hash(seen)

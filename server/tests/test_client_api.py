@@ -1,3 +1,4 @@
+import json
 import os
 
 import pytest
@@ -451,14 +452,14 @@ def test_get_backlinks_gives_up_loudly_if_ordering_never_stabilizes(
     set. Rather than eventually returning a possibly-incomplete result,
     it must raise: no silent truncation, in either direction."""
     def flaky_get_page(title: RawTitle, bl_limit=100, bl_offset=0):
-        return PagePayload.model_validate(
-            {"page": {"id": 1, "title": "X", "created_at": None,
+        return PagePayload.model_validate_json(
+            json.dumps({"page": {"id": 1, "title": "X", "created_at": None,
                       "updated_at": None},
              "blocks": [], "block_ref_texts": {}, "block_ref_counts": {},
              "backlinks": {"groups": [{"page_id": 1, "page_title": "X",
                                        "items": []}],
                            "total_pages": 2, "offset": bl_offset,
-                           "limit": bl_limit}})
+                           "limit": bl_limit}}))
 
     monkeypatch.setattr(pkm_client, "get_page", flaky_get_page)
     with pytest.raises(ApiError, match="reorder"):

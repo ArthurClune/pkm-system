@@ -27,6 +27,7 @@ import sys
 import tokenize
 from pathlib import PurePosixPath
 
+from brandlint.models import model_sites
 from brandlint.registry import Registry
 from commentlint.core import Violation
 
@@ -41,8 +42,13 @@ RULES = {
                   "MINT_SITES file",
     "brand-cast": "`cast` is allowed only in CAST_SITES files: read the value from a `select()` row or "
                   "narrow it with a parser instead of asserting a type",
-    "model-construct": "`model_construct` skips validation: build the model with its constructor or "
-                       "`model_validate`",
+    "model-construct": "`model_construct` skips validation: build the model with its constructor, by "
+                       "keyword arguments",
+    "model-strict": "every model inherits `StrictModel` (pkm.contracts.strict): no direct `BaseModel` "
+                    "subclass, `strict=False`, `create_model`, `pydantic.dataclasses` or `validate_call`",
+    "model-unchecked": "build a model with keyword arguments so pyrefly checks it: no `.model_validate` of "
+                       "a dict built in place and no `.model_copy(update=...)`; decode JSON text with "
+                       "`model_validate_json`",
     "raw-sqlite": "raw sqlite belongs to pkm.database: use `Db` (`select`, `select_one`, `execute`, "
                   "`executemany`) instead of `sqlite3.connect`, cursors or `.raw`",
     "brand-parse": "brandlint could not parse this file; it needs Python >= 3.12 (PEP 695 syntax): run it "
@@ -726,6 +732,6 @@ def check_text(path: str, text: str, registry: Registry) -> list[Violation]:
         what = f"`{name}` is held as `{brand}` on a line whose type check is silenced"
         out.append(Violation(path, line, "brand-launder",
                              f"{what}: {fix or 'parse it'}: {lines[line - 1].strip()}"))
-    for line, rule, what in _escape_hatches(path, tree, registry, is_test):
+    for line, rule, what in _escape_hatches(path, tree, registry, is_test) + model_sites(path, tree, registry):
         out.append(Violation(path, line, rule, f"{what}: {lines[line - 1].strip()}"))
     return sorted(out, key=lambda v: v.line)

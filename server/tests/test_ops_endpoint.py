@@ -1498,9 +1498,11 @@ def test_a_create_op_refuses_a_coerced_order_idx(client, raw_idx):
         "page_title": "Machine Learning", "order_idx": raw_idx,
         "text": "x"})
     assert r.status_code == 422
+    assert r.json()["detail"][0]["loc"][-1] == "order_idx"
 
 
 def test_a_set_collapsed_op_refuses_an_int_for_a_bool(client):
     r = _post_one_op(client, batch_id_of("strict_collapsed"), {
         "op": "set_collapsed", "uid": "uid_b1", "collapsed": 1})
     assert r.status_code == 422
+    assert r.json()["detail"][0]["loc"][-1] == "collapsed"

@@ -1,3 +1,4 @@
+import json
 import secrets
 from datetime import datetime
 from typing import get_args
@@ -398,9 +399,9 @@ def test_diverged_delete_mints_header_then_root_then_descendants(
                    "descmint0002"])
     monkeypatch.setattr(secrets, "token_urlsafe",
                         lambda n: next(minted))
-    op = OpBatch.model_validate({"client_id": "t", "batch_id": "mint_order",
+    op = OpBatch.model_validate_json(json.dumps({"client_id": "t", "batch_id": "mint_order",
         "ops": [{"op": "delete", "uid": "uid_b2",
-                 "base_subtree_hash": "0" * 64}]}).ops[0]
+                 "base_subtree_hash": "0" * 64}]})).ops[0]
     ctx = ops_apply._context_for(db, op, NOW)
     assert isinstance(ctx, ops_core.DeleteConflictContext)
     assert isinstance(ctx.landing.header, ops_core.FreshHeader)
@@ -951,8 +952,8 @@ def test_context_for_picks_the_context_its_classification_calls_for(
     # The planner trusts the context type; this pins the shell's choice of
     # it for every way an op can plan. `detail` is the skip kind, the text
     # edit outcome, or whether a create's uid is taken.
-    parsed = OpBatch.model_validate(
-        {"client_id": "t", "batch_id": "ctx_types", "ops": [op]}).ops[0]
+    parsed = OpBatch.model_validate_json(
+        json.dumps({"client_id": "t", "batch_id": "ctx_types", "ops": [op]})).ops[0]
     ctx = ops_apply._context_for(db, parsed, NOW)
     assert type(ctx).__name__ == context
     if isinstance(ctx, ops_core.SKIPPED_CONTEXTS):

@@ -82,21 +82,21 @@ def _skip_ctx(op: BlockOp, *, block_exists: bool = False,
 
 
 def test_batch_parses_discriminated_ops():
-    batch = OpBatch.model_validate({"client_id": "c1", "batch_id": "test_batch1",
+    batch = OpBatch.model_validate_json(json.dumps({"client_id": "c1", "batch_id": "test_batch1",
                                    "ops": [
         {"op": "create", "uid": "newuid1", "page_title": "P",
          "order_idx": 0, "text": "hi"},
         {"op": "delete", "uid": "uid_b3"},
-    ]})
+    ]}))
     assert isinstance(batch.ops[0], CreateOp)
     assert isinstance(batch.ops[1], DeleteOp)
 
 
 def test_batch_rejects_unknown_op_and_empty():
     with pytest.raises(ValidationError):
-        OpBatch.model_validate(
-            {"client_id": "c1", "batch_id": "test_batch2",
-             "ops": [{"op": "explode", "uid": "uid_b3"}]})
+        OpBatch.model_validate_json(
+            json.dumps({"client_id": "c1", "batch_id": "test_batch2",
+             "ops": [{"op": "explode", "uid": "uid_b3"}]}))
     with pytest.raises(ValidationError):
         OpBatch(client_id=client_id_of("c1"), batch_id=batch_id_of("test_batch3"), ops=[])
 
@@ -738,9 +738,9 @@ def test_placement_matches_shared_fixture(case, tmp_path):
             [(b["uid"], page_ids[b["page"]], b["parent_uid"], b["order_idx"],
               b["uid"]) for b in PLACEMENT_STATE["blocks"]])
         db.commit()
-        apply_batch(db, OpBatch.model_validate({
+        apply_batch(db, OpBatch.model_validate_json(json.dumps({
             "client_id": "fixture", "batch_id": f"placement_{case['name']}"[:64],
-            "ops": case["ops"]}), 1_800_000_000_000)
+            "ops": case["ops"]})), 1_800_000_000_000)
         db.commit()
         placed = {r["uid"]: {"uid": r["uid"], "page": r["title"],
                              "parent_uid": r["parent_uid"],

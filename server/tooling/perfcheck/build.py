@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import json
 import os
 import sys
 import tempfile
@@ -115,9 +116,9 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
     con = open_db(dest)
     try:
         for i, batch in enumerate(fx.batches):
-            ob = OpBatch.model_validate({"client_id": "perf-fixture",
+            ob = OpBatch.model_validate_json(json.dumps({"client_id": "perf-fixture",
                                          "batch_id": f"fixture-{i:06d}",
-                                         "ops": list(batch.ops)})
+                                         "ops": list(batch.ops)}))
             apply_batch(con, ob, batch.now_ms)
             con.commit()
         # Seeded once, directly through the store function a real rename

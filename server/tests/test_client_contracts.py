@@ -223,8 +223,8 @@ def test_ops_ack_is_exactly_what_the_ops_route_returns(pkm_client, client):
 def test_ops_ack_stored_before_skipped_existed_reads_as_none_skipped():
     # applied_batches replays old acks verbatim, without the field
     from pkm.contracts.responses import OpsAck
-    assert OpsAck.model_validate(
-        {"ok": True, "ts": 1, "applied": 2, "seq": 7}).skipped == []
+    assert OpsAck.model_validate_json(
+        json.dumps({"ok": True, "ts": 1, "applied": 2, "seq": 7})).skipped == []
 
 
 def test_asset_delete_ack_is_exactly_what_the_delete_route_returns(

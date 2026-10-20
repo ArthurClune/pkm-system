@@ -178,7 +178,7 @@ aggregate) or the data, never by loosening `row_problems`.
 A key admits every value its column stores. `heading` is
 `StoredHeadingLevel | None`, which includes the 0 an old Roam import stored
 for "no heading". `heading_level` maps that 0 to `None` where a row becomes a
-`TreeNode` or a `SyncBlock`, so the wire never carries it. Rewriting it in SQL
+`BlockNode` or a `SyncBlock`, so the wire never carries it. Rewriting it in SQL
 (`NULLIF`) would cost VM steps on every block row a page or sync read returns.
 
 `Row` is the typed core of a read, not a wire type: handlers copy the keys
@@ -860,14 +860,16 @@ when the `NewType` call is wrapped in another call. A `NewType` of an
 already-branded `NewType` inherits its parent's marker, so a subtype such
 as `CanonicalTitle` (of `NormalizedTitle`) needs its own `brand()` call too.
 
-None of this guards a pydantic model's constructor: pyrefly treats
-`BaseModel.__init__` permissively, so `CreateOp(..., order_idx=len(page))`
-or a plain `str` where a `BlockUid` belongs both pass with 0 errors,
-for every branded field on `CreateOp`, `MoveOp`, `BlockNode` and
-`SyncBlock` alike, not just `OrderIdx`. The guarantee a brand gives on the
-server comes from the effect dataclasses and helper signatures that
-consume the value afterward (`ShiftSiblings`, `SetParent`, `InsertBlock`,
-`order_idx_at_position`, `Planner._land`), not from op construction itself.
+Every pydantic model inherits `StrictModel` (`contracts/strict.py`), so
+pyrefly checks a constructor's keyword arguments against the field types,
+brands included, and pydantic never coerces `"1"` to an int. The brand lint's
+`model-strict` and `model-unchecked` rules keep it so
+([enforced-checks.md](enforced-checks.md#brand-rules)). Three places stay
+outside the checker:
+
+- decoded input that `model_validate` or `model_validate_json` checks at runtime;
+- FastAPI's form-body models;
+- the MCP library's argument models.
 
 | Brand(s) | Declared in | Base |
 |---|---|---|

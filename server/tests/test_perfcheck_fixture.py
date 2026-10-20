@@ -1,3 +1,4 @@
+import json
 from collections import Counter
 
 import pytest
@@ -47,8 +48,8 @@ def test_every_batch_validates_and_parents_precede_children():
     seen: set[str] = set()
     for i, b in enumerate(fx.batches):
         assert len(b.ops) <= 400
-        OpBatch.model_validate({"client_id": "perf-fixture",
-                                "batch_id": f"fixture-{i:06d}", "ops": list(b.ops)})
+        OpBatch.model_validate_json(json.dumps({"client_id": "perf-fixture",
+                                "batch_id": f"fixture-{i:06d}", "ops": list(b.ops)}))
         for op in b.ops:
             if op["op"] == "create":
                 assert op["parent_uid"] is None or op["parent_uid"] in seen

@@ -815,7 +815,15 @@ def unlink_stale_text(op: BlockOp, is_stale: TitleMatch) -> BlockOp:
     if not isinstance(op, (CreateOp, UpdateTextOp)):
         return op
     text = unlink_stale_refs(op.text, is_stale)
-    return op if text == op.text else op.model_copy(update={"text": text})
+    if text == op.text:
+        return op
+    if isinstance(op, CreateOp):
+        return CreateOp(op=op.op, uid=op.uid, page_title=op.page_title,
+                        parent_uid=op.parent_uid, order_idx=op.order_idx,
+                        text=text, heading=op.heading, view_type=op.view_type)
+    return UpdateTextOp(op=op.op, uid=op.uid, text=text,
+                        base_text_hash=op.base_text_hash,
+                        page_title=op.page_title)
 
 
 def _rewrite_chain(

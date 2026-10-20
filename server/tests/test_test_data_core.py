@@ -171,6 +171,11 @@ def test_parse_graph_source_rejects_invalid_strict_fields(field: str, value: obj
         parse_graph_source(json.dumps(raw), asset_names={"sample.svg"})
 
 
+def test_parse_graph_source_rejects_text_that_is_not_json() -> None:
+    with pytest.raises(SourceValidationError):
+        parse_graph_source("{", asset_names=set())
+
+
 @pytest.mark.parametrize("value", [True, 3.0])
 def test_parse_graph_source_rejects_strict_heading_coercion(value: object) -> None:
     raw = valid_source()

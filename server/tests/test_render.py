@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta, timezone
 
 from pkm.render import (clip_depth, render_assets, render_backlinks,
@@ -6,13 +7,15 @@ from pkm.render import (clip_depth, render_assets, render_backlinks,
                         render_title_migration_apply,
                         render_title_migration_audit)
 from pkm.contracts.responses import (AssetSearchPayload, Backlinks,
-                                     BlockNode, BlockPayload, ChangedPayload,
-                                     GroupsPayload, PagePayload, QueryPayload,
+                                     BlockNode, BlockPayload, BlockRefText,
+                                     ChangedPayload, GroupsPayload, PageMeta,
+                                     PagePayload, QueryPayload,
                                      SearchPayload, TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload)
 from pkm.test_data.ids import (
-    canonical_title_of, malformed_uid, order_idx_of, raw_title_of, sha_of, uid_of)
+    canonical_title_of, malformed_uid, order_idx_of, page_id_of, raw_title_of, sha_of, uid_of)
 from pkm.contracts.ops import BlockUid
+from pkm.contracts.titles import CanonicalTitle
 
 TZ = timezone(timedelta(hours=1))
 
@@ -23,19 +26,25 @@ def _node(uid: BlockUid, text, children=(), heading=None) -> BlockNode:
                      updated_at=None, children=list(children))
 
 
-NO_BACKLINKS = {"groups": [], "total_pages": 0, "offset": 0, "limit": 100}
-PAGE = PagePayload.model_validate({
-    "page": {"id": 1, "title": "Machine Learning", "created_at": None,
-             "updated_at": None},
-    "blocks": [
+NO_BACKLINKS = Backlinks(groups=[], total_pages=0, offset=0, limit=100)
+
+
+def _meta(title: CanonicalTitle) -> PageMeta:
+    return PageMeta(id=page_id_of(1), title=title,
+                    created_at=None, updated_at=None)
+
+
+PAGE = PagePayload(
+    page=_meta(canonical_title_of("Machine Learning")),
+    blocks=[
         _node(uid_of("tuid-u1"), "Tags:: #AI"),
         _node(uid_of("tuid-u2"), "Papers", heading=2,
               children=[_node(uid_of("tuid-u3"), "[[Attention Is All You Need]]")]),
     ],
-    "backlinks": NO_BACKLINKS,
-    "block_ref_texts": {},
-    "block_ref_counts": {},
-})
+    backlinks=NO_BACKLINKS,
+    block_ref_texts={},
+    block_ref_counts={},
+)
 
 
 def test_render_page_markdown():
@@ -63,10 +72,10 @@ def test_render_block_with_breadcrumbs():
 
 
 def _search(**kw) -> SearchPayload:
-    return SearchPayload.model_validate(
-        {"pages": [{"id": 1, "title": "AI"}],
+    return SearchPayload.model_validate_json(
+        json.dumps({"pages": [{"id": 1, "title": "AI"}],
          "blocks": [{"uid": "tuid-u1", "page_title": "ML",
-                     "snippet": "…<mark>hit</mark>…"}], **kw})
+                     "snippet": "…<mark>hit</mark>…"}], **kw}))
 
 
 def test_render_search():
@@ -92,10 +101,10 @@ def test_render_search_compact():
 
 
 def test_render_groups_with_uids_and_total():
-    payload = GroupsPayload.model_validate(
-        {"groups": [{"page_id": 1, "page_title": "AI",
+    payload = GroupsPayload.model_validate_json(
+        json.dumps({"groups": [{"page_id": 1, "page_title": "AI",
                      "items": [{"uid": "t1", "text": "{{TODO}} x"}]}],
-         "total": 1})
+         "total": 1}))
     assert render_groups(payload) == (
         "## AI\n"
         "- {{TODO}} x  ^t1\n"
@@ -113,10 +122,10 @@ def test_render_groups_empty_with_ref_counts_hint():
 
 
 def test_render_groups_no_hint_when_results_exist():
-    payload = QueryPayload.model_validate(
-        {"groups": [{"page_id": 1, "page_title": "AI",
+    payload = QueryPayload.model_validate_json(
+        json.dumps({"groups": [{"page_id": 1, "page_title": "AI",
                      "items": [{"uid": "t1", "text": "x"}]}],
-         "total": 1, "ref_counts": {"AI": 1}})
+         "total": 1, "ref_counts": {"AI": 1}}))
     assert "per-ref" not in render_groups(payload)
 
 
@@ -127,11 +136,11 @@ def test_render_groups_without_ref_counts_prints_no_hint():
 
 
 def test_render_backlinks():
-    backlinks = Backlinks.model_validate(
-        {"groups": [{"page_id": 3, "page_title": "July 7th, 2026",
+    backlinks = Backlinks.model_validate_json(
+        json.dumps({"groups": [{"page_id": 3, "page_title": "July 7th, 2026",
                      "items": [{"uid": "b4", "text": "Studying",
                                 "breadcrumbs": []}]}],
-         "total_pages": 1, "offset": 0, "limit": 100})
+         "total_pages": 1, "offset": 0, "limit": 100}))
     assert render_backlinks(raw_title_of("Machine Learning"), backlinks) == (
         "# Backlinks: Machine Learning (1 pages)\n"
         "\n"
@@ -140,14 +149,13 @@ def test_render_backlinks():
 
 
 def test_render_empty_text_block():
-    payload = PagePayload.model_validate({
-        "page": {"id": 1, "title": "Test", "created_at": None,
-                 "updated_at": None},
-        "blocks": [_node(uid_of("tuid-u1"), "")],  # empty text
-        "backlinks": NO_BACKLINKS,
-        "block_ref_texts": {},
-        "block_ref_counts": {},
-    })
+    payload = PagePayload(
+        page=_meta(canonical_title_of("Test")),
+        blocks=[_node(uid_of("tuid-u1"), "")],  # empty text
+        backlinks=NO_BACKLINKS,
+        block_ref_texts={},
+        block_ref_counts={},
+    )
     assert render_page(payload) == "# Test\n\n-\n"
     assert render_page(payload, include_uids=True) == "# Test\n\n-  ^tuid-u1\n"
 
@@ -215,18 +223,19 @@ def test_resolve_ref_texts_token_over_32_chars_stays_bare():
 
 
 def test_render_page_resolve_refs():
-    payload = PagePayload.model_validate(
-        {"page": PAGE.page, "blocks": [_node(uid_of("tuid-u1"), "see ((uid_u9))")],
-         "backlinks": NO_BACKLINKS,
-         "block_ref_texts": {"uid_u9": {"text": "target", "page_title": "X"}},
-         "block_ref_counts": {}})
+    payload = PagePayload(
+        page=PAGE.page, blocks=[_node(uid_of("tuid-u1"), "see ((uid_u9))")],
+        backlinks=NO_BACKLINKS,
+        block_ref_texts={uid_of("uid_u9"): BlockRefText(
+            text="target", page_title=canonical_title_of("X"))},
+        block_ref_counts={})
     out = render_page(payload, resolve_refs=True)
     assert '- see "target" ((uid_u9))\n' in out
     assert "see ((uid_u9))" in render_page(payload)  # default unchanged
 
 
 def test_render_assets():
-    payload = AssetSearchPayload.model_validate({"total": 2, "assets": [
+    payload = AssetSearchPayload.model_validate_json(json.dumps({"total": 2, "assets": [
         {"sha256": "ab" * 32, "filename": "graph.png", "mime": "image/png",
          "size": 1234, "created_at": 1753500000000,
          "url": "/assets/" + "ab" * 32 + "/graph.png",
@@ -239,7 +248,7 @@ def test_render_assets():
          "url": "/assets/" + "cd" * 32 + "/raw.png",
          "description": None, "status": "pending", "describe_error": None,
          "refs": []},
-    ]})
+    ]}))
     out = render_assets(payload)
     assert "graph.png" in out
     assert "a bar chart of revenue" in out
@@ -258,7 +267,7 @@ def test_render_assets_empty():
 
 
 def test_render_title_migration_audit_includes_state_group_details_and_merge_order():
-    payload = TitleMigrationAuditPayload.model_validate({
+    payload = TitleMigrationAuditPayload.model_validate_json(json.dumps({
         "active": False,
         "digest": "7" * 64,
         "groups": [
@@ -287,7 +296,7 @@ def test_render_title_migration_audit_includes_state_group_details_and_merge_ord
         "blockers": [
             {"page_id": 19, "title": "Bad #Title", "reason": "forbidden_syntax"}
         ],
-    })
+    }))
     assert render_title_migration_audit(payload) == (
         "# Title migration audit\n"
         "\n"
@@ -444,13 +453,13 @@ def test_render_changed_single_day_uses_hhmm():
     since = _ms(datetime(2026, 9, 24, 0, 0, tzinfo=TZ))
     until = _ms(datetime(2026, 9, 25, 0, 0, tzinfo=TZ))
     when = _ms(datetime(2026, 9, 24, 9, 5, tzinfo=TZ))
-    payload = ChangedPayload.model_validate({
+    payload = ChangedPayload.model_validate_json(json.dumps({
         "groups": [{"page_id": 1, "page_title": "AI",
                    "items": [{"uid": "b1", "text": "hello",
                               "created_at": when, "updated_at": when,
                               "status": "new"}]}],
         "total": 1, "since": since, "until": until,
-    })
+    }))
     out = render_changed(payload, TZ)
     assert out == (
         "## AI\n"
@@ -464,13 +473,13 @@ def test_render_changed_multi_day_window_includes_date():
     since = _ms(datetime(2026, 9, 20, 0, 0, tzinfo=TZ))
     until = _ms(datetime(2026, 9, 25, 0, 0, tzinfo=TZ))
     when = _ms(datetime(2026, 9, 24, 9, 5, tzinfo=TZ))
-    payload = ChangedPayload.model_validate({
+    payload = ChangedPayload.model_validate_json(json.dumps({
         "groups": [{"page_id": 1, "page_title": "AI",
                    "items": [{"uid": "b1", "text": "hello",
                               "created_at": None, "updated_at": when,
                               "status": "edited"}]}],
         "total": 1, "since": since, "until": until,
-    })
+    }))
     out = render_changed(payload, TZ)
     assert "[2026-09-24 09:05] edited: hello  ^b1" in out
 
@@ -480,13 +489,13 @@ def test_render_changed_truncation_shows_showing_n_of_m():
     since = _ms(datetime(2026, 9, 24, 0, 0, tzinfo=TZ))
     until = _ms(datetime(2026, 9, 25, 0, 0, tzinfo=TZ))
     when = _ms(datetime(2026, 9, 24, 9, 5, tzinfo=TZ))
-    payload = ChangedPayload.model_validate({
+    payload = ChangedPayload.model_validate_json(json.dumps({
         "groups": [{"page_id": 1, "page_title": "AI",
                    "items": [{"uid": "b1", "text": "hello",
                               "created_at": when, "updated_at": when,
                               "status": "new"}]}],
         "total": 5, "since": since, "until": until,
-    })
+    }))
     out = render_changed(payload, TZ)
     assert "(showing 1 of 5 total)" in out
 

@@ -30,6 +30,11 @@ export type LocalApiResult =
   | { handled: false }
   | { handled: true; status: number; body: unknown };
 
+/** A string member of an untyped request body, "" when absent: the text a
+ * title parser takes, not yet a title. */
+const bodyText = (body: unknown, field: string): string =>
+  String((body as Record<string, unknown> | null | undefined)?.[field] ?? "");
+
 const ok = (body: unknown): LocalApiResult =>
   ({ handled: true, status: 200, body });
 const err = (status: number, detail: string): LocalApiResult =>
@@ -92,9 +97,7 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
                             Number(q.get("limit") ?? 20), exact));
   }
   if (method === "POST" && path === "/api/pages") {
-    const pageTitle = canonicalTitle(
-      db, String((req.body as Record<string, unknown> | undefined)?.["title"]
-             ?? ""));
+    const pageTitle = canonicalTitle(db, bodyText(req.body, "title"));
     if (pageTitle.trim().length === 0) {
       return err(422, "title must not be blank");
     }

@@ -504,3 +504,23 @@ export function stubIosStandaloneNavigator(over: {
     }
   };
 }
+
+/** A string member of a parsed JSON fixture row: a missing or non-string
+ * member throws rather than reading as "undefined". */
+export function fixtureText(row: unknown, key: string): string {
+  const value = (row as Record<string, unknown> | null)?.[key];
+  if (typeof value !== "string") {
+    throw new Error(`fixture row has no string "${key}"`);
+  }
+  return value;
+}
+
+/** The `refs` rows of a parsed ref-grammar fixture, each title minted as
+ * the NormalizedTitle the extractors return. */
+export function fixtureRefs(rows: readonly unknown[]):
+  { title: NormalizedTitle; kind: string }[] {
+  return rows.map((r) => ({
+    title: normalizedTitleOf(fixtureText(r, "title")),
+    kind: fixtureText(r, "kind"),
+  }));
+}

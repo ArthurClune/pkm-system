@@ -5,12 +5,13 @@
 // so the fixture (outside the Vite root) can be read with plain fs.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { fixtureRefs } from "../test-helpers";
 import { extractRefs } from "./refs";
 
 interface FixtureCase {
   name: string;
   text: string;
-  refs: Record<string, string>[];
+  refs: unknown[];
   block_refs: string[];
   embeds: number;
 }
@@ -24,7 +25,7 @@ describe("ref grammar fixture (pinned against the Python parser)", () => {
   for (const c of fixture.cases) {
     it(c.name, () => {
       const got = extractRefs(c.text);
-      expect(got.refs).toEqual(c.refs);           // order-sensitive on purpose
+      expect(got.refs).toEqual(fixtureRefs(c.refs));           // order-sensitive on purpose
       expect(got.block_refs).toEqual(c.block_refs);
       expect(got.embeds).toEqual(c.embeds);
     });

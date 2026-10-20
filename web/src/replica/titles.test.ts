@@ -6,23 +6,31 @@ import { asRawTitle, canonicalizeTitle, findOpTitleViolation,
          titleSyntaxReason } from "./titles";
 import type { CanonicalTitle, NormalizedTitle, RawTitle } from "../api/brands";
 import type { components } from "../api/types";
-import { normalizedTitleOf, orderIdxOf, canonicalTitleOf, typeProbe, uidOf, rawTitleOf } from "../test-helpers";
+import {
+  canonicalTitleOf, fixtureText, normalizedTitleOf, orderIdxOf, rawTitleOf, typeProbe, uidOf,
+} from "../test-helpers";
 
-// The fixture's JSON as it is on disk; its `title` is read through the
-// index, since a brand cannot be asserted onto parsed JSON.
+// The fixture's JSON, read row by row: `titleText` is the fixture's `title`,
+// text for the parser under test.
 interface TitleSyntaxCase {
   name: string;
+  titleText: string;
   reason: "forbidden_syntax" | null;
-  [field: string]: string | null;
 }
+
+const titleSyntaxCase = (row: unknown): TitleSyntaxCase => ({
+  name: fixtureText(row, "name"),
+  titleText: fixtureText(row, "title"),
+  reason: (row as Pick<TitleSyntaxCase, "reason">).reason,
+});
 
 const titleSyntaxCases = JSON.parse(readFileSync(new URL(
   "../../../shared/fixtures/title_syntax.json", import.meta.url,
-), "utf-8")) as { cases: TitleSyntaxCase[] };
+), "utf-8")) as { cases: unknown[] };
 
 describe("titleSyntaxReason", () => {
-  test.each(titleSyntaxCases.cases)("$name", (c) => {
-    expect(titleSyntaxReason(String(c["title"]))).toBe(c.reason);
+  test.each(titleSyntaxCases.cases.map(titleSyntaxCase))("$name", (c) => {
+    expect(titleSyntaxReason(c.titleText)).toBe(c.reason);
   });
 });
 

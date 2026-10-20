@@ -9,21 +9,28 @@ import { titleForDate } from "../daily";
 import { setPlainSpaceTitleCanonicalization } from "../meta";
 import { openTestDb, type TestDb } from "../testDb";
 import { handleLocalApi, type LocalApiResult } from "./router";
-import { batchIdOf } from "../../test-helpers";
+import { batchIdOf, fixtureText } from "../../test-helpers";
 
 const NOW = 1752403200000; // 2025-07-13 (mid-day UTC, same day in local time)
 
-// The fixture's JSON as it is on disk; its `title` is read through the
-// index, since a brand cannot be asserted onto parsed JSON.
+// The fixture's JSON, read row by row: `titleText` is the fixture's `title`,
+// text for the parser under test.
 interface TitleSyntaxCase {
   name: string;
+  titleText: string;
   reason: "forbidden_syntax" | null;
-  [field: string]: string | null;
 }
+
+const titleSyntaxCase = (row: unknown): TitleSyntaxCase => ({
+  name: fixtureText(row, "name"),
+  titleText: fixtureText(row, "title"),
+  reason: (row as Pick<TitleSyntaxCase, "reason">).reason,
+});
 
 const forbiddenTitleCases = (JSON.parse(readFileSync(new URL(
   "../../../../shared/fixtures/title_syntax.json", import.meta.url,
-), "utf-8")) as { cases: TitleSyntaxCase[] }).cases
+), "utf-8")) as { cases: unknown[] }).cases
+  .map(titleSyntaxCase)
   .filter((c) => c.reason === "forbidden_syntax");
 
 let t: TestDb;
@@ -362,7 +369,7 @@ describe("create page", () => {
   test.each(forbiddenTitleCases)(
     "rejects shared forbidden title case $name before local or durable creation",
     (c) => {
-      const result = call("POST", "/api/pages", { title: c["title"] }, {
+      const result = call("POST", "/api/pages", { title: c.titleText }, {
         newBatchId: () => batchIdOf("batch-forbidden"),
       });
 

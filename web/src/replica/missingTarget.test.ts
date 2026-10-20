@@ -9,7 +9,7 @@ import { setMeta } from "./meta";
 import { skipsOnMissingTarget } from "./missingTarget";
 import { enqueueBatch } from "./queue";
 import { openTestDb } from "./testDb";
-import { batchIdOf, orderIdxOf, rawTitleOf, seqOf, shaOf, uidOf } from "../test-helpers";
+import { batchIdOf, canonicalTitleOf, fixtureText, orderIdxOf, rawTitleOf, seqOf, shaOf, uidOf } from "../test-helpers";
 
 // The fixture's JSON, as it is on disk: plain values, no brands. `mintOp`
 // and `placedOf` turn a row into the typed shape the code under test takes.
@@ -43,7 +43,7 @@ const fixture = JSON.parse(readFileSync(new URL(
   "../../../shared/fixtures/missing_targets.json", import.meta.url,
 ), "utf-8")) as {
   cases: MissingTargetCase[];
-  placement_state: { pages: Record<string, string | number>[];
+  placement_state: { pages: unknown[];
                      blocks: Raw[] };
   placement_cases: PlacementCase[];
 };
@@ -140,7 +140,8 @@ describe("applyLocalOps placement agrees with the server", () => {
     const t = await openTestDb();
     try {
       const pageIds = new Map<string, number>(
-        fixture.placement_state.pages.map((p) => [String(p["title"]), Number(p.id)]));
+        fixture.placement_state.pages.map((p) => [
+          canonicalTitleOf(fixtureText(p, "title")), (p as { id: number }).id]));
       for (const [title, id] of pageIds) {
         t.db.exec("INSERT INTO pages(id, title) VALUES (?, ?)", [id, title]);
       }

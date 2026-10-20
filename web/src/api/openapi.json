@@ -3157,9 +3157,9 @@
             "type": "string",
             "title": "Id"
           },
-          "title": {
+          "heading": {
             "type": "string",
-            "title": "Title"
+            "title": "Heading"
           },
           "pages": {
             "items": {
@@ -3172,7 +3172,7 @@
         "type": "object",
         "required": [
           "id",
-          "title",
+          "heading",
           "pages"
         ],
         "title": "CurrentWorkSection"
@@ -3317,9 +3317,9 @@
             "title": "Id",
             "x-brand": "GoodlinksId"
           },
-          "title": {
+          "article_title": {
             "type": "string",
-            "title": "Title"
+            "title": "Article Title"
           },
           "url": {
             "type": "string",
@@ -3337,7 +3337,7 @@
         "type": "object",
         "required": [
           "id",
-          "title",
+          "article_title",
           "url",
           "added_at",
           "html"
@@ -3418,9 +3418,9 @@
             "title": "Id",
             "x-brand": "GoodlinksId"
           },
-          "title": {
+          "article_title": {
             "type": "string",
-            "title": "Title"
+            "title": "Article Title"
           },
           "url": {
             "type": "string",
@@ -3438,7 +3438,7 @@
         "type": "object",
         "required": [
           "id",
-          "title",
+          "article_title",
           "url",
           "added_at",
           "created"

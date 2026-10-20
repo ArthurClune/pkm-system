@@ -13,7 +13,7 @@ import { createPortal } from "react-dom";
 
 export interface ConfirmOptions {
   /** Optional heading shown above the message. */
-  title?: string;
+  heading?: string;
   confirmLabel?: string;
   cancelLabel?: string;
   /** Styles the confirm button as a destructive action. */
@@ -72,10 +72,10 @@ export function useConfirm(): {
   const dialog = state && createPortal(
     <div className="confirm-dialog-overlay" onClick={() => settle(false)}>
       <div className="confirm-dialog" role="alertdialog" aria-modal="true"
-           aria-label={state.title ?? state.message}
+           aria-label={state.heading ?? state.message}
            onClick={(event) => event.stopPropagation()}>
-        {state.title !== undefined
-          && <p className="confirm-dialog-title">{state.title}</p>}
+        {state.heading !== undefined
+          && <p className="confirm-dialog-title">{state.heading}</p>}
         <p className="confirm-dialog-message">{state.message}</p>
         <div className="confirm-dialog-actions">
           <button type="button" className="btn-secondary"

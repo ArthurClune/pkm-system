@@ -4,7 +4,7 @@ import { jsonResponse, goodlinksIdOf } from "../test-helpers";
 import { GoodlinksLink } from "./GoodlinksLink";
 
 const ID = goodlinksIdOf("e4966bb2483b5c78f658398c0ae7b03f");
-const ARTICLE = { id: ID, title: "UML My Part", url: "https://tratt.net/uml.html",
+const ARTICLE = { id: ID, article_title: "UML My Part", url: "https://tratt.net/uml.html",
                   added_at: "2022-10-06T15:07:12Z", html: "<p>Archived</p>" };
 
 afterEach(() => vi.unstubAllGlobals());

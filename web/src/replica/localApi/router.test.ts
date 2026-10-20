@@ -317,14 +317,14 @@ describe("current work", () => {
 
     expect(expectStatus(call("GET", "/api/current-work"), 200)).toEqual({
       sections: [
-        { id: "last-24-hours", title: "Last 24 hours", pages: [
+        { id: "last-24-hours", heading: "Last 24 hours", pages: [
           { id: 2, title: "Recent A", updated_at: NOW - hour },
           { id: 1, title: "Recent B", updated_at: NOW - hour },
         ] },
-        { id: "24-to-48-hours", title: "24–48 hours", pages: [
+        { id: "24-to-48-hours", heading: "24–48 hours", pages: [
           { id: 3, title: "Exactly 24h", updated_at: NOW - 24 * hour },
         ] },
-        { id: "48-hours-to-7-days", title: "48 hours–7 days", pages: [
+        { id: "48-hours-to-7-days", heading: "48 hours–7 days", pages: [
           { id: 4, title: "Exactly 48h", updated_at: NOW - 48 * hour },
           { id: 5, title: "Exactly 7d", updated_at: NOW - 7 * 24 * hour },
         ] },

@@ -166,8 +166,8 @@ export function evaluatePrecacheBudgets(
   };
 }
 
-export function formatReport(title: string, report: BudgetReport): string {
-  const lines = [`${title} budget report: ${report.ok ? "OK" : "OVER BUDGET"}`];
+export function formatReport(heading: string, report: BudgetReport): string {
+  const lines = [`${heading} budget report: ${report.ok ? "OK" : "OVER BUDGET"}`];
   for (const c of report.checks) {
     const status = c.ok ? "ok" : "OVER";
     const sign = c.delta >= 0 ? "+" : "";

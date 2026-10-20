@@ -9,13 +9,13 @@ afterEach(() => vi.unstubAllGlobals());
 
 it("renders changed pages grouped into exclusive current-work sections", async () => {
   stubFetch([["/api/current-work", { sections: [
-    { id: "last-24-hours", title: "Last 24 hours", pages: [
+    { id: "last-24-hours", heading: "Last 24 hours", pages: [
       { id: 1, title: "Recent A", updated_at: 1800000000000 },
     ] },
-    { id: "24-to-48-hours", title: "24–48 hours", pages: [
+    { id: "24-to-48-hours", heading: "24–48 hours", pages: [
       { id: 2, title: "Yesterday", updated_at: 1799910000000 },
     ] },
-    { id: "48-hours-to-7-days", title: "48 hours–7 days", pages: [] },
+    { id: "48-hours-to-7-days", heading: "48 hours–7 days", pages: [] },
   ] }]]);
 
   render(

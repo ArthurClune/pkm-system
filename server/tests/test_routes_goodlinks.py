@@ -14,7 +14,7 @@ def resolve(client, url, save=False):
 def test_resolve_exact_hit(goodlinks_client, fake_goodlinks):
     r = resolve(goodlinks_client, "https://tratt.net/uml.html")
     assert r.status_code == 200
-    assert r.json() == {"id": GL_ID, "title": "UML", "url": "https://tratt.net/uml.html",
+    assert r.json() == {"id": GL_ID, "article_title": "UML", "url": "https://tratt.net/uml.html",
                         "added_at": "2022-10-06T15:07:12Z", "created": False}
     assert not any(m == "POST" for m, _ in fake_goodlinks.requests)
 
@@ -105,7 +105,7 @@ def test_article_returns_sanitised_html_and_no_store(goodlinks_client):
     assert r.headers["cache-control"] == "private, no-store"
     body = r.json()
     assert body["id"] == GL_ID
-    assert body["title"] == "UML"
+    assert body["article_title"] == "UML"
     assert body["url"] == "https://tratt.net/uml.html"
     assert body["added_at"] == "2022-10-06T15:07:12Z"
     assert "<script" not in body["html"]
@@ -118,7 +118,7 @@ def test_article_tolerates_missing_title_and_date(goodlinks_client, fake_goodlin
     fake_goodlinks.links[GL_ID] = {"id": GL_ID, "url": "https://tratt.net/uml.html", "title": None}
     r = goodlinks_client.get(f"/api/goodlinks/{GL_ID}")
     assert r.status_code == 200
-    assert r.json()["title"] == ""
+    assert r.json()["article_title"] == ""
     assert r.json()["added_at"] == ""
 
 
@@ -131,7 +131,7 @@ def test_article_without_content_returns_meta_and_empty_html(goodlinks_client, f
     assert r.headers["cache-control"] == "private, no-store"
     body = r.json()
     assert body["html"] == ""
-    assert body["title"] == "Paywalled"
+    assert body["article_title"] == "Paywalled"
     assert body["url"] == "https://paywall.example/p"
 
 

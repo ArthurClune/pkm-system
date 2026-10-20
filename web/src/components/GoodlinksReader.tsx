@@ -60,7 +60,7 @@ export function GoodlinksReader({ linkId, onClose, triggerRef }: {
   }, [linkId]);
 
   const article = state.status === "ok" ? state.article : null;
-  const title = article?.title || "Saved article";
+  const title = article?.article_title || "Saved article";
   const saved = article ? formatSaved(article.added_at) : "";
 
   return createPortal(

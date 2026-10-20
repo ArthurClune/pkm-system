@@ -83,3 +83,13 @@ def test_delete_blocker_page_title_is_canonical() -> None:
     from pkm.contracts.responses import DeleteBlockerModel
 
     assert _brand_of(DeleteBlockerModel, "page_title") == "CanonicalTitle"
+
+
+def test_non_page_titles_are_not_named_title() -> None:
+    from pkm.contracts.responses import (CurrentWorkSection, GoodlinksArticle,
+                                         GoodlinksLink)
+    assert "title" not in CurrentWorkSection.model_fields
+    assert "heading" in CurrentWorkSection.model_fields
+    for model in (GoodlinksLink, GoodlinksArticle):
+        assert "title" not in model.model_fields
+        assert "article_title" in model.model_fields

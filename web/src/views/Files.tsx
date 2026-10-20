@@ -270,7 +270,7 @@ export function Files() {
     const { message, loud } = deleteConfirm(chosen);
     const ok = await confirm(message, {
       danger: true,
-      title: loud ? "Delete linked files" : "Delete files",
+      heading: loud ? "Delete linked files" : "Delete files",
       confirmLabel: `Delete ${chosen.length === 1 ? "file" : "files"}`,
     });
     if (!ok) return;

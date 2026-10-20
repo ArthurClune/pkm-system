@@ -1360,8 +1360,8 @@ export interface components {
         CurrentWorkSection: {
             /** Id */
             id: string;
-            /** Title */
-            title: string;
+            /** Heading */
+            heading: string;
             /** Pages */
             pages: components["schemas"]["CurrentWorkPage"][];
         };
@@ -1432,8 +1432,8 @@ export interface components {
         GoodlinksArticle: {
             /** Id */
             id: Brands.GoodlinksId;
-            /** Title */
-            title: string;
+            /** Article Title */
+            article_title: string;
             /** Url */
             url: string;
             /** Added At */
@@ -1479,8 +1479,8 @@ export interface components {
         GoodlinksLink: {
             /** Id */
             id: Brands.GoodlinksId;
-            /** Title */
-            title: string;
+            /** Article Title */
+            article_title: string;
             /** Url */
             url: string;
             /** Added At */

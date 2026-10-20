@@ -92,11 +92,12 @@ supertype match: the lint stays a per-brand comparison.
 ### Non-page titles (branch 2)
 
 Fields named `title` that are not page titles are renamed:
-`ConfirmOptions.title`, `RouteMeta.title`, `SettingsSection.title` and the
-like become `heading` or `label`. Two of them are on the wire:
-`CurrentWorkSection.title` and the GoodLinks `title`. The branch-2 plan
-decides whether to rename them, given that the SPA and server deploy
-together.
+`ConfirmOptions.title`, `SettingsSection.title` and the like become
+`heading`, and `RouteMeta.title` becomes `documentTitle`. Three are on the
+wire and are renamed with no opt-out: `CurrentWorkSection.title` becomes
+`heading`, and the GoodLinks `title` on `GoodlinksLink` and
+`GoodlinksArticle` becomes `article_title`. The SPA is `autoUpdate` with
+`skipWaiting`, so a stale bundle meets the new server only until it reloads.
 
 ### The `block_rewrites` table
 

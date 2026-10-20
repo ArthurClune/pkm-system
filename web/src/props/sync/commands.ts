@@ -429,7 +429,7 @@ const DELETE_REFUSED = new Set([404, 409]);
  * deleted: BAD_UID is on FIXTURE_PAGE, which no title names. */
 export class DeletePage extends SyncCommand {
   protected readonly kindName = "DeletePage";
-  constructor(readonly client: string, readonly title: number) { super(); }
+  constructor(readonly client: string, readonly titleIndex: number) { super(); }
 
   protected blocked(m: Readonly<SyncModel>): string | null {
     return notStarted(m, this.client);
@@ -437,7 +437,7 @@ export class DeletePage extends SyncCommand {
 
   protected async act(_m: SyncModel, w: World): Promise<string> {
     const c = clientOf(w, this.client);
-    const title = pageTitle(this.title);
+    const title = pageTitle(this.titleIndex);
     let outcome: string;
     try {
       await c.transport.fetchJson(`/api/page/${encodeURIComponent(title)}`,
@@ -458,7 +458,7 @@ export class DeletePage extends SyncCommand {
   }
 
   toString(): string {
-    return `DeletePage(${this.client}, ${pageTitle(this.title)})`;
+    return `DeletePage(${this.client}, ${pageTitle(this.titleIndex)})`;
   }
 }
 

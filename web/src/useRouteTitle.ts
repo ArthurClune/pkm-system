@@ -13,6 +13,6 @@ export function useRouteTitle(): void {
   const { pathname } = useLocation();
   useEffect(() => {
     const meta = routeMetaFor(pathname);
-    if (meta) document.title = meta.title;
+    if (meta) document.title = meta.documentTitle;
   }, [pathname]);
 }

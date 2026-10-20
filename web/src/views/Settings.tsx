@@ -5,7 +5,7 @@ import type { DescribeStatusPayload } from "../api/payloads";
 
 interface SettingsSection {
   id: string;
-  title: string;
+  heading: string;
   body: React.ReactNode;
 }
 
@@ -37,7 +37,7 @@ function ImageDescriptionsStatus() {
 const SECTIONS: SettingsSection[] = [
   {
     id: "export",
-    title: "Export",
+    heading: "Export",
     body: (
       <>
         <p>
@@ -59,7 +59,7 @@ const SECTIONS: SettingsSection[] = [
   },
   {
     id: "image-descriptions",
-    title: "Image descriptions",
+    heading: "Image descriptions",
     body: <ImageDescriptionsStatus />,
   },
 ];
@@ -69,8 +69,8 @@ export function Settings() {
     <article className="settings-page">
       <h1 className="page-title">Settings</h1>
       {SECTIONS.map((section) => (
-        <section key={section.id} className="settings-section" aria-label={section.title}>
-          <h2>{section.title}</h2>
+        <section key={section.id} className="settings-section" aria-label={section.heading}>
+          <h2>{section.heading}</h2>
           {section.body}
         </section>
       ))}

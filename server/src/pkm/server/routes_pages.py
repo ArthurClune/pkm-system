@@ -457,7 +457,7 @@ def get_current_work(now_ms: int | None = None,
                      db: Db = Depends(get_db)) -> CurrentWorkPayload:
     now = now_ms if now_ms is not None else int(time.time() * 1000)
     sections = []
-    for section_id, title, min_age, max_age in _CURRENT_WORK_SECTIONS:
+    for section_id, heading, min_age, max_age in _CURRENT_WORK_SECTIONS:
         newer_than = now - max_age
         older_than = now - min_age
         lower_operator = ">=" if max_age == 7 * 24 * _HOUR_MS else ">"
@@ -471,7 +471,7 @@ def get_current_work(now_ms: int | None = None,
         )
         sections.append({
             "id": section_id,
-            "title": title,
+            "heading": heading,
             "pages": [{"id": r["page_id"], "title": r["title"],
                        "updated_at": r["updated_at"]} for r in rows],
         })

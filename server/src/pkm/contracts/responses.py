@@ -222,7 +222,7 @@ class CurrentWorkPage(BaseModel):
 
 class CurrentWorkSection(BaseModel):
     id: str
-    title: str
+    heading: str
     pages: list[CurrentWorkPage]
 
 
@@ -330,7 +330,7 @@ class GoodlinksLink(BaseModel):
     """POST /api/goodlinks/resolve: the GoodLinks link a URL resolved to.
     `created` is True when the request saved it just now."""
     id: GoodlinksId
-    title: str
+    article_title: str
     url: str
     added_at: str
     created: bool
@@ -340,7 +340,7 @@ class GoodlinksArticle(BaseModel):
     """GET /api/goodlinks/{link_id}: metadata plus the sanitised reader HTML
     in one payload, so the reader overlay makes a single request."""
     id: GoodlinksId
-    title: str
+    article_title: str
     url: str
     added_at: str
     html: str

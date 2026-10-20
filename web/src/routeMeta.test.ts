@@ -18,8 +18,8 @@ describe("ROUTES / ROUTE_META consistency", () => {
 
 describe("routeMetaFor", () => {
   it.each([
-    ["/files/", { label: "Files", title: "Files — pkm" }],
-    ["/settings///", { label: "Settings", title: "Settings — pkm" }],
+    ["/files/", { label: "Files", documentTitle: "Files — pkm" }],
+    ["/settings///", { label: "Settings", documentTitle: "Settings — pkm" }],
   ])("normalizes trailing slashes for static route %s", (pathname, expected) => {
     expect(routeMetaFor(pathname)).toEqual(expected);
   });
@@ -33,7 +33,7 @@ describe("routeMetaFor", () => {
   it("a route's label and title may differ (Help's browser title isn't its top-bar label)", () => {
     expect(routeMetaFor(ROUTES.help)).toEqual({
       label: "Help",
-      title: "Keyboard shortcuts — pkm",
+      documentTitle: "Keyboard shortcuts — pkm",
     });
   });
 });

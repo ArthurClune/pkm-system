@@ -139,10 +139,15 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
     ),
     # `CLIENT_ID` is the CLI's fixed identity on the sync wire; the web mints
     # one per tab (`newClientId`).
+    # The two tooling seeders mint fixed fixture ids.
     "ClientId": (_CONTRACTS, "server/src/pkm/client/api.py",
+                 "server/tooling/perfcheck/build.py",
+                 "server/tooling/proptest/sync_server.py",
                  "web/src/uid.ts", _WEB_WIRE),
     # `_batch_id` mints one id per client batch; so does `newBatchId`.
     "BatchId": (_CONTRACTS, "server/src/pkm/client/workflows.py",
+                "server/tooling/perfcheck/build.py",
+                "server/tooling/proptest/sync_server.py",
                 "web/src/uid.ts", _WEB_ROWS, _WEB_WIRE, _WEB_POISON),
     # Order keys are assigned where a position becomes a key: the planner
     # (`next_order_idx`, `_land`), the importer (export order) and the

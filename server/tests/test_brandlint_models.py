@@ -44,6 +44,14 @@ def test_an_aliased_basemodel_is_reported():
     assert rules("from pydantic import BaseModel as BM\nclass X(StrictModel):\n    pass\n") == []
 
 
+def test_basemodel_imported_from_pydantic_main_is_resolved():
+    text = "from pydantic.main import BaseModel as BM\nclass X(BM):\n    pass\n"
+    assert rules(text) == ["model-strict"]
+    assert rules("from pydantic.main import BaseModel\nclass X(BaseModel):\n    pass\n") == ["model-strict"]
+    text = "from pydantic.root_model import RootModel as RM\nclass X(RM[int]):\n    pass\n"
+    assert rules(text) == ["model-strict"]
+
+
 def test_a_rootmodel_subclass_is_reported_under_any_spelling():
     assert rules("class X(RootModel):\n    root: int\n") == ["model-strict"]
     assert rules("class X(RootModel[int]):\n    pass\n") == ["model-strict"]
@@ -102,12 +110,12 @@ def test_validating_a_dict_built_in_place_is_reported():
     "adapter.validate_python(object={'a': 1})",
     "M.model_validate_json(json.dumps({'a': 1}))",
     "M.model_validate_json(dumps({'a': 1}))",
-    "M.model_validate_json(data=json.dumps(x))",
+    "adapter.validate_json(data=json.dumps(x))",
+    "adapter.validate_strings({'a': '1'})",
+    "adapter.validate_strings(dict(a='1'))",
     "adapter.validate_json(json.dumps(x))",
 ])
 def test_every_spelling_of_a_dict_built_in_place_is_reported(call: str):
-    if "data=" in call:
-        call = call.replace("data=", "json_data=")
     assert rules(f"m = {call}\n") == ["model-unchecked"]
 
 

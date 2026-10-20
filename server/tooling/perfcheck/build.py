@@ -25,8 +25,10 @@ from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from pathlib import Path
 
+from pydantic import TypeAdapter
+
 import pkm
-from pkm.contracts.ops import OpBatch
+from pkm.contracts.ops import BatchId, BlockOp, ClientId, OpBatch
 from pkm.schema import DDL
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
@@ -115,10 +117,11 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
     con = open_db(dest)
     try:
         for i, batch in enumerate(fx.batches):
-            # Tooling mints no brands: the fixture's batch is wire input.
-            wire = {"client_id": "perf-fixture", "batch_id": f"fixture-{i:06d}",
-                    "ops": list(batch.ops)}
-            ob = OpBatch.model_validate(wire)
+            # The generator's ops are plain dicts: each is validated as one.
+            ob = OpBatch(client_id=ClientId("perf-fixture"),
+                         batch_id=BatchId(f"fixture-{i:06d}"),
+                         ops=[TypeAdapter(BlockOp).validate_python(op)
+                              for op in batch.ops])
             apply_batch(con, ob, batch.now_ms)
             con.commit()
         # Seeded once, directly through the store function a real rename

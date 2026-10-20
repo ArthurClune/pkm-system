@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import assert_type
 
 import pytest
+from pydantic import TypeAdapter
 
-from pkm.contracts.ops import (CreateOp, DeleteOp, OpBatch, SetCollapsedOp,
+from pkm.contracts.ops import (BlockOp, CreateOp, DeleteOp, OpBatch, SetCollapsedOp,
                                Sha256Hex, SyncSeq, UpdateTextOp, subtree_hash,
                                text_hash)
 from pkm.server.db import open_db
@@ -258,7 +259,11 @@ def test_worker_filled_then_bare_replays_with_one_effect(client):
     assert r1.status_code == 200
     filled = dict(bare, ops=[dict(bare["ops"][0],
                                  base_text_hash=sha_of("0" * 64),
-                                 title_text="AI")])
+                                 page_title=raw_title_of("AI"))])
+    # the posted op really carries the hint: an unknown key would be dropped
+    posted = TypeAdapter(BlockOp).validate_python(filled["ops"][0])
+    assert isinstance(posted, UpdateTextOp) and posted.page_title == "AI"
+    assert posted.base_text_hash == sha_of("0" * 64)
     r2 = client.post("/api/ops", json=filled)
     assert r2.status_code == 200
     assert r2.json() == r1.json()  # replayed ack, same seq: no second apply

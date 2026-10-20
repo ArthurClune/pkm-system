@@ -22,9 +22,10 @@ from brandlint.registry import Registry
 
 
 BASES = ("BaseModel", "RootModel")
-DICT_BUILT_METHODS = ("model_validate", "model_validate_strings", "validate_python")
+DICT_BUILT_METHODS = ("model_validate", "model_validate_strings", "validate_python", "validate_strings")
 JSON_METHODS = ("model_validate_json", "validate_json")
-DATA_KEYWORDS = ("obj", "object", "json_data")
+DATA_KEYWORDS = ("obj", "object", "json_data", "data")
+PYDANTIC_MODULES = ("pydantic", "pydantic.main", "pydantic.root_model")
 
 
 def _leaf(node: ast.expr) -> str | None:
@@ -62,7 +63,7 @@ def _aliases(tree: ast.AST) -> tuple[set[str], set[str], set[str]]:
     modules = {"pydantic"}
     dumps = {"dumps"}
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module == "pydantic":
+        if isinstance(node, ast.ImportFrom) and node.module in PYDANTIC_MODULES:
             bases |= {a.asname for a in node.names if a.name in BASES and a.asname}
         elif isinstance(node, ast.ImportFrom) and node.module == "json":
             dumps |= {a.asname for a in node.names if a.name == "dumps" and a.asname}

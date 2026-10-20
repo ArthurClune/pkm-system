@@ -35,10 +35,11 @@ from zoneinfo import ZoneInfo
 
 import time_machine
 import uvicorn
+from pydantic import TypeAdapter
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import PlainTextResponse
 
-from pkm.contracts.ops import BatchId, BlockOp, OpBatch, SyncSeq
+from pkm.contracts.ops import BatchId, BlockOp, ClientId, OpBatch, SyncSeq
 from pkm.contracts.strict import StrictModel
 from pkm.database import Db
 from pkm.refs import CanonicalTitle
@@ -191,10 +192,9 @@ def build_template(path: Path) -> None:
                                           (SECOND_PAGE, "second", SECOND_UIDS),
                                           (FIXTURE_PAGE, "fixture", FIXTURE_UIDS))
                for i, uid in enumerate(uids)]
-        # Tooling mints no brands: the seed batch is wire input.
-        wire = {"client_id": "proptest-seed", "batch_id": "proptest-seed-batch",
-                "ops": ops}
-        batch = OpBatch.model_validate(wire)
+        batch = OpBatch(client_id=ClientId("proptest-seed"),
+                        batch_id=BatchId("proptest-seed-batch"),
+                        ops=[TypeAdapter(BlockOp).validate_python(op) for op in ops])
         con.execute("BEGIN IMMEDIATE")
         apply_batch(con, batch, START_MS)
         con.commit()

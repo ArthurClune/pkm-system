@@ -251,7 +251,7 @@ a:hover { text-decoration: underline; }
 ::selection { background: var(--color-selection-bg); }
 button { font: inherit; }
 /* the one secondary-button look (Show more, sidebar entry controls,
- * composer send, ...); owning classes keep only their layout.
+ * assistant send, ...); owning classes keep only their layout.
  * The default padding is part of the token: without it a bare
  * .btn-secondary fell back to the UA's cramped button metrics, so every new
  * call site was silently wrong unless it remembered to add its own. Call
@@ -1023,26 +1023,12 @@ mark.highlight { background: var(--color-highlight-bg); }
   font: inherit; }
 .empty-page:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 
-/* --- phone composer --- */
-.composer { display: none; }
-@media (max-width: 600px) {
-  .composer { display: flex; gap: 8px; align-items: flex-end;
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-    padding: 8px; background: var(--color-bg-surface); border-top: 1px solid var(--color-border); }
-  .composer-input-wrap { position: relative; flex: 1; min-width: 0; }
-  .composer textarea { width: 100%; resize: none; padding: 6px 8px; }
-  .composer .ac-popup { top: auto; bottom: 100%; }
-  .composer-file { max-width: 90px; }
-  .composer-send { padding: 6px 14px; }
-  .main-pane { padding-bottom: 96px; }
-}
-
 /* --- phone keyboard bar: rendered only on an iPhone (by user agent, not
  * width), pinned to the top of the on-screen keyboard. KeyboardBar sets
- * `bottom` to the keyboard's height; above the composer (40), below the
- * completion popup (50). Keys are the shared pill, sized for a thumb. A touch
- * on a key must not start iOS text selection over the labels, and two quick
- * taps ("[" twice for a link) must not read as a double-tap zoom. --- */
+ * `bottom` to the keyboard's height; below the completion popup (50). Keys
+ * are the shared pill, sized for a thumb. A touch on a key must not start
+ * iOS text selection over the labels, and two quick taps ("[" twice for a
+ * link) must not read as a double-tap zoom. --- */
 .keyboard-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
   display: flex; gap: 6px; padding: 6px 8px;
   background: var(--color-bg-surface); border-top: 1px solid var(--color-border);

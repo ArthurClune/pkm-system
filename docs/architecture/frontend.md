@@ -113,7 +113,7 @@ web/src/
 │   │                         BlockInput), inline renderers (InlineSegments, MathSpan,
 │   │                         QueryBlock, BlockRef, MermaidDiagram, PdfViewer, CodeBlock,
 │   │                         roamTable, TableOfContents…) and chrome (TopBar, SidebarNav/Panel, SearchBar,
-│   │                         OfflineIndicator, Composer, KeyboardBar, BacklinksSection, BacklinkGroupList,
+│   │                         OfflineIndicator, KeyboardBar, BacklinksSection, BacklinkGroupList,
 │   │                         BlockRefBacklinksPopover, BlockMenu, DatePickerPopup, DeleteBlockedDialog…)
 │   ├── ExternalLinkInterceptor.tsx  Shell  Capture-phase document click listener,
 │   │                                       mounted only in iOS standalone (see below)

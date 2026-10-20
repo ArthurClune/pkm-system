@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
-import { Composer } from "../components/Composer";
 import { EditableBlockTree } from "../components/EditableBlockTree";
 import { useDnd } from "../dnd/DndContext";
 import { useDropZone } from "../dnd/useDropZone";
@@ -20,12 +19,10 @@ import { useOutline } from "../outline/useOutline";
  * second live editor would never learn about edits flushed through the
  * first, and the two would silently diverge. A per-title session shares each
  * flushed tree and grants exactly one editor lease after commit. */
-export function EditablePage({ title, initial, composer = false,
-                              stamps = false, refCounts, reveal,
+export function EditablePage({ title, initial, stamps = false, refCounts, reveal,
                               revealNavigation, onRevealed }: {
   title: CanonicalTitle;
   initial: BlockNode[];
-  composer?: boolean;
   /** Show the last-changed margin column. Only the main-pane
    * PageView passes this; the journal scroll and sidebar panels omit it. */
   stamps?: boolean;
@@ -152,9 +149,6 @@ export function EditablePage({ title, initial, composer = false,
       {ownsEditor && indicator && (
         <div className="drop-indicator"
              style={{ top: indicator.top, left: indicator.left }} />
-      )}
-      {ownsEditor && composer && (
-        <Composer onSend={outline.appendBlock} readOnly={outline.readOnly} />
       )}
       {outline.dialog}
     </div>

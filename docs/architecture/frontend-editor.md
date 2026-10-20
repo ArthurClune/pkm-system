@@ -119,8 +119,7 @@ adoptability use. A stamp counts as a change, since `update_text` bumps
 holding raw markdown; every other block is rendered HTML (`EditableBlockTree` →
 `EditableBlock` → `BlockInput`, the last of these its own file). No
 `contenteditable` anywhere, so a 500-block page is one textarea plus static
-HTML. Phones edit the outline the same way, and also get a bottom `Composer`
-(append-to-daily-note).
+HTML. Phones edit the outline the same way.
 
 A keystroke batch re-renders every row, so a row's decisions must be
 constant-time. `EditableBlockTree` walks `ancestorChain(blocks, focus.uid)`
@@ -300,8 +299,7 @@ WebKit then sends no click at all. Only a click with `detail === 0`
 ### Autocomplete
 
 `outline/useAutocomplete.ts` holds the open completion context and the
-highlighted row for both `BlockInput` and the phone `Composer`, so the popup is
-shared state; the pure detection and staleness rules are
+highlighted row for `BlockInput`; the pure detection and staleness rules are
 `outline/autocomplete.ts`. `keyboardPolicy.autocompleteKeyAction` decides which
 keys the popup may claim: unmodified Arrow/Enter/Tab/Escape only, so
 Cmd/Ctrl/Shift/Alt chords stay with the platform and the editor.
@@ -313,10 +311,9 @@ splice at. The live caret is `selectionEnd`, since `[[` wrapped around a
 selection leaves the query selected and `selectionStart` would read it as
 empty.
 
-`resolve` and the user's next keystroke both read the DOM caret. So both
-editors place the caret after a pick or key edit in a layout effect of
-the commit that sets the new value (`useBlockDraft.replace`, `Composer`'s
-pick). React commits a keydown's or mousedown's update before the next event
+`resolve` and the user's next keystroke both read the DOM caret. So the
+editor places the caret after a pick or key edit in a layout effect of
+the commit that sets the new value (`useBlockDraft.replace`). React commits a keydown's or mousedown's update before the next event
 is dispatched, so the caret is right before the user's next keystroke. A
 `requestAnimationFrame` would run too late under load. It would move a caret
 the user has already typed past back to the offset captured at the pick.

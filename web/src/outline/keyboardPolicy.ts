@@ -88,9 +88,7 @@ export type AutocompleteKeyAction = "move-up" | "move-down" | "pick" | "close";
 /** Whether an open autocomplete popup should claim this keydown, and what it
  * should do. Only unmodified Arrow/Enter/Tab/Escape are consumed — any
  * Cmd/Ctrl/Shift/Alt combination is left for native selection/navigation or
- * editor commands instead. Shared by decideEditorKey (the outline
- * editor) and Composer so both agree on the same modifier boundary rather
- * than each re-deriving it. */
+ * editor commands instead. */
 export function autocompleteKeyAction(k: {
   key: string;
   metaKey: boolean;

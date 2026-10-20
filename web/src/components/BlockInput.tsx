@@ -72,10 +72,10 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     onUnmount: (selStart, selEnd) =>
       handlers.onInputUnmount(node.uid, selStart, selEnd),
   });
-  // Shared with the phone Composer: the completion context and the
-  // caret a pick splices at are re-derived from the live textarea selection,
-  // so a click or a selection-only caret move (neither fires an input event)
-  // can't leave a completion pointing at where the caret used to be.
+  // The completion context and the caret a pick splices at are re-derived
+  // from the live textarea selection, so a click or a selection-only caret
+  // move (neither fires an input event) can't leave a completion pointing at
+  // where the caret used to be.
   const ac = useAutocomplete();
   const navigate = useNavigate();
   const { openInSidebar } = useContext(SidebarContext);

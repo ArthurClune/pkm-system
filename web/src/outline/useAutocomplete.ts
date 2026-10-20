@@ -1,9 +1,8 @@
 // pattern: Imperative Shell
-// The autocomplete popup's state, shared by the outline editor's BlockInput
-// and the phone Composer: which completion context is open, which row is
-// highlighted, and — the reason it is shared — resolving the context to act
-// on from the textarea's LIVE selection rather than the one the last input
-// event captured. Detection and the staleness rule are pure and
+// The autocomplete popup's state for the outline editor's BlockInput: which
+// completion context is open, which row is highlighted, and resolving the
+// context to act on from the textarea's LIVE selection rather than the one
+// the last input event captured. Detection and the staleness rule are pure and
 // live in autocomplete.ts; this only holds React state and reads the DOM.
 import { useState, type Dispatch, type SetStateAction } from "react";
 import { detectAutocomplete, liveAcContext, type AcContext } from "./autocomplete";

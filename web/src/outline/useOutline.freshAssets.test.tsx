@@ -12,7 +12,6 @@ import {
   orderIdxOf,
   type SyncFake,
   canonicalTitleOf,
-  shaOf,
   uidOf,
 } from "../test-helpers";
 import type { DropTarget } from "./dnd";
@@ -89,12 +88,4 @@ it("onDropFiles records the fresh shas of every block it creates", async () => {
     await o().onDropFiles([png("one.png"), png("old.png"), png("two.png")], target);
   });
   expect(seen()).toEqual([[digestOf("one.png"), digestOf("two.png")]]);
-});
-
-it("appendBlock passes freshAssets through", () => {
-  const seen = recorded();
-  const o = setup(makeSync(), AB());
-  const sha = shaOf(digestOf("p.png"));
-  act(() => o().appendBlock("hi", [sha]));
-  expect(seen()).toEqual([[sha]]);
 });

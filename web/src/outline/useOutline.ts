@@ -16,7 +16,7 @@ import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { stampBaseTextHashes, withoutStamps } from "./baseTextHash";
-import { FIRST_ORDER_IDX, orderIdxAfterLast } from "./orderIdx";
+import { FIRST_ORDER_IDX } from "./orderIdx";
 import type { DropTarget } from "./dnd";
 import { fileDropNotice, partitionUploadable, planFileDropBlocks } from "./fileDrop";
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
@@ -54,7 +54,6 @@ export interface Outline {
   handlers: OutlineHandlers;
   dnd: OutlineDndApi;
   createFirstBlock(): void;
-  appendBlock(text: string, freshAssets?: readonly Sha256Hex[]): void;
   /** Expand every collapsed ancestor hiding `uid` (revealBlock); true when
    * that took any ops. Never an undo step: set_collapsed is not inverted. */
   reveal(uid: BlockUid): boolean;
@@ -628,17 +627,6 @@ export function useOutline(
     });
   }, [run, pageTitle]);
 
-  const appendBlock = useCallback((text: string, freshAssets?: readonly Sha256Hex[]) => {
-    run((b) => {
-      const uid = newUid();
-      const ops: BlockOp[] = [{ op: "create", uid, page_title: pageTitle,
-                                parent_uid: null,
-                                order_idx: orderIdxAfterLast(b),
-                                text }];
-      return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
-    }, { freshAssets });
-  }, [run, pageTitle]);
-
   // Checked before run(), which would otherwise flush a pending draft for a
   // navigation to a block that is already on screen.
   const reveal = useCallback((uid: BlockUid) => {
@@ -658,7 +646,6 @@ export function useOutline(
     handlers,
     dnd,
     createFirstBlock,
-    appendBlock,
     reveal,
     uploadError,
     onDropFiles,

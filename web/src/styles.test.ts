@@ -251,7 +251,6 @@ describe("visual consistency", () => {
     expect(btn).toContain("border: 1px solid var(--color-border);");
     expect(btn).toContain("border-radius: var(--radius-pill);");
     expect(ruleFor(".show-more")).not.toContain("background:");
-    expect(ruleFor(".composer-send")).not.toContain("background:");
   });
 
   test("light-mode bullets are a step darker so outline structure reads", () => {
@@ -346,7 +345,6 @@ describe("control polish", () => {
 
   test("compact pill call sites get enough horizontal room", () => {
     expect(ruleFor(".reference-link-button")).toContain("padding: 1px 10px;");
-    expect(rulesFor(".composer-send")).toContain("padding: 6px 14px;");
   });
 
   test("the assistant send button does not stretch into a lozenge", () => {
@@ -390,7 +388,6 @@ describe("control polish", () => {
       expect(rule).not.toContain("border-radius:");
     }
     expect(ruleFor(".assistant-input textarea")).not.toContain("background:");
-    expect(ruleFor(".composer textarea")).not.toContain("border:");
   });
 
   // the one background exception: .left-nav is itself

@@ -174,7 +174,7 @@ Invariants that are easy to break without noticing:
   `-webkit-touch-callout: none`, or a touch on a key starts iOS text
   selection over the labels. It also sets `touch-action: manipulation`, so two
   quick taps (`[` twice for a link) are not read as a double-tap zoom. Its
-  z-index 45 sits above `.composer` (40) and below `.ac-popup` (50).
+  z-index 45 sits below `.ac-popup` (50).
 - **Control boundary contrast.** `.btn-secondary`'s border falls below WCAG
   1.4.11's 3:1 ratio against a panel surface in both themes, accepted rather
   than fixed.

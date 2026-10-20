@@ -37,9 +37,9 @@ import time_machine
 import uvicorn
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
 
 from pkm.contracts.ops import BatchId, BlockOp, OpBatch, SyncSeq
+from pkm.contracts.strict import StrictModel
 from pkm.database import Db
 from pkm.refs import CanonicalTitle
 from pkm.server import ops_apply, sync_meta
@@ -236,19 +236,19 @@ def _rewrite_effects_with_teeth(original: BlockOp, planned: tuple[Effect, ...],
     return rewrite_effects(original, planned, stale, canonical, replayed, settled)
 
 
-class _ClockBody(BaseModel):
+class _ClockBody(StrictModel):
     ms: int
 
 
-class _TeethBody(BaseModel):
+class _TeethBody(StrictModel):
     drop_cross_page_title: bool
 
 
-class _StaleTeethBody(BaseModel):
+class _StaleTeethBody(StrictModel):
     empty: bool
 
 
-class _RewriteTeethBody(BaseModel):
+class _RewriteTeethBody(StrictModel):
     drop_replayed: bool
 
 

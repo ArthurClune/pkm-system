@@ -1061,3 +1061,11 @@ def test_plan_update_carries_page_title_hint():
 def test_plan_mark_carries_page_title_hint():
     ops = plan_mark(uid_of("tuid-u3"), "buy milk", "TODO", page_title=raw_title_of("AI"))
     assert ops[0].page_title == "AI"
+
+
+def test_validate_batch_rejects_a_string_index():
+    # strict models refuse a numeric string rather than coercing it
+    with pytest.raises(BuildError, match=r"batch\[0\].*index"):
+        validate_batch([{"command": "move",
+                         "params": {"uid": "abcdef", "page": "A",
+                                    "index": "2"}}])

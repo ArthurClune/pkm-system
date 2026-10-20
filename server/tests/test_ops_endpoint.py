@@ -1484,3 +1484,23 @@ def test_chained_edits_replaying_a_rename_and_a_stale_unlink_over_a_conflict(
     assert lost == ["Tags:: #Cognition fresh"]
     assert client.get("/api/page/AI").status_code == 404
     assert client.get("/api/page/Paper").status_code == 404
+
+
+def _post_one_op(client, batch_id: BatchId, op):
+    return client.post("/api/ops", json={
+        "client_id": "t", "batch_id": batch_id, "ops": [op]})
+
+
+@pytest.mark.parametrize("raw_idx", ["1", 1.0])
+def test_a_create_op_refuses_a_coerced_order_idx(client, raw_idx):
+    r = _post_one_op(client, batch_id_of("strict_order_idx"), {
+        "op": "create", "uid": "strict_new1", "parent_uid": None,
+        "page_title": "Machine Learning", "order_idx": raw_idx,
+        "text": "x"})
+    assert r.status_code == 422
+
+
+def test_a_set_collapsed_op_refuses_an_int_for_a_bool(client):
+    r = _post_one_op(client, batch_id_of("strict_collapsed"), {
+        "op": "set_collapsed", "uid": "uid_b1", "collapsed": 1})
+    assert r.status_code == 422

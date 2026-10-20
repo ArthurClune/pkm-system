@@ -10,14 +10,14 @@ from typing import Literal
 
 import anyio.from_thread
 from fastapi import Request
-from pydantic import BaseModel
 
 from pkm.contracts.ops import ClientId, SyncSeq
+from pkm.contracts.strict import StrictModel
 from pkm.database import Db
 from pkm.server.sync_meta import latest_seq
 
 
-class SeqFrame(BaseModel):
+class SeqFrame(StrictModel):
     """The WS nudge frame. WS messages sit outside OpenAPI, so this model
     is their schema -- `SyncSeq` is tagged with `brand()` for consistency
     with the HTTP wire fields, but gen-types never sees this model, so the
@@ -44,7 +44,7 @@ class SeqFrame(BaseModel):
         )
 
 
-class OpsFrame(BaseModel):
+class OpsFrame(StrictModel):
     """The WS frame that echoes a committed batch's applied ops to the
     other clients (the writer's own `client_id` lets it skip the echo)."""
     client_id: ClientId

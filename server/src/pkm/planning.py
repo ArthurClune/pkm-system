@@ -143,7 +143,7 @@ def split_heading(text: str) -> tuple[str, HeadingLevel | None]:
         else (text, None)
 
 
-def _create(uid: BlockUid, page: RawTitle, parent: str | None, idx: OrderIdx, text: str,
+def _create(uid: BlockUid, page: RawTitle, parent: BlockUid | None, idx: OrderIdx, text: str,
             heading: HeadingLevel | None = None) -> CreateOp:
     return CreateOp(op="create", uid=uid, page_title=page, parent_uid=parent,
                     order_idx=idx, text=text, heading=heading)
@@ -292,7 +292,7 @@ class Planner:
         self._land(_sibling_key(page, None), uid, idx)
         return uid, [_create(uid, page, None, idx, text, level)]
 
-    def _one(self, uid: BlockUid, page: RawTitle, parent: str | None, idx: OrderIdx,
+    def _one(self, uid: BlockUid, page: RawTitle, parent: BlockUid | None, idx: OrderIdx,
             text: str, todo: bool) -> CreateOp:
         """One create op at a decided (uid, position): heading marker split
         off the text, task marker applied when asked.
@@ -311,7 +311,7 @@ class Planner:
         return _create(uid, page, parent, idx, body, level)
 
     def creates(self, blocks: Sequence[BlockNode], page: RawTitle,
-                parent: str | None, items: list[tuple[int, str]], todo: bool,
+                parent: BlockUid | None, items: list[tuple[int, str]], todo: bool,
                 parent_off_page: bool = False) -> list[CreateOp]:
         """Plan appended creates for `items` (depth, text) pairs under the
         resolved `parent` uid (`None` = page top level), maintaining a
@@ -323,8 +323,8 @@ class Planner:
         block this call creates is off-page too, so nesting under one
         starts empty; the `created` set below is what tracks them."""
         ops: list[CreateOp] = []
-        created: set[str] = set()
-        stack: list[str | None] = [parent]
+        created: set[BlockUid] = set()
+        stack: list[BlockUid | None] = [parent]
         for depth, text in items:
             del stack[depth + 1:]
             target = stack[depth]
@@ -344,7 +344,7 @@ class Planner:
         return ops
 
     def create_at(self, blocks: Sequence[BlockNode], page: RawTitle,
-                  parent: str | None, position: int, text: str, todo: bool,
+                  parent: BlockUid | None, position: int, text: str, todo: bool,
                   parent_off_page: bool = False) -> CreateOp:
         """One create landing at `position`: 0-based among (page, parent)'s
         current children as the batch has left them so far -- past the end

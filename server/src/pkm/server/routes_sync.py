@@ -15,13 +15,13 @@ from collections.abc import Sequence
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
 
 from pkm.contracts.ops import NO_SEQ, BlockUid, PageId, SyncSeq
 from pkm.contracts.responses import (AppliedBatch, ChangesPayload, EntityKind,
                                         OkAck, OpsAck, SnapshotPayload,
                                         SyncBlock, SyncPage, SyncRef,
                                         SyncSidebarEntry, SyncTombstone)
+from pkm.contracts.strict import StrictModel
 from pkm.database import Db
 from pkm.rows import Row, heading_level
 from pkm.server.auth import require_auth
@@ -48,7 +48,7 @@ PendingIds = Annotated[list[str] | None, Query(
 logger = logging.getLogger("pkm.sync")
 
 
-class ClientDiagnosticsRequest(BaseModel):
+class ClientDiagnosticsRequest(StrictModel):
     """A replica's self-report, sent before it rebuilds itself."""
     kind: str
     error: str
@@ -275,7 +275,7 @@ def sync_changes(since: SyncSeq = NO_SEQ, limit: int = 1000,
                 reset=True,
                 generation=generation,
                 plain_space_title_canonicalization=plain_space_active,
-                next_since=0,
+                next_since=NO_SEQ,
                 latest_seq=latest,
                 pages=[],
                 blocks=[],

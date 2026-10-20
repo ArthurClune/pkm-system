@@ -9,7 +9,8 @@ from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import Field
+from pkm.contracts.strict import StrictModel
 
 from pkm.contracts.daily import date_for_title
 from pkm.contracts.ops import BlockUid, PageId
@@ -45,11 +46,11 @@ _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
                " created_at, updated_at, view_type")
 
 
-class CreatePageRequest(BaseModel):
+class CreatePageRequest(StrictModel):
     title: RawTitle = Field(min_length=1)
 
 
-class RenamePageRequest(BaseModel):
+class RenamePageRequest(StrictModel):
     new_title: RawTitle = Field(min_length=1)
     allow_merge: bool = False
 

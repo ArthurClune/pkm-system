@@ -15,16 +15,8 @@ from pkm.importer.assets import Asset
 from pkm.importer.parse_export import Block, Export, Page
 from pkm.importer.rows import Rows, to_rows
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    StrictBool,
-    StrictInt,
-    StrictStr,
-    ValidationError,
-    field_validator,
-)
+from pydantic import (ConfigDict, Field, StrictBool, StrictInt, StrictStr, ValidationError, field_validator)
+from pkm.contracts.strict import StrictModel
 
 ASSET_PLACEHOLDER_RE = re.compile(r"\{\{asset:([^{}]+)\}\}")
 
@@ -34,7 +26,7 @@ class SourceValidationError(ValueError):
     invariants."""
 
 
-class BlockSource(BaseModel):
+class BlockSource(StrictModel):
     """One strictly typed block in the human-readable source graph."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -72,7 +64,7 @@ class BlockSource(BaseModel):
     updated_at: StrictInt | None
 
 
-class PageSource(BaseModel):
+class PageSource(StrictModel):
     """One page and its flat, relationship-validated source blocks."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -83,7 +75,7 @@ class PageSource(BaseModel):
     blocks: tuple[BlockSource, ...]
 
 
-class GraphSource(BaseModel):
+class GraphSource(StrictModel):
     """Validated source graph and ordered sidebar titles."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -92,10 +84,12 @@ class GraphSource(BaseModel):
     sidebar_entries: tuple[StrictStr, ...]
 
 
-def parse_graph_source(raw: object, *, asset_names: Set[str]) -> GraphSource:
-    """Validate a raw graph source payload and return its immutable model."""
+def parse_graph_source(text: str, *, asset_names: Set[str]) -> GraphSource:
+    """Validate the JSON text of a graph source and return its immutable
+    model. Decoding goes through pydantic's JSON mode because strict Python
+    mode refuses the JSON arrays the tuple fields are written as."""
     try:
-        source = GraphSource.model_validate(raw)
+        source = GraphSource.model_validate_json(text)
     except ValidationError as exc:
         raise SourceValidationError(_format_validation_error(exc)) from None
 

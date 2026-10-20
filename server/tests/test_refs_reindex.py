@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 
 from rawread import read
-from pkm.contracts.ops import BlockUid, OpBatch
+from pkm.contracts.ops import BlockUid, OpBatch, UpdateTextOp
 from pkm.database import Db
 from pkm.server import ops_apply, store
 from pkm.server.db import open_db
@@ -64,7 +64,7 @@ def _update_text(con: Db, uid: BlockUid, text: str,
     apply_batch(
         con,
         OpBatch(client_id=client_id_of("t-t3qw"), batch_id=batch_id_of("batch-t3qw-01"),
-                ops=[{"op": "update_text", "uid": uid, "text": text}]),
+                ops=[UpdateTextOp(op="update_text", uid=uid, text=text)]),
         now_ms)
 
 

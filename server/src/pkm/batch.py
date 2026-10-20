@@ -18,8 +18,8 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Annotated, Literal, Union
 
-from pydantic import (BaseModel, ConfigDict, Field, TypeAdapter,
-                      ValidationError, model_validator)
+from pydantic import ConfigDict, Field, TypeAdapter, ValidationError, model_validator
+from pkm.contracts.strict import StrictModel
 
 from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, DeleteOp, MoveOp,
                                Sha256Hex, UpdateTextOp, subtree_hash)
@@ -93,7 +93,7 @@ def _in_batch_uid(spec: str | None, created: set[BlockUid]) -> BlockUid | None:
 type NestedItem = str | list[NestedItem]
 
 
-class _Strict(BaseModel):
+class _Strict(StrictModel):
     """Base for every command/params model: unknown keys are a validation
     error, not a silent no-op."""
     model_config = ConfigDict(extra="forbid")
@@ -357,7 +357,7 @@ class _BatchCtx:
 
     def resolve_parent(
         self, blocks: Sequence[BlockNode], page: RawTitle, spec: str | None
-    ) -> tuple[str | None, bool, list[CreateOp]]:
+    ) -> tuple[BlockUid | None, bool, list[CreateOp]]:
         """A create/outline command's parent spec resolved to
         (parent uid, whether it is off-page, ops creating a missing
         heading). Three cases, in precedence order: a `((uid))` from earlier

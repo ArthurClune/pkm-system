@@ -16,7 +16,8 @@ import secrets
 from collections.abc import Iterable
 from typing import Annotated, Literal, NewType, Union
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+from pkm.contracts.strict import StrictModel
 
 from pkm.contracts.brands import brand
 from pkm.contracts.titles import RawTitle
@@ -148,7 +149,7 @@ brand(SyncSeq)
 NO_SEQ = SyncSeq(0)
 
 
-class CreateOp(BaseModel):
+class CreateOp(StrictModel):
     op: Literal["create"]
     uid: BlockUid
     # the page for a top-level create (created if absent). Under a live
@@ -162,7 +163,7 @@ class CreateOp(BaseModel):
     view_type: ViewType | None = None
 
 
-class UpdateTextOp(BaseModel):
+class UpdateTextOp(StrictModel):
     op: Literal["update_text"]
     uid: BlockUid
     text: str
@@ -180,7 +181,7 @@ class UpdateTextOp(BaseModel):
     page_title: RawTitle | None = None
 
 
-class MoveOp(BaseModel):
+class MoveOp(StrictModel):
     op: Literal["move"]
     uid: BlockUid
     parent_uid: BlockUid | None   # required but nullable: null = top level
@@ -191,7 +192,7 @@ class MoveOp(BaseModel):
     page_title: RawTitle | None = Field(default=None, min_length=1)
 
 
-class DeleteOp(BaseModel):
+class DeleteOp(StrictModel):
     op: Literal["delete"]
     uid: BlockUid
     # sha256 of the subtree this delete was based on (offline-editing-design.md
@@ -206,25 +207,25 @@ class DeleteOp(BaseModel):
                                                  max_length=64)
 
 
-class SetCollapsedOp(BaseModel):
+class SetCollapsedOp(StrictModel):
     op: Literal["set_collapsed"]
     uid: BlockUid
     collapsed: bool
 
 
-class SetHeadingOp(BaseModel):
+class SetHeadingOp(StrictModel):
     op: Literal["set_heading"]
     uid: BlockUid
     heading: HeadingLevel | None = None
 
 
-class SetViewTypeOp(BaseModel):
+class SetViewTypeOp(StrictModel):
     op: Literal["set_view_type"]
     uid: BlockUid
     view_type: ViewType
 
 
-class CreatePageOp(BaseModel):
+class CreatePageOp(StrictModel):
     """Durable push path for offline page creation (offline-editing-design.md
     §1): an empty page created offline has no block op to carry its title, so
     page creation is itself an op -- get_or_create semantics, safely
@@ -239,7 +240,7 @@ BlockOp = Annotated[Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
                     Field(discriminator="op")]
 
 
-class OpBatch(BaseModel):
+class OpBatch(StrictModel):
     client_id: ClientId = Field(min_length=1, max_length=64)
     # Required: id-less batches cannot be
     # deduplicated, so any retry or replay re-applies. Pre-offline clients

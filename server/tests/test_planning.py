@@ -1062,9 +1062,10 @@ def test_plan_mark_carries_page_title_hint():
     assert ops[0].page_title == "AI"
 
 
-def test_validate_batch_rejects_a_string_index():
-    # strict models refuse a numeric string rather than coercing it
+@pytest.mark.parametrize("index", ["2", 1.0, True])
+def test_validate_batch_rejects_a_non_integer_index(index):
+    # strict models refuse a numeric string, a float and a bool
     with pytest.raises(BuildError, match=r"batch\[0\].*index"):
         validate_batch([{"command": "move",
                          "params": {"uid": "abcdef", "page": "A",
-                                    "index": "2"}}])
+                                    "index": index}}])

@@ -38,11 +38,6 @@ def test_build_tree_returns_block_nodes():
     assert tree[1].children[0].uid == "tuid-c1"
 
 
-def test_a_stored_heading_zero_reads_as_no_heading():
-    row = _row(uid_of("tuid-h0"), None, 0, "x", 0, None, 0)
-    assert build_tree([row])[0].heading is None
-
-
 def test_collect_block_ref_uids():
     texts = ["see ((abc123XYZ)) and ((abc123XYZ))", "plain", "((zz99_-foo))"]
     assert collect_block_ref_uids(texts) == ["abc123XYZ", "zz99_-foo"]

@@ -35,13 +35,13 @@ from zoneinfo import ZoneInfo
 
 import time_machine
 import uvicorn
-from pydantic import TypeAdapter
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import PlainTextResponse
 
-from pkm.contracts.ops import BatchId, BlockOp, ClientId, OpBatch, SyncSeq
+from pkm.contracts.ops import BatchId, BlockOp, BlockUid, ClientId, CreateOp, OpBatch, OrderIdx, SyncSeq
 from pkm.contracts.strict import StrictModel
 from pkm.database import Db
+from pkm.contracts.titles import RawTitle
 from pkm.refs import CanonicalTitle
 from pkm.server import ops_apply, sync_meta
 from pkm.server.app import create_app
@@ -186,15 +186,15 @@ def build_template(path: Path) -> None:
     init_db(path)
     con = open_db(path)
     try:
-        ops = [{"op": "create", "uid": uid, "page_title": title, "parent_uid": None,
-                "order_idx": i * 10, "text": f"{label} {i + 1}"}
+        ops: list[BlockOp] = [CreateOp(op="create", uid=BlockUid(uid), page_title=RawTitle(title), parent_uid=None,
+                        order_idx=OrderIdx(i * 10), text=f"{label} {i + 1}")
                for title, label, uids in ((SEED_PAGE, "seed", SEED_UIDS),
                                           (SECOND_PAGE, "second", SECOND_UIDS),
                                           (FIXTURE_PAGE, "fixture", FIXTURE_UIDS))
                for i, uid in enumerate(uids)]
         batch = OpBatch(client_id=ClientId("proptest-seed"),
                         batch_id=BatchId("proptest-seed-batch"),
-                        ops=[TypeAdapter(BlockOp).validate_python(op) for op in ops])
+                        ops=ops)
         con.execute("BEGIN IMMEDIATE")
         apply_batch(con, batch, START_MS)
         con.commit()

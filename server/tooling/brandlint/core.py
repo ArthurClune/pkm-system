@@ -598,8 +598,8 @@ def _escape_hatches(path: str, tree: ast.AST, registry: Registry,
                 fix = _test_fix(target, registry) if is_test and target in brands else ""
                 out.append((node.lineno, "brand-cast",
                             f"`cast(...)` in a test: {fix}" if fix else "`cast(...)` outside CAST_SITES"))
-            elif name == "model_construct" and isinstance(node.func, ast.Attribute):
-                out.append((node.lineno, "model-construct", "`.model_construct(...)` skips validation"))
+            elif name in ("model_construct", "construct") and isinstance(node.func, ast.Attribute):
+                out.append((node.lineno, "model-construct", f"`.{name}(...)` skips validation"))
             elif name == "cursor" and isinstance(node.func, ast.Attribute) and not sqlite_ok:
                 out.append((node.lineno, "raw-sqlite", "`.cursor()` outside SQLITE_SITES"))
         elif isinstance(node, ast.Attribute) and not sqlite_ok:

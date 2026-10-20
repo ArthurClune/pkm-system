@@ -864,10 +864,12 @@ Every pydantic model inherits `StrictModel` (`contracts/strict.py`), so
 pyrefly checks a constructor's keyword arguments against the field types,
 brands included, and pydantic never coerces `"1"` to an int. The brand lint's
 `model-strict` and `model-unchecked` rules keep it so
-([enforced-checks.md](enforced-checks.md#brand-rules)). Three places stay
+([enforced-checks.md](enforced-checks.md#brand-rules)). Four places stay
 outside the checker:
 
 - decoded input that `model_validate` or `model_validate_json` checks at runtime;
+- the perf fixture's generated ops, which `tooling/perfcheck/build.py` validates
+  through one module-level `TypeAdapter(BlockOp)`;
 - FastAPI's form-body models;
 - the MCP library's argument models.
 

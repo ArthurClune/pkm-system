@@ -74,9 +74,27 @@ def test_turning_strict_off_is_reported():
     assert rules("m = M.model_validate_json(t, strict=False)\n") == ["model-strict"]
 
 
+@pytest.mark.parametrize("value", ["False", "None", "flag", "0"])
+def test_a_class_keyword_turning_strict_off_is_reported(value: str):
+    assert rules(f"class M(StrictModel, strict={value}):\n    x: int\n") == ["model-strict"]
+
+
 def test_strict_true_is_clean():
+    assert rules("class M(StrictModel, strict=True):\n    x: int\n") == []
+    assert rules("class M(StrictModel, frozen=True):\n    x: int\n") == []
     assert rules("x: int = Field(strict=True)\n") == []
     assert rules('c = {"strict": True}\n') == []
+
+
+@pytest.mark.parametrize("call", ["Strict(False)", "Strict(strict=False)", "Strict(flag)", "pydantic.Strict(False)"])
+def test_a_strict_marker_other_than_true_is_reported(call: str):
+    assert rules(f"n: Annotated[int, {call}]\n") == ["model-strict"]
+
+
+def test_a_strict_marker_of_true_is_clean():
+    assert rules("n: Annotated[int, Strict(True)]\n") == []
+    assert rules("n: Annotated[int, Strict()]\n") == []
+    assert rules("n: Annotated[int, Strict(strict=True)]\n") == []
 
 
 def test_create_model_is_reported():
@@ -141,6 +159,35 @@ def test_validating_decoded_input_is_clean():
 
 def test_model_copy_with_update_is_reported():
     assert rules("m = x.model_copy(update={'a': 1})\n") == ["model-unchecked"]
+
+
+def test_the_v1_copy_with_update_is_reported():
+    assert rules("m = x.copy(update={'a': 1})\n") == ["model-unchecked"]
+    assert rules("m = x.copy(update=changes, deep=True)\n") == ["model-unchecked"]
+
+
+@pytest.mark.parametrize("call", ["M.parse_obj({'a': 1})", "M.parse_obj(dict(a=1))", "M.parse_obj(obj={'a': 1})"])
+def test_the_v1_parse_obj_of_a_dict_built_in_place_is_reported(call: str):
+    assert rules(f"m = {call}\n") == ["model-unchecked"]
+
+
+def test_v1_spellings_on_decoded_input_or_plain_dicts_are_clean():
+    assert rules("m = M.parse_obj(row)\n") == []
+    assert rules("d = row.copy()\n") == []
+    assert rules("d = row.copy(deep=True)\n") == []
+    assert rules("d = row.copy({'a': 1})\n") == []
+
+
+def test_model_construct_by_either_spelling_is_reported():
+    assert rules("m = M.construct(a=1)\n") == ["model-construct"]
+    assert rules("m = M.model_construct(a=1)\n") == ["model-construct"]
+
+
+def test_a_basemodel_imported_through_pydantic_main_module_is_resolved():
+    text = "import pydantic.main as pm\nclass X(pm.BaseModel):\n    pass\n"
+    assert rules(text) == ["model-strict"]
+    text = "import pydantic.root_model as rm\nclass X(rm.RootModel[int]):\n    pass\n"
+    assert rules(text) == ["model-strict"]
 
 
 def test_model_copy_without_update_is_clean():

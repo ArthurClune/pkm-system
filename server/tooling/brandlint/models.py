@@ -4,14 +4,15 @@ check it.
 
 `model-strict` reports a class that subclasses `BaseModel` or `RootModel`
 directly, through any import alias (only the registry's STRICT_BASE may), any
-way of switching strictness off (`strict=` or a `"strict"` key set to
-anything but True), and the pydantic routes around a
-model's checked fields (`create_model`, `pydantic.dataclasses`,
-`validate_call`).
+way of switching strictness off (`strict=` as a call or class keyword, a
+`Strict(...)` marker, or a `"strict"` key set to anything but True), and the
+pydantic routes around a model's checked fields (`create_model`,
+`pydantic.dataclasses`, `validate_call`).
 
 `model-unchecked` reports a producer pyrefly cannot see into:
-`.model_validate(...)` of a dict built in place (or `json.dumps` of one fed to
-`model_validate_json`), and `.model_copy(update=)`.
+`.model_validate(...)` (or `.parse_obj`) of a dict built in place, a
+`json.dumps` of one fed to `model_validate_json`, and `.model_copy(update=)`
+or `.copy(update=)`.
 
 Stdlib only and runnable under the system `python3`."""
 from __future__ import annotations
@@ -22,7 +23,7 @@ from brandlint.registry import Registry
 
 
 BASES = ("BaseModel", "RootModel")
-DICT_BUILT_METHODS = ("model_validate", "model_validate_strings", "validate_python", "validate_strings")
+DICT_BUILT_METHODS = ("model_validate", "parse_obj", "model_validate_strings", "validate_python", "validate_strings")
 JSON_METHODS = ("model_validate_json", "validate_json")
 DATA_KEYWORDS = ("obj", "object", "json_data", "data")
 PYDANTIC_MODULES = ("pydantic", "pydantic.main", "pydantic.root_model")
@@ -68,7 +69,7 @@ def _aliases(tree: ast.AST) -> tuple[set[str], set[str], set[str]]:
         elif isinstance(node, ast.ImportFrom) and node.module == "json":
             dumps |= {a.asname for a in node.names if a.name == "dumps" and a.asname}
         elif isinstance(node, ast.Import):
-            modules |= {a.asname for a in node.names if a.name == "pydantic" and a.asname}
+            modules |= {a.asname for a in node.names if a.name in PYDANTIC_MODULES and a.asname}
     return bases, modules, dumps
 
 
@@ -96,6 +97,10 @@ def model_sites(path: str, tree: ast.AST, registry: Registry) -> list[tuple[int,
     fix_base = "inherit `StrictModel` (pkm.contracts.strict)"
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
+            for kw in node.keywords:
+                if kw.arg == "strict" and not _is_true(kw.value):
+                    out.append((kw.value.lineno, "model-strict",
+                                "a `strict=` class keyword other than True turns strictness off: remove it"))
             direct = any(_names_a_base(b, bases, modules) for b in node.bases)
             if direct and not (path == strict_path and node.name == strict_class):
                 out.append((node.lineno, "model-strict", f"`class {node.name}` subclasses pydantic's "
@@ -121,6 +126,9 @@ def model_sites(path: str, tree: ast.AST, registry: Registry) -> list[tuple[int,
                     out.append((node.lineno, "model-strict",
                                 "`strict=` other than True turns strictness off: remove it"))
             data = _data_argument(node)
+            if name == "Strict" and node.args and not _is_true(node.args[0]):
+                out.append((node.lineno, "model-strict",
+                            "`Strict(...)` other than True turns strictness off: remove it"))
             if name == "create_model":
                 out.append((node.lineno, "model-strict",
                             "`create_model(...)` builds an unchecked model: declare a `StrictModel` class"))
@@ -134,9 +142,9 @@ def model_sites(path: str, tree: ast.AST, registry: Registry) -> list[tuple[int,
                 out.append((node.lineno, "model-unchecked",
                             f"`.{name}(json.dumps(...))` is a dict built in place in disguise: build the "
                             "model with keyword arguments, or decode a JSON string literal"))
-            elif name == "model_copy" and isinstance(node.func, ast.Attribute) \
+            elif name in ("model_copy", "copy") and isinstance(node.func, ast.Attribute) \
                     and any(kw.arg == "update" for kw in node.keywords):
                 out.append((node.lineno, "model-unchecked",
-                            "`.model_copy(update=...)` is unchecked: build the model again with keyword "
+                            f"`.{name}(update=...)` is unchecked: build the model again with keyword "
                             "arguments"))
     return out

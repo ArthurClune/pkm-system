@@ -20,6 +20,8 @@ from pkm.test_data.ids import (
     uid_of,
 )
 
+_BLOCK_OP: TypeAdapter[BlockOp] = TypeAdapter(BlockOp)
+
 A, B, C, P, X, Y = (uid_of(u) for u in ("blk_aa", "blk_bb", "blk_cc", "blk_pp", "blk_xx", "blk_yy"))
 
 
@@ -668,7 +670,7 @@ def _wire_batch(ops) -> OpBatch:
     """The drawn ops are wire input: each is validated as one, then the
     batch is built from the checked ops."""
     return OpBatch(client_id=client_id_of("c"), batch_id=batch_id_of("b" * 8),
-                   ops=[TypeAdapter(BlockOp).validate_python(op) for op in ops])
+                   ops=[_BLOCK_OP.validate_python(op) for op in ops])
 
 
 @settings(max_examples=20)

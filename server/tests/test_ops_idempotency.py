@@ -15,6 +15,8 @@ from pkm.server.ops_hash import batch_replay_hash, batch_request_hash
 from pkm.test_data.ids import (batch_id_of, client_id_of, malformed_uid, order_idx_of, raw_title_of,
                                seq_of, sha_of, uid_of)
 
+_BLOCK_OP: TypeAdapter[BlockOp] = TypeAdapter(BlockOp)
+
 CASES = json.loads(
     (Path(__file__).parents[2] / "shared" / "fixtures" / "ops_acks.json")
     .read_text())["cases"]
@@ -261,7 +263,7 @@ def test_worker_filled_then_bare_replays_with_one_effect(client):
                                  base_text_hash=sha_of("0" * 64),
                                  page_title=raw_title_of("AI"))])
     # the posted op really carries the hint: an unknown key would be dropped
-    posted = TypeAdapter(BlockOp).validate_python(filled["ops"][0])
+    posted = _BLOCK_OP.validate_python(filled["ops"][0])
     assert isinstance(posted, UpdateTextOp) and posted.page_title == "AI"
     assert posted.base_text_hash == sha_of("0" * 64)
     r2 = client.post("/api/ops", json=filled)

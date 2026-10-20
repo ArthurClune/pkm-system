@@ -151,7 +151,7 @@ PROPTEST = "server/tooling/proptest/sync_server.py"
 
 
 def test_server_tooling_is_linted():
-    assert rules("x = BlockUid(raw)\n", PROPTEST) == ["brand-mint"]
+    assert rules("x = SyncSeq(raw)\n", PROPTEST) == ["brand-mint"]
     assert rules("def f(uid: str): ...\n", PERFCHECK) == ["brand-name"]
 
 

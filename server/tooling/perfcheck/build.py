@@ -44,6 +44,7 @@ _FIXTURE_SRC = Path(_fixture_mod.__file__).read_bytes()
 _BUILD_SRC = Path(__file__).read_bytes()
 # the product in whichever venv runs this: a merge-base run hashes the base's
 _PRODUCT_ROOT = Path(pkm.__file__).parent
+_BLOCK_OP: TypeAdapter[BlockOp] = TypeAdapter(BlockOp)
 
 LOCK_WAIT_S = 20 * 60  # a frontend confirmation takes minutes, not this long
 UNUSED_FOR_S = 7 * 86_400  # a run marks what it uses; no run lasts this long
@@ -120,7 +121,7 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
             # The generator's ops are plain dicts: each is validated as one.
             ob = OpBatch(client_id=ClientId("perf-fixture"),
                          batch_id=BatchId(f"fixture-{i:06d}"),
-                         ops=[TypeAdapter(BlockOp).validate_python(op)
+                         ops=[_BLOCK_OP.validate_python(op)
                               for op in batch.ops])
             apply_batch(con, ob, batch.now_ms)
             con.commit()

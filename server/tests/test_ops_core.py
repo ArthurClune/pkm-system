@@ -659,7 +659,7 @@ def _create_under(parent_uid: BlockUid | None = uid_of("ghost_p1"), text="lost c
     # a create whose uid exists is left to plan_op's "uid already exists"
     (_create_under(), True, False, None),
     (CreatePageOp(op="create_page", page_title=raw_title_of("AI")), False, False, None),
-    (MoveOp(op="move", uid=uid_of("ghost99"), parent_uid=malformed_uid("uid_p"), order_idx=order_idx_of(0)),
+    (MoveOp(op="move", uid=uid_of("ghost99"), parent_uid=uid_of("uid_p0000001"), order_idx=order_idx_of(0)),
      True, True, None),
     # plain no-ops, nothing lands
     (_COLLAPSE, False, False, Skip("noop", None)),
@@ -739,7 +739,7 @@ def test_placement_matches_shared_fixture(case, tmp_path):
         db.commit()
         # The shared fixture is decoded JSON: each op is validated as wire
         # input, then the batch is built from the checked ops.
-        ops = [TypeAdapter(BlockOp).validate_python(op) for op in case["ops"]]
+        ops = [_BLOCK_OP_ADAPTER.validate_python(op) for op in case["ops"]]
         batch = OpBatch(client_id=client_id_of("fixture"),
                         batch_id=batch_id_of(f"placement_{case['name']}"[:64]),
                         ops=ops)

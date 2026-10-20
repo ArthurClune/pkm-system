@@ -79,10 +79,10 @@ export function useAssistant() {
   const [phase, setPhase] = useState<PhaseInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [model, setModelState] = useState<AssistantModel>("sonnet");
-  // The claude trio is always servable, so it doubles as the offline/failed
+  // The Claude models are always servable, so they double as the offline/failed
   // fallback; the server list adds glm only when a z.ai key is configured.
   const [models, setModels] = useState<AssistantModel[]>(
-    ["sonnet", "opus", "haiku"]);
+    ["sonnet", "opus", "haiku", "fable"]);
   const [modelLocked, setModelLocked] = useState(false);
   // distinguishes the user's own picker choice from the initial state, so
   // the fetched server default can fill the latter without clobbering the

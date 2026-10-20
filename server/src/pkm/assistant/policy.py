@@ -17,9 +17,9 @@ READ_TOOLS: tuple[str, ...] = ("get_page", "get_block", "search", "query",
 WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch",
                                 "upload_asset", "rename_page")
 
-# The Claude trio also exists as the web picker's fetch-failure fallback
+# The Claude models also exist as the web picker's fetch-failure fallback
 # (useAssistant.ts); a rename or addition there must stay in sync.
-MODELS: tuple[AssistantModel, ...] = ("sonnet", "opus", "haiku", "glm")
+MODELS: tuple[AssistantModel, ...] = ("sonnet", "opus", "haiku", "fable", "glm")
 
 # Models that route to z.ai's Anthropic-compatible endpoint and are only
 # offered when a z.ai key is configured. The Claude models need no such
@@ -185,6 +185,20 @@ Citing (the UI turns these into clickable links; plain names are inert):
   marks blocks with a trailing ^uid; the uid is the part AFTER the caret.
   Write ((abc123)), never ((^abc123)) — a caret inside (( )) breaks the
   link.
+
+Local copy links (a "Local copy:: pkm/Papers/a b.pdf" property is plain text
+until converted):
+- Target form: Local copy:: [<filename>](/api/local/<path>). The link text
+  is the bare filename (last path segment), unencoded.
+- <path> is relative to the local documents folder: drop any leading
+  iCloud/Documents/ and pkm/, which name that folder itself.
+- Percent-encode each path segment but keep the / separators: every
+  character except letters, digits and _ . - ~ becomes %XX in UTF-8. So a
+  space is %20, and ' ( ) & # % and non-ASCII characters are encoded too (a
+  raw ")" would end the link early).
+- Example: Local copy:: pkm/Papers/Machine Learning/complex paper.pdf
+  becomes
+  Local copy:: [complex paper.pdf](/api/local/Papers/Machine%20Learning/complex%20paper.pdf)
 
 Tables:
 - Markdown pipe tables (| a | b |) render nowhere — not in this chat, not

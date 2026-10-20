@@ -589,7 +589,7 @@ generated contract's types, and is the only place those casts live.
 - The conversation is created lazily on the first message. The model dropdown
   renders what `GET /api/assistant/models` offers, fetched on first panel open
   rather than app load, and locks once the conversation exists; `sonnet` /
-  `opus` / `haiku` are the fallback if the fetch fails. Conversations are
+  `opus` / `haiku` / `fable` are the fallback if the fetch fails. Conversations are
   ephemeral: a reload loses them.
 - "New chat" deletes the server-side conversation and is safe mid-turn. Each
   turn carries a generation counter that `newChat` bumps before clearing

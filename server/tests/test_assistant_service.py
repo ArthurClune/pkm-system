@@ -141,7 +141,7 @@ def test_default_available_models_hides_glm_and_rejects_it():
     # glm needs a z.ai key; a service not told otherwise must neither offer
     # nor accept it, even though it is a known model name.
     service = AssistantService(FakeEngine())
-    assert service.available_models == ["sonnet", "opus", "haiku"]
+    assert service.available_models == ["sonnet", "opus", "haiku", "fable"]
     with pytest.raises(ValueError):
         asyncio.run(service.create("glm"))
 
@@ -153,7 +153,7 @@ def test_default_model_follows_availability():
     assert keyless.default_model == "sonnet"
     keyed_engine = FakeEngine()
     keyed = AssistantService(
-        keyed_engine, available_models=["sonnet", "opus", "haiku", "glm"])
+        keyed_engine, available_models=["sonnet", "opus", "haiku", "fable", "glm"])
     assert keyed.default_model == "glm"
 
     async def scenario():
@@ -167,7 +167,7 @@ def test_default_model_follows_availability():
 def test_explicit_available_models_offers_and_accepts_glm():
     engine = FakeEngine()
     service = AssistantService(
-        engine, available_models=["sonnet", "opus", "haiku", "glm"])
+        engine, available_models=["sonnet", "opus", "haiku", "fable", "glm"])
     assert "glm" in service.available_models
 
     async def scenario():

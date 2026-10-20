@@ -46,9 +46,8 @@ describe("parseHeaderLines", () => {
     ["Mixed (needs refactoring)", "mixed", "needs-refactoring"],
   ])("valid header %s", (raw, kind, variant) => {
     const result = parseHeaderLines([`// pattern: ${raw}`]);
-    expect(result.status).toBe("ok");
-    expect(result.kind).toBe(kind);
-    if (variant) expect(result.variant).toBe(variant);
+    expect(result).toMatchObject({ status: "ok", kind });
+    if (variant) expect(result).toMatchObject({ variant });
   });
 
   test("Mixed (unavoidable) without a reason", () => {
@@ -162,9 +161,10 @@ describe("edgeDiagnostic", () => {
 
   test("core -> shell import is forbidden", () => {
     const diagnostic = edgeDiagnostic(edge(), core, shell);
-    expect(diagnostic).not.toBeNull();
-    expect(diagnostic.kind).toBe("forbidden-edge");
-    expect(diagnostic.target).toBe("b.ts");
+    expect(diagnostic).toMatchObject({
+      kind: "forbidden-edge",
+      target: "b.ts",
+    });
   });
 
   test("core -> Mixed (needs refactoring) is forbidden", () => {

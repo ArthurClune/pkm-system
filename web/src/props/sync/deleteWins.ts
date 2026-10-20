@@ -8,7 +8,7 @@
 //     moved to the same place among the deletes, and the batch is stale in
 //     the replay for exactly the titles it was stale for in the faulted run;
 //   - the "delete wins" invariant over the faulted run's final state.
-import type { BatchId, BlockUid, PageId } from "../../api/brands";
+import type { BatchId, BlockUid, CanonicalTitle, PageId } from "../../api/brands";
 import { extractRefs } from "../../grammar/refs";
 import type { DeleteRecord, RenameRecord } from "./serverControl";
 import { record } from "./wire";
@@ -53,7 +53,7 @@ export interface DeleteWinsRun {
   renames: readonly RenameRecord[];
   deletes: readonly DeleteRecord[];
   snapshot: {
-    pages: readonly { id: PageId; title: string }[];
+    pages: readonly { id: PageId; title: CanonicalTitle }[];
     blocks: readonly { uid: BlockUid; page_id: PageId }[];
   };
 }
@@ -71,9 +71,10 @@ const parse = (body: string | undefined): ParsedBody => {
 
 /** Whether an op names `title` where it could make the page: its
  * page_title, or a link, tag or attribute in its text. */
-const names = (op: Record<string, unknown>, title: string): boolean =>
-  op.page_title === title ||
-  (typeof op.text === "string" && extractRefs(op.text).refs.some((r) => r.title === title));
+const names = (op: Record<string, unknown>,
+                canonicalTitle: CanonicalTitle): boolean =>
+  op.page_title === canonicalTitle ||
+  (typeof op.text === "string" && extractRefs(op.text).refs.some((r) => r.title === canonicalTitle));
 
 /** Delete wins, on the faulted run's final state: no block a page held
  * when it was deleted is alive, and a deleted title exists at quiescence
@@ -101,9 +102,9 @@ export function deleteWins(run: DeleteWinsRun): string[] {
   // that never applied is serial replay's finding; here every batch counts.
   const firstAfter = (e: { after_batch_id: BatchId | null }): number =>
     e.after_batch_id === null ? 0 : (index.get(e.after_batch_id) ?? -1) + 1;
-  const lastDelete = new Map<string, DeleteRecord>();
+  const lastDelete = new Map<CanonicalTitle, DeleteRecord>();
   for (const d of [...run.deletes].sort((a, b) => a.ord - b.ord)) lastDelete.set(d.title, d);
-  const existing = new Set<string>(run.snapshot.pages.map((p) => p.title));
+  const existing = new Set<CanonicalTitle>(run.snapshot.pages.map((p) => p.title));
   for (const [title, d] of lastDelete) {
     if (!existing.has(title)) continue;
     if (run.renames.some((r) => r.new_title === title && r.ord > d.ord)) continue;

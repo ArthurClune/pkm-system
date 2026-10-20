@@ -7,6 +7,7 @@ import pytest
 from rawread import read
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BlockUid, PageId, text_hash
+from pkm.contracts.titles import CanonicalTitle
 from pkm.database import connect
 
 
@@ -15,6 +16,13 @@ def test_get_past_daily_404s_and_creates_nothing(client):
     assert client.get(f"/api/page/{yesterday}").status_code == 404
     # a second GET still 404s: the first one must not have created a row
     assert client.get(f"/api/page/{yesterday}").status_code == 404
+
+
+def test_get_today_autocreates_with_a_control_whitespace_spelling(client):
+    today = title_for_date(date.today())
+    r = client.get(f"/api/page/{quote(today.replace(' ', chr(9)), safe='/')}")
+    assert r.status_code == 200
+    assert r.json()["page"]["title"] == today
 
 
 def test_get_today_still_autocreates(client):
@@ -113,27 +121,6 @@ def test_namespace_title_with_slash(client, seeded_config):
     con.commit()
     con.close()
     assert client.get("/api/page/AWS/SCP").status_code == 200
-
-
-def test_get_page_normalizes_routable_control_whitespace(client, seeded_config):
-    con = connect(seeded_config.db_path)
-    con.execute(
-        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
-        (99, "Ctrl Title", 100, 100),
-    )
-    con.execute(
-        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading,"
-        " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-        ("uid_ctrl_read", 99, None, 0, "page body", None, 0, None, None),
-    )
-    con.commit()
-    con.close()
-
-    r = client.get(f"/api/page/{quote('Ctrl\tTitle', safe='/')}")
-
-    assert r.status_code == 200
-    assert r.json()["page"]["title"] == "Ctrl Title"
-    assert [b["text"] for b in r.json()["blocks"]] == ["page body"]
 
 
 def test_get_page_preserves_inactive_padded_exact_reads(client, seeded_config):
@@ -404,7 +391,7 @@ def test_delete_holds_the_write_lock_from_its_snapshot_on(
     real_plan = store.plan_delete
     outcome = {}
 
-    def racing(db, page_id: PageId, title):
+    def racing(db, page_id: PageId, title: CanonicalTitle):
         plan = real_plan(db, page_id, title)
         con2 = connect(seeded_config.db_path)
         con2.execute("PRAGMA busy_timeout=50")
@@ -469,21 +456,6 @@ def test_delete_page_with_padded_path_title_when_plain_space_migration_is_active
     assert not any(e["id"] == entry_id for e in entries)
 
 
-def test_delete_page_with_control_whitespace_path_title(client, seeded_config):
-    con = connect(seeded_config.db_path)
-    con.execute(
-        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
-        (99, "Ctrl Title", 100, 100),
-    )
-    con.commit()
-    con.close()
-
-    r = client.delete(f"/api/page/{quote('Ctrl\tTitle', safe='/')}")
-
-    assert r.status_code == 200
-    assert client.get("/api/page/Ctrl Title").status_code == 404
-
-
 def test_delete_missing_page_404(client):
     assert client.delete("/api/page/No Such Page").status_code == 404
 
@@ -491,3 +463,63 @@ def test_delete_missing_page_404(client):
 def test_delete_page_requires_auth(anon_client):
     r = anon_client.delete("/api/page/Machine Learning")
     assert r.status_code == 401
+
+
+def _seed_ctrl_title_page(seeded_config) -> None:
+    con = connect(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+        (99, "Ctrl Title", 100, 100),
+    )
+    con.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading,"
+        " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        ("uid_ctrl_read", 99, None, 0, "page body", None, 0, None, None),
+    )
+    con.commit()
+    con.close()
+
+
+@pytest.mark.parametrize("route", [
+    "get", "delete_preview", "unlinked", "export", "rename", "delete"])
+def test_every_page_route_resolves_a_control_whitespace_title(
+        client, seeded_config, route):
+    _seed_ctrl_title_page(seeded_config)
+    raw = quote("Ctrl\tTitle", safe="/")
+    if route in ("rename", "delete", "delete_preview"):
+        # a reference to rewrite: the route must unlink or retarget it by
+        # the canonical title, not the request spelling
+        _set_b4(client, "see [[Ctrl Title]]")
+
+    if route == "get":
+        r = client.get(f"/api/page/{raw}")
+        assert r.status_code == 200
+        assert r.json()["page"]["title"] == "Ctrl Title"
+        assert [b["text"] for b in r.json()["blocks"]] == ["page body"]
+    elif route == "delete_preview":
+        r = client.get(f"/api/delete-preview?title={raw}")
+        assert r.status_code == 200
+        assert r.json()["links"] == 1
+    elif route == "unlinked":
+        _set_b4(client, "a plain mention of Ctrl Title here")
+        r = client.get(f"/api/unlinked?title={raw}")
+        assert r.status_code == 200
+        assert [b["uid"] for g in r.json()["groups"] for b in g["items"]] \
+            == ["uid_b4"]
+    elif route == "export":
+        r = client.get(f"/api/export/page/{raw}")
+        assert r.status_code == 200
+        assert "page body" in r.text
+    elif route == "rename":
+        r = client.post(f"/api/page/{raw}/rename",
+                        json={"new_title": "Renamed Ctrl"})
+        assert r.status_code == 200
+        assert r.json()["result"] == "renamed"
+        assert client.get("/api/page/Renamed Ctrl").status_code == 200
+        assert client.get("/api/page/Ctrl Title").status_code == 404
+        assert _b4_text(client) == "see [[Renamed Ctrl]]"
+    else:
+        r = client.delete(f"/api/page/{raw}")
+        assert r.status_code == 200
+        assert client.get("/api/page/Ctrl Title").status_code == 404
+        assert _b4_text(client) == "see Ctrl Title"

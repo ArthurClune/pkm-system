@@ -13,13 +13,14 @@
 //
 // It owns no session state and writes none: it queries the session through
 // `ParentReadHost` and is driven by the session's own notifications.
+import type { RawTitle } from "../api/brands";
 import type { BlockNode, PagePayload } from "../api/payloads";
 import type { ReadToken, RequestId } from "./outlineState";
 
 /** What the election needs to know about its session. Queries only. */
 export interface ParentReadHost {
   /** The session's title — it names the errors waiters see. */
-  readonly title: string;
+  readonly title: RawTitle;
   /** The newest authoritative request id the session has issued. */
   latestRequestId(): RequestId;
   /** A multi-title capture is activated for this request id, so a response

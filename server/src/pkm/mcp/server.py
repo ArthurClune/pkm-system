@@ -37,7 +37,7 @@ def _client() -> PkmClient:
     return _cached_client
 
 
-def get_page(title: str, resolve_refs: bool = False) -> str:
+def get_page(title: RawTitle, resolve_refs: bool = False) -> str:
     """Fetch a page as a markdown outline. Blocks are annotated with
     trailing ^uid markers usable with update_block/batch. `title` may be
     a daily-note title like 'July 19th, 2026'. resolve_refs=True inlines
@@ -69,7 +69,7 @@ def query(expr: str, expand: bool = False) -> str:
     return render_groups(_client().run_query(expr, expand=expand))
 
 
-def backlinks(title: str) -> str:
+def backlinks(title: RawTitle) -> str:
     """Pages and blocks that reference [[title]], grouped by source page."""
     return render_backlinks(title, _client().get_backlinks(title))
 
@@ -167,7 +167,7 @@ def upload_asset(path: str, page: str | None = None,
     return f"{linked.url}\ncreated ^{linked.uid}"
 
 
-def rename_page(title: str, new_title: RawTitle,
+def rename_page(title: RawTitle, new_title: RawTitle,
                 allow_merge: bool = False) -> str:
     """Rename a page, rewriting every [[link]]/#tag/attr:: reference to it
     in block text so it points at new_title instead. Case-sensitive;

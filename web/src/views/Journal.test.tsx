@@ -594,8 +594,8 @@ it("shows a day's linked references from the journal payload, but not for a " +
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
   // Not findByRole("link", ...): the reference's own "[[July 8th, 2026]]"
   // renders as a second link with the same name once the day is on screen.
-  const daySection = (title: string) => [...document.querySelectorAll(".journal-day")]
-    .find((el) => el.querySelector(".page-title")?.textContent === title);
+  const daySection = (titleText: string) => [...document.querySelectorAll(".journal-day")]
+    .find((el) => el.querySelector(".page-title")?.textContent === titleText);
   await waitFor(() => expect(daySection("July 7th, 2026")).not.toBeUndefined());
 
   expect(await screen.findByText(/linked references \(1\)/i))

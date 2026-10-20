@@ -73,17 +73,17 @@ from pkm.contracts.daily import title_for_date
 from pkm.refs import CanonicalTitle
 from pkm.server import store
 from pkm.server.store import BlankTitleError, get_or_create_page, fetch_page
-from pkm.test_data.ids import canonical_title_of
+from pkm.test_data.ids import canonical_title_of, raw_title_of
 from pkm.database import connect
 
 
-def _ct(title: str) -> CanonicalTitle:
+def _ct(title_text: str) -> CanonicalTitle:
     """fetch_page takes a CanonicalTitle; these tests probe it directly
     with deliberately blank/padded/forbidden strings, which are never
     minted through canonicalize_title -- `canonical_title_of` mints them at
     this one fixture point rather than threading the real canonicalizer
     through every assertion."""
-    return canonical_title_of(title)
+    return canonical_title_of(title_text)
 
 
 CONTROL_ONLY = "\n\t"          # contains a control ws char
@@ -137,22 +137,22 @@ def _fresh_db(tmp_path):
 def test_get_or_create_page_raises_on_control_whitespace_only_title(tmp_path):
     db = _fresh_db(tmp_path)
     with pytest.raises(BlankTitleError):
-        get_or_create_page(db, CONTROL_ONLY, 123)
+        get_or_create_page(db, raw_title_of(CONTROL_ONLY), 123)
     assert fetch_page(db, _ct("")) is None
     db.close()
 
 
-@pytest.mark.parametrize("title", FORBIDDEN_TITLES)
+@pytest.mark.parametrize("title_text", FORBIDDEN_TITLES)
 def test_get_or_create_page_rejects_forbidden_title_before_creating(
-        tmp_path, title):
+        tmp_path, title_text):
     db = _fresh_db(tmp_path)
 
     with pytest.raises(ValueError, match="unsupported page-title syntax") as exc:
-        get_or_create_page(db, title, 123)
+        get_or_create_page(db, raw_title_of(title_text), 123)
 
     assert type(exc.value) is store.ForbiddenTitleError
-    assert exc.value.title == title
-    assert fetch_page(db, _ct(title)) is None
+    assert exc.value.title == title_text
+    assert fetch_page(db, _ct(title_text)) is None
     db.close()
 
 
@@ -160,7 +160,7 @@ def test_get_or_create_page_allows_generated_daily_title(tmp_path):
     db = _fresh_db(tmp_path)
     title = title_for_date(date.today())
 
-    page = get_or_create_page(db, title, 123)
+    page = get_or_create_page(db, raw_title_of(title), 123)
 
     assert page["title"] == title
     db.close()
@@ -173,7 +173,7 @@ def test_get_or_create_page_raises_on_spaces_only_title(tmp_path):
     creates a real page literally titled "   "."""
     db = _fresh_db(tmp_path)
     with pytest.raises(BlankTitleError):
-        get_or_create_page(db, SPACES_ONLY, 123)
+        get_or_create_page(db, raw_title_of(SPACES_ONLY), 123)
     assert fetch_page(db, _ct(SPACES_ONLY)) is None
     assert fetch_page(db, _ct("")) is None
     db.close()
@@ -253,16 +253,16 @@ def test_move_op_cross_page_whitespace_only_title_does_not_wedge(
     assert any("Machine Learning" in b["text"] for b in body["blocks"])
 
 
-@pytest.mark.parametrize("title", FORBIDDEN_TITLES)
+@pytest.mark.parametrize("title_text", FORBIDDEN_TITLES)
 def test_post_pages_route_rejects_forbidden_title_without_creating_page(
-        client, seeded_config, title):
+        client, seeded_config, title_text):
     before = _titles(seeded_config)
 
-    response = client.post("/api/pages", json={"title": title})
+    response = client.post("/api/pages", json={"title": title_text})
 
     assert response.status_code == 422
     assert response.json()["detail"] == (
-        f"unsupported page-title syntax: {title!r}"
+        f"unsupported page-title syntax: {title_text!r}"
     )
     assert _titles(seeded_config) == before
 
@@ -443,13 +443,13 @@ def test_padded_title_is_preserved_and_reused_exactly(tmp_path):
     assert original is not None
 
     # Same padded title again -> the SAME page, not a fresh duplicate.
-    reused = get_or_create_page(db, padded, 200)
+    reused = get_or_create_page(db, raw_title_of(padded), 200)
     assert reused["page_id"] == original["page_id"]
     assert reused["title"] == padded  # padding untouched in storage too
 
     # A stripped variant is a genuinely different title (exact match only)
     # -- it must NOT hijack the padded page's content.
-    stripped = get_or_create_page(db, "EvilCorp", 300)
+    stripped = get_or_create_page(db, raw_title_of("EvilCorp"), 300)
     assert stripped["page_id"] != original["page_id"]
     db.close()
 

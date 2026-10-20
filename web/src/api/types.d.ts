@@ -1360,8 +1360,8 @@ export interface components {
         CurrentWorkSection: {
             /** Id */
             id: string;
-            /** Title */
-            title: string;
+            /** Heading */
+            heading: string;
             /** Pages */
             pages: components["schemas"]["CurrentWorkPage"][];
         };
@@ -1432,8 +1432,8 @@ export interface components {
         GoodlinksArticle: {
             /** Id */
             id: Brands.GoodlinksId;
-            /** Title */
-            title: string;
+            /** Article Title */
+            article_title: string;
             /** Url */
             url: string;
             /** Added At */
@@ -1479,8 +1479,8 @@ export interface components {
         GoodlinksLink: {
             /** Id */
             id: Brands.GoodlinksId;
-            /** Title */
-            title: string;
+            /** Article Title */
+            article_title: string;
             /** Url */
             url: string;
             /** Added At */
@@ -2232,7 +2232,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                title: string;
+                title: Brands.RawTitle;
             };
             cookie?: never;
         };
@@ -2263,7 +2263,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                title: string;
+                title: Brands.RawTitle;
             };
             cookie?: never;
         };
@@ -2325,7 +2325,7 @@ export interface operations {
     delete_preview_api_delete_preview_get: {
         parameters: {
             query: {
-                title: string;
+                title: Brands.RawTitle;
             };
             header?: never;
             path?: never;
@@ -2358,7 +2358,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                title: string;
+                title: Brands.RawTitle;
             };
             cookie?: never;
         };
@@ -2391,7 +2391,7 @@ export interface operations {
     get_unlinked_api_unlinked_get: {
         parameters: {
             query: {
-                title: string;
+                title: Brands.RawTitle;
                 limit?: number;
                 offset?: number;
             };
@@ -3241,7 +3241,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                title: string;
+                title: Brands.RawTitle;
             };
             cookie?: never;
         };

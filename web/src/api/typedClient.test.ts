@@ -26,13 +26,13 @@ it("types the rename response as a discriminated result", () => {
 
 typeProbe(() => {
   const page: Promise<PagePayload> =
-    apiGet("/api/page/{title}", { path: { title: "T" } });
+    apiGet("/api/page/{title}", { path: { title: rawTitleOf("T") } });
   const work: Promise<CurrentWorkPayload> = apiGet("/api/current-work");
   const created: Promise<PageMeta> =
     apiPost("/api/pages", { body: { title: rawTitleOf("T") } });
   const renamed: Promise<RenameResponse> =
     apiPost("/api/page/{title}/rename", {
-      path: { title: "T" },
+      path: { title: rawTitleOf("T") },
       body: { new_title: rawTitleOf("U"), allow_merge: false },
     });
   void [page, work, created, renamed];
@@ -42,7 +42,7 @@ typeProbe(() => {
 typeProbe(() => {
   // @ts-expect-error /api/page/{title} returns PagePayload, not JournalPayload
   const wrong: Promise<JournalPayload> =
-    apiGet("/api/page/{title}", { path: { title: "T" } });
+    apiGet("/api/page/{title}", { path: { title: rawTitleOf("T") } });
   void wrong;
 });
 
@@ -61,13 +61,13 @@ typeProbe(() => {
   // @ts-expect-error {title} is a required path parameter
   void apiGet("/api/page/{title}", {});
   // @ts-expect-error /api/current-work takes no path parameters
-  void apiGet("/api/current-work", { path: { title: "T" } });
+  void apiGet("/api/current-work", { path: { title: rawTitleOf("T") } });
   // @ts-expect-error bl_limitt is not a query parameter of this route
-  void apiGet("/api/page/{title}", { path: { title: "T" }, query: { bl_limitt: 5 } });
+  void apiGet("/api/page/{title}", { path: { title: rawTitleOf("T") }, query: { bl_limitt: 5 } });
   // @ts-expect-error `uids` is a REQUIRED query parameter of /api/block-refs
   void apiGet("/api/block-refs");
   // @ts-expect-error bl_limit is a number
-  void apiGet("/api/page/{title}", { path: { title: "T" }, query: { bl_limit: "5" } });
+  void apiGet("/api/page/{title}", { path: { title: rawTitleOf("T") }, query: { bl_limit: "5" } });
 });
 
 typeProbe(() => {
@@ -100,7 +100,7 @@ function stubFetch(body: unknown = { ok: true }) {
 
 it("substitutes path parameters, keeping namespace slashes literal", async () => {
   const fetchMock = stubFetch();
-  await apiGet("/api/page/{title}", { path: { title: "Work/Q3 plan" } });
+  await apiGet("/api/page/{title}", { path: { title: rawTitleOf("Work/Q3 plan") } });
   expect(fetchMock.mock.calls[0][0]).toBe("/api/page/Work/Q3%20plan");
 });
 
@@ -108,14 +108,14 @@ it("encodes a title containing regexp replacement syntax literally", async () =>
   // "$&" in a String.replace REPLACEMENT means "the whole match"; a title
   // like this used to be able to inject the placeholder back into the URL.
   const fetchMock = stubFetch();
-  await apiGet("/api/page/{title}", { path: { title: "$& $`" } });
+  await apiGet("/api/page/{title}", { path: { title: rawTitleOf("$& $`") } });
   expect(fetchMock.mock.calls[0][0]).toBe("/api/page/%24%26%20%24%60");
 });
 
 it("appends supplied query parameters and drops undefined ones", async () => {
   const fetchMock = stubFetch();
   await apiGet("/api/page/{title}",
-               { path: { title: "T" }, query: { bl_limit: 5, bl_offset: undefined } });
+               { path: { title: rawTitleOf("T") }, query: { bl_limit: 5, bl_offset: undefined } });
   expect(fetchMock.mock.calls[0][0]).toBe("/api/page/T?bl_limit=5");
 });
 
@@ -148,7 +148,7 @@ it("omits the query string entirely when nothing is supplied", async () => {
 it("sends a JSON body with the method the path declares", async () => {
   const fetchMock = stubFetch();
   await apiPost("/api/page/{title}/rename",
-                { path: { title: "Old" }, body: { new_title: rawTitleOf("New"), allow_merge: true } });
+                { path: { title: rawTitleOf("Old") }, body: { new_title: rawTitleOf("New"), allow_merge: true } });
   expect(fetchMock.mock.calls[0]).toEqual([
     "/api/page/Old/rename",
     {
@@ -171,7 +171,7 @@ it("sends a PUT with the body its schema declares", async () => {
 
 it("sends no body or content type for a bodyless write", async () => {
   const fetchMock = stubFetch();
-  await apiDelete("/api/page/{title}", { path: { title: "T" } });
+  await apiDelete("/api/page/{title}", { path: { title: rawTitleOf("T") } });
   expect(fetchMock.mock.calls[0]).toEqual(["/api/page/T", { method: "DELETE" }]);
 });
 

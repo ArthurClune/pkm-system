@@ -29,7 +29,7 @@ function Harness({ onReady }: { onReady: (dnd: ReturnType<typeof useDnd>) => voi
   return null;
 }
 
-function renderPanel(title: string) {
+function renderPanel(titleText: string) {
   const sync = makeSync();
   let dnd!: ReturnType<typeof useDnd>;
   render(
@@ -37,7 +37,7 @@ function renderPanel(title: string) {
       <DndProvider>
         <Harness onReady={(d) => { dnd = d; }} />
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-          <SidebarPanel title={rawTitleOf(title)} onClose={() => undefined} />
+          <SidebarPanel title={rawTitleOf(titleText)} onClose={() => undefined} />
         </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);

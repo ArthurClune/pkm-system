@@ -181,7 +181,7 @@ describe("applyChanges: a local page something keeps stays", () => {
   });
 
   test("a pending create_page of a local page that already exists keeps it", () => {
-    getOrCreateLocalPage(t.db, "Draft", NOW); // a read made it, no op behind it
+    getOrCreateLocalPage(t.db, rawTitleOf("Draft"), NOW); // a read made it, no op behind it
     enqueue([{ op: "create_page", page_title: rawTitleOf("Draft") }], "b-page");
 
     applyChanges(t.db, window(), NOW);
@@ -212,7 +212,7 @@ describe("applyChanges: a local page something keeps stays", () => {
 
   test("a pending batch's recorded refs name it, after its link was removed", () => {
     // a page a read made, linked by a row whose own batch's records are gone
-    const linked = getOrCreateLocalPage(t.db, "Linked", NOW);
+    const linked = getOrCreateLocalPage(t.db, rawTitleOf("Linked"), NOW);
     t.db.exec("INSERT INTO refs VALUES ('uid_b2', ?, 'link')", [linked]);
     enqueue([{ op: "update_text", uid: uidOf("uid_b2"), text: "plain" }], "b-unlink");
 
@@ -222,7 +222,7 @@ describe("applyChanges: a local page something keeps stays", () => {
   });
 
   test("it still has a block", () => {
-    const fourth = getOrCreateLocalPage(t.db, "Fourth", NOW);
+    const fourth = getOrCreateLocalPage(t.db, rawTitleOf("Fourth"), NOW);
     t.db.exec("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
               " VALUES ('uid_n1', ?, NULL, 0, 'n1')", [fourth]);
 
@@ -247,7 +247,7 @@ describe("applyChanges: a local page something keeps stays", () => {
   });
 
   test("a block links to it", () => {
-    const linked = getOrCreateLocalPage(t.db, "Linked", NOW);
+    const linked = getOrCreateLocalPage(t.db, rawTitleOf("Linked"), NOW);
     t.db.exec("INSERT INTO refs VALUES ('uid_b2', ?, 'link')", [linked]);
 
     applyChanges(t.db, window(), NOW);

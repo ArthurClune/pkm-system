@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { block, canonicalTitleOf, pagePayload, requestIdOf, revisionOf } from "../test-helpers";
+import { block, canonicalTitleOf, pagePayload, requestIdOf, revisionOf, rawTitleOf } from "../test-helpers";
 import type { ReadToken } from "./outlineState";
 import {
   createParentReadElection,
@@ -18,7 +18,7 @@ function createHost() {
     blocks: [block("tuid-u1", "session tree")],
   };
   const host: ParentReadHost = {
-    title: "Elected",
+    title: rawTitleOf("Elected"),
     latestRequestId: () => requestIdOf(state.latest),
     hasActivatedCapture: (requestId) => state.captures.has(requestId),
     manualReadCount: () => state.manualReads.size,

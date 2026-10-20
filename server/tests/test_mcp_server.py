@@ -406,3 +406,13 @@ def test_rename_page_collision_without_allow_merge_raises(tools):
     with pytest.raises(ApiError) as e:
         tools.rename_page("AI", "Machine Learning")
     assert e.value.status == 409
+
+
+def test_mcp_title_arguments_keep_their_names(tools):
+    by_name = {t.name: t for t in tools.mcp._tool_manager.list_tools()}
+    expected = {"get_page": ["title"], "backlinks": ["title"],
+                "rename_page": ["title", "new_title"]}
+    for tool, names in expected.items():
+        props = by_name[tool].parameters["properties"]
+        for name in names:
+            assert props[name]["x-brand"] == "RawTitle", (tool, name)

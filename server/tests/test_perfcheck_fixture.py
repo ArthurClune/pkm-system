@@ -102,11 +102,11 @@ def test_generate_raises_a_clear_error_when_the_big_page_never_nests(monkeypatch
 
     real_page = fx._Gen.page
 
-    def flatten_big_page(self, title, count, now_ms, special=None):
-        uids = real_page(self, title, count, now_ms, special)
-        if title == fx.BIG_PAGE:
+    def flatten_big_page(self, title_text: str, count, now_ms, special=None):
+        uids = real_page(self, title_text, count, now_ms, special)
+        if title_text == fx.BIG_PAGE:
             for _, op in self.creates:
-                if op["page_title"] == title:
+                if op["page_title"] == title_text:
                     op["parent_uid"] = None
         return uids
 

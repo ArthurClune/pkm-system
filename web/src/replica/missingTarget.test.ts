@@ -9,7 +9,8 @@ import { setMeta } from "./meta";
 import { skipsOnMissingTarget } from "./missingTarget";
 import { enqueueBatch } from "./queue";
 import { openTestDb } from "./testDb";
-import { batchIdOf, orderIdxOf, rawTitleOf, seqOf, shaOf, uidOf } from "../test-helpers";
+import { batchIdOf, canonicalTitleOf, fixtureText, orderIdxOf, rawTitleOf, seqOf, shaOf, uidOf } from "../test-helpers";
+import type { CanonicalTitle } from "../api/brands";
 
 // The fixture's JSON, as it is on disk: plain values, no brands. `mintOp`
 // and `placedOf` turn a row into the typed shape the code under test takes.
@@ -43,7 +44,7 @@ const fixture = JSON.parse(readFileSync(new URL(
   "../../../shared/fixtures/missing_targets.json", import.meta.url,
 ), "utf-8")) as {
   cases: MissingTargetCase[];
-  placement_state: { pages: { id: number; title: string }[];
+  placement_state: { pages: unknown[];
                      blocks: Raw[] };
   placement_cases: PlacementCase[];
 };
@@ -139,8 +140,9 @@ describe("applyLocalOps placement agrees with the server", () => {
   test.each(fixture.placement_cases)("$name", async (c) => {
     const t = await openTestDb();
     try {
-      const pageIds = new Map(
-        fixture.placement_state.pages.map((p) => [p.title, p.id]));
+      const pageIds = new Map<CanonicalTitle, number>(
+        fixture.placement_state.pages.map((p) => [
+          canonicalTitleOf(fixtureText(p, "title")), (p as { id: number }).id]));
       for (const [title, id] of pageIds) {
         t.db.exec("INSERT INTO pages(id, title) VALUES (?, ?)", [id, title]);
       }
@@ -148,7 +150,7 @@ describe("applyLocalOps placement agrees with the server", () => {
         t.db.exec(
           "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
           " VALUES (?,?,?,?,?)",
-          [b.uid, pageIds.get(b.page)!, b.parent_uid, b.order_idx, b.uid]);
+          [b.uid, pageIds.get(canonicalTitleOf(b.page))!, b.parent_uid, b.order_idx, b.uid]);
       }
 
       if (c.replay) {

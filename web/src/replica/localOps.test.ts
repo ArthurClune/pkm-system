@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { BatchId } from "../api/brands";
+import type { BatchId, RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { opBumpsUpdatedAt } from "../outline/blockStamps";
 import { applyLocalOps, getOrCreateLocalPage, LocalOpError, subtreeUids } from "./localOps";
@@ -95,8 +95,8 @@ describe("subtreeUids", () => {
 
 describe("getOrCreateLocalPage", () => {
   test("preserves boundary U+0020 while inactive and always normalizes control whitespace", () => {
-    const padded = getOrCreateLocalPage(t.db, "  Offline Padded  ", 5);
-    const control = getOrCreateLocalPage(t.db, "Control\nTitle", 5);
+    const padded = getOrCreateLocalPage(t.db, rawTitleOf("  Offline Padded  "), 5);
+    const control = getOrCreateLocalPage(t.db, rawTitleOf("Control\nTitle"), 5);
 
     expect(t.db.select("SELECT title FROM pages WHERE id = " + padded, ["title"]))
       .toEqual([{ title: "  Offline Padded  " }]);
@@ -107,27 +107,27 @@ describe("getOrCreateLocalPage", () => {
   test("canonicalizes creation and lookup while active", () => {
     setPlainSpaceTitleCanonicalization(t.db, true);
 
-    const created = getOrCreateLocalPage(t.db, "  Active Page  ", 5);
-    expect(getOrCreateLocalPage(t.db, "Active Page", 9)).toBe(created);
+    const created = getOrCreateLocalPage(t.db, rawTitleOf("  Active Page  "), 5);
+    expect(getOrCreateLocalPage(t.db, rawTitleOf("Active Page"), 9)).toBe(created);
     expect(t.db.select(
       "SELECT id AS page_id, title FROM pages WHERE title LIKE '%Active%'", ["page_id", "title"]))
       .toEqual([{ page_id: created, title: "Active Page" }]);
   });
 
   test("returns existing pages and mints distinct negative ids for new ones", () => {
-    expect(getOrCreateLocalPage(t.db, "AI", 5)).toBe(1);
-    const p1 = getOrCreateLocalPage(t.db, "Offline One", 5);
-    const p2 = getOrCreateLocalPage(t.db, "Offline Two", 5);
+    expect(getOrCreateLocalPage(t.db, rawTitleOf("AI"), 5)).toBe(1);
+    const p1 = getOrCreateLocalPage(t.db, rawTitleOf("Offline One"), 5);
+    const p2 = getOrCreateLocalPage(t.db, rawTitleOf("Offline Two"), 5);
     expect(p1).toBeLessThan(0);
     expect(p2).toBeLessThan(0);
     expect(p1).not.toBe(p2);
-    expect(getOrCreateLocalPage(t.db, "Offline One", 9)).toBe(p1);
+    expect(getOrCreateLocalPage(t.db, rawTitleOf("Offline One"), 9)).toBe(p1);
   });
 
   test("defensively rejects forbidden titles before creating a page", () => {
     const before = replicaState();
 
-    expect(() => getOrCreateLocalPage(t.db, "Control\n#Title", 5))
+    expect(() => getOrCreateLocalPage(t.db, rawTitleOf("Control\n#Title"), 5))
       .toThrow(LocalOpError);
     expect(replicaState()).toEqual(before);
   });
@@ -153,14 +153,14 @@ describe("applyLocalOps", () => {
     expect(replicaState()).toEqual(before);
   });
 
-  const atomicOps: [string, BlockOp, string, string][] = [
+  const atomicOps: [string, BlockOp, string, RawTitle][] = [
     ["explicit page title", { op: "create_page", page_title: rawTitleOf("Atomic #Bad") },
-      "page_title", "Atomic #Bad"],
+      "page_title", rawTitleOf("Atomic #Bad")],
     ["extracted reference", { op: "update_text", uid: uidOf("uid_r2"),
-      text: "[[Atomic #Bad Ref]]" }, "reference", "Atomic #Bad Ref"],
+      text: "[[Atomic #Bad Ref]]" }, "reference", rawTitleOf("Atomic #Bad Ref")],
   ];
   test.each(atomicOps)("preflights a full batch before a later forbidden %s",
-    (_name, invalidOp, source, title) => {
+    (_name, invalidOp, source, title: RawTitle) => {
       t.db.exec("INSERT INTO sidebar_entries(id, title, order_idx) VALUES (1, 'AI', 0)");
       const before = replicaState();
 
@@ -666,10 +666,10 @@ describe("applyLocalOps: replay log", () => {
                            [canonicalTitleOf("Taken"), pageIdOf(-1)]]);
     t.db.exec("INSERT INTO pages(id, title) VALUES (-1, 'Other')");
     const record = { batchId: bid("b1"), freed };
-    expect(getOrCreateLocalPage(t.db, "Fresh", 5, record)).toBe(-7);
-    expect(getOrCreateLocalPage(t.db, "Taken", 5, record)).toBe(-8);
+    expect(getOrCreateLocalPage(t.db, rawTitleOf("Fresh"), 5, record)).toBe(-7);
+    expect(getOrCreateLocalPage(t.db, rawTitleOf("Taken"), 5, record)).toBe(-8);
     // a read's mint is not recorded and reuses nothing
-    expect(getOrCreateLocalPage(t.db, "Daily", 5)).toBe(-9);
+    expect(getOrCreateLocalPage(t.db, rawTitleOf("Daily"), 5)).toBe(-9);
     expect(keys()).toEqual(["b1:page:-7", "b1:page:-8"]);
   });
 });

@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 // The harness's handle on the proptest server: the session cookie and the
 // /__proptest/* control routes (server/tooling/proptest/sync_server.py).
-import type { BatchId, CanonicalTitle, BlockUid, SyncSeq } from "../../api/brands";
+import type { BatchId, CanonicalTitle, BlockUid, RawTitle, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import type { Changes, Snapshot } from "../../replica/apply";
 import { BASE_URL, PASSWORD } from "./env";
@@ -25,7 +25,7 @@ export interface RenameRecord {
  * (null: before every batch), the journal seq it was made at, the server
  * clock it ran at, and the uids of the blocks it removed. */
 export interface DeleteRecord {
-  title: string;
+  title: CanonicalTitle;
   seq: SyncSeq;
   after_batch_id: BatchId | null;
   at: number;
@@ -82,7 +82,7 @@ export interface ServerControl {
    * recorded rename. */
   postRename(from: string, to: string): Promise<Response>;
   /** DELETE the page as the SPA does, for replaying a recorded delete. */
-  postDelete(title: string): Promise<Response>;
+  postDelete(title: RawTitle): Promise<Response>;
   /** The same control whose every request is aborted when `signal` fires, so
    * a request already on the wire cannot commit after its owner gave up. */
   withSignal(signal: AbortSignal): ServerControl;
@@ -162,7 +162,7 @@ function control(cookie: string, signal?: AbortSignal): ServerControl {
         body: JSON.stringify({ new_title: to, allow_merge: false }),
         signal,
       }),
-    postDelete: (title) => fetch(
+    postDelete: (title: RawTitle) => fetch(
       `${BASE_URL}/api/page/${encodeURIComponent(title)}`, {
         method: "DELETE",
         headers: { cookie },

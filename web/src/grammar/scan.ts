@@ -49,9 +49,9 @@ export type GrammarToken =
 const CONTROL_WS_RE = /[\t\n\r\f\v]/;
 const WS_RUN_RE = /[ \t\n\r\f\v]+/g;
 
-export function normalizeRefTitle(title: string): NormalizedTitle {
-  if (!CONTROL_WS_RE.test(title)) return title as NormalizedTitle;
-  return title.replace(WS_RUN_RE, " ").trim() as NormalizedTitle;
+export function normalizeRefTitle(text: string): NormalizedTitle {
+  if (!CONTROL_WS_RE.test(text)) return text as NormalizedTitle;
+  return text.replace(WS_RUN_RE, " ").trim() as NormalizedTitle;
 }
 
 const TODO_RE = /^\{\{(\[\[)?(TODO|DONE)(\]\])?\}\}/;

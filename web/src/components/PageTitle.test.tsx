@@ -3,6 +3,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, expect, it, vi } from "vitest";
 import { ApiError, apiFetch } from "../api/client";
 import { ROUTER_FUTURE_FLAGS } from "../router";
+import { canonicalTitleOf } from "../test-helpers";
 import { PageTitle } from "./PageTitle";
 
 vi.mock("../api/client", async (importOriginal) => {
@@ -16,16 +17,17 @@ function Probe() {
   return <p data-testid="loc">{loc.pathname}</p>;
 }
 
-function mount(title: string) {
+function mount(titleText: string) {
+  const pageTitle = canonicalTitleOf(titleText);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/x"]}>
-      <PageTitle title={title} />
+      <PageTitle title={pageTitle} />
       <Probe />
     </MemoryRouter>);
 }
 
-function startEditing(title: string) {
-  fireEvent.click(screen.getByRole("button", { name: title }));
+function startEditing(titleText: string) {
+  fireEvent.click(screen.getByRole("button", { name: titleText }));
   return screen.getByRole("textbox") as HTMLInputElement;
 }
 

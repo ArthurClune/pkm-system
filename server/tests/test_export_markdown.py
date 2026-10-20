@@ -1,12 +1,13 @@
 from conftest import tree_node as node
 from pkm.export.markdown import (page_filename, render_page,
                                  resolve_block_refs, rewrite_asset_links)
+from pkm.test_data.ids import canonical_title_of
 
 
 def test_render_nested_outline():
     tree = [node("parent", [node("child", [node("grandchild")])]),
             node("sibling")]
-    assert render_page("My Page", tree, {}) == (
+    assert render_page(canonical_title_of("My Page"), tree, {}) == (
         "# My Page\n"
         "\n"
         "- parent\n"
@@ -16,7 +17,7 @@ def test_render_nested_outline():
 
 
 def test_render_multiline_block_continuation():
-    assert render_page("P", [node("line one\nline two")], {}) == (
+    assert render_page(canonical_title_of("P"), [node("line one\nline two")], {}) == (
         "# P\n\n- line one\n  line two\n")
 
 
@@ -49,26 +50,26 @@ def test_asset_links_become_relative():
 
 def test_page_filename_sanitizes_and_dedupes():
     taken: set[str] = set()
-    assert page_filename("Notes/Ideas: 2026", taken) == "Notes-Ideas- 2026.md"
-    assert page_filename("plain", taken) == "plain.md"
-    assert page_filename("Plain", taken) == "Plain (2).md"  # APFS case-insensitive
-    assert page_filename("...", taken) == "untitled.md"
+    assert page_filename(canonical_title_of("Notes/Ideas: 2026"), taken) == "Notes-Ideas- 2026.md"
+    assert page_filename(canonical_title_of("plain"), taken) == "plain.md"
+    assert page_filename(canonical_title_of("Plain"), taken) == "Plain (2).md"  # APFS case-insensitive
+    assert page_filename(canonical_title_of("..."), taken) == "untitled.md"
 
 
 def test_page_filename_truncates_overlong_titles():
     # APFS caps filename components at 255 bytes; live graph has a
     # 268-byte page title that must still export.
     taken: set[str] = set()
-    name = page_filename("x" * 300, taken)
+    name = page_filename(canonical_title_of("x" * 300), taken)
     assert name.endswith(".md")
     assert len(name.encode("utf-8")) <= 255
-    dedup = page_filename("x" * 300, taken)
+    dedup = page_filename(canonical_title_of("x" * 300), taken)
     assert dedup != name
     assert len(dedup.encode("utf-8")) <= 255
 
 
 def test_page_filename_truncation_respects_multibyte_boundaries():
     taken: set[str] = set()
-    name = page_filename("é" * 200, taken)  # 400 utf-8 bytes
+    name = page_filename(canonical_title_of("é" * 200), taken)  # 400 utf-8 bytes
     assert len(name.encode("utf-8")) <= 255
     name.encode("utf-8").decode("utf-8")  # no split code point

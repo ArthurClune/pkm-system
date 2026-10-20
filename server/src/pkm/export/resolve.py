@@ -153,7 +153,7 @@ def resolve_text(text: str, uid_to_text: Mapping[str, str],
     return "".join(out)
 
 
-def render_page_resolved(title: str, tree: Sequence[TreeNode],
+def render_page_resolved(title: CanonicalTitle, tree: Sequence[TreeNode],
                          uid_to_text: Mapping[str, str],
                          query_results: Mapping[str, QueryResult]) -> str:
     """Like markdown.render_page, but ((refs)) resolve recursively to plain

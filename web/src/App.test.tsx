@@ -61,7 +61,7 @@ it("shift-clicking the nav's TODO link opens it in the sidebar, not a new window
 
 it("traps shift-click as a no-op on nav destinations that aren't pages", async () => {
   stubFetch([["/api/current-work", { sections: [
-    { id: "last-24-hours", title: "Last 24 hours", pages: [] },
+    { id: "last-24-hours", heading: "Last 24 hours", pages: [] },
   ] }], ["/api/sidebar", { entries: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/current-work"]}><App /></MemoryRouter>);
   await screen.findByRole("heading", { name: "Current Work" });
@@ -109,9 +109,9 @@ it("ctrl-u focuses the top bar's search bar", async () => {
 
 it("links to Current Work under Daily Notes and renders the route", async () => {
   stubFetch([["/api/current-work", { sections: [
-    { id: "last-24-hours", title: "Last 24 hours", pages: [] },
-    { id: "24-to-48-hours", title: "24–48 hours", pages: [] },
-    { id: "48-hours-to-7-days", title: "48 hours–7 days", pages: [] },
+    { id: "last-24-hours", heading: "Last 24 hours", pages: [] },
+    { id: "24-to-48-hours", heading: "24–48 hours", pages: [] },
+    { id: "48-hours-to-7-days", heading: "48 hours–7 days", pages: [] },
   ] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/current-work"]}><App /></MemoryRouter>);
 
@@ -124,9 +124,9 @@ it("links to Current Work under Daily Notes and renders the route", async () => 
 
 it("Daily Notes and Current Work are both primary links, whatever the route", async () => {
   stubFetch([["/api/current-work", { sections: [
-    { id: "last-24-hours", title: "Last 24 hours", pages: [] },
-    { id: "24-to-48-hours", title: "24–48 hours", pages: [] },
-    { id: "48-hours-to-7-days", title: "48 hours–7 days", pages: [] },
+    { id: "last-24-hours", heading: "Last 24 hours", pages: [] },
+    { id: "24-to-48-hours", heading: "24–48 hours", pages: [] },
+    { id: "48-hours-to-7-days", heading: "48 hours–7 days", pages: [] },
   ] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/current-work"]}><App /></MemoryRouter>);
 

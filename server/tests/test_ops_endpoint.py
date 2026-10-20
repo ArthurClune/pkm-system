@@ -146,7 +146,7 @@ def _write_state(config):
 
 
 @pytest.mark.parametrize(
-    ("invalid_op", "source", "title"),
+    ("invalid_op", "source", "title_text"),
     [
         (
             {"op": "create_page", "page_title": "New #Old"},
@@ -197,7 +197,7 @@ def _write_state(config):
     ],
 )
 def test_forbidden_title_in_second_op_refuses_complete_batch_before_mutation(
-        client, seeded_config, invalid_op, source, title):
+        client, seeded_config, invalid_op, source, title_text):
     before = _write_state(seeded_config)
 
     response = _post(
@@ -211,7 +211,7 @@ def test_forbidden_title_in_second_op_refuses_complete_batch_before_mutation(
     assert response.status_code == 400
     assert response.json()["detail"] == {
         "index": 1,
-        "reason": f"unsupported {source} title syntax: {title!r}",
+        "reason": f"unsupported {source} title syntax: {title_text!r}",
     }
     assert _write_state(seeded_config) == before
 
@@ -827,11 +827,11 @@ def _feed_since(client, seq: SyncSeq):
             {t["entity_id"] for t in feed["tombstones"] if t["kind"] == "block"})
 
 
-def _page_exists(seeded_config, title):
+def _page_exists(seeded_config, title_text: str):
     from pkm.server.db import open_db
     con = open_db(seeded_config.db_path)
     row = read(con, "SELECT 1 FROM pages WHERE title = ?",
-                      (title,)).fetchone()
+                      (title_text,)).fetchone()
     con.close()
     return row is not None
 
@@ -1075,8 +1075,8 @@ def test_ops_chained_on_a_diverted_create_lose_no_text(client):
 # under a live parent follows the parent to its current page; a move that
 # would nest a block under its own descendant is skipped with a note.
 
-def _page_blocks(client, title):
-    return client.get(f"/api/page/{title}").json()["blocks"]
+def _page_blocks(client, title_text: str):
+    return client.get(f"/api/page/{title_text}").json()["blocks"]
 
 
 def test_create_under_a_parent_moved_to_another_page_follows_it(
@@ -1215,8 +1215,8 @@ STALE_BASE = "Tags:: #AI"
 STALE_EDIT = "Tags:: #AI plus offline words"
 
 
-def _rename(client, title, new, allow_merge=False):
-    r = client.post(f"/api/page/{title}/rename",
+def _rename(client, title_text: str, new, allow_merge=False):
+    r = client.post(f"/api/page/{title_text}/rename",
                     json={"new_title": raw_title_of(new), "allow_merge": allow_merge})
     assert r.status_code == 200, r.text
     return r

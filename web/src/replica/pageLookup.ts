@@ -3,18 +3,18 @@
 // under, and the page that already holds it. localOps.ts creates a page when
 // none does; its placement facts only ever look one up.
 
-import type { CanonicalTitle, PageId } from "../api/brands";
+import type { CanonicalTitle, PageId, RawTitle } from "../api/brands";
 import type { ReplicaDb } from "./db";
 import { type TitleReader, titleReader } from "./meta";
 
 /** The title a page is stored under: canonicalised, blank as "Untitled". */
 export const storedPageTitle = (read: TitleReader,
-                                title: string): CanonicalTitle => {
+                                title: RawTitle): CanonicalTitle => {
   const canonical = read(title);
   return canonical.trim().length === 0 ? read("Untitled") : canonical;
 };
 
-export const localPageTitle = (db: ReplicaDb, title: string): CanonicalTitle =>
+export const localPageTitle = (db: ReplicaDb, title: RawTitle): CanonicalTitle =>
   storedPageTitle(titleReader(db), title);
 
 export const pageIdByTitle = (db: ReplicaDb, title: CanonicalTitle): PageId | null => {
@@ -25,5 +25,5 @@ export const pageIdByTitle = (db: ReplicaDb, title: CanonicalTitle): PageId | nu
 
 /** The page getOrCreateLocalPage would return for `title`, if it exists
  * already; never creates one. */
-export const existingLocalPageId = (db: ReplicaDb, title: string):
+export const existingLocalPageId = (db: ReplicaDb, title: RawTitle):
   PageId | null => pageIdByTitle(db, localPageTitle(db, title));

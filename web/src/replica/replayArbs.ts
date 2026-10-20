@@ -14,8 +14,8 @@ export type DrawnBatch = { batchId: BatchId; ops: BlockOp[] };
 const stateUid = (i: number): BlockUid => uidOf(`blk00${i}`);
 const NEW_UIDS: BlockUid[] = ["newb00", "newb01", "newb02", "newb03"].map((u) => uidOf(u));
 
-const page = (id: number, title: string): SyncPage => ({
-  id: pageIdOf(id), title: canonicalTitleOf(title), created_at: 1, updated_at: 1,
+const page = (id: number, titleText: string): SyncPage => ({
+  id: pageIdOf(id), title: canonicalTitleOf(titleText), created_at: 1, updated_at: 1,
 });
 
 /** One or two server pages (ids 1 and 2) and up to eight blocks as a
@@ -89,7 +89,7 @@ export const batchesArb = (state: ReplicaState): fc.Arbitrary<DrawnBatch[]> => {
                 view_type: fc.constantFrom("numbered" as const, "document" as const) })
       .map((o): BlockOp => ({ op: "set_view_type", ...o })),
     fc.constantFrom("Page One", "Fresh Page", "Made Page")
-      .map((title): BlockOp => ({ op: "create_page", page_title: rawTitleOf(title) })),
+      .map((titleText): BlockOp => ({ op: "create_page", page_title: rawTitleOf(titleText) })),
   );
   return fc.array(fc.array(op, { minLength: 1, maxLength: 4 }),
                   { minLength: 1, maxLength: 3 })

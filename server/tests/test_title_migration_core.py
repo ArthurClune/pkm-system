@@ -16,12 +16,12 @@ from pkm.test_data.ids import (canonical_title_of, order_idx_of,
                                sidebar_order_idx_of, uid_of)
 
 
-def _ct(title: str) -> CanonicalTitle:
+def _ct(title_text: str) -> CanonicalTitle:
     """InventoryPage/InventorySidebar.title is a row read from pages.title/
     sidebar_entries.title, so it's CanonicalTitle -- these fixtures mint it
     directly rather than running every title through the real
     canonicalizer."""
-    return canonical_title_of(title)
+    return canonical_title_of(title_text)
 
 
 def _inventory(

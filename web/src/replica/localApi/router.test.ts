@@ -9,19 +9,28 @@ import { titleForDate } from "../daily";
 import { setPlainSpaceTitleCanonicalization } from "../meta";
 import { openTestDb, type TestDb } from "../testDb";
 import { handleLocalApi, type LocalApiResult } from "./router";
-import { batchIdOf } from "../../test-helpers";
+import { batchIdOf, fixtureText } from "../../test-helpers";
 
 const NOW = 1752403200000; // 2025-07-13 (mid-day UTC, same day in local time)
 
+// The fixture's JSON, read row by row: `titleText` is the fixture's `title`,
+// text for the parser under test.
 interface TitleSyntaxCase {
   name: string;
-  title: string;
+  titleText: string;
   reason: "forbidden_syntax" | null;
 }
 
+const titleSyntaxCase = (row: unknown): TitleSyntaxCase => ({
+  name: fixtureText(row, "name"),
+  titleText: fixtureText(row, "title"),
+  reason: (row as Pick<TitleSyntaxCase, "reason">).reason,
+});
+
 const forbiddenTitleCases = (JSON.parse(readFileSync(new URL(
   "../../../../shared/fixtures/title_syntax.json", import.meta.url,
-), "utf-8")) as { cases: TitleSyntaxCase[] }).cases
+), "utf-8")) as { cases: unknown[] }).cases
+  .map(titleSyntaxCase)
   .filter((c) => c.reason === "forbidden_syntax");
 
 let t: TestDb;
@@ -120,8 +129,8 @@ describe("daily auto-creation", () => {
     const title = titleForDate(new Date(NOW));
     const body = expectStatus(
       call("GET", `/api/page/${encodeURIComponent(title)}`), 200,
-    ) as { page: { id: number; title: string } };
-    expect(body.page.title).toBe(title);
+    ) as { page: { id: number } };
+    expect(body).toMatchObject({ page: { title } });
     expect(body.page.id).toBeLessThan(0); // local negative id
     expect(t.db.select(
       "SELECT id AS pending_row_id, batch_id, ops_json, poisoned, error AS pending_error"
@@ -155,15 +164,15 @@ describe("daily auto-creation", () => {
   test("journal without before includes an auto-created today", () => {
     const title = titleForDate(new Date(NOW));
     const body = expectStatus(call("GET", "/api/journal?days=1"), 200) as {
-      days: { title: string; exists: boolean; blocks: unknown[] }[];
+      days: { exists: boolean; blocks: unknown[] }[];
     };
     expect(body.days).toHaveLength(1);
     expect(body.days[0]).toMatchObject({ title, exists: true });
   });
 
-  function addDaily(id: number, title: string, texts: string[]) {
+  function addDaily(id: number, titleText: string, texts: string[]) {
     t.db.exec("INSERT INTO pages(id, title, created_at, updated_at)"
-      + " VALUES (?,?,NULL,NULL)", [id, title]);
+      + " VALUES (?,?,NULL,NULL)", [id, titleText]);
     texts.forEach((text, i) => {
       t.db.exec(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
@@ -188,7 +197,7 @@ describe("daily auto-creation", () => {
   test("journal head is today plus the most recent non-empty days", () => {
     addDaily(11, "July 9th, 2025", ["entry nine"]);
     const body = expectStatus(call("GET", "/api/journal?days=2"), 200) as {
-      days: { date: string; title: string }[];
+      days: { date: string }[];
     };
     expect(body.days.map((d) => d.date)).toEqual(["2025-07-13", "2025-07-09"]);
   });
@@ -317,14 +326,14 @@ describe("current work", () => {
 
     expect(expectStatus(call("GET", "/api/current-work"), 200)).toEqual({
       sections: [
-        { id: "last-24-hours", title: "Last 24 hours", pages: [
+        { id: "last-24-hours", heading: "Last 24 hours", pages: [
           { id: 2, title: "Recent A", updated_at: NOW - hour },
           { id: 1, title: "Recent B", updated_at: NOW - hour },
         ] },
-        { id: "24-to-48-hours", title: "24–48 hours", pages: [
+        { id: "24-to-48-hours", heading: "24–48 hours", pages: [
           { id: 3, title: "Exactly 24h", updated_at: NOW - 24 * hour },
         ] },
-        { id: "48-hours-to-7-days", title: "48 hours–7 days", pages: [
+        { id: "48-hours-to-7-days", heading: "48 hours–7 days", pages: [
           { id: 4, title: "Exactly 48h", updated_at: NOW - 48 * hour },
           { id: 5, title: "Exactly 7d", updated_at: NOW - 7 * 24 * hour },
         ] },
@@ -359,8 +368,8 @@ describe("titles", () => {
 describe("create page", () => {
   test.each(forbiddenTitleCases)(
     "rejects shared forbidden title case $name before local or durable creation",
-    ({ title }) => {
-      const result = call("POST", "/api/pages", { title }, {
+    (c) => {
+      const result = call("POST", "/api/pages", { title: c.titleText }, {
         newBatchId: () => batchIdOf("batch-forbidden"),
       });
 
@@ -376,8 +385,8 @@ describe("create page", () => {
     const body = expectStatus(
       call("POST", "/api/pages", { title: "  Fresh Page  " },
            { newBatchId: () => batchIdOf("batch-1") }), 200,
-    ) as { id: number; title: string };
-    expect(body.title).toBe("  Fresh Page  ");
+    ) as { id: number };
+    expect(body).toMatchObject({ title: "  Fresh Page  " });
     expect(body.id).toBeLessThan(0);
     const rows = (t.db.select(
       "SELECT batch_id, ops_json FROM pending_ops", ["batch_id", "ops_json"]));
@@ -393,8 +402,8 @@ describe("create page", () => {
     const body = expectStatus(
       call("POST", "/api/pages", { title: "  Active Post  " },
            { newBatchId: () => batchIdOf("batch-active") }), 200,
-    ) as { id: number; title: string };
-    expect(body.title).toBe("Active Post");
+    ) as { id: number };
+    expect(body).toMatchObject({ title: "Active Post" });
     expect(body.id).toBeLessThan(0);
     const queued = (t.db.select(
       "SELECT ops_json FROM pending_ops", ["ops_json"]));
@@ -410,8 +419,8 @@ describe("create page", () => {
     const body = expectStatus(
       call("POST", "/api/pages", { title: "Levels of AGI:\nthe Path" },
            { newBatchId: () => batchIdOf("batch-nl") }), 200,
-    ) as { id: number; title: string };
-    expect(body.title).toBe("Levels of AGI: the Path");
+    ) as { id: number };
+    expect(body).toMatchObject({ title: "Levels of AGI: the Path" });
     expect((t.db.select(
       "SELECT title FROM pages WHERE title LIKE 'Levels%'", ["title"],
     ))).toEqual([{ title: "Levels of AGI: the Path" }]);

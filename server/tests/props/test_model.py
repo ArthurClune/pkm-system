@@ -15,7 +15,8 @@ from props.model import (MBlock, Model, Outcome, Rewrite, positions_after,
 from props.strategies import (PAGES, batch_for, cli_batch, op_for, seed_tree,
                               texts, uid_pool)
 from pkm.test_data.ids import (
-    canonical_title_of, malformed_uid, order_idx_of, seq_of, uid_of,
+    canonical_title_of, malformed_uid, order_idx_of, raw_title_of, seq_of,
+    uid_of,
 )
 
 A, B, C, P, X, Y = (uid_of(u) for u in ("blk_aa", "blk_bb", "blk_cc", "blk_pp", "blk_xx", "blk_yy"))
@@ -290,7 +291,7 @@ def test_title_syntax_is_400():
 def test_delete_missing_page_is_404():
     m = model()
     m.pages.discard("Gamma")
-    assert m.delete_page("Gamma", {}, seq=seq_of(9)).status == 404
+    assert m.delete_page(raw_title_of("Gamma"), {}, seq=seq_of(9)).status == 404
     assert m.deletions == []
 
 
@@ -299,7 +300,7 @@ def test_delete_page_refused_by_an_attribute_naming_it():
               blk(C, page="Beta", text="[[Alpha]]:: v"))
     before = m.snapshot()
     out = m.delete_page(
-        "Alpha", {uid_of("other_1"): "Alpha:: w", uid_of("other_2"): "x"},
+        raw_title_of("Alpha"), {uid_of("other_1"): "Alpha:: w", uid_of("other_2"): "x"},
         seq_of(9))
     assert out.status == 409
     assert out.blockers == {B: "used_as_attribute", C: "attribute",
@@ -313,7 +314,7 @@ def test_delete_page_refused_when_a_copy_would_add_an_attribute():
     # unlinking it there makes the referencing block a property block
     m = model(blk(P, page="Alpha", text="[[Alpha]]:: v"),
               blk(B, page="Beta", text=f"(({P}))"))
-    assert m.delete_page("Alpha", {}, seq_of(9)).blockers == {B: "attribute"}
+    assert m.delete_page(raw_title_of("Alpha"), {}, seq_of(9)).blockers == {B: "attribute"}
 
 
 def test_delete_page_removes_its_blocks_and_rewrites_references():
@@ -322,7 +323,7 @@ def test_delete_page_removes_its_blocks_and_rewrites_references():
               blk(B, page="Beta", text=f"see [[Alpha]] (({P})) #Beta"),
               blk(C, page="Gamma", text="untouched [[Beta]]"))
     out = m.delete_page(
-        "Alpha", {uid_of("conflict_1"): f"[[Alpha]] (({A}))"}, seq_of(9))
+        raw_title_of("Alpha"), {uid_of("conflict_1"): f"[[Alpha]] (({A}))"}, seq_of(9))
     assert out.status == 200
     # a copy drops its attribute, inlines one level, blanks the rest
     assert out.copies == {P: "copy Alpha inner ", A: "inner copy Alpha "}
@@ -339,10 +340,10 @@ def test_delete_page_removes_its_blocks_and_rewrites_references():
 
 # --- backend.md § Stale batches -----------------------------------------------
 
-def deleted(*rows, title="Alpha", seq: SyncSeq = seq_of(9)):
-    """A model whose `title` page was deleted at journal head `seq`."""
+def deleted(*rows, title_text="Alpha", seq: SyncSeq = seq_of(9)):
+    """A model whose `title_text` page was deleted at journal head `seq`."""
     m = model(*rows)
-    assert m.delete_page(title, {}, seq).status == 200
+    assert m.delete_page(raw_title_of(title_text), {}, seq).status == 200
     return m
 
 
@@ -433,7 +434,7 @@ def test_chained_edit_after_a_stale_fence_replays_clean():
 def test_edit_based_on_a_page_deletes_rewrite_replays_its_inline():
     m = model(blk(P, page="Alpha", text="copied"),
               blk(B, page="Beta", text=f"x (({P}))"))
-    m.delete_page("Alpha", {}, seq_of(9))
+    m.delete_page(raw_title_of("Alpha"), {}, seq_of(9))
     assert m.blocks[B].text == "x copied"
     out = m.apply([{"op": "update_text", "uid": B, "text": f"y (({P}))",
                     "base_text_hash": text_hash(f"x (({P}))")}])
@@ -508,7 +509,7 @@ def test_text_model_matches_the_unlinker_on_generated_texts(data):
                              for u, t in sources.items()])
     m = Model.from_rows(PAGES, [blk(u, page=title, text=t)
                                 for u, t in page.items()])
-    out = m.delete_page(title, sources, seq_of(9))
+    out = m.delete_page(raw_title_of(title), sources, seq_of(9))
     assert out.blockers == {b.uid: b.reason for b in plan.blockers}
     if out.status == 200:
         assert {u: out.rewrite(t)[0] for u, t in sources.items()

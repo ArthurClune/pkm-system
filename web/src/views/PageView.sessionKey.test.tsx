@@ -46,8 +46,8 @@ describe.each([
     const initial = pagePayload(canonicalTitleOf("Paper"), [block("tuid-u1", "first")]);
     setup(() => Promise.resolve(jsonResponse(initial)));
     await screen.findByText("first");
-    expect(isOutlineSessionActive("Paper")).toBe(true);
-    if (raw !== "Paper") expect(isOutlineSessionActive(raw)).toBe(false);
+    expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(true);
+    if (raw !== "Paper") expect(isOutlineSessionActive(rawTitleOf(raw))).toBe(false);
   });
 
   it("a resync response dispatched before a remote batch cannot erase it", async () => {

@@ -2,6 +2,7 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ApiError } from "../api/client";
+import type { RawTitle } from "../api/brands";
 import { apiDelete, apiGet } from "../api/typedClient";
 import { BlockStampsContext, SidebarContext } from "../contexts";
 import { encodeTitle, titleFromPathname } from "../paths";
@@ -53,7 +54,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
   const [blockers, setBlockers] = useState<DeleteBlocker[] | null>(null);
   const closeBlocked = useCallback(() => setBlockers(null), []);
 
-  const fetchPreview = async (t: string): Promise<DeletePreview | null> => {
+  const fetchPreview = async (t: RawTitle): Promise<DeletePreview | null> => {
     try {
       return await apiGet("/api/delete-preview", { query: { title: t } });
     } catch {

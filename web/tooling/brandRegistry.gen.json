@@ -236,6 +236,11 @@
     "srcPageTitle": [
       "CanonicalTitle"
     ],
+    "title": [
+      "RawTitle",
+      "NormalizedTitle",
+      "CanonicalTitle"
+    ],
     "page_title": [
       "RawTitle",
       "NormalizedTitle",

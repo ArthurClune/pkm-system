@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { BatchId } from "../api/brands";
+import type { BatchId, RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { LocalOpError } from "./localOps";
 import * as queue from "./queue";
@@ -82,14 +82,14 @@ describe("enqueueBatch", () => {
       .toEqual([{ batch_id: "batch-a", enqueued_ms: 99 }]);
   });
 
-  const invalidOps: [string, BlockOp, string, string][] = [
+  const invalidOps: [string, BlockOp, string, RawTitle][] = [
     ["explicit page title", { op: "create_page", page_title: rawTitleOf("Queue #Bad") },
-      "page_title", "Queue #Bad"],
+      "page_title", rawTitleOf("Queue #Bad")],
     ["extracted reference", { op: "update_text", uid: uidOf("uid_q1"),
-      text: "[[Queue #Bad Ref]]" }, "reference", "Queue #Bad Ref"],
+      text: "[[Queue #Bad Ref]]" }, "reference", rawTitleOf("Queue #Bad Ref")],
   ];
   test.each(invalidOps)("refuses a full batch atomically for a later forbidden %s",
-    (_name, invalidOp, source, title) => {
+    (_name, invalidOp, source, title: RawTitle) => {
       const before = durableAndOptimisticState();
       let thrown: unknown;
 

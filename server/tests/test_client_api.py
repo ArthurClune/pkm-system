@@ -7,7 +7,9 @@ from pkm.client.api import PkmClient, login
 from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.contracts.ops import UID_RE, CreateOp, CreatePageOp, new_uid
 from pkm.contracts.responses import Backlinks, PagePayload
+from pkm.contracts.titles import RawTitle
 from pkm.server.db import open_db
+from pkm.test_data.ids import raw_title_of
 
 
 def test_new_uid_matches_server_uid_re():
@@ -448,7 +450,7 @@ def test_get_backlinks_gives_up_loudly_if_ordering_never_stabilizes(
     later offset, so the fetch can never converge on a stable, complete
     set. Rather than eventually returning a possibly-incomplete result,
     it must raise: no silent truncation, in either direction."""
-    def flaky_get_page(title, bl_limit=100, bl_offset=0):
+    def flaky_get_page(title: RawTitle, bl_limit=100, bl_offset=0):
         return PagePayload.model_validate(
             {"page": {"id": 1, "title": "X", "created_at": None,
                       "updated_at": None},
@@ -576,7 +578,7 @@ def test_unauthenticated_client_gets_login_hint(anon_client):
     bad = PkmClient(CliConfig(url="http://testserver", token="junk"),
                     http=anon_client)
     with pytest.raises(ApiError) as exc:
-        bad.get_page("AI")
+        bad.get_page(raw_title_of("AI"))
     assert str(exc.value) == (
         "401: session expired or missing — run `pkm login`")
 
@@ -593,6 +595,6 @@ def test_error_with_a_non_object_json_body_keeps_the_status(body):
             lambda request: httpx2.Response(502, text=body)))
     client = PkmClient(CliConfig(url="http://pkm.test", token="t"), http=http)
     with pytest.raises(ApiError) as e:
-        client.get_page("Home")
+        client.get_page(raw_title_of("Home"))
     assert e.value.status == 502
     assert body in str(e.value)

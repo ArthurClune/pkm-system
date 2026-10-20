@@ -7,7 +7,7 @@
 // places its creates and moves exactly as the first apply did. localOps.ts
 // gathers the facts and runs the SQL for the verdict.
 
-import type { BlockUid, OrderIdx, PageId } from "../api/brands";
+import type { BlockUid, OrderIdx, PageId, RawTitle } from "../api/brands";
 import type { CreateOp, MoveOp } from "../api/ops";
 import { skipsOnMissingTarget } from "./missingTarget";
 
@@ -28,7 +28,7 @@ export interface PlacementFacts {
  * `repage` moves the subtree with it. */
 export type Placement =
   | { kind: "skip" }
-  | { kind: "place"; page: { id: PageId } | { title: string };
+  | { kind: "place"; page: { id: PageId } | { title: RawTitle };
       parentUid: BlockUid | null; orderIdx: OrderIdx; repage: boolean };
 
 export function placementFor(op: CreateOp | MoveOp,
@@ -48,9 +48,9 @@ export function placementFor(op: CreateOp | MoveOp,
   }
   // past the skip check, a move names an existing block
   const moved = block!;
-  const title = parent === null ? op.page_title ?? null : null;
+  const movedTitle = parent === null ? op.page_title ?? null : null;
   const page = parent !== null ? { id: parent.page_id }
-    : title !== null ? { title } : { id: moved.page_id };
+    : movedTitle !== null ? { title: movedTitle } : { id: moved.page_id };
   // A title with no page yet names a page the block cannot already be on.
   const targetPageId = "id" in page ? page.id : facts.titlePageId;
   return { kind: "place", page, parentUid, orderIdx: op.order_idx,

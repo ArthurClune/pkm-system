@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 import { linkUnlinkedReference } from "./linkReference";
 import { canonicalTitleOf } from "../test-helpers";
 
-const linked = (text: string, title: string) =>
-  linkUnlinkedReference(text, canonicalTitleOf(title));
+const linked = (text: string, titleText: string) =>
+  linkUnlinkedReference(text, canonicalTitleOf(titleText));
 
 describe("linkUnlinkedReference", () => {
   test("links the first differently cased plain occurrence using canonical casing", () => {

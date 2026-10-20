@@ -26,18 +26,18 @@ export function titleForDate(d: Date): CanonicalTitle {
     ` ${d.getFullYear()}`) as CanonicalTitle;
 }
 
-export function dateForTitle(title: string): Date | null {
-  const m = TITLE_RE.exec(title);
+export function dateForTitle(text: string): Date | null {
+  const m = TITLE_RE.exec(text);
   if (!m) return null;
   const day = Number(m[2]);
   if (suffix(day) !== m[3]) return null;
   return new Date(Number(m[4]), MONTHS.indexOf(m[1]), day);
 }
 
-/** `title` itself when it is a daily title (dateForTitle accepts it), which
+/** `text` itself when it is a daily title (dateForTitle accepts it), which
  * makes it canonical by format; null otherwise. */
-export function dailyTitle(title: string): CanonicalTitle | null {
-  return dateForTitle(title) === null ? null : title as CanonicalTitle;
+export function dailyTitle(text: string): CanonicalTitle | null {
+  return dateForTitle(text) === null ? null : text as CanonicalTitle;
 }
 
 // TS port of daily.py select_journal_days: the dates a journal

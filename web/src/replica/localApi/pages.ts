@@ -39,11 +39,11 @@ type BacklinkRow = Pick<Columns, "uid" | "text" | "src_page_id"
 
 const HOUR_MS = 60 * 60 * 1000;
 const CURRENT_WORK_SECTIONS = [
-  { id: "last-24-hours", title: "Last 24 hours", minAge: 0,
+  { id: "last-24-hours", heading: "Last 24 hours", minAge: 0,
     maxAge: 24 * HOUR_MS },
-  { id: "24-to-48-hours", title: "24–48 hours", minAge: 24 * HOUR_MS,
+  { id: "24-to-48-hours", heading: "24–48 hours", minAge: 24 * HOUR_MS,
     maxAge: 48 * HOUR_MS },
-  { id: "48-hours-to-7-days", title: "48 hours–7 days", minAge: 48 * HOUR_MS,
+  { id: "48-hours-to-7-days", heading: "48 hours–7 days", minAge: 48 * HOUR_MS,
     maxAge: 7 * 24 * HOUR_MS },
 ] as const;
 
@@ -189,7 +189,7 @@ export function currentWorkPayload(db: ReplicaDb,
       const lowerOperator = section.maxAge === 7 * 24 * HOUR_MS ? ">=" : ">";
       return {
         id: section.id,
-        title: section.title,
+        heading: section.heading,
         // the WHERE clause is what makes the page's edit time non-null
         pages: db.select(
           `SELECT id AS page_id, title, updated_at AS edited_at FROM pages

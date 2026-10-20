@@ -21,6 +21,7 @@ def test_current_work_groups_pages_into_exclusive_windows(client, seeded_config)
 
     body = client.get("/api/current-work", params={"now_ms": now}).json()
 
+    assert body["sections"][0]["heading"] == "Last 24 hours"
     assert [section["id"] for section in body["sections"]] == [
         "last-24-hours",
         "24-to-48-hours",

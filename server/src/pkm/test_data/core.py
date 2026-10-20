@@ -10,6 +10,7 @@ from typing import Literal
 from urllib.parse import quote
 
 from pkm.contracts.ops import UID_RE, BlockUid, OrderIdx, Sha256Hex
+from pkm.contracts.titles import RawTitle
 from pkm.importer.assets import Asset
 from pkm.importer.parse_export import Block, Export, Page
 from pkm.importer.rows import Rows, to_rows
@@ -76,7 +77,7 @@ class PageSource(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    title: StrictStr = Field(min_length=1)
+    title: RawTitle = Field(min_length=1, strict=True)
     created_at: StrictInt | None
     updated_at: StrictInt | None
     blocks: tuple[BlockSource, ...]

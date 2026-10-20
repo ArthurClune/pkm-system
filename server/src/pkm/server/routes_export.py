@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
 
 from pkm.database import Db
+from pkm.contracts.titles import RawTitle
 from pkm.export.markdown import page_filename
 from pkm.export.resolve import (
     BLOCK_REF_MAX_DEPTH, QUERY_MAX_DEPTH, QueryResult, QueryResultGroup,
@@ -123,10 +124,10 @@ def _gather_resolution_data(
 
 
 @router.get("/api/export/page/{title:path}")
-def export_page_markdown(title: str,
+def export_page_markdown(title: RawTitle,
                          db: Db = Depends(get_db)) -> Response:
-    title = read_title(db, title)
-    page = fetch_page(db, title)
+    canonical_title = read_title(db, title)
+    page = fetch_page(db, canonical_title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")
     blocks = db.select(

@@ -340,7 +340,7 @@ class _BatchCtx:
     created: set[BlockUid] = field(default_factory=set)
     subtrees: dict[str, _SubtreeModel] = field(default_factory=dict)
 
-    def blocks(self, title: str) -> Sequence[BlockNode]:
+    def blocks(self, title: RawTitle) -> Sequence[BlockNode]:
         if title not in self.pages:
             raise BuildError(f"page not fetched: {title}")
         return self.pages[title]

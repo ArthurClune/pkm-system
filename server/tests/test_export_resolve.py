@@ -7,6 +7,7 @@ from conftest import tree_node as node
 from pkm.export.resolve import (
     QueryResult, QueryResultGroup, QueryResultItem, find_query_macros,
     render_page_resolved, render_query_result, resolve_text)
+from pkm.test_data.ids import canonical_title_of
 
 
 # -- find_query_macros --------------------------------------------------
@@ -183,7 +184,7 @@ def test_render_page_resolved_combines_refs_and_queries():
     result = QueryResult(total=1, groups=_groups(("Page A", [("u1", "hit text")])))
     tree = [node("intro"),
             node("see ((uid_a1)) and {{query: {and: [[Tag]]}}}")]
-    out = render_page_resolved("My Page", tree, {"uid_a1": "the target"},
+    out = render_page_resolved(canonical_title_of("My Page"), tree, {"uid_a1": "the target"},
                                {"{and: [[Tag]]}": result})
     assert out.startswith("# My Page\n\n")
     assert "- intro\n" in out
@@ -196,7 +197,7 @@ def test_render_page_resolved_combines_refs_and_queries():
 def test_render_page_resolved_nests_multiline_query_output_under_its_block():
     result = QueryResult(total=1, groups=_groups(("Page A", [("u1", "hit")])))
     tree = [node("{{query: {and: [[Tag]]}}}", [node("child")])]
-    out = render_page_resolved("P", tree, {}, {"{and: [[Tag]]}": result})
+    out = render_page_resolved(canonical_title_of("P"), tree, {}, {"{and: [[Tag]]}": result})
     lines = out.splitlines()
     # the query's own multi-line rendering is indented like any other
     # multi-line block continuation (render_page's existing convention).

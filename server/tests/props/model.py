@@ -33,9 +33,10 @@ from typing import Any
 
 from pkm.contracts.ops import (UID_RE, BlockUid, OrderIdx, Sha256Hex, SyncSeq,
                                subtree_hash, text_hash)
+from pkm.contracts.titles import RawTitle
 from pkm.refs import (attribute_title_span, extract, is_blank_title,
                       strip_code, title_syntax_reason)
-from pkm.test_data.ids import order_idx_of, uid_of
+from pkm.test_data.ids import order_idx_of, raw_title_of, uid_of
 
 # What a whitespace-only page_title resolves to: the ops path never rejects
 # a batch over a blank title (code: ops_apply.UNTITLED_PAGE_TITLE).
@@ -107,7 +108,7 @@ def _title_violation(ops: Sequence[Op]) -> bool:
     return False
 
 
-def _page_name(title: str) -> str:
+def _page_name(title: RawTitle) -> str:
     return UNTITLED if is_blank_title(title) else title
 
 
@@ -171,7 +172,7 @@ def _plain_copy(text: str) -> str:
     return text if span is None else text[span.end:].lstrip()
 
 
-def page_copies(title: str, page_texts: Mapping[BlockUid, str]) -> dict[BlockUid, str]:
+def page_copies(title: RawTitle, page_texts: Mapping[BlockUid, str]) -> dict[BlockUid, str]:
     """The text a page delete copies in place of a `((ref))` to each of the
     page's blocks: the block's plain copy, with refs to the page's other
     blocks resolved one level deep (deeper ones and cycles dropped, code:
@@ -217,7 +218,7 @@ class PageDelete:
     block's uid to its reason; `copies` is what a 200 inlined in place of
     a `((ref))` to each of the page's blocks."""
     status: int
-    title: str = ""
+    title: RawTitle = raw_title_of("")
     blockers: Mapping[BlockUid, str] = field(default_factory=dict)
     copies: Mapping[BlockUid, str] = field(default_factory=dict)
 
@@ -327,7 +328,7 @@ class Model:
             self._touch(text)
         return Outcome(200, tuple(skipped), tuple(kept), tuple(self._paths))
 
-    def delete_page(self, title: str, others: Mapping[BlockUid, str],
+    def delete_page(self, title: RawTitle, others: Mapping[BlockUid, str],
                     seq: SyncSeq) -> PageDelete:
         """`DELETE /api/page/{title}` (backend.md § Page mutations and the
         sidebar). `others` is the text of every block the model does not

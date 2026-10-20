@@ -31,7 +31,7 @@ export interface RouteMeta {
   label: string;
   /** Browser <title>. May differ from the label -- e.g. /help's top-bar
    * label is "Help" but its title is "Keyboard shortcuts — pkm". */
-  title: string;
+  documentTitle: string;
 }
 
 /** Label and title for every route whose value is a fixed string.
@@ -41,11 +41,11 @@ export interface RouteMeta {
  * DYNAMIC_ROUTES, which the consistency test checks this table against so a
  * newly declared route can't silently end up with neither. */
 export const ROUTE_META: Readonly<Record<string, RouteMeta>> = {
-  [ROUTES.journal]: { label: "Daily Notes", title: "Daily Notes — pkm" },
-  [ROUTES.currentWork]: { label: "Current Work", title: "Current Work — pkm" },
-  [ROUTES.help]: { label: "Help", title: "Keyboard shortcuts — pkm" },
-  [ROUTES.files]: { label: "Files", title: "Files — pkm" },
-  [ROUTES.settings]: { label: "Settings", title: "Settings — pkm" },
+  [ROUTES.journal]: { label: "Daily Notes", documentTitle: "Daily Notes — pkm" },
+  [ROUTES.currentWork]: { label: "Current Work", documentTitle: "Current Work — pkm" },
+  [ROUTES.help]: { label: "Help", documentTitle: "Keyboard shortcuts — pkm" },
+  [ROUTES.files]: { label: "Files", documentTitle: "Files — pkm" },
+  [ROUTES.settings]: { label: "Settings", documentTitle: "Settings — pkm" },
 };
 
 /** Routes intentionally excluded from ROUTE_META (see above). Typed as

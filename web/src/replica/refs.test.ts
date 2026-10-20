@@ -2,11 +2,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import { fixtureRefs } from "../test-helpers";
 import { extractRefs } from "./refs";
 
 interface FixtureCase {
   text: string;
-  refs: { title: string; kind: string }[];
+  refs: unknown[];
   block_refs: string[];
 }
 
@@ -18,7 +19,7 @@ describe("extractRefs parity with refs.py", () => {
   for (const c of fixture.cases) {
     test(JSON.stringify(c.text.slice(0, 60)), () => {
       const got = extractRefs(c.text);
-      expect(got.refs).toEqual(c.refs);
+      expect(got.refs).toEqual(fixtureRefs(c.refs));
       expect(got.blockRefs).toEqual(c.block_refs);
     });
   }
@@ -36,7 +37,7 @@ describe("extractRefs agrees with the shared ref_grammar fixture", () => {
   for (const c of grammarFixture.cases) {
     test(c.name, () => {
       const got = extractRefs(c.text);
-      expect(got.refs).toEqual(c.refs);
+      expect(got.refs).toEqual(fixtureRefs(c.refs));
       expect(got.blockRefs).toEqual(c.block_refs);
     });
   }

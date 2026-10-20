@@ -145,7 +145,7 @@ it("releases a failed parent read when the page unmounts", async () => {
 
   view.unmount();
 
-  expect(isOutlineSessionActive("Failed read")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Failed read"))).toBe(false);
 });
 
 it("an expired same-title parent response cannot publish an empty child", async () => {
@@ -194,7 +194,7 @@ it("an expired same-title parent response cannot publish an empty child", async 
 
   expect(expiredPublished).toBe(false);
   expect(newerCopies).toBe(2);
-  expect(isOutlineSessionActive("Paper")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(false);
 });
 
 it("a losing failed parent renders the accepted same-title winner without error", async () => {
@@ -250,7 +250,7 @@ it("a losing failed parent renders the accepted same-title winner without error"
   expect(copies).toBe(2);
   expect(metadataCopies).toBe(2);
   expect(errors).toBe(0);
-  expect(isOutlineSessionActive("Paper")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(false);
 });
 
 it("a failed newer parent elects one fresh controller for both panes", async () => {
@@ -311,7 +311,7 @@ it("a failed newer parent elects one fresh controller for both panes", async () 
   expect(fetchMock).toHaveBeenCalledTimes(3);
   expect(copies).toBe(2);
   expect(errors).toBe(0);
-  expect(isOutlineSessionActive("Paper")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(false);
 });
 
 it("unmounting the newer parent elects one surviving controller", async () => {
@@ -371,7 +371,7 @@ it("unmounting the newer parent elects one surviving controller", async () => {
   expect(fetchMock).toHaveBeenCalledTimes(3);
   expect(copies).toBe(1);
   expect(errors).toBe(0);
-  expect(isOutlineSessionActive("Paper")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(false);
 });
 
 it("unmounting the newer parent recovers while the older transport still hangs", async () => {
@@ -441,7 +441,7 @@ it("unmounting the newer parent recovers while the older transport still hangs",
   expect(metadataCopies).toBe(1);
   expect(staleCopies).toBe(0);
   expect(errors).toBe(0);
-  expect(isOutlineSessionActive("Paper")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(false);
 });
 
 it("an automatic read superseding elected recovery permits one replacement parent", async () => {
@@ -543,7 +543,7 @@ it("an automatic read superseding elected recovery permits one replacement paren
   expect(metadataCopies).toBe(2);
   expect(staleCopies).toBe(0);
   expect(errors).toBe(0);
-  expect(isOutlineSessionActive("Paper")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(false);
 });
 
 it("a hung automatic read cannot strand eager full-parent readiness", async () => {
@@ -740,7 +740,7 @@ it("a repair superseding elected recovery permits one post-repair parent", async
   expect(metadataCopies).toBe(2);
   expect(staleCopies).toBe(0);
   expect(errors).toBe(0);
-  expect(isOutlineSessionActive("Paper")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(false);
 });
 
 it("canceling elected recovery does not start a second recovery", async () => {
@@ -807,7 +807,7 @@ it("canceling elected recovery does not start a second recovery", async () => {
 
   expect(fetchMock).toHaveBeenCalledTimes(3);
   expect(cancellationErrors).toBe(1);
-  expect(isOutlineSessionActive("Paper")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(false);
 });
 
 it("a captured Journal response superseding recovery elects one full parent", async () => {
@@ -1172,7 +1172,7 @@ it("unmounting Journal releases a hung capture before parent recovery", async ()
   expect(metadataCopies).toBe(2);
   expect(staleCopies).toBe(0);
   expect(errors).toBe(0);
-  expect(isOutlineSessionActive(lateTitle)).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf(lateTitle))).toBe(false);
   expect(isOutlineSessionActive(pageTitle)).toBe(false);
 });
 

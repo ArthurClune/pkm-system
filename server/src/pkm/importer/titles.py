@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import AbstractSet, Literal, Mapping, NamedTuple, Sequence
 
+from pkm.contracts.titles import RawTitle
 from pkm.importer.parse_export import Block, Export, Page
 from pkm.refs import (
     NormalizedTitle,
@@ -58,7 +59,7 @@ class ImportTitleError(ValueError):
 
 
 def _strip_brackets(
-    title: str,
+    text: str,
     *,
     original_title: str,
     location: str,
@@ -66,10 +67,10 @@ def _strip_brackets(
     nested: bool = False,
 ) -> tuple[str, int]:
     visible: list[str] = []
-    while index < len(title):
-        if title.startswith("[[", index):
+    while index < len(text):
+        if text.startswith("[[", index):
             inner, index = _strip_brackets(
-                title,
+                text,
                 original_title=original_title,
                 location=location,
                 index=index + 2,
@@ -77,7 +78,7 @@ def _strip_brackets(
             )
             visible.append(inner)
             continue
-        if title.startswith("]]", index):
+        if text.startswith("]]", index):
             if not nested:
                 raise ImportTitleError(
                     original_title,
@@ -85,7 +86,7 @@ def _strip_brackets(
                     reason="malformed_syntax",
                 )
             return "".join(visible), index + 2
-        visible.append(title[index])
+        visible.append(text[index])
         index += 1
 
     if nested:
@@ -97,20 +98,20 @@ def _strip_brackets(
     return "".join(visible), index
 
 
-def sanitize_import_title(title: str, *,
+def sanitize_import_title(text: str, *,
                           location: str) -> NormalizedTitle:
     """Remove balanced Roam title markers or refuse an unsafe result."""
     without_brackets, _ = _strip_brackets(
-        title,
-        original_title=title,
+        text,
+        original_title=text,
         location=location,
     )
     result = normalize_title(without_brackets.replace("#", ""))
     if is_blank_title(result):
-        raise ImportTitleError(title, location=location, reason="blank")
+        raise ImportTitleError(text, location=location, reason="blank")
     if title_syntax_reason(result) is not None:
         raise ImportTitleError(
-            title,
+            text,
             location=location,
             reason="malformed_syntax",
         )
@@ -118,7 +119,7 @@ def sanitize_import_title(title: str, *,
 
 
 def _record_location(
-    locations: dict[str, list[str]], title: str, location: str
+    locations: dict[str, list[str]], title: RawTitle, location: str
 ) -> None:
     title_locations = locations.setdefault(title, [])
     if location not in title_locations:
@@ -202,7 +203,7 @@ def _merge_sanitized_pages(
     the first in export order: its timestamps are kept and its blocks lead,
     with the other sources' blocks following in export order.
     """
-    grouped: dict[str, list[_PageRebuild]] = {}
+    grouped: dict[RawTitle, list[_PageRebuild]] = {}
     for source in rebuilt_sources:
         grouped.setdefault(source.rebuilt.title, []).append(source)
 

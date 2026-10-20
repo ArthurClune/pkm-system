@@ -80,7 +80,7 @@ VALID = {
     "conversation_id_of": "conv-1", "confirm_id_of": "confirm-1",
     "goodlinks_id_of": "gl-1", "raw_title_of": "a title", "normalized_title_of": "a title",
     "canonical_title_of": "A Title",
-    "canonical_query_node_of": QueryNode("page", "a"),
+    "canonical_query_node_of": QueryNode("page", ids.raw_title_of("a")),
 }
 
 

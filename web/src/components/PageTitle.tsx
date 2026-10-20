@@ -8,13 +8,13 @@ import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { apiPost } from "../api/typedClient";
-import type { RawTitle } from "../api/brands";
+import type { CanonicalTitle, RawTitle } from "../api/brands";
 import { pagePath } from "../paths";
 import { asRawTitle } from "../replica/titles";
 import { dateForTitle } from "../replica/daily";
 import { useConfirm } from "./ConfirmDialog";
 
-export function PageTitle({ title }: { title: string }) {
+export function PageTitle({ title }: { title: CanonicalTitle }) {
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cancelledRef = useRef(false);

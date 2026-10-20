@@ -68,7 +68,7 @@ def _link_payload(raw: Mapping[str, object], created: bool) -> GoodlinksLink:
     link_id = parse_link_id(_required_str(raw, "id"))
     if link_id is None:
         raise GoodlinksUnavailable(f"goodlinks returned a malformed link id: {raw.get('id')!r}")
-    return GoodlinksLink(id=link_id, title=str(raw.get("title") or ""),
+    return GoodlinksLink(id=link_id, article_title=str(raw.get("title") or ""),
                          url=_required_str(raw, "url"), added_at=str(raw.get("addedAt") or ""),
                          created=created)
 
@@ -152,6 +152,6 @@ def get_article(link_id: GoodlinksId, response: Response,
     # The article can change if it is re-saved, and GoodLinks is local and
     # fast, so nothing is cached.
     response.headers["Cache-Control"] = "private, no-store"
-    return GoodlinksArticle(id=parsed_id, title=str(meta.get("title") or ""), url=url,
+    return GoodlinksArticle(id=parsed_id, article_title=str(meta.get("title") or ""), url=url,
                             added_at=str(meta.get("addedAt") or ""),
                             html=sanitize_article(html) if html is not None else "")

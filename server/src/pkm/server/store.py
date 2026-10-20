@@ -25,7 +25,7 @@ BLOCK_REWRITE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 
 class ForbiddenTitleError(ValueError):
-    def __init__(self, title: str) -> None:
+    def __init__(self, title: CanonicalTitle) -> None:
         super().__init__(f"unsupported page-title syntax: {title!r}")
         self.title = title
 
@@ -46,7 +46,7 @@ def fetch_page(db: Db, title: CanonicalTitle) -> Row | None:
         " WHERE title = ?", (title,))
 
 
-def get_or_create_page(db: Db, title: str,
+def get_or_create_page(db: Db, title: RawTitle,
                        now_ms: int) -> Row:
     """Canonicalize at the choke point shared by every creation path.
 
@@ -60,21 +60,21 @@ def get_or_create_page(db: Db, title: str,
     refused with BlankTitleError. Interactive routes translate that to 422;
     offline-replayed ops substitute their fixed fallback rather than wedging
     the durable queue."""
-    title = read_title(db, title)
-    if is_blank_title(title):
-        raise BlankTitleError(title)
-    if title_syntax_reason(title) is not None:
-        raise ForbiddenTitleError(title)
-    page = fetch_page(db, title)
+    canonical_title = read_title(db, title)
+    if is_blank_title(canonical_title):
+        raise BlankTitleError(canonical_title)
+    if title_syntax_reason(canonical_title) is not None:
+        raise ForbiddenTitleError(canonical_title)
+    page = fetch_page(db, canonical_title)
     if page is not None:
         return page
     try:
         db.execute(
             "INSERT INTO pages(title, created_at, updated_at) VALUES (?,?,?)",
-            (title, now_ms, now_ms))
+            (canonical_title, now_ms, now_ms))
     except sqlite3.IntegrityError:
         pass  # lost a create race — the row exists now
-    page = fetch_page(db, title)
+    page = fetch_page(db, canonical_title)
     assert page is not None  # inserted above, or the race winner inserted it
     return page
 

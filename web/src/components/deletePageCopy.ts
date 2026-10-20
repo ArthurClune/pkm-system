@@ -1,5 +1,6 @@
 // pattern: Functional Core
 // Copy for the delete-page dialogs: pure strings from the server's preview.
+import type { RawTitle } from "../api/brands";
 import type { components } from "../api/types";
 
 export type DeletePreview = components["schemas"]["DeletePreview"];
@@ -9,11 +10,12 @@ function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
-export function plainDeleteMessage(title: string): string {
+export function plainDeleteMessage(title: RawTitle): string {
   return `Delete "${title}"? This cannot be undone.`;
 }
 
-export function deleteConfirmMessage(title: string, p: DeletePreview): string {
+export function deleteConfirmMessage(title: RawTitle,
+                                     p: DeletePreview): string {
   let message = plainDeleteMessage(title);
   if (p.links > 0) {
     message += ` ${plural(p.links, "link")} on ${plural(p.link_pages, "page")}`
@@ -27,7 +29,7 @@ export function deleteConfirmMessage(title: string, p: DeletePreview): string {
   return message;
 }
 
-export function blockedHeading(title: string): string {
+export function blockedHeading(title: RawTitle): string {
   return `Can't delete "${title}"`;
 }
 

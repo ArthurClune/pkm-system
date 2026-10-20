@@ -11,6 +11,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
+from pkm.contracts.titles import CanonicalTitle
 from pkm.filenames import truncate_utf8
 from pkm.refs import BLOCK_REF_TOKEN
 
@@ -34,7 +35,7 @@ def resolve_block_refs(text: str, uid_to_text: Mapping[str, str]) -> str:
         if m.group(1) in uid_to_text else m.group(0), text)
 
 
-def page_filename(title: str, taken: set[str]) -> str:
+def page_filename(title: CanonicalTitle, taken: set[str]) -> str:
     """Unique '<sanitized title>.md'; case-insensitive against `taken`
     (APFS default). Adds the chosen lowercase key to `taken`."""
     base = (truncate_utf8(_UNSAFE_RE.sub("-", title).strip(" ."), _MAX_BASE_BYTES)
@@ -47,7 +48,7 @@ def page_filename(title: str, taken: set[str]) -> str:
     return name
 
 
-def render_page(title: str, tree: Sequence[TreeNode],
+def render_page(title: CanonicalTitle, tree: Sequence[TreeNode],
                 uid_to_text: Mapping[str, str]) -> str:
     lines = [f"# {title}", ""]
 

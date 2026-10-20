@@ -30,7 +30,7 @@ from props.harness import (DAILY_TITLE, FROZEN_NOW, FreshApp,
                            fresh_app, read_db, seed_ops, template_db_path)
 from props.model import MBlock, Model
 from props.strategies import PAGES, batch_for, seed_tree, texts, uid_pool
-from pkm.test_data.ids import seq_of
+from pkm.test_data.ids import raw_title_of, seq_of
 
 pytestmark = pytest.mark.proptest
 
@@ -292,7 +292,7 @@ class OpsMachine(RuleBasedStateMachine):
         before = _snapshot(self.app)
         self.clock.shift(timedelta(seconds=1))
         r = self.app.client.delete(f"/api/page/{title}")
-        outcome = self.model.delete_page(title, others, seq_of(_head(self.app)))
+        outcome = self.model.delete_page(raw_title_of(title), others, seq_of(_head(self.app)))
         assert r.status_code == outcome.status, r.text
         event(f"delete page: {r.status_code}")
         if r.status_code != 200:

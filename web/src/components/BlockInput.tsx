@@ -90,7 +90,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   const options = useTitleOptions(
     ac.ctx && ac.ctx.kind !== "command" ? ac.ctx.query : null);
   const acRows: AcRow[] = !ac.ctx ? [] : ac.ctx.kind === "command"
-    ? matchSlashCommands(ac.ctx.query).map((c) => ({ title: c.label, isNew: false, command: c.name }))
+    ? matchSlashCommands(ac.ctx.query).map((c) => ({ label: c.label, isNew: false, command: c.name }))
     : buildRows(options, ac.ctx.query);
 
   /** Replace the draft with `text`, placing a collapsed caret at `cursorPos`.
@@ -185,9 +185,9 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       handlers.onGoodlinks(node.uid, at);
       return;
     }
-    const applied = row.command
+    const applied = row.command !== undefined
       ? applySlashCommand(text, caret, ctx, row.command, new Date())
-      : applyCompletion(text, caret, ctx, row.title);
+      : applyCompletion(text, caret, ctx, row.pageTitle);
     ac.close();
     setText(applied.text, applied.cursor);
     // Heading commands (/h1 /h2 /h3 /normal) aren't text transforms: the

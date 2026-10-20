@@ -3,6 +3,8 @@
 // a picked title (or slash command, see slashCommands.ts) back into the text.
 // Tag charset mirrors tokenize.ts (#[A-Za-z0-9_/-]); anything else gets the
 // #[[Long Title]] form.
+import type { RawTitle } from "../api/brands";
+
 export interface AcContext {
   kind: "ref" | "tag" | "command";
   start: number; // index of the query's first char (after the trigger)
@@ -76,7 +78,7 @@ export function holdsDraftFlush(ctx: AcContext | null): boolean {
 }
 
 export function applyCompletion(text: string, cursor: number, ctx: AcContext,
-                                title: string): { text: string; cursor: number } {
+                                title: RawTitle): { text: string; cursor: number } {
   const after = text.slice(cursor);
   if (ctx.kind === "ref") {
     const rest = after.startsWith("]]") ? after.slice(2) : after;

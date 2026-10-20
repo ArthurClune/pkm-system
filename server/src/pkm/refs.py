@@ -48,7 +48,7 @@ _CONTROL_WS = re.compile(r"[\t\n\r\f\v]")
 _WS_RUN = re.compile(r"[ \t\n\r\f\v]+")
 
 
-def normalize_title(title: str) -> NormalizedTitle:
+def normalize_title(text: str) -> NormalizedTitle:
     """Collapse the whitespace in a page title that holds a control char.
 
     A title containing a literal newline cannot be addressed through the
@@ -63,12 +63,12 @@ def normalize_title(title: str) -> NormalizedTitle:
     Spaces") are never collateral damage. Callers drop a title that
     normalizes to empty -- `[[\\n]]` references no page.
     """
-    if _CONTROL_WS.search(title) is None:
-        return NormalizedTitle(RawTitle(title))
-    return NormalizedTitle(RawTitle(_WS_RUN.sub(" ", title).strip()))
+    if _CONTROL_WS.search(text) is None:
+        return NormalizedTitle(RawTitle(text))
+    return NormalizedTitle(RawTitle(_WS_RUN.sub(" ", text).strip()))
 
 
-def canonicalize_title(title: str, *, plain_space: bool) -> NormalizedTitle:
+def canonicalize_title(text: str, *, plain_space: bool) -> NormalizedTitle:
     """Canonicalize under an explicit, caller-supplied flag value.
 
     This returns `NormalizedTitle`, not `CanonicalTitle`: `plain_space` here
@@ -80,7 +80,7 @@ def canonicalize_title(title: str, *, plain_space: bool) -> NormalizedTitle:
     deliberately does not); minting `CanonicalTitle` any other way defeats
     the type the rest of the server relies on.
     """
-    normalized = normalize_title(title)
+    normalized = normalize_title(text)
     if plain_space:
         normalized = NormalizedTitle(RawTitle(normalized.strip(" ")))
     return normalized
@@ -98,7 +98,7 @@ def canonical_daily_title(day: date) -> CanonicalTitle:
     return CanonicalTitle(NormalizedTitle(RawTitle(title_for_date(day))))
 
 
-def target_canonical_title(title: str) -> CanonicalTitle:
+def target_canonical_title(text: str) -> CanonicalTitle:
     """The title's identity once plain-space canonicalization is active --
     what the one-time title migration (`pkm/title_migration.py`,
     `server/title_migration.py`) plans and applies against, independent of
@@ -106,7 +106,7 @@ def target_canonical_title(title: str) -> CanonicalTitle:
     `CanonicalTitle` from the live flag: everywhere else, use
     `sync_meta.read_title`/`title_reader`.
     """
-    return CanonicalTitle(canonicalize_title(title, plain_space=True))
+    return CanonicalTitle(canonicalize_title(text, plain_space=True))
 
 
 TitleSyntaxReason = Literal["forbidden_syntax"]
@@ -115,22 +115,22 @@ TitleSyntaxReason = Literal["forbidden_syntax"]
 RefKind = Literal["link", "tag", "attribute"]
 
 
-def title_syntax_reason(title: str) -> TitleSyntaxReason | None:
-    normalized = normalize_title(title)
+def title_syntax_reason(text: str) -> TitleSyntaxReason | None:
+    normalized = normalize_title(text)
     if "#" in normalized or "[[" in normalized or "]]" in normalized:
         return "forbidden_syntax"
     return None
 
 
-def is_blank_title(title: str) -> bool:
-    """True when `title` has nothing in it but whitespace once normalized.
+def is_blank_title(text: str) -> bool:
+    """True when `text` has nothing in it but whitespace once normalized.
 
     This is the shared blank-title predicate for both the pure extractor and
     the store boundary: control whitespace still collapses first, then plain
     leading/trailing U+0020 decides blankness without changing any nonblank
     padded title byte-for-byte.
     """
-    return not normalize_title(title).strip()
+    return not normalize_title(text).strip()
 
 
 @dataclass(frozen=True)
@@ -321,11 +321,11 @@ def tag_spans(
     )
 
 
-def is_bare_tag_title(title: str) -> bool:
-    """True when `title` would read back as a bare `#title`, i.e. when
+def is_bare_tag_title(text: str) -> bool:
+    """True when `text` would read back as a bare `#title`, i.e. when
     `tag_spans()` would report exactly it. A rewriter asks before keeping
     the bare form (`rename._tag_form`) instead of copying the name class."""
-    return _BARE_TAG.fullmatch(title) is not None
+    return _BARE_TAG.fullmatch(text) is not None
 
 
 def extract(text: str) -> ParsedRefs:

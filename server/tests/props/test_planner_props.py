@@ -33,7 +33,7 @@ from props.harness import (FROZEN_NOW, FreshApp, assert_unique_keys,
                            template_db_path)
 from props.model import Groups, MBlock, positions_after
 from props.strategies import PAGES, cli_batch, seed_tree, uid_pool
-from pkm.test_data.ids import batch_id_of, uid_of
+from pkm.test_data.ids import batch_id_of, raw_title_of, uid_of
 
 pytestmark = pytest.mark.proptest
 
@@ -188,7 +188,7 @@ def _check(app: FreshApp, rows: Sequence[MBlock], commands: list[dict],
     seed = _seed_groups(rows)
     start = seed if concurrent is None else _without(seed, concurrent)
     expected = positions_after(start, commands, iter(created))
-    actual = _page_groups(client.get_page_blocks(PAGE)[0])
+    actual = _page_groups(client.get_page_blocks(raw_title_of(PAGE))[0])
     states = _states(start, commands, created)
     views = _states(seed, commands, created)
     _index_events(commands, ops, views)

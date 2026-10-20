@@ -32,8 +32,8 @@ export function CurrentWork() {
       <h1 className="page-title">Current Work</h1>
       {payload.sections.map((section) => (
         <section key={section.id} className="current-work-section"
-                 aria-label={section.title}>
-          <h2>{section.title}</h2>
+                 aria-label={section.heading}>
+          <h2>{section.heading}</h2>
           {section.pages.length === 0 ? (
             <p className="empty">No pages changed in this window.</p>
           ) : (

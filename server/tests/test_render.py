@@ -10,7 +10,7 @@ from pkm.contracts.responses import (AssetSearchPayload, Backlinks,
                                      GroupsPayload, PagePayload, QueryPayload,
                                      SearchPayload, TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload)
-from pkm.test_data.ids import canonical_title_of, malformed_uid, uid_of
+from pkm.test_data.ids import raw_title_of, canonical_title_of, malformed_uid, uid_of
 from pkm.contracts.ops import BlockUid
 
 TZ = timezone(timedelta(hours=1))
@@ -131,7 +131,7 @@ def test_render_backlinks():
                      "items": [{"uid": "b4", "text": "Studying",
                                 "breadcrumbs": []}]}],
          "total_pages": 1, "offset": 0, "limit": 100})
-    assert render_backlinks("Machine Learning", backlinks) == (
+    assert render_backlinks(raw_title_of("Machine Learning"), backlinks) == (
         "# Backlinks: Machine Learning (1 pages)\n"
         "\n"
         "## July 7th, 2026\n"

@@ -34,13 +34,13 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function mount(sync = makeSync(), title = "Paper",
+function mount(sync = makeSync(), titleText = "Paper",
                blocks = [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })]) {
-  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf(title), blocks)]]);
+  stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf(titleText), blocks)]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditableSidebarPanel title={rawTitleOf(title)} />
+        <EditableSidebarPanel title={rawTitleOf(titleText)} />
       </SyncContext.Provider>
     </MemoryRouter>);
   return sync;
@@ -65,16 +65,16 @@ test("a title change cannot mount the previous payload under the new title", asy
   });
   vi.stubGlobal("fetch", fetchMock);
   const sync = makeSync();
-  const tree = (title: string) => (
+  const tree = (titleText: string) => (
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
-        <EditableSidebarPanel title={rawTitleOf(title)} />
+        <EditableSidebarPanel title={rawTitleOf(titleText)} />
       </SyncContext.Provider>
     </MemoryRouter>
   );
   const view = render(tree("Alpha"));
   expect(await screen.findByText("alpha tree")).toBeInTheDocument();
-  expect(isOutlineEditorActive("Alpha")).toBe(true);
+  expect(isOutlineEditorActive(rawTitleOf("Alpha"))).toBe(true);
 
   view.rerender(tree("Beta"));
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
@@ -82,8 +82,8 @@ test("a title change cannot mount the previous payload under the new title", asy
   ));
   expect(screen.queryByText("alpha tree")).not.toBeInTheDocument();
   expect(screen.getByText("Loading…")).toBeInTheDocument();
-  expect(isOutlineEditorActive("Beta")).toBe(false);
-  expect(isOutlineSessionActive("Alpha")).toBe(false);
+  expect(isOutlineEditorActive(rawTitleOf("Beta"))).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Alpha"))).toBe(false);
 
   await act(async () => {
     next.resolve(jsonResponse(pagePayload(canonicalTitleOf("Beta"), [
@@ -94,10 +94,10 @@ test("a title change cannot mount the previous payload under the new title", asy
     await Promise.resolve();
   });
   expect(screen.getByText("beta tree")).toBeInTheDocument();
-  expect(isOutlineEditorActive("Beta")).toBe(true);
+  expect(isOutlineEditorActive(rawTitleOf("Beta"))).toBe(true);
 
   view.unmount();
-  expect(isOutlineSessionActive("Beta")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Beta"))).toBe(false);
 });
 
 test("editing a block in the panel sends the op after the debounce", async () => {
@@ -141,7 +141,7 @@ test("a non-canonical requested title keys the outline by the payload's title", 
       </SyncContext.Provider>
     </MemoryRouter>);
   await screen.findByText("a paper block");
-  expect(isOutlineEditorActive("Paper")).toBe(true);
+  expect(isOutlineEditorActive(rawTitleOf("Paper"))).toBe(true);
 
   act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
     { op: "create", uid: uidOf("tuid-r1"), page_title: rawTitleOf("Paper"), parent_uid: null,
@@ -256,7 +256,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
 
   expect(expiredPublished).toBe(false);
   expect(newerCopies).toBe(2);
-  expect(isOutlineSessionActive("Paper")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(false);
 });
 
 // A daily page nobody has written to yet 404s (the server
@@ -426,7 +426,7 @@ test("releases a failed parent read when the panel unmounts", async () => {
 
   view.unmount();
 
-  expect(isOutlineSessionActive("Failed sidebar read")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Failed sidebar read"))).toBe(false);
 });
 
 test("a padded title ends with one session, under the canonical key", async () => {
@@ -441,8 +441,8 @@ test("a padded title ends with one session, under the canonical key", async () =
       </SyncContext.Provider>
     </MemoryRouter>);
   expect(await screen.findByText("a paper block")).toBeInTheDocument();
-  expect(isOutlineSessionActive("Paper")).toBe(true);
-  expect(isOutlineSessionActive("Paper ")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(true);
+  expect(isOutlineSessionActive(rawTitleOf("Paper "))).toBe(false);
   expect(fetchMock).toHaveBeenCalledTimes(2);
   unmount();
   vi.unstubAllGlobals();

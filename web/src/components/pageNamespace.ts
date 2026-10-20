@@ -3,8 +3,9 @@
 // first "/". [[AWS/EC2]] and [[AWS/Lambda]] share "aws". PageLink stamps it
 // as data-ns so styles.css can colour whole trees; which trees get
 // a colour is decided in the stylesheet, not here.
+import type { RawTitle } from "../api/brands";
 
-export function pageNamespace(title: string): string | undefined {
+export function pageNamespace(title: RawTitle): string | undefined {
   const slash = title.indexOf("/");
   if (slash <= 0) return undefined;
   const prefix = title.slice(0, slash).trim().toLowerCase();

@@ -15,8 +15,8 @@ from pkm.contracts.ops import PageId
 from pkm.database import connect
 
 
-def _rename(client, title, new, allow_merge=False):
-    return client.post(f"/api/page/{title}/rename",
+def _rename(client, title_text: str, new, allow_merge=False):
+    return client.post(f"/api/page/{title_text}/rename",
                        json={"new_title": raw_title_of(new),
                              "allow_merge": allow_merge})
 

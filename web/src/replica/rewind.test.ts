@@ -74,10 +74,10 @@ const pend = (...ids: string[]) => {
 };
 
 // The writes below stand in for localOps.ts: each records, then writes.
-const mint = (batchId: BatchId, id: number, title: string) => {
+const mint = (batchId: BatchId, id: number, titleText: string) => {
   recordPage(t.db, batchId, pageIdOf(id), true);
   t.db.exec("INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
-            [id, title, 900, 900]);
+            [id, titleText, 900, 900]);
 };
 const touch = (batchId: BatchId, pageId: PageId) => {
   recordPage(t.db, batchId, pageId, false);

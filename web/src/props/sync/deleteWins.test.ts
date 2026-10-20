@@ -60,11 +60,11 @@ const body = (ops: unknown[], seen?: number): string =>
   JSON.stringify({ client_id: "c", batch_id: "x", ops,
                    ...(seen === undefined ? {} : { seen_seq: seen }) });
 
-const createOn = (title: string, text = "plain"): unknown =>
-  ({ op: "create", uid: "pt_A_1", page_title: title, parent_uid: null, order_idx: 0, text });
+const createOn = (titleText: string, text = "plain"): unknown =>
+  ({ op: "create", uid: "pt_A_1", page_title: titleText, parent_uid: null, order_idx: 0, text });
 
 const del = (over: Partial<DeleteRecord> = {}): DeleteRecord => ({
-  title: "Second", seq: seqOf(20), after_batch_id: id("b1"), at: 1000, ord: 1,
+  title: canonicalTitleOf("Second"), seq: seqOf(20), after_batch_id: id("b1"), at: 1000, ord: 1,
   uids: [uidOf("pt_sec_1")], ...over,
 });
 
@@ -76,7 +76,8 @@ const rename = (over: Partial<RenameRecord> = {}): RenameRecord => ({
 
 type Pages = [number, string][];
 const snap = (pages: Pages, blocks: [string, number][] = []): DeleteWinsRun["snapshot"] => ({
-  pages: pages.map(([pid, title]) => ({ id: pageIdOf(pid), title })),
+  pages: pages.map(([pid, titleText]) => (
+    { id: pageIdOf(pid), title: canonicalTitleOf(titleText) })),
   blocks: blocks.map(([tag, pid]) => ({ uid: uidOf(tag), page_id: pageIdOf(pid) })),
 });
 
@@ -183,7 +184,7 @@ describe("deleteWins", () => {
 
   test("a stale batch may re-create the page once a later delete may have pruned its row", () => {
     const r = run(body([createOn("Second")], 10), {
-      deletes: [del(), del({ title: "Third", seq: seqOf(22), after_batch_id: id("b1"), ord: 2,
+      deletes: [del(), del({ title: canonicalTitleOf("Third"), seq: seqOf(22), after_batch_id: id("b1"), ord: 2,
                              at: 1000 + 31 * DAY, uids: [] })] });
     expect(deleteWins(r)).toEqual([]);
   });
@@ -205,7 +206,7 @@ describe("deleteWins", () => {
 
   test("reports every violation", () => {
     const r = run(body([createOn("Second"), createOn("Third")], 10), {
-      deletes: [del(), del({ title: "Third", seq: seqOf(22), ord: 2, uids: [uidOf("pt_A_9")] })],
+      deletes: [del(), del({ title: canonicalTitleOf("Third"), seq: seqOf(22), ord: 2, uids: [uidOf("pt_A_9")] })],
       snapshot: snap([[1, "Proptest"], [2, "Second"], [3, "Third"]], [["pt_A_9", 3]]),
     });
     expect(deleteWins(r)).toHaveLength(3);

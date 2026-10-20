@@ -6,6 +6,7 @@
 // repair epochs and post-settlement catch-up reads actually hit.
 import { ApiError } from "../api/client";
 import { apiGet } from "../api/typedClient";
+import type { RawTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { MissingPagePolicy } from "./missingPage";
 
@@ -14,7 +15,7 @@ import type { MissingPagePolicy } from "./missingPage";
 export const statusOf = (error: unknown): number | null =>
   error instanceof ApiError ? error.status : null;
 
-export async function loadOutlineBlocks<Title extends string>(
+export async function loadOutlineBlocks<Title extends RawTitle>(
   title: Title,
   missingPage: MissingPagePolicy<Title>,
 ): Promise<BlockNode[]> {

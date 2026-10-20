@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from pkm.contracts.daily import date_for_title, title_for_date
+from pkm.contracts.daily import date_for_title
 from pkm.contracts.ops import BlockUid, PageId
 from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
@@ -236,18 +236,18 @@ def get_block(uid: BlockUid, db: Db = Depends(get_db)) -> BlockPayload:
 
 
 @router.get("/api/page/{title:path}", response_model=PagePayload)
-def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 20,
+def get_page(request: Request, title: RawTitle, bl_offset: int = 0, bl_limit: int = 20,
              db: Db = Depends(get_db)) -> PagePayload:
     bl_limit = max(1, min(bl_limit, 100))
-    title = read_title(db, title)
-    page = fetch_page(db, title)
+    canonical_title = read_title(db, title)
+    page = fetch_page(db, canonical_title)
     if page is None:
         # Only TODAY auto-creates on read (journal semantics). Auto-creating
         # any daily title resurrected deleted dailies as zombies and let
         # plain reads mint pages.
-        if date_for_title(title) != date.today():
+        if date_for_title(canonical_title) != date.today():
             raise HTTPException(status_code=404, detail="page not found")
-        page = get_or_create_page(db, title, int(time.time() * 1000))
+        page = get_or_create_page(db, canonical_title, int(time.time() * 1000))
         notify.commit_and_nudge_threadpool(request, db)
     blocks = db.select(
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
@@ -291,7 +291,7 @@ def _blocker_models(blockers: Sequence[DeleteBlocker]) -> list[DeleteBlockerMode
 
 
 @router.get("/api/delete-preview", response_model=DeletePreview)
-def delete_preview(title: str,
+def delete_preview(title: RawTitle,
                    db: Db = Depends(get_db)) -> DeletePreview:
     """What deleting the page would rewrite: how many [[links]] become plain
     text and ((block refs)) become copies (blocks and distinct pages), and the
@@ -300,11 +300,11 @@ def delete_preview(title: str,
     `[[page]]:: v`, or still reference the page). Read-only; 404 when the page
     does not exist. Not under /api/page/ because GET /api/page/{title:path}
     would swallow it."""
-    title = read_title(db, title)
-    page = fetch_page(db, title)
+    canonical_title = read_title(db, title)
+    page = fetch_page(db, canonical_title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")
-    plan = plan_delete(db, page["page_id"], title)
+    plan = plan_delete(db, page["page_id"], canonical_title)
     return DeletePreview(
         links=plan.links, link_pages=plan.link_pages,
         block_refs=plan.block_refs, block_ref_pages=plan.block_ref_pages,
@@ -312,7 +312,7 @@ def delete_preview(title: str,
 
 
 @router.delete("/api/page/{title:path}", response_model=OkAck)
-def delete_page(request: Request, title: str,
+def delete_page(request: Request, title: RawTitle,
                 db: Db = Depends(get_db)) -> OkAck:
     """Deletes the page, its blocks, and any sidebar entry for it. Inbound
     [[links]] and #tags in other pages' blocks become plain
@@ -331,11 +331,11 @@ def delete_page(request: Request, title: str,
         raise HTTPException(status_code=503, headers={"Retry-After": "1"},
                             detail="database busy, retry") from exc
     try:
-        title = read_title(db, title)
-        page = fetch_page(db, title)
+        canonical_title = read_title(db, title)
+        page = fetch_page(db, canonical_title)
         if page is None:
             raise HTTPException(status_code=404, detail="page not found")
-        delete_page_unlinking(db, page["page_id"], title, int(time.time() * 1000))
+        delete_page_unlinking(db, page["page_id"], canonical_title, int(time.time() * 1000))
     except DeleteBlockedError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail={
@@ -352,7 +352,7 @@ def delete_page(request: Request, title: str,
 
 
 @router.post("/api/page/{title:path}/rename", response_model=RenamePageResponse)
-def rename_page(request: Request, title: str, body: RenamePageRequest,
+def rename_page(request: Request, title: RawTitle, body: RenamePageRequest,
                 db: Db = Depends(get_db)) -> RenamePageResponse:
     """Rename a page, rewriting every [[link]]/#tag/attr:: in block text.
     When the new title is taken: 409 unless allow_merge is true, in which
@@ -375,7 +375,7 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
                             detail="database busy, retry") from exc
     try:
         canonical = title_reader(db)
-        title = canonical(title)
+        canonical_title = canonical(title)
         # normalized here as well as in get_or_create_page: the merge branch
         # below compares and reports new_title directly, so it has to be the
         # title that actually lands in the row.
@@ -388,12 +388,12 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
                 status_code=422,
                 detail=f"unsupported page-title syntax: {new_title!r}",
             )
-        page = fetch_page(db, title)
+        page = fetch_page(db, canonical_title)
         if page is None:
             raise HTTPException(status_code=404, detail="page not found")
-        if new_title == title:
+        if new_title == canonical_title:
             raise HTTPException(status_code=400, detail="title is unchanged")
-        if date_for_title(title) is not None:
+        if date_for_title(canonical_title) is not None:
             raise HTTPException(status_code=400,
                                 detail="daily notes cannot be renamed")
         now_ms = int(time.time() * 1000)
@@ -402,13 +402,13 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
         # sidebar entries without tripping UNIQUE(title).
         target = fetch_page(db, new_title)
         if target is None:
-            rename_page_rows(db, page["page_id"], title, new_title, now_ms)
+            rename_page_rows(db, page["page_id"], canonical_title, new_title, now_ms)
             result = "renamed"
         elif not body.allow_merge:
             raise HTTPException(status_code=409,
                                 detail=f"page {new_title!r} already exists")
         else:
-            merge_page_rows(db, page["page_id"], target["page_id"], title, new_title,
+            merge_page_rows(db, page["page_id"], target["page_id"], canonical_title, new_title,
                             now_ms)
             result = "merged"
     except BaseException:
@@ -419,11 +419,11 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
 
 
 @router.get("/api/unlinked", response_model=GroupsPayload)
-def get_unlinked(title: str, limit: int = 20, offset: int = 0,
+def get_unlinked(title: RawTitle, limit: int = 20, offset: int = 0,
                  db: Db = Depends(get_db)) -> GroupsPayload:
     limit = max(1, min(limit, 100))
-    title = read_title(db, title)
-    page = fetch_page(db, title)
+    canonical_title = read_title(db, title)
+    page = fetch_page(db, canonical_title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")
     where = """FROM blocks_fts f
@@ -433,7 +433,7 @@ def get_unlinked(title: str, limit: int = 20, offset: int = 0,
                 AND NOT EXISTS (SELECT 1 FROM refs r
                                  WHERE r.src_block_uid = b.uid
                                    AND r.target_page_id = ?)"""
-    params = (phrase_query(title), page["page_id"], page["page_id"])
+    params = (phrase_query(canonical_title), page["page_id"], page["page_id"])
     counted = db.select_one(f"SELECT count(*) AS n {where}", params)
     assert counted is not None  # an aggregate always yields a row
     rows = db.select(
@@ -457,7 +457,7 @@ def get_current_work(now_ms: int | None = None,
                      db: Db = Depends(get_db)) -> CurrentWorkPayload:
     now = now_ms if now_ms is not None else int(time.time() * 1000)
     sections = []
-    for section_id, title, min_age, max_age in _CURRENT_WORK_SECTIONS:
+    for section_id, heading, min_age, max_age in _CURRENT_WORK_SECTIONS:
         newer_than = now - max_age
         older_than = now - min_age
         lower_operator = ">=" if max_age == 7 * 24 * _HOUR_MS else ">"
@@ -471,7 +471,7 @@ def get_current_work(now_ms: int | None = None,
         )
         sections.append({
             "id": section_id,
-            "title": title,
+            "heading": heading,
             "pages": [{"id": r["page_id"], "title": r["title"],
                        "updated_at": r["updated_at"]} for r in rows],
         })
@@ -528,7 +528,7 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
             raise HTTPException(status_code=400, detail="invalid before date")
     today = date.today()
     if cursor is None and fetch_page(db, _daily_title(today)) is None:
-        get_or_create_page(db, title_for_date(today), int(time.time() * 1000))
+        get_or_create_page(db, _daily_title(today), int(time.time() * 1000))
         notify.commit_and_nudge_threadpool(request, db)
     nonempty: set[date] = set()
     for row in db.select(_NONEMPTY_DAILY_SQL):

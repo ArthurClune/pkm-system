@@ -22,10 +22,10 @@ CASES = [
 ]
 
 
-@pytest.mark.parametrize("d,title", CASES)
-def test_roundtrip(d, title):
-    assert title_for_date(d) == title
-    assert date_for_title(title) == d
+@pytest.mark.parametrize("d,title_text", CASES)
+def test_roundtrip(d, title_text):
+    assert title_for_date(d) == title_text
+    assert date_for_title(title_text) == d
 
 
 @pytest.mark.parametrize("bad", [
@@ -99,6 +99,6 @@ def test_select_journal_days_cursor_returns_fewer_when_exhausted():
                                before=date(2026, 7, 2), limit=5) == []
 
 
-@pytest.mark.parametrize("day,title", CASES)
-def test_canonical_daily_title_is_the_daily_title_of_a_date(day, title):
-    assert canonical_daily_title(day) == title
+@pytest.mark.parametrize("day,title_text", CASES)
+def test_canonical_daily_title_is_the_daily_title_of_a_date(day, title_text):
+    assert canonical_daily_title(day) == title_text

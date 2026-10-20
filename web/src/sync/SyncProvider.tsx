@@ -8,6 +8,7 @@
 // pending ops -> pull feed -> resync bump (offline-editing-design.md §3/§6).
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef,
          useState, type ReactNode } from "react";
+import type { RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { apiFetch, setOfflineGateway } from "../api/client";
 import { attachActiveOutlineWriteReplay, repairActiveOutlineSessions,
@@ -83,7 +84,7 @@ export interface SyncActions {
    * even when the flush cannot be delivered. */
   resetReplica(discardPending?: boolean): Promise<void>;
   enqueue(ops: BlockOp[], scope?: readonly string[]): WriteTicket;
-  attachOutlineReplay(ticket: WriteTicket, title: string,
+  attachOutlineReplay(ticket: WriteTicket, title: RawTitle,
                       replay: readonly OutlineReplayAction[]): void;
   /** Remote batches only — own echoes are filtered out here. */
   subscribe(fn: (batch: WsBatch) => void): () => void;

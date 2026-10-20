@@ -22,12 +22,12 @@ def latest_seq(db: Db) -> SyncSeq:
     return row["seq"]
 
 
-def read_title(db: Db, title: str) -> CanonicalTitle:
+def read_title(db: Db, text: str) -> CanonicalTitle:
     """Canonicalize a title arriving as a lookup key (URL path, query
     param, request body). Every title used to key a `pages` row goes
     through this, so routes never compare a raw/normalized title against
     the canonical form stored in `pages.title`."""
-    return title_reader(db)(title)
+    return title_reader(db)(text)
 
 
 def title_reader(db: Db) -> Callable[[str], CanonicalTitle]:

@@ -14,7 +14,7 @@
 //   apiGet("/api/page/{title}", { path: { title }, query: { bl_limit: 20 } })
 //   apiPost("/api/pages", { body: { title } })
 
-import { encodeTitle } from "../paths";
+import { encodePathSegments } from "../paths";
 import { apiFetch } from "./client";
 import type { paths } from "./types";
 
@@ -112,7 +112,7 @@ function buildUrl(template: string, options: RawOptions | undefined): string {
   for (const [name, value] of Object.entries(options?.path ?? {})) {
     // The function form of replace: a replacement STRING would interpret
     // "$&"/"$`" inside a page title as backreferences.
-    url = url.replace(`{${name}}`, () => encodeTitle(String(value)));
+    url = url.replace(`{${name}}`, () => encodePathSegments(String(value)));
   }
   // URLSearchParams writes a space as "+" where the hand-built URLs used
   // encodeURIComponent's "%20". Both the server (Starlette) and the offline

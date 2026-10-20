@@ -17,6 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from pkm.contracts.ops import BlockUid, OrderIdx
+from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.importer.mermaid import convert_to_fence
 from pkm.importer.mermaid_preservation import plan_mermaid_preservation
 from pkm.importer.parse_export import Block, Export
@@ -27,7 +28,7 @@ from pkm.refs import extract
 # them, they're attached here with their uid/text/children intact so
 # ((uid)) references keep resolving. Suffixed with " (2)", " (3)", ... on
 # the rare chance a page already has this exact title.
-RECOVERY_PAGE_TITLE = "Import recovery: unreachable blocks"
+RECOVERY_PAGE_TITLE = as_raw_title("Import recovery: unreachable blocks")
 
 
 PageRow = tuple[int, str, int | None, int | None]
@@ -126,7 +127,7 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
         block_ref_sources,
     )
 
-    def page_id(title: str, created: int | None = None,
+    def page_id(title: RawTitle, created: int | None = None,
                 updated: int | None = None) -> int:
         if title not in page_ids:
             page_ids[title] = len(page_ids) + 1
@@ -165,12 +166,12 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
         for i, child in enumerate(p.children):
             walk(child, pid, None, OrderIdx(i))
 
-    recovery_page_title = None
+    recovery_page_title: RawTitle | None = None
     if export.orphan_blocks:
         recovery_page_title = RECOVERY_PAGE_TITLE
         n = 2
         while recovery_page_title in page_ids:  # rare title collision
-            recovery_page_title = f"{RECOVERY_PAGE_TITLE} ({n})"
+            recovery_page_title = as_raw_title(f"{RECOVERY_PAGE_TITLE} ({n})")
             n += 1
         recovery_pid = page_id(recovery_page_title)
         for i, orphan in enumerate(export.orphan_blocks):

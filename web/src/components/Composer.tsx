@@ -7,7 +7,7 @@ import { applyCompletion } from "../outline/autocomplete";
 import { useAutocomplete } from "../outline/useAutocomplete";
 import { autocompleteKeyAction } from "../outline/keyboardPolicy";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
-import { AutocompletePopup, buildRows, useTitleOptions } from "./AutocompletePopup";
+import { AutocompletePopup, buildRows, type TitleAcRow, useTitleOptions } from "./AutocompletePopup";
 
 export function Composer({ onSend, readOnly }: {
   onSend: (text: string, freshAssets?: readonly Sha256Hex[]) => void;
@@ -40,11 +40,11 @@ export function Composer({ onSend, readOnly }: {
     ac.close();
   };
 
-  const pick = (row: { title: string }) => {
+  const pick = (row: TitleAcRow) => {
     const target = ac.resolve(taRef.current);
     if (!target) return; // caret has moved off the token; resolve closed it
     const applied = applyCompletion(target.text, target.caret, target.ctx,
-                                    row.title);
+                                    row.pageTitle);
     const el = taRef.current;
     if (el && el.value === applied.text) {
       // Nothing changes, so nothing commits and the layout effect below

@@ -288,7 +288,7 @@ def test_an_ignore_comment_in_a_multi_line_call_covers_its_span():
 
 
 def test_an_ignore_comment_without_a_brand_literal_is_clean():
-    assert rules('f(title="x", other=u)  # type: ignore\n', TEST) == []
+    assert rules('f(label="x", other=u)  # type: ignore\n', TEST) == []
     assert rules('f(uid=None)  # type: ignore\n', TEST) == []
 
 
@@ -519,7 +519,7 @@ def test_an_annotated_brand_attribute_under_a_type_ignore_is_flagged():
     source = "class A:\n    def __init__(self, x: object):\n        self.uid: BlockUid = x  # type: ignore\n"
     assert rules(source, TEST) == ["brand-launder"]
     assert rules(source.replace("  # type: ignore", ""), TEST) == []
-    plain = source.replace("BlockUid", "str").replace("uid", "title")
+    plain = source.replace("BlockUid", "str").replace("uid", "label")
     assert rules(plain, TEST) == []
 
 

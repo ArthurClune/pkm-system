@@ -9,11 +9,11 @@ from pkm.test_data.ids import page_id_of, uid_of
 from pkm.contracts.ops import BlockUid, PageId
 
 
-def _insert_page(db_path, page_id: PageId, title: str,
+def _insert_page(db_path, page_id: PageId, title_text: str,
                  blocks: Sequence[tuple[str, str]] = ()) -> None:
     """blocks: [(uid, text), ...] as top-level blocks of the page."""
     con = connect(db_path)
-    con.execute("INSERT INTO pages(id, title) VALUES (?, ?)", (page_id, title))
+    con.execute("INSERT INTO pages(id, title) VALUES (?, ?)", (page_id, title_text))
     con.executemany(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
         " heading, collapsed, created_at, updated_at)"
@@ -38,10 +38,10 @@ def _insert_indexed_block(db_path, uid: BlockUid, page_id: PageId, text: str) ->
     con.close()
 
 
-def _page_exists(db_path, title: str) -> bool:
+def _page_exists(db_path, title_text: str) -> bool:
     con = connect(db_path)
     row = read(con, "SELECT 1 FROM pages WHERE title = ?",
-                      (title,)).fetchone()
+                      (title_text,)).fetchone()
     con.close()
     return row is not None
 

@@ -362,14 +362,15 @@ def test_apply_rejects_stale_digest_without_mutation():
 
 
 @pytest.mark.parametrize(
-    ("title", "reason"),
+    ("title_text", "reason"),
     [("   ", "all_space"), ("Bad #Title", "forbidden_syntax")],
 )
-def test_apply_rejects_invalid_title_blocker_without_mutation(title, reason):
+def test_apply_rejects_invalid_title_blocker_without_mutation(
+        title_text, reason):
     """Mutation caught: mutate migration state before either blocker refusal."""
     db = _database()
     _seed_migration_graph(db)
-    db.execute("INSERT INTO pages(id, title) VALUES (9, ?)", (title,))
+    db.execute("INSERT INTO pages(id, title) VALUES (9, ?)", (title_text,))
     db.commit()
     plan = audit_title_migration(db)
     before = _state(db)
@@ -383,7 +384,7 @@ def test_apply_rejects_invalid_title_blocker_without_mutation(title, reason):
     assert [
         (blocker.page_id, blocker.title, blocker.reason)
         for blocker in raised.value.blockers
-    ] == [(9, title, reason)]
+    ] == [(9, title_text, reason)]
     assert _state(db) == before
     assert plain_space_title_canonicalization_active(db) is False
 

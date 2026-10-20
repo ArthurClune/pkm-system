@@ -149,14 +149,14 @@ class PkmClient:
             raise ResponseSchemaError(method, path,
                                       validation_detail(e)) from None
 
-    def get_page(self, title: str, bl_limit: int = 100,
+    def get_page(self, title: RawTitle, bl_limit: int = 100,
                 bl_offset: int = 0) -> PagePayload:
-        title = normalize_title(title)
+        ref_title = normalize_title(title)
         return self._request(
-            "GET", f"/api/page/{quote(title, safe='/')}", PagePayload,
+            "GET", f"/api/page/{quote(ref_title, safe='/')}", PagePayload,
             params={"bl_limit": bl_limit, "bl_offset": bl_offset})
 
-    def get_backlinks(self, title: str, page_size: int = 100) -> Backlinks:
+    def get_backlinks(self, title: RawTitle, page_size: int = 100) -> Backlinks:
         """Every backlink group for `title`, looping /api/page's
         pagination (capped server-side at 100 groups per request,
         routes_pages.py) until none remain. The CLI/MCP wording promises
@@ -173,16 +173,16 @@ class PkmClient:
         offset 0, up to `_BACKLINK_MAX_ATTEMPTS` times -- never silently
         returning the skipped/duplicated set that ordering shift would
         otherwise produce."""
-        title = normalize_title(title)
+        ref_title = normalize_title(title)
         for _ in range(_BACKLINK_MAX_ATTEMPTS):
-            attempt = self._fetch_backlinks_once(title, page_size)
+            attempt = self._fetch_backlinks_once(ref_title, page_size)
             if attempt is not None:
                 return attempt
         raise ApiError(
-            0, f"backlinks for {title!r} kept reordering mid-fetch across"
+            0, f"backlinks for {ref_title!r} kept reordering mid-fetch across"
                f" {_BACKLINK_MAX_ATTEMPTS} attempts — try again")
 
-    def _fetch_backlinks_once(self, title: str,
+    def _fetch_backlinks_once(self, title: RawTitle,
                               page_size: int) -> Backlinks | None:
         """One attempt at fetching every backlink group for `title`.
         Returns None if the server's reported ordering shifted mid-fetch
@@ -221,7 +221,7 @@ class PkmClient:
         return Backlinks(groups=groups, total_pages=total, offset=0,
                          limit=observed_limit or 0)
 
-    def get_page_blocks(self, title: str) -> tuple[list[BlockNode], bool]:
+    def get_page_blocks(self, title: RawTitle) -> tuple[list[BlockNode], bool]:
         """The blocks of `title`, or an empty list if the page doesn't
         exist yet -- (blocks, missing). Never creates the page itself: a
         batch that references a missing title folds a create_page op for
@@ -290,15 +290,15 @@ class PkmClient:
         return self._request("GET", "/api/changed", ChangedPayload,
                              params=params)
 
-    def rename_page(self, title: str, new_title: RawTitle,
+    def rename_page(self, title: RawTitle, new_title: RawTitle,
                    allow_merge: bool = False) -> RenamePageResponse:
         """POST /api/page/{title}/rename. `new_title` is sent as-is -- the
         server canonicalizes it and reports the landed title back in the
         response, same as `title` here (normalize_title, matching every
         other title-addressed method on this client)."""
-        title = normalize_title(title)
+        ref_title = normalize_title(title)
         return self._request(
-            "POST", f"/api/page/{quote(title, safe='/')}/rename",
+            "POST", f"/api/page/{quote(ref_title, safe='/')}/rename",
             RenamePageResponse,
             json={"new_title": new_title, "allow_merge": allow_merge})
 

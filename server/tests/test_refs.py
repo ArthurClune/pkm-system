@@ -47,11 +47,11 @@ def test_the_hashtag_pattern_is_built_from_the_bare_tag_name_class():
 
 
 @pytest.mark.parametrize(
-    "title, bare",
+    "title_text, bare",
     [("Tag", True), ("a/b.c-d", True), ("Two Words", False), ("", False)],
 )
-def test_is_bare_tag_title_answers_for_the_whole_title(title, bare):
-    assert is_bare_tag_title(title) is bare
+def test_is_bare_tag_title_answers_for_the_whole_title(title_text, bare):
+    assert is_bare_tag_title(title_text) is bare
 
 
 def test_bracket_spans_locate_runs_and_nest_them():

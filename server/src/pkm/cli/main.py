@@ -21,10 +21,10 @@ from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
                                   upload_and_link)
-from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import UID_RE
 from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.planning import BuildError
+from pkm.refs import canonical_daily_title
 from pkm.render import (RenderError, clip_depth, render_assets,
                         render_backlinks, render_block, render_changed,
                         render_goodlinks_check, render_groups,
@@ -414,26 +414,28 @@ def cmd_login(args: argparse.Namespace) -> int:
 def cmd_get(args: argparse.Namespace, client: PkmClient) -> int:
     target = args.target
     if target in _RELATIVE:
-        target = title_for_date(date.today()
-                                + timedelta(days=_RELATIVE[target]))
-    elif UID_RE.fullmatch(target):
-        try:
-            block_payload = client.get_block(target)
-            if args.section:
-                print("--section only applies to pages", file=sys.stderr)
-                return 1
-            if args.depth:
-                clipped = clip_depth([block_payload.block], args.depth)[0]
-                block_payload = block_payload.model_copy(
-                    update={"block": clipped})
-            _emit(block_payload,
-                  render_block(block_payload, args.uids,
-                               resolve_refs=args.resolve_refs), args.json)
-            return 0
-        except ApiError as e:
-            if e.status != 404:
-                raise
-    payload = client.get_page(target)
+        page_title = canonical_daily_title(
+            date.today() + timedelta(days=_RELATIVE[target]))
+    else:
+        page_title = as_raw_title(target)
+        if UID_RE.fullmatch(target):
+            try:
+                block_payload = client.get_block(target)
+                if args.section:
+                    print("--section only applies to pages", file=sys.stderr)
+                    return 1
+                if args.depth:
+                    clipped = clip_depth([block_payload.block], args.depth)[0]
+                    block_payload = block_payload.model_copy(
+                        update={"block": clipped})
+                _emit(block_payload,
+                      render_block(block_payload, args.uids,
+                                   resolve_refs=args.resolve_refs), args.json)
+                return 0
+            except ApiError as e:
+                if e.status != 404:
+                    raise
+    payload = client.get_page(page_title)
     blocks = payload.blocks
     if args.section:
         blocks = select_section(blocks, args.section)
@@ -452,8 +454,9 @@ def cmd_search(args: argparse.Namespace, client: PkmClient) -> int:
 
 
 def cmd_refs(args: argparse.Namespace, client: PkmClient) -> int:
-    backlinks = client.get_backlinks(args.title)
-    _emit(backlinks, render_backlinks(args.title, backlinks), args.json)
+    title = as_raw_title(args.title)
+    backlinks = client.get_backlinks(title)
+    _emit(backlinks, render_backlinks(title, backlinks), args.json)
     return 0
 
 
@@ -612,7 +615,7 @@ def cmd_migrate_titles(args: argparse.Namespace, client: PkmClient) -> int:
 
 def cmd_rename(args: argparse.Namespace, client: PkmClient) -> int:
     try:
-        payload = client.rename_page(args.title, as_raw_title(args.new_title),
+        payload = client.rename_page(as_raw_title(args.title), as_raw_title(args.new_title),
                                      allow_merge=args.allow_merge)
     except ApiError as e:
         if e.status == 409 and not args.allow_merge:

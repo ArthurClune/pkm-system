@@ -15,9 +15,9 @@ from pkm.contracts.daily import date_for_title
 from pkm.contracts.ops import BlockUid, PageId
 from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
-    BlockBacklinksPayload, BlockPayload, BlockRefsPayload, BlockRefText, CurrentWorkPayload,
-    DeleteBlockerModel, DeletePreview, GroupsPayload, JournalCleanupResponse,
-    JournalPayload, OkAck, PageMeta, PagePayload, RenamePageResponse)
+    BacklinkGroup, Backlinks, BlockBacklinksPayload, BlockPayload, BlockRefsPayload, BlockRefText, CurrentWorkPayload,
+    CurrentWorkPage, CurrentWorkSection, DeleteBlockerModel, DeletePreview,
+    GroupsPayload, JournalCleanupResponse, JournalDay, JournalPayload, OkAck, PageMeta, PagePayload, RenamePageResponse)
 from pkm.contracts.titles import RawTitle
 from pkm.database import Db
 from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
@@ -25,7 +25,7 @@ from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
 from pkm.rows import Row
 from pkm.server import notify
 from pkm.server.auth import require_auth
-from pkm.server.grouping import BacklinkGroup, group_backlinks, group_by_page
+from pkm.server.grouping import group_backlinks, group_by_page
 from pkm.server.daily import (is_page_empty, past_week_dates,
                               select_journal_days)
 from pkm.server.db import get_db
@@ -205,8 +205,8 @@ def get_block_backlinks(uid: BlockUid,
             ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid""",
         (uid,))
     ancestors = _fetch_ancestors(db, [r["uid"] for r in rows])
-    return BlockBacklinksPayload.model_validate(
-        {"groups": group_backlinks(rows, ancestors)})
+    return BlockBacklinksPayload(
+        groups=group_backlinks(rows, ancestors))
 
 
 @router.get("/api/block/{uid}", response_model=BlockPayload)
@@ -227,12 +227,12 @@ def get_block(uid: BlockUid, db: Db = Depends(get_db)) -> BlockPayload:
     node = find_node(build_tree(blocks), uid)
     assert node is not None  # the block row exists on this page
     texts = [r["text"] for r in blocks]
-    return BlockPayload.model_validate({
-        "page": _page_meta(row),
-        "block": node,
-        "breadcrumbs": _fetch_ancestors(db, [uid]).get(uid, []),
-        "block_ref_texts": _block_ref_texts(db, texts),
-    })
+    return BlockPayload(
+        page=_page_meta(row),
+        block=node,
+        breadcrumbs=_fetch_ancestors(db, [uid]).get(uid, []),
+        block_ref_texts=_block_ref_texts(db, texts),
+    )
 
 
 @router.get("/api/page/{title:path}", response_model=PagePayload)
@@ -253,16 +253,16 @@ def get_page(request: Request, title: RawTitle, bl_offset: int = 0, bl_limit: in
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (page["page_id"],))
     groups, total, bl_texts = _backlinks(db, page["page_id"], bl_offset, bl_limit)
-    return PagePayload.model_validate({
-        "page": _page_meta(page),
-        "blocks": build_tree(blocks),
-        "backlinks": {"groups": groups, "total_pages": total,
-                      "offset": bl_offset, "limit": bl_limit},
-        "block_ref_texts": _block_ref_texts(
+    return PagePayload(
+        page=_page_meta(page),
+        blocks=build_tree(blocks),
+        backlinks=Backlinks(groups=groups, total_pages=total,
+                            offset=bl_offset, limit=bl_limit),
+        block_ref_texts=_block_ref_texts(
             db, [r["text"] for r in blocks] + bl_texts),
-        "block_ref_counts": _block_ref_counts(
+        block_ref_counts=_block_ref_counts(
             db, [r["uid"] for r in blocks]),
-    })
+    )
 
 
 @router.post("/api/pages", response_model=PageMeta)
@@ -440,8 +440,7 @@ def get_unlinked(title: RawTitle, limit: int = 20, offset: int = 0,
         f"""SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
             {where} ORDER BY p.title, b.uid LIMIT ? OFFSET ?""",
         (*params, limit, offset))
-    return GroupsPayload.model_validate(
-        {"groups": group_by_page(rows), "total": counted["n"]})
+    return GroupsPayload(groups=group_by_page(rows), total=counted["n"])
 
 
 _HOUR_MS = 60 * 60 * 1000
@@ -456,7 +455,7 @@ _CURRENT_WORK_SECTIONS = [
 def get_current_work(now_ms: int | None = None,
                      db: Db = Depends(get_db)) -> CurrentWorkPayload:
     now = now_ms if now_ms is not None else int(time.time() * 1000)
-    sections = []
+    sections: list[CurrentWorkSection] = []
     for section_id, heading, min_age, max_age in _CURRENT_WORK_SECTIONS:
         newer_than = now - max_age
         older_than = now - min_age
@@ -469,13 +468,16 @@ def get_current_work(now_ms: int | None = None,
                 ORDER BY updated_at DESC, title""",
             (newer_than, older_than),
         )
-        sections.append({
-            "id": section_id,
-            "heading": heading,
-            "pages": [{"id": r["page_id"], "title": r["title"],
-                       "updated_at": r["updated_at"]} for r in rows],
-        })
-    return CurrentWorkPayload.model_validate({"sections": sections})
+        sections.append(CurrentWorkSection(
+            id=section_id,
+            heading=heading,
+            # The query's `updated_at IS NOT NULL` makes the filter a no-op;
+            # it narrows the Row's nullable column for the model.
+            pages=[CurrentWorkPage(id=r["page_id"], title=r["title"],
+                                   updated_at=r["updated_at"])
+                   for r in rows if r["updated_at"] is not None],
+        ))
+    return CurrentWorkPayload(sections=sections)
 
 
 # Non-empty = any block with non-whitespace text; the trim char set matches
@@ -539,7 +541,7 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
         d = date_for_title(row["title"])
         if d is not None:
             nonempty.add(d)
-    out = []
+    out: list[JournalDay] = []
     texts: list[str] = []
     uids: list[BlockUid] = []
     for d in select_journal_days(nonempty, today, cursor, days):
@@ -554,14 +556,14 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
         texts.extend(r["text"] for r in blocks)
         texts.extend(bl_texts)
         uids.extend(r["uid"] for r in blocks)
-        out.append({"date": d.isoformat(), "title": page["title"],
-                    "exists": True, "blocks": build_tree(blocks),
-                    "backlinks": {"groups": groups, "total_pages": total,
-                                  "offset": 0,
-                                  "limit": JOURNAL_BACKLINK_PREVIEW}})
-    return JournalPayload.model_validate({
-        "days": out, "block_ref_texts": _block_ref_texts(db, texts),
-        "block_ref_counts": _block_ref_counts(db, uids)})
+        out.append(JournalDay(
+            date=d.isoformat(), title=page["title"], exists=True,
+            blocks=build_tree(blocks),
+            backlinks=Backlinks(groups=groups, total_pages=total, offset=0,
+                                limit=JOURNAL_BACKLINK_PREVIEW)))
+    return JournalPayload(
+        days=out, block_ref_texts=_block_ref_texts(db, texts),
+        block_ref_counts=_block_ref_counts(db, uids))
 
 
 def _daily_is_linked(db: Db, page_id: PageId) -> bool:

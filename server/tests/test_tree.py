@@ -1,5 +1,6 @@
 from pkm.contracts.ops import BlockUid, ViewType
 from pkm.rows import Row, StoredHeadingLevel
+from pkm.contracts.responses import BlockNode
 from pkm.server.tree import build_tree, collect_block_ref_uids
 from pkm.test_data.ids import order_idx_of, uid_of
 
@@ -24,11 +25,22 @@ ROWS = [
 
 def test_build_tree_nests_and_sorts():
     tree = build_tree(ROWS)
-    assert [n["text"] for n in tree] == ["first", "second", "orphan"]
-    assert tree[1]["heading"] == 2 and tree[1]["collapsed"] == 1
-    assert tree[1]["view_type"] == "numbered"
-    assert [c["text"] for c in tree[1]["children"]] == ["child"]
-    assert tree[1]["children"][0]["view_type"] == "document"
+    assert [n.text for n in tree] == ["first", "second", "orphan"]
+    assert tree[1].heading == 2 and tree[1].collapsed is True
+    assert tree[1].view_type == "numbered"
+    assert [c.text for c in tree[1].children] == ["child"]
+    assert tree[1].children[0].view_type == "document"
+
+
+def test_build_tree_returns_block_nodes():
+    tree = build_tree(ROWS)
+    assert all(isinstance(n, BlockNode) for n in tree)
+    assert tree[1].children[0].uid == "tuid-c1"
+
+
+def test_a_stored_heading_zero_reads_as_no_heading():
+    row = _row(uid_of("tuid-h0"), None, 0, "x", 0, None, 0)
+    assert build_tree([row])[0].heading is None
 
 
 def test_collect_block_ref_uids():
@@ -38,16 +50,16 @@ def test_collect_block_ref_uids():
 
 def test_build_tree_exposes_order_idx():
     tree = build_tree(ROWS)
-    assert [n["order_idx"] for n in tree] == [0, 1, 0]
-    assert tree[1]["children"][0]["order_idx"] == 0
+    assert [n.order_idx for n in tree] == [0, 1, 0]
+    assert tree[1].children[0].order_idx == 0
 
 
 def test_tree_collapsed_is_bool():
     tree = build_tree(ROWS)
-    assert tree[1]["collapsed"] is True
-    assert tree[0]["collapsed"] is False
+    assert tree[1].collapsed is True
+    assert tree[0].collapsed is False
 
 
 def test_build_tree_reads_a_legacy_heading_zero_as_none():
     (node,) = build_tree([_row(uid_of("tuid-h0"), None, 0, "legacy", 0, None, 0)])
-    assert node["heading"] is None
+    assert node.heading is None

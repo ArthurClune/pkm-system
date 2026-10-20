@@ -16,7 +16,7 @@ from pkm.filenames import truncate_utf8
 from pkm.refs import BLOCK_REF_TOKEN
 
 if TYPE_CHECKING:
-    from pkm.server.tree import TreeNode
+    from pkm.contracts.responses import BlockNode
 
 _ASSET_LINK_RE = re.compile(r"\]\(/assets/")
 _BLOCK_REF_RE = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
@@ -48,19 +48,19 @@ def page_filename(title: CanonicalTitle, taken: set[str]) -> str:
     return name
 
 
-def render_page(title: CanonicalTitle, tree: Sequence[TreeNode],
+def render_page(title: CanonicalTitle, tree: Sequence[BlockNode],
                 uid_to_text: Mapping[str, str]) -> str:
     lines = [f"# {title}", ""]
 
-    def walk(nodes: Sequence[TreeNode], depth: int) -> None:
+    def walk(nodes: Sequence[BlockNode], depth: int) -> None:
         pad = "  " * depth
         for node in nodes:
             text = rewrite_asset_links(
-                resolve_block_refs(node["text"], uid_to_text))
+                resolve_block_refs(node.text, uid_to_text))
             first, *rest = text.split("\n")
             lines.append(f"{pad}- {first}")
             lines.extend(f"{pad}  {line}" for line in rest)
-            walk(node["children"], depth + 1)
+            walk(node.children, depth + 1)
 
     walk(tree, 0)
     return "\n".join(lines) + "\n"

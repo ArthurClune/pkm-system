@@ -14,21 +14,10 @@ from typing import TypedDict
 
 from pkm.changed import ChangeStatus
 from pkm.contracts.ops import BlockUid, PageId
+from pkm.contracts.responses import (BacklinkGroup, BacklinkItem, BlockGroup,
+                                     ChangedGroup, ChangedItem, GroupItem)
 from pkm.refs import CanonicalTitle
 from pkm.rows import Row
-
-
-class GroupedBlock(TypedDict):
-    uid: BlockUid
-    text: str
-
-
-class ChangedItem(TypedDict):
-    uid: BlockUid
-    text: str
-    created_at: int | None
-    updated_at: int | None
-    status: ChangeStatus
 
 
 class ChangedRow(TypedDict):
@@ -43,45 +32,20 @@ class ChangedRow(TypedDict):
     status: ChangeStatus
 
 
-class BacklinkItem(TypedDict):
-    uid: BlockUid
-    text: str
-    breadcrumbs: list[str]
-
-
-class PageGroup(TypedDict):
-    page_id: PageId
-    page_title: CanonicalTitle
-    items: list[GroupedBlock]
-
-
-class ChangedGroup(TypedDict):
-    page_id: PageId
-    page_title: CanonicalTitle
-    items: list[ChangedItem]
-
-
-class BacklinkGroup(TypedDict):
-    page_id: PageId
-    page_title: CanonicalTitle
-    items: list[BacklinkItem]
-
-
-def group_by_page(rows: Sequence[Row]) -> list[PageGroup]:
+def group_by_page(rows: Sequence[Row]) -> list[BlockGroup]:
     """Rows of `uid, text, page_id, page_title` -> page groups. Shared by
     query results, todos and unlinked references, whose items are the bare
     `{uid, text}` pair."""
-    groups: list[PageGroup] = []
-    index: dict[PageId, list[GroupedBlock]] = {}
+    # Models copy the list they are given, so items are collected first
+    # and each group is built once, after its rows are all in.
+    titles: dict[PageId, CanonicalTitle] = {}
+    index: dict[PageId, list[GroupItem]] = {}
     for r in rows:
-        items = index.get(r["page_id"])
-        if items is None:
-            items = []
-            groups.append({"page_id": r["page_id"],
-                           "page_title": r["page_title"], "items": items})
-            index[r["page_id"]] = items
-        items.append({"uid": r["uid"], "text": r["text"]})
-    return groups
+        items = index.setdefault(r["page_id"], [])
+        titles.setdefault(r["page_id"], r["page_title"])
+        items.append(GroupItem(uid=r["uid"], text=r["text"]))
+    return [BlockGroup(page_id=pid, page_title=titles[pid], items=items)
+            for pid, items in index.items()]
 
 
 def group_changed(rows: Sequence[ChangedRow]) -> list[ChangedGroup]:
@@ -91,21 +55,16 @@ def group_changed(rows: Sequence[ChangedRow]) -> list[ChangedGroup]:
     that shape is a public contract (GroupsPayload) three other routes
     already return; changing its item shape would ripple into all of
     them for one caller's extra fields."""
-    groups: list[ChangedGroup] = []
+    titles: dict[PageId, CanonicalTitle] = {}
     index: dict[PageId, list[ChangedItem]] = {}
     for r in rows:
-        items = index.get(r["page_id"])
-        if items is None:
-            items = []
-            groups.append({"page_id": r["page_id"],
-                           "page_title": r["page_title"], "items": items})
-            index[r["page_id"]] = items
-        items.append({
-            "uid": r["uid"], "text": r["text"],
-            "created_at": r["created_at"], "updated_at": r["updated_at"],
-            "status": r["status"],
-        })
-    return groups
+        items = index.setdefault(r["page_id"], [])
+        titles.setdefault(r["page_id"], r["page_title"])
+        items.append(ChangedItem(
+            uid=r["uid"], text=r["text"], created_at=r["created_at"],
+            updated_at=r["updated_at"], status=r["status"]))
+    return [ChangedGroup(page_id=pid, page_title=titles[pid], items=items)
+            for pid, items in index.items()]
 
 
 def group_backlinks(rows: Sequence[Row],
@@ -113,18 +72,13 @@ def group_backlinks(rows: Sequence[Row],
                     ) -> list[BacklinkGroup]:
     """Rows of `uid, text, src_page_id, src_page_title` -> page groups whose
     items also carry the block's breadcrumb trail."""
-    groups: list[BacklinkGroup] = []
+    titles: dict[PageId, CanonicalTitle] = {}
     index: dict[PageId, list[BacklinkItem]] = {}
     for r in rows:
-        items = index.get(r["src_page_id"])
-        if items is None:
-            items = []
-            groups.append({"page_id": r["src_page_id"],
-                           "page_title": r["src_page_title"], "items": items})
-            index[r["src_page_id"]] = items
-        items.append({
-            "uid": r["uid"],
-            "text": r["text"],
-            "breadcrumbs": list(ancestors.get(r["uid"], [])),
-        })
-    return groups
+        items = index.setdefault(r["src_page_id"], [])
+        titles.setdefault(r["src_page_id"], r["src_page_title"])
+        items.append(BacklinkItem(
+            uid=r["uid"], text=r["text"],
+            breadcrumbs=list(ancestors.get(r["uid"], []))))
+    return [BacklinkGroup(page_id=pid, page_title=titles[pid], items=items)
+            for pid, items in index.items()]

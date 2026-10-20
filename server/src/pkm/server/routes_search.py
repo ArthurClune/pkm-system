@@ -70,9 +70,9 @@ def run_query(expr: str, expand: bool = False,
         for title, operand in page_queries(node).items()
     }
     matches = execute_plan(db, sql, params)
-    return QueryPayload.model_validate(
-        {"groups": group_by_page(matches.rows), "total": matches.total,
-         "ref_counts": ref_counts})
+    return QueryPayload(
+        groups=group_by_page(matches.rows), total=matches.total,
+        ref_counts=ref_counts)
 
 
 @router.get("/api/titles", response_model=TitlesPayload)
@@ -122,8 +122,7 @@ def todos(page: str | None = None,
         params.append(bound)
     sql += " ORDER BY p.title, b.uid"
     rows = [r for r in db.select(sql, params) if is_todo(r["text"])]
-    return GroupsPayload.model_validate(
-        {"groups": group_by_page(rows), "total": len(rows)})
+    return GroupsPayload(groups=group_by_page(rows), total=len(rows))
 
 
 @router.get("/api/changed", response_model=ChangedPayload)
@@ -163,6 +162,6 @@ def changed(since: str, until: str | None = None, page: str | None = None,
         status=classify(r["created_at"], since_ms=since_ms,
                         until_ms=until_ms))
             for r in db.select(sql, [*params, limit])]
-    return ChangedPayload.model_validate(
-        {"groups": group_changed(rows), "total": counted["n"],
-         "since": since_ms, "until": until_ms})
+    return ChangedPayload(
+        groups=group_changed(rows), total=counted["n"],
+        since=since_ms, until=until_ms)

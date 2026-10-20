@@ -475,7 +475,7 @@ class SnapshotPayload(StrictModel):
 # The three Claude aliases plus z.ai's GLM. Lives here (not
 # assistant/policy.py) so the policy module -- which also needs it -- can
 # import it without the contracts package depending on assistant.
-AssistantModel = Literal["sonnet", "opus", "haiku", "glm"]
+AssistantModel = Literal["sonnet", "opus", "haiku", "fable", "glm"]
 
 # Both live here, not in assistant/service.py or assistant/events.py, for the
 # same reason AssistantModel does: assistant/* already depends on contracts,

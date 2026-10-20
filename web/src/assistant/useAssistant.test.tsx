@@ -46,28 +46,28 @@ describe("useAssistant", () => {
     render(<Harness />);
     // mounting alone (app load, panel closed) must not hit the network
     expect(mocks.fetchModels).not.toHaveBeenCalled();
-    expect(latest.models).toEqual(["sonnet", "opus", "haiku"]);
+    expect(latest.models).toEqual(["sonnet", "opus", "haiku", "fable"]);
     act(() => latest.ensureModels());
     act(() => latest.ensureModels());
     expect(mocks.fetchModels).toHaveBeenCalledTimes(1); // idempotent while pending
-    await act(async () => d.resolve({ models: ["sonnet", "opus", "haiku", "glm"], default: "sonnet" }));
-    expect(latest.models).toEqual(["sonnet", "opus", "haiku", "glm"]);
+    await act(async () => d.resolve({ models: ["sonnet", "opus", "haiku", "fable", "glm"], default: "sonnet" }));
+    expect(latest.models).toEqual(["sonnet", "opus", "haiku", "fable", "glm"]);
     act(() => latest.ensureModels());
     expect(mocks.fetchModels).toHaveBeenCalledTimes(1); // and after success
   });
 
   test("a failed models fetch keeps the fallback and retries on the next open", async () => {
     mocks.fetchModels.mockRejectedValueOnce(new Error("offline"));
-    mocks.fetchModels.mockResolvedValueOnce({ models: ["sonnet", "opus", "haiku", "glm"], default: "sonnet" });
+    mocks.fetchModels.mockResolvedValueOnce({ models: ["sonnet", "opus", "haiku", "fable", "glm"], default: "sonnet" });
     render(<Harness />);
     await act(async () => latest.ensureModels());
-    expect(latest.models).toEqual(["sonnet", "opus", "haiku"]);
+    expect(latest.models).toEqual(["sonnet", "opus", "haiku", "fable"]);
     await act(async () => latest.ensureModels());
-    expect(latest.models).toEqual(["sonnet", "opus", "haiku", "glm"]);
+    expect(latest.models).toEqual(["sonnet", "opus", "haiku", "fable", "glm"]);
   });
 
   test("adopts the server's default model unless the user already picked one", async () => {
-    mocks.fetchModels.mockResolvedValue({ models: ["sonnet", "opus", "haiku"], default: "haiku" });
+    mocks.fetchModels.mockResolvedValue({ models: ["sonnet", "opus", "haiku", "fable"], default: "haiku" });
     render(<Harness />);
     await act(async () => latest.ensureModels());
     expect(latest.model).toBe("haiku");
@@ -79,7 +79,7 @@ describe("useAssistant", () => {
     render(<Harness />);
     act(() => latest.ensureModels());
     act(() => latest.setModel("opus"));
-    await act(async () => d.resolve({ models: ["sonnet", "opus", "haiku"], default: "haiku" }));
+    await act(async () => d.resolve({ models: ["sonnet", "opus", "haiku", "fable"], default: "haiku" }));
     expect(latest.model).toBe("opus");
   });
 

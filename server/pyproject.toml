@@ -10,7 +10,7 @@ dependencies = [
     "websockets>=13",
     "httpx2>=2.5.0",
     "mcp>=1.28",
-    "claude-agent-sdk>=0.2.161",
+    "claude-agent-sdk>=0.2.168",
     "nh3>=0.3.7",
 ]
 

@@ -2371,6 +2371,7 @@
               "sonnet",
               "opus",
               "haiku",
+              "fable",
               "glm"
             ],
             "title": "Model"
@@ -2392,6 +2393,7 @@
                 "sonnet",
                 "opus",
                 "haiku",
+                "fable",
                 "glm"
               ]
             },
@@ -2404,6 +2406,7 @@
               "sonnet",
               "opus",
               "haiku",
+              "fable",
               "glm"
             ],
             "title": "Default"

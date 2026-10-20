@@ -15,7 +15,7 @@ const state = vi.hoisted(() => {
       error: null as string | null,
       model: "sonnet",
       setModel: vi.fn(),
-      models: ["sonnet", "opus", "haiku"],
+      models: ["sonnet", "opus", "haiku", "fable"],
       ensureModels: vi.fn(),
       modelLocked: false,
       pendingConfirm: noConfirm(),
@@ -39,15 +39,15 @@ afterEach(() => {
   state.current.error = null;
   state.current.modelLocked = false;
   state.current.pendingConfirm = null;
-  state.current.models = ["sonnet", "opus", "haiku"];
+  state.current.models = ["sonnet", "opus", "haiku", "fable"];
 });
 
 describe("AssistantPanel", () => {
   test("model picker renders exactly what the server offers", () => {
-    state.current.models = ["sonnet", "opus", "haiku", "glm"];
+    state.current.models = ["sonnet", "opus", "haiku", "fable", "glm"];
     render(<AssistantPanel open onClose={() => {}} />);
     const labels = screen.getAllByRole("option").map((o) => o.textContent);
-    expect(labels).toEqual(["sonnet", "opus", "haiku", "glm"]);
+    expect(labels).toEqual(["sonnet", "opus", "haiku", "fable", "glm"]);
   });
 
   test("model picker hides glm when the server does not offer it", () => {

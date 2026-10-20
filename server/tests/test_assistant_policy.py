@@ -1,7 +1,9 @@
 import re
+from urllib.parse import unquote
 
 import pytest
 
+from pkm.local_docs import local_href
 from pkm.assistant.policy import (
     SYSTEM_PROMPT,
     READ_TOOLS,
@@ -64,6 +66,7 @@ def test_resolve_model():
     assert resolve_model("sonnet") == "sonnet"
     assert resolve_model("opus") == "opus"
     assert resolve_model("haiku") == "haiku"
+    assert resolve_model("fable") == "fable"
     assert resolve_model("glm") == "glm"
     with pytest.raises(ValueError):
         resolve_model("gpt-4o")
@@ -87,7 +90,7 @@ def test_available_models_includes_glm_only_when_zai_configured():
     # the Claude trio and the default are offered either way
     for models in (with_key, without_key):
         assert default_model(models) in models
-        assert {"sonnet", "opus", "haiku"} <= set(models)
+        assert {"sonnet", "opus", "haiku", "fable"} <= set(models)
 
 
 def test_tool_summary():
@@ -199,3 +202,21 @@ def test_changed_blocks_summary():
     assert tool_summary("changed_blocks", {"since": "2026-09-24"}) == \
         "listing changes since 2026-09-24"
     assert tool_summary("changed_blocks", {}) == "changed_blocks"
+
+
+def test_prompt_local_copy_example_matches_local_href():
+    example = "Papers/Machine Learning/complex paper.pdf"
+    target = re.search(
+        r"Local copy:: \[complex paper\.pdf\]\((/api/local/\S+?)\)\s*$",
+        SYSTEM_PROMPT, re.MULTILINE)
+    assert target is not None
+    assert target.group(1) == local_href(example)
+
+
+def test_local_href_encodes_every_character_the_prompt_names():
+    href = local_href("A/it's (x) & #1 100% café.pdf")
+    path = href.removeprefix("/api/local/")
+    for raw in "' ()&#é":
+        assert raw not in path
+    assert path.count("/") == 1
+    assert unquote(path) == "A/it's (x) & #1 100% café.pdf"

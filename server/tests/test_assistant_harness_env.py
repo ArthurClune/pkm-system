@@ -16,6 +16,15 @@ def test_a_configured_zai_key_never_leaks_into_a_claude_run():
     assert resolved.env == {"ENABLE_TOOL_SEARCH": "false"}
 
 
+def test_fable_is_a_claude_model_on_the_subscription_not_zai():
+    assert "fable" in MODELS
+    assert "fable" not in ZAI_MODELS
+    resolved = resolve_harness_env("fable", zai_token="zk-test")
+    assert resolved.sdk_model == "fable"
+    assert resolved.env == {"ENABLE_TOOL_SEARCH": "false"}
+    assert "ANTHROPIC_BASE_URL" not in resolved.env
+
+
 def test_zai_models_route_to_zai_under_the_sonnet_alias():
     resolved = resolve_harness_env("glm", zai_token="zk-test")
     # z.ai maps the Claude alias to its plan-default GLM server-side, so no

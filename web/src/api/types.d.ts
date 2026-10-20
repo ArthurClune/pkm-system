@@ -1076,17 +1076,17 @@ export interface components {
              * Model
              * @enum {string}
              */
-            model: "sonnet" | "opus" | "haiku" | "glm";
+            model: "sonnet" | "opus" | "haiku" | "fable" | "glm";
         };
         /** AssistantModels */
         AssistantModels: {
             /** Models */
-            models: ("sonnet" | "opus" | "haiku" | "glm")[];
+            models: ("sonnet" | "opus" | "haiku" | "fable" | "glm")[];
             /**
              * Default
              * @enum {string}
              */
-            default: "sonnet" | "opus" | "haiku" | "glm";
+            default: "sonnet" | "opus" | "haiku" | "fable" | "glm";
         };
         /** BacklinkGroup */
         BacklinkGroup: {

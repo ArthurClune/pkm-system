@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-10-17T15:30:18Z
-updated_at: 2026-10-19T15:23:16Z
+updated_at: 2026-10-20T10:32:24Z
 ---
 
 The brand check (pkm-zv2s) registers names like `uid` and `page_id` that
@@ -30,7 +30,7 @@ Bugs the survey found, filed separately: pkm-ebkf, pkm-9hn0.
 
 - [x] survey and decide names
 - [x] branch 1: RawTitle, wire fields, kind-specific names (feat/title-brands-1)
-- [ ] branch 2: bare `title` (plan after branch 1 lands)
+- [ ] branch 2: bare `title` (feat/title-brands-2; plan docs/superpowers/plans/2026-10-20-title-brands-2.md). Ruled 2026-10-20: rename CurrentWorkSection.title to heading and the GoodLinks title to article_title.
 
 Follow-ups found in branch 1: pkm-aa5q (pyrefly lets a plain str reach a
 branded pydantic field at construction), pkm-mqma (web/tooling is not

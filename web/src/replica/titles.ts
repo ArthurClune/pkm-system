@@ -57,7 +57,9 @@ export function findOpTitleViolation(
 
 /** Normalized, not canonical: only the caller knows whether
  * `plainSpaceActive` is this replica's live flag. A CanonicalTitle comes from
- * meta.ts's `canonicalTitle` / `titleReader`, which read the flag. */
+ * meta.ts's `canonicalTitle` / `titleReader`, which read the worker's flag,
+ * or on the main thread from sync/titleCanonicalization.ts's `titleReaderFor`,
+ * which reads its mirror of it. */
 export function canonicalizeTitle(title: string,
                                   plainSpaceActive: boolean): NormalizedTitle {
   const normalized = normalizeRefTitle(title);

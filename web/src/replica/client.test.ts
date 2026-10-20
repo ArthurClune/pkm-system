@@ -49,7 +49,8 @@ test("init on a fresh database installs the schema and reports empty", async () 
   const { replica } = await setup();
   const init = await replica.init();
   expect(init).toEqual({ empty: true, cursor: 0,
-                         schemaMismatch: false, pendingBatches: [] });
+                         schemaMismatch: false,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [] });
 });
 
 test("bootstrap then re-init reports cursor and not-empty", async () => {
@@ -487,7 +488,8 @@ typeProbe(() => {
   // ReplicaRpc is covered
   const incomplete: RpcHandlers<ReplicaRpc> = {
     init: async () => ({
-      empty: true, cursor: seqOf(0), schemaMismatch: false, pendingBatches: [],
+      empty: true, cursor: seqOf(0), schemaMismatch: false,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [],
     }),
   };
   const pendingCount: RpcHandlers<ReplicaRpc>["pendingCount"] =

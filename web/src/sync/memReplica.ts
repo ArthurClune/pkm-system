@@ -18,7 +18,8 @@ export function memReplica(over: Partial<Replica> = {}): Replica & {
     rows,
     enqueued,
     init: async () => ({ empty: false, cursor: seqOf(0),
-                         schemaMismatch: false, pendingBatches: [] }),
+                         schemaMismatch: false, pendingBatches: [],
+                         plainSpaceTitleCanonicalization: false }),
     applySnapshot: async () => ({ status: "applied" }),
     applyChanges: async () => ({ status: "applied", cursor: seqOf(0) }),
     enqueue: async (ops, batchId) => {

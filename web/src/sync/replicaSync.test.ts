@@ -13,6 +13,9 @@ import {
   createReplicaSync, PENDING_CHANGED_CAP, PENDING_IDS_CAP, ResetBlockedError, RETRY_BASE_MS,
   RETRY_MAX_MS, STALL_AFTER_FAILURES, WINDOW_STRIKES, type ReplicaState,
 } from "./replicaSync";
+import {
+  plainSpaceTitleCanonicalizationNow as readFlag, resetPlainSpaceTitleCanonicalization,
+} from "./titleCanonicalization";
 
 // Every test here picks an arbitrary id/batch-id string, same shape as the
 // production mint; these mint the brand once rather than at every call.
@@ -42,7 +45,8 @@ function fakeReplica(over: Partial<Replica> = {},
   return {
     calls,
     init: () => rec<ReplicaInit>("init", { empty: false, cursor: seqOf(5),
-                                        schemaMismatch: false, pendingBatches: [],
+                                        schemaMismatch: false,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [],
                                         ...init }),
     applySnapshot: () =>
       rec<SnapshotApplyResult>("applySnapshot", { status: "applied" }),
@@ -157,6 +161,56 @@ describe("start, bootstrap and feed pulls", () => {
       [stale, [1]],
       [stale, []],
     ]);
+  });
+
+  describe("the main-thread title flag", () => {
+    afterEach(resetPlainSpaceTitleCanonicalization);
+    const run = async (
+      init: Partial<ReplicaInit>, fetchJson: (path: string) => unknown,
+    ) => {
+      const replica = fakeReplica({}, init);
+      const { onState } = collector();
+      const sync = createReplicaSync({
+        replica, fetchJson: async (path: string) => fetchJson(path),
+        clientId: CID, onState });
+      await sync.start();
+    };
+
+    test("defaults to off and stays off for an unusable replica", async () => {
+      const fetchJson = vi.fn();
+      const replica = fakeReplica({
+        init: () => Promise.reject(new ReplicaUnusableError("no database")),
+      });
+      const { onState } = collector();
+      await createReplicaSync({ replica, fetchJson, clientId: CID, onState }).start();
+      expect(readFlag()).toBe(false);
+    });
+
+    test("init's stored flag reaches it", async () => {
+      const seen: boolean[] = [];
+      await run({ plainSpaceTitleCanonicalization: true }, () => {
+        seen.push(readFlag());
+        return EMPTY_FEED;
+      });
+      expect(seen).toEqual([true]);
+    });
+
+    test("a snapshot's flag reaches it before the next fetch", async () => {
+      const seen: boolean[] = [];
+      await run({ empty: true }, (path) => {
+        if (path.startsWith("/api/sync/snapshot")) {
+          return { ...SNAP, plain_space_title_canonicalization: true };
+        }
+        seen.push(readFlag());
+        return EMPTY_FEED;
+      });
+      expect(seen).toEqual([true]);
+    });
+
+    test("a changes feed's flag reaches it", async () => {
+      await run({}, () => feed({ plain_space_title_canonicalization: true }));
+      expect(readFlag()).toBe(true);
+    });
   });
 
   test("no-replica init reports mode and never fetches", async () => {
@@ -582,7 +636,7 @@ describe("recovery flushes and the shared coordinator", () => {
     const posted: Record<string, unknown>[] = [];
     const replica = fakeReplica({}, {
       schemaMismatch: true,
-      pendingBatches: [
+      plainSpaceTitleCanonicalization: false, pendingBatches: [
         {
           id: pendingRowIdOf(1),
           batch_id: bid("b-1"),
@@ -609,7 +663,7 @@ describe("recovery flushes and the shared coordinator", () => {
     const posted: Record<string, unknown>[] = [];
     const replica = fakeReplica({}, {
       schemaMismatch: true,
-      pendingBatches: [
+      plainSpaceTitleCanonicalization: false, pendingBatches: [
         { id: pendingRowIdOf(1), batch_id: bid("b-1"),
           ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
         { id: pendingRowIdOf(2), batch_id: bid("b-2"),
@@ -645,7 +699,8 @@ describe("recovery flushes and the shared coordinator", () => {
       { id: pendingRowIdOf(1), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
       { id: pendingRowIdOf(2), batch_id: bid("b-2"), ops: [{ op: "delete", uid: uidOf("uid_a2") }], poisoned: false },
     ];
-    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
+    const replica = fakeReplica({}, { schemaMismatch: true,
+      plainSpaceTitleCanonicalization: false, pendingBatches: batches });
     const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === "/api/ops") {
         trace.push(`flush ${sentBatchId(init)}`);
@@ -682,7 +737,8 @@ describe("recovery flushes and the shared coordinator", () => {
       { id: pendingRowIdOf(1), batch_id: bid("b-1"),
        ops: [{ op: "update_text", uid: uidOf("uid_a1"), text: "x" }], poisoned: false },
     ];
-    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
+    const replica = fakeReplica({}, { schemaMismatch: true,
+      plainSpaceTitleCanonicalization: false, pendingBatches: batches });
     const fetchJson = vi.fn(async (path: string) => {
       if (path === "/api/ops") {
         return { ok: true, ts: 1, applied: 1, seq: 7,
@@ -707,7 +763,8 @@ describe("recovery flushes and the shared coordinator", () => {
     const batches: PendingBatch[] = [
       { id: pendingRowIdOf(1), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
     ];
-    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
+    const replica = fakeReplica({}, { schemaMismatch: true,
+      plainSpaceTitleCanonicalization: false, pendingBatches: batches });
     const fetchJson = vi.fn(async (path: string) => {
       if (path === "/api/ops") return { ok: true, ts: 1, applied: 1, seq: 7, skipped: [] };
       if (path === "/api/sync/snapshot") return SNAP;
@@ -726,7 +783,7 @@ describe("recovery flushes and the shared coordinator", () => {
   test("a failed recovery flush keeps the database and reports the failure", async () => {
     const replica = fakeReplica({}, {
       schemaMismatch: true,
-      pendingBatches: [
+      plainSpaceTitleCanonicalization: false, pendingBatches: [
         { id: pendingRowIdOf(1), batch_id: bid("b-1"),
           ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
       ],
@@ -747,7 +804,7 @@ describe("recovery flushes and the shared coordinator", () => {
   test("a failed recovery snapshot aborts the lease and retains durable rows", async () => {
     const replica = fakeReplica({}, {
       schemaMismatch: true,
-      pendingBatches: [
+      plainSpaceTitleCanonicalization: false, pendingBatches: [
         { id: pendingRowIdOf(1), batch_id: bid("b-1"),
           ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
       ],
@@ -812,7 +869,8 @@ describe("recovery flushes and the shared coordinator", () => {
         trace.push("reset-or-rebase plus snapshot");
         trace.push("release lease");
       },
-    }, { schemaMismatch: true, pendingBatches: batches });
+    }, { schemaMismatch: true,
+      plainSpaceTitleCanonicalization: false, pendingBatches: batches });
     const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === "/api/ops") {
         trace.push(`flush ${sentBatchId(init)}`);
@@ -915,7 +973,8 @@ describe("recovery flushes and the shared coordinator", () => {
         throw new Error("pending rows changed during recovery");
       },
       abortRecovery: async () => { trace.push("abort"); },
-    }, { schemaMismatch: true, pendingBatches: batches });
+    }, { schemaMismatch: true,
+      plainSpaceTitleCanonicalization: false, pendingBatches: batches });
     const fetchJson = vi.fn(async (path: string) => {
       if (path === "/api/ops") return { ok: true };
       if (path === "/api/sync/snapshot") return SNAP;
@@ -1423,7 +1482,8 @@ describe("resetLocalData", () => {
     const batch: PendingBatch = {
       id: pendingRowIdOf(1), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false,
     };
-    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: [batch] });
+    const replica = fakeReplica({}, { schemaMismatch: true,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [batch] });
     let snapshotShouldFail = true;
     const fetchJson = vi.fn(async (path: string) => {
       if (path === "/api/ops") return { ok: true };

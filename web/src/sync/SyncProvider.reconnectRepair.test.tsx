@@ -29,7 +29,7 @@ function rowReplica(): Replica {
   const pending = () => rows.filter((row) => !row.poisoned).length;
   return {
     init: async () => ({ empty: false, cursor: seqOf(5), schemaMismatch: false,
-                         pendingBatches: [] }),
+                         plainSpaceTitleCanonicalization: false, pendingBatches: [] }),
     applySnapshot: async () => ({ status: "applied" as const }),
     applyChanges: async (f) => ({ status: "applied", cursor: f.next_since }),
     enqueue: async (ops) => {

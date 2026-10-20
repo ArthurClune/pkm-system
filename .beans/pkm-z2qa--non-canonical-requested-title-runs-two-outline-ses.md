@@ -1,11 +1,11 @@
 ---
 # pkm-z2qa
 title: Non-canonical requested title runs two outline sessions; resync causality guard bypassed
-status: todo
+status: completed
 type: bug
 priority: deferred
 created_at: 2026-10-01T19:35:45Z
-updated_at: 2026-10-20T12:18:47Z
+updated_at: 2026-10-20T12:31:06Z
 ---
 
 A page opened under a non-canonical title runs two outline sessions: one for the loader, one for the editor. This happens on PageView via a URL like `/page/%20%20Paper%20%20` (from clicking a `[[  Paper  ]]` ref), and in a sidebar panel opened with such a title.
@@ -34,10 +34,10 @@ This predates pkm-thee on PageView. pkm-thee gave the sidebar the same shape, bu
 
 ## Plan
 
-- [ ] Reproduce: padded-URL resync-causality test asserting 3 fetches (red)
-- [ ] One session per page, keyed by the canonical title
-- [ ] Sidebar variant of the test
-- [ ] Troubleshooting row if it reproduces
+- [x] ~~Reproduce: padded-URL resync-causality test asserting 3 fetches (red)~~ (moot: no longer reproduces)
+- [x] ~~One session per page, keyed by the canonical title~~ (moot: no longer reproduces)
+- [x] ~~Sidebar variant of the test~~ (moot: no longer reproduces)
+- [x] ~~Troubleshooting row if it reproduces~~ (moot: no longer reproduces)
 
 ## 2026-10-20
 
@@ -47,4 +47,22 @@ the two sessions. Arthur: re-run the padded-URL copy of PageView's
 "a parent resync response dispatched before a local split cannot erase it"
 test, and close this bean if it now makes 3 fetches like the canonical URL.
 
-- [ ] re-run the padded-URL check against main; close or narrow this bean
+- [x] re-run the padded-URL check against main; close or narrow this bean
+
+## Summary of Changes
+
+Fixed by pkm-ebkf; no code change here. Re-checked on main (49e4ef31) with
+a padded-URL copy of PageView's "a parent resync response dispatched before
+a local split cannot erase it":
+
+| URL | Fetches | Rows survive |
+|---|---|---|
+| /page/Paper | 3: initial, resync, corrective re-read | yes |
+| /page/%20%20Paper%20%20 | 4: padded initial, canonical re-key, resync, corrective re-read | yes |
+
+The corrective re-read now happens under the padded URL, so the causality
+guard runs on the editor's session. After load only the canonical session
+is active (isOutlineSessionActive on the padded title is false). The extra
+GET is the documented re-key cost in useOutlinePageLoad.ts. The sidebar
+variant was not re-run; it shares the same loader. The other plan items are
+moot because the bug no longer reproduces.

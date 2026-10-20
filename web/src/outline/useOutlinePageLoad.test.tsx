@@ -1,14 +1,13 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { block, canonicalTitleOf, jsonResponse, pagePayload } from "../test-helpers";
-import type { RawTitle } from "../api/brands";
+import { block, canonicalTitleOf, jsonResponse, pagePayload,
+         rawTitleOf } from "../test-helpers";
 import { substituteMissingDaily } from "./missingPage";
 import { isOutlineSessionActive } from "./outlineSessions";
 import { useOutlinePageLoad } from "./useOutlinePageLoad";
 
 afterEach(() => vi.unstubAllGlobals());
 
-const raw = (t: string) => t as RawTitle;
 const settle = () => new Promise((r) => setTimeout(r, 30));
 
 function stub(handler: (url: string) => Response) {
@@ -23,7 +22,7 @@ describe("useOutlinePageLoad session key", () => {
     const fetchMock = stub(() => jsonResponse(
       pagePayload(canonicalTitleOf("Paper"), [block("tuid-u1", "first")])));
     const { result, unmount } = renderHook(
-      () => useOutlinePageLoad(raw("Paper"), () => null));
+      () => useOutlinePageLoad(rawTitleOf("Paper"), () => null));
     await waitFor(() => expect(result.current.payload).not.toBeNull());
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -36,7 +35,7 @@ describe("useOutlinePageLoad session key", () => {
        const fetchMock = stub(() => jsonResponse(
          pagePayload(canonicalTitleOf("Paper"), [block("tuid-u1", "first")])));
        const { result, unmount } = renderHook(
-         () => useOutlinePageLoad(raw("Paper "), () => null));
+         () => useOutlinePageLoad(rawTitleOf("Paper "), () => null));
        await waitFor(() => expect(result.current.payload).not.toBeNull());
        await settle();
        expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -59,7 +58,7 @@ describe("useOutlinePageLoad session key", () => {
        }));
        vi.stubGlobal("fetch", fetchMock);
        const { result, unmount } = renderHook(
-         () => useOutlinePageLoad(raw("Paper "), () => null));
+         () => useOutlinePageLoad(rawTitleOf("Paper "), () => null));
        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
        act(() => result.current.reload("resync"));
        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
@@ -85,7 +84,7 @@ describe("useOutlinePageLoad session key", () => {
            [block("tuid-u1", "first")]));
        });
        const { result, unmount } = renderHook(
-         () => useOutlinePageLoad(raw("Paper "), () => null));
+         () => useOutlinePageLoad(rawTitleOf("Paper "), () => null));
        await waitFor(() => expect(result.current.payload).not.toBeNull());
        await settle();
        expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -97,7 +96,7 @@ describe("useOutlinePageLoad session key", () => {
      async () => {
        const fetchMock = stub(() => new Response("{}", { status: 404 }));
        const { result, unmount } = renderHook(
-         () => useOutlinePageLoad(raw("July 13th, 2026"),
+         () => useOutlinePageLoad(rawTitleOf("July 13th, 2026"),
                                   substituteMissingDaily));
        await waitFor(() => expect(result.current.payload).not.toBeNull());
        await settle();
@@ -111,7 +110,7 @@ describe("useOutlinePageLoad session key", () => {
      async () => {
        const fetchMock = stub(() => new Response("{}", { status: 404 }));
        const { result, unmount } = renderHook(
-         () => useOutlinePageLoad(raw("July 13th, 2026 "),
+         () => useOutlinePageLoad(rawTitleOf("July 13th, 2026 "),
                                   substituteMissingDaily));
        await waitFor(() => expect(result.current.error).not.toBeNull());
        await settle();

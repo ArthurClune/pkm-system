@@ -1,11 +1,11 @@
 ---
 # pkm-ebkf
 title: Padded page link splits the outline session; a resync can erase a remote edit
-status: todo
+status: in-progress
 type: bug
 priority: high
 created_at: 2026-10-19T15:59:04Z
-updated_at: 2026-10-19T15:59:04Z
+updated_at: 2026-10-20T09:50:39Z
 ---
 
 ## Symptom
@@ -48,6 +48,6 @@ Key `useOutlinePageLoad`'s session by the canonical title (the replica
 the payload title. Not affected: undo history, double replay, first
 render.
 
-- [ ] failing test (both checks above, `%09` and `%20`)
-- [ ] key the session canonically
-- [ ] troubleshooting.md row
+- [x] failing test (both checks above, `%09` and `%20`)
+- [x] key the session canonically
+- [x] troubleshooting.md row

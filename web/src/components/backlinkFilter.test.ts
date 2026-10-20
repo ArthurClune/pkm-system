@@ -112,6 +112,18 @@ describe("padded ref titles", () => {
     });
   });
 
+  it("an include picked under flag off still matches once the flag is on", () => {
+    const stale = { include: [T("ML ")], exclude: [] };
+    expect(applyFilter(padded, stale, on)[0]?.items).toHaveLength(2);
+    expect(applyFilter(padded, stale, off)[0]?.items.map((i) => i.uid))
+      .toEqual(["tuid-p2"]);
+  });
+
+  it("omit entries picked under flag off are re-read when the flag is on", () => {
+    expect(chipCounts(padded, [T(" AI ")], on)).toEqual(
+      [{ title: "ML", count: 2 }]);
+  });
+
   describe("flag off", () => {
     it("keeps padded titles distinct, as distinct pages", () => {
       expect(chipCounts(padded, [T("AI")], off)).toEqual([

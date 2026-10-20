@@ -46,7 +46,8 @@ function fakeReplica(over: Partial<Replica> = {},
     calls,
     init: () => rec<ReplicaInit>("init", { empty: false, cursor: seqOf(5),
                                         schemaMismatch: false,
-      plainSpaceTitleCanonicalization: false, pendingBatches: [],
+                                        plainSpaceTitleCanonicalization: false,
+                                        pendingBatches: [],
                                         ...init }),
     applySnapshot: () =>
       rec<SnapshotApplyResult>("applySnapshot", { status: "applied" }),
@@ -635,8 +636,7 @@ describe("recovery flushes and the shared coordinator", () => {
   test("a recovery flush posts seen_seq when the batch has one and omits the key otherwise", async () => {
     const posted: Record<string, unknown>[] = [];
     const replica = fakeReplica({}, {
-      schemaMismatch: true,
-      plainSpaceTitleCanonicalization: false, pendingBatches: [
+      schemaMismatch: true, pendingBatches: [
         {
           id: pendingRowIdOf(1),
           batch_id: bid("b-1"),
@@ -662,8 +662,7 @@ describe("recovery flushes and the shared coordinator", () => {
   test("schema mismatch flushes pending batches before reset, in order", async () => {
     const posted: Record<string, unknown>[] = [];
     const replica = fakeReplica({}, {
-      schemaMismatch: true,
-      plainSpaceTitleCanonicalization: false, pendingBatches: [
+      schemaMismatch: true, pendingBatches: [
         { id: pendingRowIdOf(1), batch_id: bid("b-1"),
           ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
         { id: pendingRowIdOf(2), batch_id: bid("b-2"),
@@ -699,8 +698,7 @@ describe("recovery flushes and the shared coordinator", () => {
       { id: pendingRowIdOf(1), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
       { id: pendingRowIdOf(2), batch_id: bid("b-2"), ops: [{ op: "delete", uid: uidOf("uid_a2") }], poisoned: false },
     ];
-    const replica = fakeReplica({}, { schemaMismatch: true,
-      plainSpaceTitleCanonicalization: false, pendingBatches: batches });
+    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
     const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === "/api/ops") {
         trace.push(`flush ${sentBatchId(init)}`);
@@ -737,8 +735,7 @@ describe("recovery flushes and the shared coordinator", () => {
       { id: pendingRowIdOf(1), batch_id: bid("b-1"),
        ops: [{ op: "update_text", uid: uidOf("uid_a1"), text: "x" }], poisoned: false },
     ];
-    const replica = fakeReplica({}, { schemaMismatch: true,
-      plainSpaceTitleCanonicalization: false, pendingBatches: batches });
+    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
     const fetchJson = vi.fn(async (path: string) => {
       if (path === "/api/ops") {
         return { ok: true, ts: 1, applied: 1, seq: 7,
@@ -763,8 +760,7 @@ describe("recovery flushes and the shared coordinator", () => {
     const batches: PendingBatch[] = [
       { id: pendingRowIdOf(1), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
     ];
-    const replica = fakeReplica({}, { schemaMismatch: true,
-      plainSpaceTitleCanonicalization: false, pendingBatches: batches });
+    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
     const fetchJson = vi.fn(async (path: string) => {
       if (path === "/api/ops") return { ok: true, ts: 1, applied: 1, seq: 7, skipped: [] };
       if (path === "/api/sync/snapshot") return SNAP;
@@ -782,8 +778,7 @@ describe("recovery flushes and the shared coordinator", () => {
 
   test("a failed recovery flush keeps the database and reports the failure", async () => {
     const replica = fakeReplica({}, {
-      schemaMismatch: true,
-      plainSpaceTitleCanonicalization: false, pendingBatches: [
+      schemaMismatch: true, pendingBatches: [
         { id: pendingRowIdOf(1), batch_id: bid("b-1"),
           ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
       ],
@@ -803,8 +798,7 @@ describe("recovery flushes and the shared coordinator", () => {
 
   test("a failed recovery snapshot aborts the lease and retains durable rows", async () => {
     const replica = fakeReplica({}, {
-      schemaMismatch: true,
-      plainSpaceTitleCanonicalization: false, pendingBatches: [
+      schemaMismatch: true, pendingBatches: [
         { id: pendingRowIdOf(1), batch_id: bid("b-1"),
           ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
       ],
@@ -869,8 +863,7 @@ describe("recovery flushes and the shared coordinator", () => {
         trace.push("reset-or-rebase plus snapshot");
         trace.push("release lease");
       },
-    }, { schemaMismatch: true,
-      plainSpaceTitleCanonicalization: false, pendingBatches: batches });
+    }, { schemaMismatch: true, pendingBatches: batches });
     const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === "/api/ops") {
         trace.push(`flush ${sentBatchId(init)}`);
@@ -973,8 +966,7 @@ describe("recovery flushes and the shared coordinator", () => {
         throw new Error("pending rows changed during recovery");
       },
       abortRecovery: async () => { trace.push("abort"); },
-    }, { schemaMismatch: true,
-      plainSpaceTitleCanonicalization: false, pendingBatches: batches });
+    }, { schemaMismatch: true, pendingBatches: batches });
     const fetchJson = vi.fn(async (path: string) => {
       if (path === "/api/ops") return { ok: true };
       if (path === "/api/sync/snapshot") return SNAP;
@@ -1482,8 +1474,7 @@ describe("resetLocalData", () => {
     const batch: PendingBatch = {
       id: pendingRowIdOf(1), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false,
     };
-    const replica = fakeReplica({}, { schemaMismatch: true,
-      plainSpaceTitleCanonicalization: false, pendingBatches: [batch] });
+    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: [batch] });
     let snapshotShouldFail = true;
     const fetchJson = vi.fn(async (path: string) => {
       if (path === "/api/ops") return { ok: true };

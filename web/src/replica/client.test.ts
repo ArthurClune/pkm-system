@@ -50,7 +50,8 @@ test("init on a fresh database installs the schema and reports empty", async () 
   const init = await replica.init();
   expect(init).toEqual({ empty: true, cursor: 0,
                          schemaMismatch: false,
-      plainSpaceTitleCanonicalization: false, pendingBatches: [] });
+                         plainSpaceTitleCanonicalization: false,
+                         pendingBatches: [] });
 });
 
 test("bootstrap then re-init reports cursor and not-empty", async () => {

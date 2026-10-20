@@ -10,7 +10,7 @@
 import type { CanonicalTitle } from "../api/brands";
 import type { BacklinkGroup, BacklinkItem } from "../api/payloads";
 import { extractRefs } from "../grammar/refs";
-import type { TitleReader } from "../replica/meta";
+import type { TitleReader } from "../replica/titles";
 
 export interface FilterState {
   include: CanonicalTitle[];
@@ -55,12 +55,16 @@ export function itemRefTitles(item: BacklinkItem,
 export function applyFilter(groups: BacklinkGroup[], f: FilterState,
                             read: TitleReader): BacklinkGroup[] {
   if (!isFiltering(f)) return groups;
+  // Entries picked under the other flag value are re-read: canonicalizing
+  // is idempotent on a title already canonical under this one.
+  const include = f.include.map((t) => read(t));
+  const exclude = f.exclude.map((t) => read(t));
   const out: BacklinkGroup[] = [];
   for (const g of groups) {
     const items = g.items.filter((it) => {
       const refs = itemRefTitles(it, read);
-      return f.include.every((t) => refs.has(t)) &&
-             !f.exclude.some((t) => refs.has(t));
+      return include.every((t) => refs.has(t)) &&
+             !exclude.some((t) => refs.has(t));
     });
     if (items.length > 0) out.push({ ...g, items });
   }
@@ -78,7 +82,7 @@ export interface Chip {
 export function chipCounts(visible: BacklinkGroup[],
                            omit: Iterable<CanonicalTitle>,
                            read: TitleReader): Chip[] {
-  const skip = new Set(omit);
+  const skip = new Set([...omit].map((t) => read(t)));
   const counts = new Map<CanonicalTitle, number>();
   for (const g of visible)
     for (const it of g.items)

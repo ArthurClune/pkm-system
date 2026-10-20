@@ -3,7 +3,7 @@
 // always normalized by the reference-title rule; migration activation adds
 // removal of boundary U+0020 only, preserving NBSP and internal spaces.
 
-import type { NormalizedTitle, RawTitle } from "../api/brands";
+import type { CanonicalTitle, NormalizedTitle, RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { normalizeRefTitle } from "../grammar/scan";
 import { extractRefs } from "./refs";
@@ -57,13 +57,28 @@ export function findOpTitleViolation(
 
 /** Normalized, not canonical: only the caller knows whether
  * `plainSpaceActive` is this replica's live flag. A CanonicalTitle comes from
- * meta.ts's `canonicalTitle` / `titleReader`, which read the worker's flag,
- * or on the main thread from sync/titleCanonicalization.ts's `titleReaderFor`,
- * which reads its mirror of it. */
+ * `titleReaderFor` below, which meta.ts's `titleReader` calls with the
+ * worker's flag and sync/titleCanonicalization.ts with its mirror of it. */
 export function canonicalizeTitle(title: string,
                                   plainSpaceActive: boolean): NormalizedTitle {
   const normalized = normalizeRefTitle(title);
   return plainSpaceActive
     ? normalized.replace(/^ +| +$/g, "") as NormalizedTitle
     : normalized;
+}
+
+/** `canonicalTitle` for an operation that canonicalises several titles: the
+ * flag is read once, not once per title (sync_meta.title_reader). The flag
+ * it read rides along, so a caller that also branches on it needs no second
+ * read. */
+export type TitleReader = ((title: string) => CanonicalTitle) &
+  { readonly plainSpaceActive: boolean };
+
+/** The one pure constructor of a TitleReader, so of CanonicalTitle from text:
+ * replica/meta.ts reads the flag from the database, and the main thread's
+ * mirror (sync/titleCanonicalization.ts) from its copy. */
+export function titleReaderFor(plainSpaceActive: boolean): TitleReader {
+  return Object.assign(
+    (title: string) => canonicalizeTitle(title, plainSpaceActive) as CanonicalTitle,
+    { plainSpaceActive });
 }

@@ -8,9 +8,7 @@
 // the copy stays false there: padded titles read as distinct pages.
 
 import { useSyncExternalStore } from "react";
-import type { CanonicalTitle } from "../api/brands";
-import type { TitleReader } from "../replica/meta";
-import { canonicalizeTitle } from "../replica/titles";
+import { type TitleReader, titleReaderFor as mintTitleReader } from "../replica/titles";
 
 let plainSpaceActive = false;
 const listeners = new Set<() => void>();
@@ -37,13 +35,11 @@ const subscribe = (notify: () => void): (() => void) => {
 
 const readers = new Map<boolean, TitleReader>();
 
-/** The one main-thread mint of CanonicalTitle for text read from a block. */
+/** One reader per flag value, so its identity is a stable memo key. */
 export function titleReaderFor(active: boolean): TitleReader {
   let reader = readers.get(active);
   if (!reader) {
-    reader = Object.assign(
-      (text: string) => canonicalizeTitle(text, active) as CanonicalTitle,
-      { plainSpaceActive: active });
+    reader = mintTitleReader(active);
     readers.set(active, reader);
   }
   return reader;

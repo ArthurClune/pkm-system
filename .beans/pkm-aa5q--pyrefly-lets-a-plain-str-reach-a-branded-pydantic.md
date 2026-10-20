@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-19T17:40:04Z
-updated_at: 2026-10-20T12:21:22Z
+updated_at: 2026-10-20T12:22:29Z
 ---
 
 pyrefly accepts a plain `str` (or `int`) for a pydantic model field typed
@@ -79,7 +79,7 @@ Runtime sweep, since strict changes what validation accepts. Each item
 needs a test that pins the behaviour it keeps:
 - **Request bodies.** FastAPI validates decoded JSON in Python mode, so a
   JSON array for a `tuple` field, or a numeric string, `1.0` or `true` for
-  an int, would now be a 422. Find every request-model field whose type
+  an int, would now be a 422 (confirmed on FastAPI 0.139 with a strict model). Find every request-model field whose type
   pydantic used to coerce into, and decide each one: a list type, or
   `Field(strict=False)` with a reason.
 - **Response models built from SQLite rows.** `0`/`1` for a `bool`, `int`

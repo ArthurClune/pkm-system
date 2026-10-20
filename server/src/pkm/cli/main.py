@@ -413,9 +413,10 @@ def cmd_login(args: argparse.Namespace) -> int:
 
 def cmd_get(args: argparse.Namespace, client: PkmClient) -> int:
     target = args.target
+    page_title = as_raw_title(target)
     if target in _RELATIVE:
-        target = title_for_date(date.today()
-                                + timedelta(days=_RELATIVE[target]))
+        page_title = as_raw_title(title_for_date(
+            date.today() + timedelta(days=_RELATIVE[target])))
     elif UID_RE.fullmatch(target):
         try:
             block_payload = client.get_block(target)
@@ -433,7 +434,7 @@ def cmd_get(args: argparse.Namespace, client: PkmClient) -> int:
         except ApiError as e:
             if e.status != 404:
                 raise
-    payload = client.get_page(target)
+    payload = client.get_page(page_title)
     blocks = payload.blocks
     if args.section:
         blocks = select_section(blocks, args.section)
@@ -452,7 +453,7 @@ def cmd_search(args: argparse.Namespace, client: PkmClient) -> int:
 
 
 def cmd_refs(args: argparse.Namespace, client: PkmClient) -> int:
-    backlinks = client.get_backlinks(args.title)
+    backlinks = client.get_backlinks(as_raw_title(args.title))
     _emit(backlinks, render_backlinks(args.title, backlinks), args.json)
     return 0
 
@@ -612,7 +613,7 @@ def cmd_migrate_titles(args: argparse.Namespace, client: PkmClient) -> int:
 
 def cmd_rename(args: argparse.Namespace, client: PkmClient) -> int:
     try:
-        payload = client.rename_page(args.title, as_raw_title(args.new_title),
+        payload = client.rename_page(as_raw_title(args.title), as_raw_title(args.new_title),
                                      allow_merge=args.allow_merge)
     except ApiError as e:
         if e.status == 409 and not args.allow_merge:

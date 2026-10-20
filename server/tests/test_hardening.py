@@ -5,7 +5,7 @@ from pkm.schema import DDL
 from pkm.server.auth_core import YEAR_MS, sign_session, verify_session
 from pkm.server.db import init_db, open_db
 from pkm.server.store import fetch_page, get_or_create_page
-from pkm.test_data.ids import canonical_title_of, page_id_of
+from pkm.test_data.ids import canonical_title_of, page_id_of, raw_title_of
 from pkm.contracts.ops import PageId
 from pkm.contracts.titles import CanonicalTitle
 
@@ -34,9 +34,9 @@ def _db(tmp_path) -> Db:
 
 def test_get_or_create_page(tmp_path):
     db = _db(tmp_path)
-    page = get_or_create_page(db, "New Page", 123)
+    page = get_or_create_page(db, raw_title_of("New Page"), 123)
     assert page["title"] == "New Page" and page["created_at"] == 123
-    again = get_or_create_page(db, "New Page", 456)
+    again = get_or_create_page(db, raw_title_of("New Page"), 456)
     assert again["page_id"] == page["page_id"] and again["created_at"] == 123
     assert db.in_transaction  # helper must NOT have committed
     db.rollback()

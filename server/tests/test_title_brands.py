@@ -93,3 +93,14 @@ def test_non_page_titles_are_not_named_title() -> None:
     for model in (GoodlinksLink, GoodlinksArticle):
         assert "title" not in model.model_fields
         assert "article_title" in model.model_fields
+
+
+def test_route_title_params_are_raw(client) -> None:
+    paths = client.app.openapi()["paths"]
+    routes = [("/api/page/{title}", "get"), ("/api/page/{title}", "delete"),
+              ("/api/delete-preview", "get"),
+              ("/api/page/{title}/rename", "post"),
+              ("/api/unlinked", "get"), ("/api/export/page/{title}", "get")]
+    for path, method in routes:
+        params = {p["name"]: p for p in paths[path][method]["parameters"]}
+        assert params["title"]["schema"]["x-brand"] == "RawTitle", (path, method)

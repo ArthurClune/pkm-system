@@ -1,7 +1,7 @@
 // pattern: Functional Core
 // The missing-page policy every outline-loading surface shares: given a page
 // read that failed, is there a stand-in payload to display instead?
-import type { CanonicalTitle, PageId } from "../api/brands";
+import type { CanonicalTitle, PageId, RawTitle } from "../api/brands";
 import type { PagePayload } from "../api/payloads";
 import { dailyTitle } from "../replica/daily";
 
@@ -16,7 +16,7 @@ const MISSING_PAGE_ID = -1 as PageId;
  * successful response would be; null leaves the read failed. `Title` is
  * the form of title the read was made with: a policy that puts it in the
  * stand-in payload's `page.title` needs it canonical. */
-export type MissingPagePolicy<Title extends string = string> = (
+export type MissingPagePolicy<Title extends RawTitle = RawTitle> = (
   title: Title,
   status: number | null,
 ) => PagePayload | null;

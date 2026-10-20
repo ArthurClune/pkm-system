@@ -249,6 +249,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "RawTitle",
               "title": "Title"
             }
           },
@@ -307,6 +308,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "RawTitle",
               "title": "Title"
             }
           }
@@ -386,6 +388,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "RawTitle",
               "title": "Title"
             }
           }
@@ -426,6 +429,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "RawTitle",
               "title": "Title"
             }
           }
@@ -475,6 +479,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "RawTitle",
               "title": "Title"
             }
           },
@@ -1752,6 +1757,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "x-brand": "RawTitle",
               "title": "Title"
             }
           }

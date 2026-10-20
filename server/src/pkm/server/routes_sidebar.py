@@ -43,24 +43,24 @@ def get_sidebar(db: Db = Depends(get_db)) -> SidebarNavPayload:
 @router.post("/api/sidebar", response_model=SidebarNavEntry)
 def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
                       db: Db = Depends(get_db)) -> SidebarNavEntry:
-    title = read_title(db, body.title)
-    if is_blank_title(title):
+    canonical_title = read_title(db, body.title)
+    if is_blank_title(canonical_title):
         raise HTTPException(status_code=422, detail="title must not be blank")
     db.begin_immediate()
     existing = db.select(
         "SELECT title, order_idx AS sidebar_order_idx FROM sidebar_entries")
-    if any(r["title"] == title for r in existing):
+    if any(r["title"] == canonical_title for r in existing):
         db.rollback()
         raise HTTPException(status_code=409, detail="entry already exists")
     order_idx = next_order_idx([r["sidebar_order_idx"] for r in existing])
     try:
-        entry_id = insert_sidebar_entry(db, title, order_idx)
+        entry_id = insert_sidebar_entry(db, canonical_title, order_idx)
     except sqlite3.IntegrityError:
         db.rollback()
         raise HTTPException(
             status_code=409, detail="entry already exists") from None
     notify.commit_and_nudge_threadpool(request, db)
-    return SidebarNavEntry(id=entry_id, title=title)
+    return SidebarNavEntry(id=entry_id, title=canonical_title)
 
 
 @router.delete("/api/sidebar/{entry_id}", response_model=OkAck)

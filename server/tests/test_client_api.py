@@ -8,6 +8,7 @@ from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.contracts.ops import UID_RE, CreateOp, CreatePageOp, new_uid
 from pkm.contracts.responses import Backlinks, PagePayload
 from pkm.server.db import open_db
+from pkm.test_data.ids import raw_title_of
 
 
 def test_new_uid_matches_server_uid_re():
@@ -576,7 +577,7 @@ def test_unauthenticated_client_gets_login_hint(anon_client):
     bad = PkmClient(CliConfig(url="http://testserver", token="junk"),
                     http=anon_client)
     with pytest.raises(ApiError) as exc:
-        bad.get_page("AI")
+        bad.get_page(raw_title_of("AI"))
     assert str(exc.value) == (
         "401: session expired or missing — run `pkm login`")
 
@@ -593,6 +594,6 @@ def test_error_with_a_non_object_json_body_keeps_the_status(body):
             lambda request: httpx2.Response(502, text=body)))
     client = PkmClient(CliConfig(url="http://pkm.test", token="t"), http=http)
     with pytest.raises(ApiError) as e:
-        client.get_page("Home")
+        client.get_page(raw_title_of("Home"))
     assert e.value.status == 502
     assert body in str(e.value)

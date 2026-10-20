@@ -73,7 +73,7 @@ from pkm.contracts.daily import title_for_date
 from pkm.refs import CanonicalTitle
 from pkm.server import store
 from pkm.server.store import BlankTitleError, get_or_create_page, fetch_page
-from pkm.test_data.ids import canonical_title_of
+from pkm.test_data.ids import canonical_title_of, raw_title_of
 from pkm.database import connect
 
 
@@ -137,7 +137,7 @@ def _fresh_db(tmp_path):
 def test_get_or_create_page_raises_on_control_whitespace_only_title(tmp_path):
     db = _fresh_db(tmp_path)
     with pytest.raises(BlankTitleError):
-        get_or_create_page(db, CONTROL_ONLY, 123)
+        get_or_create_page(db, raw_title_of(CONTROL_ONLY), 123)
     assert fetch_page(db, _ct("")) is None
     db.close()
 
@@ -148,7 +148,7 @@ def test_get_or_create_page_rejects_forbidden_title_before_creating(
     db = _fresh_db(tmp_path)
 
     with pytest.raises(ValueError, match="unsupported page-title syntax") as exc:
-        get_or_create_page(db, title, 123)
+        get_or_create_page(db, raw_title_of(title), 123)
 
     assert type(exc.value) is store.ForbiddenTitleError
     assert exc.value.title == title
@@ -160,7 +160,7 @@ def test_get_or_create_page_allows_generated_daily_title(tmp_path):
     db = _fresh_db(tmp_path)
     title = title_for_date(date.today())
 
-    page = get_or_create_page(db, title, 123)
+    page = get_or_create_page(db, raw_title_of(title), 123)
 
     assert page["title"] == title
     db.close()
@@ -173,7 +173,7 @@ def test_get_or_create_page_raises_on_spaces_only_title(tmp_path):
     creates a real page literally titled "   "."""
     db = _fresh_db(tmp_path)
     with pytest.raises(BlankTitleError):
-        get_or_create_page(db, SPACES_ONLY, 123)
+        get_or_create_page(db, raw_title_of(SPACES_ONLY), 123)
     assert fetch_page(db, _ct(SPACES_ONLY)) is None
     assert fetch_page(db, _ct("")) is None
     db.close()
@@ -443,13 +443,13 @@ def test_padded_title_is_preserved_and_reused_exactly(tmp_path):
     assert original is not None
 
     # Same padded title again -> the SAME page, not a fresh duplicate.
-    reused = get_or_create_page(db, padded, 200)
+    reused = get_or_create_page(db, raw_title_of(padded), 200)
     assert reused["page_id"] == original["page_id"]
     assert reused["title"] == padded  # padding untouched in storage too
 
     # A stripped variant is a genuinely different title (exact match only)
     # -- it must NOT hijack the padded page's content.
-    stripped = get_or_create_page(db, "EvilCorp", 300)
+    stripped = get_or_create_page(db, raw_title_of("EvilCorp"), 300)
     assert stripped["page_id"] != original["page_id"]
     db.close()
 

@@ -2232,7 +2232,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                title: string;
+                title: Brands.RawTitle;
             };
             cookie?: never;
         };
@@ -2263,7 +2263,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                title: string;
+                title: Brands.RawTitle;
             };
             cookie?: never;
         };
@@ -2325,7 +2325,7 @@ export interface operations {
     delete_preview_api_delete_preview_get: {
         parameters: {
             query: {
-                title: string;
+                title: Brands.RawTitle;
             };
             header?: never;
             path?: never;
@@ -2358,7 +2358,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                title: string;
+                title: Brands.RawTitle;
             };
             cookie?: never;
         };
@@ -2391,7 +2391,7 @@ export interface operations {
     get_unlinked_api_unlinked_get: {
         parameters: {
             query: {
-                title: string;
+                title: Brands.RawTitle;
                 limit?: number;
                 offset?: number;
             };
@@ -3241,7 +3241,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                title: string;
+                title: Brands.RawTitle;
             };
             cookie?: never;
         };

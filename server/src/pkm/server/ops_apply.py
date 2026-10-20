@@ -15,7 +15,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                UpdateTextOp, new_uid)
 from pkm.contracts.responses import SkippedOp
 from pkm.database import Db
-from pkm.contracts.titles import RawTitle
+from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
                       normalize_title)
 from pkm.rows import Row
@@ -55,10 +55,10 @@ _AddressedOp = Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
 # so instead of raising BlankTitleError up to the caller it resolves to this
 # fixed, always-valid title -- get_or_create semantics, so repeated blank
 # titles all land on the same page rather than minting one each.
-UNTITLED_PAGE_TITLE = "Untitled"
+UNTITLED_PAGE_TITLE = as_raw_title("Untitled")
 
 
-def _resolve_page(db: Db, title: str,
+def _resolve_page(db: Db, title: RawTitle,
                   now_ms: int) -> Row:
     """get_or_create_page for op page_title fields: falls back to
     UNTITLED_PAGE_TITLE rather than propagating BlankTitleError (see
@@ -200,7 +200,7 @@ def _conflict_landing(db: Db, target_uid: BlockUid,
     local_day = datetime.fromtimestamp(now_ms / 1000).date()
     day = title_for_date(local_day)
     daily_title = canonical_daily_title(local_day)
-    daily = get_or_create_page(db, day, now_ms)
+    daily = get_or_create_page(db, daily_title, now_ms)
     daily_page_id = daily["page_id"]
     next_top = db.select_one(
         "SELECT COALESCE(MAX(order_idx) + 1, 0) AS next_order_idx"

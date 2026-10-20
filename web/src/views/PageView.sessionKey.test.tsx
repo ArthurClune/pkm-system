@@ -16,8 +16,10 @@ describe.each([
   ["/page/Paper%09", "Paper\t"], // control whitespace: normalized always
   ["/page/Paper%20", "Paper "],  // plain-space flag strips the trailing space
 ])("PageView at %s", (path, raw) => {
-  // A non-canonical path costs one extra initial GET: the raw read, then the
-  // canonical re-key read. Call numbers below are relative to that.
+  // A non-canonical path costs one extra initial GET (the raw read, then
+  // the canonical re-key read). `setup` serves the initial reads itself and
+  // hands fetchImpl the call number as if there were one: its first call is
+  // number 2, the read a resync starts.
   const extra = raw === "Paper" ? 0 : 1;
   const initialReads = () => Promise.resolve(jsonResponse(
     pagePayload(canonicalTitleOf("Paper"), [block("tuid-u1", "first")])));
@@ -57,7 +59,6 @@ describe.each([
       block("tuid-r1", "from the iPad", { order_idx: orderIdxOf(2) }),
     ]);
     const { fetchMock, sync, rerender } = setup((calls) => {
-      if (calls === 1) return Promise.resolve(jsonResponse(initial));
       if (calls === 2) return resync;
       return Promise.resolve(jsonResponse(both));
     });
@@ -81,7 +82,6 @@ describe.each([
   it("a resync response that moved on but predates a remote batch cannot erase it", async () => {
     let resolveResync!: (response: Response) => void;
     const resync = new Promise<Response>((done) => { resolveResync = done; });
-    const initial = pagePayload(canonicalTitleOf("Paper"), [block("tuid-u1", "first")]);
     // The server read the resync answers from already has R1, not R2.
     const withR1 = pagePayload(canonicalTitleOf("Paper"), [
       block("tuid-u1", "first"),
@@ -93,7 +93,6 @@ describe.each([
       block("tuid-r2", "remote two", { order_idx: orderIdxOf(3) }),
     ]);
     const { fetchMock, sync, rerender } = setup((calls) => {
-      if (calls === 1) return Promise.resolve(jsonResponse(initial));
       if (calls === 2) return resync;
       return Promise.resolve(jsonResponse(all));
     });
@@ -121,11 +120,10 @@ describe.each([
   it("a resync response dispatched before a local split cannot erase it", async () => {
     let resolveResync!: (response: Response) => void;
     const resync = new Promise<Response>((done) => { resolveResync = done; });
+    const initial = pagePayload(canonicalTitleOf("Paper"), [block("tuid-u1", "first")]);
     let resolveFresh!: (response: Response) => void;
     const fresh = new Promise<Response>((done) => { resolveFresh = done; });
-    const initial = pagePayload(canonicalTitleOf("Paper"), [block("tuid-u1", "first")]);
     const { fetchMock, sync, rerender } = setup((calls) => {
-      if (calls === 1) return Promise.resolve(jsonResponse(initial));
       return calls === 2 ? resync : fresh;
     });
     fireEvent.click(await screen.findByText("first"));

@@ -20,9 +20,11 @@
 // acquires the canonical one and issues a fresh "parent" read under it. The
 // payload already in hand is not seeded into the canonical session, since
 // another surface may hold that session at a newer revision. A canonical
-// title therefore costs one GET and a padded one two.
+// title therefore costs one GET and a padded one two. The re-key converges
+// unless the title changes again mid-flight; a second differing page title
+// is accepted as is, so there is no loop.
 //
-// Per mounted session the hook holds one refcounted outline session and
+// Per mount the hook holds one refcounted outline session at a time and
 // registers two things on it: an authoritative loader (blocks only, for
 // reads the session starts itself) and a parent read controller (the
 // session calls it to elect a fresh full-payload read when the current
@@ -50,7 +52,7 @@
 //    controller, cancels the outstanding token, removes the loader and
 //    releases the session — in that order, so cancellation can never elect
 //    a controller belonging to the unmounting surface.
-import type { RawTitle } from "../api/brands";
+import type { CanonicalTitle, RawTitle } from "../api/brands";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGet } from "../api/typedClient";
 import type { PagePayload } from "../api/payloads";
@@ -93,9 +95,9 @@ export function useOutlinePageLoad(
   } | null>(null);
   const [resolved, setResolved] = useState<{
     requested: RawTitle;
-    page: RawTitle;
+    page: CanonicalTitle;
   } | null>(null);
-  const key = resolved?.requested === title ? resolved.page : title;
+  const key: RawTitle = resolved?.requested === title ? resolved.page : title;
   const seqRef = useRef(0);
   const sessionRef = useRef<OutlineSessionHandle | null>(null);
   const readRef = useRef<OutlineRead | null>(null);

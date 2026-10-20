@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { block, canonicalTitleOf, jsonResponse, pagePayload } from "../test-helpers";
 import type { RawTitle } from "../api/brands";
@@ -47,6 +47,32 @@ describe("useOutlinePageLoad session key", () => {
        expect(result.current.payload?.page.title).toBe("Paper");
        unmount();
        expect(isOutlineSessionActive("Paper")).toBe(false);
+     });
+
+  it("a resync read of a padded title re-keys before publishing",
+     async () => {
+       const page = () => jsonResponse(pagePayload(
+         canonicalTitleOf("Paper"), [block("tuid-u1", "first")]));
+       const held: Array<(r: Response) => void> = [];
+       const fetchMock = vi.fn((_input: RequestInfo | URL) => new Promise<Response>((done) => {
+         held.push(done);
+       }));
+       vi.stubGlobal("fetch", fetchMock);
+       const { result, unmount } = renderHook(
+         () => useOutlinePageLoad(raw("Paper "), () => null));
+       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+       act(() => result.current.reload("resync"));
+       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+       await act(async () => { held[1](page()); await settle(); });
+       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+       const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+       expect(urls[2]).toBe("/api/page/Paper");
+       expect(result.current.payload).toBeNull();
+       expect(isOutlineSessionActive("Paper ")).toBe(false);
+       await act(async () => { held[2](page()); await settle(); });
+       expect(result.current.payload?.page.title).toBe("Paper");
+       expect(isOutlineSessionActive("Paper")).toBe(true);
+       unmount();
      });
 
   it("a rename after the re-key is accepted as is: no second re-key",

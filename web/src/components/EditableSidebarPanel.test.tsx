@@ -428,3 +428,22 @@ test("releases a failed parent read when the panel unmounts", async () => {
 
   expect(isOutlineSessionActive("Failed sidebar read")).toBe(false);
 });
+
+test("a padded title ends with one session, under the canonical key", async () => {
+  const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(
+    pagePayload(canonicalTitleOf("Paper"),
+                [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })]))));
+  vi.stubGlobal("fetch", fetchMock);
+  const { unmount } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={makeSync()}>
+        <EditableSidebarPanel title={rawTitleOf("Paper ")} />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+  expect(await screen.findByText("a paper block")).toBeInTheDocument();
+  expect(isOutlineSessionActive("Paper")).toBe(true);
+  expect(isOutlineSessionActive("Paper ")).toBe(false);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  unmount();
+  vi.unstubAllGlobals();
+});

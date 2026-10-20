@@ -58,6 +58,7 @@ class Registry:
     test_helpers: dict[str, str] = field(default_factory=dict)
     malformed: dict[str, str] = field(default_factory=dict)
     test_code: tuple[str, ...] = ()
+    strict_base: tuple[str, str] | None = None
 
 
 def load_registry(repo: Path, read: Reader | None = None, paths: list[str] | None = None) -> Registry:
@@ -87,4 +88,7 @@ def load_registry(repo: Path, read: Reader | None = None, paths: list[str] | Non
         test_helpers=dict(namespace["TEST_HELPERS"]),
         malformed=dict(namespace["MALFORMED"]),
         test_code=tuple(namespace["TEST_CODE"]),
+        # Synthetic registries in tests predate STRICT_BASE and still load;
+        # every other key raises KeyError when absent.
+        strict_base=tuple(namespace["STRICT_BASE"]) if "STRICT_BASE" in namespace else None,
     )

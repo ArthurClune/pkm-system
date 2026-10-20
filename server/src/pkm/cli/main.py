@@ -22,6 +22,7 @@ from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
                                   upload_and_link)
 from pkm.contracts.ops import UID_RE
+from pkm.contracts.responses import BlockPayload, PagePayload
 from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.planning import BuildError
 from pkm.refs import canonical_daily_title
@@ -426,8 +427,10 @@ def cmd_get(args: argparse.Namespace, client: PkmClient) -> int:
                     return 1
                 if args.depth:
                     clipped = clip_depth([block_payload.block], args.depth)[0]
-                    block_payload = block_payload.model_copy(
-                        update={"block": clipped})
+                    block_payload = BlockPayload(
+                        page=block_payload.page, block=clipped,
+                        breadcrumbs=block_payload.breadcrumbs,
+                        block_ref_texts=block_payload.block_ref_texts)
                 _emit(block_payload,
                       render_block(block_payload, args.uids,
                                    resolve_refs=args.resolve_refs), args.json)
@@ -441,7 +444,10 @@ def cmd_get(args: argparse.Namespace, client: PkmClient) -> int:
         blocks = select_section(blocks, args.section)
     if args.depth:
         blocks = clip_depth(blocks, args.depth)
-    payload = payload.model_copy(update={"blocks": blocks})
+    payload = PagePayload(
+        page=payload.page, blocks=blocks, backlinks=payload.backlinks,
+        block_ref_texts=payload.block_ref_texts,
+        block_ref_counts=payload.block_ref_counts)
     _emit(payload, render_page(payload, args.uids,
                                resolve_refs=args.resolve_refs), args.json)
     return 0

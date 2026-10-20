@@ -123,6 +123,8 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
         "web/src/uid.ts",
         # The tokenizer's block-ref match is uid-shaped by construction.
         "web/src/grammar/scan.ts",
+        # The seeder mints fixed fixture ids.
+        "server/tooling/proptest/sync_server.py",
         _WEB_ROWS, _WEB_WIRE, _WEB_PENDING_OPS, _WEB_POISON,
     ),
     "PageId": (
@@ -139,10 +141,15 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
     ),
     # `CLIENT_ID` is the CLI's fixed identity on the sync wire; the web mints
     # one per tab (`newClientId`).
+    # The two tooling seeders mint fixed fixture ids.
     "ClientId": (_CONTRACTS, "server/src/pkm/client/api.py",
+                 "server/tooling/perfcheck/build.py",
+                 "server/tooling/proptest/sync_server.py",
                  "web/src/uid.ts", _WEB_WIRE),
     # `_batch_id` mints one id per client batch; so does `newBatchId`.
     "BatchId": (_CONTRACTS, "server/src/pkm/client/workflows.py",
+                "server/tooling/perfcheck/build.py",
+                "server/tooling/proptest/sync_server.py",
                 "web/src/uid.ts", _WEB_ROWS, _WEB_WIRE, _WEB_POISON),
     # Order keys are assigned where a position becomes a key: the planner
     # (`next_order_idx`, `_land`), the importer (export order) and the
@@ -151,6 +158,7 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
     "OrderIdx": (_CONTRACTS, "server/src/pkm/planning.py",
                  "server/src/pkm/importer/rows.py",
                  "server/src/pkm/server/ops_core.py",
+                 "server/tooling/proptest/sync_server.py",
                  "web/src/outline/orderIdx.ts",
                  _WEB_ROWS, _WEB_WIRE, _WEB_PENDING_OPS, _WEB_POISON),
     # The importer appends sidebar entries one past the current max.
@@ -179,6 +187,7 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
     # lists and poison intents carry op `page_title`s, so their readers
     # declare it as they do the other brands a BlockOp holds.
     "RawTitle": (_CONTRACTS, "server/src/pkm/refs.py",
+                 "server/tooling/proptest/sync_server.py",
                  "web/src/replica/titles.ts", _WEB_WIRE,
                  _WEB_PENDING_OPS, _WEB_POISON),
     # `normalizeRefTitle` and `canonicalizeTitle` are the normalisers; the
@@ -400,3 +409,8 @@ CLIENT_LITERALS: dict[str, tuple[str | int, ...]] = {
 
 # SQLite's FTS5 shadow tables carry no data of ours.
 FTS_SHADOW_SUFFIXES = ("_data", "_idx", "_config", "_docsize", "_content")
+
+# The one file and class that may subclass pydantic's `BaseModel` directly;
+# every other model inherits it, so models are strict and pyrefly checks
+# their constructors.
+STRICT_BASE: tuple[str, str] = ("server/src/pkm/contracts/strict.py", "StrictModel")

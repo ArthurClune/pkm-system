@@ -12,7 +12,7 @@ TEST_DATA = Path(__file__).parents[2] / "test-data"
 
 def test_committed_graph_covers_supported_examples() -> None:
     raw = json.loads((TEST_DATA / "graph.json").read_text(encoding="utf-8"))
-    source = parse_graph_source(raw, asset_names={"sample.svg", "sample.pdf"})
+    source = parse_graph_source(json.dumps(raw), asset_names={"sample.svg", "sample.pdf"})
     assert [page.title for page in source.pages] == [
         "Project Atlas",
         "Formatting Lab",

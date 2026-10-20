@@ -8,7 +8,8 @@ from rawread import trace
 from pkm.server.db import open_db
 from pkm.server.routes_sync import sync_changes, sync_snapshot
 from pkm.test_data.ids import batch_id_of, seq_of
-from pkm.contracts.ops import BatchId
+from pkm.contracts.ops import BatchId, OpBatch
+from pkm.server.ops_hash import batch_replay_hash
 from pkm.database import connect
 
 
@@ -182,3 +183,23 @@ def test_snapshot_reads_applied_batches_in_its_read_transaction(seeded_config):
     finally:
         con.close()
     assert [a.batch_id for a in again.applied_batches] == ["late_snap"]
+
+
+def test_an_ack_with_no_seq_replays_through_both_readers(
+        seeded_config, client):
+    # post_ops reads the stored ack in JSON mode, _applied_batches in
+    # Python mode; strict models must accept it in both
+    ack = {"ok": True, "ts": 1, "applied": 2}
+    batch = {"client_id": "c1", "batch_id": "both_readers",
+             "ops": [{"op": "set_collapsed", "uid": "uid_b1",
+                      "collapsed": True}]}
+    con = open_db(seeded_config.db_path)
+    con.execute("INSERT INTO applied_batches VALUES (?,?,?,?)",
+                ("both_readers", batch_replay_hash(OpBatch.model_validate(batch)),
+                 json.dumps(ack), 1))
+    con.commit()
+    con.close()
+    assert client.post("/api/ops", json=batch).json()["applied"] == 2
+    feed = client.get("/api/sync/changes?since=0&pending=both_readers").json()
+    assert feed["applied_batches"] == [
+        {"batch_id": "both_readers", "seq": None, "skipped": []}]

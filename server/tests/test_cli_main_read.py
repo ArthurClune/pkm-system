@@ -4,7 +4,10 @@ import pytest
 
 from pkm.cli.main import main
 from pkm.contracts.daily import title_for_date
+from pkm.contracts.responses import (BacklinkGroup, BacklinkItem, Backlinks, BlockNode, BlockPayload, BlockRefText,
+                                     PageMeta, PagePayload)
 from pkm.database import connect
+from pkm.test_data.ids import canonical_title_of, order_idx_of, page_id_of, uid_of
 
 
 def _seed_migration_graph(db_path) -> None:
@@ -77,6 +80,25 @@ def run(pkm_client, capsys):
         out, err = capsys.readouterr()
         return code, out, err
     return _run
+
+
+def _full_page() -> PagePayload:
+    """A page whose every field, nested ones included, is set to something
+    other than its default, so a CLI rebuild that drops one shows."""
+    leaf = BlockNode(uid=uid_of("clifullleaf1"), text="leaf ((clifullhead1))", heading=None, view_type="numbered",
+                     collapsed=True, order_idx=order_idx_of(7), created_at=11, updated_at=12, children=[])
+    head = BlockNode(uid=uid_of("clifullhead1"), text="Papers", heading=2, view_type="document",
+                     collapsed=True, order_idx=order_idx_of(3), created_at=21, updated_at=22, children=[leaf])
+    ref = BlockRefText(text="Papers", page_title=canonical_title_of("Full Page"))
+    return PagePayload(
+        page=PageMeta(id=page_id_of(41), title=canonical_title_of("Full Page"), created_at=31, updated_at=32),
+        blocks=[head],
+        backlinks=Backlinks(groups=[BacklinkGroup(
+            page_id=page_id_of(42), page_title=canonical_title_of("Elsewhere"),
+            items=[BacklinkItem(uid=uid_of("clifullback1"), text="see [[Full Page]]", breadcrumbs=["Elsewhere"])])],
+            total_pages=5, offset=2, limit=9),
+        block_ref_texts={uid_of("clifullhead1"): ref},
+        block_ref_counts={uid_of("clifullhead1"): 4})
 
 
 def test_get_page_markdown(run):
@@ -417,6 +439,38 @@ def test_get_depth_clips_and_filters_json(run):
     assert code == 0
     blocks = json.loads(out)["blocks"]
     assert all(b["children"] == [] for b in blocks)
+
+
+def test_get_depth_keeps_every_other_page_field(run, pkm_client, monkeypatch):
+    page = _full_page()
+    monkeypatch.setattr(pkm_client, "get_page", lambda title: page)
+    code, out, _ = run("get", "Full Page", "--depth", "1", "--json")
+    assert code == 0
+    got = json.loads(out)
+    assert got["blocks"][0]["children"] == []
+    assert {k: v for k, v in got.items() if k != "blocks"} == page.model_dump(mode="json", exclude={"blocks"})
+
+
+def test_get_depth_keeps_every_other_block_payload_field(run, pkm_client, monkeypatch):
+    page = _full_page()
+    payload = BlockPayload(page=page.page, block=page.blocks[0], breadcrumbs=["Full Page", "above"],
+                           block_ref_texts=page.block_ref_texts)
+    monkeypatch.setattr(pkm_client, "get_block", lambda uid: payload)
+    code, out, _ = run("get", "clifullhead1", "--depth", "1", "--json")
+    assert code == 0
+    got = json.loads(out)
+    assert got["block"]["children"] == []
+    assert {k: v for k, v in got.items() if k != "block"} == payload.model_dump(mode="json", exclude={"block"})
+
+
+def test_get_section_keeps_every_other_page_field(run, pkm_client, monkeypatch):
+    page = _full_page()
+    monkeypatch.setattr(pkm_client, "get_page", lambda title: page)
+    code, out, _ = run("get", "Full Page", "--section", "## Papers", "--json")
+    assert code == 0
+    got = json.loads(out)
+    assert got["blocks"][0]["uid"] == "clifullhead1"
+    assert {k: v for k, v in got.items() if k != "blocks"} == page.model_dump(mode="json", exclude={"blocks"})
 
 
 def test_get_section_on_uid_is_error(run):

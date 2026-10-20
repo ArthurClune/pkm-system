@@ -5,7 +5,8 @@ from __future__ import annotations
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import Field
+from pkm.contracts.strict import StrictModel
 
 from pkm.contracts.ops import SidebarEntryId
 from pkm.contracts.responses import OkAck, SidebarNavEntry, SidebarNavPayload
@@ -22,11 +23,11 @@ from pkm.server.sync_meta import read_title
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 
-class AddSidebarEntryRequest(BaseModel):
+class AddSidebarEntryRequest(StrictModel):
     title: RawTitle = Field(min_length=1)
 
 
-class ReorderSidebarEntriesRequest(BaseModel):
+class ReorderSidebarEntriesRequest(StrictModel):
     order: list[SidebarEntryId]
 
 

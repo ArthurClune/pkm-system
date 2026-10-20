@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import NewType
 
 import pytest
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import Field, ValidationError
+from pkm.contracts.strict import StrictModel
 
 from pkm.contracts.brands import brand
 from pkm.server.app import create_app
@@ -24,17 +25,17 @@ Child = NewType("Child", Parent)
 brand(Child)
 
 
-class M(BaseModel):
+class M(StrictModel):
     h: Tagged | None = Field(default=None, min_length=4, max_length=4)
     xs: list[Tagged] = []
     n: TaggedInt
 
 
-class Unbranded(BaseModel):
+class Unbranded(StrictModel):
     p: Plain
 
 
-class Nested(BaseModel):
+class Nested(StrictModel):
     parent: Parent
     child: Child
 
@@ -54,9 +55,9 @@ def test_validation_unchanged():
         M(h=Tagged("abc"), n=TaggedInt(1))
     assert short.value.errors()[0]["type"] == "string_too_short"
     with pytest.raises(ValidationError) as not_int:
-        M.model_validate({"n": "x"})
-    assert not_int.value.errors()[0]["type"] == "int_parsing"
-    m = M.model_validate({"h": "abcd", "xs": ["q"], "n": "2"})
+        M.model_validate_json('{"n": "x"}')
+    assert not_int.value.errors()[0]["type"] == "int_type"
+    m = M.model_validate_json('{"h": "abcd", "xs": ["q"], "n": 2}')
     assert m.model_dump() == {"h": "abcd", "xs": ["q"], "n": 2}
 
 
@@ -71,9 +72,9 @@ def test_branded_subtype_carries_its_own_name():
     assert props["child"] == {"title": "Child", "type": "string",
                               "x-brand": "Child"}
     with pytest.raises(ValidationError) as not_str:
-        Nested.model_validate({"parent": 1, "child": 2})
+        Nested.model_validate_json('{"parent": 1, "child": 2}')
     assert [e["type"] for e in not_str.value.errors()] == ["string_type"] * 2
-    n = Nested.model_validate({"parent": "a", "child": "b"})
+    n = Nested.model_validate_json('{"parent": "a", "child": "b"}')
     assert n.model_dump() == {"parent": "a", "child": "b"}
 
 

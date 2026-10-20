@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from pkm.contracts.strict import StrictModel
 
 from pkm.contracts.titles import (
     CanonicalTitle,
@@ -8,7 +9,7 @@ from pkm.contracts.titles import (
 )
 
 
-class _Titles(BaseModel):
+class _Titles(StrictModel):
     a: RawTitle
     b: NormalizedTitle
     c: CanonicalTitle

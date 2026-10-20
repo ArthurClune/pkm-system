@@ -303,6 +303,7 @@
       "web/src/ids.ts",
       "web/src/uid.ts",
       "web/src/grammar/scan.ts",
+      "server/tooling/proptest/sync_server.py",
       "web/src/replica/db.ts",
       "web/src/sync/wire.ts",
       "web/src/replica/pendingOps.ts",
@@ -323,12 +324,16 @@
     "ClientId": [
       "server/src/pkm/contracts/",
       "server/src/pkm/client/api.py",
+      "server/tooling/perfcheck/build.py",
+      "server/tooling/proptest/sync_server.py",
       "web/src/uid.ts",
       "web/src/sync/wire.ts"
     ],
     "BatchId": [
       "server/src/pkm/contracts/",
       "server/src/pkm/client/workflows.py",
+      "server/tooling/perfcheck/build.py",
+      "server/tooling/proptest/sync_server.py",
       "web/src/uid.ts",
       "web/src/replica/db.ts",
       "web/src/sync/wire.ts",
@@ -339,6 +344,7 @@
       "server/src/pkm/planning.py",
       "server/src/pkm/importer/rows.py",
       "server/src/pkm/server/ops_core.py",
+      "server/tooling/proptest/sync_server.py",
       "web/src/outline/orderIdx.ts",
       "web/src/replica/db.ts",
       "web/src/sync/wire.ts",
@@ -383,6 +389,7 @@
     "RawTitle": [
       "server/src/pkm/contracts/",
       "server/src/pkm/refs.py",
+      "server/tooling/proptest/sync_server.py",
       "web/src/replica/titles.ts",
       "web/src/sync/wire.ts",
       "web/src/replica/pendingOps.ts",

@@ -23,8 +23,8 @@ ROWS = [
 def test_find_node_returns_nested_subtree():
     node = find_node(build_tree(ROWS), C1)
     assert node is not None
-    assert node["text"] == "child"
-    assert node["children"][0]["uid"] == G1
+    assert node.text == "child"
+    assert node.children[0].uid == G1
 
 
 def test_find_node_missing_uid_returns_none():

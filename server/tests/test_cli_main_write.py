@@ -7,6 +7,7 @@ from pkm.cli.main import main
 from pkm.client.core import ApiError
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BatchId, BlockUid
+from pkm.contracts.responses import BlockNode, BlockPayload
 from pkm.contracts.titles import RawTitle
 from pkm.test_data.ids import batch_id_of, raw_title_of
 
@@ -725,22 +726,30 @@ def test_batch_delete_stale_fetch_lands_the_copy(
     real_get_block = pkm_client.get_block
     real_get_page_blocks = pkm_client.get_page_blocks
 
+    def _rebuilt(node: BlockNode, text: str, children: list[BlockNode]):
+        return BlockNode(uid=node.uid, text=text, heading=node.heading,
+                         view_type=node.view_type, collapsed=node.collapsed,
+                         order_idx=node.order_idx, created_at=node.created_at,
+                         updated_at=node.updated_at, children=children)
+
     def _stale_children(children):
-        return [c.model_copy(update={"text": "what the fetch saw"})
+        return [_rebuilt(c, "what the fetch saw", c.children)
                 for c in children]
 
     def _stale_get_block(uid: BlockUid):
         payload = real_get_block(uid)
         block = payload.block
-        return payload.model_copy(update={"block": block.model_copy(
-            update={"children": _stale_children(block.children)})})
+        staled = _rebuilt(block, block.text, _stale_children(block.children))
+        return BlockPayload(page=payload.page, block=staled,
+                            breadcrumbs=payload.breadcrumbs,
+                            block_ref_texts=payload.block_ref_texts)
 
     def _stale_get_page_blocks(title: RawTitle):
         blocks, missing = real_get_page_blocks(title)
         if title != "AI":
             return blocks, missing
-        staled = [b.model_copy(update={"children": _stale_children(b.children)})
-                 if b.uid == "gdroot0001" else b for b in blocks]
+        staled = [_rebuilt(b, b.text, _stale_children(b.children))
+                  if b.uid == "gdroot0001" else b for b in blocks]
         return staled, missing
 
     monkeypatch.setattr(pkm_client, "get_block", _stale_get_block)

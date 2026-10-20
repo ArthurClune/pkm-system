@@ -6,18 +6,21 @@ import copy
 from pathlib import Path
 
 from hypothesis import given, settings, strategies as st
+from pydantic import TypeAdapter
 
 from pkm.batch import validate_batch
-from pkm.contracts.ops import BlockUid, OpBatch, subtree_hash, SyncSeq, text_hash, UID_RE
+from pkm.contracts.ops import BlockOp, BlockUid, OpBatch, subtree_hash, SyncSeq, text_hash, UID_RE
 from props.harness import DAILY_TITLE
 from props.model import (MBlock, Model, Outcome, Rewrite, positions_after,
                          replay_chain, unlink_stale)
 from props.strategies import (PAGES, batch_for, cli_batch, op_for, seed_tree,
                               texts, uid_pool)
 from pkm.test_data.ids import (
-    canonical_title_of, malformed_uid, order_idx_of, raw_title_of, seq_of,
+    batch_id_of, canonical_title_of, client_id_of, malformed_uid, order_idx_of, raw_title_of, seq_of,
     uid_of,
 )
+
+_BLOCK_OP: TypeAdapter[BlockOp] = TypeAdapter(BlockOp)
 
 A, B, C, P, X, Y = (uid_of(u) for u in ("blk_aa", "blk_bb", "blk_cc", "blk_pp", "blk_xx", "blk_yy"))
 
@@ -663,6 +666,13 @@ def test_seed_tree_is_gapped_and_shallow(data):
         assert all(1 <= b - a <= 4 for a, b in zip(ks, ks[1:]))
 
 
+def _wire_batch(ops) -> OpBatch:
+    """The drawn ops are wire input: each is validated as one, then the
+    batch is built from the checked ops."""
+    return OpBatch(client_id=client_id_of("c"), batch_id=batch_id_of("b" * 8),
+                   ops=[_BLOCK_OP.validate_python(op) for op in ops])
+
+
 @settings(max_examples=20)
 @given(st.data())
 def test_batches_are_wire_valid_and_model_applies(data):
@@ -670,8 +680,7 @@ def test_batches_are_wire_valid_and_model_applies(data):
     m = Model.from_rows(PAGES, data.draw(seed_tree(pool)))
     ops = data.draw(batch_for(m, pool))
     assert 1 <= len(ops) <= 20
-    OpBatch.model_validate({"client_id": "c", "batch_id": "b" * 8,
-                            "ops": ops})
+    _wire_batch(ops)
     before = m.snapshot()
     out = m.apply(ops)
     assert out.status in (200, 400)
@@ -685,8 +694,7 @@ def test_op_for_draws_wire_valid_ops(data):
     pool = uid_pool(8)
     m = Model.from_rows(PAGES, data.draw(seed_tree(pool)))
     op = data.draw(op_for(m, pool))
-    OpBatch.model_validate({"client_id": "c", "batch_id": "b" * 8,
-                            "ops": [op]})
+    _wire_batch([op])
     assert isinstance(data.draw(texts()), str)
 
 

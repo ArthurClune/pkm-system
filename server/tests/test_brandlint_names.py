@@ -59,7 +59,7 @@ def test_a_branded_or_unrelated_parameter_is_clean(source: str):
 @pytest.mark.parametrize("source", [
     "class A(TypedDict):\n    page_id: int\n",
     "@dataclass\nclass A:\n    page_id: int\n",
-    "class A(BaseModel):\n    page_id: int | None = None\n",
+    "class A(StrictModel):\n    page_id: int | None = None\n",
 ])
 def test_a_class_field_is_checked(source: str):
     assert rules(source) == ["brand-name"]
@@ -153,7 +153,8 @@ def test_every_rule_has_a_remedy_that_names_the_fix():
     assert set(RULES) == {"brand-name", "brand-opt-out", "brand-parse", "brand-mint",
                           "brand-cast", "model-construct", "raw-sqlite",
                           "test-mint-import", "brand-ignore", "brand-launder",
-                          "brand-file-ignore", "brand-opt-out-unused"}
+                          "brand-file-ignore", "brand-opt-out-unused",
+                          "model-strict", "model-unchecked"}
     assert "select()" in RULES["brand-name"] and "untrusted" in RULES["brand-name"]
 
 

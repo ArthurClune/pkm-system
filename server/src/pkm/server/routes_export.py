@@ -69,9 +69,9 @@ def _run_query(db: Db, expr: str) -> QueryResult | None:
     matches = execute_plan(db, sql, params)
     groups = tuple(
         QueryResultGroup(
-            page_title=g["page_title"],
-            items=tuple(QueryResultItem(uid=i["uid"], text=i["text"])
-                        for i in g["items"]))
+            page_title=g.page_title,
+            items=tuple(QueryResultItem(uid=i.uid, text=i.text)
+                        for i in g.items))
         for g in group_by_page(matches.rows))
     return QueryResult(total=matches.total, groups=groups)
 

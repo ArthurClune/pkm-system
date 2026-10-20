@@ -1,11 +1,15 @@
 from collections import Counter
 
 import pytest
+from pydantic import TypeAdapter
 
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import OpBatch
+from pkm.contracts.ops import BlockOp, OpBatch
+from pkm.test_data.ids import batch_id_of, client_id_of
 from perfcheck.fixture import (BIG_PAGE, FROZEN_TODAY, HUBS, PHRASE, RARE_TERM,
                                generate)
+
+_BLOCK_OP: TypeAdapter[BlockOp] = TypeAdapter(BlockOp)
 
 
 def creates(fx):
@@ -47,8 +51,9 @@ def test_every_batch_validates_and_parents_precede_children():
     seen: set[str] = set()
     for i, b in enumerate(fx.batches):
         assert len(b.ops) <= 400
-        OpBatch.model_validate({"client_id": "perf-fixture",
-                                "batch_id": f"fixture-{i:06d}", "ops": list(b.ops)})
+        OpBatch(client_id=client_id_of("perf-fixture"),
+                batch_id=batch_id_of(f"fixture-{i:06d}"),
+                ops=[_BLOCK_OP.validate_python(op) for op in b.ops])
         for op in b.ops:
             if op["op"] == "create":
                 assert op["parent_uid"] is None or op["parent_uid"] in seen

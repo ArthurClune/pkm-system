@@ -39,8 +39,9 @@ from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  unlink_stale_text)
 from pkm.server.ops_core import MAX_REPLAYED_REWRITES
 from pkm.unlink import unlink_stale_refs
-from pkm.test_data.ids import (canonical_title_of, order_idx_of, page_id_of, raw_title_of, sha_of,
-                               uid_of)
+from pkm.test_data.ids import (
+    batch_id_of, canonical_title_of, client_id_of, malformed_uid, order_idx_of, page_id_of,
+    raw_title_of, sha_of, uid_of)
 
 B = BlockInfo(uid=uid_of("uid_b3"), page_id=page_id_of(1),
              parent_uid=uid_of("uid_b2"))
@@ -81,28 +82,27 @@ def _skip_ctx(op: BlockOp, *, block_exists: bool = False,
 
 
 def test_batch_parses_discriminated_ops():
-    batch = OpBatch.model_validate({"client_id": "c1", "batch_id": "test_batch1",
-                                   "ops": [
-        {"op": "create", "uid": "newuid1", "page_title": "P",
-         "order_idx": 0, "text": "hi"},
-        {"op": "delete", "uid": "uid_b3"},
-    ]})
+    batch = OpBatch.model_validate_json(
+        '{"client_id": "c1", "batch_id": "test_batch1", "ops": ['
+        '{"op": "create", "uid": "newuid1", "page_title": "P",'
+        ' "order_idx": 0, "text": "hi"},'
+        '{"op": "delete", "uid": "uid_b3"}]}')
     assert isinstance(batch.ops[0], CreateOp)
     assert isinstance(batch.ops[1], DeleteOp)
 
 
 def test_batch_rejects_unknown_op_and_empty():
     with pytest.raises(ValidationError):
-        OpBatch.model_validate(
-            {"client_id": "c1", "batch_id": "test_batch2",
-             "ops": [{"op": "explode", "uid": "uid_b3"}]})
+        OpBatch.model_validate_json(
+            '{"client_id": "c1", "batch_id": "test_batch2",'
+            ' "ops": [{"op": "explode", "uid": "uid_b3"}]}')
     with pytest.raises(ValidationError):
-        OpBatch(client_id="c1", batch_id="test_batch3", ops=[])
+        OpBatch(client_id=client_id_of("c1"), batch_id=batch_id_of("test_batch3"), ops=[])
 
 
 def test_plan_create():
-    op = CreateOp(op="create", uid="newuid1", page_title="P",
-                  parent_uid="uid_b2", order_idx=1, text="t [[X]]",
+    op = CreateOp(op="create", uid=uid_of("newuid1"), page_title=raw_title_of("P"),
+                  parent_uid=uid_of("uid_b2"), order_idx=order_idx_of(1), text="t [[X]]",
                   view_type="numbered")
     effects = plan_op(0, op, CreateContext(uid_taken=False,
                                            page_id=page_id_of(1)))
@@ -118,12 +118,12 @@ def test_plan_create():
 
 def test_plan_create_rejects_bad_uid_and_dup():
     with pytest.raises(OpError, match="invalid uid"):
-        plan_op(0, CreateOp(op="create", uid="a!", page_title="P",
-                            order_idx=0, text=""),
+        plan_op(0, CreateOp(op="create", uid=malformed_uid("a!"), page_title=raw_title_of("P"),
+                            order_idx=order_idx_of(0), text=""),
                 CreateContext(uid_taken=False, page_id=page_id_of(1)))
     with pytest.raises(OpError, match="already exists"):
-        plan_op(0, CreateOp(op="create", uid="uid_b3", page_title="P",
-                            order_idx=0, text=""),
+        plan_op(0, CreateOp(op="create", uid=uid_of("uid_b3"), page_title=raw_title_of("P"),
+                            order_idx=order_idx_of(0), text=""),
                 CreateContext(uid_taken=True, page_id=page_id_of(1)))
 
 
@@ -132,19 +132,19 @@ def test_plan_create_rejects_a_uid_with_a_trailing_newline():
     # "abcdef\n" used to pass here -- a block no ((ref)) can ever name and
     # every uid-addressed route 422s.
     with pytest.raises(OpError, match="invalid uid"):
-        plan_op(0, CreateOp(op="create", uid="abcdef\n", page_title="P",
-                            order_idx=0, text=""),
+        plan_op(0, CreateOp(op="create", uid=malformed_uid("abcdef\n"), page_title=raw_title_of("P"),
+                            order_idx=order_idx_of(0), text=""),
                 CreateContext(uid_taken=False, page_id=page_id_of(1)))
 
 
 def test_plan_create_page_executes_nothing():
     # context assembly already resolved (and created) the page
-    assert plan_op(0, CreatePageOp(op="create_page", page_title="AI"),
+    assert plan_op(0, CreatePageOp(op="create_page", page_title=raw_title_of("AI")),
                    PageContext(page_id_of(2))) == ()
 
 
 def test_plan_update_text():
-    effects = plan_op(0, UpdateTextOp(op="update_text", uid="uid_b3",
+    effects = plan_op(0, UpdateTextOp(op="update_text", uid=uid_of("uid_b3"),
                                       text="new"), BlockContext(B))
     assert effects == (UpdateText(uid_of("uid_b3"), "new"),
                        ReindexRefs(uid_of("uid_b3"), "new"),
@@ -154,21 +154,21 @@ def test_plan_update_text():
 def test_plan_move():
     ctx = MoveContext(B, BlockInfo(uid_of("uid_b1"), page_id_of(1), None),
                       None, (uid_of("uid_b3"),))
-    assert plan_op(0, MoveOp(op="move", uid="uid_b3", parent_uid="uid_b1",
-                             order_idx=0), ctx) == (
+    assert plan_op(0, MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=uid_of("uid_b1"),
+                             order_idx=order_idx_of(0)), ctx) == (
         ShiftSiblings(page_id_of(1), uid_of("uid_b1"), order_idx_of(0)),
         SetParent(uid_of("uid_b3"), uid_of("uid_b1"), order_idx_of(0)),
         TouchPage(page_id_of(1)))
     # to top level
-    assert plan_op(0, MoveOp(op="move", uid="uid_b3", parent_uid=None,
-                             order_idx=2),
+    assert plan_op(0, MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=None,
+                             order_idx=order_idx_of(2)),
                    MoveContext(B, None, None, (uid_of("uid_b3"),))) == (
         ShiftSiblings(page_id_of(1), None, order_idx_of(2)),
         SetParent(uid_of("uid_b3"), None, order_idx_of(2)), TouchPage(page_id_of(1)))
 
 
 def test_plan_delete_and_collapse():
-    assert plan_op(0, DeleteOp(op="delete", uid="uid_b2"),
+    assert plan_op(0, DeleteOp(op="delete", uid=uid_of("uid_b2")),
                    DeleteContext(
                        BlockInfo(uid_of("uid_b2"), page_id_of(1), None),
                        (uid_of("uid_b3"), uid_of("uid_b2")))) == (
@@ -176,7 +176,7 @@ def test_plan_delete_and_collapse():
         TouchPage(page_id_of(1)))
     # collapse/expand is not a real change -- no TouchPage, unlike every
     # other op planned here.
-    assert plan_op(0, SetCollapsedOp(op="set_collapsed", uid="uid_b2",
+    assert plan_op(0, SetCollapsedOp(op="set_collapsed", uid=uid_of("uid_b2"),
                                      collapsed=True),
                    BlockContext(
                        BlockInfo(uid_of("uid_b2"), page_id_of(1), None))
@@ -265,7 +265,7 @@ def test_plan_diverged_delete_lands_copies_then_deletes():
     ctx = DeleteConflictContext(
         BlockInfo(uid_of("tuid-r"), page_id_of(1), None), _SUBTREE_ROWS,
         canonical_title_of("Project X"), landing, copy_uids)
-    op = DeleteOp(op="delete", uid="tuid-r",
+    op = DeleteOp(op="delete", uid=uid_of("tuid-r"),
                  base_subtree_hash=sha_of("a" * 64))
     assert plan_op(0, op, ctx) == (
         *conflict_entry_effects(uid_of("tuid-r"), _ROOT.text,
@@ -279,13 +279,13 @@ def test_plan_diverged_delete_lands_copies_then_deletes():
 
 
 def test_plan_set_heading():
-    assert plan_op(0, SetHeadingOp(op="set_heading", uid="uid_b2", heading=2),
+    assert plan_op(0, SetHeadingOp(op="set_heading", uid=uid_of("uid_b2"), heading=2),
                    BlockContext(
                        BlockInfo(uid_of("uid_b2"), page_id_of(1), None))
                    ) == (SetHeading(uid_of("uid_b2"), 2),
                          TouchPage(page_id_of(1)))
     # clearing back to plain text
-    assert plan_op(0, SetHeadingOp(op="set_heading", uid="uid_b2", heading=None),
+    assert plan_op(0, SetHeadingOp(op="set_heading", uid=uid_of("uid_b2"), heading=None),
                    BlockContext(
                        BlockInfo(uid_of("uid_b2"), page_id_of(1), None))
                    ) == (SetHeading(uid_of("uid_b2"), None),
@@ -302,12 +302,12 @@ def test_set_heading_op_rejects_out_of_range():
 
 def test_plan_set_view_type_and_reject_unknown_value():
     assert plan_op(
-        0, SetViewTypeOp(op="set_view_type", uid="uid_b2",
+        0, SetViewTypeOp(op="set_view_type", uid=uid_of("uid_b2"),
                          view_type="numbered"),
         BlockContext(BlockInfo(uid_of("uid_b2"), page_id_of(1), None)),
     ) == (SetViewType(uid_of("uid_b2"), "numbered"), TouchPage(page_id_of(1)))
     assert plan_op(
-        0, SetViewTypeOp(op="set_view_type", uid="uid_b2",
+        0, SetViewTypeOp(op="set_view_type", uid=uid_of("uid_b2"),
                          view_type="document"),
         BlockContext(BlockInfo(uid_of("uid_b2"), page_id_of(1), None)),
     ) == (SetViewType(uid_of("uid_b2"), "document"), TouchPage(page_id_of(1)))
@@ -318,8 +318,8 @@ def test_plan_set_view_type_and_reject_unknown_value():
 
 def test_op_error_carries_index():
     with pytest.raises(OpError) as e:
-        plan_op(7, CreateOp(op="create", uid="a!", page_title="P",
-                            order_idx=0, text=""),
+        plan_op(7, CreateOp(op="create", uid=malformed_uid("a!"), page_title=raw_title_of("P"),
+                            order_idx=order_idx_of(0), text=""),
                 CreateContext(uid_taken=False, page_id=page_id_of(1)))
     assert e.value.index == 7 and "invalid uid" in e.value.reason
 
@@ -327,10 +327,10 @@ def test_op_error_carries_index():
 def test_a_context_that_does_not_fit_the_op_is_a_programmer_error_not_a_400():
     # A 400 would poison the client's queue over a shell bug the client did
     # not cause; an AssertionError is a 500, which clients retry.
-    move = MoveOp(op="move", uid="uid_b3", parent_uid=None, order_idx=0)
+    move = MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=None, order_idx=order_idx_of(0))
     with pytest.raises(AssertionError):
         plan_op(0, move, DeleteContext(B, (uid_of("uid_b3"),)))
-    edit = UpdateTextOp(op="update_text", uid="uid_b3", text="x",
+    edit = UpdateTextOp(op="update_text", uid=uid_of("uid_b3"), text="x",
                         base_text_hash=text_hash("y"))
     with pytest.raises(AssertionError):
         plan_op(0, edit, TextEditContext(
@@ -340,11 +340,11 @@ def test_a_context_that_does_not_fit_the_op_is_a_programmer_error_not_a_400():
 def test_a_skip_context_that_does_not_fit_its_skip_kind_is_a_programmer_error():
     # Planned silently, these would drop a skip's note, or tombstone a live
     # block and cascade its subtree away on a replica.
-    heading = SetHeadingOp(op="set_heading", uid="ghost1", heading=1)
+    heading = SetHeadingOp(op="set_heading", uid=uid_of("ghost1"), heading=1)
     with pytest.raises(AssertionError):
         plan_op(0, heading, SkipContext(
             Skip("orphan_structural", uid_of("ghost1"))))
-    move = MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0)
+    move = MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=uid_of("ghost_p1"), order_idx=order_idx_of(0))
     with pytest.raises(AssertionError):
         plan_op(0, move, LandedSkipContext(
             Skip("move_parent_missing", uid_of("uid_b3")), _landing(),
@@ -365,7 +365,7 @@ def _move_ctx(block_page: int = 1, parent_page: int = 1,
 
 
 def test_move_cross_page_under_parent_reassigns_subtree():
-    op = MoveOp(op="move", uid="u_child", parent_uid="u_parent", order_idx=0)
+    op = MoveOp(op="move", uid=uid_of("u_child"), parent_uid=uid_of("u_parent"), order_idx=order_idx_of(0))
     effects = plan_op(0, op, _move_ctx(block_page=1, parent_page=2))
     assert effects == (
         ShiftSiblings(page_id_of(2), uid_of("u_parent"), order_idx_of(0)),
@@ -376,8 +376,8 @@ def test_move_cross_page_under_parent_reassigns_subtree():
 
 
 def test_move_top_level_to_named_page():
-    op = MoveOp(op="move", uid="u_child", parent_uid=None, order_idx=0,
-                page_title="July 1st, 2026")
+    op = MoveOp(op="move", uid=uid_of("u_child"), parent_uid=None, order_idx=order_idx_of(0),
+                page_title=raw_title_of("July 1st, 2026"))
     ctx = MoveContext(
         BlockInfo(uid_of("u_child"), page_id_of(1), uid_of("tuid-u_old")),
         None, page_id_of(7), (uid_of("u_child"),))
@@ -392,7 +392,7 @@ def test_move_top_level_to_named_page():
 
 def test_move_same_page_unchanged_shape():
     # no page_title, same page: exactly the pre-existing three effects
-    op = MoveOp(op="move", uid="u_child", parent_uid="u_parent", order_idx=3)
+    op = MoveOp(op="move", uid=uid_of("u_child"), parent_uid=uid_of("u_parent"), order_idx=order_idx_of(3))
     effects = plan_op(0, op, _move_ctx(block_page=1, parent_page=1))
     assert effects == (
         ShiftSiblings(page_id_of(1), uid_of("u_parent"), order_idx_of(3)),
@@ -406,8 +406,8 @@ def test_move_follows_its_parent_whatever_page_title_says(
     # page_title named the parent's page when the move was queued; another
     # device has since moved the parent to page 2. The block follows the
     # parent, and the shell no longer resolves the stale title.
-    op = MoveOp(op="move", uid="u_child", parent_uid="u_parent", order_idx=0,
-                page_title="Somewhere Else")
+    op = MoveOp(op="move", uid=uid_of("u_child"), parent_uid=uid_of("u_parent"), order_idx=order_idx_of(0),
+                page_title=raw_title_of("Somewhere Else"))
     assert plan_op(0, op, _move_ctx(parent_page=2, page_id=page_id)) == (
         ShiftSiblings(page_id_of(2), uid_of("u_parent"), order_idx_of(0)),
         SetParent(uid_of("u_child"), uid_of("u_parent"), order_idx_of(0)),
@@ -420,7 +420,7 @@ _BLK = BlockInfo(uid_of("uid_t1"), page_id=page_id_of(1), parent_uid=None)
 
 
 def _op(text="new text", base="old text", hint: str | None = None):
-    return UpdateTextOp(op="update_text", uid="uid_t1", text=text,
+    return UpdateTextOp(op="update_text", uid=uid_of("uid_t1"), text=text,
                         base_text_hash=text_hash(base),
                         page_title=None if hint is None else raw_title_of(hint))
 
@@ -512,7 +512,7 @@ def test_check_2_identical_text_is_noop_even_with_stale_hash():
 
 
 def test_check_3_absent_hash_applies_as_today():
-    op = UpdateTextOp(op="update_text", uid="uid_t1", text="new")
+    op = UpdateTextOp(op="update_text", uid=uid_of("uid_t1"), text="new")
     effs = plan_op(0, op, BlockContext(_BLK))
     assert any(isinstance(e, UpdateText) for e in effs)
     assert not any(isinstance(e, InsertBlock) for e in effs)
@@ -556,7 +556,7 @@ def test_check_5_appends_under_todays_header():
 
 def test_check_5_applies_the_replayed_edit_not_the_callers_text():
     t0, t1 = "note about [[Old]]", "note about [[New]] and more"
-    op = UpdateTextOp(op="update_text", uid="uid_t1",
+    op = UpdateTextOp(op="update_text", uid=uid_of("uid_t1"),
                       text="note about [[Old]] plus comment",
                       base_text_hash=text_hash(t0))
     ctx = TextConflictContext(_BLK, "note about [[New]] plus comment", t1,
@@ -631,19 +631,19 @@ def test_classify_text_edit_conflict_with_rewrite_replay():
 # never 400s: it is a no-op, lands a note/lost text in today's daily note,
 # and journals the uids a client may hold a ghost of.
 
-_MOVE = MoveOp(op="move", uid="ghost99", parent_uid=None, order_idx=0)
-_HEADING = SetHeadingOp(op="set_heading", uid="ghost99", heading=1)
-_VIEW = SetViewTypeOp(op="set_view_type", uid="ghost99", view_type="numbered")
-_COLLAPSE = SetCollapsedOp(op="set_collapsed", uid="ghost99", collapsed=True)
-_DELETE = DeleteOp(op="delete", uid="ghost99")
+_MOVE = MoveOp(op="move", uid=uid_of("ghost99"), parent_uid=None, order_idx=order_idx_of(0))
+_HEADING = SetHeadingOp(op="set_heading", uid=uid_of("ghost99"), heading=1)
+_VIEW = SetViewTypeOp(op="set_view_type", uid=uid_of("ghost99"), view_type="numbered")
+_COLLAPSE = SetCollapsedOp(op="set_collapsed", uid=uid_of("ghost99"), collapsed=True)
+_DELETE = DeleteOp(op="delete", uid=uid_of("ghost99"))
 _ORPHAN_HEADER = ("[[conflict]] (page unknown) — edit to a block the server"
                   " no longer has")
 
 
 def _create_under(parent_uid: BlockUid | None = uid_of("ghost_p1"), text="lost child",
                   page_title: RawTitle = raw_title_of("AI")):
-    return CreateOp(op="create", uid="newuid1", page_title=page_title,
-                    parent_uid=parent_uid, order_idx=0, text=text)
+    return CreateOp(op="create", uid=uid_of("newuid1"), page_title=page_title,
+                    parent_uid=parent_uid, order_idx=order_idx_of(0), text=text)
 
 
 @pytest.mark.parametrize("op, block_exists, parent_exists, expected", [
@@ -652,32 +652,32 @@ def _create_under(parent_uid: BlockUid | None = uid_of("ghost_p1"), text="lost c
     (_HEADING, True, False, None),
     (_COLLAPSE, True, False, None),
     (_DELETE, True, False, None),
-    (UpdateTextOp(op="update_text", uid="ghost99", text="x"), True, False,
+    (UpdateTextOp(op="update_text", uid=uid_of("ghost99"), text="x"), True, False,
      None),
     (_create_under(parent_uid=None), False, False, None),
     (_create_under(), False, True, None),
     # a create whose uid exists is left to plan_op's "uid already exists"
     (_create_under(), True, False, None),
-    (CreatePageOp(op="create_page", page_title="AI"), False, False, None),
-    (MoveOp(op="move", uid="ghost99", parent_uid="uid_p", order_idx=0),
+    (CreatePageOp(op="create_page", page_title=raw_title_of("AI")), False, False, None),
+    (MoveOp(op="move", uid=uid_of("ghost99"), parent_uid=uid_of("uid_p0000001"), order_idx=order_idx_of(0)),
      True, True, None),
     # plain no-ops, nothing lands
     (_COLLAPSE, False, False, Skip("noop", None)),
     (_DELETE, False, False, Skip("noop", None)),
     # skipped with a note under the missing block's own uid
     (_MOVE, False, False, Skip("orphan_structural", uid_of("ghost99"))),
-    (MoveOp(op="move", uid="ghost99", parent_uid="ghost_p1", order_idx=0),
+    (MoveOp(op="move", uid=uid_of("ghost99"), parent_uid=uid_of("ghost_p1"), order_idx=order_idx_of(0)),
      False, False, Skip("orphan_structural", uid_of("ghost99"))),
     (_HEADING, False, False, Skip("orphan_structural", uid_of("ghost99"))),
     (_VIEW, False, False, Skip("orphan_structural", uid_of("ghost99"))),
     # text edits, hashed or not, land their text under the block's uid
-    (UpdateTextOp(op="update_text", uid="ghost99", text="x"), False, False,
+    (UpdateTextOp(op="update_text", uid=uid_of("ghost99"), text="x"), False, False,
      Skip("orphan_edit", uid_of("ghost99"))),
-    (UpdateTextOp(op="update_text", uid="ghost99", text="x",
+    (UpdateTextOp(op="update_text", uid=uid_of("ghost99"), text="x",
                   base_text_hash=text_hash("y")), False, False,
      Skip("orphan_edit", uid_of("ghost99"))),
     # ... unless blank: nothing lost, nothing lands (same as a blank create)
-    (UpdateTextOp(op="update_text", uid="ghost99", text=" "), False, False,
+    (UpdateTextOp(op="update_text", uid=uid_of("ghost99"), text=" "), False, False,
      Skip("orphan_edit", None)),
     # a create under a missing parent lands under the PARENT's uid ...
     (_create_under(), False, False,
@@ -686,7 +686,7 @@ def _create_under(parent_uid: BlockUid | None = uid_of("ghost_p1"), text="lost c
     (_create_under(text="  "), False, False,
      Skip("diverted_create", None)),
     # the block exists but its move target doesn't
-    (MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0),
+    (MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=uid_of("ghost_p1"), order_idx=order_idx_of(0)),
      True, False, Skip("move_parent_missing", uid_of("uid_b3"))),
 ])
 def test_classify_skip(op, block_exists, parent_exists, expected):
@@ -737,9 +737,13 @@ def test_placement_matches_shared_fixture(case, tmp_path):
             [(b["uid"], page_ids[b["page"]], b["parent_uid"], b["order_idx"],
               b["uid"]) for b in PLACEMENT_STATE["blocks"]])
         db.commit()
-        apply_batch(db, OpBatch.model_validate({
-            "client_id": "fixture", "batch_id": f"placement_{case['name']}"[:64],
-            "ops": case["ops"]}), 1_800_000_000_000)
+        # The shared fixture is decoded JSON: each op is validated as wire
+        # input, then the batch is built from the checked ops.
+        ops = [_BLOCK_OP_ADAPTER.validate_python(op) for op in case["ops"]]
+        batch = OpBatch(client_id=client_id_of("fixture"),
+                        batch_id=batch_id_of(f"placement_{case['name']}"[:64]),
+                        ops=ops)
+        apply_batch(db, batch, 1_800_000_000_000)
         db.commit()
         placed = {r["uid"]: {"uid": r["uid"], "page": r["title"],
                              "parent_uid": r["parent_uid"],
@@ -803,15 +807,15 @@ def test_skipped_op_appends_under_an_existing_header_for_the_block():
 
 
 @pytest.mark.parametrize("op, reason", [
-    (DeleteOp(op="delete", uid="bad uid!"), "block not found: bad uid!"),
-    (SetCollapsedOp(op="set_collapsed", uid="x" * 40, collapsed=True),
+    (DeleteOp(op="delete", uid=malformed_uid("bad uid!")), "block not found: bad uid!"),
+    (SetCollapsedOp(op="set_collapsed", uid=malformed_uid("x" * 40), collapsed=True),
      "block not found: " + "x" * 40),
-    (UpdateTextOp(op="update_text", uid="a!", text="t"),
+    (UpdateTextOp(op="update_text", uid=malformed_uid("a!"), text="t"),
      "block not found: a!"),
-    (MoveOp(op="move", uid="uid_b3", parent_uid="bad parent", order_idx=0),
+    (MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=malformed_uid("bad parent"), order_idx=order_idx_of(0)),
      "parent not found: bad parent"),
-    (CreateOp(op="create", uid="newuid1", page_title="P",
-              parent_uid="bad parent", order_idx=0, text="t"),
+    (CreateOp(op="create", uid=uid_of("newuid1"), page_title=raw_title_of("P"),
+              parent_uid=malformed_uid("bad parent"), order_idx=order_idx_of(0), text="t"),
      "parent not found: bad parent"),
 ])
 def test_skipped_op_with_an_impossible_uid_still_400s(op, reason):
@@ -824,14 +828,14 @@ def test_skipped_op_with_an_impossible_uid_still_400s(op, reason):
 
 
 def test_blank_orphan_edit_only_journals():
-    op = UpdateTextOp(op="update_text", uid="ghost99", text="")
+    op = UpdateTextOp(op="update_text", uid=uid_of("ghost99"), text="")
     assert plan_op(0, op, _skip_ctx(op)) == (
         JournalBlock(uid_of("ghost99"), True),)
 
 
 def test_unhashed_edit_of_missing_block_lands_like_a_hashed_one():
-    op = UpdateTextOp(op="update_text", uid="uid_t1", text="new text",
-                      page_title="AI Agent Security")
+    op = UpdateTextOp(op="update_text", uid=uid_of("uid_t1"), text="new text",
+                      page_title=raw_title_of("AI Agent Security"))
     hashed_op = _op(hint="AI Agent Security")
     effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=True))
     hashed = plan_op(0, hashed_op, _skip_ctx(hashed_op, hint_page_exists=True))
@@ -879,8 +883,8 @@ def test_blank_create_under_missing_parent_only_journals():
 
 
 def test_create_under_missing_parent_still_checks_its_uid():
-    op = CreateOp(op="create", uid="a!", page_title="P",
-                  parent_uid="ghost_p1", order_idx=0, text="t")
+    op = CreateOp(op="create", uid=malformed_uid("a!"), page_title=raw_title_of("P"),
+                  parent_uid=uid_of("ghost_p1"), order_idx=order_idx_of(0), text="t")
     with pytest.raises(OpError, match="invalid uid"):
         plan_op(0, op, _skip_ctx(op))
 
@@ -888,8 +892,8 @@ def test_create_under_missing_parent_still_checks_its_uid():
 def test_create_under_missing_parent_rejects_a_parent_uid_with_a_trailing_newline():
     # impossible_uid_reason's parent_uid check (diverted_create skip kind)
     # has the same $-vs-trailing-newline hole as the uid check above.
-    op = CreateOp(op="create", uid="newuid1", page_title="P",
-                  parent_uid="ghost_p1\n", order_idx=0, text="t")
+    op = CreateOp(op="create", uid=uid_of("newuid1"), page_title=raw_title_of("P"),
+                  parent_uid=malformed_uid("ghost_p1\n"), order_idx=order_idx_of(0), text="t")
     with pytest.raises(OpError, match="parent not found"):
         plan_op(0, op, _skip_ctx(op))
 
@@ -898,13 +902,13 @@ def test_orphan_edit_rejects_a_uid_with_a_trailing_newline():
     # impossible_uid_reason's non-create uid check (orphan_edit skip kind):
     # a malformed uid must 400 rather than land a ghost journal/conflict
     # entry under an uid no surface can ever reference back.
-    op = UpdateTextOp(op="update_text", uid="abcdef\n", text="t")
+    op = UpdateTextOp(op="update_text", uid=malformed_uid("abcdef\n"), text="t")
     with pytest.raises(OpError, match="block not found"):
         plan_op(0, op, _skip_ctx(op))
 
 
 def test_move_to_missing_parent_leaves_the_block_and_notes_why():
-    op = MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0)
+    op = MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=uid_of("ghost_p1"), order_idx=order_idx_of(0))
     effs = plan_op(0, op, _skip_ctx(
         op, block_exists=True,
         subtree=(uid_of("uid_gc"), uid_of("uid_c1"), uid_of("uid_b3"))))
@@ -935,8 +939,8 @@ def test_move_to_missing_parent_leaves_the_block_and_notes_why():
 # Two devices moved blocks under each other concurrently: the server applied
 # the first, so the second would nest a block under its own descendant.
 
-_CYCLE_MOVE = MoveOp(op="move", uid="uid_b2", parent_uid="uid_b3",
-                     order_idx=0, page_title="Machine Learning")
+_CYCLE_MOVE = MoveOp(op="move", uid=uid_of("uid_b2"), parent_uid=uid_of("uid_b3"),
+                     order_idx=order_idx_of(0), page_title=raw_title_of("Machine Learning"))
 _B2 = BlockInfo(uid_of("uid_b2"), page_id_of(1), None)
 
 
@@ -945,7 +949,7 @@ _B2 = BlockInfo(uid_of("uid_b2"), page_id_of(1), None)
     (_CYCLE_MOVE, True, True, ("uid_b3", "uid_b2"),
      Skip("move_cycle", uid_of("uid_b2"))),
     # a block moved under itself is the shortest cycle
-    (MoveOp(op="move", uid="uid_b2", parent_uid="uid_b2", order_idx=0),
+    (MoveOp(op="move", uid=uid_of("uid_b2"), parent_uid=uid_of("uid_b2"), order_idx=order_idx_of(0)),
      True, True, ("uid_b2",), Skip("move_cycle", uid_of("uid_b2"))),
     # a chain without the block plans normally
     (_CYCLE_MOVE, True, True, ("uid_b3", "uid_b1"), None),
@@ -996,7 +1000,7 @@ def test_move_that_would_make_a_cycle_leaves_the_block_and_notes_why():
 
 
 def test_move_under_itself_is_skipped_like_any_cycle():
-    op = MoveOp(op="move", uid="uid_b2", parent_uid="uid_b2", order_idx=0)
+    op = MoveOp(op="move", uid=uid_of("uid_b2"), parent_uid=uid_of("uid_b2"), order_idx=order_idx_of(0))
     effs = plan_op(0, op, _cycle_ctx(op, chain=("uid_b2",)))
     assert [e.text for e in effs if isinstance(e, InsertBlock)] == [
         "[[conflict]] [[Machine Learning]] — ((uid_b2))",
@@ -1026,9 +1030,9 @@ def test_cycle_note_appends_under_an_existing_header_for_the_block():
     (_create_under(text=""), _skip_ctx(_create_under(text="")),
      {"index": 3, "op": "create", "uid": "newuid1",
       "reason": "parent_not_found", "note_page": None}),
-    (MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0),
-     _skip_ctx(MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1",
-                      order_idx=0), block_exists=True),
+    (MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=uid_of("ghost_p1"), order_idx=order_idx_of(0)),
+     _skip_ctx(MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=uid_of("ghost_p1"),
+                      order_idx=order_idx_of(0)), block_exists=True),
      {"index": 3, "op": "move", "uid": "uid_b3",
       "reason": "parent_not_found", "note_page": _DAY}),
     (_CYCLE_MOVE, _cycle_ctx(),
@@ -1102,15 +1106,15 @@ def test_replay_chains_unlink_then_retitle():
 
 
 def _top_create(title_text: str, text: str) -> CreateOp:
-    return CreateOp(op="create", uid="uid_c0000001",
+    return CreateOp(op="create", uid=uid_of("uid_c0000001"),
                     page_title=raw_title_of(title_text),
-                    parent_uid=None, order_idx=0, text=text)
+                    parent_uid=None, order_idx=order_idx_of(0), text=text)
 
 
 def _top_move(title_text: str) -> MoveOp:
-    return MoveOp(op="move", uid="uid_m0000001",
+    return MoveOp(op="move", uid=uid_of("uid_m0000001"),
                   page_title=raw_title_of(title_text),
-                  parent_uid=None, order_idx=0)
+                  parent_uid=None, order_idx=order_idx_of(0))
 
 
 def test_unlink_stale_text_rewrites_create_and_update_text_only():
@@ -1122,17 +1126,37 @@ def test_unlink_stale_text_rewrites_create_and_update_text_only():
     assert unlinked_create.text == "see X and X"
     clean = _top_create("P", "see [[Y]]")
     assert unlink_stale_text(clean, is_x) is clean
-    upd = UpdateTextOp(op="update_text", uid="uid_u0000001", text="[[X]]")
+    upd = UpdateTextOp(op="update_text", uid=uid_of("uid_u0000001"), text="[[X]]")
     unlinked_upd = unlink_stale_text(upd, is_x)
     assert isinstance(unlinked_upd, UpdateTextOp)
     assert unlinked_upd.text == "X"
-    upd_clean = UpdateTextOp(op="update_text", uid="uid_u0000001",
+    upd_clean = UpdateTextOp(op="update_text", uid=uid_of("uid_u0000001"),
                              text="[[Y]]")
     assert unlink_stale_text(upd_clean, is_x) is upd_clean
     move = _top_move("X")
     assert unlink_stale_text(move, is_x) is move
-    delete = DeleteOp(op="delete", uid="uid_d0000001")
+    delete = DeleteOp(op="delete", uid=uid_of("uid_d0000001"))
     assert unlink_stale_text(delete, is_x) is delete
+
+
+def test_unlink_stale_text_keeps_every_field_but_the_text():
+    def is_x(raw: str) -> bool:
+        return normalize_title(raw) == "X"
+    create = CreateOp(op="create", uid=uid_of("uid_c0000001"),
+                      page_title=raw_title_of("P"),
+                      parent_uid=uid_of("uid_p0000001"),
+                      order_idx=order_idx_of(3), text="see [[X]]", heading=2,
+                      view_type="numbered")
+    upd = UpdateTextOp(op="update_text", uid=uid_of("uid_u0000001"),
+                       text="see [[X]]", base_text_hash=text_hash("old"),
+                       page_title=raw_title_of("P"))
+    for op in (create, upd):
+        # a new field on the op fails here until this fixture sets it
+        assert op.model_fields_set == set(type(op).model_fields)
+        out = unlink_stale_text(op, is_x)
+        assert type(out) is type(op)
+        assert out.text == "see X"
+        assert out.model_dump(exclude={"text"}) == op.model_dump(exclude={"text"})
 
 
 def test_classify_skip_stale_page():

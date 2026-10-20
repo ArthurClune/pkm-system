@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import mimetypes
 import os
 import shutil
@@ -161,9 +160,9 @@ def generate(source_path: Path, output_dir: Path) -> None:
     if not asset_dir.is_dir() or asset_dir.is_symlink():
         raise ValueError(f"asset directory is not a regular directory: {asset_dir}")
 
-    raw = json.loads(source_path.read_text(encoding="utf-8"))
+    text = source_path.read_text(encoding="utf-8")
     assets_by_name, asset_paths = _index_assets(asset_dir)
-    source = parse_graph_source(raw, asset_names=set(assets_by_name))
+    source = parse_graph_source(text, asset_names=set(assets_by_name))
     prepared = build_rows(source, assets_by_name)
 
     staging_dir: Path | None = None

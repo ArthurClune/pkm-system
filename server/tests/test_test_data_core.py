@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -62,7 +63,7 @@ def valid_source() -> dict[str, Any]:
 
 
 def test_parse_graph_source_accepts_strict_valid_source() -> None:
-    source = parse_graph_source(valid_source(), asset_names={"sample.svg"})
+    source = parse_graph_source(json.dumps(valid_source()), asset_names={"sample.svg"})
     assert source.pages[0].blocks[0].collapsed is True
     assert source.sidebar_entries == ("Project Atlas",)
 
@@ -87,7 +88,7 @@ def test_build_rows_preserves_tree_presentation_and_derives_refs() -> None:
     raw["pages"][0]["blocks"][1]["text"] = (
         "Status:: [[Active]] #Research ((atlas-root)) {{embed: ((atlas-root))}}"
     )
-    source = parse_graph_source(raw, asset_names=ASSETS.keys())
+    source = parse_graph_source(json.dumps(raw), asset_names=ASSETS.keys())
     source_before = source.model_copy(deep=True)
 
     prepared = build_rows(source, ASSETS)
@@ -148,7 +149,7 @@ def test_parse_graph_source_rejects_graph_invariants(mutate, message: str) -> No
     raw = valid_source()
     mutate(raw)
     with pytest.raises(SourceValidationError, match=re.escape(message)):
-        parse_graph_source(raw, asset_names={"sample.svg"})
+        parse_graph_source(json.dumps(raw), asset_names={"sample.svg"})
 
 
 @pytest.mark.parametrize(
@@ -167,7 +168,12 @@ def test_parse_graph_source_rejects_invalid_strict_fields(field: str, value: obj
     raw = valid_source()
     raw["pages"][0]["blocks"][0][field] = value
     with pytest.raises(SourceValidationError, match=rf"pages\.0\.blocks\.0\.{field}"):
-        parse_graph_source(raw, asset_names={"sample.svg"})
+        parse_graph_source(json.dumps(raw), asset_names={"sample.svg"})
+
+
+def test_parse_graph_source_rejects_text_that_is_not_json() -> None:
+    with pytest.raises(SourceValidationError):
+        parse_graph_source("{", asset_names=set())
 
 
 @pytest.mark.parametrize("value", [True, 3.0])
@@ -175,7 +181,7 @@ def test_parse_graph_source_rejects_strict_heading_coercion(value: object) -> No
     raw = valid_source()
     raw["pages"][0]["blocks"][0]["heading"] = value
     with pytest.raises(SourceValidationError, match=r"pages\.0\.blocks\.0\.heading"):
-        parse_graph_source(raw, asset_names={"sample.svg"})
+        parse_graph_source(json.dumps(raw), asset_names={"sample.svg"})
 
 
 def test_parse_graph_source_rejects_cross_page_parent() -> None:
@@ -201,4 +207,4 @@ def test_parse_graph_source_rejects_cross_page_parent() -> None:
         SourceValidationError,
         match="atlas-child: parent uid belongs to another page: other-root",
     ):
-        parse_graph_source(raw, asset_names={"sample.svg"})
+        parse_graph_source(json.dumps(raw), asset_names={"sample.svg"})

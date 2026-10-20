@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, TypedDict, TypeVar, Unpack
 from urllib.parse import quote
 
 import httpx2
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from pkm.client.core import (ApiError, CliConfig, ConfigError,
                              ResponseSchemaError, cookie_header,
@@ -50,6 +50,8 @@ CLIENT_ID = ClientId("pkm-cli")
 _BACKLINK_MAX_ATTEMPTS = 5
 
 M = TypeVar("M", bound=BaseModel)
+
+_BLOCK_OP: TypeAdapter[BlockOp] = TypeAdapter(BlockOp)
 
 
 def config_path() -> Path:
@@ -327,8 +329,9 @@ class PkmClient:
         OpBatch, so a malformed op fails here with 422 rather than on the
         wire."""
         try:
+            block_ops = [_BLOCK_OP.validate_python(op) for op in ops]
             batch = OpBatch(client_id=CLIENT_ID, batch_id=batch_id,
-                            ops=list(ops))
+                            ops=block_ops)
         except ValueError as e:
             raise ApiError(422, f"invalid ops: {e}")
         return self._request("POST", "/api/ops", OpsAck,

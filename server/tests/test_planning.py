@@ -7,13 +7,13 @@ from pkm.batch import (delete_uids, plan_batch, referenced_pages,
 from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp,
                                MoveOp, OrderIdx, SetHeadingOp, UpdateTextOp,
                                subtree_hash, text_hash)
-from pkm.contracts.responses import BlockNode, PagePayload
+from pkm.contracts.responses import Backlinks, BlockNode, PageMeta, PagePayload
 from pkm.planning import (BuildError, asset_block_text, create_page_ops,
                           order_idx_at_position, parse_outline, plan_mark,
                           plan_save, plan_update, resolve_parent,
                           split_heading)
 from pkm.render import render_page
-from pkm.test_data.ids import order_idx_of, raw_title_of, uid_of
+from pkm.test_data.ids import canonical_title_of, order_idx_of, page_id_of, raw_title_of, uid_of
 
 
 def _node(uid: BlockUid, text, children=(), heading=None,
@@ -145,9 +145,9 @@ def test_resolve_parent_duplicate_headings_picks_first_in_document_order():
 def test_plan_save_appends_at_end_of_page():
     ops = plan_save(BLOCKS, raw_title_of("Machine Learning"), None, "new note",
                     todo=False, uids=uid_gen())
-    assert ops == [CreateOp(op="create", uid="gen_uid_0",
-                            page_title="Machine Learning", parent_uid=None,
-                            order_idx=2, text="new note")]
+    assert ops == [CreateOp(op="create", uid=uid_of("gen_uid_0"),
+                            page_title=raw_title_of("Machine Learning"), parent_uid=None,
+                            order_idx=order_idx_of(2), text="new note")]
 
 
 def test_plan_save_outline_nests():
@@ -167,9 +167,9 @@ def test_plan_save_todo_marks_top_level_items_only():
 def test_plan_save_creates_missing_heading_first():
     ops = plan_save(BLOCKS, raw_title_of("Machine Learning"), "## Notes", "under it",
                     todo=False, uids=uid_gen())
-    assert ops[0] == CreateOp(op="create", uid="gen_uid_0",
-                              page_title="Machine Learning", parent_uid=None,
-                              order_idx=2, text="Notes", heading=2)
+    assert ops[0] == CreateOp(op="create", uid=uid_of("gen_uid_0"),
+                              page_title=raw_title_of("Machine Learning"), parent_uid=None,
+                              order_idx=order_idx_of(2), text="Notes", heading=2)
     assert ops[1].parent_uid == "gen_uid_0"
     assert ops[1].order_idx == 0
 
@@ -189,8 +189,8 @@ def test_plan_save_appends_after_the_last_sibling_when_keys_have_a_gap():
 def test_create_page_ops():
     assert create_page_ops([raw_title_of("Brand New Page"),
                              raw_title_of("Another New Page")]) == [
-        CreatePageOp(op="create_page", page_title="Brand New Page"),
-        CreatePageOp(op="create_page", page_title="Another New Page")]
+        CreatePageOp(op="create_page", page_title=raw_title_of("Brand New Page")),
+        CreatePageOp(op="create_page", page_title=raw_title_of("Another New Page"))]
 
 
 def test_create_page_ops_empty():
@@ -251,11 +251,11 @@ def test_plan_batch_todo_update_move_delete():
     ]
     ops = plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen())
     assert as_create(ops[0]).text == "{{TODO}} follow up"
-    assert ops[1] == UpdateTextOp(op="update_text", uid="tuid-u3", text="edited")
-    assert ops[2] == SetHeadingOp(op="set_heading", uid="tuid-u3", heading=None)
-    assert ops[3] == MoveOp(op="move", uid="tuid-u1", parent_uid="tuid-u2",
-                            order_idx=1, page_title=None)
-    assert ops[4] == DeleteOp(op="delete", uid="tuid-u3")
+    assert ops[1] == UpdateTextOp(op="update_text", uid=uid_of("tuid-u3"), text="edited")
+    assert ops[2] == SetHeadingOp(op="set_heading", uid=uid_of("tuid-u3"), heading=None)
+    assert ops[3] == MoveOp(op="move", uid=uid_of("tuid-u1"), parent_uid=uid_of("tuid-u2"),
+                            order_idx=order_idx_of(1), page_title=None)
+    assert ops[4] == DeleteOp(op="delete", uid=uid_of("tuid-u3"))
 
 
 def test_plan_batch_unknown_command_and_alias():
@@ -318,8 +318,8 @@ def test_plan_batch_move_under_a_block_created_in_the_same_batch():
     ]
     ops = plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen())
     home = as_create(ops[0]).uid
-    assert ops[1] == MoveOp(op="move", uid="tuid-u1", parent_uid=home,
-                            order_idx=0, page_title=None)
+    assert ops[1] == MoveOp(op="move", uid=uid_of("tuid-u1"), parent_uid=home,
+                            order_idx=order_idx_of(0), page_title=None)
 
 
 def test_plan_batch_indexed_creates_under_an_off_page_parent_compose():
@@ -407,8 +407,8 @@ def test_plan_batch_move_append_lands_after_the_last_sibling_when_keys_have_a_ga
              "params": {"uid": "tuid-g3", "page": "Machine Learning",
                         "parent": "((tuid-g2))"}}]
     ops = plan_batch(cmds, {"Machine Learning": BLOCKS_WITH_GAP}, uid_gen())
-    assert ops[0] == MoveOp(op="move", uid="tuid-g3", parent_uid="tuid-g2",
-                            order_idx=6, page_title=None)
+    assert ops[0] == MoveOp(op="move", uid=uid_of("tuid-g3"), parent_uid=uid_of("tuid-g2"),
+                            order_idx=order_idx_of(6), page_title=None)
 
 
 def test_plan_batch_indexed_move_lands_on_the_real_key_not_the_position_when_gapped():
@@ -420,8 +420,8 @@ def test_plan_batch_indexed_move_lands_on_the_real_key_not_the_position_when_gap
              "params": {"uid": "tuid-g1", "page": "Machine Learning",
                         "parent": "((tuid-g2))", "index": 1}}]
     ops = plan_batch(cmds, {"Machine Learning": BLOCKS_WITH_GAP}, uid_gen())
-    assert ops[0] == MoveOp(op="move", uid="tuid-g1", parent_uid="tuid-g2",
-                            order_idx=5, page_title=None)
+    assert ops[0] == MoveOp(op="move", uid=uid_of("tuid-g1"), parent_uid=uid_of("tuid-g2"),
+                            order_idx=order_idx_of(5), page_title=None)
 
 
 # -- composition: a position/append reads the page as the batch has left
@@ -532,8 +532,8 @@ def test_plan_batch_move_forward_among_siblings_excludes_the_mover():
     ops = plan_batch(cmds, {"Machine Learning": blocks}, uid_gen())
     # Among [B, C, D] (A excluded), position 2 is D's key (3): A lands
     # just before D -- B, C, A, D.
-    assert ops[0] == MoveOp(op="move", uid="tuid-m3a", parent_uid=None,
-                            order_idx=3, page_title="Machine Learning")
+    assert ops[0] == MoveOp(op="move", uid=uid_of("tuid-m3a"), parent_uid=None,
+                            order_idx=order_idx_of(3), page_title=raw_title_of("Machine Learning"))
 
 
 def test_plan_batch_delete_then_indexed_create_counts_remaining_siblings():
@@ -605,8 +605,8 @@ def test_plan_batch_alias_as_uid():
     ]
     ops = plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen())
     new_uid = as_create(ops[0]).uid
-    assert ops[1] == MoveOp(op="move", uid=new_uid, parent_uid="tuid-u2",
-                            order_idx=0, page_title=None)
+    assert ops[1] == MoveOp(op="move", uid=new_uid, parent_uid=uid_of("tuid-u2"),
+                            order_idx=order_idx_of(0), page_title=None)
     assert ops[2] == UpdateTextOp(op="update_text", uid=new_uid, text="y")
     assert ops[3] == SetHeadingOp(op="set_heading", uid=new_uid,
                                   heading=None)
@@ -634,7 +634,7 @@ def test_batch_delete_is_stamped_from_its_fetched_subtree():
     ops = plan_batch([{"command": "delete", "params": {"uid": "r0000001"}}],
                      {}, uid_gen(), subtrees={"r0000001": SUBTREE})
     assert ops == [DeleteOp(
-        op="delete", uid="r0000001",
+        op="delete", uid=uid_of("r0000001"),
         base_subtree_hash=subtree_hash([("r0000001", "root"),
                                         ("c0000001", "child")]))]
 
@@ -655,8 +655,8 @@ def test_batch_delete_without_a_fetched_subtree_is_unhashed():
     cmds = [{"command": "delete", "params": {"uid": "gone0001"}},
             {"command": "delete", "params": {"uid": "never001"}}]
     ops = plan_batch(cmds, {}, uid_gen(), subtrees={"gone0001": None})
-    assert ops == [DeleteOp(op="delete", uid="gone0001"),
-                   DeleteOp(op="delete", uid="never001")]
+    assert ops == [DeleteOp(op="delete", uid=uid_of("gone0001")),
+                   DeleteOp(op="delete", uid=uid_of("never001"))]
 
 
 def test_batch_update_then_delete_hashes_the_updated_text():
@@ -745,9 +745,9 @@ def test_batch_delete_of_a_child_then_its_parent_hashes_without_the_child():
     ops = plan_batch(cmds, {}, uid_gen(),
                      subtrees={"r0000001": SUBTREE, "c0000001": child})
     assert ops == [
-        DeleteOp(op="delete", uid="c0000001",
+        DeleteOp(op="delete", uid=uid_of("c0000001"),
                  base_subtree_hash=subtree_hash([("c0000001", "child")])),
-        DeleteOp(op="delete", uid="r0000001",
+        DeleteOp(op="delete", uid=uid_of("r0000001"),
                  base_subtree_hash=subtree_hash([("r0000001", "root")]))]
 
 
@@ -756,10 +756,10 @@ def test_batch_second_delete_of_the_same_uid_is_unhashed():
             {"command": "delete", "params": {"uid": "r0000001"}}]
     ops = plan_batch(cmds, {}, uid_gen(), subtrees={"r0000001": SUBTREE})
     assert ops == [
-        DeleteOp(op="delete", uid="r0000001",
+        DeleteOp(op="delete", uid=uid_of("r0000001"),
                  base_subtree_hash=subtree_hash([("r0000001", "root"),
                                                  ("c0000001", "child")])),
-        DeleteOp(op="delete", uid="r0000001")]
+        DeleteOp(op="delete", uid=uid_of("r0000001"))]
 
 
 def test_delete_uids_skips_aliases():
@@ -959,13 +959,12 @@ def test_plan_batch_created_heading_resolves_as_a_later_parent():
 
 
 def test_render_then_save_round_trips_a_heading():
-    page = PagePayload.model_validate(
-        {"page": {"id": 1, "title": "Machine Learning", "created_at": None,
-                  "updated_at": None},
-         "blocks": BLOCKS,
-         "backlinks": {"groups": [], "total_pages": 0, "offset": 0,
-                       "limit": 100},
-         "block_ref_texts": {}, "block_ref_counts": {}})
+    page = PagePayload(
+        page=PageMeta(id=page_id_of(1), title=canonical_title_of("Machine Learning"),
+                      created_at=None, updated_at=None),
+        blocks=BLOCKS,
+        backlinks=Backlinks(groups=[], total_pages=0, offset=0, limit=100),
+        block_ref_texts={}, block_ref_counts={})
     line = next(ln for ln in render_page(page).splitlines()
                 if "Papers" in ln)
     assert line == "- ## Papers"
@@ -976,19 +975,19 @@ def test_render_then_save_round_trips_a_heading():
 
 def test_plan_update_sets_heading_from_text():
     assert plan_update(uid_of("tuid-u3"), "## Overview", "old text") == [
-        UpdateTextOp(op="update_text", uid="tuid-u3", text="Overview",
+        UpdateTextOp(op="update_text", uid=uid_of("tuid-u3"), text="Overview",
                      base_text_hash=text_hash("old text")),
-        SetHeadingOp(op="set_heading", uid="tuid-u3", heading=2)]
+        SetHeadingOp(op="set_heading", uid=uid_of("tuid-u3"), heading=2)]
 
 
 def test_plan_update_clears_heading_for_plain_text():
     ops = plan_update(uid_of("tuid-u3"), "Overview", "old text")
-    assert ops[1] == SetHeadingOp(op="set_heading", uid="tuid-u3", heading=None)
+    assert ops[1] == SetHeadingOp(op="set_heading", uid=uid_of("tuid-u3"), heading=None)
 
 
 def test_plan_update_without_base_text_has_no_hash_guard():
     ops = plan_update(uid_of("tuid-u3"), "edited")
-    assert ops[0] == UpdateTextOp(op="update_text", uid="tuid-u3", text="edited")
+    assert ops[0] == UpdateTextOp(op="update_text", uid=uid_of("tuid-u3"), text="edited")
 
 
 def test_plan_update_same_plain_text_emits_a_single_op():
@@ -996,24 +995,24 @@ def test_plan_update_same_plain_text_emits_a_single_op():
     # "unknown" -- the guarded path must still skip set_heading when it
     # matches the new level.
     ops = plan_update(uid_of("tuid-u3"), "same text", "same text", current_heading=None)
-    assert ops == [UpdateTextOp(op="update_text", uid="tuid-u3", text="same text",
+    assert ops == [UpdateTextOp(op="update_text", uid=uid_of("tuid-u3"), text="same text",
                                 base_text_hash=text_hash("same text"))]
 
 
 def test_plan_update_same_heading_level_emits_a_single_op():
     ops = plan_update(uid_of("tuid-u3"), "## Overview", "old text", current_heading=2)
-    assert ops == [UpdateTextOp(op="update_text", uid="tuid-u3", text="Overview",
+    assert ops == [UpdateTextOp(op="update_text", uid=uid_of("tuid-u3"), text="Overview",
                                 base_text_hash=text_hash("old text"))]
 
 
 def test_plan_update_changing_level_still_sets_heading():
     ops = plan_update(uid_of("tuid-u3"), "## Overview", "old text", current_heading=1)
-    assert ops[1] == SetHeadingOp(op="set_heading", uid="tuid-u3", heading=2)
+    assert ops[1] == SetHeadingOp(op="set_heading", uid=uid_of("tuid-u3"), heading=2)
 
 
 def test_plan_update_clearing_heading_still_sets_heading():
     ops = plan_update(uid_of("tuid-u3"), "Overview", "old text", current_heading=2)
-    assert ops[1] == SetHeadingOp(op="set_heading", uid="tuid-u3", heading=None)
+    assert ops[1] == SetHeadingOp(op="set_heading", uid=uid_of("tuid-u3"), heading=None)
 
 
 def test_plan_update_batch_path_omits_current_heading_stays_unconditional():
@@ -1021,9 +1020,9 @@ def test_plan_update_batch_path_omits_current_heading_stays_unconditional():
     # when the text has no heading change at all.
     ops = plan_update(uid_of("tuid-u3"), "same text", "same text")
     assert ops == [
-        UpdateTextOp(op="update_text", uid="tuid-u3", text="same text",
+        UpdateTextOp(op="update_text", uid=uid_of("tuid-u3"), text="same text",
                      base_text_hash=text_hash("same text")),
-        SetHeadingOp(op="set_heading", uid="tuid-u3", heading=None)]
+        SetHeadingOp(op="set_heading", uid=uid_of("tuid-u3"), heading=None)]
 
 
 def test_plan_mark_applies_marker_and_hash_guard_no_heading_op():
@@ -1032,14 +1031,14 @@ def test_plan_mark_applies_marker_and_hash_guard_no_heading_op():
     # already bare (the heading level lives in its own column).
     ops = plan_mark(uid_of("tuid-u3"), "buy milk", "TODO")
     assert ops == [
-        UpdateTextOp(op="update_text", uid="tuid-u3", text="{{TODO}} buy milk",
+        UpdateTextOp(op="update_text", uid=uid_of("tuid-u3"), text="{{TODO}} buy milk",
                      base_text_hash=text_hash("buy milk"))]
 
 
 def test_plan_mark_done_toggles_existing_marker():
     ops = plan_mark(uid_of("tuid-u3"), "{{TODO}} buy milk", "DONE")
     assert ops == [
-        UpdateTextOp(op="update_text", uid="tuid-u3", text="{{DONE}} buy milk",
+        UpdateTextOp(op="update_text", uid=uid_of("tuid-u3"), text="{{DONE}} buy milk",
                      base_text_hash=text_hash("{{TODO}} buy milk"))]
 
 
@@ -1053,7 +1052,7 @@ def test_plan_mark_never_emits_set_heading():
 
 def test_plan_update_carries_page_title_hint():
     ops = plan_update(uid_of("uid_a1"), "x", "y", None, page_title=raw_title_of("AI"))
-    assert ops == [UpdateTextOp(op="update_text", uid="uid_a1", text="x",
+    assert ops == [UpdateTextOp(op="update_text", uid=uid_of("uid_a1"), text="x",
                                 base_text_hash=text_hash("y"),
                                 page_title=raw_title_of("AI"))]
 
@@ -1061,3 +1060,12 @@ def test_plan_update_carries_page_title_hint():
 def test_plan_mark_carries_page_title_hint():
     ops = plan_mark(uid_of("tuid-u3"), "buy milk", "TODO", page_title=raw_title_of("AI"))
     assert ops[0].page_title == "AI"
+
+
+@pytest.mark.parametrize("index", ["2", 1.0, True])
+def test_validate_batch_rejects_a_non_integer_index(index):
+    # strict models refuse a numeric string, a float and a bool
+    with pytest.raises(BuildError, match=r"batch\[0\].*index"):
+        validate_batch([{"command": "move",
+                         "params": {"uid": "abcdef", "page": "A",
+                                    "index": index}}])

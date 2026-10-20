@@ -1,8 +1,11 @@
 """Pure row-grouping helpers. The routes that feed them are covered by
 test_backlinks.py, test_query_parity.py, test_todos_endpoint.py and
 test_unlinked.py."""
+from pkm.contracts.responses import (BacklinkGroup, BlockGroup, ChangedGroup,
+                                     ChangedItem, GroupItem)
 from pkm.rows import Row
-from pkm.server.grouping import group_backlinks, group_by_page
+from pkm.server.grouping import (ChangedRow, group_backlinks, group_by_page,
+                                 group_changed)
 from pkm.test_data.ids import canonical_title_of, page_id_of, uid_of
 from pkm.contracts.ops import BlockUid, PageId
 
@@ -25,11 +28,15 @@ def test_group_by_page_groups_in_row_order():
         _block(uid_of("tuid-z2"), "t3", page_id_of(3), "Zulu"),
     ]
 
-    assert group_by_page(rows) == [
-        {"page_id": 4, "page_title": "Alpha",
-         "items": [{"uid": "tuid-a1", "text": "t1"}]},
-        {"page_id": 3, "page_title": "Zulu",
-         "items": [{"uid": "tuid-z1", "text": "t2"}, {"uid": "tuid-z2", "text": "t3"}]},
+    groups = group_by_page(rows)
+
+    assert all(isinstance(g, BlockGroup) for g in groups)
+    assert groups == [
+        BlockGroup(page_id=page_id_of(4), page_title=canonical_title_of("Alpha"),
+                   items=[GroupItem(uid=uid_of("tuid-a1"), text="t1")]),
+        BlockGroup(page_id=page_id_of(3), page_title=canonical_title_of("Zulu"),
+                   items=[GroupItem(uid=uid_of("tuid-z1"), text="t2"),
+                          GroupItem(uid=uid_of("tuid-z2"), text="t3")]),
     ]
 
 
@@ -45,8 +52,8 @@ def test_group_by_page_merges_interleaved_rows_into_one_group():
 
     groups = group_by_page(rows)
 
-    assert [g["page_id"] for g in groups] == [1, 2]
-    assert [i["uid"] for i in groups[0]["items"]] == ["tuid-a1", "tuid-a2"]
+    assert [g.page_id for g in groups] == [1, 2]
+    assert [i.uid for i in groups[0].items] == ["tuid-a1", "tuid-a2"]
 
 
 def test_group_by_page_of_no_rows():
@@ -60,6 +67,23 @@ def test_group_backlinks_pure():
         _backlink(uid_of("tuid-y1"), "t3", page_id_of(9), "P2"),
     ]
     groups = group_backlinks(rows, {uid_of("tuid-x2"): ["root text"]})
-    assert [g["page_title"] for g in groups] == ["P1", "P2"]
-    assert groups[0]["items"][0] == {"uid": "tuid-x1", "text": "t1", "breadcrumbs": []}
-    assert groups[0]["items"][1]["breadcrumbs"] == ["root text"]
+    assert [g.page_title for g in groups] == ["P1", "P2"]
+    assert all(isinstance(g, BacklinkGroup) for g in groups)
+    assert groups[0].items[0].model_dump() == {
+        "uid": "tuid-x1", "text": "t1", "breadcrumbs": []}
+    assert groups[0].items[1].breadcrumbs == ["root text"]
+
+
+def test_group_changed_pure():
+    def row(uid_text: str, page: int, title_text: str) -> ChangedRow:
+        return ChangedRow(
+            uid=uid_of(uid_text), text="t", page_id=page_id_of(page),
+            page_title=canonical_title_of(title_text), created_at=1,
+            updated_at=2, status="new")
+
+    groups = group_changed([row("tuid-a", 1, "P1"), row("tuid-b", 2, "P2"),
+                            row("tuid-c", 1, "P1")])
+    assert all(isinstance(g, ChangedGroup) for g in groups)
+    assert [g.page_id for g in groups] == [1, 2]
+    assert all(isinstance(i, ChangedItem) for i in groups[0].items)
+    assert [i.uid for i in groups[0].items] == ["tuid-a", "tuid-c"]

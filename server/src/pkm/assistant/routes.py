@@ -10,7 +10,6 @@ from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 
 from pkm.assistant.events import SSE_COMMENT, AssistantEvent, ErrorEvent, encode_sse
 from pkm.assistant.service import (
@@ -21,6 +20,7 @@ from pkm.assistant.service import (
 )
 from pkm.contracts.responses import (AssistantAck, AssistantConversation, AssistantModels,
                                      ConfirmId, ConversationId)
+from pkm.contracts.strict import StrictModel
 from pkm.server.auth import require_auth
 
 logger = logging.getLogger("pkm.assistant")
@@ -177,15 +177,15 @@ async def _sse_frames(
             yield encode_sse(ErrorEvent(message=str(exc)))
 
 
-class CreateConversationRequest(BaseModel):
+class CreateConversationRequest(StrictModel):
     model: str | None = None
 
 
-class SendMessageRequest(BaseModel):
+class SendMessageRequest(StrictModel):
     text: str
 
 
-class ConfirmRequestBody(BaseModel):
+class ConfirmRequestBody(StrictModel):
     confirm_id: ConfirmId
     allow: bool
 

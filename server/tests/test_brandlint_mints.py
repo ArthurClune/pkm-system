@@ -117,7 +117,7 @@ def test_other_trees_are_not_checked(path: str):
 
 def test_each_remedy_names_the_fix():
     assert "select()" in RULES["brand-cast"]
-    assert "model_validate" in RULES["model-construct"]
+    assert "keyword" in RULES["model-construct"]
     assert "Db" in RULES["raw-sqlite"]
 
 
@@ -151,7 +151,7 @@ PROPTEST = "server/tooling/proptest/sync_server.py"
 
 
 def test_server_tooling_is_linted():
-    assert rules("x = BlockUid(raw)\n", PROPTEST) == ["brand-mint"]
+    assert rules("x = SyncSeq(raw)\n", PROPTEST) == ["brand-mint"]
     assert rules("def f(uid: str): ...\n", PERFCHECK) == ["brand-name"]
 
 

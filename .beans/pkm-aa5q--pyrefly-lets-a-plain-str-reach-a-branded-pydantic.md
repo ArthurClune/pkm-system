@@ -1,11 +1,11 @@
 ---
 # pkm-aa5q
 title: pyrefly lets a plain str reach a branded pydantic field at construction
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-10-19T17:40:04Z
-updated_at: 2026-10-20T12:44:15Z
+updated_at: 2026-10-20T14:12:03Z
 ---
 
 pyrefly accepts a plain `str` (or `int`) for a pydantic model field typed
@@ -24,7 +24,7 @@ factory functions.
 
 - [x] confirm the gap with a minimal probe and check pyrefly options
 - [x] decide the enforcement point (Arthur, 2026-10-20: model-wide strict mode)
-- [ ] implement with teeth tests
+- [x] implement with teeth tests
 
 ## Probe results (2026-10-20, pyrefly 1.1.1)
 
@@ -92,6 +92,34 @@ needs a test that pins the behaviour it keeps:
 - Then fix every producer pyrefly reports. Expect a sizeable sweep: no
   constructor has been checked until now.
 
-- [x] design doc covering the base, the lint rule and the runtime sweep (docs/superpowers/specs/2026-10-20-strict-models-design.md; awaiting Arthur's approval)
-- [ ] runtime sweep with pinning tests (requests, row readers, stored JSON)
-- [ ] strict base + lint rule with teeth; fix producers pyrefly reports
+- [x] design doc covering the base, the lint rule and the runtime sweep (docs/superpowers/specs/2026-10-20-strict-models-design.md; approved)
+- [x] runtime sweep with pinning tests (requests, row readers, stored JSON)
+- [x] strict base + lint rule with teeth; fix producers pyrefly reports
+
+## Summary of Changes
+
+Spec docs/superpowers/specs/2026-10-20-strict-models-design.md, plan
+docs/superpowers/plans/2026-10-20-strict-models.md.
+
+- Every pydantic model inherits `StrictModel` (`pkm/contracts/strict.py`,
+  `ConfigDict(strict=True)`): 102 models in server/src, tooling and tests.
+  pyrefly now checks every model constructor against its declared types.
+- `tree.build_tree` and the `grouping` builders return contract models;
+  the 11 dict-built responses are keyword constructors. Export renders
+  `BlockNode`.
+- brandlint `model-strict` / `model-unchecked` (`brandlint/models.py`):
+  no direct BaseModel/RootModel subclass under any alias, no `strict`
+  other than True (keyword, class keyword, dict key, `Strict(...)`), no
+  `create_model`, pydantic dataclasses or `validate_call`, no model built
+  from an in-place dict (`model_validate*`, `validate_python/strings`,
+  `json.dumps` into `*_json`, `parse_obj`), no `model_copy`/`copy`
+  with `update=`; `model-construct` also catches v1 `.construct`.
+- Producers fixed: `planning._create` parent is `BlockUid`,
+  `sync_changes` uses `NO_SEQ`, `PkmClient.post_ops` validates raw
+  mappings to ops; ~229 test literals through id helpers; test fixtures
+  built by constructor; proptest/perf seeders are MINT_SITES.
+- Runtime change, pinned: 8 request fields and `batch` `index` now 422 /
+  refuse non-canonical numbers and bools; `parse_graph_source` takes
+  JSON text. OpenAPI unchanged (byte-identical).
+- Verified: pytest, pyrefly, ruff, sweep; pnpm verify (3960 unit, 81 e2e);
+  perf backend no changes; proptest server 5/5, web 77/77.

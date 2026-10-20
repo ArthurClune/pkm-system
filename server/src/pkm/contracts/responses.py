@@ -14,8 +14,8 @@ from __future__ import annotations
 from collections.abc import Iterator, Sequence
 from typing import Annotated, Literal, NewType
 
-from pydantic import (BaseModel, BeforeValidator, Field,
-                      SerializerFunctionWrapHandler, model_serializer)
+from pydantic import (BaseModel, BeforeValidator, Field, SerializerFunctionWrapHandler, model_serializer)
+from pkm.contracts.strict import StrictModel
 
 from pkm.changed import ChangeStatus
 from pkm.contracts.brands import brand
@@ -42,14 +42,14 @@ StoredHeading = Annotated[HeadingLevel | None,
                          BeforeValidator(_roam_heading_zero_as_none)]
 
 
-class PageMeta(BaseModel):
+class PageMeta(StrictModel):
     id: PageId
     title: CanonicalTitle
     created_at: int | None
     updated_at: int | None
 
 
-class BlockNode(BaseModel):
+class BlockNode(StrictModel):
     uid: BlockUid
     text: str
     heading: StoredHeading
@@ -71,43 +71,43 @@ def walk_blocks(nodes: Sequence[BlockNode]) -> Iterator[BlockNode]:
         yield from walk_blocks(n.children)
 
 
-class BacklinkItem(BaseModel):
+class BacklinkItem(StrictModel):
     uid: BlockUid
     text: str
     breadcrumbs: list[str]
 
 
-class BacklinkGroup(BaseModel):
+class BacklinkGroup(StrictModel):
     page_id: PageId
     page_title: CanonicalTitle
     items: list[BacklinkItem]
 
 
-class Backlinks(BaseModel):
+class Backlinks(StrictModel):
     groups: list[BacklinkGroup]
     total_pages: int
     offset: int
     limit: int
 
 
-class BlockBacklinksPayload(BaseModel):
+class BlockBacklinksPayload(StrictModel):
     """GET /api/block/{uid}/backlinks: every block referencing ((uid)),
     grouped like page backlinks. Unpaginated by design -- counts are small
     and nothing user-visible truncates silently."""
     groups: list[BacklinkGroup]
 
 
-class BlockRefText(BaseModel):
+class BlockRefText(StrictModel):
     text: str
     page_title: CanonicalTitle
 
 
-class BlockRefsPayload(BaseModel):
+class BlockRefsPayload(StrictModel):
     """GET /api/block-refs: on-demand ((uid)) resolution."""
     block_ref_texts: dict[BlockUid, BlockRefText]
 
 
-class PagePayload(BaseModel):
+class PagePayload(StrictModel):
     page: PageMeta
     blocks: list[BlockNode]
     backlinks: Backlinks
@@ -115,7 +115,7 @@ class PagePayload(BaseModel):
     block_ref_counts: dict[BlockUid, int]
 
 
-class RenamePageResponse(BaseModel):
+class RenamePageResponse(StrictModel):
     """POST /api/page/{title}/rename: which branch ran, and the title the
     page now lives under (normalized, so it can differ from the requested
     one). `result` is a Literal so the web client can switch on it."""
@@ -123,7 +123,7 @@ class RenamePageResponse(BaseModel):
     title: CanonicalTitle
 
 
-class DeleteBlockerModel(BaseModel):
+class DeleteBlockerModel(StrictModel):
     """A block whose reference to the page a delete cannot rewrite. `query`:
     a query macro names the page. `used_as_attribute`: the block's leading
     `Name::` attribute is the page. `attribute`: unlinking would add or
@@ -136,7 +136,7 @@ class DeleteBlockerModel(BaseModel):
     reason: Literal["query", "used_as_attribute", "attribute", "residual"]
 
 
-class DeletePreview(BaseModel):
+class DeletePreview(StrictModel):
     """GET /api/delete-preview: what deleting the page would rewrite. Counts
     are of source blocks and the distinct pages holding them; a non-empty
     `blockers` means DELETE would be refused with 409."""
@@ -147,18 +147,18 @@ class DeletePreview(BaseModel):
     blockers: list[DeleteBlockerModel]
 
 
-class GroupItem(BaseModel):
+class GroupItem(StrictModel):
     uid: BlockUid
     text: str
 
 
-class BlockGroup(BaseModel):
+class BlockGroup(StrictModel):
     page_id: PageId
     page_title: CanonicalTitle
     items: list[GroupItem]
 
 
-class GroupsPayload(BaseModel):
+class GroupsPayload(StrictModel):
     """Shared by /api/unlinked and /api/todos."""
     groups: list[BlockGroup]
     total: int
@@ -170,7 +170,7 @@ class QueryPayload(GroupsPayload):
     ref_counts: dict[CanonicalTitle, int]
 
 
-class ChangedItem(BaseModel):
+class ChangedItem(StrictModel):
     uid: BlockUid
     text: str
     created_at: int | None
@@ -178,13 +178,13 @@ class ChangedItem(BaseModel):
     status: ChangeStatus
 
 
-class ChangedGroup(BaseModel):
+class ChangedGroup(StrictModel):
     page_id: PageId
     page_title: CanonicalTitle
     items: list[ChangedItem]
 
 
-class ChangedPayload(BaseModel):
+class ChangedPayload(StrictModel):
     """GET /api/changed: blocks whose updated_at falls in [since, until),
     grouped by page in the order each page was first touched. `since`/
     `until` echo the resolved window (epoch ms) so a caller can see what
@@ -195,7 +195,7 @@ class ChangedPayload(BaseModel):
     until: int
 
 
-class JournalDay(BaseModel):
+class JournalDay(StrictModel):
     """One day of the journal scroll, complete: the day renders from this
     alone. `backlinks` is a preview page of the day's linked references
     -- carried here because fetching them per day turned a scroll
@@ -208,58 +208,58 @@ class JournalDay(BaseModel):
     backlinks: Backlinks
 
 
-class JournalPayload(BaseModel):
+class JournalPayload(StrictModel):
     days: list[JournalDay]
     block_ref_texts: dict[BlockUid, BlockRefText]
     block_ref_counts: dict[BlockUid, int]
 
 
-class CurrentWorkPage(BaseModel):
+class CurrentWorkPage(StrictModel):
     id: PageId
     title: CanonicalTitle
     updated_at: int
 
 
-class CurrentWorkSection(BaseModel):
+class CurrentWorkSection(StrictModel):
     id: str
     heading: str
     pages: list[CurrentWorkPage]
 
 
-class CurrentWorkPayload(BaseModel):
+class CurrentWorkPayload(StrictModel):
     sections: list[CurrentWorkSection]
 
 
-class SearchPageHit(BaseModel):
+class SearchPageHit(StrictModel):
     id: PageId
     title: CanonicalTitle
 
 
-class SearchBlockHit(BaseModel):
+class SearchBlockHit(StrictModel):
     uid: BlockUid
     page_title: CanonicalTitle
     snippet: str
 
 
-class SearchPayload(BaseModel):
+class SearchPayload(StrictModel):
     pages: list[SearchPageHit]
     blocks: list[SearchBlockHit]
 
 
-class TitlesPayload(BaseModel):
+class TitlesPayload(StrictModel):
     titles: list[CanonicalTitle]
 
 
-class SidebarNavEntry(BaseModel):
+class SidebarNavEntry(StrictModel):
     id: SidebarEntryId
     title: CanonicalTitle
 
 
-class SidebarNavPayload(BaseModel):
+class SidebarNavPayload(StrictModel):
     entries: list[SidebarNavEntry]
 
 
-class AssetUploadResponse(BaseModel):
+class AssetUploadResponse(StrictModel):
     sha256: Sha256Hex
     filename: str
     mime: str
@@ -268,12 +268,12 @@ class AssetUploadResponse(BaseModel):
     existing: bool
 
 
-class AssetRef(BaseModel):
+class AssetRef(StrictModel):
     uid: BlockUid
     page_title: CanonicalTitle
 
 
-class AssetSearchItem(BaseModel):
+class AssetSearchItem(StrictModel):
     sha256: Sha256Hex
     filename: str
     mime: str
@@ -286,30 +286,30 @@ class AssetSearchItem(BaseModel):
     refs: list[AssetRef]
 
 
-class AssetSearchPayload(BaseModel):
+class AssetSearchPayload(StrictModel):
     total: int
     assets: list[AssetSearchItem]
 
 
-class DescribeStatusPayload(BaseModel):
+class DescribeStatusPayload(StrictModel):
     enabled: bool
     reason: str | None
 
 
-class ScanPayload(BaseModel):
+class ScanPayload(StrictModel):
     queued: int
     enabled: bool
     reason: str | None
 
 
-class LocalCheckProblem(BaseModel):
+class LocalCheckProblem(StrictModel):
     uid: BlockUid
     page: CanonicalTitle
     href: str
     status: Literal["missing", "evicted", "invalid", "unreadable", "unchecked"]
 
 
-class LocalCheckPayload(BaseModel):
+class LocalCheckPayload(StrictModel):
     """GET /api/local/check: every /api/local/ href found in block text,
     classified against the disk. `enabled` is False when no
     local_docs_root is configured."""
@@ -319,14 +319,14 @@ class LocalCheckPayload(BaseModel):
     problems: list[LocalCheckProblem]
 
 
-class GoodlinksResolveRequest(BaseModel):
+class GoodlinksResolveRequest(StrictModel):
     """POST /api/goodlinks/resolve body. `save` lets the slash command add
     a page GoodLinks does not have yet; the migration script never sets it."""
     url: str = Field(min_length=1, max_length=2000)
     save: bool = False
 
 
-class GoodlinksLink(BaseModel):
+class GoodlinksLink(StrictModel):
     """POST /api/goodlinks/resolve: the GoodLinks link a URL resolved to.
     `created` is True when the request saved it just now."""
     id: GoodlinksId
@@ -336,7 +336,7 @@ class GoodlinksLink(BaseModel):
     created: bool
 
 
-class GoodlinksArticle(BaseModel):
+class GoodlinksArticle(StrictModel):
     """GET /api/goodlinks/{link_id}: metadata plus the sanitised reader HTML
     in one payload, so the reader overlay makes a single request."""
     id: GoodlinksId
@@ -346,14 +346,14 @@ class GoodlinksArticle(BaseModel):
     html: str
 
 
-class GoodlinksCheckProblem(BaseModel):
+class GoodlinksCheckProblem(StrictModel):
     uid: BlockUid
     page: CanonicalTitle
     href: str
     status: Literal["missing", "invalid"]
 
 
-class GoodlinksCheckPayload(BaseModel):
+class GoodlinksCheckPayload(StrictModel):
     """GET /api/goodlinks/check: every /api/goodlinks/ href found in block
     text, checked against the GoodLinks library. `enabled` is False when
     no API key is configured."""
@@ -362,12 +362,12 @@ class GoodlinksCheckPayload(BaseModel):
     ok: int
     problems: list[GoodlinksCheckProblem]
 
-class SyncRef(BaseModel):
+class SyncRef(StrictModel):
     target_page_id: PageId
     kind: RefKind
 
 
-class SyncBlock(BaseModel):
+class SyncBlock(StrictModel):
     uid: BlockUid
     page_id: PageId
     parent_uid: BlockUid | None
@@ -381,14 +381,14 @@ class SyncBlock(BaseModel):
     refs: list[SyncRef]
 
 
-class SyncPage(BaseModel):
+class SyncPage(StrictModel):
     id: PageId
     title: CanonicalTitle
     created_at: int | None
     updated_at: int | None
 
 
-class SyncSidebarEntry(BaseModel):
+class SyncSidebarEntry(StrictModel):
     id: SidebarEntryId
     title: CanonicalTitle
     order_idx: SidebarOrderIdx
@@ -398,12 +398,12 @@ class SyncSidebarEntry(BaseModel):
 EntityKind = Literal["block", "page", "sidebar"]
 
 
-class SyncTombstone(BaseModel):
+class SyncTombstone(StrictModel):
     kind: EntityKind
     entity_id: str
 
 
-class AppliedBatch(BaseModel):
+class AppliedBatch(StrictModel):
     """One of the client's pending batches (the `pending` query param of
     /api/sync/changes and /api/sync/snapshot) that the payload already holds:
     its applied_batches row is in the same read transaction that hydrated the
@@ -426,7 +426,7 @@ def _omit_empty_applied(model: BaseModel,
     return data
 
 
-class ChangesPayload(BaseModel):
+class ChangesPayload(StrictModel):
     reset: bool = False
     generation: str
     plain_space_title_canonicalization: bool
@@ -448,7 +448,7 @@ class ChangesPayload(BaseModel):
         return _omit_empty_applied(self, handler)
 
 
-class BlockPayload(BaseModel):
+class BlockPayload(StrictModel):
     """GET /api/block/{uid}: one block's subtree with page context."""
     page: PageMeta
     block: BlockNode
@@ -456,7 +456,7 @@ class BlockPayload(BaseModel):
     block_ref_texts: dict[BlockUid, BlockRefText]
 
 
-class SnapshotPayload(BaseModel):
+class SnapshotPayload(StrictModel):
     generation: str
     plain_space_title_canonicalization: bool
     seq: SyncSeq
@@ -493,32 +493,32 @@ ConfirmId = NewType("ConfirmId", str)
 brand(ConfirmId)
 
 
-class AssistantConversation(BaseModel):
+class AssistantConversation(StrictModel):
     id: ConversationId
     model: AssistantModel
 
 
-class AssistantAck(BaseModel):
+class AssistantAck(StrictModel):
     ok: bool = True
 
 
-class AssistantModels(BaseModel):
+class AssistantModels(StrictModel):
     models: list[AssistantModel]
     default: AssistantModel
 
 
-class TitleMigrationPage(BaseModel):
+class TitleMigrationPage(StrictModel):
     page_id: PageId
     title: CanonicalTitle
 
 
-class TitleMigrationBlocker(BaseModel):
+class TitleMigrationBlocker(StrictModel):
     page_id: PageId
     title: CanonicalTitle
     reason: Literal["all_space", "forbidden_syntax"]
 
 
-class TitleMigrationGroup(BaseModel):
+class TitleMigrationGroup(StrictModel):
     canonical_title: CanonicalTitle
     survivor: TitleMigrationPage
     sources: list[TitleMigrationPage]
@@ -528,14 +528,14 @@ class TitleMigrationGroup(BaseModel):
     sidebar_count: int
 
 
-class TitleMigrationAuditPayload(BaseModel):
+class TitleMigrationAuditPayload(StrictModel):
     active: bool
     digest: Sha256Hex
     groups: list[TitleMigrationGroup]
     blockers: list[TitleMigrationBlocker]
 
 
-class TitleMigrationApplyRequest(BaseModel):
+class TitleMigrationApplyRequest(StrictModel):
     # Same 64-lowercase-hex shape as contracts.ops.SHA256_HEX_RE, spelled
     # out again rather than shared: pydantic's pattern validator uses a
     # regex engine that rejects SHA256_HEX_RE's `\Z` anchor, so a body
@@ -543,7 +543,7 @@ class TitleMigrationApplyRequest(BaseModel):
     audit_digest: Sha256Hex = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-class TitleMigrationApplyResponse(BaseModel):
+class TitleMigrationApplyResponse(StrictModel):
     digest: Sha256Hex
     groups_applied: int
     pages_retitled: int
@@ -564,7 +564,7 @@ SkipReason = Literal["block_not_found", "parent_not_found", "cycle",
                     "page_deleted"]
 
 
-class SkippedOp(BaseModel):
+class SkippedOp(StrictModel):
     """One op the server skipped because its block (or, for create/move,
     its parent) no longer exists, or because a move would nest the block
     under itself or its own descendant (`ops_core.skip_report`)."""
@@ -577,7 +577,7 @@ class SkippedOp(BaseModel):
     note_page: CanonicalTitle | None
 
 
-class OpsAck(BaseModel):
+class OpsAck(StrictModel):
     """POST /api/ops (routes_ops.py)."""
     ok: bool
     ts: int
@@ -595,17 +595,17 @@ class OpsAck(BaseModel):
     skipped: list[SkippedOp] = Field(default_factory=list)
 
 
-class AssetDeleteAck(BaseModel):
+class AssetDeleteAck(StrictModel):
     """DELETE /api/assets/{sha256} (routes_assets.py)."""
     deleted: bool
     refs_removed: int
 
 
-class OkAck(BaseModel):
+class OkAck(StrictModel):
     """The body of a write route that has nothing to report but success."""
     ok: bool
 
 
-class JournalCleanupResponse(BaseModel):
+class JournalCleanupResponse(StrictModel):
     """POST /api/journal/cleanup: the empty daily pages it removed."""
     deleted: list[CanonicalTitle]

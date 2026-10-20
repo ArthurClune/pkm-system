@@ -6,10 +6,10 @@ from pkm.client import api as client_api
 from pkm.client.api import PkmClient, login
 from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.contracts.ops import UID_RE, CreateOp, CreatePageOp, new_uid
-from pkm.contracts.responses import Backlinks, PagePayload
+from pkm.contracts.responses import BacklinkGroup, Backlinks, PageMeta, PagePayload
 from pkm.contracts.titles import RawTitle
 from pkm.server.db import open_db
-from pkm.test_data.ids import raw_title_of
+from pkm.test_data.ids import canonical_title_of, order_idx_of, page_id_of, raw_title_of, uid_of
 
 
 def test_new_uid_matches_server_uid_re():
@@ -109,9 +109,9 @@ def test_get_page_quotes_title(pkm_client):
 def test_get_page_finds_a_page_whose_title_holds_control_whitespace(
         pkm_client):
     pkm_client.post_ops(
-        [CreatePageOp(op="create_page", page_title="Ctrl\tTitle"),
-         CreateOp(op="create", uid="ctrlwsread001", page_title="Ctrl\tTitle",
-                  parent_uid=None, order_idx=0, text="read me")],
+        [CreatePageOp(op="create_page", page_title=raw_title_of("Ctrl\tTitle")),
+         CreateOp(op="create", uid=uid_of("ctrlwsread001"), page_title=raw_title_of("Ctrl\tTitle"),
+                  parent_uid=None, order_idx=order_idx_of(0), text="read me")],
         batch_id="ctrl-ws-read-0001")
 
     page = pkm_client.get_page("Ctrl\tTitle")
@@ -129,8 +129,8 @@ def test_search_query_todos(pkm_client):
 
 def test_changed_lists_a_freshly_created_block(pkm_client):
     pkm_client.post_ops(
-        [CreateOp(op="create", uid="chgclient01", page_title="AI",
-                  parent_uid=None, order_idx=5, text="client api test")],
+        [CreateOp(op="create", uid=uid_of("chgclient01"), page_title=raw_title_of("AI"),
+                  parent_uid=None, order_idx=order_idx_of(5), text="client api test")],
         batch_id="changed-client-0001")
     payload = pkm_client.changed(since="2000-01-01")
     assert payload.total == 1
@@ -140,10 +140,10 @@ def test_changed_lists_a_freshly_created_block(pkm_client):
 
 def test_changed_page_filter_and_limit(pkm_client):
     pkm_client.post_ops(
-        [CreateOp(op="create", uid="chgclient02", page_title="AI",
-                  parent_uid=None, order_idx=6, text="x"),
-         CreateOp(op="create", uid="chgclient03", page_title="Paper",
-                  parent_uid=None, order_idx=1, text="y")],
+        [CreateOp(op="create", uid=uid_of("chgclient02"), page_title=raw_title_of("AI"),
+                  parent_uid=None, order_idx=order_idx_of(6), text="x"),
+         CreateOp(op="create", uid=uid_of("chgclient03"), page_title=raw_title_of("Paper"),
+                  parent_uid=None, order_idx=order_idx_of(1), text="y")],
         batch_id="changed-client-0002")
     payload = pkm_client.changed(since="2000-01-01", page="AI")
     assert payload.total == 1
@@ -191,8 +191,8 @@ def test_changed_normalizes_page_argument(pkm_client, monkeypatch):
 def test_post_ops_creates_block(pkm_client):
     uid = new_uid()
     ack = pkm_client.post_ops(
-        [CreateOp(op="create", uid=uid, page_title="AI", parent_uid=None,
-                  order_idx=1, text="from client")],
+        [CreateOp(op="create", uid=uid, page_title=raw_title_of("AI"), parent_uid=None,
+                  order_idx=order_idx_of(1), text="from client")],
         batch_id="cli-batch-0001a")
     assert (ack.ok, ack.applied) == (True, 1)
     assert pkm_client.get_block(uid).block.text == "from client"
@@ -216,18 +216,18 @@ def test_post_ops_propagates_indexed_forbidden_reference_server_error(
             [
                 CreateOp(
                     op="create",
-                    uid="atomicclient1",
-                    page_title="AI",
+                    uid=uid_of("atomicclient1"),
+                    page_title=raw_title_of("AI"),
                     parent_uid=None,
-                    order_idx=1,
+                    order_idx=order_idx_of(1),
                     text="first mutation",
                 ),
                 CreateOp(
                     op="create",
-                    uid="atomicclient2",
-                    page_title="AI",
+                    uid=uid_of("atomicclient2"),
+                    page_title=raw_title_of("AI"),
                     parent_uid=None,
-                    order_idx=2,
+                    order_idx=order_idx_of(2),
                     text="[[New #Old]]",
                 ),
             ],
@@ -344,9 +344,9 @@ def test_get_page_blocks_finds_a_page_whose_title_holds_control_whitespace(
     must resolve to that SAME existing page, not a false "missing" that
     hides its real blocks behind an empty one."""
     pkm_client.post_ops(
-        [CreatePageOp(op="create_page", page_title="Ctrl\tTitle"),
-         CreateOp(op="create", uid="ctrlws000001", page_title="Ctrl\tTitle",
-                  parent_uid=None, order_idx=0, text="already here")],
+        [CreatePageOp(op="create_page", page_title=raw_title_of("Ctrl\tTitle")),
+         CreateOp(op="create", uid=uid_of("ctrlws000001"), page_title=raw_title_of("Ctrl\tTitle"),
+                  parent_uid=None, order_idx=order_idx_of(0), text="already here")],
         batch_id="ctrl-ws-create-0001")
     blocks, missing = pkm_client.get_page_blocks("Ctrl\tTitle")
     assert missing is False
@@ -356,9 +356,9 @@ def test_get_page_blocks_finds_a_page_whose_title_holds_control_whitespace(
 def test_get_backlinks_finds_a_page_whose_title_holds_control_whitespace(
         pkm_client):
     pkm_client.post_ops(
-        [CreatePageOp(op="create_page", page_title="Ctrl\tTitle"),
-         CreateOp(op="create", uid="ctrlwslink001", page_title="Ctrl Source",
-                  parent_uid=None, order_idx=0, text="See [[Ctrl Title]]")],
+        [CreatePageOp(op="create_page", page_title=raw_title_of("Ctrl\tTitle")),
+         CreateOp(op="create", uid=uid_of("ctrlwslink001"), page_title=raw_title_of("Ctrl Source"),
+                  parent_uid=None, order_idx=order_idx_of(0), text="See [[Ctrl Title]]")],
         batch_id="ctrl-ws-backlinks-0001")
 
     result = pkm_client.get_backlinks("Ctrl\tTitle")
@@ -451,14 +451,15 @@ def test_get_backlinks_gives_up_loudly_if_ordering_never_stabilizes(
     set. Rather than eventually returning a possibly-incomplete result,
     it must raise: no silent truncation, in either direction."""
     def flaky_get_page(title: RawTitle, bl_limit=100, bl_offset=0):
-        return PagePayload.model_validate(
-            {"page": {"id": 1, "title": "X", "created_at": None,
-                      "updated_at": None},
-             "blocks": [], "block_ref_texts": {}, "block_ref_counts": {},
-             "backlinks": {"groups": [{"page_id": 1, "page_title": "X",
-                                       "items": []}],
-                           "total_pages": 2, "offset": bl_offset,
-                           "limit": bl_limit}})
+        title_x = canonical_title_of("X")
+        return PagePayload(
+            page=PageMeta(id=page_id_of(1), title=title_x, created_at=None,
+                          updated_at=None),
+            blocks=[], block_ref_texts={}, block_ref_counts={},
+            backlinks=Backlinks(
+                groups=[BacklinkGroup(page_id=page_id_of(1), page_title=title_x,
+                                      items=[])],
+                total_pages=2, offset=bl_offset, limit=bl_limit))
 
     monkeypatch.setattr(pkm_client, "get_page", flaky_get_page)
     with pytest.raises(ApiError, match="reorder"):

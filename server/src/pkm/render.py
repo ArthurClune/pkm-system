@@ -340,5 +340,10 @@ def clip_depth(blocks: Sequence[BlockNode], depth: int) -> list[BlockNode]:
     """Copy `blocks` keeping `depth` levels (1 = top level only)."""
     if depth <= 0:
         return []
-    return [n.model_copy(update={"children": clip_depth(n.children, depth - 1)})
-            for n in blocks]
+    return [
+        BlockNode(uid=n.uid, text=n.text, heading=n.heading,
+                  view_type=n.view_type, collapsed=n.collapsed,
+                  order_idx=n.order_idx, created_at=n.created_at,
+                  updated_at=n.updated_at,
+                  children=clip_depth(n.children, depth - 1))
+        for n in blocks]

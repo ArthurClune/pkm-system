@@ -10,7 +10,7 @@ from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
 from pkm.server.db import init_db, open_db
-from pkm.server.tree import TreeNode
+from pkm.contracts.responses import BlockNode
 from pkm.test_data.ids import goodlinks_id_of, order_idx_of, uid_of
 
 # every Db a test opens checks its rows against pkm.rows.Row
@@ -313,9 +313,10 @@ def goodlinks_pkm_client(goodlinks_client):
     return PkmClient(CliConfig(url="http://testserver", token=token), http=goodlinks_client)
 
 
-def tree_node(text: str, children: Sequence[TreeNode] = ()) -> TreeNode:
+def tree_node(text: str, children: Sequence[BlockNode] = ()) -> BlockNode:
     """A build_tree() node for renderer tests that only care about text and
     nesting."""
-    return {"uid": uid_of("tuid-node"), "text": text, "heading": None,
-            "view_type": None, "collapsed": False, "order_idx": order_idx_of(0),
-            "created_at": None, "updated_at": None, "children": list(children)}
+    return BlockNode(
+        uid=uid_of("tuid-node"), text=text, heading=None, view_type=None,
+        collapsed=False, order_idx=order_idx_of(0), created_at=None,
+        updated_at=None, children=list(children))

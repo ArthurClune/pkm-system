@@ -47,6 +47,18 @@ this check enforces; this file only sequences the audit.
 4. **Commit** saying what was corrected versus restructured; no test run is
    needed for docs-only commits.
 
+5. **Report** to Arthur. The message is, in order:
+   - the branch and commit;
+   - one bullet per finding, the one most likely to mislead a reader first:
+     **short title** — the doc link, what a reader would get wrong or miss,
+     and the fix made;
+   - one last bullet for the fixes the checker already listed (provenance
+     tags dropped, anchors repointed), naming the files;
+   - one sentence for anything left unverified or undecided, if there is any.
+
+   With no findings and a clean checker, the whole message is "No drift since
+   `<last re-check sha>`."
+
 ## What is not a violation
 
 | Match | Why it stays |

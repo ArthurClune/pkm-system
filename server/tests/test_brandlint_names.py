@@ -48,7 +48,7 @@ def test_an_untyped_brand_name_parameter_is_flagged():
     "def f(uid: 'BlockUid') -> None: ...",
     "def f(uid: 'BlockUid | None') -> None: ...",
     "def f(uid: ops.BlockUid) -> None: ...",
-    "def f(title: str) -> None: ...",
+    "def f(label: str) -> None: ...",
     "def f(order_idx: SidebarOrderIdx) -> None: ...",
     "def f(order_idx: OrderIdx) -> None: ...",
 ])
@@ -222,7 +222,7 @@ def test_a_generic_that_merely_mentions_the_brand_is_flagged(source: str):
     "A = TypedDict('A', uid=str)",
     "A = typing.TypedDict('A', {'page_id': int}, total=False)",
     "A = NamedTuple('A', [('seq', int)])",
-    "A = typing.NamedTuple('A', [('uid', str), ('title', str)])",
+    "A = typing.NamedTuple('A', [('uid', str), ('label', str)])",
     "A = NamedTuple('A', uid=str)",
 ])
 def test_attributes_conditional_fields_and_functional_forms_are_checked(source: str):
@@ -233,8 +233,8 @@ def test_attributes_conditional_fields_and_functional_forms_are_checked(source: 
     "class A:\n    def __init__(self, x: BlockUid) -> None:\n        self.uid: BlockUid = x\n",
     "class A:\n    def m(self, x: int) -> None:\n        self.uid = x\n",
     "class A:\n    if TYPE_CHECKING:\n        uid: BlockUid\n",
-    "A = TypedDict('A', {'uid': BlockUid, 'title': str})",
-    "A = NamedTuple('A', [('seq', SyncSeq), ('title', str)])",
+    "A = TypedDict('A', {'uid': BlockUid, 'label': str})",
+    "A = NamedTuple('A', [('seq', SyncSeq), ('label', str)])",
     "A = TypedDict('A', {})",
     "A = NamedTuple('A', fields)",
     "A = TypedDict('A', {**base, 'uid': BlockUid})",
@@ -293,6 +293,10 @@ def test_the_stale_opt_out_names_its_line():
     ("def f(ref_title: NormalizedTitle) -> None: ...", []),
     ("def f(canonical_title: CanonicalTitle) -> None: ...", []),
     ("def f(raw_title: str) -> None: ...", ["brand-name"]),
+    ("def f(title: str) -> None: ...", ["brand-name"]),
+    ("def f(title) -> None: ...", ["brand-name"]),
+    ("def f(title: CanonicalTitle) -> None: ...", []),
+    ("def f(title: RawTitle | None) -> None: ...", []),
 ])
 def test_title_names_take_their_brands(source: str, expected: list[str]):
     assert rules(source + "\n") == expected

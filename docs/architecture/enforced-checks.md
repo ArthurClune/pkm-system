@@ -44,11 +44,11 @@ registry. `--all` reads the working tree.
 | `raw-sqlite` | `sqlite3.connect`, a cursor or `.raw` is used outside `SQLITE_SITES` | `SQLITE_SITES` |
 | `brand-parse` | a file cannot be parsed (usually Python older than 3.12) | none |
 
-`NAMES` registers the title names too. `page_title`, `new_title` and
+`NAMES` registers the title names too. `title`, `page_title`, `new_title` and
 `old_title` accept any title brand, because requests carry raw titles and
 responses canonical ones under the same name. `raw_title`, `ref_title`,
 `normalized_title`, `canonical_title`, `daily_title` and `src_page_title` take
-one kind. A bare `title` is not registered yet.
+one kind.
 
 The type-check ignores the rules recognise are `# pyrefly: ignore`, `# pyright: ignore` and `# type: ignore`, each with or without `[rule]`; one pattern in `brandlint/core.py` owns the match.
 

@@ -1,7 +1,7 @@
 ---
 # pkm-5s0h
 title: Query tree titles carry their kind (CanonicalQueryNode holds RawTitle)
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-10-20T12:14:18Z
@@ -28,8 +28,13 @@ canonical node type replacing the NewType. `page_operands` and
 `page_queries` then return/key `CanonicalTitle` for a canonical tree.
 Type-only: no change to parsing, SQL or the `/api/query` response.
 
-- [ ] choose the shape (generic node vs separate type) and keep `plan_sql`
+- [x] choose the shape (generic node vs separate type) and keep `plan_sql`
       accepting only a canonical tree
-- [ ] retype `page_operands`, `page_queries` and their callers
-- [ ] pyrefly probe: passing a parsed (raw) tree to `plan_sql`, or a raw
+- [x] retype `page_operands`, `page_queries` and their callers
+- [x] pyrefly probe: passing a parsed (raw) tree to `plan_sql`, or a raw
       title into a canonical node, is a type error
+
+
+## Summary of Changes
+
+QueryNode is now generic in its title (`class QueryNode[T: RawTitle]`, frozen so covariant). `parse_query` returns `QueryNode[RawTitle]`; `parse_canonical_query` returns `QueryNode[CanonicalTitle]`; `page_operands` is generic; `page_queries` keys `CanonicalTitle`; `plan_sql` takes `QueryNode[CanonicalTitle]` only. The CanonicalQueryNode NewType and its brand-registry entries, test helper `canonical_query_node_of`, tests and generated web registry rows are removed. The title field is renamed `operand` because the brand-name lint wants a field called `title` to be a brand, and here the brand is the type parameter. Probes in `server/tests/test_query_title_kinds.py`.

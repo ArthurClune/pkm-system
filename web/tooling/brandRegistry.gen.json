@@ -404,9 +404,6 @@
       "web/src/replica/db.ts",
       "web/src/sync/wire.ts"
     ],
-    "CanonicalQueryNode": [
-      "server/src/pkm/server/query_exec.py"
-    ],
     "PendingRowId": [
       "web/src/replica/db.ts",
       "web/src/sync/poisonIntents.ts"
@@ -444,7 +441,6 @@
     "RawTitle": "rawTitle",
     "NormalizedTitle": "normalizedTitle",
     "CanonicalTitle": "canonicalTitle",
-    "CanonicalQueryNode": "canonicalQueryNode",
     "PendingRowId": "pendingRowId",
     "TicketId": "ticketId",
     "RequestId": "requestId",

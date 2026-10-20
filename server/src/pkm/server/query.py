@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import NewType
-
-from pkm.contracts.titles import RawTitle, as_raw_title
+from pkm.contracts.titles import CanonicalTitle, RawTitle, as_raw_title
 
 _OP_RE = re.compile(r"\{\s*([a-zA-Z-]+)\s*:")
 
@@ -21,20 +19,21 @@ class QueryParseError(ValueError):
 
 
 @dataclass(frozen=True)
-class QueryNode:
+class QueryNode[T: RawTitle]:
+    """A query tree, generic in the kind of its page titles: `parse_query`
+    gives `QueryNode[RawTitle]`, `query_exec.parse_canonical_query` gives
+    `QueryNode[CanonicalTitle]`. The node is frozen, so it is covariant: a
+    canonical tree passes where a raw one is expected, never the reverse --
+    `plan_sql` takes the canonical kind only."""
     kind: str  # 'and' | 'or' | 'not' | 'page'
-    title: RawTitle | None = None
-    children: tuple["QueryNode", ...] = ()
+    # The page title of a 'page' node. Named for the operand, not `title`:
+    # the brand-name rule wants a field so named to be a brand, and here the
+    # brand is the type parameter.
+    operand: T | None = None
+    children: tuple[QueryNode[T], ...] = ()
 
 
-# A tree whose every "page" node's title has been through
-# query_exec.parse_canonical_query -- the only thing that mints one. plan_sql
-# takes this, not a plain QueryNode, so a tree straight from parse_query (or
-# built by hand with an uncanonicalised title) does not type-check there.
-CanonicalQueryNode = NewType("CanonicalQueryNode", QueryNode)
-
-
-def parse_query(expr: str) -> QueryNode:
+def parse_query(expr: str) -> QueryNode[RawTitle]:
     node, pos = _parse_node(expr, _skip_ws(expr, 0))
     if node.kind == "page":
         raise QueryParseError("expected a {and: ...} or {or: ...} clause")
@@ -51,7 +50,7 @@ def _skip_ws(s: str, pos: int) -> int:
     return pos
 
 
-def _parse_node(s: str, pos: int) -> tuple[QueryNode, int]:
+def _parse_node(s: str, pos: int) -> tuple[QueryNode[RawTitle], int]:
     if s.startswith("[[", pos):
         title, pos = _parse_title(s, pos)
         return QueryNode("page", title), pos
@@ -62,7 +61,7 @@ def _parse_node(s: str, pos: int) -> tuple[QueryNode, int]:
     if op not in ("and", "or", "not"):
         raise QueryParseError(f"unsupported clause: {op}")
     pos = m.end()
-    children: list[QueryNode] = []
+    children: list[QueryNode[RawTitle]] = []
     while True:
         pos = _skip_ws(s, pos)
         if pos >= len(s):
@@ -111,13 +110,13 @@ _PAGE_SQL_EXPANDED = (
 )
 
 
-def page_operands(node: QueryNode) -> list[RawTitle]:
+def page_operands[T: RawTitle](node: QueryNode[T]) -> list[T]:
     """Distinct [[Page]] operand titles in an expression, first-seen order
     (drives /api/query's ref_counts hint)."""
     if node.kind == "page":
-        assert node.title is not None
-        return [node.title]
-    out: list[RawTitle] = []
+        assert node.operand is not None
+        return [node.operand]
+    out: list[T] = []
     for c in node.children:
         for title in page_operands(c):
             if title not in out:
@@ -125,17 +124,17 @@ def page_operands(node: QueryNode) -> list[RawTitle]:
     return out
 
 
-def plan_sql(node: CanonicalQueryNode,
+def plan_sql(node: QueryNode[CanonicalTitle],
             expand: bool = False) -> tuple[str, list[str]]:
     return _plan_sql(node, expand)
 
 
-def _plan_sql(node: QueryNode, expand: bool = False) -> tuple[str, list[str]]:
+def _plan_sql(node: QueryNode[CanonicalTitle], expand: bool = False) -> tuple[str, list[str]]:
     if node.kind == "page":
-        assert node.title is not None  # page nodes always carry a title
+        assert node.operand is not None  # page nodes always carry a title
         if expand:
-            return _PAGE_SQL_EXPANDED, [node.title, node.title]
-        return _PAGE_SQL, [node.title]
+            return _PAGE_SQL_EXPANDED, [node.operand, node.operand]
+        return _PAGE_SQL, [node.operand]
     if node.kind == "not":  # only reachable nested inside and
         return _plan_sql(node.children[0], expand)
     wrap = "SELECT uid FROM ({})"

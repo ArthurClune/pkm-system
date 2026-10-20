@@ -196,9 +196,6 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
                        "web/src/replica/meta.ts", "web/src/replica/daily.ts",
                        "web/src/replica/titles.ts",
                        _WEB_ROWS, _WEB_WIRE),
-    # An internal NewType, not a wire brand: `parse_canonical_query` and
-    # `page_queries` are its mints, both in query_exec.
-    "CanonicalQueryNode": ("server/src/pkm/server/query_exec.py",),
     # Web-only brands. A pending row's id is the row's own autoincrement key.
     "PendingRowId": (_WEB_ROWS, _WEB_POISON),
     # `mintTicketId` numbers the write tickets of one tab.
@@ -264,7 +261,6 @@ TEST_HELPERS: dict[str, str] = {
     "RawTitle": "raw_title",
     "NormalizedTitle": "normalized_title",
     "CanonicalTitle": "canonical_title",
-    "CanonicalQueryNode": "canonical_query_node",
     "PendingRowId": "pending_row_id",
     "TicketId": "ticket_id",
     "RequestId": "request_id",

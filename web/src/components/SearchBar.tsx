@@ -38,11 +38,11 @@ const CREATE_ROW_KEY = "create";
 // paired keyboard.
 const IS_MAC = /Mac|iP(hone|ad|od)/.test(navigator.platform);
 
-/** True when some PAGE hit's title equals `title` case-insensitively.
+/** True when some PAGE hit's title equals `query` case-insensitively.
  * Block hits don't count -- their `title` is the containing page, not
  * necessarily a title match for the query itself. */
-function hasExactPageMatch(rows: ResultRow[], title: string): boolean {
-  const needle = title.toLowerCase();
+function hasExactPageMatch(rows: ResultRow[], query: string): boolean {
+  const needle = query.toLowerCase();
   return rows.some((r) => r.key.startsWith("p-") && r.title.toLowerCase() === needle);
 }
 

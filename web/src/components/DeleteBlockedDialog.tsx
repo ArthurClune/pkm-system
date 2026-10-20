@@ -4,13 +4,14 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
+import type { RawTitle } from "../api/brands";
 import { pagePath } from "../paths";
 import {
   BLOCKED_LEAD, blockedHeading, blockerReasonLabel, type DeleteBlocker,
 } from "./deletePageCopy";
 
 export function DeleteBlockedDialog({ title, blockers, onClose }: {
-  title: string;
+  title: RawTitle;
   blockers: DeleteBlocker[];
   onClose: () => void;
 }) {

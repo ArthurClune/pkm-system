@@ -17,8 +17,8 @@ function Probe() {
   return <p data-testid="loc">{loc.pathname}</p>;
 }
 
-function mount(title: string) {
-  const pageTitle = canonicalTitleOf(title);
+function mount(titleText: string) {
+  const pageTitle = canonicalTitleOf(titleText);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/x"]}>
       <PageTitle title={pageTitle} />
@@ -26,8 +26,8 @@ function mount(title: string) {
     </MemoryRouter>);
 }
 
-function startEditing(title: string) {
-  fireEvent.click(screen.getByRole("button", { name: title }));
+function startEditing(titleText: string) {
+  fireEvent.click(screen.getByRole("button", { name: titleText }));
   return screen.getByRole("textbox") as HTMLInputElement;
 }
 

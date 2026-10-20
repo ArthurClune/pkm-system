@@ -6,11 +6,16 @@ import type { RawTitle } from "./api/brands";
 import { asRawTitle } from "./replica/titles";
 import { PAGE_ROUTE_PREFIX } from "./routeMeta";
 
-export function encodeTitle(title: string): string {
-  return title.split("/").map(encodeURIComponent).join("/");
+/** Each `/`-separated segment percent-encoded, the slashes kept literal. */
+export function encodePathSegments(text: string): string {
+  return text.split("/").map(encodeURIComponent).join("/");
 }
 
-export function pagePath(title: string): string {
+export function encodeTitle(title: RawTitle): string {
+  return encodePathSegments(title);
+}
+
+export function pagePath(title: RawTitle): string {
   return `${PAGE_ROUTE_PREFIX}${encodeTitle(title)}`;
 }
 

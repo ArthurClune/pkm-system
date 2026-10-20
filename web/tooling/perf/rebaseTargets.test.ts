@@ -16,9 +16,9 @@ const WINDOW_IDS = ["w1", "w2", "w3"].map((w) => batchIdOf(`perf-rebase-${w}`));
 function snapshotOf(pages: Record<string, [string, string | null][]>): Snapshot {
   const blocks: SyncBlock[] = [];
   const titles = Object.keys(pages);
-  titles.forEach((title, p) => {
+  titles.forEach((titleText, p) => {
     const seen = new Map<string | null, number>();
-    for (const [uid, parent] of pages[title] ?? []) {
+    for (const [uid, parent] of pages[titleText] ?? []) {
       const idx = seen.get(parent) ?? 0;
       seen.set(parent, idx + 1);
       blocks.push({
@@ -31,8 +31,8 @@ function snapshotOf(pages: Record<string, [string, string | null][]>): Snapshot 
   });
   return {
     generation: "g", plain_space_title_canonicalization: true, seq: seqOf(7),
-    pages: titles.map((title, p) => ({
-      id: pageIdOf(p + 1), title: canonicalTitleOf(title), created_at: 0, updated_at: 0,
+    pages: titles.map((titleText, p) => ({
+      id: pageIdOf(p + 1), title: canonicalTitleOf(titleText), created_at: 0, updated_at: 0,
     })),
     blocks, sidebar: [], applied_batches: [],
   };

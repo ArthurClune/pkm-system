@@ -20,12 +20,12 @@ import {
 } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
-function Harness({ title: pageTitle, initial, onReady }: {
-  title: string;
+function Harness({ titleText, initial, onReady }: {
+  titleText: string;
   initial: BlockNode[];
   onReady(outline: Outline): void;
 }) {
-  const outline = useOutline(canonicalTitleOf(pageTitle), initial);
+  const outline = useOutline(canonicalTitleOf(titleText), initial);
   useEffect(() => onReady(outline));
   return null;
 }
@@ -46,7 +46,7 @@ it("does not let an old target refetch erase a split made after dispatch", async
   let outline!: Outline;
   render(
     <SyncContext.Provider value={sync}>
-      <Harness title="Page" initial={[block("tuid-u1", "first")]}
+      <Harness titleText="Page" initial={[block("tuid-u1", "first")]}
         onReady={(value) => { outline = value; }} />
     </SyncContext.Provider>,
   );
@@ -95,7 +95,7 @@ it("adopts an empty daily rather than rejecting when the cross-page-move catch-u
   let outline!: Outline;
   render(
     <SyncContext.Provider value={sync}>
-      <Harness title="August 17th, 2026" initial={[block("tuid-u1", "old")]}
+      <Harness titleText="August 17th, 2026" initial={[block("tuid-u1", "old")]}
         onReady={(value) => { outline = value; }} />
     </SyncContext.Provider>,
   );
@@ -122,9 +122,9 @@ it("adopts Page A while only Page B has an unsettled write", () => {
   let pageB!: Outline;
   const renderViews = (a: BlockNode[]) => (
     <SyncContext.Provider value={sync}>
-      <Harness title="Page A" initial={a}
+      <Harness titleText="Page A" initial={a}
         onReady={(value) => { pageA = value; }} />
-      <Harness title="Page B" initial={[block("tuid-b", "B")]}
+      <Harness titleText="Page B" initial={[block("tuid-b", "B")]}
         onReady={(value) => { pageB = value; }} />
     </SyncContext.Provider>
   );
@@ -156,7 +156,7 @@ it("delivery replaces a blocked pre-delivery response with exactly one fresh rea
   let outline!: Outline;
   render(
     <SyncContext.Provider value={sync}>
-      <Harness title="Page" initial={[block("tuid-u1", "old")]}
+      <Harness titleText="Page" initial={[block("tuid-u1", "old")]}
         onReady={(value) => { outline = value; }} />
     </SyncContext.Provider>,
   );
@@ -192,7 +192,7 @@ it("a new parent tree flushes a live draft before adopting it", () => {
   let outline!: Outline;
   const view = (initial: BlockNode[]) => (
     <SyncContext.Provider value={sync}>
-      <Harness title="Page A" initial={initial}
+      <Harness titleText="Page A" initial={initial}
         onReady={(value) => { outline = value; }} />
     </SyncContext.Provider>
   );

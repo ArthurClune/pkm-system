@@ -92,18 +92,22 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
                             Number(q.get("limit") ?? 20), exact));
   }
   if (method === "POST" && path === "/api/pages") {
-    const title = canonicalTitle(
-      db, String((req.body as { title?: unknown })?.title ?? ""));
-    if (title.trim().length === 0) return err(422, "title must not be blank");
-    if (titleSyntaxReason(title) !== null) {
-      return err(422, `unsupported page-title syntax: ${JSON.stringify(title)}`);
+    const pageTitle = canonicalTitle(
+      db, String((req.body as Record<string, unknown> | undefined)?.["title"]
+             ?? ""));
+    if (pageTitle.trim().length === 0) {
+      return err(422, "title must not be blank");
+    }
+    if (titleSyntaxReason(pageTitle) !== null) {
+      return err(422,
+                 `unsupported page-title syntax: ${JSON.stringify(pageTitle)}`);
     }
     // local negative id now; the durable create_page op carries the title
     // to the server (get_or_create there — offline-editing-design.md §1)
-    getOrCreateLocalPage(db, title, req.nowMs);
-    enqueueBatch(db, [{ op: "create_page", page_title: title }], req.nowMs,
+    getOrCreateLocalPage(db, pageTitle, req.nowMs);
+    enqueueBatch(db, [{ op: "create_page", page_title: pageTitle }], req.nowMs,
                  deps.newBatchId());
-    return ok(fetchPage(db, title));
+    return ok(fetchPage(db, pageTitle));
   }
   const blockBacklinksMatch = /^\/api\/block\/([^/]+)\/backlinks$/.exec(path);
   if (method === "GET" && blockBacklinksMatch) {

@@ -15,8 +15,8 @@ export function asRawTitle(text: string): RawTitle {
 
 export type TitleSyntaxReason = "forbidden_syntax";
 
-export function titleSyntaxReason(title: string): TitleSyntaxReason | null {
-  const normalized = normalizeRefTitle(title);
+export function titleSyntaxReason(text: string): TitleSyntaxReason | null {
+  const normalized = normalizeRefTitle(text);
   return normalized.includes("#") || normalized.includes("[[")
     || normalized.includes("]]")
     ? "forbidden_syntax"
@@ -26,7 +26,7 @@ export function titleSyntaxReason(title: string): TitleSyntaxReason | null {
 export interface OpTitleViolation {
   opIndex: number;
   source: "page_title" | "reference";
-  title: string;
+  title: RawTitle;
   reason: TitleSyntaxReason;
 }
 
@@ -59,9 +59,9 @@ export function findOpTitleViolation(
  * `plainSpaceActive` is this replica's live flag. A CanonicalTitle comes from
  * `titleReaderFor` below, which meta.ts's `titleReader` calls with the
  * worker's flag and sync/titleCanonicalization.ts with its mirror of it. */
-export function canonicalizeTitle(title: string,
+export function canonicalizeTitle(text: string,
                                   plainSpaceActive: boolean): NormalizedTitle {
-  const normalized = normalizeRefTitle(title);
+  const normalized = normalizeRefTitle(text);
   return plainSpaceActive
     ? normalized.replace(/^ +| +$/g, "") as NormalizedTitle
     : normalized;
@@ -71,7 +71,7 @@ export function canonicalizeTitle(title: string,
  * flag is read once, not once per title (sync_meta.title_reader). The flag
  * it read rides along, so a caller that also branches on it needs no second
  * read. */
-export type TitleReader = ((title: string) => CanonicalTitle) &
+export type TitleReader = ((text: string) => CanonicalTitle) &
   { readonly plainSpaceActive: boolean };
 
 /** The one pure constructor of a TitleReader, so of CanonicalTitle from text:
@@ -79,6 +79,6 @@ export type TitleReader = ((title: string) => CanonicalTitle) &
  * mirror (sync/titleCanonicalization.ts) from its copy. */
 export function titleReaderFor(plainSpaceActive: boolean): TitleReader {
   return Object.assign(
-    (title: string) => canonicalizeTitle(title, plainSpaceActive) as CanonicalTitle,
+    (text: string) => canonicalizeTitle(text, plainSpaceActive) as CanonicalTitle,
     { plainSpaceActive });
 }

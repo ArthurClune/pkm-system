@@ -37,8 +37,8 @@ export function plainSpaceTitleCanonicalizationActive(db: ReplicaDb): boolean {
  * page_title), canonicalised under this replica's live flag: the form
  * `pages.title` / `sidebar_entries.title` store. Mirrors the server's
  * sync_meta.read_title. */
-export function canonicalTitle(db: ReplicaDb, title: string): CanonicalTitle {
-  return titleReader(db)(title);
+export function canonicalTitle(db: ReplicaDb, text: string): CanonicalTitle {
+  return titleReader(db)(text);
 }
 
 export type { TitleReader } from "./titles";

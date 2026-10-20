@@ -43,7 +43,7 @@ const fixture = JSON.parse(readFileSync(new URL(
   "../../../shared/fixtures/missing_targets.json", import.meta.url,
 ), "utf-8")) as {
   cases: MissingTargetCase[];
-  placement_state: { pages: { id: number; title: string }[];
+  placement_state: { pages: Record<string, string | number>[];
                      blocks: Raw[] };
   placement_cases: PlacementCase[];
 };
@@ -139,8 +139,8 @@ describe("applyLocalOps placement agrees with the server", () => {
   test.each(fixture.placement_cases)("$name", async (c) => {
     const t = await openTestDb();
     try {
-      const pageIds = new Map(
-        fixture.placement_state.pages.map((p) => [p.title, p.id]));
+      const pageIds = new Map<string, number>(
+        fixture.placement_state.pages.map((p) => [String(p["title"]), Number(p.id)]));
       for (const [title, id] of pageIds) {
         t.db.exec("INSERT INTO pages(id, title) VALUES (?, ?)", [id, title]);
       }

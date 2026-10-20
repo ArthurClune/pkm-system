@@ -4,14 +4,16 @@ import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { asRawTitle, canonicalizeTitle, findOpTitleViolation,
          titleSyntaxReason } from "./titles";
-import type { CanonicalTitle, NormalizedTitle } from "../api/brands";
+import type { CanonicalTitle, NormalizedTitle, RawTitle } from "../api/brands";
 import type { components } from "../api/types";
 import { normalizedTitleOf, orderIdxOf, canonicalTitleOf, typeProbe, uidOf, rawTitleOf } from "../test-helpers";
 
+// The fixture's JSON as it is on disk; its `title` is read through the
+// index, since a brand cannot be asserted onto parsed JSON.
 interface TitleSyntaxCase {
   name: string;
-  title: string;
   reason: "forbidden_syntax" | null;
+  [field: string]: string | null;
 }
 
 const titleSyntaxCases = JSON.parse(readFileSync(new URL(
@@ -19,26 +21,26 @@ const titleSyntaxCases = JSON.parse(readFileSync(new URL(
 ), "utf-8")) as { cases: TitleSyntaxCase[] };
 
 describe("titleSyntaxReason", () => {
-  test.each(titleSyntaxCases.cases)("$name", ({ title, reason }) => {
-    expect(titleSyntaxReason(title)).toBe(reason);
+  test.each(titleSyntaxCases.cases)("$name", (c) => {
+    expect(titleSyntaxReason(String(c["title"]))).toBe(c.reason);
   });
 });
 
 describe("findOpTitleViolation", () => {
-  const rows: [string, BlockOp, "page_title" | "reference", string][] = [
+  const rows: [string, BlockOp, "page_title" | "reference", RawTitle][] = [
     ["create_page", { op: "create_page", page_title: rawTitleOf("New #Old") },
-      "page_title", "New #Old"],
+      "page_title", rawTitleOf("New #Old")],
     ["create", { op: "create", uid: uidOf("syntax01"), page_title: rawTitleOf("New #Old"),
-      parent_uid: null, order_idx: orderIdxOf(0), text: "plain" }, "page_title", "New #Old"],
+      parent_uid: null, order_idx: orderIdxOf(0), text: "plain" }, "page_title", rawTitleOf("New #Old")],
     ["move", { op: "move", uid: uidOf("uid_b4"), parent_uid: null, order_idx: orderIdxOf(0),
-      page_title: rawTitleOf("New #Old") }, "page_title", "New #Old"],
+      page_title: rawTitleOf("New #Old") }, "page_title", rawTitleOf("New #Old")],
     ["create reference", { op: "create", uid: uidOf("syntax02"), page_title: rawTitleOf("AI"),
       parent_uid: null, order_idx: orderIdxOf(0),
-      text: "[[Safe Ref]] then [[New #Old]]" }, "reference", "New #Old"],
+      text: "[[Safe Ref]] then [[New #Old]]" }, "reference", rawTitleOf("New #Old")],
     ["update reference", { op: "update_text", uid: uidOf("uid_b4"),
-      text: "[[Safe Ref]] then [[New #Old]]" }, "reference", "New #Old"],
+      text: "[[Safe Ref]] then [[New #Old]]" }, "reference", rawTitleOf("New #Old")],
   ];
-  test.each(rows)("checks the %s title source", (_name, op, source, title) => {
+  test.each(rows)("checks the %s title source", (_name, op, source, title: RawTitle) => {
     expect(findOpTitleViolation([op])).toEqual({
       opIndex: 0, source, title, reason: "forbidden_syntax",
     });
@@ -74,8 +76,8 @@ describe("canonicalizeTitle", () => {
     ["  A\n B  ", false, "A B"],
     ["A\t B", true, "A B"],
     ["  A\n B  ", true, "A B"],
-  ] as const)("always normalizes control whitespace in %s", (title, active, want) => {
-    expect(canonicalizeTitle(title, active)).toBe(want);
+  ] as const)("always normalizes control whitespace in %s", (text, active, want) => {
+    expect(canonicalizeTitle(text, active)).toBe(want);
   });
 
   test("preserves boundary U+0020 before activation", () => {

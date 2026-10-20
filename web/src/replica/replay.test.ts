@@ -20,8 +20,8 @@ const NOW = 500;
 const bid = (s: string): BatchId => batchIdOf(s);
 const u = (s: string): BlockUid => uidOf(s);
 
-const page = (id: number, title: string) => ({
-  id: pageIdOf(id), title: canonicalTitleOf(title), created_at: 1, updated_at: 1,
+const page = (id: number, titleText: string) => ({
+  id: pageIdOf(id), title: canonicalTitleOf(titleText), created_at: 1, updated_at: 1,
 });
 const block = (rawUid: string, over: Partial<SyncBlock> = {}): SyncBlock => ({
   uid: u(rawUid), page_id: pageIdOf(1), parent_uid: null, order_idx: orderIdxOf(0),

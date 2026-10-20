@@ -451,7 +451,8 @@ test("quiesce waits for a batch a poison repair held back", async () => {
 // on a different page from the other, or a page only one side has. Pool
 // #0 to #4 are pt_seed_1 to pt_seed_5 and #5 to #7 pt_sec_1 to pt_sec_3;
 // pages are named by title.
-const page = (title: (typeof PAGE_TITLES)[number]): number => PAGE_TITLES.indexOf(title);
+const page = (titleText: (typeof PAGE_TITLES)[number]): number =>
+  PAGE_TITLES.indexOf(titleText);
 const assertCrossPagePool = (): void => {
   expect(EDIT_TARGETS).toEqual(["pt_seed_1", "pt_seed_2", "pt_seed_3", "pt_seed_4",
                                 "pt_seed_5", "pt_sec_1", "pt_sec_2", "pt_sec_3"]);

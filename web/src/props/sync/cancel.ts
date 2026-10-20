@@ -2,6 +2,7 @@
 // One example's handle on the server, which the example gives up when it is
 // over: the property abandons an example that hangs, and fast-check's time
 // limit abandons the one it cuts into, and either may still be running.
+import type { RawTitle } from "../../api/brands";
 import type { ServerControl } from "./serverControl";
 
 export class ExampleCancelled extends Error {
@@ -50,7 +51,7 @@ export function cancellable(server: ServerControl): Cancellable {
       latestSeq: async () => { live(); return bound.latestSeq(); },
       postRaw: async (body) => { live(); return bound.postRaw(body); },
       postRename: async (from, to) => { live(); return bound.postRename(from, to); },
-      postDelete: async (title) => { live(); return bound.postDelete(title); },
+      postDelete: async (title: RawTitle) => { live(); return bound.postDelete(title); },
       withSignal: (next) => { live(); return server.withSignal(next); },
     },
     signal: controller.signal,

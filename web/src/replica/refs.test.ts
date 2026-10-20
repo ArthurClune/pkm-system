@@ -6,7 +6,7 @@ import { extractRefs } from "./refs";
 
 interface FixtureCase {
   text: string;
-  refs: { title: string; kind: string }[];
+  refs: Record<string, string>[];
   block_refs: string[];
 }
 

@@ -216,7 +216,7 @@ const readDelete: Reader<DeleteRecord> = (raw, at) => {
   const r = record(raw, at);
   const after = field(r, "after_batch_id", nullable(text), at);
   return {
-    title: field(r, "title", text, at),
+    title: canonicalTitleOf(field(r, "title", text, at)),
     seq: seqOf(field(r, "seq", count, at)),
     after_batch_id: after === null ? null : batchIdOf(after),
     at: field(r, "at", num, at),

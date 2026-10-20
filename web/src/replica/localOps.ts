@@ -15,7 +15,7 @@
 // op's batch (replayLog.ts), so a feed window can rewind the batch and
 // replay it as a first apply.
 
-import type { BatchId, BlockUid, OrderIdx, PageId } from "../api/brands";
+import type { BatchId, BlockUid, OrderIdx, PageId, RawTitle } from "../api/brands";
 import type { BlockOp, CreateOp, MoveOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
 import type { Columns } from "./columns.gen";
@@ -35,7 +35,7 @@ export class LocalOpError extends Error {
   readonly rejected = true;
   readonly opIndex?: number;
   readonly source?: OpTitleViolation["source"];
-  readonly title?: string;
+  readonly title?: RawTitle;
 
   constructor(message: string, violation?: OpTitleViolation) {
     super(message);
@@ -63,7 +63,7 @@ type MintRecord = { batchId: BatchId; freed?: FreedPages };
  * the id the rewind freed for the title, while it is still free, so a
  * replay does not churn local page ids (backlinks group by page_id). Reads
  * that mint a daily page pass none: no op is behind that page. */
-export function getOrCreateLocalPage(db: ReplicaDb, requested: string,
+export function getOrCreateLocalPage(db: ReplicaDb, requested: RawTitle,
                                      nowMs: number, record?: MintRecord): PageId {
   const title = localPageTitle(db, requested);
   if (titleSyntaxReason(title) !== null) {

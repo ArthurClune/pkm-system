@@ -257,7 +257,7 @@ it("a newer manual read expires an older handle reservation", () => {
   first.release();
   second.release();
 
-  expect(isOutlineSessionActive("Manual supersession")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Manual supersession"))).toBe(false);
   const fresh = acquireOutlineSession(
     rawTitleOf("Manual supersession"), [block("tuid-u1", "fresh bootstrap")],
   );
@@ -357,7 +357,7 @@ it("an automatic read expires an older manual reservation", async () => {
   await session.requestAuthoritative(async () => [block("tuid-u1", "automatic")]);
   session.release();
 
-  expect(isOutlineSessionActive("Automatic supersession")).toBe(false);
+  expect(isOutlineSessionActive(rawTitleOf("Automatic supersession"))).toBe(false);
   const fresh = acquireOutlineSession(
     rawTitleOf("Automatic supersession"), [block("tuid-u1", "fresh bootstrap")],
   );
@@ -636,7 +636,7 @@ it("enrolls sessions acquired during a repair and ignores released newcomers", a
     await repairing;
     expect(first.getSnapshot().blocks[0].text).toBe("first repaired");
     expect(second.getSnapshot().blocks[0].text).toBe("second repaired");
-    expect(isOutlineSessionActive("Repair cohort released")).toBe(false);
+    expect(isOutlineSessionActive(rawTitleOf("Repair cohort released"))).toBe(false);
   } finally {
     firstResponse.resolve([block("tuid-u1", "cleanup first")]);
     secondResponse.resolve([block("tuid-u2", "cleanup second")]);
@@ -711,7 +711,7 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
     order_idx: orderIdxOf(0), page_title: rawTitleOf("Replay target"),
   }];
   trackActiveOutlineWrite(move, moveOps);
-  attachActiveOutlineWriteReplay(move, "Replay target", [{
+  attachActiveOutlineWriteReplay(move, rawTitleOf("Replay target"), [{
     type: "insert-subtree", node: detached.node!,
     parentUid: uidOf("target-root"), orderIdx: orderIdxOf(0),
   }]);
@@ -789,7 +789,7 @@ it("rebases a local write tracked only through applyLocal", async () => {
  * authoritative read — the production path that elects a registered loader. */
 async function settleWriteOn(
   session: ReturnType<typeof acquireOutlineSession>,
-  title: string,
+  title: RawTitle,
   id: string,
 ): Promise<void> {
   const delivered = deferred<DeliveryOutcome>();

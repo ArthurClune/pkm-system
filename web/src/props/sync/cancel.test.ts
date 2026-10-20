@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { cancellable, ExampleCancelled } from "./cancel";
 import type { ServerControl } from "./serverControl";
-import { seqOf } from "../../test-helpers";
+import { rawTitleOf, seqOf } from "../../test-helpers";
 
 /** A ServerControl that records each call by name. */
 function fakeServer(calls: string[]): ServerControl {
@@ -42,7 +42,7 @@ function fakeServer(calls: string[]): ServerControl {
 const everyCall = (s: ServerControl): Promise<unknown>[] => [
   s.reset(), s.setClock(0), s.rotateGeneration(), s.applied(), s.snapshot(),
   s.latestSeq(), s.postRaw("{}"), s.renames(), s.postRename("Second", "Third"),
-  s.deletes(), s.postDelete("Second"), s.setStaleTeeth(true),
+  s.deletes(), s.postDelete(rawTitleOf("Second")), s.setStaleTeeth(true),
   s.conflicts(), s.setRewriteTeeth(true),
 ];
 

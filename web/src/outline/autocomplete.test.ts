@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { rawTitleOf } from "../test-helpers";
 import { applyCompletion, detectAutocomplete, holdsDraftFlush,
          liveAcContext } from "./autocomplete";
 
@@ -122,23 +123,23 @@ describe("applyCompletion", () => {
   test("ref: inserts title and closes brackets", () => {
     expect(applyCompletion("see [[Ma tail", 8,
                            { kind: "ref", start: 6, query: "Ma" },
-                           "Machine Learning"))
+                           rawTitleOf("Machine Learning")))
       .toEqual({ text: "see [[Machine Learning]] tail", cursor: 24 });
   });
 
   test("ref: consumes an already-typed closer instead of doubling it", () => {
     expect(applyCompletion("see [[Ma]]", 8,
                            { kind: "ref", start: 6, query: "Ma" },
-                           "Machine Learning"))
+                           rawTitleOf("Machine Learning")))
       .toEqual({ text: "see [[Machine Learning]]", cursor: 24 });
   });
 
   test("tag: plain for simple titles, #[[..]] for spaced ones", () => {
     expect(applyCompletion("a #ta", 5, { kind: "tag", start: 3, query: "ta" },
-                           "tasks"))
+                           rawTitleOf("tasks")))
       .toEqual({ text: "a #tasks", cursor: 8 });
     expect(applyCompletion("a #ta", 5, { kind: "tag", start: 3, query: "ta" },
-                           "Machine Learning"))
+                           rawTitleOf("Machine Learning")))
       .toEqual({ text: "a #[[Machine Learning]]", cursor: 23 });
   });
 });

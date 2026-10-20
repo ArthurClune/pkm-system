@@ -163,7 +163,7 @@ const unresolvedWrites = new Map<TicketId, UnresolvedWrite>();
  * substitute an empty replay and lose the write's rebase data. */
 function replayFor(
   unresolved: UnresolvedWrite,
-  title: string,
+  title: RawTitle,
 ): readonly OutlineReplayAction[] {
   return unresolved.capturedByTitle.get(title) ??
     [{ type: "ops", ops: unresolved.ops }];
@@ -673,7 +673,7 @@ export function peekOutlineSession(title: RawTitle): OutlineSessionHandle | null
   return acquireOutlineSession(title, null);
 }
 
-export function isOutlineEditorActive(title: string): boolean {
+export function isOutlineEditorActive(title: RawTitle): boolean {
   return sessions.get(title)?.editor?.granted ?? false;
 }
 
@@ -699,7 +699,9 @@ export function trackActiveOutlineWrite(
   if (!unresolved || unresolved.ticket !== ticket) return;
   for (const title of new Set(ticket.scope.slice(1))) {
     const session = sessions.get(title);
-    if (session) trackWrite(session, ticket, replayFor(unresolved, title));
+    if (session) {
+      trackWrite(session, ticket, replayFor(unresolved, session.title));
+    }
   }
 }
 
@@ -707,7 +709,7 @@ export function trackActiveOutlineWrite(
  * metadata captured by the UI that performed the local tree surgery. */
 export function attachActiveOutlineWriteReplay(
   ticket: WriteTicket,
-  title: string,
+  title: RawTitle,
   replay: readonly OutlineReplayAction[],
 ): void {
   const unresolved = unresolvedWrites.get(ticket.id);
@@ -766,7 +768,7 @@ export function captureActiveOutlineReads(
   return captures;
 }
 
-export function isOutlineSessionActive(title: string): boolean {
+export function isOutlineSessionActive(title: RawTitle): boolean {
   return sessions.has(title);
 }
 

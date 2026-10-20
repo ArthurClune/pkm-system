@@ -92,10 +92,10 @@ const startArb = (outlineMin: number): fc.Arbitrary<StartState> => fc
   .map(([uids, ...perPage]) => {
     let next = 0;
     const pages: Record<OpsPage, BlockNode[]> = { "Outline Props": [], "Ops Two": [], "Ops Three": [] };
-    OPS_PAGES.forEach((title, p) => {
+    OPS_PAGES.forEach((pageName, p) => {
       const specs = perPage[p];
       const depths = depthsFor(specs.map((s) => s.pick), MAX_DEPTH);
-      pages[title] = nest<Slot & (typeof specs)[number], BlockNode>(
+      pages[pageName] = nest<Slot & (typeof specs)[number], BlockNode>(
         specs.map((s, i) => ({ ...s, depth: depths[i] })),
         (s, siblings) => {
           const prev = siblings[siblings.length - 1];
@@ -141,7 +141,7 @@ export function seedOps(s: StartState): BlockOp[] {
     walk(s.pages[title], null);
   }
   return [
-    ...OPS_PAGES.map((title): BlockOp => ({ op: "create_page", page_title: rawTitleOf(title) })),
+    ...OPS_PAGES.map((titleText): BlockOp => ({ op: "create_page", page_title: rawTitleOf(titleText) })),
     ...creates,
     ...collapses,
   ];

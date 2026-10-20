@@ -26,7 +26,7 @@ describe("useOutlinePageLoad session key", () => {
     await waitFor(() => expect(result.current.payload).not.toBeNull());
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(isOutlineSessionActive("Paper")).toBe(true);
+    expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(true);
     unmount();
   });
 
@@ -41,11 +41,11 @@ describe("useOutlinePageLoad session key", () => {
        expect(fetchMock).toHaveBeenCalledTimes(2);
        expect(String(fetchMock.mock.calls[0][0])).toBe("/api/page/Paper%20");
        expect(String(fetchMock.mock.calls[1][0])).toBe("/api/page/Paper");
-       expect(isOutlineSessionActive("Paper")).toBe(true);
-       expect(isOutlineSessionActive("Paper ")).toBe(false);
+       expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(true);
+       expect(isOutlineSessionActive(rawTitleOf("Paper "))).toBe(false);
        expect(result.current.payload?.page.title).toBe("Paper");
        unmount();
-       expect(isOutlineSessionActive("Paper")).toBe(false);
+       expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(false);
      });
 
   it("a resync read of a padded title re-keys before publishing",
@@ -67,10 +67,10 @@ describe("useOutlinePageLoad session key", () => {
        const urls = fetchMock.mock.calls.map((c) => String(c[0]));
        expect(urls[2]).toBe("/api/page/Paper");
        expect(result.current.payload).toBeNull();
-       expect(isOutlineSessionActive("Paper ")).toBe(false);
+       expect(isOutlineSessionActive(rawTitleOf("Paper "))).toBe(false);
        await act(async () => { held[2](page()); await settle(); });
        expect(result.current.payload?.page.title).toBe("Paper");
-       expect(isOutlineSessionActive("Paper")).toBe(true);
+       expect(isOutlineSessionActive(rawTitleOf("Paper"))).toBe(true);
        unmount();
      });
 
@@ -102,7 +102,7 @@ describe("useOutlinePageLoad session key", () => {
        await settle();
        expect(result.current.error).toBeNull();
        expect(fetchMock).toHaveBeenCalledTimes(1);
-       expect(isOutlineSessionActive("July 13th, 2026")).toBe(true);
+       expect(isOutlineSessionActive(rawTitleOf("July 13th, 2026"))).toBe(true);
        unmount();
      });
 

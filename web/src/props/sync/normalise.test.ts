@@ -26,8 +26,8 @@ const block = (over: LooseBlock): SnapBlock => ({
   refs: (over.refs ?? []).map((ref) => ({ target_page_id: pageIdOf(ref.target), kind: ref.kind })),
 });
 
-const page = (id: number, title: string, stamp = 100): Snapshot["pages"][number] =>
-  ({ id: pageIdOf(id), title: canonicalTitleOf(title), created_at: stamp, updated_at: stamp });
+const page = (id: number, titleText: string, stamp = 100): Snapshot["pages"][number] =>
+  ({ id: pageIdOf(id), title: canonicalTitleOf(titleText), created_at: stamp, updated_at: stamp });
 
 const snapshot = (blocks: SnapBlock[], over: Partial<Snapshot> = {}): Snapshot => ({
   generation: "g1", plain_space_title_canonicalization: true, seq: seqOf(7),

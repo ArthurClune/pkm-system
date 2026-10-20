@@ -1,11 +1,11 @@
 ---
 # pkm-aa5q
 title: pyrefly lets a plain str reach a branded pydantic field at construction
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-10-19T17:40:04Z
-updated_at: 2026-10-20T12:22:29Z
+updated_at: 2026-10-20T12:44:15Z
 ---
 
 pyrefly accepts a plain `str` (or `int`) for a pydantic model field typed
@@ -92,6 +92,6 @@ needs a test that pins the behaviour it keeps:
 - Then fix every producer pyrefly reports. Expect a sizeable sweep: no
   constructor has been checked until now.
 
-- [ ] design doc covering the base, the lint rule and the runtime sweep
+- [x] design doc covering the base, the lint rule and the runtime sweep (docs/superpowers/specs/2026-10-20-strict-models-design.md; awaiting Arthur's approval)
 - [ ] runtime sweep with pinning tests (requests, row readers, stored JSON)
 - [ ] strict base + lint rule with teeth; fix producers pyrefly reports

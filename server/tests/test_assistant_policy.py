@@ -87,7 +87,7 @@ def test_available_models_includes_glm_only_when_zai_configured():
     without_key = available_models(zai_configured=False)
     assert "glm" in with_key
     assert "glm" not in without_key
-    # the Claude trio and the default are offered either way
+    # the Claude models and the default are offered either way
     for models in (with_key, without_key):
         assert default_model(models) in models
         assert {"sonnet", "opus", "haiku", "fable"} <= set(models)
@@ -218,5 +218,6 @@ def test_local_href_encodes_every_character_the_prompt_names():
     path = href.removeprefix("/api/local/")
     for raw in "' ()&#é":
         assert raw not in path
+    assert "100%25" in path
     assert path.count("/") == 1
     assert unquote(path) == "A/it's (x) & #1 100% café.pdf"

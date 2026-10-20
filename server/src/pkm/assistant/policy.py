@@ -17,7 +17,7 @@ READ_TOOLS: tuple[str, ...] = ("get_page", "get_block", "search", "query",
 WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch",
                                 "upload_asset", "rename_page")
 
-# The Claude trio also exists as the web picker's fetch-failure fallback
+# The Claude models also exist as the web picker's fetch-failure fallback
 # (useAssistant.ts); a rename or addition there must stay in sync.
 MODELS: tuple[AssistantModel, ...] = ("sonnet", "opus", "haiku", "fable", "glm")
 

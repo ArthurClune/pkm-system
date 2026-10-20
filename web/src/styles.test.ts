@@ -60,6 +60,14 @@ describe("outline line spacing", () => {
     expect(ruleFor(".block-row")).toContain("line-height: 1.4;");
     expect(ruleFor(".bullet.numbered")).toContain("line-height: 1.4;");
   });
+
+  // .bullet pins the dot to the row top (flex-start plus a 6px margin). A
+  // numeral is text, so it must join the row's baseline alignment instead:
+  // pinned to the top, a 13px numeral sat 2px above 15px text and 7px above
+  // an h2's.
+  test("numbered-list markers sit on the text baseline", () => {
+    expect(ruleFor(".bullet.numbered")).toContain("align-self: baseline;");
+  });
 });
 
 describe("link styling", () => {

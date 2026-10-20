@@ -207,16 +207,16 @@ export function Journal() {
   return (
     <div className="journal">
       <BlockRefProvider seed={refTexts}>
+        {/* the first loaded day is today by construction */}
         {days.map((day, i) => ({ day, i }))
           .filter(({ day, i }) => day.exists || i === 0)
-          .map(({ day, i }) => (
+          .map(({ day }) => (
             <section className="journal-day" key={day.date}>
               <h1 className="page-title">
                 <Link to={pagePath(day.title)}>{day.title}</Link>
               </h1>
-              {/* the first loaded day is today by construction */}
               <EditablePage title={day.title} initial={day.blocks}
-                            composer={i === 0} refCounts={refCounts} />
+                            refCounts={refCounts} />
               <JournalDayReferences title={day.title}
                                    backlinks={day.backlinks} />
             </section>

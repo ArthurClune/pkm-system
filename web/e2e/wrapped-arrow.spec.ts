@@ -37,8 +37,7 @@ async function setCaret(page: Page, pos: number) {
 
 test.describe("wrapped-block boundary arrows", () => {
   test("plain ArrowUp/Down move within a wrapped block before jumping blocks", async ({ page }) => {
-    // Narrow enough to force soft-wrap, but above the 600px phone breakpoint
-    // (below it the composer replaces normal block editing entirely).
+    // Narrow enough to force soft-wrap, but above the 600px phone breakpoint.
     await page.setViewportSize({ width: 650, height: 800 });
     const title = `WrapArrow${Date.now()}`;
     await login(page);

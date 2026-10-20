@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-19T17:40:04Z
-updated_at: 2026-10-20T12:18:47Z
+updated_at: 2026-10-20T12:21:22Z
 ---
 
 pyrefly accepts a plain `str` (or `int`) for a pydantic model field typed
@@ -23,7 +23,7 @@ probably only literals/untyped names); or constructing models through typed
 factory functions.
 
 - [x] confirm the gap with a minimal probe and check pyrefly options
-- [ ] decide the enforcement point
+- [x] decide the enforcement point (Arthur, 2026-10-20: model-wide strict mode)
 - [ ] implement with teeth tests
 
 ## Probe results (2026-10-20, pyrefly 1.1.1)
@@ -59,3 +59,39 @@ pydantic field, plus a brandlint rule that reports a model field annotated
 with a brand (directly, optional, or in a list) and lacking `strict=True`,
 so the protection cannot be forgotten. Typed factory functions are not
 needed once strict fields work.
+
+## Decision (Arthur, 2026-10-20)
+
+Use model-wide pydantic strict mode, not per-field strict: every pydantic
+model validates strictly, so pyrefly checks every constructor against its
+declared field types (branded or not). This overrides the per-field
+recommendation above.
+
+Shape to design:
+- A shared strict base (`ConfigDict(strict=True)`), inherited by every
+  pydantic model in `server/src`. pyrefly honours an inherited strict
+  config (probed).
+- A brandlint rule that reports any `BaseModel` subclass that neither
+  inherits the strict base nor sets `strict=True`, with tests proving it
+  fails.
+
+Runtime sweep, since strict changes what validation accepts. Each item
+needs a test that pins the behaviour it keeps:
+- **Request bodies.** FastAPI validates decoded JSON in Python mode, so a
+  JSON array for a `tuple` field, or a numeric string, `1.0` or `true` for
+  an int, would now be a 422. Find every request-model field whose type
+  pydantic used to coerce into, and decide each one: a list type, or
+  `Field(strict=False)` with a reason.
+- **Response models built from SQLite rows.** `0`/`1` for a `bool`, `int`
+  for a `float`, and `str` for an enum or `Literal` all need checking.
+  Convert at the row reader, not with a per-field opt-out.
+- **Constrained int brands.** `Field(gt=0)` on a `PageId`-typed field makes
+  pyrefly reject the constraint. Find each one and fix it.
+- **Stored JSON read back.** Stored op lists, acks and poison intents are
+  re-validated on replay and must still validate under strict.
+- Then fix every producer pyrefly reports. Expect a sizeable sweep: no
+  constructor has been checked until now.
+
+- [ ] design doc covering the base, the lint rule and the runtime sweep
+- [ ] runtime sweep with pinning tests (requests, row readers, stored JSON)
+- [ ] strict base + lint rule with teeth; fix producers pyrefly reports

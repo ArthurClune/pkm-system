@@ -21,10 +21,10 @@ from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
                                   upload_and_link)
-from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import UID_RE
 from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.planning import BuildError
+from pkm.refs import canonical_daily_title
 from pkm.render import (RenderError, clip_depth, render_assets,
                         render_backlinks, render_block, render_changed,
                         render_goodlinks_check, render_groups,
@@ -415,8 +415,8 @@ def cmd_get(args: argparse.Namespace, client: PkmClient) -> int:
     target = args.target
     page_title = as_raw_title(target)
     if target in _RELATIVE:
-        page_title = as_raw_title(title_for_date(
-            date.today() + timedelta(days=_RELATIVE[target])))
+        page_title = canonical_daily_title(
+            date.today() + timedelta(days=_RELATIVE[target]))
     elif UID_RE.fullmatch(target):
         try:
             block_payload = client.get_block(target)

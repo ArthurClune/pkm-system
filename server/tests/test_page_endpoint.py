@@ -17,6 +17,13 @@ def test_get_past_daily_404s_and_creates_nothing(client):
     assert client.get(f"/api/page/{yesterday}").status_code == 404
 
 
+def test_get_today_autocreates_with_a_control_whitespace_spelling(client):
+    today = title_for_date(date.today())
+    r = client.get(f"/api/page/{quote(today.replace(' ', chr(9)), safe='/')}")
+    assert r.status_code == 200
+    assert r.json()["page"]["title"] == today
+
+
 def test_get_today_still_autocreates(client):
     today = title_for_date(date.today())
     r = client.get(f"/api/page/{today}")
@@ -478,7 +485,7 @@ def test_every_page_route_resolves_a_control_whitespace_title(
         client, seeded_config, route):
     _seed_ctrl_title_page(seeded_config)
     raw = quote("Ctrl\tTitle", safe="/")
-    if route in ("rename", "delete"):
+    if route in ("rename", "delete", "delete_preview"):
         # a reference to rewrite: the route must unlink or retarget it by
         # the canonical title, not the request spelling
         _set_b4(client, "see [[Ctrl Title]]")
@@ -491,6 +498,7 @@ def test_every_page_route_resolves_a_control_whitespace_title(
     elif route == "delete_preview":
         r = client.get(f"/api/delete-preview?title={raw}")
         assert r.status_code == 200
+        assert r.json()["links"] == 1
     elif route == "unlinked":
         r = client.get(f"/api/unlinked?title={raw}")
         assert r.status_code == 200

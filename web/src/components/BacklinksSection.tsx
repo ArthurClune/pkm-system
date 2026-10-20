@@ -1,8 +1,10 @@
 // pattern: Imperative Shell
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { CanonicalTitle } from "../api/brands";
 import { apiGet } from "../api/typedClient";
 import type { Backlinks } from "../api/payloads";
 import { BlockRefContext } from "../contexts";
+import { useTitleReader } from "../sync/titleCanonicalization";
 
 import type { BacklinkBatchState } from "./backlinkBatchWalk";
 import { mergeBacklinkResult, walkBacklinkBatches } from "./backlinkBatchWalk";
@@ -11,8 +13,9 @@ import { applyFilter, chipCounts, EMPTY_FILTER, isFiltering, toggleChip,
 import { BacklinkGroupList } from "./BacklinkGroupList";
 
 export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
-    { title: string; initial: Backlinks; refreshGeneration?: number }) {
+    { title: CanonicalTitle; initial: Backlinks; refreshGeneration?: number }) {
   const base = useContext(BlockRefContext);
+  const read = useTitleReader();
   // groups, total page count, and extra ref texts change in lockstep -- one
   // state value so a partial update can't happen. total_pages can shrink or
   // grow server-side (multi-tab sync) between mount and panel open; it's
@@ -130,15 +133,15 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   };
 
   const filtering = isFiltering(filter);
-  const visible = useMemo(() => applyFilter(backlinks.groups, filter),
-    [backlinks.groups, filter]);
+  const visible = useMemo(() => applyFilter(backlinks.groups, filter, read),
+    [backlinks.groups, filter, read]);
   const chips = useMemo(
     () => panelOpen && fullyLoaded
-      ? chipCounts(visible, [title, ...filter.include, ...filter.exclude])
+      ? chipCounts(visible, [title, ...filter.include, ...filter.exclude], read)
       : [],
-    [panelOpen, fullyLoaded, visible, title, filter]);
+    [panelOpen, fullyLoaded, visible, title, filter, read]);
 
-  const chipButton = (t: string, side: "include" | "exclude", label: string) => (
+  const chipButton = (t: CanonicalTitle, side: "include" | "exclude", label: string) => (
     <button key={`${side}:${t}`} className={`filter-chip ${side}d`}
             onClick={() => setFilter((f) => toggleChip(f, t, side))}>
       {label}

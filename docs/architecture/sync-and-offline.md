@@ -466,6 +466,18 @@ so no `pending_ops` row is persisted either, and the offline `POST /api/pages`
 shim returns 422. Snapshot and feed payloads are always accepted, because
 rejecting one would wedge the client's queue.
 
+The main thread keeps its own copy of the flag
+(`sync/titleCanonicalization.ts`), because titles read from block text, such as
+the backlink filter's chips, must be canonicalized as the replica would.
+`replicaSync` sets it from the replica's `init()` and from every snapshot and
+changes payload it receives, and it reads `false` until one has. It is set when
+a payload arrives, before the replica applies it: if the apply is refused and
+recovery has not landed yet, the main thread can briefly read the flag on while
+the replica still holds legacy padded pages. An online-only session (unusable
+replica) fetches neither, so the copy stays `false` there: while the server
+flag is on, that lane keeps the pre-fix chips, with padded titles read as
+distinct pages.
+
 The replica persists the flag in the same transaction as the payload that
 carried it, before reconciling and replaying pending batches. Activation then
 canonicalizes negative-id pages created under the old rule: their blocks and

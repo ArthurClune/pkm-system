@@ -18,7 +18,7 @@ import { CLIENT_DDL, SCHEMA_VERSION, installSchema } from "./clientSchema";
 import { catalogNames, type ReplicaDb, quickCheck, sqliteVersion } from "./db";
 import { isCorruptionMessage, isUnreadableFileMessage,
          ReplicaUnusableError } from "./errors";
-import { getMeta } from "./meta";
+import { getMeta, plainSpaceTitleCanonicalizationActive } from "./meta";
 import { handleLocalApi } from "./localApi/router";
 import { pendingSetStillCovered } from "./pendingGuard";
 import { allBatches, deleteBatch, type DurablePendingRow, enqueueBatch,
@@ -499,6 +499,8 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
           cursor: parseSyncSeq(Number(getMeta(d, "cursor") ?? 0)) ?? INITIAL_SEQ,
           schemaMismatch: getMeta(d, "schema_version") !== SCHEMA_VERSION,
           pendingBatches,
+          plainSpaceTitleCanonicalization:
+            plainSpaceTitleCanonicalizationActive(d),
         };
       });
     },

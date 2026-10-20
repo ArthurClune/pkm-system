@@ -187,10 +187,13 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
                         "web/src/replica/titles.ts"),
     # `title_reader` is the one general mint: it alone knows the database's
     # live plain-space flag. The web's twin is `titleReader`, and a daily
-    # title is canonical by its format.
+    # title is canonical by its format. `titleReaderFor` (replica/titles.ts)
+    # is the web's pure constructor, shared by `titleReader` and the main
+    # thread's copy of the flag.
     "CanonicalTitle": (_CONTRACTS, "server/src/pkm/refs.py",
                        "server/src/pkm/server/sync_meta.py",
                        "web/src/replica/meta.ts", "web/src/replica/daily.ts",
+                       "web/src/replica/titles.ts",
                        _WEB_ROWS, _WEB_WIRE),
     # An internal NewType, not a wire brand: `parse_canonical_query` and
     # `page_queries` are its mints, both in query_exec.

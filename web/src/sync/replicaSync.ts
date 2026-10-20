@@ -20,6 +20,7 @@ import { INITIAL_SEQ } from "../ids";
 import { listeners } from "./listeners";
 import type { OpQueue } from "./opQueue";
 import { readOpsAck } from "./opsAck";
+import { setPlainSpaceTitleCanonicalization } from "./titleCanonicalization";
 import { changesOfWire, opsAckOfWire, snapshotOfWire } from "./wire";
 import { isFreshCorruption, isStallShaped, isWindowFailure, PullStarvedError } from "./syncFailures";
 
@@ -372,9 +373,12 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     pending: readonly PendingBatch[] = [],
   ): Promise<Snapshot> => {
     const query = pendingQuery(pending);
-    return snapshotOfWire(await fetchJson(
+    const snapshot = snapshotOfWire(await fetchJson(
       query === "" ? "/api/sync/snapshot" : `/api/sync/snapshot?${query}`,
       undefined, UNTIMED));
+    setPlainSpaceTitleCanonicalization(
+      snapshot.plain_space_title_canonicalization);
+    return snapshot;
   };
 
   /** Batches a payload named as already applied, whose rows the replica
@@ -681,6 +685,8 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
           feed = changesOfWire(await fetchJson(
             `/api/sync/changes?since=${cursor}` +
             (query === "" ? "" : `&${query}`)));
+          setPlainSpaceTitleCanonicalization(
+            feed.plain_space_title_canonicalization);
           res = await replica.applyChanges(feed, expectedPendingIds);
         } catch (error: unknown) {
           // Corruption first: it is the one window failure whose repair must
@@ -797,6 +803,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     // Not adoptCursor: this reads the cursor the database already holds, so
     // nothing moved and no view has anything new to fetch.
     cursor = init.cursor;
+    setPlainSpaceTitleCanonicalization(init.plainSpaceTitleCanonicalization);
     if (init.schemaMismatch) {
       // deploy changed the DDL: one coordinator flushes and rebuilds under
       // the same worker lease used for feed generation/reset recovery.

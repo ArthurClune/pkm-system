@@ -59,6 +59,9 @@ export interface ReplicaInit {
   schemaMismatch: boolean;
   /** read BEFORE any teardown, per the epic guardrail */
   pendingBatches: PendingBatch[];
+  /** the replica's stored plain-space title flag, mirrored on the main
+   * thread (sync/titleCanonicalization.ts) */
+  plainSpaceTitleCanonicalization: boolean;
 }
 
 export interface RecoveryLease {

@@ -15,11 +15,12 @@
 // of N days cost N page reads -- 26 of them for a 12 s scroll, each re-fetching
 // blocks the journal payload had already delivered. BacklinksSection
 // still pages the rest from /api/page on demand; that is a click, not a scroll.
+import type { CanonicalTitle } from "../api/brands";
 import type { Backlinks } from "../api/payloads";
 import { BacklinksSection } from "./BacklinksSection";
 
 export function JournalDayReferences(
-  { title, backlinks }: { title: string; backlinks: Backlinks },
+  { title, backlinks }: { title: CanonicalTitle; backlinks: Backlinks },
 ) {
   if (backlinks.total_pages === 0) return null;
   return <BacklinksSection title={title} initial={backlinks} />;

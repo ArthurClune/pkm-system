@@ -92,8 +92,10 @@ export type NormalizedTitle = RawTitle & { readonly __normalized: true };
 // and additionally canonical under the live plain-space-title flag. A
 // CanonicalTitle passes wherever a NormalizedTitle is expected, not the
 // reverse. Minted by the row types of every read of a title column, by
-// `canonicalTitle`/`titleReader` (replica/meta.ts, which read the flag) and
-// by `titleForDate`/`dailyTitle` (replica/daily.ts, canonical by format).
+// `canonicalTitle`/`titleReader` (replica/meta.ts, which read the flag), by
+// `titleReaderFor` (replica/titles.ts, the pure constructor they and the main
+// thread's copy of the flag, sync/titleCanonicalization.ts, share) and by
+// `titleForDate`/`dailyTitle` (replica/daily.ts, canonical by format).
 export type CanonicalTitle = NormalizedTitle & { readonly __canonical: true };
 
 // A block's sparse sibling order key (blocks.order_idx): where it sits

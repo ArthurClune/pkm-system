@@ -9,7 +9,7 @@
 
 import type { CanonicalTitle } from "../api/brands";
 import type { ReplicaDb } from "./db";
-import { canonicalizeTitle } from "./titles";
+import { type TitleReader, titleReaderFor } from "./titles";
 
 export function getMeta(db: ReplicaDb, key: string): string | null {
   const rows = db.select(
@@ -41,18 +41,10 @@ export function canonicalTitle(db: ReplicaDb, title: string): CanonicalTitle {
   return titleReader(db)(title);
 }
 
-/** `canonicalTitle` for an operation that canonicalises several titles: the
- * flag is read once, not once per title (sync_meta.title_reader). The flag
- * it read rides along, so a caller that also branches on it needs no second
- * read. */
-export type TitleReader = ((title: string) => CanonicalTitle) &
-  { readonly plainSpaceActive: boolean };
+export type { TitleReader } from "./titles";
 
 export function titleReader(db: ReplicaDb): TitleReader {
-  const plainSpaceActive = plainSpaceTitleCanonicalizationActive(db);
-  return Object.assign(
-    (title: string) => canonicalizeTitle(title, plainSpaceActive) as CanonicalTitle,
-    { plainSpaceActive });
+  return titleReaderFor(plainSpaceTitleCanonicalizationActive(db));
 }
 
 export function setPlainSpaceTitleCanonicalization(

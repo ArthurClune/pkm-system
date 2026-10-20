@@ -142,6 +142,8 @@ web/src/
 │   ├── useSocketLifecycle.ts Shell        Connect lifecycle: pending bootstrap, socket
 │   │                                      status, StrictMode teardown
 │   ├── reconnectFlow.ts      Shell        Reconnect single-flight: drain → pull → resync
+│   ├── titleCanonicalization.ts Shell     Main-thread copy of the plain-space title flag
+│   │                                      (set by replicaSync) and `useTitleReader`
 │   ├── opQueue.ts            Shell        Durable-queue driver: enqueue retention, the
 │   │                                      drain, rejection → poison; composes the cores
 │   ├── queueState.ts         Core         Connectivity and retry-backoff transitions
@@ -450,7 +452,7 @@ openapi-typescript CLI would turn every brand back into `string`.
 | `SidebarOrderIdx` | carried from generated response types; a selected `sidebar_entries.order_idx`, branded by `ReplicaDb.select` |
 | `RawTitle` | `replica/titles.ts`'s `asRawTitle`, the general mint; the readers of stored and wire op lists (`sync/wire.ts`, `replica/pendingOps.ts`, `sync/poisonIntents.ts`) |
 | `NormalizedTitle` | `grammar/scan.ts`'s `normalizeRefTitle` and hashtag token, `replica/titles.ts`'s `canonicalizeTitle` |
-| `CanonicalTitle` | a selected `pages.title` / `sidebar_entries.title`, branded by `ReplicaDb.select`; `replica/meta.ts`'s `canonicalTitle`/`titleReader` (which read the live plain-space flag), `replica/daily.ts`'s `titleForDate`/`dailyTitle` |
+| `CanonicalTitle` | a selected `pages.title` / `sidebar_entries.title`, branded by `ReplicaDb.select`; `replica/meta.ts`'s `canonicalTitle`/`titleReader` (which read the live plain-space flag), `sync/titleCanonicalization.ts`'s `titleReaderFor` (the main thread's mirror of it), `replica/daily.ts`'s `titleForDate`/`dailyTitle` |
 | `Sha256Hex` | `replica/sha256.ts`'s `sha256Hex` and `parseSha256Hex`, `replica/subtreeHash.ts`'s `subtreeHash`; the asset-link token (`grammar/tokenize.ts`); a selected `sha256`, `base_hash` or `after_hash`, branded by `ReplicaDb.select` |
 | `SyncSeq` | carried from generated response types; `ids.ts`'s `parseSyncSeq`, which narrows the stored cursor (`replica/workerHandlers.ts`) and an ack (`sync/opsAck.ts`), and `INITIAL_SEQ`, the sync loop's starting cursor (`sync/replicaSync.ts`); the WS seq frame is read by `sync/wire.ts`'s `wsFrameOfWire` |
 | `ClientId` / `BatchId` | `uid.ts`'s `newClientId` and `newBatchId`, which `sync/opQueue.ts` and `replica/workerHandlers.ts` use as their default batch minter; a selected `batch_id`, branded by `ReplicaDb.select` |

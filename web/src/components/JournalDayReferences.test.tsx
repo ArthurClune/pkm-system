@@ -24,7 +24,7 @@ function show(refs: Parameters<typeof journalBacklinks>[0],
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <BlockRefProvider seed={seed}>
-        <JournalDayReferences title="July 7th, 2026"
+        <JournalDayReferences title={canonicalTitleOf("July 7th, 2026")}
                               backlinks={journalBacklinks(refs)} />
       </BlockRefProvider>
     </MemoryRouter>,

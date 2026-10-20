@@ -163,7 +163,7 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
     init: async () => {
       log.push("init");
       return { empty: true, cursor: seqOf(0), schemaMismatch: false,
-               pendingBatches: [] };
+               plainSpaceTitleCanonicalization: false, pendingBatches: [] };
     },
     applySnapshot: async () => {
       log.push("applySnapshot");
@@ -266,7 +266,7 @@ describe("replica bootstrap and nudges", () => {
     const replica = fakeReplicaForProvider();
     replica.init = async () => ({
       empty: false, cursor: localCursor, schemaMismatch: false,
-      pendingBatches: [],
+      plainSpaceTitleCanonicalization: false, pendingBatches: [],
     });
     replica.applyChanges = async (changes) => {
       if (changes.generation !== localGeneration) {
@@ -976,7 +976,7 @@ describe("poison repair and startup marks", () => {
     const trace: string[] = [];
     replica.init = async () => ({
       empty: false, cursor: seqOf(5), schemaMismatch: false,
-      pendingBatches: [],
+      plainSpaceTitleCanonicalization: false, pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
       const id = pendingRowIdOf(nextId++);
@@ -1061,7 +1061,8 @@ describe("poison repair and startup marks", () => {
                        poisoned: boolean }> = [];
     let nextId = 1;
     replica.init = async () => ({
-      empty: false, cursor: seqOf(5), schemaMismatch: false, pendingBatches: [],
+      empty: false, cursor: seqOf(5), schemaMismatch: false,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
       const id = pendingRowIdOf(nextId++);
@@ -1141,7 +1142,8 @@ describe("poison repair and startup marks", () => {
                        poisoned: boolean }> = [];
     let nextId = 1;
     replica.init = async () => ({
-      empty: false, cursor: seqOf(5), schemaMismatch: false, pendingBatches: [],
+      empty: false, cursor: seqOf(5), schemaMismatch: false,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
       const id = pendingRowIdOf(nextId++);
@@ -1219,7 +1221,7 @@ describe("poison repair and startup marks", () => {
     const replica = fakeReplicaForProvider();
     replica.init = async () => ({
       empty: false, cursor: seqOf(5), schemaMismatch: false,
-      pendingBatches: [...rows],
+      plainSpaceTitleCanonicalization: false, pendingBatches: [...rows],
     });
     replica.poisonedBatches = async () => [{
       id: pendingRowIdOf(1), batch_id: bid("old-poison"), ops: [rejectedOp], status: 400,
@@ -1295,7 +1297,7 @@ describe("poison repair and startup marks", () => {
     replica.init = async () => {
       initCalls += 1;
       return { empty: false, cursor: seqOf(5), schemaMismatch: false,
-               pendingBatches: [...rows] };
+               plainSpaceTitleCanonicalization: false, pendingBatches: [...rows] };
     };
     replica.prepareRecovery = async () => ({ token: "reload-poison", batches: [...rows] });
     replica.commitRecovery = async () => undefined;
@@ -1391,7 +1393,7 @@ describe("poison repair and startup marks", () => {
     replica.init = async () => {
       initCalls += 1;
       return { empty: false, cursor: seqOf(5), schemaMismatch: false,
-               pendingBatches: [...rows] };
+               plainSpaceTitleCanonicalization: false, pendingBatches: [...rows] };
     };
     replica.prepareRecovery = async () => ({ token: "returned-mark", batches: [...rows] });
     replica.commitRecovery = async () => undefined;
@@ -1424,7 +1426,7 @@ describe("poison repair and startup marks", () => {
     replica.init = async () => {
       initCalls += 1;
       return { empty: false, cursor: seqOf(5), schemaMismatch: false,
-               pendingBatches: [] };
+               plainSpaceTitleCanonicalization: false, pendingBatches: [] };
     };
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }
@@ -1694,10 +1696,10 @@ describe("the poison gate and repair problems", () => {
         // Deliberately does NOT reset `state`: the real worker leaves its
         // memoised rejection in place so the database stays latched shut.
         return { empty: true, cursor: seqOf(0), schemaMismatch: false,
-                 pendingBatches: [] };
+                 plainSpaceTitleCanonicalization: false, pendingBatches: [] };
       }
       return { empty: false, cursor: seqOf(5), schemaMismatch: false,
-               pendingBatches: [...rows] };
+               plainSpaceTitleCanonicalization: false, pendingBatches: [...rows] };
     };
     replica.poisonedBatches = async () => {
       log.push("poisonedBatches");
@@ -1882,7 +1884,7 @@ describe("the poison gate and repair problems", () => {
     let nextId = 1;
     replica.init = async () => ({
       empty: false, cursor: seqOf(5), schemaMismatch: false,
-      pendingBatches: [],
+      plainSpaceTitleCanonicalization: false, pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
       const id = pendingRowIdOf(nextId++);
@@ -1978,7 +1980,7 @@ describe("the poison gate and repair problems", () => {
     let nextId = 1;
     replica.init = async () => ({
       empty: false, cursor: seqOf(5), schemaMismatch: false,
-      pendingBatches: [],
+      plainSpaceTitleCanonicalization: false, pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
       const id = pendingRowIdOf(nextId++);
@@ -2155,7 +2157,8 @@ describe("offline and cold start", () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
     const replica = fakeReplicaForProvider();
     replica.init = async () => ({ empty: false, cursor: seqOf(5),
-                                  schemaMismatch: false, pendingBatches: [] });
+                                  schemaMismatch: false,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [] });
     function Grab() {
       const sync = useSyncWhole();
       return <div data-testid="s">{sync.replicaMode}:{sync.resyncGeneration}:{String(sync.canEdit)}</div>;
@@ -2205,7 +2208,7 @@ describe("ownership and StrictMode lifecycle", () => {
         if (req.method === "close") events.push("close-db");
         const result = req.method === "init"
           ? { empty: true, cursor: seqOf(0), schemaMismatch: false,
-              pendingBatches: [] }
+              plainSpaceTitleCanonicalization: false, pendingBatches: [] }
           : req.method === "pendingCount" ? 0 : null;
         queueMicrotask(() => this.onmessage?.({ data: { id: req.id, result } }));
       }
@@ -2362,7 +2365,7 @@ describe("reconnect pulls and resync", () => {
                          poisoned: boolean }> = [];
       replica.init = async () => ({
         empty: false, cursor: seqOf(5), schemaMismatch: false,
-        pendingBatches: [],
+        plainSpaceTitleCanonicalization: false, pendingBatches: [],
       });
       replica.enqueue = async (ops) => {
         rows.push({ id: pendingRowIdOf(1), batch_id: bid("retry-me"), ops, poisoned: false });
@@ -2430,7 +2433,7 @@ describe("reconnect pulls and resync", () => {
       const replica = fakeReplicaForProvider();
       replica.init = async () => ({
         empty: false, cursor: seqOf(5), schemaMismatch: false,
-        pendingBatches: [],
+        plainSpaceTitleCanonicalization: false, pendingBatches: [],
       });
       let sync!: Sync;
       function Grab() { sync = useSyncWhole(); return null; }
@@ -2486,7 +2489,8 @@ describe("reconnect pulls and resync", () => {
       }));
       const replica = fakeReplicaForProvider();
       replica.init = async () => ({
-        empty: false, cursor: seqOf(5), schemaMismatch: false, pendingBatches: [],
+        empty: false, cursor: seqOf(5), schemaMismatch: false,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [],
       });
       let sync!: Sync;
       function Grab() { sync = useSyncWhole(); return null; }
@@ -2526,7 +2530,8 @@ describe("reconnect pulls and resync", () => {
       }));
       const replica = fakeReplicaForProvider();
       replica.init = async () => ({
-        empty: false, cursor: seqOf(5), schemaMismatch: false, pendingBatches: [],
+        empty: false, cursor: seqOf(5), schemaMismatch: false,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [],
       });
       let sync!: Sync;
       function Grab() { sync = useSyncWhole(); return null; }
@@ -2658,7 +2663,8 @@ describe("the replica-stalled problem", () => {
     }));
     const replica = fakeReplicaForProvider();
     replica.init = async () => ({ empty: false, cursor: seqOf(0),
-                                  schemaMismatch: true, pendingBatches: [] });
+                                  schemaMismatch: true,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [] });
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
@@ -2685,7 +2691,8 @@ describe("the replica-stalled problem", () => {
     }));
     const replica = fakeReplicaForProvider();
     replica.init = async () => ({ empty: false, cursor: seqOf(0),
-                                  schemaMismatch: true, pendingBatches: [] });
+                                  schemaMismatch: true,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [] });
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);

@@ -25,7 +25,7 @@ BLOCK_REWRITE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 
 class ForbiddenTitleError(ValueError):
-    def __init__(self, title: str) -> None:
+    def __init__(self, title: CanonicalTitle) -> None:
         super().__init__(f"unsupported page-title syntax: {title!r}")
         self.title = title
 

@@ -59,9 +59,9 @@ def test_journal_head_is_today_plus_recent_nonempty_days(client):
     assert all(d["exists"] for d in days)
 
 
-def _add_daily(db_path, page_id: PageId, title, texts):
+def _add_daily(db_path, page_id: PageId, title_text: str, texts):
     con = connect(db_path)
-    con.execute("INSERT INTO pages VALUES (?,?,NULL,NULL)", (page_id, title))
+    con.execute("INSERT INTO pages VALUES (?,?,NULL,NULL)", (page_id, title_text))
     for i, text in enumerate(texts):
         con.execute(
             "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"

@@ -7,7 +7,8 @@ from pkm.cli.main import main
 from pkm.client.core import ApiError
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BatchId, BlockUid
-from pkm.test_data.ids import batch_id_of
+from pkm.contracts.titles import RawTitle
+from pkm.test_data.ids import batch_id_of, raw_title_of
 
 
 @pytest.fixture()
@@ -21,12 +22,12 @@ def run(pkm_client, capsys, monkeypatch):
     return _run
 
 
-def _page_texts(pkm_client, title):
+def _page_texts(pkm_client, title_text: str):
     def _flat(nodes):
         for n in nodes:
             yield n.text
             yield from _flat(n.children)
-    return list(_flat(pkm_client.get_page(title).blocks))
+    return list(_flat(pkm_client.get_page(raw_title_of(title_text)).blocks))
 
 
 def test_save_to_named_page(run, pkm_client):
@@ -734,7 +735,7 @@ def test_batch_delete_stale_fetch_lands_the_copy(
         return payload.model_copy(update={"block": block.model_copy(
             update={"children": _stale_children(block.children)})})
 
-    def _stale_get_page_blocks(title):
+    def _stale_get_page_blocks(title: RawTitle):
         blocks, missing = real_get_page_blocks(title)
         if title != "AI":
             return blocks, missing

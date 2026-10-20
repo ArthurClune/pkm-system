@@ -7,15 +7,15 @@ from pkm.test_data.ids import canonical_title_of, page_id_of, uid_of
 from pkm.contracts.ops import BlockUid, PageId
 
 
-def _block(uid: BlockUid, text: str, page_id: PageId, title: str) -> Row:
+def _block(uid: BlockUid, text: str, page_id: PageId, title_text: str) -> Row:
     return {"uid": uid, "text": text, "page_id": page_id,
-            "page_title": canonical_title_of(title)}
+            "page_title": canonical_title_of(title_text)}
 
 
-def _backlink(uid: BlockUid, text: str, page_id: PageId, title: str) -> Row:
+def _backlink(uid: BlockUid, text: str, page_id: PageId, title_text: str) -> Row:
     return {"uid": uid, "text": text,
             "src_page_id": page_id,
-            "src_page_title": canonical_title_of(title)}
+            "src_page_title": canonical_title_of(title_text)}
 
 
 def test_group_by_page_groups_in_row_order():

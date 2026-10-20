@@ -457,7 +457,7 @@ def test_conflict_uids_retry_until_alphanumeric_first_char(db, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("op", "source", "title"),
+    ("op", "source", "title_text"),
     [
         (
             {"op": "create_page", "page_title": "New #Old"},
@@ -492,7 +492,8 @@ def test_conflict_uids_retry_until_alphanumeric_first_char(db, monkeypatch):
     ],
     ids=["create_page", "create", "move", "create_ref", "update_ref"],
 )
-def test_find_op_title_violation_covers_every_title_source(op, source, title):
+def test_find_op_title_violation_covers_every_title_source(
+        op, source, title_text):
     violation = ops_core.find_op_title_violation(_batch(op).ops)
 
     assert violation is not None
@@ -501,7 +502,7 @@ def test_find_op_title_violation_covers_every_title_source(op, source, title):
         violation.source,
         violation.title,
         violation.reason,
-    ) == (0, source, title, "forbidden_syntax")
+    ) == (0, source, title_text, "forbidden_syntax")
 
 
 def test_find_op_title_violation_checks_explicit_title_before_text_refs():
@@ -819,8 +820,8 @@ def test_move_to_missing_parent_journals_the_live_block_and_the_parent(db):
 # move under a live parent follows the parent to its current page; a move
 # that would nest a block under its own descendant is skipped with a note.
 
-def _page_id(db, title):
-    row = db.select_one("SELECT id AS page_id FROM pages WHERE title = ?", (title,))
+def _page_id(db, title_text: str):
+    row = db.select_one("SELECT id AS page_id FROM pages WHERE title = ?", (title_text,))
     return row["page_id"] if row is not None else None
 
 

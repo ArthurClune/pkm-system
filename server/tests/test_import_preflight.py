@@ -6,7 +6,7 @@ from pkm.importer.preflight import (ImportStructureError, ImportUidError,
                                     validate_export_structure,
                                     validate_export_uids)
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
-from pkm.test_data.ids import malformed_uid, uid_of
+from pkm.test_data.ids import malformed_uid, raw_title_of, uid_of
 from pkm.contracts.ops import BlockUid
 
 
@@ -33,8 +33,8 @@ def _export(*, pages: tuple[Page, ...] = (), orphans: tuple[Block, ...] = ()) ->
     )
 
 
-def _page(title: str, children: tuple[Block, ...]) -> Page:
-    return Page(title=title, created_at=None, edited_at=None, children=children)
+def _page(title_text: str, children: tuple[Block, ...]) -> Page:
+    return Page(title=raw_title_of(title_text), created_at=None, edited_at=None, children=children)
 
 
 def test_distinct_objects_with_same_uid_report_lexicographically_first_duplicate():

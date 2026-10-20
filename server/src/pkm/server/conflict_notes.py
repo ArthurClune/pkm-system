@@ -11,7 +11,7 @@ from pkm.contracts.titles import CanonicalTitle, RawTitle
 from pkm.refs import extract, normalize_title, title_syntax_reason
 
 
-def _links_back(title: str) -> bool:
+def _links_back(title: RawTitle) -> bool:
     """Does `[[title]]` read back as a ref to exactly `title`? Not for
     every title: a trailing `]` or a pair of backticks shifts what the
     extractor sees, and the ref indexer would create THAT page."""
@@ -20,7 +20,7 @@ def _links_back(title: str) -> bool:
             == [normalize_title(title)])
 
 
-def existing_page_label(title: str) -> str:
+def existing_page_label(title: RawTitle) -> str:
     """A page that exists, as a header names it: a `[[link]]` when that
     reads back as the page, else inline code (which the ref extractor
     never scans), else -- a title holding a backtick can't be fenced that

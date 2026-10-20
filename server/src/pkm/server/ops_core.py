@@ -52,7 +52,7 @@ class OpError(ValueError):
 class OpTitleViolation:
     op_index: int
     source: Literal["page_title", "reference"]
-    title: str
+    title: RawTitle
     reason: TitleSyntaxReason
 
 

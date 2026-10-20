@@ -175,8 +175,8 @@ def test_renames_route_needs_auth(tmp_path: Path, clock: Clock) -> None:
         assert anon.get("/__proptest/renames").status_code == 401
 
 
-def _delete(client: TestClient, title: str) -> int:
-    return client.delete(f"/api/page/{title}").status_code
+def _delete(client: TestClient, title_text: str) -> int:
+    return client.delete(f"/api/page/{title_text}").status_code
 
 
 def test_deletes_are_logged_with_the_uids_the_page_held_in_order_with_renames(

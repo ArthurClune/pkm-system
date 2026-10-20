@@ -40,9 +40,9 @@ def test_conflict_label_table(hint, hint_page_exists, label):
 
 
 def test_existing_page_label_falls_back_when_a_link_would_not_read_back():
-    assert existing_page_label("Paper") == "[[Paper]]"
-    assert existing_page_label("Paper]") == "`Paper]`"
-    assert existing_page_label("a`b]") == "(page unknown)"
+    assert existing_page_label(raw_title_of("Paper")) == "[[Paper]]"
+    assert existing_page_label(raw_title_of("Paper]")) == "`Paper]`"
+    assert existing_page_label(raw_title_of("a`b]")) == "(page unknown)"
 
 
 def test_headers_name_the_page_and_embed_or_name_the_block():
@@ -83,9 +83,9 @@ def test_deleted_header_fences_a_title_that_does_not_link_back():
         "[[conflict]] `Project X]` — deleted while edited elsewhere")
 
 
-@pytest.mark.parametrize("title, note", [
+@pytest.mark.parametrize("title_text, note", [
     ("Old Title", "move skipped: page `Old Title` was deleted"),
     ("a`b", "move skipped: page (page unknown) was deleted"),
 ])
-def test_stale_page_move_note_names_the_page_as_code(title, note):
-    assert stale_page_move_note(title) == note
+def test_stale_page_move_note_names_the_page_as_code(title_text, note):
+    assert stale_page_move_note(raw_title_of(title_text)) == note

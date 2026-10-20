@@ -57,8 +57,8 @@ def _text(config, uid: BlockUid):
         con.close()
 
 
-def _create(uid: BlockUid, text, parent=None, title=TITLE, idx=0):
-    return {"op": "create", "uid": uid, "page_title": title,
+def _create(uid: BlockUid, text, parent=None, title_text=TITLE, idx=0):
+    return {"op": "create", "uid": uid, "page_title": title_text,
             "parent_uid": parent, "order_idx": idx, "text": text}
 
 
@@ -124,7 +124,7 @@ def test_stale_link_in_create_under_live_parent_becomes_plain(
         client, seeded_config):
     seen = _delete_ml(client, seeded_config)
     r = _post(client, _create(uid_of("stale001"), "about [[Machine Learning]]",
-                              parent="uid_b4", title="July 7th, 2026"),
+                              parent="uid_b4", title_text="July 7th, 2026"),
               seen_seq=seq_of(seen))
     assert r.status_code == 200
     assert r.json()["skipped"] == []
@@ -162,7 +162,7 @@ def test_chained_hashed_edits_after_a_stale_unlink_apply_clean(
     linked = "see [[Machine Learning]]"
     seen = _delete_ml(client, seeded_config)
     r = _post(client,
-              _create(uid_of("stale001"), "", parent="uid_b4", title="July 7th, 2026"),
+              _create(uid_of("stale001"), "", parent="uid_b4", title_text="July 7th, 2026"),
               _update(uid_of("stale001"), linked, ""),
               _update(uid_of("stale001"), linked + " tomorrow", linked),
               seen_seq=seq_of(seen))
@@ -178,7 +178,7 @@ def test_hashed_edit_after_a_stale_create_with_a_link_applies_clean(
     seen = _delete_ml(client, seeded_config)
     r = _post(client,
               _create(uid_of("stale001"), linked, parent="uid_b4",
-                      title="July 7th, 2026"),
+                      title_text="July 7th, 2026"),
               _update(uid_of("stale001"), linked + " more", linked),
               seen_seq=seq_of(seen))
     assert r.status_code == 200
@@ -205,7 +205,7 @@ def test_same_device_link_right_after_its_own_delete_goes_plain(
     seen = _seq(seeded_config)
     assert client.delete(f"/api/page/{TITLE}").status_code == 200
     r = _post(client, _create(uid_of("stale001"), "back to [[Machine Learning]]",
-                              parent="uid_b4", title="July 7th, 2026"),
+                              parent="uid_b4", title_text="July 7th, 2026"),
               seen_seq=seq_of(seen))
     assert r.status_code == 200
     assert _text(seeded_config, uid_of("stale001")) == "back to Machine Learning"
@@ -256,7 +256,7 @@ def test_stale_update_text_leading_attribute_is_fenced_and_page_stays_deleted(
         client, seeded_config):
     seen = _delete_ml(client, seeded_config)
     r = _post(client,
-              _create(uid_of("stale001"), "", parent="uid_b4", title="July 7th, 2026"),
+              _create(uid_of("stale001"), "", parent="uid_b4", title_text="July 7th, 2026"),
               _update(uid_of("stale001"), f"{TITLE}:: v", ""),
               seen_seq=seq_of(seen))
     assert r.status_code == 200
@@ -270,7 +270,7 @@ def test_stale_create_with_linked_attribute_is_fenced_and_chains_clean(
     seen = _delete_ml(client, seeded_config)
     r = _post(client,
               _create(uid_of("stale001"), text, parent="uid_b4",
-                      title="July 7th, 2026"),
+                      title_text="July 7th, 2026"),
               _update(uid_of("stale001"), text + " more", text),
               seen_seq=seq_of(seen))
     assert r.status_code == 200

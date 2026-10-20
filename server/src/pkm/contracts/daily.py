@@ -26,8 +26,8 @@ def title_for_date(d: date) -> str:
     return f"{_MONTHS[d.month - 1]} {d.day}{_suffix(d.day)}, {d.year}"
 
 
-def date_for_title(title: str) -> date | None:
-    m = _TITLE_RE.match(title)
+def date_for_title(text: str) -> date | None:
+    m = _TITLE_RE.match(text)
     if not m:
         return None
     month = _MONTHS.index(m.group(1)) + 1
@@ -35,4 +35,4 @@ def date_for_title(title: str) -> date | None:
         d = date(int(m.group(4)), month, int(m.group(2)))
     except ValueError:
         return None
-    return d if title_for_date(d) == title else None
+    return d if title_for_date(d) == text else None

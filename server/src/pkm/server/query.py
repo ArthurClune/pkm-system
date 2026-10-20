@@ -11,6 +11,8 @@ import re
 from dataclasses import dataclass
 from typing import NewType
 
+from pkm.contracts.titles import RawTitle, as_raw_title
+
 _OP_RE = re.compile(r"\{\s*([a-zA-Z-]+)\s*:")
 
 
@@ -21,7 +23,7 @@ class QueryParseError(ValueError):
 @dataclass(frozen=True)
 class QueryNode:
     kind: str  # 'and' | 'or' | 'not' | 'page'
-    title: str | None = None
+    title: RawTitle | None = None
     children: tuple["QueryNode", ...] = ()
 
 
@@ -79,7 +81,7 @@ def _parse_node(s: str, pos: int) -> tuple[QueryNode, int]:
     return QueryNode(op, None, tuple(children)), pos
 
 
-def _parse_title(s: str, pos: int) -> tuple[str, int]:
+def _parse_title(s: str, pos: int) -> tuple[RawTitle, int]:
     depth, j = 1, pos + 2
     while j < len(s) - 1 and depth:
         pair = s[j:j + 2]
@@ -91,7 +93,7 @@ def _parse_title(s: str, pos: int) -> tuple[str, int]:
             j += 1
     if depth:
         raise QueryParseError("unterminated [[title]]")
-    return s[pos + 2:j - 2], j
+    return as_raw_title(s[pos + 2:j - 2]), j
 
 
 _PAGE_SQL = ("SELECT r.src_block_uid AS uid FROM refs r"
@@ -109,13 +111,13 @@ _PAGE_SQL_EXPANDED = (
 )
 
 
-def page_operands(node: QueryNode) -> list[str]:
+def page_operands(node: QueryNode) -> list[RawTitle]:
     """Distinct [[Page]] operand titles in an expression, first-seen order
     (drives /api/query's ref_counts hint)."""
     if node.kind == "page":
         assert node.title is not None
         return [node.title]
-    out: list[str] = []
+    out: list[RawTitle] = []
     for c in node.children:
         for title in page_operands(c):
             if title not in out:

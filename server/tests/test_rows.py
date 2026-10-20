@@ -2,7 +2,7 @@ from pkm.edn import parse_edn
 from pkm.importer.parse_export import Block, Export, Page, parse_export
 from pkm.importer.rows import RECOVERY_PAGE_TITLE, to_rows
 from pkm.contracts.ops import BlockUid
-from pkm.test_data.ids import uid_of
+from pkm.test_data.ids import raw_title_of, uid_of
 
 
 def _block(uid: BlockUid, text, children=(), heading=None, open_=True,
@@ -13,7 +13,7 @@ def _block(uid: BlockUid, text, children=(), heading=None, open_=True,
 
 EXPORT = Export(
     pages=(
-        Page("Machine Learning", 1600000000000, 1600000001000, (
+        Page(raw_title_of("Machine Learning"), 1600000000000, 1600000001000, (
             _block(uid_of("uid-attr1"), "Tags:: #AI"),
             _block(uid_of("uid-head1"), "Papers", heading=2, open_=False, children=(
                 _block(uid_of("uid-link1"), "read [[Attention]] and [[AI]]"),
@@ -81,7 +81,7 @@ def test_transform_applied_before_extraction():
 
 MERMAID_EXPORT = Export(
     pages=(
-        Page("Diagrams", None, None, (
+        Page(raw_title_of("Diagrams"), None, None, (
             _block(uid_of("uid-mermaid1"), "{{[[mermaid]]}}", children=(
                 _block(uid_of("uid-line1"), "flowchart TB"),
                 _block(uid_of("uid-line2"), "a --> b"),
@@ -125,7 +125,7 @@ def test_unreferenced_mermaid_subtree_reports_no_preserved_refs():
 
 MERMAID_REF_EXPORT = Export(
     pages=(
-        Page("Diagrams", None, None, (
+        Page(raw_title_of("Diagrams"), None, None, (
             _block(uid_of("uid-mermaid2"), "{{[[mermaid]]}}", children=(
                 _block(uid_of("uid-refline1"), "flowchart TB"),
                 _block(uid_of("uid-refline2"), "a --> b"),
@@ -155,7 +155,7 @@ def test_externally_referenced_descendant_prevents_flattening():
 
 MERMAID_INTERNAL_REF_EXPORT = Export(
     pages=(
-        Page("Diagrams", None, None, (
+        Page(raw_title_of("Diagrams"), None, None, (
             _block(uid_of("uid-mermaid3"), "{{[[mermaid]]}}", children=(
                 _block(uid_of("uid-iline1"), "flowchart TB"),
                 # references a sibling *within the same subtree* -- this
@@ -190,7 +190,7 @@ def test_internal_only_reference_does_not_block_flattening():
 NESTED_MERMAID_EXPORT = Export(
     pages=(
         Page(
-            "Nested diagrams",
+            raw_title_of("Nested diagrams"),
             None,
             None,
             (
@@ -237,7 +237,7 @@ def test_no_recovery_page_when_no_orphans():
 
 ORPHAN_EXPORT = Export(
     pages=(
-        Page("Machine Learning", None, None, (
+        Page(raw_title_of("Machine Learning"), None, None, (
             _block(uid_of("uid-attr1"), "Tags:: #AI"),
         )),
     ),
@@ -272,7 +272,7 @@ def test_orphan_blocks_land_on_a_recovery_page_with_structure_intact():
 
 def test_orphan_references_contribute_to_implicit_page_count():
     export = Export(
-        pages=(Page("Explicit", None, None, ()),),
+        pages=(Page(raw_title_of("Explicit"), None, None, ()),),
         orphan_block_count=1,
         orphan_blocks=(
             _block(uid_of("orphan-ref-uid"), "see [[Orphan-only target]]"),
@@ -295,7 +295,7 @@ def test_orphan_mermaid_composes_with_recovery_and_global_protection():
     export = Export(
         pages=(
             Page(
-                "Sources",
+                raw_title_of("Sources"),
                 None,
                 None,
                 (_block(uid_of("source-citer-uid"), "see ((orphan-line-uid))"),),
@@ -330,7 +330,7 @@ def test_orphan_mermaid_composes_with_recovery_and_global_protection():
 
 BLOCK_REF_EXPORT = Export(
     pages=(
-        Page("Notes", None, None, (
+        Page(raw_title_of("Notes"), None, None, (
             _block(uid_of("uid-refsrc"), "see ((uid_target)) and ((uid_target))"),
         )),
     ),

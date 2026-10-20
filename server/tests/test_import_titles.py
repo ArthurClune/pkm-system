@@ -10,7 +10,7 @@ from pkm.importer.titles import (
     sanitize_import_title,
 )
 from pkm.refs import extract
-from pkm.test_data.ids import uid_of
+from pkm.test_data.ids import raw_title_of, uid_of
 from pkm.contracts.ops import BlockUid
 
 
@@ -122,7 +122,7 @@ def test_sanitize_export_titles_rewrites_page_and_orphan_refs_once() -> None:
         edited_at=41,
     )
     export = Export(
-        pages=(Page("Project [[Acme]]", 10, 11, (root,)),),
+        pages=(Page(raw_title_of("Project [[Acme]]"), 10, 11, (root,)),),
         orphan_block_count=2,
         skipped_entities=3,
         attr_counts={":node/title": 1},
@@ -179,7 +179,7 @@ def test_sanitize_export_titles_rewrites_extractor_normalized_targets() -> None:
     export = Export(
         pages=(
             Page(
-                "Source",
+                raw_title_of("Source"),
                 1,
                 2,
                 (
@@ -216,19 +216,19 @@ def test_sanitize_export_titles_prefers_exact_clean_collision_survivor() -> None
     export = Export(
         pages=(
             Page(
-                "Project [[Acme]]",
+                raw_title_of("Project [[Acme]]"),
                 1,
                 2,
                 (_block(uid_of("uid-dirty"), "dirty root"),),
             ),
             Page(
-                "Project Acme",
+                raw_title_of("Project Acme"),
                 10,
                 11,
                 (_block(uid_of("uid-clean"), "clean root"),),
             ),
             Page(
-                "Watcher",
+                raw_title_of("Watcher"),
                 20,
                 21,
                 (_block(uid_of("uid-watcher"), "[[Project [[Acme]]]]"),),
@@ -260,7 +260,7 @@ def test_sanitize_export_titles_leaves_titles_inside_code_alone() -> None:
     export = Export(
         pages=(
             Page(
-                "Project [[Acme]]",
+                raw_title_of("Project [[Acme]]"),
                 1,
                 2,
                 (
@@ -299,9 +299,9 @@ def test_sanitize_export_titles_leaves_titles_inside_code_alone() -> None:
 def test_sanitize_export_titles_keeps_merge_sources_in_export_order() -> None:
     export = Export(
         pages=(
-            Page("[[Acme]]", 1, 2, (_block(uid_of("uid-first"), "first"),)),
-            Page("Acme", 10, 11, (_block(uid_of("uid-clean"), "clean"),)),
-            Page("#Acme", 20, 21, (_block(uid_of("uid-third"), "third"),)),
+            Page(raw_title_of("[[Acme]]"), 1, 2, (_block(uid_of("uid-first"), "first"),)),
+            Page(raw_title_of("Acme"), 10, 11, (_block(uid_of("uid-clean"), "clean"),)),
+            Page(raw_title_of("#Acme"), 20, 21, (_block(uid_of("uid-third"), "third"),)),
         ),
         orphan_block_count=0,
         skipped_entities=0,
@@ -329,7 +329,7 @@ def test_sanitize_export_titles_marks_merged_spellings_without_a_page_collision(
     export = Export(
         pages=(
             Page(
-                "Home",
+                raw_title_of("Home"),
                 1,
                 2,
                 (_block(uid_of("uid-root"), "see [[Acme]] and [[Ac#me]]"),),
@@ -352,8 +352,8 @@ def test_sanitize_export_titles_marks_merged_spellings_without_a_page_collision(
 def test_sanitize_export_titles_uses_first_source_when_no_exact_page_exists() -> None:
     export = Export(
         pages=(
-            Page("#Acme", 1, 2, (_block(uid_of("uid-first"), "first"),)),
-            Page("[[Acme]]", 10, 11, (_block(uid_of("uid-second"), "second"),)),
+            Page(raw_title_of("#Acme"), 1, 2, (_block(uid_of("uid-first"), "first"),)),
+            Page(raw_title_of("[[Acme]]"), 10, 11, (_block(uid_of("uid-second"), "second"),)),
         ),
         orphan_block_count=0,
         skipped_entities=0,

@@ -32,8 +32,8 @@ from pkm.refs import (
 _TitleLookup = Callable[[RawTitle], "RawTitle | None"]
 
 
-def _verbatim(title: str) -> str:
-    return title
+def _verbatim(text: str) -> str:
+    return text
 
 
 def _title_lookup(

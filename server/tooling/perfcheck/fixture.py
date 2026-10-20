@@ -151,9 +151,9 @@ class _Gen:
             return "{{[[DONE]]}} " + body
         return body
 
-    def page(self, title: str, count: int, now_ms: int, special: list[str] | None = None) -> list[str]:
-        """Create `count` blocks on `title`, nesting some under the previous
-        block (depth <= 4). Returns the uids in creation order."""
+    def page(self, title_text: str, count: int, now_ms: int, special: list[str] | None = None) -> list[str]:
+        """Create `count` blocks on `title_text`, nesting some under the
+        previous block (depth <= 4). Returns the uids in creation order."""
         stack: list[tuple[str, int]] = []   # (uid, depth) path to the last block
         next_idx: dict[str | None, int] = {}
         uids: list[str] = []
@@ -170,7 +170,7 @@ class _Gen:
             next_idx[parent] = idx + 1
             uid = self.uid()
             text = texts[i] if i < len(texts) else self.text()
-            self.creates.append((now_ms, {"op": "create", "uid": uid, "page_title": title,
+            self.creates.append((now_ms, {"op": "create", "uid": uid, "page_title": title_text,
                                           "parent_uid": parent, "order_idx": idx, "text": text}))
             while stack and stack[-1][1] >= depth:
                 stack.pop()

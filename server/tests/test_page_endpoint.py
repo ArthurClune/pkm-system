@@ -7,6 +7,7 @@ import pytest
 from rawread import read
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BlockUid, PageId, text_hash
+from pkm.contracts.titles import CanonicalTitle
 from pkm.database import connect
 
 
@@ -390,7 +391,7 @@ def test_delete_holds_the_write_lock_from_its_snapshot_on(
     real_plan = store.plan_delete
     outcome = {}
 
-    def racing(db, page_id: PageId, title):
+    def racing(db, page_id: PageId, title: CanonicalTitle):
         plan = real_plan(db, page_id, title)
         con2 = connect(seeded_config.db_path)
         con2.execute("PRAGMA busy_timeout=50")

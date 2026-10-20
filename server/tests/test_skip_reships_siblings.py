@@ -237,11 +237,11 @@ def test_orphan_move_under_a_gone_parent_reships_nothing(client, seeded_config):
     assert journalled & {"sib_s1", "sib_s3", "sib_s4", "sib_k3"} == set()
 
 
-def _page_id(seeded_config, title):
+def _page_id(seeded_config, title_text: str):
     con = open_db(seeded_config.db_path)
     try:
         row = con.select_one(
-            "SELECT id AS page_id FROM pages WHERE title = ?", (title,))
+            "SELECT id AS page_id FROM pages WHERE title = ?", (title_text,))
         assert row is not None
         return row["page_id"]
     finally:

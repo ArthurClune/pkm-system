@@ -3,7 +3,7 @@ import pytest
 
 from pkm.server.db import open_db
 from pkm.server.query import QueryParseError, parse_query
-from pkm.test_data.ids import canonical_query_node_of
+from pkm.test_data.ids import raw_title_of, canonical_query_node_of
 from pkm.database import connect
 
 
@@ -125,7 +125,7 @@ def test_query_endpoint_bad_expr_400(client):
 def test_plan_sql_expand_duplicates_params():
     from pkm.server.query import QueryNode, plan_sql
     sql, params = plan_sql(
-        canonical_query_node_of(QueryNode("page", "AI")), expand=True)
+        canonical_query_node_of(QueryNode("page", raw_title_of("AI"))), expand=True)
     assert params == ["AI", "AI"]
     assert "UNION" in sql
 

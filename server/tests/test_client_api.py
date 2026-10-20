@@ -7,6 +7,7 @@ from pkm.client.api import PkmClient, login
 from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.contracts.ops import UID_RE, CreateOp, CreatePageOp, new_uid
 from pkm.contracts.responses import Backlinks, PagePayload
+from pkm.contracts.titles import RawTitle
 from pkm.server.db import open_db
 from pkm.test_data.ids import raw_title_of
 
@@ -449,7 +450,7 @@ def test_get_backlinks_gives_up_loudly_if_ordering_never_stabilizes(
     later offset, so the fetch can never converge on a stable, complete
     set. Rather than eventually returning a possibly-incomplete result,
     it must raise: no silent truncation, in either direction."""
-    def flaky_get_page(title, bl_limit=100, bl_offset=0):
+    def flaky_get_page(title: RawTitle, bl_limit=100, bl_offset=0):
         return PagePayload.model_validate(
             {"page": {"id": 1, "title": "X", "created_at": None,
                       "updated_at": None},

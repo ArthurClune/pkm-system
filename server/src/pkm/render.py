@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, tzinfo
 
 from pkm.contracts.ops import BlockUid
+from pkm.contracts.titles import RawTitle
 from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
                                      BlockPayload, BlockRefText, ChangedPayload,
                                      GoodlinksCheckPayload, GroupsPayload,
@@ -152,7 +153,7 @@ def render_changed(payload: ChangedPayload, tz: tzinfo) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_backlinks(title: str, backlinks: Backlinks) -> str:
+def render_backlinks(title: RawTitle, backlinks: Backlinks) -> str:
     lines = [f"# Backlinks: {title} ({backlinks.total_pages} pages)"]
     for g in backlinks.groups:
         lines.append("")

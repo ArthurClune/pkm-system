@@ -1101,13 +1101,15 @@ def test_replay_chains_unlink_then_retitle():
     assert base == text_hash(t2)
 
 
-def _top_create(title: str, text: str) -> CreateOp:
-    return CreateOp(op="create", uid="uid_c0000001", page_title=title,
+def _top_create(title_text: str, text: str) -> CreateOp:
+    return CreateOp(op="create", uid="uid_c0000001",
+                    page_title=raw_title_of(title_text),
                     parent_uid=None, order_idx=0, text=text)
 
 
-def _top_move(title: str) -> MoveOp:
-    return MoveOp(op="move", uid="uid_m0000001", page_title=title,
+def _top_move(title_text: str) -> MoveOp:
+    return MoveOp(op="move", uid="uid_m0000001",
+                  page_title=raw_title_of(title_text),
                   parent_uid=None, order_idx=0)
 
 

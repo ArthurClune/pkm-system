@@ -77,13 +77,13 @@ from pkm.test_data.ids import canonical_title_of, raw_title_of
 from pkm.database import connect
 
 
-def _ct(title: str) -> CanonicalTitle:
+def _ct(title_text: str) -> CanonicalTitle:
     """fetch_page takes a CanonicalTitle; these tests probe it directly
     with deliberately blank/padded/forbidden strings, which are never
     minted through canonicalize_title -- `canonical_title_of` mints them at
     this one fixture point rather than threading the real canonicalizer
     through every assertion."""
-    return canonical_title_of(title)
+    return canonical_title_of(title_text)
 
 
 CONTROL_ONLY = "\n\t"          # contains a control ws char
@@ -142,17 +142,17 @@ def test_get_or_create_page_raises_on_control_whitespace_only_title(tmp_path):
     db.close()
 
 
-@pytest.mark.parametrize("title", FORBIDDEN_TITLES)
+@pytest.mark.parametrize("title_text", FORBIDDEN_TITLES)
 def test_get_or_create_page_rejects_forbidden_title_before_creating(
-        tmp_path, title):
+        tmp_path, title_text):
     db = _fresh_db(tmp_path)
 
     with pytest.raises(ValueError, match="unsupported page-title syntax") as exc:
-        get_or_create_page(db, raw_title_of(title), 123)
+        get_or_create_page(db, raw_title_of(title_text), 123)
 
     assert type(exc.value) is store.ForbiddenTitleError
-    assert exc.value.title == title
-    assert fetch_page(db, _ct(title)) is None
+    assert exc.value.title == title_text
+    assert fetch_page(db, _ct(title_text)) is None
     db.close()
 
 
@@ -253,16 +253,16 @@ def test_move_op_cross_page_whitespace_only_title_does_not_wedge(
     assert any("Machine Learning" in b["text"] for b in body["blocks"])
 
 
-@pytest.mark.parametrize("title", FORBIDDEN_TITLES)
+@pytest.mark.parametrize("title_text", FORBIDDEN_TITLES)
 def test_post_pages_route_rejects_forbidden_title_without_creating_page(
-        client, seeded_config, title):
+        client, seeded_config, title_text):
     before = _titles(seeded_config)
 
-    response = client.post("/api/pages", json={"title": title})
+    response = client.post("/api/pages", json={"title": title_text})
 
     assert response.status_code == 422
     assert response.json()["detail"] == (
-        f"unsupported page-title syntax: {title!r}"
+        f"unsupported page-title syntax: {title_text!r}"
     )
     assert _titles(seeded_config) == before
 

@@ -220,7 +220,7 @@ def _conflict_landing(db: Db, target_uid: BlockUid,
                            entry_uid=new_uid(), header=header)
 
 
-def _existing_page_id(db: Db, title: str) -> PageId | None:
+def _existing_page_id(db: Db, title: RawTitle) -> PageId | None:
     """The page `_resolve_page` would return for title, if it exists
     already; never creates one."""
     canonical = read_title(db, title)

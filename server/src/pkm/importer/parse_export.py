@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pkm.edn import Tagged
 from pkm.contracts.ops import BlockUid
+from pkm.contracts.titles import RawTitle, as_raw_title
 
 CONSUMED_ATTRS: frozenset[str] = frozenset({
     ":node/title", ":block/uid", ":block/string", ":block/order",
@@ -30,7 +31,7 @@ class Block:
 
 @dataclass(frozen=True)
 class Page:
-    title: str
+    title: RawTitle
     created_at: int | None
     edited_at: int | None
     children: tuple[Block, ...]
@@ -127,7 +128,7 @@ def parse_export(db: object) -> Export:
         if ":node/title" not in ent:
             continue
         pages.append(Page(
-            title=ent[":node/title"],
+            title=as_raw_title(ent[":node/title"]),
             created_at=ent.get(":create/time"),
             edited_at=ent.get(":edit/time"),
             children=_children(ent, frozenset({eid})),

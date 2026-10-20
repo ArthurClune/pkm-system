@@ -1,11 +1,11 @@
 ---
 # pkm-9hn0
 title: Backlink chips mix canonical and padded ref titles under the plain-space flag
-status: todo
+status: completed
 type: bug
 priority: normal
 created_at: 2026-10-19T15:59:04Z
-updated_at: 2026-10-19T15:59:04Z
+updated_at: 2026-10-20T10:15:14Z
 ---
 
 ## Symptom
@@ -42,6 +42,10 @@ meta `titleReader`), so every chip and filter entry is a CanonicalTitle.
 pkm-hc95's title naming will make `Chip.title`/`FilterState` say which kind
 they hold.
 
-- [ ] failing test
-- [ ] canonicalize chip titles
-- [ ] troubleshooting.md row
+- [x] failing test
+- [x] canonicalize chip titles
+- [x] troubleshooting.md row
+
+## Summary of Changes
+
+The main thread now keeps a copy of the plain-space title flag (sync/titleCanonicalization.ts). It is seeded from ReplicaInit and updated from every snapshot and changes payload replicaSync receives. It defaults to off, and an online-only tab, where the replica is unusable, stays off. backlinkFilter canonicalizes the ref titles it extracts, and re-reads filter entries, with that reader, so chips, filters and the page's own title compare as CanonicalTitle. One pure TitleReader constructor (replica/titles.ts titleReaderFor) now serves both the worker and the main thread. Docs: a troubleshooting.md row and a note in sync-and-offline.md. Checks: the web verify gate, perf (frontend: no change) and the web sync property suite pass.

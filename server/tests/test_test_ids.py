@@ -5,7 +5,6 @@ import pytest
 import rawread
 from pkm.brand_registry import MALFORMED, SHAPES, TEST_HELPERS, WEB_BRANDS
 from pkm.database import Db, connect
-from pkm.server.query import QueryNode
 from pkm.test_data import ids
 
 SHA = "0" * 64
@@ -80,7 +79,6 @@ VALID = {
     "conversation_id_of": "conv-1", "confirm_id_of": "confirm-1",
     "goodlinks_id_of": "gl-1", "raw_title_of": "a title", "normalized_title_of": "a title",
     "canonical_title_of": "A Title",
-    "canonical_query_node_of": QueryNode("page", ids.raw_title_of("a")),
 }
 
 
@@ -90,11 +88,6 @@ def test_every_server_helper_returns_its_value():
     assert helpers == set(VALID)
     for name, value in VALID.items():
         assert getattr(ids, name)(value) == value
-
-
-def test_the_query_node_helper_rejects_another_type():
-    with pytest.raises(ValueError, match="CanonicalQueryNode"):
-        ids.canonical_query_node_of("page")  # pyrefly: ignore[bad-argument-type]
 
 
 def _db(tmp_path: Path) -> Db:

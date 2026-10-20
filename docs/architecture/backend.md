@@ -716,8 +716,8 @@ uses to plan and apply against the post-activation state before the flag
 flips; and `refs.canonical_daily_title`, whose fixed format is canonical
 under either flag setting. `store.fetch_page`, the rename/merge/retitle/sidebar-insert helpers
 in `store.py`, `routes_search.py`'s todos/changed page filter, `query.py`'s
-`plan_sql` (via a `CanonicalQueryNode` wrapper only `parse_canonical_query`
-mints), and the row-mapped `InventoryPage`/`InventorySidebar` in
+`plan_sql` (a `QueryNode[CanonicalTitle]`, which only
+`parse_canonical_query` produces), and the row-mapped `InventoryPage`/`InventorySidebar` in
 `pkm/title_migration.py` all take `CanonicalTitle`; `refs.Ref.title` is
 `NormalizedTitle`. pyrefly therefore flags a title reaching any of those
 without going through a mint point. Two things it cannot catch: an

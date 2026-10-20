@@ -144,9 +144,6 @@ def test_an_internal_newtype_is_a_brand_for_rule_2(tmp_path: Path):
     assert [v.rule for v in check_text(ROUTES, "x = Hidden(raw)\n", registry)] == ["brand-mint"]
 
 
-def test_the_canonical_query_node_is_minted_only_in_query_exec():
-    assert rules("x = CanonicalQueryNode(n)\n", ROUTES) == ["brand-mint"]
-    assert rules("x = CanonicalQueryNode(n)\n", "server/src/pkm/server/query_exec.py") == []
 
 
 PERFCHECK = "server/tooling/perfcheck/trace.py"

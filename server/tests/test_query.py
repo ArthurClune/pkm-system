@@ -3,14 +3,14 @@ import pytest
 
 from pkm.server.db import open_db
 from pkm.server.query import QueryParseError, parse_query
-from pkm.test_data.ids import raw_title_of, canonical_query_node_of
+from pkm.test_data.ids import canonical_title_of
 from pkm.database import connect
 
 
 def test_parse_simple_and():
     node = parse_query("{and: [[Paper]] [[Attention Is All You Need]]}")
     assert node.kind == "and"
-    assert [c.title for c in node.children] == \
+    assert [c.operand for c in node.children] == \
         ["Paper", "Attention Is All You Need"]
 
 
@@ -18,13 +18,13 @@ def test_parse_nested_or_and_not():
     node = parse_query("{and: [[A]] {or: [[B]] [[C]]} {not: [[D]]}}")
     kinds = [c.kind for c in node.children]
     assert kinds == ["page", "or", "not"]
-    assert [c.title for c in node.children[1].children] == ["B", "C"]
-    assert node.children[2].children[0].title == "D"
+    assert [c.operand for c in node.children[1].children] == ["B", "C"]
+    assert node.children[2].children[0].operand == "D"
 
 
 def test_parse_nested_bracket_title():
     node = parse_query("{and: [[A [[B]] c]]}")
-    assert node.children[0].title == "A [[B]] c"
+    assert node.children[0].operand == "A [[B]] c"
 
 
 @pytest.mark.parametrize("bad,msg", [
@@ -123,9 +123,10 @@ def test_query_endpoint_bad_expr_400(client):
 
 
 def test_plan_sql_expand_duplicates_params():
+    from pkm.contracts.titles import CanonicalTitle
     from pkm.server.query import QueryNode, plan_sql
     sql, params = plan_sql(
-        canonical_query_node_of(QueryNode("page", raw_title_of("AI"))), expand=True)
+        QueryNode[CanonicalTitle]("page", canonical_title_of("AI")), expand=True)
     assert params == ["AI", "AI"]
     assert "UNION" in sql
 

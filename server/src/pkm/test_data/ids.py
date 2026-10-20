@@ -26,7 +26,6 @@ from pkm.contracts.titles import (
     RawTitle,
     as_raw_title,
 )
-from pkm.server.query import CanonicalQueryNode, QueryNode
 
 
 def _text(brand: str, value: str) -> str:
@@ -105,10 +104,6 @@ def canonical_title_of(value: str) -> CanonicalTitle:
     return CanonicalTitle(normalized_title_of(value))
 
 
-def canonical_query_node_of(value: QueryNode) -> CanonicalQueryNode:
-    if not isinstance(value, QueryNode):
-        raise ValueError(f"CanonicalQueryNode takes a QueryNode, not {type(value).__name__}: {value!r}")
-    return CanonicalQueryNode(value)
 
 
 def malformed_uid(value: str | None) -> BlockUid:

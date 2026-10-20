@@ -17,10 +17,9 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from pkm.database import Db
-from pkm.refs import CanonicalTitle
+from pkm.contracts.titles import CanonicalTitle, RawTitle
 from pkm.rows import Row
-from pkm.server.query import (CanonicalQueryNode, QueryNode, page_operands,
-                              parse_query)
+from pkm.server.query import QueryNode, page_operands, parse_query
 from pkm.server.sync_meta import title_reader
 
 # Excludes a query's own matching blocks from its results: a block whose
@@ -33,29 +32,30 @@ _SOURCE_FILTER = (
 
 
 def parse_canonical_query(db: Db,
-                          expr: str) -> CanonicalQueryNode:
+                          expr: str) -> QueryNode[CanonicalTitle]:
     """`parse_query`, with every [[Page]] operand canonicalised. Operands
     are compared against `pages.title`, so `[[ Foo ]]` (spaces inside the
     brackets) must reach the plan as the canonical "Foo", the page the same
     [[ Foo ]] link resolves to. Raises `QueryParseError` like
-    `parse_query`. The general mint point for `CanonicalQueryNode` -- `plan_sql`
-    takes nothing else, so a tree that skipped this never reaches SQL."""
+    `parse_query`. The only source of a `QueryNode[CanonicalTitle]`, which
+    `plan_sql` alone accepts, so a tree that skipped this never reaches SQL."""
     node = parse_query(expr)
-    return CanonicalQueryNode(_canonical_titles(title_reader(db), node))
+    return _canonical_titles(title_reader(db), node)
 
 
-def page_queries(node: CanonicalQueryNode) -> dict[str, CanonicalQueryNode]:
+def page_queries(node: QueryNode[CanonicalTitle]
+                 ) -> dict[CanonicalTitle, QueryNode[CanonicalTitle]]:
     """Each [[Page]] operand of a canonical tree as a tree of its own, keyed
-    by its title: canonical because it is drawn out of `node`."""
-    return {title: CanonicalQueryNode(QueryNode("page", title))
+    by its title."""
+    return {title: QueryNode("page", title)
             for title in page_operands(node)}
 
 
 def _canonical_titles(canonical: Callable[[str], CanonicalTitle],
-                      node: QueryNode) -> QueryNode:
+                      node: QueryNode[RawTitle]) -> QueryNode[CanonicalTitle]:
     if node.kind == "page":
-        assert node.title is not None
-        return QueryNode("page", canonical(node.title))
+        assert node.operand is not None
+        return QueryNode("page", canonical(node.operand))
     return QueryNode(node.kind, None,
                      tuple(_canonical_titles(canonical, c)
                            for c in node.children))

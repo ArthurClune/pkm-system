@@ -81,12 +81,16 @@ is focused on open.
   other, so `shrgeo` and `llm geom` both find
   `Papers/Machine Learning/LLMs/SHARED GEOMETRY AS A ROSETTA STONE.pdf`.
   Every word must match. Matched characters are highlighted.
-- Ranking by match quality: contiguous runs and matches at word starts
-  score higher; matches in the file name beat matches only in folder
-  names; shorter paths break ties. *(my call on the exact scoring)*
-  Whether to hand-write the scorer (a small Functional Core) or use a
-  library is the builder's call; a library must fit the bundle budgets
-  (`pnpm verify` enforces them).
+- Matching and ranking come from the `fzf` npm package (fzf-for-js, a
+  port of fzf's own algorithm), so the picker behaves like the fzf Arthur
+  uses in the terminal (Arthur's choice). It uses `extendedMatch`, which
+  gives the terminal's search syntax: space-separated terms all must
+  match, `'exact`, `^prefix`, `suffix$`, `!exclude`. Casing is
+  `case-insensitive` rather than fzf's default smart-case (Arthur). fzf's
+  scores are not adjusted. Ties (common: two contiguous matches score
+  the same) go first to the item whose matched characters all fall in
+  the file name, then to the shorter path. *(my call)* The package
+  must fit the bundle budgets (`pnpm verify` enforces them).
 - Clearing the box returns to the folder that was being browsed.
 
 **Picking.** Click/tap a file, or ↑/↓ then Enter. The block gets, at the
@@ -94,7 +98,14 @@ recorded offset:
 
     Local copy:: [SHARED GEOMETRY AS A ROSETTA STONE.pdf](/api/local/Papers/Machine%20Learning/LLMs/SHARED%20GEOMETRY%20AS%20A%20ROSETTA%20STONE.pdf)
 
-Link text is the file name (with extension). The splice is exactly
+Link text is the file name (with extension), exactly, whenever the
+app's own link reader (`scanMarkdownLinkAt`) reads the inserted link
+back with that label and that href. Only when it would not (unbalanced
+`[`/`]`, or a name starting with `[`, which reads as a `[[page]]` link)
+are the label's `[`/`]` replaced with `(`/`)`. The href always encodes
+the real name, so the link opens the right file either way. No file in
+the folder has a bracket today. The picker always shows and matches the
+real name (Arthur: every file must be pickable). The splice is exactly
 `/goodlinks`'s: at the recorded offset, whatever precedes it. Arthur
 types the command in a fresh block, so text before the cursor turning
 the attribute into a mis-named one is accepted, deliberately, as it is
@@ -168,7 +179,6 @@ handles that case (503 + `brctl download`). Arthur confirmed: offer it.
 - How the splice is wired (`/goodlinks`'s `spliceUploadedMarkdown` path
   in `useOutline`, or the `/date` in-textarea path), as long as the
   result matches `/goodlinks`.
-- Escaping of `[`/`]` in the link text for file names that contain them.
 
 ## Docs to update in the same branch
 

@@ -21,13 +21,13 @@
 - Hrefs come only from `local_docs.local_href`. The web never percent-encodes a path.
 - No cap on the number of results (Arthur: silent truncation is worse than a long list).
 - Search is case-insensitive.
-- No new npm or Python dependency.
+- One new runtime dependency, `fzf` (`"fzf": "^0.5.2"` in `web/package.json`, added with `pnpm add fzf@^0.5.2`). Nothing else new.
 - Slash labels are lowercase. The new command is `{ name: "link-local-file", label: "link to local file…" }`.
 
 ## Review Focus
 
 1. **Awkward file names:** names with `%`, `#`, `?`, `(`, `)`, `[`, `]` or non-ASCII characters (macOS stores names decomposed). The inserted href must open that exact file. Owned by Task 2: `test_every_index_href_is_served`, a round trip over the whole fixture.
-2. **`[`/`]` in a file name** must not break the markdown link. Owned by Task 3: `localCopyAttribute` brackets test.
+2. **`[`/`]` in a file name** must not break the markdown link, and a name whose brackets the link can carry must keep them. Owned by Task 3: the `localCopyAttribute` tests, which read the result back with `scanMarkdownLinkAt`.
 3. **The block changes while the picker is open** (the block is deleted, or edited elsewhere). The splice must clamp or no-op, never throw. Owned by Task 5: the `onLinkLocalFile` missing-block test.
 4. **A configured but empty folder** (or one with only hidden files) shows "No files", not a blank panel. Owned by Task 4.
 5. **Picking while the list is still loading, or after closing.** No insert happens after Esc or a click outside. Owned by Task 4: the Esc test asserts `onPick` is never called.
@@ -180,6 +180,7 @@ The parametrised test's setup is the implementer's to write. Blocking and denied
 
 **Files:**
 - Create: `web/src/outline/localFiles.ts` (Functional Core)
+- Modify: `web/package.json`, `web/pnpm-lock.yaml` (`pnpm add fzf@^0.5.2`)
 - Test: `web/src/outline/localFiles.test.ts`
 
 **Interfaces:**
@@ -189,22 +190,20 @@ The parametrised test's setup is the implementer's to write. Blocking and denied
   - `export function folderListing(files: readonly LocalFile[], folder: string): { folders: string[]; files: LocalFile[] }`. `folder` is `""` for the root or a `/`-joined path with no trailing slash. It returns the immediate child folder names and the files directly in `folder`, each sorted by `localeCompare(…, undefined, { sensitivity: "base" })`.
   - `export function fileName(path: string): string` and `export function folderOf(path: string): string`.
   - `export interface LocalMatch { file: LocalFile; score: number; nameRanges: [number, number][]; folderRanges: [number, number][] }`. The ranges are half-open and index into `fileName(path)` and `folderOf(path)` respectively.
-  - `export function searchLocalFiles(files: readonly LocalFile[], query: string): LocalMatch[]`. Every match is returned, best first, with no cap. A query that is empty or only whitespace returns `[]`; the picker browses instead.
-  - `export function localCopyAttribute(file: LocalFile): string`. Returns `Local copy:: [<label>](<href>)`, where the label is `fileName(path)` with `[` replaced by `(` and `]` by `)`. `scanMarkdownLinkAt` has no escapes, so an unbalanced bracket in the label would break the link.
+  - `export function searchLocalFiles(files: readonly LocalFile[], query: string): LocalMatch[]`. Every match is returned, best first, with no cap. A query that is empty or only whitespace returns `[]` (fzf itself would return everything); the picker browses instead.
+  - `export function localCopyAttribute(file: LocalFile): string`. Returns `Local copy:: [<label>](<href>)`. The label is `fileName(path)` unchanged when `scanMarkdownLinkAt` on the result, at the label's `[`, returns a link whose label text equals the file name and whose destination equals the href. Otherwise the label's `[` and `]` become `(` and `)`. Test by reading the link back, never by pattern-matching the name.
 
-The scoring algorithm, which the signature and tests don't settle:
-- Lower-case the query and the path.
-- Split the query on whitespace. Each word must match as a subsequence of the path, or there is no match.
-- For each word, take the first greedy forward match, then tighten it backward from its last matched character (fzf v1). This gives a short window.
-- Score per word:
-  - +16 per matched character;
-  - +8 when the character starts a word (index 0, or the previous character is one of ` /_-.()`);
-  - +4 when the previous character also matched;
-  - −1 per unmatched character inside the window;
-  - +24 when the whole window lies inside the file name.
-- Total = the sum over words.
-- Sort by score descending, then shorter `path`, then `path` with `localeCompare`.
-- Highlight ranges are the union of matched indices, split into the file-name part and the folder part and merged into runs.
+Search uses the `fzf` package, with fzf's scores left as they are:
+- `new Fzf(files, { selector: (f) => f.path, match: extendedMatch, casing: "case-insensitive", tiebreakers: [byNameMatch, byLengthAsc] })`. Leave `limit`, `normalize`, `fuzzy` (v2) and `forward` at their defaults.
+- `byNameMatch` is a local `Tiebreaker<LocalFile>`. It puts first the item whose `positions` all lie at or after the start of the file name.
+- Build one `Fzf` per index. The picker memoises it on the files array; the core function may build it per call, which is cheap at this size.
+- Highlight ranges come from `positions` (indices into `path`), split at the last `/` into the folder part and the name part and merged into half-open runs.
+
+Checked against fzf 0.5.2 with these options:
+- `shrgeo` ranks SHARED GEOMETRY first (136, against 67 and 56 for the others).
+- `llm geom` matches only that file.
+- `category` scores 200 for both `Category/notes.pdf` and `Misc/Category theory.pdf`, so the tie goes through the tiebreakers.
+- `'Theory !Books` matches nothing in the four-file list.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -249,9 +248,27 @@ test("highlight ranges index into name and folder separately", () => {
   expect(m.folderRanges).toEqual([[7, 10]]);
 });
 
-test("localCopyAttribute uses the server href and neutralises brackets", () => {
-  expect(localCopyAttribute({ path: "P/br[ack]et.pdf", href: "/api/local/P/br%5Back%5Det.pdf" }))
-    .toBe("Local copy:: [br(ack)et.pdf](/api/local/P/br%5Back%5Det.pdf)");
+test("fzf's extended syntax works as in the terminal", () => {
+  const top = (q: string) => searchLocalFiles(files, q).map((m) => m.file.path);
+  expect(top("'Theory !Books")).toEqual([]);
+  expect(top("'Theory")).toEqual([files[2].path]);
+  expect(top("pdf$ ^White")).toEqual([files[3].path]);
+});
+
+test("localCopyAttribute keeps the real name whenever the link reads back", () => {
+  expect(localCopyAttribute({ path: "P/x [draft] y.pdf", href: "/api/local/P/x%20%5Bdraft%5D%20y.pdf" }))
+    .toBe("Local copy:: [x [draft] y.pdf](/api/local/P/x%20%5Bdraft%5D%20y.pdf)");
+  expect(localCopyAttribute({ path: "P/plain.pdf", href: "/api/local/P/plain.pdf" }))
+    .toBe("Local copy:: [plain.pdf](/api/local/P/plain.pdf)");
+});
+
+test("localCopyAttribute swaps brackets only when the name would break the link", () => {
+  expect(localCopyAttribute({ path: "P/[2019 draft.pdf", href: "/api/local/P/%5B2019%20draft.pdf" }))
+    .toBe("Local copy:: [(2019 draft.pdf](/api/local/P/%5B2019%20draft.pdf)");
+  expect(localCopyAttribute({ path: "P/[a] b.pdf", href: "/api/local/P/%5Ba%5D%20b.pdf" }))
+    .toBe("Local copy:: [(a) b.pdf](/api/local/P/%5Ba%5D%20b.pdf)");  // leading "[[" reads as a page link
+  expect(localCopyAttribute({ path: "P/a ]b.pdf", href: "/api/local/P/a%20%5Db.pdf" }))
+    .toBe("Local copy:: [a )b.pdf](/api/local/P/a%20%5Db.pdf)");
 });
 
 test("regex metacharacters in the query are literal", () => {
@@ -261,9 +278,10 @@ test("regex metacharacters in the query are literal", () => {
 ```
 
 - [ ] **Step 2: Run them and confirm they fail.** `cd web && pnpm vitest run src/outline/localFiles.test.ts` → FAIL.
-- [ ] **Step 3: Implement `localFiles.ts`.**
-- [ ] **Step 4: Run them and confirm they pass.** Same command → PASS.
-- [ ] **Step 5: Commit.** `feat(web): localFiles core: folder listing, fuzzy search, Local copy attribute (pkm-12a2)`
+- [ ] **Step 3: Add `fzf` and implement `localFiles.ts`.**
+- [ ] **Step 4: Run them and confirm they pass.** Same command → PASS. If an fzf ranking assertion fails, report the scores instead of adjusting them: the rule is "fzf's scores, unadjusted".
+- [ ] **Step 5: Check the bundle budget.** `cd web && pnpm build` and the budget check that `pnpm verify` runs both pass. Note the entry chunk's size change in the commit message.
+- [ ] **Step 6: Commit.** `feat(web): localFiles core: folder listing, fuzzy search, Local copy attribute (pkm-12a2)`
 
 ---
 

@@ -21,7 +21,8 @@ from pkm.contracts.responses import (AppliedBatch, ChangesPayload, EntityKind,
                                         OkAck, OpsAck, SnapshotPayload,
                                         SyncBlock, SyncPage, SyncRef,
                                         SyncSidebarEntry, SyncTombstone)
-from pkm.contracts.strict import StrictModel
+from pkm.contracts.text import WellFormedModel
+from pkm.contracts.int64 import INT64_RANGE, Int64
 from pkm.database import Db
 from pkm.rows import Row, heading_level
 from pkm.server.auth import require_auth
@@ -48,7 +49,7 @@ PendingIds = Annotated[list[str] | None, Query(
 logger = logging.getLogger("pkm.sync")
 
 
-class ClientDiagnosticsRequest(StrictModel):
+class ClientDiagnosticsRequest(WellFormedModel):
     """A replica's self-report, sent before it rebuilds itself."""
     kind: str
     error: str
@@ -257,7 +258,8 @@ def _sidebar_payloads(db: Db,
 
 
 @router.get("/api/sync/changes", response_model=ChangesPayload)
-def sync_changes(since: SyncSeq = NO_SEQ, limit: int = 1000,
+def sync_changes(since: Annotated[SyncSeq, INT64_RANGE] = NO_SEQ,
+                 limit: Int64 = 1000,
                  pending: PendingIds = None,
                  db: Db = Depends(get_db)) -> ChangesPayload:
     """One window of the change journal after `since`, hydrated to current

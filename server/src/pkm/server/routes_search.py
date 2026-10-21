@@ -10,6 +10,7 @@ from pkm.changed import ChangedWindowError, classify, local_tz, parse_window
 from pkm.contracts.responses import (
     ChangedPayload, GroupsPayload, QueryPayload, SearchBlockHit,
     SearchPageHit, SearchPayload, TitlesPayload)
+from pkm.contracts.int64 import Int64
 from pkm.database import Db
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
@@ -27,7 +28,7 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 @router.get("/api/search", response_model=SearchPayload)
-def search(q: str = "", limit: int = 20, exact: bool = False,
+def search(q: str = "", limit: Int64 = 20, exact: bool = False,
            db: Db = Depends(get_db)) -> SearchPayload:
     limit = max(1, min(limit, 100))
     if not q.strip():
@@ -76,7 +77,7 @@ def run_query(expr: str, expand: bool = False,
 
 
 @router.get("/api/titles", response_model=TitlesPayload)
-def titles(q: str = "", limit: int = 10,
+def titles(q: str = "", limit: Int64 = 10,
            db: Db = Depends(get_db)) -> TitlesPayload:
     """Page-title completion for the editor's [[ / # popup."""
     limit = max(1, min(limit, 50))
@@ -127,7 +128,7 @@ def todos(page: str | None = None,
 
 @router.get("/api/changed", response_model=ChangedPayload)
 def changed(since: str, until: str | None = None, page: str | None = None,
-           limit: int = 500,
+           limit: Int64 = 500,
            db: Db = Depends(get_db)) -> ChangedPayload:
     """Blocks touched in [since, until), grouped by page in the order
     each page was first touched. `since`/`until` are each

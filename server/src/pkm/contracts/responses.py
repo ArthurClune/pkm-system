@@ -16,6 +16,7 @@ from typing import Annotated, Literal, NewType
 
 from pydantic import (BaseModel, BeforeValidator, Field, SerializerFunctionWrapHandler, model_serializer)
 from pkm.contracts.strict import StrictModel
+from pkm.contracts.text import WellFormedModel
 
 from pkm.changed import ChangeStatus
 from pkm.contracts.brands import brand
@@ -332,7 +333,7 @@ class LocalIndexPayload(StrictModel):
     files: list[LocalIndexFile]
 
 
-class GoodlinksResolveRequest(StrictModel):
+class GoodlinksResolveRequest(WellFormedModel):
     """POST /api/goodlinks/resolve body. `save` lets the slash command add
     a page GoodLinks does not have yet; the migration script never sets it."""
     url: str = Field(min_length=1, max_length=2000)
@@ -548,7 +549,7 @@ class TitleMigrationAuditPayload(StrictModel):
     blockers: list[TitleMigrationBlocker]
 
 
-class TitleMigrationApplyRequest(StrictModel):
+class TitleMigrationApplyRequest(WellFormedModel):
     # Same 64-lowercase-hex shape as contracts.ops.SHA256_HEX_RE, spelled
     # out again rather than shared: pydantic's pattern validator uses a
     # regex engine that rejects SHA256_HEX_RE's `\Z` anchor, so a body

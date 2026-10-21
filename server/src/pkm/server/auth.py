@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 
 from pkm.contracts.responses import OkAck
-from pkm.contracts.strict import StrictModel
+from pkm.contracts.text import WellFormedModel
 from pkm.server.auth_core import sign_session, verify_password, verify_session
 from pkm.server.config import Config
 from pkm.server.db import get_config
@@ -108,7 +108,7 @@ _LOGIN_HTML = """<!doctype html><title>pkm login</title>
 <button>log in</button></form>"""
 
 
-class LoginBody(StrictModel):
+class LoginBody(WellFormedModel):
     password: str
 
 

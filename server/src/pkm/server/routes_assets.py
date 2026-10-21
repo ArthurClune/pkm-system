@@ -25,6 +25,7 @@ from pkm.contracts.ops import Sha256Hex
 from pkm.contracts.responses import (
     AssetDeleteAck, AssetRef, AssetSearchItem, AssetSearchPayload,
     AssetUploadResponse)
+from pkm.contracts.int64 import Int64
 from pkm.database import Db
 from pkm.describe.core import derive_status
 from pkm.filenames import safe_filename
@@ -95,10 +96,10 @@ def referencing_blocks(db: Db,
 
 
 @router.get("/api/assets/search", response_model=AssetSearchPayload)
-def search_assets(q: str = "", limit: int = 50, offset: int = 0,
+def search_assets(q: str = "", limit: Int64 = 50, offset: Int64 = 0,
                   type_: Literal[""] | AssetCategory
                   = Query("", alias="type"),
-                  from_ms: int | None = None, to_ms: int | None = None,
+                  from_ms: Int64 | None = None, to_ms: Int64 | None = None,
                   linked: Literal["all", "linked", "orphan"] = "all",
                   db: Db = Depends(get_db)) -> AssetSearchPayload:
     """LIKE search over description + filename. Empty q lists

@@ -5,8 +5,8 @@ tokens come in two spellings: the encoded URL the server returns now, for
 any name, and the raw-name URL older uploads wrote, which only ever
 rendered when its parens and brackets were balanced. The property builds
 text from prose and tokens of two assets, removes the first asset's tokens
-by construction, and expects exactly the rest, with the documented
-collapse of doubled spaces and trim.
+by construction, and expects exactly the rest: every other character
+byte for byte, apart from one space beside each removed token.
 """
 import re
 from collections import Counter
@@ -63,6 +63,23 @@ def token(form: str, name: str, sha: Sha256Hex, legacy: bool, image: bool) -> st
     return f"{'!' if image else ''}[{label}]({url})"
 
 
+def expected_after_removal(text: str, spans: list[tuple[int, int]]) -> str:
+    """The text with each span gone and one adjacent space with it (the
+    one before, else the one after, and never a space another span took);
+    whitespace-only text becomes empty. Everything else is untouched."""
+    if not spans:
+        return text
+    taken: set[int] = set()
+    for start, end in spans:
+        taken.update(range(start, end))
+        if start > 0 and text[start - 1] == " " and start - 1 not in taken:
+            taken.add(start - 1)
+        elif end < len(text) and text[end] == " ":
+            taken.add(end)
+    rest = "".join(c for i, c in enumerate(text) if i not in taken)
+    return rest if rest.strip() else ""
+
+
 @st.composite
 def cases(draw):
     legacy = draw(st.booleans())
@@ -72,13 +89,13 @@ def cases(draw):
         st.tuples(st.just("own"), st.just("")),
         st.tuples(st.just("other"), st.just("")),
     ), min_size=1, max_size=5))
-    text, rest = "", ""
+    text = ""
+    spans: list[tuple[int, int]] = []
     shapes = Counter()
     for i, (kind, prose) in enumerate(pieces):
         sep = draw(st.sampled_from([" ", "  ", "\n"])) if i < len(pieces) - 1 else ""
         if kind == "prose":
             text += prose + sep
-            rest += prose + sep
             continue
         name = draw(names)
         form = draw(st.sampled_from(["markdown", "markdown", "macro", "bare"]))
@@ -87,9 +104,10 @@ def cases(draw):
         image = draw(st.booleans())
         sha = SHA_A if kind == "own" else SHA_B
         t = token(form, name, sha, legacy, image)
+        if kind == "own":
+            spans.append((len(text), len(text) + len(t)))
         text += t + sep
         if kind == "own":
-            rest += sep
             shapes["legacy" if legacy else "encoded"] += 1
             shapes[form] += 1
             if image:
@@ -107,9 +125,8 @@ def cases(draw):
             if not name.isascii():
                 shapes["unicode"] += 1
         else:
-            rest += t + sep
             shapes["other-token"] += 1
-    return text, re.sub(r" {2,}", " ", rest).strip(), shapes
+    return text, expected_after_removal(text, spans), shapes
 
 
 def test_strip_asset_tokens_removes_exactly_the_asset_tokens():

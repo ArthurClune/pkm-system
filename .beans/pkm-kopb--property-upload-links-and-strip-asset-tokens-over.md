@@ -40,3 +40,5 @@ spelling; legacy rows are not migrated.
 ## Summary of Changes
 
 Properties over hostile upload names found that names like `[draft].png`, or with an unbalanced `]` or `)`, could not round-trip through the upload markdown and left debris on delete. Under the ruling above: `assets_core.asset_url` percent-encodes the name in every server-built asset URL, `asset_label` and `assetLabel` swap label brackets, `AssetLink` decodes the segment, and the stripper removes both spellings. Added web and server property tests, the `upload_links_parity.json` fixture with both replays, `test_asset_urls.py`, and the docs rows.
+
+Follow-up: the property also showed `strip_asset_tokens` rewrote unrelated spacing (a whole-text collapse of doubled spaces plus trim). Removal is now narrowed to the removal sites: each removed token (markdown, pdf macro, bare URL) takes one adjacent space, the one before else the one after; every other character is kept byte for byte, and a whitespace-only result is "".

@@ -2,7 +2,8 @@
 // tokens for one asset (link, image, pdf macro, bare URL), as the upload
 // path writes them with the server's encoded URLs or as old uploads wrote
 // them with the raw name, and tokens for another asset. Each case carries
-// the text left once the first asset's tokens are gone.
+// the text left once the first asset's tokens are gone, each taking one
+// adjacent space with it.
 // server/tests/test_upload_links_parity.py holds strip_asset_tokens to it.
 // Regenerate the file after a deliberate change with
 // UPDATE_UPLOAD_LINKS_FIXTURE=1; the sample is deterministic (fixed seed), so
@@ -32,6 +33,22 @@ function tokenText(
   if (kind === "bare") return href;
   if (!legacy) return assetMarkdown({ filename: name, mime, url: href } as AssetInfo);
   return `${mime.startsWith("image/") ? "!" : ""}[${name}](${href})`;
+}
+
+// The text with each span gone and one adjacent space with it (the one
+// before, else the one after, never one another span took); whitespace-only
+// text becomes empty. Twin of the server's strip_asset_tokens rule.
+function removeSpans(text: string, spans: [number, number][]): string {
+  if (spans.length === 0) return text;
+  const taken = new Set<number>();
+  for (const [start, end] of spans) {
+    for (let i = start; i < end; i += 1) taken.add(i);
+    if (start > 0 && text[start - 1] === " " && !taken.has(start - 1)) taken.add(start - 1);
+    else if (end < text.length && text[end] === " ") taken.add(end);
+  }
+  let rest = "";
+  for (let i = 0; i < text.length; i += 1) if (!taken.has(i)) rest += text[i];
+  return rest.trim() === "" ? "" : rest;
 }
 
 const tokenArb = (legacy: boolean) =>
@@ -64,13 +81,12 @@ const caseArb = fc
     const other = otherRaw === sha ? `${otherRaw.slice(1)}0` : otherRaw;
     const toks = legacy ? old : fresh;
     let text = "";
-    let rest = "";
+    const spans: [number, number][] = [];
     pieces.forEach((piece, i) => {
       const sep = i < pieces.length - 1 ? seps[i] : "";
       const t = toks[i];
       if ("prose" in piece) {
         text += piece.prose + sep;
-        rest += piece.prose + sep;
         return;
       }
       const own = piece.own;
@@ -81,11 +97,10 @@ const caseArb = fc
           ? "markdown"
           : t.form;
       const s = tokenText(form, t.name, t.mime, own ? sha : other, legacy);
+      if (own) spans.push([text.length, text.length + s.length]);
       text += s + sep;
-      rest += (own ? "" : s) + sep;
     });
-    // strip_asset_tokens collapses doubled spaces and trims
-    const remainder = rest.replace(/ {2,}/g, " ").trim();
+    const remainder = removeSpans(text, spans);
     return { sha, legacy, text, remainder };
   });
 

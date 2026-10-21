@@ -45,7 +45,9 @@ The three management endpoints behind the `/files` browser share
   the row, then unlinks the file after the commit. `strip_asset_tokens` finds
   markdown links with the web's rule (`grammar/markdown.ts`), and removes both
   URL spellings: the percent-encoded name `asset_url` returns now, and the raw
-  name older uploads wrote. A crash then leaves at worst
+  name older uploads wrote. Each removed token takes one adjacent space with
+  it and every other character stays byte for byte; a text left holding only
+  whitespace becomes empty. A crash then leaves at worst
   an unreferenced file on disk, never a row pointing at a missing file. A block
   left empty *and* childless is deleted outright, but an emptied parent is kept:
   asset deletion must never cascade away real content. Asset URLs never produce

@@ -20,6 +20,24 @@ def test_strips_image_token():
     assert strip_asset_tokens(f"diagram: ![alt]({URL})", SHA) == "diagram:"
 
 
+def test_strip_keeps_leading_and_inner_double_spaces():
+    text = f"  code  ![a]({URL})  tail"
+    assert strip_asset_tokens(text, SHA) == "  code   tail"
+
+
+def test_strip_takes_the_space_after_when_none_comes_before():
+    assert strip_asset_tokens(f"[a]({URL}) b  c", SHA) == "b  c"
+    assert strip_asset_tokens(f"x\n[a]({URL}) y", SHA) == "x\ny"
+
+
+def test_strip_whitespace_only_result_is_empty():
+    assert strip_asset_tokens(f"  [a]({URL})  ", SHA) == ""
+
+
+def test_strip_without_a_token_returns_the_text_untouched():
+    assert strip_asset_tokens("  a  b  ", SHA) == "  a  b  "
+
+
 def test_strips_link_token():
     assert (strip_asset_tokens(f"see [notes]({URL}) here", SHA)
             == "see here")

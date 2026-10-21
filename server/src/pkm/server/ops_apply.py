@@ -15,7 +15,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                UpdateTextOp, new_uid)
 from pkm.contracts.responses import SkippedOp
 from pkm.database import Db
-from pkm.contracts.titles import RawTitle, as_raw_title
+from pkm.contracts.titles import UNTITLED_PAGE_TITLE, RawTitle
 from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
                       normalize_title)
 from pkm.rows import Row
@@ -55,7 +55,6 @@ _AddressedOp = Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
 # so instead of raising BlankTitleError up to the caller it resolves to this
 # fixed, always-valid title -- get_or_create semantics, so repeated blank
 # titles all land on the same page rather than minting one each.
-UNTITLED_PAGE_TITLE = as_raw_title("Untitled")
 
 
 def _resolve_page(db: Db, title: RawTitle,

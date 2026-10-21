@@ -797,7 +797,8 @@ once the flag is active. The entry points are:
 The page routes use the DOTALL `wholepath` convertor (`server/wholepath.py`),
 not Starlette's `path`. `path` stops before a final newline, so `Foo%20%0A`
 would reach the route as `Foo ` and miss `Foo`, and an inner newline matches
-no route. `tests/test_title_routes_props.py` checks every title-taking route
+no route. The SPA fallback uses it too, so a cold load of `/page/Fo%0Ao`
+serves index.html. `tests/test_title_routes_props.py` checks every title-taking route
 and CLI verb against a generated spelling of each title; its route list comes
 from the OpenAPI document, so a new title-taking route fails it until covered.
 

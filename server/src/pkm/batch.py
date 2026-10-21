@@ -24,8 +24,8 @@ from pkm.contracts.text import WellFormedModel
 from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, DeleteOp, MoveOp,
                                Sha256Hex, UpdateTextOp, subtree_hash)
 from pkm.contracts.responses import BlockNode, walk_blocks
-from pkm.contracts.titles import RawTitle
-from pkm.refs import canonicalize_title, normalize_title
+from pkm.contracts.titles import UNTITLED_PAGE_TITLE, RawTitle
+from pkm.refs import canonicalize_title, is_blank_title, normalize_title
 from pkm.planning import (BuildError, Planner, parse_uid_spec, plan_update,
                           resolve_parent)
 
@@ -267,12 +267,11 @@ def page_keys(spellings: Sequence[RawTitle],
     `plain_space` is the server's flag; None when `title_flag_needed` said
     the spellings do not depend on it, and then the flag-free fold
     (`normalize_title`) already joins every pair that names one page. A
-    spelling that folds to nothing keeps itself: an op's page title is
-    never empty, and the server files a blank one as Untitled."""
+    blank spelling takes the key of Untitled, where the server files it."""
     def key(page: RawTitle) -> RawTitle:
         folded = (normalize_title(page) if plain_space is None
                   else canonicalize_title(page, plain_space=plain_space))
-        return folded or page
+        return UNTITLED_PAGE_TITLE if is_blank_title(folded) else folded
     return {s: key(s) for s in spellings}
 
 

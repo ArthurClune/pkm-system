@@ -18,6 +18,7 @@ import json
 import shutil
 import sys
 import tempfile
+from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
@@ -54,9 +55,40 @@ CONTROL = "\t\n\r\f\v"
 SEEDED_DAILY = "July 7th, 2026"
 
 
+# What the running property drew, by label: the reach floors read it.
+SEEN: Counter[str] = Counter()
+
+
 def event(label: str) -> None:
     if currently_in_test_context():
         _event(label)
+        SEEN[label] += 1
+
+
+# A label that missed some seed entirely has no floor.
+ROUTE_FLOORS = {
+    "NBSP gap in title": 0.02, "daily title": 0.025, "refused title": 0.045,
+    "slash in title": 0.075,
+    "flag active, identity variant": 0.006, "flag active, padded variant": 0.015,
+    "flag active, padded_control variant": 0.05,
+    "flag inactive, control variant": 0.007, "flag inactive, identity variant": 0.006,
+}
+CLI_FLOORS = {
+    "batch spellings that only the flag can fold": 0.028, "daily title": 0.045,
+    "flag active, padded_control variant": 0.015,
+    "flag inactive, identity variant": 0.013,
+}
+
+
+def assert_reach(floors: dict[str, float]) -> None:
+    """Each label in at least its share of the examples run, so a property
+    cannot go vacuous on a case without failing. A floor is about half the
+    lowest rate its label reached over 60 seeds; a floor near the typical
+    rate fails on an unlucky seed with nothing wrong."""
+    examples = SEEN["example"]
+    assert examples > 0
+    for name, share in floors.items():
+        assert SEEN[name] > examples * share, (name, SEEN[name], examples)
 
 
 # Words never hold whitespace, `#` or a backtick; brackets come singly and
@@ -135,6 +167,7 @@ def cases(draw: st.DrawFn) -> tuple[bool, str, str, str]:
 
 
 def label(active: bool, canonical: str, variant: str, kind: str) -> None:
+    event("example")
     event(f"flag {'active' if active else 'inactive'}, {kind} variant")
     if canonical in (title_for_date(date.today()), SEEDED_DAILY):
         event("daily title")
@@ -402,7 +435,7 @@ def _refuses(rig: Rig, base: Path, request: Request, spelling: str) -> None:
 
 @settings(max_examples=EXAMPLES, deadline=None)
 @given(cases(), st.data())
-def test_a_variant_reaches_the_titles_page_through_every_route(rig, case, data):
+def _routes_property(rig, case, data):
     active, canonical, variant, kind = case
     label(*case)
     base = rig.seeded(active, canonical)
@@ -436,6 +469,12 @@ def test_a_variant_reaches_the_titles_page_through_every_route(rig, case, data):
     assert got == want
     assert state(v_db) == state(t_db)
     shutil.rmtree(base.parent, ignore_errors=True)
+
+
+def test_a_variant_reaches_the_titles_page_through_every_route(rig):
+    SEEN.clear()
+    _routes_property(rig)
+    assert_reach(ROUTE_FLOORS)
 
 
 # --- the CLI ------------------------------------------------------------------
@@ -516,7 +555,7 @@ def test_every_cli_title_argument_is_covered():
 # decodes a path's escapes twice.
 @settings(max_examples=CLI_EXAMPLES, deadline=None)
 @given(cases().filter(lambda c: "%" not in c[1]), st.data())
-def test_a_variant_reaches_the_titles_page_through_every_cli_verb(rig, case, data):
+def _cli_property(rig, case, data):
     active, canonical, variant, kind = case
     label(*case)
     base = rig.seeded(active, canonical)
@@ -544,6 +583,11 @@ def test_a_variant_reaches_the_titles_page_through_every_cli_verb(rig, case, dat
         assert state(v_db) == state(t_db), key
     new_canonical = "Renamed " + canonical
     new_variant = data.draw(variant_of(new_canonical, kind, active))
+    # A fixed share of the examples under the flag name the new page by its
+    # padded spelling, which only the flag folds, so the batch's flag read
+    # is reached whatever the draw above gave.
+    if active and data.draw(st.integers(0, 3)) == 0:
+        new_variant = data.draw(variant_of(new_canonical, "padded", True))
     # One batch naming a page by two spellings, one page existing and one
     # not yet: the planner fetches each spelling on its own.
     if title_flag_needed([new_variant, new_canonical]):
@@ -559,3 +603,9 @@ def test_a_variant_reaches_the_titles_page_through_every_cli_verb(rig, case, dat
     assert got == want
     assert state(v_db) == state(t_db)
     shutil.rmtree(base.parent, ignore_errors=True)
+
+
+def test_a_variant_reaches_the_titles_page_through_every_cli_verb(rig):
+    SEEN.clear()
+    _cli_property(rig)
+    assert_reach(CLI_FLOORS)

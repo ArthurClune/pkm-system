@@ -26,6 +26,9 @@ slash commands adapt its token stream rather than scanning privately.
 `tokenize.ts` adds the grammar the scanner does not model: markdown links and
 images, bare-URL autolinking (including bare `/assets/<sha256>/`), emphasis,
 `{{query}}` and `{{pdf}}` macros, `$$` math, and line breaks.
+A hashtag, page ref or attribute whose title `isRefTitle` rejects (blank, or a
+`.`, `..` or empty `/` segment) renders as its source text and is no Ctrl-O
+target, the same verdict `extractRefs` gives, so a link is exactly a ref.
 Markdown links and images are scanned by `grammar/markdown.ts`. A link
 destination may contain spaces and nested parentheses, because uploads made
 before the server encoded the name wrote it raw into the URL. A new upload's

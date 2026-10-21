@@ -95,6 +95,13 @@ export function isBlankRefTitle(text: string): boolean {
   return stripLikePython(normalizeRefTitle(text)).length === 0;
 }
 
+/** Does a ref token's title name a page? False for a blank title and for
+ * one with no URL. The ref extractor and the inline renderer both ask this,
+ * so a token is a link exactly when it is a ref. */
+export function isRefTitle(text: string): boolean {
+  return !isBlankRefTitle(text) && !hasUnreachableSegment(text);
+}
+
 const TODO_RE = /^\{\{(\[\[)?(TODO|DONE)(\]\])?\}\}/;
 // No leading \s* in the pattern: it overlaps the lazy name class and is
 // quadratic to fail on an all-blank text (a block that is one big fence).

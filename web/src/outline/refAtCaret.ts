@@ -5,7 +5,7 @@
 // so refs inside code are opaque and never match.
 
 import type { NormalizedTitle } from "../api/brands";
-import { normalizeRefTitle, scanGrammar } from "../grammar/scan";
+import { isRefTitle, normalizeRefTitle, scanGrammar } from "../grammar/scan";
 
 /** Title of the [[...]] span containing `caret` (inclusive of the brackets
  * themselves but not a tag's leading #), or null if the caret isn't inside
@@ -13,7 +13,8 @@ import { normalizeRefTitle, scanGrammar } from "../grammar/scan";
 export function refTitleAtCaret(text: string, caret: number): NormalizedTitle | null {
   let best: { size: number; title: NormalizedTitle } | null = null;
   for (const t of scanGrammar(text).tokens) {
-    if (t.kind !== "page-ref") continue;
+    // a ref that names no page is no link, so Ctrl-O has nowhere to go
+    if (t.kind !== "page-ref" || !isRefTitle(t.title)) continue;
     const start = t.tag ? t.start + 1 : t.start; // caret on the # is outside
     // normalized so Ctrl-O navigates to the page the ref actually
     // resolves to, not to an unaddressable multi-line title

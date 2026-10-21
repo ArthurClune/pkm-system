@@ -16,6 +16,10 @@ parent: pkm-a1xk
 - [x] troubleshooting dot row: %2E
 - [x] page_keys folds blank spellings to Untitled
 
+## Ruling (Arthur, on review2 finding 3)
+
+Unreachable refs must not render as links: a hashtag, page ref or attribute whose title is blank or has a dot or empty segment renders as its literal source text, so the editor shows what the refs index stores.
+
 ## Summary of Changes
 
 - SPA fallback now uses the `wholepath` convertor; a cold `/page/Fo%0Ao` serves index.html.
@@ -23,3 +27,4 @@ parent: pkm-a1xk
 - `test_title_routes_props.py` tallies its labels and asserts floors (half the lowest rate over 60 seeds); the CLI property forces a flag-only batch fold in a fixed share of flag-on examples.
 - Stale `{title:path}` comments fixed; troubleshooting row says to spell `%2E`.
 - `page_keys` maps blank spellings to the Untitled key (`UNTITLED_PAGE_TITLE` moved to `contracts/titles.py`).
+- Finding 3 (ruled): `isRefTitle` in grammar/scan.ts is the one predicate for extractRefs, tokenizeBlock and Ctrl-O (refAtCaret); a dead ref token renders as source text. Tests: grammar/tokenize.props.test.ts (one per form plus a render-iff-extract property), refAtCaret.test.ts.

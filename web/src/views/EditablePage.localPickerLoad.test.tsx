@@ -1,17 +1,19 @@
 // The picker is a lazily loaded chunk: a failed load closes the open request
-// with a notice, the next request retries, and Escape cancels a pending open.
+// with a notice in the page's notice slot, the next request retries, and
+// Escape cancels a pending open.
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
-import type { OutlineHandlers } from "../outline/handlers";
+import { DndProvider } from "../dnd/DndContext";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { block, jsonResponse, orderIdxOf, uidOf } from "../test-helpers";
-import { EditableBlockTree } from "./EditableBlockTree";
+import { block, canonicalTitleOf, jsonResponse, makeSync, orderIdxOf } from "../test-helpers";
+import { SyncContext } from "../sync/SyncProvider";
+import { EditablePage } from "../views/EditablePage";
 
 const ctl = vi.hoisted(() => ({ fail: false }));
 
-vi.mock("./LocalFilePicker", async () => {
-  const real = await vi.importActual<typeof import("./LocalFilePicker")>("./LocalFilePicker");
+vi.mock("../components/LocalFilePicker", async () => {
+  const real = await vi.importActual<typeof import("../components/LocalFilePicker")>("../components/LocalFilePicker");
   return {
     get LocalFilePicker() {
       if (ctl.fail) throw new Error("Failed to fetch dynamically imported module");
@@ -29,12 +31,16 @@ const NOTICE = "Couldn't load the file picker; try again";
 
 function mount() {
   vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ files: [{ path: "a.pdf", href: "/l/a" }] })));
-  const h = new Proxy({}, { get: () => vi.fn() }) as OutlineHandlers;
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
-      <EditableBlockTree blocks={[block("tuid-l1", "hello", { order_idx: orderIdxOf(0) })]}
-                         focus={{ uid: uidOf("tuid-l1"), cursor: 0 }} handlers={h} readOnly={false} />
-    </MemoryRouter>);
+    <SyncContext.Provider value={makeSync()}>
+      <DndProvider>
+        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+          <EditablePage title={canonicalTitleOf("P")}
+                        initial={[block("tuid-l1", "hello", { order_idx: orderIdxOf(0) })]} />
+        </MemoryRouter>
+      </DndProvider>
+    </SyncContext.Provider>);
+  fireEvent.click(screen.getByText("hello"));
 }
 
 function runCommand() {
@@ -44,12 +50,16 @@ function runCommand() {
   fireEvent.keyDown(ta, { key: "Enter" });
 }
 
-it("a rejected chunk load closes the request and shows a notice", async () => {
+it("a rejected chunk load shows the notice in the page's top slot; Dismiss clears it", async () => {
   ctl.fail = true;
   mount();
   runCommand();
-  expect(await screen.findByRole("status")).toHaveTextContent(NOTICE);
+  const notice = await screen.findByRole("status");
+  expect(notice).toHaveTextContent(NOTICE);
+  expect(notice.parentElement!.firstElementChild).toBe(notice);
   expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+  expect(screen.queryByText(NOTICE)).toBeNull();
 });
 
 it("the next request after a failure retries the import and opens", async () => {
@@ -58,6 +68,7 @@ it("the next request after a failure retries the import and opens", async () => 
   runCommand();
   await screen.findByText(NOTICE);
   ctl.fail = false;
+  fireEvent.click(document.querySelector(".block-text")!);
   runCommand();
   expect(await screen.findByRole("dialog")).toBeInTheDocument();
   expect(screen.queryByText(NOTICE)).toBeNull();

@@ -70,12 +70,17 @@ interface TreeProps {
   /** Incoming ((uid)) reference counts. Payload-fresh, like
    * block_ref_texts: PageView and Journal pass it; sidebar panels stay bare. */
   refCounts?: Record<string, number>;
+  /** Where the /link-local-file picker reports a failed chunk load (and
+   * clears it on the next request); the page renders it in its notice slot,
+   * like the /goodlinks outcome. Pass a stable function. */
+  onPickerNotice?: (notice: string | null) => void;
 }
 
 export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                                     readOnly, fallback = false,
                                     stamps = false,
-                                    refCounts = undefined }: TreeProps) {
+                                    refCounts = undefined,
+                                    onPickerNotice }: TreeProps) {
   const treeRef = useRef<HTMLDivElement | null>(null);
   // One instant for the whole tree, so two rows a millisecond either side of
   // a band edge can't be tinted inconsistently within a single paint. Re-read
@@ -117,23 +122,22 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     uid: BlockUid; at: number;
   } | null>(null);
   const [Picker, setPicker] = useState<PickerComponent | null>(null);
-  const [localFileNotice, setLocalFileNotice] = useState<string | null>(null);
   // Bumped by every request and cancel, so a load that settles after the user
   // gave up neither opens the picker nor shows a notice.
   const localFileRequest = useRef(0);
   const requestLocalFile = useCallback((uid: BlockUid, at: number) => {
     const request = ++localFileRequest.current;
-    setLocalFileNotice(null);
+    onPickerNotice?.(null);
     setLocalFileTarget({ uid, at });
     loadPicker().then(
       (component) => setPicker(() => component),
       () => {
         if (request !== localFileRequest.current) return;
         setLocalFileTarget(null);
-        setLocalFileNotice(PICKER_LOAD_FAILED);
+        onPickerNotice?.(PICKER_LOAD_FAILED);
       },
     );
-  }, []);
+  }, [onPickerNotice]);
   // Stable, so the picker's dismissal hook does not re-run on tree renders.
   const closeLocalFile = useCallback(() => {
     localFileRequest.current++;
@@ -285,15 +289,6 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                accept={"image/*,application/pdf,text/plain,text/markdown,"
                  + "text/csv,application/json,.doc,.docx,.xls,.xlsx,.ppt,.pptx"}
                onChange={onPickUpload} />
-      )}
-      {!editingOff && localFileNotice && (
-        <p className="editor-notice" role="status">
-          {localFileNotice}
-          <button type="button" className="btn-secondary"
-                  onClick={() => setLocalFileNotice(null)}>
-            Dismiss
-          </button>
-        </p>
       )}
       {!editingOff && localFileTarget && Picker && (
         <Picker onPick={pickLocalFile} onClose={closeLocalFile} />

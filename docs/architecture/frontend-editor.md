@@ -344,7 +344,8 @@ follows `/upload`'s blur-first shape and hands off to
 `LocalFilePicker` (a cached `import()` chunk, so fzf stays out of the entry)
 from `EditableBlockTree` and splices the pick synchronously
 through `useOutline.onLinkLocalFile`. A failed chunk load closes the request
-with an `editor-notice`, and Escape cancels an open that is still loading.
+with an `editor-notice` in `EditablePage`'s notice slot (reported through
+the tree's `onPickerNotice` prop), and Escape cancels an open that is still loading.
 
 ### The bullet and the block menu
 

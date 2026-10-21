@@ -55,6 +55,9 @@ _MEDIA_TYPES: dict[str, str] = {
     ".webarchive": _OCTET_STREAM,
 }
 
+# C0, DEL and C1: no file name the routes serve contains one.
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
 # `[text](/api/local/...)` targets and bare `/api/local/...` tokens. The
 # link target stops at the closing paren; a bare token at whitespace or
 # a closing bracket/paren. Stopping at `)` is only safe because
@@ -62,8 +65,6 @@ _MEDIA_TYPES: dict[str, str] = {
 # that `safe=` set is ever widened to let parentheses through raw, this
 # regex must be widened to match, or a hand-authored parenthesis in a
 # filename will truncate the extracted href.
-_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
-
 _HREF_RE = re.compile(r"\]\((/api/local/[^)\s]+)\)|(?<![\w(])(/api/local/[^\s)\]]+)")
 
 

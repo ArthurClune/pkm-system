@@ -46,7 +46,6 @@ from pkm.server.local_index import default_scanner
 from pkm.server.local_open import default_prober
 
 
-
 class _WholePathConvertor(Convertor[str]):
     """Starlette's `path` convertor matches `.*` under a trailing `$`,
     which stops before a final newline: `/api/local/a%0A` would reach the

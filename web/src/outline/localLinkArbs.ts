@@ -1,7 +1,7 @@
 // pattern: Functional Core
 // Generators for the local-docs and GoodLinks link property tests: file
 // names as the iCloud folder really has them (decomposed, punctuation-heavy,
-// emoji, control characters) and the hrefs the server builds for them.
+// emoji) and the hrefs the server builds for them.
 import fc from "fast-check";
 
 // Python's urllib.parse.quote(path, safe="/"): everything but letters,

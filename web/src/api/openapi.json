@@ -259,6 +259,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
               "default": 0,
               "title": "Bl Offset"
             }
@@ -269,6 +271,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
               "default": 20,
               "title": "Bl Limit"
             }
@@ -489,6 +493,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
               "default": 20,
               "title": "Limit"
             }
@@ -499,6 +505,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
               "default": 0,
               "title": "Offset"
             }
@@ -540,7 +548,9 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer"
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": -9223372036854775808
                 },
                 {
                   "type": "null"
@@ -602,6 +612,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
               "default": 7,
               "title": "Days"
             }
@@ -671,6 +683,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
               "default": 20,
               "title": "Limit"
             }
@@ -781,6 +795,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
               "default": 10,
               "title": "Limit"
             }
@@ -910,6 +926,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
               "default": 500,
               "title": "Limit"
             }
@@ -1040,6 +1058,8 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
               "x-brand": "SidebarEntryId",
               "title": "Entry Id"
             }
@@ -1120,6 +1140,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
               "x-brand": "SyncSeq",
               "default": 0,
               "title": "Since"
@@ -1131,6 +1153,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
               "default": 1000,
               "title": "Limit"
             }
@@ -1255,6 +1279,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
               "default": 50,
               "title": "Limit"
             }
@@ -1265,6 +1291,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
               "default": 0,
               "title": "Offset"
             }
@@ -1300,7 +1328,9 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer"
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": -9223372036854775808
                 },
                 {
                   "type": "null"
@@ -1316,7 +1346,9 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer"
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": -9223372036854775808
                 },
                 {
                   "type": "null"

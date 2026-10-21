@@ -38,7 +38,10 @@ the server, which holds the bearer token and forwards requests via
 on the host for any of this to work. When it is not running,
 `GoodlinksGateway` raises `GoodlinksUnavailable` and every route answers 503.
 A 2xx answer that is not a usable link gets the same 503: a body that is not
-a JSON object, or a link without a string `id` or `url`. A 401 or 403 from
+a JSON object (JSON nested past what `json.loads` can read included), or a
+link without a string `id` or `url`. Every str the gateway decodes is
+made well-formed, since a `\udXXX` escape would decode to a lone surrogate
+that the route's own JSON cannot encode. A 401 or 403 from
 GoodLinks on any request, a wrong or revoked token, raises
 `GoodlinksUnauthorized` instead, which every route answers with a 503 of its
 own detail, "Goodlinks rejected the API token". Both 503 causes are logged

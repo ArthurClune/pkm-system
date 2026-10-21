@@ -77,3 +77,15 @@ def test_close_closes_injected_http_client():
         return http.is_closed
 
     assert asyncio.run(run()) is True
+
+
+def test_describe_a_body_nested_past_the_recursion_limit_is_an_error():
+    deep = b"[" * 100_000 + b"]" * 100_000
+    with pytest.raises(DescribeError):
+        _describe(lambda request: httpx2.Response(200, content=deep))
+
+
+def test_describe_a_lone_surrogate_comes_back_well_formed():
+    body = json.dumps({"choices": [{"message": {"content": " a\ud800b "}}]})
+    assert _describe(lambda request: httpx2.Response(
+        200, content=body.encode())) == "a�b"

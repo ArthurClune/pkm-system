@@ -36,6 +36,8 @@ class OpenAIDescriber:
             return parse_description(r.json())
         except ValueError as e:
             raise DescribeError(f"bad response: {e}")
+        except RecursionError:
+            raise DescribeError("bad response: nested too deeply")
 
     async def close(self) -> None:
         await self._http.aclose()

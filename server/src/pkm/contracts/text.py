@@ -19,6 +19,7 @@ from re import Match
 
 from pydantic import model_validator
 
+from pkm.contracts.int64 import INT64_MAX, INT64_MIN
 from pkm.contracts.strict import StrictModel
 
 _ANY_SURROGATE = re.compile("[\ud800-\udfff]")
@@ -44,12 +45,67 @@ def well_formed(text: str) -> str:
     return _SURROGATE_RUN.sub(_replace, text)
 
 
+type _Container = dict[object, object] | list[object]
+
+
+def well_formed_tree(value: object) -> object:
+    """`value` with `well_formed` applied to every str in it, at any depth:
+    a dict's keys and values and a list's items, each container copied.
+    Anything else is returned as it is. The walk keeps its own stack
+    rather than recursing, so a JSON body nested deeper than Python's
+    recursion limit (json.loads accepts one) is walked whole."""
+    stack: list[tuple[object, _Container]] = []
+    root = _copied(value, stack)
+    while stack:
+        source, target = stack.pop()
+        if isinstance(source, dict) and isinstance(target, dict):
+            for key, item in source.items():
+                fixed = well_formed(key) if isinstance(key, str) else key
+                target[fixed] = _copied(item, stack)
+        elif isinstance(source, list) and isinstance(target, list):
+            for index, item in enumerate(source):
+                target[index] = _copied(item, stack)
+    return root
+
+
+def _copied(value: object, stack: list[tuple[object, _Container]]) -> object:
+    """A str made well-formed; an empty copy of a container, queued on
+    `stack` to be filled; anything else as it is."""
+    if isinstance(value, str):
+        return well_formed(value)
+    copy: _Container
+    if isinstance(value, dict):
+        copy = {}
+    elif isinstance(value, list):
+        copy = [None] * len(value)
+    else:
+        return value
+    stack.append((value, copy))
+    return copy
+
+
+def _refuse_wide_ints(value: object) -> None:
+    """ValueError for an int, at any depth of `value`, that SQLite cannot
+    store: Python's sqlite3 raises OverflowError binding one."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+        elif isinstance(item, int) and not INT64_MIN <= item <= INT64_MAX:
+            raise ValueError(f"{item} is outside the 64-bit integer range")
+
+
 class WellFormedModel(StrictModel):
-    """A contract model whose every str field is well-formed once
-    validated, whatever the client sent: the base of the op models, so a
-    field added later is covered without anyone remembering to. Only the
-    model's own top-level values are visited; a field holding a list of
-    models is covered by each model's own validation.
+    """A contract model whose every str is well-formed once validated,
+    whatever the client sent: the base of the op models and of every
+    request body model, so a field added later is covered without anyone
+    remembering to. The whole input is walked, nested dicts and lists
+    included, so a free-form field (a `dict[str, Any]` report, a list of
+    titles) is covered as well as the model's own str fields. An int past
+    64 bits is refused (a 422): there is no well-formed spelling of it.
 
     It runs on the raw input, before pydantic's field validation: a field
     with a length constraint hands its str to pydantic-core as UTF-8,
@@ -63,5 +119,5 @@ class WellFormedModel(StrictModel):
     def _well_formed_strings(cls, data: object) -> object:
         if not isinstance(data, dict):
             return data
-        return {key: well_formed(value) if isinstance(value, str) else value
-                for key, value in data.items()}
+        _refuse_wide_ints(data)
+        return well_formed_tree(data)

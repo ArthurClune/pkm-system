@@ -18,7 +18,7 @@ from hypothesis import strategies as st
 from pkm.client.workflows import apply_batch
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BlockUid, OpBatch, subtree_hash, text_hash
-from pkm.contracts.text import well_formed
+from pkm.contracts.text import well_formed, well_formed_tree
 from pkm.test_data.ids import batch_id_of, uid_of
 
 LONE_HIGH = "\ud800"
@@ -228,3 +228,24 @@ def test_well_formed_is_total_and_idempotent(text):
         assert "\ufffd" in fixed or len(fixed) < len(text)
     assert text_hash(text) == text_hash(fixed)
     assert subtree_hash([("u1", text)]) == subtree_hash([("u1", fixed)])
+
+
+def test_well_formed_tree_reaches_nested_keys_values_and_items():
+    tree = {f"k{LONE_HIGH}": [f"v{LONE_LOW}", {"n": [LONE_HIGH, 1, None]}],
+            "plain": 2.5}
+    assert well_formed_tree(tree) == {
+        "k�": ["v�", {"n": ["�", 1, None]}], "plain": 2.5}
+    assert well_formed_tree(LONE_LOW) == "�"
+    assert well_formed_tree(7) == 7
+
+
+def test_well_formed_tree_walks_past_the_recursion_limit():
+    depth = 100_000
+    tree: list[object] = [LONE_HIGH]
+    for _ in range(depth - 1):
+        tree = [tree]
+    fixed = well_formed_tree(tree)
+    for _ in range(depth):
+        assert isinstance(fixed, list)
+        (fixed,) = fixed
+    assert fixed == "\ufffd"

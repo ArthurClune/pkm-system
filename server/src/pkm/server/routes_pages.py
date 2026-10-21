@@ -10,7 +10,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field
-from pkm.contracts.strict import StrictModel
+from pkm.contracts.text import WellFormedModel
 
 from pkm.contracts.daily import date_for_title
 from pkm.contracts.ops import BlockUid, PageId
@@ -20,6 +20,7 @@ from pkm.contracts.responses import (
     CurrentWorkPage, CurrentWorkSection, DeleteBlockerModel, DeletePreview,
     GroupsPayload, JournalCleanupResponse, JournalDay, JournalPayload, OkAck, PageMeta, PagePayload, RenamePageResponse)
 from pkm.contracts.titles import RawTitle
+from pkm.contracts.int64 import Int64
 from pkm.database import Db
 from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
                       parse_block_uid, title_syntax_reason)
@@ -47,11 +48,11 @@ _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
                " created_at, updated_at, view_type")
 
 
-class CreatePageRequest(StrictModel):
+class CreatePageRequest(WellFormedModel):
     title: RawTitle = Field(min_length=1)
 
 
-class RenamePageRequest(StrictModel):
+class RenamePageRequest(WellFormedModel):
     new_title: RawTitle = Field(min_length=1)
     allow_merge: bool = False
 
@@ -238,7 +239,7 @@ def get_block(uid: BlockUid, db: Db = Depends(get_db)) -> BlockPayload:
 
 
 @router.get("/api/page/{title:wholepath}", response_model=PagePayload)
-def get_page(request: Request, title: RawTitle, bl_offset: int = 0, bl_limit: int = 20,
+def get_page(request: Request, title: RawTitle, bl_offset: Int64 = 0, bl_limit: Int64 = 20,
              db: Db = Depends(get_db)) -> PagePayload:
     bl_limit = max(1, min(bl_limit, 100))
     canonical_title = read_title(db, title)
@@ -421,7 +422,7 @@ def rename_page(request: Request, title: RawTitle, body: RenamePageRequest,
 
 
 @router.get("/api/unlinked", response_model=GroupsPayload)
-def get_unlinked(title: RawTitle, limit: int = 20, offset: int = 0,
+def get_unlinked(title: RawTitle, limit: Int64 = 20, offset: Int64 = 0,
                  db: Db = Depends(get_db)) -> GroupsPayload:
     limit = max(1, min(limit, 100))
     canonical_title = read_title(db, title)
@@ -454,7 +455,7 @@ _CURRENT_WORK_SECTIONS = [
 
 
 @router.get("/api/current-work", response_model=CurrentWorkPayload)
-def get_current_work(now_ms: int | None = None,
+def get_current_work(now_ms: Int64 | None = None,
                      db: Db = Depends(get_db)) -> CurrentWorkPayload:
     now = now_ms if now_ms is not None else int(time.time() * 1000)
     sections: list[CurrentWorkSection] = []
@@ -508,7 +509,7 @@ JOURNAL_BACKLINK_PREVIEW = 5
 
 
 @router.get("/api/journal", response_model=JournalPayload)
-def get_journal(request: Request, before: str | None = None, days: int = 7,
+def get_journal(request: Request, before: str | None = None, days: Int64 = 7,
                 db: Db = Depends(get_db)) -> JournalPayload:
     """Newest-first batch of non-empty daily pages. The head
     batch (no `before`) starts with today — auto-created so there is a

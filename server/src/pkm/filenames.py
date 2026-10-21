@@ -10,6 +10,7 @@ that a browser's file picker never would.
 from __future__ import annotations
 
 import re
+from urllib.parse import quote
 
 _UNSAFE_RE = re.compile(r"[/\\:\x00-\x1f]")
 
@@ -68,3 +69,19 @@ def safe_filename(name: str, max_bytes: int = MAX_FILENAME_BYTES) -> str:
     stem_limit = max(max_bytes - len(ext.encode("utf-8")), len(DEFAULT_STEM))
     stem = truncate_utf8(stem, stem_limit).strip(" .") or DEFAULT_STEM
     return f"{stem}{ext}"
+
+
+# Printable ASCII but for the quote and backslash a quoted-string escapes.
+_NOT_PLAIN_RE = re.compile(r'[^ !#-\[\]-~]')
+
+
+def attachment_disposition(filename: str) -> str:
+    """A Content-Disposition naming `filename` for a download. A header
+    is latin-1 on the wire, so a name with anything but plain printable
+    ASCII goes in RFC 6266's UTF-8 `filename*`, with an ASCII stand-in as
+    `filename` for clients that read only that."""
+    fallback = _NOT_PLAIN_RE.sub("_", filename)
+    if fallback == filename:
+        return f'attachment; filename="{filename}"'
+    return (f'attachment; filename="{fallback}"; '
+            f"filename*=UTF-8''{quote(filename, safe='')}")

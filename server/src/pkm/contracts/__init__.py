@@ -13,4 +13,5 @@ client-side code compiled against server internals.
 * `responses` -- the read contract: the JSON shapes the API returns.
 * `daily` -- the daily-note title convention both sides address pages by.
 * `text` -- well-formed text: lone surrogates become U+FFFD at the boundary.
+* `int64` -- the 64-bit bound every int path or query parameter carries.
 """

@@ -273,3 +273,25 @@ def test_block_heading_that_is_not_an_integer_parses_as_no_heading(bad):
     raw = EXPORT.replace(":block/heading 2", f":block/heading {bad}")
     export = parse_export(parse_edn(raw))
     assert export.pages[0].children[0].heading is None
+
+
+@pytest.mark.parametrize("bad", ["4", "-1", "144975"])
+def test_block_heading_outside_one_to_three_parses_as_no_heading(bad):
+    """Only levels 1-3 exist (HeadingLevel); any other integer read as a
+    level would reach the blocks table as a heading no read can serve."""
+    raw = EXPORT.replace(":block/heading 2", f":block/heading {bad}")
+    export = parse_export(parse_edn(raw))
+    assert export.pages[0].children[0].heading is None
+
+
+@pytest.mark.parametrize("bad", ['"1600000000000"', "1.6e12", "true",
+                                 ":now", "9223372036854775808"])
+def test_a_time_that_is_not_a_64_bit_integer_parses_as_absent(bad):
+    """A time is stored in an INTEGER column and served as an int; one
+    that is not an int SQLite can hold reads as no time."""
+    raw = (EXPORT.replace("[1 :create/time 1600000000000",
+                          f"[1 :create/time {bad}")
+           .replace("[4 :edit/time 1600000002000", f"[4 :edit/time {bad}"))
+    page = parse_export(parse_edn(raw)).pages[0]
+    assert page.created_at is None
+    assert page.children[0].children[0].edited_at is None

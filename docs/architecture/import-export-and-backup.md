@@ -73,8 +73,7 @@ temp directory and serves it zipped.
 `GET /api/export/page/{title}` (`routes_export.py` + `export/resolve.py`) is
 the end-user download. It renders differently from the backup path: dynamic
 content resolves to plain text, so the download reads like what a reader of the
-live page would see. A filename outside plain ASCII goes in the header's
-RFC 5987 `filename*` form, since a header value must encode as latin-1.
+live page would see.
 
 - `((refs))` resolve recursively, not one level, and are inlined as plain text
   rather than wrapped in parens.
@@ -144,7 +143,9 @@ Stage notes:
   A blocker refuses the run and leaves the published database untouched.
 - **Timestamps.** `parse_export.py` copies each block's `:create/time` and
   `:edit/time`, and uids and sibling ordering survive the import, so every
-  existing `((block ref))` and daily-note link keeps resolving.
+  existing `((block ref))` and daily-note link keeps resolving. A time that is
+  not a 64-bit int, or a heading other than 1-3, reads as absent: the reads
+  serve only what the schema's types admit.
 - **Mermaid flattening.** Flattening a component's descendants into one fenced
   block drops their rows, so `mermaid_preservation.py` keeps any component with
   an inbound `((uid))` into its subtree — and every candidate ancestor

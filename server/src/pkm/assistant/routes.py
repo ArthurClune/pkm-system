@@ -20,7 +20,7 @@ from pkm.assistant.service import (
 )
 from pkm.contracts.responses import (AssistantAck, AssistantConversation, AssistantModels,
                                      ConfirmId, ConversationId)
-from pkm.contracts.strict import StrictModel
+from pkm.contracts.text import WellFormedModel
 from pkm.server.auth import require_auth
 
 logger = logging.getLogger("pkm.assistant")
@@ -177,15 +177,15 @@ async def _sse_frames(
             yield encode_sse(ErrorEvent(message=str(exc)))
 
 
-class CreateConversationRequest(StrictModel):
+class CreateConversationRequest(WellFormedModel):
     model: str | None = None
 
 
-class SendMessageRequest(StrictModel):
+class SendMessageRequest(WellFormedModel):
     text: str
 
 
-class ConfirmRequestBody(StrictModel):
+class ConfirmRequestBody(WellFormedModel):
     confirm_id: ConfirmId
     allow: bool
 

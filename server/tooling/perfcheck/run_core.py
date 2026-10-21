@@ -113,9 +113,13 @@ def is_test_runner(command: str) -> bool:
 
 
 def _short_command(command: str) -> str:
-    exe, _, args = command.partition(" ")
-    short = f"{exe.rsplit('/', 1)[-1]} {args}".rstrip()
-    return short[:_COMMAND_WIDTH]
+    """`command` with each absolute path cut to its basename, so a long
+    checkout path does not hide the script a `node` or `python` runs."""
+    short = " ".join(w.rsplit("/", 1)[-1] if w.startswith("/") else w
+                     for w in command.split(" "))
+    if len(short) <= _COMMAND_WIDTH:
+        return short
+    return short[:_COMMAND_WIDTH - 1] + "…"
 
 
 def busy_report(procs: Iterable[Proc], cwds: Mapping[int, str | None],
@@ -124,7 +128,7 @@ def busy_report(procs: Iterable[Proc], cwds: Mapping[int, str | None],
     test runners whose cwd (from `cwds`) is under `checkout` flagged: a stale
     run of your own otherwise reads, from the load alone, as someone else's.
     Only an orphan (parent gone) is surely stale; a runner with a live parent
-    may be another session's suite in a sibling worktree."""
+    may be another session's suite."""
     lines = ["top CPU processes:"]
     kinds = set()
     for p in procs:
@@ -140,8 +144,8 @@ def busy_report(procs: Iterable[Proc], cwds: Mapping[int, str | None],
         lines.append("an orphaned runner's parent is gone, so it is a stale run (an "
                      "abandoned or killed suite): stop it by pid and run the check again")
     if "test runner" in kinds:
-        lines.append("a runner with a live parent may be another session's suite in a "
-                     "sibling worktree, or a hung run of yours: check which before stopping it")
+        lines.append("a runner with a live parent may be another session's suite, or a "
+                     "hung run of yours: check which before stopping it")
     return lines
 
 

@@ -524,11 +524,14 @@ def test_busy_report_without_own_runners_has_no_advice():
     assert not any("this checkout" in line for line in lines)
 
 
-def test_busy_report_shortens_the_executable_and_truncates_long_commands():
-    procs = [run_core.Proc(1, 0, 50.0, "/a/very/long/path/bin/node " + "x" * 500)]
-    line = run_core.busy_report(procs, {}, "/repo")[1]
-    assert line.startswith("   50.0%  pid 1  node xxx")
-    assert len(line) < 140
+def test_busy_report_shortens_paths_and_marks_truncation():
+    procs = [run_core.Proc(1, 0, 50.0, "/a/b/bin/node /w/web/node_modules/.bin/../eslint/bin/eslint.js src"),
+             run_core.Proc(2, 0, 40.0, "/a/very/long/path/bin/node " + "x" * 500)]
+    lines = run_core.busy_report(procs, {}, "/repo")
+    assert lines[1] == "   50.0%  pid 1  node eslint.js src"
+    assert lines[2].startswith("   40.0%  pid 2  node xxx")
+    assert lines[2].endswith("x…")
+    assert len(lines[2]) < 140
 
 
 def test_busy_report_advises_only_on_the_kinds_of_runner_present():

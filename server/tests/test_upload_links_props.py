@@ -35,7 +35,10 @@ name_pieces = st.lists(st.sampled_from(PIECES) | st.text(max_size=3), min_size=1
 
 @st.composite
 def new_names(draw):
-    name = "".join(draw(name_pieces))
+    # A leading `[` is drawn on purpose: left to the pieces it is rare
+    # enough that the reach floor below missed it on some seeds.
+    lead = draw(st.sampled_from(["", "", "", "["]))
+    name = lead + "".join(draw(name_pieces))
     name = ILLEGAL.sub("_", name).rstrip(". ").lstrip(".")
     return name or "a"
 
